@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>NEXUS</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%23121214' stroke='%23c9a87c' stroke-width='2'/><circle cx='16' cy='16' r='4' fill='%23c9a87c'/></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/nexus.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<!-- NAVIGATION -->
+<nav class="nav" role="navigation" aria-label="Main navigation">
+  <div class="nav-brand">
+    <div class="nav-dot" aria-hidden="true"></div>
+    <span class="nav-label">NEXUS</span>
+  </div>
+  <div class="nav-tabs" id="navTabs">
+    <button class="nav-tab active" data-view="brain" aria-label="Brain & AI">Brain</button>
+    <button class="nav-tab" data-view="clean" aria-label="Cleaning checklists">Cleaning</button>
+    <button class="nav-tab" data-view="log" aria-label="Daily log">Log</button>
+    <button class="nav-tab" data-view="board" aria-label="Task board">Board</button>
+    <button class="nav-tab" data-view="ingest" id="ingestTab" style="display:none;color:var(--accent)" aria-label="Ingest">⚡Ingest</button>
+  </div>
+  <button class="nav-admin" id="adminBtn" aria-label="Admin settings">⚙</button>
+</nav>
+
+<!-- MAIN CONTAINER -->
+<main class="main" id="mainContainer">
+
+  <!-- ═══ BRAIN + AI + CONTRACTOR EVENTS (unified screen) ═══ -->
+  <div class="view active" id="brainView" data-view="brain">
+    <canvas id="brainCanvas" aria-label="Knowledge graph"></canvas>
+    <div class="brain-dim" id="brainDim"></div>
+    <div class="brain-overlay">
+      <div class="brain-top-bar">
+        <div class="brain-search">
+          <input id="brainSearch" placeholder="Search nodes..." aria-label="Search nodes">
+          <button class="list-toggle" id="listToggle" aria-label="Toggle list view">☰</button>
+        </div>
+        <button class="events-toggle" id="eventsToggle" aria-label="Contractor schedule">📅</button>
+      </div>
+      <div class="search-results" id="searchResults"></div>
+      <div class="list-view" id="listView"></div>
+
+      <!-- CONTRACTOR EVENTS PANEL (slides in from right) -->
+      <div class="events-panel" id="eventsPanel">
+        <div class="events-header">
+          <span class="events-title">CONTRACTOR SCHEDULE</span>
+          <button class="events-close" id="eventsClose" aria-label="Close">✕</button>
+        </div>
+        <div class="events-add-bar">
+          <input id="eventContractor" placeholder="Contractor name..." class="events-field" list="contractorSuggest" aria-label="Contractor name">
+          <datalist id="contractorSuggest"></datalist>
+          <input id="eventDesc" placeholder="Service / reason..." class="events-field" aria-label="Description">
+          <div class="events-row">
+            <input id="eventDate" type="date" class="events-field" aria-label="Date">
+            <input id="eventTime" type="time" class="events-field" aria-label="Time">
+          </div>
+          <div class="events-row">
+            <select id="eventLocation" class="events-field" aria-label="Location">
+              <option value="suerte">Suerte</option>
+              <option value="este">Este</option>
+              <option value="toti">Toti</option>
+            </select>
+            <button id="eventAddBtn" class="events-add-btn">+ Schedule</button>
+          </div>
+        </div>
+        <div class="events-list" id="eventsList"></div>
+      </div>
+
+      <div class="brain-welcome" id="brainWelcome">
+        <h2>Hey — I'm NEXUS.</h2>
+        <p>I know every manual, email, and sticky note. Try me.</p>
+      </div>
+      <div class="brain-examples" id="brainExamples">
+        <button class="brain-ex">When was the last ice machine service?</button>
+        <button class="brain-ex">What's the oven troubleshoot sequence?</button>
+        <button class="brain-ex">Who handles our speakers?</button>
+        <button class="brain-ex">Espresso machine status?</button>
+        <button class="brain-ex">Show me all contractors</button>
+        <button class="brain-ex">¿Cuál es el protocolo de limpieza?</button>
+      </div>
+      <div class="brain-chat" id="chatMessages"></div>
+      <div class="brain-input">
+        <button class="btn-reset" id="resetBtn" aria-label="New conversation" title="New conversation" style="display:none">✕</button>
+        <button class="btn-mic" id="micBtn" aria-label="Voice input">🎙</button>
+        <input id="chatInput" placeholder="Ask me anything..." aria-label="Ask NEXUS">
+        <button class="btn-voice" id="voiceBtn" aria-label="Read aloud toggle">🔊</button>
+        <button class="btn-send" id="chatSend" disabled aria-label="Send">→</button>
+      </div>
+    </div>
+    <div class="node-panel" id="nodePanel">
+      <button onclick="NX.brain.closePanel()" style="position:absolute;top:10px;right:10px;background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer" aria-label="Close">✕</button>
+      <div id="npCat" style="font-size:8px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:6px"></div>
+      <h3 id="npName" style="font-size:16px;font-weight:500;margin-bottom:6px"></h3>
+      <div id="npTags" style="font-size:9px;color:var(--faint);margin-bottom:12px"></div>
+      <div id="npNotes" style="font-size:11px;line-height:1.7;color:var(--muted);margin-bottom:14px"></div>
+      <div id="npLinks" style="font-size:10px"></div>
+    </div>
+  </div>
+
+  <!-- CLEANING (lazy) -->
+  <div class="view" id="cleanView" data-view="clean">
+    <div class="clean-header">
+      <button class="clean-tab active" data-cloc="suerte">Suerte</button>
+      <button class="clean-tab" data-cloc="este">Este</button>
+      <button class="clean-tab" data-cloc="toti">Toti</button>
+      <span class="clean-date" id="cleanDate"></span>
+    </div>
+    <div class="clean-progress">
+      <div class="clean-track"><div class="clean-fill" id="cleanFill"></div></div>
+      <span class="clean-pct" id="cleanPct">0%</span>
+    </div>
+    <div class="clean-list" id="cleanList"></div>
+    <div class="clean-footer">
+      <button class="clean-submit" id="cleanSubmit">📋 Submit Daily Report</button>
+    </div>
+  </div>
+
+  <!-- LOG (lazy) -->
+  <div class="view" id="logView" data-view="log">
+    <div class="log-input-bar">
+      <input class="log-input" id="logInput" placeholder="Log a repair, observation, or note..." aria-label="Log entry">
+      <button class="log-add" id="logAdd" aria-label="Add entry">+</button>
+    </div>
+    <div class="log-list" id="logList"></div>
+  </div>
+
+  <!-- BOARD (lazy) -->
+  <div class="view" id="boardView" data-view="board">
+    <div class="board" id="boardContainer"></div>
+  </div>
+
+  <!-- INGEST (admin only, lazy) -->
+  <div class="view" id="ingestView" data-view="ingest">
+    <div class="ingest-wrap">
+      <h2 style="font-size:12px;letter-spacing:2px;color:var(--faint);margin-bottom:14px">KNOWLEDGE INGESTION</h2>
+
+      <!-- EMAIL SYNC -->
+      <div class="ingest-section">
+        <div class="ingest-section-title">📧 EMAIL SYNC</div>
+        <p class="ingest-desc">Connect Gmail to pull emails into the brain. Every contact, vendor, contractor, and piece of equipment mentioned becomes a node.</p>
+        <div id="gmailStatus" class="ingest-connection">
+          <span id="gmailStatusText">Not connected</span>
+        </div>
+        <button id="gmailConnectBtn" class="ingest-btn ingest-btn-gmail">Connect Gmail</button>
+        <div id="gmailSyncControls" style="display:none">
+          <div class="ingest-row">
+            <label class="ingest-label">Pull last</label>
+            <select id="gmailDays" class="ingest-select">
+              <option value="7">7 days</option>
+              <option value="30" selected>30 days</option>
+              <option value="90">90 days</option>
+              <option value="180">6 months</option>
+              <option value="365">1 year</option>
+              <option value="all">All emails</option>
+            </select>
+          </div>
+          <div class="ingest-row">
+            <label class="ingest-label">Filter</label>
+            <input id="gmailFilter" class="ingest-filter" placeholder="Optional: from:tyler OR subject:invoice" aria-label="Gmail search filter">
+          </div>
+          <button id="gmailSyncBtn" class="ingest-btn ingest-btn-sync">⚡ Sync Emails → Brain</button>
+          <div class="ingest-progress" id="gmailProgress" style="display:none">
+            <div class="ingest-progress-bar"><div class="ingest-progress-fill" id="gmailProgressFill"></div></div>
+            <span class="ingest-progress-text" id="gmailProgressText">0 / 0 emails</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- PASTE / TEXT INGEST -->
+      <div class="ingest-section">
+        <div class="ingest-section-title">📝 PASTE TEXT</div>
+        <textarea id="ingestText" placeholder="Paste email, notes, transcript, invoice..." class="ingest-textarea" aria-label="Text to ingest"></textarea>
+        <button id="ingestTextBtn" class="ingest-btn">⚡ Process</button>
+      </div>
+
+      <!-- TRELLO -->
+      <div class="ingest-section">
+        <div class="ingest-section-title">📋 TRELLO IMPORT</div>
+        <button id="trelloBtn" class="ingest-btn ingest-btn-trello">🔄 Smart Trello Import</button>
+      </div>
+
+      <div id="ingestStatus" class="ingest-status"></div>
+
+      <!-- NODE STATS -->
+      <div class="ingest-stats" id="ingestStats"></div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ADMIN MODAL -->
+<div class="admin-overlay" id="adminModal">
+  <div class="admin-box">
+    <h2 style="font-size:11px;letter-spacing:2px;color:var(--muted);margin-bottom:14px">ADMIN</h2>
+    <input type="password" id="adminPass" placeholder="Password" class="admin-field" aria-label="Admin password">
+    <div id="adminKeySection" style="display:none">
+      <div style="font-size:9px;letter-spacing:1px;color:var(--faint);margin:12px 0 6px;text-transform:uppercase">API Keys</div>
+      <input type="password" id="adminApiKey" placeholder="Anthropic API Key" class="admin-field" aria-label="Anthropic API key">
+      <input type="password" id="adminElevenKey" placeholder="ElevenLabs API Key (for voice)" class="admin-field" aria-label="ElevenLabs API key">
+      <div style="font-size:9px;letter-spacing:1px;color:var(--faint);margin:10px 0 6px;text-transform:uppercase">Integrations</div>
+      <input type="password" id="adminGoogleClientId" placeholder="Google OAuth Client ID (for Gmail)" class="admin-field" aria-label="Google Client ID">
+      <input type="password" id="adminTrelloKey" placeholder="Trello API Key" class="admin-field" aria-label="Trello API key">
+      <input type="password" id="adminTrelloToken" placeholder="Trello Token" class="admin-field" aria-label="Trello token">
+      <button id="adminSaveKeys" class="admin-save-btn">Save Keys</button>
+      <div id="adminKeyStatus" style="font-size:9px;color:var(--green);margin-top:6px"></div>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:10px">
+      <button id="adminEnter" style="flex:1;padding:8px;border-radius:6px;border:none;background:var(--accent);color:var(--bg);font-size:11px;font-weight:500">Enter</button>
+      <button id="adminCancel" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--muted);font-size:11px">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ORCHESTRATOR -->
+<script src="js/app.js"></script>
+</body>
+</html>
