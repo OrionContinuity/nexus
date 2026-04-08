@@ -274,8 +274,29 @@ const TRELLO_KEY='58b11ca040f84d8d2161ec09d8eee293';
 const TRELLO_TOKEN='ATTAe10c6dc43d33e8a92cfd90cd402b5c057f78aaccfa6af24ccac846306d379f05991808BA';
 
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-let isAdmin=false, nodes=[], activeNode=null, searchHits=new Set();
+let isAdmin=false, activeNode=null, searchHits=new Set();
 let cleanLoc='suerte', cleanState={};
+
+// Seed nodes — always available even if Supabase fails
+let nodes=[
+  {id:1,name:'Suerte',category:'location',tags:['restaurant','austin','kitchen','bar','patio'],notes:'Primary location. Full kitchen, bar, patio.',links:[4,5,8]},
+  {id:2,name:'Este',category:'location',tags:['restaurant','austin','irrigation'],notes:'Restaurant location. Irrigation zone diagram Project No. 19-320.',links:[8,12]},
+  {id:3,name:'Toti',category:'location',tags:['restaurant','austin'],notes:'Third restaurant location.',links:[8]},
+  {id:4,name:'Hoshizaki Ice Machine',category:'equipment',tags:['ice','hoshizaki','auger','commercial'],notes:'Auger type commercial ice machine. Common failure: harvest assist spring. Check evaporator coil freeze pattern.',links:[1,6]},
+  {id:5,name:'Oven Repair Protocol',category:'procedure',tags:['oven','repair','troubleshoot','kitchen'],notes:'Diagnostic flow: 1) Igniter 2) Gas valve 3) Thermostat 4) Control board.',links:[1]},
+  {id:6,name:'Ice Machine Troubleshoot',category:'procedure',tags:['ice','troubleshoot','hoshizaki','auger'],notes:'No ice: Water supply → inlet valve → evap temp → auger motor → harvest assist spring.',links:[4]},
+  {id:7,name:'Z260 Zero-Turn',category:'equipment',tags:['mower','zero-turn','z260','kawasaki'],notes:'Kawasaki FS730V engine. Needs full service. OEM parts preferred.',links:[9]},
+  {id:8,name:'Cleaning Checklists',category:'procedure',tags:['cleaning','checklist','bilingual','daily'],notes:'Bilingual EN/ES for all 3 locations. Daily, Bi-Weekly, Monthly, Quarterly, 6-Month, Landscaping.',links:[1,2,3]},
+  {id:9,name:'Kawasaki FS730V',category:'parts',tags:['engine','kawasaki','v-twin'],notes:'Engine on Z260. Fuel pump diaphragm issue. OEM parts, Amazon Prime.',links:[7]},
+  {id:10,name:'F-150 EcoBoost',category:'equipment',tags:['ford','f150','ecoboost','truck'],notes:'2016 2.7L EcoBoost. Check spark plug spec.',links:[]},
+  {id:11,name:'Craftsman Smart Charger',category:'equipment',tags:['charger','battery','diagnostics'],notes:'Multi-mode battery charger/maintainer.',links:[]},
+  {id:12,name:'Irrigation Zones',category:'procedure',tags:['irrigation','zones','landscape','este'],notes:'Project 19-320. Interactive HTML diagram.',links:[2]},
+  {id:13,name:'Ruskin CBD-150',category:'equipment',tags:['damper','ruskin','backdraft','hvac'],notes:'Backdraft damper. Check blade linkage and actuator.',links:[]},
+  {id:14,name:'Echo PE-225 Edger',category:'equipment',tags:['echo','edger','2-stroke'],notes:'Diaphragm carb. Fuel lines deteriorate. Primer bulb cracks.',links:[]},
+  {id:15,name:'Austin Air & Ice',category:'contractors',tags:['ice-machine','hvac','refrigeration','service'],notes:'Tyler Maffi — 512-884-6803. Hoshizaki authorized. Leander TX.',links:[4]},
+  {id:16,name:'Kold Draft Ice Machine',category:'equipment',tags:['ice','kold-draft','craft-cube'],notes:'Craft cube. Cannot get larger bin. Tyler recommends Hoshizaki instead.',links:[15]},
+  {id:17,name:'Weekend On-Call Rates',category:'procedure',tags:['rates','service','weekend'],notes:'Rate structure for weekend/holiday equipment repair calls.',links:[]},
+];
 
 // ═══════════════════════════════════════════
 // CLEANING DATA (Bilingual)
@@ -336,9 +357,12 @@ const today=new Date().toISOString().split('T')[0];
 document.getElementById('cleanDate').textContent=today;
 
 async function init(){
-  // Load nodes
-  const{data}=await sb.from('nodes').select('*');
-  if(data&&data.length) nodes=data;
+  // Try loading from Supabase, merge with seeds
+  try{
+    const{data}=await sb.from('nodes').select('*');
+    if(data&&data.length) nodes=data;
+  }catch(e){console.log('Supabase unavailable, using seed nodes');}
+  calcPositions();
   drawBrain();
 
   // Load cleaning state
@@ -391,12 +415,20 @@ function calcPositions(){
   cats.forEach((cat,ci)=>{
     const base=step*ci-Math.PI/2;
     const group=groups[cat];
-    const radius=Math.min(W,H)*0.28;
+    const radius=Math.min(W,H)*0.32;
     group.forEach((node,ni)=>{
       const spread=Math.min(0.55,2.8/Math.max(group.length,1));
       const angle=base+(ni-(group.length-1)/2)*spread;
-      const r=radius+(ni%3)*20;
-      positions[node.id]={x:cx+r*Math.cos(angle),y:cy+r*Math.sin(angle),angle};
+      const r=radius+(ni%3)*22;
+      // Each node gets unique dance parameters
+      const seed=node.id*137.508;
+      positions[node.id]={
+        bx:cx+r*Math.cos(angle), by:cy+r*Math.sin(angle), angle,
+        dx:Math.sin(seed)*0.3+0.2, dy:Math.cos(seed*1.3)*0.25+0.15,
+        px:Math.sin(seed*0.7)*Math.PI*2, py:Math.cos(seed*1.1)*Math.PI*2,
+        amp:8+Math.sin(seed*0.5)*6,
+        x:0, y:0
+      };
     });
   });
 }
@@ -404,70 +436,115 @@ function calcPositions(){
 function drawBrain(){
   if(animId)cancelAnimationFrame(animId);
   function frame(){
-    time+=0.012;
+    time+=0.01;
     ctx.fillStyle='#1a1a1e';ctx.fillRect(0,0,W,H);
 
-    // Grid
+    // Subtle grid
     ctx.strokeStyle='rgba(232,228,220,0.012)';ctx.lineWidth=1;
     for(let x=0;x<W;x+=50){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
     for(let y=0;y<H;y+=50){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
 
-    // Links
+    // Update dancing positions
+    nodes.forEach(n=>{
+      const p=positions[n.id];if(!p)return;
+      p.x=p.bx+Math.sin(time*p.dx+p.px)*p.amp;
+      p.y=p.by+Math.cos(time*p.dy+p.py)*p.amp*0.7;
+    });
+
+    // Node-to-node links with dancing connections
     nodes.forEach(n=>{
       const p=positions[n.id];if(!p||!n.links)return;
       n.links.forEach(lid=>{
         const tp=positions[lid];if(!tp)return;
-        const hit=searchHits.has(n.id)&&searchHits.has(lid);
-        ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(tp.x,tp.y);
-        ctx.strokeStyle=hit?'rgba(201,168,124,0.2)':'rgba(232,228,220,0.03)';
+        const hit=searchHits.has(n.id)||searchHits.has(lid);
+        // Curved dancing connection
+        const midX=(p.x+tp.x)/2+Math.sin(time*0.7+n.id)*12;
+        const midY=(p.y+tp.y)/2+Math.cos(time*0.6+lid)*12;
+        ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.quadraticCurveTo(midX,midY,tp.x,tp.y);
+        ctx.strokeStyle=hit?'rgba(201,168,124,0.25)':'rgba(201,168,124,0.04)';
         ctx.lineWidth=hit?1.5:0.5;ctx.stroke();
+        // Traveling pulse on link
+        if(hit){
+          for(let k=0;k<2;k++){
+            const pt=((time*0.4+n.id*0.15+k*0.5)%1);
+            const t2=pt,t1=1-t2;
+            const px2=t1*t1*p.x+2*t1*t2*midX+t2*t2*tp.x;
+            const py2=t1*t1*p.y+2*t1*t2*midY+t2*t2*tp.y;
+            ctx.beginPath();ctx.arc(px2,py2,2.5,0,Math.PI*2);
+            ctx.fillStyle=`rgba(201,168,124,${0.6-pt*0.5})`;ctx.fill();
+          }
+        }
       });
     });
 
-    // Center connections
+    // Center connections — elegant curves that breathe
     nodes.forEach(n=>{
       const p=positions[n.id];if(!p)return;
       const isHit=searchHits.has(n.id);const isAct=activeNode&&activeNode.id===n.id;
-      const alpha=isHit?0.18+Math.sin(time*2+n.id)*0.06:isAct?0.22:0.03;
-      const mx=(cx+p.x)/2+Math.sin(p.angle+time*0.4)*10;
-      const my=(cy+p.y)/2+Math.cos(p.angle+time*0.4)*10;
-      ctx.beginPath();ctx.moveTo(cx,cy);ctx.quadraticCurveTo(mx,my,p.x,p.y);
-      ctx.strokeStyle=`rgba(201,168,124,${alpha})`;ctx.lineWidth=isHit||isAct?1.2:0.4;ctx.stroke();
+      const alpha=isHit?0.2+Math.sin(time*1.8+n.id)*0.08:isAct?0.25:0.035;
+      // Control point dances independently
+      const cpx=(cx+p.x)/2+Math.sin(time*0.5+p.angle*2)*18;
+      const cpy=(cy+p.y)/2+Math.cos(time*0.4+p.angle*3)*14;
+      ctx.beginPath();ctx.moveTo(cx,cy);ctx.quadraticCurveTo(cpx,cpy,p.x,p.y);
+      ctx.strokeStyle=`rgba(201,168,124,${alpha})`;ctx.lineWidth=isHit||isAct?1.5:0.4;ctx.stroke();
+      // Multiple traveling particles on active connections
       if(isHit||isAct){
-        const pt=(time*0.5+n.id*0.2)%1;
-        ctx.beginPath();ctx.arc(cx+(p.x-cx)*pt,cy+(p.y-cy)*pt,2,0,Math.PI*2);
-        ctx.fillStyle=`rgba(201,168,124,${0.6-pt*0.5})`;ctx.fill();
+        for(let k=0;k<3;k++){
+          const pt=((time*0.35+n.id*0.12+k*0.33)%1);
+          const t2=pt,t1=1-t2;
+          const px2=t1*t1*cx+2*t1*t2*cpx+t2*t2*p.x;
+          const py2=t1*t1*cy+2*t1*t2*cpy+t2*t2*p.y;
+          const sz=1.5+Math.sin(pt*Math.PI)*2;
+          ctx.beginPath();ctx.arc(px2,py2,sz,0,Math.PI*2);
+          ctx.fillStyle=`rgba(201,168,124,${0.7-pt*0.6})`;ctx.fill();
+        }
       }
     });
 
-    // Center beacon
-    const pr=22+Math.sin(time*1.2)*3;
-    const glow=ctx.createRadialGradient(cx,cy,0,cx,cy,pr*4);
-    glow.addColorStop(0,'rgba(201,168,124,0.12)');glow.addColorStop(0.5,'rgba(201,168,124,0.03)');glow.addColorStop(1,'transparent');
-    ctx.fillStyle=glow;ctx.beginPath();ctx.arc(cx,cy,pr*4,0,Math.PI*2);ctx.fill();
-    ctx.beginPath();ctx.arc(cx,cy,pr,0,Math.PI*2);ctx.fillStyle='#222228';ctx.fill();
-    ctx.strokeStyle=`rgba(201,168,124,${0.4+Math.sin(time*1.5)*0.2})`;ctx.lineWidth=1.5;ctx.stroke();
-    ctx.fillStyle=`rgba(201,168,124,${0.6+Math.sin(time*2)*0.2})`;
-    ctx.font='10px JetBrains Mono';ctx.textAlign='center';ctx.fillText('NEXUS',cx,cy+3);
+    // Center beacon — breathing glow
+    const breath=Math.sin(time*1.2);
+    const pr=30+breath*5;
+    const glow=ctx.createRadialGradient(cx,cy,0,cx,cy,pr*5);
+    glow.addColorStop(0,`rgba(201,168,124,${0.14+breath*0.04})`);
+    glow.addColorStop(0.4,'rgba(201,168,124,0.04)');glow.addColorStop(1,'transparent');
+    ctx.fillStyle=glow;ctx.beginPath();ctx.arc(cx,cy,pr*5,0,Math.PI*2);ctx.fill();
+    // Outer ring pulse
+    ctx.beginPath();ctx.arc(cx,cy,pr+8,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(201,168,124,${0.06+breath*0.03})`;ctx.lineWidth=8;ctx.stroke();
+    // Inner beacon
+    ctx.beginPath();ctx.arc(cx,cy,pr,0,Math.PI*2);ctx.fillStyle='#1e1e22';ctx.fill();
+    ctx.strokeStyle=`rgba(201,168,124,${0.45+breath*0.2})`;ctx.lineWidth=1.5;ctx.stroke();
+    ctx.fillStyle=`rgba(201,168,124,${0.65+breath*0.15})`;
+    ctx.font='600 14px JetBrains Mono';ctx.textAlign='center';ctx.fillText('NEXUS',cx,cy+4);
 
-    // Nodes
+    // Nodes — dancing glowing particles
     nodes.forEach(n=>{
       const p=positions[n.id];if(!p)return;
       const isHit=searchHits.has(n.id);const isAct=activeNode&&activeNode.id===n.id;
-      const nr=isAct?10:isHit?8:4;
-      if(isHit||isAct){
-        const ng=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,nr*3.5);
-        ng.addColorStop(0,`rgba(201,168,124,${isAct?0.3:0.15})`);ng.addColorStop(1,'transparent');
-        ctx.fillStyle=ng;ctx.beginPath();ctx.arc(p.x,p.y,nr*3.5,0,Math.PI*2);ctx.fill();
-      }
+      const nodePulse=Math.sin(time*1.5+n.id*0.7);
+      const nr=isAct?16+nodePulse*2:isHit?12+nodePulse*1.5:7+nodePulse*0.8;
+
+      // Outer glow — always visible, breathes
+      const glowAlpha=isAct?0.35:isHit?0.2:0.06+nodePulse*0.02;
+      const glowR=nr*(isAct?4:isHit?3.5:2.5);
+      const ng=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,glowR);
+      ng.addColorStop(0,`rgba(201,168,124,${glowAlpha})`);ng.addColorStop(1,'transparent');
+      ctx.fillStyle=ng;ctx.beginPath();ctx.arc(p.x,p.y,glowR,0,Math.PI*2);ctx.fill();
+
+      // Node body
       ctx.beginPath();ctx.arc(p.x,p.y,nr,0,Math.PI*2);
-      ctx.fillStyle=isAct?'#c9a87c':isHit?'rgba(201,168,124,0.7)':'rgba(201,168,124,0.2)';ctx.fill();
-      if(isHit||isAct){ctx.strokeStyle='rgba(201,168,124,0.4)';ctx.lineWidth=1;ctx.stroke();}
-      const la=isAct?0.9:isHit?0.7:0.2;
+      ctx.fillStyle=isAct?`rgba(201,168,124,${0.85+nodePulse*0.1})`:isHit?`rgba(201,168,124,${0.6+nodePulse*0.1})`:`rgba(201,168,124,${0.18+nodePulse*0.04})`;
+      ctx.fill();
+      // Ring
+      ctx.strokeStyle=`rgba(201,168,124,${isAct?0.6:isHit?0.4:0.1+nodePulse*0.03})`;
+      ctx.lineWidth=isAct?1.5:1;ctx.stroke();
+
+      // Label
+      const la=isAct?0.95:isHit?0.75:0.3;
       ctx.fillStyle=`rgba(232,228,220,${la})`;
-      ctx.font=`${isAct?'500 ':''}${isAct?11:9}px "Libre Franklin"`;ctx.textAlign='center';
-      const label=n.name.length>22?n.name.slice(0,20)+'…':n.name;
-      ctx.fillText(label,p.x,p.y-nr-6,140);
+      ctx.font=`${isAct?'600 ':''}${isAct?14:11}px "Libre Franklin"`;ctx.textAlign='center';
+      const label=n.name.length>24?n.name.slice(0,22)+'…':n.name;
+      ctx.fillText(label,p.x,p.y-nr-8,200);
     });
 
     animId=requestAnimationFrame(frame);
