@@ -8,7 +8,7 @@ const NX = {
   // ─── Config ───
   SUPA_URL: 'https://oprsthfxqrdbwdvommpw.supabase.co',
   SUPA_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcnN0aGZ4cXJkYndkdm9tbXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MDU2MzMsImV4cCI6MjA5MTE4MTYzM30.1Yy5BNXWy19Xzdt-ZdcoF0_MF6vvr1rYN5mcDsRYSWY',
-  API_KEY: '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',
+  API_KEY: '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',
   ADMIN_PASS: 'orion',
   TRELLO_KEY: '58b11ca040f84d8d2161ec09d8eee293',
   TRELLO_TOKEN: 'ATTAe10c6dc43d33e8a92cfd90cd402b5c057f78aaccfa6af24ccac846306d379f05991808BA',
