@@ -1,134 +1,908 @@
--- ═══════════════════════════════════════════
--- NEXUS — Supabase Schema Setup
--- Run this ONCE in SQL Editor
--- ═══════════════════════════════════════════
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>NEXUS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#1a1a1e;--surface:#222228;--elevated:#2b2b32;--hover:#32323a;
+  --text:#e8e4dc;--muted:#8a867e;--faint:#5a5750;--accent:#c9a87c;
+  --green:#7d9a6a;--red:#c4665a;--blue:#6a8fba;--purple:#9a7dba;
+  --border:rgba(232,228,220,0.07);--glow:rgba(201,168,124,0.15);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:'Libre Franklin',sans-serif;font-weight:300;height:100vh;overflow:hidden;display:flex;flex-direction:column;}
+button{font-family:inherit;cursor:pointer;}
+input,textarea,select{font-family:inherit;}
 
--- 1. Knowledge Nodes
-create table if not exists nodes (
-  id bigint generated always as identity primary key,
-  name text not null,
-  category text not null default 'equipment',
-  tags text[] default '{}',
-  notes text default '',
-  links bigint[] default '{}',
-  is_private boolean default false,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
+/* NAV */
+.nav{display:flex;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border);gap:8px;flex-shrink:0;background:var(--surface);}
+.nav-brand{display:flex;align-items:center;gap:8px;}
+.nav-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--glow);animation:pulse 2.5s infinite;}
+.nav-label{font-size:12px;letter-spacing:3px;color:var(--muted);font-weight:400;}
+.nav-tabs{display:flex;gap:2px;margin-left:auto;}
+.nav-tab{padding:7px 14px;border-radius:6px;font-size:11px;font-weight:400;color:var(--muted);background:none;border:none;transition:all .15s;}
+.nav-tab:hover{color:var(--text);background:var(--hover);}
+.nav-tab.active{color:var(--text);background:var(--elevated);}
+.nav-admin{margin-left:8px;padding:6px 10px;border-radius:6px;font-size:10px;border:1px solid var(--border);background:none;color:var(--faint);letter-spacing:1px;}
+.nav-admin.on{color:var(--accent);border-color:var(--accent);}
 
--- 2. Daily Logs
-create table if not exists daily_logs (
-  id bigint generated always as identity primary key,
-  entry text not null,
-  location text default 'all',
-  logged_by text default 'team',
-  created_at timestamptz default now()
-);
+/* MAIN */
+.main{flex:1;overflow:hidden;display:flex;flex-direction:column;}
+.view{display:none;flex:1;overflow:hidden;flex-direction:column;}
+.view.active{display:flex;}
 
--- 3. Cleaning Logs
-create table if not exists cleaning_logs (
-  id bigint generated always as identity primary key,
-  location text not null,
-  log_date date not null default current_date,
-  task_index int not null,
-  section text default '',
-  done boolean default false,
-  completed_at timestamptz,
-  completed_by text default '',
-  unique(location, log_date, task_index, section)
-);
+/* BRAIN */
+#brainView{position:relative;}
+#brainCanvas{width:100%;height:100%;display:block;}
+.brain-search{position:absolute;top:12px;left:12px;right:12px;}
+.brain-search input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text);font-size:13px;outline:none;}
+.brain-search input:focus{border-color:rgba(201,168,124,0.3);}
+.node-panel{position:absolute;right:0;top:0;bottom:0;width:280px;background:var(--surface);border-left:1px solid var(--border);padding:20px;overflow-y:auto;display:none;}
+.node-panel.open{display:block;}
+.node-cat{font-size:9px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:8px;}
+.node-name{font-size:17px;font-weight:500;margin-bottom:8px;}
+.node-tags{font-size:10px;color:var(--faint);margin-bottom:14px;}
+.node-notes{font-size:12px;line-height:1.7;color:var(--muted);margin-bottom:16px;}
+.node-links{font-size:11px;color:var(--muted);}
+.node-links div{padding:3px 0;cursor:pointer;color:var(--accent);}
+.node-close{position:absolute;top:12px;right:12px;background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;}
 
--- 4. Chat History (public AI Q&A)
-create table if not exists chat_history (
-  id bigint generated always as identity primary key,
-  question text not null,
-  answer text not null,
-  asked_by text default 'team',
-  created_at timestamptz default now()
-);
+/* CHAT */
+.chat-messages{flex:1;overflow-y:auto;padding:20px;}
+.chat-empty{text-align:center;margin-top:80px;color:var(--faint);}
+.chat-empty div:first-child{font-size:24px;margin-bottom:14px;opacity:.3;}
+.chat-empty p{font-size:12px;line-height:2;}
+.chat-bubble{max-width:80%;padding:10px 14px;border-radius:14px;font-size:13px;line-height:1.6;margin-bottom:10px;white-space:pre-wrap;}
+.chat-user{background:var(--elevated);margin-left:auto;border:1px solid var(--border);}
+.chat-ai{background:var(--surface);border:1px solid var(--border);margin-right:auto;}
+.chat-input-bar{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0;}
+.chat-input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:13px;outline:none;resize:none;}
+.chat-input:focus{border-color:rgba(201,168,124,0.3);}
+.chat-send{padding:10px 18px;border-radius:10px;border:none;background:var(--accent);color:var(--bg);font-size:13px;font-weight:500;transition:opacity .15s;}
+.chat-send:disabled{opacity:.3;cursor:default;}
 
--- 5. Kanban Cards
-create table if not exists kanban_cards (
-  id bigint generated always as identity primary key,
-  title text not null,
-  description text default '',
-  column_name text default 'todo',
-  location text default 'all',
-  priority text default 'normal',
-  assigned_to text default '',
-  due_date date,
-  source text default 'manual',
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
+/* CLEANING */
+.clean-header{padding:10px 16px;border-bottom:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex-shrink:0;}
+.clean-tab{padding:6px 14px;border-radius:20px;font-size:11px;border:1px solid var(--border);background:none;color:var(--muted);transition:all .15s;}
+.clean-tab.active{background:var(--elevated);color:var(--text);border-color:var(--elevated);}
+.clean-date{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--faint);margin-left:auto;}
+.clean-progress{padding:6px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.clean-track{flex:1;height:3px;background:var(--elevated);border-radius:2px;overflow:hidden;}
+.clean-fill{height:100%;background:var(--green);border-radius:2px;transition:width .3s;}
+.clean-pct{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);min-width:32px;text-align:right;}
+.clean-list{flex:1;overflow-y:auto;padding:8px 0;}
+.clean-section{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--faint);text-transform:uppercase;padding:14px 16px 4px;}
+.clean-item{display:flex;align-items:flex-start;gap:12px;padding:10px 16px;cursor:pointer;transition:background .1s;}
+.clean-item:hover{background:var(--hover);}
+.clean-item.done{opacity:.4;}
+.clean-item.done .ci-en{text-decoration:line-through;}
+.ci-box{width:18px;height:18px;border:1.5px solid var(--faint);border-radius:4px;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;transition:all .15s;font-size:11px;color:var(--bg);}
+.clean-item.done .ci-box{background:var(--green);border-color:var(--green);}
+.ci-text{flex:1;}
+.ci-en{font-size:13px;line-height:1.4;}
+.ci-es{font-size:11px;color:var(--muted);font-style:italic;margin-top:2px;}
 
--- 6. Private emails (admin only)
-create table if not exists emails (
-  id bigint generated always as identity primary key,
-  subject text,
-  sender text,
-  body text,
-  extracted_nodes bigint[] default '{}',
-  is_processed boolean default false,
-  received_at timestamptz,
-  created_at timestamptz default now()
-);
+/* LOG */
+.log-input-bar{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-shrink:0;}
+.log-input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text);font-size:13px;outline:none;}
+.log-add{padding:8px 16px;border-radius:8px;border:none;background:var(--accent);color:var(--bg);font-size:13px;font-weight:500;}
+.log-list{flex:1;overflow-y:auto;padding:12px 16px;}
+.log-entry{padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;}
+.log-text{font-size:13px;line-height:1.6;}
+.log-meta{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--faint);margin-top:6px;}
 
--- ═══════════════════════════════════════════
--- Row Level Security
--- ═══════════════════════════════════════════
+/* BOARD */
+.board{display:flex;gap:10px;padding:12px;flex:1;overflow-x:auto;}
+.board-col{min-width:220px;flex:1;background:var(--surface);border-radius:8px;border:1px solid var(--border);display:flex;flex-direction:column;max-height:100%;}
+.board-col-header{padding:10px 14px;font-size:11px;font-weight:500;letter-spacing:1px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+.board-col-count{font-size:10px;color:var(--faint);}
+.board-col-body{flex:1;overflow-y:auto;padding:8px;}
+.board-card{padding:10px 12px;background:var(--elevated);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;cursor:pointer;transition:border-color .15s;}
+.board-card:hover{border-color:rgba(201,168,124,0.2);}
+.board-card-title{font-size:12px;font-weight:400;margin-bottom:4px;}
+.board-card-meta{font-size:9px;color:var(--faint);}
+.board-add{width:100%;padding:8px;background:none;border:1px dashed var(--border);border-radius:6px;color:var(--faint);font-size:11px;margin-top:4px;}
+.board-add:hover{border-color:var(--muted);color:var(--muted);}
 
-alter table nodes enable row level security;
-alter table daily_logs enable row level security;
-alter table cleaning_logs enable row level security;
-alter table chat_history enable row level security;
-alter table kanban_cards enable row level security;
-alter table emails enable row level security;
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+@media(max-width:600px){
+  .nav-tabs{gap:0;}.nav-tab{padding:6px 8px;font-size:10px;}
+  .node-panel{width:100%;}
+  .board{flex-direction:column;}.board-col{min-width:100%;}
+}
+::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-thumb{background:rgba(232,228,220,0.08);border-radius:4px;}
+</style>
+</head>
+<body>
 
--- Public read for non-private nodes
-create policy "Public read nodes" on nodes for select using (is_private = false);
-create policy "Admin all nodes" on nodes for all using (true);
+<!-- NAV -->
+<nav class="nav">
+  <div class="nav-brand"><div class="nav-dot"></div><span class="nav-label">NEXUS</span></div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" data-view="brain">Brain</button>
+    <button class="nav-tab" data-view="ask">Ask AI</button>
+    <button class="nav-tab" data-view="clean">Cleaning</button>
+    <button class="nav-tab" data-view="log">Log</button>
+    <button class="nav-tab" data-view="board">Board</button>
+    <button class="nav-tab" data-view="ingest" id="ingestTab" style="display:none;color:var(--accent);">⚡ Ingest</button>
+  </div>
+  <button class="nav-admin" id="adminBtn">ADMIN</button>
+</nav>
 
--- Public read+write for logs and cleaning
-create policy "Public read logs" on daily_logs for select using (true);
-create policy "Public insert logs" on daily_logs for insert with check (true);
+<!-- VIEWS -->
+<div class="main">
 
-create policy "Public read cleaning" on cleaning_logs for select using (true);
-create policy "Public write cleaning" on cleaning_logs for insert with check (true);
-create policy "Public update cleaning" on cleaning_logs for update using (true);
+  <!-- BRAIN -->
+  <div class="view active" id="brainView" data-view="brain">
+    <div class="brain-search"><input id="brainSearch" placeholder="Search knowledge..."></div>
+    <canvas id="brainCanvas"></canvas>
+    <div class="node-panel" id="nodePanel">
+      <button class="node-close" onclick="closePanel()">✕</button>
+      <div class="node-cat" id="npCat"></div>
+      <div class="node-name" id="npName"></div>
+      <div class="node-tags" id="npTags"></div>
+      <div class="node-notes" id="npNotes"></div>
+      <div class="node-links" id="npLinks"></div>
+    </div>
+  </div>
 
--- Public read chat, insert
-create policy "Public read chat" on chat_history for select using (true);
-create policy "Public insert chat" on chat_history for insert with check (true);
+  <!-- ASK AI -->
+  <div class="view" id="askView" data-view="ask">
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-empty">
+        <div>○</div>
+        <p>Ask anything about your operations.<br>
+        <span style="color:var(--faint)">
+        "When was the last ice machine maintenance?"<br>
+        "What's the oven troubleshooting sequence?"<br>
+        "Which locations completed cleaning today?"</span></p>
+      </div>
+    </div>
+    <div class="chat-input-bar">
+      <input class="chat-input" id="chatInput" placeholder="Ask NEXUS anything...">
+      <button class="chat-send" id="chatSend" disabled>→</button>
+    </div>
+  </div>
 
--- Public read+write kanban
-create policy "Public read kanban" on kanban_cards for select using (true);
-create policy "Public write kanban" on kanban_cards for insert with check (true);
-create policy "Public update kanban" on kanban_cards for update using (true);
-create policy "Public delete kanban" on kanban_cards for delete using (true);
+  <!-- CLEANING -->
+  <div class="view" id="cleanView" data-view="clean">
+    <div class="clean-header">
+      <button class="clean-tab active" data-cloc="suerte">Suerte</button>
+      <button class="clean-tab" data-cloc="este">Este</button>
+      <button class="clean-tab" data-cloc="toti">Toti</button>
+      <span class="clean-date" id="cleanDate"></span>
+    </div>
+    <div class="clean-progress">
+      <div class="clean-track"><div class="clean-fill" id="cleanFill"></div></div>
+      <span class="clean-pct" id="cleanPct">0%</span>
+    </div>
+    <div class="clean-list" id="cleanList"></div>
+  </div>
 
--- Emails: admin only (via service key, not anon)
-create policy "No public emails" on emails for select using (false);
+  <!-- DAILY LOG -->
+  <div class="view" id="logView" data-view="log">
+    <div class="log-input-bar">
+      <input class="log-input" id="logInput" placeholder="Log entry... repairs, notes, observations">
+      <button class="log-add" id="logAdd">+</button>
+    </div>
+    <div class="log-list" id="logList"></div>
+  </div>
 
--- ═══════════════════════════════════════════
--- Seed Knowledge Nodes
--- ═══════════════════════════════════════════
+  <!-- BOARD -->
+  <div class="view" id="boardView" data-view="board">
+    <div class="board" id="boardContainer"></div>
+  </div>
 
-insert into nodes (name, category, tags, notes, links) values
-('Suerte', 'location', '{restaurant,austin,kitchen,bar,patio}', 'Primary location. Full kitchen, bar, patio.', '{4,5,8}'),
-('Este', 'location', '{restaurant,austin,irrigation}', 'Restaurant location. Irrigation zone diagram Project No. 19-320.', '{8,12}'),
-('Toti', 'location', '{restaurant,austin}', 'Third restaurant location.', '{8}'),
-('Hoshizaki Ice Machine', 'equipment', '{ice,hoshizaki,auger,commercial}', 'Auger type commercial ice machine. Common failure: harvest assist spring. Check evaporator coil freeze pattern.', '{1,6}'),
-('Oven Repair Protocol', 'procedure', '{oven,repair,troubleshoot,kitchen}', 'Diagnostic flow: 1) Igniter — check glow, measure resistance. 2) Gas valve — verify voltage when igniter hot. 3) Thermostat — calibration check. 4) Control board — last resort, check for burn marks.', '{1}'),
-('Ice Machine Troubleshoot', 'procedure', '{ice,troubleshoot,hoshizaki,auger}', 'No ice flow: 1) Water supply — verify line open, filter clean. 2) Inlet valve — listen for fill, check solenoid. 3) Evaporator temp — should reach freeze temp. 4) Auger motor — verify rotation, check capacitor. 5) Harvest assist spring — common failure.', '{4}'),
-('Z260 Zero-Turn', 'equipment', '{mower,zero-turn,z260,kawasaki}', 'Zero-turn mower with Kawasaki FS730V engine. Sat unused — needs full service. OEM parts preferred.', '{9}'),
-('Cleaning Checklists', 'procedure', '{cleaning,checklist,bilingual,spanish,daily}', 'Bilingual EN/ES cleaning checklists for all 3 locations. Categories: Daily, Bi-Weekly, Monthly, Quarterly, 6-Month, Landscaping. Print-ready PDFs and interactive HTML app.', '{1,2,3}'),
-('Kawasaki FS730V', 'parts', '{engine,kawasaki,v-twin}', 'V-twin engine on Z260 zero-turn. Common issue: fuel pump diaphragm. OEM parts, Amazon Prime shipping.', '{7}'),
-('F-150 2.7L EcoBoost', 'equipment', '{ford,f150,ecoboost,truck,spark-plug}', '2016 Ford F-150 2.7L EcoBoost twin-turbo V6. Check spark plug spec and interval.', '{}'),
-('Craftsman Smart Charger', 'equipment', '{charger,battery,craftsman,diagnostics}', 'Multi-mode battery charger/maintainer. Used for vehicle battery troubleshooting.', '{}'),
-('Irrigation Zones - Este', 'procedure', '{irrigation,zones,landscape,este}', 'Project No. 19-320 landscape architecture drawings. Interactive HTML version built from source drawings.', '{2}'),
-('Ruskin CBD-150 Damper', 'equipment', '{damper,ruskin,backdraft,hvac}', 'Backdraft damper. Check blade linkage and actuator.', '{}'),
-('Echo PE-225 Edger', 'equipment', '{echo,edger,2-stroke}', '2-stroke edger with diaphragm carburetor. Common issues: fuel lines deteriorate, primer bulb cracks. Sat unused.', '{}'),
-('Troy-Bilt GCV170A', 'equipment', '{troy-bilt,honda,mower,auto-choke}', 'Honda GCV170A engine with auto-choke system. Sat unused — needs inspection.', '{}'),
-('Honda GX120', 'equipment', '{honda,engine,small-engine,pressure-washer}', 'Pressure washer engine. Common issue: carburetor fouling.', '{}'),
-('Weekend On-Call Rates', 'procedure', '{rates,service,weekend,on-call,contractors}', 'Rate structure for weekend/holiday equipment repair service calls.', '{}');
+  <!-- INGEST (Admin only) -->
+  <div class="view" id="ingestView" data-view="ingest">
+    <div style="flex:1;overflow-y:auto;padding:20px;max-width:700px;margin:0 auto;width:100%;">
+      <div style="font-size:10px;letter-spacing:2px;color:var(--faint);margin-bottom:16px;">KNOWLEDGE INGESTION — AI processes everything into brain nodes</div>
+
+      <!-- Paste text -->
+      <div style="margin-bottom:24px;">
+        <div style="font-size:12px;font-weight:500;margin-bottom:8px;">Paste anything</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Emails, invoices, repair notes, conversations, manuals — AI extracts knowledge and creates nodes.</div>
+        <textarea id="ingestText" placeholder="Paste email, notes, transcript, invoice... anything." style="width:100%;height:120px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-size:12px;font-family:inherit;outline:none;resize:vertical;"></textarea>
+        <button onclick="ingestFromText()" id="ingestTextBtn" style="margin-top:8px;padding:10px 20px;border-radius:8px;border:none;background:var(--accent);color:var(--bg);font-size:12px;font-weight:500;cursor:pointer;">⚡ Process with AI</button>
+      </div>
+
+      <!-- File upload -->
+      <div style="margin-bottom:24px;">
+        <div style="font-size:12px;font-weight:500;margin-bottom:8px;">Upload file</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Drop a .txt, .md, .csv, or .json file. AI reads it and creates nodes.</div>
+        <input type="file" id="ingestFile" accept=".txt,.md,.csv,.json,.html" style="display:none;">
+        <button onclick="document.getElementById('ingestFile').click()" style="padding:10px 20px;border-radius:8px;border:1px dashed var(--border);background:none;color:var(--muted);font-size:12px;cursor:pointer;width:100%;">📄 Choose file</button>
+        <div id="ingestFileName" style="font-size:11px;color:var(--faint);margin-top:4px;"></div>
+      </div>
+
+      <!-- Gmail search -->
+      <div style="margin-bottom:24px;">
+        <div style="font-size:12px;font-weight:500;margin-bottom:8px;">Search Gmail</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Search your inbox. AI reads matching emails and extracts knowledge nodes.</div>
+        <div style="display:flex;gap:8px;">
+          <input id="gmailQuery" placeholder="ice machine repair, contractor invoice..." style="flex:1;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;outline:none;">
+          <button onclick="ingestFromGmail()" id="gmailBtn" style="padding:10px 16px;border-radius:8px;border:none;background:var(--purple);color:var(--bg);font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;">✉ Search</button>
+        </div>
+      </div>
+
+      <!-- Smart Trello import -->
+      <div style="margin-bottom:24px;">
+        <div style="font-size:12px;font-weight:500;margin-bottom:8px;">Smart Trello Import</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Pulls all your Trello cards, AI reads each one and creates knowledge nodes + kanban cards.</div>
+        <button onclick="smartTrelloImport()" id="trelloBtn" style="padding:10px 20px;border-radius:8px;border:none;background:var(--blue);color:var(--bg);font-size:12px;font-weight:500;cursor:pointer;">🔄 Smart Import from Trello</button>
+      </div>
+
+      <!-- Status / Results -->
+      <div id="ingestStatus" style="font-size:11px;color:var(--accent);margin-bottom:12px;"></div>
+      <div id="ingestResults" style="font-size:12px;line-height:1.6;"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ADMIN MODAL -->
+<div id="adminModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:none;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:320px;max-width:90vw;">
+    <div style="font-size:12px;letter-spacing:2px;color:var(--muted);margin-bottom:16px;">ADMIN ACCESS</div>
+    <input type="password" id="adminPass" placeholder="Password" style="width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none;margin-bottom:12px;">
+    <div style="display:flex;gap:8px;">
+      <button onclick="tryAdmin()" style="flex:1;padding:10px;border-radius:8px;border:none;background:var(--accent);color:var(--bg);font-size:12px;font-weight:500;">Enter</button>
+      <button onclick="closeAdmin()" style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--muted);font-size:12px;">Cancel</button>
+    </div>
+    <div id="adminApiSection" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+      <div style="font-size:10px;color:var(--faint);margin-bottom:8px;letter-spacing:1px;">CLAUDE API KEY</div>
+      <input id="adminApiKey" placeholder="sk-ant-..." style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;font-family:'JetBrains Mono',monospace;outline:none;margin-bottom:8px;">
+      <button onclick="saveApiKey()" style="width:100%;padding:8px;border-radius:6px;border:none;background:var(--green);color:var(--bg);font-size:11px;font-weight:500;">Save Key</button>
+      <button onclick="importTrello()" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--muted);font-size:11px;margin-top:6px;">Import Trello Cards</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════
+const SUPABASE_URL='https://oprsthfxqrdbwdvommpw.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcnN0aGZ4cXJkYndkdm9tbXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MDU2MzMsImV4cCI6MjA5MTE4MTYzM30.1Yy5BNXWy19Xzdt-ZdcoF0_MF6vvr1rYN5mcDsRYSWY';
+const ADMIN_PASS='orion';
+const TRELLO_KEY='58b11ca040f84d8d2161ec09d8eee293';
+const TRELLO_TOKEN='ATTAe10c6dc43d33e8a92cfd90cd402b5c057f78aaccfa6af24ccac846306d379f05991808BA';
+
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+let isAdmin=false, nodes=[], activeNode=null, searchHits=new Set();
+let cleanLoc='suerte', cleanState={};
+
+// ═══════════════════════════════════════════
+// CLEANING DATA (Bilingual)
+// ═══════════════════════════════════════════
+const CLEAN_DATA={
+  suerte:[
+    {sec:'Comedor — Dining Room',freq:'daily',items:[
+      ['Barrer el piso.','Sweep Floors.'],['Trapear el piso.','Mop the Floor.'],['Inspeccionar ventanas y repisas.','Inspect windows and ledges.'],['Limpiar las mesas.','Wipe Table Tops.'],['Limpiar todas las repisas.','Wipe all Ledges.'],['Trapear la área de la Barra.','Mop the Bar Area.']]},
+    {sec:'Baños — Bathrooms',freq:'daily',items:[
+      ['Limpiar Inodoro.','Clean Toilet.'],['Limpiar y pulir todas las superficies metálicas.','Clean and Polish all metal surfaces.'],['Barrer el piso.','Sweep Floors.'],['Limpiar cristales y espejos.','Clean glass and Mirror.'],['Limpiar mostradores y lavabos.','Clean Sink Counters and Basin.'],['Limpiar los azulejos detrás de los inodoros.','Wipe Down Tile Behind Toilets.'],['Limpiar la entrada y las manijas del baño.','Wipe Down Bathroom Entrance and Handles.'],['Trapear el piso.','Mop the Floor.'],['Sanitizar cambiadores de bebé.','Sanitize baby changing tables.']]},
+    {sec:'Exterior — Outdoor',freq:'daily',items:[
+      ['Recoger basura en pasillos, puerta trasera, estacionamiento y acera.','Pickup trash on walk-ways, back door, parking lot, sidewalk.'],['Soplar las aceras exteriores y áreas de comedor.','Complete blow on outdoor sidewalks and dining areas.']]},
+    {sec:'Cocina — Kitchen',freq:'daily',items:[
+      ['Limpiar y pulir las 3 parrillas.','Clean and polish the 3 grills.'],['Limpiar y pulir atrás de la parrilla.','Clean and polish behind Grill.'],['Trapear el piso.','Mop the floor.'],['Limpiar la rejilla de ventilación de la grasa.','Wipe hood vent from grease.'],['Limpiar y pulir todas las superficies metálicas.','Clean and Polish all metal surfaces.'],['Limpiar cestas de drenaje.','Clean Drain Baskets.'],['Limpiar paneles de madera.','Wipe Wood Panels.']]},
+    {sec:'Comedor — Bi-Weekly',freq:'biweekly',items:[
+      ['Limpiar los paneles de madera del salón y área de espera.','Wipe down wood paneling in lounge and wait area.'],['Limpiar los paneles de madera del bar.','Wipe down wood paneling at bar.'],['Limpiar los paneles de madera enfrente de la cocina.','Wipe down wood paneling at chefs counter.'],['Limpiar los rieles para los pies en el bar y enfrente de la cocina.','Wipe down foot rails at bar and chefs counter.'],['Limpiar el polvo de las maderas de los textiles.','Dust hanging textiles frames.'],['Limpiar las ventanas del patio, costado del restaurante y puerta principal.','Clean windows along patio, side of restaurant and front door.']]},
+    {sec:'Baños — Bi-Weekly',freq:'biweekly',items:[
+      ['Limpiar todas las paredes de azulejos, incluidas las marcas de trapeador.','Wipe all tile walls including mop marks.'],['Quitar el polvo de marcos de espejos (incluidas las tapas).','Dust mirror frames (including tops).']]},
+    {sec:'Exterior — Bi-Weekly',freq:'biweekly',items:[
+      ['Barrer la cubierta.','Sweep Deck.'],['Rociar la cubierta con la manguera y fregar.','Spray down deck with hose and scrub.'],['Rociar las superficies de las mesas (patio y cubierta).','Spray down Table Tops (patio and deck).']]},
+    {sec:'Comedor — Mensual',freq:'monthly',items:[
+      ['Placas de rodadura / placas de empuje / todas las puertas.','Kickplates / Pushplates / All Guest Doors.'],['Ventilaciones (incluyendo detrás de la barra).','Vents (including behind the bar and outside riser room).'],['Quitar polvo de luces y colgantes.','Dust lights and pendants.'],['Limpiar las marcas de trapeador de todas las paredes.','Clean mop marks from all walls in dining room / hallways.'],['Deshacerse de las telarañas en los rincones del comedor.','Get rid of cob webs in corners — including light fixtures and ceiling beams.'],['Limpiar los zócalos de todas las paredes y pasillos.','Wipe down baseboards along all walls and hallways.']]},
+    {sec:'Todas las Áreas — Trimestral',freq:'quarterly',items:[
+      ['Lavar a presión el piso del contenedor de basura.','Power wash dumpster floor.'],['Limpiar mamparas y espejos.','Clean bulkheads and mirrors.'],['Limpiar chimenea del ahumador y barandillas.','Clean Smoker Chimney and Rails.']]},
+    {sec:'Todas las Áreas — 6 Meses',freq:'6month',items:[
+      ['Lijar y reaplicar Rubio a los paneles de madera.','Sand down and reapply Rubio to wood panels.'],['Limpiar con vapor las cortinas y banquetas.','Steam clean curtains and banquets.']]},
+    {sec:'Jardín — Semanal',freq:'landscape',items:[
+      ['Soplar hojas y basura.','Blow leaves and debris.'],['Limpiar área de Basurero y Organizar.','Clean and organize the garbage area.'],['Inspeccionar por fugas y el bienestar de las plantas.','Inspect for leaks and well-being of plants.'],['Organizar la bodega Azul.','Organize Shed.'],['Cada dos Semanas Limpiar todas las ventanas.','Clean all Windows Bi-Weekly.']]}
+  ],
+  este:[
+    {sec:'Comedor — Dining Room',freq:'daily',items:[
+      ['Barrer el piso.','Sweep Floors.'],['Trapear el piso.','Mop the Floor.'],['Inspeccionar ventanas y repisas.','Inspect windows and ledges.'],['Limpiar las mesas.','Wipe Table Tops.'],['Limpiar todas las repisas.','Wipe all Ledges.'],['Trapear la área de la Barra.','Mop the Bar Area.']]},
+    {sec:'Baños — Bathrooms',freq:'daily',items:[
+      ['Limpiar Inodoro.','Clean Toilet.'],['Limpiar y pulir todas las superficies metálicas.','Clean and Polish all metal surfaces.'],['Barrer el piso.','Sweep Floors.'],['Limpiar cristales y espejos.','Clean glass and Mirror.'],['Limpiar mostradores y lavabos.','Clean Sink Counters and Basin.'],['Limpiar los azulejos detrás de los inodoros.','Wipe Down Tile Behind Toilets.'],['Limpiar la entrada y las manijas del baño.','Wipe Down Bathroom Entrance and Handles.'],['Trapear el piso.','Mop the Floor.'],['Sanitizar cambiadores de bebé.','Sanitize baby changing tables.']]},
+    {sec:'Exterior — Outdoor',freq:'daily',items:[
+      ['Soplar las áreas de comedor exteriores.','Complete blow on outdoor dining areas.']]},
+    {sec:'Cocina — Kitchen',freq:'daily',items:[
+      ['Limpiar y pulir las 2 parrillas.','Clean and polish the 2 grills.'],['Limpiar y pulir atrás de la parrilla.','Clean and polish behind Grill.'],['Trapear el piso.','Mop the floor.'],['Limpiar la rejilla de ventilación de la grasa.','Wipe hood vent from grease.'],['Limpiar y pulir todas las superficies metálicas.','Clean and Polish all metal surfaces.'],['Limpiar cestas de drenaje.','Clean Drain Baskets.']]},
+    {sec:'Jardín — Semanal',freq:'landscape',items:[
+      ['Soplar hojas y basura.','Blow leaves and debris.'],['Limpiar área de Basurero y Organizar.','Clean and organize the garbage area.'],['Inspeccionar por fugas y el bienestar de las plantas.','Inspect for leaks and well-being of plants.']]}
+  ],
+  toti:[
+    {sec:'Comedor — Dining Room',freq:'daily',items:[
+      ['Barrer el piso.','Sweep Floors.'],['Trapear el piso.','Mop the Floor.'],['Inspeccionar ventanas y repisas.','Inspect windows and ledges.'],['Limpiar las mesas.','Wipe Table Tops.'],['Limpiar todas las repisas.','Wipe all Ledges.']]},
+    {sec:'Baños — Bathrooms',freq:'daily',items:[
+      ['Limpiar Inodoro.','Clean Toilet.'],['Limpiar y pulir todas las superficies metálicas.','Clean and Polish all metal surfaces.'],['Barrer el piso.','Sweep Floors.'],['Limpiar cristales y espejos.','Clean glass and Mirror.'],['Limpiar mostradores y lavabos.','Clean Sink Counters and Basin.'],['Limpiar los azulejos detrás de los inodoros.','Wipe Down Tile Behind Toilets.'],['Trapear el piso.','Mop the Floor.']]},
+    {sec:'Cocina — Kitchen',freq:'daily',items:[
+      ['Limpiar y pulir las parrillas.','Clean and polish the grills.'],['Limpiar y pulir atrás de la parrilla.','Clean and polish behind Grill.'],['Trapear el piso.','Mop the floor.'],['Limpiar y pulir todas las superficies metálicas.','Clean and Polish all metal surfaces.'],['Limpiar cestas de drenaje.','Clean Drain Baskets.']]},
+    {sec:'Jardín — Semanal',freq:'landscape',items:[
+      ['Soplar hojas y basura.','Blow leaves and debris.'],['Limpiar área de Basurero y Organizar.','Clean and organize the garbage area.']]}
+  ]
+};
+
+// ═══════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════
+const today=new Date().toISOString().split('T')[0];
+document.getElementById('cleanDate').textContent=today;
+
+async function init(){
+  // Load nodes
+  const{data}=await sb.from('nodes').select('*');
+  if(data&&data.length) nodes=data;
+  drawBrain();
+
+  // Load cleaning state
+  const{data:cl}=await sb.from('cleaning_logs').select('*').eq('log_date',today).eq('location',cleanLoc);
+  if(cl) cl.forEach(c=>{cleanState[cleanLoc+'_'+c.section+'_'+c.task_index]=c.done;});
+  renderClean();
+
+  // Load logs
+  loadLogs();
+  loadBoard();
+}
+init();
+
+// ═══════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════
+document.querySelectorAll('.nav-tab').forEach(t=>{
+  t.addEventListener('click',()=>{
+    document.querySelectorAll('.nav-tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById(t.dataset.view+'View').classList.add('active');
+    if(t.dataset.view==='brain'){resizeBrain();drawBrain();}
+  });
+});
+
+// ═══════════════════════════════════════════
+// BRAIN VISUALIZATION
+// ═══════════════════════════════════════════
+const canvas=document.getElementById('brainCanvas');
+const ctx=canvas.getContext('2d');
+let W,H,cx,cy,positions={},animId,time=0;
+
+function resizeBrain(){
+  const r=canvas.parentElement.getBoundingClientRect();
+  W=r.width*2;H=r.height*2;
+  canvas.width=W;canvas.height=H;
+  cx=W/2;cy=H/2;
+  calcPositions();
+}
+window.addEventListener('resize',()=>{resizeBrain();drawBrain();});
+setTimeout(resizeBrain,50);
+
+function calcPositions(){
+  positions={};
+  const groups={};
+  nodes.forEach(n=>{if(!groups[n.category])groups[n.category]=[];groups[n.category].push(n);});
+  const cats=Object.keys(groups);
+  const step=Math.PI*2/Math.max(cats.length,1);
+  cats.forEach((cat,ci)=>{
+    const base=step*ci-Math.PI/2;
+    const group=groups[cat];
+    const radius=Math.min(W,H)*0.32;
+    group.forEach((node,ni)=>{
+      const spread=Math.min(0.55,2.8/Math.max(group.length,1));
+      const angle=base+(ni-(group.length-1)/2)*spread;
+      const r=radius+(ni%3)*20;
+      positions[node.id]={x:cx+r*Math.cos(angle),y:cy+r*Math.sin(angle),angle};
+    });
+  });
+}
+
+function drawBrain(){
+  if(animId)cancelAnimationFrame(animId);
+  function frame(){
+    time+=0.012;
+    ctx.fillStyle='#1a1a1e';ctx.fillRect(0,0,W,H);
+
+    // Grid
+    ctx.strokeStyle='rgba(232,228,220,0.012)';ctx.lineWidth=1;
+    for(let x=0;x<W;x+=50){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+    for(let y=0;y<H;y+=50){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+
+    // Links
+    nodes.forEach(n=>{
+      const p=positions[n.id];if(!p||!n.links)return;
+      n.links.forEach(lid=>{
+        const tp=positions[lid];if(!tp)return;
+        const hit=searchHits.has(n.id)&&searchHits.has(lid);
+        ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(tp.x,tp.y);
+        ctx.strokeStyle=hit?'rgba(201,168,124,0.2)':'rgba(232,228,220,0.03)';
+        ctx.lineWidth=hit?1.5:0.5;ctx.stroke();
+      });
+    });
+
+    // Center connections
+    nodes.forEach(n=>{
+      const p=positions[n.id];if(!p)return;
+      const isHit=searchHits.has(n.id);const isAct=activeNode&&activeNode.id===n.id;
+      const alpha=isHit?0.18+Math.sin(time*2+n.id)*0.06:isAct?0.22:0.03;
+      const mx=(cx+p.x)/2+Math.sin(p.angle+time*0.4)*10;
+      const my=(cy+p.y)/2+Math.cos(p.angle+time*0.4)*10;
+      ctx.beginPath();ctx.moveTo(cx,cy);ctx.quadraticCurveTo(mx,my,p.x,p.y);
+      ctx.strokeStyle=`rgba(201,168,124,${alpha})`;ctx.lineWidth=isHit||isAct?1.2:0.4;ctx.stroke();
+      if(isHit||isAct){
+        const pt=(time*0.5+n.id*0.2)%1;
+        ctx.beginPath();ctx.arc(cx+(p.x-cx)*pt,cy+(p.y-cy)*pt,2,0,Math.PI*2);
+        ctx.fillStyle=`rgba(201,168,124,${0.6-pt*0.5})`;ctx.fill();
+      }
+    });
+
+    // Center beacon
+    const pr=28+Math.sin(time*1.2)*4;
+    const glow=ctx.createRadialGradient(cx,cy,0,cx,cy,pr*4);
+    glow.addColorStop(0,'rgba(201,168,124,0.12)');glow.addColorStop(0.5,'rgba(201,168,124,0.03)');glow.addColorStop(1,'transparent');
+    ctx.fillStyle=glow;ctx.beginPath();ctx.arc(cx,cy,pr*4,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(cx,cy,pr,0,Math.PI*2);ctx.fillStyle='#222228';ctx.fill();
+    ctx.strokeStyle=`rgba(201,168,124,${0.4+Math.sin(time*1.5)*0.2})`;ctx.lineWidth=1.5;ctx.stroke();
+    ctx.fillStyle=`rgba(201,168,124,${0.6+Math.sin(time*2)*0.2})`;
+    ctx.font='13px JetBrains Mono';ctx.textAlign='center';ctx.fillText('NEXUS',cx,cy+3);
+
+    // Nodes
+    nodes.forEach(n=>{
+      const p=positions[n.id];if(!p)return;
+      const isHit=searchHits.has(n.id);const isAct=activeNode&&activeNode.id===n.id;
+      const nr=isAct?16:isHit?12:7;
+      if(isHit||isAct){
+        const ng=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,nr*3.5);
+        ng.addColorStop(0,`rgba(201,168,124,${isAct?0.3:0.15})`);ng.addColorStop(1,'transparent');
+        ctx.fillStyle=ng;ctx.beginPath();ctx.arc(p.x,p.y,nr*3.5,0,Math.PI*2);ctx.fill();
+      }
+      ctx.beginPath();ctx.arc(p.x,p.y,nr,0,Math.PI*2);
+      ctx.fillStyle=isAct?'#c9a87c':isHit?'rgba(201,168,124,0.7)':'rgba(201,168,124,0.2)';ctx.fill();
+      if(isHit||isAct){ctx.strokeStyle='rgba(201,168,124,0.4)';ctx.lineWidth=1;ctx.stroke();}
+      const la=isAct?0.9:isHit?0.7:0.2;
+      ctx.fillStyle=`rgba(232,228,220,${la})`;
+      ctx.font=`${isAct?'600 ':''}${isAct?14:11}px "Libre Franklin"`;ctx.textAlign='center';
+      const label=n.name.length>22?n.name.slice(0,20)+'…':n.name;
+      ctx.fillText(label,p.x,p.y-nr-8,180);
+    });
+
+    animId=requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+// Brain click
+canvas.addEventListener('click',e=>{
+  const rect=canvas.getBoundingClientRect();
+  const mx=(e.clientX-rect.left)*(W/rect.width);
+  const my=(e.clientY-rect.top)*(H/rect.height);
+  let closest=null,cd=30;
+  nodes.forEach(n=>{
+    const p=positions[n.id];if(!p)return;
+    const d=Math.hypot(mx-p.x,my-p.y);
+    if(d<cd){closest=n;cd=d;}
+  });
+  if(closest)openPanel(closest);else closePanel();
+});
+
+function openPanel(n){
+  activeNode=n;
+  document.getElementById('npCat').textContent=n.category.toUpperCase();
+  document.getElementById('npName').textContent=n.name;
+  document.getElementById('npTags').textContent=(n.tags||[]).map(t=>'#'+t).join('  ');
+  document.getElementById('npNotes').textContent=n.notes||'No notes.';
+  const linksEl=document.getElementById('npLinks');
+  linksEl.innerHTML='';
+  if(n.links&&n.links.length){
+    linksEl.innerHTML='<div style="font-size:9px;letter-spacing:1px;color:var(--faint);margin-bottom:4px;">CONNECTED TO</div>';
+    n.links.forEach(lid=>{
+      const ln=nodes.find(x=>x.id===lid);
+      if(ln){const d=document.createElement('div');d.textContent='→ '+ln.name;d.onclick=()=>openPanel(ln);linksEl.appendChild(d);}
+    });
+  }
+  document.getElementById('nodePanel').classList.add('open');
+}
+function closePanel(){activeNode=null;document.getElementById('nodePanel').classList.remove('open');}
+
+// Search
+document.getElementById('brainSearch').addEventListener('input',e=>{
+  const q=e.target.value.toLowerCase().trim();
+  searchHits=new Set();
+  if(q)nodes.forEach(n=>{
+    if(n.name.toLowerCase().includes(q)||(n.tags||[]).some(t=>t.includes(q))||(n.notes||'').toLowerCase().includes(q)||n.category.includes(q))
+      searchHits.add(n.id);
+  });
+});
+
+// ═══════════════════════════════════════════
+// CLEANING
+// ═══════════════════════════════════════════
+document.querySelectorAll('.clean-tab').forEach(t=>{
+  t.addEventListener('click',async()=>{
+    document.querySelectorAll('.clean-tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    cleanLoc=t.dataset.cloc;
+    const{data:cl}=await sb.from('cleaning_logs').select('*').eq('log_date',today).eq('location',cleanLoc);
+    cleanState={};
+    if(cl)cl.forEach(c=>{cleanState[cleanLoc+'_'+c.section+'_'+c.task_index]=c.done;});
+    renderClean();
+  });
+});
+
+function renderClean(){
+  const list=document.getElementById('cleanList');
+  list.innerHTML='';
+  const sections=CLEAN_DATA[cleanLoc]||[];
+  let total=0,done=0;
+  sections.forEach(sec=>{
+    const h=document.createElement('div');h.className='clean-section';h.textContent=sec.sec;list.appendChild(h);
+    sec.items.forEach((item,i)=>{
+      total++;
+      const key=cleanLoc+'_'+sec.sec+'_'+i;
+      const isDone=!!cleanState[key];
+      if(isDone)done++;
+      const el=document.createElement('div');
+      el.className='clean-item'+(isDone?' done':'');
+      el.innerHTML=`<div class="ci-box">${isDone?'✓':''}</div><div class="ci-text"><div class="ci-en">${item[0]}</div><div class="ci-es">${item[1]}</div></div>`;
+      el.addEventListener('click',()=>toggleClean(sec.sec,i,key,el));
+      list.appendChild(el);
+    });
+  });
+  const pct=total?Math.round(done/total*100):0;
+  document.getElementById('cleanFill').style.width=pct+'%';
+  document.getElementById('cleanPct').textContent=pct+'%';
+}
+
+async function toggleClean(sec,idx,key,el){
+  const isDone=!cleanState[key];
+  cleanState[key]=isDone;
+  el.className='clean-item'+(isDone?' done':'');
+  el.querySelector('.ci-box').textContent=isDone?'✓':'';
+  renderClean();
+  await sb.from('cleaning_logs').upsert({location:cleanLoc,log_date:today,task_index:idx,section:sec,done:isDone,completed_at:isDone?new Date().toISOString():null},{onConflict:'location,log_date,task_index,section'});
+}
+
+// ═══════════════════════════════════════════
+// DAILY LOG
+// ═══════════════════════════════════════════
+async function loadLogs(){
+  const{data}=await sb.from('daily_logs').select('*').order('created_at',{ascending:false}).limit(50);
+  const list=document.getElementById('logList');
+  list.innerHTML='';
+  if(!data||!data.length){list.innerHTML='<div style="text-align:center;margin-top:60px;color:var(--faint);font-size:12px;">No entries yet. Log repairs, notes, observations.</div>';return;}
+  data.forEach(l=>{
+    const d=document.createElement('div');d.className='log-entry';
+    d.innerHTML=`<div class="log-text">${l.entry}</div><div class="log-meta">${new Date(l.created_at).toLocaleDateString()} · ${new Date(l.created_at).toLocaleTimeString()} · ${l.logged_by||'team'}</div>`;
+    list.appendChild(d);
+  });
+}
+
+document.getElementById('logAdd').addEventListener('click',async()=>{
+  const input=document.getElementById('logInput');
+  if(!input.value.trim())return;
+  await sb.from('daily_logs').insert({entry:input.value.trim()});
+  input.value='';
+  loadLogs();
+});
+document.getElementById('logInput').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('logAdd').click();});
+
+// ═══════════════════════════════════════════
+// KANBAN BOARD
+// ═══════════════════════════════════════════
+const BOARD_COLS=['todo','in_progress','done'];
+const COL_LABELS={todo:'To Do',in_progress:'In Progress',done:'Done'};
+
+async function loadBoard(){
+  const{data}=await sb.from('kanban_cards').select('*').order('created_at',{ascending:true});
+  renderBoard(data||[]);
+}
+
+function renderBoard(cards){
+  const container=document.getElementById('boardContainer');
+  container.innerHTML='';
+  BOARD_COLS.forEach(col=>{
+    const colCards=cards.filter(c=>c.column_name===col);
+    const colEl=document.createElement('div');colEl.className='board-col';
+    colEl.innerHTML=`<div class="board-col-header">${COL_LABELS[col]}<span class="board-col-count">${colCards.length}</span></div>`;
+    const body=document.createElement('div');body.className='board-col-body';
+    colCards.forEach(card=>{
+      const c=document.createElement('div');c.className='board-card';
+      c.innerHTML=`<div class="board-card-title">${card.title}</div><div class="board-card-meta">${card.location||''}${card.due_date?' · due '+card.due_date:''}</div>`;
+      c.addEventListener('click',()=>moveCard(card,col));
+      body.appendChild(c);
+    });
+    const addBtn=document.createElement('button');addBtn.className='board-add';addBtn.textContent='+ Add card';
+    addBtn.addEventListener('click',()=>addCard(col));
+    body.appendChild(addBtn);
+    colEl.appendChild(body);
+    container.appendChild(colEl);
+  });
+}
+
+async function addCard(col){
+  const title=prompt('Card title:');
+  if(!title)return;
+  await sb.from('kanban_cards').insert({title,column_name:col});
+  loadBoard();
+}
+
+async function moveCard(card,currentCol){
+  const nextIdx=BOARD_COLS.indexOf(currentCol)+1;
+  if(nextIdx>=BOARD_COLS.length){
+    if(confirm('Delete completed card "'+card.title+'"?')){
+      await sb.from('kanban_cards').delete().eq('id',card.id);
+    }
+  }else{
+    await sb.from('kanban_cards').update({column_name:BOARD_COLS[nextIdx]}).eq('id',card.id);
+  }
+  loadBoard();
+}
+
+// ═══════════════════════════════════════════
+// AI CHAT
+// ═══════════════════════════════════════════
+const chatInput=document.getElementById('chatInput');
+const chatSend=document.getElementById('chatSend');
+const chatMessages=document.getElementById('chatMessages');
+
+chatInput.addEventListener('input',()=>{chatSend.disabled=!chatInput.value.trim();});
+chatInput.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();askAI();}});
+chatSend.addEventListener('click',askAI);
+
+async function askAI(){
+  const q=chatInput.value.trim();if(!q)return;
+  chatInput.value='';chatSend.disabled=true;
+  const apiKey=localStorage.getItem('nexus_api_key');
+  if(!apiKey){addBubble('Set your Claude API key in Admin settings first.','ai');return;}
+  addBubble(q,'user');
+  const thinkEl=addBubble('thinking...','ai');
+
+  const nodeCtx=nodes.map(n=>`[${n.category}] ${n.name}: ${n.notes}`).join('\n');
+  try{
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,
+        system:`You are NEXUS, the AI brain for a restaurant operator running Suerte, Este, and Toti in Austin TX. Answer concisely from the knowledge base.\n\nKNOWLEDGE BASE:\n${nodeCtx}`,
+        messages:[{role:'user',content:q}]})
+    });
+    const data=await resp.json();
+    const answer=data.content?.filter(b=>b.type==='text').map(b=>b.text).join('\n')||'No answer.';
+    thinkEl.textContent=answer;
+    await sb.from('chat_history').insert({question:q,answer});
+  }catch(e){thinkEl.textContent='Error: '+e.message;}
+}
+
+function addBubble(text,role){
+  const empty=chatMessages.querySelector('.chat-empty');if(empty)empty.remove();
+  const d=document.createElement('div');d.className='chat-bubble chat-'+role;d.textContent=text;
+  d.style.display='block';d.style[role==='user'?'marginLeft':'marginRight']='auto';
+  chatMessages.appendChild(d);chatMessages.scrollTop=chatMessages.scrollHeight;
+  return d;
+}
+
+// ═══════════════════════════════════════════
+// ADMIN
+// ═══════════════════════════════════════════
+document.getElementById('adminBtn').addEventListener('click',()=>{
+  if(isAdmin){isAdmin=false;document.getElementById('adminBtn').classList.remove('on');document.getElementById('ingestTab').style.display='none';return;}
+  document.getElementById('adminModal').style.display='flex';
+});
+
+function tryAdmin(){
+  if(document.getElementById('adminPass').value===ADMIN_PASS){
+    isAdmin=true;
+    document.getElementById('adminBtn').classList.add('on');
+    document.getElementById('adminApiSection').style.display='block';
+    document.getElementById('ingestTab').style.display='';
+    const saved=localStorage.getItem('nexus_api_key');
+    if(saved)document.getElementById('adminApiKey').value=saved;
+    document.getElementById('adminModal').style.display='none';
+    document.getElementById('adminPass').value='';
+  }else{alert('Wrong password.');}
+}
+function closeAdmin(){document.getElementById('adminModal').style.display='none';document.getElementById('adminPass').value='';}
+function saveApiKey(){
+  const k=document.getElementById('adminApiKey').value.trim();
+  if(k){localStorage.setItem('nexus_api_key',k);alert('API key saved.');}
+}
+
+// ═══════════════════════════════════════════
+// AI INGESTION PIPELINE
+// ═══════════════════════════════════════════
+const INGEST_PROMPT=`You are NEXUS, a knowledge extraction engine for a restaurant operations manager running Suerte, Este, and Toti in Austin TX. He repairs ovens, ice machines, troubleshoots plants, manages contractors, and handles facilities.
+
+Extract ALL knowledge from the provided content. Return ONLY valid JSON — no markdown, no backticks, no explanation:
+
+{"nodes":[{"name":"short descriptive name","category":"equipment|parts|contractors|plants|location|procedure|vendor|email","tags":["tag1","tag2","tag3"],"notes":"all relevant details — model numbers, part numbers, phone numbers, prices, dates, procedures, contact info","link_names":["name of existing node if related"]}],"cards":[{"title":"actionable task","description":"details","priority":"high|normal|low","location":"suerte|este|toti|all"}]}
+
+Rules:
+- Every contractor, equipment, part number, procedure = a separate node
+- Be SPECIFIC — include model numbers, phone numbers, prices, dates
+- "cards" are for actionable items (things to do). "nodes" are for knowledge (things to know).
+- If content is not relevant to restaurant operations, still extract any useful knowledge
+- link_names should reference these existing nodes when relevant: ${nodes.map(n=>n.name).join(', ')}`;
+
+async function aiProcess(content,statusEl){
+  const apiKey=localStorage.getItem('nexus_api_key');
+  if(!apiKey){alert('Set your Claude API key in Admin first.');return null;}
+  statusEl.textContent='AI processing...';
+  try{
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,
+        system:INGEST_PROMPT,
+        messages:[{role:'user',content:'Extract knowledge from this content:\n\n'+content}]})
+    });
+    const data=await resp.json();
+    const text=data.content?.filter(b=>b.type==='text').map(b=>b.text).join('')||'';
+    const cleaned=text.replace(/```json|```/g,'').trim();
+    return JSON.parse(cleaned);
+  }catch(e){statusEl.textContent='Error: '+e.message;return null;}
+}
+
+async function saveExtracted(result,statusEl){
+  if(!result)return;
+  let nodeCount=0,cardCount=0;
+
+  // Insert nodes
+  if(result.nodes){
+    for(const n of result.nodes){
+      // Resolve link names to IDs
+      const linkIds=[];
+      if(n.link_names){
+        n.link_names.forEach(lname=>{
+          const found=nodes.find(x=>x.name.toLowerCase()===lname.toLowerCase());
+          if(found)linkIds.push(found.id);
+        });
+      }
+      const{data,error}=await sb.from('nodes').insert({
+        name:n.name,category:n.category||'equipment',
+        tags:n.tags||[],notes:n.notes||'',links:linkIds
+      }).select();
+      if(data&&data[0]){nodes.push(data[0]);nodeCount++;}
+    }
+  }
+
+  // Insert kanban cards
+  if(result.cards){
+    for(const c of result.cards){
+      await sb.from('kanban_cards').insert({
+        title:c.title,description:c.description||'',
+        column_name:'todo',location:c.location||'all',
+        priority:c.priority||'normal',source:'ai-ingest'
+      });
+      cardCount++;
+    }
+  }
+
+  // Refresh brain
+  calcPositions();
+  statusEl.textContent=`Done — ${nodeCount} nodes + ${cardCount} cards created.`;
+  renderResults(result);
+}
+
+function renderResults(result){
+  const el=document.getElementById('ingestResults');
+  let html='';
+  if(result.nodes&&result.nodes.length){
+    html+='<div style="font-size:10px;letter-spacing:1px;color:var(--green);margin:12px 0 6px;">NODES CREATED</div>';
+    result.nodes.forEach(n=>{
+      html+=`<div style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:4px;">
+        <div style="font-size:12px;font-weight:500;">${n.name} <span style="font-size:9px;color:var(--faint);margin-left:6px;">${n.category}</span></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;">${n.notes?.slice(0,120)||''}</div></div>`;
+    });
+  }
+  if(result.cards&&result.cards.length){
+    html+='<div style="font-size:10px;letter-spacing:1px;color:var(--blue);margin:12px 0 6px;">CARDS CREATED</div>';
+    result.cards.forEach(c=>{
+      html+=`<div style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:4px;">
+        <div style="font-size:12px;">${c.title}</div></div>`;
+    });
+  }
+  el.innerHTML=html;
+}
+
+// ─── Paste text ingestion ───
+async function ingestFromText(){
+  const text=document.getElementById('ingestText').value.trim();
+  if(!text)return;
+  const btn=document.getElementById('ingestTextBtn');
+  const status=document.getElementById('ingestStatus');
+  btn.disabled=true;btn.textContent='Processing...';
+  const result=await aiProcess(text,status);
+  await saveExtracted(result,status);
+  btn.disabled=false;btn.textContent='⚡ Process with AI';
+  document.getElementById('ingestText').value='';
+}
+
+// ─── File upload ingestion ───
+document.getElementById('ingestFile').addEventListener('change',async e=>{
+  const file=e.target.files[0];if(!file)return;
+  document.getElementById('ingestFileName').textContent=file.name;
+  const status=document.getElementById('ingestStatus');
+  status.textContent='Reading file...';
+  const text=await file.text();
+  const result=await aiProcess(text.slice(0,15000),status);
+  await saveExtracted(result,status);
+});
+
+// ─── Gmail ingestion ───
+async function ingestFromGmail(){
+  const query=document.getElementById('gmailQuery').value.trim();
+  if(!query)return;
+  const apiKey=localStorage.getItem('nexus_api_key');
+  if(!apiKey){alert('Set your Claude API key in Admin first.');return;}
+  const btn=document.getElementById('gmailBtn');
+  const status=document.getElementById('ingestStatus');
+  btn.disabled=true;btn.textContent='Searching...';
+  status.textContent='Searching Gmail and extracting knowledge...';
+  try{
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',max_tokens:2000,
+        system:INGEST_PROMPT,
+        messages:[{role:'user',content:`Search my Gmail for emails about: "${query}". Read each email found. Then extract ALL knowledge into the JSON format specified in your instructions.`}],
+        mcp_servers:[{type:'url',url:'https://gmail.mcp.claude.com/mcp',name:'gmail'}]
+      })
+    });
+    const data=await resp.json();
+    const text=data.content?.filter(b=>b.type==='text').map(b=>b.text).join('')||'';
+    // Try to find JSON in the response
+    let result=null;
+    const jsonMatch=text.match(/\{[\s\S]*"nodes"[\s\S]*\}/);
+    if(jsonMatch){
+      try{result=JSON.parse(jsonMatch[0]);}catch{}
+    }
+    if(result){
+      await saveExtracted(result,status);
+    }else{
+      // If no JSON, show what AI found and let user process it
+      status.textContent='Gmail results found — processing through AI...';
+      const result2=await aiProcess(text,status);
+      await saveExtracted(result2,status);
+    }
+  }catch(e){status.textContent='Gmail error: '+e.message;}
+  btn.disabled=false;btn.textContent='✉ Search';
+}
+
+// ─── Smart Trello import ───
+async function smartTrelloImport(){
+  const btn=document.getElementById('trelloBtn');
+  const status=document.getElementById('ingestStatus');
+  btn.disabled=true;btn.textContent='Pulling Trello...';
+  status.textContent='Fetching all Trello boards and cards...';
+  try{
+    const resp=await fetch(`https://api.trello.com/1/members/me/boards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`);
+    const boards=await resp.json();
+    let allContent='TRELLO BOARDS AND CARDS:\n\n';
+    for(const board of boards){
+      allContent+=`== BOARD: ${board.name} ==\n`;
+      const cr=await fetch(`https://api.trello.com/1/boards/${board.id}/cards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`);
+      const cards=await cr.json();
+      for(const card of cards){
+        allContent+=`- [${card.closed?'DONE':'OPEN'}] ${card.name}`;
+        if(card.desc)allContent+=` | ${card.desc}`;
+        if(card.due)allContent+=` | Due: ${card.due.split('T')[0]}`;
+        allContent+='\n';
+      }
+      allContent+='\n';
+    }
+    status.textContent=`Pulled ${boards.length} boards. AI processing...`;
+    const result=await aiProcess(allContent,status);
+    await saveExtracted(result,status);
+  }catch(e){status.textContent='Trello error: '+e.message;}
+  btn.disabled=false;btn.textContent='🔄 Smart Import from Trello';
+}
+
+// Old dumb import kept as fallback
+async function importTrello(){
+  smartTrelloImport();
+}
+</script>
+</body>
+</html>
