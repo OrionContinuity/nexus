@@ -129,6 +129,7 @@ input,textarea,select{font-family:inherit;}
     <button class="nav-tab" data-view="clean">Cleaning</button>
     <button class="nav-tab" data-view="log">Log</button>
     <button class="nav-tab" data-view="board">Board</button>
+    <button class="nav-tab" data-view="ingest" id="ingestTab" style="display:none;color:var(--accent);">⚡ Ingest</button>
   </div>
   <button class="nav-admin" id="adminBtn">ADMIN</button>
 </nav>
@@ -195,6 +196,51 @@ input,textarea,select{font-family:inherit;}
   <!-- BOARD -->
   <div class="view" id="boardView" data-view="board">
     <div class="board" id="boardContainer"></div>
+  </div>
+
+  <!-- INGEST (Admin only) -->
+  <div class="view" id="ingestView" data-view="ingest">
+    <div style="flex:1;overflow-y:auto;padding:20px;max-width:700px;margin:0 auto;width:100%;">
+      <div style="font-size:10px;letter-spacing:2px;color:var(--faint);margin-bottom:16px;">KNOWLEDGE INGESTION — AI processes everything into brain nodes</div>
+
+      <!-- Paste text -->
+      <div style="margin-bottom:24px;">
+        <div style="font-size:12px;font-weight:500;margin-bottom:8px;">Paste anything</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Emails, invoices, repair notes, conversations, manuals — AI extracts knowledge and creates nodes.</div>
+        <textarea id="ingestText" placeholder="Paste email, notes, transcript, invoice... anything." style="width:100%;height:120px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-size:12px;font-family:inherit;outline:none;resize:vertical;"></textarea>
+        <button onclick="ingestFromText()" id="ingestTextBtn" style="margin-top:8px;padding:10px 20px;border-radius:8px;border:none;background:var(--accent);color:var(--bg);font-size:12px;font-weight:500;cursor:pointer;">⚡ Process with AI</button>
+      </div>
+
+      <!-- File upload -->
+      <div style="margin-bottom:24px;">
+        <div style="font-size:12px;font-weight:500;margin-bottom:8px;">Upload file</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Drop a .txt, .md, .csv, or .json file. AI reads it and creates nodes.</div>
+        <input type="file" id="ingestFile" accept=".txt,.md,.csv,.json,.html" style="display:none;">
+        <button onclick="document.getElementById('ingestFile').click()" style="padding:10px 20px;border-radius:8px;border:1px dashed var(--border);background:none;color:var(--muted);font-size:12px;cursor:pointer;width:100%;">📄 Choose file</button>
+        <div id="ingestFileName" style="font-size:11px;color:var(--faint);margin-top:4px;"></div>
+      </div>
+
+      <!-- Gmail search -->
+      <div style="margin-bottom:24px;">
+        <div style="font-size:12px;font-weight:500;margin-bottom:8px;">Search Gmail</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Search your inbox. AI reads matching emails and extracts knowledge nodes.</div>
+        <div style="display:flex;gap:8px;">
+          <input id="gmailQuery" placeholder="ice machine repair, contractor invoice..." style="flex:1;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;outline:none;">
+          <button onclick="ingestFromGmail()" id="gmailBtn" style="padding:10px 16px;border-radius:8px;border:none;background:var(--purple);color:var(--bg);font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;">✉ Search</button>
+        </div>
+      </div>
+
+      <!-- Smart Trello import -->
+      <div style="margin-bottom:24px;">
+        <div style="font-size:12px;font-weight:500;margin-bottom:8px;">Smart Trello Import</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Pulls all your Trello cards, AI reads each one and creates knowledge nodes + kanban cards.</div>
+        <button onclick="smartTrelloImport()" id="trelloBtn" style="padding:10px 20px;border-radius:8px;border:none;background:var(--blue);color:var(--bg);font-size:12px;font-weight:500;cursor:pointer;">🔄 Smart Import from Trello</button>
+      </div>
+
+      <!-- Status / Results -->
+      <div id="ingestStatus" style="font-size:11px;color:var(--accent);margin-bottom:12px;"></div>
+      <div id="ingestResults" style="font-size:12px;line-height:1.6;"></div>
+    </div>
   </div>
 
 </div>
@@ -642,7 +688,7 @@ function addBubble(text,role){
 // ADMIN
 // ═══════════════════════════════════════════
 document.getElementById('adminBtn').addEventListener('click',()=>{
-  if(isAdmin){isAdmin=false;document.getElementById('adminBtn').classList.remove('on');return;}
+  if(isAdmin){isAdmin=false;document.getElementById('adminBtn').classList.remove('on');document.getElementById('ingestTab').style.display='none';return;}
   document.getElementById('adminModal').style.display='flex';
 });
 
@@ -651,6 +697,7 @@ function tryAdmin(){
     isAdmin=true;
     document.getElementById('adminBtn').classList.add('on');
     document.getElementById('adminApiSection').style.display='block';
+    document.getElementById('ingestTab').style.display='';
     const saved=localStorage.getItem('nexus_api_key');
     if(saved)document.getElementById('adminApiKey').value=saved;
     document.getElementById('adminModal').style.display='none';
@@ -663,24 +710,198 @@ function saveApiKey(){
   if(k){localStorage.setItem('nexus_api_key',k);alert('API key saved.');}
 }
 
-// Trello import
-async function importTrello(){
-  if(!confirm('Import all Trello cards into the Board?'))return;
+// ═══════════════════════════════════════════
+// AI INGESTION PIPELINE
+// ═══════════════════════════════════════════
+const INGEST_PROMPT=`You are NEXUS, a knowledge extraction engine for a restaurant operations manager running Suerte, Este, and Toti in Austin TX. He repairs ovens, ice machines, troubleshoots plants, manages contractors, and handles facilities.
+
+Extract ALL knowledge from the provided content. Return ONLY valid JSON — no markdown, no backticks, no explanation:
+
+{"nodes":[{"name":"short descriptive name","category":"equipment|parts|contractors|plants|location|procedure|vendor|email","tags":["tag1","tag2","tag3"],"notes":"all relevant details — model numbers, part numbers, phone numbers, prices, dates, procedures, contact info","link_names":["name of existing node if related"]}],"cards":[{"title":"actionable task","description":"details","priority":"high|normal|low","location":"suerte|este|toti|all"}]}
+
+Rules:
+- Every contractor, equipment, part number, procedure = a separate node
+- Be SPECIFIC — include model numbers, phone numbers, prices, dates
+- "cards" are for actionable items (things to do). "nodes" are for knowledge (things to know).
+- If content is not relevant to restaurant operations, still extract any useful knowledge
+- link_names should reference these existing nodes when relevant: ${nodes.map(n=>n.name).join(', ')}`;
+
+async function aiProcess(content,statusEl){
+  const apiKey=localStorage.getItem('nexus_api_key');
+  if(!apiKey){alert('Set your Claude API key in Admin first.');return null;}
+  statusEl.textContent='AI processing...';
+  try{
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,
+        system:INGEST_PROMPT,
+        messages:[{role:'user',content:'Extract knowledge from this content:\n\n'+content}]})
+    });
+    const data=await resp.json();
+    const text=data.content?.filter(b=>b.type==='text').map(b=>b.text).join('')||'';
+    const cleaned=text.replace(/```json|```/g,'').trim();
+    return JSON.parse(cleaned);
+  }catch(e){statusEl.textContent='Error: '+e.message;return null;}
+}
+
+async function saveExtracted(result,statusEl){
+  if(!result)return;
+  let nodeCount=0,cardCount=0;
+
+  // Insert nodes
+  if(result.nodes){
+    for(const n of result.nodes){
+      // Resolve link names to IDs
+      const linkIds=[];
+      if(n.link_names){
+        n.link_names.forEach(lname=>{
+          const found=nodes.find(x=>x.name.toLowerCase()===lname.toLowerCase());
+          if(found)linkIds.push(found.id);
+        });
+      }
+      const{data,error}=await sb.from('nodes').insert({
+        name:n.name,category:n.category||'equipment',
+        tags:n.tags||[],notes:n.notes||'',links:linkIds
+      }).select();
+      if(data&&data[0]){nodes.push(data[0]);nodeCount++;}
+    }
+  }
+
+  // Insert kanban cards
+  if(result.cards){
+    for(const c of result.cards){
+      await sb.from('kanban_cards').insert({
+        title:c.title,description:c.description||'',
+        column_name:'todo',location:c.location||'all',
+        priority:c.priority||'normal',source:'ai-ingest'
+      });
+      cardCount++;
+    }
+  }
+
+  // Refresh brain
+  calcPositions();
+  statusEl.textContent=`Done — ${nodeCount} nodes + ${cardCount} cards created.`;
+  renderResults(result);
+}
+
+function renderResults(result){
+  const el=document.getElementById('ingestResults');
+  let html='';
+  if(result.nodes&&result.nodes.length){
+    html+='<div style="font-size:10px;letter-spacing:1px;color:var(--green);margin:12px 0 6px;">NODES CREATED</div>';
+    result.nodes.forEach(n=>{
+      html+=`<div style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:4px;">
+        <div style="font-size:12px;font-weight:500;">${n.name} <span style="font-size:9px;color:var(--faint);margin-left:6px;">${n.category}</span></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;">${n.notes?.slice(0,120)||''}</div></div>`;
+    });
+  }
+  if(result.cards&&result.cards.length){
+    html+='<div style="font-size:10px;letter-spacing:1px;color:var(--blue);margin:12px 0 6px;">CARDS CREATED</div>';
+    result.cards.forEach(c=>{
+      html+=`<div style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:4px;">
+        <div style="font-size:12px;">${c.title}</div></div>`;
+    });
+  }
+  el.innerHTML=html;
+}
+
+// ─── Paste text ingestion ───
+async function ingestFromText(){
+  const text=document.getElementById('ingestText').value.trim();
+  if(!text)return;
+  const btn=document.getElementById('ingestTextBtn');
+  const status=document.getElementById('ingestStatus');
+  btn.disabled=true;btn.textContent='Processing...';
+  const result=await aiProcess(text,status);
+  await saveExtracted(result,status);
+  btn.disabled=false;btn.textContent='⚡ Process with AI';
+  document.getElementById('ingestText').value='';
+}
+
+// ─── File upload ingestion ───
+document.getElementById('ingestFile').addEventListener('change',async e=>{
+  const file=e.target.files[0];if(!file)return;
+  document.getElementById('ingestFileName').textContent=file.name;
+  const status=document.getElementById('ingestStatus');
+  status.textContent='Reading file...';
+  const text=await file.text();
+  const result=await aiProcess(text.slice(0,15000),status);
+  await saveExtracted(result,status);
+});
+
+// ─── Gmail ingestion ───
+async function ingestFromGmail(){
+  const query=document.getElementById('gmailQuery').value.trim();
+  if(!query)return;
+  const apiKey=localStorage.getItem('nexus_api_key');
+  if(!apiKey){alert('Set your Claude API key in Admin first.');return;}
+  const btn=document.getElementById('gmailBtn');
+  const status=document.getElementById('ingestStatus');
+  btn.disabled=true;btn.textContent='Searching...';
+  status.textContent='Searching Gmail and extracting knowledge...';
+  try{
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',max_tokens:2000,
+        system:INGEST_PROMPT,
+        messages:[{role:'user',content:`Search my Gmail for emails about: "${query}". Read each email found. Then extract ALL knowledge into the JSON format specified in your instructions.`}],
+        mcp_servers:[{type:'url',url:'https://gmail.mcp.claude.com/mcp',name:'gmail'}]
+      })
+    });
+    const data=await resp.json();
+    const text=data.content?.filter(b=>b.type==='text').map(b=>b.text).join('')||'';
+    // Try to find JSON in the response
+    let result=null;
+    const jsonMatch=text.match(/\{[\s\S]*"nodes"[\s\S]*\}/);
+    if(jsonMatch){
+      try{result=JSON.parse(jsonMatch[0]);}catch{}
+    }
+    if(result){
+      await saveExtracted(result,status);
+    }else{
+      // If no JSON, show what AI found and let user process it
+      status.textContent='Gmail results found — processing through AI...';
+      const result2=await aiProcess(text,status);
+      await saveExtracted(result2,status);
+    }
+  }catch(e){status.textContent='Gmail error: '+e.message;}
+  btn.disabled=false;btn.textContent='✉ Search';
+}
+
+// ─── Smart Trello import ───
+async function smartTrelloImport(){
+  const btn=document.getElementById('trelloBtn');
+  const status=document.getElementById('ingestStatus');
+  btn.disabled=true;btn.textContent='Pulling Trello...';
+  status.textContent='Fetching all Trello boards and cards...';
   try{
     const resp=await fetch(`https://api.trello.com/1/members/me/boards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`);
     const boards=await resp.json();
-    let imported=0;
+    let allContent='TRELLO BOARDS AND CARDS:\n\n';
     for(const board of boards){
+      allContent+=`== BOARD: ${board.name} ==\n`;
       const cr=await fetch(`https://api.trello.com/1/boards/${board.id}/cards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`);
       const cards=await cr.json();
       for(const card of cards){
-        await sb.from('kanban_cards').insert({title:card.name,description:card.desc||'',column_name:card.closed?'done':'todo',source:'trello',due_date:card.due?card.due.split('T')[0]:null});
-        imported++;
+        allContent+=`- [${card.closed?'DONE':'OPEN'}] ${card.name}`;
+        if(card.desc)allContent+=` | ${card.desc}`;
+        if(card.due)allContent+=` | Due: ${card.due.split('T')[0]}`;
+        allContent+='\n';
       }
+      allContent+='\n';
     }
-    alert(`Imported ${imported} cards from Trello.`);
-    loadBoard();
-  }catch(e){alert('Trello error: '+e.message);}
+    status.textContent=`Pulled ${boards.length} boards. AI processing...`;
+    const result=await aiProcess(allContent,status);
+    await saveExtracted(result,status);
+  }catch(e){status.textContent='Trello error: '+e.message;}
+  btn.disabled=false;btn.textContent='🔄 Smart Import from Trello';
+}
+
+// Old dumb import kept as fallback
+async function importTrello(){
+  smartTrelloImport();
 }
 </script>
 </body>
