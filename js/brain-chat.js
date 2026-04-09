@@ -413,7 +413,11 @@ After the troubleshoot steps, ask the person to add more details and optionally 
         const words=q.split(/\s+/).filter(w=>w.length>2).slice(0,3).join(' ');
         addB(`💡 Low confidence. Try: "look up ${words}" for a web search.`,'ai');
       }
-      try{await NX.sb.from('chat_history').insert({question:q,answer:ans,session_id:SESSION_ID});}catch(e){}
+      // Auto-create nodes if AI response has substantial new info
+      if(cleanAns.length>80&&confidence!=='low'){
+        autoExtractNodes(q,cleanAns);
+      }
+      try{await NX.sb.from('chat_history').insert({question:q,answer:cleanAns,session_id:SESSION_ID});}catch(e){}
     }catch(e){clearInterval(searchDots);th.textContent='Error: '+(e.message||'Unknown');th.classList.remove('chat-thinking');}
   }
 
@@ -454,10 +458,44 @@ After the troubleshoot steps, ask the person to add more details and optionally 
   // Voice
   let pv=null;
   const VOICES=[{id:'pNInz6obpgDQGcFmaJgB',name:'Adam'},{id:'EXAVITQu4vr4xnSDxMaL',name:'Bella'},{id:'onwK4e9ZLuTAKqWW03F9',name:'Daniel'},{id:'XB0fDUnXU5powFXDhCwa',name:'Charlotte'},{id:'TX3LPaxmHKxFdv7VOQHJ',name:'Liam'},{id:'LcfcDJNUP1GQjkzn1xUU',name:'Emily'},{id:'yoZ06aMxZJJ28mfd3POQ',name:'Sam'},{id:'ThT5KcBeYPX3keUQqHPh',name:'Dorothy'},{id:'VR6AewLTigWG4xSOukaG',name:'Arnold'},{id:'pqHfZKP75CvOlQylNhV4',name:'Bill'},{id:'ErXwobaYiN019PkySvjV',name:'Antoni'},{id:'AZnzlk1XvdvUeBnXmlld',name:'Domi'},{id:'D38z5RcWu1voky8WS1ja',name:'Fin'},{id:'jsCqWAovK2LkecY7zXl4',name:'Freya'},{id:'jBpfuIE2acCO8z3wKNLl',name:'Gigi'},{id:'oWAxZDx7w5VEj9dCyTzz',name:'Grace'},{id:'SOYHLrjzK2X1ezoPC6cr',name:'Harry'},{id:'ZQe5CZNOzWyzPSCn5a3c',name:'James'},{id:'TxGEqnHWrfWFTfGW9XjX',name:'Josh'},{id:'21m00Tcm4TlvDq8ikWAM',name:'Rachel'}];
-  let cvi=parseInt(NX.config?.voice_idx??localStorage.getItem('nexus_voice_idx')?? '0')%VOICES.length;
+  function getVoiceIdx(){return parseInt((NX.config&&NX.config.voice_idx!=null)?NX.config.voice_idx:(localStorage.getItem('nexus_voice_idx')||'0'))%VOICES.length;}
+  let cvi=0;
   function setupVoice(){document.getElementById('micBtn').addEventListener('click',toggleMic);const vb=document.getElementById('voiceBtn');let pt=null;vb.addEventListener('click',()=>{voiceOn=!voiceOn;vb.classList.toggle('on',voiceOn);});vb.addEventListener('pointerdown',()=>{pt=setTimeout(()=>{cvi=(cvi+1)%VOICES.length;localStorage.setItem('nexus_voice_idx',cvi);voiceOn=true;vb.classList.add('on');speak(`${VOICES[cvi].name} here.`);pt=null;},600);});vb.addEventListener('pointerup',()=>{if(pt)clearTimeout(pt);});vb.addEventListener('pointerleave',()=>{if(pt)clearTimeout(pt);});if('speechSynthesis'in window){const pk=()=>{const v=speechSynthesis.getVoices();for(const n of['Samantha','Karen','Daniel','Microsoft Aria']){const f=v.find(x=>x.name.includes(n));if(f){pv=f;break;}}};pk();speechSynthesis.onvoiceschanged=pk;}}
   function toggleMic(){const b=document.getElementById('micBtn');if(recognition){recognition.stop();recognition=null;b.classList.remove('recording');return;}if(!('webkitSpeechRecognition'in window||'SpeechRecognition'in window))return;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;recognition=new SR();recognition.continuous=false;recognition.interimResults=false;recognition.onresult=e=>{document.getElementById('chatInput').value=e.results[0][0].transcript;document.getElementById('chatSend').disabled=false;b.classList.remove('recording');recognition=null;askAI();};recognition.onerror=()=>{b.classList.remove('recording');recognition=null;};recognition.onend=()=>{b.classList.remove('recording');recognition=null;};b.classList.add('recording');recognition.start();}
-  async function speak(text){const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.45,similarity_boost:.78,style:.35,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl),a=new Audio(u);a.play();a.onended=()=>URL.revokeObjectURL(u);return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=.95;speechSynthesis.speak(u);}
+  async function speak(text){cvi=getVoiceIdx();const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.45,similarity_boost:.78,style:.35,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl),a=new Audio(u);a.play();a.onended=()=>URL.revokeObjectURL(u);return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=.95;speechSynthesis.speak(u);}
+
+  // Auto-extract nodes silently from AI responses
+  async function autoExtractNodes(question,answer){
+    try{
+      const existing=NX.nodes.map(n=>n.name.toLowerCase());
+      const result=await NX.askClaude(
+        `You check if this AI response contains NEW knowledge worth saving for restaurant ops (Suerte, Este, Bar Toti).
+Only extract if there's concrete, factual info — names, specs, contacts, procedures.
+Do NOT extract vague statements, opinions, or info already in this list: ${existing.slice(0,100).join(', ')}
+If nothing new: return {"nodes":[]}
+If new info: return {"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"..."}]}
+Return ONLY JSON.`,
+        [{role:'user',content:`Q: ${question}\nA: ${answer}`}],400);
+      let json=result.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
+      const s=json.indexOf('{'),e=json.lastIndexOf('}');
+      if(s===-1||e<=s)return;
+      json=json.slice(s,e+1);const parsed=JSON.parse(json);
+      if(!parsed.nodes||!parsed.nodes.length)return;
+      const vc=['equipment','contractors','vendors','procedure','projects','people','systems','parts','location'];
+      let created=0;
+      for(const n of parsed.nodes){
+        const nm=(n.name||'').trim();if(!nm||nm.length<2)continue;
+        if(existing.includes(nm.toLowerCase()))continue;
+        const{error}=await NX.sb.from('nodes').insert({
+          name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'people',
+          tags:Array.isArray(n.tags)?n.tags.slice(0,10):[],notes:(n.notes||'').slice(0,2000),
+          links:[],access_count:1,source_emails:[{from:'Auto-extract',subject:question.slice(0,100),date:new Date().toISOString().split('T')[0]}]
+        });
+        if(!error){created++;existing.push(nm.toLowerCase());}
+      }
+      if(created){await NX.loadNodes();addB(`💾 Auto-saved ${created} node${created>1?'s':''} from this conversation.`,'ai');}
+    }catch(e){}
+  }
 
   NX.brain.initChat=setupChat;
 })();
