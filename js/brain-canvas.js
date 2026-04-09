@@ -14,7 +14,7 @@
     W:0,H:0,canvas,ctx
   };
 
-  const REP=1200,ATT=0.001,LINK=0.003,CPULL=0.000005,DAMP=0.965,MAXV=2;
+  const REP=1200,ATT=0.001,LINK=0.003,CPULL=0.000005,DAMP=0.975,MAXV=1.5;
   const IDC=250,IDT=140,IDL=120,BR=9,AR=18,SR2=14;
   const CC={location:{r:220,g:186,b:140},equipment:{r:120,g:160,b:210},procedure:{r:140,g:175,b:120},contractors:{r:210,g:148,b:120},vendors:{r:170,g:140,b:210},projects:{r:210,g:190,b:120},systems:{r:120,g:210,b:190},parts:{r:180,g:158,b:158},people:{r:180,g:160,b:210}};
   function cc(cat,a){const c=CC[cat]||CC.equipment;return`rgba(${c.r},${c.g},${c.b},${a})`;}
@@ -60,11 +60,30 @@
       for(let li=0;li<a.links.length;li++){const b=state.linkMap[a.links[li]];if(!b)continue;let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDL)*LINK;a.vy+=dy/d*(d-IDL)*LINK;}
       const nA=Math.min(a.access/60,1);a.vx+=(cx-a.x)*CPULL*(0.3+nA*0.7);a.vy+=(cy-a.y)*CPULL*(0.3+nA*0.7);
       const cdist=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-cy)*(a.y-cy))||1;
-      // Black hole slingshot — wider zone, flung before touching
+      // Black hole slingshot — x10 force
       let slung=false;
-      if(cdist<130){const sling=25*(1-cdist/130);a.vx+=(a.x-cx)/cdist*sling;a.vy+=(a.y-cy)/cdist*sling;slung=true;}
-      const orbitSpeed=0.35/(1+cdist*0.001)*(Object.keys(state.catMap).indexOf(a.cat)%2===0?1:-1);
+      if(cdist<130){const sling=250*(1-cdist/130);a.vx+=(a.x-cx)/cdist*sling;a.vy+=(a.y-cy)/cdist*sling;slung=true;}
+      // Orbital rotation — strong
+      const orbitSpeed=0.6/(1+cdist*0.001)*(Object.keys(state.catMap).indexOf(a.cat)%2===0?1:-1);
       a.vx+=-(a.y-cy)/cdist*orbitSpeed;a.vy+=(a.x-cx)/cdist*orbitSpeed;
+      // Magnetic poles — north and south create figure-8 flow
+      const poleOffset=H*0.3;
+      const northY=cy-poleOffset,southY=cy+poleOffset;
+      const toNorth=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-northY)*(a.y-northY))||1;
+      const toSouth=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-southY)*(a.y-southY))||1;
+      const poleStrength=0.08;
+      // Pull toward nearest pole, creating circulation
+      if(a.y<cy){
+        a.vx+=(cx-a.x)/toNorth*poleStrength*0.3;
+        a.vy+=(northY-a.y)/toNorth*poleStrength;
+      }else{
+        a.vx+=(cx-a.x)/toSouth*poleStrength*0.3;
+        a.vy+=(southY-a.y)/toSouth*poleStrength;
+      }
+      // Gentle equatorial push outward — creates the bulge
+      if(Math.abs(a.y-cy)<poleOffset*0.3){
+        a.vx+=(a.x-cx)/cdist*0.05;
+      }
       // Gentle jitter
       a.vx+=(Math.random()-0.5)*0.04;a.vy+=(Math.random()-0.5)*0.04;
       // Rare gentle drift
