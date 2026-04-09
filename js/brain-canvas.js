@@ -48,8 +48,13 @@
     for(let i=0;i<len;i++){const a=particles[i];
       if(ih&&Math.hypot(a.x-state.hoverNode.x,a.y-state.hoverNode.y)<100){a.vx*=0.05;a.vy*=0.05;continue;}
       const gx=Math.floor(a.x/CELL)+500,gy=Math.floor(a.y/CELL)+500;
-      // Soft collision + medium-range spread
-      for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j<=i)continue;const b=particles[j];let dx=a.x-b.x,dy=a.y-b.y,dS=dx*dx+dy*dy;if(dS>40000)continue;let d=Math.sqrt(dS)||1;const minDist=BR*2.2;if(d<minDist){const push=(minDist-d)*0.3;a.vx+=dx/d*push;a.vy+=dy/d*push;b.vx-=dx/d*push;b.vy-=dy/d*push;}else{const spread=200/(d*d);a.vx+=dx/d*spread;a.vy+=dy/d*spread;b.vx-=dx/d*spread;b.vy-=dy/d*spread;}}}
+      // Soft collision + spread — with angular noise to prevent grid patterns
+      for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j<=i)continue;const b=particles[j];let dx=a.x-b.x,dy=a.y-b.y,dS=dx*dx+dy*dy;if(dS>40000)continue;let d=Math.sqrt(dS)||1;
+        // Add angular noise — rotate push direction slightly to break grid
+        const angle=(Math.sin(a.id*7.3+b.id*3.1)*0.4);
+        const ndx=(dx*Math.cos(angle)-dy*Math.sin(angle))/d;
+        const ndy=(dx*Math.sin(angle)+dy*Math.cos(angle))/d;
+        const minDist=BR*2.2;if(d<minDist){const push=(minDist-d)*0.3;a.vx+=ndx*push;a.vy+=ndy*push;b.vx-=ndx*push;b.vy-=ndy*push;}else{const spread=200/(d*d);a.vx+=ndx*spread;a.vy+=ndy*spread;b.vx-=ndx*spread;b.vy-=ndy*spread;}}}
       const sc=state.catMap[a.cat];if(sc){const step=sc.length>30?Math.ceil(sc.length/30):1;for(let ci=0;ci<sc.length;ci+=step){const j=sc[ci];if(j===i)continue;const b=particles[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDC)*ATT;a.vy+=dy/d*(d-IDC)*ATT;}}
       const aT=state.tagSets[i];if(aT&&aT.size>0){for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j===i)continue;const bT=state.tagSets[j];if(!bT)continue;let sh=0;for(const t of aT)if(bT.has(t))sh++;if(!sh)continue;const b=particles[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDT)*ATT*sh*1.2;a.vy+=dy/d*(d-IDT)*ATT*sh*1.2;}}}
       for(let li=0;li<a.links.length;li++){const b=state.linkMap[a.links[li]];if(!b)continue;let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDL)*LINK;a.vy+=dy/d*(d-IDL)*LINK;}
@@ -58,8 +63,8 @@
       if(cdist<160){const cf=(160-cdist)*0.1;a.vx+=(a.x-cx)/cdist*cf;a.vy+=(a.y-cy)/cdist*cf;}
       const orbitSpeed=0.15/(1+cdist*0.002)*(Object.keys(state.catMap).indexOf(a.cat)%2===0?1:-1);
       a.vx+=-(a.y-cy)/cdist*orbitSpeed;a.vy+=(a.x-cx)/cdist*orbitSpeed;
-      // Random jitter — nodes feel alive
-      a.vx+=(Math.random()-0.5)*0.08;a.vy+=(Math.random()-0.5)*0.08;
+      // Random jitter — stronger to break grid patterns
+      a.vx+=(Math.random()-0.5)*0.2;a.vy+=(Math.random()-0.5)*0.2;
       // Occasional hop
       if(Math.random()<0.002){a.vx+=(Math.random()-0.5)*3;a.vy+=(Math.random()-0.5)*3;}
       // Breathing between linked nodes
@@ -125,7 +130,7 @@
       const pulse=0.7+0.3*Math.sin(time*1.2+a.id*0.8);
       const nr=(act?AR:hit?SR2:BR)*pulse;
       ctx.beginPath();ctx.arc(a.x,a.y,nr*2.2,0,Math.PI*2);
-      ctx.fillStyle=`rgba(212,182,138,${(act?0.06:hit?0.04:0.015)*pulse})`;ctx.fill();
+      ctx.fillStyle=`rgba(212,182,138,${(act?0.1:hit?0.07:0.03)*pulse})`;ctx.fill();
     }
     // Pass 2: Core + ring
     for(let i=0;i<particles.length;i++){const a=particles[i];
@@ -139,7 +144,7 @@
       const coreAlpha=act?0.9:hit?0.8:dim?0.04:0.4;
       ctx.beginPath();ctx.arc(wx,wy,nr,0,Math.PI*2);
       ctx.fillStyle=`rgba(245,240,230,${coreAlpha*pulse})`;ctx.fill();
-      ctx.strokeStyle=`rgba(212,182,138,${(act?0.5:hit?0.35:dim?0.02:0.12)*pulse})`;
+      ctx.strokeStyle=`rgba(212,182,138,${(act?0.6:hit?0.45:dim?0.03:0.2)*pulse})`;
       ctx.lineWidth=act?1.5:0.5;ctx.stroke();
       // Dark label inside node
       const sr=nr*t.scale;if(sr<6&&!hit&&!act)continue;if(dim)continue;
