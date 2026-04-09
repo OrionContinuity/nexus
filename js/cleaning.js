@@ -148,6 +148,7 @@ function addTaskUI(){
 function render(){
   const list=document.getElementById('cleanList');list.innerHTML='';
   const secs=getData(loc);
+  const lang=NX.i18n?NX.i18n.getLang():'en';
   let dailyTotal=0,dailyDone=0;
 
   secs.forEach((sec,si)=>{
@@ -208,7 +209,7 @@ function render(){
         if(hist){const daysAgo=daysBetween(hist.date,today);lastInfo=`<div class="ci-last">Last: ${daysAgoText(daysAgo)}</div>`;}
         else{lastInfo='<div class="ci-last ci-never">Never done</div>';}
       }
-      it.innerHTML=`<div class="ci-box">${d?'✓':''}</div><div><div class="ci-en">${item[0]}</div><div class="ci-es">${item[1]}</div>${lastInfo}</div>`;
+      it.innerHTML=`<div class="ci-box">${d?'✓':''}</div><div><div class="ci-primary">${lang==='es'?item[0]:item[1]}</div><div class="ci-secondary">${lang==='es'?item[1]:item[0]}</div>${lastInfo}</div>`;
       // Delete button for custom tasks
       if(item[2]){
         const del=document.createElement('button');del.className='clean-item-del';del.textContent='✕';
@@ -262,7 +263,7 @@ function renderExtras(list){
 
   extras.forEach((ex,i)=>{
     const it=document.createElement('div');it.className='clean-item done clean-item-custom';
-    it.innerHTML=`<div class="ci-box" style="color:#39ff14">✓</div><div><div class="ci-en">${ex.en}</div><div class="ci-es">${ex.es}</div><div class="ci-last">${ex.time||''}</div></div>`;
+    it.innerHTML=`<div class="ci-box" style="color:#39ff14">✓</div><div><div class="ci-primary">${NX.i18n&&NX.i18n.getLang()==='es'?ex.es:ex.en}</div><div class="ci-secondary">${NX.i18n&&NX.i18n.getLang()==='es'?ex.en:ex.es}</div><div class="ci-last">${ex.time||''}</div></div>`;
     const del=document.createElement('button');del.className='clean-item-del';del.textContent='✕';
     del.addEventListener('click',(e)=>{e.stopPropagation();const ext=getExtrasToday();ext.splice(i,1);saveExtrasToday(ext);render();});
     it.appendChild(del);body.appendChild(it);
