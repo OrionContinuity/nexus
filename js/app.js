@@ -1,180 +1,159 @@
 /* ═══════════════════════════════════════════
-   NEXUS — App Orchestrator (app.js)
-   Initializes Supabase, handles routing,
-   lazy-loads modules on demand.
-   NO API KEYS IN CODE — all keys via Admin.
+   NEXUS v10 — PIN Auth + Supabase Config
+   Keys in DB, not localStorage. PIN login.
+   Roles: admin, manager, staff
    ═══════════════════════════════════════════ */
 
 const NX = {
-  // ─── Config (non-secret only) ───
+  // Supabase (public, non-secret)
   SUPA_URL: 'https://oprsthfxqrdbwdvommpw.supabase.co',
   SUPA_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcnN0aGZ4cXJkYndkdm9tbXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MDU2MzMsImV4cCI6MjA5MTE4MTYzM30.1Yy5BNXWy19Xzdt-ZdcoF0_MF6vvr1rYN5mcDsRYSWY',
-  ADMIN_PASS: 'orion',
+  GOOGLE_CLIENT_ID: '48632479959-j2beg9hsq6sb4dddtkr846kl6gnu8lqu.apps.googleusercontent.com',
 
-  // ─── Shared State ───
-  sb: null,
+  // Runtime state
+  sb: null, nodes: [], today: new Date().toISOString().split('T')[0],
+  modules: {}, loaded: {}, brain: null,
+
+  // Auth state
+  currentUser: null, // {id, name, pin, role, location}
+  config: null,      // {anthropic_key, elevenlabs_key, ...}
+
+  // Key getters — from Supabase config (memory), fallback to localStorage
+  getApiKey() { return this.config?.anthropic_key || localStorage.getItem('nexus_api_key') || ''; },
+  getElevenLabsKey() { return this.config?.elevenlabs_key || localStorage.getItem('nexus_eleven_key') || ''; },
+  getGoogleClientId() { return this.config?.google_client_id || localStorage.getItem('nexus_google_client_id') || this.GOOGLE_CLIENT_ID; },
+  getTrelloKey() { return this.config?.trello_key || localStorage.getItem('nexus_trello_key') || ''; },
+  getTrelloToken() { return this.config?.trello_token || localStorage.getItem('nexus_trello_token') || ''; },
+  getModel() { return this.config?.model || localStorage.getItem('nexus_model') || 'claude-sonnet-4-20250514'; },
+
+  // Roles
   isAdmin: false,
-  nodes: [],
-  today: new Date().toISOString().split('T')[0],
+  isManager: false,
+  isStaff: false,
 
-  // ─── Module registry ───
-  modules: {},
-  loaded: {},
-  brain: null,
-
-  // ─── Key helpers (all from localStorage) ───
-  getApiKey() { return localStorage.getItem('nexus_api_key') || ''; },
-  getElevenLabsKey() { return localStorage.getItem('nexus_eleven_key') || ''; },
-  getGoogleClientId() { return localStorage.getItem('nexus_google_client_id') || '48632479959-j2beg9hsq6sb4dddtkr846kl6gnu8lqu.apps.googleusercontent.com'; },
-  getTrelloKey() { return localStorage.getItem('nexus_trello_key') || ''; },
-  getTrelloToken() { return localStorage.getItem('nexus_trello_token') || ''; },
-  getModel() { return localStorage.getItem('nexus_model') || 'claude-sonnet-4-20250514'; },
-
-  // ─── Google Drive Key Sync ───
-  // Backs up all API keys to Google Drive appDataFolder (hidden, app-only)
-  async driveBackupKeys() {
-    const token = localStorage.getItem('nexus_drive_token');
-    if (!token) throw new Error('Not connected to Google Drive');
-    const config = {
-      api_key: this.getApiKey(),
-      eleven_key: this.getElevenLabsKey(),
-      google_client_id: this.getGoogleClientId(),
-      trello_key: this.getTrelloKey(),
-      trello_token: this.getTrelloToken(),
-      model: this.getModel(),
-      voice_idx: localStorage.getItem('nexus_voice_idx') || '0',
-      admin_pass: localStorage.getItem('nexus_admin_pass') || '',
-      backed_up: new Date().toISOString()
-    };
-    // Check if file exists
-    const searchR = await fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%27nexus-config.json%27&fields=files(id)', {
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
-    const searchD = await searchR.json();
-    const existingId = searchD.files && searchD.files.length ? searchD.files[0].id : null;
-
-    if (existingId) {
-      // Update existing file
-      await fetch('https://www.googleapis.com/upload/drive/v3/files/' + existingId + '?uploadType=media', {
-        method: 'PATCH',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify(config)
-      });
-    } else {
-      // Create new file in appDataFolder
-      const metadata = { name: 'nexus-config.json', parents: ['appDataFolder'] };
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-      form.append('file', new Blob([JSON.stringify(config)], { type: 'application/json' }));
-      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
-        body: form
-      });
-    }
-    return true;
-  },
-
-  async driveRestoreKeys() {
-    const token = localStorage.getItem('nexus_drive_token');
-    if (!token) throw new Error('Not connected to Google Drive');
-    const searchR = await fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%27nexus-config.json%27&fields=files(id)', {
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
-    const searchD = await searchR.json();
-    if (!searchD.files || !searchD.files.length) throw new Error('No backup found on Drive');
-    const fileR = await fetch('https://www.googleapis.com/drive/v3/files/' + searchD.files[0].id + '?alt=media', {
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
-    const config = await fileR.json();
-    if (config.api_key) localStorage.setItem('nexus_api_key', config.api_key);
-    if (config.eleven_key) localStorage.setItem('nexus_eleven_key', config.eleven_key);
-    if (config.google_client_id) localStorage.setItem('nexus_google_client_id', config.google_client_id);
-    if (config.trello_key) localStorage.setItem('nexus_trello_key', config.trello_key);
-    if (config.trello_token) localStorage.setItem('nexus_trello_token', config.trello_token);
-    if (config.model) localStorage.setItem('nexus_model', config.model);
-    if (config.voice_idx) localStorage.setItem('nexus_voice_idx', config.voice_idx);
-    return config;
-  },
-
-  driveConnect() {
-    const clientId = this.getGoogleClientId();
-    if (!clientId) { alert('Add Google OAuth Client ID first in Admin'); return; }
-    const doConnect = () => {
-      const tc = google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: 'https://www.googleapis.com/auth/drive.appdata',
-        callback: (r) => {
-          if (r.access_token) {
-            localStorage.setItem('nexus_drive_token', r.access_token);
-            localStorage.setItem('nexus_drive_expiry', String(Date.now() + 55 * 60 * 1000));
-            const s = document.getElementById('driveStatus');
-            if (s) { s.textContent = '✓ Connected to Drive'; s.style.color = '#39ff14'; }
-          }
-        }
-      });
-      tc.requestAccessToken();
-    };
-    if (window.google?.accounts?.oauth2) { doConnect(); }
-    else {
-      const s = document.createElement('script');
-      s.src = 'https://accounts.google.com/gsi/client';
-      s.onload = doConnect;
-      document.head.appendChild(s);
-    }
-  },
-
-  // ─── Persistent Memory: fetch relevant past conversations ───
+  // ─── Persistent Memory ───
   async fetchMemory(question) {
     try {
-      const { data } = await this.sb.from('chat_history')
-        .select('question,answer,created_at')
-        .order('created_at', { ascending: false })
-        .limit(50);
+      const { data } = await this.sb.from('chat_history').select('question,answer,created_at').order('created_at', { ascending: false }).limit(50);
       if (!data || !data.length) return '';
-      // Score past conversations by relevance to current question
       const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
       const scored = data.map(row => {
         const text = ((row.question || '') + ' ' + (row.answer || '')).toLowerCase();
-        let score = 0;
-        words.forEach(w => { if (text.includes(w)) score++; });
+        let score = 0; words.forEach(w => { if (text.includes(w)) score++; });
         return { row, score };
       }).filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, 5);
       if (!scored.length) return '';
-      return '\n\nPAST CONVERSATIONS (your memory):\n' + scored.map(s => {
+      return '\n\nPAST CONVERSATIONS:\n' + scored.map(s => {
         const date = new Date(s.row.created_at).toLocaleDateString();
         return `[${date}] Q: ${s.row.question}\nA: ${(s.row.answer || '').slice(0, 200)}`;
       }).join('\n\n');
     } catch (e) { return ''; }
   },
 
-  // ─── Track node access: increment access_count in Supabase ───
   async trackAccess(nodeIds) {
     if (!nodeIds || !nodeIds.length) return;
     for (const id of nodeIds.slice(0, 10)) {
       try {
-        const node = this.nodes.find(n => n.id === id);
-        if (!node) continue;
-        const newCount = (node.access_count || 0) + 1;
-        node.access_count = newCount;
-        await this.sb.from('nodes').update({ access_count: newCount }).eq('id', id);
+        const node = this.nodes.find(n => n.id === id); if (!node) continue;
+        const nc = (node.access_count || 0) + 1; node.access_count = nc;
+        await this.sb.from('nodes').update({ access_count: nc }).eq('id', id);
       } catch (e) { }
     }
   },
 
-  // ─── Initialize ───
-  init() {
-    this.sb = supabase.createClient(this.SUPA_URL, this.SUPA_KEY);
-    // Auto-restore keys from Drive if none locally
-    const driveToken = localStorage.getItem('nexus_drive_token');
-    const driveExpiry = localStorage.getItem('nexus_drive_expiry');
-    if (!this.getApiKey() && driveToken && driveExpiry && Date.now() < parseInt(driveExpiry)) {
-      this.driveRestoreKeys().then((config) => {
-        console.log('NEXUS: Keys auto-restored from Drive backup (' + config.backed_up + ')');
-      }).catch(() => {});
+  async loadNodes() {
+    try {
+      let all = [], offset = 0;
+      while (true) {
+        const { data } = await this.sb.from('nodes').select('*').range(offset, offset + 999);
+        if (!data || !data.length) break;
+        all = all.concat(data); offset += data.length;
+        if (data.length < 1000) break;
+      }
+      this.nodes = all;
+    } catch (e) { this.nodes = []; }
+  },
+
+  // ═══ PIN AUTH ═══
+  setupPinScreen() {
+    let pin = '';
+    const display = document.getElementById('pinDisplay');
+    const circles = display.querySelectorAll('.pin-circle');
+    const error = document.getElementById('pinError');
+    const userEl = document.getElementById('pinUser');
+
+    const updateDisplay = () => {
+      circles.forEach((c, i) => c.classList.toggle('filled', i < pin.length));
+    };
+
+    document.querySelectorAll('.pin-key[data-val]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (pin.length >= 4) return;
+        pin += btn.dataset.val;
+        updateDisplay();
+        if (pin.length === 4) this.authenticatePin(pin, error, userEl, () => { pin = ''; updateDisplay(); });
+      });
+    });
+
+    document.getElementById('pinDel').addEventListener('click', () => {
+      pin = pin.slice(0, -1); updateDisplay(); error.textContent = '';
+    });
+
+    // Check if user was previously logged in (session persistence)
+    const savedUser = localStorage.getItem('nexus_current_user');
+    if (savedUser) {
+      try {
+        const u = JSON.parse(savedUser);
+        this.currentUser = u;
+        this.applyRole(u.role);
+        this.loadConfigAndStart();
+        return;
+      } catch (e) { localStorage.removeItem('nexus_current_user'); }
     }
+  },
+
+  async authenticatePin(pin, errorEl, userEl, resetFn) {
+    try {
+      const { data } = await this.sb.from('nexus_users').select('*').eq('pin', pin).single();
+      if (!data) { errorEl.textContent = 'Invalid PIN'; errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500); resetFn(); return; }
+      this.currentUser = data;
+      localStorage.setItem('nexus_current_user', JSON.stringify(data));
+      userEl.textContent = `Welcome, ${data.name}`;
+      userEl.classList.add('visible');
+      this.applyRole(data.role);
+      setTimeout(() => this.loadConfigAndStart(), 600);
+    } catch (e) { errorEl.textContent = 'Connection error'; resetFn(); }
+  },
+
+  applyRole(role) {
+    this.isAdmin = role === 'admin';
+    this.isManager = role === 'manager' || role === 'admin';
+    this.isStaff = true;
+  },
+
+  async loadConfigAndStart() {
+    // Load config from Supabase
+    try {
+      const { data } = await this.sb.from('nexus_config').select('*').eq('id', 1).single();
+      if (data) this.config = data;
+    } catch (e) { console.error('Config load failed:', e); }
+
+    // Hide PIN, show app
+    document.getElementById('pinScreen').classList.add('hidden');
+    document.getElementById('appWrap').style.display = '';
+    if (window.lucide) lucide.createIcons();
+
+    // Apply role visibility
+    if (this.isAdmin || this.isManager) {
+      document.getElementById('ingestTab').style.display = '';
+    }
+    // Staff: hide board and ingest, show only cleaning + log
+    if (!this.isManager && !this.isAdmin) {
+      document.querySelector('[data-view="board"]').style.display = 'none';
+    }
+
+    // Continue with normal init
     this.loadNodes().then(() => {
-      // Load brain modules in order: canvas first (creates namespace), then others
       this.loadScript('js/brain-canvas.js', () => {
         this.loadScript('js/brain-list.js', () => {
           this.loadScript('js/brain-events.js', () => {
@@ -189,260 +168,265 @@ const NX = {
     this.setupAdmin();
   },
 
-  // ─── Load nodes (INFINITE — paginated, merged with seeds) ───
-  async loadNodes() {
-    const seeds = this.getSeedNodes();
-    let allNodes = [];
-    try {
-      // Supabase default limit is 1000 — paginate to get ALL
-      let from = 0;
-      const PAGE = 1000;
-      let keepGoing = true;
-      while (keepGoing) {
-        const { data, error } = await this.sb.from('nodes').select('*').range(from, from + PAGE - 1);
-        if (error) { console.error('Node fetch error:', error); break; }
-        if (data && data.length) {
-          allNodes = allNodes.concat(data);
-          from += PAGE;
-          if (data.length < PAGE) keepGoing = false;
-        } else {
-          keepGoing = false;
-        }
-      }
-      console.log(`Loaded ${allNodes.length} nodes from Supabase`);
-    } catch (e) {
-      console.log('Supabase unavailable, using seed nodes only');
-    }
-
-    // Merge: Supabase nodes take priority, fill in missing seeds
-    if (allNodes.length) {
-      const dbIds = new Set(allNodes.map(n => n.id));
-      const missedSeeds = seeds.filter(s => !dbIds.has(s.id));
-      this.nodes = [...allNodes, ...missedSeeds];
-    } else {
-      this.nodes = seeds;
-    }
-    console.log(`Total nodes in brain: ${this.nodes.length}`);
+  // ═══ INIT ═══
+  init() {
+    this.sb = supabase.createClient(this.SUPA_URL, this.SUPA_KEY);
+    this.setupPinScreen();
   },
 
-  // ─── Tab Routing ───
+  // ─── Nav ───
   setupNav() {
     const tabs = document.querySelectorAll('.nav-tab');
     const nexusBtn = document.getElementById('navNexus');
-
     const switchTo = (view) => {
       tabs.forEach(t => t.classList.remove('active'));
       nexusBtn.classList.remove('active');
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-      if (view === 'brain') {
-        nexusBtn.classList.add('active');
-      } else {
-        const tab = document.querySelector(`.nav-tab[data-view="${view}"]`);
-        if (tab) tab.classList.add('active');
-      }
+      if (view === 'brain') { nexusBtn.classList.add('active'); }
+      else { const tab = document.querySelector(`.nav-tab[data-view="${view}"]`); if (tab) tab.classList.add('active'); }
       document.getElementById(view + 'View').classList.add('active');
       this.activateModule(view);
     };
-
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => switchTo(tab.dataset.view));
-    });
-
-    // NEXUS button → Brain + AI
+    tabs.forEach(tab => tab.addEventListener('click', () => switchTo(tab.dataset.view)));
     nexusBtn.classList.add('active');
     nexusBtn.addEventListener('click', () => switchTo('brain'));
   },
 
   activateModule(view) {
-    const moduleMap = {
-      clean: 'js/cleaning.js',
-      log: 'js/log.js',
-      board: 'js/board.js',
-      ingest: 'js/admin.js'
-    };
-    // Brain is pre-loaded, just call show
-    if (view === 'brain') {
-      if (NX.brain && NX.brain.show) NX.brain.show();
-      return;
-    }
-    const file = moduleMap[view];
-    if (!file) return;
-    if (this.loaded[view]) {
-      const mod = this.modules[view];
-      if (mod && mod.show) mod.show();
-    } else {
-      this.loadScript(file, () => {
-        this.loaded[view] = true;
-        const mod = this.modules[view];
-        if (mod && mod.init) mod.init();
-      });
-    }
+    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', ingest: 'js/admin.js' };
+    if (view === 'brain') { if (NX.brain && NX.brain.show) NX.brain.show(); return; }
+    const file = moduleMap[view]; if (!file) return;
+    if (this.loaded[view]) { const mod = this.modules[view]; if (mod && mod.show) mod.show(); }
+    else { this.loadScript(file, () => { this.loaded[view] = true; const mod = this.modules[view]; if (mod && mod.init) mod.init(); }); }
   },
 
-  // ─── Dynamic Script Loader ───
   loadScript(src, cb) {
     if (document.querySelector(`script[src="${src}"]`)) { if (cb) cb(); return; }
-    const s = document.createElement('script');
-    s.src = src;
-    s.onload = cb;
-    s.onerror = () => console.error('Failed to load:', src);
+    const s = document.createElement('script'); s.src = src;
+    s.onload = () => { if (cb) cb(); };
+    s.onerror = () => console.error('Failed:', src);
     document.body.appendChild(s);
   },
 
-  // ─── Admin (with key management) ───
+  // ─── Admin ───
   setupAdmin() {
     const modal = document.getElementById('adminModal');
     const keySection = document.getElementById('adminKeySection');
 
+    // Show user info
+    const userInfo = document.getElementById('adminUserInfo');
+    if (this.currentUser) {
+      userInfo.innerHTML = `<span class="admin-user-name">${this.currentUser.name}</span><span class="admin-user-role">${this.currentUser.role.toUpperCase()}</span>`;
+    }
+
     document.getElementById('adminBtn').addEventListener('click', () => {
+      modal.classList.add('open'); modal.style.display = 'flex';
       if (this.isAdmin) {
-        // Already admin — show key management
-        modal.classList.add('open');modal.style.display='flex';
-        document.getElementById('adminPass').style.display = 'none';
-        document.getElementById('adminEnter').style.display = 'none';
         keySection.style.display = 'block';
-        // Pre-fill masked hints
+        // Pre-fill hints
         const k = this.getApiKey();
-        document.getElementById('adminApiKey').placeholder = k ? 'Key saved (••••' + k.slice(-6) + ')' : 'Anthropic API Key';
+        document.getElementById('adminApiKey').placeholder = k ? 'Key set (••••' + k.slice(-6) + ')' : 'Anthropic API Key';
         const ek = this.getElevenLabsKey();
-        document.getElementById('adminElevenKey').placeholder = ek ? 'Key saved (••••' + ek.slice(-4) + ')' : 'ElevenLabs API Key (for voice)';
-        const gc = this.getGoogleClientId();
-        document.getElementById('adminGoogleClientId').placeholder = gc ? 'ID saved (••••' + gc.slice(-6) + ')' : 'Google OAuth Client ID (for Gmail)';
+        document.getElementById('adminElevenKey').placeholder = ek ? 'Key set (••••' + ek.slice(-4) + ')' : 'ElevenLabs API Key';
         const tk = this.getTrelloKey();
-        document.getElementById('adminTrelloKey').placeholder = tk ? 'Key saved (••••' + tk.slice(-4) + ')' : 'Trello API Key';
+        document.getElementById('adminTrelloKey').placeholder = tk ? 'Key set (••••' + tk.slice(-4) + ')' : 'Trello API Key';
         const tt = this.getTrelloToken();
-        document.getElementById('adminTrelloToken').placeholder = tt ? 'Token saved (••••' + tt.slice(-4) + ')' : 'Trello Token';
-        // Load model and voice selections
+        document.getElementById('adminTrelloToken').placeholder = tt ? 'Token set (••••' + tt.slice(-4) + ')' : 'Trello Token';
         document.getElementById('adminModel').value = this.getModel();
         document.getElementById('adminVoice').value = localStorage.getItem('nexus_voice_idx') || '0';
-        return;
-      }
-      modal.classList.add('open');modal.style.display='flex';
-      document.getElementById('adminPass').style.display = '';
-      document.getElementById('adminEnter').style.display = '';
-      keySection.style.display = 'none';
-    });
-
-    document.getElementById('adminEnter').addEventListener('click', () => {
-      if (document.getElementById('adminPass').value === this.ADMIN_PASS) {
-        this.isAdmin = true;
-        document.getElementById('adminBtn').classList.add('on');
-        modal.classList.remove('open');modal.style.display='';
-        document.getElementById('adminPass').value = '';
-        document.getElementById('ingestTab').style.display = '';
-        // Show key section for next open
-        keySection.style.display = 'block';
+        this.loadUserList();
       } else {
-        alert('Nope.');
+        keySection.style.display = 'none';
       }
     });
 
-    document.getElementById('adminCancel').addEventListener('click', () => {
-      modal.classList.remove('open');modal.style.display='';
-      document.getElementById('adminPass').value = '';
-    });
-
-    // Save keys handler
-    document.getElementById('adminSaveKeys').addEventListener('click', () => {
-      const apiKey = document.getElementById('adminApiKey').value.trim();
-      const elevenKey = document.getElementById('adminElevenKey').value.trim();
-      const googleId = document.getElementById('adminGoogleClientId').value.trim();
-      const trelloKey = document.getElementById('adminTrelloKey').value.trim();
-      const trelloToken = document.getElementById('adminTrelloToken').value.trim();
-      if (apiKey) localStorage.setItem('nexus_api_key', apiKey);
-      if (elevenKey) localStorage.setItem('nexus_eleven_key', elevenKey);
-      if (googleId) localStorage.setItem('nexus_google_client_id', googleId);
-      if (trelloKey) localStorage.setItem('nexus_trello_key', trelloKey);
-      if (trelloToken) localStorage.setItem('nexus_trello_token', trelloToken);
-      // Save model and voice
-      localStorage.setItem('nexus_model', document.getElementById('adminModel').value);
+    // Save keys → Supabase config table
+    document.getElementById('adminSaveKeys').addEventListener('click', async () => {
+      const updates = {};
+      const ak = document.getElementById('adminApiKey').value.trim(); if (ak) updates.anthropic_key = ak;
+      const ek = document.getElementById('adminElevenKey').value.trim(); if (ek) updates.elevenlabs_key = ek;
+      const tk = document.getElementById('adminTrelloKey').value.trim(); if (tk) updates.trello_key = tk;
+      const tt = document.getElementById('adminTrelloToken').value.trim(); if (tt) updates.trello_token = tt;
+      updates.model = document.getElementById('adminModel').value;
+      updates.updated_at = new Date().toISOString();
       localStorage.setItem('nexus_voice_idx', document.getElementById('adminVoice').value);
+
+      const { error } = await this.sb.from('nexus_config').update(updates).eq('id', 1);
+      // Also update in-memory config
+      if (!error) { Object.assign(this.config || {}, updates); }
       // Clear fields
       document.getElementById('adminApiKey').value = '';
       document.getElementById('adminElevenKey').value = '';
-      document.getElementById('adminGoogleClientId').value = '';
       document.getElementById('adminTrelloKey').value = '';
       document.getElementById('adminTrelloToken').value = '';
-      document.getElementById('adminKeyStatus').textContent = 'Keys saved securely.';
-      // Auto-backup to Drive if connected
-      const dt = localStorage.getItem('nexus_drive_token');
-      const de = localStorage.getItem('nexus_drive_expiry');
-      if (dt && de && Date.now() < parseInt(de)) {
-        NX.driveBackupKeys().then(() => {
-          document.getElementById('adminKeyStatus').textContent = 'Keys saved + backed up to Drive ✓';
-        }).catch(() => {});
-      }
+      document.getElementById('adminKeyStatus').textContent = error ? 'Save failed: ' + error.message : 'Keys saved to server ✓';
       setTimeout(() => { document.getElementById('adminKeyStatus').textContent = ''; }, 4000);
     });
 
-    // Drive sync buttons
-    document.getElementById('driveConnectBtn').addEventListener('click', () => NX.driveConnect());
+    document.getElementById('adminCancel').addEventListener('click', () => {
+      modal.classList.remove('open'); modal.style.display = '';
+    });
+
+    // Logout
+    document.getElementById('adminLogout').addEventListener('click', () => {
+      localStorage.removeItem('nexus_current_user');
+      location.reload();
+    });
+
+    // Drive sync
+    document.getElementById('driveConnectBtn').addEventListener('click', () => this.driveConnect());
     document.getElementById('driveBackupBtn').addEventListener('click', async () => {
       const s = document.getElementById('driveStatus');
       try { s.textContent = 'Backing up...'; s.style.color = 'var(--muted)';
-        await NX.driveBackupKeys(); s.textContent = '✓ Keys backed up to Drive'; s.style.color = '#39ff14';
-      } catch(e) { s.textContent = 'Backup failed: ' + e.message; s.style.color = '#ff5533'; }
+        await this.driveBackupKeys(); s.textContent = '✓ Backed up to Drive'; s.style.color = '#39ff14';
+      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = '#ff5533'; }
     });
     document.getElementById('driveRestoreBtn').addEventListener('click', async () => {
       const s = document.getElementById('driveStatus');
       try { s.textContent = 'Restoring...'; s.style.color = 'var(--muted)';
-        const config = await NX.driveRestoreKeys();
-        s.textContent = '✓ Keys restored from Drive (backed up ' + new Date(config.backed_up).toLocaleDateString() + ')';
-        s.style.color = '#39ff14';
-      } catch(e) { s.textContent = 'Restore failed: ' + e.message; s.style.color = '#ff5533'; }
+        const config = await this.driveRestoreKeys();
+        // Push restored keys to Supabase config
+        const updates = {};
+        if (config.api_key) updates.anthropic_key = config.api_key;
+        if (config.eleven_key) updates.elevenlabs_key = config.eleven_key;
+        if (config.trello_key) updates.trello_key = config.trello_key;
+        if (config.trello_token) updates.trello_token = config.trello_token;
+        if (config.model) updates.model = config.model;
+        if (Object.keys(updates).length) {
+          await this.sb.from('nexus_config').update(updates).eq('id', 1);
+          Object.assign(this.config || {}, updates);
+        }
+        s.textContent = '✓ Restored from Drive'; s.style.color = '#39ff14';
+      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = '#ff5533'; }
     });
 
-    // Check if Drive token is still valid
     const driveToken = localStorage.getItem('nexus_drive_token');
     const driveExpiry = localStorage.getItem('nexus_drive_expiry');
     if (driveToken && driveExpiry && Date.now() < parseInt(driveExpiry)) {
       const ds = document.getElementById('driveStatus');
-      if (ds) { ds.textContent = '✓ Connected to Drive'; ds.style.color = '#39ff14'; }
+      if (ds) { ds.textContent = '✓ Connected'; ds.style.color = '#39ff14'; }
+    }
+
+    // Add user
+    document.getElementById('addUserBtn').addEventListener('click', async () => {
+      const name = document.getElementById('newUserName').value.trim();
+      const pin = document.getElementById('newUserPin').value.trim();
+      const role = document.getElementById('newUserRole').value;
+      const loc = document.getElementById('newUserLoc').value;
+      if (!name || !pin) return;
+      const { error } = await this.sb.from('nexus_users').insert({ name, pin, role, location: loc });
+      if (error) { alert('Error: ' + error.message); return; }
+      document.getElementById('newUserName').value = '';
+      document.getElementById('newUserPin').value = '';
+      this.loadUserList();
+    });
+  },
+
+  async loadUserList() {
+    const el = document.getElementById('adminUserList'); if (!el) return;
+    try {
+      const { data } = await this.sb.from('nexus_users').select('*').order('created_at');
+      if (!data) return;
+      el.innerHTML = data.map(u => `
+        <div class="admin-user-row">
+          <span class="admin-user-name-sm">${u.name}</span>
+          <span class="admin-user-role-sm">${u.role}</span>
+          <span class="admin-user-loc-sm">${u.location}</span>
+          <span class="admin-user-pin-sm">PIN: ${u.pin}</span>
+          ${u.id !== this.currentUser?.id ? `<button class="admin-user-del" data-id="${u.id}">✕</button>` : ''}
+        </div>
+      `).join('');
+      el.querySelectorAll('.admin-user-del').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Remove this user?')) return;
+          await this.sb.from('nexus_users').delete().eq('id', btn.dataset.id);
+          this.loadUserList();
+        });
+      });
+    } catch (e) { el.innerHTML = '<div style="color:var(--faint);font-size:11px">Could not load users</div>'; }
+  },
+
+  // ─── Drive Sync ───
+  async driveBackupKeys() {
+    const token = localStorage.getItem('nexus_drive_token');
+    if (!token) throw new Error('Connect Drive first');
+    const config = {
+      api_key: this.getApiKey(), eleven_key: this.getElevenLabsKey(),
+      google_client_id: this.getGoogleClientId(), trello_key: this.getTrelloKey(),
+      trello_token: this.getTrelloToken(), model: this.getModel(),
+      voice_idx: localStorage.getItem('nexus_voice_idx') || '0',
+      backed_up: new Date().toISOString()
+    };
+    const searchR = await fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%27nexus-config.json%27&fields=files(id)', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const searchD = await searchR.json();
+    const existingId = searchD.files && searchD.files.length ? searchD.files[0].id : null;
+    if (existingId) {
+      await fetch('https://www.googleapis.com/upload/drive/v3/files/' + existingId + '?uploadType=media', {
+        method: 'PATCH', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+      });
+    } else {
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify({ name: 'nexus-config.json', parents: ['appDataFolder'] })], { type: 'application/json' }));
+      form.append('file', new Blob([JSON.stringify(config)], { type: 'application/json' }));
+      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + token }, body: form
+      });
     }
   },
 
-  // ─── Claude API helper (key from localStorage ONLY) ───
+  async driveRestoreKeys() {
+    const token = localStorage.getItem('nexus_drive_token');
+    if (!token) throw new Error('Connect Drive first');
+    const searchR = await fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%27nexus-config.json%27&fields=files(id)', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const searchD = await searchR.json();
+    if (!searchD.files || !searchD.files.length) throw new Error('No backup found');
+    const fileR = await fetch('https://www.googleapis.com/drive/v3/files/' + searchD.files[0].id + '?alt=media', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    return await fileR.json();
+  },
+
+  driveConnect() {
+    const clientId = this.getGoogleClientId();
+    if (!clientId) { alert('No Google Client ID'); return; }
+    const doConnect = () => {
+      const tc = google.accounts.oauth2.initTokenClient({
+        client_id: clientId, scope: 'https://www.googleapis.com/auth/drive.appdata',
+        callback: (r) => {
+          if (r.access_token) {
+            localStorage.setItem('nexus_drive_token', r.access_token);
+            localStorage.setItem('nexus_drive_expiry', String(Date.now() + 55 * 60 * 1000));
+            const s = document.getElementById('driveStatus');
+            if (s) { s.textContent = '✓ Connected'; s.style.color = '#39ff14'; }
+          }
+        }
+      });
+      tc.requestAccessToken();
+    };
+    if (window.google?.accounts?.oauth2) doConnect();
+    else { const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.onload = doConnect; document.head.appendChild(s); }
+  },
+
+  // ─── Claude API ───
   async askClaude(system, messages, maxTokens = 600, useSearch = false) {
     const key = this.getApiKey();
-    if (!key) {
-      throw new Error('No API key set. Open Admin (⚙) to add your Anthropic key.');
-    }
-    try {
-      const body = {
-        model: this.getModel(),
-        max_tokens: maxTokens,
-        system,
-        messages
-      };
-      if (useSearch) {
-        body.tools = [{ type: "web_search_20250305", name: "web_search" }];
-      }
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': key,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify(body)
-      });
-      const data = await resp.json();
-      if (data.error) {
-        console.error('Claude API error:', data.error);
-        throw new Error(data.error.message || 'API returned an error');
-      }
-      return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
-    } catch (e) {
-      console.error('askClaude failed:', e);
-      throw e;
-    }
-  },
+    if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
+    const body = { model: this.getModel(), max_tokens: maxTokens, system, messages };
+    if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message || 'API error');
+    return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
+  }
+};
 
-  // ─── Seed Nodes ───
-  getSeedNodes() {
-    return [
-      {id:1,name:'Suerte',category:'location',tags:['restaurant','austin','kitchen','bar','patio'],notes:'Primary location. 2002 Manor Road. Full kitchen, bar, patio, deck. Mezcal Monday. Uses 7shifts + MarginEdge.',links:[4,5,8,20],access_count:50},
-      {id:2,name:'Este',category:'location',tags:['restaurant','austin','patio','vinyl','manor-rd'],notes:'Vino Y Vinyl Tuesdays. Patio with string lights, wisteria project planned. Record player + sound system. Garden program.',links:[8,12,22,25,30,37],access_count:48},
-      {id:3,name:'Toti',category:'location',tags:['restaurant','austin','bar'],notes:'Bar Toti. Third location. New True low-boy on order.',links:[8,19],access_count:35},
-      {id:4,name:'Hoshizaki Ice Machine',category:'equipment',tags:['ice','hoshizaki','auger','commercia
+document.addEventListener('DOMContentLoaded', () => NX.init());
