@@ -48,14 +48,15 @@
     for(let i=0;i<len;i++){const a=particles[i];
       if(ih&&Math.hypot(a.x-state.hoverNode.x,a.y-state.hoverNode.y)<100){a.vx*=0.05;a.vy*=0.05;continue;}
       const gx=Math.floor(a.x/CELL)+500,gy=Math.floor(a.y/CELL)+500;
-      for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j<=i)continue;const b=particles[j];let dx=a.x-b.x,dy=a.y-b.y,dS=dx*dx+dy*dy;if(dS>160000)continue;let d=Math.sqrt(dS)||1,f=REP/dS;a.vx+=dx/d*f;a.vy+=dy/d*f;b.vx-=dx/d*f;b.vy-=dy/d*f;}}
+      // Soft collision — touch OK, no overlap. Push only when overlapping.
+      for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j<=i)continue;const b=particles[j];let dx=a.x-b.x,dy=a.y-b.y,dS=dx*dx+dy*dy;if(dS>40000)continue;let d=Math.sqrt(dS)||1;const minDist=BR*2.2;if(d<minDist){const push=(minDist-d)*0.3;a.vx+=dx/d*push;a.vy+=dy/d*push;b.vx-=dx/d*push;b.vy-=dy/d*push;}else if(d<60){const softPush=30/(d*d);a.vx+=dx/d*softPush;a.vy+=dy/d*softPush;b.vx-=dx/d*softPush;b.vy-=dy/d*softPush;}}}
       const sc=state.catMap[a.cat];if(sc){const step=sc.length>30?Math.ceil(sc.length/30):1;for(let ci=0;ci<sc.length;ci+=step){const j=sc[ci];if(j===i)continue;const b=particles[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDC)*ATT;a.vy+=dy/d*(d-IDC)*ATT;}}
       const aT=state.tagSets[i];if(aT&&aT.size>0){for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j===i)continue;const bT=state.tagSets[j];if(!bT)continue;let sh=0;for(const t of aT)if(bT.has(t))sh++;if(!sh)continue;const b=particles[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDT)*ATT*sh*1.2;a.vy+=dy/d*(d-IDT)*ATT*sh*1.2;}}}
       for(let li=0;li<a.links.length;li++){const b=state.linkMap[a.links[li]];if(!b)continue;let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDL)*LINK;a.vy+=dy/d*(d-IDL)*LINK;}
       const nA=Math.min(a.access/60,1);a.vx+=(cx-a.x)*CPULL*(0.3+nA*0.7);a.vy+=(cy-a.y)*CPULL*(0.3+nA*0.7);
       const cdist=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-cy)*(a.y-cy))||1;
       if(cdist<160){const cf=(160-cdist)*0.1;a.vx+=(a.x-cx)/cdist*cf;a.vy+=(a.y-cy)/cdist*cf;}
-      const orbitSpeed=0.5/(1+cdist*0.0015)*(Object.keys(state.catMap).indexOf(a.cat)%2===0?1:-1);
+      const orbitSpeed=0.15/(1+cdist*0.002)*(Object.keys(state.catMap).indexOf(a.cat)%2===0?1:-1);
       a.vx+=-(a.y-cy)/cdist*orbitSpeed;a.vy+=(a.x-cx)/cdist*orbitSpeed;
       // Random jitter — nodes feel alive
       a.vx+=(Math.random()-0.5)*0.08;a.vy+=(Math.random()-0.5)*0.08;
@@ -119,14 +120,14 @@
       ctx.fill();
       ctx.strokeStyle=`rgba(212,182,138,${act?.6:hit?.4:dim?.03:.15})`;ctx.lineWidth=act?2:0.6;ctx.stroke();
       if(hit||act)ctx.shadowBlur=0;
-      // Gold label INSIDE node
-      const sr=nr*t.scale;if(sr<5&&!hit&&!act)continue;if(dim)continue;
-      const maxChars=Math.max(3,Math.floor(nr/3));
+      // Tiny gold label inside node
+      const sr=nr*t.scale;if(sr<6&&!hit&&!act)continue;if(dim)continue;
+      const maxChars=Math.max(2,Math.floor(nr/3.5));
       const label=a.node.name.length>maxChars?a.node.name.slice(0,maxChars-1)+'…':a.node.name;
-      const fontSize=Math.max(5,Math.min(9,nr*0.7));
+      const fontSize=Math.max(4,Math.min(7,nr*0.55));
       ctx.font=`${act?'600':'400'} ${fontSize}px "Libre Franklin"`;ctx.textAlign='center';ctx.textBaseline='middle';
-      ctx.fillStyle=`rgba(180,155,110,${act?.95:hit?.85:.6})`;
-      ctx.fillText(label,a.x,a.y,nr*1.8);
+      ctx.fillStyle=`rgba(190,165,120,${act?.95:hit?.85:.55})`;
+      ctx.fillText(label,a.x,a.y,nr*1.6);
       ctx.textBaseline='alphabetic';
     }
     ctx.restore();requestAnimationFrame(draw);
