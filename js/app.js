@@ -134,26 +134,43 @@ const NX = {
   async loadConfigAndStart() {
     // Load config from Supabase
     try {
-      const { data } = await this.sb.from('nexus_config').select('*').eq('id', 1).single();
-      if (data) this.config = data;
-    } catch (e) { console.error('Config load failed:', e); }
+      const { data, error } = await this.sb.from('nexus_config').select('*').eq('id', 1).single();
+      if (error) { 
+        console.error('NEXUS config error:', error.message);
+        // Table might not exist — create it
+        if (error.code === 'PGRST116' || error.message.includes('not found')) {
+          console.log('NEXUS: nexus_config table may not exist. Using localStorage fallback.');
+        }
+      }
+      if (data) { this.config = data; console.log('NEXUS: Config loaded from Supabase, anthropic_key:', data.anthropic_key ? 'SET' : 'EMPTY'); }
+      else { console.log('NEXUS: No config row found'); }
+    } catch (e) { console.error('Config load exception:', e); }
 
     // ONE-TIME MIGRATION: if Supabase config is empty but localStorage has keys, push them up
-    if (this.config && !this.config.anthropic_key) {
-      const localKey = localStorage.getItem('nexus_api_key');
-      if (localKey) {
-        console.log('NEXUS: Migrating keys from localStorage to Supabase...');
-        const updates = {};
-        const lk = localStorage.getItem('nexus_api_key'); if (lk) updates.anthropic_key = lk;
-        const le = localStorage.getItem('nexus_eleven_key'); if (le) updates.elevenlabs_key = le;
-        const lg = localStorage.getItem('nexus_google_client_id'); if (lg) updates.google_client_id = lg;
-        const lt = localStorage.getItem('nexus_trello_key'); if (lt) updates.trello_key = lt;
-        const ltt = localStorage.getItem('nexus_trello_token'); if (ltt) updates.trello_token = ltt;
-        const lm = localStorage.getItem('nexus_model'); if (lm) updates.model = lm;
-        updates.updated_at = new Date().toISOString();
+    if ((!this.config || !this.config.anthropic_key) && localStorage.getItem('nexus_api_key')) {
+      console.log('NEXUS: Migrating keys from localStorage to Supabase...');
+      const updates = {};
+      const lk = localStorage.getItem('nexus_api_key'); if (lk) updates.anthropic_key = lk;
+      const le = localStorage.getItem('nexus_eleven_key'); if (le) updates.elevenlabs_key = le;
+      const lg = localStorage.getItem('nexus_google_client_id'); if (lg) updates.google_client_id = lg;
+      const lt = localStorage.getItem('nexus_trello_key'); if (lt) updates.trello_key = lt;
+      const ltt = localStorage.getItem('nexus_trello_token'); if (ltt) updates.trello_token = ltt;
+      const lm = localStorage.getItem('nexus_model'); if (lm) updates.model = lm;
+      updates.updated_at = new Date().toISOString();
+      try {
         const { error } = await this.sb.from('nexus_config').update(updates).eq('id', 1);
-        if (!error) { Object.assign(this.config, updates); console.log('NEXUS: Keys migrated successfully'); }
-      }
+        if (!error) { 
+          if (!this.config) this.config = {};
+          Object.assign(this.config, updates); 
+          console.log('NEXUS: Migration SUCCESS — keys now in Supabase');
+        } else {
+          console.error('NEXUS: Migration FAILED:', error.message);
+          // Try upsert as fallback
+          const { error: e2 } = await this.sb.from('nexus_config').upsert({ id: 1, ...updates });
+          if (!e2) { if (!this.config) this.config = {}; Object.assign(this.config, updates); console.log('NEXUS: Migration via upsert SUCCESS'); }
+          else console.error('NEXUS: Upsert also failed:', e2.message);
+        }
+      } catch (e) { console.error('NEXUS: Migration exception:', e); }
     }
 
     // Hide PIN, show app
@@ -231,10 +248,13 @@ const NX = {
     const modal = document.getElementById('adminModal');
     const keySection = document.getElementById('adminKeySection');
 
-    // Show user info
+    // Show user info + config status
     const userInfo = document.getElementById('adminUserInfo');
     if (this.currentUser) {
-      userInfo.innerHTML = `<span class="admin-user-name">${this.currentUser.name}</span><span class="admin-user-role">${this.currentUser.role.toUpperCase()}</span>`;
+      const hasKey = this.getApiKey() ? '✓ API Key loaded' : '✗ No API Key';
+      const keyColor = this.getApiKey() ? '#39ff14' : '#ff5533';
+      const source = this.config?.anthropic_key ? 'Supabase' : (localStorage.getItem('nexus_api_key') ? 'localStorage' : 'none');
+      userInfo.innerHTML = `<span class="admin-user-name">${this.currentUser.name}</span><span class="admin-user-role">${this.currentUser.role.toUpperCase()}</span><div style="font-size:11px;margin-top:6px;color:${keyColor}">${hasKey} (source: ${source})</div>`;
     }
 
     document.getElementById('adminBtn').addEventListener('click', () => {
@@ -260,25 +280,40 @@ const NX = {
 
     // Save keys → Supabase config table
     document.getElementById('adminSaveKeys').addEventListener('click', async () => {
-      const updates = {};
-      const ak = document.getElementById('adminApiKey').value.trim(); if (ak) updates.anthropic_key = ak;
-      const ek = document.getElementById('adminElevenKey').value.trim(); if (ek) updates.elevenlabs_key = ek;
-      const tk = document.getElementById('adminTrelloKey').value.trim(); if (tk) updates.trello_key = tk;
-      const tt = document.getElementById('adminTrelloToken').value.trim(); if (tt) updates.trello_token = tt;
-      updates.model = document.getElementById('adminModel').value;
-      updates.updated_at = new Date().toISOString();
+      // Read from fields OR fall back to current values
+      const ak = document.getElementById('adminApiKey').value.trim() || this.getApiKey();
+      const ek = document.getElementById('adminElevenKey').value.trim() || this.getElevenLabsKey();
+      const tk = document.getElementById('adminTrelloKey').value.trim() || this.getTrelloKey();
+      const tt = document.getElementById('adminTrelloToken').value.trim() || this.getTrelloToken();
+      const updates = {
+        anthropic_key: ak,
+        elevenlabs_key: ek,
+        google_client_id: this.getGoogleClientId(),
+        trello_key: tk,
+        trello_token: tt,
+        model: document.getElementById('adminModel').value,
+        updated_at: new Date().toISOString()
+      };
       localStorage.setItem('nexus_voice_idx', document.getElementById('adminVoice').value);
+      // Also save to localStorage as backup
+      if (ak) localStorage.setItem('nexus_api_key', ak);
+      if (ek) localStorage.setItem('nexus_eleven_key', ek);
+      if (tk) localStorage.setItem('nexus_trello_key', tk);
+      if (tt) localStorage.setItem('nexus_trello_token', tt);
+      localStorage.setItem('nexus_model', updates.model);
 
       const { error } = await this.sb.from('nexus_config').update(updates).eq('id', 1);
-      // Also update in-memory config
-      if (!error) { Object.assign(this.config || {}, updates); }
-      // Clear fields
+      if (!error) { 
+        if (!this.config) this.config = {};
+        Object.assign(this.config, updates);
+      }
       document.getElementById('adminApiKey').value = '';
       document.getElementById('adminElevenKey').value = '';
       document.getElementById('adminTrelloKey').value = '';
       document.getElementById('adminTrelloToken').value = '';
-      document.getElementById('adminKeyStatus').textContent = error ? 'Save failed: ' + error.message : 'Keys saved to server ✓';
-      setTimeout(() => { document.getElementById('adminKeyStatus').textContent = ''; }, 4000);
+      document.getElementById('adminKeyStatus').textContent = error ? 'Save failed: ' + error.message : `Keys saved to server ✓ (anthropic: ${ak ? '••••' + ak.slice(-4) : 'empty'})`;
+      document.getElementById('adminKeyStatus').style.color = error ? '#ff5533' : '#39ff14';
+      setTimeout(() => { document.getElementById('adminKeyStatus').textContent = ''; }, 5000);
     });
 
     document.getElementById('adminCancel').addEventListener('click', () => {
@@ -420,4 +455,31 @@ const NX = {
             localStorage.setItem('nexus_drive_token', r.access_token);
             localStorage.setItem('nexus_drive_expiry', String(Date.now() + 55 * 60 * 1000));
             const s = document.getElementById('driveStatus');
-            if 
+            if (s) { s.textContent = '✓ Connected'; s.style.color = '#39ff14'; }
+          }
+        }
+      });
+      tc.requestAccessToken();
+    };
+    if (window.google?.accounts?.oauth2) doConnect();
+    else { const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.onload = doConnect; document.head.appendChild(s); }
+  },
+
+  // ─── Claude API ───
+  async askClaude(system, messages, maxTokens = 600, useSearch = false) {
+    const key = this.getApiKey();
+    if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
+    const body = { model: this.getModel(), max_tokens: maxTokens, system, messages };
+    if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message || 'API error');
+    return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
+  }
+};
+
+document.addEventListener('DOMContentLoaded', () => NX.init());
