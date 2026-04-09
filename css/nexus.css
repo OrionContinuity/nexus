@@ -338,19 +338,67 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .board-card-due{font-size:10px;color:var(--faint);margin-top:4px}
 
 /* ═══ INGEST ═══ */
-.ingest-wrap{padding:16px;max-width:600px;margin:0 auto;overflow-y:auto;max-height:100%;-webkit-overflow-scrolling:touch;padding-bottom:80px}
-.ingest-heading{font-size:13px;letter-spacing:5px;margin-bottom:16px;font-weight:300;color:var(--accent);text-align:center}
-.ingest-section{margin-bottom:10px;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);border-left:3px solid var(--accent);transition:border-color .2s}
-.ingest-section:hover{border-left-color:var(--text)}
-.ingest-section-title{font-size:11px;letter-spacing:2px;font-weight:600;margin-bottom:4px;color:var(--text)}
-.ingest-desc{font-size:11px;color:var(--faint);margin-bottom:10px;line-height:1.4}
-.ingest-btn{padding:10px 18px;border-radius:var(--rs);border:none;color:#fff;font-size:12px;font-weight:500;cursor:pointer;min-height:40px;background:var(--accent);transition:all .2s;font-family:inherit}
-.ingest-btn:hover{opacity:.85}
-.ingest-btn:disabled{opacity:.4;cursor:default}
-.ingest-btn-gmail{background:#4285f4}.ingest-btn-sync{background:var(--green);color:var(--bg);width:100%;margin-top:8px}
-.ingest-btn-trello{background:var(--blue);color:var(--bg)}.ingest-btn-monitor{background:var(--purple);color:var(--bg);width:100%}
-.ingest-btn-sensitive{background:rgba(160,82,45,.8);width:100%}
-.ingest-btn-link{background:rgba(91,141,239,.8);width:100%}
+.ingest-wrap{padding:12px;max-width:560px;margin:0 auto;overflow-y:auto;max-height:100%;-webkit-overflow-scrolling:touch;padding-bottom:80px}
+.ingest-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:0 4px}
+.ingest-heading{font-size:11px;letter-spacing:5px;font-weight:400;color:var(--accent)}
+
+/* Ingest cards */
+.ig-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;overflow:hidden;transition:border-color .2s}
+.ig-card:hover{border-color:rgba(212,182,138,.2)}
+.ig-card.collapsed .ig-card-body{display:none}
+.ig-card.collapsed .ig-arrow{transform:rotate(-90deg)}
+.ig-card-head{display:flex;align-items:center;gap:8px;padding:12px 14px;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none}
+.ig-icon{font-size:16px;flex-shrink:0}
+.ig-title{font-size:13px;font-weight:500;flex:1;letter-spacing:0.5px}
+.ig-arrow{font-size:10px;color:var(--faint);transition:transform .2s}
+.ig-card-body{padding:0 14px 14px}
+.ig-desc{font-size:11px;color:var(--faint);line-height:1.4;margin-bottom:8px}
+.ig-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.ig-status{font-size:11px;color:var(--faint);flex:1}
+
+/* Ingest buttons */
+.ig-btn{padding:10px 16px;border-radius:var(--rs);border:none;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;width:100%;min-height:40px;transition:all .15s;margin-bottom:6px}
+.ig-btn:hover{opacity:.85}
+.ig-btn:disabled{opacity:.35;cursor:default}
+.ig-btn-primary{background:var(--accent);color:var(--bg)}
+.ig-btn-gmail{background:#4285f4;color:#fff;width:auto;flex-shrink:0}
+.ig-btn-purple{background:rgba(156,130,212,.85);color:#fff}
+.ig-btn-blue{background:rgba(91,141,239,.8);color:#fff}
+.ig-btn-amber{background:rgba(200,150,50,.8);color:#fff}
+.ig-btn-outline{background:none;border:1px solid var(--border);color:var(--muted)}
+.ig-btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+
+/* Controls */
+.ig-controls{display:flex;gap:6px;margin-bottom:8px}
+.ig-select{flex:1;background:var(--elevated);border:1px solid var(--border);border-radius:var(--rs);padding:8px 10px;color:var(--text);font-size:12px;font-family:inherit;outline:none;min-height:38px}
+.ig-input{flex:2;background:var(--elevated);border:1px solid var(--border);border-radius:var(--rs);padding:8px 10px;color:var(--text);font-size:12px;font-family:inherit;outline:none;min-height:38px}
+.ig-input:focus,.ig-select:focus{border-color:var(--accent)}
+.ig-textarea{width:100%;background:var(--elevated);border:1px solid var(--border);border-radius:var(--rs);padding:10px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical;outline:none;min-height:80px;margin-bottom:8px}
+.ig-textarea:focus{border-color:var(--accent)}
+
+/* Dropzone */
+.ig-divider{height:1px;background:var(--border);margin:12px 0}
+.ig-dropzone{border:1.5px dashed var(--border);border-radius:var(--rs);padding:16px;display:flex;align-items:center;gap:10px;transition:all .2s;cursor:pointer}
+.ig-dropzone.dragover{border-color:var(--accent);background:rgba(212,182,138,.04)}
+.ig-drop-icon{font-size:20px;flex-shrink:0}
+.ig-drop-text{font-size:12px;color:var(--muted)}
+.ig-drop-link{color:var(--accent);cursor:pointer;text-decoration:underline}
+.ig-feedback{font-size:11px;color:var(--accent);padding:4px 0;min-height:16px}
+
+/* Tools grid */
+.ig-tool-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:480px){.ig-tool-row{grid-template-columns:1fr}}
+.ig-tool{padding:12px;background:var(--elevated);border-radius:var(--rs);border:1px solid var(--border)}
+.ig-tool-label{font-size:12px;font-weight:500;display:block;margin-bottom:4px}
+.ig-toggle{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--faint);margin-top:6px;cursor:pointer}
+.ig-toggle input{accent-color:var(--accent);width:14px;height:14px}
+
+/* Clear button */
+.ig-clear{margin-left:auto;background:none;border:1px solid var(--border);color:var(--faint);padding:2px 10px;border-radius:var(--rs);font-size:10px;cursor:pointer;font-family:inherit}
+.ig-clear:hover{border-color:var(--accent);color:var(--accent)}
+
+/* Log card */
+.ig-log-card .ig-card-body{max-height:200px;overflow-y:auto}
 .ingest-auto-row{margin-top:10px;padding:8px 0}
 .ingest-auto-label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px;cursor:pointer}
 .ingest-auto-label input{accent-color:var(--accent);width:16px;height:16px}
