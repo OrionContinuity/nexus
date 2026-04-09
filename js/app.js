@@ -356,6 +356,16 @@ const NX = {
         document.getElementById('adminTrelloToken').placeholder = tt ? 'Token set (••••' + tt.slice(-4) + ')' : 'Trello Token';
         document.getElementById('adminModel').value = this.getModel();
         document.getElementById('adminVoice').value = (this.config && this.config.voice_idx != null) ? this.config.voice_idx : (localStorage.getItem('nexus_voice_idx') || '0');
+        // Voice saves immediately on change
+        document.getElementById('adminVoice').addEventListener('change', async (e) => {
+          const idx = parseInt(e.target.value) || 0;
+          localStorage.setItem('nexus_voice_idx', idx);
+          if (this.config) this.config.voice_idx = idx;
+          try { await this.sb.from('nexus_config').update({ voice_idx: idx }).eq('id', 1); } catch(e) {}
+          const voiceNames = ['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
+          const vs = document.getElementById('voiceTestStatus');
+          if (vs) { vs.textContent = `✓ ${voiceNames[idx]} selected & saved`; vs.style.color = '#39ff14'; }
+        });
         this.loadUserList();
       } else {
         keySection.style.display = 'none';
