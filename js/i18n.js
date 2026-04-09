@@ -1,5 +1,5 @@
-/* NEXUS i18n — Spanish/English toggle */
-(function(){
+/* NEXUS i18n — standalone language module */
+const NEXUS_I18N=(function(){
 const T={
   en:{
     // Nav
@@ -143,6 +143,5 @@ function applyUI(){
   const ob=document.getElementById('offlineBanner');if(ob)ob.textContent=t('noConnection');
 }
 
-// Expose
-NX.i18n={t,getLang,setLang,applyUI};
+return{t,getLang,setLang,applyUI};
 })();
