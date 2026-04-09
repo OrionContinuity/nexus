@@ -118,6 +118,11 @@ const NX = {
       if (!data) { errorEl.textContent = 'Invalid PIN'; errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500); resetFn(); return; }
       this.currentUser = data;
       localStorage.setItem('nexus_current_user', JSON.stringify(data));
+      // Set user's language preference (only reload if different)
+      if(data.language&&this.i18n&&data.language!==this.i18n.getLang()){
+        localStorage.setItem('nexus_lang',data.language);
+        // Don't reload here — applyUI will handle it after app loads
+      }
       userEl.textContent = `Welcome, ${data.name}`;
       userEl.classList.add('visible');
       this.applyRole(data.role);
@@ -207,8 +212,15 @@ const NX = {
       const langBtn = document.getElementById('langToggle');
       if (langBtn) {
         langBtn.textContent = NX.i18n.getLang().toUpperCase();
-        langBtn.addEventListener('click', () => {
-          NX.i18n.setLang(NX.i18n.getLang() === 'en' ? 'es' : 'en');
+        langBtn.addEventListener('click', async () => {
+          const newLang = NX.i18n.getLang() === 'en' ? 'es' : 'en';
+          // Save to user profile in Supabase
+          if(this.currentUser){
+            try{await this.sb.from('nexus_users').update({language:newLang}).eq('id',this.currentUser.id);}catch(e){}
+            this.currentUser.language=newLang;
+            localStorage.setItem('nexus_current_user',JSON.stringify(this.currentUser));
+          }
+          NX.i18n.setLang(newLang);
         });
       }
     }
@@ -217,6 +229,8 @@ const NX = {
   // ═══ INIT ═══
   init() {
     this.sb = supabase.createClient(this.SUPA_URL, this.SUPA_KEY);
+    // Attach i18n
+    if(window.NEXUS_I18N) this.i18n = NEXUS_I18N;
     this.setupPinScreen();
   },
 
@@ -377,8 +391,9 @@ const NX = {
       const pin = document.getElementById('newUserPin').value.trim();
       const role = document.getElementById('newUserRole').value;
       const loc = document.getElementById('newUserLoc').value;
+      const lang = document.getElementById('newUserLang').value;
       if (!name || !pin) return;
-      const { error } = await this.sb.from('nexus_users').insert({ name, pin, role, location: loc });
+      const { error } = await this.sb.from('nexus_users').insert({ name, pin, role, location: loc, language: lang });
       if (error) { alert('Error: ' + error.message); return; }
       document.getElementById('newUserName').value = '';
       document.getElementById('newUserPin').value = '';
@@ -396,6 +411,7 @@ const NX = {
           <span class="admin-user-name-sm">${u.name}</span>
           <span class="admin-user-role-sm">${u.role}</span>
           <span class="admin-user-loc-sm">${u.location}</span>
+          <span class="admin-user-loc-sm">${u.language||'en'}</span>
           <span class="admin-user-pin-sm">PIN: ${u.pin}</span>
           ${u.id !== this.currentUser?.id ? `<button class="admin-user-del" data-id="${u.id}">✕</button>` : ''}
         </div>
