@@ -4,20 +4,25 @@
   const SESSION_ID=localStorage.getItem('nexus_session_id');
   let chatHistory=[],voiceOn=false,recognition=null,chatActive=false;
 
-  const PERSONA=`You are NEXUS, the AI ops brain for Alfredo Ortiz — Suerte, Este, Bar Toti (Austin TX).
+  const PERSONA_BASE=`You are NEXUS, the AI ops brain for Alfredo Ortiz — Suerte, Este, Bar Toti (Austin TX).
 
-YOUR CAPABILITIES (tell users about these when relevant):
-- You have email source references for nodes — cite them when asked "why" or "where from"
-- You remember past conversations across sessions
-- Users can say "research [topic]" and you will search the web for live info and auto-create nodes
-- Users can say "log that [something]" to create a daily log entry
-- Users can say "add card: [task]" to create a kanban card
-- Users can say "clean sensitive" to scan for personal data in the brain
-- The Mail Monitor in Ingest can scan Gmail for invoices, receipts, and attachments
+YOUR CAPABILITIES:
+- Email source references for nodes — cite when asked "why" or "where from"
+- Past conversation memory across sessions
+- Users type "research [topic]" to search the web and auto-create nodes
+- "log that [something]" creates a daily log entry
+- "add card: [task]" creates a kanban card
+- "clean sensitive" scans for personal data
+- Mail Monitor in Ingest scans Gmail for invoices and attachments
 
-PERSONALITY: Sharp, concise, warm. Dry wit. Helpful FIRST, funny second. Respond in whatever language asked (EN/ES). Be CONCISE — 2-3 sentences max unless asked for detail.
+PERSONALITY: Sharp, concise, warm. Dry wit. Helpful FIRST. Be CONCISE — 2-3 sentences max unless asked.
+When you don't know something, tell the user to TYPE "research [topic]" in the chat. You CANNOT trigger research yourself.`;
 
-When you don't know something, tell the user to TYPE the command in the chat box. Example: type "research Celia Pellegrini Austin chef". You CANNOT trigger research yourself — the user must type it as a command starting with the word "research". Be specific about what topic to search.`;
+  function getPERSONA(){
+    const lang=NX.i18n?NX.i18n.getLang():'en';
+    if(lang==='es')return PERSONA_BASE+'\n\nIMPORTANT: Respond ONLY in Spanish. All answers must be in Spanish regardless of input language.';
+    return PERSONA_BASE+'\n\nRespond in English by default. If user writes in Spanish, respond in Spanish.';
+  }
 
   function checkApiKey(){const b=document.getElementById('apiBanner');if(b)b.style.display=NX.getApiKey()?'none':'flex';}
   function timeStr(){const d=new Date();return d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}).toLowerCase();}
@@ -190,7 +195,7 @@ When you don't know something, tell the user to TYPE the command in the chat box
     try{
       const ctx=await getCtx(q);
       const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
-      const ans=await NX.askClaude(PERSONA+'\n\n'+ctx,msgs,800,false);
+      const ans=await NX.askClaude(getPERSONA()+'\n\n'+ctx,msgs,800,false);
       clearInterval(searchDots);
       th.textContent=ans||'No response.';th.classList.remove('chat-thinking');
       // Add timestamp
