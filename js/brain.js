@@ -62,6 +62,10 @@
   function physics(){const len=particles.length,cx=W/2,cy=H/2,ih=hoverNode!==null,CELL=200,grid={};for(let i=0;i<len;i++){const a=particles[i],k=Math.floor(a.x/CELL)+','+Math.floor(a.y/CELL);if(!grid[k])grid[k]=[];grid[k].push(i);}for(let i=0;i<len;i++){const a=particles[i];if(ih&&Math.hypot(a.x-hoverNode.x,a.y-hoverNode.y)<100){a.vx*=0.05;a.vy*=0.05;continue;}const gx=Math.floor(a.x/CELL),gy=Math.floor(a.y/CELL);for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid[(gx+ox)+','+(gy+oy)];if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j<=i)continue;const b=particles[j];let dx=a.x-b.x,dy=a.y-b.y,dS=dx*dx+dy*dy;if(dS>160000)continue;let d=Math.sqrt(dS)||1,f=REP/dS;a.vx+=dx/d*f;a.vy+=dy/d*f;b.vx-=dx/d*f;b.vy-=dy/d*f;}}const sc=catMap[a.cat];if(sc)for(let ci=0;ci<sc.length;ci++){const j=sc[ci];if(j===i)continue;const b=particles[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDC)*ATT;a.vy+=dy/d*(d-IDC)*ATT;}const aT=tagSets[i];if(aT&&aT.size>0)for(let ox=-2;ox<=2;ox++)for(let oy=-2;oy<=2;oy++){const nb=grid[(gx+ox)+','+(gy+oy)];if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j===i)continue;const bT=tagSets[j];if(!bT)continue;let sh=0;for(const t of aT)if(bT.has(t))sh++;if(!sh)continue;const b=particles[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDT)*ATT*sh*1.2;a.vy+=dy/d*(d-IDT)*ATT*sh*1.2;}}a.links.forEach(lid=>{const b=linkMap[lid];if(!b)return;let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDL)*LINK;a.vy+=dy/d*(d-IDL)*LINK;});const nA=Math.min(a.access/60,1);a.vx+=(cx-a.x)*CPULL*(0.3+nA*0.7);a.vy+=(cy-a.y)*CPULL*(0.3+nA*0.7);
     // Center beacon repulsion — nodes can't touch the NEXUS core
     const cdist=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-cy)*(a.y-cy))||1;if(cdist<100){const cf=(100-cdist)*0.08;a.vx+=(a.x-cx)/cdist*cf;a.vy+=(a.y-cy)/cdist*cf;}
+    // Orbital rotation — tangential force perpendicular to radius
+    const orbitSpeed=0.15/(1+cdist*0.003);
+    a.vx+=-(a.y-cy)/cdist*orbitSpeed;
+    a.vy+=(a.x-cx)/cdist*orbitSpeed;
     a.vx*=DAMP;a.vy*=DAMP;const sp=Math.sqrt(a.vx*a.vx+a.vy*a.vy);if(sp>MAXV){a.vx=a.vx/sp*MAXV;a.vy=a.vy/sp*MAXV;}a.x+=a.vx;a.y+=a.vy;if(a.x<80)a.vx+=1;if(a.x>W-80)a.vx-=1;if(a.y<80)a.vy+=1;if(a.y>H-80)a.vy-=1;}}
 
   function draw(){time+=0.008;physics();ctx.save();ctx.fillStyle='#121214';ctx.fillRect(0,0,W,H);ctx.translate(transform.x,transform.y);ctx.scale(transform.scale,transform.scale);const cx=W/2,cy=H/2,isA=activatedNodes.size>0;
@@ -96,92 +100,4 @@
   function fs(name){if(!name)return;const cn=NX.nodes.find(n=>n.category==='contractors'&&name.toLowerCase().includes(n.name.toLowerCase().split(' ')[0]));if(cn){activatedNodes=new Set([cn.id,...(cn.links||[])]);setTimeout(()=>{activatedNodes=new Set();},8000);}}
   async function addEvent(){const c=document.getElementById('eventContractor').value.trim(),d=document.getElementById('eventDesc').value.trim(),dt=document.getElementById('eventDate').value,tm=document.getElementById('eventTime').value,loc=document.getElementById('eventLocation').value;if(!c||!dt)return;const b=document.getElementById('eventAddBtn');b.disabled=true;b.textContent='...';try{await NX.sb.from('contractor_events').insert({contractor_name:c,description:d,event_date:dt,event_time:tm||null,location:loc,status:'scheduled'});document.getElementById('eventContractor').value='';document.getElementById('eventDesc').value='';document.getElementById('eventTime').value='';loadEvents();fs(c);}catch(e){}b.disabled=false;b.textContent='+ Schedule';}
 
-  // Suggest to brain (non-admin)
-  // HUD collapse
-  function setupHudCollapse(){const hud=document.getElementById('chatHud'),chev=document.getElementById('hudChevron');chev.addEventListener('click',()=>{hud.classList.toggle('collapsed');});}
-
-  // CHAT
-  const TASK_RX=[{rx:/^(?:log|note|record)\s+(?:that\s+)?(.+)/i,type:'log'},{rx:/^(?:add card|create task|todo)\s*:?\s*(.+)/i,type:'card'},{rx:/^(?:research|look up|search|find info)\s+(.+)/i,type:'research'}];
-  function detectTask(q){for(const p of TASK_RX){const m=q.match(p.rx);if(m)return{type:p.type,content:m[1]};}return null;}
-  async function handleTask(task){if(task.type==='log'){const{error}=await NX.sb.from('daily_logs').insert({entry:task.content});return error?'Failed to log.':`Logged: "${task.content}"`;}if(task.type==='card'){const{error}=await NX.sb.from('kanban_cards').insert({title:task.content,column_name:'todo'});return error?'Failed.':`Card created: "${task.content}"`;}return null;}
-
-  // Research: web search → extract nodes → save to brain
-  async function handleResearch(topic){
-    addB(`Researching "${topic}" on the web...`,'ai thinking');
-    try{
-      // Step 1: Search the web via Claude
-      const webResult=await NX.askClaude(
-        `You are a research assistant for restaurant operations (Suerte, Este, Bar Toti — Austin TX). Search the web and provide detailed, factual information about the topic. Include: specs, model numbers, pricing, warranty info, dealer/supplier contacts, phone numbers, and any other operationally relevant details.`,
-        [{role:'user',content:`Research this thoroughly: ${topic}`}],2000,true);
-
-      // Show the research results
-      const resEl=addB(webResult||'No results found.','ai');
-      resEl.classList.remove('chat-thinking');
-      chatHistory.push({role:'assistant',content:webResult});
-      if(voiceOn)speak(webResult);
-
-      // Step 2: Extract nodes from the research
-      addB('Extracting knowledge for the brain...','ai thinking');
-      const extraction=await NX.askClaude(
-        `Extract ALL knowledge from this web research for a restaurant ops system. Create nodes for: equipment models, companies, people, phone numbers, part numbers, suppliers, procedures, specs, warranties.
-RESPOND ONLY RAW JSON:
-{"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"Include specs, phone numbers, URLs, pricing, warranty details"}]}`,
-        [{role:'user',content:webResult}],2000);
-
-      let json=extraction.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
-      const s=json.indexOf('{'),e=json.lastIndexOf('}');
-      if(s!==-1&&e>s){json=json.slice(s,e+1);
-        try{const parsed=JSON.parse(json);
-          if(parsed.nodes&&parsed.nodes.length){let created=0;
-            const vc=['equipment','contractors','vendors','procedure','projects','people','systems','parts','location'];
-            const existingNames=new Set(NX.nodes.map(n=>(n.name||'').toLowerCase()));
-            for(const n of parsed.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2||existingNames.has(nm.toLowerCase()))continue;
-              const{error}=await NX.sb.from('nodes').insert({name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'equipment',tags:Array.isArray(n.tags)?n.tags.filter(x=>typeof x==='string').slice(0,20):[],notes:(n.notes||'').slice(0,2000),links:[],access_count:1,source_emails:[{from:'Web Research',subject:topic,date:new Date().toISOString().split('T')[0]}]});
-              if(!error){created++;existingNames.add(nm.toLowerCase());}}
-            const confirmEl=addB(`✓ ${created} node${created!==1?'s':''} added to brain from research.`,'ai');
-            confirmEl.classList.remove('chat-thinking');
-            await NX.loadNodes();if(NX.brain)NX.brain.init();
-          }else{const ne=addB('Research complete — no new nodes to extract.','ai');ne.classList.remove('chat-thinking');}
-        }catch(pe){const ee=addB('Research saved but node extraction failed.','ai');ee.classList.remove('chat-thinking');}
-      }else{const ne=addB('Research complete.','ai');ne.classList.remove('chat-thinking');}
-      try{await NX.sb.from('chat_history').insert({question:'research: '+topic,answer:webResult,session_id:SESSION_ID});}catch(e){}
-    }catch(e){
-      const errEl=addB('Research failed: '+(e.message||'connection error'),'ai');
-      errEl.classList.remove('chat-thinking');
-    }
-  }
-
-  function setupChat(){
-    const i=document.getElementById('chatInput'),s=document.getElementById('chatSend'),hud=document.getElementById('chatHud'),dim=document.getElementById('brainDim'),r=document.getElementById('resetBtn'),chev=document.getElementById('hudChevron');
-    // HUD collapse
-    chev.addEventListener('click',()=>{hud.classList.toggle('collapsed');});
-    i.addEventListener('input',()=>{s.disabled=!i.value.trim();});
-    i.addEventListener('focus',()=>{if(hud.classList.contains('collapsed'))hud.classList.remove('collapsed');dim.classList.add('active');});
-    i.addEventListener('blur',()=>{if(!i.value.trim()&&!chatActive)dim.classList.remove('active');});
-    i.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();askAI();}});
-    s.addEventListener('click',askAI);r.addEventListener('click',resetChat);
-    document.querySelectorAll('.brain-ex').forEach(b=>b.addEventListener('click',()=>{i.value=b.textContent;s.disabled=false;askAI();}));
-  }
-  function resetChat(){chatHistory=[];chatActive=false;document.getElementById('chatMessages').innerHTML='';document.getElementById('brainWelcome').style.display='';document.getElementById('brainExamples').style.display='';document.getElementById('brainDim').classList.remove('active');document.getElementById('resetBtn').style.display='none';activatedNodes=new Set();}
-
-  async function getCtx(q){const w=q.toLowerCase().split(/\s+/).filter(x=>x.length>2);const sc=NX.nodes.map(n=>{let s=0;const t=(n.name+' '+n.category+' '+(n.tags||[]).join(' ')+' '+(n.notes||'')+' '+JSON.stringify(n.sources||n.source_emails||[])).toLowerCase();w.forEach(x=>{if(t.includes(x))s+=t.split(x).length-1;});if(n.name.toLowerCase().includes(q.toLowerCase()))s+=10;return{node:n,score:s};}).filter(s=>s.score>0).sort((a,b)=>b.score-a.score);const rel=sc.slice(0,10).map(s=>s.node);const idx=NX.nodes.filter(n=>!n.is_private).map(n=>`${n.name} (${n.category})`).join(', ');const det=rel.map(n=>{let src='';const sources=n.sources||n.source_emails;if(sources&&sources.length)src=' [Sources: '+sources.map(s=>`${s.from} "${s.subject}" ${s.date}`).join('; ')+']';return`[${n.category}] ${n.name}: ${n.notes}${src}`;}).join('\n');const relIds=rel.map(n=>n.id);activatedNodes=new Set(relIds);setTimeout(()=>{activatedNodes=new Set();},12000);NX.trackAccess(relIds);const memory=await NX.fetchMemory(q);let ev='';if(contractorEvents.length)ev='\n\nUPCOMING:\n'+contractorEvents.slice(0,8).map(e=>`${e.contractor_name} @ ${e.location||'?'} ${e.event_date}`).join('\n');return`RELEVANT NODES:\n${det}\n\nINDEX (${NX.nodes.length}):\n${idx}${memory}${ev}`;}
-
-  async function askAI(){
-    if(!navigator.onLine){addB("Can't reach NEXUS — check WiFi.",'ai');return;}
-    const i=document.getElementById('chatInput'),q=i.value.trim();if(!q)return;i.value='';document.getElementById('chatSend').disabled=true;document.getElementById('brainWelcome').style.display='none';document.getElementById('brainExamples').style.display='none';document.getElementById('brainDim').classList.add('active');document.getElementById('chatHud').classList.add('expanded');document.getElementById('chatHud').classList.remove('collapsed');document.getElementById('resetBtn').style.display='';chatActive=true;addB(q,'user');chatHistory.push({role:'user',content:q});
-    const task=detectTask(q);if(task){
-      if(task.type==='research'){await handleResearch(task.content);return;}
-      const result=await handleTask(task);if(result){addB(result,'ai');chatHistory.push({role:'assistant',content:result});if(voiceOn)speak(result);try{await NX.sb.from('chat_history').insert({question:q,answer:result,session_id:SESSION_ID});}catch(e){}return;}}
-    const th=addB(`Searching ${NX.nodes.length} nodes + memory...`,'ai thinking');const ctx=await getCtx(q);const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
-    try{const ans=await NX.askClaude(PERSONA+'\n\n'+ctx,msgs,800,true);th.textContent=ans||'Something went sideways.';th.classList.remove('chat-thinking');chatHistory.push({role:'assistant',content:ans});if(voiceOn)speak(ans);try{await NX.sb.from('chat_history').insert({question:q,answer:ans,session_id:SESSION_ID});}catch(e){}}catch(e){th.textContent=navigator.onLine?(e.message||'Connection hiccup.'):"Can't reach NEXUS — check WiFi.";th.classList.remove('chat-thinking');}}
-  function addB(t,type){const el=document.createElement('div');el.className='chat-bubble chat-'+(type.includes('user')?'user':'ai');if(type.includes('thinking'))el.classList.add('chat-thinking');el.textContent=t;el.style[type.includes('user')?'marginLeft':'marginRight']='auto';const c=document.getElementById('chatMessages');c.appendChild(el);c.scrollTop=c.scrollHeight;return el;}
-
-  // VOICE — 10 voices
-  let pv=null;const VOICES=[{id:'pNInz6obpgDQGcFmaJgB',name:'Adam',desc:'Sharp & confident'},{id:'EXAVITQu4vr4xnSDxMaL',name:'Bella',desc:'Warm & witty'},{id:'onwK4e9ZLuTAKqWW03F9',name:'Daniel',desc:'British dry wit'},{id:'XB0fDUnXU5powFXDhCwa',name:'Charlotte',desc:'Smart & smooth'},{id:'TX3LPaxmHKxFdv7VOQHJ',name:'Liam',desc:'Casual & quick'},{id:'jBpfuIE2acCO8z3wKNLl',name:'Emily',desc:'Friendly & clear'},{id:'yoZ06aMxZJJ28mfd3POQ',name:'Sam',desc:'Deep & calm'},{id:'ThT5KcBeYPX3keUQqHPh',name:'Dorothy',desc:'Warm storyteller'},{id:'VR6AewLTigWG4xSOukaG',name:'Arnold',desc:'Bold & direct'},{id:'pqHfZKP75CvOlQylNhV4',name:'Bill',desc:'Natural & relaxed'}];
-  let cvi=parseInt(localStorage.getItem('nexus_voice_idx')||'0')%VOICES.length;
-  function setupVoice(){document.getElementById('micBtn').addEventListener('click',toggleMic);const vb=document.getElementById('voiceBtn');let pt=null;vb.addEventListener('click',()=>{voiceOn=!voiceOn;vb.classList.toggle('on',voiceOn);if(voiceOn)vb.title=`Voice: ${VOICES[cvi].name} (hold to switch)`;});vb.addEventListener('pointerdown',()=>{pt=setTimeout(()=>{cvi=(cvi+1)%VOICES.length;localStorage.setItem('nexus_voice_idx',cvi);voiceOn=true;vb.classList.add('on');vb.title=`Voice: ${VOICES[cvi].name}`;speak(`Hey — ${VOICES[cvi].name} here. ${VOICES[cvi].desc}.`);pt=null;},600);});vb.addEventListener('pointerup',()=>{if(pt)clearTimeout(pt);});vb.addEventListener('pointerleave',()=>{if(pt)clearTimeout(pt);});if('speechSynthesis'in window){const pk=()=>{const v=speechSynthesis.getVoices();for(const n of['Samantha','Karen','Daniel','Microsoft Aria']){const f=v.find(x=>x.name.includes(n));if(f){pv=f;break;}}};pk();speechSynthesis.onvoiceschanged=pk;}}
-  function toggleMic(){const b=document.getElementById('micBtn');if(recognition){recognition.stop();recognition=null;b.classList.remove('recording');return;}if(!('webkitSpeechRecognition'in window||'SpeechRecognition'in window))return;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;recognition=new SR();recognition.continuous=false;recognition.interimResults=false;recognition.onresult=e=>{document.getElementById('chatInput').value=e.results[0][0].transcript;document.getElementById('chatSend').disabled=false;b.classList.remove('recording');recognition=null;askAI();};recognition.onerror=()=>{b.classList.remove('recording');recognition=null;};recognition.onend=()=>{b.classList.remove('recording');recognition=null;};b.classList.add('recording');recognition.start();}
-  async function speak(text){const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.45,similarity_boost:.78,style:.35,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl),a=new Audio(u);a.play();a.onended=()=>URL.revokeObjectURL(u);return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=.95;speechSynthesis.speak(u);}
-
-  NX.brain={init,closePanel,show:()=>{resize();}};NX.modules.brain=NX.brain;NX.loaded.brain=true;
-})();
+  // Suggest to b
