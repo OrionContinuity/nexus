@@ -127,6 +127,8 @@
   }
 
   function togglePlay(cx,cy){
+    // Prevent any visual flash
+    canvas.style.opacity='1';
     if(isPlaying){
       fadeOut(()=>{audioEl.pause();isPlaying=false;});
     }else{
@@ -135,7 +137,7 @@
       resume.then(()=>{
         const p=audioEl.play();
         const start=()=>{isPlaying=true;fadeIn();for(let i=0;i<40;i++)spawnNebula(cx,cy,0.6);};
-        if(p&&p.then)p.then(start).catch(e=>{console.error('Play failed:',e);setTimeout(()=>audioEl.play().then(start).catch(()=>{}),200);});
+        if(p&&p.then)p.then(start).catch(e=>{setTimeout(()=>audioEl.play().then(start).catch(()=>{}),200);});
         else start();
       });
     }
@@ -350,8 +352,23 @@
     canvas.addEventListener('wheel',e=>{e.preventDefault();const f=e.deltaY>0?.92:1.08;const ns=Math.max(.1,Math.min(8,state.transform.scale*f));const r=canvas.getBoundingClientRect();const mx=(e.clientX-r.left)*dpr(),my=(e.clientY-r.top)*dpr();state.transform.x=mx-(mx-state.transform.x)*(ns/state.transform.scale);state.transform.y=my-(my-state.transform.y)*(ns/state.transform.scale);state.transform.scale=ns;},{passive:false});
 
     let ltd=0;
-    canvas.addEventListener('touchstart',e=>{if(e.touches.length===1){state.dragStart={x:e.touches[0].clientX,y:e.touches[0].clientY};state.dragTransStart={x:state.transform.x,y:state.transform.y};}if(e.touches.length===2)ltd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);},{passive:true});
-    canvas.addEventListener('touchmove',e=>{const d=dpr();if(e.touches.length===1){state.transform.x=state.dragTransStart.x+(e.touches[0].clientX-state.dragStart.x)*d;state.transform.y=state.dragTransStart.y+(e.touches[0].clientY-state.dragStart.y)*d;}if(e.touches.length===2){const nd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);state.transform.scale=Math.max(.1,Math.min(8,state.transform.scale*nd/ltd));ltd=nd;}},{passive:true});
+    // Kill browser tap flash
+    canvas.setAttribute('tabindex','-1');
+    canvas.style.webkitTapHighlightColor='transparent';
+    canvas.style.touchAction='none';
+    canvas.addEventListener('touchstart',e=>{e.preventDefault();if(e.touches.length===1){state.dragStart={x:e.touches[0].clientX,y:e.touches[0].clientY};state.dragTransStart={x:state.transform.x,y:state.transform.y};}if(e.touches.length===2)ltd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);},{passive:false});
+    canvas.addEventListener('touchmove',e=>{e.preventDefault();const d=dpr();if(e.touches.length===1){const dx=e.touches[0].clientX-state.dragStart.x,dy=e.touches[0].clientY-state.dragStart.y;if(Math.abs(dx)+Math.abs(dy)>5)state.dragging=true;state.transform.x=state.dragTransStart.x+dx*d;state.transform.y=state.dragTransStart.y+dy*d;}if(e.touches.length===2){const nd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);state.transform.scale=Math.max(.1,Math.min(8,state.transform.scale*nd/ltd));ltd=nd;}},{passive:false});
+    canvas.addEventListener('touchend',e=>{
+      if(state.dragging){state.dragging=false;return;}
+      // Simulate tap from last touchstart position
+      const sx=state.dragStart.x,sy=state.dragStart.y;
+      const p=stw(sx,sy);const cx=W/2,cy=H/2;
+      if(Math.hypot(p.x-cx,p.y-cy)<35){togglePlay(cx,cy);return;}
+      let closest=null,closestD=25/state.transform.scale;
+      state.particles.forEach(a=>{const d=Math.hypot(p.x-a.x,p.y-a.y);if(d<closestD){closest=a;closestD=d;}});
+      if(closest){if(state.frozenNode&&state.frozenNode.id===closest.id){state.frozenNode=null;state.activeNode=null;closePanel();}else{state.frozenNode=closest;state.activeNode=closest.node;openPanel(closest.node);}}
+      else{state.frozenNode=null;state.activeNode=null;closePanel();}
+    },{passive:true});
   }
 
   function stw(sx,sy){const r=canvas.getBoundingClientRect(),d=Math.min(window.devicePixelRatio||1,1.5);return{x:((sx-r.left)*d-state.transform.x)/state.transform.scale,y:((sy-r.top)*d-state.transform.y)/state.transform.scale};}
@@ -396,12 +413,56 @@
     const le=document.getElementById('npLinks');le.innerHTML='';
     if(n.links&&n.links.length){le.innerHTML='<div class="np-section-title">'+(NX.i18n?NX.i18n.t('connectedTo'):'CONNECTED TO')+' ('+n.links.length+')</div>';
       n.links.forEach(lid=>{const ln=NX.nodes.find(x=>x.id===lid);if(!ln)return;const d=document.createElement('div');d.className='np-link-item';d.innerHTML=`<span class="np-link-cat">${ln.category}</span>${ln.name}`;d.onclick=()=>{const fp=state.particles.find(p=>p.id===lid);if(fp){state.frozenNode=fp;state.activeNode=ln;openPanel(ln);}};le.appendChild(d);});}
-    // Delete
+    // Delete — small ✕ button
     const delBtn=document.getElementById('npDelete');
-    delBtn.textContent=NX.i18n?NX.i18n.t('deleteNode'):'Delete Node';
-    delBtn.onclick=async()=>{if(!confirm('Delete "'+n.name+'"?'))return;delBtn.disabled=true;delBtn.textContent='...';
-      try{const{error}=await NX.sb.from('nodes').delete().eq('id',n.id);if(!error){NX.nodes=NX.nodes.filter(x=>x.id!==n.id);state.particles=state.particles.filter(p=>p.id!==n.id);delete state.linkMap[n.id];closePanel();}else delBtn.textContent='Error';}catch(e){delBtn.textContent='Error';}
-      setTimeout(()=>{delBtn.disabled=false;delBtn.textContent=NX.i18n?NX.i18n.t('deleteNode'):'Delete Node';},3000);};
+    delBtn.onclick=async()=>{if(!confirm('Delete "'+n.name+'"?'))return;
+      try{const{error}=await NX.sb.from('nodes').delete().eq('id',n.id);if(!error){NX.nodes=NX.nodes.filter(x=>x.id!==n.id);state.particles=state.particles.filter(p=>p.id!==n.id);delete state.linkMap[n.id];closePanel();}}catch(e){}};
+
+    // Edit notes
+    const editBtn=document.getElementById('npEditNotes');
+    editBtn.onclick=()=>{
+      const current=n.notes||'';
+      const ta=document.createElement('textarea');ta.className='np-edit-textarea';ta.value=current;ta.rows=6;
+      const saveBtn=document.createElement('button');saveBtn.className='np-edit-btn';saveBtn.textContent='Save';saveBtn.style.marginTop='6px';
+      const cancelBtn=document.createElement('button');cancelBtn.className='np-edit-btn';cancelBtn.textContent='Cancel';cancelBtn.style.marginTop='6px';cancelBtn.style.marginLeft='6px';
+      const notesEl=document.getElementById('npNotes');notesEl.innerHTML='';
+      notesEl.appendChild(ta);notesEl.appendChild(saveBtn);notesEl.appendChild(cancelBtn);
+      ta.focus();
+      saveBtn.onclick=async()=>{const newNotes=ta.value;
+        await NX.sb.from('nodes').update({notes:newNotes}).eq('id',n.id);n.notes=newNotes;
+        notesEl.textContent=newNotes||'No notes.';};
+      cancelBtn.onclick=()=>{notesEl.textContent=current||'No notes.';};
+    };
+
+    // File upload
+    const fileInput=document.getElementById('npFileInput');
+    const uploadStatus=document.getElementById('npUploadStatus');
+    fileInput.onchange=async()=>{
+      const files=fileInput.files;if(!files.length)return;
+      uploadStatus.textContent='Uploading...';
+      const atts=n.attachments||[];
+      for(const file of files){
+        try{
+          const ts=Date.now();
+          const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+          const path=`${ts}_${safeName}`;
+          const{error:upErr}=await NX.sb.storage.from('nexus-files').upload(path,file,{contentType:file.type,upsert:true});
+          if(upErr){uploadStatus.textContent='Upload failed: '+upErr.message;continue;}
+          const{data:urlData}=NX.sb.storage.from('nexus-files').getPublicUrl(path);
+          const url=urlData?.publicUrl||'';
+          atts.push({url,filename:file.name,type:file.type,date:new Date().toISOString().split('T')[0],from:'Manual upload'});
+          uploadStatus.textContent=`✓ ${file.name} uploaded`;
+        }catch(e){uploadStatus.textContent='Error: '+e.message;}
+      }
+      // Save to node
+      await NX.sb.from('nodes').update({attachments:atts}).eq('id',n.id);
+      n.attachments=atts;
+      // Refresh attachments display
+      openPanel(n);
+      fileInput.value='';
+      setTimeout(()=>{uploadStatus.textContent='';},3000);
+    };
+
     document.getElementById('nodePanel').classList.add('open');if(window.lucide)lucide.createIcons();
   }
 
