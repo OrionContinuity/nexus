@@ -138,6 +138,24 @@ const NX = {
       if (data) this.config = data;
     } catch (e) { console.error('Config load failed:', e); }
 
+    // ONE-TIME MIGRATION: if Supabase config is empty but localStorage has keys, push them up
+    if (this.config && !this.config.anthropic_key) {
+      const localKey = localStorage.getItem('nexus_api_key');
+      if (localKey) {
+        console.log('NEXUS: Migrating keys from localStorage to Supabase...');
+        const updates = {};
+        const lk = localStorage.getItem('nexus_api_key'); if (lk) updates.anthropic_key = lk;
+        const le = localStorage.getItem('nexus_eleven_key'); if (le) updates.elevenlabs_key = le;
+        const lg = localStorage.getItem('nexus_google_client_id'); if (lg) updates.google_client_id = lg;
+        const lt = localStorage.getItem('nexus_trello_key'); if (lt) updates.trello_key = lt;
+        const ltt = localStorage.getItem('nexus_trello_token'); if (ltt) updates.trello_token = ltt;
+        const lm = localStorage.getItem('nexus_model'); if (lm) updates.model = lm;
+        updates.updated_at = new Date().toISOString();
+        const { error } = await this.sb.from('nexus_config').update(updates).eq('id', 1);
+        if (!error) { Object.assign(this.config, updates); console.log('NEXUS: Keys migrated successfully'); }
+      }
+    }
+
     // Hide PIN, show app
     document.getElementById('pinScreen').classList.add('hidden');
     document.getElementById('appWrap').style.display = '';
@@ -402,31 +420,4 @@ const NX = {
             localStorage.setItem('nexus_drive_token', r.access_token);
             localStorage.setItem('nexus_drive_expiry', String(Date.now() + 55 * 60 * 1000));
             const s = document.getElementById('driveStatus');
-            if (s) { s.textContent = '✓ Connected'; s.style.color = '#39ff14'; }
-          }
-        }
-      });
-      tc.requestAccessToken();
-    };
-    if (window.google?.accounts?.oauth2) doConnect();
-    else { const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.onload = doConnect; document.head.appendChild(s); }
-  },
-
-  // ─── Claude API ───
-  async askClaude(system, messages, maxTokens = 600, useSearch = false) {
-    const key = this.getApiKey();
-    if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
-    const body = { model: this.getModel(), max_tokens: maxTokens, system, messages };
-    if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify(body)
-    });
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error.message || 'API error');
-    return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
-  }
-};
-
-document.addEventListener('DOMContentLoaded', () => NX.init());
+            if 
