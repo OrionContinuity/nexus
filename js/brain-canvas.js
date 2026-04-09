@@ -55,7 +55,7 @@
       const nA=Math.min(a.access/60,1);a.vx+=(cx-a.x)*CPULL*(0.3+nA*0.7);a.vy+=(cy-a.y)*CPULL*(0.3+nA*0.7);
       const cdist=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-cy)*(a.y-cy))||1;
       if(cdist<160){const cf=(160-cdist)*0.1;a.vx+=(a.x-cx)/cdist*cf;a.vy+=(a.y-cy)/cdist*cf;}
-      const orbitSpeed=0.2/(1+cdist*0.002)*(Object.keys(state.catMap).indexOf(a.cat)%2===0?1:-1);
+      const orbitSpeed=0.5/(1+cdist*0.0015)*(Object.keys(state.catMap).indexOf(a.cat)%2===0?1:-1);
       a.vx+=-(a.y-cy)/cdist*orbitSpeed;a.vy+=(a.x-cx)/cdist*orbitSpeed;
       // Random jitter — nodes feel alive
       a.vx+=(Math.random()-0.5)*0.08;a.vy+=(Math.random()-0.5)*0.08;
@@ -77,8 +77,8 @@
     const cx=W/2,cy=H/2,isA=state.activatedNodes.size>0,particles=state.particles;
     const invScale=1/t.scale,vl=-t.x*invScale-100,vr=(-t.x+W)*invScale+100,vt=-t.y*invScale-100,vb=(-t.y+H)*invScale+100;
 
-    // Connection lines (batched)
-    ctx.lineWidth=1.2;ctx.strokeStyle='rgba(212,182,138,.25)';ctx.beginPath();
+    // Connection lines (batched — ethereal white)
+    ctx.lineWidth=0.8;ctx.strokeStyle='rgba(240,238,232,.15)';ctx.beginPath();
     for(let i=0;i<particles.length;i++){const a=particles[i];if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
       for(let li=0;li<a.links.length;li++){const b=state.linkMap[a.links[li]];if(!b)continue;
         if((state.activatedNodes.has(a.id)&&state.activatedNodes.has(b.id))||(state.searchHits.has(a.id)&&state.searchHits.has(b.id)))continue;
@@ -92,10 +92,10 @@
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(mx,my,b.x,b.y);ctx.strokeStyle=cc(a.cat,.7);ctx.lineWidth=3;ctx.stroke();}}
 
     // Center lines (top accessed only)
-    ctx.lineWidth=0.5;ctx.strokeStyle='rgba(212,182,138,.06)';ctx.beginPath();
+    ctx.lineWidth=0.3;ctx.strokeStyle='rgba(240,238,232,.04)';ctx.beginPath();
     for(let i=0;i<particles.length;i++){const a=particles[i];const hit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id);
       if(!hit&&a.access<=10)continue;
-      if(hit){ctx.stroke();ctx.beginPath();ctx.strokeStyle='rgba(212,182,138,.3)';ctx.lineWidth=1.2;ctx.moveTo(cx,cy);ctx.lineTo(a.x,a.y);ctx.stroke();ctx.beginPath();ctx.strokeStyle='rgba(212,182,138,.06)';ctx.lineWidth=0.5;}
+      if(hit){ctx.stroke();ctx.beginPath();ctx.strokeStyle='rgba(255,255,255,.25)';ctx.lineWidth=1;ctx.moveTo(cx,cy);ctx.lineTo(a.x,a.y);ctx.stroke();ctx.beginPath();ctx.strokeStyle='rgba(240,238,232,.04)';ctx.lineWidth=0.3;}
       else{ctx.moveTo(cx,cy);ctx.lineTo(a.x,a.y);}}
     ctx.stroke();
 
@@ -105,20 +105,22 @@
     ctx.strokeStyle=`rgba(212,182,138,${.6+br*.2})`;ctx.lineWidth=2.5;ctx.stroke();ctx.shadowBlur=0;
     ctx.fillStyle=`rgba(212,182,138,${.85+br*.1})`;ctx.font='600 18px JetBrains Mono';ctx.textAlign='center';ctx.fillText('NEXUS',cx,cy+6);
 
-    // Nodes
+    // Nodes — white fill, category-colored glow
     for(let i=0;i<particles.length;i++){const a=particles[i];
       if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
       const hit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id),act=state.activeNode&&state.activeNode.id===a.id;
       const dim=isA&&!hit&&!act,p=Math.sin(time*1.5+a.id*.6);
-      const nr=act?AR+p*2:hit?SR2+p*1.5:dim?4:BR+p*.4;
-      if(hit||act){ctx.shadowBlur=16;ctx.shadowColor=cc(a.cat,.8);}
-      ctx.beginPath();ctx.arc(a.x,a.y,nr,0,Math.PI*2);ctx.fillStyle=cc(a.cat,act?.95:hit?.8:dim?.08:.55);ctx.fill();
-      ctx.strokeStyle=cc(a.cat,act?.7:hit?.55:dim?.04:.25);ctx.lineWidth=act?2:0.8;ctx.stroke();
+      const nr=act?AR+p*2:hit?SR2+p*1.5:dim?3:BR+p*.4;
+      if(hit||act){ctx.shadowBlur=20;ctx.shadowColor=cc(a.cat,.9);}
+      ctx.beginPath();ctx.arc(a.x,a.y,nr,0,Math.PI*2);
+      ctx.fillStyle=act?'rgba(255,255,255,.95)':hit?'rgba(255,255,255,.9)':dim?'rgba(255,255,255,.06)':`rgba(240,238,232,${.45+p*.05})`;
+      ctx.fill();
+      ctx.strokeStyle=cc(a.cat,act?.8:hit?.6:dim?.03:.2);ctx.lineWidth=act?2:0.8;ctx.stroke();
       if(hit||act)ctx.shadowBlur=0;
       const sr=nr*t.scale;if(sr<4&&!hit&&!act)continue;if(dim)continue;
       const label=a.node.name.length>20?a.node.name.slice(0,18)+'…':a.node.name;
       ctx.font=`${act?'500 ':'300 '}${sr>8?'11':'9'}px "Libre Franklin"`;ctx.textAlign='center';
-      ctx.fillStyle=`rgba(236,233,225,${act?.95:hit?.9:.5})`;ctx.fillText(label,a.x,a.y-nr-6+3,200);
+      ctx.fillStyle=`rgba(255,255,255,${act?.95:hit?.9:.45})`;ctx.fillText(label,a.x,a.y-nr-6+3,200);
     }
     ctx.restore();requestAnimationFrame(draw);
   }
