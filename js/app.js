@@ -213,6 +213,8 @@ const NX = {
     });
     this.setupNav();
     this.setupAdmin();
+    // Ticket badge
+    this.checkTicketBadge();
     // Language toggle
     if (this.i18n) {
       const langBtn = document.getElementById('langToggle');
@@ -496,6 +498,17 @@ const NX = {
     };
     if (window.google?.accounts?.oauth2) doConnect();
     else { const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.onload = doConnect; document.head.appendChild(s); }
+  },
+
+  // ─── Ticket Badge ───
+  async checkTicketBadge(){
+    try{
+      const{count}=await this.sb.from('tickets').select('*',{count:'exact',head:true}).eq('status','open');
+      const badge=document.getElementById('ticketBadge');
+      if(badge){badge.textContent=count||'';badge.style.display=count?'flex':'none';}
+    }catch(e){}
+    // Poll every 2 minutes
+    setInterval(()=>this.checkTicketBadge(),120000);
   },
 
   // ─── Claude API ───
