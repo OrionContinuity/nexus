@@ -480,16 +480,24 @@ const NX = {
 
     // Add user
     document.getElementById('addUserBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('addUserBtn');
       const name = document.getElementById('newUserName').value.trim();
       const pin = document.getElementById('newUserPin').value.trim();
       const role = document.getElementById('newUserRole').value;
       const loc = document.getElementById('newUserLoc').value;
       const lang = document.getElementById('newUserLang').value;
       if (!name || !pin) return;
+      btn.disabled = true; btn.textContent = 'Adding...';
       const { error } = await this.sb.from('nexus_users').insert({ name, pin, role, location: loc, language: lang });
-      if (error) { alert('Error: ' + error.message); return; }
+      if (error) {
+        if (error.message.includes('unique') || error.message.includes('duplicate')) {
+          alert('That PIN is already taken. Pick a different one.');
+        } else { alert('Error: ' + error.message); }
+        btn.disabled = false; btn.textContent = '+ Add'; return;
+      }
       document.getElementById('newUserName').value = '';
       document.getElementById('newUserPin').value = '';
+      btn.disabled = false; btn.textContent = '+ Add';
       this.loadUserList();
     });
   },
