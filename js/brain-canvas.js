@@ -390,7 +390,7 @@
         const card=document.createElement('div');card.className='np-email-card';
         card.innerHTML=`<div class="np-email-header"><div class="np-email-from">${s.from||'Unknown'}</div><div class="np-email-date">${s.date||''}</div></div><div class="np-email-subject">${s.subject||'(no subject)'}</div>`;
         if(s.snippet||s.body){const preview=document.createElement('div');preview.className='np-email-preview';preview.textContent=(s.snippet||s.body||'').slice(0,150);card.appendChild(preview);}
-        if(s.body&&s.body.length>10){
+        if(s.body&&s.body.length>10&&NX.isAdmin){
           const toggle=document.createElement('button');toggle.className='np-email-toggle';toggle.textContent=tt('showEmail');
           const detail=document.createElement('div');detail.className='np-email-detail';detail.style.display='none';
           detail.innerHTML=`<div class="np-email-detail-header"><div class="np-detail-row"><span class="np-detail-label">From</span><span class="np-detail-value">${s.from||''}</span></div>${s.to?`<div class="np-detail-row"><span class="np-detail-label">To</span><span class="np-detail-value">${s.to}</span></div>`:''}<div class="np-detail-row"><span class="np-detail-label">Date</span><span class="np-detail-value">${s.date||''}</span></div><div class="np-detail-row"><span class="np-detail-label">Subject</span><span class="np-detail-value">${s.subject||''}</span></div></div><div class="np-email-full-body">${(s.body||'').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`;
@@ -413,7 +413,12 @@
     const le=document.getElementById('npLinks');le.innerHTML='';
     if(n.links&&n.links.length){le.innerHTML='<div class="np-section-title">'+(NX.i18n?NX.i18n.t('connectedTo'):'CONNECTED TO')+' ('+n.links.length+')</div>';
       n.links.forEach(lid=>{const ln=NX.nodes.find(x=>x.id===lid);if(!ln)return;const d=document.createElement('div');d.className='np-link-item';d.innerHTML=`<span class="np-link-cat">${ln.category}</span>${ln.name}`;d.onclick=()=>{const fp=state.particles.find(p=>p.id===lid);if(fp){state.frozenNode=fp;state.activeNode=ln;openPanel(ln);}};le.appendChild(d);});}
-    // Delete — small ✕ button
+    // Admin-only controls
+    document.getElementById('npEditNotes').style.display=NX.isAdmin?'':'none';
+    document.querySelector('.np-add-section').style.display=NX.isAdmin?'':'none';
+    document.querySelector('.np-footer').style.display=NX.isAdmin?'':'none';
+
+    // Delete — small ✕ button (admin only)
     const delBtn=document.getElementById('npDelete');
     delBtn.onclick=async()=>{if(!confirm('Delete "'+n.name+'"?'))return;
       try{const{error}=await NX.sb.from('nodes').delete().eq('id',n.id);if(!error){NX.nodes=NX.nodes.filter(x=>x.id!==n.id);state.particles=state.particles.filter(p=>p.id!==n.id);delete state.linkMap[n.id];closePanel();}}catch(e){}};
