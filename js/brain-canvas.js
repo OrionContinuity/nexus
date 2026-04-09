@@ -63,7 +63,7 @@
       // Black hole slingshot — launched nearly to screen edge
       let slung=false;
       if(cdist<70){const sling=30;a.vx+=(a.x-cx)/cdist*sling;a.vy+=(a.y-cy)/cdist*sling;slung=true;}
-      const orbitSpeed=0.05/(1+cdist*0.002)*(Object.keys(state.catMap).indexOf(a.cat)%2===0?1:-1);
+      const orbitSpeed=0.35/(1+cdist*0.001)*(Object.keys(state.catMap).indexOf(a.cat)%2===0?1:-1);
       a.vx+=-(a.y-cy)/cdist*orbitSpeed;a.vy+=(a.x-cx)/cdist*orbitSpeed;
       // Gentle jitter
       a.vx+=(Math.random()-0.5)*0.04;a.vy+=(Math.random()-0.5)*0.04;
