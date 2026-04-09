@@ -16,68 +16,72 @@
 
   const DAMP=0.993,MAXV=1.0,DOT=3,DOT_HIT=6,DOT_ACTIVE=10;
 
-  // ═══ NEBULA PARTICLES — ambient particles from center ═══
-  const nebula=[];const MAX_NEBULA=200;
+  // ═══ NEBULA PARTICLES — beacon-001 inspired ═══
+  const nebula=[];const MAX_NEBULA=300;
   const NEBULA_COLORS=[
     [212,182,138],[220,195,155],[245,230,200],[180,160,130],
-    [200,175,140],[230,210,170],[190,170,145],[255,240,210]
+    [200,175,140],[230,210,170],[190,170,145],[255,240,210],
+    [170,150,120],[240,220,180]
   ];
 
   function spawnNebula(cx,cy,energy){
     if(nebula.length>=MAX_NEBULA)return;
     const angle=Math.random()*Math.PI*2;
-    const speed=0.3+Math.random()*1.2+(energy||0)*2;
+    const speed=0.15+Math.random()*0.6+(energy||0)*1.5;
     const c=NEBULA_COLORS[Math.floor(Math.random()*NEBULA_COLORS.length)];
     nebula.push({
       x:cx,y:cy,
       vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,
-      life:1,decay:0.003+Math.random()*0.004,
-      size:1+Math.random()*3+(energy||0)*3,
-      color:c,
-      wobbleSpeed:0.5+Math.random()*1.5,wobblePhase:Math.random()*6.28,wobbleAmp:0.5+Math.random()*2,
-      pulseSpeed:0.3+Math.random()*0.8,pulsePhase:Math.random()*6.28,
-      baseAlpha:0.15+Math.random()*0.25
+      life:1,decay:0.001+Math.random()*0.002, // Very slow decay — long life
+      size:0.8+Math.random()*2.5+(energy||0)*2,
+      color:c,fromCenter:true,age:0,
+      wobbleSpeed:0.2+Math.random()*0.8,wobblePhase:Math.random()*6.28,wobbleAmp:0.8+Math.random()*3,
+      pulseSpeed:0.15+Math.random()*0.4,pulsePhase:Math.random()*6.28,
+      baseAlpha:0.08+Math.random()*0.18
     });
   }
 
   function updateNebula(){
     for(let i=nebula.length-1;i>=0;i--){
       const p=nebula[i];
-      p.life-=p.decay;if(p.life<=0){nebula.splice(i,1);continue;}
+      p.age++;p.life-=p.decay;
+      if(p.life<=0){nebula.splice(i,1);continue;}
       const wobble=Math.sin(time*p.wobbleSpeed*60+p.wobblePhase)*p.wobbleAmp;
       const perpLen=Math.sqrt(p.vx*p.vx+p.vy*p.vy)||1;
+      // Music pushes particles outward
+      if(p.fromCenter&&isPlaying){p.vx+=p.vx*0.0003*audioEnergy;p.vy+=p.vy*0.0003*audioEnergy;}
+      else if(!isPlaying&&p.fromCenter){p.vx*=0.999;p.vy*=0.999;}
       p.x+=p.vx+wobble*(-p.vy/perpLen)*0.15;
       p.y+=p.vy+wobble*(p.vx/perpLen)*0.15;
-      // Slow down
-      p.vx*=0.998;p.vy*=0.998;
     }
   }
 
-  function drawNebula(t){
+  function drawNebula(){
     for(let i=0;i<nebula.length;i++){
       const p=nebula[i];
       const pulse=0.7+0.3*Math.sin(time*p.pulseSpeed*60+p.pulsePhase);
-      const fadeIn=Math.min(p.life*5,1);
+      const fadeIn=Math.min(p.age/60,1);
       const fadeOut=Math.pow(p.life,0.6);
-      const musicGlow=isPlaying?(1+audioEnergy*1.5):1;
+      const musicGlow=p.fromCenter&&isPlaying?(1+audioEnergy*1.5):1;
       const a=Math.min(p.baseAlpha*fadeIn*fadeOut*musicGlow*pulse,0.5);
       if(a<0.004)continue;
-      const sz=p.size*pulse*(isPlaying?1+audioBass*2:1);
+      const sz=p.size*pulse;
+      const bassSize=isPlaying?sz+audioBass*2:sz;
       const c=p.color;
       // Triple layer — beacon style
-      ctx.beginPath();ctx.arc(p.x,p.y,sz*4,0,Math.PI*2);
-      ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a*0.1})`;ctx.fill();
-      ctx.beginPath();ctx.arc(p.x,p.y,sz*2,0,Math.PI*2);
-      ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a*0.25})`;ctx.fill();
-      ctx.beginPath();ctx.arc(p.x,p.y,sz,0,Math.PI*2);
+      ctx.beginPath();ctx.arc(p.x,p.y,bassSize*4,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a*0.12})`;ctx.fill();
+      ctx.beginPath();ctx.arc(p.x,p.y,bassSize*2,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a*0.3})`;ctx.fill();
+      ctx.beginPath();ctx.arc(p.x,p.y,bassSize,0,Math.PI*2);
       ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a})`;ctx.fill();
     }
   }
 
-  // ═══ AUDIO SYNTHESIS — ambient warm tones ═══
-  let audioCtx=null,analyser=null,masterGain=null;
+  // ═══ AUDIO — MP3 playback with Web Audio analyzer ═══
+  let audioCtx=null,analyser=null,masterGain=null,audioEl=null,sourceNode=null;
   let isPlaying=false,audioEnergy=0,audioBass=0,audioTreble=0;
-  let oscillators=[];const freqData=new Uint8Array(128);
+  const freqData=new Uint8Array(128);
 
   function initAudio(){
     audioCtx=new(window.AudioContext||window.webkitAudioContext)();
@@ -85,46 +89,10 @@
     masterGain=audioCtx.createGain();masterGain.gain.value=0;
     masterGain.connect(analyser);analyser.connect(audioCtx.destination);
 
-    // Warm ambient pad — layered detuned oscillators
-    const notes=[110,146.83,174.61,220,293.66]; // A2, D3, F3, A3, D4
-    notes.forEach((freq,i)=>{
-      const osc=audioCtx.createOscillator();
-      const gain=audioCtx.createGain();
-      osc.type=i<2?'sine':'triangle';
-      osc.frequency.value=freq;
-      // Slow detune drift
-      osc.detune.value=Math.random()*10-5;
-      gain.gain.value=i<2?0.12:0.06;
-      osc.connect(gain);gain.connect(masterGain);
-      osc.start();
-      oscillators.push({osc,gain});
-
-      // Add subtle LFO vibrato
-      const lfo=audioCtx.createOscillator();
-      const lfoGain=audioCtx.createGain();
-      lfo.frequency.value=0.1+Math.random()*0.3;
-      lfoGain.gain.value=2+Math.random()*3;
-      lfo.connect(lfoGain);lfoGain.connect(osc.detune);
-      lfo.start();
-    });
-
-    // Sub bass
-    const sub=audioCtx.createOscillator();const subG=audioCtx.createGain();
-    sub.type='sine';sub.frequency.value=55;subG.gain.value=0.08;
-    sub.connect(subG);subG.connect(masterGain);sub.start();
-    oscillators.push({osc:sub,gain:subG});
-
-    // Noise layer for texture
-    const bufferSize=audioCtx.sampleRate*2;
-    const noiseBuffer=audioCtx.createBuffer(1,bufferSize,audioCtx.sampleRate);
-    const data=noiseBuffer.getChannelData(0);
-    for(let i=0;i<bufferSize;i++)data[i]=(Math.random()*2-1)*0.02;
-    const noise=audioCtx.createBufferSource();noise.buffer=noiseBuffer;noise.loop=true;
-    const noiseFilter=audioCtx.createBiquadFilter();
-    noiseFilter.type='lowpass';noiseFilter.frequency.value=400;
-    const noiseGain=audioCtx.createGain();noiseGain.gain.value=0.3;
-    noise.connect(noiseFilter);noiseFilter.connect(noiseGain);noiseGain.connect(masterGain);
-    noise.start();
+    audioEl=document.createElement('audio');
+    audioEl.src='beacon-audio.mp3';audioEl.loop=true;audioEl.crossOrigin='anonymous';
+    sourceNode=audioCtx.createMediaElementSource(audioEl);
+    sourceNode.connect(masterGain);
   }
 
   function fadeIn(){
@@ -132,7 +100,7 @@
     const now=audioCtx.currentTime;
     masterGain.gain.cancelScheduledValues(now);
     masterGain.gain.setValueAtTime(masterGain.gain.value,now);
-    masterGain.gain.linearRampToValueAtTime(0.7,now+3);
+    masterGain.gain.linearRampToValueAtTime(0.85,now+3);
   }
 
   function fadeOut(cb){
@@ -160,13 +128,16 @@
 
   function togglePlay(cx,cy){
     if(isPlaying){
-      fadeOut(()=>{isPlaying=false;});
+      fadeOut(()=>{audioEl.pause();isPlaying=false;});
     }else{
       if(!audioCtx)initAudio();
-      if(audioCtx.state==='suspended')audioCtx.resume();
-      isPlaying=true;fadeIn();
-      // Burst of particles on activation
-      for(let i=0;i<30;i++)spawnNebula(cx,cy,0.5);
+      const resume=audioCtx.state==='suspended'?audioCtx.resume():Promise.resolve();
+      resume.then(()=>{
+        const p=audioEl.play();
+        const start=()=>{isPlaying=true;fadeIn();for(let i=0;i<40;i++)spawnNebula(cx,cy,0.6);};
+        if(p&&p.then)p.then(start).catch(e=>{console.error('Play failed:',e);setTimeout(()=>audioEl.play().then(start).catch(()=>{}),200);});
+        else start();
+      });
     }
   }
 
@@ -233,13 +204,13 @@
     if(P.length<800||physicsFrame%2===0)physics();
     updateAudio();
 
-    // Spawn ambient nebula particles
+    // Spawn nebula particles — gentler, slower
     const cx=W/2,cy=H/2;
     if(isPlaying){
-      const spawnRate=2+Math.floor(audioEnergy*8);
+      const spawnRate=1+Math.floor(audioEnergy*4);
       for(let i=0;i<spawnRate;i++)spawnNebula(cx,cy,audioEnergy);
-    }else if(Math.random()<0.15){
-      spawnNebula(cx,cy,0); // Gentle idle particles
+    }else if(Math.random()<0.05){
+      spawnNebula(cx,cy,0); // Very occasional idle particle
     }
     updateNebula();
 
