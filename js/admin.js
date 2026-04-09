@@ -65,6 +65,8 @@ async function init(){
   document.getElementById('clearLogBtn')?.addEventListener('click',clearLog);
   document.getElementById('mailMonitorBtn')?.addEventListener('click',mailMonitor);
   document.getElementById('sensitiveBtn')?.addEventListener('click',scanSensitive);
+  document.getElementById('relationshipBtn')?.addEventListener('click',()=>buildRelationships(false));
+  document.getElementById('autoLinkToggle')?.addEventListener('change',(e)=>{localStorage.setItem('nexus_auto_link',e.target.checked?'on':'off');});
   loadGoogleAuth();
   await loadProcessedIds();
   const s=localStorage.getItem('nexus_gmail_token');
@@ -182,6 +184,7 @@ RESPOND ONLY RAW JSON:
 
 // ═══ SAVE EXTRACTED — LAYER 2 (fuzzy dedup) ═══
 async function saveExtracted(r){if(!r||!r.nodes||!r.nodes.length)return 0;let c=0,er=0,dupes=0;
+const createdNames=[];
 // Build existing name set from Supabase (not just memory)
 let existingNames=new Set();NX.nodes.forEach(n=>{if(n.name)existingNames.add(n.name.toLowerCase());});
 try{const{data}=await NX.sb.from('nodes').select('name');if(data)data.forEach(n=>{if(n.name)existingNames.add(n.name.toLowerCase());});}catch(e){}
@@ -190,10 +193,13 @@ for(const n of r.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2)continu
   // LAYER 2: Fuzzy duplicate check
   if(isFuzzyDuplicate(nm,existingNames)){dupes++;continue;}
   const row={name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'equipment',tags:Array.isArray(n.tags)?n.tags.filter(t=>typeof t==='string').slice(0,20):[],notes:(n.notes||'').slice(0,2000),links:[],access_count:1,source_emails:n.source_emails||[]};
-  const{error}=await NX.sb.from('nodes').insert(row);if(error){er++;if(er<=3)log(`Insert "${nm}": ${error.message}`,'error');}else{existingNames.add(nm.toLowerCase());c++;}}
+  const{error}=await NX.sb.from('nodes').insert(row);if(error){er++;if(er<=3)log(`Insert "${nm}": ${error.message}`,'error');}else{existingNames.add(nm.toLowerCase());createdNames.push(nm);c++;}}
 if(r.cards)for(const x of r.cards){if(!x.title)continue;const{error:ce}=await NX.sb.from('kanban_cards').insert({title:(x.title||'').slice(0,200),column_name:x.column_name||'todo'});if(ce)console.error('[NX] card:',ce.message);}
 if(dupes)log(`${dupes} fuzzy duplicates skipped`);
-if(er)log(`${er} inserts failed`,'error');return c;}
+if(er)log(`${er} inserts failed`,'error');
+// Auto-link new nodes
+if(createdNames.length&&NX.autoLinkNewNodes){await NX.loadNodes();NX.autoLinkNewNodes(createdNames);}
+return c;}
 
 // ═══ MAIL MONITOR (enhanced: scrapes attachments + links to nodes) ═══
 async function mailMonitor(){if(!gmailToken){log('Connect Gmail first.','error');return;}const btn=document.getElementById('mailMonitorBtn');btn.disabled=true;btn.textContent='Scanning...';clearLog();log('Scanning for orders, invoices & attachments...');
@@ -451,5 +457,117 @@ If nothing is sensitive, return: {"flagged":[]}`,
   btn.disabled=false;btn.textContent='Scan & Remove Personal Data';
 }
 
-NX.modules.ingest={init,show:()=>{updateStats();}};
+// ═══ AI RELATIONSHIP BUILDER — links related nodes ═══
+async function buildRelationships(auto=false){
+  const btn=document.getElementById('relationshipBtn');
+  if(btn){btn.disabled=true;btn.textContent=auto?'Auto-linking...':'Analyzing...';}
+  if(!auto)clearLog();
+  log('🔗 AI scanning nodes for relationships...');
+
+  const nodes=NX.nodes.filter(n=>!n.is_private);
+  if(nodes.length<2){log('Need 2+ nodes.','warn');if(btn){btn.disabled=false;btn.textContent='Build Relationships';}return;}
+
+  const BATCH=auto?30:60; // Smaller batches for auto mode
+  let totalLinks=0;
+
+  for(let i=0;i<nodes.length;i+=BATCH){
+    const batch=nodes.slice(i,i+BATCH);
+    const batchNum=Math.floor(i/BATCH)+1;
+    const totalBatches=Math.ceil(nodes.length/BATCH);
+    log(`Batch ${batchNum}/${totalBatches} (${batch.length} nodes)...`);
+
+    const nodeList=batch.map(n=>`[${n.id}] ${n.name} (${n.category}): ${(n.notes||'').slice(0,100)}`).join('\n');
+
+    try{
+      const result=await NX.askClaude(
+        `You analyze restaurant operations nodes and find relationships between them.
+For each pair of related nodes, explain WHY they're connected.
+
+Types of relationships to identify:
+- Vendor supplies equipment/parts
+- Contractor services equipment/location
+- Person works at location
+- Equipment is at location
+- Parts belong to equipment
+- Procedure involves equipment/location
+- Project involves contractor/equipment/location
+
+Return ONLY raw JSON:
+{"links":[{"from_id":"...","to_id":"...","reason":"brief reason"}]}
+Only include strong, clear relationships. Max 20 links per batch.`,
+        [{role:'user',content:'Find relationships between these nodes:\n'+nodeList}],1500);
+
+      let json=result.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
+      const s=json.indexOf('{'),e=json.lastIndexOf('}');
+      if(s!==-1&&e>s){json=json.slice(s,e+1);
+        const parsed=JSON.parse(json);
+        if(parsed.links&&parsed.links.length){
+          let batchLinks=0;
+          for(const link of parsed.links){
+            const nodeA=NX.nodes.find(n=>String(n.id)===String(link.from_id));
+            const nodeB=NX.nodes.find(n=>String(n.id)===String(link.to_id));
+            if(!nodeA||!nodeB)continue;
+            // Add bidirectional links (avoid duplicates)
+            const aLinks=nodeA.links||[];const bLinks=nodeB.links||[];
+            let changed=false;
+            if(!aLinks.includes(nodeB.id)){aLinks.push(nodeB.id);changed=true;}
+            if(!bLinks.includes(nodeA.id)){bLinks.push(nodeA.id);changed=true;}
+            if(changed){
+              await NX.sb.from('nodes').update({links:aLinks}).eq('id',nodeA.id);
+              await NX.sb.from('nodes').update({links:bLinks}).eq('id',nodeB.id);
+              nodeA.links=aLinks;nodeB.links=bLinks;
+              batchLinks++;totalLinks++;
+              if(!auto)log(`🔗 ${nodeA.name} ↔ ${nodeB.name} — ${link.reason}`,'success');
+            }
+          }
+          if(auto&&batchLinks)log(`Batch ${batchNum}: ${batchLinks} links`,'success');
+        }
+      }
+    }catch(e){log('Error: '+e.message,'error');}
+    if(i+BATCH<nodes.length)await sleep(500);
+  }
+
+  log(`<b>Done: ${totalLinks} new relationships created.</b>`,'success');
+  if(btn){btn.disabled=false;btn.textContent='Build Relationships';}
+  await NX.loadNodes();if(NX.brain)NX.brain.init();
+}
+
+// Auto-link after ingestion (small batch — only new nodes)
+async function autoLinkNewNodes(newNodeNames){
+  if(!newNodeNames||!newNodeNames.length)return;
+  const autoLink=localStorage.getItem('nexus_auto_link')!=='off';
+  if(!autoLink)return;
+  log('🔗 Auto-linking new nodes...');
+  // Get the new nodes + a sample of existing ones for context
+  const newNodes=NX.nodes.filter(n=>newNodeNames.includes(n.name));
+  const existingSample=NX.nodes.filter(n=>!newNodeNames.includes(n.name)).slice(0,40);
+  const combined=[...newNodes,...existingSample];
+  const nodeList=combined.map(n=>`[${n.id}] ${n.name} (${n.category}): ${(n.notes||'').slice(0,80)}`).join('\n');
+  try{
+    const result=await NX.askClaude(
+      'Find relationships between these restaurant ops nodes. The first few are NEW. Link them to existing ones where relevant. Return ONLY JSON: {"links":[{"from_id":"...","to_id":"...","reason":"..."}]} Max 15 links.',
+      [{role:'user',content:nodeList}],1000);
+    let json=result.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
+    const s=json.indexOf('{'),e=json.lastIndexOf('}');
+    if(s!==-1&&e>s){json=json.slice(s,e+1);const parsed=JSON.parse(json);
+      if(parsed.links){let c=0;
+        for(const link of parsed.links){
+          const nA=NX.nodes.find(n=>String(n.id)===String(link.from_id));
+          const nB=NX.nodes.find(n=>String(n.id)===String(link.to_id));
+          if(!nA||!nB)continue;
+          const aL=nA.links||[];const bL=nB.links||[];
+          if(!aL.includes(nB.id)){aL.push(nB.id);await NX.sb.from('nodes').update({links:aL}).eq('id',nA.id);nA.links=aL;}
+          if(!bL.includes(nA.id)){bL.push(nA.id);await NX.sb.from('nodes').update({links:bL}).eq('id',nB.id);nB.links=bL;}
+          c++;
+        }
+        if(c)log(`🔗 Auto-linked: ${c} relationships`,'success');
+      }
+    }
+  }catch(e){}
+}
+
+NX.buildRelationships=buildRelationships;
+NX.autoLinkNewNodes=autoLinkNewNodes;
+
+NX.modules.ingest={init,show:()=>{updateStats();const alt=document.getElementById('autoLinkToggle');if(alt)alt.checked=localStorage.getItem('nexus_auto_link')!=='off';}};
 })();
