@@ -14,7 +14,7 @@
     W:0,H:0,canvas,ctx
   };
 
-  const REP=1200,ATT=0.001,LINK=0.003,CPULL=0.00003,DAMP=0.92,MAXV=3;
+  const REP=1200,ATT=0.001,LINK=0.003,CPULL=0.00003,DAMP=0.965,MAXV=2;
   const IDC=250,IDT=140,IDL=120,BR=9,AR=18,SR2=14;
   const CC={location:{r:220,g:186,b:140},equipment:{r:120,g:160,b:210},procedure:{r:140,g:175,b:120},contractors:{r:210,g:148,b:120},vendors:{r:170,g:140,b:210},projects:{r:210,g:190,b:120},systems:{r:120,g:210,b:190},parts:{r:180,g:158,b:158},people:{r:180,g:160,b:210}};
   function cc(cat,a){const c=CC[cat]||CC.equipment;return`rgba(${c.r},${c.g},${c.b},${a})`;}
@@ -60,17 +60,21 @@
       for(let li=0;li<a.links.length;li++){const b=state.linkMap[a.links[li]];if(!b)continue;let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDL)*LINK;a.vy+=dy/d*(d-IDL)*LINK;}
       const nA=Math.min(a.access/60,1);a.vx+=(cx-a.x)*CPULL*(0.3+nA*0.7);a.vy+=(cy-a.y)*CPULL*(0.3+nA*0.7);
       const cdist=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-cy)*(a.y-cy))||1;
-      // Black hole slingshot — nodes flung outward on contact
-      if(cdist<70){const sling=8;a.vx+=(a.x-cx)/cdist*sling;a.vy+=(a.y-cy)/cdist*sling;}
-      const orbitSpeed=0.1/(1+cdist*0.002)*(Object.keys(state.catMap).indexOf(a.cat)%2===0?1:-1);
+      // Black hole slingshot — launched nearly to screen edge
+      let slung=false;
+      if(cdist<70){const sling=30;a.vx+=(a.x-cx)/cdist*sling;a.vy+=(a.y-cy)/cdist*sling;slung=true;}
+      const orbitSpeed=0.05/(1+cdist*0.002)*(Object.keys(state.catMap).indexOf(a.cat)%2===0?1:-1);
       a.vx+=-(a.y-cy)/cdist*orbitSpeed;a.vy+=(a.x-cx)/cdist*orbitSpeed;
-      // Gentle jitter — graceful, not twitchy
-      a.vx+=(Math.random()-0.5)*0.06;a.vy+=(Math.random()-0.5)*0.06;
+      // Gentle jitter
+      a.vx+=(Math.random()-0.5)*0.04;a.vy+=(Math.random()-0.5)*0.04;
       // Rare gentle drift
-      if(Math.random()<0.001){a.vx+=(Math.random()-0.5)*1.5;a.vy+=(Math.random()-0.5)*1.5;}
+      if(Math.random()<0.001){a.vx+=(Math.random()-0.5)*1;a.vy+=(Math.random()-0.5)*1;}
       // Breathing between linked nodes
-      if(a.links.length>0&&Math.random()<0.05){const fr=state.linkMap[a.links[Math.floor(Math.random()*a.links.length)]];if(fr){const dx=fr.x-a.x,dy=fr.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*Math.sin(time*1.5+a.id)*0.15;a.vy+=dy/d*Math.sin(time*1.5+a.id)*0.15;}}
-      a.vx*=DAMP;a.vy*=DAMP;const sp=a.vx*a.vx+a.vy*a.vy;if(sp>MAXV*MAXV){const s=Math.sqrt(sp);a.vx=a.vx/s*MAXV;a.vy=a.vy/s*MAXV;}totalEnergy+=sp;a.x+=a.vx;a.y+=a.vy;
+      if(a.links.length>0&&Math.random()<0.05){const fr=state.linkMap[a.links[Math.floor(Math.random()*a.links.length)]];if(fr){const dx=fr.x-a.x,dy=fr.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*Math.sin(time*1.5+a.id)*0.1;a.vy+=dy/d*Math.sin(time*1.5+a.id)*0.1;}}
+      a.vx*=DAMP;a.vy*=DAMP;
+      // Velocity cap — bypassed for slingshot so they fly far
+      if(!slung){const sp=a.vx*a.vx+a.vy*a.vy;if(sp>MAXV*MAXV){const s=Math.sqrt(sp);a.vx=a.vx/s*MAXV;a.vy=a.vy/s*MAXV;}totalEnergy+=sp;}else{totalEnergy+=a.vx*a.vx+a.vy*a.vy;}
+      a.x+=a.vx;a.y+=a.vy;
       // Circle boundary — 2x bigger
       const edgeDist=Math.min(W,H)*0.9;
       const fromCenter=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-cy)*(a.y-cy));
