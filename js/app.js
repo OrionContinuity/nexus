@@ -201,6 +201,17 @@ const NX = {
     });
     this.setupNav();
     this.setupAdmin();
+    // Language
+    if (NX.i18n) {
+      NX.i18n.applyUI();
+      const langBtn = document.getElementById('langToggle');
+      if (langBtn) {
+        langBtn.textContent = NX.i18n.getLang().toUpperCase();
+        langBtn.addEventListener('click', () => {
+          NX.i18n.setLang(NX.i18n.getLang() === 'en' ? 'es' : 'en');
+        });
+      }
+    }
   },
 
   // ═══ INIT ═══
