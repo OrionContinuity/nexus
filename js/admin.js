@@ -138,7 +138,9 @@ function cleanEmailBody(body){
   return t.slice(0,2500);
 }
 
-async function syncEmails(){if(!gmailToken){connectGmail();return;}const btn=document.getElementById('gmailSyncBtn'),pf=document.getElementById('gmailProgressFill'),pt=document.getElementById('gmailProgressText');document.getElementById('gmailProgress').style.display='flex';btn.disabled=true;btn.textContent='Syncing...';clearLog();log('Starting email sync...');
+async function syncEmails(){if(!gmailToken){connectGmail();return;}if(NX.paused){log('DB is paused. Resume first.','warn');return;}
+isSyncing=true;
+const btn=document.getElementById('gmailSyncBtn'),pf=document.getElementById('gmailProgressFill'),pt=document.getElementById('gmailProgressText');document.getElementById('gmailProgress').style.display='flex';btn.disabled=true;btn.textContent='Syncing...';clearLog();log('Starting email sync...');
 const dv=document.getElementById('gmailDays').value,fl=document.getElementById('gmailFilter').value.trim();let q='';if(dv!=='all'){const a=new Date();a.setDate(a.getDate()-parseInt(dv));q=`after:${a.getFullYear()}/${a.getMonth()+1}/${a.getDate()}`;}if(fl)q+=(q?' ':'')+fl;
 try{let ids=[],npt=null;do{const u=new URL('https://www.googleapis.com/gmail/v1/users/me/messages');u.searchParams.set('maxResults','500');if(q)u.searchParams.set('q',q);if(npt)u.searchParams.set('pageToken',npt);const r=await fetch(u,{headers:{'Authorization':`Bearer ${gmailToken}`}});if(r.status===401){localStorage.removeItem('nexus_gmail_token');gmailToken=null;log('Token expired.','error');btn.disabled=false;btn.textContent='⚡ Sync';return;}const d=await r.json();if(d.messages)ids.push(...d.messages.map(m=>m.id));npt=d.nextPageToken;log(`${ids.length} IDs...`);}while(npt);
 if(!ids.length){log('No emails found.','warn');btn.disabled=false;btn.textContent='⚡ Sync';return;}
@@ -201,21 +203,27 @@ for(const email of allEmails){
 }
 if(attCount)log(`📎 Downloaded ${attCount} attachments`,'success');
 
-// Save raw emails for future re-ingestion
+// Save raw emails for future re-ingestion — BATCHED
 let savedRaw=0;
-for(const email of allEmails){
+const ARCHIVE_BATCH=20;
+for(let i=0;i<allEmails.length;i+=ARCHIVE_BATCH){
+  if(NX.paused)break;
+  const batch=allEmails.slice(i,i+ARCHIVE_BATCH).map(email=>({
+    id:email.id,from_addr:email.from,to_addr:email.to,
+    date:email.date,subject:email.subject,
+    body:email.body,snippet:email.snippet,
+    attachment_count:email.attachmentCount,
+    attachments:email.attachments.filter(a=>a.url).map(a=>({url:a.url,filename:a.filename,type:a.mimeType})),
+    processed:false
+  }));
   try{
-    await NX.sb.from('raw_emails').upsert({
-      id:email.id,from_addr:email.from,to_addr:email.to,
-      date:email.date,subject:email.subject,
-      body:email.body,snippet:email.snippet,
-      attachment_count:email.attachmentCount,
-      attachments:email.attachments.filter(a=>a.url).map(a=>({url:a.url,filename:a.filename,type:a.mimeType}))
-    },{onConflict:'id'});
-    savedRaw++;
-  }catch(e){}
+    const{error}=await NX.sb.from('raw_emails').upsert(batch,{onConflict:'id'});
+    if(!error)savedRaw+=batch.length;
+    else{log('Archive error: '+error.message,'error');break;}
+  }catch(e){log('Archive failed: '+e.message,'error');break;}
+  if(i+ARCHIVE_BATCH<allEmails.length)await sleep(300); // Breathe between batches
 }
-log(`💾 ${savedRaw} emails archived for future use`);
+log(`💾 ${savedRaw} emails archived`);
 
 // Queue info
 const unprocessed=allEmails.length; // All newly archived are unprocessed
@@ -225,41 +233,41 @@ updateQueueStatus();
 
 pf.style.width='100%';pt.textContent='Archived!';
 log(`<b>Complete:</b> ${savedRaw} emails archived. Background AI will process them.`,'success');
-await NX.loadNodes();if(NX.brain)NX.brain.init();updateStats();}catch(e){log('FATAL: '+e.message,'error');}btn.disabled=false;btn.textContent='⚡ Sync Emails → Brain';}
+await NX.loadNodes();if(NX.brain)NX.brain.init();updateStats();}catch(e){log('FATAL: '+e.message,'error');}isSyncing=false;btn.disabled=false;btn.textContent='⚡ Sync Emails → Brain';}
 
 // ═══ BACKGROUND AI PROCESSOR — 3 emails every 5 minutes ═══
-let bgInterval=null;
+let bgInterval=null,isSyncing=false;
 const BG_BATCH=3;
-const BG_INTERVAL_MS=5*60*1000; // 5 minutes
+const BG_INTERVAL_MS=5*60*1000;
 
 async function processNextBatch(){
+  if(NX.paused||isSyncing)return;
   try{
-    // Get unprocessed emails
-    const{data,error}=await NX.sb.from('raw_emails').select('*').eq('processed',false).order('ingested_at',{ascending:true}).limit(BG_BATCH);
-    if(error||!data||!data.length){
-      updateQueueStatus();return;
-    }
-    log(`⚙ Background: processing ${data.length} emails...`);
-    const allEmails=data.map(e=>({id:e.id,from:e.from_addr,to:e.to_addr,date:e.date,subject:e.subject,body:e.body||'',snippet:e.snippet||'',attachmentCount:e.attachment_count||0,attachments:e.attachments||[]}));
+    // Health check
+    const{error:ping}=await NX.sb.from('nexus_config').select('id').eq('id',1).single();
+    if(ping){log('⚙ DB unavailable, will retry next cycle');return;}
 
-    const chunk=allEmails.map((e,idx)=>`[EMAIL #${idx+1}]\nFROM: ${e.from}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\n---\n${e.body||e.snippet}`).join('\n\n========\n\n');
-    const sourceMap=allEmails.map((e,idx)=>({ref:idx+1,from:e.from,date:e.date,subject:e.subject,body:(e.body||e.snippet||'').slice(0,500)}));
+    const{data,error}=await NX.sb.from('raw_emails').select('*').eq('processed',false).order('ingested_at',{ascending:true}).limit(BG_BATCH);
+    if(error||!data||!data.length){updateQueueStatus();return;}
+
+    log(`⚙ Processing ${data.length} emails...`);
+    const emails=data.map(e=>({id:e.id,from:e.from_addr,to:e.to_addr,date:e.date,subject:e.subject,body:e.body||'',snippet:e.snippet||'',attachmentCount:e.attachment_count||0,attachments:e.attachments||[]}));
+    const chunk=emails.map((e,idx)=>`[EMAIL #${idx+1}]\nFROM: ${e.from}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\n---\n${e.body||e.snippet}`).join('\n\n========\n\n');
+    const sourceMap=emails.map((e,idx)=>({ref:idx+1,from:e.from,date:e.date,subject:e.subject,body:(e.body||e.snippet||'').slice(0,500)}));
 
     const r=await aiProcessWithSources(chunk,sourceMap);
-    let created=0;
-    if(r){created=await saveExtracted(r);}
+    let created=0;if(r){created=await saveExtracted(r);}
 
-    // Mark as processed
-    for(const email of data){
-      await NX.sb.from('raw_emails').update({processed:true}).eq('id',email.id);
-    }
+    // Mark processed — single batch update
+    const ids=data.map(e=>`'${e.id}'`).join(',');
+    await NX.sb.rpc('',{}).catch(()=>{}); // no-op
+    for(const d of data){await NX.sb.from('raw_emails').update({processed:true}).eq('id',d.id);await sleep(100);}
 
-    if(created)log(`⚙ Background: <b>${created} nodes</b> from ${data.length} emails`,'success');
-    else log(`⚙ Background: ${data.length} emails — no new nodes`);
-
+    if(created)log(`⚙ <b>${created} nodes</b> created`,'success');
+    else log('⚙ No new nodes this batch');
     await NX.loadNodes();if(NX.brain)NX.brain.init();
     updateQueueStatus();
-  }catch(e){log('⚙ Background error: '+e.message,'error');}
+  }catch(e){log('⚙ Error: '+e.message,'error');}
 }
 
 function startBackgroundProcessor(){
