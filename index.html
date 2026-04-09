@@ -170,16 +170,98 @@
   <!-- INGEST -->
   <div class="view" id="ingestView" data-view="ingest">
     <div class="ingest-wrap">
-      <h2 class="ingest-heading">KNOWLEDGE INGESTION</h2>
-      <div class="ingest-section"><div class="ingest-section-title">📬 MAIL MONITOR</div><p class="ingest-desc">Auto-scan for parts orders & contractor scheduling.</p><button id="mailMonitorBtn" class="ingest-btn ingest-btn-monitor">Scan for Orders & Scheduling</button></div>
-      <div class="ingest-section"><div class="ingest-section-title">📧 EMAIL SYNC</div><p class="ingest-desc">Pull emails into the brain with source citations.</p><div id="gmailStatus" class="ingest-connection"><span id="gmailStatusText">Not connected</span></div><button id="gmailConnectBtn" class="ingest-btn ingest-btn-gmail">Connect Gmail</button><div id="gmailSyncControls" style="display:none"><div class="ingest-row"><label class="ingest-label">Pull last</label><select id="gmailDays" class="ingest-select"><option value="7">7d</option><option value="30" selected>30d</option><option value="90">90d</option><option value="180">6mo</option><option value="365">1yr</option><option value="all">All</option></select></div><div class="ingest-row"><label class="ingest-label">Filter</label><input id="gmailFilter" class="ingest-filter" placeholder="from:tyler OR subject:invoice"></div><button id="gmailSyncBtn" class="ingest-btn ingest-btn-sync">Sync Emails → Brain</button><div class="ingest-progress" id="gmailProgress" style="display:none"><div class="ingest-progress-bar"><div class="ingest-progress-fill" id="gmailProgressFill"></div></div><span class="ingest-progress-text" id="gmailProgressText">0/0</span></div></div></div>
-      <div class="ingest-section"><div class="ingest-section-title">📝 PASTE TEXT</div><textarea id="ingestText" placeholder="Paste email, notes, transcript..." class="ingest-textarea"></textarea><button id="ingestTextBtn" class="ingest-btn">Process</button></div>
-      <div class="ingest-section"><div class="ingest-section-title">📋 TRELLO</div><button id="trelloBtn" class="ingest-btn ingest-btn-trello">Smart Trello Import</button></div>
-      <div class="ingest-section"><div class="ingest-section-title">🔒 DATA PRIVACY</div><p class="ingest-desc">AI scans all nodes for personal data — bonuses, salaries, SSNs, personal info.</p><button id="sensitiveBtn" class="ingest-btn ingest-btn-sensitive">Scan & Remove Personal Data</button></div>
-      <div class="ingest-section"><div class="ingest-section-title">🔗 RELATIONSHIP BUILDER</div><p class="ingest-desc">AI analyzes nodes and creates connections — vendors to equipment, contractors to locations, parts to machines.</p><button id="relationshipBtn" class="ingest-btn ingest-btn-link">Build Relationships</button><div class="ingest-auto-row"><label class="ingest-auto-label"><input type="checkbox" id="autoLinkToggle" checked> Auto-link new nodes after import</label></div></div>
-      <div id="ingestStatus" class="ingest-status"></div>
-      <div class="ingest-section ingest-log-section"><div class="ingest-section-title" style="display:flex;justify-content:space-between"><span>ACTIVITY LOG</span><button id="clearLogBtn" class="ingest-clear-btn">Clear</button></div><div class="ingest-log" id="ingestLog"></div></div>
-      <div class="ingest-stats" id="ingestStats"></div>
+      <div class="ingest-header">
+        <span class="ingest-heading">INGESTION</span>
+        <div class="ingest-stats" id="ingestStats"></div>
+      </div>
+
+      <!-- EMAIL -->
+      <div class="ig-card">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="ig-icon">📧</span><span class="ig-title">Email</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <div class="ig-row"><div id="gmailStatus" class="ig-status"><span id="gmailStatusText">Not connected</span></div><button id="gmailConnectBtn" class="ig-btn ig-btn-gmail">Connect Gmail</button></div>
+          <div id="gmailSyncControls" style="display:none">
+            <div class="ig-controls">
+              <select id="gmailDays" class="ig-select"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="180">6 months</option><option value="365">1 year</option><option value="all">All time</option></select>
+              <input id="gmailFilter" class="ig-input" placeholder="from:tyler OR subject:invoice">
+            </div>
+            <button id="gmailSyncBtn" class="ig-btn ig-btn-primary">⚡ Sync to Brain</button>
+            <button id="reIngestBtn" class="ig-btn ig-btn-outline">♻ Re-ingest Archive</button>
+          </div>
+          <div class="ig-divider"></div>
+          <div class="ig-dropzone" id="emailDropzone">
+            <span class="ig-drop-icon">📂</span>
+            <span class="ig-drop-text">Drop .eml / .mbox files or <label class="ig-drop-link"><input type="file" id="emailFileInput" multiple accept=".eml,.mbox,.txt" hidden>browse</label></span>
+          </div>
+          <div id="emailFileStatus" class="ig-feedback"></div>
+          <div class="ingest-progress" id="gmailProgress" style="display:none"><div class="ingest-progress-bar"><div class="ingest-progress-fill" id="gmailProgressFill"></div></div><span class="ingest-progress-text" id="gmailProgressText">0/0</span></div>
+        </div>
+      </div>
+
+      <!-- MONITOR -->
+      <div class="ig-card">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="ig-icon">📬</span><span class="ig-title">Mail Monitor</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <p class="ig-desc">Scans Gmail for orders, invoices, scheduling & attachments.</p>
+          <button id="mailMonitorBtn" class="ig-btn ig-btn-purple">Scan Orders & Scheduling</button>
+        </div>
+      </div>
+
+      <!-- PASTE -->
+      <div class="ig-card collapsed">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="ig-icon">📝</span><span class="ig-title">Paste Text</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <textarea id="ingestText" placeholder="Paste email, notes, transcript, vendor info..." class="ig-textarea"></textarea>
+          <button id="ingestTextBtn" class="ig-btn ig-btn-primary">Process Text</button>
+        </div>
+      </div>
+
+      <!-- TRELLO -->
+      <div class="ig-card collapsed">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="ig-icon">📋</span><span class="ig-title">Trello</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <button id="trelloBtn" class="ig-btn ig-btn-blue">Import from Trello</button>
+        </div>
+      </div>
+
+      <!-- TOOLS -->
+      <div class="ig-card collapsed">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="ig-icon">🔧</span><span class="ig-title">Tools</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <div class="ig-tool-row">
+            <div class="ig-tool">
+              <span class="ig-tool-label">🔗 Relationships</span>
+              <p class="ig-desc">AI links related nodes together.</p>
+              <button id="relationshipBtn" class="ig-btn ig-btn-blue">Build Links</button>
+              <label class="ig-toggle"><input type="checkbox" id="autoLinkToggle" checked><span>Auto-link on import</span></label>
+            </div>
+            <div class="ig-tool">
+              <span class="ig-tool-label">🔒 Privacy Scan</span>
+              <p class="ig-desc">Find & remove personal data.</p>
+              <button id="sensitiveBtn" class="ig-btn ig-btn-amber">Scan Nodes</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ACTIVITY LOG -->
+      <div class="ig-card ig-log-card">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="ig-icon">📊</span><span class="ig-title">Activity</span><button id="clearLogBtn" class="ig-clear" onclick="event.stopPropagation()">Clear</button><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body"><div class="ingest-log" id="ingestLog"></div></div>
+      </div>
+      <div id="ingestStatus" class="ig-feedback"></div>
     </div>
   </div>
 </main>
