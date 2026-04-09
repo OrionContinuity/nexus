@@ -302,21 +302,89 @@
     document.getElementById('npCat').textContent=n.category.toUpperCase();
     document.getElementById('npName').textContent=n.name;
     document.getElementById('npTags').textContent=(n.tags||[]).map(t=>'#'+t).join('  ');
-    document.getElementById('npNotes').textContent=n.notes||'';
+    document.getElementById('npNotes').textContent=n.notes||'No notes.';
+
+    // ═══ SOURCES — expandable email cards ═══
     const se=document.getElementById('npSources');se.innerHTML='';
     const src=n.sources||n.source_emails;
     if(src&&Array.isArray(src)&&src.length){
-      se.innerHTML='<div class="np-sources-title">SOURCES</div>';
-      src.forEach(s=>{const d=document.createElement('div');d.className='np-source';d.innerHTML=`<div class="np-source-from">${s.from||''}</div><div class="np-source-subject">${s.subject||''}</div><div class="np-source-date">${s.date||''}</div>`;se.appendChild(d);});
+      se.innerHTML='<div class="np-section-title">SOURCES ('+src.length+')</div>';
+      src.forEach((s,si)=>{
+        const card=document.createElement('div');card.className='np-email-card';
+        const header=document.createElement('div');header.className='np-email-header';
+        header.innerHTML=`<div class="np-email-from">${s.from||'Unknown'}</div><div class="np-email-date">${s.date||''}</div>`;
+        const subject=document.createElement('div');subject.className='np-email-subject';
+        subject.textContent=s.subject||'No subject';
+        card.appendChild(header);card.appendChild(subject);
+        // Expandable body
+        if(s.body||s.snippet){
+          const toggle=document.createElement('button');toggle.className='np-email-toggle';toggle.textContent='View full email ▼';
+          const body=document.createElement('div');body.className='np-email-body';body.style.display='none';
+          body.textContent=s.body||s.snippet||'';
+          toggle.addEventListener('click',()=>{
+            const open=body.style.display!=='none';
+            body.style.display=open?'none':'block';
+            toggle.textContent=open?'View full email ▼':'Collapse ▲';
+          });
+          card.appendChild(toggle);card.appendChild(body);
+        }
+        se.appendChild(card);
+      });
     }
-    const ae=document.getElementById('npAttachments');
-    if(ae){ae.innerHTML='';const att=n.attachments;
-      if(att&&Array.isArray(att)&&att.length){ae.innerHTML='<div class="np-sources-title">ATTACHMENTS</div>';
-        att.forEach(a=>{const d=document.createElement('a');d.className='np-attachment';d.href=a.url;d.target='_blank';d.innerHTML=`<span class="np-att-icon">${a.type&&a.type.includes('pdf')?'📄':a.type&&a.type.includes('image')?'🖼':'📎'}</span><span class="np-att-name">${a.filename||'file'}</span>`;ae.appendChild(d);});}}
+
+    // ═══ ATTACHMENTS — with image previews ═══
+    const ae=document.getElementById('npAttachments');ae.innerHTML='';
+    const att=n.attachments;
+    if(att&&Array.isArray(att)&&att.length){
+      ae.innerHTML='<div class="np-section-title">ATTACHMENTS ('+att.length+')</div>';
+      att.forEach(a=>{
+        const isImage=a.type&&(a.type.includes('image')||/\.(jpg|jpeg|png|gif|webp)$/i.test(a.filename||''));
+        const card=document.createElement('div');card.className='np-att-card';
+        if(isImage&&a.url){
+          const img=document.createElement('img');img.className='np-att-preview';img.src=a.url;img.alt=a.filename||'image';
+          img.addEventListener('click',()=>window.open(a.url,'_blank'));
+          card.appendChild(img);
+        }
+        const info=document.createElement('a');info.className='np-att-info';info.href=a.url||'#';info.target='_blank';
+        const icon=a.type&&a.type.includes('pdf')?'📄':isImage?'🖼':'📎';
+        info.innerHTML=`<span class="np-att-icon">${icon}</span><div class="np-att-details"><div class="np-att-name">${a.filename||'file'}</div><div class="np-att-meta">${a.from?'From: '+a.from:''} ${a.date||''}</div></div>`;
+        card.appendChild(info);
+        ae.appendChild(card);
+      });
+    }
+
+    // ═══ CONNECTED NODES ═══
     const le=document.getElementById('npLinks');le.innerHTML='';
-    if(n.links&&n.links.length){le.innerHTML='<div style="font-size:9px;letter-spacing:1px;color:var(--faint);margin-bottom:4px">CONNECTED TO</div>';
-      n.links.forEach(lid=>{const ln=NX.nodes.find(x=>x.id===lid);if(ln){const d=document.createElement('div');d.textContent='→ '+ln.name;d.style.cssText='padding:5px 0;cursor:pointer;color:var(--accent);font-size:13px';d.onclick=()=>{const fp=state.particles.find(p=>p.id===lid);if(fp){state.frozenNode=fp;state.activeNode=ln;openPanel(ln);}};le.appendChild(d);}});}
+    if(n.links&&n.links.length){
+      le.innerHTML='<div class="np-section-title">CONNECTED TO ('+n.links.length+')</div>';
+      n.links.forEach(lid=>{
+        const ln=NX.nodes.find(x=>x.id===lid);if(!ln)return;
+        const d=document.createElement('div');d.className='np-link-item';
+        d.innerHTML=`<span class="np-link-cat">${ln.category}</span>${ln.name}`;
+        d.onclick=()=>{const fp=state.particles.find(p=>p.id===lid);if(fp){state.frozenNode=fp;state.activeNode=ln;openPanel(ln);}};
+        le.appendChild(d);
+      });
+    }
+
+    // ═══ DELETE NODE ═══
+    const delBtn=document.getElementById('npDelete');
+    delBtn.onclick=async()=>{
+      if(!confirm('Delete "'+n.name+'" permanently?'))return;
+      delBtn.disabled=true;delBtn.textContent='Deleting...';
+      try{
+        const{error}=await NX.sb.from('nodes').delete().eq('id',n.id);
+        if(!error){
+          NX.nodes=NX.nodes.filter(x=>x.id!==n.id);
+          state.particles=state.particles.filter(p=>p.id!==n.id);
+          delete state.linkMap[n.id];
+          closePanel();
+        }else{delBtn.textContent='Error: '+error.message;}
+      }catch(e){delBtn.textContent='Error';}
+      setTimeout(()=>{delBtn.disabled=false;delBtn.textContent='Delete Node';},3000);
+    };
+
     document.getElementById('nodePanel').classList.add('open');
+    if(window.lucide)lucide.createIcons();
   }
 
   function closePanel(){state.activeNode=null;state.frozenNode=null;document.getElementById('nodePanel').classList.remove('open');}
