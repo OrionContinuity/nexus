@@ -201,7 +201,8 @@
         <option value="claude-opus-4-20250514">Claude Opus (smartest)</option>
       </select>
       <div class="admin-section-label">Voice</div>
-      <select id="adminVoice" class="admin-field">
+      <div class="admin-voice-row">
+        <select id="adminVoice" class="admin-field" style="flex:1">
         <option value="0">Adam — Sharp & confident</option>
         <option value="1">Bella — Warm & witty</option>
         <option value="2">Daniel — British dry wit</option>
@@ -223,6 +224,9 @@
         <option value="18">Josh — Deep & young</option>
         <option value="19">Rachel — Calm & collected</option>
       </select>
+        <button id="testVoiceBtn" class="admin-test-voice-btn">▶ Test</button>
+      </div>
+      <div id="voiceTestStatus" class="admin-key-status" style="font-size:11px;min-height:16px"></div>
       <hr class="admin-divider">
       <div class="admin-section-label">Integrations</div>
       <input type="password" id="adminTrelloKey" placeholder="Trello API Key" class="admin-field">
