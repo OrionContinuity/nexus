@@ -14,7 +14,7 @@
     W:0,H:0,canvas,ctx
   };
 
-  const REP=1200,ATT=0.001,LINK=0.003,CPULL=0.000005,DAMP=0.975,MAXV=1.5;
+  const REP=1200,ATT=0.001,LINK=0.003,CPULL=0.000005,DAMP=0.985,MAXV=1.2;
   const IDC=250,IDT=140,IDL=120,BR=9,AR=18,SR2=14;
   const CC={location:{r:220,g:186,b:140},equipment:{r:120,g:160,b:210},procedure:{r:140,g:175,b:120},contractors:{r:210,g:148,b:120},vendors:{r:170,g:140,b:210},projects:{r:210,g:190,b:120},systems:{r:120,g:210,b:190},parts:{r:180,g:158,b:158},people:{r:180,g:160,b:210}};
   function cc(cat,a){const c=CC[cat]||CC.equipment;return`rgba(${c.r},${c.g},${c.b},${a})`;}
@@ -33,7 +33,7 @@
 
   function buildParticles(){
     const nodes=NX.nodes.filter(n=>!n.is_private),cx=W/2,cy=H/2;
-    const ARMS=3,TIGHTNESS=0.4,SCATTER=40;
+    const ARMS=3,TIGHTNESS=0.4,SCATTER=80;
     const maxR=Math.min(W,H)*0.42;
     state.particles=nodes.map((n,idx)=>{
       // Distribute along spiral arms
@@ -41,7 +41,7 @@
       const armAngle=(arm/ARMS)*Math.PI*2;
       const t=idx/nodes.length; // 0 to 1 along the arm
       const r=60+t*maxR; // distance from center
-      const spiralAngle=armAngle+Math.log(1+r*0.01)*TIGHTNESS*12+(Math.random()-0.5)*0.5;
+      const spiralAngle=armAngle+Math.log(1+r*0.01)*TIGHTNESS*12+(Math.random()-0.5)*1.2;
       // Scatter perpendicular to arm
       const scatter=(Math.random()-0.5)*SCATTER*(1+t*2);
       const x=cx+Math.cos(spiralAngle)*r+Math.cos(spiralAngle+Math.PI/2)*scatter;
@@ -75,13 +75,13 @@
       const cdist=Math.sqrt(dx*dx+dy*dy)||1;
       // Black hole slingshot
       let slung=false;
-      if(cdist<120){const sling=200*(1-cdist/120);a.vx+=dx/cdist*sling;a.vy+=dy/cdist*sling;slung=true;}
-      // Keplerian orbit — v ∝ 1/sqrt(r), tangential
+      if(cdist<15){const sling=200*(1-cdist/15);a.vx+=dx/cdist*sling;a.vy+=dy/cdist*sling;slung=true;}
+      // Keplerian orbit
       const orbitalV=8/Math.sqrt(Math.max(cdist,80)*0.1);
       a.vx+=(-dy/cdist)*orbitalV*0.008;
       a.vy+=(dx/cdist)*orbitalV*0.008;
-      // Very gentle inward pull — keeps galaxy from dispersing
-      a.vx-=dx/cdist*0.003;a.vy-=dy/cdist*0.003;
+      // Near-zero gravity
+      a.vx-=dx/cdist*0.0005;a.vy-=dy/cdist*0.0005;
       // Subtle jitter
       a.vx+=(Math.random()-0.5)*0.02;a.vy+=(Math.random()-0.5)*0.02;
       // Damping + velocity cap
