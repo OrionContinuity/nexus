@@ -199,6 +199,9 @@ const NX = {
         document.getElementById('adminTrelloKey').placeholder = tk ? 'Key saved (••••' + tk.slice(-4) + ')' : 'Trello API Key';
         const tt = this.getTrelloToken();
         document.getElementById('adminTrelloToken').placeholder = tt ? 'Token saved (••••' + tt.slice(-4) + ')' : 'Trello Token';
+        // Load model and voice selections
+        document.getElementById('adminModel').value = this.getModel();
+        document.getElementById('adminVoice').value = localStorage.getItem('nexus_voice_idx') || '0';
         return;
       }
       modal.classList.add('open');modal.style.display='flex';
@@ -238,6 +241,9 @@ const NX = {
       if (googleId) localStorage.setItem('nexus_google_client_id', googleId);
       if (trelloKey) localStorage.setItem('nexus_trello_key', trelloKey);
       if (trelloToken) localStorage.setItem('nexus_trello_token', trelloToken);
+      // Save model and voice
+      localStorage.setItem('nexus_model', document.getElementById('adminModel').value);
+      localStorage.setItem('nexus_voice_idx', document.getElementById('adminVoice').value);
       // Clear fields
       document.getElementById('adminApiKey').value = '';
       document.getElementById('adminElevenKey').value = '';
