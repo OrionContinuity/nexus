@@ -236,6 +236,11 @@ function parseEml(text){
   };
 }
 
+function extractField(text,field){
+  const m=text.match(new RegExp(field+'[:\\s]+([^\\n]{3,80})','i'));
+  return m?m[1].trim():'';
+}
+
 function parseMbox(text){
   const emails=[];
   // Split on lines starting with "From " (mbox separator)
@@ -256,23 +261,56 @@ async function processEmailFiles(files){
 
   for(const file of files){
     try{
-      const text=await file.text();
       const name=file.name.toLowerCase();
       if(name.endsWith('.mbox')){
+        const text=await file.text();
         const parsed=parseMbox(text);
-        log(`📂 ${file.name}: ${parsed.length} emails found`);
+        log(`📂 ${file.name}: ${parsed.length} emails`);
         allEmails=allEmails.concat(parsed);
       }else if(name.endsWith('.eml')||name.endsWith('.txt')){
+        const text=await file.text();
         const email=parseEml(text);
         if(email){log(`📧 ${file.name}: ${email.subject||'(no subject)'}`);allEmails.push(email);}
         else log(`⚠ Could not parse ${file.name}`,'warn');
+      }else if(name.endsWith('.msg')){
+        // Outlook .msg — extract readable text from binary
+        const buffer=await file.arrayBuffer();
+        const bytes=new Uint8Array(buffer);
+        // Extract ASCII/UTF text chunks from binary
+        let text='';
+        let chunk='';
+        for(let i=0;i<bytes.length;i++){
+          const c=bytes[i];
+          if(c>=32&&c<127){chunk+=String.fromCharCode(c);}
+          else{if(chunk.length>20)text+=chunk+'\n';chunk='';}
+        }
+        if(chunk.length>20)text+=chunk;
+        if(text.length>50){
+          // Try to find email headers in extracted text
+          const email=parseEml(text)||{
+            from:extractField(text,'From')||file.name,
+            to:extractField(text,'To')||'',
+            date:extractField(text,'Date')||new Date().toISOString(),
+            subject:extractField(text,'Subject')||file.name.replace('.msg',''),
+            body:cleanEmailBody(text),
+            id:'msg_'+Date.now()+'_'+Math.random().toString(36).slice(2,8)
+          };
+          log(`📧 ${file.name} (Outlook): ${email.subject||'parsed'}`);
+          allEmails.push(email);
+        }else{
+          log(`⚠ ${file.name}: couldn't extract text from .msg — try exporting as .eml from Outlook`,'warn');
+        }
       }else{
-        // Try parsing as raw email text
+        const text=await file.text();
         const email=parseEml(text);
         if(email&&email.from){allEmails.push(email);log(`📧 ${file.name}: parsed`);}
-        else log(`⚠ Unsupported format: ${file.name}`,'warn');
+        else{
+          // Treat as raw text to process
+          allEmails.push({from:file.name,subject:file.name,body:cleanEmailBody(text),date:new Date().toISOString(),id:'file_'+Date.now()+'_'+Math.random().toString(36).slice(2,8)});
+          log(`📄 ${file.name}: imported as raw text`);
+        }
       }
-    }catch(e){log(`Error reading ${file.name}: ${e.message}`,'error');}
+    }catch(e){log(`Error: ${file.name}: ${e.message}`,'error');}
   }
 
   if(!allEmails.length){status.textContent='No emails found in files.';return;}
