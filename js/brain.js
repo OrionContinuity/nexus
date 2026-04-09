@@ -11,8 +11,8 @@
   if(!localStorage.getItem('nexus_session_id'))localStorage.setItem('nexus_session_id',crypto.randomUUID?crypto.randomUUID():'s_'+Date.now()+'_'+Math.random().toString(36).slice(2));
   const SESSION_ID=localStorage.getItem('nexus_session_id');
 
-  const REP=500,ATT=0.0015,LINK=0.004,CPULL=0.00025,DAMP=0.84,MAXV=4;
-  const IDC=160,IDT=110,IDL=90,BR=9,AR=18,SR2=14;
+  const REP=1200,ATT=0.001,LINK=0.003,CPULL=0.0001,DAMP=0.84,MAXV=4;
+  const IDC=250,IDT=140,IDL=120,BR=9,AR=18,SR2=14;
   const CC={location:{r:220,g:186,b:140},equipment:{r:120,g:160,b:210},procedure:{r:140,g:175,b:120},contractors:{r:210,g:148,b:120},vendors:{r:170,g:140,b:210},projects:{r:210,g:190,b:120},systems:{r:120,g:210,b:190},parts:{r:180,g:158,b:158},people:{r:180,g:160,b:210}};
   function cc(cat,a){const c=CC[cat]||CC.equipment;return`rgba(${c.r},${c.g},${c.b},${a})`;}
 
@@ -55,7 +55,7 @@
   function buildParticles(){
     const nodes=NX.nodes.filter(n=>!n.is_private),cx=W/2,cy=H/2;
     const cats=[...new Set(nodes.map(n=>n.category))],ca={};cats.forEach((c,i)=>{ca[c]=(i/cats.length)*Math.PI*2;});
-    particles=nodes.map(n=>{const b=ca[n.category]||0,j=(Math.random()-0.5)*1.4,d=200+Math.random()*500;return{id:n.id,x:cx+Math.cos(b+j)*d,y:cy+Math.sin(b+j)*d,vx:0,vy:0,node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1};});
+    particles=nodes.map(n=>{const b=ca[n.category]||0,j=(Math.random()-0.5)*1.2,d=300+Math.random()*900;return{id:n.id,x:cx+Math.cos(b+j)*d,y:cy+Math.sin(b+j)*d,vx:0,vy:0,node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1};});
     linkMap={};catMap={};tagSets={};
     particles.forEach((p,i)=>{linkMap[p.id]=p;if(!catMap[p.cat])catMap[p.cat]=[];catMap[p.cat].push(i);tagSets[i]=new Set(p.tags);});
   }
@@ -125,12 +125,12 @@
       const nA=Math.min(a.access/60,1);
       a.vx+=(cx-a.x)*CPULL*(0.3+nA*0.7);a.vy+=(cy-a.y)*CPULL*(0.3+nA*0.7);
 
-      // Center beacon repulsion
+      // Center beacon repulsion — wider no-go zone
       const cdist=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-cy)*(a.y-cy))||1;
-      if(cdist<100){const cf=(100-cdist)*0.08;a.vx+=(a.x-cx)/cdist*cf;a.vy+=(a.y-cy)/cdist*cf;}
+      if(cdist<160){const cf=(160-cdist)*0.1;a.vx+=(a.x-cx)/cdist*cf;a.vy+=(a.y-cy)/cdist*cf;}
 
-      // Orbital rotation
-      const orbitSpeed=0.12/(1+cdist*0.003);
+      // Orbital rotation — stronger, consistent
+      const orbitSpeed=0.2/(1+cdist*0.002);
       a.vx+=-(a.y-cy)/cdist*orbitSpeed;a.vy+=(a.x-cx)/cdist*orbitSpeed;
 
       a.vx*=DAMP;a.vy*=DAMP;
