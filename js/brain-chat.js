@@ -3,6 +3,7 @@
   if(!localStorage.getItem('nexus_session_id'))localStorage.setItem('nexus_session_id',crypto.randomUUID?crypto.randomUUID():'s_'+Date.now()+'_'+Math.random().toString(36).slice(2));
   const SESSION_ID=localStorage.getItem('nexus_session_id');
   let chatHistory=[],voiceOn=false,recognition=null,chatActive=false;
+  function tt(k){return NX.i18n?NX.i18n.t(k):k;}
 
   const PERSONA_BASE=`You are NEXUS, the AI ops brain for Alfredo Ortiz — Suerte, Este, Bar Toti (Austin TX).
 
@@ -52,8 +53,8 @@ When you don't know something, tell the user to TYPE "research [topic]" in the c
   }
 
   async function handleResearch(topic){
-    const status=addB(`🔍 Searching the web for "${topic}"...`,'ai thinking');
-    let dots=0;const dotTimer=setInterval(()=>{dots=(dots+1)%4;status.textContent=`🔍 Searching the web for "${topic}"${'.'.repeat(dots)}`;},500);
+    const status=addB('🔍 '+tt('researchingWeb')+' "'+topic+'"...','ai thinking');
+    let dots=0;const dotTimer=setInterval(()=>{dots=(dots+1)%4;status.textContent='🔍 '+tt('researchingWeb')+' "'+topic+'"'+'.'.repeat(dots);},500);
     try{
       const webResult=await NX.askClaude('You are a research assistant for restaurant operations (Suerte, Este, Bar Toti — Austin TX). Search the web and provide detailed, factual information. Include specs, model numbers, pricing, warranty, dealer contacts.',[{role:'user',content:`Research: ${topic}`}],2000,true);
       clearInterval(dotTimer);
@@ -62,8 +63,8 @@ When you don't know something, tell the user to TYPE "research [topic]" in the c
       // Quality check — skip extraction if AI just asked for clarification
       const isVague=!webResult||webResult.length<100||/could you|please specify|what would you like|need more|which specific/i.test(webResult);
       if(!isVague){
-        const extractStatus=addB('⚙ Extracting knowledge for the brain...','ai thinking');
-        const extractDots=setInterval(()=>{dots=(dots+1)%4;extractStatus.textContent=`⚙ Extracting knowledge${'.'.repeat(dots)}`;},500);
+        const extractStatus=addB('⚙ '+tt('extractingKnowledge')+'...','ai thinking');
+        const extractDots=setInterval(()=>{dots=(dots+1)%4;extractStatus.textContent='⚙ '+tt('extractingKnowledge')+'.'.repeat(dots);},500);
       const extraction=await NX.askClaude('Extract ALL knowledge as nodes. RESPOND ONLY RAW JSON: {"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"..."}]}',[{role:'user',content:webResult}],2000);
       let json=extraction.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
       const s=json.indexOf('{'),e=json.lastIndexOf('}');
@@ -79,9 +80,9 @@ When you don't know something, tell the user to TYPE "research [topic]" in the c
           await NX.loadNodes();if(NX.brain)NX.brain.init();
         }else{clearInterval(extractDots);addB('No new nodes to extract.','ai');}
       }
-      }else{addB('Response too vague to extract nodes. Try a more specific topic.','ai');}
+      }else{addB(tt('tooVague'),'ai');}
       try{await NX.sb.from('chat_history').insert({question:'research: '+topic,answer:webResult,session_id:SESSION_ID});}catch(e){}
-    }catch(e){clearInterval(dotTimer);addB('Research failed: '+(e.message||'error'),'ai');}
+    }catch(e){clearInterval(dotTimer);addB(tt('researchFailed')+': '+(e.message||'error'),'ai');}
   }
 
   async function handleSensitiveScan(){
@@ -181,7 +182,7 @@ When you don't know something, tell the user to TYPE "research [topic]" in the c
     document.getElementById('chatHud').classList.remove('collapsed');
     document.getElementById('resetBtn').style.display='';
     chatActive=true;addB(q,'user');chatHistory.push({role:'user',content:q});
-    if(!NX.getApiKey()){addB('No API key — open Admin ⚙ to add your Anthropic key.','ai');return;}
+    if(!NX.getApiKey()){addB(tt('noApiKey'),'ai');return;}
     const task=detectTask(q);
     if(task){
       if(task.type==='research'){try{await handleResearch(task.content);}catch(e){addB('Research error: '+e.message,'ai');}return;}
@@ -190,8 +191,8 @@ When you don't know something, tell the user to TYPE "research [topic]" in the c
       if(task.type==='removeClean'){await handleRemoveCleanTask(task.content);return;}
       try{const result=await handleTask(task);if(result){addB(result,'ai');chatHistory.push({role:'assistant',content:result});if(voiceOn)speak(result);try{await NX.sb.from('chat_history').insert({question:q,answer:result,session_id:SESSION_ID});}catch(e){}return;}}catch(e){addB('Task error: '+e.message,'ai');return;}
     }
-    const th=addB(`🔍 Searching ${NX.nodes.length} nodes...`,'ai thinking');
-    let sd=0;const searchDots=setInterval(()=>{sd=(sd+1)%4;th.textContent=`🔍 Searching ${NX.nodes.length} nodes${'.'.repeat(sd)}`;},400);
+    const th=addB('🔍 '+tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'...','ai thinking');
+    let sd=0;const searchDots=setInterval(()=>{sd=(sd+1)%4;th.textContent='🔍 '+tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'.'.repeat(sd);},400);
     try{
       const ctx=await getCtx(q);
       const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
