@@ -55,7 +55,14 @@
       const nA=Math.min(a.access/60,1);a.vx+=(cx-a.x)*CPULL*(0.3+nA*0.7);a.vy+=(cy-a.y)*CPULL*(0.3+nA*0.7);
       const cdist=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-cy)*(a.y-cy))||1;
       if(cdist<160){const cf=(160-cdist)*0.1;a.vx+=(a.x-cx)/cdist*cf;a.vy+=(a.y-cy)/cdist*cf;}
-      const orbitSpeed=0.2/(1+cdist*0.002);a.vx+=-(a.y-cy)/cdist*orbitSpeed;a.vy+=(a.x-cx)/cdist*orbitSpeed;
+      const orbitSpeed=0.2/(1+cdist*0.002)*(Object.keys(state.catMap).indexOf(a.cat)%2===0?1:-1);
+      a.vx+=-(a.y-cy)/cdist*orbitSpeed;a.vy+=(a.x-cx)/cdist*orbitSpeed;
+      // Random jitter — nodes feel alive
+      a.vx+=(Math.random()-0.5)*0.08;a.vy+=(Math.random()-0.5)*0.08;
+      // Occasional hop
+      if(Math.random()<0.002){a.vx+=(Math.random()-0.5)*3;a.vy+=(Math.random()-0.5)*3;}
+      // Breathing between linked nodes
+      if(a.links.length>0&&Math.random()<0.1){const fr=state.linkMap[a.links[Math.floor(Math.random()*a.links.length)]];if(fr){const dx=fr.x-a.x,dy=fr.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*Math.sin(time*2+a.id)*0.3;a.vy+=dy/d*Math.sin(time*2+a.id)*0.3;}}
       a.vx*=DAMP;a.vy*=DAMP;const sp=a.vx*a.vx+a.vy*a.vy;if(sp>MAXV*MAXV){const s=Math.sqrt(sp);a.vx=a.vx/s*MAXV;a.vy=a.vy/s*MAXV;}totalEnergy+=sp;a.x+=a.vx;a.y+=a.vy;
       if(a.x<80)a.vx+=1;if(a.x>W-80)a.vx-=1;if(a.y<80)a.vy+=1;if(a.y>H-80)a.vy-=1;
     }
