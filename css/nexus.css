@@ -338,18 +338,19 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .board-card-due{font-size:10px;color:var(--faint);margin-top:4px}
 
 /* ═══ INGEST ═══ */
-.ingest-wrap{padding:16px;max-width:600px;margin:0 auto}
-.ingest-heading{font-size:18px;letter-spacing:3px;margin-bottom:20px;font-weight:600}
-.ingest-section{margin-bottom:20px;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r)}
-.ingest-section-title{font-size:12px;letter-spacing:1px;font-weight:500;margin-bottom:8px}
-.ingest-desc{font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5}
-.ingest-btn{padding:10px 18px;border-radius:var(--r);border:none;color:#fff;font-size:13px;font-weight:500;cursor:pointer;min-height:44px;background:var(--accent);transition:opacity .2s}
-.ingest-btn:hover{opacity:.9}
-.ingest-btn:disabled{opacity:.5;cursor:default}
-.ingest-btn-gmail{background:#4285f4;color:white}.ingest-btn-sync{background:var(--green);color:var(--bg);width:100%;margin-top:8px}
+.ingest-wrap{padding:16px;max-width:600px;margin:0 auto;overflow-y:auto;max-height:100%;-webkit-overflow-scrolling:touch;padding-bottom:80px}
+.ingest-heading{font-size:13px;letter-spacing:5px;margin-bottom:16px;font-weight:300;color:var(--accent);text-align:center}
+.ingest-section{margin-bottom:10px;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);border-left:3px solid var(--accent);transition:border-color .2s}
+.ingest-section:hover{border-left-color:var(--text)}
+.ingest-section-title{font-size:11px;letter-spacing:2px;font-weight:600;margin-bottom:4px;color:var(--text)}
+.ingest-desc{font-size:11px;color:var(--faint);margin-bottom:10px;line-height:1.4}
+.ingest-btn{padding:10px 18px;border-radius:var(--rs);border:none;color:#fff;font-size:12px;font-weight:500;cursor:pointer;min-height:40px;background:var(--accent);transition:all .2s;font-family:inherit}
+.ingest-btn:hover{opacity:.85}
+.ingest-btn:disabled{opacity:.4;cursor:default}
+.ingest-btn-gmail{background:#4285f4}.ingest-btn-sync{background:var(--green);color:var(--bg);width:100%;margin-top:8px}
 .ingest-btn-trello{background:var(--blue);color:var(--bg)}.ingest-btn-monitor{background:var(--purple);color:var(--bg);width:100%}
-.ingest-btn-sensitive{background:#a0522d;color:#fff;width:100%}
-.ingest-btn-link{background:#5b8def;color:#fff;width:100%}
+.ingest-btn-sensitive{background:rgba(160,82,45,.8);width:100%}
+.ingest-btn-link{background:rgba(91,141,239,.8);width:100%}
 .ingest-auto-row{margin-top:10px;padding:8px 0}
 .ingest-auto-label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px;cursor:pointer}
 .ingest-auto-label input{accent-color:var(--accent);width:16px;height:16px}
