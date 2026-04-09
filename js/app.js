@@ -13,6 +13,7 @@ const NX = {
   // Runtime state
   sb: null, nodes: [], today: new Date().toISOString().split('T')[0],
   modules: {}, loaded: {}, brain: null,
+  paused: false, // Kill switch for all Supabase operations
 
   // Auth state
   currentUser: null, // {id, name, pin, role, location}
@@ -62,6 +63,7 @@ const NX = {
   },
 
   async loadNodes() {
+    if (this.paused) return;
     try {
       let all = [], offset = 0;
       while (true) {
@@ -262,16 +264,20 @@ const NX = {
         langBtn.textContent = this.i18n.getLang().toUpperCase();
         langBtn.addEventListener('click', async () => {
           const newLang = this.i18n.getLang() === 'en' ? 'es' : 'en';
-          if(this.currentUser){
+          // Save to user profile
+          if(this.currentUser && !this.paused){
             try{await this.sb.from('nexus_users').update({language:newLang}).eq('id',this.currentUser.id);}catch(e){}
             this.currentUser.language=newLang;
             localStorage.setItem('nexus_current_user',JSON.stringify(this.currentUser));
           }
-          this.i18n.setLang(newLang); // This reloads the page
+          // Apply immediately
+          this.i18n.setLang(newLang);
+          langBtn.textContent = newLang.toUpperCase();
         });
       }
-      // Re-apply after a moment (Lucide might be loading)
+      // Apply translations after Lucide icons render
       setTimeout(()=>{if(this.i18n)this.i18n.applyUI();},500);
+      setTimeout(()=>{if(this.i18n)this.i18n.applyUI();},1500);
     }
   },
 
@@ -595,6 +601,7 @@ const NX = {
 
   // ─── Ticket Badge ───
   async checkTicketBadge(){
+    if(this.paused)return;
     try{
       const{count}=await this.sb.from('tickets').select('*',{count:'exact',head:true}).eq('status','open');
       const badge=document.getElementById('ticketBadge');
