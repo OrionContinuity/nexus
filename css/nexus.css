@@ -397,6 +397,12 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 /* Clear button */
 .ig-clear{margin-left:auto;background:none;border:1px solid var(--border);color:var(--faint);padding:2px 10px;border-radius:var(--rs);font-size:10px;cursor:pointer;font-family:inherit}
 .ig-clear:hover{border-color:var(--accent);color:var(--accent)}
+.ig-bg-bar{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:8px}
+.ig-queue-status{font-size:11px;padding:3px 10px;border-radius:var(--rp);border:1px solid var(--border);color:var(--faint)}
+.ig-queue-status.active{border-color:var(--accent);color:var(--accent);animation:pulse 2s infinite}
+.ig-queue-count{font-size:11px;color:var(--faint)}
+.ig-stat{font-size:10px;color:var(--faint);letter-spacing:1px;padding:2px 8px;border:1px solid var(--border);border-radius:var(--rp);margin-left:4px}
+.ig-stat-queue{border-color:var(--accent);color:var(--accent)}
 
 /* Log card */
 .ig-log-card .ig-card-body{max-height:200px;overflow-y:auto}
