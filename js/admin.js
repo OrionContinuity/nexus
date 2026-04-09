@@ -376,6 +376,9 @@ async function scanSensitive(){
   btn.disabled=true;btn.textContent='Scanning...';clearLog();
   log('🔒 Scanning nodes for sensitive/personal data...');
 
+  // Load safe patterns — nodes user previously marked as OK
+  const safePatterns=JSON.parse(localStorage.getItem('nexus_safe_patterns')||'[]');
+
   const allNodes=NX.nodes.filter(n=>!n.is_private);
   if(!allNodes.length){log('No nodes to scan.','warn');btn.disabled=false;btn.textContent='Scan & Remove Personal Data';return;}
 
@@ -383,39 +386,46 @@ async function scanSensitive(){
   const BATCH=50;
   for(let i=0;i<allNodes.length;i+=BATCH){
     const batch=allNodes.slice(i,i+BATCH);
-    const nodeList=batch.map(n=>`[ID:${n.id}] ${n.name} (${n.category}): ${(n.notes||'').slice(0,200)}`).join('\n');
     log(`Scanning batch ${Math.floor(i/BATCH)+1}/${Math.ceil(allNodes.length/BATCH)}...`);
+    const nodeList=batch.map(n=>`[ID:${n.id}] ${n.name} (${n.category}): ${(n.notes||'').slice(0,200)}`).join('\n');
+
+    // Tell AI about safe patterns so it skips them
+    const safeNote=safePatterns.length?`\n\nPREVIOUSLY APPROVED (do NOT flag these):\n${safePatterns.join('\n')}`:'';
 
     try{
       const result=await NX.askClaude(
-        `You are a data privacy scanner for a restaurant operations system (Suerte, Este, Bar Toti — Austin TX).
-Identify nodes that contain PERSONAL or SENSITIVE information that should NOT be in an ops system. Flag these categories:
+        `You are a data privacy scanner for restaurant ops (Suerte, Este, Bar Toti — Austin TX).
+Flag nodes with PERSONAL/SENSITIVE info:
 - Employee bonuses, salaries, pay rates, compensation
 - Social security numbers, personal IDs
 - Personal home addresses (business addresses are OK)
-- Personal phone numbers of employees (vendor/contractor phones are OK)
+- Personal phone numbers of employees (vendor/contractor phones OK)
 - Medical/health information
 - Bank account or financial account numbers
 - Performance reviews or disciplinary notes
 - Personal emails or private correspondence
+- Credit card numbers
 
 Do NOT flag:
-- Business contacts, vendor info, equipment specs, procedures, locations, parts, projects
-- Contractor business phone numbers or business emails
+- Business contacts, vendor info, equipment specs, procedures, parts, projects
+- Contractor business phones or emails
 - Restaurant addresses or business info
+- Staff names with restaurant roles only${safeNote}
 
-Return ONLY raw JSON: {"flagged":[{"id":"...","name":"...","reason":"brief reason"}]}
-If nothing is sensitive, return: {"flagged":[]}`,
+For each flagged node, classify the sensitivity:
+- "high" = SSN, bank accounts, credit cards — should definitely delete
+- "medium" = salaries, bonuses, personal addresses — probably delete
+- "low" = could be personal or business — needs review
+
+Return ONLY JSON: {"flagged":[{"id":"...","name":"...","reason":"brief reason","severity":"high|medium|low","notes_excerpt":"the specific sensitive text found"}]}
+If nothing sensitive: {"flagged":[]}`,
         [{role:'user',content:nodeList}],2000);
 
       let json=result.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
       const s=json.indexOf('{'),e=json.lastIndexOf('}');
       if(s!==-1&&e>s){json=json.slice(s,e+1);
         try{const parsed=JSON.parse(json);
-          if(parsed.flagged&&parsed.flagged.length){
-            flagged=flagged.concat(parsed.flagged);
-            parsed.flagged.forEach(f=>log(`⚠️ <b>${f.name}</b> — ${f.reason}`,'warn'));
-          }
+          if(parsed.flagged&&parsed.flagged.length)flagged=flagged.concat(parsed.flagged);
         }catch(pe){}}
     }catch(e){log('Scan error: '+e.message,'error');}
     if(i+BATCH<allNodes.length)await sleep(300);
@@ -426,34 +436,95 @@ If nothing is sensitive, return: {"flagged":[]}`,
     btn.disabled=false;btn.textContent='Scan & Remove Personal Data';return;
   }
 
-  log(`\n🔒 Found <b>${flagged.length} sensitive node(s)</b>. Review above.`,'warn');
+  log(`\n🔒 Found <b>${flagged.length} item(s)</b> to review.\n`,'warn');
 
-  // Create confirm/delete buttons
-  const confirmDiv=document.createElement('div');
-  confirmDiv.style.cssText='display:flex;gap:8px;margin:12px 0;';
-  const delBtn=document.createElement('button');
-  delBtn.className='ingest-btn';delBtn.style.background='#c44';
-  delBtn.textContent=`Delete ${flagged.length} Sensitive Node(s)`;
-  delBtn.addEventListener('click',async()=>{
-    delBtn.disabled=true;delBtn.textContent='Deleting...';
-    let deleted=0;
-    for(const f of flagged){
-      try{
-        const{error}=await NX.sb.from('nodes').delete().eq('id',f.id);
-        if(!error){deleted++;log(`🗑 Deleted: ${f.name}`,'success');}
-        else log(`Failed: ${f.name} — ${error.message}`,'error');
-      }catch(e){log(`Error: ${e.message}`,'error');}
+  // Render per-node review cards
+  const reviewDiv=document.createElement('div');reviewDiv.className='sensitive-review';
+  let reviewed=0;
+
+  for(const f of flagged){
+    const node=NX.nodes.find(n=>String(n.id)===String(f.id));
+    const card=document.createElement('div');card.className='sensitive-card';
+    const sevColor=f.severity==='high'?'#ff5533':f.severity==='medium'?'#ffb020':'#5b8def';
+    card.innerHTML=`
+      <div class="sensitive-header">
+        <span class="sensitive-severity" style="color:${sevColor}">${(f.severity||'medium').toUpperCase()}</span>
+        <span class="sensitive-name">${f.name}</span>
+      </div>
+      <div class="sensitive-reason">${f.reason}</div>
+      ${f.notes_excerpt?`<div class="sensitive-excerpt">"${f.notes_excerpt}"</div>`:''}
+      ${node?`<div class="sensitive-full-notes">${(node.notes||'').slice(0,300)}</div>`:''}
+      <div class="sensitive-actions"></div>`;
+
+    const actions=card.querySelector('.sensitive-actions');
+
+    // DELETE button
+    const delBtn=document.createElement('button');delBtn.className='sensitive-btn sensitive-btn-del';
+    delBtn.textContent='🗑 Delete';
+    delBtn.addEventListener('click',async()=>{
+      try{await NX.sb.from('nodes').delete().eq('id',f.id);
+        NX.nodes=NX.nodes.filter(x=>String(x.id)!==String(f.id));
+        card.style.opacity='0.3';card.style.pointerEvents='none';
+        delBtn.textContent='Deleted';reviewed++;
+        log(`🗑 Deleted: <b>${f.name}</b>`,'success');
+        checkDone();
+      }catch(e){delBtn.textContent='Error';}
+    });
+
+    // KEEP button — mark as safe for future scans
+    const keepBtn=document.createElement('button');keepBtn.className='sensitive-btn sensitive-btn-keep';
+    keepBtn.textContent='✓ Keep (not sensitive)';
+    keepBtn.addEventListener('click',()=>{
+      safePatterns.push(f.name+' — '+f.reason);
+      localStorage.setItem('nexus_safe_patterns',JSON.stringify(safePatterns));
+      card.style.opacity='0.3';card.style.pointerEvents='none';
+      keepBtn.textContent='Marked safe';reviewed++;
+      log(`✓ Kept: <b>${f.name}</b> (won't flag again)`,'success');
+      checkDone();
+    });
+
+    // MAKE PRIVATE button — hide from non-admin users
+    const privBtn=document.createElement('button');privBtn.className='sensitive-btn sensitive-btn-priv';
+    privBtn.textContent='🔒 Make Private';
+    privBtn.addEventListener('click',async()=>{
+      try{await NX.sb.from('nodes').update({is_private:true}).eq('id',f.id);
+        if(node)node.is_private=true;
+        card.style.opacity='0.3';card.style.pointerEvents='none';
+        privBtn.textContent='Made private';reviewed++;
+        log(`🔒 Private: <b>${f.name}</b> (admin only)`,'success');
+        checkDone();
+      }catch(e){privBtn.textContent='Error';}
+    });
+
+    // EDIT button — let user redact the sensitive part
+    const editBtn=document.createElement('button');editBtn.className='sensitive-btn sensitive-btn-edit';
+    editBtn.textContent='✏ Edit Notes';
+    editBtn.addEventListener('click',()=>{
+      const current=node?node.notes||'':'';
+      const newNotes=prompt('Edit notes (remove sensitive info):',current);
+      if(newNotes!==null&&node){
+        NX.sb.from('nodes').update({notes:newNotes}).eq('id',node.id);
+        node.notes=newNotes;
+        card.style.opacity='0.3';card.style.pointerEvents='none';
+        editBtn.textContent='Updated';reviewed++;
+        log(`✏ Edited: <b>${f.name}</b>`,'success');
+        checkDone();
+      }
+    });
+
+    actions.appendChild(delBtn);actions.appendChild(keepBtn);
+    actions.appendChild(privBtn);actions.appendChild(editBtn);
+    reviewDiv.appendChild(card);
+  }
+
+  function checkDone(){
+    if(reviewed>=flagged.length){
+      log(`\n<b>Review complete.</b> ${reviewed} items handled.`,'success');
+      NX.loadNodes().then(()=>{if(NX.brain)NX.brain.init();updateStats();});
     }
-    log(`<b>${deleted} sensitive nodes removed.</b>`,'success');
-    await NX.loadNodes();if(NX.brain)NX.brain.init();updateStats();
-    confirmDiv.remove();
-  });
-  const skipBtn=document.createElement('button');
-  skipBtn.className='ingest-btn';skipBtn.textContent='Keep All';
-  skipBtn.addEventListener('click',()=>{log('Skipped — no nodes deleted.');confirmDiv.remove();});
-  confirmDiv.appendChild(delBtn);confirmDiv.appendChild(skipBtn);
-  document.getElementById('ingestLog').appendChild(confirmDiv);
+  }
 
+  document.getElementById('ingestLog').appendChild(reviewDiv);
   btn.disabled=false;btn.textContent='Scan & Remove Personal Data';
 }
 
