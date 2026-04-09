@@ -56,7 +56,6 @@
     <button class="nav-tab" data-view="ingest" id="ingestTab" style="display:none"><i data-lucide="zap" class="nav-icon"></i> Ingest</button>
   </div>
   <button class="nav-admin" id="adminBtn"><i data-lucide="settings" class="nav-icon"></i><span class="ticket-badge" id="ticketBadge" style="display:none"></span></button>
-  <button class="nav-pause" id="pauseBtn" title="Pause/Resume DB">▶</button>
   <button class="nav-lang" id="langToggle">EN</button>
 </nav>
 
@@ -179,8 +178,8 @@
 
       <!-- BACKGROUND PROCESSOR -->
       <div class="ig-bg-bar">
-        <label class="ig-toggle"><input type="checkbox" id="bgProcessToggle" checked><span>Auto-process emails (3 every 5 min)</span></label>
-        <span id="queueCount" class="ig-queue-count"></span>
+        <label class="ig-toggle"><input type="checkbox" id="bgProcessToggle" checked><span>Auto-process (3 every 5 min)</span></label>
+        <button id="pauseBtn" class="ig-pause-btn" title="Pause all DB writes">▶ DB Active</button>
       </div>
 
       <!-- EMAIL -->
