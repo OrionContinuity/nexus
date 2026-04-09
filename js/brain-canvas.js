@@ -14,7 +14,7 @@
     contractorEvents:[],W:0,H:0,canvas,ctx
   };
 
-  const DAMP=0.993,MAXV=1.0,DOT=3,DOT_HIT=6,DOT_ACTIVE=10;
+  const DAMP=0.994,MAXV=0.7,DOT=3,DOT_HIT=6,DOT_ACTIVE=10;
 
   // ═══ NEBULA PARTICLES — beacon-001 inspired ═══
   const nebula=[];const MAX_NEBULA=300;
@@ -173,21 +173,42 @@
   function buildParticles(){
     const nodes=NX.nodes.filter(n=>!n.is_private),cx=W/2,cy=H/2;
     const ARMS=4,galaxyR=Math.min(W,H)*0.42;
-    state.particles=nodes.map((n,idx)=>{
+    const existingIds=new Set(state.particles.map(p=>p.id));
+    const newParticles=[];
+    nodes.forEach((n,idx)=>{
+      if(existingIds.has(n.id))return; // Already in galaxy
       const arm=idx%ARMS,armBase=(arm/ARMS)*Math.PI*2;
-      // Spread nodes more evenly across radius
       const t=(idx+1)/(nodes.length+1);
-      const r=40+Math.pow(t,0.5)*galaxyR; // sqrt distribution — less center-heavy
-      // Tighter spiral wind — 3 turns, logarithmic
+      const r=40+Math.pow(t,0.5)*galaxyR;
       const wind=armBase+Math.log(1+t*10)*1.8+(Math.random()-0.5)*0.3;
-      // Much tighter scatter along arm — creates defined arms with gaps
       const scatter=(Math.random()-0.5)*18*(0.3+t*0.7);
       const px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
       const py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
-      const speed=2.0/Math.sqrt(Math.max(r/galaxyR,0.08));
-      return{id:n.id,x:px,y:py,vx:-(py-cy)/(r||1)*speed*0.012,vy:(px-cx)/(r||1)*speed*0.012,
-        node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,glowAlpha:0};
+      const speed=1.2/Math.sqrt(Math.max(r/galaxyR,0.08)); // Slower orbits
+      const p={id:n.id,x:px,y:py,vx:-(py-cy)/(r||1)*speed*0.008,vy:(px-cx)/(r||1)*speed*0.008,
+        node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,
+        glowAlpha:0,birthAge:0,isBorn:true};
+      newParticles.push(p);
     });
+    if(newParticles.length&&state.particles.length>0){
+      // Add new ones with birth animation
+      state.particles=state.particles.concat(newParticles);
+    }else if(!state.particles.length){
+      // First build — all at once
+      state.particles=nodes.map((n,idx)=>{
+        const arm=idx%ARMS,armBase=(arm/ARMS)*Math.PI*2;
+        const t=(idx+1)/(nodes.length+1);
+        const r=40+Math.pow(t,0.5)*galaxyR;
+        const wind=armBase+Math.log(1+t*10)*1.8+(Math.random()-0.5)*0.3;
+        const scatter=(Math.random()-0.5)*18*(0.3+t*0.7);
+        const px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
+        const py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
+        const speed=1.2/Math.sqrt(Math.max(r/galaxyR,0.08));
+        return{id:n.id,x:px,y:py,vx:-(py-cy)/(r||1)*speed*0.008,vy:(px-cx)/(r||1)*speed*0.008,
+          node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,
+          glowAlpha:0,birthAge:0,isBorn:false};
+      });
+    }
     state.linkMap={};state.catMap={};state.tagSets={};
     state.particles.forEach((p,i)=>{state.linkMap[p.id]=p;if(!state.catMap[p.cat])state.catMap[p.cat]=[];state.catMap[p.cat].push(i);state.tagSets[i]=new Set(p.tags);});
   }
@@ -200,8 +221,8 @@
     for(let i=0;i<len;i++){const a=P[i];
       if(state.frozenNode&&state.frozenNode.id===a.id)continue;
       const dx=a.x-cx,dy=a.y-cy,dist=Math.sqrt(dx*dx+dy*dy)||1;
-      // Orbital
-      const orbF=0.1/Math.sqrt(Math.max(dist/galaxyR,0.05));
+      // Orbital — slower, graceful
+      const orbF=0.055/Math.sqrt(Math.max(dist/galaxyR,0.05));
       a.vx+=(-dy/dist)*orbF;a.vy+=(dx/dist)*orbF;
       // Slingshot
       if(dist<20){const s=12*(1-dist/20);a.vx+=dx/dist*s;a.vy+=dy/dist*s;}
@@ -334,20 +355,43 @@
         ctx.strokeStyle='rgba(212,182,138,.3)';ctx.lineWidth=0.8;ctx.stroke();
         ctx.font='400 10px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle='rgba(212,182,138,.7)';ctx.fillText(a.node.name.slice(0,25),a.x,a.y-r-5);
       }else{
-        const r=DOT*pulse*musicPulse;
-        const alpha=dim?0.06:0.35;
-        const glow=a.glowAlpha||0;
-        if(glow>0.05){
-          // Particle-touched glow
-          ctx.beginPath();ctx.arc(a.x,a.y,r*4,0,Math.PI*2);
-          ctx.fillStyle=`rgba(212,182,138,${glow*0.08})`;ctx.fill();
-          ctx.beginPath();ctx.arc(a.x,a.y,r*2,0,Math.PI*2);
-          ctx.fillStyle=`rgba(212,182,138,${glow*0.2})`;ctx.fill();
-          ctx.beginPath();ctx.arc(a.x,a.y,r*1.3,0,Math.PI*2);
-          ctx.fillStyle=`rgba(255,245,220,${alpha+glow*0.4})`;ctx.fill();
-        }else{
+        // Birth animation — new nodes pop into existence
+        if(a.isBorn&&a.birthAge<120){
+          a.birthAge++;
+          const birthT=a.birthAge/120; // 0→1 over 2 seconds
+          const pop=birthT<0.15?birthT/0.15*2.5: // Scale up fast
+                    birthT<0.3?2.5-(birthT-0.15)/0.15*1.5: // Bounce back
+                    1; // Settle
+          const birthAlpha=Math.min(birthT*3,1);
+          const flashAlpha=birthT<0.3?(1-birthT/0.3)*0.6:0;
+          const r=DOT*pop*musicPulse;
+          // Gold flash ring
+          if(flashAlpha>0.01){
+            ctx.beginPath();ctx.arc(a.x,a.y,r*6*(1+birthT*2),0,Math.PI*2);
+            ctx.fillStyle=`rgba(212,182,138,${flashAlpha*0.08})`;ctx.fill();
+            ctx.beginPath();ctx.arc(a.x,a.y,r*3,0,Math.PI*2);
+            ctx.fillStyle=`rgba(255,240,200,${flashAlpha*0.2})`;ctx.fill();
+          }
           ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);
-          ctx.fillStyle=`rgba(220,215,205,${alpha*pulse})`;ctx.fill();
+          ctx.fillStyle=`rgba(255,245,220,${birthAlpha*0.7})`;ctx.fill();
+          // Spawn particles on birth
+          if(a.birthAge===1){for(let b=0;b<5;b++)spawnNebula(a.x,a.y,0.3);}
+        }else{
+          a.isBorn=false;
+          const r=DOT*pulse*musicPulse;
+          const alpha=dim?0.06:0.35;
+          const glow=a.glowAlpha||0;
+          if(glow>0.05){
+            ctx.beginPath();ctx.arc(a.x,a.y,r*4,0,Math.PI*2);
+            ctx.fillStyle=`rgba(212,182,138,${glow*0.08})`;ctx.fill();
+            ctx.beginPath();ctx.arc(a.x,a.y,r*2,0,Math.PI*2);
+            ctx.fillStyle=`rgba(212,182,138,${glow*0.2})`;ctx.fill();
+            ctx.beginPath();ctx.arc(a.x,a.y,r*1.3,0,Math.PI*2);
+            ctx.fillStyle=`rgba(255,245,220,${alpha+glow*0.4})`;ctx.fill();
+          }else{
+            ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);
+            ctx.fillStyle=`rgba(220,215,205,${alpha*pulse})`;ctx.fill();
+          }
         }
       }
     }
