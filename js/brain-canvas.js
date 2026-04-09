@@ -33,8 +33,25 @@
 
   function buildParticles(){
     const nodes=NX.nodes.filter(n=>!n.is_private),cx=W/2,cy=H/2;
-    const cats=[...new Set(nodes.map(n=>n.category))],ca={};cats.forEach((c,i)=>{ca[c]=(i/cats.length)*Math.PI*2;});
-    state.particles=nodes.map(n=>{const b=ca[n.category]||0,j=(Math.random()-0.5)*1.2,d=300+Math.random()*900;return{id:n.id,x:cx+Math.cos(b+j)*d,y:cy+Math.sin(b+j)*d,vx:0,vy:0,node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1};});
+    const ARMS=3,TIGHTNESS=0.4,SCATTER=40;
+    const maxR=Math.min(W,H)*0.42;
+    state.particles=nodes.map((n,idx)=>{
+      // Distribute along spiral arms
+      const arm=idx%ARMS;
+      const armAngle=(arm/ARMS)*Math.PI*2;
+      const t=idx/nodes.length; // 0 to 1 along the arm
+      const r=60+t*maxR; // distance from center
+      const spiralAngle=armAngle+Math.log(1+r*0.01)*TIGHTNESS*12+(Math.random()-0.5)*0.5;
+      // Scatter perpendicular to arm
+      const scatter=(Math.random()-0.5)*SCATTER*(1+t*2);
+      const x=cx+Math.cos(spiralAngle)*r+Math.cos(spiralAngle+Math.PI/2)*scatter;
+      const y=cy+Math.sin(spiralAngle)*r+Math.sin(spiralAngle+Math.PI/2)*scatter;
+      // Keplerian orbital velocity — tangential, faster near center
+      const speed=3/Math.sqrt(Math.max(r,60)*0.01);
+      const vx=-(y-cy)/r*speed*0.02;
+      const vy=(x-cx)/r*speed*0.02;
+      return{id:n.id,x,y,vx,vy,node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,orbitR:r};
+    });
     state.linkMap={};state.catMap={};state.tagSets={};
     state.particles.forEach((p,i)=>{state.linkMap[p.id]=p;if(!state.catMap[p.cat])state.catMap[p.cat]=[];state.catMap[p.cat].push(i);state.tagSets[i]=new Set(p.tags);});
   }
@@ -48,56 +65,31 @@
     for(let i=0;i<len;i++){const a=particles[i];
       if(ih&&Math.hypot(a.x-state.hoverNode.x,a.y-state.hoverNode.y)<100){a.vx*=0.05;a.vy*=0.05;continue;}
       const gx=Math.floor(a.x/CELL)+500,gy=Math.floor(a.y/CELL)+500;
-      // Soft collision + spread — with angular noise to prevent grid patterns
-      for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j<=i)continue;const b=particles[j];let dx=a.x-b.x,dy=a.y-b.y,dS=dx*dx+dy*dy;if(dS>40000)continue;let d=Math.sqrt(dS)||1;
-        // Add angular noise — rotate push direction slightly to break grid
-        const angle=(Math.sin(a.id*7.3+b.id*3.1)*0.4);
-        const ndx=(dx*Math.cos(angle)-dy*Math.sin(angle))/d;
-        const ndy=(dx*Math.sin(angle)+dy*Math.cos(angle))/d;
-        const minDist=BR*2.2;if(d<minDist){const push=(minDist-d)*0.3;a.vx+=ndx*push;a.vy+=ndy*push;b.vx-=ndx*push;b.vy-=ndy*push;}else{const spread=200/(d*d);a.vx+=ndx*spread;a.vy+=ndy*spread;b.vx-=ndx*spread;b.vy-=ndy*spread;}}}
-      const sc=state.catMap[a.cat];if(sc){const step=sc.length>30?Math.ceil(sc.length/30):1;for(let ci=0;ci<sc.length;ci+=step){const j=sc[ci];if(j===i)continue;const b=particles[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDC)*ATT;a.vy+=dy/d*(d-IDC)*ATT;}}
-      const aT=state.tagSets[i];if(aT&&aT.size>0){for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j===i)continue;const bT=state.tagSets[j];if(!bT)continue;let sh=0;for(const t of aT)if(bT.has(t))sh++;if(!sh)continue;const b=particles[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDT)*ATT*sh*1.2;a.vy+=dy/d*(d-IDT)*ATT*sh*1.2;}}}
-      for(let li=0;li<a.links.length;li++){const b=state.linkMap[a.links[li]];if(!b)continue;let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDL)*LINK;a.vy+=dy/d*(d-IDL)*LINK;}
-      const nA=Math.min(a.access/60,1);a.vx+=(cx-a.x)*CPULL*(0.3+nA*0.7);a.vy+=(cy-a.y)*CPULL*(0.3+nA*0.7);
-      const cdist=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-cy)*(a.y-cy))||1;
-      // Black hole slingshot — x10 force
+      // Soft repulsion — prevent overlap, gentle spread
+      for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j<=i)continue;const b=particles[j];let dx=a.x-b.x,dy=a.y-b.y,dS=dx*dx+dy*dy;if(dS>10000)continue;let d=Math.sqrt(dS)||1;
+        const minDist=BR*2.2;if(d<minDist){const push=(minDist-d)*0.15;a.vx+=dx/d*push;a.vy+=dy/d*push;b.vx-=dx/d*push;b.vy-=dy/d*push;}}}
+      // Link attraction — gentle
+      for(let li=0;li<a.links.length;li++){const b=state.linkMap[a.links[li]];if(!b)continue;let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;if(d>IDL)a.vx+=dx/d*0.002;a.vy+=dy/d*0.002;}
+      // Distance from center
+      const dx=a.x-cx,dy=a.y-cy;
+      const cdist=Math.sqrt(dx*dx+dy*dy)||1;
+      // Black hole slingshot
       let slung=false;
-      if(cdist<130){const sling=250*(1-cdist/130);a.vx+=(a.x-cx)/cdist*sling;a.vy+=(a.y-cy)/cdist*sling;slung=true;}
-      // Orbital rotation — strong
-      const orbitSpeed=0.6/(1+cdist*0.001)*(Object.keys(state.catMap).indexOf(a.cat)%2===0?1:-1);
-      a.vx+=-(a.y-cy)/cdist*orbitSpeed;a.vy+=(a.x-cx)/cdist*orbitSpeed;
-      // Magnetic poles — north and south create figure-8 flow
-      const poleOffset=H*0.3;
-      const northY=cy-poleOffset,southY=cy+poleOffset;
-      const toNorth=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-northY)*(a.y-northY))||1;
-      const toSouth=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-southY)*(a.y-southY))||1;
-      const poleStrength=0.08;
-      // Pull toward nearest pole, creating circulation
-      if(a.y<cy){
-        a.vx+=(cx-a.x)/toNorth*poleStrength*0.3;
-        a.vy+=(northY-a.y)/toNorth*poleStrength;
-      }else{
-        a.vx+=(cx-a.x)/toSouth*poleStrength*0.3;
-        a.vy+=(southY-a.y)/toSouth*poleStrength;
-      }
-      // Gentle equatorial push outward — creates the bulge
-      if(Math.abs(a.y-cy)<poleOffset*0.3){
-        a.vx+=(a.x-cx)/cdist*0.05;
-      }
-      // Gentle jitter
-      a.vx+=(Math.random()-0.5)*0.04;a.vy+=(Math.random()-0.5)*0.04;
-      // Rare gentle drift
-      if(Math.random()<0.001){a.vx+=(Math.random()-0.5)*1;a.vy+=(Math.random()-0.5)*1;}
-      // Breathing between linked nodes
-      if(a.links.length>0&&Math.random()<0.05){const fr=state.linkMap[a.links[Math.floor(Math.random()*a.links.length)]];if(fr){const dx=fr.x-a.x,dy=fr.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*Math.sin(time*1.5+a.id)*0.1;a.vy+=dy/d*Math.sin(time*1.5+a.id)*0.1;}}
+      if(cdist<120){const sling=200*(1-cdist/120);a.vx+=dx/cdist*sling;a.vy+=dy/cdist*sling;slung=true;}
+      // Keplerian orbit — v ∝ 1/sqrt(r), tangential
+      const orbitalV=8/Math.sqrt(Math.max(cdist,80)*0.1);
+      a.vx+=(-dy/cdist)*orbitalV*0.008;
+      a.vy+=(dx/cdist)*orbitalV*0.008;
+      // Very gentle inward pull — keeps galaxy from dispersing
+      a.vx-=dx/cdist*0.003;a.vy-=dy/cdist*0.003;
+      // Subtle jitter
+      a.vx+=(Math.random()-0.5)*0.02;a.vy+=(Math.random()-0.5)*0.02;
+      // Damping + velocity cap
       a.vx*=DAMP;a.vy*=DAMP;
-      // Velocity cap — bypassed for slingshot so they fly far
       if(!slung){const sp=a.vx*a.vx+a.vy*a.vy;if(sp>MAXV*MAXV){const s=Math.sqrt(sp);a.vx=a.vx/s*MAXV;a.vy=a.vy/s*MAXV;}totalEnergy+=sp;}else{totalEnergy+=a.vx*a.vx+a.vy*a.vy;}
       a.x+=a.vx;a.y+=a.vy;
-      // Circle boundary — 2x bigger
-      const edgeDist=Math.min(W,H)*0.9;
-      const fromCenter=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-cy)*(a.y-cy));
-      if(fromCenter>edgeDist){const pushBack=1;a.vx-=(a.x-cx)/fromCenter*pushBack;a.vy-=(a.y-cy)/fromCenter*pushBack;}
+      // Soft circular boundary
+      if(cdist>Math.min(W,H)*0.45){a.vx-=dx/cdist*0.5;a.vy-=dy/cdist*0.5;}
     }
     if(totalEnergy<len*0.01&&Date.now()-lastInteraction>5000)physicsSleeping=true;
   }
