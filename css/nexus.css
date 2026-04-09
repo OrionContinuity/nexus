@@ -136,13 +136,12 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .event-del-btn:hover{border-color:var(--red);color:var(--red)}
 
 /* Chat HUD */
-.chat-hud{position:absolute;bottom:0;left:0;right:0;z-index:20;background:rgba(14,14,18,.94);backdrop-filter:blur(12px);border-top:1px solid var(--border);display:flex;flex-direction:column;max-height:48px;transition:max-height .3s ease}
+.chat-hud{position:absolute;bottom:0;left:0;right:0;z-index:20;background:rgba(14,14,18,.96);backdrop-filter:blur(12px);border-top:1px solid var(--accent);border-top-width:1px;display:flex;flex-direction:column;max-height:56px;transition:max-height .3s ease}
 .chat-hud.expanded{max-height:65%}
-.chat-hud.collapsed{max-height:48px}
 .chat-hud .hud-body{display:none}
 .chat-hud.expanded .hud-body{display:flex}
-.hud-handle{display:flex;justify-content:center;padding:5px;cursor:pointer;-webkit-tap-highlight-color:transparent}
-.hud-handle-bar{width:36px;height:3px;border-radius:2px;background:var(--faint);opacity:.3}
+.hud-handle{display:flex;justify-content:center;padding:4px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.hud-handle-bar{width:36px;height:3px;border-radius:2px;background:var(--accent);opacity:.3}
 .hud-body{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .api-banner{padding:8px 12px;background:rgba(224,85,85,.1);color:var(--red);font-size:12px;text-align:center;display:flex;align-items:center;justify-content:center;gap:8px}
 .api-banner button{background:var(--red);color:#fff;border:none;padding:4px 10px;border-radius:var(--rs);font-size:11px;cursor:pointer}
@@ -163,7 +162,7 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .chat-conf-high{color:#39ff14}
 .chat-conf-medium{color:#ffb020}
 .chat-conf-low{color:#ff5533}
-.hud-input{display:flex;align-items:center;gap:5px;padding:8px 10px;border-top:1px solid var(--border);min-height:48px}
+.hud-input{display:flex;align-items:center;gap:6px;padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));min-height:56px}
 .hud-input input{flex:1;background:var(--elevated);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;color:var(--text);font-size:14px;outline:none;min-height:44px;font-family:inherit}
 .hud-input input::placeholder{color:var(--faint)}
 .btn-mic,.btn-voice,.btn-send,.btn-reset{width:44px;height:44px;border-radius:50%;border:1px solid var(--border);background:rgba(28,28,34,.9);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .2s}
@@ -403,6 +402,9 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .admin-drive-row{display:flex;gap:6px;margin-top:6px}
 .admin-drive-btn{flex:1;padding:10px 8px;border-radius:var(--rs);border:1px solid var(--border);background:var(--elevated);color:var(--muted);font-size:11px;cursor:pointer;min-height:40px;font-family:inherit;transition:all .2s}
 .admin-drive-btn:hover{border-color:var(--accent);color:var(--accent)}
+.admin-voice-row{display:flex;gap:6px;align-items:center}
+.admin-test-voice-btn{padding:8px 14px;border-radius:var(--rs);border:1px solid var(--accent);background:rgba(212,182,138,.08);color:var(--accent);font-size:12px;cursor:pointer;font-family:inherit;min-height:40px;white-space:nowrap;transition:all .2s}
+.admin-test-voice-btn:hover{background:rgba(212,182,138,.15)}
 .admin-actions{display:flex;gap:8px;margin-top:12px}
 .admin-enter,.admin-cancel{flex:1;padding:12px;border-radius:var(--r);border:none;font-size:13px;font-weight:500;cursor:pointer;min-height:44px}
 .admin-enter{background:var(--accent);color:var(--bg)}
