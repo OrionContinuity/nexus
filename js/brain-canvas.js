@@ -206,6 +206,7 @@
 
     // Spawn nebula particles — gentler, slower
     const cx=W/2,cy=H/2;
+    const galaxyR=Math.min(W,H)*0.42;
     if(isPlaying){
       const spawnRate=1+Math.floor(audioEnergy*4);
       for(let i=0;i<spawnRate;i++)spawnNebula(cx,cy,audioEnergy);
@@ -236,36 +237,47 @@
       }
     }
 
-    // ═══ NEXUS BEACON — reacts to audio ═══
+    // ═══ NEXUS BEACON — smaller, glowing, secret ═══
     const br=Math.sin(time*1.1);
-    const beaconBase=40+br*3;
-    const beaconR=beaconBase+(isPlaying?audioBass*15:0);
-    const beaconGlow=isPlaying?0.08+audioEnergy*0.15:0.02;
+    const beaconBase=28+br*2;
+    const beaconR=beaconBase+(isPlaying?audioBass*8:0);
+    const beaconGlow=isPlaying?0.04+audioEnergy*0.08:0.015;
 
-    // Outer bloom
+    // Massive soft outer bloom when playing
+    if(isPlaying){
+      ctx.beginPath();ctx.arc(cx,cy,beaconR*8,0,Math.PI*2);
+      ctx.fillStyle=`rgba(212,182,138,${0.01+audioEnergy*0.02})`;ctx.fill();
+      ctx.beginPath();ctx.arc(cx,cy,beaconR*5,0,Math.PI*2);
+      ctx.fillStyle=`rgba(212,182,138,${0.02+audioEnergy*0.03})`;ctx.fill();
+    }
+    // Standard triple glow
     ctx.beginPath();ctx.arc(cx,cy,beaconR*3,0,Math.PI*2);
     ctx.fillStyle=`rgba(212,182,138,${beaconGlow})`;ctx.fill();
-    // Mid glow
     ctx.beginPath();ctx.arc(cx,cy,beaconR*1.8,0,Math.PI*2);
-    ctx.fillStyle=`rgba(212,182,138,${beaconGlow*2})`;ctx.fill();
+    ctx.fillStyle=`rgba(212,182,138,${beaconGlow*2.5})`;ctx.fill();
     // Core
-    ctx.shadowBlur=isPlaying?35+audioBass*30:25;
-    ctx.shadowColor=`rgba(212,182,138,${isPlaying?0.6+audioEnergy*0.4:0.5})`;
+    ctx.shadowBlur=isPlaying?20+audioBass*25:15;
+    ctx.shadowColor=`rgba(212,182,138,${isPlaying?0.4+audioEnergy*0.4:0.35})`;
     ctx.beginPath();ctx.arc(cx,cy,beaconR,0,Math.PI*2);
     ctx.fillStyle='#0c0c10';ctx.fill();
-    // Ring — pulses with bass
-    const ringAlpha=isPlaying?0.5+audioBass*0.4:0.5+br*0.15;
+    const ringAlpha=isPlaying?0.4+audioBass*0.3:0.4+br*0.1;
     ctx.strokeStyle=`rgba(212,182,138,${ringAlpha})`;
-    ctx.lineWidth=isPlaying?2+audioBass*3:1.8;ctx.stroke();
+    ctx.lineWidth=isPlaying?1.5+audioBass*2:1.2;ctx.stroke();
     ctx.shadowBlur=0;
-    // Text
-    ctx.fillStyle=`rgba(212,182,138,${isPlaying?0.85+audioEnergy*0.15:0.75+br*0.1})`;
-    ctx.font='500 13px "JetBrains Mono"';ctx.textAlign='center';
-    ctx.fillText(isPlaying?'▶ NEXUS':'NEXUS',cx,cy+4);
-    // Play hint
-    if(!isPlaying){
-      ctx.fillStyle='rgba(212,182,138,0.15)';ctx.font='300 9px "Libre Franklin"';
-      ctx.fillText('tap to play',cx,cy+18);
+    // Text — smaller, no hint
+    ctx.fillStyle=`rgba(212,182,138,${isPlaying?0.7+audioEnergy*0.15:0.6+br*0.08})`;
+    ctx.font='500 10px "JetBrains Mono"';ctx.textAlign='center';
+    ctx.fillText('NEXUS',cx,cy+3);
+
+    // ═══ FIREWORK PARTICLES — random bursts across the field ═══
+    if(isPlaying&&Math.random()<audioEnergy*0.3){
+      // Random position in the galaxy field
+      const fAngle=Math.random()*Math.PI*2;
+      const fDist=80+Math.random()*galaxyR*0.8;
+      const fx=cx+Math.cos(fAngle)*fDist;
+      const fy=cy+Math.sin(fAngle)*fDist;
+      const burstCount=3+Math.floor(audioBass*8);
+      for(let b=0;b<burstCount;b++)spawnNebula(fx,fy,audioEnergy*0.4);
     }
 
     // ═══ NODE DOTS ═══
@@ -318,8 +330,8 @@
       const p=stw(e.clientX,e.clientY);
       const cx=W/2,cy=H/2;
 
-      // Check if tapped the NEXUS beacon
-      if(Math.hypot(p.x-cx,p.y-cy)<50){
+      // Check if tapped the NEXUS beacon (secret)
+      if(Math.hypot(p.x-cx,p.y-cy)<35){
         togglePlay(cx,cy);return;
       }
 
@@ -331,7 +343,7 @@
       }else{state.frozenNode=null;state.activeNode=null;closePanel();}
     });
 
-    canvas.addEventListener('mousemove',e=>{if(state.dragging)return;const p=stw(e.clientX,e.clientY);state.hoverNode=null;state.particles.forEach(a=>{if(Math.hypot(p.x-a.x,p.y-a.y)<15/state.transform.scale)state.hoverNode=a;});const cx=W/2,cy=H/2;const overBeacon=Math.hypot(p.x-cx,p.y-cy)<50;canvas.style.cursor=(state.hoverNode||overBeacon)?'pointer':'default';});
+    canvas.addEventListener('mousemove',e=>{if(state.dragging)return;const p=stw(e.clientX,e.clientY);state.hoverNode=null;state.particles.forEach(a=>{if(Math.hypot(p.x-a.x,p.y-a.y)<15/state.transform.scale)state.hoverNode=a;});const cx=W/2,cy=H/2;const overBeacon=Math.hypot(p.x-cx,p.y-cy)<35;canvas.style.cursor=(state.hoverNode||overBeacon)?'pointer':'default';});
 
     canvas.addEventListener('mousedown',e=>{if(e.button!==0)return;state.dragging=false;state.dragStart={x:e.clientX,y:e.clientY};state.dragTransStart={x:state.transform.x,y:state.transform.y};const onM=ev=>{const dx=ev.clientX-state.dragStart.x,dy=ev.clientY-state.dragStart.y;if(Math.abs(dx)+Math.abs(dy)>5)state.dragging=true;state.transform.x=state.dragTransStart.x+dx*dpr();state.transform.y=state.dragTransStart.y+dy*dpr();};const onU=()=>{document.removeEventListener('mousemove',onM);document.removeEventListener('mouseup',onU);setTimeout(()=>state.dragging=false,50);};document.addEventListener('mousemove',onM);document.addEventListener('mouseup',onU);});
 
