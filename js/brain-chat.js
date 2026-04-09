@@ -14,6 +14,7 @@ YOUR CAPABILITIES:
 - "log that [something]" creates a daily log entry
 - "add card: [task]" creates a kanban card
 - "clean sensitive" scans for personal data
+- "report [issue]" or "problem [description]" creates a maintenance ticket with AI troubleshooting, photo upload, and notifications
 - Mail Monitor in Ingest scans Gmail for invoices and attachments
 
 PERSONALITY: Sharp, concise, warm. Dry wit. Helpful FIRST. Be CONCISE — 2-3 sentences max unless asked.
@@ -41,6 +42,7 @@ When you don't know something, tell the user to TYPE "research [topic]" in the c
     {rx:/^(?:log|note|record)\s+(?:that\s+)?(.+)/i,type:'log'},
     {rx:/^(?:add card|create task|todo)\s*:?\s*(.+)/i,type:'card'},
     {rx:/^(?:research|look up|find info)\s+(.{4,})/i,type:'research'},
+    {rx:/^(?:report|issue|problem|broken|help)\s+(.+)/i,type:'report'},
     {rx:/^(?:clean sensitive|remove personal|scan sensitive|delete personal)\s*(.*)$/i,type:'sensitive'},
     {rx:/^(?:add cleaning task|new cleaning task|add task to cleaning)\s*:?\s*(.+)/i,type:'addClean'},
     {rx:/^(?:remove cleaning task|delete cleaning task)\s*:?\s*(.+)/i,type:'removeClean'}
@@ -83,6 +85,111 @@ When you don't know something, tell the user to TYPE "research [topic]" in the c
       }else{addB(tt('tooVague'),'ai');}
       try{await NX.sb.from('chat_history').insert({question:'research: '+topic,answer:webResult,session_id:SESSION_ID});}catch(e){}
     }catch(e){clearInterval(dotTimer);addB(tt('researchFailed')+': '+(e.message||'error'),'ai');}
+  }
+
+  // ═══ ISSUE REPORTING — AI troubleshoot + ticket creation ═══
+  async function handleReport(issue){
+    const lang=NX.i18n?NX.i18n.getLang():'en';
+    const userName=NX.currentUser?.name||'Unknown';
+    const userLoc=NX.currentUser?.location||'suerte';
+
+    // Step 1: AI quick troubleshoot
+    addB(lang==='es'?'🔧 Analizando el problema...':'🔧 Analyzing the issue...','ai thinking');
+    let troubleshoot='';
+    try{
+      troubleshoot=await NX.askClaude(
+        `You are a restaurant equipment troubleshooting expert for Suerte, Este, Bar Toti (Austin TX).${lang==='es'?'\nRespond ONLY in Spanish.':''}
+Give a quick 2-3 step troubleshooting guide for this issue. Be practical and concise.
+After the troubleshoot steps, ask the person to add more details and optionally take a photo so the issue can be logged as a ticket.`,
+        [{role:'user',content:issue}],600);
+      addB(troubleshoot,'ai');chatHistory.push({role:'assistant',content:troubleshoot});
+    }catch(e){
+      addB(lang==='es'?'No pude analizar el problema.':'Could not analyze the issue.','ai');
+    }
+
+    // Step 2: Show ticket form inline
+    const form=document.createElement('div');form.className='ticket-form';
+    form.innerHTML=`
+      <div class="ticket-form-title">📋 ${lang==='es'?'Crear Ticket':'Create Ticket'}</div>
+      <div class="ticket-field-label">${lang==='es'?'Descripción':'Description'}</div>
+      <textarea class="ticket-textarea" id="ticketNotes" rows="3" placeholder="${lang==='es'?'Describe el problema con más detalle...':'Describe the issue in more detail...'}">${issue}</textarea>
+      <div class="ticket-field-label">${lang==='es'?'Prioridad':'Priority'}</div>
+      <div class="ticket-priority-row">
+        <button class="ticket-pri-btn" data-pri="low">🟢 ${lang==='es'?'Baja':'Low'}</button>
+        <button class="ticket-pri-btn active" data-pri="normal">🟡 ${lang==='es'?'Normal':'Normal'}</button>
+        <button class="ticket-pri-btn" data-pri="urgent">🔴 ${lang==='es'?'Urgente':'Urgent'}</button>
+      </div>
+      <div class="ticket-field-label">${lang==='es'?'Foto (opcional)':'Photo (optional)'}</div>
+      <label class="ticket-photo-btn"><input type="file" accept="image/*" capture="environment" hidden id="ticketPhoto">📷 ${lang==='es'?'Tomar Foto / Subir':'Take Photo / Upload'}</label>
+      <div class="ticket-photo-preview" id="ticketPreview"></div>
+      <button class="ticket-submit-btn" id="ticketSubmitBtn">📋 ${lang==='es'?'Enviar Ticket':'Submit Ticket'}</button>
+      <div class="ticket-status" id="ticketStatus"></div>`;
+
+    const msgs=document.getElementById('chatMessages');msgs.appendChild(form);
+    msgs.scrollTop=msgs.scrollHeight;
+
+    // Priority selection
+    let priority='normal';
+    form.querySelectorAll('.ticket-pri-btn').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        form.querySelectorAll('.ticket-pri-btn').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');priority=btn.dataset.pri;
+      });
+    });
+
+    // Photo handling
+    let photoUrl='';
+    const photoInput=form.querySelector('#ticketPhoto');
+    const preview=form.querySelector('#ticketPreview');
+    photoInput.addEventListener('change',async()=>{
+      const file=photoInput.files[0];if(!file)return;
+      preview.innerHTML='<div style="color:var(--muted);font-size:11px">Uploading...</div>';
+      try{
+        const ts=Date.now();const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+        const path=`tickets/${ts}_${safeName}`;
+        const{error}=await NX.sb.storage.from('nexus-files').upload(path,file,{contentType:file.type,upsert:true});
+        if(!error){
+          const{data}=NX.sb.storage.from('nexus-files').getPublicUrl(path);
+          photoUrl=data?.publicUrl||'';
+          preview.innerHTML=`<img src="${photoUrl}" class="ticket-photo-img">`;
+        }else{preview.innerHTML='<div style="color:#ff5533;font-size:11px">Upload failed</div>';}
+      }catch(e){preview.innerHTML='<div style="color:#ff5533;font-size:11px">Error</div>';}
+    });
+
+    // Submit
+    form.querySelector('#ticketSubmitBtn').addEventListener('click',async()=>{
+      const notes=form.querySelector('#ticketNotes').value.trim();
+      if(!notes){form.querySelector('#ticketStatus').textContent=lang==='es'?'Escribe una descripción':'Please add a description';return;}
+      const submitBtn=form.querySelector('#ticketSubmitBtn');
+      submitBtn.disabled=true;submitBtn.textContent=lang==='es'?'Enviando...':'Submitting...';
+      try{
+        const{error}=await NX.sb.from('tickets').insert({
+          title:notes.slice(0,100),notes,location:userLoc,
+          reported_by:userName,status:'open',priority,
+          photo_url:photoUrl,ai_troubleshoot:troubleshoot
+        });
+        if(!error){
+          submitBtn.textContent='✓';
+          form.querySelector('#ticketStatus').textContent=lang==='es'?'✓ Ticket creado':'✓ Ticket submitted';
+          form.querySelector('#ticketStatus').style.color='#39ff14';
+          addB(lang==='es'?`✓ Ticket registrado: "${notes.slice(0,60)}"`:`✓ Ticket logged: "${notes.slice(0,60)}"`,'ai');
+          // Also log to daily log
+          await NX.sb.from('daily_logs').insert({entry:`🔧 TICKET [${priority.toUpperCase()}] by ${userName} @ ${userLoc}: ${notes.slice(0,200)}${photoUrl?' [photo attached]':''}`});
+          updateTicketBadge();
+        }else{
+          submitBtn.textContent=lang==='es'?'Error':'Error';
+          form.querySelector('#ticketStatus').textContent=error.message;
+        }
+      }catch(e){submitBtn.textContent='Error';}
+    });
+  }
+
+  async function updateTicketBadge(){
+    try{
+      const{count}=await NX.sb.from('tickets').select('*',{count:'exact',head:true}).eq('status','open');
+      const badge=document.getElementById('ticketBadge');
+      if(badge){badge.textContent=count||'';badge.style.display=count?'flex':'none';}
+    }catch(e){}
   }
 
   async function handleSensitiveScan(){
@@ -182,69 +289,4 @@ When you don't know something, tell the user to TYPE "research [topic]" in the c
     document.getElementById('chatHud').classList.remove('collapsed');
     document.getElementById('resetBtn').style.display='';
     chatActive=true;addB(q,'user');chatHistory.push({role:'user',content:q});
-    if(!NX.getApiKey()){addB(tt('noApiKey'),'ai');return;}
-    const task=detectTask(q);
-    if(task){
-      if(task.type==='research'){try{await handleResearch(task.content);}catch(e){addB('Research error: '+e.message,'ai');}return;}
-      if(task.type==='sensitive'){await handleSensitiveScan();return;}
-      if(task.type==='addClean'){await handleAddCleanTask(task.content);return;}
-      if(task.type==='removeClean'){await handleRemoveCleanTask(task.content);return;}
-      try{const result=await handleTask(task);if(result){addB(result,'ai');chatHistory.push({role:'assistant',content:result});if(voiceOn)speak(result);try{await NX.sb.from('chat_history').insert({question:q,answer:result,session_id:SESSION_ID});}catch(e){}return;}}catch(e){addB('Task error: '+e.message,'ai');return;}
-    }
-    const th=addB('🔍 '+tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'...','ai thinking');
-    let sd=0;const searchDots=setInterval(()=>{sd=(sd+1)%4;th.textContent='🔍 '+tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'.'.repeat(sd);},400);
-    try{
-      const ctx=await getCtx(q);
-      const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
-      const ans=await NX.askClaude(getPERSONA()+'\n\n'+ctx,msgs,800,false);
-      clearInterval(searchDots);
-      th.textContent=ans||'No response.';th.classList.remove('chat-thinking');
-      // Add timestamp
-      const ts=document.createElement('span');ts.className='chat-time';ts.textContent=timeStr();th.appendChild(ts);
-      chatHistory.push({role:'assistant',content:ans});if(voiceOn)speak(ans);
-      try{await NX.sb.from('chat_history').insert({question:q,answer:ans,session_id:SESSION_ID});}catch(e){}
-    }catch(e){clearInterval(searchDots);th.textContent='Error: '+(e.message||'Unknown');th.classList.remove('chat-thinking');}
-  }
-
-  function addB(t,type){
-    const el=document.createElement('div');
-    el.className='chat-bubble chat-'+(type.includes('user')?'user':'ai');
-    if(type.includes('thinking'))el.classList.add('chat-thinking');
-    el.textContent=t;
-    // Timestamp on non-thinking messages
-    if(!type.includes('thinking')){
-      const ts=document.createElement('span');ts.className='chat-time';ts.textContent=timeStr();el.appendChild(ts);
-    }
-    const c=document.getElementById('chatMessages');c.appendChild(el);c.scrollTop=c.scrollHeight;return el;
-  }
-
-  // Onboarding
-  function showOnboarding(){
-    const ov=document.createElement('div');ov.className='onboard-overlay';
-    ov.innerHTML=`<div class="onboard-box">
-      <div class="onboard-dot"></div>
-      <h2 class="onboard-title">Welcome to NEXUS</h2>
-      <p class="onboard-desc">Your AI-powered operations brain for Suerte, Este & Bar Toti.</p>
-      <div class="onboard-steps">
-        <div class="onboard-step"><span class="onboard-num">1</span>Open <b>Admin ⚙</b> and add your Anthropic API key</div>
-        <div class="onboard-step"><span class="onboard-num">2</span>Ask NEXUS anything — or use <b>Ingest</b> to pull in emails</div>
-        <div class="onboard-step"><span class="onboard-num">3</span>Try <b>"research [topic]"</b> for live web lookups</div>
-      </div>
-      <button class="onboard-btn" id="onboardDismiss">Got it — let's go</button>
-    </div>`;
-    document.body.appendChild(ov);
-    document.getElementById('onboardDismiss').addEventListener('click',()=>{
-      localStorage.setItem('nexus_onboarded','1');ov.remove();
-    });
-  }
-
-  // Voice
-  let pv=null;
-  const VOICES=[{id:'pNInz6obpgDQGcFmaJgB',name:'Adam'},{id:'EXAVITQu4vr4xnSDxMaL',name:'Bella'},{id:'onwK4e9ZLuTAKqWW03F9',name:'Daniel'},{id:'XB0fDUnXU5powFXDhCwa',name:'Charlotte'},{id:'TX3LPaxmHKxFdv7VOQHJ',name:'Liam'},{id:'jBpfuIE2acCO8z3wKNLl',name:'Emily'},{id:'yoZ06aMxZJJ28mfd3POQ',name:'Sam'},{id:'ThT5KcBeYPX3keUQqHPh',name:'Dorothy'},{id:'VR6AewLTigWG4xSOukaG',name:'Arnold'},{id:'pqHfZKP75CvOlQylNhV4',name:'Bill'}];
-  let cvi=parseInt(localStorage.getItem('nexus_voice_idx')||'0')%VOICES.length;
-  function setupVoice(){document.getElementById('micBtn').addEventListener('click',toggleMic);const vb=document.getElementById('voiceBtn');let pt=null;vb.addEventListener('click',()=>{voiceOn=!voiceOn;vb.classList.toggle('on',voiceOn);});vb.addEventListener('pointerdown',()=>{pt=setTimeout(()=>{cvi=(cvi+1)%VOICES.length;localStorage.setItem('nexus_voice_idx',cvi);voiceOn=true;vb.classList.add('on');speak(`${VOICES[cvi].name} here.`);pt=null;},600);});vb.addEventListener('pointerup',()=>{if(pt)clearTimeout(pt);});vb.addEventListener('pointerleave',()=>{if(pt)clearTimeout(pt);});if('speechSynthesis'in window){const pk=()=>{const v=speechSynthesis.getVoices();for(const n of['Samantha','Karen','Daniel','Microsoft Aria']){const f=v.find(x=>x.name.includes(n));if(f){pv=f;break;}}};pk();speechSynthesis.onvoiceschanged=pk;}}
-  function toggleMic(){const b=document.getElementById('micBtn');if(recognition){recognition.stop();recognition=null;b.classList.remove('recording');return;}if(!('webkitSpeechRecognition'in window||'SpeechRecognition'in window))return;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;recognition=new SR();recognition.continuous=false;recognition.interimResults=false;recognition.onresult=e=>{document.getElementById('chatInput').value=e.results[0][0].transcript;document.getElementById('chatSend').disabled=false;b.classList.remove('recording');recognition=null;askAI();};recognition.onerror=()=>{b.classList.remove('recording');recognition=null;};recognition.onend=()=>{b.classList.remove('recording');recognition=null;};b.classList.add('recording');recognition.start();}
-  async function speak(text){const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.45,similarity_boost:.78,style:.35,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl),a=new Audio(u);a.play();a.onended=()=>URL.revokeObjectURL(u);return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=.95;speechSynthesis.speak(u);}
-
-  NX.brain.initChat=setupChat;
-})();
+    if(!NX.getApiKey()){add
