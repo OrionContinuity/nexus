@@ -90,13 +90,11 @@
       const dx=a.x-cx,dy=a.y-cy;
       const dist=Math.sqrt(dx*dx+dy*dy)||1;
 
-      // 1. Keplerian orbit — tangential velocity correction
-      const targetV=1.8/Math.sqrt(Math.max(dist/galaxyR,0.08));
-      const tx=-dy/dist,ty=dx/dist; // tangential direction
-      const currentTangentV=a.vx*tx+a.vy*ty;
-      const correction=(targetV*0.015-currentTangentV)*0.005;
-      a.vx+=tx*correction;
-      a.vy+=ty*correction;
+      // 1. Keplerian orbit — continuous tangential force
+      const orbitalForce=0.12/Math.sqrt(Math.max(dist/galaxyR,0.05));
+      const tx=-dy/dist,ty=dx/dist;
+      a.vx+=tx*orbitalForce;
+      a.vy+=ty*orbitalForce;
 
       // 2. Black hole slingshot — very close only
       if(dist<20){
@@ -139,7 +137,7 @@
       totalE+=sp;
       a.x+=a.vx;a.y+=a.vy;
     }
-    if(totalE<len*0.0001&&Date.now()-lastInteraction>8000)physicsSleeping=true;
+    // No sleep — galaxy always spins
   }
 
   // ═══ RENDER — beacon-style glow + galaxy aesthetic ═══
