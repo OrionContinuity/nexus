@@ -66,8 +66,8 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .nav-admin{padding:6px 8px;border-radius:var(--rs);font-size:14px;border:1px solid var(--border);background:none;color:var(--faint);min-height:40px;min-width:40px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
 .nav-admin.on{border-color:var(--accent);color:var(--accent)}
 .nav-lang{padding:6px 8px;border-radius:var(--rs);font-size:10px;font-weight:600;letter-spacing:1px;border:1px solid var(--accent);background:rgba(212,182,138,.08);color:var(--accent);min-height:36px;cursor:pointer;font-family:'JetBrains Mono',monospace;flex-shrink:0}
-.nav-pause{padding:4px 8px;border-radius:var(--rs);font-size:12px;border:1px solid var(--border);background:none;color:var(--faint);min-height:36px;cursor:pointer;flex-shrink:0;transition:all .2s}
-.nav-pause.paused{border-color:#ff5533;color:#ff5533;background:rgba(255,85,51,.08);animation:pulse 1.5s infinite}
+.ig-pause-btn{padding:6px 12px;border-radius:var(--rs);font-size:11px;border:1px solid var(--border);background:none;color:var(--faint);cursor:pointer;font-family:inherit;transition:all .2s;white-space:nowrap}
+.ig-pause-btn.paused{border-color:#ff5533;color:#ff5533;background:rgba(255,85,51,.08)}
 
 /* ═══ MAIN ═══ */
 .main{height:calc(100vh - 53px);overflow:hidden;padding-bottom:env(safe-area-inset-bottom)}
