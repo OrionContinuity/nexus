@@ -2,7 +2,7 @@
 (function(){
 let loc='suerte',state={};
 const today=NX.today;
-const NON_DAILY=['Bi-Semanal','Mensual','Semanal','Quincenal','Trimestral'];
+const NON_DAILY=['Bi-Semanal','Mensual','Semanal','Quincenal','Trimestral','Jardín','Jardin','Garden'];
 
 // Default checklist data
 const DEFAULTS={suerte:[
