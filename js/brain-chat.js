@@ -29,7 +29,7 @@ When you don't know something, suggest the user try "research [topic]" so you ca
   }
 
   // Commands
-  const TASK_RX=[{rx:/^(?:log|note|record)\s+(?:that\s+)?(.+)/i,type:'log'},{rx:/^(?:add card|create task|todo)\s*:?\s*(.+)/i,type:'card'},{rx:/^(?:research|look up|search|find info)\s+(.+)/i,type:'research'}];
+  const TASK_RX=[{rx:/^(?:log|note|record)\s+(?:that\s+)?(.+)/i,type:'log'},{rx:/^(?:add card|create task|todo)\s*:?\s*(.+)/i,type:'card'},{rx:/^(?:research|look up|search|find info)\s+(.+)/i,type:'research'},{rx:/^(?:clean sensitive|remove personal|scan sensitive|delete personal)\s*(.*)$/i,type:'sensitive'}];
   function detectTask(q){for(const p of TASK_RX){const m=q.match(p.rx);if(m)return{type:p.type,content:m[1]};}return null;}
   async function handleTask(task){if(task.type==='log'){const{error}=await NX.sb.from('daily_logs').insert({entry:task.content});return error?'Failed to log.':`Logged: "${task.content}"`;}if(task.type==='card'){const{error}=await NX.sb.from('kanban_cards').insert({title:task.content,column_name:'todo'});return error?'Failed.':`Card created: "${task.content}"`;}return null;}
 
@@ -47,6 +47,30 @@ When you don't know something, suggest the user try "research [topic]" so you ca
       }else{const ne=addB('No new nodes.','ai');ne.classList.remove('chat-thinking');}}
     try{await NX.sb.from('chat_history').insert({question:'research: '+topic,answer:webResult,session_id:SESSION_ID});}catch(e){}
     }catch(e){const ee=addB('Research failed: '+(e.message||'error'),'ai');ee.classList.remove('chat-thinking');}
+  }
+
+  async function handleSensitiveScan(){
+    addB('Scanning all nodes for personal/sensitive data...','ai thinking');
+    try{
+      const nodes=NX.nodes.filter(n=>!n.is_private);
+      const nodeList=nodes.map(n=>`[ID:${n.id}] ${n.name} (${n.category}): ${(n.notes||'').slice(0,150)}`).join('\n');
+      const result=await NX.askClaude(
+        `Scan these restaurant ops nodes for PERSONAL/SENSITIVE data: bonuses, salaries, SSNs, personal addresses, bank info, performance reviews, personal medical info. Do NOT flag business contacts, vendor info, equipment, procedures. Return JSON: {"flagged":[{"id":"...","name":"...","reason":"..."}]}`,
+        [{role:'user',content:nodeList.slice(0,12000)}],2000);
+      let json=result.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
+      const s=json.indexOf('{'),e=json.lastIndexOf('}');
+      if(s!==-1&&e>s){json=json.slice(s,e+1);
+        const parsed=JSON.parse(json);
+        if(parsed.flagged&&parsed.flagged.length){
+          let msg=`Found ${parsed.flagged.length} potentially sensitive node(s):\n\n`;
+          parsed.flagged.forEach(f=>{msg+=`• ${f.name} — ${f.reason}\n`;});
+          msg+=`\nTo delete these, go to Ingest → "Scan & Remove Personal Data" for the full review + delete flow.`;
+          const el=addB(msg,'ai');el.classList.remove('chat-thinking');
+        }else{
+          const el=addB('✅ No sensitive data found. Your brain is clean.','ai');el.classList.remove('chat-thinking');
+        }
+      }else{const el=addB('Scan complete — no issues found.','ai');el.classList.remove('chat-thinking');}
+    }catch(e){const el=addB('Scan error: '+e.message,'ai');el.classList.remove('chat-thinking');}
   }
 
   function setupChat(){
@@ -80,6 +104,7 @@ When you don't know something, suggest the user try "research [topic]" so you ca
     if(!NX.getApiKey()){addB('No API key set — open Admin ⚙ to add your Anthropic key.','ai');return;}
     const task=detectTask(q);if(task){
       if(task.type==='research'){try{await handleResearch(task.content);}catch(e){addB('Research error: '+e.message,'ai');}return;}
+      if(task.type==='sensitive'){await handleSensitiveScan();return;}
       try{const result=await handleTask(task);if(result){addB(result,'ai');chatHistory.push({role:'assistant',content:result});if(voiceOn)speak(result);try{await NX.sb.from('chat_history').insert({question:q,answer:result,session_id:SESSION_ID});}catch(e){}return;}}catch(e){addB('Task error: '+e.message,'ai');return;}}
     const th=addB(`Searching ${NX.nodes.length} nodes...`,'ai thinking');
     try{const ctx=await getCtx(q);const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
