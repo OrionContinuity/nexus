@@ -99,6 +99,21 @@ const NX = {
       pin = pin.slice(0, -1); updateDisplay(); error.textContent = '';
     });
 
+    // Language toggle on PIN screen
+    const currentLang = this.i18n ? this.i18n.getLang() : 'en';
+    document.querySelectorAll('.pin-lang-btn').forEach(btn => {
+      if (btn.dataset.lang === currentLang) btn.classList.add('active');
+      btn.addEventListener('click', () => {
+        const lang = btn.dataset.lang;
+        localStorage.setItem('nexus_lang', lang);
+        document.querySelectorAll('.pin-lang-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        // Update PIN screen text immediately
+        const sub = document.querySelector('.pin-sub');
+        if (sub) sub.textContent = lang === 'es' ? 'Ingrese su PIN' : 'Enter your PIN';
+      });
+    });
+
     // Check if user was previously logged in (session persistence)
     const savedUser = localStorage.getItem('nexus_current_user');
     if (savedUser) {
@@ -114,20 +129,45 @@ const NX = {
 
   async authenticatePin(pin, errorEl, userEl, resetFn) {
     try {
-      const { data } = await this.sb.from('nexus_users').select('*').eq('pin', pin).single();
-      if (!data) { errorEl.textContent = 'Invalid PIN'; errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500); resetFn(); return; }
+      errorEl.textContent = '';
+      const { data, error } = await this.sb.from('nexus_users').select('*').eq('pin', pin).single();
+      if (error) {
+        console.error('NEXUS PIN:', error.message, error.code);
+        // Table might not exist — allow admin bypass with 0000
+        if (error.message.includes('does not exist') || error.message.includes('relation') || error.code === '42P01') {
+          errorEl.textContent = 'Setup needed — run SQL';
+          if (pin === '0000') {
+            this.currentUser = { id: 0, name: 'Admin', pin: '0000', role: 'admin', location: 'suerte', language: 'en' };
+            localStorage.setItem('nexus_current_user', JSON.stringify(this.currentUser));
+            userEl.textContent = 'Admin (setup mode)'; userEl.classList.add('visible');
+            this.applyRole('admin');
+            setTimeout(() => this.loadConfigAndStart(), 600); return;
+          }
+        } else if (error.code === 'PGRST116') {
+          // No matching row — invalid PIN
+          errorEl.textContent = this.i18n ? this.i18n.t('invalidPin') : 'Invalid PIN';
+        } else {
+          errorEl.textContent = 'Connection error';
+        }
+        errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500);
+        resetFn(); return;
+      }
+      if (!data) { errorEl.textContent = this.i18n ? this.i18n.t('invalidPin') : 'Invalid PIN'; errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500); resetFn(); return; }
       this.currentUser = data;
       localStorage.setItem('nexus_current_user', JSON.stringify(data));
-      // Set user's language preference (only reload if different)
-      if(data.language&&this.i18n&&data.language!==this.i18n.getLang()){
-        localStorage.setItem('nexus_lang',data.language);
-        // Don't reload here — applyUI will handle it after app loads
+      if (data.language && this.i18n && data.language !== this.i18n.getLang()) {
+        localStorage.setItem('nexus_lang', data.language);
       }
-      userEl.textContent = `Welcome, ${data.name}`;
+      userEl.textContent = (this.i18n ? this.i18n.t('welcome') : 'Welcome,') + ' ' + data.name;
       userEl.classList.add('visible');
       this.applyRole(data.role);
       setTimeout(() => this.loadConfigAndStart(), 600);
-    } catch (e) { errorEl.textContent = 'Connection error'; resetFn(); }
+    } catch (e) {
+      console.error('NEXUS auth:', e);
+      errorEl.textContent = 'Connection failed';
+      errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500);
+      resetFn();
+    }
   },
 
   applyRole(role) {
@@ -239,6 +279,17 @@ const NX = {
   init() {
     this.sb = supabase.createClient(this.SUPA_URL, this.SUPA_KEY);
     if(window.NEXUS_I18N) { this.i18n = NEXUS_I18N; this.i18n.applyUI(); }
+    // Test Supabase connection
+    this.sb.from('nexus_users').select('id',{count:'exact',head:true}).then(({error})=>{
+      const err=document.getElementById('pinError');
+      if(error){
+        console.error('NEXUS Supabase:', error.message);
+        if(err) err.textContent='DB: '+error.message;
+      }
+    }).catch(e=>{
+      const err=document.getElementById('pinError');
+      if(err) err.textContent='No connection to server';
+    });
     this.setupPinScreen();
   },
 
@@ -304,7 +355,7 @@ const NX = {
         const tt = this.getTrelloToken();
         document.getElementById('adminTrelloToken').placeholder = tt ? 'Token set (••••' + tt.slice(-4) + ')' : 'Trello Token';
         document.getElementById('adminModel').value = this.getModel();
-        document.getElementById('adminVoice').value = this.config?.voice_idx??localStorage.getItem('nexus_voice_idx')||'0';
+        document.getElementById('adminVoice').value = (this.config && this.config.voice_idx != null) ? this.config.voice_idx : (localStorage.getItem('nexus_voice_idx') || '0');
         this.loadUserList();
       } else {
         keySection.style.display = 'none';
