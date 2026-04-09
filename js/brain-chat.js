@@ -35,7 +35,9 @@ When you don't know something, suggest "research [topic]" so you can search the 
     {rx:/^(?:log|note|record)\s+(?:that\s+)?(.+)/i,type:'log'},
     {rx:/^(?:add card|create task|todo)\s*:?\s*(.+)/i,type:'card'},
     {rx:/^(?:research|look up|search|find info)\s+(.+)/i,type:'research'},
-    {rx:/^(?:clean sensitive|remove personal|scan sensitive|delete personal)\s*(.*)$/i,type:'sensitive'}
+    {rx:/^(?:clean sensitive|remove personal|scan sensitive|delete personal)\s*(.*)$/i,type:'sensitive'},
+    {rx:/^(?:add cleaning task|new cleaning task|add task to cleaning)\s*:?\s*(.+)/i,type:'addClean'},
+    {rx:/^(?:remove cleaning task|delete cleaning task)\s*:?\s*(.+)/i,type:'removeClean'}
   ];
   function detectTask(q){for(const p of TASK_RX){const m=q.match(p.rx);if(m)return{type:p.type,content:m[1]};}return null;}
   async function handleTask(task){
@@ -86,6 +88,35 @@ When you don't know something, suggest "research [topic]" so you can search the 
         }else addB('✅ No sensitive data found. Your brain is clean.','ai');
       }else addB('Scan complete — no issues found.','ai');
     }catch(e){addB('Scan error: '+e.message,'ai');}
+  }
+
+  async function handleAddCleanTask(content){
+    addB('Processing cleaning task...','ai thinking');
+    try{
+      const result=await NX.askClaude(
+        'Parse this cleaning task request for a restaurant (Suerte, Este, Toti). Return ONLY JSON: {"location":"suerte|este|toti","section":"Comedor|Baños|Exterior|Cocina|Jardín","es":"Spanish task text","en":"English task text"}',
+        [{role:'user',content}],300);
+      let json=result.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
+      const s=json.indexOf('{'),e=json.lastIndexOf('}');
+      if(s!==-1&&e>s){json=json.slice(s,e+1);const p=JSON.parse(json);
+        if(p.location&&p.section&&p.es&&p.en&&NX.cleaningAPI){
+          NX.cleaningAPI.addTask(p.location,p.section,p.es,p.en);
+          addB(`✓ Added to ${p.location} → ${p.section}:\n${p.es}\n${p.en}`,'ai');
+        }else addB('Could not parse task. Try: "add cleaning task: sweep patio at suerte exterior"','ai');
+      }else addB('Could not parse. Try: "add cleaning task: [description] at [location] [section]"','ai');
+    }catch(e){addB('Error: '+e.message,'ai');}
+  }
+
+  async function handleRemoveCleanTask(content){
+    if(NX.cleaningAPI){
+      // Try all locations
+      let removed=false;
+      for(const loc of NX.cleaningAPI.getLocations()){
+        if(NX.cleaningAPI.removeTask(loc,content)){removed=true;break;}
+      }
+      if(removed)addB(`✓ Removed cleaning task matching "${content}".`,'ai');
+      else addB(`No custom task found matching "${content}". Note: only AI-added tasks can be removed.`,'ai');
+    }else addB('Cleaning module not loaded.','ai');
   }
 
   function setupChat(){
@@ -142,6 +173,8 @@ When you don't know something, suggest "research [topic]" so you can search the 
     if(task){
       if(task.type==='research'){try{await handleResearch(task.content);}catch(e){addB('Research error: '+e.message,'ai');}return;}
       if(task.type==='sensitive'){await handleSensitiveScan();return;}
+      if(task.type==='addClean'){await handleAddCleanTask(task.content);return;}
+      if(task.type==='removeClean'){await handleRemoveCleanTask(task.content);return;}
       try{const result=await handleTask(task);if(result){addB(result,'ai');chatHistory.push({role:'assistant',content:result});if(voiceOn)speak(result);try{await NX.sb.from('chat_history').insert({question:q,answer:result,session_id:SESSION_ID});}catch(e){}return;}}catch(e){addB('Task error: '+e.message,'ai');return;}
     }
     const th=addB(`Searching ${NX.nodes.length} nodes...`,'ai thinking');
