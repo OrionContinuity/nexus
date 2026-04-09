@@ -304,32 +304,54 @@
     document.getElementById('npTags').textContent=(n.tags||[]).map(t=>'#'+t).join('  ');
     document.getElementById('npNotes').textContent=n.notes||'No notes.';
 
-    // ═══ SOURCES — expandable email cards ═══
+    // ═══ SOURCES — rich expandable email cards ═══
     const se=document.getElementById('npSources');se.innerHTML='';
     const src=n.sources||n.source_emails;
     if(src&&Array.isArray(src)&&src.length){
       se.innerHTML='<div class="np-section-title">SOURCES ('+src.length+')</div>';
       src.forEach((s,si)=>{
         const card=document.createElement('div');card.className='np-email-card';
+        // Header row
         const header=document.createElement('div');header.className='np-email-header';
-        header.innerHTML=`<div class="np-email-from">${s.from||'Unknown'}</div><div class="np-email-date">${s.date||''}</div>`;
+        header.innerHTML=`<div class="np-email-from">${s.from||'Unknown sender'}</div><div class="np-email-date">${s.date||''}</div>`;
+        card.appendChild(header);
+        // Subject
         const subject=document.createElement('div');subject.className='np-email-subject';
-        subject.textContent=s.subject||'No subject';
-        card.appendChild(header);card.appendChild(subject);
-        // Expandable body
-        if(s.body||s.snippet){
-          const toggle=document.createElement('button');toggle.className='np-email-toggle';toggle.textContent='View full email ▼';
-          const body=document.createElement('div');body.className='np-email-body';body.style.display='none';
-          body.textContent=s.body||s.snippet||'';
+        subject.textContent=s.subject||'(no subject)';
+        card.appendChild(subject);
+        // Snippet preview — always visible
+        if(s.snippet||s.body){
+          const preview=document.createElement('div');preview.className='np-email-preview';
+          preview.textContent=(s.snippet||s.body||'').slice(0,150)+(((s.snippet||s.body||'').length>150)?'...':'');
+          card.appendChild(preview);
+        }
+        // Expand button + full content
+        const hasContent=s.body&&s.body.length>10;
+        if(hasContent){
+          const toggle=document.createElement('button');toggle.className='np-email-toggle';
+          toggle.textContent='Show full email ▼';
+          const detail=document.createElement('div');detail.className='np-email-detail';detail.style.display='none';
+          // Full email detail view
+          let detailHTML='<div class="np-email-detail-header">';
+          detailHTML+=`<div class="np-detail-row"><span class="np-detail-label">From</span><span class="np-detail-value">${s.from||''}</span></div>`;
+          if(s.to)detailHTML+=`<div class="np-detail-row"><span class="np-detail-label">To</span><span class="np-detail-value">${s.to||''}</span></div>`;
+          detailHTML+=`<div class="np-detail-row"><span class="np-detail-label">Date</span><span class="np-detail-value">${s.date||''}</span></div>`;
+          detailHTML+=`<div class="np-detail-row"><span class="np-detail-label">Subject</span><span class="np-detail-value">${s.subject||''}</span></div>`;
+          detailHTML+='</div>';
+          detailHTML+=`<div class="np-email-full-body">${(s.body||'').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`;
+          detail.innerHTML=detailHTML;
           toggle.addEventListener('click',()=>{
-            const open=body.style.display!=='none';
-            body.style.display=open?'none':'block';
-            toggle.textContent=open?'View full email ▼':'Collapse ▲';
+            const open=detail.style.display!=='none';
+            detail.style.display=open?'none':'block';
+            toggle.textContent=open?'Show full email ▼':'Hide email ▲';
+            toggle.classList.toggle('open',!open);
           });
-          card.appendChild(toggle);card.appendChild(body);
+          card.appendChild(toggle);card.appendChild(detail);
         }
         se.appendChild(card);
       });
+    }else if(!src||!src.length){
+      se.innerHTML='<div class="np-section-title">SOURCES</div><div class="np-empty">No source emails linked to this node.</div>';
     }
 
     // ═══ ATTACHMENTS — with image previews ═══
