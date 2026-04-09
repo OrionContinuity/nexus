@@ -17,7 +17,7 @@ YOUR CAPABILITIES (tell users about these when relevant):
 
 PERSONALITY: Sharp, concise, warm. Dry wit. Helpful FIRST, funny second. Respond in whatever language asked (EN/ES). Be CONCISE — 2-3 sentences max unless asked for detail.
 
-When you don't know something, suggest "research [topic]" so you can search the web. Never say you can't search — you CAN via the research command.`;
+When you don't know something, tell the user to TYPE the command in the chat box. Example: type "research Celia Pellegrini Austin chef". You CANNOT trigger research yourself — the user must type it as a command starting with the word "research". Be specific about what topic to search.`;
 
   function checkApiKey(){const b=document.getElementById('apiBanner');if(b)b.style.display=NX.getApiKey()?'none':'flex';}
   function timeStr(){const d=new Date();return d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}).toLowerCase();}
@@ -34,7 +34,7 @@ When you don't know something, suggest "research [topic]" so you can search the 
   const TASK_RX=[
     {rx:/^(?:log|note|record)\s+(?:that\s+)?(.+)/i,type:'log'},
     {rx:/^(?:add card|create task|todo)\s*:?\s*(.+)/i,type:'card'},
-    {rx:/^(?:research|look up|search|find info)\s+(.+)/i,type:'research'},
+    {rx:/^(?:research|look up|find info)\s+(.{4,})/i,type:'research'},
     {rx:/^(?:clean sensitive|remove personal|scan sensitive|delete personal)\s*(.*)$/i,type:'sensitive'},
     {rx:/^(?:add cleaning task|new cleaning task|add task to cleaning)\s*:?\s*(.+)/i,type:'addClean'},
     {rx:/^(?:remove cleaning task|delete cleaning task)\s*:?\s*(.+)/i,type:'removeClean'}
@@ -52,7 +52,10 @@ When you don't know something, suggest "research [topic]" so you can search the 
       const webResult=await NX.askClaude('You are a research assistant for restaurant operations (Suerte, Este, Bar Toti — Austin TX). Search the web and provide detailed, factual information. Include specs, model numbers, pricing, warranty, dealer contacts.',[{role:'user',content:`Research: ${topic}`}],2000,true);
       addB(webResult||'No results.','ai');
       chatHistory.push({role:'assistant',content:webResult});if(voiceOn)speak(webResult);
-      addB('Extracting nodes...','ai thinking');
+      // Quality check — skip extraction if AI just asked for clarification
+      const isVague=!webResult||webResult.length<100||/could you|please specify|what would you like|need more|which specific/i.test(webResult);
+      if(!isVague){
+        addB('Extracting nodes...','ai thinking');
       const extraction=await NX.askClaude('Extract ALL knowledge as nodes. RESPOND ONLY RAW JSON: {"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"..."}]}',[{role:'user',content:webResult}],2000);
       let json=extraction.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
       const s=json.indexOf('{'),e=json.lastIndexOf('}');
@@ -67,6 +70,7 @@ When you don't know something, suggest "research [topic]" so you can search the 
           await NX.loadNodes();if(NX.brain)NX.brain.init();
         }else addB('No new nodes to extract.','ai');
       }
+      }else{addB('Response too vague to extract nodes. Try a more specific research topic.','ai');}
       try{await NX.sb.from('chat_history').insert({question:'research: '+topic,answer:webResult,session_id:SESSION_ID});}catch(e){}
     }catch(e){addB('Research failed: '+(e.message||'error'),'ai');}
   }
