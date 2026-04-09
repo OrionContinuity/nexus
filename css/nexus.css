@@ -9,6 +9,42 @@
 html{font-size:14px}
 body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow:hidden;line-height:1.5;-webkit-font-smoothing:antialiased}
 @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 14px var(--glow)}50%{opacity:.6;box-shadow:0 0 6px var(--glow)}}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+
+/* ═══ PIN SCREEN ═══ */
+.pin-screen{position:fixed;inset:0;z-index:300;background:var(--bg);display:flex;align-items:center;justify-content:center;transition:opacity .5s,transform .5s}
+.pin-screen.hidden{opacity:0;transform:scale(1.05);pointer-events:none}
+.pin-box{text-align:center;width:100%;max-width:300px;padding:24px}
+.pin-dot{width:14px;height:14px;border-radius:50%;background:var(--accent);box-shadow:0 0 20px var(--glow);margin:0 auto 20px;animation:pulse 2.5s infinite}
+.pin-title{font-family:'JetBrains Mono',monospace;font-size:28px;letter-spacing:6px;color:var(--accent);margin-bottom:8px}
+.pin-sub{font-size:13px;color:var(--muted);margin-bottom:24px}
+.pin-display{display:flex;gap:16px;justify-content:center;margin-bottom:28px}
+.pin-circle{width:16px;height:16px;border-radius:50%;border:2px solid var(--faint);transition:all .15s}
+.pin-circle.filled{background:var(--accent);border-color:var(--accent);box-shadow:0 0 8px var(--glow)}
+.pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:240px;margin:0 auto}
+.pin-key{width:72px;height:56px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:22px;font-family:'JetBrains Mono',monospace;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;-webkit-tap-highlight-color:transparent}
+.pin-key:active{background:var(--accent);color:var(--bg);transform:scale(.95)}
+.pin-key-empty{visibility:hidden}
+.pin-key-del{font-size:18px;color:var(--faint)}
+.pin-error{color:#ff5533;font-size:12px;margin-top:16px;min-height:18px;letter-spacing:1px}
+.pin-error.shake{animation:shake .4s ease}
+.pin-user{color:#39ff14;font-size:14px;margin-top:12px;min-height:20px;opacity:0;transition:opacity .4s}
+.pin-user.visible{opacity:1}
+
+/* ═══ ADMIN USER MANAGEMENT ═══ */
+.admin-user-info{display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.admin-user-name{font-size:16px;font-weight:500}
+.admin-user-role{font-size:10px;letter-spacing:2px;color:var(--accent);padding:3px 10px;border:1px solid var(--accent);border-radius:var(--rp)}
+.admin-user-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.admin-user-row{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--elevated);border-radius:var(--rs);font-size:12px}
+.admin-user-name-sm{flex:1;font-weight:500}
+.admin-user-role-sm{font-size:10px;color:var(--accent);letter-spacing:1px;text-transform:uppercase}
+.admin-user-loc-sm{font-size:10px;color:var(--faint);text-transform:capitalize}
+.admin-user-pin-sm{font-size:10px;color:var(--faint);font-family:'JetBrains Mono',monospace}
+.admin-user-del{background:none;border:1px solid var(--border);color:var(--faint);width:24px;height:24px;border-radius:50%;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.admin-user-del:hover{border-color:#ff5533;color:#ff5533}
+.admin-add-user{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.admin-field-sm{background:var(--elevated);border:1px solid var(--border);border-radius:var(--rs);padding:8px 10px;color:var(--text);font-size:12px;outline:none;font-family:inherit;min-height:36px;flex:1;min-width:80px}
 
 /* ═══ NAV ═══ */
 .nav{position:sticky;top:0;z-index:50;display:flex;align-items:center;padding:6px 8px;background:var(--surface);border-bottom:1px solid var(--border);gap:2px;overflow-x:auto;-webkit-overflow-scrolling:touch}
