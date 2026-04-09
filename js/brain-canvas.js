@@ -102,33 +102,69 @@
       else{ctx.moveTo(cx,cy);ctx.lineTo(a.x,a.y);cLineCount++;}}
     ctx.stroke();
 
-    // Center beacon
-    const br=Math.sin(time*1.1),pr=55+br*5;ctx.shadowBlur=40;ctx.shadowColor='rgba(212,182,138,.6)';
+    // Center beacon — triple-layer glow
+    const br=Math.sin(time*1.1),pr=55+br*5;
+    // Outer bloom
+    ctx.beginPath();ctx.arc(cx,cy,pr*3,0,Math.PI*2);
+    ctx.fillStyle=`rgba(212,182,138,${.03+br*.01})`;ctx.fill();
+    // Mid glow
+    ctx.beginPath();ctx.arc(cx,cy,pr*1.8,0,Math.PI*2);
+    ctx.fillStyle=`rgba(212,182,138,${.06+br*.02})`;ctx.fill();
+    // Core
+    ctx.shadowBlur=40;ctx.shadowColor='rgba(212,182,138,.6)';
     ctx.beginPath();ctx.arc(cx,cy,pr,0,Math.PI*2);ctx.fillStyle='#18181c';ctx.fill();
     ctx.strokeStyle=`rgba(212,182,138,${.6+br*.2})`;ctx.lineWidth=2.5;ctx.stroke();ctx.shadowBlur=0;
     ctx.fillStyle=`rgba(212,182,138,${.85+br*.1})`;ctx.font='600 18px JetBrains Mono';ctx.textAlign='center';ctx.fillText('NEXUS',cx,cy+6);
 
-    // Nodes — white fill, gold labels INSIDE
+    // ═══ NODES — Beacon-style triple-layer rendering ═══
+    // Pass 1: Outer glow bloom (large, very faint)
     for(let i=0;i<particles.length;i++){const a=particles[i];
       if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
       const hit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id),act=state.activeNode&&state.activeNode.id===a.id;
-      const dim=isA&&!hit&&!act,p=Math.sin(time*1.5+a.id*.6);
-      const nr=act?AR+p*2:hit?SR2+p*1.5:dim?3:BR+p*.4;
-      if(hit||act){ctx.shadowBlur=20;ctx.shadowColor='rgba(212,182,138,.8)';}
-      ctx.beginPath();ctx.arc(a.x,a.y,nr,0,Math.PI*2);
-      ctx.fillStyle=act?'rgba(255,255,255,.95)':hit?'rgba(255,255,255,.9)':dim?'rgba(255,255,255,.06)':`rgba(240,238,232,${.45+p*.05})`;
-      ctx.fill();
-      ctx.strokeStyle=`rgba(212,182,138,${act?.6:hit?.4:dim?.03:.15})`;ctx.lineWidth=act?2:0.6;ctx.stroke();
-      if(hit||act)ctx.shadowBlur=0;
-      // Tiny gold label inside node
+      const dim=isA&&!hit&&!act;if(dim)continue;
+      const pulse=0.7+0.3*Math.sin(time*1.2+a.id*0.8);
+      const nr=(act?AR:hit?SR2:BR)*pulse;
+      const glowAlpha=act?0.08:hit?0.06:0.03;
+      ctx.beginPath();ctx.arc(a.x,a.y,nr*3.5,0,Math.PI*2);
+      ctx.fillStyle=`rgba(212,182,138,${glowAlpha*pulse})`;ctx.fill();
+    }
+    // Pass 2: Mid glow
+    for(let i=0;i<particles.length;i++){const a=particles[i];
+      if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
+      const hit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id),act=state.activeNode&&state.activeNode.id===a.id;
+      const dim=isA&&!hit&&!act;
+      const pulse=0.7+0.3*Math.sin(time*1.2+a.id*0.8);
+      const nr=(act?AR:hit?SR2:dim?3:BR)*pulse;
+      // Wobble — perpendicular drift
+      const wobble=Math.sin(time*0.8+a.id*1.3)*1.5;
+      const wx=a.x+wobble*Math.cos(a.id),wy=a.y+wobble*Math.sin(a.id);
+      const midAlpha=act?0.25:hit?0.2:dim?0.02:0.1;
+      ctx.beginPath();ctx.arc(wx,wy,nr*1.8,0,Math.PI*2);
+      ctx.fillStyle=`rgba(220,195,155,${midAlpha*pulse})`;ctx.fill();
+    }
+    // Pass 3: Bright core
+    for(let i=0;i<particles.length;i++){const a=particles[i];
+      if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
+      const hit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id),act=state.activeNode&&state.activeNode.id===a.id;
+      const dim=isA&&!hit&&!act;
+      const pulse=0.7+0.3*Math.sin(time*1.2+a.id*0.8);
+      const nr=(act?AR:hit?SR2:dim?2.5:BR)*pulse;
+      const wobble=Math.sin(time*0.8+a.id*1.3)*1.5;
+      const wx=a.x+wobble*Math.cos(a.id),wy=a.y+wobble*Math.sin(a.id);
+      const coreAlpha=act?0.9:hit?0.8:dim?0.04:0.4;
+      ctx.beginPath();ctx.arc(wx,wy,nr,0,Math.PI*2);
+      ctx.fillStyle=`rgba(245,240,230,${coreAlpha*pulse})`;ctx.fill();
+      // Gold ring
+      ctx.strokeStyle=`rgba(212,182,138,${(act?0.5:hit?0.35:dim?0.02:0.12)*pulse})`;
+      ctx.lineWidth=act?1.5:0.5;ctx.stroke();
+      // Tiny gold label inside
       const sr=nr*t.scale;if(sr<6&&!hit&&!act)continue;if(dim)continue;
       const maxChars=Math.max(2,Math.floor(nr/3.5));
       const label=a.node.name.length>maxChars?a.node.name.slice(0,maxChars-1)+'…':a.node.name;
-      const fontSize=Math.max(4,Math.min(7,nr*0.55));
+      const fontSize=Math.max(4,Math.min(7,nr*0.5));
       ctx.font=`${act?'600':'400'} ${fontSize}px "Libre Franklin"`;ctx.textAlign='center';ctx.textBaseline='middle';
-      ctx.fillStyle=`rgba(190,165,120,${act?.95:hit?.85:.55})`;
-      ctx.fillText(label,a.x,a.y,nr*1.6);
-      ctx.textBaseline='alphabetic';
+      ctx.fillStyle=`rgba(190,165,120,${(act?0.9:hit?0.8:0.5)*pulse})`;
+      ctx.fillText(label,wx,wy,nr*1.6);ctx.textBaseline='alphabetic';
     }
     ctx.restore();requestAnimationFrame(draw);
   }
