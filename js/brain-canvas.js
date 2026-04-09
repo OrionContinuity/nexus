@@ -48,8 +48,8 @@
     for(let i=0;i<len;i++){const a=particles[i];
       if(ih&&Math.hypot(a.x-state.hoverNode.x,a.y-state.hoverNode.y)<100){a.vx*=0.05;a.vy*=0.05;continue;}
       const gx=Math.floor(a.x/CELL)+500,gy=Math.floor(a.y/CELL)+500;
-      // Soft collision — touch OK, no overlap. Push only when overlapping.
-      for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j<=i)continue;const b=particles[j];let dx=a.x-b.x,dy=a.y-b.y,dS=dx*dx+dy*dy;if(dS>40000)continue;let d=Math.sqrt(dS)||1;const minDist=BR*2.2;if(d<minDist){const push=(minDist-d)*0.3;a.vx+=dx/d*push;a.vy+=dy/d*push;b.vx-=dx/d*push;b.vy-=dy/d*push;}else if(d<60){const softPush=30/(d*d);a.vx+=dx/d*softPush;a.vy+=dy/d*softPush;b.vx-=dx/d*softPush;b.vy-=dy/d*softPush;}}}
+      // Soft collision + medium-range spread
+      for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j<=i)continue;const b=particles[j];let dx=a.x-b.x,dy=a.y-b.y,dS=dx*dx+dy*dy;if(dS>40000)continue;let d=Math.sqrt(dS)||1;const minDist=BR*2.2;if(d<minDist){const push=(minDist-d)*0.3;a.vx+=dx/d*push;a.vy+=dy/d*push;b.vx-=dx/d*push;b.vy-=dy/d*push;}else{const spread=200/(d*d);a.vx+=dx/d*spread;a.vy+=dy/d*spread;b.vx-=dx/d*spread;b.vy-=dy/d*spread;}}}
       const sc=state.catMap[a.cat];if(sc){const step=sc.length>30?Math.ceil(sc.length/30):1;for(let ci=0;ci<sc.length;ci+=step){const j=sc[ci];if(j===i)continue;const b=particles[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDC)*ATT;a.vy+=dy/d*(d-IDC)*ATT;}}
       const aT=state.tagSets[i];if(aT&&aT.size>0){for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j===i)continue;const bT=state.tagSets[j];if(!bT)continue;let sh=0;for(const t of aT)if(bT.has(t))sh++;if(!sh)continue;const b=particles[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDT)*ATT*sh*1.2;a.vy+=dy/d*(d-IDT)*ATT*sh*1.2;}}}
       for(let li=0;li<a.links.length;li++){const b=state.linkMap[a.links[li]];if(!b)continue;let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*(d-IDL)*LINK;a.vy+=dy/d*(d-IDL)*LINK;}
@@ -65,7 +65,7 @@
       // Breathing between linked nodes
       if(a.links.length>0&&Math.random()<0.1){const fr=state.linkMap[a.links[Math.floor(Math.random()*a.links.length)]];if(fr){const dx=fr.x-a.x,dy=fr.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;a.vx+=dx/d*Math.sin(time*2+a.id)*0.3;a.vy+=dy/d*Math.sin(time*2+a.id)*0.3;}}
       a.vx*=DAMP;a.vy*=DAMP;const sp=a.vx*a.vx+a.vy*a.vy;if(sp>MAXV*MAXV){const s=Math.sqrt(sp);a.vx=a.vx/s*MAXV;a.vy=a.vy/s*MAXV;}totalEnergy+=sp;a.x+=a.vx;a.y+=a.vy;
-      if(a.x<80)a.vx+=1;if(a.x>W-80)a.vx-=1;if(a.y<80)a.vy+=1;if(a.y>H-80)a.vy-=1;
+      if(a.x<120)a.vx+=2;if(a.x>W-120)a.vx-=2;if(a.y<120)a.vy+=2;if(a.y>H-120)a.vy-=2;
     }
     if(totalEnergy<len*0.01&&Date.now()-lastInteraction>5000)physicsSleeping=true;
   }
@@ -116,54 +116,38 @@
     ctx.strokeStyle=`rgba(212,182,138,${.6+br*.2})`;ctx.lineWidth=2.5;ctx.stroke();ctx.shadowBlur=0;
     ctx.fillStyle=`rgba(212,182,138,${.85+br*.1})`;ctx.font='600 18px JetBrains Mono';ctx.textAlign='center';ctx.fillText('NEXUS',cx,cy+6);
 
-    // ═══ NODES — Beacon-style triple-layer rendering ═══
-    // Pass 1: Outer glow bloom (large, very faint)
+    // ═══ NODES — Beacon-style glow (reduced aura) ═══
+    // Pass 1: Subtle outer glow
     for(let i=0;i<particles.length;i++){const a=particles[i];
       if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
       const hit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id),act=state.activeNode&&state.activeNode.id===a.id;
       const dim=isA&&!hit&&!act;if(dim)continue;
       const pulse=0.7+0.3*Math.sin(time*1.2+a.id*0.8);
       const nr=(act?AR:hit?SR2:BR)*pulse;
-      const glowAlpha=act?0.08:hit?0.06:0.03;
-      ctx.beginPath();ctx.arc(a.x,a.y,nr*3.5,0,Math.PI*2);
-      ctx.fillStyle=`rgba(212,182,138,${glowAlpha*pulse})`;ctx.fill();
+      ctx.beginPath();ctx.arc(a.x,a.y,nr*2.2,0,Math.PI*2);
+      ctx.fillStyle=`rgba(212,182,138,${(act?0.06:hit?0.04:0.015)*pulse})`;ctx.fill();
     }
-    // Pass 2: Mid glow
-    for(let i=0;i<particles.length;i++){const a=particles[i];
-      if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
-      const hit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id),act=state.activeNode&&state.activeNode.id===a.id;
-      const dim=isA&&!hit&&!act;
-      const pulse=0.7+0.3*Math.sin(time*1.2+a.id*0.8);
-      const nr=(act?AR:hit?SR2:dim?3:BR)*pulse;
-      // Wobble — perpendicular drift
-      const wobble=Math.sin(time*0.8+a.id*1.3)*1.5;
-      const wx=a.x+wobble*Math.cos(a.id),wy=a.y+wobble*Math.sin(a.id);
-      const midAlpha=act?0.25:hit?0.2:dim?0.02:0.1;
-      ctx.beginPath();ctx.arc(wx,wy,nr*1.8,0,Math.PI*2);
-      ctx.fillStyle=`rgba(220,195,155,${midAlpha*pulse})`;ctx.fill();
-    }
-    // Pass 3: Bright core
+    // Pass 2: Core + ring
     for(let i=0;i<particles.length;i++){const a=particles[i];
       if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
       const hit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id),act=state.activeNode&&state.activeNode.id===a.id;
       const dim=isA&&!hit&&!act;
       const pulse=0.7+0.3*Math.sin(time*1.2+a.id*0.8);
       const nr=(act?AR:hit?SR2:dim?2.5:BR)*pulse;
-      const wobble=Math.sin(time*0.8+a.id*1.3)*1.5;
+      const wobble=Math.sin(time*0.8+a.id*1.3)*1.2;
       const wx=a.x+wobble*Math.cos(a.id),wy=a.y+wobble*Math.sin(a.id);
       const coreAlpha=act?0.9:hit?0.8:dim?0.04:0.4;
       ctx.beginPath();ctx.arc(wx,wy,nr,0,Math.PI*2);
       ctx.fillStyle=`rgba(245,240,230,${coreAlpha*pulse})`;ctx.fill();
-      // Gold ring
       ctx.strokeStyle=`rgba(212,182,138,${(act?0.5:hit?0.35:dim?0.02:0.12)*pulse})`;
       ctx.lineWidth=act?1.5:0.5;ctx.stroke();
-      // Tiny gold label inside
+      // Dark label inside node
       const sr=nr*t.scale;if(sr<6&&!hit&&!act)continue;if(dim)continue;
       const maxChars=Math.max(2,Math.floor(nr/3.5));
       const label=a.node.name.length>maxChars?a.node.name.slice(0,maxChars-1)+'…':a.node.name;
       const fontSize=Math.max(4,Math.min(7,nr*0.5));
-      ctx.font=`${act?'600':'400'} ${fontSize}px "Libre Franklin"`;ctx.textAlign='center';ctx.textBaseline='middle';
-      ctx.fillStyle=`rgba(190,165,120,${(act?0.9:hit?0.8:0.5)*pulse})`;
+      ctx.font=`${act?'600':'500'} ${fontSize}px "Libre Franklin"`;ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle=`rgba(30,28,24,${(act?0.9:hit?0.8:0.6)*pulse})`;
       ctx.fillText(label,wx,wy,nr*1.6);ctx.textBaseline='alphabetic';
     }
     ctx.restore();requestAnimationFrame(draw);
