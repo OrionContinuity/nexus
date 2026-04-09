@@ -295,6 +295,22 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .ingest-auto-row{margin-top:10px;padding:8px 0}
 .ingest-auto-label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px;cursor:pointer}
 .ingest-auto-label input{accent-color:var(--accent);width:16px;height:16px}
+
+/* Sensitive data review cards */
+.sensitive-review{display:flex;flex-direction:column;gap:8px;margin:10px 0}
+.sensitive-card{padding:12px;background:var(--elevated);border:1px solid var(--border);border-radius:var(--r);transition:opacity .3s}
+.sensitive-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.sensitive-severity{font-size:10px;font-weight:600;letter-spacing:1px;padding:2px 8px;border:1px solid currentColor;border-radius:var(--rs)}
+.sensitive-name{font-size:14px;font-weight:500;flex:1}
+.sensitive-reason{font-size:12px;color:var(--muted);margin-bottom:6px}
+.sensitive-excerpt{font-size:11px;color:#ffb020;background:rgba(255,176,32,.08);padding:6px 10px;border-radius:var(--rs);margin-bottom:6px;font-style:italic}
+.sensitive-full-notes{font-size:11px;color:var(--faint);line-height:1.5;margin-bottom:8px;max-height:60px;overflow:hidden}
+.sensitive-actions{display:flex;gap:6px;flex-wrap:wrap}
+.sensitive-btn{padding:6px 12px;border-radius:var(--rs);font-size:11px;cursor:pointer;border:1px solid var(--border);background:none;color:var(--muted);font-family:inherit;transition:all .2s;min-height:34px}
+.sensitive-btn-del{color:#ff5533;border-color:rgba(255,85,51,.3)}.sensitive-btn-del:hover{background:rgba(255,85,51,.1)}
+.sensitive-btn-keep{color:#39ff14;border-color:rgba(57,255,20,.3)}.sensitive-btn-keep:hover{background:rgba(57,255,20,.08)}
+.sensitive-btn-priv{color:var(--accent);border-color:rgba(212,182,138,.3)}.sensitive-btn-priv:hover{background:rgba(212,182,138,.08)}
+.sensitive-btn-edit{color:#5b8def;border-color:rgba(91,141,239,.3)}.sensitive-btn-edit:hover{background:rgba(91,141,239,.08)}
 .ingest-connection{font-size:12px;color:var(--muted);margin-bottom:8px}
 .ingest-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
 .ingest-label{font-size:11px;color:var(--faint);min-width:60px}
