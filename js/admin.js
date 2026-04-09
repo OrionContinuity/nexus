@@ -64,6 +64,7 @@ async function init(){
   document.getElementById('gmailSyncBtn')?.addEventListener('click',syncEmails);
   document.getElementById('clearLogBtn')?.addEventListener('click',clearLog);
   document.getElementById('mailMonitorBtn')?.addEventListener('click',mailMonitor);
+  document.getElementById('sensitiveBtn')?.addEventListener('click',scanSensitive);
   loadGoogleAuth();
   await loadProcessedIds();
   const s=localStorage.getItem('nexus_gmail_token');
@@ -91,18 +92,33 @@ if(!newIds.length){log('All emails already processed. Nothing new.','success');b
 log(`<b>${newIds.length} new emails</b> to process.`,'success');
 
 let allEmails=[];
-for(let i=0;i<newIds.length;i+=10){const b=newIds.slice(i,i+10);pf.style.width=Math.round(i/newIds.length*40)+'%';pt.textContent=`${i}/${newIds.length}`;
-const fs=b.map(id=>fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,{headers:{'Authorization':`Bearer ${gmailToken}`}}).then(r=>r.json()).catch(()=>null));
-const rs=await Promise.all(fs);rs.forEach((m,idx)=>{if(!m||!m.payload)return;const h=m.payload.headers||[],g=n=>(h.find(x=>x.name.toLowerCase()===n.toLowerCase())||{}).value||'';
-allEmails.push({id:b[idx],from:g('From'),to:g('To'),date:g('Date'),subject:g('Subject'),snippet:m.snippet||''});});
-if(i+10<newIds.length)await sleep(150);}
-log(`Pulled <b>${allEmails.length}</b> emails. AI processing...`);
+for(let i=0;i<newIds.length;i+=5){const b=newIds.slice(i,i+5);pf.style.width=Math.round(i/newIds.length*40)+'%';pt.textContent=`${i}/${newIds.length}`;
+const fs=b.map(id=>fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,{headers:{'Authorization':`Bearer ${gmailToken}`}}).then(r=>r.json()).catch(()=>null));
+const rs=await Promise.all(fs);
+for(let idx=0;idx<rs.length;idx++){const m=rs[idx];if(!m||!m.payload)continue;
+  const h=m.payload.headers||[],g=n=>(h.find(x=>x.name.toLowerCase()===n.toLowerCase())||{}).value||'';
+  // Extract body text from MIME parts
+  let bodyText='';
+  function extractText(parts){if(!parts)return;for(const part of parts){
+    if(part.mimeType==='text/plain'&&part.body?.data){try{bodyText+=atob(part.body.data.replace(/-/g,'+').replace(/_/g,'/'));}catch(e){}}
+    if(part.parts)extractText(part.parts);}}
+  if(m.payload.body?.data){try{bodyText=atob(m.payload.body.data.replace(/-/g,'+').replace(/_/g,'/'));}catch(e){}}
+  if(!bodyText&&m.payload.parts)extractText(m.payload.parts);
+  // Collect attachment info
+  const attachments=[];
+  function walkAttachments(parts){if(!parts)return;for(const part of parts){
+    if(part.filename&&part.body?.attachmentId){attachments.push({filename:part.filename,mimeType:part.mimeType,attachmentId:part.body.attachmentId,messageId:b[idx]});}
+    if(part.parts)walkAttachments(part.parts);}}
+  if(m.payload.parts)walkAttachments(m.payload.parts);
+  allEmails.push({id:b[idx],from:g('From'),to:g('To'),date:g('Date'),subject:g('Subject'),snippet:m.snippet||'',body:bodyText.slice(0,3000),attachmentCount:attachments.length,attachments});}
+if(i+5<newIds.length)await sleep(200);}
+log(`Pulled <b>${allEmails.length}</b> emails with full content. AI processing...`);
 
-const AB=8;let tn=0,te=0;const tb=Math.ceil(allEmails.length/AB);
+const AB=5;let tn=0,te=0;const tb=Math.ceil(allEmails.length/AB);
 for(let i=0;i<allEmails.length;i+=AB){const bn=Math.floor(i/AB)+1;pf.style.width=(40+Math.round(i/allEmails.length*55))+'%';pt.textContent=`AI ${bn}/${tb}`;log(`AI batch ${bn}/${tb}...`);
 const batch=allEmails.slice(i,i+AB);
-const chunk=batch.map((e,idx)=>`[EMAIL #${i+idx+1}] FROM: ${e.from} | DATE: ${e.date} | SUBJECT: ${e.subject}\n${e.snippet}`).join('\n\n');
-const sourceMap=batch.map((e,idx)=>({ref:i+idx+1,from:e.from,date:e.date,subject:e.subject}));
+const chunk=batch.map((e,idx)=>`[EMAIL #${i+idx+1}]\nFROM: ${e.from}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\nATTACHMENTS: ${e.attachmentCount}\n---\n${e.body||e.snippet}`).join('\n\n========\n\n');
+const sourceMap=batch.map((e,idx)=>({ref:i+idx+1,from:e.from,date:e.date,subject:e.subject,body:(e.body||e.snippet||'').slice(0,500)}));
 const r=await aiProcessWithSources(chunk,sourceMap);if(r){const s=await saveExtracted(r);tn+=s;log(`Batch ${bn}: <b>${s} nodes</b>`,'success');
 // Mark batch emails as processed
 await markProcessed('gmail',batch.map(e=>e.id));
@@ -116,19 +132,39 @@ pf.style.width='100%';pt.textContent='Done!';log(`<b>Complete: ${tn} nodes</b> f
 async function aiProcessWithSources(text,sourceMap){
   const existing=getExistingNodeList(); // LAYER 3
   try{const a=await NX.askClaude(
-    `You extract knowledge for restaurant ops (Suerte, Este, Bar Toti — Austin TX).
+    `You extract knowledge for restaurant operations (Suerte, Este, Bar Toti — Austin TX).
 Each email is labeled [EMAIL #N]. For each node, include which email(s) it came from.
-Create nodes for: people, businesses, equipment, procedures, projects, parts orders, invoices, phone numbers.
-DO NOT create nodes that already exist — check the list below.
-RESPOND WITH ONLY RAW JSON:
-{"nodes":[{"name":"...","category":"...","tags":["..."],"notes":"...","email_refs":[1,3]}],"cards":[{"title":"...","column_name":"todo"}]}
-email_refs = which email numbers this info came from.${existing}`,
+
+EXTRACT ONLY restaurant-relevant information:
+✓ Equipment models, specs, warranties, repairs, maintenance
+✓ Vendors & suppliers — contacts, orders, invoices, pricing
+✓ Contractors — names, services, schedules, contact info
+✓ Procedures, inspections, permits, licenses
+✓ Parts orders, shipping, tracking numbers
+✓ Projects, renovations, installations
+✓ Food suppliers, menu items
+✓ Staff restaurant roles and responsibilities
+
+DO NOT EXTRACT — skip these entirely:
+✗ Personal bonuses, salaries, raises, compensation
+✗ Credit card or bank account numbers
+✗ Personal medical or family information
+✗ Marketing emails, newsletters, spam
+✗ Social media notifications
+✗ Personal purchases unrelated to restaurants
+
+DO NOT create nodes that already exist — check list below.
+RESPOND ONLY RAW JSON:
+{"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"Include ALL details: specs, prices, phone numbers, model numbers, order numbers, tracking info","email_refs":[1,3]}],"cards":[{"title":"...","column_name":"todo"}]}${existing}`,
     [{role:'user',content:text.slice(0,14000)}],4096);
   let j=a.replace(/```json\s*/gi,'').replace(/```\s*/g,'');const s=j.indexOf('{'),e=j.lastIndexOf('}');if(s===-1||e<=s){log('No JSON','warn');return null;}j=j.slice(s,e+1);
   try{const p=JSON.parse(j);if(!p.nodes||!Array.isArray(p.nodes))return null;
     p.nodes.forEach(n=>{
       if(n.email_refs&&Array.isArray(n.email_refs)&&sourceMap){
-        n.source_emails=n.email_refs.map(ref=>{const src=sourceMap.find(s=>s.ref===ref);return src?{from:src.from,subject:src.subject,date:src.date}:null;}).filter(Boolean);
+        n.source_emails=n.email_refs.map(ref=>{
+          const src=sourceMap.find(s=>s.ref===ref);
+          return src?{from:src.from,subject:src.subject,date:src.date,body:src.body||'',snippet:src.body?.slice(0,200)||''}:null;
+        }).filter(Boolean);
       }else{n.source_emails=[];}
     });
     return p;}catch(pe){log('JSON parse: '+pe.message,'error');return null;}}catch(e){log('AI: '+e.message,'error');return null;}}
@@ -327,5 +363,93 @@ async function ingestText(){const t=document.getElementById('ingestText').value.
 
 function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 function updateStats(){const el=document.getElementById('ingestStats');if(!el)return;const t=NX.nodes.length,c={};NX.nodes.forEach(n=>{c[n.category]=(c[n.category]||0)+1;});el.innerHTML=`<div class="stat-total">${t} nodes in brain · ${processedIds.size} items processed</div><div class="stat-chips">${Object.entries(c).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<span class="stat-chip">${k} <b>${v}</b></span>`).join('')}</div>`;}
+
+// ═══ SENSITIVE DATA SCANNER — AI identifies and removes personal nodes ═══
+async function scanSensitive(){
+  const btn=document.getElementById('sensitiveBtn');if(!btn)return;
+  btn.disabled=true;btn.textContent='Scanning...';clearLog();
+  log('🔒 Scanning nodes for sensitive/personal data...');
+
+  const allNodes=NX.nodes.filter(n=>!n.is_private);
+  if(!allNodes.length){log('No nodes to scan.','warn');btn.disabled=false;btn.textContent='Scan & Remove Personal Data';return;}
+
+  let flagged=[];
+  const BATCH=50;
+  for(let i=0;i<allNodes.length;i+=BATCH){
+    const batch=allNodes.slice(i,i+BATCH);
+    const nodeList=batch.map(n=>`[ID:${n.id}] ${n.name} (${n.category}): ${(n.notes||'').slice(0,200)}`).join('\n');
+    log(`Scanning batch ${Math.floor(i/BATCH)+1}/${Math.ceil(allNodes.length/BATCH)}...`);
+
+    try{
+      const result=await NX.askClaude(
+        `You are a data privacy scanner for a restaurant operations system (Suerte, Este, Bar Toti — Austin TX).
+Identify nodes that contain PERSONAL or SENSITIVE information that should NOT be in an ops system. Flag these categories:
+- Employee bonuses, salaries, pay rates, compensation
+- Social security numbers, personal IDs
+- Personal home addresses (business addresses are OK)
+- Personal phone numbers of employees (vendor/contractor phones are OK)
+- Medical/health information
+- Bank account or financial account numbers
+- Performance reviews or disciplinary notes
+- Personal emails or private correspondence
+
+Do NOT flag:
+- Business contacts, vendor info, equipment specs, procedures, locations, parts, projects
+- Contractor business phone numbers or business emails
+- Restaurant addresses or business info
+
+Return ONLY raw JSON: {"flagged":[{"id":"...","name":"...","reason":"brief reason"}]}
+If nothing is sensitive, return: {"flagged":[]}`,
+        [{role:'user',content:nodeList}],2000);
+
+      let json=result.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
+      const s=json.indexOf('{'),e=json.lastIndexOf('}');
+      if(s!==-1&&e>s){json=json.slice(s,e+1);
+        try{const parsed=JSON.parse(json);
+          if(parsed.flagged&&parsed.flagged.length){
+            flagged=flagged.concat(parsed.flagged);
+            parsed.flagged.forEach(f=>log(`⚠️ <b>${f.name}</b> — ${f.reason}`,'warn'));
+          }
+        }catch(pe){}}
+    }catch(e){log('Scan error: '+e.message,'error');}
+    if(i+BATCH<allNodes.length)await sleep(300);
+  }
+
+  if(!flagged.length){
+    log('✅ <b>No sensitive data found.</b> Your brain is clean.','success');
+    btn.disabled=false;btn.textContent='Scan & Remove Personal Data';return;
+  }
+
+  log(`\n🔒 Found <b>${flagged.length} sensitive node(s)</b>. Review above.`,'warn');
+
+  // Create confirm/delete buttons
+  const confirmDiv=document.createElement('div');
+  confirmDiv.style.cssText='display:flex;gap:8px;margin:12px 0;';
+  const delBtn=document.createElement('button');
+  delBtn.className='ingest-btn';delBtn.style.background='#c44';
+  delBtn.textContent=`Delete ${flagged.length} Sensitive Node(s)`;
+  delBtn.addEventListener('click',async()=>{
+    delBtn.disabled=true;delBtn.textContent='Deleting...';
+    let deleted=0;
+    for(const f of flagged){
+      try{
+        const{error}=await NX.sb.from('nodes').delete().eq('id',f.id);
+        if(!error){deleted++;log(`🗑 Deleted: ${f.name}`,'success');}
+        else log(`Failed: ${f.name} — ${error.message}`,'error');
+      }catch(e){log(`Error: ${e.message}`,'error');}
+    }
+    log(`<b>${deleted} sensitive nodes removed.</b>`,'success');
+    await NX.loadNodes();if(NX.brain)NX.brain.init();updateStats();
+    confirmDiv.remove();
+  });
+  const skipBtn=document.createElement('button');
+  skipBtn.className='ingest-btn';skipBtn.textContent='Keep All';
+  skipBtn.addEventListener('click',()=>{log('Skipped — no nodes deleted.');confirmDiv.remove();});
+  confirmDiv.appendChild(delBtn);confirmDiv.appendChild(skipBtn);
+  document.getElementById('ingestLog').appendChild(confirmDiv);
+
+  btn.disabled=false;btn.textContent='Scan & Remove Personal Data';
+}
+
 NX.modules.ingest={init,show:()=>{updateStats();}};
 })();
