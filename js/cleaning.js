@@ -1,8 +1,24 @@
-/* NEXUS Cleaning v9 — bulletproof percentage, AI-editable tasks */
+/* NEXUS Cleaning v10 — frequency tracking, last-completed, overdue alerts */
 (function(){
-let loc='suerte',state={};
+let loc='suerte',state={},lastDone={};
 const today=NX.today;
 const NON_DAILY=['Bi-Semanal','Mensual','Semanal','Quincenal','Trimestral','Jardín','Jardin','Garden'];
+
+// Frequency in days — how often each non-daily section should be done
+const FREQUENCY={
+  'Bi-Semanal':14,'Mensual':30,'Semanal':7,'Quincenal':15,
+  'Trimestral':90,'Jardín':7,'Jardin':7,'Garden':7
+};
+function getFrequency(secName){
+  for(const[k,v]of Object.entries(FREQUENCY)){if(secName.toLowerCase().includes(k.toLowerCase()))return v;}
+  return 30; // default monthly
+}
+function daysBetween(d1,d2){return Math.floor((new Date(d2)-new Date(d1))/(1000*60*60*24));}
+function daysAgoText(days){
+  if(days===0)return'Today';if(days===1)return'Yesterday';
+  if(days<7)return days+'d ago';if(days<30)return Math.floor(days/7)+'w ago';
+  return Math.floor(days/30)+'mo ago';
+}
 
 // Default checklist data
 const DEFAULTS={suerte:[
@@ -32,14 +48,16 @@ function getCustomTasks(){
 }
 function saveCustomTasks(ct){localStorage.setItem('nexus_custom_tasks',JSON.stringify(ct));}
 
-// Merge defaults + custom tasks
+// Merge defaults + custom tasks (marks custom items)
 function getData(location){
   const base=JSON.parse(JSON.stringify(DEFAULTS[location]||[]));
+  // Mark all default items
+  base.forEach(sec=>sec.items.forEach(item=>{item.push(false);})); // [es, en, isCustom]
   const custom=getCustomTasks()[location]||[];
-  custom.forEach(ct=>{
+  custom.forEach((ct,ci)=>{
     let sec=base.find(s=>s.sec===ct.section);
     if(!sec){sec={sec:ct.section,items:[]};base.push(sec);}
-    sec.items.push([ct.es,ct.en]);
+    sec.items.push([ct.es,ct.en,true,ci]); // [es, en, isCustom, customIndex]
   });
   return base;
 }
@@ -75,15 +93,56 @@ async function init(){
     t.addEventListener('click',async()=>{
       document.querySelectorAll('.clean-tab').forEach(x=>x.classList.remove('active'));
       t.classList.add('active');loc=t.dataset.cloc;state={};
-      try{const{data}=await NX.sb.from('cleaning_logs').select('*').eq('log_date',today).eq('location',loc);
-        if(data)data.forEach(c=>{state[loc+'_'+c.section+'_'+c.task_index]=c.done;});}catch(e){}
-      render();
+      await loadToday();await loadHistory();populateSections();render();
     });
   });
   document.getElementById('cleanSubmit').addEventListener('click',submitDailyReport);
+  document.getElementById('cleanAddBtn').addEventListener('click',addTaskUI);
+  await loadToday();await loadHistory();populateSections();render();
+}
+
+async function loadToday(){
+  state={};
   try{const{data}=await NX.sb.from('cleaning_logs').select('*').eq('log_date',today).eq('location',loc);
     if(data)data.forEach(c=>{state[loc+'_'+c.section+'_'+c.task_index]=c.done;});}catch(e){}
-  render();
+}
+
+async function loadHistory(){
+  // Fetch last completion for ALL non-daily tasks at this location
+  lastDone={};
+  try{
+    const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,completed_at,log_date')
+      .eq('location',loc).eq('done',true)
+      .order('completed_at',{ascending:false}).limit(500);
+    if(data){
+      data.forEach(r=>{
+        const key=r.section+'_'+r.task_index;
+        if(!lastDone[key]){// Keep only the most recent
+          lastDone[key]={date:r.log_date,at:r.completed_at};
+        }
+      });
+    }
+  }catch(e){}
+}
+
+function populateSections(){
+  const sel=document.getElementById('cleanTaskSec');sel.innerHTML='';
+  const secs=getData(loc);
+  secs.forEach(s=>{const o=document.createElement('option');o.value=s.sec;o.textContent=s.sec;sel.appendChild(o);});
+  // Add "New Section" option
+  const no=document.createElement('option');no.value='__new__';no.textContent='+ New Section';sel.appendChild(no);
+}
+
+function addTaskUI(){
+  const es=document.getElementById('cleanTaskEs').value.trim();
+  const en=document.getElementById('cleanTaskEn').value.trim();
+  let sec=document.getElementById('cleanTaskSec').value;
+  if(!es&&!en)return;
+  if(sec==='__new__'){sec=prompt('Section name:');if(!sec)return;}
+  addTask(loc,sec,es||en,en||es);
+  document.getElementById('cleanTaskEs').value='';
+  document.getElementById('cleanTaskEn').value='';
+  populateSections();
 }
 
 function render(){
@@ -94,15 +153,30 @@ function render(){
   secs.forEach((sec,si)=>{
     const isDaily=!NON_DAILY.some(nd=>sec.sec.toLowerCase().includes(nd.toLowerCase()));
     let sectionDone=0;
-
     sec.items.forEach((_,i)=>{if(state[loc+'_'+sec.sec+'_'+i])sectionDone++;});
     const isComplete=sectionDone===sec.items.length&&sec.items.length>0;
+
+    // For non-daily sections: calculate status
+    let secStatus='';
+    if(!isDaily){
+      const freq=getFrequency(sec.sec);
+      // Find oldest "last done" among this section's tasks
+      let oldestDays=null;
+      sec.items.forEach((_,i)=>{
+        const hist=lastDone[sec.sec+'_'+i];
+        if(hist){const d=daysBetween(hist.date,today);if(oldestDays===null||d>oldestDays)oldestDays=d;}
+        else oldestDays=999;
+      });
+      if(oldestDays===null||oldestDays===999){secStatus='<span class="clean-overdue">Never done</span>';}
+      else if(oldestDays>freq){secStatus=`<span class="clean-overdue">OVERDUE ${oldestDays-freq}d</span>`;}
+      else if(oldestDays>freq*0.8){secStatus=`<span class="clean-due-soon">Due soon · ${daysAgoText(oldestDays)}</span>`;}
+      else{secStatus=`<span class="clean-on-track">✓ ${daysAgoText(oldestDays)} · every ${freq}d</span>`;}
+    }
 
     const el=document.createElement('div');
     el.className='clean-sec'+(si>3?' collapsed':'')+(isComplete?' complete':'');
     const h=document.createElement('div');h.className='clean-sec-head';
-    const dailyTag=isDaily?'':'<span style="font-size:9px;color:var(--faint);margin-left:6px">'+sec.sec.toUpperCase()+'</span>';
-    h.innerHTML=`<span class="clean-sec-check">${isComplete?'✓':'○'}</span><span class="clean-sec-arrow">▼</span><span class="clean-sec-title">${sec.sec}${dailyTag}</span><span class="clean-sec-count">${sectionDone}/${sec.items.length}</span>`;
+    h.innerHTML=`<span class="clean-sec-check">${isComplete?'✓':'○'}</span><span class="clean-sec-arrow">▼</span><span class="clean-sec-title">${sec.sec}</span>${secStatus}<span class="clean-sec-count">${sectionDone}/${sec.items.length}</span>`;
 
     // Check All button
     const caBtn=document.createElement('button');caBtn.className='clean-check-all';
@@ -127,8 +201,24 @@ function render(){
       const d=!!state[k];
       if(d&&isDaily)dailyDone++;
 
-      const it=document.createElement('div');it.className='clean-item'+(d?' done':'');
-      it.innerHTML=`<div class="ci-box">${d?'✓':''}</div><div><div class="ci-en">${item[0]}</div><div class="ci-es">${item[1]}</div></div>`;
+      const it=document.createElement('div');it.className='clean-item'+(d?' done':'')+(item[2]?' clean-item-custom':'');
+      let lastInfo='';
+      if(!isDaily){
+        const hist=lastDone[sec.sec+'_'+i];
+        if(hist){const daysAgo=daysBetween(hist.date,today);lastInfo=`<div class="ci-last">Last: ${daysAgoText(daysAgo)}</div>`;}
+        else{lastInfo='<div class="ci-last ci-never">Never done</div>';}
+      }
+      it.innerHTML=`<div class="ci-box">${d?'✓':''}</div><div><div class="ci-en">${item[0]}</div><div class="ci-es">${item[1]}</div>${lastInfo}</div>`;
+      // Delete button for custom tasks
+      if(item[2]){
+        const del=document.createElement('button');del.className='clean-item-del';del.textContent='✕';
+        del.addEventListener('click',(e)=>{
+          e.stopPropagation();
+          const ct=getCustomTasks();
+          if(ct[loc]){ct[loc].splice(item[3],1);saveCustomTasks(ct);render();}
+        });
+        it.appendChild(del);
+      }
       it.onclick=()=>{
         state[k]=!state[k];render();
         try{NX.sb.from('cleaning_logs').upsert({location:loc,log_date:today,task_index:i,section:sec.sec,done:state[k],completed_at:state[k]?new Date().toISOString():null},{onConflict:'location,log_date,task_index,section'});}catch(e){}
