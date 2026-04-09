@@ -250,12 +250,21 @@ const NX = {
   },
 
   // ─── Claude API helper (key from localStorage ONLY) ───
-  async askClaude(system, messages, maxTokens = 600) {
+  async askClaude(system, messages, maxTokens = 600, useSearch = false) {
     const key = this.getApiKey();
     if (!key) {
       throw new Error('No API key set. Open Admin (⚙) to add your Anthropic key.');
     }
     try {
+      const body = {
+        model: this.getModel(),
+        max_tokens: maxTokens,
+        system,
+        messages
+      };
+      if (useSearch) {
+        body.tools = [{ type: "web_search_20250305", name: "web_search" }];
+      }
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -264,12 +273,7 @@ const NX = {
           'anthropic-version': '2023-06-01',
           'anthropic-dangerous-direct-browser-access': 'true'
         },
-        body: JSON.stringify({
-          model: this.getModel(),
-          max_tokens: maxTokens,
-          system,
-          messages
-        })
+        body: JSON.stringify(body)
       });
       const data = await resp.json();
       if (data.error) {
