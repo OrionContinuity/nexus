@@ -109,14 +109,24 @@
       </div>
     </div>
     <div class="node-panel" id="nodePanel">
-      <button onclick="NX.brain.closePanel()" class="panel-close"><i data-lucide="x" class="hud-icon"></i></button>
-      <div id="npCat" class="np-cat"></div>
-      <h3 id="npName" class="np-name"></h3>
-      <div id="npTags" class="np-tags"></div>
-      <div id="npNotes" class="np-notes"></div>
-      <div id="npSources" class="np-sources"></div>
-      <div id="npAttachments" class="np-attachments"></div>
-      <div id="npLinks" class="np-links"></div>
+      <div class="np-header">
+        <button onclick="NX.brain.closePanel()" class="panel-close"><i data-lucide="x" class="hud-icon"></i></button>
+        <div id="npCat" class="np-cat"></div>
+        <h3 id="npName" class="np-name"></h3>
+        <div id="npTags" class="np-tags"></div>
+      </div>
+      <div class="np-body">
+        <div id="npNotes" class="np-notes"></div>
+        <!-- Sources with expandable emails -->
+        <div id="npSources" class="np-sources"></div>
+        <!-- Attachments with previews -->
+        <div id="npAttachments" class="np-attachments"></div>
+        <!-- Connected nodes -->
+        <div id="npLinks" class="np-links"></div>
+      </div>
+      <div class="np-footer">
+        <button id="npDelete" class="np-delete-btn">Delete Node</button>
+      </div>
     </div>
   </div>
 
