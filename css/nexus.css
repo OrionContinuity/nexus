@@ -351,6 +351,7 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .ig-card.collapsed .ig-arrow{transform:rotate(-90deg)}
 .ig-card-head{display:flex;align-items:center;gap:8px;padding:12px 14px;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none}
 .ig-icon{font-size:16px;flex-shrink:0}
+.ig-lucide{width:18px;height:18px;flex-shrink:0;color:var(--accent)}
 .ig-title{font-size:13px;font-weight:500;flex:1;letter-spacing:0.5px}
 .ig-arrow{font-size:10px;color:var(--faint);transition:transform .2s}
 .ig-card-body{padding:0 14px 14px}
