@@ -72,8 +72,15 @@ const NX = {
   init() {
     this.sb = supabase.createClient(this.SUPA_URL, this.SUPA_KEY);
     this.loadNodes().then(() => {
-      this.loadScript('js/brain.js', () => {
-        NX.brain.init();
+      // Load brain modules in order: canvas first (creates namespace), then others
+      this.loadScript('js/brain-canvas.js', () => {
+        this.loadScript('js/brain-list.js', () => {
+          this.loadScript('js/brain-events.js', () => {
+            this.loadScript('js/brain-chat.js', () => {
+              NX.brain.init();
+            });
+          });
+        });
       });
     });
     this.setupNav();
@@ -146,12 +153,16 @@ const NX = {
 
   activateModule(view) {
     const moduleMap = {
-      brain: 'js/brain.js',
       clean: 'js/cleaning.js',
       log: 'js/log.js',
       board: 'js/board.js',
       ingest: 'js/admin.js'
     };
+    // Brain is pre-loaded, just call show
+    if (view === 'brain') {
+      if (NX.brain && NX.brain.show) NX.brain.show();
+      return;
+    }
     const file = moduleMap[view];
     if (!file) return;
     if (this.loaded[view]) {
