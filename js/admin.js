@@ -159,31 +159,146 @@ if(r.cards)for(const x of r.cards){if(!x.title)continue;const{error:ce}=await NX
 if(dupes)log(`${dupes} fuzzy duplicates skipped`);
 if(er)log(`${er} inserts failed`,'error');return c;}
 
-// ═══ MAIL MONITOR ═══
-async function mailMonitor(){if(!gmailToken){log('Connect Gmail first.','error');return;}const btn=document.getElementById('mailMonitorBtn');btn.disabled=true;btn.textContent='Scanning...';clearLog();log('Scanning for orders & scheduling...');
+// ═══ MAIL MONITOR (enhanced: scrapes attachments + links to nodes) ═══
+async function mailMonitor(){if(!gmailToken){log('Connect Gmail first.','error');return;}const btn=document.getElementById('mailMonitorBtn');btn.disabled=true;btn.textContent='Scanning...';clearLog();log('Scanning for orders, invoices & attachments...');
 try{const after=new Date();after.setDate(after.getDate()-30);const dq=`after:${after.getFullYear()}/${after.getMonth()+1}/${after.getDate()}`;
-const queries=[`${dq} (subject:order OR subject:shipped OR subject:tracking OR subject:invoice)`,`${dq} (subject:scheduled OR subject:appointment OR "coming by" OR "service call")`];
-let allText=[];for(const q of queries){const u=new URL('https://www.googleapis.com/gmail/v1/users/me/messages');u.searchParams.set('maxResults','50');u.searchParams.set('q',q);const r=await fetch(u,{headers:{'Authorization':`Bearer ${gmailToken}`}});const d=await r.json();if(!d.messages)continue;
-// LAYER 1: filter already processed
+const queries=[
+  `${dq} (subject:order OR subject:shipped OR subject:tracking OR subject:invoice OR subject:receipt)`,
+  `${dq} (subject:scheduled OR subject:appointment OR "coming by" OR "service call")`,
+  `${dq} has:attachment (invoice OR receipt OR order OR confirmation OR statement)`
+];
+let allText=[],attachmentEmails=[];
+for(const q of queries){const u=new URL('https://www.googleapis.com/gmail/v1/users/me/messages');u.searchParams.set('maxResults','50');u.searchParams.set('q',q);const r=await fetch(u,{headers:{'Authorization':`Bearer ${gmailToken}`}});const d=await r.json();if(!d.messages)continue;
 const newMsgs=d.messages.filter(m=>!processedIds.has(m.id));
-log(`${newMsgs.length} new of ${d.messages.length} for "${q.includes('order')?'orders':'scheduling'}"`);
-for(const m of newMsgs.slice(0,30)){try{const mr=await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,{headers:{'Authorization':`Bearer ${gmailToken}`}});const md=await mr.json();if(!md.payload)continue;const h=md.payload.headers||[],g=n=>(h.find(x=>x.name.toLowerCase()===n.toLowerCase())||{}).value||'';allText.push({id:m.id,text:`FROM: ${g('From')}\nDATE: ${g('Date')}\nSUBJECT: ${g('Subject')}\n${md.snippet||''}`,from:g('From'),date:g('Date'),subject:g('Subject')});}catch(e){}}await sleep(200);}
-if(!allText.length){log('No new order/scheduling emails.','warn');btn.disabled=false;btn.textContent='Scan for Orders & Scheduling';return;}log(`Processing ${allText.length} emails...`);
-const existing=getExistingNodeList();
-const answer=await NX.askClaude(`Extract from restaurant ops emails:
+log(`${newMsgs.length} new of ${d.messages.length} for "${q.includes('attachment')?'attachments':q.includes('order')?'orders':'scheduling'}"`);
+
+for(const m of newMsgs.slice(0,25)){try{
+  // Fetch FULL message to get attachments
+  const mr=await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`,{headers:{'Authorization':`Bearer ${gmailToken}`}});
+  const md=await mr.json();if(!md.payload)continue;
+  const h=md.payload.headers||[],g=n=>(h.find(x=>x.name.toLowerCase()===n.toLowerCase())||{}).value||'';
+  const emailInfo={id:m.id,from:g('From'),date:g('Date'),subject:g('Subject'),snippet:md.snippet||''};
+  allText.push({...emailInfo,text:`FROM: ${emailInfo.from}\nDATE: ${emailInfo.date}\nSUBJECT: ${emailInfo.subject}\n${emailInfo.snippet}`});
+
+  // Walk MIME parts to find attachments
+  const attachments=[];
+  function walkParts(parts){if(!parts)return;for(const part of parts){
+    if(part.filename&&part.body&&part.body.attachmentId){
+      const ext=(part.filename.split('.').pop()||'').toLowerCase();
+      if(['pdf','png','jpg','jpeg','gif','webp','doc','docx','xlsx','csv'].includes(ext)){
+        attachments.push({filename:part.filename,mimeType:part.mimeType,attachmentId:part.body.attachmentId,size:part.body.size||0});
+      }
+    }
+    if(part.parts)walkParts(part.parts);
+  }}
+  if(md.payload.parts)walkParts(md.payload.parts);
+  if(md.payload.filename&&md.payload.body?.attachmentId){
+    attachments.push({filename:md.payload.filename,mimeType:md.payload.mimeType,attachmentId:md.payload.body.attachmentId,size:md.payload.body.size||0});
+  }
+
+  if(attachments.length){
+    attachmentEmails.push({email:emailInfo,messageId:m.id,attachments});
+    log(`📎 ${attachments.length} attachment(s) in "${emailInfo.subject?.slice(0,40)}"`);
+  }
+}catch(e){log(`Email fetch error: ${e.message}`,'error');}}await sleep(200);}
+
+if(!allText.length&&!attachmentEmails.length){log('No new emails.','warn');btn.disabled=false;btn.textContent='Scan for Orders & Scheduling';return;}
+
+// Process text content for nodes (same as before)
+if(allText.length){
+  log(`Processing ${allText.length} emails for nodes...`);
+  const existing=getExistingNodeList();
+  const answer=await NX.askClaude(`Extract from restaurant ops emails:
 1. PARTS/ORDERS: order confirmations, shipping, invoices. Create vendor node + kanban card.
 2. CONTRACTOR SCHEDULING: visits, appointments, service calls. Create an event.
-DO NOT create duplicates of existing nodes.
+3. For each node, identify which EXISTING node it relates to (vendor, equipment, contractor).
+DO NOT create duplicates.
 Return ONLY raw JSON:
-{"nodes":[{"name":"...","category":"...","tags":["..."],"notes":"..."}],"cards":[{"title":"...","column_name":"in_progress"}],"events":[{"contractor_name":"...","description":"...","event_date":"YYYY-MM-DD","event_time":"HH:MM","location":"suerte|este|toti"}]}${existing}`,[{role:'user',content:allText.map(e=>e.text).join('\n\n---\n\n').slice(0,14000)}],4096);
-let json=answer.replace(/```json\s*/gi,'').replace(/```\s*/g,'');const s=json.indexOf('{'),e=json.lastIndexOf('}');
-if(s!==-1&&e>s){json=json.slice(s,e+1);try{const p=JSON.parse(json);
-if(p.nodes)p.nodes.forEach(n=>{n.source_emails=[{from:allText[0]?.from||'',subject:'Mail Monitor',date:new Date().toISOString().split('T')[0]}];});
-if(p.nodes?.length){const saved=await saveExtracted(p);log(`<b>${saved} nodes</b> from orders/scheduling`,'success');}
-if(p.events?.length){let ec=0;for(const ev of p.events){if(!ev.contractor_name||!ev.event_date)continue;try{await NX.sb.from('contractor_events').insert({contractor_name:ev.contractor_name,description:ev.description||'',event_date:ev.event_date,event_time:ev.event_time||null,location:ev.location||'suerte',status:'scheduled'});ec++;}catch(err){}}log(`<b>${ec} events</b> scheduled`,'success');}
-// Mark all as processed
-await markProcessed('gmail',allText.map(e=>e.id));
-await NX.loadNodes();if(NX.brain)NX.brain.init();updateStats();}catch(pe){log('Parse: '+pe.message,'error');}}else log('No JSON from AI.','warn');
+{"nodes":[{"name":"...","category":"...","tags":["..."],"notes":"...","relates_to":"name of existing node if applicable"}],"cards":[{"title":"...","column_name":"in_progress"}],"events":[{"contractor_name":"...","description":"...","event_date":"YYYY-MM-DD","event_time":"HH:MM","location":"suerte|este|toti"}]}${existing}`,[{role:'user',content:allText.map(e=>e.text).join('\n\n---\n\n').slice(0,14000)}],4096);
+  let json=answer.replace(/```json\s*/gi,'').replace(/```\s*/g,'');const s=json.indexOf('{'),e=json.lastIndexOf('}');
+  if(s!==-1&&e>s){json=json.slice(s,e+1);try{const p=JSON.parse(json);
+    if(p.nodes)p.nodes.forEach(n=>{n.source_emails=[{from:allText[0]?.from||'',subject:'Mail Monitor',date:new Date().toISOString().split('T')[0]}];});
+    if(p.nodes?.length){const saved=await saveExtracted(p);log(`<b>${saved} nodes</b> from emails`,'success');}
+    if(p.events?.length){let ec=0;for(const ev of p.events){if(!ev.contractor_name||!ev.event_date)continue;try{await NX.sb.from('contractor_events').insert({contractor_name:ev.contractor_name,description:ev.description||'',event_date:ev.event_date,event_time:ev.event_time||null,location:ev.location||'suerte',status:'scheduled'});ec++;}catch(err){}}log(`<b>${ec} events</b> scheduled`,'success');}
+  }catch(pe){log('Parse: '+pe.message,'error');}}
+  await markProcessed('gmail',allText.map(e=>e.id));
+}
+
+// Process attachments — download, upload to Supabase Storage, link to nodes
+if(attachmentEmails.length){
+  log(`<b>Processing ${attachmentEmails.length} emails with attachments...</b>`);
+  let uploaded=0,linked=0;
+
+  for(const ae of attachmentEmails){
+    for(const att of ae.attachments.slice(0,5)){// Max 5 attachments per email
+      try{
+        // Download attachment from Gmail
+        log(`Downloading: ${att.filename}...`);
+        const ar=await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${ae.messageId}/attachments/${att.attachmentId}`,{headers:{'Authorization':`Bearer ${gmailToken}`}});
+        const ad=await ar.json();if(!ad.data)continue;
+
+        // Convert Gmail's URL-safe base64 to standard base64
+        const b64=ad.data.replace(/-/g,'+').replace(/_/g,'/');
+        const binary=atob(b64);
+        const bytes=new Uint8Array(binary.length);
+        for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+        const blob=new Blob([bytes],{type:att.mimeType});
+
+        // Upload to Supabase Storage
+        const ts=Date.now();
+        const safeName=att.filename.replace(/[^a-zA-Z0-9._-]/g,'_');
+        const path=`${ts}_${safeName}`;
+        log(`Uploading: ${safeName} (${Math.round(blob.size/1024)}KB)...`);
+        const{data:uploadData,error:uploadErr}=await NX.sb.storage.from('nexus-files').upload(path,blob,{contentType:att.mimeType,upsert:true});
+        if(uploadErr){log(`Upload failed: ${uploadErr.message}`,'error');continue;}
+
+        // Get public URL
+        const{data:urlData}=NX.sb.storage.from('nexus-files').getPublicUrl(path);
+        const publicUrl=urlData?.publicUrl||'';
+        if(!publicUrl){log('Could not get public URL','error');continue;}
+        uploaded++;
+        log(`✓ Uploaded: <b>${safeName}</b>`,'success');
+
+        // Use AI to match this attachment to an existing node
+        const matchPrompt=`Given this email:
+FROM: ${ae.email.from}
+SUBJECT: ${ae.email.subject}
+DATE: ${ae.email.date}
+ATTACHMENT: ${att.filename} (${att.mimeType})
+
+Which of these existing nodes does this attachment belong to? Pick the BEST match.
+Respond with ONLY the exact node name, nothing else. If no match, respond "NONE".
+
+EXISTING NODES:
+${NX.nodes.map(n=>n.name).join('\n')}`;
+        const match=await NX.askClaude('You match email attachments to existing knowledge nodes for a restaurant ops system.',
+          [{role:'user',content:matchPrompt}],100);
+        const matchName=(match||'').trim();
+
+        if(matchName&&matchName!=='NONE'){
+          // Find the matching node and add attachment
+          const matchNode=NX.nodes.find(n=>n.name.toLowerCase()===matchName.toLowerCase());
+          if(matchNode){
+            const existing=matchNode.attachments||[];
+            existing.push({url:publicUrl,filename:att.filename,type:att.mimeType,from:ae.email.from,subject:ae.email.subject,date:ae.email.date,uploaded:new Date().toISOString()});
+            const{error:updateErr}=await NX.sb.from('nodes').update({attachments:existing}).eq('id',matchNode.id);
+            if(!updateErr){linked++;matchNode.attachments=existing;log(`📎 Linked <b>${safeName}</b> → <b>${matchNode.name}</b>`,'success');}
+            else log(`Link failed: ${updateErr.message}`,'error');
+          }else log(`Match "${matchName}" not found in nodes`,'warn');
+        }else{
+          // No match — save as unlinked attachment note in daily log
+          await NX.sb.from('daily_logs').insert({entry:`Unlinked attachment: ${att.filename} from ${ae.email.from} (${ae.email.subject}). URL: ${publicUrl}`});
+          log(`📎 ${safeName} saved (no node match)`,'warn');
+        }
+      }catch(e){log(`Attachment error: ${e.message}`,'error');}
+      await sleep(300);
+    }
+    await markProcessed('gmail',[ae.messageId]);
+  }
+  log(`<b>Attachments: ${uploaded} uploaded, ${linked} linked to nodes</b>`,'success');
+}
+
+await NX.loadNodes();if(NX.brain)NX.brain.init();updateStats();
 }catch(err){log('Error: '+err.message,'error');}btn.disabled=false;btn.textContent='Scan for Orders & Scheduling';}
 
 // ═══ TRELLO (BATCHED + LAYER 1 dedup) ═══
