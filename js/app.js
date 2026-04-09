@@ -304,7 +304,7 @@ const NX = {
         const tt = this.getTrelloToken();
         document.getElementById('adminTrelloToken').placeholder = tt ? 'Token set (••••' + tt.slice(-4) + ')' : 'Trello Token';
         document.getElementById('adminModel').value = this.getModel();
-        document.getElementById('adminVoice').value = localStorage.getItem('nexus_voice_idx') || '0';
+        document.getElementById('adminVoice').value = this.config?.voice_idx??localStorage.getItem('nexus_voice_idx')||'0';
         this.loadUserList();
       } else {
         keySection.style.display = 'none';
@@ -325,6 +325,7 @@ const NX = {
         trello_key: tk,
         trello_token: tt,
         model: document.getElementById('adminModel').value,
+        voice_idx: parseInt(document.getElementById('adminVoice').value)||0,
         updated_at: new Date().toISOString()
       };
       localStorage.setItem('nexus_voice_idx', document.getElementById('adminVoice').value);
