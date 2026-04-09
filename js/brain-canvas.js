@@ -48,11 +48,28 @@
       if(p.life<=0){nebula.splice(i,1);continue;}
       const wobble=Math.sin(time*p.wobbleSpeed*60+p.wobblePhase)*p.wobbleAmp;
       const perpLen=Math.sqrt(p.vx*p.vx+p.vy*p.vy)||1;
-      // Music pushes particles outward
       if(p.fromCenter&&isPlaying){p.vx+=p.vx*0.0003*audioEnergy;p.vy+=p.vy*0.0003*audioEnergy;}
       else if(!isPlaying&&p.fromCenter){p.vx*=0.999;p.vy*=0.999;}
       p.x+=p.vx+wobble*(-p.vy/perpLen)*0.15;
       p.y+=p.vy+wobble*(p.vx/perpLen)*0.15;
+    }
+    // Particle-node interaction — nodes glow when particles pass near
+    if(isPlaying){
+      const P=state.particles;
+      for(let i=0;i<P.length;i++){
+        const a=P[i];
+        if(a.glowAlpha>0)a.glowAlpha*=0.95; // Decay glow
+        for(let j=0;j<nebula.length;j++){
+          const np=nebula[j];
+          const d=Math.abs(a.x-np.x)+Math.abs(a.y-np.y); // Manhattan for speed
+          if(d<30){a.glowAlpha=Math.min(a.glowAlpha+0.15,0.8);break;}
+        }
+      }
+    }else{
+      // Decay all glows when not playing
+      for(let i=0;i<state.particles.length;i++){
+        if(state.particles[i].glowAlpha>0)state.particles[i].glowAlpha*=0.92;
+      }
     }
   }
 
@@ -158,14 +175,18 @@
     const ARMS=4,galaxyR=Math.min(W,H)*0.42;
     state.particles=nodes.map((n,idx)=>{
       const arm=idx%ARMS,armBase=(arm/ARMS)*Math.PI*2;
-      const t=idx/nodes.length,r=30+Math.pow(t,0.65)*galaxyR;
-      const wind=armBase+t*5+(Math.random()-0.5)*1.0;
-      const scatter=(Math.random()-0.5)*45*(0.4+t);
+      // Spread nodes more evenly across radius
+      const t=(idx+1)/(nodes.length+1);
+      const r=40+Math.pow(t,0.5)*galaxyR; // sqrt distribution — less center-heavy
+      // Tighter spiral wind — 3 turns, logarithmic
+      const wind=armBase+Math.log(1+t*10)*1.8+(Math.random()-0.5)*0.3;
+      // Much tighter scatter along arm — creates defined arms with gaps
+      const scatter=(Math.random()-0.5)*18*(0.3+t*0.7);
       const px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
       const py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
       const speed=2.0/Math.sqrt(Math.max(r/galaxyR,0.08));
       return{id:n.id,x:px,y:py,vx:-(py-cy)/(r||1)*speed*0.012,vy:(px-cx)/(r||1)*speed*0.012,
-        node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1};
+        node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,glowAlpha:0};
     });
     state.linkMap={};state.catMap={};state.tagSets={};
     state.particles.forEach((p,i)=>{state.linkMap[p.id]=p;if(!state.catMap[p.cat])state.catMap[p.cat]=[];state.catMap[p.cat].push(i);state.tagSets[i]=new Set(p.tags);});
@@ -315,8 +336,19 @@
       }else{
         const r=DOT*pulse*musicPulse;
         const alpha=dim?0.06:0.35;
-        ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);
-        ctx.fillStyle=`rgba(220,215,205,${alpha*pulse})`;ctx.fill();
+        const glow=a.glowAlpha||0;
+        if(glow>0.05){
+          // Particle-touched glow
+          ctx.beginPath();ctx.arc(a.x,a.y,r*4,0,Math.PI*2);
+          ctx.fillStyle=`rgba(212,182,138,${glow*0.08})`;ctx.fill();
+          ctx.beginPath();ctx.arc(a.x,a.y,r*2,0,Math.PI*2);
+          ctx.fillStyle=`rgba(212,182,138,${glow*0.2})`;ctx.fill();
+          ctx.beginPath();ctx.arc(a.x,a.y,r*1.3,0,Math.PI*2);
+          ctx.fillStyle=`rgba(255,245,220,${alpha+glow*0.4})`;ctx.fill();
+        }else{
+          ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);
+          ctx.fillStyle=`rgba(220,215,205,${alpha*pulse})`;ctx.fill();
+        }
       }
     }
 
