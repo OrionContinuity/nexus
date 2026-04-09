@@ -77,26 +77,28 @@
     const cx=W/2,cy=H/2,isA=state.activatedNodes.size>0,particles=state.particles;
     const invScale=1/t.scale,vl=-t.x*invScale-100,vr=(-t.x+W)*invScale+100,vt=-t.y*invScale-100,vb=(-t.y+H)*invScale+100;
 
-    // Connection lines (batched — ethereal white)
-    ctx.lineWidth=0.8;ctx.strokeStyle='rgba(240,238,232,.15)';ctx.beginPath();
-    for(let i=0;i<particles.length;i++){const a=particles[i];if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
-      for(let li=0;li<a.links.length;li++){const b=state.linkMap[a.links[li]];if(!b)continue;
+    // Connection lines — ethereal gold, max 10 visible
+    let lineCount=0;
+    ctx.lineWidth=0.8;ctx.strokeStyle='rgba(212,182,138,.2)';ctx.beginPath();
+    for(let i=0;i<particles.length&&lineCount<10;i++){const a=particles[i];if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
+      for(let li=0;li<a.links.length&&lineCount<10;li++){const b=state.linkMap[a.links[li]];if(!b)continue;
         if((state.activatedNodes.has(a.id)&&state.activatedNodes.has(b.id))||(state.searchHits.has(a.id)&&state.searchHits.has(b.id)))continue;
-        ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);}}
+        ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);lineCount++;}}
     ctx.stroke();
 
-    // Hot lines
+    // Hot lines — gold glow
     for(let i=0;i<particles.length;i++){const a=particles[i];for(let li=0;li<a.links.length;li++){const b=state.linkMap[a.links[li]];if(!b)continue;
       if(!((state.activatedNodes.has(a.id)&&state.activatedNodes.has(b.id))||(state.searchHits.has(a.id)&&state.searchHits.has(b.id))))continue;
       const mx=(a.x+b.x)/2+Math.sin(time*.5+a.id)*5,my=(a.y+b.y)/2+Math.cos(time*.4)*5;
-      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(mx,my,b.x,b.y);ctx.strokeStyle=cc(a.cat,.7);ctx.lineWidth=3;ctx.stroke();}}
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(mx,my,b.x,b.y);ctx.strokeStyle='rgba(212,182,138,.6)';ctx.lineWidth=2.5;ctx.stroke();}}
 
-    // Center lines (top accessed only)
-    ctx.lineWidth=0.3;ctx.strokeStyle='rgba(240,238,232,.04)';ctx.beginPath();
-    for(let i=0;i<particles.length;i++){const a=particles[i];const hit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id);
+    // Center lines — gold, max 10
+    let cLineCount=0;
+    ctx.lineWidth=0.3;ctx.strokeStyle='rgba(212,182,138,.05)';ctx.beginPath();
+    for(let i=0;i<particles.length&&cLineCount<10;i++){const a=particles[i];const hit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id);
       if(!hit&&a.access<=10)continue;
-      if(hit){ctx.stroke();ctx.beginPath();ctx.strokeStyle='rgba(255,255,255,.25)';ctx.lineWidth=1;ctx.moveTo(cx,cy);ctx.lineTo(a.x,a.y);ctx.stroke();ctx.beginPath();ctx.strokeStyle='rgba(240,238,232,.04)';ctx.lineWidth=0.3;}
-      else{ctx.moveTo(cx,cy);ctx.lineTo(a.x,a.y);}}
+      if(hit){ctx.stroke();ctx.beginPath();ctx.strokeStyle='rgba(212,182,138,.35)';ctx.lineWidth=1;ctx.moveTo(cx,cy);ctx.lineTo(a.x,a.y);ctx.stroke();ctx.beginPath();ctx.strokeStyle='rgba(212,182,138,.05)';ctx.lineWidth=0.3;}
+      else{ctx.moveTo(cx,cy);ctx.lineTo(a.x,a.y);cLineCount++;}}
     ctx.stroke();
 
     // Center beacon
@@ -105,22 +107,27 @@
     ctx.strokeStyle=`rgba(212,182,138,${.6+br*.2})`;ctx.lineWidth=2.5;ctx.stroke();ctx.shadowBlur=0;
     ctx.fillStyle=`rgba(212,182,138,${.85+br*.1})`;ctx.font='600 18px JetBrains Mono';ctx.textAlign='center';ctx.fillText('NEXUS',cx,cy+6);
 
-    // Nodes — white fill, category-colored glow
+    // Nodes — white fill, gold labels INSIDE
     for(let i=0;i<particles.length;i++){const a=particles[i];
       if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
       const hit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id),act=state.activeNode&&state.activeNode.id===a.id;
       const dim=isA&&!hit&&!act,p=Math.sin(time*1.5+a.id*.6);
       const nr=act?AR+p*2:hit?SR2+p*1.5:dim?3:BR+p*.4;
-      if(hit||act){ctx.shadowBlur=20;ctx.shadowColor=cc(a.cat,.9);}
+      if(hit||act){ctx.shadowBlur=20;ctx.shadowColor='rgba(212,182,138,.8)';}
       ctx.beginPath();ctx.arc(a.x,a.y,nr,0,Math.PI*2);
       ctx.fillStyle=act?'rgba(255,255,255,.95)':hit?'rgba(255,255,255,.9)':dim?'rgba(255,255,255,.06)':`rgba(240,238,232,${.45+p*.05})`;
       ctx.fill();
-      ctx.strokeStyle=cc(a.cat,act?.8:hit?.6:dim?.03:.2);ctx.lineWidth=act?2:0.8;ctx.stroke();
+      ctx.strokeStyle=`rgba(212,182,138,${act?.6:hit?.4:dim?.03:.15})`;ctx.lineWidth=act?2:0.6;ctx.stroke();
       if(hit||act)ctx.shadowBlur=0;
-      const sr=nr*t.scale;if(sr<4&&!hit&&!act)continue;if(dim)continue;
-      const label=a.node.name.length>20?a.node.name.slice(0,18)+'…':a.node.name;
-      ctx.font=`${act?'500 ':'300 '}${sr>8?'11':'9'}px "Libre Franklin"`;ctx.textAlign='center';
-      ctx.fillStyle=`rgba(255,255,255,${act?.95:hit?.9:.45})`;ctx.fillText(label,a.x,a.y-nr-6+3,200);
+      // Gold label INSIDE node
+      const sr=nr*t.scale;if(sr<5&&!hit&&!act)continue;if(dim)continue;
+      const maxChars=Math.max(3,Math.floor(nr/3));
+      const label=a.node.name.length>maxChars?a.node.name.slice(0,maxChars-1)+'…':a.node.name;
+      const fontSize=Math.max(5,Math.min(9,nr*0.7));
+      ctx.font=`${act?'600':'400'} ${fontSize}px "Libre Franklin"`;ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle=`rgba(180,155,110,${act?.95:hit?.85:.6})`;
+      ctx.fillText(label,a.x,a.y,nr*1.8);
+      ctx.textBaseline='alphabetic';
     }
     ctx.restore();requestAnimationFrame(draw);
   }
