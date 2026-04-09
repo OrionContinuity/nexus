@@ -30,6 +30,100 @@ const NX = {
   getTrelloToken() { return localStorage.getItem('nexus_trello_token') || ''; },
   getModel() { return localStorage.getItem('nexus_model') || 'claude-sonnet-4-20250514'; },
 
+  // ─── Google Drive Key Sync ───
+  // Backs up all API keys to Google Drive appDataFolder (hidden, app-only)
+  async driveBackupKeys() {
+    const token = localStorage.getItem('nexus_drive_token');
+    if (!token) throw new Error('Not connected to Google Drive');
+    const config = {
+      api_key: this.getApiKey(),
+      eleven_key: this.getElevenLabsKey(),
+      google_client_id: this.getGoogleClientId(),
+      trello_key: this.getTrelloKey(),
+      trello_token: this.getTrelloToken(),
+      model: this.getModel(),
+      voice_idx: localStorage.getItem('nexus_voice_idx') || '0',
+      admin_pass: localStorage.getItem('nexus_admin_pass') || '',
+      backed_up: new Date().toISOString()
+    };
+    // Check if file exists
+    const searchR = await fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%27nexus-config.json%27&fields=files(id)', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const searchD = await searchR.json();
+    const existingId = searchD.files && searchD.files.length ? searchD.files[0].id : null;
+
+    if (existingId) {
+      // Update existing file
+      await fetch('https://www.googleapis.com/upload/drive/v3/files/' + existingId + '?uploadType=media', {
+        method: 'PATCH',
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+      });
+    } else {
+      // Create new file in appDataFolder
+      const metadata = { name: 'nexus-config.json', parents: ['appDataFolder'] };
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      form.append('file', new Blob([JSON.stringify(config)], { type: 'application/json' }));
+      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+        body: form
+      });
+    }
+    return true;
+  },
+
+  async driveRestoreKeys() {
+    const token = localStorage.getItem('nexus_drive_token');
+    if (!token) throw new Error('Not connected to Google Drive');
+    const searchR = await fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%27nexus-config.json%27&fields=files(id)', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const searchD = await searchR.json();
+    if (!searchD.files || !searchD.files.length) throw new Error('No backup found on Drive');
+    const fileR = await fetch('https://www.googleapis.com/drive/v3/files/' + searchD.files[0].id + '?alt=media', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const config = await fileR.json();
+    if (config.api_key) localStorage.setItem('nexus_api_key', config.api_key);
+    if (config.eleven_key) localStorage.setItem('nexus_eleven_key', config.eleven_key);
+    if (config.google_client_id) localStorage.setItem('nexus_google_client_id', config.google_client_id);
+    if (config.trello_key) localStorage.setItem('nexus_trello_key', config.trello_key);
+    if (config.trello_token) localStorage.setItem('nexus_trello_token', config.trello_token);
+    if (config.model) localStorage.setItem('nexus_model', config.model);
+    if (config.voice_idx) localStorage.setItem('nexus_voice_idx', config.voice_idx);
+    return config;
+  },
+
+  driveConnect() {
+    const clientId = this.getGoogleClientId();
+    if (!clientId) { alert('Add Google OAuth Client ID first in Admin'); return; }
+    const doConnect = () => {
+      const tc = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: 'https://www.googleapis.com/auth/drive.appdata',
+        callback: (r) => {
+          if (r.access_token) {
+            localStorage.setItem('nexus_drive_token', r.access_token);
+            localStorage.setItem('nexus_drive_expiry', String(Date.now() + 55 * 60 * 1000));
+            const s = document.getElementById('driveStatus');
+            if (s) { s.textContent = '✓ Connected to Drive'; s.style.color = '#39ff14'; }
+          }
+        }
+      });
+      tc.requestAccessToken();
+    };
+    if (window.google?.accounts?.oauth2) { doConnect(); }
+    else {
+      const s = document.createElement('script');
+      s.src = 'https://accounts.google.com/gsi/client';
+      s.onload = doConnect;
+      document.head.appendChild(s);
+    }
+  },
+
   // ─── Persistent Memory: fetch relevant past conversations ───
   async fetchMemory(question) {
     try {
@@ -71,6 +165,14 @@ const NX = {
   // ─── Initialize ───
   init() {
     this.sb = supabase.createClient(this.SUPA_URL, this.SUPA_KEY);
+    // Auto-restore keys from Drive if none locally
+    const driveToken = localStorage.getItem('nexus_drive_token');
+    const driveExpiry = localStorage.getItem('nexus_drive_expiry');
+    if (!this.getApiKey() && driveToken && driveExpiry && Date.now() < parseInt(driveExpiry)) {
+      this.driveRestoreKeys().then((config) => {
+        console.log('NEXUS: Keys auto-restored from Drive backup (' + config.backed_up + ')');
+      }).catch(() => {});
+    }
     this.loadNodes().then(() => {
       // Load brain modules in order: canvas first (creates namespace), then others
       this.loadScript('js/brain-canvas.js', () => {
@@ -262,8 +364,41 @@ const NX = {
       document.getElementById('adminTrelloKey').value = '';
       document.getElementById('adminTrelloToken').value = '';
       document.getElementById('adminKeyStatus').textContent = 'Keys saved securely.';
-      setTimeout(() => { document.getElementById('adminKeyStatus').textContent = ''; }, 3000);
+      // Auto-backup to Drive if connected
+      const dt = localStorage.getItem('nexus_drive_token');
+      const de = localStorage.getItem('nexus_drive_expiry');
+      if (dt && de && Date.now() < parseInt(de)) {
+        NX.driveBackupKeys().then(() => {
+          document.getElementById('adminKeyStatus').textContent = 'Keys saved + backed up to Drive ✓';
+        }).catch(() => {});
+      }
+      setTimeout(() => { document.getElementById('adminKeyStatus').textContent = ''; }, 4000);
     });
+
+    // Drive sync buttons
+    document.getElementById('driveConnectBtn').addEventListener('click', () => NX.driveConnect());
+    document.getElementById('driveBackupBtn').addEventListener('click', async () => {
+      const s = document.getElementById('driveStatus');
+      try { s.textContent = 'Backing up...'; s.style.color = 'var(--muted)';
+        await NX.driveBackupKeys(); s.textContent = '✓ Keys backed up to Drive'; s.style.color = '#39ff14';
+      } catch(e) { s.textContent = 'Backup failed: ' + e.message; s.style.color = '#ff5533'; }
+    });
+    document.getElementById('driveRestoreBtn').addEventListener('click', async () => {
+      const s = document.getElementById('driveStatus');
+      try { s.textContent = 'Restoring...'; s.style.color = 'var(--muted)';
+        const config = await NX.driveRestoreKeys();
+        s.textContent = '✓ Keys restored from Drive (backed up ' + new Date(config.backed_up).toLocaleDateString() + ')';
+        s.style.color = '#39ff14';
+      } catch(e) { s.textContent = 'Restore failed: ' + e.message; s.style.color = '#ff5533'; }
+    });
+
+    // Check if Drive token is still valid
+    const driveToken = localStorage.getItem('nexus_drive_token');
+    const driveExpiry = localStorage.getItem('nexus_drive_expiry');
+    if (driveToken && driveExpiry && Date.now() < parseInt(driveExpiry)) {
+      const ds = document.getElementById('driveStatus');
+      if (ds) { ds.textContent = '✓ Connected to Drive'; ds.style.color = '#39ff14'; }
+    }
   },
 
   // ─── Claude API helper (key from localStorage ONLY) ───
