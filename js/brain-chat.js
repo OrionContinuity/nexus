@@ -5,25 +5,33 @@
   let chatHistory=[],voiceOn=false,recognition=null,chatActive=false;
   function tt(k){return NX.i18n?NX.i18n.t(k):k;}
 
-  const PERSONA_BASE=`You are NEXUS, the AI ops brain for Alfredo Ortiz — Suerte, Este, Bar Toti (Austin TX).
+  const PERSONA_BASE=`You are NEXUS, ops brain for Suerte, Este, Bar Toti (Austin TX). Alfredo Ortiz runs these.
 
-YOUR CAPABILITIES:
-- Email source references for nodes — cite when asked "why" or "where from"
-- Past conversation memory across sessions
-- Users type "research [topic]" to search the web and auto-create nodes
-- "log that [something]" creates a daily log entry
-- "add card: [task]" creates a kanban card
-- "clean sensitive" scans for personal data
-- "report [issue]" or "problem [description]" creates a maintenance ticket with AI troubleshooting, photo upload, and notifications
-- Mail Monitor in Ingest scans Gmail for invoices and attachments
+RULES:
+- 1-3 sentences max for simple questions. No filler. No "Great question!" Just answer.
+- Dry humor OK — one-liners, snarky asides. But useful FIRST, funny second.
+- For troubleshooting: FULL step-by-step guide. Be the repair manual. Model numbers, settings, safety warnings.
+- State facts from nodes directly. Don't say "I have info" — give the info.
+- VERIFY against nodes. If unsure, say so: "Not 100% — verify with [source]."
+- Never invent specs, phone numbers, or contacts.
+- End EVERY response with a confidence tag on its own line: [confidence:high] or [confidence:medium] or [confidence:low]
+  - high = answer is directly supported by nodes/data
+  - medium = partially supported or from general knowledge
+  - low = uncertain, no supporting data found
 
-PERSONALITY: Sharp, concise, warm. Dry wit. Helpful FIRST. Be CONCISE — 2-3 sentences max unless asked.
-When you don't know something, tell the user to TYPE "research [topic]" in the chat. You CANNOT trigger research yourself.`;
+COMMANDS (tell users about these):
+- "look up [topic]" / "investigate [topic]" / "search for [topic]" — web search + auto-create nodes
+- "remember [name] - [details]" — create/update a node
+- "log that [text]" — daily log
+- "report [issue]" — maintenance ticket
+- "add card: [task]" — kanban
+
+You CANNOT search the web yourself — user must type a command like "look up" or "investigate".`;
 
   function getPERSONA(){
     const lang=NX.i18n?NX.i18n.getLang():'en';
-    if(lang==='es')return PERSONA_BASE+'\n\nIMPORTANT: Respond ONLY in Spanish. All answers must be in Spanish regardless of input language.';
-    return PERSONA_BASE+'\n\nRespond in English by default. If user writes in Spanish, respond in Spanish.';
+    if(lang==='es')return PERSONA_BASE+'\n\nRespond ONLY in Spanish.';
+    return PERSONA_BASE;
   }
 
   function checkApiKey(){const b=document.getElementById('apiBanner');if(b)b.style.display=NX.getApiKey()?'none':'flex';}
@@ -41,8 +49,9 @@ When you don't know something, tell the user to TYPE "research [topic]" in the c
   const TASK_RX=[
     {rx:/^(?:log|note|record)\s+(?:that\s+)?(.+)/i,type:'log'},
     {rx:/^(?:add card|create task|todo)\s*:?\s*(.+)/i,type:'card'},
-    {rx:/^(?:research|look up|find info)\s+(.{4,})/i,type:'research'},
+    {rx:/^(?:research|look up|look into|investigate|search for|find out about|dig into|find info on|find info about)\s+(.{3,})/i,type:'research'},
     {rx:/^(?:report|issue|problem|broken|help)\s+(.+)/i,type:'report'},
+    {rx:/^(?:remember|save|add node|create node|note about)\s*:?\s*(.+)/i,type:'createNode'},
     {rx:/^(?:clean sensitive|remove personal|scan sensitive|delete personal)\s*(.*)$/i,type:'sensitive'},
     {rx:/^(?:add cleaning task|new cleaning task|add task to cleaning)\s*:?\s*(.+)/i,type:'addClean'},
     {rx:/^(?:remove cleaning task|delete cleaning task)\s*:?\s*(.+)/i,type:'removeClean'}
@@ -76,7 +85,7 @@ When you don't know something, tell the user to TYPE "research [topic]" in the c
           const ex=new Set(NX.nodes.map(n=>(n.name||'').toLowerCase()));
           for(const n of parsed.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2||ex.has(nm.toLowerCase()))continue;
             const{error}=await NX.sb.from('nodes').insert({name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'equipment',tags:Array.isArray(n.tags)?n.tags.filter(x=>typeof x==='string').slice(0,20):[],notes:(n.notes||'').slice(0,2000),links:[],access_count:1,source_emails:[{from:'Web Research',subject:topic,date:new Date().toISOString().split('T')[0]}]});
-            if(!error){created++;ex.add(nm.toLowerCase());}}
+            if(!error){created++;ex.add(nm.toLowerCase());}else{console.error('Node insert failed:',nm,error.message);addB(`⚠ Failed to save "${nm}": ${error.message}`,'ai');}}
           addB(`✓ ${created} node${created!==1?'s':''} added to brain.`,'ai');
           clearInterval(extractDots);
           await NX.loadNodes();if(NX.brain)NX.brain.init();
@@ -85,6 +94,54 @@ When you don't know something, tell the user to TYPE "research [topic]" in the c
       }else{addB(tt('tooVague'),'ai');}
       try{await NX.sb.from('chat_history').insert({question:'research: '+topic,answer:webResult,session_id:SESSION_ID});}catch(e){}
     }catch(e){clearInterval(dotTimer);addB(tt('researchFailed')+': '+(e.message||'error'),'ai');}
+  }
+
+  // ═══ DIRECT NODE CREATION from chat ═══
+  async function handleCreateNode(text){
+    addB('💾 Creating node...','ai thinking');
+    try{
+      const result=await NX.askClaude(
+        'Extract ONE knowledge node from this text. Return ONLY raw JSON: {"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"detailed notes with all info provided"}',
+        [{role:'user',content:text}],500);
+      let json=result.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
+      const s=json.indexOf('{'),e=json.lastIndexOf('}');
+      if(s===-1||e<=s){addB('Could not parse node from that. Try: "remember Ders - award winning CIA trained chef at Suerte"','ai');return;}
+      json=json.slice(s,e+1);
+      const node=JSON.parse(json);
+      const nm=(node.name||'').trim();
+      if(!nm||nm.length<2){addB('Need a name. Try: "remember [name] - [details]"','ai');return;}
+
+      const vc=['equipment','contractors','vendors','procedure','projects','people','systems','parts','location'];
+      const row={
+        name:nm.slice(0,200),
+        category:vc.includes(node.category)?node.category:'people',
+        tags:Array.isArray(node.tags)?node.tags.filter(t=>typeof t==='string').slice(0,20):[],
+        notes:(node.notes||text).slice(0,2000),
+        links:[],access_count:1,
+        source_emails:[{from:NX.currentUser?.name||'Chat',subject:'Created via chat',date:new Date().toISOString().split('T')[0]}]
+      };
+
+      // Check for duplicate
+      const existing=NX.nodes.find(n=>n.name.toLowerCase()===nm.toLowerCase());
+      if(existing){
+        // Update existing node — append notes
+        const newNotes=(existing.notes||'')+'\n\n[Updated '+new Date().toLocaleDateString()+']\n'+(node.notes||text);
+        const{error}=await NX.sb.from('nodes').update({notes:newNotes.slice(0,4000)}).eq('id',existing.id);
+        if(error){addB('❌ Update failed: '+error.message,'ai');return;}
+        existing.notes=newNotes;
+        addB(`✓ Updated existing node "${nm}" with new info.`,'ai');
+      }else{
+        const{error}=await NX.sb.from('nodes').insert(row);
+        if(error){addB('❌ Insert failed: '+error.message,'ai');return;}
+        addB(`✓ Node created: "${nm}" (${row.category})\n📝 ${(row.notes||'').slice(0,150)}`,'ai');
+      }
+
+      await NX.loadNodes();
+      if(NX.brain)NX.brain.init();
+      chatHistory.push({role:'assistant',content:`Created/updated node: ${nm}`});
+    }catch(e){
+      addB('❌ Failed: '+e.message,'ai');
+    }
   }
 
   // ═══ ISSUE REPORTING — AI troubleshoot + ticket creation ═══
@@ -242,10 +299,17 @@ After the troubleshoot steps, ask the person to add more details and optionally 
 
   function setupChat(){
     const i=document.getElementById('chatInput'),s=document.getElementById('chatSend'),hud=document.getElementById('chatHud'),dim=document.getElementById('brainDim'),r=document.getElementById('resetBtn'),chev=document.getElementById('hudChevron');
-    chev.addEventListener('click',()=>{hud.classList.toggle('collapsed');});
+    // Handle toggles chat
+    chev.addEventListener('click',()=>{
+      if(hud.classList.contains('expanded')){hud.classList.remove('expanded');dim.classList.remove('active');}
+      else{hud.classList.add('expanded');dim.classList.add('active');}
+    });
     i.addEventListener('input',()=>{s.disabled=!i.value.trim();});
-    i.addEventListener('focus',()=>{if(hud.classList.contains('collapsed'))hud.classList.remove('collapsed');dim.classList.add('active');});
-    i.addEventListener('blur',()=>{if(!i.value.trim()&&!chatActive)dim.classList.remove('active');});
+    // Focus expands chat
+    i.addEventListener('focus',()=>{hud.classList.add('expanded');dim.classList.add('active');
+      // Scroll to latest message
+      requestAnimationFrame(()=>{const c=document.getElementById('chatMessages');if(c)c.scrollTop=c.scrollHeight;});
+    });
     i.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();askAI();}});
     s.addEventListener('click',askAI);r.addEventListener('click',resetChat);
     document.querySelectorAll('.brain-ex').forEach(b=>b.addEventListener('click',()=>{i.value=b.textContent;s.disabled=false;askAI();}));
@@ -256,11 +320,10 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     window.addEventListener('online',()=>{document.getElementById('offlineBanner').style.display='none';});
     window.addEventListener('offline',()=>{document.getElementById('offlineBanner').style.display='block';});
     if(!navigator.onLine)document.getElementById('offlineBanner').style.display='block';
-    // Onboarding check
     if(!localStorage.getItem('nexus_onboarded')&&!NX.getApiKey()){showOnboarding();}
   }
 
-  function resetChat(){chatHistory=[];chatActive=false;document.getElementById('chatMessages').innerHTML='';document.getElementById('brainWelcome').style.display='';document.getElementById('brainExamples').style.display='';document.getElementById('brainDim').classList.remove('active');document.getElementById('resetBtn').style.display='none';NX.brain.state.activatedNodes=new Set();NX.brain.wakePhysics();}
+  function resetChat(){chatHistory=[];chatActive=false;document.getElementById('chatMessages').innerHTML='';document.getElementById('brainWelcome').style.display='';document.getElementById('brainExamples').style.display='';document.getElementById('brainDim').classList.remove('active');document.getElementById('resetBtn').style.display='none';document.getElementById('chatHud').classList.remove('expanded');NX.brain.state.activatedNodes=new Set();NX.brain.wakePhysics();}
 
   async function getCtx(q){
     // Always fetch fresh nodes from Supabase
@@ -315,6 +378,7 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     if(task){
       if(task.type==='research'){try{await handleResearch(task.content);}catch(e){addB('Research error: '+e.message,'ai');}return;}
       if(task.type==='report'){try{await handleReport(task.content);}catch(e){addB('Report error: '+e.message,'ai');}return;}
+      if(task.type==='createNode'){try{await handleCreateNode(task.content);}catch(e){addB('Node error: '+e.message,'ai');}return;}
       if(task.type==='sensitive'){await handleSensitiveScan();return;}
       if(task.type==='addClean'){await handleAddCleanTask(task.content);return;}
       if(task.type==='removeClean'){await handleRemoveCleanTask(task.content);return;}
@@ -327,10 +391,28 @@ After the troubleshoot steps, ask the person to add more details and optionally 
       const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
       const ans=await NX.askClaude(getPERSONA()+'\n\n'+ctx,msgs,800,false);
       clearInterval(searchDots);
-      th.textContent=ans||'No response.';th.classList.remove('chat-thinking');
+      // Parse confidence tag
+      let confidence='';
+      let cleanAns=(ans||'No response.').replace(/\[confidence:(high|medium|low)\]/i,(m,level)=>{confidence=level.toLowerCase();return '';}).trim();
+      th.textContent=cleanAns;th.classList.remove('chat-thinking');
+      // Confidence badge
+      if(confidence){
+        const badge=document.createElement('span');
+        badge.className='chat-confidence chat-conf-'+confidence;
+        badge.textContent=confidence==='high'?'●':confidence==='medium'?'◐':'○';
+        badge.title=confidence+' confidence';
+        th.appendChild(badge);
+      }
       // Add timestamp
       const ts=document.createElement('span');ts.className='chat-time';ts.textContent=timeStr();th.appendChild(ts);
-      chatHistory.push({role:'assistant',content:ans});if(voiceOn)speak(ans);
+      // Auto-scroll to bottom
+      requestAnimationFrame(()=>{const c=document.getElementById('chatMessages');c.scrollTop=c.scrollHeight;});
+      chatHistory.push({role:'assistant',content:cleanAns});if(voiceOn)speak(cleanAns);
+      // Low confidence — suggest research
+      if(confidence==='low'){
+        const words=q.split(/\s+/).filter(w=>w.length>2).slice(0,3).join(' ');
+        addB(`💡 Low confidence. Try: "look up ${words}" for a web search.`,'ai');
+      }
       try{await NX.sb.from('chat_history').insert({question:q,answer:ans,session_id:SESSION_ID});}catch(e){}
     }catch(e){clearInterval(searchDots);th.textContent='Error: '+(e.message||'Unknown');th.classList.remove('chat-thinking');}
   }
@@ -344,7 +426,9 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     if(!type.includes('thinking')){
       const ts=document.createElement('span');ts.className='chat-time';ts.textContent=timeStr();el.appendChild(ts);
     }
-    const c=document.getElementById('chatMessages');c.appendChild(el);c.scrollTop=c.scrollHeight;return el;
+    const c=document.getElementById('chatMessages');c.appendChild(el);
+    requestAnimationFrame(()=>{c.scrollTop=c.scrollHeight;});
+    return el;
   }
 
   // Onboarding
