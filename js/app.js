@@ -119,26 +119,29 @@ const NX = {
   // ─── Tab Routing ───
   setupNav() {
     const tabs = document.querySelectorAll('.nav-tab');
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        const view = tab.dataset.view;
-        tabs.forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById(view + 'View').classList.add('active');
-        this.activateModule(view);
-      });
-    });
-    // NEXUS logo → Brain tab
-    document.querySelector('.nav-brand').addEventListener('click', () => {
+    const nexusBtn = document.getElementById('navNexus');
+
+    const switchTo = (view) => {
       tabs.forEach(t => t.classList.remove('active'));
+      nexusBtn.classList.remove('active');
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-      const brainTab = document.querySelector('[data-view="brain"]');
-      if (brainTab) brainTab.classList.add('active');
-      document.getElementById('brainView').classList.add('active');
-      this.activateModule('brain');
+      if (view === 'brain') {
+        nexusBtn.classList.add('active');
+      } else {
+        const tab = document.querySelector(`.nav-tab[data-view="${view}"]`);
+        if (tab) tab.classList.add('active');
+      }
+      document.getElementById(view + 'View').classList.add('active');
+      this.activateModule(view);
+    };
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => switchTo(tab.dataset.view));
     });
-    document.querySelector('.nav-brand').style.cursor = 'pointer';
+
+    // NEXUS button → Brain + AI
+    nexusBtn.classList.add('active');
+    nexusBtn.addEventListener('click', () => switchTo('brain'));
   },
 
   activateModule(view) {
@@ -325,4 +328,3 @@ const NX = {
 
 // ─── Boot ───
 document.addEventListener('DOMContentLoaded', () => NX.init());
-           
