@@ -43,7 +43,7 @@ function render(){
   // Log entries
   if(!data.length&&!openTickets.length){list.innerHTML='<div class="log-empty">Nothing logged yet.</div>';return;}
   data.forEach(l=>{const d=document.createElement('div');d.className='log-entry';const isCR=(l.entry||'').startsWith('Cleaning Report');const isTK=(l.entry||'').includes('TICKET');d.innerHTML=`<div class="log-text${isCR?' log-cleaning':''}${isTK?' log-ticket':''}">${isCR?'✓ ':''}${isTK?'🔧 ':''}${l.entry}</div><div class="log-meta">${new Date(l.created_at).toLocaleDateString()} · ${new Date(l.created_at).toLocaleTimeString()}</div>`;list.appendChild(d);});
-}}
+}
 async function add(){const input=document.getElementById('logInput');if(!input.value.trim())return;await NX.sb.from('daily_logs').insert({entry:input.value.trim()});input.value='';load();}
 
 async function addKnowledge(){
