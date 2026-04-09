@@ -166,6 +166,7 @@
       <div class="ingest-section"><div class="ingest-section-title">📝 PASTE TEXT</div><textarea id="ingestText" placeholder="Paste email, notes, transcript..." class="ingest-textarea"></textarea><button id="ingestTextBtn" class="ingest-btn">Process</button></div>
       <div class="ingest-section"><div class="ingest-section-title">📋 TRELLO</div><button id="trelloBtn" class="ingest-btn ingest-btn-trello">Smart Trello Import</button></div>
       <div class="ingest-section"><div class="ingest-section-title">🔒 DATA PRIVACY</div><p class="ingest-desc">AI scans all nodes for personal data — bonuses, salaries, SSNs, personal info.</p><button id="sensitiveBtn" class="ingest-btn ingest-btn-sensitive">Scan & Remove Personal Data</button></div>
+      <div class="ingest-section"><div class="ingest-section-title">🔗 RELATIONSHIP BUILDER</div><p class="ingest-desc">AI analyzes nodes and creates connections — vendors to equipment, contractors to locations, parts to machines.</p><button id="relationshipBtn" class="ingest-btn ingest-btn-link">Build Relationships</button><div class="ingest-auto-row"><label class="ingest-auto-label"><input type="checkbox" id="autoLinkToggle" checked> Auto-link new nodes after import</label></div></div>
       <div id="ingestStatus" class="ingest-status"></div>
       <div class="ingest-section ingest-log-section"><div class="ingest-section-title" style="display:flex;justify-content:space-between"><span>ACTIVITY LOG</span><button id="clearLogBtn" class="ingest-clear-btn">Clear</button></div><div class="ingest-log" id="ingestLog"></div></div>
       <div class="ingest-stats" id="ingestStats"></div>
@@ -232,6 +233,10 @@
           <option value="suerte">Suerte</option>
           <option value="este">Este</option>
           <option value="toti">Toti</option>
+        </select>
+        <select id="newUserLang" class="admin-field-sm">
+          <option value="en">English</option>
+          <option value="es">Español</option>
         </select>
         <button id="addUserBtn" class="admin-save-btn" style="margin-top:0;padding:8px 14px">+ Add</button>
       </div>
