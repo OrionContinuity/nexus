@@ -234,27 +234,87 @@ function render(){
   document.getElementById('cleanFill').style.width=pct+'%';
   document.getElementById('cleanPct').textContent=pct+'%';
   document.getElementById('cleanConfirm').style.display='none';
+
+  // Extras section
+  renderExtras(list);
+}
+
+// ═══ EXTRAS — log work not on the checklist ═══
+const COMMON_EXTRAS=[
+  ['Limpiar paredes.','Clean walls.'],['Limpiar tubos de cobre.','Clean copper pipes.'],
+  ['Lavado a presión.','Pressure wash.'],['Limpieza profunda de refrigeradores.','Deep clean fridges.'],
+  ['Pulir latón/bronce.','Polish brass/bronze.'],['Limpiar trampas de grasa.','Clean grease traps.'],
+  ['Limpiar ductos de ventilación.','Clean vent ducts.'],['Limpiar detrás de equipos.','Clean behind equipment.'],
+  ['Pulir pisos.','Polish/buff floors.'],['Limpiar canaletas.','Clean gutters.'],
+  ['Limpiar campana extractora.','Deep clean hood.'],['Descongelar congeladores.','Defrost freezers.']
+];
+function getExtrasToday(){try{return JSON.parse(localStorage.getItem('nexus_extras_'+loc+'_'+today)||'[]');}catch(e){return[];}}
+function saveExtrasToday(ex){localStorage.setItem('nexus_extras_'+loc+'_'+today,JSON.stringify(ex));}
+
+function renderExtras(list){
+  const el=document.createElement('div');el.className='clean-sec';
+  const extras=getExtrasToday();
+  const h=document.createElement('div');h.className='clean-sec-head';
+  h.innerHTML=`<span class="clean-sec-check" style="color:#ffb020">+</span><span class="clean-sec-arrow">▼</span><span class="clean-sec-title">Extras</span><span class="clean-on-track" style="margin-left:auto;margin-right:8px">${extras.length} logged</span>`;
+  h.addEventListener('click',()=>el.classList.toggle('collapsed'));
+  el.appendChild(h);
+  const body=document.createElement('div');body.className='clean-sec-body';
+
+  extras.forEach((ex,i)=>{
+    const it=document.createElement('div');it.className='clean-item done clean-item-custom';
+    it.innerHTML=`<div class="ci-box" style="color:#39ff14">✓</div><div><div class="ci-en">${ex.en}</div><div class="ci-es">${ex.es}</div><div class="ci-last">${ex.time||''}</div></div>`;
+    const del=document.createElement('button');del.className='clean-item-del';del.textContent='✕';
+    del.addEventListener('click',(e)=>{e.stopPropagation();const ext=getExtrasToday();ext.splice(i,1);saveExtrasToday(ext);render();});
+    it.appendChild(del);body.appendChild(it);
+  });
+
+  const addRow=document.createElement('div');addRow.style.cssText='display:flex;gap:6px;padding:8px 0;flex-wrap:wrap;';
+  const sel=document.createElement('select');sel.className='clean-add-select';sel.style.cssText='flex:1;min-width:140px';
+  sel.innerHTML='<option value="">Quick add extra...</option>';
+  COMMON_EXTRAS.forEach((ex,i)=>{sel.innerHTML+=`<option value="${i}">${ex[1]}</option>`;});
+  sel.innerHTML+='<option value="custom">+ Custom...</option>';
+  const addBtn=document.createElement('button');addBtn.className='clean-add-btn';addBtn.textContent='Log';
+  addBtn.addEventListener('click',()=>{
+    const v=sel.value;if(!v)return;
+    const timeNow=new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}).toLowerCase();
+    if(v==='custom'){const es=prompt('Tarea (español):');const en=prompt('Task (English):');if(!es&&!en)return;
+      const ext=getExtrasToday();ext.push({es:es||en,en:en||es,time:timeNow});saveExtrasToday(ext);
+    }else{const ex=COMMON_EXTRAS[parseInt(v)];const ext=getExtrasToday();ext.push({es:ex[0],en:ex[1],time:timeNow});saveExtrasToday(ext);}
+    sel.value='';render();
+  });
+  addRow.appendChild(sel);addRow.appendChild(addBtn);body.appendChild(addRow);
+  el.appendChild(body);list.appendChild(el);
+}
+
+// ═══ FULL REPORT — every task listed with done/missed ═══
+function buildFullReport(location,locState){
+  const secs=getData(location);
+  let dailyTotal=0,dailyDone=0;const lines=[];
+  secs.forEach(sec=>{
+    const isDaily=!NON_DAILY.some(nd=>sec.sec.toLowerCase().includes(nd.toLowerCase()));
+    let done=[],missed=[];
+    sec.items.forEach((item,i)=>{
+      if(isDaily)dailyTotal++;
+      if(locState[location+'_'+sec.sec+'_'+i]){if(isDaily)dailyDone++;done.push(item[1]);}
+      else missed.push(item[1]);
+    });
+    let line=`${sec.sec} (${done.length}/${sec.items.length})`;
+    if(done.length)line+=` ✓ ${done.join(', ')}`;
+    if(missed.length)line+=` ✗ MISSED: ${missed.join(', ')}`;
+    lines.push(line);
+  });
+  const extras=[];
+  try{const ex=JSON.parse(localStorage.getItem('nexus_extras_'+location+'_'+today)||'[]');ex.forEach(e=>extras.push(e.en));}catch(e){}
+  const pct=dailyTotal?Math.round(dailyDone/dailyTotal*100):0;
+  const locName=location.charAt(0).toUpperCase()+location.slice(1);
+  let entry=`Cleaning Report [${locName}]: ${pct}% (${dailyDone}/${dailyTotal} daily tasks)\n${lines.join('\n')}`;
+  if(extras.length)entry+=`\nEXTRAS: ${extras.join(', ')}`;
+  return entry;
 }
 
 async function submitDailyReport(){
   const btn=document.getElementById('cleanSubmit'),confirm=document.getElementById('cleanConfirm');
-  const secs=getData(loc);
-  let dailyTotal=0,dailyDone=0;const bd=[];
-
-  secs.forEach(sec=>{
-    const isDaily=!NON_DAILY.some(nd=>sec.sec.toLowerCase().includes(nd.toLowerCase()));
-    let sd=0;
-    sec.items.forEach((_,i)=>{
-      if(isDaily)dailyTotal++;
-      if(state[loc+'_'+sec.sec+'_'+i]){if(isDaily)dailyDone++;sd++;}
-    });
-    bd.push(`${sec.sec}: ${sd}/${sec.items.length}`);
-  });
-
-  const pct=dailyTotal?Math.round(dailyDone/dailyTotal*100):0;
-  const locName=loc.charAt(0).toUpperCase()+loc.slice(1);
-  const entry=`Cleaning Report [${locName}]: ${pct}% Complete (${dailyDone}/${dailyTotal} daily tasks). ${bd.join(', ')}.`;
-
+  const entry=buildFullReport(loc,state);
   btn.disabled=true;btn.textContent='Submitting...';
   const{error}=await NX.sb.from('daily_logs').insert({entry});
   if(!error){btn.textContent='✓ Submitted';confirm.textContent='Saved to daily log — view in Log tab';confirm.style.display='block';}
@@ -262,7 +322,27 @@ async function submitDailyReport(){
   setTimeout(()=>{btn.disabled=false;btn.textContent='Submit Daily Report';},3000);
 }
 
-// Expose for AI chat commands
 NX.cleaningAPI={addTask,removeTask,getLocations:()=>Object.keys(DEFAULTS)};
+
+// ═══ AUTO-SUBMIT 10 PM — full details all locations ═══
+function startAutoSubmit(){
+  setInterval(async()=>{
+    const now=new Date();
+    const autoKey='nexus_auto_clean_'+today;
+    if(now.getHours()===22&&now.getMinutes()===0&&!localStorage.getItem(autoKey)){
+      localStorage.setItem(autoKey,'1');
+      for(const location of Object.keys(DEFAULTS)){
+        try{
+          const{data}=await NX.sb.from('cleaning_logs').select('*').eq('log_date',today).eq('location',location);
+          const locState={};if(data)data.forEach(c=>{locState[location+'_'+c.section+'_'+c.task_index]=c.done;});
+          const entry='[AUTO 10PM] '+buildFullReport(location,locState);
+          await NX.sb.from('daily_logs').insert({entry});
+        }catch(e){}
+      }
+    }
+  },60000);
+}
+startAutoSubmit();
+
 NX.modules.clean={init,show:render};
 })();
