@@ -184,7 +184,7 @@ const NX = {
     document.getElementById('adminBtn').addEventListener('click', () => {
       if (this.isAdmin) {
         // Already admin — show key management
-        modal.style.display = 'flex';
+        modal.classList.add('open');modal.style.display='flex';
         document.getElementById('adminPass').style.display = 'none';
         document.getElementById('adminEnter').style.display = 'none';
         keySection.style.display = 'block';
@@ -201,7 +201,7 @@ const NX = {
         document.getElementById('adminTrelloToken').placeholder = tt ? 'Token saved (••••' + tt.slice(-4) + ')' : 'Trello Token';
         return;
       }
-      modal.style.display = 'flex';
+      modal.classList.add('open');modal.style.display='flex';
       document.getElementById('adminPass').style.display = '';
       document.getElementById('adminEnter').style.display = '';
       keySection.style.display = 'none';
@@ -211,7 +211,7 @@ const NX = {
       if (document.getElementById('adminPass').value === this.ADMIN_PASS) {
         this.isAdmin = true;
         document.getElementById('adminBtn').classList.add('on');
-        modal.style.display = 'none';
+        modal.classList.remove('open');modal.style.display='';
         document.getElementById('adminPass').value = '';
         document.getElementById('ingestTab').style.display = '';
         // Show key section for next open
@@ -222,7 +222,7 @@ const NX = {
     });
 
     document.getElementById('adminCancel').addEventListener('click', () => {
-      modal.style.display = 'none';
+      modal.classList.remove('open');modal.style.display='';
       document.getElementById('adminPass').value = '';
     });
 
