@@ -117,6 +117,12 @@
       </div>
       <div class="np-body">
         <div id="npNotes" class="np-notes"></div>
+        <button id="npEditNotes" class="np-edit-btn">✏ Edit Notes</button>
+        <!-- Add files -->
+        <div class="np-add-section">
+          <label class="np-add-file-btn"><input type="file" id="npFileInput" multiple accept="image/*,.pdf,.doc,.docx,.xlsx,.csv" hidden>📎 Add File / Photo</label>
+          <div id="npUploadStatus" class="np-upload-status"></div>
+        </div>
         <!-- Sources with expandable emails -->
         <div id="npSources" class="np-sources"></div>
         <!-- Attachments with previews -->
@@ -125,7 +131,7 @@
         <div id="npLinks" class="np-links"></div>
       </div>
       <div class="np-footer">
-        <button id="npDelete" class="np-delete-btn">Delete Node</button>
+        <button id="npDelete" class="np-delete-btn">✕</button>
       </div>
     </div>
   </div>
