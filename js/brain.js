@@ -101,9 +101,55 @@
   function setupHudCollapse(){const hud=document.getElementById('chatHud'),chev=document.getElementById('hudChevron');chev.addEventListener('click',()=>{hud.classList.toggle('collapsed');});}
 
   // CHAT
-  const TASK_RX=[{rx:/^(?:log|note|record)\s+(?:that\s+)?(.+)/i,type:'log'},{rx:/^(?:add card|create task|todo)\s*:?\s*(.+)/i,type:'card'}];
+  const TASK_RX=[{rx:/^(?:log|note|record)\s+(?:that\s+)?(.+)/i,type:'log'},{rx:/^(?:add card|create task|todo)\s*:?\s*(.+)/i,type:'card'},{rx:/^(?:research|look up|search|find info)\s+(.+)/i,type:'research'}];
   function detectTask(q){for(const p of TASK_RX){const m=q.match(p.rx);if(m)return{type:p.type,content:m[1]};}return null;}
   async function handleTask(task){if(task.type==='log'){const{error}=await NX.sb.from('daily_logs').insert({entry:task.content});return error?'Failed to log.':`Logged: "${task.content}"`;}if(task.type==='card'){const{error}=await NX.sb.from('kanban_cards').insert({title:task.content,column_name:'todo'});return error?'Failed.':`Card created: "${task.content}"`;}return null;}
+
+  // Research: web search → extract nodes → save to brain
+  async function handleResearch(topic){
+    addB(`Researching "${topic}" on the web...`,'ai thinking');
+    try{
+      // Step 1: Search the web via Claude
+      const webResult=await NX.askClaude(
+        `You are a research assistant for restaurant operations (Suerte, Este, Bar Toti — Austin TX). Search the web and provide detailed, factual information about the topic. Include: specs, model numbers, pricing, warranty info, dealer/supplier contacts, phone numbers, and any other operationally relevant details.`,
+        [{role:'user',content:`Research this thoroughly: ${topic}`}],2000,true);
+
+      // Show the research results
+      const resEl=addB(webResult||'No results found.','ai');
+      resEl.classList.remove('chat-thinking');
+      chatHistory.push({role:'assistant',content:webResult});
+      if(voiceOn)speak(webResult);
+
+      // Step 2: Extract nodes from the research
+      addB('Extracting knowledge for the brain...','ai thinking');
+      const extraction=await NX.askClaude(
+        `Extract ALL knowledge from this web research for a restaurant ops system. Create nodes for: equipment models, companies, people, phone numbers, part numbers, suppliers, procedures, specs, warranties.
+RESPOND ONLY RAW JSON:
+{"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"Include specs, phone numbers, URLs, pricing, warranty details"}]}`,
+        [{role:'user',content:webResult}],2000);
+
+      let json=extraction.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
+      const s=json.indexOf('{'),e=json.lastIndexOf('}');
+      if(s!==-1&&e>s){json=json.slice(s,e+1);
+        try{const parsed=JSON.parse(json);
+          if(parsed.nodes&&parsed.nodes.length){let created=0;
+            const vc=['equipment','contractors','vendors','procedure','projects','people','systems','parts','location'];
+            const existingNames=new Set(NX.nodes.map(n=>(n.name||'').toLowerCase()));
+            for(const n of parsed.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2||existingNames.has(nm.toLowerCase()))continue;
+              const{error}=await NX.sb.from('nodes').insert({name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'equipment',tags:Array.isArray(n.tags)?n.tags.filter(x=>typeof x==='string').slice(0,20):[],notes:(n.notes||'').slice(0,2000),links:[],access_count:1,source_emails:[{from:'Web Research',subject:topic,date:new Date().toISOString().split('T')[0]}]});
+              if(!error){created++;existingNames.add(nm.toLowerCase());}}
+            const confirmEl=addB(`✓ ${created} node${created!==1?'s':''} added to brain from research.`,'ai');
+            confirmEl.classList.remove('chat-thinking');
+            await NX.loadNodes();if(NX.brain)NX.brain.init();
+          }else{const ne=addB('Research complete — no new nodes to extract.','ai');ne.classList.remove('chat-thinking');}
+        }catch(pe){const ee=addB('Research saved but node extraction failed.','ai');ee.classList.remove('chat-thinking');}
+      }else{const ne=addB('Research complete.','ai');ne.classList.remove('chat-thinking');}
+      try{await NX.sb.from('chat_history').insert({question:'research: '+topic,answer:webResult,session_id:SESSION_ID});}catch(e){}
+    }catch(e){
+      const errEl=addB('Research failed: '+(e.message||'connection error'),'ai');
+      errEl.classList.remove('chat-thinking');
+    }
+  }
 
   function setupChat(){
     const i=document.getElementById('chatInput'),s=document.getElementById('chatSend'),hud=document.getElementById('chatHud'),dim=document.getElementById('brainDim'),r=document.getElementById('resetBtn'),chev=document.getElementById('hudChevron');
@@ -123,9 +169,11 @@
   async function askAI(){
     if(!navigator.onLine){addB("Can't reach NEXUS — check WiFi.",'ai');return;}
     const i=document.getElementById('chatInput'),q=i.value.trim();if(!q)return;i.value='';document.getElementById('chatSend').disabled=true;document.getElementById('brainWelcome').style.display='none';document.getElementById('brainExamples').style.display='none';document.getElementById('brainDim').classList.add('active');document.getElementById('chatHud').classList.add('expanded');document.getElementById('chatHud').classList.remove('collapsed');document.getElementById('resetBtn').style.display='';chatActive=true;addB(q,'user');chatHistory.push({role:'user',content:q});
-    const task=detectTask(q);if(task){const result=await handleTask(task);if(result){addB(result,'ai');chatHistory.push({role:'assistant',content:result});if(voiceOn)speak(result);try{await NX.sb.from('chat_history').insert({question:q,answer:result,session_id:SESSION_ID});}catch(e){}return;}}
+    const task=detectTask(q);if(task){
+      if(task.type==='research'){await handleResearch(task.content);return;}
+      const result=await handleTask(task);if(result){addB(result,'ai');chatHistory.push({role:'assistant',content:result});if(voiceOn)speak(result);try{await NX.sb.from('chat_history').insert({question:q,answer:result,session_id:SESSION_ID});}catch(e){}return;}}
     const th=addB(`Searching ${NX.nodes.length} nodes + memory...`,'ai thinking');const ctx=await getCtx(q);const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
-    try{const ans=await NX.askClaude(PERSONA+'\n\n'+ctx,msgs,800);th.textContent=ans||'Something went sideways.';th.classList.remove('chat-thinking');chatHistory.push({role:'assistant',content:ans});if(voiceOn)speak(ans);try{await NX.sb.from('chat_history').insert({question:q,answer:ans,session_id:SESSION_ID});}catch(e){}}catch(e){th.textContent=navigator.onLine?(e.message||'Connection hiccup.'):"Can't reach NEXUS — check WiFi.";th.classList.remove('chat-thinking');}}
+    try{const ans=await NX.askClaude(PERSONA+'\n\n'+ctx,msgs,800,true);th.textContent=ans||'Something went sideways.';th.classList.remove('chat-thinking');chatHistory.push({role:'assistant',content:ans});if(voiceOn)speak(ans);try{await NX.sb.from('chat_history').insert({question:q,answer:ans,session_id:SESSION_ID});}catch(e){}}catch(e){th.textContent=navigator.onLine?(e.message||'Connection hiccup.'):"Can't reach NEXUS — check WiFi.";th.classList.remove('chat-thinking');}}
   function addB(t,type){const el=document.createElement('div');el.className='chat-bubble chat-'+(type.includes('user')?'user':'ai');if(type.includes('thinking'))el.classList.add('chat-thinking');el.textContent=t;el.style[type.includes('user')?'marginLeft':'marginRight']='auto';const c=document.getElementById('chatMessages');c.appendChild(el);c.scrollTop=c.scrollHeight;return el;}
 
   // VOICE — 10 voices
