@@ -64,6 +64,17 @@ async function init(){
   document.getElementById('gmailSyncBtn')?.addEventListener('click',syncEmails);
   document.getElementById('clearLogBtn')?.addEventListener('click',clearLog);
   document.getElementById('mailMonitorBtn')?.addEventListener('click',mailMonitor);
+  document.getElementById('reIngestBtn')?.addEventListener('click',reIngestArchived);
+  // Email file upload
+  const dropzone=document.getElementById('emailDropzone');
+  const fileInput=document.getElementById('emailFileInput');
+  if(dropzone){
+    dropzone.addEventListener('dragover',e=>{e.preventDefault();dropzone.classList.add('dragover');});
+    dropzone.addEventListener('dragleave',()=>dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop',e=>{e.preventDefault();dropzone.classList.remove('dragover');processEmailFiles(e.dataTransfer.files);});
+    dropzone.addEventListener('click',()=>fileInput?.click());
+    fileInput?.addEventListener('change',()=>{if(fileInput.files.length)processEmailFiles(fileInput.files);});
+  }
   document.getElementById('sensitiveBtn')?.addEventListener('click',scanSensitive);
   document.getElementById('relationshipBtn')?.addEventListener('click',()=>buildRelationships(false));
   document.getElementById('autoLinkToggle')?.addEventListener('change',(e)=>{localStorage.setItem('nexus_auto_link',e.target.checked?'on':'off');});
@@ -80,55 +91,255 @@ function initTC(){const c=NX.getGoogleClientId();if(!c||!window.google?.accounts
 function connectGmail(){const c=NX.getGoogleClientId();if(!c){log('No Google Client ID. Open Admin ⚙.','error');return;}if(!gisLoaded){loadGoogleAuth();setTimeout(connectGmail,1000);return;}if(tokenClient)tokenClient.requestAccessToken();}
 function showGmailConnected(){document.getElementById('gmailStatusText').textContent='✓ Connected';document.getElementById('gmailStatusText').style.color='var(--green)';document.getElementById('gmailConnectBtn').textContent='Reconnect';document.getElementById('gmailSyncControls').style.display='block';}
 
-// ═══ GMAIL SYNC (with dedup layer 1) ═══
+// ═══ GMAIL SYNC — OPTIMIZED ═══
+const JUNK_PATTERNS=[/unsubscribe/i,/no-reply/i,/noreply/i,/newsletter/i,/marketing/i,/donotreply/i,/notification@/i,/updates@/i,/mailer-daemon/i,/postmaster/i];
+const JUNK_SUBJECTS=[/out of office/i,/automatic reply/i,/auto-reply/i,/your password/i,/verify your email/i,/welcome to/i,/subscription/i,/your receipt from apple/i,/your order #/i,/track your package/i,/delivery notification/i];
+
+function isJunkEmail(email){
+  const from=(email.from||'').toLowerCase();
+  const subj=(email.subject||'').toLowerCase();
+  if(JUNK_PATTERNS.some(p=>p.test(from)))return true;
+  if(JUNK_SUBJECTS.some(p=>p.test(subj)))return true;
+  return false;
+}
+
+function cleanEmailBody(body){
+  if(!body)return'';
+  let t=body;
+  // Strip HTML tags
+  t=t.replace(/<[^>]+>/g,' ');
+  // Strip quoted replies (lines starting with >)
+  t=t.replace(/^>.*$/gm,'');
+  // Strip email signatures (after -- or ___ or common patterns)
+  const sigIdx=t.search(/\n--\s*\n|\n_{3,}\n|\nSent from my|\nGet Outlook|\nThis email is confidential/i);
+  if(sigIdx>50)t=t.slice(0,sigIdx);
+  // Strip excessive whitespace
+  t=t.replace(/\n{3,}/g,'\n\n').replace(/[ \t]{3,}/g,' ').trim();
+  // Strip common legal disclaimers
+  t=t.replace(/CONFIDENTIALITY NOTICE[\s\S]{0,500}$/i,'').trim();
+  t=t.replace(/This email and any attachments[\s\S]{0,300}$/i,'').trim();
+  return t.slice(0,2500);
+}
+
 async function syncEmails(){if(!gmailToken){connectGmail();return;}const btn=document.getElementById('gmailSyncBtn'),pf=document.getElementById('gmailProgressFill'),pt=document.getElementById('gmailProgressText');document.getElementById('gmailProgress').style.display='flex';btn.disabled=true;btn.textContent='Syncing...';clearLog();log('Starting email sync...');
 const dv=document.getElementById('gmailDays').value,fl=document.getElementById('gmailFilter').value.trim();let q='';if(dv!=='all'){const a=new Date();a.setDate(a.getDate()-parseInt(dv));q=`after:${a.getFullYear()}/${a.getMonth()+1}/${a.getDate()}`;}if(fl)q+=(q?' ':'')+fl;
 try{let ids=[],npt=null;do{const u=new URL('https://www.googleapis.com/gmail/v1/users/me/messages');u.searchParams.set('maxResults','500');if(q)u.searchParams.set('q',q);if(npt)u.searchParams.set('pageToken',npt);const r=await fetch(u,{headers:{'Authorization':`Bearer ${gmailToken}`}});if(r.status===401){localStorage.removeItem('nexus_gmail_token');gmailToken=null;log('Token expired.','error');btn.disabled=false;btn.textContent='⚡ Sync';return;}const d=await r.json();if(d.messages)ids.push(...d.messages.map(m=>m.id));npt=d.nextPageToken;log(`${ids.length} IDs...`);}while(npt);
 if(!ids.length){log('No emails found.','warn');btn.disabled=false;btn.textContent='⚡ Sync';return;}
 
-// LAYER 1: Filter out already-processed emails
+// LAYER 1: Filter already-processed
 const newIds=ids.filter(id=>!processedIds.has(id));
 const skipped=ids.length-newIds.length;
-if(skipped)log(`Skipping ${skipped} already-processed emails`);
-if(!newIds.length){log('All emails already processed. Nothing new.','success');btn.disabled=false;btn.textContent='⚡ Sync';pf.style.width='100%';return;}
-log(`<b>${newIds.length} new emails</b> to process.`,'success');
+if(skipped)log(`Skipping ${skipped} already-processed`);
+if(!newIds.length){log('All processed. Nothing new.','success');btn.disabled=false;btn.textContent='⚡ Sync';pf.style.width='100%';return;}
+
+// Cost estimate
+const estTokens=newIds.length*800;const estCost=(estTokens/1000*0.003).toFixed(3);
+log(`<b>${newIds.length} new emails</b> — est. ~${Math.round(estTokens/1000)}K tokens (~$${estCost})`,'success');
 
 let allEmails=[];
-for(let i=0;i<newIds.length;i+=5){const b=newIds.slice(i,i+5);pf.style.width=Math.round(i/newIds.length*40)+'%';pt.textContent=`${i}/${newIds.length}`;
+for(let i=0;i<newIds.length;i+=5){const b=newIds.slice(i,i+5);pf.style.width=Math.round(i/newIds.length*35)+'%';pt.textContent=`Fetching ${i}/${newIds.length}`;
 const fs=b.map(id=>fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,{headers:{'Authorization':`Bearer ${gmailToken}`}}).then(r=>r.json()).catch(()=>null));
 const rs=await Promise.all(fs);
 for(let idx=0;idx<rs.length;idx++){const m=rs[idx];if(!m||!m.payload)continue;
   const h=m.payload.headers||[],g=n=>(h.find(x=>x.name.toLowerCase()===n.toLowerCase())||{}).value||'';
-  // Extract body text from MIME parts
   let bodyText='';
   function extractText(parts){if(!parts)return;for(const part of parts){
     if(part.mimeType==='text/plain'&&part.body?.data){try{bodyText+=atob(part.body.data.replace(/-/g,'+').replace(/_/g,'/'));}catch(e){}}
     if(part.parts)extractText(part.parts);}}
   if(m.payload.body?.data){try{bodyText=atob(m.payload.body.data.replace(/-/g,'+').replace(/_/g,'/'));}catch(e){}}
   if(!bodyText&&m.payload.parts)extractText(m.payload.parts);
-  // Collect attachment info
+  // Clean body
+  bodyText=cleanEmailBody(bodyText);
+  // Collect attachments
   const attachments=[];
   function walkAttachments(parts){if(!parts)return;for(const part of parts){
     if(part.filename&&part.body?.attachmentId){attachments.push({filename:part.filename,mimeType:part.mimeType,attachmentId:part.body.attachmentId,messageId:b[idx]});}
     if(part.parts)walkAttachments(part.parts);}}
   if(m.payload.parts)walkAttachments(m.payload.parts);
-  allEmails.push({id:b[idx],from:g('From'),to:g('To'),date:g('Date'),subject:g('Subject'),snippet:m.snippet||'',body:bodyText.slice(0,3000),attachmentCount:attachments.length,attachments});}
-if(i+5<newIds.length)await sleep(200);}
-log(`Pulled <b>${allEmails.length}</b> emails with full content. AI processing...`);
+  const email={id:b[idx],from:g('From'),to:g('To'),date:g('Date'),subject:g('Subject'),snippet:m.snippet||'',body:bodyText,attachmentCount:attachments.length,attachments};
+  // Pre-filter junk
+  if(isJunkEmail(email)){log(`⏭ Skipped junk: ${email.subject.slice(0,50)}`);await markProcessed('gmail',[email.id]);continue;}
+  allEmails.push(email);}
+if(i+5<newIds.length)await sleep(150);}
 
-const AB=5;let tn=0,te=0;const tb=Math.ceil(allEmails.length/AB);
-for(let i=0;i<allEmails.length;i+=AB){const bn=Math.floor(i/AB)+1;pf.style.width=(40+Math.round(i/allEmails.length*55))+'%';pt.textContent=`AI ${bn}/${tb}`;log(`AI batch ${bn}/${tb}...`);
+const junkSkipped=newIds.length-allEmails.length-skipped;
+if(junkSkipped>0)log(`Filtered ${junkSkipped} junk/newsletter emails`);
+log(`<b>${allEmails.length}</b> relevant emails. AI processing...`);
+
+// Download attachments from relevant emails
+let attCount=0;
+for(const email of allEmails){
+  for(const att of email.attachments){
+    try{
+      const r=await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${att.messageId}/attachments/${att.attachmentId}`,{headers:{'Authorization':`Bearer ${gmailToken}`}});
+      if(!r.ok)continue;const d=await r.json();if(!d.data)continue;
+      const bytes=Uint8Array.from(atob(d.data.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+      const blob=new Blob([bytes],{type:att.mimeType});
+      const ts=Date.now();const safeName=(att.filename||'file').replace(/[^a-zA-Z0-9._-]/g,'_');
+      const path=`email-attachments/${ts}_${safeName}`;
+      const{error}=await NX.sb.storage.from('nexus-files').upload(path,blob,{contentType:att.mimeType,upsert:true});
+      if(!error){const{data:urlData}=NX.sb.storage.from('nexus-files').getPublicUrl(path);att.url=urlData?.publicUrl||'';attCount++;}
+    }catch(e){}
+  }
+}
+if(attCount)log(`📎 Downloaded ${attCount} attachments`,'success');
+
+// Save raw emails for future re-ingestion
+let savedRaw=0;
+for(const email of allEmails){
+  try{
+    await NX.sb.from('raw_emails').upsert({
+      id:email.id,from_addr:email.from,to_addr:email.to,
+      date:email.date,subject:email.subject,
+      body:email.body,snippet:email.snippet,
+      attachment_count:email.attachmentCount,
+      attachments:email.attachments.filter(a=>a.url).map(a=>({url:a.url,filename:a.filename,type:a.mimeType}))
+    },{onConflict:'id'});
+    savedRaw++;
+  }catch(e){}
+}
+log(`💾 ${savedRaw} emails archived for future use`);
+
+// AI processing — bigger batches (8)
+const AB=8;let tn=0,te=0;const tb=Math.ceil(allEmails.length/AB);
+for(let i=0;i<allEmails.length;i+=AB){const bn=Math.floor(i/AB)+1;pf.style.width=(35+Math.round(i/allEmails.length*60))+'%';pt.textContent=`AI ${bn}/${tb}`;log(`AI batch ${bn}/${tb}...`);
 const batch=allEmails.slice(i,i+AB);
-const chunk=batch.map((e,idx)=>`[EMAIL #${i+idx+1}]\nFROM: ${e.from}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\nATTACHMENTS: ${e.attachmentCount}\n---\n${e.body||e.snippet}`).join('\n\n========\n\n');
+const chunk=batch.map((e,idx)=>`[EMAIL #${i+idx+1}]\nFROM: ${e.from}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\nATTACHMENTS: ${e.attachmentCount}${e.attachments.filter(a=>a.url).map(a=>` [${a.filename}]`).join('')}\n---\n${e.body||e.snippet}`).join('\n\n========\n\n');
 const sourceMap=batch.map((e,idx)=>({ref:i+idx+1,from:e.from,date:e.date,subject:e.subject,body:(e.body||e.snippet||'').slice(0,500)}));
-const r=await aiProcessWithSources(chunk,sourceMap);if(r){const s=await saveExtracted(r);tn+=s;log(`Batch ${bn}: <b>${s} nodes</b>`,'success');
-// Mark batch emails as processed
+const r=await aiProcessWithSources(chunk,sourceMap);if(r){
+  // Attach downloaded files to extracted nodes
+  if(r.nodes){r.nodes.forEach(n=>{
+    if(n.email_refs){n.email_refs.forEach(ref=>{
+      const srcEmail=batch[ref-(i+1)];
+      if(srcEmail&&srcEmail.attachments){
+        n.attachments=(n.attachments||[]).concat(srcEmail.attachments.filter(a=>a.url).map(a=>({url:a.url,filename:a.filename,type:a.mimeType,from:srcEmail.from,date:srcEmail.date})));
+      }
+    });}
+  });}
+  const s=await saveExtracted(r);tn+=s;log(`Batch ${bn}: <b>${s} nodes</b>`,'success');
 await markProcessed('gmail',batch.map(e=>e.id));
-}else{te++;log(`Batch ${bn}: no data`,'warn');
-// Still mark as processed to avoid re-trying bad emails
-await markProcessed('gmail',batch.map(e=>e.id));}
-if(i+AB<allEmails.length)await sleep(500);}
-pf.style.width='100%';pt.textContent='Done!';log(`<b>Complete: ${tn} nodes</b> from ${allEmails.length} new emails (${skipped} skipped).`,'success');await NX.loadNodes();if(NX.brain)NX.brain.init();updateStats();}catch(e){log('FATAL: '+e.message,'error');}btn.disabled=false;btn.textContent='⚡ Sync Emails → Brain';}
+}else{te++;log(`Batch ${bn}: no data`,'warn');await markProcessed('gmail',batch.map(e=>e.id));}
+if(i+AB<allEmails.length)await sleep(400);}
+pf.style.width='100%';pt.textContent='Done!';log(`<b>Complete: ${tn} nodes</b> from ${allEmails.length} emails (${skipped} prev + ${junkSkipped} junk skipped).`,'success');await NX.loadNodes();if(NX.brain)NX.brain.init();updateStats();}catch(e){log('FATAL: '+e.message,'error');}btn.disabled=false;btn.textContent='⚡ Sync Emails → Brain';}
+
+// ═══ EMAIL FILE UPLOAD — parse .eml, .mbox, .msg ═══
+function parseEml(text){
+  const headerEnd=text.indexOf('\n\n')||text.indexOf('\r\n\r\n');
+  if(headerEnd===-1)return null;
+  const headerBlock=text.slice(0,headerEnd);
+  const body=text.slice(headerEnd+2).trim();
+  const getH=(name)=>{const m=headerBlock.match(new RegExp('^'+name+':\\s*(.+)','mi'));return m?m[1].trim():'';};
+  return{
+    from:getH('From'),to:getH('To'),date:getH('Date'),
+    subject:getH('Subject'),body:cleanEmailBody(body),
+    id:'file_'+Date.now()+'_'+Math.random().toString(36).slice(2,8)
+  };
+}
+
+function parseMbox(text){
+  const emails=[];
+  // Split on lines starting with "From " (mbox separator)
+  const parts=text.split(/^From\s+\S+.*$/m).filter(p=>p.trim());
+  for(const part of parts){
+    const email=parseEml(part.trim());
+    if(email&&(email.from||email.subject))emails.push(email);
+  }
+  return emails;
+}
+
+async function processEmailFiles(files){
+  const status=document.getElementById('emailFileStatus');
+  if(!files||!files.length)return;
+  clearLog();
+  let allEmails=[];
+  status.textContent='Reading files...';
+
+  for(const file of files){
+    try{
+      const text=await file.text();
+      const name=file.name.toLowerCase();
+      if(name.endsWith('.mbox')){
+        const parsed=parseMbox(text);
+        log(`📂 ${file.name}: ${parsed.length} emails found`);
+        allEmails=allEmails.concat(parsed);
+      }else if(name.endsWith('.eml')||name.endsWith('.txt')){
+        const email=parseEml(text);
+        if(email){log(`📧 ${file.name}: ${email.subject||'(no subject)'}`);allEmails.push(email);}
+        else log(`⚠ Could not parse ${file.name}`,'warn');
+      }else{
+        // Try parsing as raw email text
+        const email=parseEml(text);
+        if(email&&email.from){allEmails.push(email);log(`📧 ${file.name}: parsed`);}
+        else log(`⚠ Unsupported format: ${file.name}`,'warn');
+      }
+    }catch(e){log(`Error reading ${file.name}: ${e.message}`,'error');}
+  }
+
+  if(!allEmails.length){status.textContent='No emails found in files.';return;}
+
+  // Filter junk
+  const relevant=allEmails.filter(e=>!isJunkEmail(e));
+  if(relevant.length<allEmails.length)log(`Filtered ${allEmails.length-relevant.length} junk emails`);
+
+  // Archive raw emails
+  let archived=0;
+  for(const e of relevant){
+    try{await NX.sb.from('raw_emails').upsert({id:e.id,from_addr:e.from,to_addr:e.to,date:e.date,subject:e.subject,body:e.body,snippet:(e.body||'').slice(0,200),attachment_count:0,attachments:[]},{onConflict:'id'});archived++;}catch(err){}
+  }
+  log(`💾 ${archived} emails archived`);
+
+  // Cost estimate
+  const estTokens=relevant.length*800;
+  log(`<b>${relevant.length} emails</b> to process — est. ~${Math.round(estTokens/1000)}K tokens (~$${(estTokens/1000*0.003).toFixed(3)})`);
+  status.textContent=`Processing ${relevant.length} emails...`;
+
+  // AI processing
+  const AB=8;let tn=0;const tb=Math.ceil(relevant.length/AB);
+  for(let i=0;i<relevant.length;i+=AB){
+    const bn=Math.floor(i/AB)+1;log(`AI batch ${bn}/${tb}...`);
+    const batch=relevant.slice(i,i+AB);
+    const chunk=batch.map((e,idx)=>`[EMAIL #${i+idx+1}]\nFROM: ${e.from}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\n---\n${e.body}`).join('\n\n========\n\n');
+    const sourceMap=batch.map((e,idx)=>({ref:i+idx+1,from:e.from,date:e.date,subject:e.subject,body:(e.body||'').slice(0,500)}));
+    const r=await aiProcessWithSources(chunk,sourceMap);
+    if(r){const s=await saveExtracted(r);tn+=s;log(`Batch ${bn}: <b>${s} nodes</b>`,'success');}
+    else log(`Batch ${bn}: no data`,'warn');
+    if(i+AB<relevant.length)await sleep(400);
+  }
+
+  log(`<b>Complete: ${tn} nodes</b> from ${relevant.length} uploaded emails.`,'success');
+  status.textContent=`✓ ${tn} nodes created`;status.style='color:#39ff14';
+  await NX.loadNodes();if(NX.brain)NX.brain.init();updateStats();
+}
+
+// ═══ RE-INGEST — reprocess archived emails with improved AI ═══
+async function reIngestArchived(){
+  const btn=document.getElementById('reIngestBtn');
+  btn.disabled=true;btn.textContent='Loading archive...';clearLog();
+  try{
+    const{data,error}=await NX.sb.from('raw_emails').select('*').order('date',{ascending:false});
+    if(error||!data||!data.length){log(error?'Error: '+error.message:'No archived emails found.','warn');btn.disabled=false;btn.textContent='♻ Re-ingest';return;}
+    log(`📬 <b>${data.length}</b> archived emails. Re-processing...`);
+    const allEmails=data.map(e=>({id:e.id,from:e.from_addr,to:e.to_addr,date:e.date,subject:e.subject,body:e.body||'',snippet:e.snippet||'',attachmentCount:e.attachment_count||0,attachments:e.attachments||[]}));
+    const estTokens=allEmails.length*800;log(`Est. ~${Math.round(estTokens/1000)}K tokens (~$${(estTokens/1000*0.003).toFixed(3)})`);
+    const pf=document.getElementById('gmailProgressFill'),pt=document.getElementById('gmailProgressText');
+    document.getElementById('gmailProgress').style.display='flex';
+    const AB=8;let tn=0;const tb=Math.ceil(allEmails.length/AB);
+    for(let i=0;i<allEmails.length;i+=AB){
+      const bn=Math.floor(i/AB)+1;pf.style.width=Math.round(i/allEmails.length*100)+'%';pt.textContent=`AI ${bn}/${tb}`;log(`Batch ${bn}/${tb}...`);
+      const batch=allEmails.slice(i,i+AB);
+      const chunk=batch.map((e,idx)=>`[EMAIL #${i+idx+1}]\nFROM: ${e.from}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\n---\n${e.body||e.snippet}`).join('\n\n========\n\n');
+      const sourceMap=batch.map((e,idx)=>({ref:i+idx+1,from:e.from,date:e.date,subject:e.subject,body:(e.body||e.snippet||'').slice(0,500)}));
+      const r=await aiProcessWithSources(chunk,sourceMap);
+      if(r){const s=await saveExtracted(r);tn+=s;log(`Batch ${bn}: <b>${s} nodes</b>`,'success');}
+      else log(`Batch ${bn}: no data`,'warn');
+      if(i+AB<allEmails.length)await sleep(400);
+    }
+    pf.style.width='100%';pt.textContent='Done!';
+    log(`<b>Re-ingest complete: ${tn} new nodes</b> from ${allEmails.length} archived emails.`,'success');
+    await NX.loadNodes();if(NX.brain)NX.brain.init();updateStats();
+  }catch(e){log('Error: '+e.message,'error');}
+  btn.disabled=false;btn.textContent='♻ Re-ingest Archived Emails';
+}
 
 // ═══ AI PROCESSING WITH SOURCES + LAYER 3 (existing nodes in prompt) ═══
 async function aiProcessWithSources(text,sourceMap){
