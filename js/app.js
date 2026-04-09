@@ -396,7 +396,9 @@ const NX = {
       document.getElementById('adminElevenKey').value = '';
       document.getElementById('adminTrelloKey').value = '';
       document.getElementById('adminTrelloToken').value = '';
-      document.getElementById('adminKeyStatus').textContent = error ? 'Save failed: ' + error.message : `Keys saved to server ✓ (anthropic: ${ak ? '••••' + ak.slice(-4) : 'empty'})`;
+      const voiceNames=['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
+      const voiceIdx=updates.voice_idx||0;
+      document.getElementById('adminKeyStatus').textContent = error ? 'Save failed: ' + error.message : `✓ Saved — Voice: ${voiceNames[voiceIdx]||'Unknown'}, Model: ${updates.model.includes('opus')?'Opus':'Sonnet'}`;
       document.getElementById('adminKeyStatus').style.color = error ? '#ff5533' : '#39ff14';
       setTimeout(() => { document.getElementById('adminKeyStatus').textContent = ''; }, 5000);
     });
