@@ -172,7 +172,14 @@
     <div class="ingest-wrap">
       <div class="ingest-header">
         <span class="ingest-heading">INGESTION</span>
+        <div id="queueStatus" class="ig-queue-status"></div>
         <div class="ingest-stats" id="ingestStats"></div>
+      </div>
+
+      <!-- BACKGROUND PROCESSOR -->
+      <div class="ig-bg-bar">
+        <label class="ig-toggle"><input type="checkbox" id="bgProcessToggle" checked><span>Auto-process emails (3 every 5 min)</span></label>
+        <span id="queueCount" class="ig-queue-count"></span>
       </div>
 
       <!-- EMAIL -->
