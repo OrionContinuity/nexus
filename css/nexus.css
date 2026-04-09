@@ -31,6 +31,10 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .pin-error.shake{animation:shake .4s ease}
 .pin-user{color:#39ff14;font-size:14px;margin-top:12px;min-height:20px;opacity:0;transition:opacity .4s}
 .pin-user.visible{opacity:1}
+.pin-lang-row{display:flex;gap:8px;justify-content:center;margin-top:20px}
+.pin-lang-btn{padding:8px 18px;border-radius:var(--rp);border:1px solid var(--border);background:none;color:var(--faint);font-size:12px;cursor:pointer;font-family:inherit;transition:all .2s}
+.pin-lang-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(212,182,138,.08)}
+.pin-lang-btn:hover{border-color:var(--accent);color:var(--accent)}
 
 /* ═══ ADMIN USER MANAGEMENT ═══ */
 .admin-user-info{display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
