@@ -133,7 +133,8 @@ const NX = {
     document.querySelector('.nav-brand').addEventListener('click', () => {
       tabs.forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-      tabs[0].classList.add('active');
+      const brainTab = document.querySelector('[data-view="brain"]');
+      if (brainTab) brainTab.classList.add('active');
       document.getElementById('brainView').classList.add('active');
       this.activateModule('brain');
     });
@@ -324,3 +325,4 @@ const NX = {
 
 // ─── Boot ───
 document.addEventListener('DOMContentLoaded', () => NX.init());
+           
