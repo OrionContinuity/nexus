@@ -181,7 +181,14 @@ const NX = {
     // Hide PIN, show app
     document.getElementById('pinScreen').classList.add('hidden');
     document.getElementById('appWrap').style.display = '';
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) { lucide.createIcons(); if(this.i18n)this.i18n.applyUI(); }
+    else { 
+      // Wait for Lucide then apply
+      const waitLucide=setInterval(()=>{
+        if(window.lucide){clearInterval(waitLucide);lucide.createIcons();if(this.i18n)this.i18n.applyUI();}
+      },200);
+      setTimeout(()=>clearInterval(waitLucide),5000);
+    }
 
     // Apply role visibility
     if (this.isAdmin || this.isManager) {
@@ -206,31 +213,30 @@ const NX = {
     });
     this.setupNav();
     this.setupAdmin();
-    // Language
-    if (NX.i18n) {
-      NX.i18n.applyUI();
+    // Language toggle
+    if (this.i18n) {
       const langBtn = document.getElementById('langToggle');
       if (langBtn) {
-        langBtn.textContent = NX.i18n.getLang().toUpperCase();
+        langBtn.textContent = this.i18n.getLang().toUpperCase();
         langBtn.addEventListener('click', async () => {
-          const newLang = NX.i18n.getLang() === 'en' ? 'es' : 'en';
-          // Save to user profile in Supabase
+          const newLang = this.i18n.getLang() === 'en' ? 'es' : 'en';
           if(this.currentUser){
             try{await this.sb.from('nexus_users').update({language:newLang}).eq('id',this.currentUser.id);}catch(e){}
             this.currentUser.language=newLang;
             localStorage.setItem('nexus_current_user',JSON.stringify(this.currentUser));
           }
-          NX.i18n.setLang(newLang);
+          this.i18n.setLang(newLang); // This reloads the page
         });
       }
+      // Re-apply after a moment (Lucide might be loading)
+      setTimeout(()=>{if(this.i18n)this.i18n.applyUI();},500);
     }
   },
 
   // ═══ INIT ═══
   init() {
     this.sb = supabase.createClient(this.SUPA_URL, this.SUPA_KEY);
-    // Attach i18n
-    if(window.NEXUS_I18N) this.i18n = NEXUS_I18N;
+    if(window.NEXUS_I18N) { this.i18n = NEXUS_I18N; this.i18n.applyUI(); }
     this.setupPinScreen();
   },
 
