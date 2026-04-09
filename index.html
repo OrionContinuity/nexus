@@ -185,7 +185,7 @@
       <!-- EMAIL -->
       <div class="ig-card">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <span class="ig-icon">📧</span><span class="ig-title">Email</span><span class="ig-arrow">▼</span>
+          <i data-lucide="mail" class="ig-lucide"></i><span class="ig-title">Email</span><span class="ig-arrow">▼</span>
         </div>
         <div class="ig-card-body">
           <div class="ig-row"><div id="gmailStatus" class="ig-status"><span id="gmailStatusText">Not connected</span></div><button id="gmailConnectBtn" class="ig-btn ig-btn-gmail">Connect Gmail</button></div>
@@ -199,7 +199,7 @@
           </div>
           <div class="ig-divider"></div>
           <div class="ig-dropzone" id="emailDropzone">
-            <span class="ig-drop-icon">📂</span>
+            <i data-lucide="folder-open" class="ig-lucide"></i>
             <span class="ig-drop-text">Drop email files or <label class="ig-drop-link"><input type="file" id="emailFileInput" multiple accept=".eml,.mbox,.msg,.txt,.csv" hidden>browse</label></span>
           <div class="ig-drop-formats">.eml .mbox .msg .txt</div>
           </div>
@@ -211,7 +211,7 @@
       <!-- MONITOR -->
       <div class="ig-card">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <span class="ig-icon">📬</span><span class="ig-title">Mail Monitor</span><span class="ig-arrow">▼</span>
+          <i data-lucide="inbox" class="ig-lucide"></i><span class="ig-title">Mail Monitor</span><span class="ig-arrow">▼</span>
         </div>
         <div class="ig-card-body">
           <p class="ig-desc">Scans Gmail for orders, invoices, scheduling & attachments.</p>
@@ -222,7 +222,7 @@
       <!-- PASTE -->
       <div class="ig-card collapsed">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <span class="ig-icon">📝</span><span class="ig-title">Paste Text</span><span class="ig-arrow">▼</span>
+          <i data-lucide="clipboard" class="ig-lucide"></i><span class="ig-title">Paste Text</span><span class="ig-arrow">▼</span>
         </div>
         <div class="ig-card-body">
           <textarea id="ingestText" placeholder="Paste email, notes, transcript, vendor info..." class="ig-textarea"></textarea>
@@ -233,7 +233,7 @@
       <!-- TRELLO -->
       <div class="ig-card collapsed">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <span class="ig-icon">📋</span><span class="ig-title">Trello</span><span class="ig-arrow">▼</span>
+          <i data-lucide="trello" class="ig-lucide"></i><span class="ig-title">Trello</span><span class="ig-arrow">▼</span>
         </div>
         <div class="ig-card-body">
           <button id="trelloBtn" class="ig-btn ig-btn-blue">Import from Trello</button>
@@ -243,7 +243,7 @@
       <!-- TOOLS -->
       <div class="ig-card collapsed">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <span class="ig-icon">🔧</span><span class="ig-title">Tools</span><span class="ig-arrow">▼</span>
+          <i data-lucide="wrench" class="ig-lucide"></i><span class="ig-title">Tools</span><span class="ig-arrow">▼</span>
         </div>
         <div class="ig-card-body">
           <div class="ig-tool-row">
@@ -265,7 +265,7 @@
       <!-- ACTIVITY LOG -->
       <div class="ig-card ig-log-card">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <span class="ig-icon">📊</span><span class="ig-title">Activity</span><button id="clearLogBtn" class="ig-clear" onclick="event.stopPropagation()">Clear</button><span class="ig-arrow">▼</span>
+          <i data-lucide="activity" class="ig-lucide"></i><span class="ig-title">Activity</span><button id="clearLogBtn" class="ig-clear" onclick="event.stopPropagation()">Clear</button><span class="ig-arrow">▼</span>
         </div>
         <div class="ig-card-body"><div class="ingest-log" id="ingestLog"></div></div>
       </div>
