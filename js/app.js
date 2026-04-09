@@ -413,6 +413,27 @@ const NX = {
       location.reload();
     });
 
+    // Test voice button
+    document.getElementById('testVoiceBtn').addEventListener('click', async () => {
+      const voiceIdx = parseInt(document.getElementById('adminVoice').value) || 0;
+      const voiceNames = ['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
+      const voiceIds = ['pNInz6obpgDQGcFmaJgB','EXAVITQu4vr4xnSDxMaL','onwK4e9ZLuTAKqWW03F9','XB0fDUnXU5powFXDhCwa','TX3LPaxmHKxFdv7VOQHJ','LcfcDJNUP1GQjkzn1xUU','yoZ06aMxZJJ28mfd3POQ','ThT5KcBeYPX3keUQqHPh','VR6AewLTigWG4xSOukaG','pqHfZKP75CvOlQylNhV4','ErXwobaYiN019PkySvjV','AZnzlk1XvdvUeBnXmlld','D38z5RcWu1voky8WS1ja','jsCqWAovK2LkecY7zXl4','jBpfuIE2acCO8z3wKNLl','oWAxZDx7w5VEj9dCyTzz','SOYHLrjzK2X1ezoPC6cr','ZQe5CZNOzWyzPSCn5a3c','TxGEqnHWrfWFTfGW9XjX','21m00Tcm4TlvDq8ikWAM'];
+      const status = document.getElementById('voiceTestStatus');
+      const ek = this.getElevenLabsKey();
+      if (!ek) { status.textContent = 'Add ElevenLabs key first'; status.style.color = '#ff5533'; return; }
+      status.textContent = `Playing ${voiceNames[voiceIdx]}...`; status.style.color = 'var(--accent)';
+      try {
+        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceIds[voiceIdx]}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'xi-api-key': ek },
+          body: JSON.stringify({ text: `Hi, I'm ${voiceNames[voiceIdx]}. I'll be your NEXUS voice.`, model_id: 'eleven_turbo_v2', voice_settings: { stability: .45, similarity_boost: .78, style: .35, use_speaker_boost: true } })
+        });
+        if (r.ok) {
+          const bl = await r.blob(), u = URL.createObjectURL(bl), a = new Audio(u);
+          a.play(); a.onended = () => { URL.revokeObjectURL(u); status.textContent = `✓ ${voiceNames[voiceIdx]} ready`; status.style.color = '#39ff14'; };
+        } else { status.textContent = 'Voice test failed'; status.style.color = '#ff5533'; }
+      } catch (e) { status.textContent = 'Error: ' + e.message; status.style.color = '#ff5533'; }
+    });
+
     // Drive sync
     document.getElementById('driveConnectBtn').addEventListener('click', () => this.driveConnect());
     document.getElementById('driveBackupBtn').addEventListener('click', async () => {
