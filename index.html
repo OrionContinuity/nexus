@@ -11,11 +11,10 @@
 </head>
 <body>
 <nav class="nav" role="navigation">
-  <div class="nav-brand"><div class="nav-dot"></div><span class="nav-label">NEXUS</span></div>
+  <button class="nav-nexus" id="navNexus" data-view="brain"><div class="nav-dot"></div><span>NEXUS</span></button>
   <div class="nav-tabs" id="navTabs">
     <button class="nav-tab" data-view="clean"><svg class="nav-svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v6M6 8h8l-1 10H7L6 8z"/><line x1="8" y1="11" x2="8" y2="15"/><line x1="12" y1="11" x2="12" y2="15"/></svg> Cleaning</button>
     <button class="nav-tab" data-view="log"><svg class="nav-svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="2" width="12" height="16" rx="2"/><line x1="7" y1="6" x2="13" y2="6"/><line x1="7" y1="9" x2="13" y2="9"/><line x1="7" y1="12" x2="10" y2="12"/></svg> Log</button>
-    <button class="nav-tab nav-tab-hero active" data-view="brain">NEXUS</button>
     <button class="nav-tab" data-view="board" title="Task Board"><svg class="nav-svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="4.5" height="14" rx="1"/><rect x="7.75" y="3" width="4.5" height="10" rx="1"/><rect x="13.5" y="3" width="4.5" height="7" rx="1"/></svg> Board</button>
     <button class="nav-tab" data-view="ingest" id="ingestTab" style="display:none"><svg class="nav-svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="10,2 6,10 11,10 9,18"/></svg> Ingest</button>
   </div>
@@ -106,6 +105,10 @@
   <!-- LOG -->
   <div class="view" id="logView" data-view="log">
     <div class="log-input-bar"><input class="log-input" id="logInput" placeholder="Log a repair, observation, or note..."><button class="log-add" id="logAdd">+</button></div>
+    <div class="log-knowledge-bar">
+      <input class="log-input" id="knowledgeInput" placeholder="Add knowledge to the brain...">
+      <button class="log-knowledge-btn" id="knowledgeBtn">+ Brain</button>
+    </div>
     <div class="log-list" id="logList"></div>
   </div>
 
