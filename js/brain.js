@@ -20,7 +20,7 @@
 
   function init(){
     resize();buildParticles();for(let i=0;i<300;i++)physics();
-    setupChat();setupSearch();setupCanvas();setupVoice();setupListView();setupContractorEvents();setupSuggest();
+    setupChat();setupSearch();setupCanvas();setupVoice();setupListView();setupContractorEvents();
     checkApiKey();checkEmpty();buildDynamicChips();
     // Hide voice label after first session
     if(localStorage.getItem('nexus_voice_seen')){const l=document.getElementById('micLabel');if(l)l.classList.add('hidden');}
@@ -97,83 +97,5 @@
   async function addEvent(){const c=document.getElementById('eventContractor').value.trim(),d=document.getElementById('eventDesc').value.trim(),dt=document.getElementById('eventDate').value,tm=document.getElementById('eventTime').value,loc=document.getElementById('eventLocation').value;if(!c||!dt)return;const b=document.getElementById('eventAddBtn');b.disabled=true;b.textContent='...';try{await NX.sb.from('contractor_events').insert({contractor_name:c,description:d,event_date:dt,event_time:tm||null,location:loc,status:'scheduled'});document.getElementById('eventContractor').value='';document.getElementById('eventDesc').value='';document.getElementById('eventTime').value='';loadEvents();fs(c);}catch(e){}b.disabled=false;b.textContent='+ Schedule';}
 
   // Suggest to brain (non-admin)
-  function setupSuggest(){const bar=document.getElementById('suggestBar'),btn=document.getElementById('suggestBtn'),inp=document.getElementById('suggestInput');if(!bar)return;
-    // Only show on non-brain tabs for non-admins
-    const observer=new MutationObserver(()=>{
-      const brainActive=document.getElementById('brainView').classList.contains('active');
-      bar.style.display=(!NX.isAdmin&&!brainActive)?'flex':'none';
-    });
-    observer.observe(document.getElementById('mainContainer'),{subtree:true,attributes:true,attributeFilter:['class']});
-    btn?.addEventListener('click',async()=>{const t=inp.value.trim();if(!t)return;btn.disabled=true;btn.textContent='Processing...';
-      try{
-        // Process suggestion through AI to extract knowledge
-        const answer=await NX.askClaude(
-          'Extract knowledge from this suggestion for a restaurant ops system (Suerte, Este, Bar Toti — Austin TX). Return ONLY raw JSON: {"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"..."}]}',
-          [{role:'user',content:t}],1000);
-        let json=answer.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
-        const s=json.indexOf('{'),e=json.lastIndexOf('}');
-        if(s!==-1&&e>s){json=json.slice(s,e+1);
-          try{const parsed=JSON.parse(json);
-            if(parsed.nodes&&parsed.nodes.length){
-              let created=0;
-              const validCats=['equipment','contractors','vendors','procedure','projects','people','systems','parts','location'];
-              for(const n of parsed.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2)continue;
-                const{error}=await NX.sb.from('nodes').insert({name:nm.slice(0,200),category:validCats.includes(n.category)?n.category:'equipment',tags:Array.isArray(n.tags)?n.tags.filter(x=>typeof x==='string').slice(0,20):[],notes:(n.notes||'').slice(0,2000),links:[],access_count:1,source_emails:[]});
-                if(!error)created++;}
-              inp.value='';btn.textContent=`✓ ${created} node${created!==1?'s':''} added`;
-              await NX.loadNodes();if(NX.brain)NX.brain.init();
-            }else{btn.textContent='No knowledge found';}
-          }catch(pe){btn.textContent='Parse error';}
-        }else{
-          // Fallback: save raw suggestion
-          await NX.sb.from('suggestions').insert({text:t,session_id:SESSION_ID,created_at:new Date().toISOString()});
-          inp.value='';btn.textContent='Sent to admin ✓';
-        }
-      }catch(e){
-        // No API key or error — save as suggestion for admin
-        await NX.sb.from('suggestions').insert({text:t,session_id:SESSION_ID,created_at:new Date().toISOString()}).catch(()=>{});
-        inp.value='';btn.textContent='Sent ✓';
-      }
-      setTimeout(()=>{btn.disabled=false;btn.textContent='Send';},2500);
-    });}
-
   // HUD collapse
-  function setupHudCollapse(){const hud=document.getElementById('chatHud'),chev=document.getElementById('hudChevron');chev.addEventListener('click',()=>{hud.classList.toggle('collapsed');});}
-
-  // CHAT
-  const TASK_RX=[{rx:/^(?:log|note|record)\s+(?:that\s+)?(.+)/i,type:'log'},{rx:/^(?:add card|create task|todo)\s*:?\s*(.+)/i,type:'card'}];
-  function detectTask(q){for(const p of TASK_RX){const m=q.match(p.rx);if(m)return{type:p.type,content:m[1]};}return null;}
-  async function handleTask(task){if(task.type==='log'){const{error}=await NX.sb.from('daily_logs').insert({entry:task.content});return error?'Failed to log.':`Logged: "${task.content}"`;}if(task.type==='card'){const{error}=await NX.sb.from('kanban_cards').insert({title:task.content,column_name:'todo'});return error?'Failed.':`Card created: "${task.content}"`;}return null;}
-
-  function setupChat(){
-    const i=document.getElementById('chatInput'),s=document.getElementById('chatSend'),hud=document.getElementById('chatHud'),dim=document.getElementById('brainDim'),r=document.getElementById('resetBtn'),chev=document.getElementById('hudChevron');
-    // HUD collapse
-    chev.addEventListener('click',()=>{hud.classList.toggle('collapsed');});
-    i.addEventListener('input',()=>{s.disabled=!i.value.trim();});
-    i.addEventListener('focus',()=>{if(hud.classList.contains('collapsed'))hud.classList.remove('collapsed');dim.classList.add('active');});
-    i.addEventListener('blur',()=>{if(!i.value.trim()&&!chatActive)dim.classList.remove('active');});
-    i.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();askAI();}});
-    s.addEventListener('click',askAI);r.addEventListener('click',resetChat);
-    document.querySelectorAll('.brain-ex').forEach(b=>b.addEventListener('click',()=>{i.value=b.textContent;s.disabled=false;askAI();}));
-  }
-  function resetChat(){chatHistory=[];chatActive=false;document.getElementById('chatMessages').innerHTML='';document.getElementById('brainWelcome').style.display='';document.getElementById('brainExamples').style.display='';document.getElementById('brainDim').classList.remove('active');document.getElementById('resetBtn').style.display='none';activatedNodes=new Set();}
-
-  async function getCtx(q){const w=q.toLowerCase().split(/\s+/).filter(x=>x.length>2);const sc=NX.nodes.map(n=>{let s=0;const t=(n.name+' '+n.category+' '+(n.tags||[]).join(' ')+' '+(n.notes||'')+' '+JSON.stringify(n.sources||n.source_emails||[])).toLowerCase();w.forEach(x=>{if(t.includes(x))s+=t.split(x).length-1;});if(n.name.toLowerCase().includes(q.toLowerCase()))s+=10;return{node:n,score:s};}).filter(s=>s.score>0).sort((a,b)=>b.score-a.score);const rel=sc.slice(0,10).map(s=>s.node);const idx=NX.nodes.filter(n=>!n.is_private).map(n=>`${n.name} (${n.category})`).join(', ');const det=rel.map(n=>{let src='';const sources=n.sources||n.source_emails;if(sources&&sources.length)src=' [Sources: '+sources.map(s=>`${s.from} "${s.subject}" ${s.date}`).join('; ')+']';return`[${n.category}] ${n.name}: ${n.notes}${src}`;}).join('\n');const relIds=rel.map(n=>n.id);activatedNodes=new Set(relIds);setTimeout(()=>{activatedNodes=new Set();},12000);NX.trackAccess(relIds);const memory=await NX.fetchMemory(q);let ev='';if(contractorEvents.length)ev='\n\nUPCOMING:\n'+contractorEvents.slice(0,8).map(e=>`${e.contractor_name} @ ${e.location||'?'} ${e.event_date}`).join('\n');return`RELEVANT NODES:\n${det}\n\nINDEX (${NX.nodes.length}):\n${idx}${memory}${ev}`;}
-
-  async function askAI(){
-    if(!navigator.onLine){addB("Can't reach NEXUS — check WiFi.",'ai');return;}
-    const i=document.getElementById('chatInput'),q=i.value.trim();if(!q)return;i.value='';document.getElementById('chatSend').disabled=true;document.getElementById('brainWelcome').style.display='none';document.getElementById('brainExamples').style.display='none';document.getElementById('brainDim').classList.add('active');document.getElementById('chatHud').classList.add('expanded');document.getElementById('chatHud').classList.remove('collapsed');document.getElementById('resetBtn').style.display='';chatActive=true;addB(q,'user');chatHistory.push({role:'user',content:q});
-    const task=detectTask(q);if(task){const result=await handleTask(task);if(result){addB(result,'ai');chatHistory.push({role:'assistant',content:result});if(voiceOn)speak(result);try{await NX.sb.from('chat_history').insert({question:q,answer:result,session_id:SESSION_ID});}catch(e){}return;}}
-    const th=addB(`Searching ${NX.nodes.length} nodes + memory...`,'ai thinking');const ctx=await getCtx(q);const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
-    try{const ans=await NX.askClaude(PERSONA+'\n\n'+ctx,msgs,800);th.textContent=ans||'Something went sideways.';th.classList.remove('chat-thinking');chatHistory.push({role:'assistant',content:ans});if(voiceOn)speak(ans);try{await NX.sb.from('chat_history').insert({question:q,answer:ans,session_id:SESSION_ID});}catch(e){}}catch(e){th.textContent=navigator.onLine?(e.message||'Connection hiccup.'):"Can't reach NEXUS — check WiFi.";th.classList.remove('chat-thinking');}}
-  function addB(t,type){const el=document.createElement('div');el.className='chat-bubble chat-'+(type.includes('user')?'user':'ai');if(type.includes('thinking'))el.classList.add('chat-thinking');el.textContent=t;el.style[type.includes('user')?'marginLeft':'marginRight']='auto';const c=document.getElementById('chatMessages');c.appendChild(el);c.scrollTop=c.scrollHeight;return el;}
-
-  // VOICE — 10 voices
-  let pv=null;const VOICES=[{id:'pNInz6obpgDQGcFmaJgB',name:'Adam',desc:'Sharp & confident'},{id:'EXAVITQu4vr4xnSDxMaL',name:'Bella',desc:'Warm & witty'},{id:'onwK4e9ZLuTAKqWW03F9',name:'Daniel',desc:'British dry wit'},{id:'XB0fDUnXU5powFXDhCwa',name:'Charlotte',desc:'Smart & smooth'},{id:'TX3LPaxmHKxFdv7VOQHJ',name:'Liam',desc:'Casual & quick'},{id:'jBpfuIE2acCO8z3wKNLl',name:'Emily',desc:'Friendly & clear'},{id:'yoZ06aMxZJJ28mfd3POQ',name:'Sam',desc:'Deep & calm'},{id:'ThT5KcBeYPX3keUQqHPh',name:'Dorothy',desc:'Warm storyteller'},{id:'VR6AewLTigWG4xSOukaG',name:'Arnold',desc:'Bold & direct'},{id:'pqHfZKP75CvOlQylNhV4',name:'Bill',desc:'Natural & relaxed'}];
-  let cvi=parseInt(localStorage.getItem('nexus_voice_idx')||'0')%VOICES.length;
-  function setupVoice(){document.getElementById('micBtn').addEventListener('click',toggleMic);const vb=document.getElementById('voiceBtn');let pt=null;vb.addEventListener('click',()=>{voiceOn=!voiceOn;vb.classList.toggle('on',voiceOn);if(voiceOn)vb.title=`Voice: ${VOICES[cvi].name} (hold to switch)`;});vb.addEventListener('pointerdown',()=>{pt=setTimeout(()=>{cvi=(cvi+1)%VOICES.length;localStorage.setItem('nexus_voice_idx',cvi);voiceOn=true;vb.classList.add('on');vb.title=`Voice: ${VOICES[cvi].name}`;speak(`Hey — ${VOICES[cvi].name} here. ${VOICES[cvi].desc}.`);pt=null;},600);});vb.addEventListener('pointerup',()=>{if(pt)clearTimeout(pt);});vb.addEventListener('pointerleave',()=>{if(pt)clearTimeout(pt);});if('speechSynthesis'in window){const pk=()=>{const v=speechSynthesis.getVoices();for(const n of['Samantha','Karen','Daniel','Microsoft Aria']){const f=v.find(x=>x.name.includes(n));if(f){pv=f;break;}}};pk();speechSynthesis.onvoiceschanged=pk;}}
-  function toggleMic(){const b=document.getElementById('micBtn');if(recognition){recognition.stop();recognition=null;b.classList.remove('recording');return;}if(!('webkitSpeechRecognition'in window||'SpeechRecognition'in window))return;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;recognition=new SR();recognition.continuous=false;recognition.interimResults=false;recognition.onresult=e=>{document.getElementById('chatInput').value=e.results[0][0].transcript;document.getElementById('chatSend').disabled=false;b.classList.remove('recording');recognition=null;askAI();};recognition.onerror=()=>{b.classList.remove('recording');recognition=null;};recognition.onend=()=>{b.classList.remove('recording');recognition=null;};b.classList.add('recording');recognition.start();}
-  async function speak(text){const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.45,similarity_boost:.78,style:.35,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl),a=new Audio(u);a.play();a.onended=()=>URL.revokeObjectURL(u);return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=.95;speechSynthesis.speak(u);}
-
-  NX.brain={init,closePanel,show:()=>{resize();}};NX.modules.brain=NX.brain;NX.loaded.brain=true;
-})();
+  function setupHudCollapse(){const hud=document.getElementById('chatHud'),chev=document.getElementById('hudChevron');chev.addEventListener('click',()
