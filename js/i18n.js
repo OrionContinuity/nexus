@@ -126,7 +126,7 @@ const T={
 };
 
 function getLang(){return localStorage.getItem('nexus_lang')||'en';}
-function setLang(lang){localStorage.setItem('nexus_lang',lang);location.reload();}
+function setLang(lang){localStorage.setItem('nexus_lang',lang);applyUI();}
 function t(key){return T[getLang()]?.[key]||T.en[key]||key;}
 
 function applyUI(){
