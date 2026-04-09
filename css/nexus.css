@@ -218,6 +218,46 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .np-add-file-btn:hover{border-color:var(--accent);color:var(--accent);border-style:solid}
 .np-upload-status{font-size:11px;color:var(--accent);margin-top:6px;min-height:16px}
 
+/* Ticket badge */
+.ticket-badge{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;border-radius:8px;background:#ff5533;color:#fff;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 4px}
+.nav-admin{position:relative}
+
+/* Ticket form in chat */
+.ticket-form{padding:14px;background:var(--elevated);border:1px solid var(--accent);border-radius:var(--r);margin:8px 0}
+.ticket-form-title{font-size:14px;font-weight:600;color:var(--accent);margin-bottom:10px}
+.ticket-field-label{font-size:10px;letter-spacing:1px;color:var(--faint);text-transform:uppercase;margin:10px 0 4px}
+.ticket-textarea{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:10px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical;outline:none;line-height:1.5}
+.ticket-textarea:focus{border-color:var(--accent)}
+.ticket-priority-row{display:flex;gap:6px}
+.ticket-pri-btn{flex:1;padding:8px;border:1px solid var(--border);border-radius:var(--rs);background:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;transition:all .2s}
+.ticket-pri-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(212,182,138,.08)}
+.ticket-photo-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px;border:1px dashed var(--border);border-radius:var(--rs);color:var(--muted);font-size:12px;cursor:pointer;transition:all .2s;font-family:inherit}
+.ticket-photo-btn:hover{border-color:var(--accent);color:var(--accent);border-style:solid}
+.ticket-photo-preview{margin-top:6px}
+.ticket-photo-img{max-width:100%;max-height:150px;border-radius:var(--rs);object-fit:cover}
+.ticket-submit-btn{width:100%;padding:12px;margin-top:12px;border:none;border-radius:var(--r);background:var(--accent);color:var(--bg);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s}
+.ticket-submit-btn:hover{opacity:.9}
+.ticket-submit-btn:disabled{opacity:.5}
+.ticket-status{font-size:12px;text-align:center;margin-top:8px;min-height:18px}
+
+/* Ticket cards in Log */
+.ticket-section{margin-bottom:16px}
+.ticket-section-title{font-size:10px;letter-spacing:2px;color:var(--accent);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:8px}
+.ticket-card{padding:12px;background:var(--elevated);border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;border-left:3px solid #ffb020}
+.ticket-card-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.ticket-card-pri{font-size:9px;font-weight:600;letter-spacing:1px}
+.ticket-card-who{font-size:12px;color:var(--muted)}
+.ticket-card-date{font-size:10px;color:var(--faint);margin-left:auto}
+.ticket-card-notes{font-size:13px;color:var(--text);line-height:1.5;margin-bottom:8px}
+.ticket-card-photo{max-width:100%;max-height:200px;border-radius:var(--rs);object-fit:cover;margin-bottom:8px}
+.ticket-card-ai{font-size:12px;color:var(--muted);margin-bottom:8px}
+.ticket-card-ai summary{cursor:pointer;color:var(--accent);font-size:11px}
+.ticket-card-ai-text{padding:8px;background:rgba(0,0,0,.2);border-radius:var(--rs);margin-top:6px;line-height:1.5}
+.ticket-card-actions{display:flex;gap:6px}
+.ticket-close-btn{padding:6px 14px;border:1px solid #39ff14;border-radius:var(--rs);background:none;color:#39ff14;font-size:11px;cursor:pointer;font-family:inherit;transition:all .2s}
+.ticket-close-btn:hover{background:rgba(57,255,20,.08)}
+.log-ticket{color:#ffb020;border-left:2px solid #ffb020;padding-left:8px}
+
 /* ═══ CLEANING ═══ */
 .clean-header{display:flex;align-items:center;gap:6px;padding:10px;border-bottom:1px solid var(--border);flex-wrap:wrap}
 .clean-tab{padding:8px 16px;border-radius:var(--rp);border:1px solid var(--border);background:none;color:var(--muted);font-size:13px;cursor:pointer;min-height:40px}
