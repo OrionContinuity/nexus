@@ -83,6 +83,15 @@ async function init(){
     localStorage.setItem('nexus_bg_process',e.target.checked?'on':'off');
     if(e.target.checked)startBackgroundProcessor();
   });
+  // Pause/Resume DB button
+  const pauseBtn=document.getElementById('pauseBtn');
+  if(pauseBtn){
+    pauseBtn.addEventListener('click',()=>{
+      NX.paused=!NX.paused;
+      pauseBtn.textContent=NX.paused?'⏸ DB Paused':'▶ DB Active';
+      pauseBtn.classList.toggle('paused',NX.paused);
+    });
+  }
   // Start background processor if enabled
   if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
   updateQueueStatus();
