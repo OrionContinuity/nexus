@@ -47,15 +47,18 @@ When you don't know something, tell the user to TYPE the command in the chat box
   }
 
   async function handleResearch(topic){
-    addB(`Researching "${topic}"...`,'ai thinking');
+    const status=addB(`🔍 Searching the web for "${topic}"...`,'ai thinking');
+    let dots=0;const dotTimer=setInterval(()=>{dots=(dots+1)%4;status.textContent=`🔍 Searching the web for "${topic}"${'.'.repeat(dots)}`;},500);
     try{
       const webResult=await NX.askClaude('You are a research assistant for restaurant operations (Suerte, Este, Bar Toti — Austin TX). Search the web and provide detailed, factual information. Include specs, model numbers, pricing, warranty, dealer contacts.',[{role:'user',content:`Research: ${topic}`}],2000,true);
+      clearInterval(dotTimer);
       addB(webResult||'No results.','ai');
       chatHistory.push({role:'assistant',content:webResult});if(voiceOn)speak(webResult);
       // Quality check — skip extraction if AI just asked for clarification
       const isVague=!webResult||webResult.length<100||/could you|please specify|what would you like|need more|which specific/i.test(webResult);
       if(!isVague){
-        addB('Extracting nodes...','ai thinking');
+        const extractStatus=addB('⚙ Extracting knowledge for the brain...','ai thinking');
+        const extractDots=setInterval(()=>{dots=(dots+1)%4;extractStatus.textContent=`⚙ Extracting knowledge${'.'.repeat(dots)}`;},500);
       const extraction=await NX.askClaude('Extract ALL knowledge as nodes. RESPOND ONLY RAW JSON: {"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"..."}]}',[{role:'user',content:webResult}],2000);
       let json=extraction.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
       const s=json.indexOf('{'),e=json.lastIndexOf('}');
@@ -67,12 +70,13 @@ When you don't know something, tell the user to TYPE the command in the chat box
             const{error}=await NX.sb.from('nodes').insert({name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'equipment',tags:Array.isArray(n.tags)?n.tags.filter(x=>typeof x==='string').slice(0,20):[],notes:(n.notes||'').slice(0,2000),links:[],access_count:1,source_emails:[{from:'Web Research',subject:topic,date:new Date().toISOString().split('T')[0]}]});
             if(!error){created++;ex.add(nm.toLowerCase());}}
           addB(`✓ ${created} node${created!==1?'s':''} added to brain.`,'ai');
+          clearInterval(extractDots);
           await NX.loadNodes();if(NX.brain)NX.brain.init();
-        }else addB('No new nodes to extract.','ai');
+        }else{clearInterval(extractDots);addB('No new nodes to extract.','ai');}
       }
-      }else{addB('Response too vague to extract nodes. Try a more specific research topic.','ai');}
+      }else{addB('Response too vague to extract nodes. Try a more specific topic.','ai');}
       try{await NX.sb.from('chat_history').insert({question:'research: '+topic,answer:webResult,session_id:SESSION_ID});}catch(e){}
-    }catch(e){addB('Research failed: '+(e.message||'error'),'ai');}
+    }catch(e){clearInterval(dotTimer);addB('Research failed: '+(e.message||'error'),'ai');}
   }
 
   async function handleSensitiveScan(){
@@ -181,17 +185,19 @@ When you don't know something, tell the user to TYPE the command in the chat box
       if(task.type==='removeClean'){await handleRemoveCleanTask(task.content);return;}
       try{const result=await handleTask(task);if(result){addB(result,'ai');chatHistory.push({role:'assistant',content:result});if(voiceOn)speak(result);try{await NX.sb.from('chat_history').insert({question:q,answer:result,session_id:SESSION_ID});}catch(e){}return;}}catch(e){addB('Task error: '+e.message,'ai');return;}
     }
-    const th=addB(`Searching ${NX.nodes.length} nodes...`,'ai thinking');
+    const th=addB(`🔍 Searching ${NX.nodes.length} nodes...`,'ai thinking');
+    let sd=0;const searchDots=setInterval(()=>{sd=(sd+1)%4;th.textContent=`🔍 Searching ${NX.nodes.length} nodes${'.'.repeat(sd)}`;},400);
     try{
       const ctx=await getCtx(q);
       const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
       const ans=await NX.askClaude(PERSONA+'\n\n'+ctx,msgs,800,false);
+      clearInterval(searchDots);
       th.textContent=ans||'No response.';th.classList.remove('chat-thinking');
       // Add timestamp
       const ts=document.createElement('span');ts.className='chat-time';ts.textContent=timeStr();th.appendChild(ts);
       chatHistory.push({role:'assistant',content:ans});if(voiceOn)speak(ans);
       try{await NX.sb.from('chat_history').insert({question:q,answer:ans,session_id:SESSION_ID});}catch(e){}
-    }catch(e){th.textContent='Error: '+(e.message||'Unknown');th.classList.remove('chat-thinking');}
+    }catch(e){clearInterval(searchDots);th.textContent='Error: '+(e.message||'Unknown');th.classList.remove('chat-thinking');}
   }
 
   function addB(t,type){
