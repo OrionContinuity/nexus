@@ -1,4 +1,4 @@
-/* ═══════════════════════════════════════════
+/*═════════════════════════════════════════
    NEXUS Admin/Ingest v7 — 3-LAYER DEDUP
    Layer 1: Track processed Gmail/Trello IDs
    Layer 2: Fuzzy name matching on insert
@@ -66,36 +66,29 @@ async function init(){
   document.getElementById('mailMonitorBtn')?.addEventListener('click',mailMonitor);
   document.getElementById('reIngestBtn')?.addEventListener('click',reIngestArchived);
   // Email file upload
+  // Smart file router — emails vs documents
+  function routeFiles(files){
+    const emailFiles=[],docFiles=[];
+    for(const f of files){
+      const ext=(f.name.split('.').pop()||'').toLowerCase();
+      if(['eml','mbox','msg'].includes(ext))emailFiles.push(f);
+      else if(['pdf','docx','xlsx','xls','csv','txt','md','json'].includes(ext))docFiles.push(f);
+      else emailFiles.push(f); // default to email handler
+    }
+    if(emailFiles.length)processEmailFiles(emailFiles);
+    if(docFiles.length)processDocFiles(docFiles);
+  }
   const dropzone=document.getElementById('emailDropzone');
   const fileInput=document.getElementById('emailFileInput');
   if(dropzone){
     dropzone.addEventListener('dragover',e=>{e.preventDefault();dropzone.classList.add('dragover');});
     dropzone.addEventListener('dragleave',()=>dropzone.classList.remove('dragover'));
-    dropzone.addEventListener('drop',e=>{e.preventDefault();dropzone.classList.remove('dragover');processEmailFiles(e.dataTransfer.files);});
+    dropzone.addEventListener('drop',e=>{e.preventDefault();dropzone.classList.remove('dragover');routeFiles(e.dataTransfer.files);});
     dropzone.addEventListener('click',()=>fileInput?.click());
-    fileInput?.addEventListener('change',()=>{if(fileInput.files.length)processEmailFiles(fileInput.files);});
+    fileInput?.addEventListener('change',()=>{if(fileInput.files.length)routeFiles(fileInput.files);});
   }
-  // Slack import
-  const slackDrop=document.getElementById('slackDropzone');
-  const slackFile=document.getElementById('slackFileInput');
-  if(slackDrop){
-    slackDrop.addEventListener('dragover',e=>{e.preventDefault();slackDrop.classList.add('dragover');});
-    slackDrop.addEventListener('dragleave',()=>slackDrop.classList.remove('dragover'));
-    slackDrop.addEventListener('drop',e=>{e.preventDefault();slackDrop.classList.remove('dragover');processSlackFiles(e.dataTransfer.files);});
-    slackDrop.addEventListener('click',()=>slackFile?.click());
-    slackFile?.addEventListener('change',()=>{if(slackFile.files.length)processSlackFiles(slackFile.files);});
-  }
-  document.getElementById('slackProcessBtn')?.addEventListener('click',processSlackPaste);
-  // Document file upload
-  const docDrop=document.getElementById('docDropzone');
-  const docFile=document.getElementById('docFileInput');
-  if(docDrop){
-    docDrop.addEventListener('dragover',e=>{e.preventDefault();docDrop.classList.add('dragover');});
-    docDrop.addEventListener('dragleave',()=>docDrop.classList.remove('dragover'));
-    docDrop.addEventListener('drop',e=>{e.preventDefault();docDrop.classList.remove('dragover');processDocFiles(e.dataTransfer.files);});
-    docDrop.addEventListener('click',()=>docFile?.click());
-    docFile?.addEventListener('change',()=>{if(docFile.files.length)processDocFiles(docFile.files);});
-  }
+  // Import backup
+  document.getElementById('importFileInput')?.addEventListener('change',function(){if(this.files.length)importBackup(this.files[0]);});
   // Document rescan
   document.getElementById('docRescanBtn')?.addEventListener('click',async()=>{
     const btn=document.getElementById('docRescanBtn');
@@ -128,10 +121,10 @@ async function init(){
     else if(bgInterval){clearInterval(bgInterval);bgInterval=null;log('⚙ Background processor stopped');}
   });
   // Batch size presets
-  document.querySelectorAll('#batchPresets .ig-preset').forEach(btn=>{
+  document.querySelectorAll('#batchPresets .ig-chip').forEach(btn=>{
     if(btn.dataset.val===String(getBatchSize()))btn.classList.add('active');
     btn.addEventListener('click',()=>{
-      document.querySelectorAll('#batchPresets .ig-preset').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('#batchPresets .ig-chip').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
       localStorage.setItem('nexus_bg_batch',btn.dataset.val);
       if(bgInterval)startBackgroundProcessor();
@@ -139,10 +132,10 @@ async function init(){
     });
   });
   // Mode presets
-  document.querySelectorAll('#modePresets .ig-preset').forEach(btn=>{
+  document.querySelectorAll('#modePresets .ig-chip').forEach(btn=>{
     if(btn.dataset.val===getMode())btn.classList.add('active');
     btn.addEventListener('click',()=>{
-      document.querySelectorAll('#modePresets .ig-preset').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('#modePresets .ig-chip').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
       localStorage.setItem('nexus_bg_mode',btn.dataset.val);
       updateProcStatus();
@@ -154,10 +147,10 @@ async function init(){
     });
   });
   // Interval presets
-  document.querySelectorAll('#intervalPresets .ig-preset').forEach(btn=>{
+  document.querySelectorAll('#intervalPresets .ig-chip').forEach(btn=>{
     if(btn.dataset.val===localStorage.getItem('nexus_bg_interval'))btn.classList.add('active');
     btn.addEventListener('click',()=>{
-      document.querySelectorAll('#intervalPresets .ig-preset').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('#intervalPresets .ig-chip').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
       localStorage.setItem('nexus_bg_interval',btn.dataset.val);
       if(bgInterval)startBackgroundProcessor();
@@ -423,7 +416,7 @@ async function processNextBatch(){
         log('♻ Archive reset for re-scan','success');
         // Switch to process mode after reset
         localStorage.setItem('nexus_bg_mode','process');
-        document.querySelectorAll('#modePresets .ig-preset').forEach(b=>{b.classList.toggle('active',b.dataset.val==='process');});
+        document.querySelectorAll('#modePresets .ig-chip').forEach(b=>{b.classList.toggle('active',b.dataset.val==='process');});
         updateQueueStatus();return;
       }
     }
@@ -505,16 +498,16 @@ async function updateQueueStatus(){
     const{count}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true}).eq('processed',false);
     const el=document.getElementById('queueStatus');
     const pq=document.getElementById('procQueue');
-    if(el){
-      if(count>0){el.textContent=`${count} queued`;el.style.color='var(--accent)';el.classList.add('active');}
-      else{el.textContent='Queue empty';el.style.color='var(--faint)';el.classList.remove('active');}
-    }
+    if(el){el.textContent=count||0;}
     if(pq)pq.textContent=count>0?`${count} queued`:'';
-    const statsEl=document.getElementById('ingestStats');
-    if(statsEl){
-      const{count:nc}=await NX.sb.from('nodes').select('*',{count:'exact',head:true});
-      const{count:ec}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true});
-      statsEl.innerHTML=`<span class="ig-stat">${nc||0} nodes</span><span class="ig-stat">${ec||0} emails</span>${count>0?`<span class="ig-stat ig-stat-queue">${count} queued</span>`:''}`;
+    // Update stat cards
+    const nc=document.getElementById('igNodeCount');
+    const ec=document.getElementById('igEmailCount');
+    if(nc||ec){
+      const{count:nodeCount}=await NX.sb.from('nodes').select('*',{count:'exact',head:true});
+      const{count:emailCount}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true});
+      if(nc)nc.textContent=nodeCount||0;
+      if(ec)ec.textContent=emailCount||0;
     }
   }catch(e){}
 }
@@ -1473,8 +1466,8 @@ NX.modules.ingest={init,show:()=>{updateProcStatus();
   const alt=document.getElementById('autoLinkToggle');if(alt)alt.checked=localStorage.getItem('nexus_auto_link')!=='off';
   const bgt=document.getElementById('bgProcessToggle');if(bgt)bgt.checked=localStorage.getItem('nexus_bg_process')!=='off';
   const batch=String(getBatchSize());const interval=localStorage.getItem('nexus_bg_interval')||'300';const mode=getMode();
-  document.querySelectorAll('#batchPresets .ig-preset').forEach(b=>{b.classList.toggle('active',b.dataset.val===batch);});
-  document.querySelectorAll('#intervalPresets .ig-preset').forEach(b=>{b.classList.toggle('active',b.dataset.val===interval);});
-  document.querySelectorAll('#modePresets .ig-preset').forEach(b=>{b.classList.toggle('active',b.dataset.val===mode);});
+  document.querySelectorAll('#batchPresets .ig-chip').forEach(b=>{b.classList.toggle('active',b.dataset.val===batch);});
+  document.querySelectorAll('#intervalPresets .ig-chip').forEach(b=>{b.classList.toggle('active',b.dataset.val===interval);});
+  document.querySelectorAll('#modePresets .ig-chip').forEach(b=>{b.classList.toggle('active',b.dataset.val===mode);});
 }};
 })();
