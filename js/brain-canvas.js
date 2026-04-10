@@ -246,7 +246,23 @@
     if(!brainEl||!brainEl.classList.contains('active')){
       requestAnimationFrame(draw);return;
     }
-    if(W<10||H<10){resize();requestAnimationFrame(draw);return;}
+    if(W<10||H<10){
+      resize();
+      // If still bad, force canvas to fill parent
+      if(W<10||H<10){
+        const parent=canvas.parentElement;
+        if(parent){
+          const pr=parent.getBoundingClientRect();
+          const dpr=Math.min(window.devicePixelRatio||1,1.5);
+          if(pr.width>10&&pr.height>10){
+            W=pr.width*dpr;H=pr.height*dpr;canvas.width=W;canvas.height=H;
+            canvas.style.width=pr.width+'px';canvas.style.height=pr.height+'px';
+            state.W=W;state.H=H;
+          }
+        }
+      }
+      requestAnimationFrame(draw);return;
+    }
     time+=0.005;physicsFrame++;
     const P=state.particles,t=state.transform;
     if(P.length<800||physicsFrame%2===0)physics();
@@ -681,6 +697,7 @@
   }
 
   NX.brain={init,closePanel,state,wakePhysics,show:()=>{
-    resize(); // Just resize, draw loop is always running
+    // Delay resize to let browser lay out the view first
+    requestAnimationFrame(()=>{resize();requestAnimationFrame(()=>{if(W<10||H<10)resize();});});
   },openPanel};NX.modules.brain=NX.brain;NX.loaded.brain=true;
 })();
