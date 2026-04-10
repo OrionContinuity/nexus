@@ -14,7 +14,7 @@
     contractorEvents:[],W:0,H:0,canvas,ctx
   };
 
-  const DAMP=0.994,MAXV=0.7,DOT=3,DOT_HIT=6,DOT_ACTIVE=10;
+  const DAMP=0.996,MAXV=0.28,DOT=3,DOT_HIT=6,DOT_ACTIVE=10;
 
   // ═══ NEBULA PARTICLES — beacon-001 inspired ═══
   const nebula=[];const MAX_NEBULA=300;
@@ -27,7 +27,7 @@
   function spawnNebula(cx,cy,energy){
     if(nebula.length>=MAX_NEBULA)return;
     const angle=Math.random()*Math.PI*2;
-    const speed=0.15+Math.random()*0.6+(energy||0)*1.5;
+    const speed=0.06+Math.random()*0.24+(energy||0)*0.6;
     const c=NEBULA_COLORS[Math.floor(Math.random()*NEBULA_COLORS.length)];
     nebula.push({
       x:cx,y:cy,
@@ -185,7 +185,7 @@
       const px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
       const py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
       const speed=1.2/Math.sqrt(Math.max(r/galaxyR,0.08)); // Slower orbits
-      const p={id:n.id,x:px,y:py,vx:-(py-cy)/(r||1)*speed*0.008,vy:(px-cx)/(r||1)*speed*0.008,
+      const p={id:n.id,x:px,y:py,vx:-(py-cy)/(r||1)*speed*0.003,vy:(px-cx)/(r||1)*speed*0.003,
         node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,
         glowAlpha:0,birthAge:0,isBorn:true};
       newParticles.push(p);
@@ -204,7 +204,7 @@
         const px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
         const py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
         const speed=1.2/Math.sqrt(Math.max(r/galaxyR,0.08));
-        return{id:n.id,x:px,y:py,vx:-(py-cy)/(r||1)*speed*0.008,vy:(px-cx)/(r||1)*speed*0.008,
+        return{id:n.id,x:px,y:py,vx:-(py-cy)/(r||1)*speed*0.003,vy:(px-cx)/(r||1)*speed*0.003,
           node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,
           glowAlpha:0,birthAge:0,isBorn:false};
       });
@@ -221,8 +221,8 @@
     for(let i=0;i<len;i++){const a=P[i];
       if(state.frozenNode&&state.frozenNode.id===a.id)continue;
       const dx=a.x-cx,dy=a.y-cy,dist=Math.sqrt(dx*dx+dy*dy)||1;
-      // Orbital — slower, graceful
-      const orbF=0.055/Math.sqrt(Math.max(dist/galaxyR,0.05));
+      // Orbital — slow, graceful drift
+      const orbF=0.022/Math.sqrt(Math.max(dist/galaxyR,0.05));
       a.vx+=(-dy/dist)*orbF;a.vy+=(dx/dist)*orbF;
       // Slingshot
       if(dist<20){const s=12*(1-dist/20);a.vx+=dx/dist*s;a.vy+=dy/dist*s;}
@@ -331,7 +331,7 @@
       const isActive=state.activeNode&&state.activeNode.id===a.id;
       const isFrozen=state.frozenNode&&state.frozenNode.id===a.id;
       const isHover=state.hoverNode&&state.hoverNode.id===a.id;
-      const dim=isA&&!isHit&&!isActive;
+      const dim=(isA&&!isHit&&!isActive)||a.filtered;
       const pulse=0.85+0.15*Math.sin(time*1.3+a.id*0.9);
       // Audio reactivity — dots pulse with music
       const musicPulse=isPlaying?1+audioEnergy*0.3:1;
@@ -355,27 +355,42 @@
         ctx.strokeStyle='rgba(212,182,138,.3)';ctx.lineWidth=0.8;ctx.stroke();
         ctx.font='400 10px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle='rgba(212,182,138,.7)';ctx.fillText(a.node.name.slice(0,25),a.x,a.y-r-5);
       }else{
-        // Birth animation — new nodes pop into existence
-        if(a.isBorn&&a.birthAge<120){
+        // Birth animation — dramatic pop entrance
+        if(a.isBorn&&a.birthAge<180){
           a.birthAge++;
-          const birthT=a.birthAge/120; // 0→1 over 2 seconds
-          const pop=birthT<0.15?birthT/0.15*2.5: // Scale up fast
-                    birthT<0.3?2.5-(birthT-0.15)/0.15*1.5: // Bounce back
-                    1; // Settle
-          const birthAlpha=Math.min(birthT*3,1);
-          const flashAlpha=birthT<0.3?(1-birthT/0.3)*0.6:0;
+          const birthT=a.birthAge/180; // 0→1 over 3 seconds
+          const pop=birthT<0.1?birthT/0.1*3.5: // Scale up fast to 3.5x
+                    birthT<0.2?3.5-(birthT-0.1)/0.1*2: // Bounce to 1.5x
+                    birthT<0.35?1.5-(birthT-0.2)/0.15*0.5: // Settle to 1x
+                    1;
+          const birthAlpha=Math.min(birthT*4,1);
+          const flashAlpha=birthT<0.4?(1-birthT/0.4)*0.8:0;
+          const ringExpand=birthT<0.5?birthT/0.5:1;
           const r=DOT*pop*musicPulse;
-          // Gold flash ring
+          // Expanding gold ring
           if(flashAlpha>0.01){
-            ctx.beginPath();ctx.arc(a.x,a.y,r*6*(1+birthT*2),0,Math.PI*2);
+            ctx.beginPath();ctx.arc(a.x,a.y,r*10*ringExpand,0,Math.PI*2);
+            ctx.fillStyle=`rgba(212,182,138,${flashAlpha*0.04})`;ctx.fill();
+            ctx.beginPath();ctx.arc(a.x,a.y,r*6*ringExpand,0,Math.PI*2);
             ctx.fillStyle=`rgba(212,182,138,${flashAlpha*0.08})`;ctx.fill();
             ctx.beginPath();ctx.arc(a.x,a.y,r*3,0,Math.PI*2);
-            ctx.fillStyle=`rgba(255,240,200,${flashAlpha*0.2})`;ctx.fill();
+            ctx.fillStyle=`rgba(255,240,200,${flashAlpha*0.15})`;ctx.fill();
+            // Gold ring outline
+            ctx.beginPath();ctx.arc(a.x,a.y,r*8*ringExpand,0,Math.PI*2);
+            ctx.strokeStyle=`rgba(212,182,138,${flashAlpha*0.2})`;ctx.lineWidth=1;ctx.stroke();
           }
+          // Bright core
           ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);
-          ctx.fillStyle=`rgba(255,245,220,${birthAlpha*0.7})`;ctx.fill();
-          // Spawn particles on birth
-          if(a.birthAge===1){for(let b=0;b<5;b++)spawnNebula(a.x,a.y,0.3);}
+          ctx.fillStyle=`rgba(255,245,220,${birthAlpha*0.8})`;ctx.fill();
+          // Name flash during birth
+          if(birthT<0.6&&birthT>0.1){
+            ctx.font='400 10px "Libre Franklin"';ctx.textAlign='center';
+            ctx.fillStyle=`rgba(212,182,138,${(1-birthT/0.6)*0.7})`;
+            ctx.fillText(a.node.name.slice(0,20),a.x,a.y-r*3-8);
+          }
+          // Spawn particles throughout birth
+          if(a.birthAge===1){for(let b=0;b<12;b++)spawnNebula(a.x,a.y,0.5);}
+          if(a.birthAge===30){for(let b=0;b<6;b++)spawnNebula(a.x,a.y,0.3);}
         }else{
           a.isBorn=false;
           const r=DOT*pulse*musicPulse;
@@ -551,6 +566,29 @@
   function checkEmpty(){const e=document.getElementById('canvasEmpty');if(e)e.style.display=NX.nodes.length<1?'flex':'none';}
   function wakePhysics(){}
 
+  function buildFilters(){
+    const el=document.getElementById('brainFilters');if(!el)return;
+    const cats=new Set();state.particles.forEach(p=>{if(p.cat)cats.add(p.cat);});
+    el.innerHTML='';
+    const allBtn=document.createElement('button');allBtn.className='brain-filter-btn active';allBtn.textContent='All';
+    allBtn.addEventListener('click',()=>{
+      el.querySelectorAll('.brain-filter-btn').forEach(b=>b.classList.remove('active'));
+      allBtn.classList.add('active');
+      state.particles.forEach(p=>{p.filtered=false;});
+    });
+    el.appendChild(allBtn);
+    Array.from(cats).sort().forEach(cat=>{
+      const btn=document.createElement('button');btn.className='brain-filter-btn';
+      btn.textContent=cat.charAt(0).toUpperCase()+cat.slice(1);
+      btn.addEventListener('click',()=>{
+        el.querySelectorAll('.brain-filter-btn').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        state.particles.forEach(p=>{p.filtered=p.cat!==cat;});
+      });
+      el.appendChild(btn);
+    });
+  }
+
   function init(){
     resize();
     // If canvas has no dimensions yet (still hidden), retry
@@ -558,7 +596,7 @@
       setTimeout(()=>{resize();buildParticles();for(let i=0;i<150;i++)physics();setupCanvas();checkEmpty();draw();},300);
       return;
     }
-    buildParticles();for(let i=0;i<150;i++)physics();setupCanvas();checkEmpty();
+    buildParticles();for(let i=0;i<150;i++)physics();setupCanvas();checkEmpty();buildFilters();
     if(NX.brain.initChat)NX.brain.initChat();if(NX.brain.initList)NX.brain.initList();if(NX.brain.initEvents)NX.brain.initEvents();draw();
   }
 
