@@ -2,7 +2,7 @@
 (function(){
   if(!localStorage.getItem('nexus_session_id'))localStorage.setItem('nexus_session_id',crypto.randomUUID?crypto.randomUUID():'s_'+Date.now()+'_'+Math.random().toString(36).slice(2));
   const SESSION_ID=localStorage.getItem('nexus_session_id');
-  let chatHistory=[],voiceOn=false,recognition=null,chatActive=false;
+  let chatHistory=[],voiceOn=true,recognition=null,chatActive=false;
   function tt(k){return NX.i18n?NX.i18n.t(k):k;}
 
   const PERSONA_BASE=`You are NEXUS, ops brain for Suerte, Este, Bar Toti (Austin TX). Alfredo Ortiz runs these.
@@ -92,7 +92,7 @@ You CANNOT search the web yourself — user must type a command like "look up" o
         }else{clearInterval(extractDots);addB('No new nodes to extract.','ai');}
       }
       }else{addB(tt('tooVague'),'ai');}
-      try{await NX.sb.from('chat_history').insert({question:'research: '+topic,answer:webResult,session_id:SESSION_ID});}catch(e){}
+      try{await NX.sb.from('chat_history').insert({question:'research: '+topic,answer:webResult,session_id:SESSION_ID,user_name:(NX.currentUser?NX.currentUser.name:'Unknown')});}catch(e){}
     }catch(e){clearInterval(dotTimer);addB(tt('researchFailed')+': '+(e.message||'error'),'ai');}
   }
 
@@ -314,8 +314,6 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     s.addEventListener('click',askAI);r.addEventListener('click',resetChat);
     document.querySelectorAll('.brain-ex').forEach(b=>b.addEventListener('click',()=>{i.value=b.textContent;s.disabled=false;askAI();}));
     checkApiKey();buildDynamicChips();
-    if(localStorage.getItem('nexus_voice_seen')){const l=document.getElementById('micLabel');if(l)l.classList.add('hidden');}
-    else localStorage.setItem('nexus_voice_seen','1');
     setupVoice();
     window.addEventListener('online',()=>{document.getElementById('offlineBanner').style.display='none';});
     window.addEventListener('offline',()=>{document.getElementById('offlineBanner').style.display='block';});
@@ -373,6 +371,7 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     document.getElementById('chatHud').classList.remove('collapsed');
     document.getElementById('resetBtn').style.display='';
     chatActive=true;addB(q,'user');chatHistory.push({role:'user',content:q});
+    showTyping();
     if(!NX.getApiKey()){addB(tt('noApiKey'),'ai');return;}
     const task=detectTask(q);
     if(task){
@@ -382,7 +381,7 @@ After the troubleshoot steps, ask the person to add more details and optionally 
       if(task.type==='sensitive'){await handleSensitiveScan();return;}
       if(task.type==='addClean'){await handleAddCleanTask(task.content);return;}
       if(task.type==='removeClean'){await handleRemoveCleanTask(task.content);return;}
-      try{const result=await handleTask(task);if(result){addB(result,'ai');chatHistory.push({role:'assistant',content:result});if(voiceOn)speak(result);try{await NX.sb.from('chat_history').insert({question:q,answer:result,session_id:SESSION_ID});}catch(e){}return;}}catch(e){addB('Task error: '+e.message,'ai');return;}
+      try{const result=await handleTask(task);if(result){addB(result,'ai');chatHistory.push({role:'assistant',content:result});if(voiceOn)speak(result);try{await NX.sb.from('chat_history').insert({question:q,answer:result,session_id:SESSION_ID,user_name:(NX.currentUser?NX.currentUser.name:'Unknown')});}catch(e){}return;}}catch(e){addB('Task error: '+e.message,'ai');return;}
     }
     const th=addB('🔍 '+tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'...','ai thinking');
     let sd=0;const searchDots=setInterval(()=>{sd=(sd+1)%4;th.textContent='🔍 '+tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'.'.repeat(sd);},400);
@@ -417,22 +416,32 @@ After the troubleshoot steps, ask the person to add more details and optionally 
       if(cleanAns.length>80&&confidence!=='low'){
         autoExtractNodes(q,cleanAns);
       }
-      try{await NX.sb.from('chat_history').insert({question:q,answer:cleanAns,session_id:SESSION_ID});}catch(e){}
+      try{await NX.sb.from('chat_history').insert({question:q,answer:cleanAns,session_id:SESSION_ID,user_name:(NX.currentUser?NX.currentUser.name:'Unknown')});}catch(e){}
     }catch(e){clearInterval(searchDots);th.textContent='Error: '+(e.message||'Unknown');th.classList.remove('chat-thinking');}
   }
 
   function addB(t,type){
+    // Remove any typing indicator
+    document.querySelectorAll('.chat-typing').forEach(e=>e.remove());
     const el=document.createElement('div');
     el.className='chat-bubble chat-'+(type.includes('user')?'user':'ai');
     if(type.includes('thinking'))el.classList.add('chat-thinking');
     el.textContent=t;
-    // Timestamp on non-thinking messages
     if(!type.includes('thinking')){
       const ts=document.createElement('span');ts.className='chat-time';ts.textContent=timeStr();el.appendChild(ts);
     }
     const c=document.getElementById('chatMessages');c.appendChild(el);
     requestAnimationFrame(()=>{c.scrollTop=c.scrollHeight;});
     return el;
+  }
+
+  function showTyping(){
+    const c=document.getElementById('chatMessages');
+    document.querySelectorAll('.chat-typing').forEach(e=>e.remove());
+    const el=document.createElement('div');el.className='chat-typing';
+    el.innerHTML='<span></span><span></span><span></span>';
+    c.appendChild(el);
+    requestAnimationFrame(()=>{c.scrollTop=c.scrollHeight;});
   }
 
   // Onboarding
@@ -460,7 +469,7 @@ After the troubleshoot steps, ask the person to add more details and optionally 
   const VOICES=[{id:'pNInz6obpgDQGcFmaJgB',name:'Adam'},{id:'EXAVITQu4vr4xnSDxMaL',name:'Bella'},{id:'onwK4e9ZLuTAKqWW03F9',name:'Daniel'},{id:'XB0fDUnXU5powFXDhCwa',name:'Charlotte'},{id:'TX3LPaxmHKxFdv7VOQHJ',name:'Liam'},{id:'LcfcDJNUP1GQjkzn1xUU',name:'Emily'},{id:'yoZ06aMxZJJ28mfd3POQ',name:'Sam'},{id:'ThT5KcBeYPX3keUQqHPh',name:'Dorothy'},{id:'VR6AewLTigWG4xSOukaG',name:'Arnold'},{id:'pqHfZKP75CvOlQylNhV4',name:'Bill'},{id:'ErXwobaYiN019PkySvjV',name:'Antoni'},{id:'AZnzlk1XvdvUeBnXmlld',name:'Domi'},{id:'D38z5RcWu1voky8WS1ja',name:'Fin'},{id:'jsCqWAovK2LkecY7zXl4',name:'Freya'},{id:'jBpfuIE2acCO8z3wKNLl',name:'Gigi'},{id:'oWAxZDx7w5VEj9dCyTzz',name:'Grace'},{id:'SOYHLrjzK2X1ezoPC6cr',name:'Harry'},{id:'ZQe5CZNOzWyzPSCn5a3c',name:'James'},{id:'TxGEqnHWrfWFTfGW9XjX',name:'Josh'},{id:'21m00Tcm4TlvDq8ikWAM',name:'Rachel'}];
   function getVoiceIdx(){return parseInt((NX.config&&NX.config.voice_idx!=null)?NX.config.voice_idx:(localStorage.getItem('nexus_voice_idx')||'0'))%VOICES.length;}
   let cvi=0;
-  function setupVoice(){document.getElementById('micBtn').addEventListener('click',toggleMic);const vb=document.getElementById('voiceBtn');let pt=null;vb.addEventListener('click',()=>{voiceOn=!voiceOn;vb.classList.toggle('on',voiceOn);});vb.addEventListener('pointerdown',()=>{pt=setTimeout(()=>{cvi=(cvi+1)%VOICES.length;localStorage.setItem('nexus_voice_idx',cvi);voiceOn=true;vb.classList.add('on');speak(`${VOICES[cvi].name} here.`);pt=null;},600);});vb.addEventListener('pointerup',()=>{if(pt)clearTimeout(pt);});vb.addEventListener('pointerleave',()=>{if(pt)clearTimeout(pt);});if('speechSynthesis'in window){const pk=()=>{const v=speechSynthesis.getVoices();for(const n of['Samantha','Karen','Daniel','Microsoft Aria']){const f=v.find(x=>x.name.includes(n));if(f){pv=f;break;}}};pk();speechSynthesis.onvoiceschanged=pk;}}
+  function setupVoice(){document.getElementById('micBtn').addEventListener('click',toggleMic);const vb=document.getElementById('voiceBtn');vb.classList.add('on');let pt=null;vb.addEventListener('click',()=>{voiceOn=!voiceOn;vb.classList.toggle('on',voiceOn);});vb.addEventListener('pointerdown',()=>{pt=setTimeout(()=>{cvi=(cvi+1)%VOICES.length;localStorage.setItem('nexus_voice_idx',cvi);voiceOn=true;vb.classList.add('on');speak(`${VOICES[cvi].name} here.`);pt=null;},600);});vb.addEventListener('pointerup',()=>{if(pt)clearTimeout(pt);});vb.addEventListener('pointerleave',()=>{if(pt)clearTimeout(pt);});if('speechSynthesis'in window){const pk=()=>{const v=speechSynthesis.getVoices();for(const n of['Samantha','Karen','Daniel','Microsoft Aria']){const f=v.find(x=>x.name.includes(n));if(f){pv=f;break;}}};pk();speechSynthesis.onvoiceschanged=pk;}}
   function toggleMic(){const b=document.getElementById('micBtn');if(recognition){recognition.stop();recognition=null;b.classList.remove('recording');return;}if(!('webkitSpeechRecognition'in window||'SpeechRecognition'in window))return;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;recognition=new SR();recognition.continuous=false;recognition.interimResults=false;recognition.onresult=e=>{document.getElementById('chatInput').value=e.results[0][0].transcript;document.getElementById('chatSend').disabled=false;b.classList.remove('recording');recognition=null;askAI();};recognition.onerror=()=>{b.classList.remove('recording');recognition=null;};recognition.onend=()=>{b.classList.remove('recording');recognition=null;};b.classList.add('recording');recognition.start();}
   async function speak(text){cvi=getVoiceIdx();const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.45,similarity_boost:.78,style:.35,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl),a=new Audio(u);a.play();a.onended=()=>URL.revokeObjectURL(u);return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=.95;speechSynthesis.speak(u);}
 
