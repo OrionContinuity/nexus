@@ -77,7 +77,7 @@
       </div>
     </div>
     <div class="hud-top">
-      <div class="brain-search"><input autocomplete="off" id="brainSearch" placeholder="Search nodes..." aria-label="Search nodes"><button class="list-toggle" id="listToggle"><i data-lucide="list" class="hud-icon"></i></button></div>
+      <div class="brain-search"><input autocomplete="off" data-lpignore="true" data-form-type="other" id="brainSearch" placeholder="Search nodes..." aria-label="Search nodes"><button class="list-toggle" id="listToggle"><i data-lucide="list" class="hud-icon"></i></button></div>
       <button class="events-toggle" id="eventsToggle"><i data-lucide="calendar" class="hud-icon"></i></button>
     </div>
     <div class="brain-filters" id="brainFilters"></div>
@@ -94,9 +94,9 @@
     <div class="events-panel" id="eventsPanel">
       <div class="events-header"><span class="events-title">CONTRACTOR SCHEDULE</span><button class="events-close" id="eventsClose"><i data-lucide="x" class="hud-icon"></i></button></div>
       <div class="events-add-bar">
-        <input autocomplete="off" id="eventContractor" placeholder="Contractor..." class="events-field" list="contractorSuggest"><datalist id="contractorSuggest"></datalist>
-        <input autocomplete="off" id="eventDesc" placeholder="Service..." class="events-field">
-        <div class="events-row"><input autocomplete="off" id="eventDate" type="date" class="events-field"><input autocomplete="off" id="eventTime" type="time" class="events-field"></div>
+        <input autocomplete="off" data-lpignore="true" data-form-type="other" id="eventContractor" placeholder="Contractor..." class="events-field" list="contractorSuggest"><datalist id="contractorSuggest"></datalist>
+        <input autocomplete="off" data-lpignore="true" data-form-type="other" id="eventDesc" placeholder="Service..." class="events-field">
+        <div class="events-row"><input autocomplete="off" data-lpignore="true" data-form-type="other" id="eventDate" type="date" class="events-field"><input autocomplete="off" data-lpignore="true" data-form-type="other" id="eventTime" type="time" class="events-field"></div>
         <div class="events-row"><select id="eventLocation" class="events-field"><option value="suerte">Suerte</option><option value="este">Este</option><option value="toti">Toti</option></select><button id="eventAddBtn" class="events-add-btn">+ Schedule</button></div>
       </div>
       <div class="events-list" id="eventsList"></div>
@@ -129,7 +129,7 @@
       </div>
       <div class="hud-input">
         <button class="btn-reset" id="resetBtn" style="display:none"><i data-lucide="rotate-ccw" class="hud-icon"></i></button>
-        <input autocomplete="off" id="chatInput" placeholder="Ask NEXUS..." aria-label="Ask NEXUS">
+        <input autocomplete="nexus-off" data-lpignore="true" data-form-type="other" data-1p-ignore="true" id="chatInput" placeholder="Ask NEXUS..." aria-label="Ask NEXUS">
         <button class="btn-send" id="chatSend" disabled><i data-lucide="send" class="hud-icon-send"></i></button>
       </div>
     </div>
@@ -145,7 +145,7 @@
         <button id="npEditNotes" class="np-edit-btn">✏ Edit Notes</button>
         <!-- Add files -->
         <div class="np-add-section">
-          <label class="np-add-file-btn"><input autocomplete="off" type="file" id="npFileInput" multiple accept="image/*,.pdf,.doc,.docx,.xlsx,.csv" hidden>📎 Add File / Photo</label>
+          <label class="np-add-file-btn"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="npFileInput" multiple accept="image/*,.pdf,.doc,.docx,.xlsx,.csv" hidden>📎 Add File / Photo</label>
           <div id="npUploadStatus" class="np-upload-status"></div>
         </div>
         <!-- Sources with expandable emails -->
@@ -166,8 +166,8 @@
     <div class="clean-header"><button class="clean-tab active" data-cloc="suerte">Suerte</button><button class="clean-tab" data-cloc="este">Este</button><button class="clean-tab" data-cloc="toti">Toti</button><span class="clean-date" id="cleanDate"></span></div>
     <div class="clean-progress"><span class="clean-progress-label">SHIFT PROGRESS</span><div class="clean-track"><div class="clean-fill" id="cleanFill"></div></div><span class="clean-pct" id="cleanPct">0%</span></div>
     <div class="clean-add-bar">
-      <input autocomplete="off" id="cleanTaskEs" class="clean-add-input" placeholder="Tarea en español...">
-      <input autocomplete="off" id="cleanTaskEn" class="clean-add-input" placeholder="Task in English...">
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" id="cleanTaskEs" class="clean-add-input" placeholder="Tarea en español...">
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" id="cleanTaskEn" class="clean-add-input" placeholder="Task in English...">
       <select id="cleanTaskSec" class="clean-add-select"></select>
       <button id="cleanAddBtn" class="clean-add-btn">+ Add</button>
     </div>
@@ -177,9 +177,9 @@
 
   <!-- LOG -->
   <div class="view" id="logView" data-view="log">
-    <div class="log-input-bar"><input autocomplete="off" class="log-input" id="logInput" placeholder="Log a repair, observation, or note..."><button class="log-add" id="logAdd">+</button></div>
+    <div class="log-input-bar"><input autocomplete="off" data-lpignore="true" data-form-type="other" class="log-input" id="logInput" placeholder="Log a repair, observation, or note..."><button class="log-add" id="logAdd">+</button></div>
     <div class="log-knowledge-bar">
-      <input autocomplete="off" class="log-input" id="knowledgeInput" placeholder="Add knowledge to the brain...">
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" class="log-input" id="knowledgeInput" placeholder="Add knowledge to the brain...">
       <button class="log-knowledge-btn" id="knowledgeBtn">+ Brain</button>
     </div>
     <div class="log-list" id="logList"></div>
@@ -199,7 +199,7 @@
 
       <!-- BACKGROUND PROCESSOR -->
       <div class="ig-bg-bar">
-        <label class="ig-toggle"><input autocomplete="off" type="checkbox" id="bgProcessToggle" checked><span>Auto-process (3 every 5 min)</span></label>
+        <label class="ig-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="bgProcessToggle" checked><span>Auto-process (3 every 5 min)</span></label>
         <button id="pauseBtn" class="ig-pause-btn" title="Pause all DB writes">● Syncing</button>
       </div>
 
@@ -213,7 +213,7 @@
           <div id="gmailSyncControls" style="display:none">
             <div class="ig-controls">
               <select id="gmailDays" class="ig-select"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="180">6 months</option><option value="365">1 year</option><option value="all">All time</option></select>
-              <input autocomplete="off" id="gmailFilter" class="ig-input" placeholder="from:tyler OR subject:invoice">
+              <input autocomplete="off" data-lpignore="true" data-form-type="other" id="gmailFilter" class="ig-input" placeholder="from:tyler OR subject:invoice">
             </div>
             <button id="gmailSyncBtn" class="ig-btn ig-btn-primary">⚡ Sync to Brain</button>
             <button id="reIngestBtn" class="ig-btn ig-btn-outline">♻ Re-ingest Archive</button>
@@ -221,7 +221,7 @@
           <div class="ig-divider"></div>
           <div class="ig-dropzone" id="emailDropzone">
             <i data-lucide="folder-open" class="ig-lucide"></i>
-            <span class="ig-drop-text">Drop email files or <label class="ig-drop-link"><input autocomplete="off" type="file" id="emailFileInput" multiple accept=".eml,.mbox,.msg,.txt,.csv" hidden>browse</label></span>
+            <span class="ig-drop-text">Drop email files or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="emailFileInput" multiple accept=".eml,.mbox,.msg,.txt,.csv" hidden>browse</label></span>
           <div class="ig-drop-formats">.eml .mbox .msg .txt</div>
           </div>
           <div id="emailFileStatus" class="ig-feedback"></div>
@@ -270,7 +270,7 @@
           <p class="ig-desc">Import Slack export (.zip or .json files) or paste channel content.</p>
           <div class="ig-dropzone" id="slackDropzone">
             <i data-lucide="folder-open" class="ig-lucide"></i>
-            <span class="ig-drop-text">Drop Slack export .json files or <label class="ig-drop-link"><input autocomplete="off" type="file" id="slackFileInput" multiple accept=".json,.zip,.txt" hidden>browse</label></span>
+            <span class="ig-drop-text">Drop Slack export .json files or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="slackFileInput" multiple accept=".json,.zip,.txt" hidden>browse</label></span>
           </div>
           <textarea id="slackPasteText" class="ig-textarea" placeholder="Or paste Slack channel content here..."></textarea>
           <button id="slackProcessBtn" class="ig-btn ig-btn-primary">Process Slack Content</button>
@@ -289,7 +289,7 @@
               <span class="ig-tool-label">🔗 Relationships</span>
               <p class="ig-desc">AI links related nodes together.</p>
               <button id="relationshipBtn" class="ig-btn ig-btn-blue">Build Links</button>
-              <label class="ig-toggle"><input autocomplete="off" type="checkbox" id="autoLinkToggle" checked><span>Auto-link on import</span></label>
+              <label class="ig-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="autoLinkToggle" checked><span>Auto-link on import</span></label>
             </div>
             <div class="ig-tool">
               <span class="ig-tool-label">🔒 Privacy Scan</span>
@@ -320,8 +320,8 @@
     <div id="adminUserInfo" class="admin-user-info"></div>
     <div id="adminKeySection" style="display:none">
       <div class="admin-section-label">API Keys</div>
-      <input autocomplete="off" type="password" id="adminApiKey" placeholder="Anthropic API Key" class="admin-field">
-      <input autocomplete="off" type="password" id="adminElevenKey" placeholder="ElevenLabs API Key" class="admin-field">
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminApiKey" placeholder="Anthropic API Key" class="admin-field">
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminElevenKey" placeholder="ElevenLabs API Key" class="admin-field">
       <hr class="admin-divider">
       <div class="admin-section-label">AI Model</div>
       <select id="adminModel" class="admin-field">
@@ -357,8 +357,8 @@
       <div id="voiceTestStatus" class="admin-key-status" style="font-size:11px;min-height:16px"></div>
       <hr class="admin-divider">
       <div class="admin-section-label">Integrations</div>
-      <input autocomplete="off" type="password" id="adminTrelloKey" placeholder="Trello API Key" class="admin-field">
-      <input autocomplete="off" type="password" id="adminTrelloToken" placeholder="Trello Token" class="admin-field">
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminTrelloKey" placeholder="Trello API Key" class="admin-field">
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminTrelloToken" placeholder="Trello Token" class="admin-field">
       <button id="adminSaveKeys" class="admin-save-btn">Save Keys</button>
       <div id="adminKeyStatus" class="admin-key-status"></div>
       <hr class="admin-divider">
@@ -374,8 +374,8 @@
       <div class="admin-section-label">Team Members</div>
       <div id="adminUserList" class="admin-user-list"></div>
       <div class="admin-add-user">
-        <input autocomplete="off" id="newUserName" placeholder="Name" class="admin-field-sm">
-        <input autocomplete="off" id="newUserPin" placeholder="PIN" class="admin-field-sm" maxlength="6">
+        <input autocomplete="off" data-lpignore="true" data-form-type="other" id="newUserName" placeholder="Name" class="admin-field-sm">
+        <input autocomplete="off" data-lpignore="true" data-form-type="other" id="newUserPin" placeholder="PIN" class="admin-field-sm" maxlength="6">
         <select id="newUserRole" class="admin-field-sm">
           <option value="staff">Staff</option>
           <option value="manager">Manager</option>
