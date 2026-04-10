@@ -470,7 +470,7 @@ async function processNextBatch(){
       }
     }
     const chunk=processed.map((e,idx)=>`[EMAIL #${idx+1}]\nFROM: ${e.from}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\n---\n${e.body||e.snippet}`).join('\n\n========\n\n');
-    const sourceMap=processed.map((e,idx)=>({ref:idx+1,from:e.from,date:e.date,subject:e.subject,body:(e.body||e.snippet||'').slice(0,500)}));
+    const sourceMap=processed.map((e,idx)=>({ref:idx+1,from:e.from,date:e.date,subject:e.subject,body:(e.body||e.snippet||'').slice(0,500),attachments:e.attachments||[]}));
     const r=await aiProcessWithSources(chunk,sourceMap);
     let created=0;if(r){created=await saveExtracted(r);}
     for(const d of data){await NX.sb.from('raw_emails').update({processed:true}).eq('id',d.id);await sleep(50);}
@@ -955,11 +955,18 @@ RESPOND ONLY RAW JSON:
   try{const p=JSON.parse(j);if(!p.nodes||!Array.isArray(p.nodes))return null;
     p.nodes.forEach(n=>{
       if(n.email_refs&&Array.isArray(n.email_refs)&&sourceMap){
-        n.source_emails=n.email_refs.map(ref=>{
-          const src=sourceMap.find(s=>s.ref===ref);
-          return src?{from:src.from,subject:src.subject,date:src.date,body:src.body||'',snippet:src.body?.slice(0,200)||''}:null;
-        }).filter(Boolean);
-      }else{n.source_emails=[];}
+        const matchedSources=n.email_refs.map(ref=>sourceMap.find(s=>s.ref===ref)).filter(Boolean);
+        n.source_emails=matchedSources.map(src=>({from:src.from,subject:src.subject,date:src.date,body:src.body||'',snippet:src.body?.slice(0,200)||''}));
+        // Collect all attachments from matched emails
+        n.attachments=[];
+        matchedSources.forEach(src=>{
+          if(src.attachments&&src.attachments.length){
+            src.attachments.forEach(a=>{
+              if(a.url)n.attachments.push({url:a.url,filename:a.filename||'file',type:a.type||a.mimeType||'',from:src.from,date:src.date});
+            });
+          }
+        });
+      }else{n.source_emails=[];n.attachments=[];}
     });
     return p;}catch(pe){log('JSON parse: '+pe.message,'error');return null;}}catch(e){log('AI: '+e.message,'error');return null;}}
 
@@ -996,7 +1003,9 @@ for(const n of r.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2)continu
     const mergedNotes=newNotes.length>ex.notes.length?newNotes:ex.notes; // Keep longer notes
     const mergedTags=[...new Set([...ex.tags,...newTags])].slice(0,30);
     const mergedSources=[...ex.source_emails,...newSources].slice(0,50);
-    const mergedAtts=[...ex.attachments,...newAtts].slice(0,20);
+    // Deduplicate attachments by filename+url
+    const allAtts=[...ex.attachments,...newAtts];
+    const attSeen=new Set();const mergedAtts=allAtts.filter(a=>{const k=(a.filename||'')+'|'+(a.url||'');if(attSeen.has(k))return false;attSeen.add(k);return true;}).slice(0,20);
     // Only update if we have something new
     if(newNotes.length>ex.notes.length||newTags.length||newSources.length||newAtts.length){
       try{await NX.sb.from('nodes').update({
