@@ -164,7 +164,7 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .event-del-btn:hover{border-color:var(--red);color:var(--red)}
 
 /* Chat HUD */
-.chat-hud{position:absolute;bottom:0;left:0;right:0;z-index:20;background:rgba(14,14,18,.96);backdrop-filter:blur(12px);border-top:1.5px solid var(--accent);display:flex;flex-direction:column;max-height:68px;transition:max-height .3s ease}
+.chat-hud{position:absolute;bottom:0;left:0;right:0;z-index:20;background:rgba(14,14,18,.96);backdrop-filter:blur(12px);border-top:1.5px solid var(--accent);display:flex;flex-direction:column;max-height:76px;transition:max-height .3s ease}
 .chat-hud.expanded{max-height:65%}
 .chat-hud .hud-body{display:none}
 .chat-hud.expanded .hud-body{display:flex}
@@ -558,3 +558,24 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 /* Agenda done state */
 .agenda-done{opacity:.4;border-style:dashed}
 .agenda-done .agenda-item-title{text-decoration:line-through}
+
+/* Cleaning log entries */
+.log-entry-clean{padding:0;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;position:relative}
+.log-entry-clean .log-del{position:absolute;top:8px;right:8px;z-index:2}
+.log-clean-head{display:flex;align-items:center;gap:8px;padding:12px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.log-clean-pct{font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;min-width:44px}
+.log-clean-title{flex:1;font-size:12px;font-weight:500}
+.log-clean-arrow{font-size:10px;color:var(--faint);transition:transform .2s}
+.log-entry-clean.expanded .log-clean-arrow{transform:rotate(180deg)}
+.log-clean-body{display:none;padding:0 12px 12px;border-top:1px solid var(--border)}
+.log-entry-clean.expanded .log-clean-body{display:block}
+.log-clean-sec{padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.log-clean-sec:last-of-type{border:none}
+.log-clean-sec-head{font-size:12px;color:var(--text);margin-bottom:2px}
+.log-missed-item{font-size:11px;color:#ff5533;padding:2px 0 2px 16px}
+.log-missed-item:before{content:'';display:inline}
+.log-clean-full{font-size:10px;color:var(--accent);cursor:pointer;padding:6px 0;text-align:center}
+.log-clean-raw{font-size:10px;color:var(--faint);white-space:pre-wrap;padding:8px;background:var(--elevated);border-radius:var(--rs);max-height:200px;overflow-y:auto;margin-top:4px}
+.log-del{background:none;border:1px solid var(--border);color:var(--faint);width:24px;height:24px;border-radius:50%;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s;flex-shrink:0}
+.log-entry:hover .log-del,.log-entry-clean:hover .log-del{opacity:1}
+.log-del:hover{border-color:var(--red);color:var(--red)}
