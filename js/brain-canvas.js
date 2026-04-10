@@ -217,25 +217,22 @@
   // ═══ PHYSICS ═══
   function physics(){
     const P=state.particles,len=P.length,cx=W/2,cy=H/2;
-    const galaxyR=Math.min(W,H)*0.42,CELL=40,grid=new Map();
-    for(let i=0;i<len;i++){const a=P[i];const key=((Math.floor(a.x/CELL)+500)<<16)|(Math.floor(a.y/CELL)+500);let c=grid.get(key);if(!c){c=[];grid.set(key,c);}c.push(i);}
+    const galaxyR=Math.min(W,H)*0.42;
+    const doOverlap=len<500||physicsFrame%3===0; // Skip overlap check 2/3 frames at 500+
+    let grid;
+    if(doOverlap){const CELL=40;grid=new Map();for(let i=0;i<len;i++){const a=P[i];const key=((Math.floor(a.x/CELL)+500)<<16)|(Math.floor(a.y/CELL)+500);let c=grid.get(key);if(!c){c=[];grid.set(key,c);}c.push(i);}}
     for(let i=0;i<len;i++){const a=P[i];
       if(state.frozenNode&&state.frozenNode.id===a.id)continue;
       const dx=a.x-cx,dy=a.y-cy,dist=Math.sqrt(dx*dx+dy*dy)||1;
-      // Orbital — slow, graceful drift
       const orbF=0.022/Math.sqrt(Math.max(dist/galaxyR,0.05));
       a.vx+=(-dy/dist)*orbF;a.vy+=(dx/dist)*orbF;
-      // Slingshot
       if(dist<20){const s=12*(1-dist/20);a.vx+=dx/dist*s;a.vy+=dy/dist*s;}
-      // Inward pull
       a.vx-=dx/dist*0.0006;a.vy-=dy/dist*0.0006;
-      // Boundary
       if(dist>galaxyR*1.3){const o=(dist-galaxyR*1.3)*0.003;a.vx-=dx/dist*o;a.vy-=dy/dist*o;}
-      // Audio push — music makes nodes drift outward slightly
       if(isPlaying&&audioEnergy>0.1){a.vx+=dx/dist*audioEnergy*0.02;a.vy+=dy/dist*audioEnergy*0.02;}
-      // Overlap
-      const gx=Math.floor(a.x/CELL)+500,gy=Math.floor(a.y/CELL)+500;
-      for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j<=i)continue;const b=P[j];const ddx=a.x-b.x,ddy=a.y-b.y,dd=Math.sqrt(ddx*ddx+ddy*ddy)||1;if(dd<DOT*3){const push=(DOT*3-dd)*0.05;a.vx+=ddx/dd*push;a.vy+=ddy/dd*push;b.vx-=ddx/dd*push;b.vy-=ddy/dd*push;}}}
+      // Overlap — only when doOverlap
+      if(doOverlap&&grid){const CELL=40,gx=Math.floor(a.x/CELL)+500,gy=Math.floor(a.y/CELL)+500;
+      for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j<=i)continue;const b=P[j];const ddx=a.x-b.x,ddy=a.y-b.y,dd=Math.sqrt(ddx*ddx+ddy*ddy)||1;if(dd<DOT*3){const push=(DOT*3-dd)*0.05;a.vx+=ddx/dd*push;a.vy+=ddy/dd*push;b.vx-=ddx/dd*push;b.vy-=ddy/dd*push;}}}}
       a.vx*=DAMP;a.vy*=DAMP;const sp=a.vx*a.vx+a.vy*a.vy;
       if(dist>25&&sp>MAXV*MAXV){const s=Math.sqrt(sp);a.vx=a.vx/s*MAXV;a.vy=a.vy/s*MAXV;}
       a.x+=a.vx;a.y+=a.vy;
@@ -497,13 +494,13 @@
 
   // ═══ NODE PANEL ═══
   function openPanel(n){
-    // Collapse chat if open
     const hud=document.getElementById('chatHud');
     if(hud)hud.classList.remove('expanded');
     state.activeNode=n;
     document.getElementById('npCat').textContent=n.category.toUpperCase();
+    const ownerLabel=n.owner_id?` · ${findOwnerName(n.owner_id)}'s Brain`:'';
     document.getElementById('npName').textContent=n.name;
-    document.getElementById('npTags').textContent=(n.tags||[]).map(t=>'#'+t).join('  ');
+    document.getElementById('npTags').textContent=(n.tags||[]).map(t=>'#'+t).join('  ')+ownerLabel;
     document.getElementById('npNotes').textContent=n.notes||'No notes.';
     // Sources
     const se=document.getElementById('npSources');se.innerHTML='';
@@ -597,6 +594,12 @@
   }
 
   function closePanel(){state.activeNode=null;state.frozenNode=null;document.getElementById('nodePanel').classList.remove('open');}
+  function findOwnerName(ownerId){
+    if(!ownerId)return'Shared';
+    if(NX.currentUser&&NX.currentUser.id===ownerId)return NX.currentUser.name;
+    // Check allNodes for user reference or return ID
+    return'User #'+ownerId;
+  }
   function checkEmpty(){const e=document.getElementById('canvasEmpty');if(e)e.style.display=NX.nodes.length<1?'flex':'none';}
   function wakePhysics(){}
 
