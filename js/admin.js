@@ -1,4 +1,4 @@
-/*═════════════════════════════════════════
+/* ═══════════════════════════════════════════
    NEXUS Admin/Ingest v7 — 3-LAYER DEDUP
    Layer 1: Track processed Gmail/Trello IDs
    Layer 2: Fuzzy name matching on insert
@@ -58,14 +58,12 @@ function log(msg,type){const el=document.getElementById('ingestLog');if(!el)retu
 function clearLog(){const el=document.getElementById('ingestLog');if(el)el.innerHTML='';}
 
 async function init(){
-  document.getElementById('ingestTextBtn').addEventListener('click',ingestText);
-  document.getElementById('trelloBtn').addEventListener('click',trelloImport);
-  document.getElementById('gmailConnectBtn').addEventListener('click',connectGmail);
+  document.getElementById('ingestTextBtn')?.addEventListener('click',ingestText);
+  document.getElementById('trelloBtn')?.addEventListener('click',trelloImport);
+  document.getElementById('gmailConnectBtn')?.addEventListener('click',connectGmail);
   document.getElementById('gmailSyncBtn')?.addEventListener('click',syncEmails);
   document.getElementById('clearLogBtn')?.addEventListener('click',clearLog);
-  document.getElementById('mailMonitorBtn')?.addEventListener('click',mailMonitor);
   document.getElementById('reIngestBtn')?.addEventListener('click',reIngestArchived);
-  // Email file upload
   // Smart file router — emails vs documents
   function routeFiles(files){
     const emailFiles=[],docFiles=[];
@@ -73,7 +71,7 @@ async function init(){
       const ext=(f.name.split('.').pop()||'').toLowerCase();
       if(['eml','mbox','msg'].includes(ext))emailFiles.push(f);
       else if(['pdf','docx','xlsx','xls','csv','txt','md','json'].includes(ext))docFiles.push(f);
-      else emailFiles.push(f); // default to email handler
+      else emailFiles.push(f);
     }
     if(emailFiles.length)processEmailFiles(emailFiles);
     if(docFiles.length)processDocFiles(docFiles);
@@ -89,29 +87,7 @@ async function init(){
   }
   // Import backup
   document.getElementById('importFileInput')?.addEventListener('change',function(){if(this.files.length)importBackup(this.files[0]);});
-  // Document rescan
-  document.getElementById('docRescanBtn')?.addEventListener('click',async()=>{
-    const btn=document.getElementById('docRescanBtn');
-    if(!confirm('Reset ALL archived emails & docs for AI re-processing?'))return;
-    btn.disabled=true;btn.textContent='Resetting...';clearLog();
-    try{
-      const{error}=await NX.sb.from('raw_emails').update({processed:false}).eq('processed',true);
-      if(!error){const{count}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true}).eq('processed',false);log(`♻ <b>${count} items</b> queued`,'success');updateQueueStatus();}
-    }catch(e){log('Error: '+e.message,'error');}
-    btn.disabled=false;btn.textContent='♻ Re-scan All Archives (background)';
-  });
-  // Backup export
   document.getElementById('exportBtn')?.addEventListener('click',exportBackup);
-  // Backup import
-  const impDrop=document.getElementById('importDropzone');
-  const impFile=document.getElementById('importFileInput');
-  if(impDrop){
-    impDrop.addEventListener('dragover',e=>{e.preventDefault();impDrop.classList.add('dragover');});
-    impDrop.addEventListener('dragleave',()=>impDrop.classList.remove('dragover'));
-    impDrop.addEventListener('drop',e=>{e.preventDefault();impDrop.classList.remove('dragover');if(e.dataTransfer.files.length)importBackup(e.dataTransfer.files[0]);});
-    impDrop.addEventListener('click',()=>impFile?.click());
-    impFile?.addEventListener('change',()=>{if(impFile.files.length)importBackup(impFile.files[0]);});
-  }
   document.getElementById('sensitiveBtn')?.addEventListener('click',scanSensitive);
   document.getElementById('relationshipBtn')?.addEventListener('click',()=>buildRelationships(false));
   document.getElementById('autoLinkToggle')?.addEventListener('change',(e)=>{localStorage.setItem('nexus_auto_link',e.target.checked?'on':'off');});
@@ -435,7 +411,34 @@ async function processNextBatch(){
     log(`⚙ Processing ${data.length}...`);
     const emails=data.map(e=>({id:e.id,from:e.from_addr,to:e.to_addr,date:e.date,subject:e.subject,body:e.body||'',snippet:e.snippet||'',attachmentCount:e.attachment_count||0,attachments:e.attachments||[]}));
     // PDF extraction
-    if(shouldExtractPdfs()){for(const email of emails){if(!email.attachments)continue;for(const att of email.attachments){if(!att.url)continue;const ext=(att.filename||'').split('.').pop().toLowerCase();if(ext==='pdf'&&window.pdfjsLib){try{const resp=await fetch(att.url);if(!resp.ok)continue;const buf=await resp.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:buf}).promise;let pt='';for(let p=1;p<=Math.min(pdf.numPages,20);p++){const pg=await pdf.getPage(p);const c=await pg.getTextContent();pt+=c.items.map(i=>i.str).join(' ')+'\n';}if(pt.length>50){email.body+='\n[PDF:'+att.filename+']\n'+pt.slice(0,3000);log(`  📎 PDF ${att.filename}`);};}catch(e){}}}}}
+    if(shouldExtractPdfs()){for(const email of emails){if(!email.attachments)continue;for(const att of email.attachments){if(!att.url)continue;const ext=(att.filename||'').split('.').pop().toLowerCase();if(ext==='pdf'&&window.pdfjsLib){try{
+      setProcLive('working',`Reading PDF: ${att.filename}`);
+      const resp=await fetch(att.url);if(!resp.ok)continue;
+      const buf=await resp.arrayBuffer();
+      const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+      let pt='';let lowPages=[];
+      for(let p=1;p<=Math.min(pdf.numPages,20);p++){
+        const pg=await pdf.getPage(p);const c=await pg.getTextContent();
+        const pageText=c.items.map(i=>i.str).join(' ').trim();
+        pt+=pageText+'\n';
+        if(pageText.length<50)lowPages.push(p);
+      }
+      // Vision OCR for scanned pages
+      if(lowPages.length>0&&shouldExtractImages()&&NX.askClaudeVision&&NX.getApiKey()){
+        for(const pn of lowPages.slice(0,4)){
+          try{
+            const pg=await pdf.getPage(pn);
+            const vp=pg.getViewport({scale:2});
+            const cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;
+            await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+            const b64=cv.toDataURL('image/jpeg',0.85).split(',')[1];
+            const vt=await NX.askClaudeVision('Extract ALL text, numbers, dates, amounts, part numbers from this document page. Plain text.',b64,'image/jpeg');
+            if(vt&&vt.length>20){pt+=`\n[OCR p${pn}] ${vt}\n`;log(`  📖 OCR p${pn}: ${vt.length} chars`);}
+          }catch(e){}
+        }
+      }
+      if(pt.length>50){email.body+='\n[PDF:'+att.filename+']\n'+pt.slice(0,5000);log(`  📎 PDF ${att.filename}: ${pt.length} chars`);}
+    }catch(e){}}}}}
     // Image extraction via Claude Vision
     if(shouldExtractImages()){for(const email of emails){if(!email.attachments)continue;for(const att of email.attachments){if(!att.url)continue;const ext=(att.filename||'').split('.').pop().toLowerCase();if(['jpg','jpeg','png','webp','gif'].includes(ext)){try{setProcLive('working',`Reading image: ${att.filename}`);const resp=await fetch(att.url);if(!resp.ok)continue;const blob=await resp.blob();if(blob.size>5*1024*1024)continue;const b64=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result.split(',')[1]);fr.readAsDataURL(blob);});const mt=blob.type||'image/jpeg';const vr=await NX.askClaudeVision('Extract ALL text, numbers, items, prices, totals, dates, vendor names, part numbers, model numbers from this image. If equipment photo: brand, model, condition, serial numbers. Plain text only.',b64,mt);if(vr&&vr.length>20){email.body+='\n[IMAGE:'+att.filename+']\n'+vr.slice(0,2000);log(`  🖼 Image ${att.filename}`);}}catch(e){}}}}}
     setProcLive('working','AI extracting...');
@@ -703,18 +706,98 @@ async function importBackup(file){
 }
 
 // ═══ DOCUMENT FILE INGEST — PDF, DOCX, XLSX, CSV ═══
+// ═══ DEEP DOCUMENT PARSING ═══
+
 async function extractPdfText(file){
   if(!window.pdfjsLib){log('PDF.js not loaded','error');return'';}
   try{
     const buffer=await file.arrayBuffer();
     const pdf=await pdfjsLib.getDocument({data:buffer}).promise;
-    let text='';
-    for(let i=1;i<=Math.min(pdf.numPages,50);i++){
+    const numPages=Math.min(pdf.numPages,50);
+    let allText='';
+    let lowTextPages=[];
+
+    // Pass 1: Extract text from all pages
+    for(let i=1;i<=numPages;i++){
       const page=await pdf.getPage(i);
       const content=await page.getTextContent();
-      text+=content.items.map(item=>item.str).join(' ')+'\n';
+      const pageText=content.items.map(item=>item.str).join(' ').trim();
+      allText+=`[Page ${i}]\n${pageText}\n\n`;
+      // Track pages with little/no text (likely scanned or image-heavy)
+      if(pageText.length<50)lowTextPages.push(i);
     }
-    return text.trim();
+
+    // Pass 2: Render low-text pages as images → Claude Vision OCR
+    if(lowTextPages.length>0&&NX.askClaudeVision&&NX.getApiKey()){
+      const pagesToScan=lowTextPages.slice(0,8); // Max 8 pages via Vision
+      log(`  🔍 ${pagesToScan.length} scanned/image pages detected — using Vision OCR`);
+      for(const pageNum of pagesToScan){
+        try{
+          const page=await pdf.getPage(pageNum);
+          const viewport=page.getViewport({scale:2}); // 2x for readability
+          const canvas=document.createElement('canvas');
+          canvas.width=viewport.width;canvas.height=viewport.height;
+          const ctx=canvas.getContext('2d');
+          await page.render({canvasContext:ctx,viewport}).promise;
+          const b64=canvas.toDataURL('image/jpeg',0.85).split(',')[1];
+          const visionText=await NX.askClaudeVision(
+            'Extract ALL text from this document page. Include every number, word, date, amount, name, address, phone number, part number, serial number. Preserve layout structure (tables, columns, headers). Plain text only.',
+            b64,'image/jpeg'
+          );
+          if(visionText&&visionText.length>20){
+            allText+=`[Page ${pageNum} — OCR]\n${visionText}\n\n`;
+            log(`  📖 Page ${pageNum}: ${visionText.length} chars via Vision`);
+          }
+        }catch(e){}
+      }
+    }
+
+    // Pass 3: Extract embedded images (logos, receipts, photos)
+    if(NX.askClaudeVision&&NX.getApiKey()){
+      let imageCount=0;
+      for(let i=1;i<=Math.min(numPages,20)&&imageCount<5;i++){
+        try{
+          const page=await pdf.getPage(i);
+          const ops=await page.getOperatorList();
+          for(let j=0;j<ops.fnArray.length&&imageCount<5;j++){
+            if(ops.fnArray[j]===pdfjsLib.OPS.paintImageXObject){
+              const imgName=ops.argsArray[j][0];
+              try{
+                const img=await page.objs.get(imgName);
+                if(!img||!img.width||img.width<100||img.height<100)continue; // Skip tiny images
+                const c=document.createElement('canvas');c.width=img.width;c.height=img.height;
+                const cx=c.getContext('2d');
+                const imgData=cx.createImageData(img.width,img.height);
+                // Handle different image data formats
+                if(img.data){
+                  if(img.data.length===img.width*img.height*4){
+                    imgData.data.set(img.data);
+                  }else if(img.data.length===img.width*img.height*3){
+                    for(let p=0,q=0;p<img.data.length;p+=3,q+=4){
+                      imgData.data[q]=img.data[p];imgData.data[q+1]=img.data[p+1];
+                      imgData.data[q+2]=img.data[p+2];imgData.data[q+3]=255;
+                    }
+                  }else continue;
+                  cx.putImageData(imgData,0,0);
+                  const b64=c.toDataURL('image/jpeg',0.8).split(',')[1];
+                  const vt=await NX.askClaudeVision(
+                    'Extract ALL text, numbers, dates, amounts, part numbers, names, addresses from this image. If it\'s a logo, identify the company. If a receipt/invoice, extract every line item. Plain text only.',
+                    b64,'image/jpeg'
+                  );
+                  if(vt&&vt.length>15){
+                    allText+=`[Embedded Image p${i}]\n${vt}\n\n`;
+                    imageCount++;
+                    log(`  🖼 Embedded image p${i}: ${vt.length} chars`);
+                  }
+                }
+              }catch(e){}
+            }
+          }
+        }catch(e){}
+      }
+    }
+
+    return allText.trim();
   }catch(e){log('PDF error: '+e.message,'error');return'';}
 }
 
@@ -722,8 +805,44 @@ async function extractDocxText(file){
   if(!window.mammoth){log('Mammoth not loaded','error');return'';}
   try{
     const buffer=await file.arrayBuffer();
+    // Extract text
     const result=await mammoth.extractRawText({arrayBuffer:buffer});
-    return(result.value||'').trim();
+    let text=(result.value||'').trim();
+    // Also try HTML extraction for tables
+    try{
+      const htmlResult=await mammoth.convertToHtml({arrayBuffer:buffer});
+      if(htmlResult.value){
+        // Extract table data from HTML
+        const div=document.createElement('div');div.innerHTML=htmlResult.value;
+        const tables=div.querySelectorAll('table');
+        if(tables.length){
+          text+='\n\n[TABLES]\n';
+          tables.forEach((t,i)=>{
+            text+=`Table ${i+1}:\n`;
+            t.querySelectorAll('tr').forEach(r=>{
+              const cells=[];r.querySelectorAll('td,th').forEach(c=>cells.push(c.textContent.trim()));
+              text+=cells.join(' | ')+'\n';
+            });
+            text+='\n';
+          });
+        }
+        // Extract images for Vision
+        if(NX.askClaudeVision&&NX.getApiKey()){
+          const imgs=div.querySelectorAll('img');
+          for(let i=0;i<Math.min(imgs.length,3);i++){
+            const src=imgs[i].src;
+            if(src&&src.startsWith('data:image')){
+              try{
+                const b64=src.split(',')[1];const mt=src.split(';')[0].split(':')[1];
+                const vt=await NX.askClaudeVision('Extract all text and data from this image.',b64,mt);
+                if(vt&&vt.length>15)text+=`\n[Doc Image]\n${vt}\n`;
+              }catch(e){}
+            }
+          }
+        }
+      }
+    }catch(e){}
+    return text;
   }catch(e){log('DOCX error: '+e.message,'error');return'';}
 }
 
@@ -731,11 +850,22 @@ async function extractXlsxText(file){
   if(!window.XLSX){log('SheetJS not loaded','error');return'';}
   try{
     const buffer=await file.arrayBuffer();
-    const wb=XLSX.read(buffer,{type:'array'});
+    const wb=XLSX.read(buffer,{type:'array',cellDates:true});
     let text='';
     wb.SheetNames.forEach(name=>{
       const sheet=wb.Sheets[name];
-      text+=`[Sheet: ${name}]\n${XLSX.utils.sheet_to_csv(sheet)}\n\n`;
+      const range=XLSX.utils.decode_range(sheet['!ref']||'A1');
+      const rows=range.e.r-range.s.r+1;
+      const cols=range.e.c-range.s.c+1;
+      text+=`[Sheet: ${name} — ${rows} rows × ${cols} cols]\n`;
+      // Use CSV for structure
+      text+=XLSX.utils.sheet_to_csv(sheet)+'\n\n';
+      // Also extract any comments/notes
+      Object.keys(sheet).forEach(k=>{
+        if(sheet[k]&&sheet[k].c&&sheet[k].c.length){
+          sheet[k].c.forEach(c=>{if(c.t)text+=`[Note ${k}]: ${c.t}\n`;});
+        }
+      });
     });
     return text.trim();
   }catch(e){log('XLSX error: '+e.message,'error');return'';}
@@ -776,7 +906,7 @@ async function processDocFiles(files){
         id:'doc_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
         from_addr:file.name,to_addr:'nexus-import',
         date:new Date().toISOString(),subject:file.name.replace(/\.[^.]+$/,''),
-        body:text.slice(0,8000),snippet:text.slice(0,200),
+        body:text.slice(0,12000),snippet:text.slice(0,200),
         attachment_count:1,attachments:fileUrl?[{url:fileUrl,filename:file.name,type:file.type}]:[],
         processed:false
       },{onConflict:'id'});
