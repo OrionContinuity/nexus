@@ -272,21 +272,27 @@
     // Nebula particles (behind everything)
     drawNebula(t);
 
-    // Gold connection lines — only for tapped/frozen node
-    if(state.frozenNode){
-      const a=state.frozenNode;
-      const links=a.links||[];
-      for(let li=0;li<links.length;li++){
-        const b=state.linkMap[links[li]];if(!b)continue;
-        const dist=Math.hypot(a.x-b.x,a.y-b.y);
-        const alpha=Math.max(0.12,0.5-dist/2000);
-        ctx.lineWidth=1.2;ctx.strokeStyle=`rgba(212,182,138,${alpha})`;
-        ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
-        // Glow dot at connected node
-        ctx.beginPath();ctx.arc(b.x,b.y,4,0,Math.PI*2);
-        ctx.fillStyle=`rgba(212,182,138,${alpha*1.5})`;ctx.fill();
-        // Show name of connected node
-        if(dist<400){ctx.font='400 9px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle=`rgba(212,182,138,${alpha})`;ctx.fillText((b.node?.name||'').slice(0,20),b.x,b.y-8);}
+    // Gold connection lines — for tapped node + search hits
+    if(state.frozenNode||state.searchHits.size>0){
+      const showNodes=new Set();
+      if(state.frozenNode)showNodes.add(state.frozenNode.id);
+      state.searchHits.forEach(id=>showNodes.add(id));
+
+      for(let i=0;i<P.length;i++){
+        const a=P[i];
+        if(!showNodes.has(a.id))continue;
+        const links=a.links||[];
+        for(let li=0;li<links.length;li++){
+          const b=state.linkMap[links[li]];if(!b)continue;
+          const dist=Math.hypot(a.x-b.x,a.y-b.y);
+          const alpha=Math.max(0.1,0.45-dist/2000);
+          ctx.lineWidth=1;ctx.strokeStyle=`rgba(212,182,138,${alpha})`;
+          ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+          // Dot at endpoint
+          ctx.beginPath();ctx.arc(b.x,b.y,3.5,0,Math.PI*2);
+          ctx.fillStyle=`rgba(212,182,138,${alpha*1.5})`;ctx.fill();
+          if(dist<500){ctx.font='400 9px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle=`rgba(212,182,138,${alpha*0.8})`;ctx.fillText((b.node?.name||'').slice(0,20),b.x,b.y-7);}
+        }
       }
     }
 
@@ -488,6 +494,9 @@
 
   // ═══ NODE PANEL ═══
   function openPanel(n){
+    // Collapse chat if open
+    const hud=document.getElementById('chatHud');
+    if(hud)hud.classList.remove('expanded');
     state.activeNode=n;
     document.getElementById('npCat').textContent=n.category.toUpperCase();
     document.getElementById('npName').textContent=n.name;
