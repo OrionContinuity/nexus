@@ -8,11 +8,11 @@
   const PERSONA_BASE=`You are NEXUS, ops brain for Suerte, Este, Bar Toti (Austin TX). Alfredo Ortiz runs these.
 
 RULES:
-- 1-3 sentences max for simple questions. No filler. No "Great question!" Just answer.
-- Dry humor OK — one-liners, snarky asides. But useful FIRST, funny second.
-- For troubleshooting: FULL step-by-step guide. Be the repair manual. Model numbers, settings, safety warnings.
+- MAX 3 sentences. No exceptions. Even for troubleshooting — 3 sentences + bullet steps.
+- No filler. No "Great question!" No "I can see that..." No "However..." Just answer.
+- Dry humor OK — useful FIRST, funny second.
 - State facts from nodes directly. Don't say "I have info" — give the info.
-- VERIFY against nodes. If unsure, say so: "Not 100% — verify with [source]."
+- VERIFY against nodes. If unsure, say so briefly.
 - Never invent specs, phone numbers, or contacts.
 - End EVERY response with a confidence tag on its own line: [confidence:high] or [confidence:medium] or [confidence:low]
   - high = answer is directly supported by nodes/data
@@ -25,6 +25,11 @@ PARTS & EQUIPMENT:
 - For Hoshizaki: Parts Town is the primary source. For general supplies: WebstaurantStore or Amazon.
 - If a node has vendor/pricing info, share it. If not, suggest "look up [part name] Parts Town" to research.
 - When troubleshooting equipment, reference model numbers and suggest which replacement parts may be needed.
+
+ATTACHMENTS & FILES:
+- Nodes may have [Attachments: ...] listed. These are PDFs, invoices, images stored in the system.
+- When a user asks for a receipt, invoice, or document — check the node's attachments. If one exists, tell them: "There's a [filename] attached to the [node name] node. Tap the node to view/download it."
+- Never say you can't access files if they're listed in the attachments. Direct the user to tap the node.
 
 COMMANDS (tell users about these):
 - "look up [topic]" / "investigate [topic]" / "search for [topic]" — web search + auto-create nodes
@@ -309,7 +314,7 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     const i=document.getElementById('chatInput'),s=document.getElementById('chatSend'),hud=document.getElementById('chatHud'),dim=document.getElementById('brainDim'),r=document.getElementById('resetBtn'),chev=document.getElementById('hudChevron');
     // Handle toggles chat
     chev.addEventListener('click',()=>{
-      if(hud.classList.contains('expanded')){hud.classList.remove('expanded');dim.classList.remove('active');}
+      if(hud.classList.contains('expanded')){hud.classList.remove('expanded');dim.classList.remove('active');stopSpeaking();}
       else{hud.classList.add('expanded');dim.classList.add('active');if(NX.brain&&NX.brain.closePanel)NX.brain.closePanel();}
     });
     i.addEventListener('input',()=>{s.disabled=!i.value.trim();});
@@ -330,7 +335,7 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     if(!localStorage.getItem('nexus_onboarded')&&!NX.getApiKey()){showOnboarding();}
   }
 
-  function resetChat(){chatHistory=[];chatActive=false;document.getElementById('chatMessages').innerHTML='';document.getElementById('brainWelcome').style.display='';document.getElementById('brainExamples').style.display='';document.getElementById('brainDim').classList.remove('active');document.getElementById('resetBtn').style.display='none';document.getElementById('chatHud').classList.remove('expanded');NX.brain.state.activatedNodes=new Set();NX.brain.wakePhysics();}
+  function resetChat(){stopSpeaking();chatHistory=[];chatActive=false;document.getElementById('chatMessages').innerHTML='';document.getElementById('brainWelcome').style.display='';document.getElementById('brainExamples').style.display='';document.getElementById('brainDim').classList.remove('active');document.getElementById('resetBtn').style.display='none';document.getElementById('chatHud').classList.remove('expanded');NX.brain.state.activatedNodes=new Set();NX.brain.wakePhysics();}
 
   async function getCtx(q){
     // Always fetch fresh nodes from Supabase
@@ -358,7 +363,13 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     const rel=sc.slice(0,15).map(s=>s.node);
     // Send ALL node names (not just 200) so AI knows everything
     const idx=NX.nodes.filter(n=>!n.is_private).map(n=>`${n.name} (${n.category})`).join(', ');
-    const det=rel.map(n=>{let src='';const sources=n.sources||n.source_emails;if(sources&&sources.length)src=' [Sources: '+sources.map(s=>`${s.from} "${s.subject}" ${s.date}`).join('; ')+']';return`[${n.category}] ${n.name}: ${(n.notes||'').slice(0,500)}${src}`;}).join('\n');
+    const det=rel.map(n=>{
+      let src='';const sources=n.sources||n.source_emails;
+      if(sources&&sources.length)src=' [Sources: '+sources.map(s=>`${s.from} "${s.subject}" ${s.date}`).join('; ')+']';
+      let att='';const attachments=n.attachments;
+      if(attachments&&attachments.length)att=' [Attachments: '+attachments.map(a=>`${a.filename||'file'} (${a.type||'unknown'})${a.from?' from '+a.from.split('<')[0].trim():''}`).join('; ')+']';
+      return`[${n.category}] ${n.name}: ${(n.notes||'').slice(0,500)}${src}${att}`;
+    }).join('\n');
     const relIds=rel.map(n=>n.id);
     NX.brain.state.activatedNodes=new Set(relIds);NX.brain.wakePhysics();
     setTimeout(()=>{NX.brain.state.activatedNodes=new Set();},12000);
@@ -370,9 +381,9 @@ After the troubleshoot steps, ask the person to add more details and optionally 
   }
 
   async function askAI(){
-    if(!navigator.onLine){addB("Can't reach NEXUS — check WiFi.",'ai');return;}
-    const i=document.getElementById('chatInput'),q=i.value.trim();if(!q)return;
-    i.value='';document.getElementById('chatSend').disabled=true;
+    const i=document.getElementById('chatInput'),q=i?.value?.trim();if(!q)return;
+    i.value='';const sb=document.getElementById('chatSend');if(sb)sb.disabled=true;
+    try{
     document.getElementById('brainWelcome').style.display='none';
     document.getElementById('brainExamples').style.display='none';
     document.getElementById('brainDim').classList.add('active');
@@ -381,7 +392,7 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     document.getElementById('resetBtn').style.display='';
     chatActive=true;addB(q,'user');chatHistory.push({role:'user',content:q});
     showTyping();
-    if(!NX.getApiKey()){addB(tt('noApiKey'),'ai');return;}
+    if(!NX.getApiKey()){hideTyping();addB(tt('noApiKey'),'ai');return;}
     const task=detectTask(q);
     if(task){
       if(task.type==='research'){try{await handleResearch(task.content);}catch(e){addB('Research error: '+e.message,'ai');}return;}
@@ -393,7 +404,7 @@ After the troubleshoot steps, ask the person to add more details and optionally 
       try{const result=await handleTask(task);if(result){addB(result,'ai');chatHistory.push({role:'assistant',content:result});if(voiceOn)speak(result);try{await NX.sb.from('chat_history').insert({question:q,answer:result,session_id:SESSION_ID,user_name:(NX.currentUser?NX.currentUser.name:'Unknown')});}catch(e){}return;}}catch(e){addB('Task error: '+e.message,'ai');return;}
     }
     const th=addB('🔍 '+tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'...','ai thinking');
-    let sd=0;const searchDots=setInterval(()=>{sd=(sd+1)%4;th.textContent='🔍 '+tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'.'.repeat(sd);},400);
+    let sd=0;let searchDots=setInterval(()=>{sd=(sd+1)%4;th.textContent='🔍 '+tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'.'.repeat(sd);},400);
     try{
       const ctx=await getCtx(q);
       const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
@@ -427,7 +438,10 @@ After the troubleshoot steps, ask the person to add more details and optionally 
       }
       try{await NX.sb.from('chat_history').insert({question:q,answer:cleanAns,session_id:SESSION_ID,user_name:(NX.currentUser?NX.currentUser.name:'Unknown')});}catch(e){}
     }catch(e){clearInterval(searchDots);th.textContent='Error: '+(e.message||'Unknown');th.classList.remove('chat-thinking');}
+    }catch(outerErr){hideTyping();addB('Error: '+(outerErr.message||'Chat failed'),'ai');console.error('askAI:',outerErr);}
   }
+
+  function hideTyping(){document.querySelectorAll('.chat-typing').forEach(e=>e.remove());}
 
   function addB(t,type){
     // Remove any typing indicator
@@ -480,7 +494,9 @@ After the troubleshoot steps, ask the person to add more details and optionally 
   let cvi=0;
   function setupVoice(){document.getElementById('micBtn').addEventListener('click',toggleMic);const vb=document.getElementById('voiceBtn');vb.classList.add('on');let pt=null;vb.addEventListener('click',()=>{voiceOn=!voiceOn;vb.classList.toggle('on',voiceOn);});vb.addEventListener('pointerdown',()=>{pt=setTimeout(()=>{cvi=(cvi+1)%VOICES.length;localStorage.setItem('nexus_voice_idx',cvi);voiceOn=true;vb.classList.add('on');speak(`${VOICES[cvi].name} here.`);pt=null;},600);});vb.addEventListener('pointerup',()=>{if(pt)clearTimeout(pt);});vb.addEventListener('pointerleave',()=>{if(pt)clearTimeout(pt);});if('speechSynthesis'in window){const pk=()=>{const v=speechSynthesis.getVoices();for(const n of['Samantha','Karen','Daniel','Microsoft Aria']){const f=v.find(x=>x.name.includes(n));if(f){pv=f;break;}}};pk();speechSynthesis.onvoiceschanged=pk;}}
   function toggleMic(){const b=document.getElementById('micBtn');if(recognition){recognition.stop();recognition=null;b.classList.remove('recording');return;}if(!('webkitSpeechRecognition'in window||'SpeechRecognition'in window))return;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;recognition=new SR();recognition.continuous=false;recognition.interimResults=false;recognition.onresult=e=>{document.getElementById('chatInput').value=e.results[0][0].transcript;document.getElementById('chatSend').disabled=false;b.classList.remove('recording');recognition=null;askAI();};recognition.onerror=()=>{b.classList.remove('recording');recognition=null;};recognition.onend=()=>{b.classList.remove('recording');recognition=null;};b.classList.add('recording');recognition.start();}
-  async function speak(text){cvi=getVoiceIdx();const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.45,similarity_boost:.78,style:.35,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl),a=new Audio(u);a.play();a.onended=()=>URL.revokeObjectURL(u);return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=.95;speechSynthesis.speak(u);}
+  let currentAudio=null;
+  async function speak(text){cvi=getVoiceIdx();const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.45,similarity_boost:.78,style:.35,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl);if(currentAudio){currentAudio.pause();currentAudio=null;}const a=new Audio(u);a.playbackRate=1.1;currentAudio=a;a.play();a.onended=()=>{URL.revokeObjectURL(u);currentAudio=null;};return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=1.1;speechSynthesis.speak(u);}
+  function stopSpeaking(){if(currentAudio){currentAudio.pause();currentAudio=null;}if('speechSynthesis'in window)speechSynthesis.cancel();}
 
   // Auto-extract nodes silently from AI responses
   async function autoExtractNodes(question,answer){
@@ -516,4 +532,5 @@ Return ONLY JSON.`,
   }
 
   NX.brain.initChat=setupChat;
+  NX.brain.stopSpeaking=stopSpeaking;
 })();
