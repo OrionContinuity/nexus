@@ -244,6 +244,12 @@
 
   // ═══ RENDER ═══
   function draw(){
+    // Always keep loop running — skip rendering when hidden
+    const brainEl=document.getElementById('brainView');
+    if(!brainEl||!brainEl.classList.contains('active')){
+      requestAnimationFrame(draw);return;
+    }
+    if(W<10||H<10){resize();requestAnimationFrame(draw);return;}
     time+=0.005;physicsFrame++;
     const P=state.particles,t=state.transform;
     if(P.length<800||physicsFrame%2===0)physics();
@@ -432,9 +438,6 @@
     }
 
     ctx.restore();
-    // Stop draw loop when canvas is hidden
-    const brainEl=document.getElementById('brainView');
-    if(!brainEl||!brainEl.classList.contains('active')){drawRunning=false;return;}
     requestAnimationFrame(draw);
   }
 
@@ -623,16 +626,15 @@
   function init(){
     resize();
     if(W<10||H<10){
-      setTimeout(()=>{resize();buildParticles();for(let i=0;i<150;i++)physics();setupCanvas();checkEmpty();startDraw();},300);
+      setTimeout(()=>{resize();buildParticles();for(let i=0;i<150;i++)physics();setupCanvas();checkEmpty();buildFilters();draw();},300);
       return;
     }
     buildParticles();for(let i=0;i<150;i++)physics();setupCanvas();checkEmpty();buildFilters();
-    if(NX.brain.initChat)NX.brain.initChat();if(NX.brain.initList)NX.brain.initList();if(NX.brain.initEvents)NX.brain.initEvents();startDraw();
+    if(NX.brain.initChat)NX.brain.initChat();if(NX.brain.initList)NX.brain.initList();if(NX.brain.initEvents)NX.brain.initEvents();
+    draw(); // Starts loop — runs forever
   }
 
-  function startDraw(){drawRunning=false;requestAnimationFrame(draw);}
-
   NX.brain={init,closePanel,state,wakePhysics,show:()=>{
-    setTimeout(()=>{resize();startDraw();},50);
+    resize(); // Just resize, draw loop is always running
   },openPanel};NX.modules.brain=NX.brain;NX.loaded.brain=true;
 })();
