@@ -273,6 +273,33 @@ async function processNextBatch(){
 
     log(`⚙ Processing ${data.length} emails...`);
     const emails=data.map(e=>({id:e.id,from:e.from_addr,to:e.to_addr,date:e.date,subject:e.subject,body:e.body||'',snippet:e.snippet||'',attachmentCount:e.attachment_count||0,attachments:e.attachments||[]}));
+    
+    // Try to read PDF attachments for richer context
+    for(const email of emails){
+      if(!email.attachments||!email.attachments.length)continue;
+      for(const att of email.attachments){
+        if(!att.url)continue;
+        const ext=(att.filename||'').split('.').pop().toLowerCase();
+        if(ext==='pdf'&&window.pdfjsLib){
+          try{
+            const resp=await fetch(att.url);if(!resp.ok)continue;
+            const buffer=await resp.arrayBuffer();
+            const pdf=await pdfjsLib.getDocument({data:buffer}).promise;
+            let pdfText='';
+            for(let p=1;p<=Math.min(pdf.numPages,20);p++){
+              const page=await pdf.getPage(p);
+              const content=await page.getTextContent();
+              pdfText+=content.items.map(item=>item.str).join(' ')+'\n';
+            }
+            if(pdfText.length>50){
+              email.body+='\n\n[ATTACHMENT: '+att.filename+']\n'+pdfText.slice(0,3000);
+              log(`  📎 Read ${pdfText.length} chars from ${att.filename}`);
+            }
+          }catch(e){}
+        }
+      }
+    }
+
     const chunk=emails.map((e,idx)=>`[EMAIL #${idx+1}]\nFROM: ${e.from}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\n---\n${e.body||e.snippet}`).join('\n\n========\n\n');
     const sourceMap=emails.map((e,idx)=>({ref:idx+1,from:e.from,date:e.date,subject:e.subject,body:(e.body||e.snippet||'').slice(0,500)}));
 
@@ -641,32 +668,38 @@ async function reIngestArchived(){
 
 // ═══ AI PROCESSING WITH SOURCES + LAYER 3 (existing nodes in prompt) ═══
 async function aiProcessWithSources(text,sourceMap){
-  const existing=getExistingNodeList(); // LAYER 3
+  const existing=getExistingNodeList();
   try{const a=await NX.askClaude(
     `You extract knowledge for restaurant operations (Suerte, Este, Bar Toti — Austin TX).
-Each email is labeled [EMAIL #N]. For each node, include which email(s) it came from.
+Each email/document is labeled [EMAIL #N]. For each node, include which source(s) it came from.
 
-EXTRACT ONLY restaurant-relevant information:
-✓ Equipment models, specs, warranties, repairs, maintenance
-✓ Vendors & suppliers — contacts, orders, invoices, pricing
-✓ Contractors — names, services, schedules, contact info
-✓ Procedures, inspections, permits, licenses
-✓ Parts orders, shipping, tracking numbers
-✓ Projects, renovations, installations
-✓ Food suppliers, menu items
-✓ Staff restaurant roles and responsibilities
+EXTRACT ALL restaurant-relevant information:
+✓ Equipment — models, serial numbers, specs, warranties, manuals, maintenance schedules
+✓ Parts — part numbers, where to buy (Amazon, Parts Town, WebstaurantStore, etc.), prices, compatibility
+✓ Vendors & suppliers — company name, contacts, phone, email, account numbers, pricing
+✓ Contractors — names, specialties, services, schedules, contact info, rates
+✓ Invoices — amounts, dates, order numbers, tracking, what was ordered
+✓ Procedures, inspections, permits, licenses, health codes
+✓ Projects, renovations, installations, timelines
+✓ Food suppliers, menu items, purveyors
+✓ Staff restaurant roles
 
-DO NOT EXTRACT — skip these entirely:
-✗ Personal bonuses, salaries, raises, compensation
-✗ Credit card or bank account numbers
-✗ Personal medical or family information
-✗ Marketing emails, newsletters, spam
+IMPORTANT — For equipment and parts:
+- Extract model numbers and part numbers exactly as written
+- Note which vendor sells them (Parts Town, Amazon, Home Depot, etc.)
+- Include pricing if mentioned
+- If a manual mentions replacement parts, extract each part with its number
+
+DO NOT EXTRACT:
+✗ Personal bonuses, salaries, compensation
+✗ Credit card or bank numbers
+✗ Personal medical/family info
+✗ Marketing spam, newsletters
 ✗ Social media notifications
-✗ Personal purchases unrelated to restaurants
 
 DO NOT create nodes that already exist — check list below.
 RESPOND ONLY RAW JSON:
-{"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"Include ALL details: specs, prices, phone numbers, model numbers, order numbers, tracking info","email_refs":[1,3]}],"cards":[{"title":"...","column_name":"todo"}]}${existing}`,
+{"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"Include ALL details: specs, prices, phone numbers, model numbers, part numbers, where to buy, order numbers, tracking info","email_refs":[1,3]}],"cards":[{"title":"...","column_name":"todo"}]}${existing}`,
     [{role:'user',content:text.slice(0,14000)}],4096);
   let j=a.replace(/```json\s*/gi,'').replace(/```\s*/g,'');const s=j.indexOf('{'),e=j.lastIndexOf('}');if(s===-1||e<=s){log('No JSON','warn');return null;}j=j.slice(s,e+1);
   try{const p=JSON.parse(j);if(!p.nodes||!Array.isArray(p.nodes))return null;
