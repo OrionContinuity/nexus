@@ -241,7 +241,12 @@ function render(){
       }
       it.onclick=()=>{
         const newVal=!getState(k);setState(k,newVal);render();
-        try{NX.sb.from('cleaning_logs').upsert({location:loc,log_date:today,task_index:i,section:sec.sec,done:newVal,completed_at:newVal?new Date().toISOString():null},{onConflict:'location,log_date,task_index,section'});}catch(e){}
+        const upsertData={location:loc,log_date:today,task_index:i,section:sec.sec,done:newVal,completed_at:newVal?new Date().toISOString():null};
+        if(navigator.onLine){
+          try{NX.sb.from('cleaning_logs').upsert(upsertData,{onConflict:'location,log_date,task_index,section'});}catch(e){}
+        }else if(NX.offlineQueue){
+          NX.offlineQueue.add({type:'cleaning',data:upsertData});
+        }
       };
       body.appendChild(it);
     });
