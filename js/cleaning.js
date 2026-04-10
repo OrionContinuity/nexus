@@ -397,4 +397,5 @@ function startAutoSubmit(){
 startAutoSubmit();
 
 NX.modules.clean={init,show};
+NX.cleaningTasks=DEFAULTS;
 })();
