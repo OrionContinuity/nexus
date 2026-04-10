@@ -42,7 +42,76 @@ function render(){
 
   // Log entries
   if(!data.length&&!openTickets.length){list.innerHTML='<div class="log-empty"><div style="font-size:20px;margin-bottom:8px;opacity:.3">📋</div>Nothing logged yet.<br><span style="font-size:11px;color:var(--faint)">Log a repair, observation, or note above.<br>Cleaning reports auto-save here too.</span></div>';return;}
-  data.forEach(l=>{const d=document.createElement('div');d.className='log-entry';const isCR=(l.entry||'').startsWith('Cleaning Report');const isTK=(l.entry||'').includes('TICKET');d.innerHTML=`<div class="log-text${isCR?' log-cleaning':''}${isTK?' log-ticket':''}">${isCR?'✓ ':''}${isTK?'🔧 ':''}${l.entry}</div><div class="log-meta">${new Date(l.created_at).toLocaleDateString()} · ${new Date(l.created_at).toLocaleTimeString()}</div>`;list.appendChild(d);});
+  data.forEach(l=>{
+    const entry=l.entry||'';
+    const isCR=entry.startsWith('Cleaning Report')||entry.startsWith('[AUTO');
+    const isTK=entry.includes('TICKET');
+    const d=document.createElement('div');d.className='log-entry'+(isCR?' log-entry-clean':'');
+    const time=new Date(l.created_at);
+    const timeStr=time.toLocaleDateString([],{month:'short',day:'numeric'})+' '+time.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+
+    if(isCR){
+      // Parse cleaning report for detailed view
+      const lines=entry.split('\n');
+      const header=lines[0]||'Cleaning Report';
+      // Extract percentage
+      const pctMatch=entry.match(/(\d+)%/);
+      const pct=pctMatch?parseInt(pctMatch[1]):0;
+      const pctColor=pct>=90?'#39ff14':pct>=70?'#ffb020':'#ff5533';
+      
+      // Parse sections
+      let sections=[];
+      let currentSec=null;
+      lines.forEach(line=>{
+        const secMatch=line.match(/^([A-ZÁ-Úa-záéíóú\s]+)\s*\((\d+)\/(\d+)\)/);
+        if(secMatch){
+          currentSec={name:secMatch[1].trim(),done:parseInt(secMatch[2]),total:parseInt(secMatch[3]),items:[],missed:[]};
+          sections.push(currentSec);
+        }
+        if(currentSec&&line.startsWith('MISSED:')&&line.length>8){
+          currentSec.missed=line.replace('MISSED:','').split(',').map(s=>s.trim()).filter(Boolean);
+        }
+      });
+
+      d.innerHTML=`<div class="log-clean-head" onclick="this.parentElement.classList.toggle('expanded')">
+        <span class="log-clean-pct" style="color:${pctColor}">${pct}%</span>
+        <span class="log-clean-title">${header.replace('Cleaning Report — ','').replace('[AUTO 8AM] ','⏰ ')}</span>
+        <span class="log-meta">${timeStr}</span>
+        <span class="log-clean-arrow">▼</span>
+      </div>
+      <div class="log-clean-body">${sections.map(sec=>{
+        const secPct=sec.total?Math.round(sec.done/sec.total*100):0;
+        const secColor=secPct===100?'#39ff14':secPct>=70?'#ffb020':'#ff5533';
+        return `<div class="log-clean-sec">
+          <div class="log-clean-sec-head"><span style="color:${secColor}">${sec.done}/${sec.total}</span> ${sec.name}</div>
+          ${sec.missed.length?sec.missed.map(m=>`<div class="log-missed-item">✗ ${m}</div>`).join(''):''}
+        </div>`;
+      }).join('')}
+      <div class="log-clean-full" onclick="event.stopPropagation();this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show full report</div>
+      <pre class="log-clean-raw" style="display:none">${entry}</pre>
+      </div>`;
+      // Delete button
+      const del=document.createElement('button');del.className='log-del';del.textContent='✕';
+      del.addEventListener('click',async(e)=>{
+        e.stopPropagation();
+        if(!confirm('Delete this log entry?'))return;
+        await NX.sb.from('daily_logs').delete().eq('id',l.id);
+        load();
+      });
+      d.appendChild(del);
+    } else {
+      d.innerHTML=`<div class="log-text${isTK?' log-ticket':''}">${isTK?'🔧 ':''}${entry}</div><div class="log-meta">${timeStr}</div>`;
+      const del=document.createElement('button');del.className='log-del';del.textContent='✕';
+      del.addEventListener('click',async(e)=>{
+        e.stopPropagation();
+        if(!confirm('Delete this log entry?'))return;
+        await NX.sb.from('daily_logs').delete().eq('id',l.id);
+        load();
+      });
+      d.appendChild(del);
+    }
+    list.appendChild(d);
+  });
 }
 async function add(){const input=document.getElementById('logInput');if(!input.value.trim())return;await NX.sb.from('daily_logs').insert({entry:input.value.trim()});if(NX.toast)NX.toast('Logged ✓','success');input.value='';load();}
 
