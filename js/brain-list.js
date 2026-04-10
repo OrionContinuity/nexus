@@ -1,0 +1,73 @@
+/* NEXUS Brain List — Search, list view, filters */
+(function(){
+  let listViewOpen=false,listFilter='all',listSortMode='az';
+
+  function setupSearch(){
+    const inp=document.getElementById('brainSearch'),res=document.getElementById('searchResults');
+    inp.addEventListener('input',()=>{
+      NX.brain.wakePhysics();
+      const q=inp.value.toLowerCase().trim();
+      NX.brain.state.searchHits=new Set();res.innerHTML='';
+      if(!q){res.classList.remove('open');return;}
+      const m=NX.nodes.filter(n=>!n.is_private&&(n.name.toLowerCase().includes(q)||(n.tags||[]).some(t=>t.includes(q))||(n.notes||'').toLowerCase().includes(q)));
+      m.forEach(n=>NX.brain.state.searchHits.add(n.id));
+      if(m.length){
+        res.classList.add('open');
+        m.slice(0,12).forEach(n=>{
+          const d=document.createElement('div');d.className='sr-card';
+          const catColor=getCatColor(n.category);
+          const tags=(n.tags||[]).slice(0,3).map(t=>`<span class="sr-tag">${t}</span>`).join('');
+          const preview=(n.notes||'').slice(0,100).replace(/\n/g,' ');
+          d.innerHTML=`<div class="sr-card-head"><span class="sr-cat" style="border-color:${catColor}">${n.category}</span><span class="sr-name">${n.name}</span></div>${tags?'<div class="sr-tags">'+tags+'</div>':''}${preview?'<div class="sr-preview">'+preview+'</div>':''}`;
+          d.onclick=()=>{NX.brain.openPanel(n);res.classList.remove('open');inp.value='';NX.brain.state.searchHits=new Set();};
+          res.appendChild(d);
+        });
+        if(m.length>12){const more=document.createElement('div');more.className='sr-more';more.textContent=`+ ${m.length-12} more`;res.appendChild(more);}
+      }
+      else res.classList.remove('open');
+    });
+  }
+
+  function getCatColor(cat){
+    const colors={equipment:'#5b8def',contractors:'#c89632',people:'#9c82d4',vendors:'#4ecdc4',menu:'#ff6b6b',operations:'#39ff14',policy:'#ffb020'};
+    return colors[cat]||'#d4b68a';
+  }
+
+  function setupListView(){
+    document.getElementById('listToggle').addEventListener('click',()=>{
+      listViewOpen=!listViewOpen;const lv=document.getElementById('listView'),btn=document.getElementById('listToggle');
+      if(listViewOpen){btn.classList.add('on');lv.classList.add('open');buildListFilters();renderList();}
+      else{btn.classList.remove('on');lv.classList.remove('open');}
+    });
+    document.querySelectorAll('.sort-btn').forEach(b=>b.addEventListener('click',()=>{
+      document.querySelectorAll('.sort-btn').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');listSortMode=b.dataset.sort;renderList();
+    }));
+  }
+
+  function buildListFilters(){
+    const fc=document.getElementById('listFilters');fc.innerHTML='';
+    ['all',...new Set(NX.nodes.filter(n=>!n.is_private).map(n=>n.category))].forEach(cat=>{
+      const ch=document.createElement('button');ch.className='filter-chip'+(listFilter===cat?' active':'');
+      ch.textContent=cat==='all'?'All':cat;
+      ch.onclick=()=>{listFilter=cat;buildListFilters();renderList();};
+      fc.appendChild(ch);
+    });
+  }
+
+  function renderList(){
+    const items=document.getElementById('listItems');items.innerHTML='';
+    const q=document.getElementById('brainSearch').value.toLowerCase().trim();
+    let f=NX.nodes.filter(n=>!n.is_private&&(listFilter==='all'||n.category===listFilter)&&(!q||n.name.toLowerCase().includes(q)||(n.tags||[]).some(t=>t.includes(q))||(n.notes||'').toLowerCase().includes(q)));
+    if(listSortMode==='az')f.sort((a,b)=>a.name.localeCompare(b.name));
+    else if(listSortMode==='access')f.sort((a,b)=>(b.access_count||0)-(a.access_count||0));
+    else f.sort((a,b)=>(b.id||0)-(a.id||0));
+    f.slice(0,200).forEach(n=>{const el=document.createElement('div');el.className='list-node';
+      el.innerHTML=`<div class="list-node-cat">${n.category}</div><div class="list-node-title">${n.name}</div><div class="list-node-notes">${(n.notes||'').slice(0,120)}</div>`;
+      el.onclick=()=>NX.brain.openPanel(n);items.appendChild(el);
+    });
+  }
+
+  function initList(){setupSearch();setupListView();}
+  NX.brain.initList=initList;
+})();
