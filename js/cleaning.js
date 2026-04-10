@@ -102,10 +102,7 @@ async function init(){
     t.addEventListener('click',async()=>{
       document.querySelectorAll('.clean-tab').forEach(x=>x.classList.remove('active'));
       t.classList.add('active');loc=t.dataset.cloc;
-      // Load from cache or Supabase — never clear
-      if(!stateCache[loc]){
-        await loadToday();await loadHistory();
-      }
+      await loadToday();await loadHistory();
       populateSections();render();
     });
   });
@@ -114,10 +111,16 @@ async function init(){
   await loadToday();await loadHistory();populateSections();render();
 }
 
+async function show(){
+  await loadToday();await loadHistory();populateSections();render();
+}
+
 async function loadToday(){
   if(!stateCache[loc])stateCache[loc]={};
-  try{const{data}=await NX.sb.from('cleaning_logs').select('*').eq('log_date',today).eq('location',loc);
-    if(data)data.forEach(c=>{stateCache[loc][loc+'_'+c.section+'_'+c.task_index]={done:c.done,by:c.completed_by||''};});}catch(e){}
+  try{
+    const{data,error}=await NX.sb.from('cleaning_logs').select('section,task_index,done,completed_at').eq('log_date',today).eq('location',loc);
+    if(data)data.forEach(c=>{stateCache[loc][loc+'_'+c.section+'_'+c.task_index]={done:c.done,by:''};});
+  }catch(e){console.error('Cleaning load error:',e);}
 }
 
 function getState(key){const s=stateCache[loc]?.[key];return s?s.done:false;}
@@ -206,7 +209,7 @@ function render(){
       e.stopPropagation();const newState=!isComplete;
       sec.items.forEach((_,i)=>{
         const k=loc+'_'+sec.sec+'_'+i;setState(k,newState);
-        try{NX.sb.from('cleaning_logs').upsert({location:loc,log_date:today,task_index:i,section:sec.sec,done:newState,completed_at:newState?new Date().toISOString():null,completed_by:newState?getUserName():''},{onConflict:'location,log_date,task_index,section'});}catch(e){}
+        try{NX.sb.from('cleaning_logs').upsert({location:loc,log_date:today,task_index:i,section:sec.sec,done:newState,completed_at:newState?new Date().toISOString():null},{onConflict:'location,log_date,task_index,section'});}catch(e){}
       });render();
     });
 
@@ -244,7 +247,7 @@ function render(){
       }
       it.onclick=()=>{
         const newVal=!getState(k);setState(k,newVal);render();
-        try{NX.sb.from('cleaning_logs').upsert({location:loc,log_date:today,task_index:i,section:sec.sec,done:newVal,completed_at:newVal?new Date().toISOString():null,completed_by:newVal?getUserName():''},{onConflict:'location,log_date,task_index,section'});}catch(e){}
+        try{NX.sb.from('cleaning_logs').upsert({location:loc,log_date:today,task_index:i,section:sec.sec,done:newVal,completed_at:newVal?new Date().toISOString():null},{onConflict:'location,log_date,task_index,section'});}catch(e){}
       };
       body.appendChild(it);
     });
@@ -370,7 +373,7 @@ function startAutoSubmit(){
       for(const location of Object.keys(DEFAULTS)){
         try{
           const{data}=await NX.sb.from('cleaning_logs').select('*').eq('log_date',today).eq('location',location);
-          const locState={};if(data)data.forEach(c=>{locState[location+'_'+c.section+'_'+c.task_index]={done:c.done,by:c.completed_by||''};});
+          const locState={};if(data)data.forEach(c=>{locState[location+'_'+c.section+'_'+c.task_index]={done:c.done,by:''};});
           const entry='[AUTO 8AM] '+buildFullReport(location,locState);
           await NX.sb.from('daily_logs').insert({entry});
         }catch(e){}
@@ -381,5 +384,5 @@ function startAutoSubmit(){
 }
 startAutoSubmit();
 
-NX.modules.clean={init,show:render};
+NX.modules.clean={init,show};
 })();
