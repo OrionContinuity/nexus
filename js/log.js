@@ -108,6 +108,59 @@ function render(){
       const del=document.createElement('button');del.className='log-del';del.textContent='✕';
       del.addEventListener('click',async(e)=>{e.stopPropagation();if(!confirm('Delete?'))return;await NX.sb.from('daily_logs').delete().eq('id',l.id);load();});
       d.appendChild(del);
+
+      // Recalculate button — re-reads cleaning_logs and fixes percentages
+      const recalcBtn=document.createElement('button');recalcBtn.className='log-recalc';recalcBtn.textContent='↻ Recalculate';
+      recalcBtn.addEventListener('click',async(e)=>{
+        e.stopPropagation();recalcBtn.textContent='Recalculating...';recalcBtn.disabled=true;
+        try{
+          const dateMatch=entry.match(/(\d{4}-\d{2}-\d{2})/);
+          const logDate=dateMatch?dateMatch[1]:new Date().toISOString().split('T')[0];
+          // Get cleaning tasks from cleaning.js
+          const TASKS=NX.cleaningTasks||window.CLEANING_TASKS;
+          if(!TASKS){recalcBtn.textContent='No task data';return;}
+          const locations=['suerte','este','toti'];
+          const locLabels={suerte:'SUERTE',este:'ESTE',toti:'BAR TOTI'};
+          let combined='';
+          for(const loc of locations){
+            const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,done').eq('log_date',logDate).eq('location',loc);
+            const doneSet=new Set();
+            if(data)data.forEach(r=>{if(r.done)doneSet.add(`${r.section}:${r.task_index}`);});
+            const locTasks=TASKS[loc]||TASKS.suerte;
+            let totalDone=0,totalAll=0;
+            let secText='';
+            locTasks.forEach(sec=>{
+              const tasks=sec.tasks||[];
+              let secDone=0;const missed=[];
+              tasks.forEach((t,i)=>{
+                totalAll++;
+                if(doneSet.has(`${sec.sec}:${i}`)){secDone++;totalDone++;}
+                else missed.push(typeof t==='string'?t:(t.en||t.es||''));
+              });
+              secText+=`${sec.name||sec.sec} (${secDone}/${tasks.length})\n`;
+              if(missed.length)secText+=`MISSED: ${missed.join(', ')}\n`;
+            });
+            const pct=totalAll?Math.round(totalDone/totalAll*100):0;
+            combined+=`--- ${locLabels[loc]||loc.toUpperCase()} (${pct}%) ---\n${secText}\n`;
+          }
+          combined=`CLEANING REPORT ${logDate}\n${combined.trim()}`;
+          await NX.sb.from('daily_logs').update({entry:combined}).eq('id',l.id);
+          recalcBtn.textContent='✓ Updated';
+          setTimeout(()=>load(),500);
+        }catch(err){recalcBtn.textContent='Error';console.error(err);}
+      });
+      d.appendChild(recalcBtn);
+
+      // Edit button — opens cleaning tab for that date
+      const editBtn=document.createElement('button');editBtn.className='log-edit-btn';editBtn.textContent='✏ Edit Tasks';
+      editBtn.addEventListener('click',(e)=>{
+        e.stopPropagation();
+        // Switch to cleaning tab
+        const dateMatch=entry.match(/(\d{4}-\d{2}-\d{2})/);
+        if(dateMatch)localStorage.setItem('nexus_edit_clean_date',dateMatch[1]);
+        document.querySelector('.nav-tab[data-view="clean"]')?.click();
+      });
+      d.appendChild(editBtn);
     } else {
       d.innerHTML=`<div class="log-text${isTK?' log-ticket':''}">${isTK?'🔧 ':''}${entry}</div><div class="log-meta">${timeStr}</div>`;
       const del=document.createElement('button');del.className='log-del';del.textContent='✕';
