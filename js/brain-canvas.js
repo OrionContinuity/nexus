@@ -81,7 +81,7 @@
       const fadeIn=Math.min(p.age/60,1);
       const fadeOut=Math.pow(p.life,0.6);
       const musicGlow=p.fromCenter&&isPlaying?(1+audioEnergy*1.5):1;
-      const a=Math.min(p.baseAlpha*fadeIn*fadeOut*musicGlow*pulse,0.5);
+      const a=Math.min(p.baseAlpha*fadeIn*fadeOut*musicGlow*pulse,0.8);
       if(a<0.004)continue;
       const sz=p.size*pulse;
       const bassSize=isPlaying?sz+audioBass*2:sz;
@@ -288,13 +288,13 @@
         for(let li=0;li<links.length;li++){
           const b=state.linkMap[links[li]];if(!b)continue;
           const dist=Math.hypot(a.x-b.x,a.y-b.y);
-          const alpha=Math.max(0.1,0.45-dist/2000);
-          ctx.lineWidth=1;ctx.strokeStyle=`rgba(212,182,138,${alpha})`;
+          const alpha=Math.max(0.25,0.7-dist/2000);
+          ctx.lineWidth=1.5;ctx.strokeStyle=`rgba(212,182,138,${alpha})`;
           ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
           // Dot at endpoint
-          ctx.beginPath();ctx.arc(b.x,b.y,3.5,0,Math.PI*2);
-          ctx.fillStyle=`rgba(212,182,138,${alpha*1.5})`;ctx.fill();
-          if(dist<500){ctx.font='400 9px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle=`rgba(212,182,138,${alpha*0.8})`;ctx.fillText((b.node?.name||'').slice(0,20),b.x,b.y-7);}
+          ctx.beginPath();ctx.arc(b.x,b.y,4,0,Math.PI*2);
+          ctx.fillStyle=`rgba(212,182,138,${Math.min(alpha*2,0.9)})`;ctx.fill();
+          if(dist<500){ctx.font='400 10px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle=`rgba(212,182,138,${alpha})`;ctx.fillText((b.node?.name||'').slice(0,20),b.x,b.y-8);}
         }
       }
     }
@@ -303,14 +303,14 @@
     const br=Math.sin(time*1.1);
     const beaconBase=28+br*2;
     const beaconR=beaconBase+(isPlaying?audioBass*8:0);
-    const beaconGlow=isPlaying?0.04+audioEnergy*0.08:0.015;
+    const beaconGlow=isPlaying?0.08+audioEnergy*0.12:0.04;
 
     // Massive soft outer bloom when playing
     if(isPlaying){
       ctx.beginPath();ctx.arc(cx,cy,beaconR*8,0,Math.PI*2);
-      ctx.fillStyle=`rgba(212,182,138,${0.01+audioEnergy*0.02})`;ctx.fill();
+      ctx.fillStyle=`rgba(212,182,138,${0.02+audioEnergy*0.04})`;ctx.fill();
       ctx.beginPath();ctx.arc(cx,cy,beaconR*5,0,Math.PI*2);
-      ctx.fillStyle=`rgba(212,182,138,${0.02+audioEnergy*0.03})`;ctx.fill();
+      ctx.fillStyle=`rgba(212,182,138,${0.04+audioEnergy*0.06})`;ctx.fill();
     }
     // Standard triple glow
     ctx.beginPath();ctx.arc(cx,cy,beaconR*3,0,Math.PI*2);
@@ -318,16 +318,16 @@
     ctx.beginPath();ctx.arc(cx,cy,beaconR*1.8,0,Math.PI*2);
     ctx.fillStyle=`rgba(212,182,138,${beaconGlow*2.5})`;ctx.fill();
     // Core
-    ctx.shadowBlur=isPlaying?20+audioBass*25:15;
-    ctx.shadowColor=`rgba(212,182,138,${isPlaying?0.4+audioEnergy*0.4:0.35})`;
+    ctx.shadowBlur=isPlaying?25+audioBass*30:20;
+    ctx.shadowColor=`rgba(212,182,138,${isPlaying?0.6+audioEnergy*0.4:0.5})`;
     ctx.beginPath();ctx.arc(cx,cy,beaconR,0,Math.PI*2);
     ctx.fillStyle='#0c0c10';ctx.fill();
-    const ringAlpha=isPlaying?0.4+audioBass*0.3:0.4+br*0.1;
+    const ringAlpha=isPlaying?0.6+audioBass*0.3:0.65+br*0.1;
     ctx.strokeStyle=`rgba(212,182,138,${ringAlpha})`;
-    ctx.lineWidth=isPlaying?1.5+audioBass*2:1.2;ctx.stroke();
+    ctx.lineWidth=isPlaying?2+audioBass*2:1.8;ctx.stroke();
     ctx.shadowBlur=0;
-    // Text — smaller, no hint
-    ctx.fillStyle=`rgba(212,182,138,${isPlaying?0.7+audioEnergy*0.15:0.6+br*0.08})`;
+    // Text
+    ctx.fillStyle=`rgba(212,182,138,${isPlaying?0.85+audioEnergy*0.15:0.8+br*0.08})`;
     ctx.font='500 10px "JetBrains Mono"';ctx.textAlign='center';
     ctx.fillText('NEXUS',cx,cy+3);
 
@@ -367,16 +367,16 @@
       }else if(isHit||a.searchGlow>0.05){
         const g=a.searchGlow;
         const r=(DOT+g*(DOT_HIT-DOT))*pulse*musicPulse;
-        ctx.beginPath();ctx.arc(a.x,a.y,r*2.5,0,Math.PI*2);ctx.fillStyle=`rgba(212,182,138,${0.05*g})`;ctx.fill();
-        ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fillStyle=`rgba(255,248,235,${0.3+g*0.5})`;ctx.fill();
-        if(g>0.3){ctx.strokeStyle=`rgba(212,182,138,${g*0.5})`;ctx.lineWidth=1.2*g;ctx.stroke();}
-        if(g>0.5){ctx.font='400 10px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle=`rgba(212,182,138,${g*0.8})`;ctx.fillText(a.node.name.slice(0,25),a.x,a.y-r-5);}
+        ctx.beginPath();ctx.arc(a.x,a.y,r*2.5,0,Math.PI*2);ctx.fillStyle=`rgba(212,182,138,${0.1*g})`;ctx.fill();
+        ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fillStyle=`rgba(255,248,235,${0.5+g*0.5})`;ctx.fill();
+        if(g>0.3){ctx.strokeStyle=`rgba(212,182,138,${g*0.7})`;ctx.lineWidth=1.5*g;ctx.stroke();}
+        if(g>0.4){ctx.font='400 11px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle=`rgba(212,182,138,${g*0.9})`;ctx.fillText(a.node.name.slice(0,25),a.x,a.y-r-5);}
       }else if(isHover){
         const r=DOT*1.8;
-        ctx.beginPath();ctx.arc(a.x,a.y,r*2,0,Math.PI*2);ctx.fillStyle='rgba(212,182,138,.04)';ctx.fill();
-        ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fillStyle='rgba(240,238,230,.7)';ctx.fill();
-        ctx.strokeStyle='rgba(212,182,138,.3)';ctx.lineWidth=0.8;ctx.stroke();
-        ctx.font='400 10px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle='rgba(212,182,138,.7)';ctx.fillText(a.node.name.slice(0,25),a.x,a.y-r-5);
+        ctx.beginPath();ctx.arc(a.x,a.y,r*2,0,Math.PI*2);ctx.fillStyle='rgba(212,182,138,.08)';ctx.fill();
+        ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fillStyle='rgba(240,238,230,.85)';ctx.fill();
+        ctx.strokeStyle='rgba(212,182,138,.5)';ctx.lineWidth=1;ctx.stroke();
+        ctx.font='400 11px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle='rgba(212,182,138,.85)';ctx.fillText(a.node.name.slice(0,25),a.x,a.y-r-5);
       }else{
         // Birth animation — dramatic pop entrance
         if(a.isBorn&&a.birthAge<180){
@@ -417,13 +417,13 @@
         }else{
           a.isBorn=false;
           const r=DOT*pulse*musicPulse;
-          const alpha=dim?0.06:0.35;
+          const alpha=dim?0.15:0.7;
           const glow=a.glowAlpha||0;
           if(glow>0.05){
             ctx.beginPath();ctx.arc(a.x,a.y,r*4,0,Math.PI*2);
-            ctx.fillStyle=`rgba(212,182,138,${glow*0.08})`;ctx.fill();
+            ctx.fillStyle=`rgba(212,182,138,${glow*0.15})`;ctx.fill();
             ctx.beginPath();ctx.arc(a.x,a.y,r*2,0,Math.PI*2);
-            ctx.fillStyle=`rgba(212,182,138,${glow*0.2})`;ctx.fill();
+            ctx.fillStyle=`rgba(212,182,138,${glow*0.35})`;ctx.fill();
             ctx.beginPath();ctx.arc(a.x,a.y,r*1.3,0,Math.PI*2);
             ctx.fillStyle=`rgba(255,245,220,${alpha+glow*0.4})`;ctx.fill();
           }else{
@@ -525,11 +525,59 @@
     // Attachments
     const ae=document.getElementById('npAttachments');ae.innerHTML='';const att=n.attachments;
     if(att&&Array.isArray(att)&&att.length){
-      ae.innerHTML='<div class="np-section-title">'+(NX.i18n?NX.i18n.t('attachments'):'ATTACHMENTS')+' ('+att.length+')</div>';
-      att.forEach(a=>{const isImg=a.type&&(a.type.includes('image')||/\.(jpg|jpeg|png|gif|webp)$/i.test(a.filename||''));const card=document.createElement('div');card.className='np-att-card';
-        if(isImg&&a.url){const img=document.createElement('img');img.className='np-att-preview';img.src=a.url;img.alt=a.filename||'';img.addEventListener('click',()=>window.open(a.url,'_blank'));card.appendChild(img);}
-        const info=document.createElement('a');info.className='np-att-info';info.href=a.url||'#';info.target='_blank';info.innerHTML=`<span class="np-att-icon">${a.type&&a.type.includes('pdf')?'📄':isImg?'🖼':'📎'}</span><div class="np-att-details"><div class="np-att-name">${a.filename||'file'}</div><div class="np-att-meta">${a.from?'From: '+a.from:''} ${a.date||''}</div></div>`;
-        card.appendChild(info);ae.appendChild(card);});
+      // Deduplicate by filename
+      const seen=new Set();const uniqueAtt=att.filter(a=>{const key=(a.filename||'')+(a.url||'');if(seen.has(key))return false;seen.add(key);return true;});
+      ae.innerHTML='<div class="np-section-title">'+(NX.i18n?NX.i18n.t('attachments'):'ATTACHMENTS')+' ('+uniqueAtt.length+')</div>';
+      uniqueAtt.forEach(a=>{
+        const fname=a.filename||'file';
+        const ext=(fname.split('.').pop()||'').toLowerCase();
+        const isImg=['jpg','jpeg','png','gif','webp'].includes(ext);
+        const isPdf=ext==='pdf';
+        const icon=isPdf?'📄':isImg?'🖼':ext==='xlsx'||ext==='csv'?'📊':ext==='docx'?'📝':'📎';
+        
+        const card=document.createElement('div');card.className='np-att-card';
+        card.innerHTML=`<div class="np-att-info"><span class="np-att-icon">${icon}</span><div class="np-att-details"><div class="np-att-name">${fname.length>35?fname.slice(0,32)+'...':fname}</div><div class="np-att-meta">${a.from?a.from.split('<')[0].trim():''} ${a.date?'· '+a.date.split('T')[0]:''}</div></div></div>`;
+        
+        // View button — opens in new tab
+        if(a.url){
+          const viewBtn=document.createElement('button');viewBtn.className='np-att-view';viewBtn.textContent='View';
+          viewBtn.addEventListener('click',async()=>{
+            viewBtn.textContent='...';
+            try{
+              // Try signed URL for private bucket
+              const path=a.url.split('/nexus-files/').pop();
+              if(path){
+                const{data:signedData,error}=await NX.sb.storage.from('nexus-files').createSignedUrl(path,3600);
+                if(!error&&signedData?.signedUrl){window.open(signedData.signedUrl,'_blank');viewBtn.textContent='View';return;}
+              }
+              // Fallback to direct URL
+              window.open(a.url,'_blank');
+            }catch(e){window.open(a.url,'_blank');}
+            viewBtn.textContent='View';
+          });
+          card.appendChild(viewBtn);
+        }
+
+        // Image preview — only if image and URL exists
+        if(isImg&&a.url){
+          const preview=document.createElement('div');preview.className='np-att-img-wrap';
+          const img=document.createElement('img');img.className='np-att-preview';
+          img.alt=fname;
+          img.loading='lazy';
+          // Use signed URL for preview
+          (async()=>{
+            try{
+              const path=a.url.split('/nexus-files/').pop();
+              if(path){const{data}=await NX.sb.storage.from('nexus-files').createSignedUrl(path,3600);if(data?.signedUrl)img.src=data.signedUrl;else img.src=a.url;}
+              else img.src=a.url;
+            }catch(e){img.src=a.url;}
+          })();
+          img.onerror=()=>{preview.remove();}; // Hide if broken
+          img.addEventListener('click',()=>window.open(img.src,'_blank'));
+          preview.appendChild(img);card.appendChild(preview);
+        }
+        ae.appendChild(card);
+      });
     }
     // Links
     const le=document.getElementById('npLinks');le.innerHTML='';
@@ -570,23 +618,18 @@
       const atts=n.attachments||[];
       for(const file of files){
         try{
-          const ts=Date.now();
           const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-          const path=`${ts}_${safeName}`;
+          const path=`node-files/${n.id}_${Date.now()}_${safeName}`;
           const{error:upErr}=await NX.sb.storage.from('nexus-files').upload(path,file,{contentType:file.type,upsert:true});
-          if(upErr){uploadStatus.textContent='Upload failed: '+upErr.message;continue;}
+          if(upErr){uploadStatus.textContent='Failed: '+upErr.message;continue;}
           const{data:urlData}=NX.sb.storage.from('nexus-files').getPublicUrl(path);
           const url=urlData?.publicUrl||'';
           atts.push({url,filename:file.name,type:file.type,date:new Date().toISOString().split('T')[0],from:'Manual upload'});
-          uploadStatus.textContent=`✓ ${file.name} uploaded`;
+          uploadStatus.textContent=`✓ ${file.name}`;
         }catch(e){uploadStatus.textContent='Error: '+e.message;}
       }
-      // Save to node
       await NX.sb.from('nodes').update({attachments:atts}).eq('id',n.id);
-      n.attachments=atts;
-      // Refresh attachments display
-      openPanel(n);
-      fileInput.value='';
+      n.attachments=atts;openPanel(n);fileInput.value='';
       setTimeout(()=>{uploadStatus.textContent='';},3000);
     };
 
