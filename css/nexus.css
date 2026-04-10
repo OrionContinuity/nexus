@@ -23,16 +23,16 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .toast.out{animation:toastOut .3s ease forwards}
 
 /* Brain category filters */
-.brain-filters{display:flex;gap:4px;flex-wrap:wrap;padding:0 10px;position:absolute;top:60px;left:0;right:0;z-index:10}
-.brain-filter-btn{padding:4px 10px;border-radius:var(--rp);border:1px solid var(--border);background:none;color:var(--faint);font-size:10px;cursor:pointer;font-family:inherit;transition:all .15s;letter-spacing:0.5px}
+.brain-bar{position:absolute;top:52px;left:0;right:0;z-index:10;display:flex;align-items:center;gap:3px;padding:0 10px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.brain-bar::-webkit-scrollbar{display:none}
+.brain-filters{display:flex;gap:3px;flex-shrink:0}
+.brain-filter-btn{padding:3px 8px;border-radius:var(--rp);border:1px solid var(--border);background:rgba(14,14,18,.7);color:var(--faint);font-size:9px;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap}
 .brain-filter-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(212,182,138,.08)}
 .brain-filter-btn:hover{border-color:var(--accent);color:var(--accent)}
-
-/* Brain view toggle — shared/personal */
-.brain-view-toggle{display:flex;gap:4px;padding:0 10px;position:absolute;top:90px;left:0;right:0;z-index:10;justify-content:center}
-.bv-btn{padding:5px 14px;border-radius:var(--rp);border:1px solid var(--border);background:rgba(14,14,18,.8);backdrop-filter:blur(6px);color:var(--faint);font-size:10px;cursor:pointer;font-family:inherit;transition:all .15s;letter-spacing:0.5px}
+.brain-view-toggle{display:flex;gap:3px;flex-shrink:0;margin-left:auto}
+.bv-btn{padding:3px 10px;border-radius:var(--rp);border:1px solid var(--border);background:rgba(14,14,18,.7);color:var(--faint);font-size:9px;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap}
 .bv-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(212,182,138,.08)}
-.bv-owner{font-size:9px;color:var(--accent);position:absolute;top:112px;left:0;right:0;text-align:center;z-index:10;letter-spacing:2px;opacity:.5}
+.bv-owner{font-size:8px;color:var(--accent);position:absolute;top:74px;left:0;right:0;text-align:center;z-index:10;letter-spacing:2px;opacity:.4}
 
 /* ═══ PIN SCREEN ═══ */
 .pin-screen{position:fixed;inset:0;z-index:300;background:var(--bg);display:flex;align-items:center;justify-content:center;transition:opacity .5s,transform .5s}
@@ -110,9 +110,9 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .empty-tip b{color:var(--accent)}
 
 /* HUD top */
-.hud-top{position:absolute;top:8px;left:0;right:0;z-index:10;display:flex;padding:10px;gap:8px}
+.hud-top{position:absolute;top:2px;left:0;right:0;z-index:10;display:flex;padding:6px 10px;gap:6px}
 .brain-search{flex:1;display:flex;gap:6px}
-.brain-search input{flex:1;background:rgba(20,20,24,.85);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;color:var(--text);font-size:13px;outline:none;min-height:44px}
+.brain-search input{flex:1;background:rgba(20,20,24,.85);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--r);padding:8px 12px;color:var(--text);font-size:12px;outline:none;min-height:38px}
 .brain-search input::placeholder{color:var(--faint)}
 .list-toggle,.events-toggle{width:44px;height:44px;border-radius:var(--r);border:1px solid var(--border);background:rgba(20,20,24,.85);backdrop-filter:blur(8px);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;flex-shrink:0}
 .list-toggle.on,.events-toggle.on{border-color:var(--accent);color:var(--accent)}
@@ -550,7 +550,7 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 }
 
 /* Agenda bubbles */
-.agenda-overlay{position:absolute;top:125px;left:8px;right:8px;z-index:9;display:flex;gap:6px;pointer-events:none}
+.agenda-overlay{position:absolute;top:82px;left:8px;right:8px;z-index:9;display:flex;gap:6px;pointer-events:none}
 .agenda-col{flex:1;display:flex;flex-direction:column;gap:4px;min-width:0}
 .agenda-label{font-size:8px;letter-spacing:2px;color:var(--accent);opacity:.5;text-align:center;padding:2px 0}
 .agenda-items{display:flex;flex-direction:column;gap:3px}
@@ -630,8 +630,7 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
   .brain-dim{display:none!important}
   .node-panel{width:45%;right:0;left:auto}
   .hud-top{width:55%}
-  .brain-filters{width:55%}
-  .brain-view-toggle{width:55%}
+  .brain-bar{width:55%}
   .bv-owner{width:55%}
   .agenda-overlay{width:55%}
 }
