@@ -979,7 +979,7 @@ document.addEventListener('DOMContentLoaded', () => NX.init());
 
 // Register service worker for offline support
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/nexus/sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
 // ═══ OFFLINE QUEUE — stores actions when offline, replays when back ═══
