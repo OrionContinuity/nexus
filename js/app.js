@@ -630,7 +630,7 @@ const NX = {
       } catch (e) {}
       // Refresh agenda
       this.loadAgenda();
-    }, 30000);
+    }, 60000); // Check every 60 seconds (was 30 — easier on free tier)
   },
 
   // ─── Agenda Bubbles — tickets + contractors per restaurant ───
