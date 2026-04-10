@@ -81,6 +81,12 @@
       <button class="events-toggle" id="eventsToggle"><i data-lucide="calendar" class="hud-icon"></i></button>
     </div>
     <div class="brain-filters" id="brainFilters"></div>
+    <div class="brain-view-toggle" id="brainViewToggle" style="display:none">
+      <button class="bv-btn active" data-bv="shared">Shared Brain</button>
+      <button class="bv-btn" data-bv="mine">My Brain</button>
+      <button class="bv-btn" data-bv="all">All</button>
+    </div>
+    <div class="bv-owner" id="brainOwnerLabel"></div>
     <div class="search-results" id="searchResults"></div>
     <div class="list-view" id="listView">
       <div class="list-filters" id="listFilters"></div>
@@ -197,10 +203,56 @@
         <div class="ingest-stats" id="ingestStats"></div>
       </div>
 
-      <!-- BACKGROUND PROCESSOR -->
-      <div class="ig-bg-bar">
-        <label class="ig-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="bgProcessToggle" checked><span>Auto-process (3 every 5 min)</span></label>
-        <button id="pauseBtn" class="ig-pause-btn" title="Pause all DB writes">● Syncing</button>
+      <!-- PROCESSOR CONTROL -->
+      <div class="ig-processor">
+        <div class="ig-proc-live" id="procLive">
+          <span class="ig-proc-dot" id="procDot"></span>
+          <span id="procLiveText">Idle</span>
+          <span class="ig-proc-queue" id="procQueue"></span>
+        </div>
+        <div class="ig-proc-header">
+          <label class="ig-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="bgProcessToggle" checked><span id="bgProcessLabel">Auto-process</span></label>
+          <button id="pauseBtn" class="ig-pause-btn">● Syncing</button>
+        </div>
+        <div class="ig-proc-controls">
+          <div class="ig-proc-row">
+            <span class="ig-proc-label">Mode</span>
+            <div class="ig-proc-presets" id="modePresets">
+              <button class="ig-preset active" data-val="process" title="Process queued emails">Process Queue</button>
+              <button class="ig-preset" data-val="pull" title="Pull new emails from Gmail then process">Pull + Process</button>
+              <button class="ig-preset" data-val="rescan" title="Re-scan all archived emails">Re-scan All</button>
+            </div>
+          </div>
+          <div class="ig-proc-row">
+            <span class="ig-proc-label">Batch</span>
+            <div class="ig-proc-presets" id="batchPresets">
+              <button class="ig-preset" data-val="1">1</button>
+              <button class="ig-preset active" data-val="3">3</button>
+              <button class="ig-preset" data-val="5">5</button>
+              <button class="ig-preset" data-val="10">10</button>
+              <button class="ig-preset" data-val="20">20</button>
+            </div>
+          </div>
+          <div class="ig-proc-row">
+            <span class="ig-proc-label">Every</span>
+            <div class="ig-proc-presets" id="intervalPresets">
+              <button class="ig-preset" data-val="60">1m</button>
+              <button class="ig-preset" data-val="180">3m</button>
+              <button class="ig-preset active" data-val="300">5m</button>
+              <button class="ig-preset" data-val="600">10m</button>
+            </div>
+          </div>
+          <div class="ig-proc-row">
+            <span class="ig-proc-label">Extract</span>
+            <div class="ig-proc-toggles">
+              <label class="ig-mini-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="extractPdfs" checked><span>PDFs</span></label>
+              <label class="ig-mini-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="extractImages" checked><span>Images</span></label>
+              <label class="ig-mini-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="extractParts" checked><span>Parts</span></label>
+              <label class="ig-mini-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="extractLinks" checked><span>Links</span></label>
+            </div>
+          </div>
+          <button id="procRunNow" class="ig-btn ig-btn-outline" style="margin-top:4px">▶ Run batch now</button>
+        </div>
       </div>
 
       <!-- EMAIL -->
@@ -294,6 +346,23 @@
           <div class="ig-divider"></div>
           <p class="ig-desc">Or re-scan all archived emails & documents with the improved AI. Slow background batches — no rate limits.</p>
           <button id="docRescanBtn" class="ig-btn ig-btn-outline">♻ Re-scan All Archives (background)</button>
+        </div>
+      </div>
+
+      <!-- BACKUP -->
+      <div class="ig-card collapsed">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <i data-lucide="database" class="ig-lucide"></i><span class="ig-title">Backup & Restore</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <p class="ig-desc">Export all data or restore from a backup file.</p>
+          <button id="exportBtn" class="ig-btn ig-btn-primary">⬇ Export Full Backup</button>
+          <div class="ig-divider"></div>
+          <div class="ig-dropzone" id="importDropzone">
+            <i data-lucide="upload" class="ig-lucide"></i>
+            <span class="ig-drop-text">Drop backup .json or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="importFileInput" accept=".json" hidden>browse</label></span>
+          </div>
+          <div id="importStatus" class="ig-feedback"></div>
         </div>
       </div>
 
@@ -413,6 +482,20 @@
       </div>
     </div>
     <!-- CHAT LOG — Admin only -->
+    <!-- BACKUP/RESTORE -->
+    <div id="adminBackupSection" style="display:none">
+      <div class="admin-section-label">Data Backup</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button id="exportBtn" class="admin-save-btn" style="flex:1;margin-top:0">⬇ Export All Data</button>
+        <button id="exportNodesBtn" class="admin-cancel" style="flex:1;padding:8px">⬇ Nodes Only</button>
+      </div>
+      <div class="ig-dropzone" id="importDropzone" style="margin-bottom:8px">
+        <i data-lucide="upload" class="ig-lucide"></i>
+        <span class="ig-drop-text">Drop backup .json to restore or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="importFileInput" accept=".json" hidden>browse</label></span>
+      </div>
+      <div id="importStatus" class="ig-feedback"></div>
+    </div>
+
     <div id="adminChatLog" style="display:none">
       <div class="admin-section-label" style="display:flex;justify-content:space-between;align-items:center">
         Chat History
