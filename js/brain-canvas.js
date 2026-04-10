@@ -272,13 +272,19 @@
     // Nebula particles (behind everything)
     drawNebula(t);
 
-    // Gold connection lines
-    if(isA){
-      ctx.lineWidth=1.2;ctx.strokeStyle='rgba(212,182,138,.4)';
-      for(let i=0;i<P.length;i++){const a=P[i];
-        if(!(state.searchHits.has(a.id)||state.activatedNodes.has(a.id)))continue;
-        ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(a.x,a.y);ctx.stroke();
-        for(let li=0;li<a.links.length;li++){const b=state.linkMap[a.links[li]];if(!b)continue;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
+    // Gold connection lines — only for tapped/frozen node
+    if(state.frozenNode&&state.frozenNode.links){
+      const a=state.frozenNode;
+      for(let li=0;li<a.links.length;li++){
+        const b=state.linkMap[a.links[li]];if(!b)continue;
+        const dist=Math.hypot(a.x-b.x,a.y-b.y);
+        if(dist>600)continue; // Skip very distant connections
+        const alpha=Math.max(0.08,0.4-dist/1500);
+        ctx.lineWidth=1;ctx.strokeStyle=`rgba(212,182,138,${alpha})`;
+        ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+        // Small dot at connected node
+        ctx.beginPath();ctx.arc(b.x,b.y,3,0,Math.PI*2);
+        ctx.fillStyle=`rgba(212,182,138,${alpha*1.5})`;ctx.fill();
       }
     }
 
@@ -334,8 +340,12 @@
       const isHover=state.hoverNode&&state.hoverNode.id===a.id;
       const dim=(isA&&!isHit&&!isActive)||a.filtered;
       const pulse=0.85+0.15*Math.sin(time*1.3+a.id*0.9);
-      // Audio reactivity — dots pulse with music
       const musicPulse=isPlaying?1+audioEnergy*0.3:1;
+
+      // Slow glow ramp-up when hit, slow fade when not
+      if(!a.searchGlow)a.searchGlow=0;
+      if(isHit||isActive){a.searchGlow=Math.min(a.searchGlow+0.02,1);} // ~50 frames to full
+      else{a.searchGlow=Math.max(a.searchGlow-0.008,0);} // ~125 frames to fade
 
       if(isActive||isFrozen){
         const r=DOT_ACTIVE*musicPulse;
@@ -343,12 +353,13 @@
         ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fillStyle='rgba(255,250,240,.9)';ctx.fill();
         ctx.strokeStyle='rgba(212,182,138,.7)';ctx.lineWidth=2;ctx.stroke();
         ctx.font='500 11px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle='rgba(212,182,138,.9)';ctx.fillText(a.node.name,a.x,a.y-r-6);
-      }else if(isHit){
-        const r=DOT_HIT*pulse*musicPulse;
-        ctx.beginPath();ctx.arc(a.x,a.y,r*2.5,0,Math.PI*2);ctx.fillStyle='rgba(212,182,138,.05)';ctx.fill();
-        ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fillStyle='rgba(255,248,235,.8)';ctx.fill();
-        ctx.strokeStyle='rgba(212,182,138,.5)';ctx.lineWidth=1.2;ctx.stroke();
-        ctx.font='400 10px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle='rgba(212,182,138,.8)';ctx.fillText(a.node.name.slice(0,25),a.x,a.y-r-5);
+      }else if(isHit||a.searchGlow>0.05){
+        const g=a.searchGlow;
+        const r=(DOT+g*(DOT_HIT-DOT))*pulse*musicPulse;
+        ctx.beginPath();ctx.arc(a.x,a.y,r*2.5,0,Math.PI*2);ctx.fillStyle=`rgba(212,182,138,${0.05*g})`;ctx.fill();
+        ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fillStyle=`rgba(255,248,235,${0.3+g*0.5})`;ctx.fill();
+        if(g>0.3){ctx.strokeStyle=`rgba(212,182,138,${g*0.5})`;ctx.lineWidth=1.2*g;ctx.stroke();}
+        if(g>0.5){ctx.font='400 10px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle=`rgba(212,182,138,${g*0.8})`;ctx.fillText(a.node.name.slice(0,25),a.x,a.y-r-5);}
       }else if(isHover){
         const r=DOT*1.8;
         ctx.beginPath();ctx.arc(a.x,a.y,r*2,0,Math.PI*2);ctx.fillStyle='rgba(212,182,138,.04)';ctx.fill();
