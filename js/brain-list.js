@@ -11,9 +11,26 @@
       if(!q){res.classList.remove('open');return;}
       const m=NX.nodes.filter(n=>!n.is_private&&(n.name.toLowerCase().includes(q)||(n.tags||[]).some(t=>t.includes(q))||(n.notes||'').toLowerCase().includes(q)));
       m.forEach(n=>NX.brain.state.searchHits.add(n.id));
-      if(m.length){res.classList.add('open');m.slice(0,20).forEach(n=>{const d=document.createElement('div');d.className='sr-item';d.innerHTML=`${n.name}<span>${n.category}</span>`;d.onclick=()=>{NX.brain.openPanel(n);res.classList.remove('open');};res.appendChild(d);});}
+      if(m.length){
+        res.classList.add('open');
+        m.slice(0,12).forEach(n=>{
+          const d=document.createElement('div');d.className='sr-card';
+          const catColor=getCatColor(n.category);
+          const tags=(n.tags||[]).slice(0,3).map(t=>`<span class="sr-tag">${t}</span>`).join('');
+          const preview=(n.notes||'').slice(0,100).replace(/\n/g,' ');
+          d.innerHTML=`<div class="sr-card-head"><span class="sr-cat" style="border-color:${catColor}">${n.category}</span><span class="sr-name">${n.name}</span></div>${tags?'<div class="sr-tags">'+tags+'</div>':''}${preview?'<div class="sr-preview">'+preview+'</div>':''}`;
+          d.onclick=()=>{NX.brain.openPanel(n);res.classList.remove('open');inp.value='';NX.brain.state.searchHits=new Set();};
+          res.appendChild(d);
+        });
+        if(m.length>12){const more=document.createElement('div');more.className='sr-more';more.textContent=`+ ${m.length-12} more`;res.appendChild(more);}
+      }
       else res.classList.remove('open');
     });
+  }
+
+  function getCatColor(cat){
+    const colors={equipment:'#5b8def',contractors:'#c89632',people:'#9c82d4',vendors:'#4ecdc4',menu:'#ff6b6b',operations:'#39ff14',policy:'#ffb020'};
+    return colors[cat]||'#d4b68a';
   }
 
   function setupListView(){
