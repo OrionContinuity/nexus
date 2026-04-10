@@ -278,6 +278,22 @@
         </div>
       </div>
 
+      <!-- DOCUMENTS -->
+      <div class="ig-card collapsed">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <i data-lucide="file-text" class="ig-lucide"></i><span class="ig-title">Documents</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <p class="ig-desc">Drop PDFs, Word docs, Excel, CSV — NEXUS extracts text and creates nodes.</p>
+          <div class="ig-dropzone" id="docDropzone">
+            <i data-lucide="upload" class="ig-lucide"></i>
+            <span class="ig-drop-text">Drop files or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="docFileInput" multiple accept=".pdf,.docx,.xlsx,.csv,.txt,.json,.md" hidden>browse</label></span>
+            <div class="ig-drop-formats">.pdf .docx .xlsx .csv .txt .md</div>
+          </div>
+          <div id="docFileStatus" class="ig-feedback"></div>
+        </div>
+      </div>
+
       <!-- TOOLS -->
       <div class="ig-card collapsed">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
@@ -411,6 +427,10 @@
   </div>
 </div>
 <div class="toast-container" id="toastContainer"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(window.pdfjsLib)pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="js/i18n.js"></script>
 <script src="js/app.js"></script>
 </body>
