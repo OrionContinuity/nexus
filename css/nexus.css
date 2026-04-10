@@ -104,7 +104,7 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .empty-tip b{color:var(--accent)}
 
 /* HUD top */
-.hud-top{position:absolute;top:0;left:0;right:0;z-index:10;display:flex;padding:10px;gap:8px}
+.hud-top{position:absolute;top:8px;left:0;right:0;z-index:10;display:flex;padding:10px;gap:8px}
 .brain-search{flex:1;display:flex;gap:6px}
 .brain-search input{flex:1;background:rgba(20,20,24,.85);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;color:var(--text);font-size:13px;outline:none;min-height:44px}
 .brain-search input::placeholder{color:var(--faint)}
