@@ -1,17 +1,25 @@
-/* NEXUS Cleaning v10 — frequency tracking, last-completed, overdue alerts */
+/* NEXUS Cleaning v11 — persistent state, 8AM rollover, who-did-what tracking */
 (function(){
-let loc='suerte',state={},lastDone={};
-const today=NX.today;
+let loc='suerte';
+const stateCache={}; // Per-location state cache
+const lastDone={};
 const NON_DAILY=['Bi-Semanal','Mensual','Semanal','Quincenal','Trimestral','Jardín','Jardin','Garden'];
 
-// Frequency in days — how often each non-daily section should be done
+// Cleaning date: before 8 AM = still yesterday's shift
+function getCleaningDate(){
+  const now=new Date();
+  if(now.getHours()<8){now.setDate(now.getDate()-1);}
+  return now.toISOString().split('T')[0];
+}
+const today=getCleaningDate();
+
 const FREQUENCY={
   'Bi-Semanal':14,'Mensual':30,'Semanal':7,'Quincenal':15,
   'Trimestral':90,'Jardín':7,'Jardin':7,'Garden':7
 };
 function getFrequency(secName){
   for(const[k,v]of Object.entries(FREQUENCY)){if(secName.toLowerCase().includes(k.toLowerCase()))return v;}
-  return 30; // default monthly
+  return 30;
 }
 function daysBetween(d1,d2){return Math.floor((new Date(d2)-new Date(d1))/(1000*60*60*24));}
 function daysAgoText(days){
@@ -19,6 +27,7 @@ function daysAgoText(days){
   if(days<7)return days+'d ago';if(days<30)return Math.floor(days/7)+'w ago';
   return Math.floor(days/30)+'mo ago';
 }
+function getUserName(){return NX.currentUser?NX.currentUser.name:'Unknown';}
 
 // Default checklist data
 const DEFAULTS={suerte:[
@@ -92,8 +101,12 @@ async function init(){
   document.querySelectorAll('.clean-tab').forEach(t=>{
     t.addEventListener('click',async()=>{
       document.querySelectorAll('.clean-tab').forEach(x=>x.classList.remove('active'));
-      t.classList.add('active');loc=t.dataset.cloc;state={};
-      await loadToday();await loadHistory();populateSections();render();
+      t.classList.add('active');loc=t.dataset.cloc;
+      // Load from cache or Supabase — never clear
+      if(!stateCache[loc]){
+        await loadToday();await loadHistory();
+      }
+      populateSections();render();
     });
   });
   document.getElementById('cleanSubmit').addEventListener('click',submitDailyReport);
@@ -102,9 +115,16 @@ async function init(){
 }
 
 async function loadToday(){
-  state={};
+  if(!stateCache[loc])stateCache[loc]={};
   try{const{data}=await NX.sb.from('cleaning_logs').select('*').eq('log_date',today).eq('location',loc);
-    if(data)data.forEach(c=>{state[loc+'_'+c.section+'_'+c.task_index]=c.done;});}catch(e){}
+    if(data)data.forEach(c=>{stateCache[loc][loc+'_'+c.section+'_'+c.task_index]={done:c.done,by:c.completed_by||''};});}catch(e){}
+}
+
+function getState(key){const s=stateCache[loc]?.[key];return s?s.done:false;}
+function getStateBy(key){const s=stateCache[loc]?.[key];return s?s.by:'';}
+function setState(key,done){
+  if(!stateCache[loc])stateCache[loc]={};
+  stateCache[loc][key]={done,by:done?getUserName():''};
 }
 
 async function loadHistory(){
@@ -154,7 +174,7 @@ function render(){
   secs.forEach((sec,si)=>{
     const isDaily=!NON_DAILY.some(nd=>sec.sec.toLowerCase().includes(nd.toLowerCase()));
     let sectionDone=0;
-    sec.items.forEach((_,i)=>{if(state[loc+'_'+sec.sec+'_'+i])sectionDone++;});
+    sec.items.forEach((_,i)=>{if(getState(loc+'_'+sec.sec+'_'+i))sectionDone++;});
     const isComplete=sectionDone===sec.items.length&&sec.items.length>0;
 
     // For non-daily sections: calculate status
@@ -185,8 +205,8 @@ function render(){
     caBtn.addEventListener('click',(e)=>{
       e.stopPropagation();const newState=!isComplete;
       sec.items.forEach((_,i)=>{
-        const k=loc+'_'+sec.sec+'_'+i;state[k]=newState;
-        try{NX.sb.from('cleaning_logs').upsert({location:loc,log_date:today,task_index:i,section:sec.sec,done:newState,completed_at:newState?new Date().toISOString():null},{onConflict:'location,log_date,task_index,section'});}catch(e){}
+        const k=loc+'_'+sec.sec+'_'+i;setState(k,newState);
+        try{NX.sb.from('cleaning_logs').upsert({location:loc,log_date:today,task_index:i,section:sec.sec,done:newState,completed_at:newState?new Date().toISOString():null,completed_by:newState?getUserName():''},{onConflict:'location,log_date,task_index,section'});}catch(e){}
       });render();
     });
 
@@ -199,7 +219,8 @@ function render(){
       // PERCENTAGE: only count daily tasks
       if(isDaily)dailyTotal++;
       const k=loc+'_'+sec.sec+'_'+i;
-      const d=!!state[k];
+      const d=getState(k);
+      const doneBy=getStateBy(k);
       if(d&&isDaily)dailyDone++;
 
       const it=document.createElement('div');it.className='clean-item'+(d?' done':'')+(item[2]?' clean-item-custom':'');
@@ -209,7 +230,8 @@ function render(){
         if(hist){const daysAgo=daysBetween(hist.date,today);lastInfo=`<div class="ci-last">Last: ${daysAgoText(daysAgo)}</div>`;}
         else{lastInfo='<div class="ci-last ci-never">Never done</div>';}
       }
-      it.innerHTML=`<div class="ci-box">${d?'✓':''}</div><div><div class="ci-primary">${lang==='es'?item[0]:item[1]}</div><div class="ci-secondary">${lang==='es'?item[1]:item[0]}</div>${lastInfo}</div>`;
+      const byTag=d&&doneBy?`<span class="ci-by">${doneBy}</span>`:'';
+      it.innerHTML=`<div class="ci-box">${d?'✓':''}</div><div><div class="ci-primary">${lang==='es'?item[0]:item[1]}${byTag}</div><div class="ci-secondary">${lang==='es'?item[1]:item[0]}</div>${lastInfo}</div>`;
       // Delete button for custom tasks
       if(item[2]){
         const del=document.createElement('button');del.className='clean-item-del';del.textContent='✕';
@@ -221,8 +243,8 @@ function render(){
         it.appendChild(del);
       }
       it.onclick=()=>{
-        state[k]=!state[k];render();
-        try{NX.sb.from('cleaning_logs').upsert({location:loc,log_date:today,task_index:i,section:sec.sec,done:state[k],completed_at:state[k]?new Date().toISOString():null},{onConflict:'location,log_date,task_index,section'});}catch(e){}
+        const newVal=!getState(k);setState(k,newVal);render();
+        try{NX.sb.from('cleaning_logs').upsert({location:loc,log_date:today,task_index:i,section:sec.sec,done:newVal,completed_at:newVal?new Date().toISOString():null,completed_by:newVal?getUserName():''},{onConflict:'location,log_date,task_index,section'});}catch(e){}
       };
       body.appendChild(it);
     });
@@ -296,7 +318,8 @@ function buildFullReport(location,locState){
     let done=[],missed=[];
     sec.items.forEach((item,i)=>{
       if(isDaily)dailyTotal++;
-      if(locState[location+'_'+sec.sec+'_'+i]){if(isDaily)dailyDone++;done.push(item[1]);}
+      const s=locState?.[location+'_'+sec.sec+'_'+i];
+      if(s&&s.done){if(isDaily)dailyDone++;done.push(item[1]+(s.by?' ('+s.by+')':''));}
       else missed.push(item[1]);
     });
     let line=`${sec.sec} (${done.length}/${sec.items.length})`;
@@ -315,10 +338,22 @@ function buildFullReport(location,locState){
 
 async function submitDailyReport(){
   const btn=document.getElementById('cleanSubmit'),confirm=document.getElementById('cleanConfirm');
-  const entry=buildFullReport(loc,state);
+  // Check for duplicate
+  const dupKey='nexus_submit_'+loc+'_'+today;
+  if(localStorage.getItem(dupKey)){
+    const overwrite=window.confirm('A report for '+loc+' was already submitted today. Submit again?');
+    if(!overwrite){btn.textContent='Cancelled';setTimeout(()=>{btn.textContent='Submit Daily Report';},2000);return;}
+  }
+  const entry=buildFullReport(loc,stateCache[loc]||{});
   btn.disabled=true;btn.textContent='Submitting...';
   const{error}=await NX.sb.from('daily_logs').insert({entry});
-  if(!error){btn.textContent='✓ Submitted';confirm.textContent='Saved to daily log — view in Log tab';confirm.style.display='block';}
+  if(!error){
+    btn.textContent='✓ Submitted';
+    localStorage.setItem(dupKey,'1');
+    confirm.textContent='Saved — view in Log tab. Submitted by '+getUserName();
+    confirm.style.display='block';
+    if(NX.toast)NX.toast('Daily report submitted ✓','success');
+  }
   else{btn.textContent='Error — try again';confirm.style.display='none';}
   setTimeout(()=>{btn.disabled=false;btn.textContent='Submit Daily Report';},3000);
 }
@@ -330,16 +365,17 @@ function startAutoSubmit(){
   setInterval(async()=>{
     const now=new Date();
     const autoKey='nexus_auto_clean_'+today;
-    if(now.getHours()===22&&now.getMinutes()===0&&!localStorage.getItem(autoKey)){
+    if(now.getHours()===8&&now.getMinutes()===0&&!localStorage.getItem(autoKey)){
       localStorage.setItem(autoKey,'1');
       for(const location of Object.keys(DEFAULTS)){
         try{
           const{data}=await NX.sb.from('cleaning_logs').select('*').eq('log_date',today).eq('location',location);
-          const locState={};if(data)data.forEach(c=>{locState[location+'_'+c.section+'_'+c.task_index]=c.done;});
-          const entry='[AUTO 10PM] '+buildFullReport(location,locState);
+          const locState={};if(data)data.forEach(c=>{locState[location+'_'+c.section+'_'+c.task_index]={done:c.done,by:c.completed_by||''};});
+          const entry='[AUTO 8AM] '+buildFullReport(location,locState);
           await NX.sb.from('daily_logs').insert({entry});
         }catch(e){}
       }
+      if(NX.toast)NX.toast('Cleaning reports auto-submitted (8 AM)','info');
     }
   },60000);
 }
