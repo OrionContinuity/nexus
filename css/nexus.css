@@ -28,6 +28,12 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .brain-filter-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(212,182,138,.08)}
 .brain-filter-btn:hover{border-color:var(--accent);color:var(--accent)}
 
+/* Brain view toggle — shared/personal */
+.brain-view-toggle{display:flex;gap:4px;padding:0 10px;position:absolute;top:90px;left:0;right:0;z-index:10;justify-content:center}
+.bv-btn{padding:5px 14px;border-radius:var(--rp);border:1px solid var(--border);background:rgba(14,14,18,.8);backdrop-filter:blur(6px);color:var(--faint);font-size:10px;cursor:pointer;font-family:inherit;transition:all .15s;letter-spacing:0.5px}
+.bv-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(212,182,138,.08)}
+.bv-owner{font-size:9px;color:var(--accent);position:absolute;top:112px;left:0;right:0;text-align:center;z-index:10;letter-spacing:2px;opacity:.5}
+
 /* ═══ PIN SCREEN ═══ */
 .pin-screen{position:fixed;inset:0;z-index:300;background:var(--bg);display:flex;align-items:center;justify-content:center;transition:opacity .5s,transform .5s}
 .pin-screen.hidden{opacity:0;transform:scale(1.05);pointer-events:none}
@@ -435,7 +441,25 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 /* Clear button */
 .ig-clear{margin-left:auto;background:none;border:1px solid var(--border);color:var(--faint);padding:2px 10px;border-radius:var(--rs);font-size:10px;cursor:pointer;font-family:inherit}
 .ig-clear:hover{border-color:var(--accent);color:var(--accent)}
-.ig-bg-bar{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:8px}
+.ig-bg-bar,.ig-processor{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;overflow:hidden}
+.ig-proc-header{display:flex;align-items:center;justify-content:space-between;padding:10px 12px}
+.ig-proc-live{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px}
+.ig-proc-dot{width:8px;height:8px;border-radius:50%;background:var(--faint);flex-shrink:0;transition:all .3s}
+.ig-proc-dot.active{background:#39ff14;box-shadow:0 0 8px rgba(57,255,20,.4);animation:pulse 2s infinite}
+.ig-proc-dot.working{background:var(--accent);box-shadow:0 0 8px rgba(212,182,138,.4);animation:pulse 1s infinite}
+.ig-proc-queue{margin-left:auto;color:var(--accent);font-weight:500}
+.ig-proc-controls{padding:0 12px 10px;display:flex;flex-direction:column;gap:8px}
+.ig-proc-row{display:flex;align-items:center;gap:8px}
+.ig-proc-label{font-size:10px;color:var(--faint);letter-spacing:1px;min-width:40px}
+.ig-proc-presets{display:flex;gap:4px}
+.ig-preset{padding:5px 10px;border-radius:var(--rs);border:1px solid var(--border);background:none;color:var(--faint);font-size:11px;cursor:pointer;font-family:inherit;transition:all .15s;min-width:32px;text-align:center}
+.ig-preset.active{border-color:var(--accent);color:var(--accent);background:rgba(212,182,138,.06)}
+.ig-preset:hover{border-color:var(--accent);color:var(--accent)}
+.ig-proc-toggles{display:flex;gap:6px}
+.ig-mini-toggle{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--faint);cursor:pointer}
+.ig-mini-toggle input{accent-color:var(--accent);width:13px;height:13px}
+.ig-mini-toggle span{letter-spacing:0.5px}
+.ig-proc-status{font-size:10px;color:var(--faint);padding:4px 0;text-align:center}
 .ig-queue-status{font-size:10px;padding:3px 8px;border-radius:var(--rp);border:1px solid var(--border);color:var(--faint);white-space:nowrap}
 .ig-queue-status.active{border-color:var(--accent);color:var(--accent);animation:pulse 2s infinite}
 .ig-queue-count{font-size:11px;color:var(--faint)}
@@ -526,7 +550,7 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 }
 
 /* Agenda bubbles */
-.agenda-overlay{position:absolute;top:95px;left:8px;right:8px;z-index:9;display:flex;gap:6px;pointer-events:none}
+.agenda-overlay{position:absolute;top:125px;left:8px;right:8px;z-index:9;display:flex;gap:6px;pointer-events:none}
 .agenda-col{flex:1;display:flex;flex-direction:column;gap:4px;min-width:0}
 .agenda-label{font-size:8px;letter-spacing:2px;color:var(--accent);opacity:.5;text-align:center;padding:2px 0}
 .agenda-items{display:flex;flex-direction:column;gap:3px}
@@ -590,3 +614,24 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .log-rest-card.expanded .log-rest-arrow{transform:rotate(180deg)}
 .log-rest-body{display:none;padding:0 12px 8px}
 .log-rest-card.expanded .log-rest-body{display:block}
+
+/* ═══ LANDSCAPE iPad/Tablet — galaxy left, chat right ═══ */
+@media(min-width:768px) and (orientation:landscape){
+  #brainView{display:flex!important;flex-direction:row!important;overflow:hidden}
+  #brainView canvas{width:55%!important;height:100%!important;flex-shrink:0}
+  .chat-hud{position:relative!important;width:45%;height:100%;max-height:100%!important;border-top:none;border-left:1.5px solid var(--accent);display:flex!important;flex-direction:column}
+  .chat-hud .hud-body{display:flex!important;flex:1;overflow-y:auto}
+  .chat-hud .hud-handle{display:none}
+  .hud-messages{max-height:none!important;flex:1}
+  .hud-input{padding:12px!important}
+  .hud-mic-row{display:flex!important;padding:4px 0}
+  .hud-welcome,.hud-examples{padding:12px}
+  .chat-hud.expanded{max-height:100%!important}
+  .brain-dim{display:none!important}
+  .node-panel{width:45%;right:0;left:auto}
+  .hud-top{width:55%}
+  .brain-filters{width:55%}
+  .brain-view-toggle{width:55%}
+  .bv-owner{width:55%}
+  .agenda-overlay{width:55%}
+}
