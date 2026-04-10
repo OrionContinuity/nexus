@@ -13,7 +13,8 @@ const NX = {
   // Runtime state
   sb: null, nodes: [], today: new Date().toISOString().split('T')[0],
   modules: {}, loaded: {}, brain: null,
-  paused: false, // Kill switch for all Supabase operations
+  paused: false,
+  brainView: 'shared', // 'shared', 'mine', 'all' // Kill switch for all Supabase operations
 
   // Auth state
   currentUser: null, // {id, name, pin, role, location}
@@ -72,8 +73,23 @@ const NX = {
         all = all.concat(data); offset += data.length;
         if (data.length < 1000) break;
       }
-      this.nodes = all;
-    } catch (e) { this.nodes = []; }
+      // Filter based on brain view + role
+      const uid = this.currentUser?.id;
+      const role = this.currentUser?.role || 'staff';
+      if (role === 'staff') {
+        // Staff sees shared only
+        this.nodes = all.filter(n => !n.owner_id);
+      } else if (this.brainView === 'shared') {
+        this.nodes = all.filter(n => !n.owner_id);
+      } else if (this.brainView === 'mine') {
+        this.nodes = all.filter(n => n.owner_id === uid);
+      } else {
+        // 'all' — admin sees everything, manager sees shared + own
+        if (role === 'admin') this.nodes = all;
+        else this.nodes = all.filter(n => !n.owner_id || n.owner_id === uid);
+      }
+      this.allNodes = all; // Keep unfiltered copy
+    } catch (e) { this.nodes = []; this.allNodes = []; }
   },
 
   // ═══ PIN AUTH ═══
@@ -260,6 +276,8 @@ const NX = {
     // Start real-time watchers
     this.startNodeWatcher();
     this.loadAgenda();
+    // Brain view toggle — managers + admin only
+    this.setupBrainViewToggle();
     // Language toggle
     if (this.i18n) {
       const langBtn = document.getElementById('langToggle');
@@ -380,14 +398,27 @@ const NX = {
         this.loadUserList();
         // Show chat log for admin
         document.getElementById('adminChatLog').style.display='block';
+        document.getElementById('adminBackupSection').style.display='block';
         this.loadChatLog();
       } else {
         keySection.style.display = 'none';
         document.getElementById('adminChatLog').style.display='none';
+        document.getElementById('adminBackupSection').style.display='none';
       }
     });
 
     // Save keys → Supabase config table
+    document.getElementById('exportBtn')?.addEventListener('click',()=>this.exportAll());
+    document.getElementById('exportNodesBtn')?.addEventListener('click',()=>this.exportNodes());
+    const impDrop=document.getElementById('importDropzone');
+    const impFile=document.getElementById('importFileInput');
+    if(impDrop){
+      impDrop.addEventListener('dragover',e=>{e.preventDefault();impDrop.classList.add('dragover');});
+      impDrop.addEventListener('dragleave',()=>impDrop.classList.remove('dragover'));
+      impDrop.addEventListener('drop',e=>{e.preventDefault();impDrop.classList.remove('dragover');if(e.dataTransfer.files.length)this.importBackup(e.dataTransfer.files[0]);});
+      impDrop.addEventListener('click',()=>impFile?.click());
+      impFile?.addEventListener('change',()=>{if(impFile.files.length)this.importBackup(impFile.files[0]);});
+    }
     document.getElementById('chatLogRefresh')?.addEventListener('click', () => this.loadChatLog());
     document.getElementById('chatLogClear')?.addEventListener('click', async () => {
       if (!confirm('Delete ALL chat history? This cannot be undone.')) return;
@@ -613,6 +644,34 @@ const NX = {
     else { const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.onload = doConnect; document.head.appendChild(s); }
   },
 
+  // ─── Brain View Toggle ───
+  setupBrainViewToggle() {
+    const toggle = document.getElementById('brainViewToggle');
+    const label = document.getElementById('brainOwnerLabel');
+    const role = this.currentUser?.role || 'staff';
+    const name = this.currentUser?.name || '';
+    if (role === 'staff') {
+      if (toggle) toggle.style.display = 'none';
+      if (label) label.style.display = 'none';
+      return;
+    }
+    if (toggle) toggle.style.display = 'flex';
+    toggle?.querySelectorAll('.bv-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        toggle.querySelectorAll('.bv-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.brainView = btn.dataset.bv;
+        if (label) {
+          if (this.brainView === 'mine') { label.textContent = name.toUpperCase() + "'S BRAIN"; label.style.display = ''; }
+          else if (this.brainView === 'all') { label.textContent = 'ALL BRAINS'; label.style.display = ''; }
+          else { label.textContent = ''; label.style.display = 'none'; }
+        }
+        await this.loadNodes();
+        if (this.brain) this.brain.init();
+      });
+    });
+  },
+
   // ─── Real-time Node Watcher — polls every 30s ───
   startNodeWatcher() {
     let knownCount = this.nodes.length;
@@ -686,6 +745,125 @@ const NX = {
     } catch (e) {}
   },
 
+  // ─── Data Backup — Export All ───
+  async exportAll() {
+    this.toast('Exporting all data...','info');
+    try {
+      const backup = { version: 2, date: new Date().toISOString(), tables: {} };
+      const tables = ['nodes','kanban_cards','cleaning_logs','daily_logs','contractor_events','chat_history','raw_emails','tickets','nexus_users'];
+      for (const table of tables) {
+        try {
+          let allData = [], offset = 0;
+          while (true) {
+            const { data } = await this.sb.from(table).select('*').range(offset, offset + 999);
+            if (!data || !data.length) break;
+            allData = allData.concat(data);
+            offset += 1000;
+            if (data.length < 1000) break;
+          }
+          backup.tables[table] = allData;
+        } catch (e) { backup.tables[table] = []; }
+      }
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `nexus-backup-${new Date().toISOString().split('T')[0]}.json`;
+      a.click(); URL.revokeObjectURL(url);
+      this.toast(`Exported: ${Object.entries(backup.tables).map(([k,v])=>v.length+' '+k).join(', ')}`, 'success');
+    } catch (e) { this.toast('Export failed: ' + e.message, 'error'); }
+  },
+
+  // ─── Export Nodes Only ───
+  async exportNodes() {
+    try {
+      let allData = [], offset = 0;
+      while (true) {
+        const { data } = await this.sb.from('nodes').select('*').range(offset, offset + 999);
+        if (!data || !data.length) break;
+        allData = allData.concat(data);
+        offset += 1000;
+        if (data.length < 1000) break;
+      }
+      const blob = new Blob([JSON.stringify({ version: 2, date: new Date().toISOString(), tables: { nodes: allData } }, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `nexus-nodes-${new Date().toISOString().split('T')[0]}.json`;
+      a.click(); URL.revokeObjectURL(url);
+      this.toast(`Exported ${allData.length} nodes`, 'success');
+    } catch (e) { this.toast('Export failed: ' + e.message, 'error'); }
+  },
+
+  // ─── Import Backup ───
+  async importBackup(file) {
+    const status = document.getElementById('importStatus');
+    status.textContent = 'Reading file...';
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+      if (!backup.tables) { status.textContent = 'Invalid backup file.'; return; }
+      const tables = backup.tables;
+      const summary = [];
+
+      // Confirm
+      const tableList = Object.entries(tables).filter(([k,v]) => v.length > 0).map(([k,v]) => `${v.length} ${k}`).join(', ');
+      if (!confirm(`Import: ${tableList}\n\nThis will ADD data (not replace). Duplicates will be skipped. Continue?`)) {
+        status.textContent = 'Cancelled.'; return;
+      }
+
+      for (const [table, rows] of Object.entries(tables)) {
+        if (!rows || !rows.length) continue;
+        status.textContent = `Importing ${table} (${rows.length})...`;
+        let imported = 0;
+
+        // Strip IDs for insert (let Supabase auto-generate) except raw_emails which uses text ID
+        const BATCH = 20;
+        for (let i = 0; i < rows.length; i += BATCH) {
+          const batch = rows.slice(i, i + BATCH).map(row => {
+            const clean = { ...row };
+            // Keep ID for raw_emails (text PK), strip for others (serial PK)
+            if (table !== 'raw_emails') delete clean.id;
+            delete clean.created_at;
+            delete clean.ingested_at;
+            return clean;
+          });
+          try {
+            if (table === 'raw_emails') {
+              const { error } = await this.sb.from(table).upsert(batch, { onConflict: 'id', ignoreDuplicates: true });
+              if (!error) imported += batch.length;
+            } else if (table === 'nodes') {
+              // Skip nodes that already exist by name
+              for (const row of batch) {
+                const existing = this.nodes.find(n => n.name && n.name.toLowerCase() === (row.name || '').toLowerCase());
+                if (existing) continue;
+                const { error } = await this.sb.from(table).insert(row);
+                if (!error) imported++;
+              }
+            } else if (table === 'nexus_users') {
+              for (const row of batch) {
+                const { error } = await this.sb.from(table).upsert(row, { onConflict: 'pin', ignoreDuplicates: true });
+                if (!error) imported++;
+              }
+            } else {
+              const { error } = await this.sb.from(table).insert(batch);
+              if (!error) imported += batch.length;
+            }
+          } catch (e) {}
+          await new Promise(r => setTimeout(r, 200));
+        }
+        summary.push(`${imported} ${table}`);
+      }
+
+      status.textContent = '✓ Import complete';
+      status.style.color = '#39ff14';
+      this.toast('Imported: ' + summary.join(', '), 'success');
+      await this.loadNodes();
+      if (this.brain) this.brain.init();
+    } catch (e) {
+      status.textContent = 'Error: ' + e.message;
+      status.style.color = '#ff5533';
+    }
+  },
+
   // ─── Chat Log — admin only ───
   async loadChatLog() {
     const list = document.getElementById('chatLogList');
@@ -744,7 +922,93 @@ const NX = {
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message || 'API error');
     return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
+  },
+
+  async askClaudeVision(prompt, base64Data, mimeType) {
+    const key = this.getApiKey();
+    if (!key) return '';
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({
+          model: this.getModel(),
+          max_tokens: 1500,
+          messages: [{ role: 'user', content: [
+            { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Data } },
+            { type: 'text', text: prompt }
+          ]}]
+        })
+      });
+      const data = await resp.json();
+      if (data.error) return '';
+      return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
+    } catch (e) { return ''; }
   }
 };
 
 document.addEventListener('DOMContentLoaded', () => NX.init());
+
+// Register service worker for offline support
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/nexus/sw.js').catch(() => {});
+}
+
+// ═══ OFFLINE QUEUE — stores actions when offline, replays when back ═══
+const OfflineQueue = {
+  DB_NAME: 'nexus_offline',
+  STORE: 'pending',
+  
+  async open() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(this.DB_NAME, 1);
+      req.onupgradeneeded = e => { e.target.result.createObjectStore(this.STORE, { keyPath: 'id', autoIncrement: true }); };
+      req.onsuccess = e => resolve(e.target.result);
+      req.onerror = () => reject();
+    });
+  },
+
+  async add(action) {
+    try {
+      const db = await this.open();
+      const tx = db.transaction(this.STORE, 'readwrite');
+      tx.objectStore(this.STORE).add({ ...action, timestamp: Date.now() });
+    } catch (e) {}
+  },
+
+  async replay() {
+    try {
+      const db = await this.open();
+      const tx = db.transaction(this.STORE, 'readonly');
+      const items = await new Promise(r => { const req = tx.objectStore(this.STORE).getAll(); req.onsuccess = () => r(req.result); req.onerror = () => r([]); });
+      if (!items.length) return;
+      let replayed = 0;
+      for (const item of items) {
+        try {
+          if (item.type === 'cleaning') {
+            await NX.sb.from('cleaning_logs').upsert(item.data, { onConflict: 'location,log_date,task_index,section' });
+            replayed++;
+          } else if (item.type === 'log') {
+            await NX.sb.from('daily_logs').insert({ entry: item.data });
+            replayed++;
+          }
+        } catch (e) {}
+      }
+      // Clear queue
+      const clearTx = db.transaction(this.STORE, 'readwrite');
+      clearTx.objectStore(this.STORE).clear();
+      if (replayed && NX.toast) NX.toast(`${replayed} offline actions synced ✓`, 'success');
+    } catch (e) {}
+  }
+};
+
+// Replay when coming back online
+window.addEventListener('online', () => {
+  if (NX.toast) NX.toast('Back online — syncing...', 'info');
+  setTimeout(() => OfflineQueue.replay(), 2000);
+});
+window.addEventListener('offline', () => {
+  if (NX.toast) NX.toast('Offline — changes will sync when connected', 'info');
+});
+
+NX.offlineQueue = OfflineQueue;
