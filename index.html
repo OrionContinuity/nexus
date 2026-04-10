@@ -80,11 +80,13 @@
       <div class="brain-search"><input autocomplete="off" data-lpignore="true" data-form-type="other" id="brainSearch" placeholder="Search nodes..." aria-label="Search nodes"><button class="list-toggle" id="listToggle"><i data-lucide="list" class="hud-icon"></i></button></div>
       <button class="events-toggle" id="eventsToggle"><i data-lucide="calendar" class="hud-icon"></i></button>
     </div>
-    <div class="brain-filters" id="brainFilters"></div>
-    <div class="brain-view-toggle" id="brainViewToggle" style="display:none">
-      <button class="bv-btn active" data-bv="shared">Shared Brain</button>
-      <button class="bv-btn" data-bv="mine">My Brain</button>
-      <button class="bv-btn" data-bv="all">All</button>
+    <div class="brain-bar" id="brainBar">
+      <div class="brain-filters" id="brainFilters"></div>
+      <div class="brain-view-toggle" id="brainViewToggle" style="display:none">
+        <button class="bv-btn active" data-bv="shared">Shared</button>
+        <button class="bv-btn" data-bv="mine">My Brain</button>
+        <button class="bv-btn" data-bv="all">All</button>
+      </div>
     </div>
     <div class="bv-owner" id="brainOwnerLabel"></div>
     <div class="search-results" id="searchResults"></div>
