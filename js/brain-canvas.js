@@ -425,6 +425,9 @@
 
     canvas.addEventListener('click',e=>{
       if(state.dragging)return;
+      // Block node interaction when chat is open
+      const hud=document.getElementById('chatHud');
+      if(hud&&hud.classList.contains('expanded'))return;
       const p=stw(e.clientX,e.clientY);
       const cx=W/2,cy=H/2;
 
@@ -456,7 +459,8 @@
     canvas.addEventListener('touchmove',e=>{e.preventDefault();const d=dpr();if(e.touches.length===1){const dx=e.touches[0].clientX-state.dragStart.x,dy=e.touches[0].clientY-state.dragStart.y;if(Math.abs(dx)+Math.abs(dy)>5)state.dragging=true;state.transform.x=state.dragTransStart.x+dx*d;state.transform.y=state.dragTransStart.y+dy*d;}if(e.touches.length===2){const nd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);state.transform.scale=Math.max(.1,Math.min(8,state.transform.scale*nd/ltd));ltd=nd;}},{passive:false});
     canvas.addEventListener('touchend',e=>{
       if(state.dragging){state.dragging=false;return;}
-      // Simulate tap from last touchstart position
+      const hud=document.getElementById('chatHud');
+      if(hud&&hud.classList.contains('expanded'))return;
       const sx=state.dragStart.x,sy=state.dragStart.y;
       const p=stw(sx,sy);const cx=W/2,cy=H/2;
       if(Math.hypot(p.x-cx,p.y-cy)<35){togglePlay(cx,cy);return;}
