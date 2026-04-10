@@ -325,6 +325,9 @@ const NX = {
     const tabs = document.querySelectorAll('.nav-tab');
     const nexusBtn = document.getElementById('navNexus');
     const switchTo = (view) => {
+      // Stop any playing speech
+      if('speechSynthesis'in window)speechSynthesis.cancel();
+      if(NX.brain&&NX.brain.stopSpeaking)NX.brain.stopSpeaking();
       tabs.forEach(t => t.classList.remove('active'));
       nexusBtn.classList.remove('active');
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
