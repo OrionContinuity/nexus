@@ -593,23 +593,51 @@ RESPOND ONLY RAW JSON:
   try{const p=JSON.parse(j);return(p.nodes&&Array.isArray(p.nodes))?p:null;}catch(e){log('JSON: '+e.message,'error');return null;}}catch(e){log('AI: '+e.message,'error');return null;}}
 
 // ═══ SAVE EXTRACTED — LAYER 2 (fuzzy dedup) ═══
-async function saveExtracted(r){if(!r||!r.nodes||!r.nodes.length)return 0;let c=0,er=0,dupes=0;
+async function saveExtracted(r){if(!r||!r.nodes||!r.nodes.length)return 0;let c=0,updated=0,er=0;
 const createdNames=[];
-// Build existing name set from Supabase (not just memory)
-let existingNames=new Set();NX.nodes.forEach(n=>{if(n.name)existingNames.add(n.name.toLowerCase());});
-try{const{data}=await NX.sb.from('nodes').select('name');if(data)data.forEach(n=>{if(n.name)existingNames.add(n.name.toLowerCase());});}catch(e){}
+// Build existing node map from Supabase
+let existingMap={};
+try{const{data}=await NX.sb.from('nodes').select('id,name,notes,tags,source_emails,attachments');
+  if(data)data.forEach(n=>{if(n.name)existingMap[n.name.toLowerCase()]={id:n.id,notes:n.notes||'',tags:n.tags||[],source_emails:n.source_emails||[],attachments:n.attachments||[]};});}catch(e){}
 const vc=['equipment','contractors','vendors','procedure','projects','people','systems','parts','location'];
 for(const n of r.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2)continue;
-  // LAYER 2: Fuzzy duplicate check
-  if(isFuzzyDuplicate(nm,existingNames)){dupes++;continue;}
-  const row={name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'equipment',tags:Array.isArray(n.tags)?n.tags.filter(t=>typeof t==='string').slice(0,20):[],notes:(n.notes||'').slice(0,2000),links:[],access_count:1,source_emails:n.source_emails||[]};
-  const{error}=await NX.sb.from('nodes').insert(row);if(error){er++;if(er<=3)log(`Insert "${nm}": ${error.message}`,'error');}else{existingNames.add(nm.toLowerCase());createdNames.push(nm);c++;}}
-if(r.cards)for(const x of r.cards){if(!x.title)continue;const{error:ce}=await NX.sb.from('kanban_cards').insert({title:(x.title||'').slice(0,200),column_name:x.column_name||'todo'});if(ce)console.error('[NX] card:',ce.message);}
-if(dupes)log(`${dupes} fuzzy duplicates skipped`);
+  const newNotes=(n.notes||'').slice(0,2000);
+  const newTags=Array.isArray(n.tags)?n.tags.filter(t=>typeof t==='string').slice(0,20):[];
+  const newSources=n.source_emails||[];
+  const newAtts=n.attachments||[];
+
+  // Check for existing node with same/similar name
+  const existKey=Object.keys(existingMap).find(k=>k===nm.toLowerCase()||isFuzzyDuplicate(nm,new Set([k])));
+  if(existKey){
+    // MERGE — update existing node with better data
+    const ex=existingMap[existKey];
+    const mergedNotes=newNotes.length>ex.notes.length?newNotes:ex.notes; // Keep longer notes
+    const mergedTags=[...new Set([...ex.tags,...newTags])].slice(0,30);
+    const mergedSources=[...ex.source_emails,...newSources].slice(0,50);
+    const mergedAtts=[...ex.attachments,...newAtts].slice(0,20);
+    // Only update if we have something new
+    if(newNotes.length>ex.notes.length||newTags.length||newSources.length||newAtts.length){
+      try{await NX.sb.from('nodes').update({
+        notes:mergedNotes,tags:mergedTags,
+        source_emails:mergedSources,attachments:mergedAtts
+      }).eq('id',ex.id);
+      updated++;
+      // Update local map
+      existingMap[existKey]={...ex,notes:mergedNotes,tags:mergedTags,source_emails:mergedSources,attachments:mergedAtts};
+      }catch(e){}
+    }
+    continue;
+  }
+  // New node — insert
+  const row={name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'equipment',tags:newTags,notes:newNotes,links:[],access_count:1,source_emails:newSources,attachments:newAtts};
+  const{error}=await NX.sb.from('nodes').insert(row);
+  if(error){er++;if(er<=3)log(`Insert "${nm}": ${error.message}`,'error');}
+  else{existingMap[nm.toLowerCase()]={id:0,notes:newNotes,tags:newTags,source_emails:newSources,attachments:newAtts};createdNames.push(nm);c++;}}
+if(r.cards)for(const x of r.cards){if(!x.title)continue;await NX.sb.from('kanban_cards').insert({title:(x.title||'').slice(0,200),column_name:x.column_name||'todo'});}
+if(updated)log(`${updated} existing nodes enriched`,'success');
 if(er)log(`${er} inserts failed`,'error');
-// Auto-link new nodes
 if(createdNames.length&&NX.autoLinkNewNodes){await NX.loadNodes();NX.autoLinkNewNodes(createdNames);}
-return c;}
+return c+updated;}
 
 // ═══ MAIL MONITOR (enhanced: scrapes attachments + links to nodes) ═══
 async function mailMonitor(){if(!gmailToken){log('Connect Gmail first.','error');return;}const btn=document.getElementById('mailMonitorBtn');btn.disabled=true;btn.textContent='Scanning...';clearLog();log('Scanning for orders, invoices & attachments...');
