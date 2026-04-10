@@ -316,20 +316,18 @@ function buildFullReport(location,locState){
     sec.items.forEach((item,i)=>{
       if(isDaily)dailyTotal++;
       const s=locState?.[location+'_'+sec.sec+'_'+i];
-      if(s&&s.done){if(isDaily)dailyDone++;done.push(item[1]+(s.by?' ('+s.by+')':''));}
+      if(s&&s.done){if(isDaily)dailyDone++;done.push(item[1]);}
       else missed.push(item[1]);
     });
-    let line=`${sec.sec} (${done.length}/${sec.items.length})`;
-    if(done.length)line+=` ✓ ${done.join(', ')}`;
-    if(missed.length)line+=` ✗ MISSED: ${missed.join(', ')}`;
-    lines.push(line);
+    lines.push(`${sec.sec} (${done.length}/${sec.items.length})`);
+    if(missed.length)lines.push(`MISSED: ${missed.join(', ')}`);
   });
   const extras=[];
   try{const ex=JSON.parse(localStorage.getItem('nexus_extras_'+location+'_'+today)||'[]');ex.forEach(e=>extras.push(e.en));}catch(e){}
   const pct=dailyTotal?Math.round(dailyDone/dailyTotal*100):0;
   const locName=location.charAt(0).toUpperCase()+location.slice(1);
-  let entry=`Cleaning Report [${locName}]: ${pct}% (${dailyDone}/${dailyTotal} daily tasks)\n${lines.join('\n')}`;
-  if(extras.length)entry+=`\nEXTRAS: ${extras.join(', ')}`;
+  let entry=`Cleaning Report — ${locName} — ${today}\nDaily: ${pct}% (${dailyDone}/${dailyTotal})\n---\n${lines.join('\n')}`;
+  if(extras.length)entry+=`\n---\nEXTRAS: ${extras.join(', ')}`;
   return entry;
 }
 
