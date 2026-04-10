@@ -69,12 +69,18 @@
     <div class="canvas-empty" id="canvasEmpty" style="display:none">
       <div class="canvas-empty-icon">◎</div>
       <div class="canvas-empty-text">No knowledge nodes yet</div>
-      <div class="canvas-empty-sub">Open Ingest to feed the brain</div>
+      <div class="canvas-empty-sub">Get started:</div>
+      <div class="canvas-empty-tips">
+        <div class="empty-tip">Open <b>Ingest</b> → connect Gmail or drop email files</div>
+        <div class="empty-tip">Chat: type <b>remember [name] - [details]</b> to add knowledge</div>
+        <div class="empty-tip">Chat: type <b>look up [topic]</b> to search the web</div>
+      </div>
     </div>
     <div class="hud-top">
       <div class="brain-search"><input id="brainSearch" placeholder="Search nodes..." aria-label="Search nodes"><button class="list-toggle" id="listToggle"><i data-lucide="list" class="hud-icon"></i></button></div>
       <button class="events-toggle" id="eventsToggle"><i data-lucide="calendar" class="hud-icon"></i></button>
     </div>
+    <div class="brain-filters" id="brainFilters"></div>
     <div class="search-results" id="searchResults"></div>
     <div class="list-view" id="listView">
       <div class="list-filters" id="listFilters"></div>
@@ -95,6 +101,20 @@
       </div>
       <div class="events-list" id="eventsList"></div>
     </div>
+    <div class="agenda-overlay" id="agendaOverlay">
+      <div class="agenda-col" id="agendaSuerte" data-loc="suerte">
+        <div class="agenda-label">SUERTE</div>
+        <div class="agenda-items"></div>
+      </div>
+      <div class="agenda-col" id="agendaEste" data-loc="este">
+        <div class="agenda-label">ESTE</div>
+        <div class="agenda-items"></div>
+      </div>
+      <div class="agenda-col" id="agendaToti" data-loc="toti">
+        <div class="agenda-label">TOTI</div>
+        <div class="agenda-items"></div>
+      </div>
+    </div>
     <div class="chat-hud" id="chatHud">
       <div class="hud-handle" id="hudChevron"><span class="hud-handle-bar"></span></div>
       <div class="hud-body" id="hudBody">
@@ -103,12 +123,13 @@
         <div class="hud-examples" id="brainExamples"></div>
         <div class="hud-messages" id="chatMessages"></div>
       </div>
+      <div class="hud-mic-row">
+        <button class="btn-mic-float" id="micBtn"><i data-lucide="mic" class="hud-icon"></i></button>
+        <button class="btn-voice-float" id="voiceBtn" title="Toggle AI voice"><i data-lucide="volume-2" class="hud-icon"></i></button>
+      </div>
       <div class="hud-input">
         <button class="btn-reset" id="resetBtn" style="display:none"><i data-lucide="rotate-ccw" class="hud-icon"></i></button>
-        <button class="btn-mic" id="micBtn"><i data-lucide="mic" class="hud-icon"></i></button>
-        <span class="mic-label" id="micLabel">Voice</span>
         <input id="chatInput" placeholder="Ask NEXUS..." aria-label="Ask NEXUS">
-        <button class="btn-voice" id="voiceBtn" title="Tap: toggle voice. Hold: change."><i data-lucide="volume-2" class="hud-icon"></i></button>
         <button class="btn-send" id="chatSend" disabled><i data-lucide="send" class="hud-icon-send"></i></button>
       </div>
     </div>
@@ -179,7 +200,7 @@
       <!-- BACKGROUND PROCESSOR -->
       <div class="ig-bg-bar">
         <label class="ig-toggle"><input type="checkbox" id="bgProcessToggle" checked><span>Auto-process (3 every 5 min)</span></label>
-        <button id="pauseBtn" class="ig-pause-btn" title="Pause all DB writes">▶ DB Active</button>
+        <button id="pauseBtn" class="ig-pause-btn" title="Pause all DB writes">● Syncing</button>
       </div>
 
       <!-- EMAIL -->
@@ -237,6 +258,23 @@
         </div>
         <div class="ig-card-body">
           <button id="trelloBtn" class="ig-btn ig-btn-blue">Import from Trello</button>
+        </div>
+      </div>
+
+      <!-- SLACK -->
+      <div class="ig-card collapsed">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <i data-lucide="hash" class="ig-lucide"></i><span class="ig-title">Slack</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <p class="ig-desc">Import Slack export (.zip or .json files) or paste channel content.</p>
+          <div class="ig-dropzone" id="slackDropzone">
+            <i data-lucide="folder-open" class="ig-lucide"></i>
+            <span class="ig-drop-text">Drop Slack export .json files or <label class="ig-drop-link"><input type="file" id="slackFileInput" multiple accept=".json,.zip,.txt" hidden>browse</label></span>
+          </div>
+          <textarea id="slackPasteText" class="ig-textarea" placeholder="Or paste Slack channel content here..."></textarea>
+          <button id="slackProcessBtn" class="ig-btn ig-btn-primary">Process Slack Content</button>
+          <div id="slackStatus" class="ig-feedback"></div>
         </div>
       </div>
 
@@ -355,12 +393,24 @@
         <button id="addUserBtn" class="admin-save-btn" style="margin-top:0;padding:8px 14px">+ Add</button>
       </div>
     </div>
+    <!-- CHAT LOG — Admin only -->
+    <div id="adminChatLog" style="display:none">
+      <div class="admin-section-label" style="display:flex;justify-content:space-between;align-items:center">
+        Chat History
+        <div style="display:flex;gap:6px">
+          <button id="chatLogRefresh" class="admin-cancel" style="padding:4px 10px;font-size:10px">Refresh</button>
+          <button id="chatLogClear" class="admin-cancel" style="padding:4px 10px;font-size:10px;color:var(--red)">Clear All</button>
+        </div>
+      </div>
+      <div id="chatLogList" class="admin-chat-log"></div>
+    </div>
     <div class="admin-actions">
       <button id="adminLogout" class="admin-cancel">Log Out</button>
       <button id="adminCancel" class="admin-cancel">Close</button>
     </div>
   </div>
 </div>
+<div class="toast-container" id="toastContainer"></div>
 <script src="js/i18n.js"></script>
 <script src="js/app.js"></script>
 </body>
