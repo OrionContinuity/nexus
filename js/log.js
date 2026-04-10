@@ -51,63 +51,67 @@ function render(){
     const timeStr=time.toLocaleDateString([],{month:'short',day:'numeric'})+' '+time.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
 
     if(isCR){
-      // Parse cleaning report for detailed view
-      const lines=entry.split('\n');
-      const header=lines[0]||'Cleaning Report';
-      // Extract percentage
-      const pctMatch=entry.match(/(\d+)%/);
-      const pct=pctMatch?parseInt(pctMatch[1]):0;
-      const pctColor=pct>=90?'#39ff14':pct>=70?'#ffb020':'#ff5533';
-      
-      // Parse sections
-      let sections=[];
-      let currentSec=null;
-      lines.forEach(line=>{
-        const secMatch=line.match(/^([A-ZÁ-Úa-záéíóú\s]+)\s*\((\d+)\/(\d+)\)/);
-        if(secMatch){
-          currentSec={name:secMatch[1].trim(),done:parseInt(secMatch[2]),total:parseInt(secMatch[3]),items:[],missed:[]};
-          sections.push(currentSec);
-        }
-        if(currentSec&&line.startsWith('MISSED:')&&line.length>8){
-          currentSec.missed=line.replace('MISSED:','').split(',').map(s=>s.trim()).filter(Boolean);
-        }
+      // Split by === to get per-restaurant blocks
+      const blocks=entry.split('===').map(b=>b.trim()).filter(Boolean);
+      const headerBlock=blocks[0]||'';
+      const isAuto=entry.includes('[AUTO');
+      const dateMatch=entry.match(/\d{4}-\d{2}-\d{2}/);
+      const reportDate=dateMatch?dateMatch[0]:today;
+
+      // Parse each restaurant block
+      const restaurants=[];
+      blocks.forEach((block,bi)=>{
+        if(bi===0&&!block.includes('('))return; // Skip header line
+        const lines=block.split('\n').filter(l=>l.trim());
+        // First line has restaurant name and percentage
+        const head=lines[0]||'';
+        const nameMatch=head.match(/(?:Cleaning Report — )?(\w+)\s*—\s*(\d{4}-\d{2}-\d{2})?/i)||head.match(/^(\w+)/);
+        const pctMatch=head.match(/(\d+)%/);
+        const locName=nameMatch?nameMatch[1]:'';
+        const pct=pctMatch?parseInt(pctMatch[1]):0;
+        const pctColor=pct>=90?'#39ff14':pct>=70?'#ffb020':'#ff5533';
+
+        // Parse sections within this restaurant
+        const sections=[];
+        lines.forEach(line=>{
+          const secMatch=line.match(/^([A-ZÁ-Úa-záéíóúñ\s]+)\s*\((\d+)\/(\d+)\)/);
+          if(secMatch)sections.push({name:secMatch[1].trim(),done:parseInt(secMatch[2]),total:parseInt(secMatch[3]),missed:[]});
+          if(sections.length&&line.startsWith('MISSED:')&&line.length>8){
+            sections[sections.length-1].missed=line.replace('MISSED:','').split(',').map(s=>s.trim()).filter(Boolean);
+          }
+        });
+
+        if(locName)restaurants.push({name:locName,pct,pctColor,sections});
       });
 
-      d.innerHTML=`<div class="log-clean-head" onclick="this.parentElement.classList.toggle('expanded')">
-        <span class="log-clean-pct" style="color:${pctColor}">${pct}%</span>
-        <span class="log-clean-title">${header.replace('Cleaning Report — ','').replace('[AUTO 8AM] ','⏰ ')}</span>
+      d.innerHTML=`<div class="log-clean-header">
+        <span>${isAuto?'⏰ ':''}${reportDate}</span>
         <span class="log-meta">${timeStr}</span>
-        <span class="log-clean-arrow">▼</span>
       </div>
-      <div class="log-clean-body">${sections.map(sec=>{
-        const secPct=sec.total?Math.round(sec.done/sec.total*100):0;
-        const secColor=secPct===100?'#39ff14':secPct>=70?'#ffb020':'#ff5533';
-        return `<div class="log-clean-sec">
-          <div class="log-clean-sec-head"><span style="color:${secColor}">${sec.done}/${sec.total}</span> ${sec.name}</div>
-          ${sec.missed.length?sec.missed.map(m=>`<div class="log-missed-item">✗ ${m}</div>`).join(''):''}
-        </div>`;
-      }).join('')}
-      <div class="log-clean-full" onclick="event.stopPropagation();this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">Show full report</div>
-      <pre class="log-clean-raw" style="display:none">${entry}</pre>
-      </div>`;
-      // Delete button
+      ${restaurants.map(r=>`<div class="log-rest-card">
+        <div class="log-rest-head" onclick="this.parentElement.classList.toggle('expanded')">
+          <span class="log-rest-pct" style="color:${r.pctColor}">${r.pct}%</span>
+          <span class="log-rest-name">${r.name.toUpperCase()}</span>
+          <span class="log-rest-arrow">▼</span>
+        </div>
+        <div class="log-rest-body">${r.sections.map(sec=>{
+          const c=sec.total&&sec.done===sec.total?'#39ff14':sec.done/sec.total>=0.7?'#ffb020':'#ff5533';
+          return `<div class="log-clean-sec">
+            <div class="log-clean-sec-head"><span style="color:${c}">${sec.done}/${sec.total}</span> ${sec.name}</div>
+            ${sec.missed.map(m=>`<div class="log-missed-item">✗ ${m}</div>`).join('')}
+          </div>`;
+        }).join('')}</div>
+      </div>`).join('')}
+      <div class="log-clean-full" onclick="event.stopPropagation();const r=this.nextElementSibling;r.style.display=r.style.display==='block'?'none':'block'">Show raw</div>
+      <pre class="log-clean-raw" style="display:none">${entry}</pre>`;
+
       const del=document.createElement('button');del.className='log-del';del.textContent='✕';
-      del.addEventListener('click',async(e)=>{
-        e.stopPropagation();
-        if(!confirm('Delete this log entry?'))return;
-        await NX.sb.from('daily_logs').delete().eq('id',l.id);
-        load();
-      });
+      del.addEventListener('click',async(e)=>{e.stopPropagation();if(!confirm('Delete?'))return;await NX.sb.from('daily_logs').delete().eq('id',l.id);load();});
       d.appendChild(del);
     } else {
       d.innerHTML=`<div class="log-text${isTK?' log-ticket':''}">${isTK?'🔧 ':''}${entry}</div><div class="log-meta">${timeStr}</div>`;
       const del=document.createElement('button');del.className='log-del';del.textContent='✕';
-      del.addEventListener('click',async(e)=>{
-        e.stopPropagation();
-        if(!confirm('Delete this log entry?'))return;
-        await NX.sb.from('daily_logs').delete().eq('id',l.id);
-        load();
-      });
+      del.addEventListener('click',async(e)=>{e.stopPropagation();if(!confirm('Delete?'))return;await NX.sb.from('daily_logs').delete().eq('id',l.id);load();});
       d.appendChild(del);
     }
     list.appendChild(d);
