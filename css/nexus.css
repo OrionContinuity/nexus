@@ -701,3 +701,7 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 /* Log edit/recalc buttons */
 .log-recalc,.log-edit-btn{padding:6px 12px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:rgba(255,255,255,.5);font-size:11px;cursor:pointer;font-family:inherit;margin:6px 6px 0 0;display:inline-block}
 .log-recalc:active,.log-edit-btn:active{border-color:var(--accent);color:var(--accent);background:rgba(200,164,78,.08)}
+
+/* Cleaning edit banner */
+.clean-edit-banner{display:none;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(200,164,78,.1);border:1px solid rgba(200,164,78,.25);border-radius:8px;margin:8px 12px;font-size:13px;color:var(--accent)}
+.clean-edit-cancel{padding:4px 12px;border-radius:6px;border:1px solid rgba(200,164,78,.3);background:none;color:var(--accent);font-size:12px;cursor:pointer;font-family:inherit}
