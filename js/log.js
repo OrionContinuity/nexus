@@ -41,10 +41,10 @@ function render(){
   }
 
   // Log entries
-  if(!data.length&&!openTickets.length){list.innerHTML='<div class="log-empty">Nothing logged yet.</div>';return;}
+  if(!data.length&&!openTickets.length){list.innerHTML='<div class="log-empty"><div style="font-size:20px;margin-bottom:8px;opacity:.3">📋</div>Nothing logged yet.<br><span style="font-size:11px;color:var(--faint)">Log a repair, observation, or note above.<br>Cleaning reports auto-save here too.</span></div>';return;}
   data.forEach(l=>{const d=document.createElement('div');d.className='log-entry';const isCR=(l.entry||'').startsWith('Cleaning Report');const isTK=(l.entry||'').includes('TICKET');d.innerHTML=`<div class="log-text${isCR?' log-cleaning':''}${isTK?' log-ticket':''}">${isCR?'✓ ':''}${isTK?'🔧 ':''}${l.entry}</div><div class="log-meta">${new Date(l.created_at).toLocaleDateString()} · ${new Date(l.created_at).toLocaleTimeString()}</div>`;list.appendChild(d);});
 }
-async function add(){const input=document.getElementById('logInput');if(!input.value.trim())return;await NX.sb.from('daily_logs').insert({entry:input.value.trim()});input.value='';load();}
+async function add(){const input=document.getElementById('logInput');if(!input.value.trim())return;await NX.sb.from('daily_logs').insert({entry:input.value.trim()});if(NX.toast)NX.toast('Logged ✓','success');input.value='';load();}
 
 async function addKnowledge(){
   const inp=document.getElementById('knowledgeInput'),btn=document.getElementById('knowledgeBtn');
@@ -61,6 +61,7 @@ async function addKnowledge(){
           const{error}=await NX.sb.from('nodes').insert({name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'equipment',tags:Array.isArray(n.tags)?n.tags.filter(x=>typeof x==='string').slice(0,20):[],notes:(n.notes||'').slice(0,2000),links:[],access_count:1,source_emails:[]});
           if(!error)created++;}
         inp.value='';btn.textContent=`✓ ${created} node${created!==1?'s':''} added`;
+        if(NX.toast)NX.toast(`${created} node${created!==1?'s':''} added to brain ✓`,'success');
         await NX.loadNodes();if(NX.brain)NX.brain.init();
       }else btn.textContent='No knowledge found';
     }else btn.textContent='No data';
