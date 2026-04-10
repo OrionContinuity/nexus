@@ -314,6 +314,8 @@ const NX = {
       else { const tab = document.querySelector(`.nav-tab[data-view="${view}"]`); if (tab) tab.classList.add('active'); }
       document.getElementById(view + 'View').classList.add('active');
       this.activateModule(view);
+      // Re-apply language after view switch
+      if(this.i18n)setTimeout(()=>this.i18n.applyUI(),100);
     };
     tabs.forEach(tab => tab.addEventListener('click', () => switchTo(tab.dataset.view)));
     nexusBtn.classList.add('active');
@@ -325,7 +327,7 @@ const NX = {
     if (view === 'brain') { if (NX.brain && NX.brain.show) NX.brain.show(); return; }
     const file = moduleMap[view]; if (!file) return;
     if (this.loaded[view]) { const mod = this.modules[view]; if (mod && mod.show) mod.show(); }
-    else { this.loadScript(file, () => { this.loaded[view] = true; const mod = this.modules[view]; if (mod && mod.init) mod.init(); }); }
+    else { this.loadScript(file, () => { this.loaded[view] = true; const mod = this.modules[view]; if (mod && mod.init) mod.init(); if(this.i18n)setTimeout(()=>this.i18n.applyUI(),200); }); }
   },
 
   loadScript(src, cb) {
@@ -660,7 +662,20 @@ const NX = {
         locEvents.forEach(e => {
           const el = document.createElement('div');
           el.className = 'agenda-item agenda-event';
-          el.innerHTML = `<div class="agenda-item-title">👷 ${e.contractor_name}</div><div class="agenda-item-meta">${e.event_date || ''} ${e.event_time || ''} · ${e.description || ''}</div>`;
+          const isDone = e.status === 'done';
+          if (isDone) el.classList.add('agenda-done');
+          el.innerHTML = `<div class="agenda-item-title">👷 ${e.contractor_name}${isDone?' ✓':''}</div><div class="agenda-item-meta">${e.event_date || ''} ${e.event_time || ''} · ${e.description || ''}</div>`;
+          if (!isDone) {
+            el.style.cursor = 'pointer';
+            el.addEventListener('click', async () => {
+              try {
+                await this.sb.from('contractor_events').update({ status: 'done' }).eq('id', e.id);
+                el.classList.add('agenda-done');
+                el.querySelector('.agenda-item-title').textContent = '👷 ' + e.contractor_name + ' ✓';
+                this.toast(e.contractor_name + ' marked done', 'success');
+              } catch (err) {}
+            });
+          }
           col.appendChild(el);
         });
 
