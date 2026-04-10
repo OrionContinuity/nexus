@@ -15,6 +15,7 @@
   };
 
   const DAMP=0.996,MAXV=0.28,DOT=3,DOT_HIT=6,DOT_ACTIVE=10;
+  let drawRunning=false;
 
   // ═══ NEBULA PARTICLES — beacon-001 inspired ═══
   const nebula=[];const MAX_NEBULA=300;
@@ -411,7 +412,11 @@
       }
     }
 
-    ctx.restore();drawRunning=true;requestAnimationFrame(draw);
+    ctx.restore();
+    // Stop draw loop when canvas is hidden
+    const brainEl=document.getElementById('brainView');
+    if(!brainEl||!brainEl.classList.contains('active')){drawRunning=false;return;}
+    requestAnimationFrame(draw);
   }
 
   // ═══ INTERACTION ═══
@@ -591,19 +596,17 @@
 
   function init(){
     resize();
-    // If canvas has no dimensions yet (still hidden), retry
     if(W<10||H<10){
-      setTimeout(()=>{resize();buildParticles();for(let i=0;i<150;i++)physics();setupCanvas();checkEmpty();draw();},300);
+      setTimeout(()=>{resize();buildParticles();for(let i=0;i<150;i++)physics();setupCanvas();checkEmpty();startDraw();},300);
       return;
     }
     buildParticles();for(let i=0;i<150;i++)physics();setupCanvas();checkEmpty();buildFilters();
-    if(NX.brain.initChat)NX.brain.initChat();if(NX.brain.initList)NX.brain.initList();if(NX.brain.initEvents)NX.brain.initEvents();draw();
+    if(NX.brain.initChat)NX.brain.initChat();if(NX.brain.initList)NX.brain.initList();if(NX.brain.initEvents)NX.brain.initEvents();startDraw();
   }
 
-  let drawRunning=false;
-  function startDraw(){if(!drawRunning){drawRunning=true;draw();}}
+  function startDraw(){drawRunning=false;requestAnimationFrame(draw);}
 
   NX.brain={init,closePanel,state,wakePhysics,show:()=>{
-    setTimeout(()=>{resize();if(W>10&&H>10){startDraw();}else{setTimeout(()=>{resize();startDraw();},500);}},50);
+    setTimeout(()=>{resize();startDraw();},50);
   },openPanel};NX.modules.brain=NX.brain;NX.loaded.brain=true;
 })();
