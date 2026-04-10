@@ -1,686 +1,525 @@
-/* NEXUS Brain Canvas v12 — Galaxy + Nebula + Audio
-   Tap the NEXUS beacon to activate ambient audio + particle effects
-*/
-(function(){
-  const canvas=document.getElementById('brainCanvas'),ctx=canvas.getContext('2d');
-  let W,H,time=0,physicsFrame=0;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>NEXUS</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%23121214' stroke='%23c9a87c' stroke-width='2'/><circle cx='16' cy='16' r='4' fill='%23c9a87c'/></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/nexus.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script async src="https://unpkg.com/lucide@latest/dist/umd/lucide.js" onload="lucide.createIcons()"></script>
+</head>
+<body>
 
-  const state={
-    particles:[],transform:{x:0,y:0,scale:1},
-    dragging:false,dragStart:{x:0,y:0},dragTransStart:{x:0,y:0},
-    hoverNode:null,activeNode:null,frozenNode:null,
-    activatedNodes:new Set(),searchHits:new Set(),
-    linkMap:{},catMap:{},tagSets:{},
-    contractorEvents:[],W:0,H:0,canvas,ctx
-  };
+<!-- PIN LOGIN SCREEN -->
+<div class="pin-screen" id="pinScreen">
+  <div class="pin-box">
+    <div class="pin-dot"></div>
+    <h1 class="pin-title">NEXUS</h1>
+    <p class="pin-sub">Enter your PIN</p>
+    <div class="pin-display" id="pinDisplay">
+      <span class="pin-circle"></span><span class="pin-circle"></span>
+      <span class="pin-circle"></span><span class="pin-circle"></span>
+    </div>
+    <div class="pin-pad" id="pinPad">
+      <button class="pin-key" data-val="1">1</button>
+      <button class="pin-key" data-val="2">2</button>
+      <button class="pin-key" data-val="3">3</button>
+      <button class="pin-key" data-val="4">4</button>
+      <button class="pin-key" data-val="5">5</button>
+      <button class="pin-key" data-val="6">6</button>
+      <button class="pin-key" data-val="7">7</button>
+      <button class="pin-key" data-val="8">8</button>
+      <button class="pin-key" data-val="9">9</button>
+      <button class="pin-key pin-key-empty"></button>
+      <button class="pin-key" data-val="0">0</button>
+      <button class="pin-key pin-key-del" id="pinDel">⌫</button>
+    </div>
+    <div class="pin-error" id="pinError"></div>
+    <div class="pin-user" id="pinUser"></div>
+    <div class="pin-lang-row">
+      <button class="pin-lang-btn" data-lang="en">English</button>
+      <button class="pin-lang-btn" data-lang="es">Español</button>
+    </div>
+  </div>
+</div>
 
-  const DAMP=0.996,MAXV=0.28,DOT=3,DOT_HIT=6,DOT_ACTIVE=10;
-  let drawRunning=false;
+<!-- APP (hidden until PIN auth) -->
+<div id="appWrap" style="display:none">
+<nav class="nav" role="navigation">
+  <button class="nav-nexus" id="navNexus" data-view="brain"><div class="nav-dot"></div><span>NEXUS</span></button>
+  <div class="nav-tabs" id="navTabs">
+    <button class="nav-tab" data-view="clean"><i data-lucide="sparkles" class="nav-icon"></i> Cleaning</button>
+    <button class="nav-tab" data-view="log"><i data-lucide="file-text" class="nav-icon"></i> Log</button>
+    <button class="nav-tab" data-view="board" title="Task Board"><i data-lucide="columns-3" class="nav-icon"></i> Board</button>
+    <button class="nav-tab" data-view="ingest" id="ingestTab" style="display:none"><i data-lucide="zap" class="nav-icon"></i> Ingest</button>
+  </div>
+  <button class="nav-admin" id="adminBtn"><i data-lucide="settings" class="nav-icon"></i><span class="ticket-badge" id="ticketBadge" style="display:none"></span></button>
+  <button class="nav-lang" id="langToggle">EN</button>
+</nav>
 
-  // ═══ NEBULA PARTICLES — beacon-001 inspired ═══
-  const nebula=[];const MAX_NEBULA=300;
-  const NEBULA_COLORS=[
-    [212,182,138],[220,195,155],[245,230,200],[180,160,130],
-    [200,175,140],[230,210,170],[190,170,145],[255,240,210],
-    [170,150,120],[240,220,180]
-  ];
+<div class="offline-banner" id="offlineBanner" style="display:none">No connection — check WiFi</div>
 
-  function spawnNebula(cx,cy,energy){
-    if(nebula.length>=MAX_NEBULA)return;
-    const angle=Math.random()*Math.PI*2;
-    const speed=0.06+Math.random()*0.24+(energy||0)*0.6;
-    const c=NEBULA_COLORS[Math.floor(Math.random()*NEBULA_COLORS.length)];
-    nebula.push({
-      x:cx,y:cy,
-      vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,
-      life:1,decay:0.001+Math.random()*0.002, // Very slow decay — long life
-      size:0.8+Math.random()*2.5+(energy||0)*2,
-      color:c,fromCenter:true,age:0,
-      wobbleSpeed:0.2+Math.random()*0.8,wobblePhase:Math.random()*6.28,wobbleAmp:0.8+Math.random()*3,
-      pulseSpeed:0.15+Math.random()*0.4,pulsePhase:Math.random()*6.28,
-      baseAlpha:0.08+Math.random()*0.18
-    });
-  }
+<main class="main" id="mainContainer">
+  <!-- BRAIN -->
+  <div class="view active" id="brainView" data-view="brain">
+    <canvas id="brainCanvas"></canvas>
+    <div class="brain-dim" id="brainDim"></div>
+    <div class="canvas-empty" id="canvasEmpty" style="display:none">
+      <div class="canvas-empty-icon">◎</div>
+      <div class="canvas-empty-text">No knowledge nodes yet</div>
+      <div class="canvas-empty-sub">Get started:</div>
+      <div class="canvas-empty-tips">
+        <div class="empty-tip">Open <b>Ingest</b> → connect Gmail or drop email files</div>
+        <div class="empty-tip">Chat: type <b>remember [name] - [details]</b> to add knowledge</div>
+        <div class="empty-tip">Chat: type <b>look up [topic]</b> to search the web</div>
+      </div>
+    </div>
+    <div class="hud-top">
+      <div class="brain-search"><input autocomplete="off" data-lpignore="true" data-form-type="other" id="brainSearch" placeholder="Search nodes..." aria-label="Search nodes"><button class="list-toggle" id="listToggle"><i data-lucide="list" class="hud-icon"></i></button></div>
+      <button class="events-toggle" id="eventsToggle"><i data-lucide="calendar" class="hud-icon"></i></button>
+    </div>
+    <div class="brain-bar" id="brainBar">
+      <div class="brain-filters" id="brainFilters"></div>
+      <div class="brain-view-toggle" id="brainViewToggle" style="display:none">
+        <button class="bv-btn active" data-bv="shared">Shared</button>
+        <button class="bv-btn" data-bv="mine">My Brain</button>
+        <button class="bv-btn" data-bv="all">All</button>
+      </div>
+    </div>
+    <div class="bv-owner" id="brainOwnerLabel"></div>
+    <div class="search-results" id="searchResults"></div>
+    <div class="list-view" id="listView">
+      <div class="list-filters" id="listFilters"></div>
+      <div class="list-sort" id="listSort">
+        <button class="sort-btn active" data-sort="az">A–Z</button>
+        <button class="sort-btn" data-sort="access">Most Used</button>
+        <button class="sort-btn" data-sort="recent">Recent</button>
+      </div>
+      <div class="list-items" id="listItems"></div>
+    </div>
+    <div class="events-panel" id="eventsPanel">
+      <div class="events-header"><span class="events-title">CONTRACTOR SCHEDULE</span><button class="events-close" id="eventsClose"><i data-lucide="x" class="hud-icon"></i></button></div>
+      <div class="events-add-bar">
+        <input autocomplete="off" data-lpignore="true" data-form-type="other" id="eventContractor" placeholder="Contractor..." class="events-field" list="contractorSuggest"><datalist id="contractorSuggest"></datalist>
+        <input autocomplete="off" data-lpignore="true" data-form-type="other" id="eventDesc" placeholder="Service..." class="events-field">
+        <div class="events-row"><input autocomplete="off" data-lpignore="true" data-form-type="other" id="eventDate" type="date" class="events-field"><input autocomplete="off" data-lpignore="true" data-form-type="other" id="eventTime" type="time" class="events-field"></div>
+        <div class="events-row"><select id="eventLocation" class="events-field"><option value="suerte">Suerte</option><option value="este">Este</option><option value="toti">Toti</option></select><button id="eventAddBtn" class="events-add-btn">+ Schedule</button></div>
+      </div>
+      <div class="events-list" id="eventsList"></div>
+    </div>
+    <div class="agenda-overlay" id="agendaOverlay">
+      <div class="agenda-col" id="agendaSuerte" data-loc="suerte">
+        <div class="agenda-label">SUERTE</div>
+        <div class="agenda-items"></div>
+      </div>
+      <div class="agenda-col" id="agendaEste" data-loc="este">
+        <div class="agenda-label">ESTE</div>
+        <div class="agenda-items"></div>
+      </div>
+      <div class="agenda-col" id="agendaToti" data-loc="toti">
+        <div class="agenda-label">TOTI</div>
+        <div class="agenda-items"></div>
+      </div>
+    </div>
+    <div class="chat-hud" id="chatHud">
+      <div class="hud-handle" id="hudChevron"><span class="hud-handle-bar"></span></div>
+      <div class="hud-body" id="hudBody">
+        <div class="api-banner" id="apiBanner" style="display:none">⚠ No API key. <button onclick="document.getElementById('adminBtn').click()">Admin ⚙</button></div>
+        <div class="hud-welcome" id="brainWelcome"><span class="hud-welcome-text">I'm <b>NEXUS</b> — your ops brain. Ask me anything.</span></div>
+        <div class="hud-examples" id="brainExamples"></div>
+        <div class="hud-messages" id="chatMessages"></div>
+      </div>
+      <div class="hud-mic-row">
+        <button class="btn-mic-float" id="micBtn"><i data-lucide="mic" class="hud-icon"></i></button>
+        <button class="btn-voice-float" id="voiceBtn" title="Toggle AI voice"><i data-lucide="volume-2" class="hud-icon"></i></button>
+      </div>
+      <div class="hud-input">
+        <button class="btn-reset" id="resetBtn" style="display:none"><i data-lucide="rotate-ccw" class="hud-icon"></i></button>
+        <input autocomplete="nexus-off" data-lpignore="true" data-form-type="other" data-1p-ignore="true" id="chatInput" placeholder="Ask NEXUS..." aria-label="Ask NEXUS">
+        <button class="btn-send" id="chatSend" disabled><i data-lucide="send" class="hud-icon-send"></i></button>
+      </div>
+    </div>
+    <div class="node-panel" id="nodePanel">
+      <div class="np-header">
+        <button onclick="NX.brain.closePanel()" class="panel-close"><i data-lucide="x" class="hud-icon"></i></button>
+        <div id="npCat" class="np-cat"></div>
+        <h3 id="npName" class="np-name"></h3>
+        <div id="npTags" class="np-tags"></div>
+      </div>
+      <div class="np-body">
+        <div id="npNotes" class="np-notes"></div>
+        <button id="npEditNotes" class="np-edit-btn">✏ Edit Notes</button>
+        <!-- Add files -->
+        <div class="np-add-section">
+          <label class="np-add-file-btn"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="npFileInput" multiple accept="image/*,.pdf,.doc,.docx,.xlsx,.csv" hidden>📎 Add File / Photo</label>
+          <div id="npUploadStatus" class="np-upload-status"></div>
+        </div>
+        <!-- Sources with expandable emails -->
+        <div id="npSources" class="np-sources"></div>
+        <!-- Attachments with previews -->
+        <div id="npAttachments" class="np-attachments"></div>
+        <!-- Connected nodes -->
+        <div id="npLinks" class="np-links"></div>
+      </div>
+      <div class="np-footer">
+        <button id="npDelete" class="np-delete-btn">✕</button>
+      </div>
+    </div>
+  </div>
 
-  function updateNebula(){
-    for(let i=nebula.length-1;i>=0;i--){
-      const p=nebula[i];
-      p.age++;p.life-=p.decay;
-      if(p.life<=0){nebula.splice(i,1);continue;}
-      const wobble=Math.sin(time*p.wobbleSpeed*60+p.wobblePhase)*p.wobbleAmp;
-      const perpLen=Math.sqrt(p.vx*p.vx+p.vy*p.vy)||1;
-      if(p.fromCenter&&isPlaying){p.vx+=p.vx*0.0003*audioEnergy;p.vy+=p.vy*0.0003*audioEnergy;}
-      else if(!isPlaying&&p.fromCenter){p.vx*=0.999;p.vy*=0.999;}
-      p.x+=p.vx+wobble*(-p.vy/perpLen)*0.15;
-      p.y+=p.vy+wobble*(p.vx/perpLen)*0.15;
-    }
-    // Particle-node interaction — nodes glow when particles pass near
-    if(isPlaying){
-      const P=state.particles;
-      for(let i=0;i<P.length;i++){
-        const a=P[i];
-        if(a.glowAlpha>0)a.glowAlpha*=0.95; // Decay glow
-        for(let j=0;j<nebula.length;j++){
-          const np=nebula[j];
-          const d=Math.abs(a.x-np.x)+Math.abs(a.y-np.y); // Manhattan for speed
-          if(d<30){a.glowAlpha=Math.min(a.glowAlpha+0.15,0.8);break;}
-        }
-      }
-    }else{
-      // Decay all glows when not playing
-      for(let i=0;i<state.particles.length;i++){
-        if(state.particles[i].glowAlpha>0)state.particles[i].glowAlpha*=0.92;
-      }
-    }
-  }
+  <!-- CLEANING -->
+  <div class="view" id="cleanView" data-view="clean">
+    <div class="clean-header"><button class="clean-tab active" data-cloc="suerte">Suerte</button><button class="clean-tab" data-cloc="este">Este</button><button class="clean-tab" data-cloc="toti">Toti</button><span class="clean-date" id="cleanDate"></span></div>
+    <div class="clean-progress"><span class="clean-progress-label">SHIFT PROGRESS</span><div class="clean-track"><div class="clean-fill" id="cleanFill"></div></div><span class="clean-pct" id="cleanPct">0%</span></div>
+    <div class="clean-add-bar">
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" id="cleanTaskEs" class="clean-add-input" placeholder="Tarea en español...">
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" id="cleanTaskEn" class="clean-add-input" placeholder="Task in English...">
+      <select id="cleanTaskSec" class="clean-add-select"></select>
+      <button id="cleanAddBtn" class="clean-add-btn">+ Add</button>
+    </div>
+    <div class="clean-list" id="cleanList"></div>
+    <div class="clean-footer"><button class="clean-submit" id="cleanSubmit">Submit Daily Report</button><div class="clean-submit-confirm" id="cleanConfirm" style="display:none"></div></div>
+  </div>
 
-  function drawNebula(){
-    for(let i=0;i<nebula.length;i++){
-      const p=nebula[i];
-      const pulse=0.7+0.3*Math.sin(time*p.pulseSpeed*60+p.pulsePhase);
-      const fadeIn=Math.min(p.age/60,1);
-      const fadeOut=Math.pow(p.life,0.6);
-      const musicGlow=p.fromCenter&&isPlaying?(1+audioEnergy*1.5):1;
-      const a=Math.min(p.baseAlpha*fadeIn*fadeOut*musicGlow*pulse,0.5);
-      if(a<0.004)continue;
-      const sz=p.size*pulse;
-      const bassSize=isPlaying?sz+audioBass*2:sz;
-      const c=p.color;
-      // Triple layer — beacon style
-      ctx.beginPath();ctx.arc(p.x,p.y,bassSize*4,0,Math.PI*2);
-      ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a*0.12})`;ctx.fill();
-      ctx.beginPath();ctx.arc(p.x,p.y,bassSize*2,0,Math.PI*2);
-      ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a*0.3})`;ctx.fill();
-      ctx.beginPath();ctx.arc(p.x,p.y,bassSize,0,Math.PI*2);
-      ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a})`;ctx.fill();
-    }
-  }
+  <!-- LOG -->
+  <div class="view" id="logView" data-view="log">
+    <div class="log-input-bar"><input autocomplete="off" data-lpignore="true" data-form-type="other" class="log-input" id="logInput" placeholder="Log a repair, observation, or note..."><button class="log-add" id="logAdd">+</button></div>
+    <div class="log-knowledge-bar">
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" class="log-input" id="knowledgeInput" placeholder="Add knowledge to the brain...">
+      <button class="log-knowledge-btn" id="knowledgeBtn">+ Brain</button>
+    </div>
+    <div class="log-list" id="logList"></div>
+  </div>
 
-  // ═══ AUDIO — MP3 playback with Web Audio analyzer ═══
-  let audioCtx=null,analyser=null,masterGain=null,audioEl=null,sourceNode=null;
-  let isPlaying=false,audioEnergy=0,audioBass=0,audioTreble=0;
-  const freqData=new Uint8Array(128);
+  <!-- BOARD -->
+  <div class="view" id="boardView" data-view="board"><div class="board" id="boardContainer"></div></div>
 
-  function initAudio(){
-    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
-    analyser=audioCtx.createAnalyser();analyser.fftSize=256;
-    masterGain=audioCtx.createGain();masterGain.gain.value=0;
-    masterGain.connect(analyser);analyser.connect(audioCtx.destination);
+  <!-- INGEST -->
+  <div class="view" id="ingestView" data-view="ingest">
+    <div class="ingest-wrap">
+      <div class="ingest-header">
+        <span class="ingest-heading">INGESTION</span>
+        <div id="queueStatus" class="ig-queue-status"></div>
+        <div class="ingest-stats" id="ingestStats"></div>
+      </div>
 
-    audioEl=document.createElement('audio');
-    audioEl.src='beacon-audio.mp3';audioEl.loop=true;audioEl.crossOrigin='anonymous';
-    sourceNode=audioCtx.createMediaElementSource(audioEl);
-    sourceNode.connect(masterGain);
-  }
+      <!-- PROCESSOR CONTROL -->
+      <div class="ig-processor">
+        <div class="ig-proc-live" id="procLive">
+          <span class="ig-proc-dot" id="procDot"></span>
+          <span id="procLiveText">Idle</span>
+          <span class="ig-proc-queue" id="procQueue"></span>
+        </div>
+        <div class="ig-proc-header">
+          <label class="ig-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="bgProcessToggle" checked><span id="bgProcessLabel">Auto-process</span></label>
+          <button id="pauseBtn" class="ig-pause-btn">● Syncing</button>
+        </div>
+        <div class="ig-proc-controls">
+          <div class="ig-proc-row">
+            <span class="ig-proc-label">Mode</span>
+            <div class="ig-proc-presets" id="modePresets">
+              <button class="ig-preset active" data-val="process" title="Process queued emails">Process Queue</button>
+              <button class="ig-preset" data-val="pull" title="Pull new emails from Gmail then process">Pull + Process</button>
+              <button class="ig-preset" data-val="rescan" title="Re-scan all archived emails">Re-scan All</button>
+            </div>
+          </div>
+          <div class="ig-proc-row">
+            <span class="ig-proc-label">Batch</span>
+            <div class="ig-proc-presets" id="batchPresets">
+              <button class="ig-preset" data-val="1">1</button>
+              <button class="ig-preset active" data-val="3">3</button>
+              <button class="ig-preset" data-val="5">5</button>
+              <button class="ig-preset" data-val="10">10</button>
+              <button class="ig-preset" data-val="20">20</button>
+            </div>
+          </div>
+          <div class="ig-proc-row">
+            <span class="ig-proc-label">Every</span>
+            <div class="ig-proc-presets" id="intervalPresets">
+              <button class="ig-preset" data-val="60">1m</button>
+              <button class="ig-preset" data-val="180">3m</button>
+              <button class="ig-preset active" data-val="300">5m</button>
+              <button class="ig-preset" data-val="600">10m</button>
+            </div>
+          </div>
+          <div class="ig-proc-row">
+            <span class="ig-proc-label">Extract</span>
+            <div class="ig-proc-toggles">
+              <label class="ig-mini-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="extractPdfs" checked><span>PDFs</span></label>
+              <label class="ig-mini-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="extractImages" checked><span>Images</span></label>
+              <label class="ig-mini-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="extractParts" checked><span>Parts</span></label>
+              <label class="ig-mini-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="extractLinks" checked><span>Links</span></label>
+            </div>
+          </div>
+          <button id="procRunNow" class="ig-btn ig-btn-outline" style="margin-top:4px">▶ Run batch now</button>
+        </div>
+      </div>
 
-  function fadeIn(){
-    if(!audioCtx)return;
-    const now=audioCtx.currentTime;
-    masterGain.gain.cancelScheduledValues(now);
-    masterGain.gain.setValueAtTime(masterGain.gain.value,now);
-    masterGain.gain.linearRampToValueAtTime(0.85,now+3);
-  }
+      <!-- EMAIL -->
+      <div class="ig-card">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <i data-lucide="mail" class="ig-lucide"></i><span class="ig-title">Email</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <div class="ig-row"><div id="gmailStatus" class="ig-status"><span id="gmailStatusText">Not connected</span></div><button id="gmailConnectBtn" class="ig-btn ig-btn-gmail">Connect Gmail</button></div>
+          <div id="gmailSyncControls" style="display:none">
+            <div class="ig-controls">
+              <select id="gmailDays" class="ig-select"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="180">6 months</option><option value="365">1 year</option><option value="all">All time</option></select>
+              <input autocomplete="off" data-lpignore="true" data-form-type="other" id="gmailFilter" class="ig-input" placeholder="from:tyler OR subject:invoice">
+            </div>
+            <button id="gmailSyncBtn" class="ig-btn ig-btn-primary">⚡ Sync to Brain</button>
+            <button id="reIngestBtn" class="ig-btn ig-btn-outline">♻ Re-ingest Archive</button>
+          </div>
+          <div class="ig-divider"></div>
+          <div class="ig-dropzone" id="emailDropzone">
+            <i data-lucide="folder-open" class="ig-lucide"></i>
+            <span class="ig-drop-text">Drop email files or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="emailFileInput" multiple accept=".eml,.mbox,.msg,.txt,.csv" hidden>browse</label></span>
+          <div class="ig-drop-formats">.eml .mbox .msg .txt</div>
+          </div>
+          <div id="emailFileStatus" class="ig-feedback"></div>
+          <div class="ingest-progress" id="gmailProgress" style="display:none"><div class="ingest-progress-bar"><div class="ingest-progress-fill" id="gmailProgressFill"></div></div><span class="ingest-progress-text" id="gmailProgressText">0/0</span></div>
+        </div>
+      </div>
 
-  function fadeOut(cb){
-    if(!audioCtx){if(cb)cb();return;}
-    const now=audioCtx.currentTime;
-    masterGain.gain.cancelScheduledValues(now);
-    masterGain.gain.setValueAtTime(masterGain.gain.value,now);
-    masterGain.gain.linearRampToValueAtTime(0,now+2);
-    if(cb)setTimeout(cb,2100);
-  }
+      <!-- MONITOR -->
+      <div class="ig-card">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <i data-lucide="inbox" class="ig-lucide"></i><span class="ig-title">Mail Monitor</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <p class="ig-desc">Scans Gmail for orders, invoices, scheduling & attachments.</p>
+          <button id="mailMonitorBtn" class="ig-btn ig-btn-purple">Scan Orders & Scheduling</button>
+        </div>
+      </div>
 
-  function updateAudio(){
-    if(!analyser||!isPlaying)return;
-    analyser.getByteFrequencyData(freqData);
-    let sum=0,bass=0,treble=0;
-    for(let i=0;i<freqData.length;i++){
-      sum+=freqData[i];
-      if(i<20)bass+=freqData[i];
-      if(i>80)treble+=freqData[i];
-    }
-    audioEnergy=sum/(freqData.length*255);
-    audioBass=bass/(20*255);
-    audioTreble=treble/(48*255);
-  }
+      <!-- PASTE -->
+      <div class="ig-card collapsed">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <i data-lucide="clipboard" class="ig-lucide"></i><span class="ig-title">Paste Text</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <textarea id="ingestText" placeholder="Paste email, notes, transcript, vendor info..." class="ig-textarea"></textarea>
+          <button id="ingestTextBtn" class="ig-btn ig-btn-primary">Process Text</button>
+        </div>
+      </div>
 
-  function togglePlay(cx,cy){
-    // Prevent any visual flash
-    canvas.style.opacity='1';
-    if(isPlaying){
-      fadeOut(()=>{audioEl.pause();isPlaying=false;});
-    }else{
-      if(!audioCtx)initAudio();
-      const resume=audioCtx.state==='suspended'?audioCtx.resume():Promise.resolve();
-      resume.then(()=>{
-        const p=audioEl.play();
-        const start=()=>{isPlaying=true;fadeIn();for(let i=0;i<40;i++)spawnNebula(cx,cy,0.6);};
-        if(p&&p.then)p.then(start).catch(e=>{setTimeout(()=>audioEl.play().then(start).catch(()=>{}),200);});
-        else start();
-      });
-    }
-  }
+      <!-- TRELLO -->
+      <div class="ig-card collapsed">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <i data-lucide="trello" class="ig-lucide"></i><span class="ig-title">Trello</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <button id="trelloBtn" class="ig-btn ig-btn-blue">Import from Trello</button>
+        </div>
+      </div>
 
-  // ═══ GALAXY PLACEMENT ═══
-  function resize(){
-    const r=canvas.getBoundingClientRect();
-    const dpr=Math.min(window.devicePixelRatio||1,1.5);
-    W=r.width*dpr;H=r.height*dpr;canvas.width=W;canvas.height=H;
-    canvas.style.width=r.width+'px';canvas.style.height=r.height+'px';
-    state.W=W;state.H=H;
-  }
-  window.addEventListener('resize',()=>{if(document.getElementById('brainView').classList.contains('active'))resize();});
+      <!-- SLACK -->
+      <div class="ig-card collapsed">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <i data-lucide="hash" class="ig-lucide"></i><span class="ig-title">Slack</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <p class="ig-desc">Import Slack export (.zip or .json files) or paste channel content.</p>
+          <div class="ig-dropzone" id="slackDropzone">
+            <i data-lucide="folder-open" class="ig-lucide"></i>
+            <span class="ig-drop-text">Drop Slack export .json files or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="slackFileInput" multiple accept=".json,.zip,.txt" hidden>browse</label></span>
+          </div>
+          <textarea id="slackPasteText" class="ig-textarea" placeholder="Or paste Slack channel content here..."></textarea>
+          <button id="slackProcessBtn" class="ig-btn ig-btn-primary">Process Slack Content</button>
+          <div id="slackStatus" class="ig-feedback"></div>
+        </div>
+      </div>
 
-  function buildParticles(){
-    const nodes=NX.nodes.filter(n=>!n.is_private),cx=W/2,cy=H/2;
-    const ARMS=4,galaxyR=Math.min(W,H)*0.42;
-    const existingIds=new Set(state.particles.map(p=>p.id));
-    const newParticles=[];
-    nodes.forEach((n,idx)=>{
-      if(existingIds.has(n.id))return; // Already in galaxy
-      const arm=idx%ARMS,armBase=(arm/ARMS)*Math.PI*2;
-      const t=(idx+1)/(nodes.length+1);
-      const r=40+Math.pow(t,0.5)*galaxyR;
-      const wind=armBase+Math.log(1+t*10)*1.8+(Math.random()-0.5)*0.3;
-      const scatter=(Math.random()-0.5)*18*(0.3+t*0.7);
-      const px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
-      const py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
-      const speed=1.2/Math.sqrt(Math.max(r/galaxyR,0.08)); // Slower orbits
-      const p={id:n.id,x:px,y:py,vx:-(py-cy)/(r||1)*speed*0.003,vy:(px-cx)/(r||1)*speed*0.003,
-        node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,
-        glowAlpha:0,birthAge:0,isBorn:true};
-      newParticles.push(p);
-    });
-    if(newParticles.length&&state.particles.length>0){
-      // Add new ones with birth animation
-      state.particles=state.particles.concat(newParticles);
-    }else if(!state.particles.length){
-      // First build — all at once
-      state.particles=nodes.map((n,idx)=>{
-        const arm=idx%ARMS,armBase=(arm/ARMS)*Math.PI*2;
-        const t=(idx+1)/(nodes.length+1);
-        const r=40+Math.pow(t,0.5)*galaxyR;
-        const wind=armBase+Math.log(1+t*10)*1.8+(Math.random()-0.5)*0.3;
-        const scatter=(Math.random()-0.5)*18*(0.3+t*0.7);
-        const px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
-        const py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
-        const speed=1.2/Math.sqrt(Math.max(r/galaxyR,0.08));
-        return{id:n.id,x:px,y:py,vx:-(py-cy)/(r||1)*speed*0.003,vy:(px-cx)/(r||1)*speed*0.003,
-          node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,
-          glowAlpha:0,birthAge:0,isBorn:false};
-      });
-    }
-    state.linkMap={};state.catMap={};state.tagSets={};
-    state.particles.forEach((p,i)=>{state.linkMap[p.id]=p;if(!state.catMap[p.cat])state.catMap[p.cat]=[];state.catMap[p.cat].push(i);state.tagSets[i]=new Set(p.tags);});
-  }
+      <!-- DOCUMENTS -->
+      <div class="ig-card collapsed">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <i data-lucide="file-text" class="ig-lucide"></i><span class="ig-title">Documents</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <p class="ig-desc">Drop PDFs, Word docs, Excel, CSV — NEXUS extracts text and creates nodes.</p>
+          <div class="ig-dropzone" id="docDropzone">
+            <i data-lucide="upload" class="ig-lucide"></i>
+            <span class="ig-drop-text">Drop files or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="docFileInput" multiple accept=".pdf,.docx,.xlsx,.csv,.txt,.json,.md" hidden>browse</label></span>
+            <div class="ig-drop-formats">.pdf .docx .xlsx .csv .txt .md</div>
+          </div>
+          <div id="docFileStatus" class="ig-feedback"></div>
+          <div class="ig-divider"></div>
+          <p class="ig-desc">Or re-scan all archived emails & documents with the improved AI. Slow background batches — no rate limits.</p>
+          <button id="docRescanBtn" class="ig-btn ig-btn-outline">♻ Re-scan All Archives (background)</button>
+        </div>
+      </div>
 
-  // ═══ PHYSICS ═══
-  function physics(){
-    const P=state.particles,len=P.length,cx=W/2,cy=H/2;
-    const galaxyR=Math.min(W,H)*0.42;
-    const doOverlap=len<500||physicsFrame%3===0; // Skip overlap check 2/3 frames at 500+
-    let grid;
-    if(doOverlap){const CELL=40;grid=new Map();for(let i=0;i<len;i++){const a=P[i];const key=((Math.floor(a.x/CELL)+500)<<16)|(Math.floor(a.y/CELL)+500);let c=grid.get(key);if(!c){c=[];grid.set(key,c);}c.push(i);}}
-    for(let i=0;i<len;i++){const a=P[i];
-      if(state.frozenNode&&state.frozenNode.id===a.id)continue;
-      const dx=a.x-cx,dy=a.y-cy,dist=Math.sqrt(dx*dx+dy*dy)||1;
-      const orbF=0.022/Math.sqrt(Math.max(dist/galaxyR,0.05));
-      a.vx+=(-dy/dist)*orbF;a.vy+=(dx/dist)*orbF;
-      if(dist<20){const s=12*(1-dist/20);a.vx+=dx/dist*s;a.vy+=dy/dist*s;}
-      a.vx-=dx/dist*0.0006;a.vy-=dy/dist*0.0006;
-      if(dist>galaxyR*1.3){const o=(dist-galaxyR*1.3)*0.003;a.vx-=dx/dist*o;a.vy-=dy/dist*o;}
-      if(isPlaying&&audioEnergy>0.1){a.vx+=dx/dist*audioEnergy*0.02;a.vy+=dy/dist*audioEnergy*0.02;}
-      // Overlap — only when doOverlap
-      if(doOverlap&&grid){const CELL=40,gx=Math.floor(a.x/CELL)+500,gy=Math.floor(a.y/CELL)+500;
-      for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j<=i)continue;const b=P[j];const ddx=a.x-b.x,ddy=a.y-b.y,dd=Math.sqrt(ddx*ddx+ddy*ddy)||1;if(dd<DOT*3){const push=(DOT*3-dd)*0.05;a.vx+=ddx/dd*push;a.vy+=ddy/dd*push;b.vx-=ddx/dd*push;b.vy-=ddy/dd*push;}}}}
-      a.vx*=DAMP;a.vy*=DAMP;const sp=a.vx*a.vx+a.vy*a.vy;
-      if(dist>25&&sp>MAXV*MAXV){const s=Math.sqrt(sp);a.vx=a.vx/s*MAXV;a.vy=a.vy/s*MAXV;}
-      a.x+=a.vx;a.y+=a.vy;
-    }
-  }
+      <!-- BACKUP -->
+      <div class="ig-card collapsed">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <i data-lucide="database" class="ig-lucide"></i><span class="ig-title">Backup & Restore</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <p class="ig-desc">Export all data or restore from a backup file.</p>
+          <button id="exportBtn" class="ig-btn ig-btn-primary">⬇ Export Full Backup</button>
+          <div class="ig-divider"></div>
+          <div class="ig-dropzone" id="importDropzone">
+            <i data-lucide="upload" class="ig-lucide"></i>
+            <span class="ig-drop-text">Drop backup .json or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="importFileInput" accept=".json" hidden>browse</label></span>
+          </div>
+          <div id="importStatus" class="ig-feedback"></div>
+        </div>
+      </div>
 
-  // ═══ RENDER ═══
-  function draw(){
-    // Always keep loop running — skip rendering when hidden
-    const brainEl=document.getElementById('brainView');
-    if(!brainEl||!brainEl.classList.contains('active')){
-      requestAnimationFrame(draw);return;
-    }
-    if(W<10||H<10){resize();requestAnimationFrame(draw);return;}
-    time+=0.005;physicsFrame++;
-    const P=state.particles,t=state.transform;
-    if(P.length<800||physicsFrame%2===0)physics();
-    updateAudio();
+      <!-- TOOLS -->
+      <div class="ig-card collapsed">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <i data-lucide="wrench" class="ig-lucide"></i><span class="ig-title">Tools</span><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body">
+          <div class="ig-tool-row">
+            <div class="ig-tool">
+              <span class="ig-tool-label">🔗 Relationships</span>
+              <p class="ig-desc">AI links related nodes together.</p>
+              <button id="relationshipBtn" class="ig-btn ig-btn-blue">Build Links</button>
+              <label class="ig-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="autoLinkToggle" checked><span>Auto-link on import</span></label>
+            </div>
+            <div class="ig-tool">
+              <span class="ig-tool-label">🔒 Privacy Scan</span>
+              <p class="ig-desc">Find & remove personal data.</p>
+              <button id="sensitiveBtn" class="ig-btn ig-btn-amber">Scan Nodes</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
-    // Spawn nebula particles — gentler, slower
-    const cx=W/2,cy=H/2;
-    const galaxyR=Math.min(W,H)*0.42;
-    if(isPlaying){
-      const spawnRate=1+Math.floor(audioEnergy*4);
-      for(let i=0;i<spawnRate;i++)spawnNebula(cx,cy,audioEnergy);
-    }else if(Math.random()<0.05){
-      spawnNebula(cx,cy,0); // Very occasional idle particle
-    }
-    updateNebula();
+      <!-- ACTIVITY LOG -->
+      <div class="ig-card ig-log-card">
+        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <i data-lucide="activity" class="ig-lucide"></i><span class="ig-title">Activity</span><button id="clearLogBtn" class="ig-clear" onclick="event.stopPropagation()">Clear</button><span class="ig-arrow">▼</span>
+        </div>
+        <div class="ig-card-body"><div class="ingest-log" id="ingestLog"></div></div>
+      </div>
+      <div id="ingestStatus" class="ig-feedback"></div>
+    </div>
+  </div>
+</main>
+</div><!-- /appWrap -->
 
-    ctx.save();
-    ctx.fillStyle='#08080c';ctx.fillRect(0,0,W,H);
-    ctx.translate(t.x,t.y);ctx.scale(t.scale,t.scale);
+<!-- ADMIN MODAL -->
+<div class="admin-overlay" id="adminModal">
+  <div class="admin-box">
+    <h2 class="admin-title">ADMIN</h2>
+    <div id="adminUserInfo" class="admin-user-info"></div>
+    <div id="adminKeySection" style="display:none">
+      <div class="admin-section-label">API Keys</div>
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminApiKey" placeholder="Anthropic API Key" class="admin-field">
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminElevenKey" placeholder="ElevenLabs API Key" class="admin-field">
+      <hr class="admin-divider">
+      <div class="admin-section-label">AI Model</div>
+      <select id="adminModel" class="admin-field">
+        <option value="claude-sonnet-4-20250514">Claude Sonnet (fast)</option>
+        <option value="claude-opus-4-20250514">Claude Opus (smartest)</option>
+      </select>
+      <div class="admin-section-label">Voice</div>
+      <div class="admin-voice-row">
+        <select id="adminVoice" class="admin-field" style="flex:1">
+        <option value="0">Adam — Sharp & confident</option>
+        <option value="1">Bella — Warm & witty</option>
+        <option value="2">Daniel — British dry wit</option>
+        <option value="3">Charlotte — Smart & smooth</option>
+        <option value="4">Liam — Casual & quick</option>
+        <option value="5">Emily — Friendly & clear</option>
+        <option value="6">Sam — Deep & calm</option>
+        <option value="7">Dorothy — Warm storyteller</option>
+        <option value="8">Arnold — Bold & direct</option>
+        <option value="9">Bill — Natural & relaxed</option>
+        <option value="10">Antoni — Warm & professional</option>
+        <option value="11">Domi — Strong & clear</option>
+        <option value="12">Fin — Precise Irish</option>
+        <option value="13">Freya — Breathy & warm</option>
+        <option value="14">Gigi — Animated & engaging</option>
+        <option value="15">Grace — Southern elegance</option>
+        <option value="16">Harry — Grounded British</option>
+        <option value="17">James — Authoritative deep</option>
+        <option value="18">Josh — Deep & young</option>
+        <option value="19">Rachel — Calm & collected</option>
+      </select>
+        <button id="testVoiceBtn" class="admin-test-voice-btn">▶ Test</button>
+      </div>
+      <div id="voiceTestStatus" class="admin-key-status" style="font-size:11px;min-height:16px"></div>
+      <hr class="admin-divider">
+      <div class="admin-section-label">Integrations</div>
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminTrelloKey" placeholder="Trello API Key" class="admin-field">
+      <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminTrelloToken" placeholder="Trello Token" class="admin-field">
+      <button id="adminSaveKeys" class="admin-save-btn">Save Keys</button>
+      <div id="adminKeyStatus" class="admin-key-status"></div>
+      <hr class="admin-divider">
+      <div class="admin-section-label">Key Sync (Google Drive)</div>
+      <div class="admin-drive-row">
+        <button id="driveConnectBtn" class="admin-drive-btn">Connect Drive</button>
+        <button id="driveBackupBtn" class="admin-drive-btn">Backup ↑</button>
+        <button id="driveRestoreBtn" class="admin-drive-btn">Restore ↓</button>
+      </div>
+      <div id="driveStatus" class="admin-key-status" style="font-size:11px"></div>
+      <!-- USER MANAGEMENT (admin only) -->
+      <hr class="admin-divider">
+      <div class="admin-section-label">Team Members</div>
+      <div id="adminUserList" class="admin-user-list"></div>
+      <div class="admin-add-user">
+        <input autocomplete="off" data-lpignore="true" data-form-type="other" id="newUserName" placeholder="Name" class="admin-field-sm">
+        <input autocomplete="off" data-lpignore="true" data-form-type="other" id="newUserPin" placeholder="PIN" class="admin-field-sm" maxlength="6">
+        <select id="newUserRole" class="admin-field-sm">
+          <option value="staff">Staff</option>
+          <option value="manager">Manager</option>
+          <option value="admin">Admin</option>
+        </select>
+        <select id="newUserLoc" class="admin-field-sm">
+          <option value="suerte">Suerte</option>
+          <option value="este">Este</option>
+          <option value="toti">Toti</option>
+        </select>
+        <select id="newUserLang" class="admin-field-sm">
+          <option value="en">English</option>
+          <option value="es">Español</option>
+        </select>
+        <button id="addUserBtn" class="admin-save-btn" style="margin-top:0;padding:8px 14px">+ Add</button>
+      </div>
+    </div>
+    <!-- CHAT LOG — Admin only -->
+    <!-- BACKUP/RESTORE -->
+    <div id="adminBackupSection" style="display:none">
+      <div class="admin-section-label">Data Backup</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button id="exportBtn" class="admin-save-btn" style="flex:1;margin-top:0">⬇ Export All Data</button>
+        <button id="exportNodesBtn" class="admin-cancel" style="flex:1;padding:8px">⬇ Nodes Only</button>
+      </div>
+      <div class="ig-dropzone" id="importDropzone" style="margin-bottom:8px">
+        <i data-lucide="upload" class="ig-lucide"></i>
+        <span class="ig-drop-text">Drop backup .json to restore or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="importFileInput" accept=".json" hidden>browse</label></span>
+      </div>
+      <div id="importStatus" class="ig-feedback"></div>
+    </div>
 
-    const isA=state.activatedNodes.size>0||state.searchHits.size>0;
-    const invS=1/t.scale;
-    const vl=-t.x*invS-50,vr=(-t.x+W)*invS+50;
-    const vt=-t.y*invS-50,vb=(-t.y+H)*invS+50;
-
-    // Nebula particles (behind everything)
-    drawNebula(t);
-
-    // Gold connection lines — for tapped node + search hits
-    if(state.frozenNode||state.searchHits.size>0){
-      const showNodes=new Set();
-      if(state.frozenNode)showNodes.add(state.frozenNode.id);
-      state.searchHits.forEach(id=>showNodes.add(id));
-
-      for(let i=0;i<P.length;i++){
-        const a=P[i];
-        if(!showNodes.has(a.id))continue;
-        const links=a.links||[];
-        for(let li=0;li<links.length;li++){
-          const b=state.linkMap[links[li]];if(!b)continue;
-          const dist=Math.hypot(a.x-b.x,a.y-b.y);
-          const alpha=Math.max(0.1,0.45-dist/2000);
-          ctx.lineWidth=1;ctx.strokeStyle=`rgba(212,182,138,${alpha})`;
-          ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
-          // Dot at endpoint
-          ctx.beginPath();ctx.arc(b.x,b.y,3.5,0,Math.PI*2);
-          ctx.fillStyle=`rgba(212,182,138,${alpha*1.5})`;ctx.fill();
-          if(dist<500){ctx.font='400 9px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle=`rgba(212,182,138,${alpha*0.8})`;ctx.fillText((b.node?.name||'').slice(0,20),b.x,b.y-7);}
-        }
-      }
-    }
-
-    // ═══ NEXUS BEACON — smaller, glowing, secret ═══
-    const br=Math.sin(time*1.1);
-    const beaconBase=28+br*2;
-    const beaconR=beaconBase+(isPlaying?audioBass*8:0);
-    const beaconGlow=isPlaying?0.04+audioEnergy*0.08:0.015;
-
-    // Massive soft outer bloom when playing
-    if(isPlaying){
-      ctx.beginPath();ctx.arc(cx,cy,beaconR*8,0,Math.PI*2);
-      ctx.fillStyle=`rgba(212,182,138,${0.01+audioEnergy*0.02})`;ctx.fill();
-      ctx.beginPath();ctx.arc(cx,cy,beaconR*5,0,Math.PI*2);
-      ctx.fillStyle=`rgba(212,182,138,${0.02+audioEnergy*0.03})`;ctx.fill();
-    }
-    // Standard triple glow
-    ctx.beginPath();ctx.arc(cx,cy,beaconR*3,0,Math.PI*2);
-    ctx.fillStyle=`rgba(212,182,138,${beaconGlow})`;ctx.fill();
-    ctx.beginPath();ctx.arc(cx,cy,beaconR*1.8,0,Math.PI*2);
-    ctx.fillStyle=`rgba(212,182,138,${beaconGlow*2.5})`;ctx.fill();
-    // Core
-    ctx.shadowBlur=isPlaying?20+audioBass*25:15;
-    ctx.shadowColor=`rgba(212,182,138,${isPlaying?0.4+audioEnergy*0.4:0.35})`;
-    ctx.beginPath();ctx.arc(cx,cy,beaconR,0,Math.PI*2);
-    ctx.fillStyle='#0c0c10';ctx.fill();
-    const ringAlpha=isPlaying?0.4+audioBass*0.3:0.4+br*0.1;
-    ctx.strokeStyle=`rgba(212,182,138,${ringAlpha})`;
-    ctx.lineWidth=isPlaying?1.5+audioBass*2:1.2;ctx.stroke();
-    ctx.shadowBlur=0;
-    // Text — smaller, no hint
-    ctx.fillStyle=`rgba(212,182,138,${isPlaying?0.7+audioEnergy*0.15:0.6+br*0.08})`;
-    ctx.font='500 10px "JetBrains Mono"';ctx.textAlign='center';
-    ctx.fillText('NEXUS',cx,cy+3);
-
-    // ═══ FIREWORK PARTICLES — random bursts across the field ═══
-    if(isPlaying&&Math.random()<audioEnergy*0.3){
-      // Random position in the galaxy field
-      const fAngle=Math.random()*Math.PI*2;
-      const fDist=80+Math.random()*galaxyR*0.8;
-      const fx=cx+Math.cos(fAngle)*fDist;
-      const fy=cy+Math.sin(fAngle)*fDist;
-      const burstCount=3+Math.floor(audioBass*8);
-      for(let b=0;b<burstCount;b++)spawnNebula(fx,fy,audioEnergy*0.4);
-    }
-
-    // ═══ NODE DOTS ═══
-    for(let i=0;i<P.length;i++){
-      const a=P[i];if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
-      const isHit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id);
-      const isActive=state.activeNode&&state.activeNode.id===a.id;
-      const isFrozen=state.frozenNode&&state.frozenNode.id===a.id;
-      const isHover=state.hoverNode&&state.hoverNode.id===a.id;
-      const dim=(isA&&!isHit&&!isActive)||a.filtered;
-      const pulse=0.85+0.15*Math.sin(time*1.3+a.id*0.9);
-      const musicPulse=isPlaying?1+audioEnergy*0.3:1;
-
-      // Slow glow ramp-up when hit, slow fade when not
-      if(!a.searchGlow)a.searchGlow=0;
-      if(isHit||isActive){a.searchGlow=Math.min(a.searchGlow+0.02,1);} // ~50 frames to full
-      else{a.searchGlow=Math.max(a.searchGlow-0.008,0);} // ~125 frames to fade
-
-      if(isActive||isFrozen){
-        const r=DOT_ACTIVE*musicPulse;
-        ctx.beginPath();ctx.arc(a.x,a.y,r*3,0,Math.PI*2);ctx.fillStyle='rgba(212,182,138,.06)';ctx.fill();
-        ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fillStyle='rgba(255,250,240,.9)';ctx.fill();
-        ctx.strokeStyle='rgba(212,182,138,.7)';ctx.lineWidth=2;ctx.stroke();
-        ctx.font='500 11px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle='rgba(212,182,138,.9)';ctx.fillText(a.node.name,a.x,a.y-r-6);
-      }else if(isHit||a.searchGlow>0.05){
-        const g=a.searchGlow;
-        const r=(DOT+g*(DOT_HIT-DOT))*pulse*musicPulse;
-        ctx.beginPath();ctx.arc(a.x,a.y,r*2.5,0,Math.PI*2);ctx.fillStyle=`rgba(212,182,138,${0.05*g})`;ctx.fill();
-        ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fillStyle=`rgba(255,248,235,${0.3+g*0.5})`;ctx.fill();
-        if(g>0.3){ctx.strokeStyle=`rgba(212,182,138,${g*0.5})`;ctx.lineWidth=1.2*g;ctx.stroke();}
-        if(g>0.5){ctx.font='400 10px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle=`rgba(212,182,138,${g*0.8})`;ctx.fillText(a.node.name.slice(0,25),a.x,a.y-r-5);}
-      }else if(isHover){
-        const r=DOT*1.8;
-        ctx.beginPath();ctx.arc(a.x,a.y,r*2,0,Math.PI*2);ctx.fillStyle='rgba(212,182,138,.04)';ctx.fill();
-        ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fillStyle='rgba(240,238,230,.7)';ctx.fill();
-        ctx.strokeStyle='rgba(212,182,138,.3)';ctx.lineWidth=0.8;ctx.stroke();
-        ctx.font='400 10px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle='rgba(212,182,138,.7)';ctx.fillText(a.node.name.slice(0,25),a.x,a.y-r-5);
-      }else{
-        // Birth animation — dramatic pop entrance
-        if(a.isBorn&&a.birthAge<180){
-          a.birthAge++;
-          const birthT=a.birthAge/180; // 0→1 over 3 seconds
-          const pop=birthT<0.1?birthT/0.1*3.5: // Scale up fast to 3.5x
-                    birthT<0.2?3.5-(birthT-0.1)/0.1*2: // Bounce to 1.5x
-                    birthT<0.35?1.5-(birthT-0.2)/0.15*0.5: // Settle to 1x
-                    1;
-          const birthAlpha=Math.min(birthT*4,1);
-          const flashAlpha=birthT<0.4?(1-birthT/0.4)*0.8:0;
-          const ringExpand=birthT<0.5?birthT/0.5:1;
-          const r=DOT*pop*musicPulse;
-          // Expanding gold ring
-          if(flashAlpha>0.01){
-            ctx.beginPath();ctx.arc(a.x,a.y,r*10*ringExpand,0,Math.PI*2);
-            ctx.fillStyle=`rgba(212,182,138,${flashAlpha*0.04})`;ctx.fill();
-            ctx.beginPath();ctx.arc(a.x,a.y,r*6*ringExpand,0,Math.PI*2);
-            ctx.fillStyle=`rgba(212,182,138,${flashAlpha*0.08})`;ctx.fill();
-            ctx.beginPath();ctx.arc(a.x,a.y,r*3,0,Math.PI*2);
-            ctx.fillStyle=`rgba(255,240,200,${flashAlpha*0.15})`;ctx.fill();
-            // Gold ring outline
-            ctx.beginPath();ctx.arc(a.x,a.y,r*8*ringExpand,0,Math.PI*2);
-            ctx.strokeStyle=`rgba(212,182,138,${flashAlpha*0.2})`;ctx.lineWidth=1;ctx.stroke();
-          }
-          // Bright core
-          ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);
-          ctx.fillStyle=`rgba(255,245,220,${birthAlpha*0.8})`;ctx.fill();
-          // Name flash during birth
-          if(birthT<0.6&&birthT>0.1){
-            ctx.font='400 10px "Libre Franklin"';ctx.textAlign='center';
-            ctx.fillStyle=`rgba(212,182,138,${(1-birthT/0.6)*0.7})`;
-            ctx.fillText(a.node.name.slice(0,20),a.x,a.y-r*3-8);
-          }
-          // Spawn particles throughout birth
-          if(a.birthAge===1){for(let b=0;b<12;b++)spawnNebula(a.x,a.y,0.5);}
-          if(a.birthAge===30){for(let b=0;b<6;b++)spawnNebula(a.x,a.y,0.3);}
-        }else{
-          a.isBorn=false;
-          const r=DOT*pulse*musicPulse;
-          const alpha=dim?0.06:0.35;
-          const glow=a.glowAlpha||0;
-          if(glow>0.05){
-            ctx.beginPath();ctx.arc(a.x,a.y,r*4,0,Math.PI*2);
-            ctx.fillStyle=`rgba(212,182,138,${glow*0.08})`;ctx.fill();
-            ctx.beginPath();ctx.arc(a.x,a.y,r*2,0,Math.PI*2);
-            ctx.fillStyle=`rgba(212,182,138,${glow*0.2})`;ctx.fill();
-            ctx.beginPath();ctx.arc(a.x,a.y,r*1.3,0,Math.PI*2);
-            ctx.fillStyle=`rgba(255,245,220,${alpha+glow*0.4})`;ctx.fill();
-          }else{
-            ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);
-            ctx.fillStyle=`rgba(220,215,205,${alpha*pulse})`;ctx.fill();
-          }
-        }
-      }
-    }
-
-    ctx.restore();
-    requestAnimationFrame(draw);
-  }
-
-  // ═══ INTERACTION ═══
-  function setupCanvas(){
-    const dpr=()=>Math.min(window.devicePixelRatio||1,1.5);
-
-    canvas.addEventListener('click',e=>{
-      if(state.dragging)return;
-      // Block node interaction when chat is open
-      const hud=document.getElementById('chatHud');
-      if(hud&&hud.classList.contains('expanded'))return;
-      const p=stw(e.clientX,e.clientY);
-      const cx=W/2,cy=H/2;
-
-      // Check if tapped the NEXUS beacon (secret)
-      if(Math.hypot(p.x-cx,p.y-cy)<35){
-        togglePlay(cx,cy);return;
-      }
-
-      let closest=null,closestD=25/state.transform.scale;
-      state.particles.forEach(a=>{const d=Math.hypot(p.x-a.x,p.y-a.y);if(d<closestD){closest=a;closestD=d;}});
-      if(closest){
-        if(state.frozenNode&&state.frozenNode.id===closest.id){state.frozenNode=null;state.activeNode=null;closePanel();}
-        else{state.frozenNode=closest;state.activeNode=closest.node;openPanel(closest.node);}
-      }else{state.frozenNode=null;state.activeNode=null;closePanel();}
-    });
-
-    canvas.addEventListener('mousemove',e=>{if(state.dragging)return;const p=stw(e.clientX,e.clientY);state.hoverNode=null;state.particles.forEach(a=>{if(Math.hypot(p.x-a.x,p.y-a.y)<15/state.transform.scale)state.hoverNode=a;});const cx=W/2,cy=H/2;const overBeacon=Math.hypot(p.x-cx,p.y-cy)<35;canvas.style.cursor=(state.hoverNode||overBeacon)?'pointer':'default';});
-
-    canvas.addEventListener('mousedown',e=>{if(e.button!==0)return;state.dragging=false;state.dragStart={x:e.clientX,y:e.clientY};state.dragTransStart={x:state.transform.x,y:state.transform.y};const onM=ev=>{const dx=ev.clientX-state.dragStart.x,dy=ev.clientY-state.dragStart.y;if(Math.abs(dx)+Math.abs(dy)>5)state.dragging=true;state.transform.x=state.dragTransStart.x+dx*dpr();state.transform.y=state.dragTransStart.y+dy*dpr();};const onU=()=>{document.removeEventListener('mousemove',onM);document.removeEventListener('mouseup',onU);setTimeout(()=>state.dragging=false,50);};document.addEventListener('mousemove',onM);document.addEventListener('mouseup',onU);});
-
-    canvas.addEventListener('wheel',e=>{e.preventDefault();const f=e.deltaY>0?.92:1.08;const ns=Math.max(.1,Math.min(8,state.transform.scale*f));const r=canvas.getBoundingClientRect();const mx=(e.clientX-r.left)*dpr(),my=(e.clientY-r.top)*dpr();state.transform.x=mx-(mx-state.transform.x)*(ns/state.transform.scale);state.transform.y=my-(my-state.transform.y)*(ns/state.transform.scale);state.transform.scale=ns;},{passive:false});
-
-    let ltd=0;
-    // Kill browser tap flash
-    canvas.setAttribute('tabindex','-1');
-    canvas.style.webkitTapHighlightColor='transparent';
-    canvas.style.touchAction='none';
-    canvas.addEventListener('touchstart',e=>{e.preventDefault();if(e.touches.length===1){state.dragStart={x:e.touches[0].clientX,y:e.touches[0].clientY};state.dragTransStart={x:state.transform.x,y:state.transform.y};}if(e.touches.length===2)ltd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);},{passive:false});
-    canvas.addEventListener('touchmove',e=>{e.preventDefault();const d=dpr();if(e.touches.length===1){const dx=e.touches[0].clientX-state.dragStart.x,dy=e.touches[0].clientY-state.dragStart.y;if(Math.abs(dx)+Math.abs(dy)>5)state.dragging=true;state.transform.x=state.dragTransStart.x+dx*d;state.transform.y=state.dragTransStart.y+dy*d;}if(e.touches.length===2){const nd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);state.transform.scale=Math.max(.1,Math.min(8,state.transform.scale*nd/ltd));ltd=nd;}},{passive:false});
-    canvas.addEventListener('touchend',e=>{
-      if(state.dragging){state.dragging=false;return;}
-      const hud=document.getElementById('chatHud');
-      if(hud&&hud.classList.contains('expanded'))return;
-      const sx=state.dragStart.x,sy=state.dragStart.y;
-      const p=stw(sx,sy);const cx=W/2,cy=H/2;
-      if(Math.hypot(p.x-cx,p.y-cy)<35){togglePlay(cx,cy);return;}
-      let closest=null,closestD=25/state.transform.scale;
-      state.particles.forEach(a=>{const d=Math.hypot(p.x-a.x,p.y-a.y);if(d<closestD){closest=a;closestD=d;}});
-      if(closest){if(state.frozenNode&&state.frozenNode.id===closest.id){state.frozenNode=null;state.activeNode=null;closePanel();}else{state.frozenNode=closest;state.activeNode=closest.node;openPanel(closest.node);}}
-      else{state.frozenNode=null;state.activeNode=null;closePanel();}
-    },{passive:true});
-  }
-
-  function stw(sx,sy){const r=canvas.getBoundingClientRect(),d=Math.min(window.devicePixelRatio||1,1.5);return{x:((sx-r.left)*d-state.transform.x)/state.transform.scale,y:((sy-r.top)*d-state.transform.y)/state.transform.scale};}
-
-  // ═══ NODE PANEL ═══
-  function openPanel(n){
-    const hud=document.getElementById('chatHud');
-    if(hud)hud.classList.remove('expanded');
-    state.activeNode=n;
-    document.getElementById('npCat').textContent=n.category.toUpperCase();
-    const ownerLabel=n.owner_id?` · ${findOwnerName(n.owner_id)}'s Brain`:'';
-    document.getElementById('npName').textContent=n.name;
-    document.getElementById('npTags').textContent=(n.tags||[]).map(t=>'#'+t).join('  ')+ownerLabel;
-    document.getElementById('npNotes').textContent=n.notes||'No notes.';
-    // Sources
-    const se=document.getElementById('npSources');se.innerHTML='';
-    const src=n.sources||n.source_emails;
-    if(src&&Array.isArray(src)&&src.length){
-      const tt=NX.i18n?NX.i18n.t:k=>k;
-      se.innerHTML='<div class="np-section-title">'+tt('sources')+' ('+src.length+')</div>';
-      src.forEach(s=>{
-        const card=document.createElement('div');card.className='np-email-card';
-        card.innerHTML=`<div class="np-email-header"><div class="np-email-from">${s.from||'Unknown'}</div><div class="np-email-date">${s.date||''}</div></div><div class="np-email-subject">${s.subject||'(no subject)'}</div>`;
-        if(s.snippet||s.body){const preview=document.createElement('div');preview.className='np-email-preview';preview.textContent=(s.snippet||s.body||'').slice(0,150);card.appendChild(preview);}
-        if(s.body&&s.body.length>10&&NX.isAdmin){
-          const toggle=document.createElement('button');toggle.className='np-email-toggle';toggle.textContent=tt('showEmail');
-          const detail=document.createElement('div');detail.className='np-email-detail';detail.style.display='none';
-          detail.innerHTML=`<div class="np-email-detail-header"><div class="np-detail-row"><span class="np-detail-label">From</span><span class="np-detail-value">${s.from||''}</span></div>${s.to?`<div class="np-detail-row"><span class="np-detail-label">To</span><span class="np-detail-value">${s.to}</span></div>`:''}<div class="np-detail-row"><span class="np-detail-label">Date</span><span class="np-detail-value">${s.date||''}</span></div><div class="np-detail-row"><span class="np-detail-label">Subject</span><span class="np-detail-value">${s.subject||''}</span></div></div><div class="np-email-full-body">${(s.body||'').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`;
-          toggle.addEventListener('click',()=>{const open=detail.style.display!=='none';detail.style.display=open?'none':'block';toggle.textContent=open?tt('showEmail'):tt('hideEmail');toggle.classList.toggle('open',!open);});
-          card.appendChild(toggle);card.appendChild(detail);
-        }
-        se.appendChild(card);
-      });
-    }
-    // Attachments
-    const ae=document.getElementById('npAttachments');ae.innerHTML='';const att=n.attachments;
-    if(att&&Array.isArray(att)&&att.length){
-      // Deduplicate by filename
-      const seen=new Set();const uniqueAtt=att.filter(a=>{const key=(a.filename||'')+(a.url||'');if(seen.has(key))return false;seen.add(key);return true;});
-      ae.innerHTML='<div class="np-section-title">'+(NX.i18n?NX.i18n.t('attachments'):'ATTACHMENTS')+' ('+uniqueAtt.length+')</div>';
-      uniqueAtt.forEach(a=>{
-        const fname=a.filename||'file';
-        const ext=(fname.split('.').pop()||'').toLowerCase();
-        const isImg=['jpg','jpeg','png','gif','webp'].includes(ext);
-        const isPdf=ext==='pdf';
-        const icon=isPdf?'📄':isImg?'🖼':ext==='xlsx'||ext==='csv'?'📊':ext==='docx'?'📝':'📎';
-        
-        const card=document.createElement('div');card.className='np-att-card';
-        card.innerHTML=`<div class="np-att-info"><span class="np-att-icon">${icon}</span><div class="np-att-details"><div class="np-att-name">${fname.length>35?fname.slice(0,32)+'...':fname}</div><div class="np-att-meta">${a.from?a.from.split('<')[0].trim():''} ${a.date?'· '+a.date.split('T')[0]:''}</div></div></div>`;
-        
-        // View button — opens in new tab
-        if(a.url){
-          const viewBtn=document.createElement('button');viewBtn.className='np-att-view';viewBtn.textContent='View';
-          viewBtn.addEventListener('click',async()=>{
-            viewBtn.textContent='...';
-            try{
-              // Try signed URL for private bucket
-              const path=a.url.split('/nexus-files/').pop();
-              if(path){
-                const{data:signedData,error}=await NX.sb.storage.from('nexus-files').createSignedUrl(path,3600);
-                if(!error&&signedData?.signedUrl){window.open(signedData.signedUrl,'_blank');viewBtn.textContent='View';return;}
-              }
-              // Fallback to direct URL
-              window.open(a.url,'_blank');
-            }catch(e){window.open(a.url,'_blank');}
-            viewBtn.textContent='View';
-          });
-          card.appendChild(viewBtn);
-        }
-
-        // Image preview — only if image and URL exists
-        if(isImg&&a.url){
-          const preview=document.createElement('div');preview.className='np-att-img-wrap';
-          const img=document.createElement('img');img.className='np-att-preview';
-          img.alt=fname;
-          img.loading='lazy';
-          // Use signed URL for preview
-          (async()=>{
-            try{
-              const path=a.url.split('/nexus-files/').pop();
-              if(path){const{data}=await NX.sb.storage.from('nexus-files').createSignedUrl(path,3600);if(data?.signedUrl)img.src=data.signedUrl;else img.src=a.url;}
-              else img.src=a.url;
-            }catch(e){img.src=a.url;}
-          })();
-          img.onerror=()=>{preview.remove();}; // Hide if broken
-          img.addEventListener('click',()=>window.open(img.src,'_blank'));
-          preview.appendChild(img);card.appendChild(preview);
-        }
-        ae.appendChild(card);
-      });
-    }
-    // Links
-    const le=document.getElementById('npLinks');le.innerHTML='';
-    if(n.links&&n.links.length){le.innerHTML='<div class="np-section-title">'+(NX.i18n?NX.i18n.t('connectedTo'):'CONNECTED TO')+' ('+n.links.length+')</div>';
-      n.links.forEach(lid=>{const ln=NX.nodes.find(x=>x.id===lid);if(!ln)return;const d=document.createElement('div');d.className='np-link-item';d.innerHTML=`<span class="np-link-cat">${ln.category}</span>${ln.name}`;d.onclick=()=>{const fp=state.particles.find(p=>p.id===lid);if(fp){state.frozenNode=fp;state.activeNode=ln;openPanel(ln);}};le.appendChild(d);});}
-    // Admin-only controls
-    document.getElementById('npEditNotes').style.display=NX.isAdmin?'':'none';
-    document.querySelector('.np-add-section').style.display=NX.isAdmin?'':'none';
-    document.querySelector('.np-footer').style.display=NX.isAdmin?'':'none';
-
-    // Delete — small ✕ button (admin only)
-    const delBtn=document.getElementById('npDelete');
-    delBtn.onclick=async()=>{if(!confirm('Delete "'+n.name+'"?'))return;
-      try{const{error}=await NX.sb.from('nodes').delete().eq('id',n.id);if(!error){NX.nodes=NX.nodes.filter(x=>x.id!==n.id);state.particles=state.particles.filter(p=>p.id!==n.id);delete state.linkMap[n.id];closePanel();}}catch(e){}};
-
-    // Edit notes
-    const editBtn=document.getElementById('npEditNotes');
-    editBtn.onclick=()=>{
-      const current=n.notes||'';
-      const ta=document.createElement('textarea');ta.className='np-edit-textarea';ta.value=current;ta.rows=6;
-      const saveBtn=document.createElement('button');saveBtn.className='np-edit-btn';saveBtn.textContent='Save';saveBtn.style.marginTop='6px';
-      const cancelBtn=document.createElement('button');cancelBtn.className='np-edit-btn';cancelBtn.textContent='Cancel';cancelBtn.style.marginTop='6px';cancelBtn.style.marginLeft='6px';
-      const notesEl=document.getElementById('npNotes');notesEl.innerHTML='';
-      notesEl.appendChild(ta);notesEl.appendChild(saveBtn);notesEl.appendChild(cancelBtn);
-      ta.focus();
-      saveBtn.onclick=async()=>{const newNotes=ta.value;
-        await NX.sb.from('nodes').update({notes:newNotes}).eq('id',n.id);n.notes=newNotes;
-        notesEl.textContent=newNotes||'No notes.';};
-      cancelBtn.onclick=()=>{notesEl.textContent=current||'No notes.';};
-    };
-
-    // File upload
-    const fileInput=document.getElementById('npFileInput');
-    const uploadStatus=document.getElementById('npUploadStatus');
-    fileInput.onchange=async()=>{
-      const files=fileInput.files;if(!files.length)return;
-      uploadStatus.textContent='Uploading...';
-      const atts=n.attachments||[];
-      for(const file of files){
-        try{
-          const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-          const path=`node-files/${n.id}_${Date.now()}_${safeName}`;
-          const{error:upErr}=await NX.sb.storage.from('nexus-files').upload(path,file,{contentType:file.type,upsert:true});
-          if(upErr){uploadStatus.textContent='Failed: '+upErr.message;continue;}
-          const{data:urlData}=NX.sb.storage.from('nexus-files').getPublicUrl(path);
-          const url=urlData?.publicUrl||'';
-          atts.push({url,filename:file.name,type:file.type,date:new Date().toISOString().split('T')[0],from:'Manual upload'});
-          uploadStatus.textContent=`✓ ${file.name}`;
-        }catch(e){uploadStatus.textContent='Error: '+e.message;}
-      }
-      await NX.sb.from('nodes').update({attachments:atts}).eq('id',n.id);
-      n.attachments=atts;openPanel(n);fileInput.value='';
-      setTimeout(()=>{uploadStatus.textContent='';},3000);
-    };
-
-    document.getElementById('nodePanel').classList.add('open');if(window.lucide)lucide.createIcons();
-  }
-
-  function closePanel(){state.activeNode=null;state.frozenNode=null;document.getElementById('nodePanel').classList.remove('open');}
-  function findOwnerName(ownerId){
-    if(!ownerId)return'Shared';
-    if(NX.currentUser&&NX.currentUser.id===ownerId)return NX.currentUser.name;
-    // Check allNodes for user reference or return ID
-    return'User #'+ownerId;
-  }
-  function checkEmpty(){const e=document.getElementById('canvasEmpty');if(e)e.style.display=NX.nodes.length<1?'flex':'none';}
-  function wakePhysics(){}
-
-  function buildFilters(){
-    const el=document.getElementById('brainFilters');if(!el)return;
-    const cats=new Set();state.particles.forEach(p=>{if(p.cat)cats.add(p.cat);});
-    el.innerHTML='';
-    const allBtn=document.createElement('button');allBtn.className='brain-filter-btn active';allBtn.textContent='All';
-    allBtn.addEventListener('click',()=>{
-      el.querySelectorAll('.brain-filter-btn').forEach(b=>b.classList.remove('active'));
-      allBtn.classList.add('active');
-      state.particles.forEach(p=>{p.filtered=false;});
-    });
-    el.appendChild(allBtn);
-    Array.from(cats).sort().forEach(cat=>{
-      const btn=document.createElement('button');btn.className='brain-filter-btn';
-      btn.textContent=cat.charAt(0).toUpperCase()+cat.slice(1);
-      btn.addEventListener('click',()=>{
-        el.querySelectorAll('.brain-filter-btn').forEach(b=>b.classList.remove('active'));
-        btn.classList.add('active');
-        state.particles.forEach(p=>{p.filtered=p.cat!==cat;});
-      });
-      el.appendChild(btn);
-    });
-  }
-
-  function init(){
-    resize();
-    if(W<10||H<10){
-      setTimeout(()=>{resize();buildParticles();for(let i=0;i<150;i++)physics();setupCanvas();checkEmpty();buildFilters();draw();},300);
-      return;
-    }
-    buildParticles();for(let i=0;i<150;i++)physics();setupCanvas();checkEmpty();buildFilters();
-    if(NX.brain.initChat)NX.brain.initChat();if(NX.brain.initList)NX.brain.initList();if(NX.brain.initEvents)NX.brain.initEvents();
-    draw(); // Starts loop — runs forever
-  }
-
-  NX.brain={init,closePanel,state,wakePhysics,show:()=>{
-    resize(); // Just resize, draw loop is always running
-  },openPanel};NX.modules.brain=NX.brain;NX.loaded.brain=true;
-})();
+    <div id="adminChatLog" style="display:none">
+      <div class="admin-section-label" style="display:flex;justify-content:space-between;align-items:center">
+        Chat History
+        <div style="display:flex;gap:6px">
+          <button id="chatLogRefresh" class="admin-cancel" style="padding:4px 10px;font-size:10px">Refresh</button>
+          <button id="chatLogClear" class="admin-cancel" style="padding:4px 10px;font-size:10px;color:var(--red)">Clear All</button>
+        </div>
+      </div>
+      <div id="chatLogList" class="admin-chat-log"></div>
+    </div>
+    <div class="admin-actions">
+      <button id="adminLogout" class="admin-cancel">Log Out</button>
+      <button id="adminCancel" class="admin-cancel">Close</button>
+    </div>
+  </div>
+</div>
+<div class="toast-container" id="toastContainer"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(window.pdfjsLib)pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="js/i18n.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
