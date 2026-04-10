@@ -411,7 +411,7 @@
       }
     }
 
-    ctx.restore();requestAnimationFrame(draw);
+    ctx.restore();drawRunning=true;requestAnimationFrame(draw);
   }
 
   // ═══ INTERACTION ═══
@@ -600,5 +600,10 @@
     if(NX.brain.initChat)NX.brain.initChat();if(NX.brain.initList)NX.brain.initList();if(NX.brain.initEvents)NX.brain.initEvents();draw();
   }
 
-  NX.brain={init,closePanel,state,wakePhysics,show:()=>{resize();if(W<10||H<10)setTimeout(resize,200);},openPanel};NX.modules.brain=NX.brain;NX.loaded.brain=true;
+  let drawRunning=false;
+  function startDraw(){if(!drawRunning){drawRunning=true;draw();}}
+
+  NX.brain={init,closePanel,state,wakePhysics,show:()=>{
+    setTimeout(()=>{resize();if(W>10&&H>10){startDraw();}else{setTimeout(()=>{resize();startDraw();},500);}},50);
+  },openPanel};NX.modules.brain=NX.brain;NX.loaded.brain=true;
 })();
