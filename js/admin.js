@@ -86,6 +86,16 @@ async function init(){
     slackFile?.addEventListener('change',()=>{if(slackFile.files.length)processSlackFiles(slackFile.files);});
   }
   document.getElementById('slackProcessBtn')?.addEventListener('click',processSlackPaste);
+  // Document file upload
+  const docDrop=document.getElementById('docDropzone');
+  const docFile=document.getElementById('docFileInput');
+  if(docDrop){
+    docDrop.addEventListener('dragover',e=>{e.preventDefault();docDrop.classList.add('dragover');});
+    docDrop.addEventListener('dragleave',()=>docDrop.classList.remove('dragover'));
+    docDrop.addEventListener('drop',e=>{e.preventDefault();docDrop.classList.remove('dragover');processDocFiles(e.dataTransfer.files);});
+    docDrop.addEventListener('click',()=>docFile?.click());
+    docFile?.addEventListener('change',()=>{if(docFile.files.length)processDocFiles(docFile.files);});
+  }
   document.getElementById('sensitiveBtn')?.addEventListener('click',scanSensitive);
   document.getElementById('relationshipBtn')?.addEventListener('click',()=>buildRelationships(false));
   document.getElementById('autoLinkToggle')?.addEventListener('change',(e)=>{localStorage.setItem('nexus_auto_link',e.target.checked?'on':'off');});
@@ -420,6 +430,95 @@ async function processEmailFiles(files){
   updateQueueStatus();
   // Start processor if not already running
   if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
+}
+
+// ═══ DOCUMENT FILE INGEST — PDF, DOCX, XLSX, CSV ═══
+async function extractPdfText(file){
+  if(!window.pdfjsLib){log('PDF.js not loaded','error');return'';}
+  try{
+    const buffer=await file.arrayBuffer();
+    const pdf=await pdfjsLib.getDocument({data:buffer}).promise;
+    let text='';
+    for(let i=1;i<=Math.min(pdf.numPages,50);i++){
+      const page=await pdf.getPage(i);
+      const content=await page.getTextContent();
+      text+=content.items.map(item=>item.str).join(' ')+'\n';
+    }
+    return text.trim();
+  }catch(e){log('PDF error: '+e.message,'error');return'';}
+}
+
+async function extractDocxText(file){
+  if(!window.mammoth){log('Mammoth not loaded','error');return'';}
+  try{
+    const buffer=await file.arrayBuffer();
+    const result=await mammoth.extractRawText({arrayBuffer:buffer});
+    return(result.value||'').trim();
+  }catch(e){log('DOCX error: '+e.message,'error');return'';}
+}
+
+async function extractXlsxText(file){
+  if(!window.XLSX){log('SheetJS not loaded','error');return'';}
+  try{
+    const buffer=await file.arrayBuffer();
+    const wb=XLSX.read(buffer,{type:'array'});
+    let text='';
+    wb.SheetNames.forEach(name=>{
+      const sheet=wb.Sheets[name];
+      text+=`[Sheet: ${name}]\n${XLSX.utils.sheet_to_csv(sheet)}\n\n`;
+    });
+    return text.trim();
+  }catch(e){log('XLSX error: '+e.message,'error');return'';}
+}
+
+async function processDocFiles(files){
+  if(!files||!files.length)return;
+  clearLog();
+  const status=document.getElementById('docFileStatus');
+  status.textContent='Processing...';
+  let totalArchived=0;
+
+  for(const file of files){
+    const ext=(file.name.split('.').pop()||'').toLowerCase();
+    log(`📄 ${file.name} (${(file.size/1024).toFixed(0)}KB)...`);
+    let text='';
+
+    if(ext==='pdf')text=await extractPdfText(file);
+    else if(ext==='docx')text=await extractDocxText(file);
+    else if(ext==='xlsx'||ext==='xls')text=await extractXlsxText(file);
+    else if(['csv','txt','md','json'].includes(ext))text=await file.text();
+    else{log(`  ⚠ Unsupported: .${ext}`,'warn');continue;}
+
+    if(!text||text.length<20){log(`  ⚠ No usable text`,'warn');continue;}
+    log(`  ✓ ${text.length} chars extracted`);
+
+    // Upload to Supabase Storage
+    let fileUrl='';
+    try{
+      const path=`documents/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+      const{error}=await NX.sb.storage.from('nexus-files').upload(path,file,{contentType:file.type,upsert:true});
+      if(!error){const{data}=NX.sb.storage.from('nexus-files').getPublicUrl(path);fileUrl=data?.publicUrl||'';log('  📎 Uploaded');}
+    }catch(e){}
+
+    // Archive for background AI processing
+    try{
+      await NX.sb.from('raw_emails').upsert({
+        id:'doc_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
+        from_addr:file.name,to_addr:'nexus-import',
+        date:new Date().toISOString(),subject:file.name.replace(/\.[^.]+$/,''),
+        body:text.slice(0,8000),snippet:text.slice(0,200),
+        attachment_count:1,attachments:fileUrl?[{url:fileUrl,filename:file.name,type:file.type}]:[],
+        processed:false
+      },{onConflict:'id'});
+      totalArchived++;
+    }catch(e){log('  Archive error: '+e.message,'error');}
+  }
+
+  if(totalArchived){
+    log(`💾 ${totalArchived} docs queued for AI processing`,'success');
+    status.textContent=`✓ ${totalArchived} files queued`;
+    updateQueueStatus();
+  }else status.textContent='No content found.';
 }
 
 // ═══ SLACK IMPORT — parse export JSON or pasted text ═══
