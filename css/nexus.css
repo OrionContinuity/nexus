@@ -164,7 +164,7 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .event-del-btn:hover{border-color:var(--red);color:var(--red)}
 
 /* Chat HUD */
-.chat-hud{position:absolute;bottom:0;left:0;right:0;z-index:20;background:rgba(14,14,18,.96);backdrop-filter:blur(12px);border-top:1.5px solid var(--accent);display:flex;flex-direction:column;max-height:76px;transition:max-height .3s ease}
+.chat-hud{position:absolute;bottom:0;left:0;right:0;z-index:20;background:rgba(14,14,18,.96);backdrop-filter:blur(12px);border-top:1.5px solid var(--accent);display:flex;flex-direction:column;max-height:90px;transition:max-height .3s ease}
 .chat-hud.expanded{max-height:65%}
 .chat-hud .hud-body{display:none}
 .chat-hud.expanded .hud-body{display:flex}
@@ -190,7 +190,7 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .chat-conf-high{color:#39ff14}
 .chat-conf-medium{color:#ffb020}
 .chat-conf-low{color:#ff5533}
-.hud-input{display:flex;align-items:center;gap:8px;padding:12px 14px;padding-bottom:max(14px,calc(env(safe-area-inset-bottom) + 8px));min-height:64px}
+.hud-input{display:flex;align-items:center;gap:8px;padding:16px 14px;padding-bottom:max(20px,calc(env(safe-area-inset-bottom) + 14px));min-height:72px}
 .hud-input input{flex:1;background:var(--elevated);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;color:var(--text);font-size:14px;outline:none;min-height:44px;font-family:inherit}
 .hud-input input::placeholder{color:var(--faint)}
 .btn-mic,.btn-voice,.btn-send,.btn-reset{width:44px;height:44px;border-radius:50%;border:1px solid var(--border);background:rgba(28,28,34,.9);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .2s}
@@ -579,3 +579,14 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .log-del{background:none;border:1px solid var(--border);color:var(--faint);width:24px;height:24px;border-radius:50%;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s;flex-shrink:0}
 .log-entry:hover .log-del,.log-entry-clean:hover .log-del{opacity:1}
 .log-del:hover{border-color:var(--red);color:var(--red)}
+
+/* Restaurant cards in cleaning log */
+.log-clean-header{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);font-size:12px;font-weight:500}
+.log-rest-card{border-top:1px solid rgba(255,255,255,.04);overflow:hidden}
+.log-rest-head{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.log-rest-pct{font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;min-width:50px}
+.log-rest-name{flex:1;font-size:13px;font-weight:600;letter-spacing:2px}
+.log-rest-arrow{font-size:10px;color:var(--faint);transition:transform .2s}
+.log-rest-card.expanded .log-rest-arrow{transform:rotate(180deg)}
+.log-rest-body{display:none;padding:0 12px 8px}
+.log-rest-card.expanded .log-rest-body{display:block}
