@@ -23,7 +23,7 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .toast.out{animation:toastOut .3s ease forwards}
 
 /* Brain category filters */
-.brain-filters{display:flex;gap:4px;flex-wrap:wrap;padding:4px 0}
+.brain-filters{display:flex;gap:4px;flex-wrap:wrap;padding:0 10px;position:absolute;top:60px;left:0;right:0;z-index:10}
 .brain-filter-btn{padding:4px 10px;border-radius:var(--rp);border:1px solid var(--border);background:none;color:var(--faint);font-size:10px;cursor:pointer;font-family:inherit;transition:all .15s;letter-spacing:0.5px}
 .brain-filter-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(212,182,138,.08)}
 .brain-filter-btn:hover{border-color:var(--accent);color:var(--accent)}
@@ -526,7 +526,7 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 }
 
 /* Agenda bubbles */
-.agenda-overlay{position:absolute;top:100px;left:8px;right:8px;z-index:15;display:flex;gap:6px;pointer-events:none}
+.agenda-overlay{position:absolute;top:95px;left:8px;right:8px;z-index:9;display:flex;gap:6px;pointer-events:none}
 .agenda-col{flex:1;display:flex;flex-direction:column;gap:4px;min-width:0}
 .agenda-label{font-size:8px;letter-spacing:2px;color:var(--accent);opacity:.5;text-align:center;padding:2px 0}
 .agenda-items{display:flex;flex-direction:column;gap:3px}
