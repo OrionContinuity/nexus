@@ -199,189 +199,142 @@
   <!-- INGEST -->
   <div class="view" id="ingestView" data-view="ingest">
     <div class="ingest-wrap">
-      <div class="ingest-header">
-        <span class="ingest-heading">INGESTION</span>
-        <div id="queueStatus" class="ig-queue-status"></div>
-        <div class="ingest-stats" id="ingestStats"></div>
+
+      <!-- STATS ROW -->
+      <div class="ig-stats-row">
+        <div class="ig-stat-card"><div class="ig-stat-label">QUEUED</div><div class="ig-stat-val ig-stat-amber" id="queueStatus">0</div></div>
+        <div class="ig-stat-card"><div class="ig-stat-label">NODES</div><div class="ig-stat-val" id="igNodeCount">0</div></div>
+        <div class="ig-stat-card"><div class="ig-stat-label">EMAILS</div><div class="ig-stat-val" id="igEmailCount">0</div></div>
+      </div>
+      <div id="ingestStats" style="display:none"></div>
+
+      <!-- STATUS BAR -->
+      <div class="ig-status-bar">
+        <div class="ig-status-left"><span class="ig-proc-dot" id="procDot"></span><span id="procLiveText">Idle</span></div>
+        <div class="ig-status-right"><span class="ig-proc-queue" id="procQueue"></span><button id="pauseBtn" class="ig-pause-btn">● Syncing</button></div>
       </div>
 
-      <!-- PROCESSOR CONTROL -->
-      <div class="ig-processor">
-        <div class="ig-proc-live" id="procLive">
-          <span class="ig-proc-dot" id="procDot"></span>
-          <span id="procLiveText">Idle</span>
-          <span class="ig-proc-queue" id="procQueue"></span>
+      <!-- ⚡ PROCESSOR -->
+      <div class="ig-section">
+        <div class="ig-section-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="ig-section-icon">⚡</span><span class="ig-section-title">Processor</span>
+          <label class="ig-toggle-inline" onclick="event.stopPropagation()"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="bgProcessToggle" checked><span id="bgProcessLabel">Auto</span></label>
+          <span class="ig-section-chevron">▼</span>
         </div>
-        <div class="ig-proc-header">
-          <label class="ig-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="bgProcessToggle" checked><span id="bgProcessLabel">Auto-process</span></label>
-          <button id="pauseBtn" class="ig-pause-btn">● Syncing</button>
-        </div>
-        <div class="ig-proc-controls">
-          <div class="ig-proc-row">
-            <span class="ig-proc-label">Mode</span>
-            <div class="ig-proc-presets" id="modePresets">
-              <button class="ig-preset active" data-val="process" title="Process queued emails">Process Queue</button>
-              <button class="ig-preset" data-val="pull" title="Pull new emails from Gmail then process">Pull + Process</button>
-              <button class="ig-preset" data-val="rescan" title="Re-scan all archived emails">Re-scan All</button>
+        <div class="ig-section-body">
+          <!-- Mode -->
+          <div class="ig-field"><div class="ig-field-label">MODE</div>
+            <div class="ig-chips" id="modePresets">
+              <button class="ig-chip active" data-val="process">Process Queue</button>
+              <button class="ig-chip" data-val="pull">Pull + Process</button>
+              <button class="ig-chip" data-val="rescan">Re-scan All</button>
             </div>
           </div>
-          <div class="ig-proc-row">
-            <span class="ig-proc-label">Batch</span>
-            <div class="ig-proc-presets" id="batchPresets">
-              <button class="ig-preset" data-val="1">1</button>
-              <button class="ig-preset active" data-val="3">3</button>
-              <button class="ig-preset" data-val="5">5</button>
-              <button class="ig-preset" data-val="10">10</button>
-              <button class="ig-preset" data-val="20">20</button>
+          <!-- Batch + Interval -->
+          <div class="ig-field-row">
+            <div class="ig-field"><div class="ig-field-label">BATCH</div>
+              <div class="ig-chips" id="batchPresets">
+                <button class="ig-chip" data-val="1">1</button>
+                <button class="ig-chip active" data-val="3">3</button>
+                <button class="ig-chip" data-val="5">5</button>
+                <button class="ig-chip" data-val="10">10</button>
+                <button class="ig-chip" data-val="20">20</button>
+              </div>
+            </div>
+            <div class="ig-field"><div class="ig-field-label">EVERY</div>
+              <div class="ig-chips" id="intervalPresets">
+                <button class="ig-chip" data-val="60">1m</button>
+                <button class="ig-chip" data-val="180">3m</button>
+                <button class="ig-chip active" data-val="300">5m</button>
+                <button class="ig-chip" data-val="600">10m</button>
+              </div>
             </div>
           </div>
-          <div class="ig-proc-row">
-            <span class="ig-proc-label">Every</span>
-            <div class="ig-proc-presets" id="intervalPresets">
-              <button class="ig-preset" data-val="60">1m</button>
-              <button class="ig-preset" data-val="180">3m</button>
-              <button class="ig-preset active" data-val="300">5m</button>
-              <button class="ig-preset" data-val="600">10m</button>
-            </div>
-          </div>
-          <div class="ig-proc-row">
-            <span class="ig-proc-label">Extract</span>
-            <div class="ig-proc-toggles">
+          <!-- Extract toggles -->
+          <div class="ig-field"><div class="ig-field-label">EXTRACT</div>
+            <div class="ig-toggles">
               <label class="ig-mini-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="extractPdfs" checked><span>PDFs</span></label>
               <label class="ig-mini-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="extractImages" checked><span>Images</span></label>
               <label class="ig-mini-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="extractParts" checked><span>Parts</span></label>
               <label class="ig-mini-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="extractLinks" checked><span>Links</span></label>
             </div>
           </div>
-          <button id="procRunNow" class="ig-btn ig-btn-outline" style="margin-top:4px">▶ Run batch now</button>
+          <button id="procRunNow" class="ig-btn-run">▶ Run Batch Now</button>
         </div>
       </div>
 
-      <!-- EMAIL -->
-      <div class="ig-card">
-        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <i data-lucide="mail" class="ig-lucide"></i><span class="ig-title">Email</span><span class="ig-arrow">▼</span>
+      <!-- ✉️ EMAIL & DOCUMENTS -->
+      <div class="ig-section">
+        <div class="ig-section-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="ig-section-icon">✉️</span><span class="ig-section-title">Email & Documents</span>
+          <span id="gmailStatusText" class="ig-section-badge">Not connected</span>
+          <span class="ig-section-chevron">▼</span>
         </div>
-        <div class="ig-card-body">
-          <div class="ig-row"><div id="gmailStatus" class="ig-status"><span id="gmailStatusText">Not connected</span></div><button id="gmailConnectBtn" class="ig-btn ig-btn-gmail">Connect Gmail</button></div>
-          <div id="gmailSyncControls" style="display:none">
-            <div class="ig-controls">
-              <select id="gmailDays" class="ig-select"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="180">6 months</option><option value="365">1 year</option><option value="all">All time</option></select>
-              <input autocomplete="off" data-lpignore="true" data-form-type="other" id="gmailFilter" class="ig-input" placeholder="from:tyler OR subject:invoice">
-            </div>
-            <button id="gmailSyncBtn" class="ig-btn ig-btn-primary">⚡ Sync to Brain</button>
-            <button id="reIngestBtn" class="ig-btn ig-btn-outline">♻ Re-ingest Archive</button>
+        <div class="ig-section-body">
+          <!-- Gmail connect -->
+          <div class="ig-connect-row" id="gmailStatus">
+            <button id="gmailConnectBtn" class="ig-btn-connect">Connect Gmail</button>
           </div>
-          <div class="ig-divider"></div>
-          <div class="ig-dropzone" id="emailDropzone">
-            <i data-lucide="folder-open" class="ig-lucide"></i>
-            <span class="ig-drop-text">Drop email files or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="emailFileInput" multiple accept=".eml,.mbox,.msg,.txt,.csv" hidden>browse</label></span>
-          <div class="ig-drop-formats">.eml .mbox .msg .txt</div>
+          <!-- Sync controls (shown after connect) -->
+          <div id="gmailSyncControls" style="display:none">
+            <div class="ig-filter-row">
+              <select id="gmailDays" class="ig-select"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="180">6 months</option><option value="365">1 year</option><option value="all">All time</option></select>
+              <input autocomplete="off" data-lpignore="true" data-form-type="other" id="gmailFilter" class="ig-filter-input" placeholder="from:name OR subject:keyword">
+            </div>
+            <div class="ig-btn-row">
+              <button id="gmailSyncBtn" class="ig-btn-primary">⚡ Sync to Brain</button>
+              <button id="reIngestBtn" class="ig-btn-outline">↻ Re-ingest</button>
+            </div>
+          </div>
+          <div class="ingest-progress" id="gmailProgress" style="display:none"><div class="ingest-progress-bar"><div class="ingest-progress-fill" id="gmailProgressFill"></div></div><span class="ingest-progress-text" id="gmailProgressText">0/0</span></div>
+          <!-- Universal drop zone -->
+          <div class="ig-drop" id="emailDropzone">
+            <span class="ig-drop-label">Drop files or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="emailFileInput" multiple accept=".eml,.mbox,.msg,.txt,.csv,.pdf,.docx,.xlsx,.json,.md" hidden>browse</label></span>
+            <span class="ig-drop-types">.eml .mbox .msg .pdf .docx .xlsx .csv</span>
           </div>
           <div id="emailFileStatus" class="ig-feedback"></div>
-          <div class="ingest-progress" id="gmailProgress" style="display:none"><div class="ingest-progress-bar"><div class="ingest-progress-fill" id="gmailProgressFill"></div></div><span class="ingest-progress-text" id="gmailProgressText">0/0</span></div>
-        </div>
-      </div>
-
-      <!-- PASTE -->
-      <div class="ig-card collapsed">
-        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <i data-lucide="clipboard" class="ig-lucide"></i><span class="ig-title">Paste Text</span><span class="ig-arrow">▼</span>
-        </div>
-        <div class="ig-card-body">
-          <textarea id="ingestText" placeholder="Paste email, notes, transcript, vendor info..." class="ig-textarea"></textarea>
-          <button id="ingestTextBtn" class="ig-btn ig-btn-primary">Process Text</button>
-        </div>
-      </div>
-
-      <!-- TRELLO -->
-      <div class="ig-card collapsed">
-        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <i data-lucide="trello" class="ig-lucide"></i><span class="ig-title">Trello</span><span class="ig-arrow">▼</span>
-        </div>
-        <div class="ig-card-body">
-          <button id="trelloBtn" class="ig-btn ig-btn-blue">Import from Trello</button>
-        </div>
-      </div>
-
-      <!-- SLACK -->
-      <div class="ig-card collapsed">
-        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <i data-lucide="hash" class="ig-lucide"></i><span class="ig-title">Slack</span><span class="ig-arrow">▼</span>
-        </div>
-        <div class="ig-card-body">
-          <p class="ig-desc">Import Slack export (.zip or .json files) or paste channel content.</p>
-          <div class="ig-dropzone" id="slackDropzone">
-            <i data-lucide="folder-open" class="ig-lucide"></i>
-            <span class="ig-drop-text">Drop Slack export .json files or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="slackFileInput" multiple accept=".json,.zip,.txt" hidden>browse</label></span>
-          </div>
-          <textarea id="slackPasteText" class="ig-textarea" placeholder="Or paste Slack channel content here..."></textarea>
-          <button id="slackProcessBtn" class="ig-btn ig-btn-primary">Process Slack Content</button>
-          <div id="slackStatus" class="ig-feedback"></div>
-        </div>
-      </div>
-
-      <!-- DOCUMENTS -->
-      <div class="ig-card collapsed">
-        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <i data-lucide="file-text" class="ig-lucide"></i><span class="ig-title">Documents</span><span class="ig-arrow">▼</span>
-        </div>
-        <div class="ig-card-body">
-          <p class="ig-desc">Drop PDFs, Word docs, Excel, CSV — NEXUS extracts text and creates nodes.</p>
-          <div class="ig-dropzone" id="docDropzone">
-            <i data-lucide="upload" class="ig-lucide"></i>
-            <span class="ig-drop-text">Drop files or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="docFileInput" multiple accept=".pdf,.docx,.xlsx,.csv,.txt,.json,.md" hidden>browse</label></span>
-            <div class="ig-drop-formats">.pdf .docx .xlsx .csv .txt .md</div>
-          </div>
           <div id="docFileStatus" class="ig-feedback"></div>
         </div>
       </div>
 
-      <!-- BACKUP -->
-      <div class="ig-card collapsed">
-        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <i data-lucide="database" class="ig-lucide"></i><span class="ig-title">Backup & Restore</span><span class="ig-arrow">▼</span>
+      <!-- 📋 PASTE TEXT -->
+      <div class="ig-section collapsed">
+        <div class="ig-section-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="ig-section-icon">📋</span><span class="ig-section-title">Paste Text</span>
+          <span class="ig-section-chevron">▼</span>
         </div>
-        <div class="ig-card-body">
-          <p class="ig-desc">Export all data or restore from a backup file.</p>
-          <button id="exportBtn" class="ig-btn ig-btn-primary">⬇ Export Full Backup</button>
-          <div class="ig-divider"></div>
-          <div class="ig-dropzone" id="importDropzone">
-            <i data-lucide="upload" class="ig-lucide"></i>
-            <span class="ig-drop-text">Drop backup .json or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="importFileInput" accept=".json" hidden>browse</label></span>
+        <div class="ig-section-body">
+          <textarea id="ingestText" placeholder="Paste email, notes, transcript, vendor info…" class="ig-textarea"></textarea>
+          <button id="ingestTextBtn" class="ig-btn-primary">Process Text</button>
+        </div>
+      </div>
+
+      <!-- 🔧 TOOLS & BACKUP -->
+      <div class="ig-section collapsed">
+        <div class="ig-section-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="ig-section-icon">🔧</span><span class="ig-section-title">Tools & Backup</span>
+          <span class="ig-section-chevron">▼</span>
+        </div>
+        <div class="ig-section-body">
+          <div class="ig-tools-grid">
+            <button id="relationshipBtn" class="ig-tool-btn">🔗 Build Links</button>
+            <button id="sensitiveBtn" class="ig-tool-btn">🔒 Privacy Scan</button>
+            <button id="exportBtn" class="ig-tool-btn">⬇ Export Backup</button>
+            <label class="ig-tool-btn" style="cursor:pointer"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="importFileInput" accept=".json" hidden>⬆ Import Backup</label>
           </div>
           <div id="importStatus" class="ig-feedback"></div>
+          <label class="ig-toggle-inline" style="margin-top:8px"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="autoLinkToggle" checked><span>Auto-link on import</span></label>
         </div>
       </div>
 
-      <!-- TOOLS -->
-      <div class="ig-card collapsed">
-        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <i data-lucide="wrench" class="ig-lucide"></i><span class="ig-title">Tools</span><span class="ig-arrow">▼</span>
+      <!-- ACTIVITY -->
+      <div class="ig-section ig-activity">
+        <div class="ig-section-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="ig-section-icon">📊</span><span class="ig-section-title">Activity</span>
+          <button id="clearLogBtn" class="ig-clear-btn" onclick="event.stopPropagation()">Clear</button>
+          <span class="ig-section-chevron">▼</span>
         </div>
-        <div class="ig-card-body">
-          <div class="ig-tool-row">
-            <div class="ig-tool">
-              <span class="ig-tool-label">🔗 Relationships</span>
-              <p class="ig-desc">AI links related nodes together.</p>
-              <button id="relationshipBtn" class="ig-btn ig-btn-blue">Build Links</button>
-              <label class="ig-toggle"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="checkbox" id="autoLinkToggle" checked><span>Auto-link on import</span></label>
-            </div>
-            <div class="ig-tool">
-              <span class="ig-tool-label">🔒 Privacy Scan</span>
-              <p class="ig-desc">Find & remove personal data.</p>
-              <button id="sensitiveBtn" class="ig-btn ig-btn-amber">Scan Nodes</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ACTIVITY LOG -->
-      <div class="ig-card ig-log-card">
-        <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <i data-lucide="activity" class="ig-lucide"></i><span class="ig-title">Activity</span><button id="clearLogBtn" class="ig-clear" onclick="event.stopPropagation()">Clear</button><span class="ig-arrow">▼</span>
-        </div>
-        <div class="ig-card-body"><div class="ingest-log" id="ingestLog"></div></div>
+        <div class="ig-section-body"><div class="ingest-log" id="ingestLog"></div></div>
       </div>
       <div id="ingestStatus" class="ig-feedback"></div>
     </div>
