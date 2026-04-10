@@ -273,18 +273,20 @@
     drawNebula(t);
 
     // Gold connection lines — only for tapped/frozen node
-    if(state.frozenNode&&state.frozenNode.links){
+    if(state.frozenNode){
       const a=state.frozenNode;
-      for(let li=0;li<a.links.length;li++){
-        const b=state.linkMap[a.links[li]];if(!b)continue;
+      const links=a.links||[];
+      for(let li=0;li<links.length;li++){
+        const b=state.linkMap[links[li]];if(!b)continue;
         const dist=Math.hypot(a.x-b.x,a.y-b.y);
-        if(dist>600)continue; // Skip very distant connections
-        const alpha=Math.max(0.08,0.4-dist/1500);
-        ctx.lineWidth=1;ctx.strokeStyle=`rgba(212,182,138,${alpha})`;
+        const alpha=Math.max(0.12,0.5-dist/2000);
+        ctx.lineWidth=1.2;ctx.strokeStyle=`rgba(212,182,138,${alpha})`;
         ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
-        // Small dot at connected node
-        ctx.beginPath();ctx.arc(b.x,b.y,3,0,Math.PI*2);
+        // Glow dot at connected node
+        ctx.beginPath();ctx.arc(b.x,b.y,4,0,Math.PI*2);
         ctx.fillStyle=`rgba(212,182,138,${alpha*1.5})`;ctx.fill();
+        // Show name of connected node
+        if(dist<400){ctx.font='400 9px "Libre Franklin"';ctx.textAlign='center';ctx.fillStyle=`rgba(212,182,138,${alpha})`;ctx.fillText((b.node?.name||'').slice(0,20),b.x,b.y-8);}
       }
     }
 
