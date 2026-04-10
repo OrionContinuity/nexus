@@ -96,6 +96,25 @@ async function init(){
     docDrop.addEventListener('click',()=>docFile?.click());
     docFile?.addEventListener('change',()=>{if(docFile.files.length)processDocFiles(docFile.files);});
   }
+  // Document rescan
+  document.getElementById('docRescanBtn')?.addEventListener('click',async()=>{
+    const btn=document.getElementById('docRescanBtn');
+    if(!confirm('Reset ALL archived emails & docs for AI re-processing? This runs in background — 3 every 5 min.'))return;
+    btn.disabled=true;btn.textContent='Resetting...';
+    clearLog();
+    try{
+      const{error}=await NX.sb.from('raw_emails').update({processed:false}).eq('processed',true);
+      if(!error){
+        const{count}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true}).eq('processed',false);
+        log(`♻ <b>${count} items</b> queued for re-processing`,'success');
+        log(`Background AI will process 3 every 5 min — est. ${Math.ceil((count||0)/3)*5} min total`);
+        log('Using enhanced AI: reads PDFs, extracts parts, enriches existing nodes');
+        updateQueueStatus();
+        if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
+      }
+    }catch(e){log('Error: '+e.message,'error');}
+    btn.disabled=false;btn.textContent='♻ Re-scan All Archives (background)';
+  });
   document.getElementById('sensitiveBtn')?.addEventListener('click',scanSensitive);
   document.getElementById('relationshipBtn')?.addEventListener('click',()=>buildRelationships(false));
   document.getElementById('autoLinkToggle')?.addEventListener('change',(e)=>{localStorage.setItem('nexus_auto_link',e.target.checked?'on':'off');});
