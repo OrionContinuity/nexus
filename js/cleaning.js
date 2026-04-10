@@ -333,21 +333,34 @@ function buildFullReport(location,locState){
 
 async function submitDailyReport(){
   const btn=document.getElementById('cleanSubmit'),confirm=document.getElementById('cleanConfirm');
-  // Check for duplicate
-  const dupKey='nexus_submit_'+loc+'_'+today;
+  const dupKey='nexus_submit_all_'+today;
   if(localStorage.getItem(dupKey)){
-    const overwrite=window.confirm('A report for '+loc+' was already submitted today. Submit again?');
+    const overwrite=window.confirm('A report was already submitted today. Submit again?');
     if(!overwrite){btn.textContent='Cancelled';setTimeout(()=>{btn.textContent='Submit Daily Report';},2000);return;}
   }
-  const entry=buildFullReport(loc,stateCache[loc]||{});
-  btn.disabled=true;btn.textContent='Submitting...';
-  const{error}=await NX.sb.from('daily_logs').insert({entry});
+  btn.disabled=true;btn.textContent='Loading all restaurants...';
+
+  // Build combined report for ALL 3 restaurants
+  const parts=[];
+  for(const location of Object.keys(DEFAULTS)){
+    // Load each restaurant's data from Supabase
+    let locState={};
+    try{
+      const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,done').eq('log_date',today).eq('location',location);
+      if(data)data.forEach(c=>{locState[location+'_'+c.section+'_'+c.task_index]={done:c.done,by:''};});
+    }catch(e){}
+    parts.push(buildFullReport(location,locState));
+  }
+
+  btn.textContent='Submitting...';
+  const combined='Cleaning Report — '+today+'\n===\n'+parts.join('\n===\n');
+  const{error}=await NX.sb.from('daily_logs').insert({entry:combined});
   if(!error){
     btn.textContent='✓ Submitted';
     localStorage.setItem(dupKey,'1');
-    confirm.textContent='Saved — view in Log tab. Submitted by '+getUserName();
+    confirm.textContent='All 3 restaurants saved to log.';
     confirm.style.display='block';
-    if(NX.toast)NX.toast('Daily report submitted ✓','success');
+    if(NX.toast)NX.toast('Cleaning report submitted — all restaurants ✓','success');
   }
   else{btn.textContent='Error — try again';confirm.style.display='none';}
   setTimeout(()=>{btn.disabled=false;btn.textContent='Submit Daily Report';},3000);
@@ -362,15 +375,17 @@ function startAutoSubmit(){
     const autoKey='nexus_auto_clean_'+today;
     if(now.getHours()===8&&now.getMinutes()===0&&!localStorage.getItem(autoKey)){
       localStorage.setItem(autoKey,'1');
+      const parts=[];
       for(const location of Object.keys(DEFAULTS)){
         try{
-          const{data}=await NX.sb.from('cleaning_logs').select('*').eq('log_date',today).eq('location',location);
+          const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,done').eq('log_date',today).eq('location',location);
           const locState={};if(data)data.forEach(c=>{locState[location+'_'+c.section+'_'+c.task_index]={done:c.done,by:''};});
-          const entry='[AUTO 8AM] '+buildFullReport(location,locState);
-          await NX.sb.from('daily_logs').insert({entry});
+          parts.push(buildFullReport(location,locState));
         }catch(e){}
       }
-      if(NX.toast)NX.toast('Cleaning reports auto-submitted (8 AM)','info');
+      const combined='[AUTO 8AM] Cleaning Report — '+today+'\n===\n'+parts.join('\n===\n');
+      await NX.sb.from('daily_logs').insert({entry:combined});
+      if(NX.toast)NX.toast('Cleaning auto-submitted (8 AM)','info');
     }
   },60000);
 }
