@@ -257,6 +257,9 @@ const NX = {
     this.setupAdmin();
     // Ticket badge
     this.checkTicketBadge();
+    // Start real-time watchers
+    this.startNodeWatcher();
+    this.loadAgenda();
     // Language toggle
     if (this.i18n) {
       const langBtn = document.getElementById('langToggle');
@@ -373,12 +376,21 @@ const NX = {
           if (vs) { vs.textContent = `✓ ${voiceNames[idx]} selected & saved`; vs.style.color = '#39ff14'; }
         });
         this.loadUserList();
+        // Show chat log for admin
+        document.getElementById('adminChatLog').style.display='block';
+        this.loadChatLog();
       } else {
         keySection.style.display = 'none';
+        document.getElementById('adminChatLog').style.display='none';
       }
     });
 
     // Save keys → Supabase config table
+    document.getElementById('chatLogRefresh')?.addEventListener('click', () => this.loadChatLog());
+    document.getElementById('chatLogClear')?.addEventListener('click', async () => {
+      if (!confirm('Delete ALL chat history? This cannot be undone.')) return;
+      try { await this.sb.from('chat_history').delete().neq('id', 0); this.loadChatLog(); this.toast('Chat history cleared', 'info'); } catch (e) {}
+    });
     document.getElementById('adminSaveKeys').addEventListener('click', async () => {
       // Read from fields OR fall back to current values
       const ak = document.getElementById('adminApiKey').value.trim() || this.getApiKey();
@@ -597,6 +609,98 @@ const NX = {
     };
     if (window.google?.accounts?.oauth2) doConnect();
     else { const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.onload = doConnect; document.head.appendChild(s); }
+  },
+
+  // ─── Real-time Node Watcher — polls every 30s ───
+  startNodeWatcher() {
+    let knownCount = this.nodes.length;
+    setInterval(async () => {
+      if (this.paused) return;
+      try {
+        const { count } = await this.sb.from('nodes').select('*', { count: 'exact', head: true });
+        if (count && count > knownCount) {
+          const newCount = count - knownCount;
+          await this.loadNodes();
+          if (this.brain) { this.brain.init(); }
+          this.toast(`${newCount} new node${newCount > 1 ? 's' : ''} appeared`, 'success');
+          knownCount = count;
+        } else if (count) { knownCount = count; }
+      } catch (e) {}
+      // Refresh agenda
+      this.loadAgenda();
+    }, 30000);
+  },
+
+  // ─── Agenda Bubbles — tickets + contractors per restaurant ───
+  async loadAgenda() {
+    if (this.paused) return;
+    const locs = ['suerte', 'este', 'toti'];
+    try {
+      // Open tickets
+      const { data: tickets } = await this.sb.from('tickets').select('*').eq('status', 'open').order('created_at', { ascending: false }).limit(15);
+      // Upcoming contractor events
+      const { data: events } = await this.sb.from('contractor_events').select('*').neq('status', 'done').order('event_date', { ascending: true }).limit(15);
+
+      for (const loc of locs) {
+        const col = document.querySelector(`#agenda${loc.charAt(0).toUpperCase() + loc.slice(1)} .agenda-items`);
+        if (!col) continue;
+        col.innerHTML = '';
+
+        // Tickets for this location
+        const locTickets = (tickets || []).filter(t => (t.location || '').toLowerCase() === loc).slice(0, 3);
+        locTickets.forEach(t => {
+          const el = document.createElement('div');
+          el.className = 'agenda-item agenda-ticket' + (t.priority === 'urgent' ? ' urgent' : '');
+          el.innerHTML = `<div class="agenda-item-title">🔧 ${(t.title || t.notes || '').slice(0, 30)}</div><div class="agenda-item-meta">${t.reported_by || ''} · ${t.priority || ''}</div>`;
+          col.appendChild(el);
+        });
+
+        // Contractor events for this location
+        const locEvents = (events || []).filter(e => (e.location || '').toLowerCase() === loc).slice(0, 3);
+        locEvents.forEach(e => {
+          const el = document.createElement('div');
+          el.className = 'agenda-item agenda-event';
+          el.innerHTML = `<div class="agenda-item-title">👷 ${e.contractor_name}</div><div class="agenda-item-meta">${e.event_date || ''} ${e.event_time || ''} · ${e.description || ''}</div>`;
+          col.appendChild(el);
+        });
+
+        // Hide column label if empty
+        const label = document.querySelector(`#agenda${loc.charAt(0).toUpperCase() + loc.slice(1)} .agenda-label`);
+        if (label) label.style.display = (locTickets.length || locEvents.length) ? '' : 'none';
+      }
+    } catch (e) {}
+  },
+
+  // ─── Chat Log — admin only ───
+  async loadChatLog() {
+    const list = document.getElementById('chatLogList');
+    if (!list) return;
+    list.innerHTML = '<div style="font-size:11px;color:var(--faint);padding:8px">Loading...</div>';
+    try {
+      const { data } = await this.sb.from('chat_history').select('*').order('created_at', { ascending: false }).limit(100);
+      list.innerHTML = '';
+      if (!data || !data.length) { list.innerHTML = '<div style="font-size:11px;color:var(--faint);padding:8px">No chat history yet.</div>'; return; }
+      data.forEach(entry => {
+        const el = document.createElement('div');
+        el.className = 'chat-log-entry';
+        const time = new Date(entry.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        const user = entry.user_name || 'Unknown';
+        const answer = (entry.answer || '').slice(0, 300);
+        el.innerHTML = `<div class="chat-log-meta"><span class="chat-log-user">${user}</span><span>${time}</span></div><div class="chat-log-q">Q: ${entry.question || ''}</div><div class="chat-log-a" onclick="this.classList.toggle('expanded')">A: ${answer}${answer.length >= 300 ? '...' : ''}</div>`;
+        list.appendChild(el);
+      });
+    } catch (e) { list.innerHTML = '<div style="color:var(--red);font-size:11px;padding:8px">Error loading chat log.</div>'; }
+  },
+
+  // ─── Toast Notifications ───
+  toast(msg, type='info', duration=3000) {
+    const c = document.getElementById('toastContainer');
+    if (!c) return;
+    const t = document.createElement('div');
+    t.className = 'toast toast-' + type;
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, duration);
   },
 
   // ─── Ticket Badge ───
