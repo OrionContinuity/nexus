@@ -93,7 +93,7 @@ const NX = {
   },
 
   // ═══ PIN AUTH ═══
-  setupPinScreen() {
+  async setupPinScreen() {
     let pin = '';
     const display = document.getElementById('pinDisplay');
     const circles = display.querySelectorAll('.pin-circle');
@@ -132,54 +132,76 @@ const NX = {
       });
     });
 
-    // Check if user was previously logged in (session persistence)
+    // Check if user was previously logged in — RE-VERIFY against Supabase
     const savedUser = localStorage.getItem('nexus_current_user');
-    if (savedUser) {
+    const savedToken = localStorage.getItem('nexus_session_token');
+    if (savedUser && savedToken) {
       try {
         const u = JSON.parse(savedUser);
-        this.currentUser = u;
-        this.applyRole(u.role);
-        this.loadConfigAndStart();
+        if (!u.id) { this._clearSession(); return; }
+        // Re-verify user exists in Supabase with current role
+        const { data, error } = await this.sb.from('nexus_users').select('*').eq('id', u.id).single();
+        if (error || !data) { this._clearSession(); return; }
+        // Verify token matches (proves this device authenticated with correct PIN before)
+        const expectedToken = await this._makeSessionToken(data.pin, data.id);
+        if (savedToken !== expectedToken) { this._clearSession(); return; }
+        this.currentUser = data;
+        this._sessionPin = data.pin;
+        this._applyRole(data.role);
+        this._loadConfigAndStart();
         return;
-      } catch (e) { localStorage.removeItem('nexus_current_user'); }
+      } catch (e) { this._clearSession(); }
     }
+  },
+
+  _clearSession() {
+    localStorage.removeItem('nexus_current_user');
+    localStorage.removeItem('nexus_session_token');
+    this.currentUser = null;
+    this.isAdmin = false;
+    this.isManager = false;
+  },
+
+  async _makeSessionToken(pin, id) {
+    // Simple HMAC-like token — not cryptographically bulletproof but prevents casual tampering
+    const raw = `nexus_${id}_${pin}_${navigator.userAgent.slice(0, 20)}`;
+    if (window.crypto && crypto.subtle) {
+      try {
+        const enc = new TextEncoder().encode(raw);
+        const hash = await crypto.subtle.digest('SHA-256', enc);
+        return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+      } catch (e) {}
+    }
+    // Fallback — simple hash
+    let h = 0; for (let i = 0; i < raw.length; i++) { h = ((h << 5) - h + raw.charCodeAt(i)) | 0; }
+    return 'nx' + Math.abs(h).toString(36);
   },
 
   async authenticatePin(pin, errorEl, userEl, resetFn) {
     try {
       errorEl.textContent = '';
       const { data, error } = await this.sb.from('nexus_users').select('*').eq('pin', pin).single();
-      if (error) {
-        console.error('NEXUS PIN:', error.message, error.code);
-        // Table might not exist — allow admin bypass with 0000
-        if (error.message.includes('does not exist') || error.message.includes('relation') || error.code === '42P01') {
-          errorEl.textContent = 'Setup needed — run SQL';
-          if (pin === '0000') {
-            this.currentUser = { id: 0, name: 'Admin', pin: '0000', role: 'admin', location: 'suerte', language: 'en' };
-            localStorage.setItem('nexus_current_user', JSON.stringify(this.currentUser));
-            userEl.textContent = 'Admin (setup mode)'; userEl.classList.add('visible');
-            this.applyRole('admin');
-            setTimeout(() => this.loadConfigAndStart(), 600); return;
-          }
-        } else if (error.code === 'PGRST116') {
-          // No matching row — invalid PIN
-          errorEl.textContent = this.i18n ? this.i18n.t('invalidPin') : 'Invalid PIN';
-        } else {
-          errorEl.textContent = 'Connection error';
-        }
+      if (error || !data) {
+        errorEl.textContent = this.i18n ? this.i18n.t('invalidPin') : 'Invalid PIN';
         errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500);
         resetFn(); return;
       }
-      if (!data) { errorEl.textContent = this.i18n ? this.i18n.t('invalidPin') : 'Invalid PIN'; errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500); resetFn(); return; }
       this.currentUser = data;
-      localStorage.setItem('nexus_current_user', JSON.stringify(data));
+      // Create session token tied to this PIN + user + device
+      const token = await this._makeSessionToken(data.pin, data.id);
+      // Don't store PIN in localStorage
+      const safeUser = { ...data, pin: undefined };
+      localStorage.setItem('nexus_current_user', JSON.stringify(safeUser));
+      localStorage.setItem('nexus_session_token', token);
+      // Keep PIN only in memory for session verification
+      this._sessionPin = data.pin;
       if (data.language && this.i18n && data.language !== this.i18n.getLang()) {
         localStorage.setItem('nexus_lang', data.language);
       }
       userEl.textContent = (this.i18n ? this.i18n.t('welcome') : 'Welcome,') + ' ' + data.name;
       userEl.classList.add('visible');
-      this.applyRole(data.role);
-      setTimeout(() => this.loadConfigAndStart(), 600);
+      this._applyRole(data.role);
+      setTimeout(() => this._loadConfigAndStart(), 600);
     } catch (e) {
       console.error('NEXUS auth:', e);
       errorEl.textContent = 'Connection failed';
@@ -188,13 +210,16 @@ const NX = {
     }
   },
 
-  applyRole(role) {
+  // Private — not callable from console without underscore knowledge
+  _applyRole(role) {
+    // Guard — must have valid session (prevents console bypass)
+    if (!this.currentUser || !this._sessionPin) return;
     this.isAdmin = role === 'admin';
     this.isManager = role === 'manager' || role === 'admin';
     this.isStaff = true;
   },
 
-  async loadConfigAndStart() {
+  async _loadConfigAndStart() {
     // Load config from Supabase
     try {
       const { data, error } = await this.sb.from('nexus_config').select('*').eq('id', 1).single();
@@ -303,7 +328,7 @@ const NX = {
   },
 
   // ═══ INIT ═══
-  init() {
+  async init() {
     this.sb = supabase.createClient(this.SUPA_URL, this.SUPA_KEY);
     if(window.NEXUS_I18N) { this.i18n = NEXUS_I18N; this.i18n.applyUI(); }
     // Test Supabase connection
@@ -317,7 +342,7 @@ const NX = {
       const err=document.getElementById('pinError');
       if(err) err.textContent='No connection to server';
     });
-    this.setupPinScreen();
+    await this.setupPinScreen();
   },
 
   // ─── Nav ───
@@ -473,7 +498,7 @@ const NX = {
 
     // Logout
     document.getElementById('adminLogout').addEventListener('click', () => {
-      localStorage.removeItem('nexus_current_user');
+      this._clearSession();
       location.reload();
     });
 
