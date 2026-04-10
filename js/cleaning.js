@@ -102,57 +102,53 @@ async function init(){
     t.addEventListener('click',async()=>{
       document.querySelectorAll('.clean-tab').forEach(x=>x.classList.remove('active'));
       t.classList.add('active');loc=t.dataset.cloc;
-      await loadToday();await loadHistory();
+      try{await loadToday();}catch(e){}
+      try{await loadHistory();}catch(e){}
       populateSections();render();
     });
   });
   document.getElementById('cleanSubmit').addEventListener('click',submitDailyReport);
-  document.getElementById('cleanAddBtn').addEventListener('click',addTaskUI);
-  await loadToday();await loadHistory();populateSections();render();
+  const ab=document.getElementById('cleanAddBtn');if(ab)ab.addEventListener('click',addTaskUI);
+  try{await loadToday();}catch(e){}
+  try{await loadHistory();}catch(e){}
+  populateSections();render();
 }
 
 async function show(){
-  await loadToday();await loadHistory();populateSections();render();
+  try{await loadToday();}catch(e){}
+  try{await loadHistory();}catch(e){}
+  populateSections();render();
 }
 
 async function loadToday(){
   if(!stateCache[loc])stateCache[loc]={};
-  try{
-    const{data,error}=await NX.sb.from('cleaning_logs').select('section,task_index,done,completed_at').eq('log_date',today).eq('location',loc);
-    if(data)data.forEach(c=>{stateCache[loc][loc+'_'+c.section+'_'+c.task_index]={done:c.done,by:''};});
-  }catch(e){console.error('Cleaning load error:',e);}
+  if(!NX.sb||NX.paused)return;
+  const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,done').eq('log_date',today).eq('location',loc);
+  if(data)data.forEach(c=>{stateCache[loc][loc+'_'+c.section+'_'+c.task_index]={done:c.done,by:''};});
 }
 
-function getState(key){const s=stateCache[loc]?.[key];return s?s.done:false;}
-function getStateBy(key){const s=stateCache[loc]?.[key];return s?s.by:'';}
+function getState(key){try{return stateCache[loc]?.[key]?.done||false;}catch(e){return false;}}
+function getStateBy(key){return'';}
 function setState(key,done){
   if(!stateCache[loc])stateCache[loc]={};
   stateCache[loc][key]={done,by:done?getUserName():''};
 }
 
 async function loadHistory(){
-  // Fetch last completion for ALL non-daily tasks at this location
   lastDone={};
-  try{
-    const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,completed_at,log_date')
-      .eq('location',loc).eq('done',true)
-      .order('completed_at',{ascending:false}).limit(500);
-    if(data){
-      data.forEach(r=>{
-        const key=r.section+'_'+r.task_index;
-        if(!lastDone[key]){// Keep only the most recent
-          lastDone[key]={date:r.log_date,at:r.completed_at};
-        }
-      });
-    }
-  }catch(e){}
+  if(!NX.sb||NX.paused)return;
+  const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,log_date')
+    .eq('location',loc).eq('done',true).order('log_date',{ascending:false}).limit(500);
+  if(data){data.forEach(r=>{
+    const key=r.section+'_'+r.task_index;
+    if(!lastDone[key])lastDone[key]={date:r.log_date};
+  });}
 }
 
 function populateSections(){
-  const sel=document.getElementById('cleanTaskSec');sel.innerHTML='';
-  const secs=getData(loc);
-  secs.forEach(s=>{const o=document.createElement('option');o.value=s.sec;o.textContent=s.sec;sel.appendChild(o);});
-  // Add "New Section" option
+  const sel=document.getElementById('cleanTaskSec');if(!sel)return;
+  sel.innerHTML='';
+  getData(loc).forEach(s=>{const o=document.createElement('option');o.value=s.sec;o.textContent=s.sec;sel.appendChild(o);});
   const no=document.createElement('option');no.value='__new__';no.textContent='+ New Section';sel.appendChild(no);
 }
 
@@ -223,7 +219,6 @@ function render(){
       if(isDaily)dailyTotal++;
       const k=loc+'_'+sec.sec+'_'+i;
       const d=getState(k);
-      const doneBy=getStateBy(k);
       if(d&&isDaily)dailyDone++;
 
       const it=document.createElement('div');it.className='clean-item'+(d?' done':'')+(item[2]?' clean-item-custom':'');
@@ -233,8 +228,7 @@ function render(){
         if(hist){const daysAgo=daysBetween(hist.date,today);lastInfo=`<div class="ci-last">Last: ${daysAgoText(daysAgo)}</div>`;}
         else{lastInfo='<div class="ci-last ci-never">Never done</div>';}
       }
-      const byTag=d&&doneBy?`<span class="ci-by">${doneBy}</span>`:'';
-      it.innerHTML=`<div class="ci-box">${d?'✓':''}</div><div><div class="ci-primary">${lang==='es'?item[0]:item[1]}${byTag}</div><div class="ci-secondary">${lang==='es'?item[1]:item[0]}</div>${lastInfo}</div>`;
+      it.innerHTML=`<div class="ci-box">${d?'✓':''}</div><div><div class="ci-primary">${lang==='es'?item[0]:item[1]}</div><div class="ci-secondary">${lang==='es'?item[1]:item[0]}</div>${lastInfo}</div>`;
       // Delete button for custom tasks
       if(item[2]){
         const del=document.createElement('button');del.className='clean-item-del';del.textContent='✕';
