@@ -302,12 +302,13 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     // Handle toggles chat
     chev.addEventListener('click',()=>{
       if(hud.classList.contains('expanded')){hud.classList.remove('expanded');dim.classList.remove('active');}
-      else{hud.classList.add('expanded');dim.classList.add('active');}
+      else{hud.classList.add('expanded');dim.classList.add('active');if(NX.brain&&NX.brain.closePanel)NX.brain.closePanel();}
     });
     i.addEventListener('input',()=>{s.disabled=!i.value.trim();});
     // Focus expands chat
     i.addEventListener('focus',()=>{hud.classList.add('expanded');dim.classList.add('active');
-      // Scroll to latest message
+      // Close node panel if open
+      if(NX.brain&&NX.brain.closePanel)NX.brain.closePanel();
       requestAnimationFrame(()=>{const c=document.getElementById('chatMessages');if(c)c.scrollTop=c.scrollHeight;});
     });
     i.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();askAI();}});
