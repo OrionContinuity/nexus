@@ -125,7 +125,8 @@ You CANNOT search the web yourself — user must type a command like "look up" o
         tags:Array.isArray(node.tags)?node.tags.filter(t=>typeof t==='string').slice(0,20):[],
         notes:(node.notes||text).slice(0,2000),
         links:[],access_count:1,
-        source_emails:[{from:NX.currentUser?.name||'Chat',subject:'Created via chat',date:new Date().toISOString().split('T')[0]}]
+        source_emails:[{from:NX.currentUser?.name||'Chat',subject:'Created via chat',date:new Date().toISOString().split('T')[0]}],
+        owner_id:NX.brainView==='mine'?(NX.currentUser?.id||null):null
       };
 
       // Check for duplicate
