@@ -11,7 +11,7 @@ function getCleaningDate(){
   if(now.getHours()<8){now.setDate(now.getDate()-1);}
   return now.toISOString().split('T')[0];
 }
-const today=getCleaningDate();
+let today=getCleaningDate();
 
 const FREQUENCY={
   'Bi-Semanal':14,'Mensual':30,'Semanal':7,'Quincenal':15,
@@ -115,9 +115,37 @@ async function init(){
 }
 
 async function show(){
+  // Check if editing a previous report
+  if(NX.editingReport){
+    today=NX.editingReport.date;
+    // Show edit banner
+    let banner=document.getElementById('cleanEditBanner');
+    if(!banner){
+      banner=document.createElement('div');banner.id='cleanEditBanner';
+      banner.className='clean-edit-banner';
+      const wrap=document.getElementById('cleanView');
+      if(wrap)wrap.insertBefore(banner,wrap.firstChild);
+    }
+    banner.innerHTML=`<span>✏ Editing report for <b>${today}</b></span><button id="cancelEditClean" class="clean-edit-cancel">✕ Cancel</button>`;
+    banner.style.display='flex';
+    document.getElementById('cancelEditClean')?.addEventListener('click',()=>{
+      NX.editingReport=null;today=getCleaningDate();
+      banner.style.display='none';
+      show();
+    });
+  }else{
+    today=getCleaningDate();
+    const banner=document.getElementById('cleanEditBanner');
+    if(banner)banner.style.display='none';
+  }
+  // Clear cached state for reload
+  stateCache[loc]={};
   try{await loadToday();}catch(e){}
   try{await loadHistory();}catch(e){}
   populateSections();render();
+  // Update submit button text for edit mode
+  const submitBtn=document.getElementById('cleanSubmit');
+  if(submitBtn)submitBtn.textContent=NX.editingReport?'Update Report':'Submit Daily Report';
 }
 
 async function loadToday(){
@@ -337,37 +365,54 @@ function buildFullReport(location,locState){
 }
 
 async function submitDailyReport(){
-  const btn=document.getElementById('cleanSubmit'),confirm=document.getElementById('cleanConfirm');
-  const dupKey='nexus_submit_all_'+today;
-  if(localStorage.getItem(dupKey)){
-    const overwrite=window.confirm('A report was already submitted today. Submit again?');
-    if(!overwrite){btn.textContent='Cancelled';setTimeout(()=>{btn.textContent='Submit Daily Report';},2000);return;}
+  const btn=document.getElementById('cleanSubmit'),confirm_el=document.getElementById('cleanConfirm');
+  const isEditing=!!NX.editingReport;
+  const reportDate=isEditing?NX.editingReport.date:today;
+
+  if(!isEditing){
+    const dupKey='nexus_submit_all_'+today;
+    if(localStorage.getItem(dupKey)){
+      const overwrite=window.confirm('A report was already submitted today. Submit again?');
+      if(!overwrite){btn.textContent='Cancelled';setTimeout(()=>{btn.textContent='Submit Daily Report';},2000);return;}
+    }
   }
+
   btn.disabled=true;btn.textContent='Loading all restaurants...';
 
-  // Build combined report for ALL 3 restaurants
   const parts=[];
   for(const location of Object.keys(DEFAULTS)){
-    // Load each restaurant's data from Supabase
     let locState={};
     try{
-      const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,done').eq('log_date',today).eq('location',location);
+      const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,done').eq('log_date',reportDate).eq('location',location);
       if(data)data.forEach(c=>{locState[location+'_'+c.section+'_'+c.task_index]={done:c.done,by:''};});
     }catch(e){}
     parts.push(buildFullReport(location,locState));
   }
 
   btn.textContent='Submitting...';
-  const combined='Cleaning Report — '+today+'\n===\n'+parts.join('\n===\n');
-  const{error}=await NX.sb.from('daily_logs').insert({entry:combined});
-  if(!error){
-    btn.textContent='✓ Submitted';
-    localStorage.setItem(dupKey,'1');
-    confirm.textContent='All 3 restaurants saved to log.';
-    confirm.style.display='block';
-    if(NX.toast)NX.toast('Cleaning report submitted — all restaurants ✓','success');
+  const combined='Cleaning Report — '+reportDate+'\n===\n'+parts.join('\n===\n');
+
+  if(isEditing){
+    // Update existing log entry
+    const{error}=await NX.sb.from('daily_logs').update({entry:combined}).eq('id',NX.editingReport.logId);
+    if(!error){
+      btn.textContent='✓ Updated';
+      if(NX.toast)NX.toast('Report updated ✓','success');
+      NX.editingReport=null;today=getCleaningDate();
+      const banner=document.getElementById('cleanEditBanner');if(banner)banner.style.display='none';
+      // Switch to Log tab
+      setTimeout(()=>{document.querySelector('.nav-tab[data-view="log"]')?.click();},800);
+    }else{btn.textContent='Error — try again';}
+  }else{
+    const{error}=await NX.sb.from('daily_logs').insert({entry:combined});
+    if(!error){
+      btn.textContent='✓ Submitted';
+      localStorage.setItem('nexus_submit_all_'+today,'1');
+      confirm_el.textContent='All 3 restaurants saved to log.';
+      confirm_el.style.display='block';
+      if(NX.toast)NX.toast('Cleaning report submitted ✓','success');
+    }else{btn.textContent='Error — try again';confirm_el.style.display='none';}
   }
-  else{btn.textContent='Error — try again';confirm.style.display='none';}
   setTimeout(()=>{btn.disabled=false;btn.textContent='Submit Daily Report';},3000);
 }
 
