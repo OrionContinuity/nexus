@@ -99,31 +99,72 @@ async function init(){
   // Document rescan
   document.getElementById('docRescanBtn')?.addEventListener('click',async()=>{
     const btn=document.getElementById('docRescanBtn');
-    if(!confirm('Reset ALL archived emails & docs for AI re-processing? This runs in background — 3 every 5 min.'))return;
-    btn.disabled=true;btn.textContent='Resetting...';
-    clearLog();
+    if(!confirm('Reset ALL archived emails & docs for AI re-processing?'))return;
+    btn.disabled=true;btn.textContent='Resetting...';clearLog();
     try{
       const{error}=await NX.sb.from('raw_emails').update({processed:false}).eq('processed',true);
-      if(!error){
-        const{count}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true}).eq('processed',false);
-        log(`♻ <b>${count} items</b> queued for re-processing`,'success');
-        log(`Background AI will process 3 every 5 min — est. ${Math.ceil((count||0)/3)*5} min total`);
-        log('Using enhanced AI: reads PDFs, extracts parts, enriches existing nodes');
-        updateQueueStatus();
-        if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
-      }
+      if(!error){const{count}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true}).eq('processed',false);log(`♻ <b>${count} items</b> queued`,'success');updateQueueStatus();}
     }catch(e){log('Error: '+e.message,'error');}
     btn.disabled=false;btn.textContent='♻ Re-scan All Archives (background)';
   });
+  // Backup export
+  document.getElementById('exportBtn')?.addEventListener('click',exportBackup);
+  // Backup import
+  const impDrop=document.getElementById('importDropzone');
+  const impFile=document.getElementById('importFileInput');
+  if(impDrop){
+    impDrop.addEventListener('dragover',e=>{e.preventDefault();impDrop.classList.add('dragover');});
+    impDrop.addEventListener('dragleave',()=>impDrop.classList.remove('dragover'));
+    impDrop.addEventListener('drop',e=>{e.preventDefault();impDrop.classList.remove('dragover');if(e.dataTransfer.files.length)importBackup(e.dataTransfer.files[0]);});
+    impDrop.addEventListener('click',()=>impFile?.click());
+    impFile?.addEventListener('change',()=>{if(impFile.files.length)importBackup(impFile.files[0]);});
+  }
   document.getElementById('sensitiveBtn')?.addEventListener('click',scanSensitive);
   document.getElementById('relationshipBtn')?.addEventListener('click',()=>buildRelationships(false));
   document.getElementById('autoLinkToggle')?.addEventListener('change',(e)=>{localStorage.setItem('nexus_auto_link',e.target.checked?'on':'off');});
-  // Background processor toggle
   document.getElementById('bgProcessToggle')?.addEventListener('change',(e)=>{
     localStorage.setItem('nexus_bg_process',e.target.checked?'on':'off');
     if(e.target.checked)startBackgroundProcessor();
+    else if(bgInterval){clearInterval(bgInterval);bgInterval=null;log('⚙ Background processor stopped');}
   });
-  // Pause/Resume DB button
+  // Batch size presets
+  document.querySelectorAll('#batchPresets .ig-preset').forEach(btn=>{
+    if(btn.dataset.val===String(getBatchSize()))btn.classList.add('active');
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('#batchPresets .ig-preset').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      localStorage.setItem('nexus_bg_batch',btn.dataset.val);
+      if(bgInterval)startBackgroundProcessor();
+      updateProcStatus();
+    });
+  });
+  // Mode presets
+  document.querySelectorAll('#modePresets .ig-preset').forEach(btn=>{
+    if(btn.dataset.val===getMode())btn.classList.add('active');
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('#modePresets .ig-preset').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      localStorage.setItem('nexus_bg_mode',btn.dataset.val);
+      updateProcStatus();
+      if(btn.dataset.val==='rescan'){
+        log('♻ Re-scan mode — archive will reset on next cycle');
+      }else if(btn.dataset.val==='pull'){
+        log('📬 Pull+Process mode — will fetch new Gmail emails each cycle');
+      }
+    });
+  });
+  // Interval presets
+  document.querySelectorAll('#intervalPresets .ig-preset').forEach(btn=>{
+    if(btn.dataset.val===localStorage.getItem('nexus_bg_interval'))btn.classList.add('active');
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('#intervalPresets .ig-preset').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      localStorage.setItem('nexus_bg_interval',btn.dataset.val);
+      if(bgInterval)startBackgroundProcessor();
+      updateProcStatus();
+    });
+  });
+  // Pause button
   const pauseBtn=document.getElementById('pauseBtn');
   if(pauseBtn){
     pauseBtn.addEventListener('click',()=>{
@@ -132,9 +173,16 @@ async function init(){
       pauseBtn.classList.toggle('paused',NX.paused);
     });
   }
-  // Start background processor if enabled
+  // Start if enabled
   if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
-  updateQueueStatus();
+  updateProcStatus();
+  // Run Now button
+  document.getElementById('procRunNow')?.addEventListener('click',async()=>{
+    const btn=document.getElementById('procRunNow');
+    btn.disabled=true;btn.textContent='Running...';
+    await processNextBatch();
+    btn.disabled=false;btn.textContent='▶ Run batch now';
+  });
   loadGoogleAuth();
   await loadProcessedIds();
   const s=localStorage.getItem('nexus_gmail_token');
@@ -275,94 +323,198 @@ pf.style.width='100%';pt.textContent='Archived!';
 log(`<b>Complete:</b> ${savedRaw} emails archived. Background AI will process them.`,'success');
 await NX.loadNodes();if(NX.brain)NX.brain.init();updateStats();}catch(e){log('FATAL: '+e.message,'error');}isSyncing=false;btn.disabled=false;btn.textContent='⚡ Sync Emails → Brain';}
 
-// ═══ BACKGROUND AI PROCESSOR — 3 emails every 5 minutes ═══
+// ═══ BACKGROUND AI PROCESSOR — custom batch/interval ═══
 let bgInterval=null,isSyncing=false;
-const BG_BATCH=3;
-const BG_INTERVAL_MS=5*60*1000;
+function getBatchSize(){return parseInt(localStorage.getItem('nexus_bg_batch')||'3');}
+function getIntervalMs(){return parseInt(localStorage.getItem('nexus_bg_interval')||'300')*1000;}
+function getMode(){return localStorage.getItem('nexus_bg_mode')||'process';}
+function shouldExtractPdfs(){return document.getElementById('extractPdfs')?.checked!==false;}
+function shouldExtractImages(){return document.getElementById('extractImages')?.checked!==false;}
+function shouldExtractParts(){return document.getElementById('extractParts')?.checked!==false;}
+function shouldAutoLink(){return document.getElementById('extractLinks')?.checked!==false;}
+
+function setProcLive(status,text){
+  const dot=document.getElementById('procDot');
+  const txt=document.getElementById('procLiveText');
+  if(dot){dot.className='ig-proc-dot'+(status==='working'?' working':status==='active'?' active':'');}
+  if(txt)txt.textContent=text;
+}
+
+// Pull new emails from Gmail in small batches — archive only, no AI
+async function pullNewEmails(limit){
+  if(!gmailToken){setProcLive('','Gmail not connected');return 0;}
+  setProcLive('working','Pulling new emails...');
+  try{
+    const dv=document.getElementById('gmailDays')?.value||'30';
+    const fl=document.getElementById('gmailFilter')?.value?.trim()||'';
+    let q='';if(dv!=='all'){const a=new Date();a.setDate(a.getDate()-parseInt(dv));q=`after:${a.getFullYear()}/${a.getMonth()+1}/${a.getDate()}`;}
+    if(fl)q+=(q?' ':'')+fl;
+    const u=new URL('https://www.googleapis.com/gmail/v1/users/me/messages');
+    u.searchParams.set('maxResults',String(Math.min(limit*2,100)));
+    if(q)u.searchParams.set('q',q);
+    const r=await fetch(u,{headers:{'Authorization':`Bearer ${gmailToken}`}});
+    if(r.status===401){gmailToken=null;return 0;}
+    const d=await r.json();
+    if(!d.messages)return 0;
+    // Filter already archived
+    const existingIds=new Set();
+    try{const{data}=await NX.sb.from('raw_emails').select('id');if(data)data.forEach(e=>existingIds.add(e.id));}catch(e){}
+    const newIds=d.messages.map(m=>m.id).filter(id=>!existingIds.has(id)).slice(0,limit);
+    if(!newIds.length){log('No new emails to pull');return 0;}
+    setProcLive('working',`Fetching ${newIds.length} emails...`);
+    let archived=0;
+    for(let i=0;i<newIds.length;i+=5){
+      const batch=newIds.slice(i,i+5);
+      const fetches=batch.map(id=>fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,{headers:{'Authorization':`Bearer ${gmailToken}`}}).then(r=>r.json()).catch(()=>null));
+      const results=await Promise.all(fetches);
+      const rows=[];
+      for(const m of results){
+        if(!m||!m.payload)continue;
+        const h=m.payload.headers||[],g=n=>(h.find(x=>x.name.toLowerCase()===n.toLowerCase())||{}).value||'';
+        let body='';
+        function ext(parts){if(!parts)return;for(const p of parts){if(p.mimeType==='text/plain'&&p.body?.data){try{body+=atob(p.body.data.replace(/-/g,'+').replace(/_/g,'/'));}catch(e){}}if(p.parts)ext(p.parts);}}
+        if(m.payload.body?.data){try{body=atob(m.payload.body.data.replace(/-/g,'+').replace(/_/g,'/'));}catch(e){}}
+        if(!body)ext(m.payload.parts);
+        body=cleanEmailBody(body);
+        if(isJunkEmail({from:g('From'),subject:g('Subject')}))continue;
+        // Collect attachments
+        const atts=[];
+        function walkAtt(parts){if(!parts)return;for(const p of parts){if(p.filename&&p.body?.attachmentId)atts.push({filename:p.filename,mimeType:p.mimeType,attachmentId:p.body.attachmentId,messageId:m.id});if(p.parts)walkAtt(p.parts);}}
+        walkAtt(m.payload.parts);
+        // Download attachments
+        const savedAtts=[];
+        for(const att of atts.slice(0,5)){
+          try{
+            const ar=await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${att.messageId}/attachments/${att.attachmentId}`,{headers:{'Authorization':`Bearer ${gmailToken}`}});
+            if(!ar.ok)continue;const ad=await ar.json();if(!ad.data)continue;
+            const bytes=Uint8Array.from(atob(ad.data.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+            const blob=new Blob([bytes],{type:att.mimeType});
+            const path=`email-attachments/${Date.now()}_${(att.filename||'file').replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+            const{error:ue}=await NX.sb.storage.from('nexus-files').upload(path,blob,{contentType:att.mimeType,upsert:true});
+            if(!ue){const{data:ud}=NX.sb.storage.from('nexus-files').getPublicUrl(path);savedAtts.push({url:ud?.publicUrl||'',filename:att.filename,type:att.mimeType});}
+          }catch(e){}
+        }
+        rows.push({id:m.id,from_addr:g('From'),to_addr:g('To'),date:g('Date'),subject:g('Subject'),body:body,snippet:m.snippet||'',attachment_count:atts.length,attachments:savedAtts,processed:false});
+      }
+      if(rows.length){
+        const{error}=await NX.sb.from('raw_emails').upsert(rows,{onConflict:'id'});
+        if(!error)archived+=rows.length;
+      }
+      if(i+5<newIds.length)await sleep(200);
+    }
+    if(archived)log(`📬 Pulled ${archived} new emails`,'success');
+    return archived;
+  }catch(e){log('Pull error: '+e.message,'error');return 0;}
+}
 
 async function processNextBatch(){
   if(NX.paused||isSyncing)return;
+  const mode=getMode();
   try{
-    // Health check
     const{error:ping}=await NX.sb.from('nexus_config').select('id').eq('id',1).single();
-    if(ping){log('⚙ DB unavailable, will retry next cycle');return;}
-
-    const{data,error}=await NX.sb.from('raw_emails').select('*').eq('processed',false).order('ingested_at',{ascending:true}).limit(BG_BATCH);
-    if(error||!data||!data.length){updateQueueStatus();return;}
-
-    log(`⚙ Processing ${data.length} emails...`);
-    const emails=data.map(e=>({id:e.id,from:e.from_addr,to:e.to_addr,date:e.date,subject:e.subject,body:e.body||'',snippet:e.snippet||'',attachmentCount:e.attachment_count||0,attachments:e.attachments||[]}));
+    if(ping){setProcLive('','DB unavailable');return;}
     
-    // Try to read PDF attachments for richer context
-    for(const email of emails){
-      if(!email.attachments||!email.attachments.length)continue;
-      for(const att of email.attachments){
-        if(!att.url)continue;
-        const ext=(att.filename||'').split('.').pop().toLowerCase();
-        if(ext==='pdf'&&window.pdfjsLib){
-          try{
-            const resp=await fetch(att.url);if(!resp.ok)continue;
-            const buffer=await resp.arrayBuffer();
-            const pdf=await pdfjsLib.getDocument({data:buffer}).promise;
-            let pdfText='';
-            for(let p=1;p<=Math.min(pdf.numPages,20);p++){
-              const page=await pdf.getPage(p);
-              const content=await page.getTextContent();
-              pdfText+=content.items.map(item=>item.str).join(' ')+'\n';
-            }
-            if(pdfText.length>50){
-              email.body+='\n\n[ATTACHMENT: '+att.filename+']\n'+pdfText.slice(0,3000);
-              log(`  📎 Read ${pdfText.length} chars from ${att.filename}`);
-            }
-          }catch(e){}
-        }
+    // Mode: rescan — reset all then process
+    if(mode==='rescan'){
+      const{count}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true}).eq('processed',false);
+      if(!count||count<1){
+        setProcLive('working','Resetting archive...');
+        await NX.sb.from('raw_emails').update({processed:false}).eq('processed',true);
+        log('♻ Archive reset for re-scan','success');
+        // Switch to process mode after reset
+        localStorage.setItem('nexus_bg_mode','process');
+        document.querySelectorAll('#modePresets .ig-preset').forEach(b=>{b.classList.toggle('active',b.dataset.val==='process');});
+        updateQueueStatus();return;
       }
     }
+    
+    // Mode: pull — fetch new emails from Gmail first
+    if(mode==='pull'&&gmailToken){
+      const pulled=await pullNewEmails(getBatchSize());
+      if(pulled)updateQueueStatus();
+    }
 
-    const chunk=emails.map((e,idx)=>`[EMAIL #${idx+1}]\nFROM: ${e.from}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\n---\n${e.body||e.snippet}`).join('\n\n========\n\n');
-    const sourceMap=emails.map((e,idx)=>({ref:idx+1,from:e.from,date:e.date,subject:e.subject,body:(e.body||e.snippet||'').slice(0,500)}));
-
+    // Process queue
+    const batchSize=getBatchSize();
+    const{data,error}=await NX.sb.from('raw_emails').select('*').eq('processed',false).order('ingested_at',{ascending:true}).limit(batchSize);
+    if(error||!data||!data.length){setProcLive('active','Idle — queue empty');updateQueueStatus();return;}
+    setProcLive('working',`Processing ${data.length}...`);
+    log(`⚙ Processing ${data.length}...`);
+    const emails=data.map(e=>({id:e.id,from:e.from_addr,to:e.to_addr,date:e.date,subject:e.subject,body:e.body||'',snippet:e.snippet||'',attachmentCount:e.attachment_count||0,attachments:e.attachments||[]}));
+    // PDF extraction
+    if(shouldExtractPdfs()){for(const email of emails){if(!email.attachments)continue;for(const att of email.attachments){if(!att.url)continue;const ext=(att.filename||'').split('.').pop().toLowerCase();if(ext==='pdf'&&window.pdfjsLib){try{const resp=await fetch(att.url);if(!resp.ok)continue;const buf=await resp.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:buf}).promise;let pt='';for(let p=1;p<=Math.min(pdf.numPages,20);p++){const pg=await pdf.getPage(p);const c=await pg.getTextContent();pt+=c.items.map(i=>i.str).join(' ')+'\n';}if(pt.length>50){email.body+='\n[PDF:'+att.filename+']\n'+pt.slice(0,3000);log(`  📎 PDF ${att.filename}`);};}catch(e){}}}}}
+    // Image extraction via Claude Vision
+    if(shouldExtractImages()){for(const email of emails){if(!email.attachments)continue;for(const att of email.attachments){if(!att.url)continue;const ext=(att.filename||'').split('.').pop().toLowerCase();if(['jpg','jpeg','png','webp','gif'].includes(ext)){try{setProcLive('working',`Reading image: ${att.filename}`);const resp=await fetch(att.url);if(!resp.ok)continue;const blob=await resp.blob();if(blob.size>5*1024*1024)continue;const b64=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result.split(',')[1]);fr.readAsDataURL(blob);});const mt=blob.type||'image/jpeg';const vr=await NX.askClaudeVision('Extract ALL text, numbers, items, prices, totals, dates, vendor names, part numbers, model numbers from this image. If equipment photo: brand, model, condition, serial numbers. Plain text only.',b64,mt);if(vr&&vr.length>20){email.body+='\n[IMAGE:'+att.filename+']\n'+vr.slice(0,2000);log(`  🖼 Image ${att.filename}`);}}catch(e){}}}}}
+    setProcLive('working','AI extracting...');
+    // Thread grouping — group related emails for better context
+    const grouped=[];
+    const subjectMap=new Map();
+    for(const e of emails){
+      const cleanSubj=(e.subject||'').replace(/^(re:|fw:|fwd:)\s*/gi,'').trim().toLowerCase().slice(0,60);
+      if(cleanSubj.length>5&&subjectMap.has(cleanSubj)){
+        subjectMap.get(cleanSubj).push(e);
+      }else{
+        const group=[e];
+        if(cleanSubj.length>5)subjectMap.set(cleanSubj,group);
+        grouped.push(group);
+      }
+    }
+    // Flatten groups — threads get combined body
+    const processed=[];
+    for(const group of grouped){
+      if(group.length>1){
+        const combined={...group[0],body:group.map((e,i)=>`[Part ${i+1}] ${e.from} (${e.date}):\n${e.body}`).join('\n---\n'),subject:group[0].subject+` (${group.length} thread emails)`};
+        processed.push(combined);
+      }else{
+        processed.push(group[0]);
+      }
+    }
+    const chunk=processed.map((e,idx)=>`[EMAIL #${idx+1}]\nFROM: ${e.from}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\n---\n${e.body||e.snippet}`).join('\n\n========\n\n');
+    const sourceMap=processed.map((e,idx)=>({ref:idx+1,from:e.from,date:e.date,subject:e.subject,body:(e.body||e.snippet||'').slice(0,500)}));
     const r=await aiProcessWithSources(chunk,sourceMap);
     let created=0;if(r){created=await saveExtracted(r);}
-
-    // Mark processed — single batch update
-    const ids=data.map(e=>`'${e.id}'`).join(',');
-    for(const d of data){await NX.sb.from('raw_emails').update({processed:true}).eq('id',d.id);await sleep(100);}
-
-    if(created)log(`⚙ <b>${created} nodes</b> created`,'success');
-    else log('⚙ No new nodes this batch');
+    for(const d of data){await NX.sb.from('raw_emails').update({processed:true}).eq('id',d.id);await sleep(50);}
+    if(created)log(`⚙ <b>${created} nodes</b>`,'success');
+    else log('⚙ No new nodes');
+    setProcLive('active',`Done — ${created} nodes`);
     await NX.loadNodes();if(NX.brain)NX.brain.init();
     updateQueueStatus();
-  }catch(e){log('⚙ Error: '+e.message,'error');}
+  }catch(e){log('⚙ Error: '+e.message,'error');setProcLive('','Error');}
 }
 
 function startBackgroundProcessor(){
-  if(bgInterval)return; // Already running
-  log('⚙ Background processor started — 3 emails every 5 minutes');
-  // Process first batch after 30 seconds (let app settle)
+  if(bgInterval){clearInterval(bgInterval);bgInterval=null;}
+  const ms=getIntervalMs();const batch=getBatchSize();
+  log(`⚙ Background processor: ${batch} emails every ${ms/1000}s`);
   setTimeout(()=>processNextBatch(),30000);
-  bgInterval=setInterval(processNextBatch,BG_INTERVAL_MS);
+  bgInterval=setInterval(processNextBatch,ms);
+  updateProcStatus();
+}
+
+function updateProcStatus(){
+  const batch=getBatchSize();const sec=parseInt(localStorage.getItem('nexus_bg_interval')||'300');
+  const mode=getMode();
+  const modeLabel=mode==='pull'?'Pull+Process':mode==='rescan'?'Re-scan':'Process';
+  const label=document.getElementById('bgProcessLabel');
+  if(label)label.textContent=`${modeLabel} (${batch} every ${sec<60?sec+'s':Math.round(sec/60)+'m'})`;
+  updateQueueStatus();
 }
 
 async function updateQueueStatus(){
   try{
     const{count}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true}).eq('processed',false);
     const el=document.getElementById('queueStatus');
+    const pq=document.getElementById('procQueue');
     if(el){
-      if(count>0){
-        el.textContent=`${count} emails in queue`;el.style.color='var(--accent)';
-        el.classList.add('active');
-      }else{
-        el.textContent='Queue empty';el.style.color='var(--faint)';
-        el.classList.remove('active');
-      }
+      if(count>0){el.textContent=`${count} queued`;el.style.color='var(--accent)';el.classList.add('active');}
+      else{el.textContent='Queue empty';el.style.color='var(--faint)';el.classList.remove('active');}
     }
-    // Also update stats
+    if(pq)pq.textContent=count>0?`${count} queued`:'';
     const statsEl=document.getElementById('ingestStats');
     if(statsEl){
-      const{count:nodeCount}=await NX.sb.from('nodes').select('*',{count:'exact',head:true});
-      const{count:emailCount}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true});
-      statsEl.innerHTML=`<span class="ig-stat">${nodeCount||0} nodes</span><span class="ig-stat">${emailCount||0} emails</span>${count>0?`<span class="ig-stat ig-stat-queue">${count} queued</span>`:''}`;
+      const{count:nc}=await NX.sb.from('nodes').select('*',{count:'exact',head:true});
+      const{count:ec}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true});
+      statsEl.innerHTML=`<span class="ig-stat">${nc||0} nodes</span><span class="ig-stat">${ec||0} emails</span>${count>0?`<span class="ig-stat ig-stat-queue">${count} queued</span>`:''}`;
     }
   }catch(e){}
 }
@@ -476,6 +628,85 @@ async function processEmailFiles(files){
   updateQueueStatus();
   // Start processor if not already running
   if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
+}
+
+// ═══ BACKUP EXPORT — full database dump ═══
+async function exportBackup(){
+  const btn=document.getElementById('exportBtn');
+  btn.disabled=true;btn.textContent='Exporting...';clearLog();log('Exporting all data...');
+  try{
+    const backup={version:2,exported:new Date().toISOString(),tables:{}};
+    const tables=['nodes','kanban_cards','cleaning_logs','daily_logs','contractor_events','chat_history','processed_ids','raw_emails','tickets','nexus_users','nexus_config'];
+    for(const table of tables){
+      try{
+        let all=[];let offset=0;const PAGE=1000;
+        while(true){
+          const{data,error}=await NX.sb.from(table).select('*').range(offset,offset+PAGE-1);
+          if(error||!data||!data.length)break;
+          all=all.concat(data);offset+=PAGE;
+          if(data.length<PAGE)break;
+        }
+        backup.tables[table]=all;
+        log(`  ✓ ${table}: ${all.length} rows`);
+      }catch(e){log(`  ⚠ ${table}: ${e.message}`,'warn');backup.tables[table]=[];}
+    }
+    // Create downloadable file
+    const json=JSON.stringify(backup,null,2);
+    const blob=new Blob([json],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=`nexus-backup-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    const sizeMB=(json.length/1024/1024).toFixed(1);
+    log(`<b>✓ Backup exported</b> (${sizeMB} MB)`,'success');
+    if(NX.toast)NX.toast('Backup downloaded ✓','success');
+  }catch(e){log('Export error: '+e.message,'error');}
+  btn.disabled=false;btn.textContent='⬇ Export Full Backup';
+}
+
+// ═══ BACKUP IMPORT — restore from JSON ═══
+async function importBackup(file){
+  const status=document.getElementById('importStatus');
+  if(!confirm('⚠ This will MERGE data into your current database. Existing data with matching IDs will be overwritten. Continue?'))return;
+  status.textContent='Reading file...';clearLog();
+  try{
+    const text=await file.text();
+    const backup=JSON.parse(text);
+    if(!backup.tables){status.textContent='Invalid backup file.';return;}
+    log(`📦 Backup from ${backup.exported||'unknown'} (v${backup.version||1})`);
+
+    // Import order matters — config first, then users, then data
+    const order=['nexus_config','nexus_users','nodes','kanban_cards','cleaning_logs','daily_logs','contractor_events','chat_history','processed_ids','raw_emails','tickets'];
+    for(const table of order){
+      const rows=backup.tables[table];
+      if(!rows||!rows.length){log(`  ⏭ ${table}: empty`);continue;}
+      status.textContent=`Importing ${table}...`;
+      let imported=0;
+      // Batch upsert — 50 at a time
+      for(let i=0;i<rows.length;i+=50){
+        const batch=rows.slice(i,i+50);
+        try{
+          // Determine primary key
+          const pk=table==='nexus_config'?'id':table==='raw_emails'?'id':'id';
+          const{error}=await NX.sb.from(table).upsert(batch,{onConflict:pk,ignoreDuplicates:false});
+          if(!error)imported+=batch.length;
+          else log(`  ⚠ ${table} batch: ${error.message}`,'warn');
+        }catch(e){}
+        if(i+50<rows.length)await sleep(200);
+      }
+      log(`  ✓ ${table}: ${imported}/${rows.length} rows`);
+    }
+
+    log(`<b>✓ Import complete</b>`,'success');
+    status.textContent='✓ Restored';
+    if(NX.toast)NX.toast('Backup restored ✓','success');
+    await NX.loadNodes();if(NX.brain)NX.brain.init();
+    updateQueueStatus();
+  }catch(e){
+    log('Import error: '+e.message,'error');
+    status.textContent='Error: '+e.message;
+  }
 }
 
 // ═══ DOCUMENT FILE INGEST — PDF, DOCX, XLSX, CSV ═══
@@ -787,7 +1018,7 @@ for(const n of r.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2)continu
 if(r.cards)for(const x of r.cards){if(!x.title)continue;await NX.sb.from('kanban_cards').insert({title:(x.title||'').slice(0,200),column_name:x.column_name||'todo'});}
 if(updated)log(`${updated} existing nodes enriched`,'success');
 if(er)log(`${er} inserts failed`,'error');
-if(createdNames.length&&NX.autoLinkNewNodes){await NX.loadNodes();NX.autoLinkNewNodes(createdNames);}
+if(createdNames.length&&NX.autoLinkNewNodes&&shouldAutoLink()){await NX.loadNodes();NX.autoLinkNewNodes(createdNames);}
 return c+updated;}
 
 // ═══ MAIL MONITOR (enhanced: scrapes attachments + links to nodes) ═══
@@ -1229,5 +1460,12 @@ async function autoLinkNewNodes(newNodeNames){
 NX.buildRelationships=buildRelationships;
 NX.autoLinkNewNodes=autoLinkNewNodes;
 
-NX.modules.ingest={init,show:()=>{updateQueueStatus();const alt=document.getElementById('autoLinkToggle');if(alt)alt.checked=localStorage.getItem('nexus_auto_link')!=='off';const bgt=document.getElementById('bgProcessToggle');if(bgt)bgt.checked=localStorage.getItem('nexus_bg_process')!=='off';}};
+NX.modules.ingest={init,show:()=>{updateProcStatus();
+  const alt=document.getElementById('autoLinkToggle');if(alt)alt.checked=localStorage.getItem('nexus_auto_link')!=='off';
+  const bgt=document.getElementById('bgProcessToggle');if(bgt)bgt.checked=localStorage.getItem('nexus_bg_process')!=='off';
+  const batch=String(getBatchSize());const interval=localStorage.getItem('nexus_bg_interval')||'300';const mode=getMode();
+  document.querySelectorAll('#batchPresets .ig-preset').forEach(b=>{b.classList.toggle('active',b.dataset.val===batch);});
+  document.querySelectorAll('#intervalPresets .ig-preset').forEach(b=>{b.classList.toggle('active',b.dataset.val===interval);});
+  document.querySelectorAll('#modePresets .ig-preset').forEach(b=>{b.classList.toggle('active',b.dataset.val===mode);});
+}};
 })();
