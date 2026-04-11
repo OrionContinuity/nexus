@@ -322,25 +322,8 @@ const NX = {
     this.setupBrainViewToggle();
     // Morning briefing — show pending items on login
     setTimeout(() => this.showBriefing(), 2000);
-    // Language toggle
+    // Apply translations after Lucide icons render
     if (this.i18n) {
-      const langBtn = document.getElementById('langToggle');
-      if (langBtn) {
-        langBtn.textContent = this.i18n.getLang().toUpperCase();
-        langBtn.addEventListener('click', async () => {
-          const newLang = this.i18n.getLang() === 'en' ? 'es' : 'en';
-          // Save to user profile
-          if(this.currentUser && !this.paused){
-            try{await this.sb.from('nexus_users').update({language:newLang}).eq('id',this.currentUser.id);}catch(e){}
-            this.currentUser.language=newLang;
-            localStorage.setItem('nexus_current_user',JSON.stringify(this.currentUser));
-          }
-          // Apply immediately
-          this.i18n.setLang(newLang);
-          langBtn.textContent = newLang.toUpperCase();
-        });
-      }
-      // Apply translations after Lucide icons render
       setTimeout(()=>{if(this.i18n)this.i18n.applyUI();},500);
       setTimeout(()=>{if(this.i18n)this.i18n.applyUI();},1500);
     }
@@ -1124,13 +1107,13 @@ NX.timeClock = {
     return !!this._activeEntry;
   },
 
-  async clockIn() {
+  async clockIn(location) {
     if (!NX.currentUser) return;
     const entry = {
       user_id: NX.currentUser.id,
       user_name: NX.currentUser.name,
       clock_in: new Date().toISOString(),
-      location: NX.currentUser.location || ''
+      location: location || NX.currentUser.location || ''
     };
     const { data, error } = await NX.sb.from('time_clock').insert(entry).select().single();
     if (!error && data) {
@@ -1218,25 +1201,131 @@ NX.timeClock = {
   async showOnPinScreen() {
     const panel = document.getElementById('tcPanel');
     if (!panel) return;
-    // Hide PIN pad elements to make room for time clock
     const pinPad = document.getElementById('pinPad');
     const pinDisplay = document.getElementById('pinDisplay');
     const pinSub = document.querySelector('.pin-sub');
-    const pinDel = document.getElementById('pinDel');
     if (pinPad) pinPad.style.display = 'none';
     if (pinDisplay) pinDisplay.style.display = 'none';
     if (pinSub) pinSub.style.display = 'none';
     panel.style.display = '';
+
+    // Build location dropdown from all locations ever used
+    await this.buildLocationDropdown();
+
     await this.checkStatus();
     this.updateUI();
     this.startTimer();
+    this.loadPinLog();
 
-    document.getElementById('tcClockIn')?.addEventListener('click', () => this.clockIn());
+    document.getElementById('tcClockIn')?.addEventListener('click', () => {
+      const loc = document.getElementById('tcLocation')?.value || '';
+      if (loc === '__new__') return; // shouldn't happen, handled in change
+      localStorage.setItem('nexus_last_location', loc);
+      this.clockIn(loc);
+    });
     document.getElementById('tcClockOut')?.addEventListener('click', () => this.clockOut());
+    document.getElementById('tcPinDownload')?.addEventListener('click', () => this.exportUserTimesheet());
     document.getElementById('tcEnter')?.addEventListener('click', () => {
       this.stopTimer();
       NX._loadConfigAndStart();
     });
+  },
+
+  async buildLocationDropdown() {
+    const sel = document.getElementById('tcLocation');
+    if (!sel) return;
+
+    // Collect all unique locations from time_clock table
+    const locations = new Set(['suerte', 'este', 'toti']);
+    try {
+      const { data } = await NX.sb.from('time_clock').select('location');
+      if (data) data.forEach(r => { if (r.location && r.location.trim()) locations.add(r.location.trim().toLowerCase()); });
+    } catch (e) {}
+
+    // Sort alphabetically
+    const sorted = [...locations].sort();
+    sel.innerHTML = '';
+    sorted.forEach(loc => {
+      const opt = document.createElement('option');
+      opt.value = loc;
+      opt.textContent = loc.charAt(0).toUpperCase() + loc.slice(1);
+      sel.appendChild(opt);
+    });
+    // Add "create new" option
+    const newOpt = document.createElement('option');
+    newOpt.value = '__new__';
+    newOpt.textContent = '+ New Location';
+    sel.appendChild(newOpt);
+
+    // Default to last used
+    const lastLoc = localStorage.getItem('nexus_last_location') || NX.currentUser?.location || 'suerte';
+    if (sorted.includes(lastLoc)) sel.value = lastLoc;
+
+    // Handle "new location" selection
+    sel.addEventListener('change', () => {
+      if (sel.value === '__new__') {
+        const name = prompt('Enter new location name:');
+        if (name && name.trim().length > 1) {
+          const clean = name.trim().toLowerCase();
+          const opt = document.createElement('option');
+          opt.value = clean;
+          opt.textContent = clean.charAt(0).toUpperCase() + clean.slice(1);
+          sel.insertBefore(opt, sel.querySelector('[value="__new__"]'));
+          sel.value = clean;
+        } else {
+          // Cancelled — revert to last used
+          const lastLoc = localStorage.getItem('nexus_last_location') || 'suerte';
+          sel.value = lastLoc;
+        }
+      }
+    });
+  },
+
+  async loadPinLog() {
+    const list = document.getElementById('tcPinLog');
+    if (!list || !NX.currentUser) return;
+    try {
+      const since = new Date();
+      since.setDate(since.getDate() - 14);
+      const { data } = await NX.sb.from('time_clock').select('*')
+        .eq('user_id', NX.currentUser.id)
+        .gte('clock_in', since.toISOString())
+        .order('clock_in', { ascending: false }).limit(7);
+      if (!data || !data.length) { list.innerHTML = '<div style="font-size:10px;color:var(--faint);text-align:center">No recent records</div>'; return; }
+      list.innerHTML = data.map(r => {
+        const cin = new Date(r.clock_in);
+        const day = cin.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+        const hrs = r.hours ? r.hours.toFixed(1) + 'h' : '...';
+        const loc = r.location ? ` · ${r.location}` : '';
+        return `<div class="tc-pin-log-row"><span class="tc-pin-log-date">${day}${loc}</span><span class="tc-pin-log-hrs">${hrs}</span></div>`;
+      }).join('');
+    } catch (e) {}
+  },
+
+  async exportUserTimesheet() {
+    if (!NX.currentUser) return;
+    const btn = document.getElementById('tcPinDownload');
+    if (btn) { btn.textContent = '⏳ Exporting...'; btn.disabled = true; }
+    try {
+      const { data } = await NX.sb.from('time_clock').select('*')
+        .eq('user_id', NX.currentUser.id)
+        .order('clock_in', { ascending: false }).limit(200);
+      if (!data || !data.length) { if (btn) btn.textContent = 'No records'; return; }
+      let csv = 'Date,Clock In,Clock Out,Hours,Location\n';
+      data.forEach(r => {
+        const cin = new Date(r.clock_in);
+        const cout = r.clock_out ? new Date(r.clock_out) : null;
+        csv += `"${cin.toLocaleDateString()}","${cin.toLocaleTimeString()}","${cout ? cout.toLocaleTimeString() : 'active'}","${r.hours || ''}","${r.location || ''}"\n`;
+      });
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${NX.currentUser.name}-timesheet-${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {}
+    if (btn) { btn.textContent = '⬇ My Timesheet'; btn.disabled = false; }
   },
 
   // Setup nav widget
