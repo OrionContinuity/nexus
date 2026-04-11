@@ -48,11 +48,18 @@
     <div class="tc-panel" id="tcPanel" style="display:none">
       <div class="tc-status" id="tcStatus"></div>
       <div class="tc-time" id="tcTime"></div>
+      <div class="tc-loc-row">
+        <select id="tcLocation" class="tc-loc-select"></select>
+      </div>
       <div class="tc-buttons">
         <button class="tc-btn tc-btn-in" id="tcClockIn" data-i18n="clockIn">Clock In</button>
         <button class="tc-btn tc-btn-out" id="tcClockOut" style="display:none" data-i18n="clockOut">Clock Out</button>
       </div>
-      <button class="tc-enter" id="tcEnter" data-i18n="enterNexus">Enter NEXUS →</button>
+      <div class="tc-pin-log" id="tcPinLog"></div>
+      <div class="tc-pin-actions">
+        <button class="tc-download" id="tcPinDownload">⬇ My Timesheet</button>
+        <button class="tc-enter" id="tcEnter" data-i18n="enterNexus">Enter NEXUS →</button>
+      </div>
     </div>
     <div class="pin-lang-row">
       <button class="pin-lang-btn" data-lang="en">English</button>
@@ -74,7 +81,6 @@
   </div>
   <button class="nav-clock" id="navClock" title="Time Clock"><i data-lucide="clock" class="nav-icon"></i><span class="tc-indicator" id="tcIndicator"></span></button>
   <button class="nav-admin" id="adminBtn"><i data-lucide="settings" class="nav-icon"></i><span class="ticket-badge" id="ticketBadge" style="display:none"></span></button>
-  <button class="nav-lang" id="langToggle">EN</button>
 </nav>
 
 <div class="offline-banner" id="offlineBanner" style="display:none" data-i18n="noConnection">No connection — check WiFi</div>
