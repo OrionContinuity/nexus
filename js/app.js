@@ -355,6 +355,8 @@ const NX = {
       // Stop any playing speech
       if('speechSynthesis'in window)speechSynthesis.cancel();
       if(NX.brain&&NX.brain.stopSpeaking)NX.brain.stopSpeaking();
+      // Close node panel
+      const np=document.getElementById('nodePanel');if(np)np.classList.remove('open');
       tabs.forEach(t => t.classList.remove('active'));
       nexusBtn.classList.remove('active');
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -973,20 +975,21 @@ const NX = {
       if(events&&events.length){
         items.push(`🔵 ${events.map(e=>e.contractor_name).join(', ')} today`);
         const banner=document.getElementById('contractorBanner');
-        if(banner){
-          banner.innerHTML='🔵 TODAY: '+events.map(e=>`<b>${e.contractor_name}</b>${e.event_time?' @ '+e.event_time:''}${e.location?' · '+e.location:''}`).join(' | ');
+        if(banner&&!banner.dataset.dismissed){
+          banner.innerHTML='🔵 TODAY: '+events.map(e=>`<b>${e.contractor_name}</b>${e.event_time?' @ '+e.event_time:''}${e.location?' · '+e.location:''}`).join(' | ')+' <button class="alert-dismiss" onclick="this.parentElement.style.display=\'none\';this.parentElement.dataset.dismissed=\'1\'">✕</button>';
           banner.style.display='';
         }
       }
 
-      // Overdue board cards — show persistent banner
+      // Overdue board cards — show persistent banner (dismissable)
       const{data:overdue}=await this.sb.from('kanban_cards').select('title,due_date')
-        .lt('due_date',today).neq('column_name','done');
+        .lt('due_date',today).neq('column_name','done').limit(20);
       if(overdue&&overdue.length){
-        items.push(`⚠ ${overdue.length} overdue task${overdue.length>1?'s':''}`);
+        const count=overdue.length>=20?'20+':overdue.length;
+        items.push(`⚠ ${count} overdue task${overdue.length>1?'s':''}`);
         const banner=document.getElementById('overdueBanner');
-        if(banner){
-          banner.innerHTML=`⚠ ${overdue.length} OVERDUE: ${overdue.slice(0,3).map(c=>c.title).join(', ')}${overdue.length>3?' +more':''}`;
+        if(banner&&!banner.dataset.dismissed){
+          banner.innerHTML=`⚠ ${count} OVERDUE: ${overdue.slice(0,3).map(c=>c.title).join(', ')}${overdue.length>3?' +more':''} <button class="alert-dismiss" onclick="this.parentElement.style.display='none';this.parentElement.dataset.dismissed='1'">✕</button>`;
           banner.style.display='';
         }
       }
