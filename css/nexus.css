@@ -813,7 +813,7 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .tc-nav-time{font-size:10px;font-weight:700;color:#39ff14;font-family:'JetBrains Mono',monospace;letter-spacing:.5px}
 
 /* Clock popup on nav */
-.tc-popup{position:absolute;top:100%;right:0;background:rgba(14,14,18,.97);border:1px solid rgba(200,164,78,.2);border-radius:12px;padding:16px;min-width:220px;z-index:50;backdrop-filter:blur(12px);box-shadow:0 12px 40px rgba(0,0,0,.5);display:none}
+.tc-popup{position:fixed;top:52px;right:60px;background:rgba(14,14,18,.97);border:1px solid rgba(200,164,78,.2);border-radius:12px;padding:16px;min-width:260px;z-index:999;backdrop-filter:blur(12px);box-shadow:0 12px 40px rgba(0,0,0,.5);display:none}
 .tc-popup.open{display:block}
 .tc-popup-status{font-size:11px;color:var(--faint);letter-spacing:1px;margin-bottom:4px}
 .tc-popup-time{font-size:22px;font-weight:700;color:var(--accent);font-family:'JetBrains Mono',monospace;margin-bottom:10px}
