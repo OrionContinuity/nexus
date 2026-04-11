@@ -845,3 +845,16 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .clean-cam{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;font-size:14px;cursor:pointer;padding:4px;opacity:.4;transition:opacity .15s;-webkit-tap-highlight-color:transparent}
 .clean-cam:hover,.clean-cam:active{opacity:1}
 .clean-item{position:relative}
+
+/* ═══ CLOCK POPUP — expanded with log ═══ */
+.tc-popup{min-width:260px;right:-40px}
+.tc-popup-divider{height:1px;background:rgba(255,255,255,.08);margin:10px 0}
+.tc-popup-log-head{font-size:9px;letter-spacing:1.5px;color:var(--faint);margin-bottom:6px}
+.tc-popup-log{max-height:200px;overflow-y:auto}
+.tc-popup-row{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px}
+.tc-popup-name{font-weight:600;color:var(--text);min-width:60px;flex-shrink:0}
+.tc-popup-day{flex:1;color:var(--faint)}
+.tc-popup-hrs{font-weight:700;color:var(--accent);font-family:'JetBrains Mono',monospace}
+.tc-popup-total{font-size:11px;font-weight:700;color:var(--accent);text-align:right;margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.08);font-family:'JetBrains Mono',monospace}
+.tc-popup-export{width:100%;margin-top:8px;padding:8px;border-radius:6px;border:1px solid rgba(200,164,78,.2);background:none;color:var(--accent);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s}
+.tc-popup-export:active{background:rgba(200,164,78,.1)}
