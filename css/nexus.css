@@ -6,8 +6,10 @@
   --green:#4caf50;--blue:#5b8def;--purple:#9c82d4;--red:#e05555;
   --r:8px;--rs:6px;--rp:20px;
 }
-html{font-size:14px}
-body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow:hidden;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+html{font-size:14px;scrollbar-width:none}
+html::-webkit-scrollbar{display:none}
+body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow:hidden;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;scrollbar-width:none}
+body::-webkit-scrollbar{display:none}
 *{-webkit-tap-highlight-color:transparent}
 @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 14px var(--glow)}50%{opacity:.6;box-shadow:0 0 6px var(--glow)}}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
@@ -93,9 +95,10 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 
 /* ═══ MAIN ═══ */
 .main{height:calc(100vh - 53px);overflow:hidden;padding-bottom:env(safe-area-inset-bottom)}
-.view{display:none;flex-direction:column;height:100%;overflow-y:auto;position:relative}
+.view{display:none;flex-direction:column;height:100%;overflow-y:auto;position:relative;scrollbar-width:none}
+.view::-webkit-scrollbar{display:none}
 .view.active{display:flex}
-.view.active{display:flex}
+#brainView{overflow:hidden}
 .offline-banner{position:fixed;top:57px;left:0;right:0;z-index:40;background:var(--red);color:#fff;text-align:center;padding:8px;font-size:12px;letter-spacing:1px}
 
 /* ═══ BRAIN ═══ */
