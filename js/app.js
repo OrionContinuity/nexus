@@ -1205,6 +1205,14 @@ NX.timeClock = {
   async showOnPinScreen() {
     const panel = document.getElementById('tcPanel');
     if (!panel) return;
+    // Hide PIN pad elements to make room for time clock
+    const pinPad = document.getElementById('pinPad');
+    const pinDisplay = document.getElementById('pinDisplay');
+    const pinSub = document.querySelector('.pin-sub');
+    const pinDel = document.getElementById('pinDel');
+    if (pinPad) pinPad.style.display = 'none';
+    if (pinDisplay) pinDisplay.style.display = 'none';
+    if (pinSub) pinSub.style.display = 'none';
     panel.style.display = '';
     await this.checkStatus();
     this.updateUI();
@@ -1223,7 +1231,6 @@ NX.timeClock = {
     const clockBtn = document.getElementById('navClock');
     if (!clockBtn) return;
 
-    // Create popup
     let popup = document.getElementById('tcPopup');
     if (!popup) {
       popup = document.createElement('div');
@@ -1233,6 +1240,11 @@ NX.timeClock = {
         <div class="tc-popup-status">CHECKING...</div>
         <div class="tc-popup-time">--:--</div>
         <button class="tc-popup-btn tc-btn-in">Clock In</button>
+        <div class="tc-popup-divider"></div>
+        <div class="tc-popup-log-head">Recent Hours</div>
+        <div class="tc-popup-log" id="tcPopupLog"></div>
+        <div class="tc-popup-total" id="tcPopupTotal"></div>
+        <button class="tc-popup-export" id="tcExportBtn">⬇ Export Timesheet</button>
       `;
       clockBtn.style.position = 'relative';
       clockBtn.appendChild(popup);
@@ -1242,6 +1254,11 @@ NX.timeClock = {
         if (this._activeEntry) await this.clockOut();
         else await this.clockIn();
       });
+
+      document.getElementById('tcExportBtn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.exportTimesheet();
+      });
     }
 
     clockBtn.addEventListener('click', async (e) => {
@@ -1249,9 +1266,9 @@ NX.timeClock = {
       await this.checkStatus();
       popup.classList.toggle('open');
       this.updateUI();
+      if (popup.classList.contains('open')) this.loadPopupLog();
     });
 
-    // Close on outside click
     document.addEventListener('click', (e) => {
       if (!clockBtn.contains(e.target)) popup.classList.remove('open');
     });
@@ -1260,6 +1277,56 @@ NX.timeClock = {
       this.updateUI();
       this.startTimer();
     });
+  },
+
+  async loadPopupLog() {
+    const list = document.getElementById('tcPopupLog');
+    if (!list) return;
+    try {
+      const since = new Date();
+      since.setDate(since.getDate() - 7);
+      const { data } = await NX.sb.from('time_clock').select('*')
+        .order('clock_in', { ascending: false }).limit(10)
+        .gte('clock_in', since.toISOString());
+      if (!data || !data.length) { list.innerHTML = '<div style="font-size:10px;color:var(--faint)">No recent records</div>'; return; }
+      let total = 0;
+      list.innerHTML = data.map(r => {
+        const cin = new Date(r.clock_in);
+        const day = cin.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+        const inT = cin.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        const outT = r.clock_out ? new Date(r.clock_out).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'now';
+        const hrs = r.hours || 0;
+        total += hrs;
+        return `<div class="tc-popup-row"><span class="tc-popup-name">${r.user_name}</span><span class="tc-popup-day">${day}</span><span class="tc-popup-hrs">${hrs ? hrs.toFixed(1) + 'h' : '...'}</span></div>`;
+      }).join('');
+      const totalEl = document.getElementById('tcPopupTotal');
+      if (totalEl) totalEl.textContent = `Week: ${total.toFixed(1)} hrs`;
+    } catch (e) {}
+  },
+
+  async exportTimesheet() {
+    const btn = document.getElementById('tcExportBtn');
+    if (btn) { btn.textContent = 'Exporting...'; btn.disabled = true; }
+    try {
+      const { data } = await NX.sb.from('time_clock').select('*').order('clock_in', { ascending: false }).limit(500);
+      if (!data || !data.length) { if (NX.toast) NX.toast('No time records to export', 'info'); return; }
+      // Build CSV
+      let csv = 'Name,Date,Clock In,Clock Out,Hours,Location\n';
+      data.forEach(r => {
+        const cin = new Date(r.clock_in);
+        const cout = r.clock_out ? new Date(r.clock_out) : null;
+        csv += `"${r.user_name}","${cin.toLocaleDateString()}","${cin.toLocaleTimeString()}","${cout ? cout.toLocaleTimeString() : 'active'}","${r.hours || ''}","${r.location || ''}"\n`;
+      });
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `nexus-timesheet-${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      if (NX.toast) NX.toast('Timesheet exported ✓', 'success');
+    } catch (e) { if (NX.toast) NX.toast('Export failed', 'error'); }
+    if (btn) { btn.textContent = '⬇ Export Timesheet'; btn.disabled = false; }
   },
 
   // Load time records for Log tab
