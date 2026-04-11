@@ -1200,7 +1200,12 @@ async function importFilteredMessages(byContact,source,filename){
   const contactNames=Object.keys(byContact);
   log(`Importing ${totalMsgs} messages from ${contactNames.length} contacts...`);
 
-  let totalArchived=0;
+  // Simple stable hash for deterministic IDs
+  function hashStr(s){let h=0;for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0;}return(h>>>0).toString(36);}
+
+  // Build all chunk IDs first, then check which already exist
+  const prefix=source==='whatsapp'?'wa':'sms';
+  const chunks=[];
   for(const[contact,msgs]of Object.entries(byContact)){
     const CHUNK=source==='whatsapp'?20:30;
     for(let i=0;i<msgs.length;i+=CHUNK){
@@ -1208,25 +1213,49 @@ async function importFilteredMessages(byContact,source,filename){
       const body=batch.map(m=>`[${m.date}] ${m.sender}: ${m.text}`).join('\n');
       const firstDate=batch[0]?.date||'';
       const lastDate=batch[batch.length-1]?.date||'';
-      const prefix=source==='whatsapp'?'wa':'sms';
-      try{
-        await NX.sb.from('raw_emails').upsert({
-          id:`${prefix}_${Date.now()}_${totalArchived}_${Math.random().toString(36).slice(2,6)}`,
-          from_addr:`${source==='whatsapp'?'WhatsApp':'SMS'}: ${contact}`,
-          to_addr:'nexus-import',
-          date:firstDate,
-          subject:`${source==='whatsapp'?'WhatsApp':'SMS'} with ${contact} (${firstDate} – ${lastDate})`,
-          body:body.slice(0,12000),
-          snippet:body.slice(0,200),
-          attachment_count:0,attachments:[],processed:false
-        },{onConflict:'id'});
-        totalArchived++;
-      }catch(e){log('Archive error: '+e.message,'error');}
+      // Deterministic ID from content — same messages always produce same ID
+      const anchor=`${contact}|${firstDate}|${batch[0]?.text?.slice(0,40)||''}|${batch.length}`;
+      const id=`${prefix}_${hashStr(anchor)}_${hashStr(body.slice(0,200))}`;
+      chunks.push({id,contact,body,firstDate,lastDate,count:batch.length});
     }
   }
-  log(`💾 ${totalArchived} chunks from ${contactNames.length} contacts queued`,'success');
-  if(NX.toast)NX.toast(`${totalMsgs} messages from ${contactNames.length} contacts imported`,'success');
-  NX.syslog&&NX.syslog(`${source}_import`,`${totalMsgs} msgs from ${contactNames.join(', ')}`);
+
+  // Check which chunk IDs already exist in raw_emails
+  const existingIds=new Set();
+  try{
+    const ids=chunks.map(c=>c.id);
+    // Check in batches of 50
+    for(let i=0;i<ids.length;i+=50){
+      const batch=ids.slice(i,i+50);
+      const{data}=await NX.sb.from('raw_emails').select('id').in('id',batch);
+      if(data)data.forEach(r=>existingIds.add(r.id));
+    }
+  }catch(e){}
+
+  const newChunks=chunks.filter(c=>!existingIds.has(c.id));
+  const skipped=chunks.length-newChunks.length;
+  if(skipped)log(`⏭ Skipping ${skipped} already-imported chunks`);
+  if(!newChunks.length){log('All messages already imported. No new tokens used.','success');if(NX.toast)NX.toast('Already imported — no duplicates','info');return;}
+
+  let totalArchived=0;
+  for(const c of newChunks){
+    try{
+      await NX.sb.from('raw_emails').upsert({
+        id:c.id,
+        from_addr:`${source==='whatsapp'?'WhatsApp':'SMS'}: ${c.contact}`,
+        to_addr:'nexus-import',
+        date:c.firstDate,
+        subject:`${source==='whatsapp'?'WhatsApp':'SMS'} with ${c.contact} (${c.firstDate} – ${c.lastDate})`,
+        body:c.body.slice(0,12000),
+        snippet:c.body.slice(0,200),
+        attachment_count:0,attachments:[],processed:false
+      },{onConflict:'id'});
+      totalArchived++;
+    }catch(e){log('Archive error: '+e.message,'error');}
+  }
+  log(`💾 ${totalArchived} new chunks queued (${skipped} duplicates skipped)`,'success');
+  if(NX.toast)NX.toast(`${totalArchived} new chunks imported${skipped?' · '+skipped+' skipped':''}`,'success');
+  NX.syslog&&NX.syslog(`${source}_import`,`${totalMsgs} msgs from ${contactNames.join(', ')} — ${skipped} dupes skipped`);
   updateQueueStatus();
   if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
 }
