@@ -874,3 +874,24 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .tc-pin-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:4px}
 .tc-download{padding:10px 20px;border-radius:8px;border:1px solid rgba(200,164,78,.2);background:none;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
 .tc-download:active{background:rgba(200,164,78,.1)}
+
+/* ═══ BOARD MODAL ═══ */
+.board-modal-overlay{position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
+.board-modal{background:var(--surface);border:1px solid rgba(200,164,78,.2);border-radius:14px;padding:20px;width:100%;max-width:340px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.board-modal-title{font-size:14px;font-weight:700;color:var(--accent);letter-spacing:1px;margin-bottom:12px}
+.board-modal-input{width:100%;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:var(--text);font-size:13px;font-family:inherit;outline:none;margin-bottom:8px;box-sizing:border-box}
+.board-modal-input:focus{border-color:rgba(200,164,78,.3)}
+.board-modal-date{color-scheme:dark}
+.board-modal-row{display:flex;gap:8px}
+.board-modal-row .board-modal-input{flex:1}
+.board-modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+.board-modal-save{padding:8px 20px;border-radius:8px;border:none;background:var(--accent);color:#0a0a0c;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit}
+.board-modal-cancel{padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:none;color:var(--faint);font-size:12px;cursor:pointer;font-family:inherit}
+.board-modal-delete{padding:8px 16px;border-radius:8px;border:1px solid rgba(255,85,51,.2);background:none;color:#ff5533;font-size:12px;cursor:pointer;font-family:inherit;margin-right:auto}
+.board-card-title{font-size:13px;font-weight:500}
+.due-ok{color:var(--faint)}
+
+/* ═══ ALERT BANNERS ═══ */
+.alert-banner{position:sticky;top:46px;left:0;right:0;z-index:40;text-align:center;padding:6px 12px;font-size:11px;letter-spacing:.3px}
+.alert-contractor{background:rgba(74,158,255,.12);border-bottom:1px solid rgba(74,158,255,.2);color:#4a9eff}
+.alert-overdue{background:rgba(255,85,51,.1);border-bottom:1px solid rgba(255,85,51,.2);color:#ff5533}
