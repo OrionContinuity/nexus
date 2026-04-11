@@ -147,8 +147,8 @@ const NX = {
     });
 
     // Check if user was previously logged in — RE-VERIFY against Supabase
-    const savedUser = localStorage.getItem('nexus_current_user');
-    const savedToken = localStorage.getItem('nexus_session_token');
+    const savedUser = sessionStorage.getItem('nexus_current_user');
+    const savedToken = sessionStorage.getItem('nexus_session_token');
     if (savedUser && savedToken) {
       try {
         const u = JSON.parse(savedUser);
@@ -169,8 +169,8 @@ const NX = {
   },
 
   _clearSession() {
-    localStorage.removeItem('nexus_current_user');
-    localStorage.removeItem('nexus_session_token');
+    sessionStorage.removeItem('nexus_current_user');
+    sessionStorage.removeItem('nexus_session_token');
     this.currentUser = null;
     this.isAdmin = false;
     this.isManager = false;
@@ -205,8 +205,8 @@ const NX = {
       const token = await this._makeSessionToken(data.pin, data.id);
       // Don't store PIN in localStorage
       const safeUser = { ...data, pin: undefined };
-      localStorage.setItem('nexus_current_user', JSON.stringify(safeUser));
-      localStorage.setItem('nexus_session_token', token);
+      sessionStorage.setItem('nexus_current_user', JSON.stringify(safeUser));
+      sessionStorage.setItem('nexus_session_token', token);
       // Keep PIN only in memory for session verification
       this._sessionPin = data.pin;
       if (data.language && this.i18n && data.language !== this.i18n.getLang()) {
