@@ -74,21 +74,26 @@ async function init(){
       const ext=(f.name.split('.').pop()||'').toLowerCase();
       if(['eml','mbox','msg'].includes(ext))emailFiles.push(f);
       else if(ext==='xml'){
-        // Check if SMS backup XML
-        f.text().then(text=>{
-          if(text.includes('<smses')&&text.includes('<sms '))ingestSms(text,f.name);
+        // Peek first 2KB to detect SMS backup — don't load 3GB into memory
+        f.slice(0,2048).text().then(peek=>{
+          if(peek.includes('<smses')||peek.includes('<sms '))ingestSmsStreamed(f);
           else{docFiles.push(f);if(docFiles.length)processDocFiles(docFiles);}
         });continue;
       }
       else if(ext==='txt'){
-        // Detect WhatsApp export by checking first few lines
-        f.text().then(text=>{
+        // Peek first 2KB to detect WhatsApp
+        f.slice(0,2048).text().then(peek=>{
           const waTest=/^\[?\d{1,2}\/\d{1,2}\/\d{2,4},?\s*\d{1,2}:\d{2}/m;
-          if(waTest.test(text.slice(0,500)))ingestWhatsApp(text,f.name);
+          if(waTest.test(peek))ingestWhatsAppStreamed(f);
           else{
-            const email=parseEml(text);
-            if(email&&email.from)processEmailFiles([f]);
-            else processDocFiles([f]);
+            // Small file — safe to read fully
+            if(f.size<50*1024*1024){
+              f.text().then(text=>{
+                const email=parseEml(text);
+                if(email&&email.from)processEmailFiles([f]);
+                else processDocFiles([f]);
+              });
+            }else processDocFiles([f]);
           }
         });continue;
       }
@@ -123,6 +128,59 @@ async function init(){
 
   // ── ACTIVITY LOG ──
   document.getElementById('clearLogBtn')?.addEventListener('click',clearLog);
+
+  // ── WHATSAPP / SMS FILE PICKER ──
+  const msgInput=document.getElementById('msgFileInput');
+  const msgLabel=document.getElementById('msgFileLabel');
+  const msgName=document.getElementById('msgFileName');
+  const msgSubmit=document.getElementById('msgSubmitBtn');
+  let msgPendingFile=null;
+  if(msgInput){
+    msgInput.addEventListener('change',()=>{
+      if(msgInput.files.length){
+        msgPendingFile=msgInput.files[0];
+        const sizeMB=(msgPendingFile.size/1024/1024).toFixed(1);
+        msgName.textContent=`${msgPendingFile.name} (${sizeMB} MB)`;
+        msgLabel.classList.add('has-file');
+        msgSubmit.disabled=false;
+      }else{
+        msgPendingFile=null;
+        msgName.textContent='Choose .txt or .xml file…';
+        msgLabel.classList.remove('has-file');
+        msgSubmit.disabled=true;
+      }
+    });
+  }
+  if(msgSubmit){
+    msgSubmit.addEventListener('click',async()=>{
+      if(!msgPendingFile)return;
+      const ext=(msgPendingFile.name.split('.').pop()||'').toLowerCase();
+      msgSubmit.disabled=true;msgSubmit.textContent='Reading...';
+      const status=document.getElementById('msgFileStatus');
+      if(status)status.textContent='';
+      try{
+        if(ext==='xml'){
+          // Peek to confirm SMS
+          const peek=await msgPendingFile.slice(0,2048).text();
+          if(peek.includes('<sms')||peek.includes('<smses')){
+            await ingestSmsStreamed(msgPendingFile);
+          }else{
+            if(status)status.textContent='Not an SMS backup XML file.';
+          }
+        }else{
+          // WhatsApp .txt
+          const peek=await msgPendingFile.slice(0,2048).text();
+          const waTest=/^\[?\d{1,2}\/\d{1,2}\/\d{2,4},?\s*\d{1,2}:\d{2}/m;
+          if(waTest.test(peek)){
+            await ingestWhatsAppStreamed(msgPendingFile);
+          }else{
+            if(status)status.textContent='Not a WhatsApp export file.';
+          }
+        }
+      }catch(e){if(status)status.textContent='Error: '+e.message;}
+      msgSubmit.disabled=false;msgSubmit.textContent='Import Messages';
+    });
+  }
 
   // ── PROCESSOR CONTROLS ──
   document.getElementById('bgProcessToggle')?.addEventListener('change',e=>{
@@ -1102,30 +1160,149 @@ async function ingestWhatsApp(text,filename){
   clearLog();
   const messages=parseWhatsApp(text);
   if(!messages.length){log('No messages found in WhatsApp export.','warn');return;}
-  // Group by sender
   const byContact={};
   messages.forEach(m=>{if(!byContact[m.sender])byContact[m.sender]=[];byContact[m.sender].push(m);});
   log(`📱 WhatsApp: ${messages.length} messages, ${Object.keys(byContact).length} contacts`);
-  // Show picker
   showContactPicker(byContact,'whatsapp',filename);
 }
 
-// ═══ SMS XML PARSER (Android SMS Backup format) ═══
+// ═══ STREAMED FILE READERS — for multi-GB exports ═══
+
+async function ingestWhatsAppStreamed(file){
+  clearLog();
+  const sizeMB=(file.size/1024/1024).toFixed(0);
+  log(`📱 Reading WhatsApp export (${sizeMB} MB)...`);
+  setProcLive('working',`Reading ${sizeMB} MB...`);
+
+  const byContact={};
+  const msgRe=/^\[?(\d{1,2}\/\d{1,2}\/\d{2,4}),?\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)\]?\s*[-–]?\s*(.+?):\s*(.+)/i;
+  const CHUNK_SIZE=8*1024*1024; // 8MB chunks
+  let leftover='';
+  let totalMessages=0;
+  let current=null;
+  let bytesRead=0;
+
+  for(let offset=0;offset<file.size;offset+=CHUNK_SIZE){
+    const slice=file.slice(offset,Math.min(offset+CHUNK_SIZE,file.size));
+    const text=await slice.text();
+    bytesRead+=slice.size;
+    const pct=Math.round(bytesRead/file.size*100);
+    setProcLive('working',`Reading... ${pct}% (${totalMessages} msgs)`);
+
+    const combined=leftover+text;
+    const lines=combined.split('\n');
+    // Keep last line as leftover (might be incomplete)
+    leftover=lines.pop()||'';
+
+    for(const line of lines){
+      const m=line.match(msgRe);
+      if(m){
+        if(current){
+          // Save previous message
+          if(!current.text.includes('created group')&&!current.text.includes('changed the subject')&&current.text!=='<Media omitted>'&&current.text.length>2){
+            if(!byContact[current.sender])byContact[current.sender]=[];
+            byContact[current.sender].push(current);
+            totalMessages++;
+          }
+        }
+        current={date:m[1]+' '+m[2],sender:m[3].trim(),text:m[4].trim()};
+      }else if(current&&line.trim()){
+        current.text+='\n'+line.trim();
+      }
+    }
+
+    // Yield to UI every chunk
+    await new Promise(r=>setTimeout(r,0));
+  }
+  // Flush remaining
+  if(leftover){
+    const m=leftover.match(msgRe);
+    if(m){if(current){if(!byContact[current.sender])byContact[current.sender]=[];byContact[current.sender].push(current);totalMessages++;}
+      current={date:m[1]+' '+m[2],sender:m[3].trim(),text:m[4].trim()};}
+    else if(current)current.text+='\n'+leftover.trim();
+  }
+  if(current&&current.text.length>2){if(!byContact[current.sender])byContact[current.sender]=[];byContact[current.sender].push(current);totalMessages++;}
+
+  setProcLive('active','Read complete');
+  if(!totalMessages){log('No messages found.','warn');return;}
+  log(`✓ ${totalMessages} messages from ${Object.keys(byContact).length} contacts`,'success');
+  showContactPicker(byContact,'whatsapp',file.name);
+}
+
+async function ingestSmsStreamed(file){
+  clearLog();
+  const sizeMB=(file.size/1024/1024).toFixed(0);
+  log(`📱 Reading SMS backup (${sizeMB} MB)...`);
+  setProcLive('working',`Reading ${sizeMB} MB...`);
+
+  const byContact={};
+  const CHUNK_SIZE=8*1024*1024; // 8MB chunks
+  let leftover='';
+  let totalMessages=0;
+  let bytesRead=0;
+
+  // Regex to match complete <sms .../> elements
+  const smsRe=/<sms\s+[^>]*?address="([^"]*)"[^>]*?date="(\d+)"[^>]*?body="([^"]*)"[^>]*?(?:contact_name="([^"]*)")?[^>]*?\/>/gi;
+
+  for(let offset=0;offset<file.size;offset+=CHUNK_SIZE){
+    const slice=file.slice(offset,Math.min(offset+CHUNK_SIZE,file.size));
+    const text=await slice.text();
+    bytesRead+=slice.size;
+    const pct=Math.round(bytesRead/file.size*100);
+    setProcLive('working',`Reading... ${pct}% (${totalMessages} msgs)`);
+
+    const combined=leftover+text;
+    // Find last complete <sms .../> — keep anything after as leftover
+    let lastClose=combined.lastIndexOf('/>');
+    if(lastClose===-1){leftover=combined;continue;}
+    lastClose+=2;
+    const processable=combined.slice(0,lastClose);
+    leftover=combined.slice(lastClose);
+
+    let m;
+    smsRe.lastIndex=0;
+    while((m=smsRe.exec(processable))!==null){
+      const date=new Date(parseInt(m[2]));
+      const body=m[3].replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#10;/g,'\n');
+      if(body.length<3)continue;
+      const sender=m[4]||m[1]||'Unknown';
+      if(!byContact[sender])byContact[sender]=[];
+      byContact[sender].push({sender,phone:m[1],date:date.toLocaleString(),text:body});
+      totalMessages++;
+    }
+
+    await new Promise(r=>setTimeout(r,0));
+  }
+  // Process leftover
+  if(leftover.length>10){
+    let m;smsRe.lastIndex=0;
+    while((m=smsRe.exec(leftover))!==null){
+      const date=new Date(parseInt(m[2]));
+      const body=m[3].replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#10;/g,'\n');
+      if(body.length<3)continue;
+      const sender=m[4]||m[1]||'Unknown';
+      if(!byContact[sender])byContact[sender]=[];
+      byContact[sender].push({sender,phone:m[1],date:date.toLocaleString(),text:body});
+      totalMessages++;
+    }
+  }
+
+  setProcLive('active','Read complete');
+  if(!totalMessages){log('No SMS messages found.','warn');return;}
+  log(`✓ ${totalMessages} messages from ${Object.keys(byContact).length} contacts`,'success');
+  showContactPicker(byContact,'sms',file.name);
+}
+
+// ═══ SMS XML PARSER (small files — kept for direct text input) ═══
 function parseSmsXml(text){
   const messages=[];
-  // Parse <sms> elements from XML
   const smsRe=/<sms\s+[^>]*?address="([^"]*)"[^>]*?date="(\d+)"[^>]*?body="([^"]*)"[^>]*?(?:contact_name="([^"]*)")?[^>]*?\/>/gi;
   let m;
   while((m=smsRe.exec(text))!==null){
     const date=new Date(parseInt(m[2]));
     const body=m[3].replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#10;/g,'\n');
     if(body.length<3)continue;
-    messages.push({
-      sender:m[4]||m[1]||'Unknown',
-      phone:m[1],
-      date:date.toLocaleString(),
-      text:body
-    });
+    messages.push({sender:m[4]||m[1]||'Unknown',phone:m[1],date:date.toLocaleString(),text:body});
   }
   return messages;
 }
