@@ -36,10 +36,14 @@ function renderFilterBar(){
 async function loadAll(){
   const now=new Date();
   const since=new Date(now.getTime()-30*86400000).toISOString();
+
+  // Try unified cards table first, fall back to legacy
+  let cardsQuery=NX.sb.from('cards').select('*').gte('created_at',since).order('created_at',{ascending:false}).limit(100);
+  let useLegacyCards=false;
+
   const results=await Promise.allSettled([
     NX.sb.from('daily_logs').select('*').gte('created_at',since).order('created_at',{ascending:false}).limit(100),
-    NX.sb.from('tickets').select('*').order('created_at',{ascending:false}).limit(50),
-    NX.sb.from('kanban_cards').select('*').order('created_at',{ascending:false}).limit(50),
+    cardsQuery,
     NX.sb.from('time_clock').select('*').gte('clock_in',since).order('clock_in',{ascending:false}).limit(100),
     NX.sb.from('chat_history').select('*').gte('created_at',since).order('created_at',{ascending:false}).limit(50),
     NX.sb.from('cleaning_logs').select('*').gte('created_at',since).order('created_at',{ascending:false}).limit(100)
@@ -48,30 +52,50 @@ async function loadAll(){
   feed=[];
   const get=i=>(results[i].status==='fulfilled'&&results[i].value.data)||[];
 
-  // daily_logs — split cleaning reports from regular logs
+  // Check if cards table exists
+  const cardsResult=results[1];
+  if(cardsResult.status==='fulfilled'&&cardsResult.value.error?.message?.includes('does not exist')){
+    useLegacyCards=true;
+  }
+
+  // daily_logs
   get(0).forEach(r=>{
     const entry=r.entry||'';
     const isCR=entry.startsWith('Cleaning Report')||entry.startsWith('[AUTO');
     feed.push({type:isCR?'clean':'log',ts:r.created_at,id:'dl-'+r.id,data:r,src:'daily_logs'});
   });
 
-  // tickets
-  get(1).forEach(r=>feed.push({type:'ticket',ts:r.created_at,id:'tk-'+r.id,data:r}));
-
-  // kanban cards
-  get(2).forEach(r=>feed.push({type:'task',ts:r.created_at,id:'kb-'+r.id,data:r}));
+  if(useLegacyCards){
+    // Legacy: pull from tickets + kanban_cards
+    try{
+      const tkR=await NX.sb.from('tickets').select('*').order('created_at',{ascending:false}).limit(50);
+      (tkR.data||[]).forEach(r=>feed.push({type:'ticket',ts:r.created_at,id:'tk-'+r.id,data:r}));
+    }catch(e){}
+    try{
+      const kbR=await NX.sb.from('kanban_cards').select('*').order('created_at',{ascending:false}).limit(50);
+      (kbR.data||[]).forEach(r=>feed.push({type:'task',ts:r.created_at,id:'kb-'+r.id,data:r}));
+    }catch(e){}
+  }else{
+    // Unified cards — split into ticket vs task by priority
+    get(1).forEach(r=>{
+      const isTicket=r.priority==='urgent'||r.source==='ticket'||r.ai_troubleshoot;
+      feed.push({type:isTicket?'ticket':'task',ts:r.created_at,id:'cd-'+r.id,data:{
+        ...r,status:r.status||'todo',column_name:r.status,reported_by:r.reported_by||r.assignee
+      }});
+    });
+  }
 
   // time clock
-  get(3).forEach(r=>feed.push({type:'clock',ts:r.clock_in,id:'tc-'+r.id,data:r}));
+  get(2).forEach(r=>feed.push({type:'clock',ts:r.clock_in,id:'tc-'+r.id,data:r}));
 
   // chat history
-  get(4).forEach(r=>feed.push({type:'chat',ts:r.created_at,id:'ch-'+r.id,data:r}));
+  get(3).forEach(r=>feed.push({type:'chat',ts:r.created_at,id:'ch-'+r.id,data:r}));
 
-  // cleaning_logs (individual completions) — skip dates covered by cleaning reports
+  // cleaning_logs
   const crDates=new Set(feed.filter(f=>f.type==='clean'&&f.src==='daily_logs').map(f=>{
     const m=(f.data.entry||'').match(/\d{4}-\d{2}-\d{2}/);return m?m[0]:null;
   }).filter(Boolean));
-  get(5).forEach(r=>{
+  get(4).forEach(r=>{
     const d=r.date||r.created_at?.slice(0,10);
     if(!crDates.has(d))feed.push({type:'clean',ts:r.created_at,id:'cl-'+r.id,data:r,src:'cleaning_logs'});
   });
@@ -179,9 +203,12 @@ function renderTicket(r,pinned){
   if(pinned&&r.status==='open'){
     const btn=document.createElement('button');btn.className='feed-close-btn';btn.textContent='✓ Close';
     btn.addEventListener('click',async()=>{
-      await NX.sb.from('tickets').update({status:'closed'}).eq('id',r.id);
+      // Try cards table first, fall back to tickets
+      const{error}=await NX.sb.from('cards').update({status:'closed',updated_at:new Date().toISOString()}).eq('id',r.id);
+      if(error)await NX.sb.from('tickets').update({status:'closed'}).eq('id',r.id);
       btn.textContent='Closed';d.style.opacity='0.4';
       if(NX.checkTicketBadge)NX.checkTicketBadge();
+      NX.syslog&&NX.syslog('card_closed',r.title||'ticket');
     });
     d.querySelector('.feed-content').appendChild(btn);
   }
