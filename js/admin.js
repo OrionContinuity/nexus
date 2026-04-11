@@ -415,105 +415,165 @@ async function pullNewEmails(limit){
 async function processNextBatch(){
   if(NX.paused||isSyncing)return;
   const mode=getMode();
+  const STAGES=['init','pull','fetch','extract','ai','save','link','done'];
+  let stage='init',itemsProcessed=0,nodesCreated=0;
+
+  function setStage(s,detail){
+    stage=s;
+    const stageLabels={init:'Initializing',pull:'Pulling Gmail',fetch:'Fetching queue',extract:'Extracting documents',ai:'AI processing',save:'Saving nodes',link:'Building links',done:'Complete'};
+    setProcLive('working',`${stageLabels[s]||s}${detail?' — '+detail:''}`);
+  }
+
   try{
+    // ── STAGE: INIT ──
+    setStage('init','checking connection');
     const{error:ping}=await NX.sb.from('nexus_config').select('id').eq('id',1).single();
     if(ping){setProcLive('','DB unavailable');return;}
     
-    // Mode: rescan — reset all then process
+    // ── STAGE: RESCAN ──
     if(mode==='rescan'){
       const{count}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true}).eq('processed',false);
       if(!count||count<1){
-        setProcLive('working','Resetting archive...');
+        setStage('init','resetting archive');
         await NX.sb.from('raw_emails').update({processed:false}).eq('processed',true);
         log('♻ Archive reset for re-scan','success');
-        // Switch to process mode after reset
         localStorage.setItem('nexus_bg_mode','process');
         document.querySelectorAll('#modePresets .ig-chip').forEach(b=>{b.classList.toggle('active',b.dataset.val==='process');});
         updateQueueStatus();return;
       }
     }
     
-    // Mode: pull — fetch new emails from Gmail first
+    // ── STAGE: PULL ──
     if(mode==='pull'&&gmailToken){
+      setStage('pull','fetching new emails');
       const pulled=await pullNewEmails(getBatchSize());
-      if(pulled)updateQueueStatus();
+      if(pulled){log(`📬 ${pulled} new emails pulled`);updateQueueStatus();}
     }
 
-    // Process queue
+    // ── STAGE: FETCH ──
+    setStage('fetch');
     const batchSize=getBatchSize();
     const{data,error}=await NX.sb.from('raw_emails').select('*').eq('processed',false).order('ingested_at',{ascending:true}).limit(batchSize);
     if(error||!data||!data.length){setProcLive('active','Idle — queue empty');updateQueueStatus();return;}
-    setProcLive('working',`Processing ${data.length}...`);
-    log(`⚙ Processing ${data.length}...`);
-    const emails=data.map(e=>({id:e.id,from:e.from_addr,to:e.to_addr,date:e.date,subject:e.subject,body:e.body||'',snippet:e.snippet||'',attachmentCount:e.attachment_count||0,attachments:e.attachments||[]}));
-    // PDF extraction
-    if(shouldExtractPdfs()){for(const email of emails){if(!email.attachments)continue;for(const att of email.attachments){if(!att.url)continue;const ext=(att.filename||'').split('.').pop().toLowerCase();if(ext==='pdf'&&window.pdfjsLib){try{
-      setProcLive('working',`Reading PDF: ${att.filename}`);
-      const resp=await fetch(att.url);if(!resp.ok)continue;
-      const buf=await resp.arrayBuffer();
-      const pdf=await pdfjsLib.getDocument({data:buf}).promise;
-      let pt='';let lowPages=[];
-      for(let p=1;p<=Math.min(pdf.numPages,20);p++){
-        const pg=await pdf.getPage(p);const c=await pg.getTextContent();
-        const pageText=c.items.map(i=>i.str).join(' ').trim();
-        pt+=pageText+'\n';
-        if(pageText.length<50)lowPages.push(p);
-      }
-      // Vision OCR for scanned pages
-      if(lowPages.length>0&&shouldExtractImages()&&NX.askClaudeVision&&NX.getApiKey()){
-        for(const pn of lowPages.slice(0,4)){
+    setStage('fetch',`${data.length} emails`);
+    log(`⚙ Batch: ${data.length} emails`);
+
+    const emails=data.map(e=>({
+      id:e.id,from:e.from_addr,to:e.to_addr,date:e.date,subject:e.subject,
+      body:e.body||'',snippet:e.snippet||'',
+      attachmentCount:e.attachment_count||0,attachments:e.attachments||[]
+    }));
+
+    // ── STAGE: EXTRACT ──
+    setStage('extract');
+    let pdfCount=0,imgCount=0;
+
+    for(let ei=0;ei<emails.length;ei++){
+      const email=emails[ei];
+      if(!email.attachments||!email.attachments.length)continue;
+
+      for(const att of email.attachments){
+        if(!att.url)continue;
+        const ext=(att.filename||'').split('.').pop().toLowerCase();
+
+        if(ext==='pdf'&&shouldExtractPdfs()&&window.pdfjsLib){
           try{
-            const pg=await pdf.getPage(pn);
-            const vp=pg.getViewport({scale:2});
-            const cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;
-            await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
-            const b64=cv.toDataURL('image/jpeg',0.85).split(',')[1];
-            const vt=await NX.askClaudeVision('Extract ALL text, numbers, dates, amounts, part numbers from this document page. Plain text.',b64,'image/jpeg');
-            if(vt&&vt.length>20){pt+=`\n[OCR p${pn}] ${vt}\n`;log(`  📖 OCR p${pn}: ${vt.length} chars`);}
-          }catch(e){}
+            setStage('extract',`PDF: ${att.filename}`);
+            const resp=await fetch(att.url);if(!resp.ok)continue;
+            const buf=await resp.arrayBuffer();
+            const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+            let pt='';let lowPages=[];
+            for(let p=1;p<=Math.min(pdf.numPages,20);p++){
+              const pg=await pdf.getPage(p);const c=await pg.getTextContent();
+              const pageText=c.items.map(i=>i.str).join(' ').trim();
+              pt+=pageText+'\n';
+              if(pageText.length<50)lowPages.push(p);
+            }
+            if(lowPages.length>0&&shouldExtractImages()&&NX.askClaudeVision&&NX.getApiKey()){
+              for(const pn of lowPages.slice(0,4)){
+                try{
+                  setStage('extract',`OCR page ${pn}: ${att.filename}`);
+                  const pg=await pdf.getPage(pn);
+                  const vp=pg.getViewport({scale:2});
+                  const cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;
+                  await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+                  const b64=cv.toDataURL('image/jpeg',0.85).split(',')[1];
+                  const vt=await NX.askClaudeVision('Extract ALL text, numbers, dates, amounts, part numbers from this document page. Plain text.',b64,'image/jpeg');
+                  if(vt&&vt.length>20){pt+='\n[OCR p'+pn+'] '+vt+'\n';log(`  📖 OCR p${pn}: ${vt.length} chars`);}
+                }catch(e){}
+              }
+            }
+            if(pt.length>50){email.body+='\n[PDF:'+att.filename+']\n'+pt.slice(0,5000);pdfCount++;log(`  📎 PDF ${att.filename}: ${pt.length} chars`);}
+          }catch(e){log(`  ⚠ PDF failed: ${att.filename}`,'warn');}
+        }
+
+        if(['jpg','jpeg','png','webp','gif'].includes(ext)&&shouldExtractImages()){
+          try{
+            setStage('extract',`Image: ${att.filename}`);
+            const resp=await fetch(att.url);if(!resp.ok)continue;
+            const blob=await resp.blob();if(blob.size>5*1024*1024)continue;
+            const b64=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result.split(',')[1]);fr.readAsDataURL(blob);});
+            const mt=blob.type||'image/jpeg';
+            const vr=await NX.askClaudeVision('Extract ALL text, numbers, items, prices, totals, dates, vendor names, part numbers, model numbers from this image. If equipment photo: brand, model, condition, serial numbers. Plain text only.',b64,mt);
+            if(vr&&vr.length>20){email.body+='\n[IMAGE:'+att.filename+']\n'+vr.slice(0,2000);imgCount++;log(`  🖼 Image ${att.filename}`);}
+          }catch(e){log(`  ⚠ Image failed: ${att.filename}`,'warn');}
         }
       }
-      if(pt.length>50){email.body+='\n[PDF:'+att.filename+']\n'+pt.slice(0,5000);log(`  📎 PDF ${att.filename}: ${pt.length} chars`);}
-    }catch(e){}}}}}
-    // Image extraction via Claude Vision
-    if(shouldExtractImages()){for(const email of emails){if(!email.attachments)continue;for(const att of email.attachments){if(!att.url)continue;const ext=(att.filename||'').split('.').pop().toLowerCase();if(['jpg','jpeg','png','webp','gif'].includes(ext)){try{setProcLive('working',`Reading image: ${att.filename}`);const resp=await fetch(att.url);if(!resp.ok)continue;const blob=await resp.blob();if(blob.size>5*1024*1024)continue;const b64=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result.split(',')[1]);fr.readAsDataURL(blob);});const mt=blob.type||'image/jpeg';const vr=await NX.askClaudeVision('Extract ALL text, numbers, items, prices, totals, dates, vendor names, part numbers, model numbers from this image. If equipment photo: brand, model, condition, serial numbers. Plain text only.',b64,mt);if(vr&&vr.length>20){email.body+='\n[IMAGE:'+att.filename+']\n'+vr.slice(0,2000);log(`  🖼 Image ${att.filename}`);}}catch(e){}}}}}
-    setProcLive('working','AI extracting...');
-    // Thread grouping — group related emails for better context
-    const grouped=[];
-    const subjectMap=new Map();
+    }
+    if(pdfCount||imgCount)log(`  Extracted: ${pdfCount} PDFs, ${imgCount} images`);
+
+    // ── STAGE: AI ──
+    setStage('ai','grouping threads');
+    const grouped=[];const subjectMap=new Map();
     for(const e of emails){
       const cleanSubj=(e.subject||'').replace(/^(re:|fw:|fwd:)\s*/gi,'').trim().toLowerCase().slice(0,60);
-      if(cleanSubj.length>5&&subjectMap.has(cleanSubj)){
-        subjectMap.get(cleanSubj).push(e);
-      }else{
-        const group=[e];
-        if(cleanSubj.length>5)subjectMap.set(cleanSubj,group);
-        grouped.push(group);
-      }
+      if(cleanSubj.length>5&&subjectMap.has(cleanSubj)){subjectMap.get(cleanSubj).push(e);}
+      else{const group=[e];if(cleanSubj.length>5)subjectMap.set(cleanSubj,group);grouped.push(group);}
     }
-    // Flatten groups — threads get combined body
-    const processed=[];
-    for(const group of grouped){
+    const processed=grouped.map(group=>{
       if(group.length>1){
-        const combined={...group[0],body:group.map((e,i)=>`[Part ${i+1}] ${e.from} (${e.date}):\n${e.body}`).join('\n---\n'),subject:group[0].subject+` (${group.length} thread emails)`};
-        processed.push(combined);
-      }else{
-        processed.push(group[0]);
-      }
-    }
+        return{...group[0],body:group.map((e,i)=>`[Part ${i+1}] ${e.from} (${e.date}):\n${e.body}`).join('\n---\n'),subject:group[0].subject+` (${group.length} thread emails)`};
+      }return group[0];
+    });
+
     const chunk=processed.map((e,idx)=>`[EMAIL #${idx+1}]\nFROM: ${e.from}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\n---\n${e.body||e.snippet}`).join('\n\n========\n\n');
     const sourceMap=processed.map((e,idx)=>({ref:idx+1,from:e.from,date:e.date,subject:e.subject,body:(e.body||e.snippet||'').slice(0,500),attachments:e.attachments||[]}));
+
+    setStage('ai',`analyzing ${processed.length} emails`);
     const r=await aiProcessWithSources(chunk,sourceMap);
-    let created=0;if(r){created=await saveExtracted(r);}
-    for(const d of data){await NX.sb.from('raw_emails').update({processed:true}).eq('id',d.id);await sleep(50);}
-    if(created)log(`⚙ <b>${created} nodes</b>`,'success');
-    else log('⚙ No new nodes');
-    setProcLive('active',`Done — ${created} nodes`);
+
+    // ── STAGE: SAVE ──
+    setStage('save');
+    if(r){nodesCreated=await saveExtracted(r);}
+
+    for(const d of data){
+      try{await NX.sb.from('raw_emails').update({processed:true}).eq('id',d.id);itemsProcessed++;}
+      catch(e){log(`  ⚠ Failed to mark processed: ${d.id}`,'warn');}
+      await sleep(50);
+    }
+
+    // ── STAGE: LINK ──
+    if(nodesCreated&&shouldAutoLink()){
+      setStage('link','connecting nodes');
+    }
+
+    // ── STAGE: DONE ──
+    setStage('done');
+    const summary=[];
+    if(nodesCreated)summary.push(`${nodesCreated} nodes`);
+    if(pdfCount)summary.push(`${pdfCount} PDFs`);
+    if(imgCount)summary.push(`${imgCount} images`);
+    log(`✓ Batch complete: ${itemsProcessed} emails → ${summary.join(', ')||'no new data'}`,'success');
+    setProcLive('active',summary.length?summary.join(', '):'Queue processed');
+
     await NX.loadNodes();if(NX.brain)NX.brain.init();
     updateQueueStatus();
-  }catch(e){log('⚙ Error: '+e.message,'error');setProcLive('','Error');}
+  }catch(e){
+    log(`⚙ Error at ${stage}: ${e.message}`,'error');
+    setProcLive('',`Error: ${stage}`);
+    if(NX.toast)NX.toast(`Pipeline failed at ${stage}`,'error');
+  }
 }
-
 function startBackgroundProcessor(){
   if(bgInterval){clearInterval(bgInterval);bgInterval=null;}
   const ms=getIntervalMs();const batch=getBatchSize();
