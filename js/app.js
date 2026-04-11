@@ -36,18 +36,32 @@ const NX = {
   // ─── Persistent Memory ───
   async fetchMemory(question) {
     try {
-      const { data } = await this.sb.from('chat_history').select('question,answer,created_at').order('created_at', { ascending: false }).limit(50);
+      // Fetch last 200 conversations for deep memory
+      const { data } = await this.sb.from('chat_history')
+        .select('question,answer,created_at,user_name')
+        .order('created_at', { ascending: false }).limit(200);
       if (!data || !data.length) return '';
       const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      if (!words.length) return '';
       const scored = data.map(row => {
-        const text = ((row.question || '') + ' ' + (row.answer || '')).toLowerCase();
-        let score = 0; words.forEach(w => { if (text.includes(w)) score++; });
+        const q = (row.question || '').toLowerCase();
+        const a = (row.answer || '').toLowerCase();
+        let score = 0;
+        words.forEach(w => {
+          if (q.includes(w)) score += 3; // Question match weighted higher
+          if (a.includes(w)) score += 1;
+        });
+        // Boost recent conversations
+        const age = (Date.now() - new Date(row.created_at).getTime()) / 86400000; // days
+        if (age < 1) score += 2;
+        else if (age < 7) score += 1;
         return { row, score };
-      }).filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, 5);
+      }).filter(s => s.score > 1).sort((a, b) => b.score - a.score).slice(0, 5);
       if (!scored.length) return '';
-      return '\n\nPAST CONVERSATIONS:\n' + scored.map(s => {
+      return '\n\nPAST CONVERSATIONS (AI can reference these):\n' + scored.map(s => {
         const date = new Date(s.row.created_at).toLocaleDateString();
-        return `[${date}] Q: ${s.row.question}\nA: ${(s.row.answer || '').slice(0, 200)}`;
+        const who = s.row.user_name ? ` (${s.row.user_name})` : '';
+        return `[${date}${who}] Q: ${s.row.question}\nA: ${(s.row.answer || '').slice(0, 400)}`;
       }).join('\n\n');
     } catch (e) { return ''; }
   },
@@ -201,7 +215,8 @@ const NX = {
       userEl.textContent = (this.i18n ? this.i18n.t('welcome') : 'Welcome,') + ' ' + data.name;
       userEl.classList.add('visible');
       this._applyRole(data.role);
-      setTimeout(() => this._loadConfigAndStart(), 600);
+      // Show time clock panel — user can clock in/out before entering
+      setTimeout(() => NX.timeClock.showOnPinScreen(), 600);
     } catch (e) {
       console.error('NEXUS auth:', e);
       errorEl.textContent = 'Connection failed';
@@ -296,6 +311,8 @@ const NX = {
     });
     this.setupNav();
     this.setupAdmin();
+    // Time clock nav widget
+    NX.timeClock.setupNavWidget();
     // Ticket badge
     this.checkTicketBadge();
     // Start real-time watchers
@@ -303,6 +320,8 @@ const NX = {
     this.loadAgenda();
     // Brain view toggle — managers + admin only
     this.setupBrainViewToggle();
+    // Morning briefing — show pending items on login
+    setTimeout(() => this.showBriefing(), 2000);
     // Language toggle
     if (this.i18n) {
       const langBtn = document.getElementById('langToggle');
@@ -369,7 +388,7 @@ const NX = {
   },
 
   activateModule(view) {
-    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', ingest: 'js/admin.js' };
+    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js' };
     if (view === 'brain') { if (NX.brain && NX.brain.show) NX.brain.show(); return; }
     const file = moduleMap[view]; if (!file) return;
     if (this.loaded[view]) { const mod = this.modules[view]; if (mod && mod.show) mod.show(); }
@@ -924,6 +943,28 @@ const NX = {
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, duration);
   },
 
+  // ─── Safe Supabase wrapper — shows toast on errors ───
+  async dbSave(table, action, data, match) {
+    try {
+      let query;
+      if (action === 'insert') query = this.sb.from(table).insert(data);
+      else if (action === 'update') query = this.sb.from(table).update(data).match(match);
+      else if (action === 'upsert') query = this.sb.from(table).upsert(data, match);
+      else if (action === 'delete') query = this.sb.from(table).delete().match(match);
+      else return { error: { message: 'Unknown action' } };
+      const result = await query;
+      if (result.error) {
+        console.error(`DB ${action} ${table}:`, result.error.message);
+        this.toast(`Save failed: ${result.error.message}`, 'error');
+      }
+      return result;
+    } catch (e) {
+      console.error(`DB ${action} ${table}:`, e);
+      this.toast(`Connection error — will retry`, 'error');
+      return { error: e };
+    }
+  },
+
   // ─── Ticket Badge ───
   async checkTicketBadge(){
     if(this.paused)return;
@@ -932,8 +973,33 @@ const NX = {
       const badge=document.getElementById('ticketBadge');
       if(badge){badge.textContent=count||'';badge.style.display=count?'flex':'none';}
     }catch(e){}
-    // Poll every 2 minutes
-    setInterval(()=>this.checkTicketBadge(),120000);
+  },
+
+  async showBriefing(){
+    if(this.paused||!this.currentUser)return;
+    const items=[];
+    try{
+      // Open tickets
+      const{count:tickets}=await this.sb.from('tickets').select('*',{count:'exact',head:true}).eq('status','open');
+      if(tickets>0)items.push(`🔴 ${tickets} open ticket${tickets>1?'s':''}`);
+
+      // Contractors today
+      const today=new Date().toISOString().split('T')[0];
+      const{data:events}=await this.sb.from('contractor_events').select('contractor_name').eq('event_date',today);
+      if(events&&events.length)items.push(`🔵 ${events.map(e=>e.contractor_name).join(', ')} today`);
+
+      // Pending queue
+      const{count:queue}=await this.sb.from('raw_emails').select('*',{count:'exact',head:true}).eq('processed',false);
+      if(queue>10)items.push(`⏳ ${queue} emails pending`);
+
+      // Clocked in status
+      const isIn=await NX.timeClock.checkStatus();
+      if(!isIn)items.push(`⏱ Not clocked in`);
+    }catch(e){}
+
+    if(items.length){
+      this.toast(items.join(' · '),'info',5000);
+    }
   },
 
   // ─── Claude API ───
@@ -1040,3 +1106,232 @@ window.addEventListener('offline', () => {
 });
 
 NX.offlineQueue = OfflineQueue;
+
+// ═══ TIME CLOCK ═══
+NX.timeClock = {
+  _timer: null,
+  _activeEntry: null,
+
+  async checkStatus() {
+    if (!this._activeEntry && NX.currentUser) {
+      try {
+        const { data } = await NX.sb.from('time_clock').select('*')
+          .eq('user_id', NX.currentUser.id).is('clock_out', null)
+          .order('clock_in', { ascending: false }).limit(1).single();
+        if (data) this._activeEntry = data;
+      } catch (e) {}
+    }
+    return !!this._activeEntry;
+  },
+
+  async clockIn() {
+    if (!NX.currentUser) return;
+    const entry = {
+      user_id: NX.currentUser.id,
+      user_name: NX.currentUser.name,
+      clock_in: new Date().toISOString(),
+      location: NX.currentUser.location || ''
+    };
+    const { data, error } = await NX.sb.from('time_clock').insert(entry).select().single();
+    if (!error && data) {
+      this._activeEntry = data;
+      if (NX.toast) NX.toast('Clocked in ✓', 'success');
+    }
+    this.updateUI();
+  },
+
+  async clockOut() {
+    if (!this._activeEntry) return;
+    const now = new Date();
+    const clockIn = new Date(this._activeEntry.clock_in);
+    const hours = ((now - clockIn) / 3600000).toFixed(2);
+    const { error } = await NX.sb.from('time_clock')
+      .update({ clock_out: now.toISOString(), hours: parseFloat(hours) })
+      .eq('id', this._activeEntry.id);
+    if (!error) {
+      if (NX.toast) NX.toast(`Clocked out — ${hours} hrs ✓`, 'success');
+      this._activeEntry = null;
+    }
+    this.updateUI();
+  },
+
+  getElapsed() {
+    if (!this._activeEntry) return null;
+    const ms = Date.now() - new Date(this._activeEntry.clock_in).getTime();
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  },
+
+  updateUI() {
+    const isIn = !!this._activeEntry;
+    // PIN screen
+    const tcPanel = document.getElementById('tcPanel');
+    if (tcPanel && tcPanel.style.display !== 'none') {
+      document.getElementById('tcStatus').textContent = isIn ? 'CLOCKED IN' : 'NOT CLOCKED IN';
+      document.getElementById('tcStatus').style.color = isIn ? '#39ff14' : 'rgba(255,255,255,.4)';
+      document.getElementById('tcTime').textContent = isIn ? this.getElapsed() || '0:00:00' : '';
+      document.getElementById('tcClockIn').style.display = isIn ? 'none' : '';
+      document.getElementById('tcClockOut').style.display = isIn ? '' : 'none';
+    }
+    // Nav indicator
+    const ind = document.getElementById('tcIndicator');
+    if (ind) ind.className = 'tc-indicator' + (isIn ? ' clocked-in' : '');
+    // Nav popup
+    const popup = document.getElementById('tcPopup');
+    if (popup && popup.classList.contains('open')) {
+      popup.querySelector('.tc-popup-status').textContent = isIn ? 'CLOCKED IN' : 'NOT CLOCKED IN';
+      popup.querySelector('.tc-popup-time').textContent = isIn ? this.getElapsed() || '0:00:00' : '--:--';
+      popup.querySelector('.tc-popup-time').style.color = isIn ? '#39ff14' : 'var(--faint)';
+      const btn = popup.querySelector('.tc-popup-btn');
+      if (btn) {
+        btn.textContent = isIn ? 'Clock Out' : 'Clock In';
+        btn.className = 'tc-popup-btn ' + (isIn ? 'tc-btn-out' : 'tc-btn-in');
+      }
+    }
+  },
+
+  startTimer() {
+    if (this._timer) clearInterval(this._timer);
+    this._timer = setInterval(() => this.updateUI(), 1000);
+  },
+
+  stopTimer() {
+    if (this._timer) { clearInterval(this._timer); this._timer = null; }
+  },
+
+  // Show on PIN screen after auth
+  async showOnPinScreen() {
+    const panel = document.getElementById('tcPanel');
+    if (!panel) return;
+    panel.style.display = '';
+    await this.checkStatus();
+    this.updateUI();
+    this.startTimer();
+
+    document.getElementById('tcClockIn')?.addEventListener('click', () => this.clockIn());
+    document.getElementById('tcClockOut')?.addEventListener('click', () => this.clockOut());
+    document.getElementById('tcEnter')?.addEventListener('click', () => {
+      this.stopTimer();
+      NX._loadConfigAndStart();
+    });
+  },
+
+  // Setup nav widget
+  setupNavWidget() {
+    const clockBtn = document.getElementById('navClock');
+    if (!clockBtn) return;
+
+    // Create popup
+    let popup = document.getElementById('tcPopup');
+    if (!popup) {
+      popup = document.createElement('div');
+      popup.id = 'tcPopup';
+      popup.className = 'tc-popup';
+      popup.innerHTML = `
+        <div class="tc-popup-status">CHECKING...</div>
+        <div class="tc-popup-time">--:--</div>
+        <button class="tc-popup-btn tc-btn-in">Clock In</button>
+      `;
+      clockBtn.style.position = 'relative';
+      clockBtn.appendChild(popup);
+
+      popup.querySelector('.tc-popup-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (this._activeEntry) await this.clockOut();
+        else await this.clockIn();
+      });
+    }
+
+    clockBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await this.checkStatus();
+      popup.classList.toggle('open');
+      this.updateUI();
+    });
+
+    // Close on outside click
+    document.addEventListener('click', (e) => {
+      if (!clockBtn.contains(e.target)) popup.classList.remove('open');
+    });
+
+    this.checkStatus().then(() => {
+      this.updateUI();
+      this.startTimer();
+    });
+  },
+
+  // Load time records for Log tab
+  async loadTimeLog(userId, days) {
+    const list = document.getElementById('tcLogList');
+    const total = document.getElementById('tcLogTotal');
+    if (!list) return;
+    list.innerHTML = '<div style="color:var(--faint);font-size:11px;padding:8px 0">Loading...</div>';
+
+    let query = NX.sb.from('time_clock').select('*').order('clock_in', { ascending: false });
+    if (userId && userId !== 'all') query = query.eq('user_id', parseInt(userId));
+    if (days && days !== 'all') {
+      const since = new Date();
+      since.setDate(since.getDate() - parseInt(days));
+      query = query.gte('clock_in', since.toISOString());
+    }
+    const { data } = await query.limit(200);
+    list.innerHTML = '';
+    if (!data || !data.length) {
+      list.innerHTML = '<div style="color:var(--faint);font-size:11px;padding:8px 0">No records</div>';
+      if (total) total.textContent = '';
+      return;
+    }
+
+    let totalHours = 0;
+    data.forEach(r => {
+      const el = document.createElement('div');
+      el.className = 'tc-log-entry';
+      const cin = new Date(r.clock_in);
+      const cout = r.clock_out ? new Date(r.clock_out) : null;
+      const dateStr = cin.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      const inTime = cin.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const outTime = cout ? cout.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'active';
+      const hrs = r.hours || 0;
+      totalHours += hrs;
+      el.innerHTML = `
+        <span class="tc-log-name">${r.user_name || 'Unknown'}</span>
+        <span class="tc-log-times">${dateStr} · ${inTime} → ${outTime}</span>
+        <span class="tc-log-hours">${hrs ? hrs.toFixed(1) + 'h' : '...'}</span>
+      `;
+      list.appendChild(el);
+    });
+    if (total) total.textContent = `Total: ${totalHours.toFixed(1)} hours`;
+  },
+
+  // Populate user filter dropdown
+  async populateUserFilter() {
+    const sel = document.getElementById('tcFilterUser');
+    if (!sel) return;
+    try {
+      const { data } = await NX.sb.from('nexus_users').select('id,name');
+      if (data) {
+        sel.innerHTML = '<option value="all">All Team</option>';
+        data.forEach(u => {
+          const opt = document.createElement('option');
+          opt.value = u.id;
+          opt.textContent = u.name;
+          sel.appendChild(opt);
+        });
+      }
+    } catch (e) {}
+  },
+
+  setupLogFilters() {
+    document.getElementById('tcFilterUser')?.addEventListener('change', () => this._reloadLog());
+    document.getElementById('tcFilterRange')?.addEventListener('change', () => this._reloadLog());
+    this.populateUserFilter();
+  },
+
+  _reloadLog() {
+    const user = document.getElementById('tcFilterUser')?.value;
+    const range = document.getElementById('tcFilterRange')?.value;
+    this.loadTimeLog(user, range);
+  }
+};
