@@ -186,7 +186,7 @@
       const px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
       const py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
       const speed=1.2/Math.sqrt(Math.max(r/galaxyR,0.08)); // Slower orbits
-      const p={id:n.id,x:px,y:py,vx:-(py-cy)/(r||1)*speed*0.003,vy:(px-cx)/(r||1)*speed*0.003,
+      const p={id:n.id,x:px,y:py,vx:(py-cy)/(r||1)*speed*0.003,vy:-(px-cx)/(r||1)*speed*0.003,
         node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,
         glowAlpha:0,birthAge:0,isBorn:true};
       newParticles.push(p);
@@ -205,7 +205,7 @@
         const px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
         const py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
         const speed=1.2/Math.sqrt(Math.max(r/galaxyR,0.08));
-        return{id:n.id,x:px,y:py,vx:-(py-cy)/(r||1)*speed*0.003,vy:(px-cx)/(r||1)*speed*0.003,
+        return{id:n.id,x:px,y:py,vx:(py-cy)/(r||1)*speed*0.003,vy:-(px-cx)/(r||1)*speed*0.003,
           node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,
           glowAlpha:0,birthAge:0,isBorn:false};
       });
@@ -225,7 +225,7 @@
       if(state.frozenNode&&state.frozenNode.id===a.id)continue;
       const dx=a.x-cx,dy=a.y-cy,dist=Math.sqrt(dx*dx+dy*dy)||1;
       const orbF=0.022/Math.sqrt(Math.max(dist/galaxyR,0.05));
-      a.vx+=(-dy/dist)*orbF;a.vy+=(dx/dist)*orbF;
+      a.vx+=(dy/dist)*orbF;a.vy+=(-dx/dist)*orbF;
       if(dist<20){const s=12*(1-dist/20);a.vx+=dx/dist*s;a.vy+=dy/dist*s;}
       a.vx-=dx/dist*0.0006;a.vy-=dy/dist*0.0006;
       if(dist>galaxyR*1.3){const o=(dist-galaxyR*1.3)*0.003;a.vx-=dx/dist*o;a.vy-=dy/dist*o;}
