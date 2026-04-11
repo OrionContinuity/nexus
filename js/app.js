@@ -1175,9 +1175,22 @@ NX.timeClock = {
       document.getElementById('tcClockIn').style.display = isIn ? 'none' : '';
       document.getElementById('tcClockOut').style.display = isIn ? '' : 'none';
     }
-    // Nav indicator
+    // Nav indicator — make clock prominent when clocked in
+    const clockBtn = document.getElementById('navClock');
+    if (clockBtn) clockBtn.classList.toggle('clocked-in', isIn);
     const ind = document.getElementById('tcIndicator');
     if (ind) ind.className = 'tc-indicator' + (isIn ? ' clocked-in' : '');
+    // Show elapsed time next to clock icon
+    let navTime = document.getElementById('tcNavTime');
+    if (isIn) {
+      if (!navTime) {
+        navTime = document.createElement('span');
+        navTime.id = 'tcNavTime';
+        navTime.className = 'tc-nav-time';
+        if (clockBtn) clockBtn.appendChild(navTime);
+      }
+      navTime.textContent = this.getElapsed() || '';
+    } else if (navTime) { navTime.remove(); }
     // Nav popup
     const popup = document.getElementById('tcPopup');
     if (popup && popup.classList.contains('open')) {
