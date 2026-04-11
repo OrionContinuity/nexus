@@ -338,42 +338,66 @@ After the troubleshoot steps, ask the person to add more details and optionally 
   function resetChat(){stopSpeaking();chatHistory=[];chatActive=false;document.getElementById('chatMessages').innerHTML='';document.getElementById('brainWelcome').style.display='';document.getElementById('brainExamples').style.display='';document.getElementById('brainDim').classList.remove('active');document.getElementById('resetBtn').style.display='none';document.getElementById('chatHud').classList.remove('expanded');NX.brain.state.activatedNodes=new Set();NX.brain.wakePhysics();}
 
   async function getCtx(q){
-    // Always fetch fresh nodes from Supabase
     await NX.loadNodes();
-    const w=q.toLowerCase().split(/\s+/).filter(x=>x.length>1);
+    const w=q.toLowerCase().split(/\s+/).filter(x=>x.length>2);
     const qLow=q.toLowerCase();
     const sc=NX.nodes.filter(n=>!n.is_private).map(n=>{
       let s=0;
       const name=(n.name||'').toLowerCase();
       const notes=(n.notes||'').toLowerCase();
       const tags=(n.tags||[]).join(' ').toLowerCase();
-      const all=name+' '+n.category+' '+tags+' '+notes;
-      // Exact name match — highest priority
-      if(name===qLow)s+=50;
-      // Name contains query or query contains name
-      else if(name.includes(qLow)||qLow.includes(name))s+=20;
-      // Partial word matches
+      const cat=(n.category||'').toLowerCase();
+
+      // Exact name match — highest
+      if(name===qLow)s+=100;
+      // Name contains full query
+      else if(name.includes(qLow))s+=40;
+      // Query contains full name (asking about something that IS a node)
+      else if(qLow.includes(name)&&name.length>3)s+=30;
+
+      // Word-level matches — weighted by where they appear
       w.forEach(x=>{
-        if(name.includes(x))s+=8;
-        if(tags.includes(x))s+=4;
-        if(notes.includes(x))s+=2;
+        if(name.includes(x))s+=12;
+        else if(tags.includes(x))s+=6;
+        else if(cat.includes(x))s+=4;
+        else if(notes.includes(x))s+=2;
       });
+
+      // Boost recently accessed nodes slightly
+      if(n.access_count>5)s+=1;
+
+      // Boost linked nodes — if a high-scoring node links to this one, boost it
       return{node:n,score:s};
     }).filter(s=>s.score>0).sort((a,b)=>b.score-a.score);
-    const rel=sc.slice(0,15).map(s=>s.node);
-    // Send ALL node names (not just 200) so AI knows everything
-    const idx=NX.nodes.filter(n=>!n.is_private).map(n=>`${n.name} (${n.category})`).join(', ');
-    const det=rel.map(n=>{
-      let src='';const sources=n.sources||n.source_emails;
-      if(sources&&sources.length)src=' [Sources: '+sources.map(s=>`${s.from} "${s.subject}" ${s.date}`).join('; ')+']';
-      let att='';const attachments=n.attachments;
-      if(attachments&&attachments.length)att=' [Attachments: '+attachments.map(a=>`${a.filename||'file'} (${a.type||'unknown'})${a.from?' from '+a.from.split('<')[0].trim():''}`).join('; ')+']';
-      return`[${n.category}] ${n.name}: ${(n.notes||'').slice(0,500)}${src}${att}`;
+
+    // Take top 8 with full details (not 15 — quality over quantity)
+    const rel=sc.slice(0,8).map(s=>s.node);
+
+    // Also include linked nodes of top results (1 hop)
+    const linkedIds=new Set();
+    rel.slice(0,3).forEach(n=>{(n.links||[]).forEach(lid=>linkedIds.add(lid));});
+    const linkedNodes=NX.nodes.filter(n=>linkedIds.has(n.id)&&!rel.find(r=>r.id===n.id)).slice(0,4);
+
+    const allRelevant=[...rel,...linkedNodes];
+
+    // Build context string
+    const det=allRelevant.map(n=>{
+      let extras='';
+      const sources=n.sources||n.source_emails;
+      if(sources&&sources.length)extras+=` [${sources.length} source${sources.length>1?'s':''}]`;
+      const att=n.attachments;
+      if(att&&att.length)extras+=` [Files: ${att.map(a=>a.filename||'file').join(', ')}]`;
+      return`[${n.category}] ${n.name}: ${(n.notes||'').slice(0,400)}${extras}`;
     }).join('\n');
-    const relIds=rel.map(n=>n.id);
+
+    // Compact index — just names, no notes
+    const idx=NX.nodes.filter(n=>!n.is_private).map(n=>`${n.name} (${n.category})`).join(', ');
+
+    const relIds=allRelevant.map(n=>n.id);
     NX.brain.state.activatedNodes=new Set(relIds);NX.brain.wakePhysics();
     setTimeout(()=>{NX.brain.state.activatedNodes=new Set();},12000);
-    NX.trackAccess(relIds);
+    NX.trackAccess(rel.map(n=>n.id));
+
     const memory=await NX.fetchMemory(q);
     const ce=NX.brain.state.contractorEvents;
     let ev='';if(ce&&ce.length)ev='\n\nUPCOMING:\n'+ce.slice(0,8).map(e=>`${e.contractor_name} @ ${e.location||'?'} ${e.event_date}`).join('\n');
