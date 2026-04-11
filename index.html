@@ -368,6 +368,26 @@
         </div>
       </div>
 
+      <!-- 📱 WHATSAPP / SMS -->
+      <div class="ig-section collapsed">
+        <div class="ig-section-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="ig-section-icon">📱</span><span class="ig-section-title">WhatsApp / SMS</span>
+          <span class="ig-section-chevron">▼</span>
+        </div>
+        <div class="ig-section-body">
+          <div class="ig-file-pick">
+            <label class="ig-file-label" id="msgFileLabel">
+              <input type="file" id="msgFileInput" accept=".txt,.xml" hidden>
+              <span class="ig-file-placeholder" id="msgFileName">Choose .txt or .xml file…</span>
+              <span class="ig-file-browse">Browse</span>
+            </label>
+            <button class="ig-btn-primary" id="msgSubmitBtn" disabled>Import Messages</button>
+          </div>
+          <div class="ig-file-hint">WhatsApp: export chat → .txt file · SMS: Android backup → .xml file</div>
+          <div id="msgFileStatus" class="ig-feedback"></div>
+        </div>
+      </div>
+
       <!-- 📋 PASTE TEXT -->
       <div class="ig-section collapsed">
         <div class="ig-section-head" onclick="this.parentElement.classList.toggle('collapsed')">
