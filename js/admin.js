@@ -73,7 +73,26 @@ async function init(){
     for(const f of files){
       const ext=(f.name.split('.').pop()||'').toLowerCase();
       if(['eml','mbox','msg'].includes(ext))emailFiles.push(f);
-      else if(['pdf','docx','xlsx','xls','csv','txt','md','json'].includes(ext))docFiles.push(f);
+      else if(ext==='xml'){
+        // Check if SMS backup XML
+        f.text().then(text=>{
+          if(text.includes('<smses')&&text.includes('<sms '))ingestSms(text,f.name);
+          else{docFiles.push(f);if(docFiles.length)processDocFiles(docFiles);}
+        });continue;
+      }
+      else if(ext==='txt'){
+        // Detect WhatsApp export by checking first few lines
+        f.text().then(text=>{
+          const waTest=/^\[?\d{1,2}\/\d{1,2}\/\d{2,4},?\s*\d{1,2}:\d{2}/m;
+          if(waTest.test(text.slice(0,500)))ingestWhatsApp(text,f.name);
+          else{
+            const email=parseEml(text);
+            if(email&&email.from)processEmailFiles([f]);
+            else processDocFiles([f]);
+          }
+        });continue;
+      }
+      else if(['pdf','docx','xlsx','xls','csv','md','json'].includes(ext))docFiles.push(f);
       else emailFiles.push(f);
     }
     if(emailFiles.length)processEmailFiles(emailFiles);
@@ -468,7 +487,7 @@ async function processNextBatch(){
 
     // ── STAGE: EXTRACT ──
     setStage('extract');
-    let pdfCount=0,imgCount=0;
+    let pdfCount=0,imgCount=0,docCount=0;
 
     for(let ei=0;ei<emails.length;ei++){
       const email=emails[ei];
@@ -520,9 +539,43 @@ async function processNextBatch(){
             if(vr&&vr.length>20){email.body+='\n[IMAGE:'+att.filename+']\n'+vr.slice(0,2000);imgCount++;log(`  🖼 Image ${att.filename}`);}
           }catch(e){log(`  ⚠ Image failed: ${att.filename}`,'warn');}
         }
+
+        // ── MarkItDown: Word, Excel, PPT, HTML, CSV via Edge Function ──
+        if(['docx','xlsx','xls','pptx','ppt','html','htm','csv'].includes(ext)){
+          try{
+            setStage('extract',`MarkItDown: ${att.filename}`);
+            // First extract raw text client-side
+            let rawText='';
+            if((ext==='docx')&&window.mammoth){
+              const resp=await fetch(att.url);if(resp.ok){const buf=await resp.arrayBuffer();const r=await mammoth.extractRawText({arrayBuffer:buf});rawText=r.value||'';}
+            }else if((ext==='xlsx'||ext==='xls')&&window.XLSX){
+              const resp=await fetch(att.url);if(resp.ok){const buf=await resp.arrayBuffer();const wb=XLSX.read(buf,{type:'array',cellDates:true});wb.SheetNames.forEach(name=>{rawText+=`[Sheet: ${name}]\n`+XLSX.utils.sheet_to_csv(wb.Sheets[name])+'\n\n';});}
+            }else if(ext==='csv'||ext==='html'||ext==='htm'){
+              const resp=await fetch(att.url);if(resp.ok)rawText=await resp.text();
+              if(ext==='html'||ext==='htm'){const d=document.createElement('div');d.innerHTML=rawText;rawText=d.textContent||d.innerText||'';}
+            }else{
+              // pptx or unsupported — try raw text fetch
+              try{const resp=await fetch(att.url);if(resp.ok)rawText=await resp.text();}catch(e){}
+            }
+            if(rawText.length>30){
+              // Send to MarkItDown edge function for clean structured extraction
+              try{
+                const mdResp=await NX.sb.functions.invoke('markitdown',{body:{content:rawText.slice(0,30000),filename:att.filename,mode:'extract'}});
+                if(mdResp.data?.markdown){
+                  email.body+='\n[DOC:'+att.filename+']\n'+mdResp.data.markdown.slice(0,5000);
+                  docCount++;log(`  📄 MarkItDown ${att.filename}: ${mdResp.data.chars} chars`,'success');
+                }
+              }catch(mdErr){
+                // Fallback: use raw text directly
+                email.body+='\n[DOC:'+att.filename+']\n'+rawText.slice(0,5000);
+                docCount++;log(`  📄 Raw extract ${att.filename}: ${rawText.length} chars`);
+              }
+            }
+          }catch(e){log(`  ⚠ Doc failed: ${att.filename}`,'warn');}
+        }
       }
     }
-    if(pdfCount||imgCount)log(`  Extracted: ${pdfCount} PDFs, ${imgCount} images`);
+    if(pdfCount||imgCount||docCount)log(`  Extracted: ${pdfCount} PDFs, ${imgCount} images, ${docCount} docs`);
 
     // ── STAGE: AI ──
     setStage('ai','grouping threads');
@@ -565,6 +618,7 @@ async function processNextBatch(){
     if(nodesCreated)summary.push(`${nodesCreated} nodes`);
     if(pdfCount)summary.push(`${pdfCount} PDFs`);
     if(imgCount)summary.push(`${imgCount} images`);
+    if(docCount)summary.push(`${docCount} docs`);
     log(`✓ Batch complete: ${itemsProcessed} emails → ${summary.join(', ')||'no new data'}`,'success');
     setProcLive('active',summary.length?summary.join(', '):'Queue processed');
 
@@ -1021,6 +1075,130 @@ async function processDocFiles(files){
 
 // ═══ SLACK IMPORT — parse export JSON or pasted text ═══
 const SLACK_SKIP_TYPES=new Set(['channel_join','channel_leave','channel_topic','channel_purpose','bot_message','pinned_item','channel_name','channel_archive']);
+
+// ═══ WHATSAPP EXPORT PARSER ═══
+function parseWhatsApp(text){
+  const messages=[];
+  // WhatsApp format: [MM/DD/YY, HH:MM:SS] Sender: Message
+  // Or: MM/DD/YY, HH:MM - Sender: Message
+  const lines=text.split('\n');
+  const msgRe=/^\[?(\d{1,2}\/\d{1,2}\/\d{2,4}),?\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)\]?\s*[-–]?\s*(.+?):\s*(.+)/i;
+  let current=null;
+  for(const line of lines){
+    const m=line.match(msgRe);
+    if(m){
+      if(current)messages.push(current);
+      current={date:m[1]+' '+m[2],sender:m[3].trim(),text:m[4].trim()};
+    }else if(current&&line.trim()){
+      current.text+='\n'+line.trim();
+    }
+  }
+  if(current)messages.push(current);
+  // Filter system messages
+  return messages.filter(m=>!m.text.includes('created group')&&!m.text.includes('changed the subject')&&!m.text.includes('added ')&&!m.text.includes('left')&&m.text!=='<Media omitted>'&&m.text.length>2);
+}
+
+async function ingestWhatsApp(text,filename){
+  clearLog();
+  const messages=parseWhatsApp(text);
+  if(!messages.length){log('No messages found in WhatsApp export.','warn');return;}
+  log(`📱 WhatsApp: ${messages.length} messages from ${filename}`);
+
+  // Extract unique senders
+  const senders=[...new Set(messages.map(m=>m.sender))];
+  log(`Participants: ${senders.join(', ')}`);
+
+  // Group into conversation chunks (~20 messages each for AI)
+  const CHUNK=20;
+  let totalArchived=0;
+  for(let i=0;i<messages.length;i+=CHUNK){
+    const batch=messages.slice(i,i+CHUNK);
+    const body=batch.map(m=>`[${m.date}] ${m.sender}: ${m.text}`).join('\n');
+    const firstDate=batch[0]?.date||'';
+    const lastDate=batch[batch.length-1]?.date||'';
+    try{
+      await NX.sb.from('raw_emails').upsert({
+        id:'wa_'+Date.now()+'_'+i+'_'+Math.random().toString(36).slice(2,6),
+        from_addr:'WhatsApp: '+senders.join(', '),
+        to_addr:'nexus-import',
+        date:firstDate,
+        subject:`WhatsApp ${filename} (${firstDate} – ${lastDate})`,
+        body:body.slice(0,12000),
+        snippet:body.slice(0,200),
+        attachment_count:0,attachments:[],processed:false
+      },{onConflict:'id'});
+      totalArchived++;
+    }catch(e){log('Archive error: '+e.message,'error');}
+  }
+  log(`💾 ${totalArchived} chunks queued for AI processing`,'success');
+  if(NX.toast)NX.toast(`${messages.length} WhatsApp messages imported`,'success');
+  NX.syslog&&NX.syslog('whatsapp_import',`${messages.length} messages from ${filename}`);
+  updateQueueStatus();
+  if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
+}
+
+// ═══ SMS XML PARSER (Android SMS Backup format) ═══
+function parseSmsXml(text){
+  const messages=[];
+  // Parse <sms> elements from XML
+  const smsRe=/<sms\s+[^>]*?address="([^"]*)"[^>]*?date="(\d+)"[^>]*?body="([^"]*)"[^>]*?(?:contact_name="([^"]*)")?[^>]*?\/>/gi;
+  let m;
+  while((m=smsRe.exec(text))!==null){
+    const date=new Date(parseInt(m[2]));
+    const body=m[3].replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#10;/g,'\n');
+    if(body.length<3)continue;
+    messages.push({
+      sender:m[4]||m[1]||'Unknown',
+      phone:m[1],
+      date:date.toLocaleString(),
+      text:body
+    });
+  }
+  return messages;
+}
+
+async function ingestSms(text,filename){
+  clearLog();
+  const messages=parseSmsXml(text);
+  if(!messages.length){log('No SMS messages found in XML.','warn');return;}
+  log(`📱 SMS: ${messages.length} messages from ${filename}`);
+
+  const senders=[...new Set(messages.map(m=>m.sender))];
+  log(`Contacts: ${senders.slice(0,10).join(', ')}${senders.length>10?' +more':''}`);
+
+  // Group by contact then chunk
+  const byContact={};
+  messages.forEach(m=>{
+    if(!byContact[m.sender])byContact[m.sender]=[];
+    byContact[m.sender].push(m);
+  });
+
+  let totalArchived=0;
+  for(const[contact,msgs]of Object.entries(byContact)){
+    const CHUNK=30;
+    for(let i=0;i<msgs.length;i+=CHUNK){
+      const batch=msgs.slice(i,i+CHUNK);
+      const body=batch.map(m=>`[${m.date}] ${m.sender}: ${m.text}`).join('\n');
+      try{
+        await NX.sb.from('raw_emails').upsert({
+          id:'sms_'+Date.now()+'_'+totalArchived+'_'+Math.random().toString(36).slice(2,6),
+          from_addr:'SMS: '+contact,
+          to_addr:'nexus-import',
+          date:batch[0]?.date||'',
+          subject:`SMS with ${contact} (${batch.length} msgs)`,
+          body:body.slice(0,12000),
+          snippet:body.slice(0,200),
+          attachment_count:0,attachments:[],processed:false
+        },{onConflict:'id'});
+        totalArchived++;
+      }catch(e){}
+    }
+  }
+  log(`💾 ${totalArchived} chunks queued`,'success');
+  if(NX.toast)NX.toast(`${messages.length} SMS messages imported`,'success');
+  NX.syslog&&NX.syslog('sms_import',`${messages.length} messages from ${filename}`);
+  updateQueueStatus();
+}
 
 
 
