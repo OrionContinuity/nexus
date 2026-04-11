@@ -1102,39 +1102,12 @@ async function ingestWhatsApp(text,filename){
   clearLog();
   const messages=parseWhatsApp(text);
   if(!messages.length){log('No messages found in WhatsApp export.','warn');return;}
-  log(`📱 WhatsApp: ${messages.length} messages from ${filename}`);
-
-  // Extract unique senders
-  const senders=[...new Set(messages.map(m=>m.sender))];
-  log(`Participants: ${senders.join(', ')}`);
-
-  // Group into conversation chunks (~20 messages each for AI)
-  const CHUNK=20;
-  let totalArchived=0;
-  for(let i=0;i<messages.length;i+=CHUNK){
-    const batch=messages.slice(i,i+CHUNK);
-    const body=batch.map(m=>`[${m.date}] ${m.sender}: ${m.text}`).join('\n');
-    const firstDate=batch[0]?.date||'';
-    const lastDate=batch[batch.length-1]?.date||'';
-    try{
-      await NX.sb.from('raw_emails').upsert({
-        id:'wa_'+Date.now()+'_'+i+'_'+Math.random().toString(36).slice(2,6),
-        from_addr:'WhatsApp: '+senders.join(', '),
-        to_addr:'nexus-import',
-        date:firstDate,
-        subject:`WhatsApp ${filename} (${firstDate} – ${lastDate})`,
-        body:body.slice(0,12000),
-        snippet:body.slice(0,200),
-        attachment_count:0,attachments:[],processed:false
-      },{onConflict:'id'});
-      totalArchived++;
-    }catch(e){log('Archive error: '+e.message,'error');}
-  }
-  log(`💾 ${totalArchived} chunks queued for AI processing`,'success');
-  if(NX.toast)NX.toast(`${messages.length} WhatsApp messages imported`,'success');
-  NX.syslog&&NX.syslog('whatsapp_import',`${messages.length} messages from ${filename}`);
-  updateQueueStatus();
-  if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
+  // Group by sender
+  const byContact={};
+  messages.forEach(m=>{if(!byContact[m.sender])byContact[m.sender]=[];byContact[m.sender].push(m);});
+  log(`📱 WhatsApp: ${messages.length} messages, ${Object.keys(byContact).length} contacts`);
+  // Show picker
+  showContactPicker(byContact,'whatsapp',filename);
 }
 
 // ═══ SMS XML PARSER (Android SMS Backup format) ═══
@@ -1161,43 +1134,101 @@ async function ingestSms(text,filename){
   clearLog();
   const messages=parseSmsXml(text);
   if(!messages.length){log('No SMS messages found in XML.','warn');return;}
-  log(`📱 SMS: ${messages.length} messages from ${filename}`);
-
-  const senders=[...new Set(messages.map(m=>m.sender))];
-  log(`Contacts: ${senders.slice(0,10).join(', ')}${senders.length>10?' +more':''}`);
-
-  // Group by contact then chunk
   const byContact={};
-  messages.forEach(m=>{
-    if(!byContact[m.sender])byContact[m.sender]=[];
-    byContact[m.sender].push(m);
+  messages.forEach(m=>{if(!byContact[m.sender])byContact[m.sender]=[];byContact[m.sender].push(m);});
+  log(`📱 SMS: ${messages.length} messages, ${Object.keys(byContact).length} contacts`);
+  showContactPicker(byContact,'sms',filename);
+}
+
+// ═══ CONTACT PICKER — select which conversations feed the brain ═══
+function showContactPicker(byContact,source,filename){
+  const contacts=Object.entries(byContact).map(([name,msgs])=>({
+    name,count:msgs.length,
+    preview:msgs.slice(-1)[0]?.text?.slice(0,60)||'',
+    lastDate:msgs.slice(-1)[0]?.date||''
+  })).sort((a,b)=>b.count-a.count);
+
+  const overlay=document.createElement('div');overlay.className='board-modal-overlay';
+  const icon=source==='whatsapp'?'📱':'💬';
+  overlay.innerHTML=`<div class="board-modal" style="max-height:85vh;overflow-y:auto;max-width:400px">
+    <div class="board-modal-title">${icon} ${source==='whatsapp'?'WhatsApp':'SMS'} — Select Contacts</div>
+    <div style="font-size:11px;color:var(--faint);margin-bottom:10px">${filename} · ${contacts.reduce((a,c)=>a+c.count,0)} total messages</div>
+    <div class="cp-actions" style="display:flex;gap:6px;margin-bottom:10px">
+      <button class="ig-chip active" id="cpAll">Select All</button>
+      <button class="ig-chip" id="cpNone">Select None</button>
+    </div>
+    <div id="cpList" style="display:flex;flex-direction:column;gap:4px"></div>
+    <div class="board-modal-actions" style="margin-top:12px">
+      <button class="board-modal-cancel" id="cpCancel">Cancel</button>
+      <button class="board-modal-save" id="cpImport">Import Selected</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  const listEl=overlay.querySelector('#cpList');
+  contacts.forEach(c=>{
+    const row=document.createElement('label');row.className='cp-row';
+    row.innerHTML=`<input type="checkbox" checked data-contact="${c.name.replace(/"/g,'&quot;')}">
+      <div class="cp-info">
+        <div class="cp-name">${c.name} <span class="cp-count">${c.count} msgs</span></div>
+        <div class="cp-preview">${c.preview}</div>
+      </div>`;
+    listEl.appendChild(row);
   });
+
+  overlay.querySelector('#cpAll').addEventListener('click',()=>{overlay.querySelectorAll('#cpList input').forEach(cb=>cb.checked=true);});
+  overlay.querySelector('#cpNone').addEventListener('click',()=>{overlay.querySelectorAll('#cpList input').forEach(cb=>cb.checked=false);});
+  overlay.querySelector('#cpCancel').addEventListener('click',()=>overlay.remove());
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+
+  overlay.querySelector('#cpImport').addEventListener('click',async()=>{
+    const selected=new Set();
+    overlay.querySelectorAll('#cpList input:checked').forEach(cb=>selected.add(cb.dataset.contact));
+    overlay.remove();
+    if(!selected.size){log('No contacts selected.','warn');return;}
+    // Filter and import only selected contacts
+    const filtered={};
+    for(const[name,msgs]of Object.entries(byContact)){
+      if(selected.has(name))filtered[name]=msgs;
+    }
+    await importFilteredMessages(filtered,source,filename);
+  });
+}
+
+async function importFilteredMessages(byContact,source,filename){
+  const totalMsgs=Object.values(byContact).reduce((a,msgs)=>a+msgs.length,0);
+  const contactNames=Object.keys(byContact);
+  log(`Importing ${totalMsgs} messages from ${contactNames.length} contacts...`);
 
   let totalArchived=0;
   for(const[contact,msgs]of Object.entries(byContact)){
-    const CHUNK=30;
+    const CHUNK=source==='whatsapp'?20:30;
     for(let i=0;i<msgs.length;i+=CHUNK){
       const batch=msgs.slice(i,i+CHUNK);
       const body=batch.map(m=>`[${m.date}] ${m.sender}: ${m.text}`).join('\n');
+      const firstDate=batch[0]?.date||'';
+      const lastDate=batch[batch.length-1]?.date||'';
+      const prefix=source==='whatsapp'?'wa':'sms';
       try{
         await NX.sb.from('raw_emails').upsert({
-          id:'sms_'+Date.now()+'_'+totalArchived+'_'+Math.random().toString(36).slice(2,6),
-          from_addr:'SMS: '+contact,
+          id:`${prefix}_${Date.now()}_${totalArchived}_${Math.random().toString(36).slice(2,6)}`,
+          from_addr:`${source==='whatsapp'?'WhatsApp':'SMS'}: ${contact}`,
           to_addr:'nexus-import',
-          date:batch[0]?.date||'',
-          subject:`SMS with ${contact} (${batch.length} msgs)`,
+          date:firstDate,
+          subject:`${source==='whatsapp'?'WhatsApp':'SMS'} with ${contact} (${firstDate} – ${lastDate})`,
           body:body.slice(0,12000),
           snippet:body.slice(0,200),
           attachment_count:0,attachments:[],processed:false
         },{onConflict:'id'});
         totalArchived++;
-      }catch(e){}
+      }catch(e){log('Archive error: '+e.message,'error');}
     }
   }
-  log(`💾 ${totalArchived} chunks queued`,'success');
-  if(NX.toast)NX.toast(`${messages.length} SMS messages imported`,'success');
-  NX.syslog&&NX.syslog('sms_import',`${messages.length} messages from ${filename}`);
+  log(`💾 ${totalArchived} chunks from ${contactNames.length} contacts queued`,'success');
+  if(NX.toast)NX.toast(`${totalMsgs} messages from ${contactNames.length} contacts imported`,'success');
+  NX.syslog&&NX.syslog(`${source}_import`,`${totalMsgs} msgs from ${contactNames.join(', ')}`);
   updateQueueStatus();
+  if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
 }
 
 
