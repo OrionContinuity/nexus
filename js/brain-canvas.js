@@ -516,8 +516,54 @@
     document.getElementById('npCat').textContent=n.category.toUpperCase();
     const ownerLabel=n.owner_id?` · ${findOwnerName(n.owner_id)}'s Brain`:'';
     document.getElementById('npName').textContent=n.name;
-    document.getElementById('npTags').textContent=(n.tags||[]).map(t=>'#'+t).join('  ')+ownerLabel;
+    document.getElementById('npTags').textContent='';
+    const tagsEl=document.getElementById('npTags');
+    (n.tags||[]).forEach(t=>{
+      const tag=document.createElement('span');tag.className='np-tag-link';tag.textContent='#'+t;
+      tag.addEventListener('click',()=>{if(NX.searchByTag)NX.searchByTag(t);closePanel();});
+      tagsEl.appendChild(tag);
+    });
+    if(ownerLabel){const ow=document.createElement('span');ow.className='np-owner-label';ow.textContent=ownerLabel;tagsEl.appendChild(ow);}
+
     document.getElementById('npNotes').textContent=n.notes||'No notes.';
+
+    // ═══ BACKLINKS — nodes that mention this node ═══
+    const blEl=document.getElementById('npBacklinks');
+    if(blEl){
+      blEl.innerHTML='';
+      const nameLow=n.name.toLowerCase();
+      const backlinks=NX.nodes.filter(other=>other.id!==n.id&&!other.is_private&&(
+        (other.notes||'').toLowerCase().includes(nameLow)||
+        (other.tags||[]).some(t=>t.toLowerCase().includes(nameLow))||
+        (other.links||[]).includes(n.id)
+      ));
+      if(backlinks.length){
+        blEl.innerHTML='<div class="np-section-title">MENTIONED IN ('+backlinks.length+')</div>';
+        backlinks.slice(0,10).forEach(bl=>{
+          const d=document.createElement('div');d.className='np-link-item';
+          d.innerHTML=`<span class="np-link-cat">${bl.category}</span>${bl.name}`;
+          d.onclick=()=>{const fp=state.particles.find(p=>p.id===bl.id);if(fp){state.frozenNode=fp;state.activeNode=bl;openPanel(bl);}};
+          blEl.appendChild(d);
+        });
+      }
+    }
+
+    // ═══ TRANSCLUSION — preview linked node content ═══
+    const trEl=document.getElementById('npTransclusions');
+    if(trEl){
+      trEl.innerHTML='';
+      const linkedNodes=(n.links||[]).map(lid=>NX.nodes.find(x=>x.id===lid)).filter(Boolean).slice(0,5);
+      if(linkedNodes.length){
+        trEl.innerHTML='<div class="np-section-title">RELATED DETAILS</div>';
+        linkedNodes.forEach(ln=>{
+          if(!ln.notes||ln.notes.length<10)return;
+          const card=document.createElement('div');card.className='np-transclude';
+          card.innerHTML=`<div class="np-transclude-head"><span class="np-link-cat">${ln.category}</span><span class="np-transclude-name">${ln.name}</span></div><div class="np-transclude-body">${(ln.notes||'').slice(0,200)}${ln.notes.length>200?'…':''}</div>`;
+          card.addEventListener('click',()=>{const fp=state.particles.find(p=>p.id===ln.id);if(fp){state.frozenNode=fp;state.activeNode=ln;openPanel(ln);}});
+          trEl.appendChild(card);
+        });
+      }
+    }
     // Sources
     const se=document.getElementById('npSources');se.innerHTML='';
     const src=n.sources||n.source_emails;
@@ -617,10 +663,32 @@
       const saveBtn=document.createElement('button');saveBtn.className='np-edit-btn';saveBtn.textContent='Save';saveBtn.style.marginTop='6px';
       const cancelBtn=document.createElement('button');cancelBtn.className='np-edit-btn';cancelBtn.textContent='Cancel';cancelBtn.style.marginTop='6px';cancelBtn.style.marginLeft='6px';
       const notesEl=document.getElementById('npNotes');notesEl.innerHTML='';
-      notesEl.appendChild(ta);notesEl.appendChild(saveBtn);notesEl.appendChild(cancelBtn);
+      // Show version history if exists
+      const history=n.notes_history||[];
+      if(history.length){
+        const histBtn=document.createElement('button');histBtn.className='np-edit-btn np-hist-btn';histBtn.textContent=`↺ ${history.length} versions`;histBtn.style.marginTop='6px';histBtn.style.marginLeft='6px';
+        histBtn.onclick=()=>{
+          const histDiv=document.createElement('div');histDiv.className='np-history';
+          history.slice().reverse().forEach((h,i)=>{
+            const item=document.createElement('div');item.className='np-hist-item';
+            item.innerHTML=`<div class="np-hist-date">${h.date||'unknown'}</div><div class="np-hist-text">${(h.text||'').slice(0,100)}</div>`;
+            item.onclick=()=>{ta.value=h.text;histDiv.remove();};
+            histDiv.appendChild(item);
+          });
+          notesEl.appendChild(histDiv);
+        };
+        notesEl.appendChild(ta);notesEl.appendChild(saveBtn);notesEl.appendChild(cancelBtn);notesEl.appendChild(histBtn);
+      }else{
+        notesEl.appendChild(ta);notesEl.appendChild(saveBtn);notesEl.appendChild(cancelBtn);
+      }
       ta.focus();
       saveBtn.onclick=async()=>{const newNotes=ta.value;
-        await NX.sb.from('nodes').update({notes:newNotes}).eq('id',n.id);n.notes=newNotes;
+        // Save version history
+        const hist=n.notes_history||[];
+        if(current&&current.length>5)hist.push({text:current,date:new Date().toISOString().split('T')[0]});
+        const trimmedHist=hist.slice(-10); // Keep last 10 versions
+        await NX.sb.from('nodes').update({notes:newNotes,notes_history:trimmedHist}).eq('id',n.id);
+        n.notes=newNotes;n.notes_history=trimmedHist;
         notesEl.textContent=newNotes||'No notes.';};
       cancelBtn.onclick=()=>{notesEl.textContent=current||'No notes.';};
     };
