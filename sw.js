@@ -1,27 +1,30 @@
 /* NEXUS Service Worker — offline cache */
-const CACHE_NAME = 'nexus-v1';
-const STATIC_ASSETS = [
-  '/nexus/',
-  '/nexus/index.html',
-  '/nexus/css/nexus.css',
-  '/nexus/js/app.js',
-  '/nexus/js/i18n.js',
-  '/nexus/js/brain-canvas.js',
-  '/nexus/js/brain-chat.js',
-  '/nexus/js/brain-list.js',
-  '/nexus/js/brain-events.js',
-  '/nexus/js/cleaning.js',
-  '/nexus/js/log.js',
-  '/nexus/js/board.js',
-  '/nexus/js/admin.js',
-  '/nexus/beacon-audio.mp3'
+const CACHE_NAME = 'nexus-v4';
+const ASSET_NAMES = [
+  '',
+  'index.html',
+  'css/nexus.css',
+  'js/app.js',
+  'js/i18n.js',
+  'js/brain-canvas.js',
+  'js/brain-chat.js',
+  'js/brain-list.js',
+  'js/brain-events.js',
+  'js/cleaning.js',
+  'js/log.js',
+  'js/board.js',
+  'js/calendar.js',
+  'js/admin.js',
+  'beacon-audio.mp3'
 ];
 
-// Install — cache static assets
+// Install — cache static assets relative to scope
 self.addEventListener('install', event => {
+  const base = self.registration.scope;
+  const urls = ASSET_NAMES.map(a => base + a);
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(STATIC_ASSETS).catch(err => {
+      return cache.addAll(urls).catch(err => {
         console.warn('SW: some assets failed to cache', err);
       });
     })
@@ -32,7 +35,7 @@ self.addEventListener('install', event => {
 // Activate — clean old caches
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys => 
+    caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
     )
   );
@@ -42,10 +45,9 @@ self.addEventListener('activate', event => {
 // Fetch — network first, cache fallback
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
-  
-  // Never cache API calls
-  if (url.hostname.includes('supabase') || 
-      url.hostname.includes('anthropic') || 
+
+  if (url.hostname.includes('supabase') ||
+      url.hostname.includes('anthropic') ||
       url.hostname.includes('googleapis') ||
       url.hostname.includes('google.com') ||
       url.hostname.includes('elevenlabs') ||
@@ -56,7 +58,6 @@ self.addEventListener('fetch', event => {
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        // Cache successful responses
         if (response.ok && event.request.method === 'GET') {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
@@ -64,12 +65,10 @@ self.addEventListener('fetch', event => {
         return response;
       })
       .catch(() => {
-        // Network failed — try cache
         return caches.match(event.request).then(cached => {
           if (cached) return cached;
-          // Return offline page for navigation
           if (event.request.mode === 'navigate') {
-            return caches.match('/nexus/index.html');
+            return caches.match(self.registration.scope + 'index.html');
           }
           return new Response('Offline', { status: 503 });
         });
