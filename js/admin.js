@@ -97,6 +97,8 @@ async function init(){
   document.getElementById('sensitiveBtn')?.addEventListener('click',scanSensitive);
   document.getElementById('relationshipBtn')?.addEventListener('click',()=>buildRelationships(false));
   document.getElementById('dedupBtn')?.addEventListener('click',findDuplicates);
+  document.getElementById('digestBtn')?.addEventListener('click',generateDigest);
+  document.getElementById('remindersBtn')?.addEventListener('click',smartReminders);
   document.getElementById('importFileInput')?.addEventListener('change',function(){if(this.files.length)importBackup(this.files[0]);});
   document.getElementById('autoLinkToggle')?.addEventListener('change',e=>{localStorage.setItem('nexus_auto_link',e.target.checked?'on':'off');});
 
@@ -1175,7 +1177,45 @@ if(r.cards)for(const x of r.cards){if(!x.title)continue;await NX.sb.from('kanban
 if(updated)log(`${updated} existing nodes enriched`,'success');
 if(er)log(`${er} inserts failed`,'error');
 if(createdNames.length&&NX.autoLinkNewNodes&&shouldAutoLink()){await NX.loadNodes();NX.autoLinkNewNodes(createdNames);}
+// Auto-triage — check for urgent items
+if(r.nodes&&r.nodes.length)triageNewNodes(r.nodes);
 return c+updated;}
+
+// ═══ AUTO-TRIAGE — flag urgent items during pipeline ═══
+const URGENT_PATTERNS=[
+  {re:/health\s*(?:dept|department|inspector|inspection|violation)/i,label:'🏥 Health Department'},
+  {re:/equipment\s*(?:failure|down|broken|not\s*working)/i,label:'🔧 Equipment Down'},
+  {re:/leak|flood|water\s*damage/i,label:'💧 Water/Leak'},
+  {re:/fire|smoke|burn/i,label:'🔥 Fire/Safety'},
+  {re:/pest|roach|rodent|mouse|rat/i,label:'🐛 Pest Issue'},
+  {re:/price\s*increase|rate\s*change|cost\s*increase/i,label:'💰 Price Change'},
+  {re:/cancel|terminat|discontinue/i,label:'⚠ Cancellation'},
+  {re:/expire|expir|past\s*due|overdue\s*(?:invoice|payment|bill)/i,label:'⏰ Expiring/Overdue'},
+  {re:/urgent|emergency|asap|immediately|critical/i,label:'🚨 Urgent'},
+  {re:/recall|safety\s*alert|warning\s*notice/i,label:'⚠ Safety Alert'},
+];
+
+function triageNewNodes(nodes){
+  const alerts=[];
+  for(const n of nodes){
+    const text=`${n.name||''} ${n.notes||''}`;
+    for(const p of URGENT_PATTERNS){
+      if(p.re.test(text)){
+        alerts.push({label:p.label,node:n.name,snippet:(n.notes||'').slice(0,80)});
+        break; // One alert per node
+      }
+    }
+  }
+  if(!alerts.length)return;
+  // Show urgent toast
+  alerts.forEach(a=>{
+    if(NX.toast)NX.toast(`${a.label}: ${a.node}`,'error',8000);
+  });
+  log(`🚨 <b>${alerts.length} URGENT</b> items detected:`,'error');
+  alerts.forEach(a=>log(`  ${a.label} — ${a.node}: ${a.snippet}`,'error'));
+  // Store for proactive chat
+  NX._urgentAlerts=(NX._urgentAlerts||[]).concat(alerts).slice(-20);
+}
 
 // ═══ MAIL MONITOR (enhanced: scrapes attachments + links to nodes) ═══
 
@@ -1187,6 +1227,167 @@ async function ingestText(){const t=document.getElementById('ingestText').value.
 function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 function updateStats(){const el=document.getElementById('ingestStats');if(!el)return;const t=NX.nodes.length,c={};NX.nodes.forEach(n=>{c[n.category]=(c[n.category]||0)+1;});el.innerHTML=`<div class="stat-total">${t} nodes in brain · ${processedIds.size} items processed</div><div class="stat-chips">${Object.entries(c).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<span class="stat-chip">${k} <b>${v}</b></span>`).join('')}</div>`;}
 
+// ═══ WEEKLY DIGEST — generates operational report via Claude ═══
+async function generateDigest(){
+  clearLog();log('📊 Generating weekly digest...');
+  const apiKey=NX.getApiKey();if(!apiKey){log('No API key','error');return;}
+  try{
+    const weekAgo=new Date(Date.now()-7*86400000).toISOString();
+    const today=new Date().toISOString().split('T')[0];
+
+    // Gather week's data
+    const [hoursR,ticketsR,nodesR,cardsR,cleanR,chatsR]=await Promise.allSettled([
+      NX.sb.from('time_clock').select('user_name,hours,clock_in,location').gte('clock_in',weekAgo).not('hours','is',null),
+      NX.sb.from('tickets').select('title,location,status,created_at').gte('created_at',weekAgo),
+      NX.sb.from('nodes').select('name,category,created_at').gte('created_at',weekAgo),
+      NX.sb.from('kanban_cards').select('title,column_name,due_date,location').limit(50),
+      NX.sb.from('daily_logs').select('entry,created_at').gte('created_at',weekAgo).like('entry','%Cleaning%'),
+      NX.sb.from('chat_history').select('question,answer,user_name,created_at').gte('created_at',weekAgo).limit(50)
+    ]);
+
+    const hours=hoursR.status==='fulfilled'?hoursR.value.data||[]:[];
+    const tickets=ticketsR.status==='fulfilled'?ticketsR.value.data||[]:[];
+    const newNodes=nodesR.status==='fulfilled'?nodesR.value.data||[]:[];
+    const cards=cardsR.status==='fulfilled'?cardsR.value.data||[]:[];
+    const cleaning=cleanR.status==='fulfilled'?cleanR.value.data||[]:[];
+    const chats=chatsR.status==='fulfilled'?chatsR.value.data||[]:[];
+
+    // Summarize hours by person
+    const byPerson={};
+    hours.forEach(h=>{byPerson[h.user_name]=(byPerson[h.user_name]||0)+parseFloat(h.hours||0);});
+    const hoursStr=Object.entries(byPerson).sort((a,b)=>b[1]-a[1]).map(([n,h])=>`${n}: ${h.toFixed(1)}h`).join(', ');
+
+    // Ticket summary
+    const openTickets=tickets.filter(t=>t.status==='open');
+    const closedTickets=tickets.filter(t=>t.status==='closed');
+
+    // Card summary
+    const todo=cards.filter(c=>c.column_name==='todo');
+    const done=cards.filter(c=>c.column_name==='done');
+    const overdue=cards.filter(c=>c.due_date&&c.due_date<today&&c.column_name!=='done');
+
+    // Build data for Claude
+    const data=`WEEK OF ${new Date(Date.now()-7*86400000).toLocaleDateString()} — ${new Date().toLocaleDateString()}
+
+HOURS WORKED:
+${hoursStr||'No hours logged'}
+Total staff hours: ${Object.values(byPerson).reduce((a,b)=>a+b,0).toFixed(1)}
+
+TICKETS:
+${openTickets.length} still open: ${openTickets.map(t=>t.title).join(', ')||'none'}
+${closedTickets.length} closed this week
+
+BOARD:
+${todo.length} tasks in To Do, ${done.length} completed, ${overdue.length} overdue
+${overdue.length?'Overdue: '+overdue.map(c=>c.title).join(', '):''}
+
+NEW KNOWLEDGE:
+${newNodes.length} new nodes added to brain this week
+Categories: ${[...new Set(newNodes.map(n=>n.category))].join(', ')||'none'}
+
+CLEANING:
+${cleaning.length} cleaning reports logged
+${cleaning.slice(-3).map(l=>(l.entry||'').slice(0,80)).join('\n')||'No reports'}
+
+KEY CONVERSATIONS (${chats.length} total):
+${chats.slice(0,8).map(c=>`${c.user_name}: "${(c.question||'').slice(0,60)}"`).join('\n')||'None'}`;
+
+    log('Sending to Claude for analysis...');
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:800,messages:[{role:'user',content:`You are NEXUS, the ops brain for Suerte, Este, and Bar Toti restaurants (Austin TX). Generate a weekly operations digest from this data. Be direct, insightful, and actionable. Flag concerns. Praise wins. Suggest what to focus on next week. Format with headers but keep it concise — this goes on a phone screen.\n\n${data}`}]})
+    });
+    const result=await resp.json();
+    const digest=result.content?.[0]?.text;
+    if(!digest){log('No digest generated','error');return;}
+
+    // Display in log
+    log('═══ WEEKLY DIGEST ═══','success');
+    digest.split('\n').forEach(line=>{
+      if(line.trim())log(line.replace(/\*\*(.*?)\*\*/g,'<b>$1</b>'));
+    });
+
+    // Save to daily_logs
+    try{
+      await NX.sb.from('daily_logs').insert({
+        entry:`📊 WEEKLY DIGEST (${today}):\n${digest}`,
+        user_id:NX.currentUser?.id||0,
+        user_name:'NEXUS'
+      });
+      log('Digest saved to logs ✓','success');
+    }catch(e){}
+
+  }catch(e){log('Digest error: '+e.message,'error');}
+}
+
+// ═══ SMART REMINDERS — find unresolved discussions ═══
+async function smartReminders(){
+  clearLog();log('🧠 Scanning for unresolved items...');
+  const apiKey=NX.getApiKey();if(!apiKey){log('No API key','error');return;}
+  try{
+    const twoWeeks=new Date(Date.now()-14*86400000).toISOString();
+
+    // Get recent chats
+    const{data:chats}=await NX.sb.from('chat_history')
+      .select('question,answer,user_name,created_at')
+      .gte('created_at',twoWeeks).order('created_at',{ascending:false}).limit(100);
+
+    // Get existing cards and tickets
+    const{data:cards}=await NX.sb.from('kanban_cards').select('title').limit(200);
+    const{data:tickets}=await NX.sb.from('tickets').select('title').limit(200);
+
+    if(!chats||chats.length<3){log('Not enough conversations to analyze','warn');return;}
+
+    const chatStr=chats.map(c=>`[${new Date(c.created_at).toLocaleDateString()} ${c.user_name}] Q: ${(c.question||'').slice(0,100)}\nA: ${(c.answer||'').slice(0,150)}`).join('\n---\n');
+    const existingItems=[...(cards||[]).map(c=>c.title),...(tickets||[]).map(t=>t.title)].join(', ');
+
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:500,messages:[{role:'user',content:`You are NEXUS. Review these recent conversations and find items that were DISCUSSED but never turned into action items. Things like "we should replace that" or "let's order the part" or "I'll call them Monday" — promises and intentions that might have been forgotten.
+
+EXISTING CARDS/TICKETS (already tracked):
+${existingItems||'none'}
+
+RECENT CONVERSATIONS:
+${chatStr}
+
+List 1-5 items that seem unresolved. For each, give:
+- What was discussed
+- Who discussed it and when
+- Suggested action (create card, create ticket, or follow up)
+
+If everything looks handled, say so. Be brief. JSON format:
+{"items":[{"discussed":"...","who":"...","date":"...","action":"..."}],"all_clear":false}`}]})
+    });
+    const result=await resp.json();
+    const text=result.content?.[0]?.text||'';
+
+    try{
+      const clean=text.replace(/```json|```/g,'').trim();
+      const parsed=JSON.parse(clean);
+      if(parsed.all_clear||!parsed.items||!parsed.items.length){
+        log('✅ All clear — no unresolved items found','success');
+        return;
+      }
+      log(`Found ${parsed.items.length} unresolved items:`,'warn');
+      for(const item of parsed.items){
+        log(`<div class="reminder-item">
+          <div class="reminder-what">${item.discussed}</div>
+          <div class="reminder-who">${item.who} — ${item.date}</div>
+          <div class="reminder-action">
+            <button class="reminder-btn" onclick="NX.sb.from('kanban_cards').insert({title:'${(item.discussed||'').slice(0,80).replace(/'/g,"\\'")}',column_name:'todo'}).then(()=>{NX.toast('Card added ✓','success');this.textContent='Added ✓';this.disabled=true;})">+ Add Card</button>
+            Suggested: ${item.action}
+          </div>
+        </div>`);
+      }
+    }catch(e){
+      // Not JSON — show raw
+      log(text);
+    }
+  }catch(e){log('Reminder error: '+e.message,'error');}
+}
 // ═══ SENSITIVE DATA SCANNER — AI identifies and removes personal nodes ═══
 // ═══ NODE DEDUPLICATION TOOL ═══
 async function findDuplicates(){

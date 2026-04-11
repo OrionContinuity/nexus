@@ -77,6 +77,72 @@ const NX = {
     }
   },
 
+  // ─── Glossary, Aliases, Critical Facts — loaded once on startup ───
+  _glossary: [],
+  _aliases: {},
+  _criticalFacts: [],
+
+  async loadGlossary() {
+    try {
+      const { data } = await this.sb.from('nexus_glossary').select('term,meaning').order('term');
+      if (data) this._glossary = data;
+    } catch (e) {
+      // Table might not exist yet — use defaults
+      this._glossary = [
+        { term: 'walk-in', meaning: 'walk-in cooler/refrigerator' },
+        { term: 'the line', meaning: 'kitchen cooking stations' },
+        { term: '86 / 86d', meaning: 'item is out of stock or removed from menu' },
+        { term: 'lowboy', meaning: 'under-counter refrigerator' },
+        { term: 'two-top', meaning: 'table for two guests' },
+        { term: 'four-top', meaning: 'table for four guests' },
+        { term: 'mise', meaning: 'mise en place — prep/setup' },
+        { term: 'expo', meaning: 'expeditor — person coordinating food going out' },
+        { term: 'BOH', meaning: 'back of house — kitchen area' },
+        { term: 'FOH', meaning: 'front of house — dining area' },
+        { term: 'comp', meaning: 'complimentary — given for free' },
+        { term: 'fire', meaning: 'start cooking an order' },
+        { term: 'on the fly', meaning: 'rush order, needs to go out immediately' },
+        { term: 'Ders', meaning: 'Alfredo "Ders" Ortiz — owner' },
+      ];
+    }
+  },
+
+  async loadAliases() {
+    try {
+      const { data } = await this.sb.from('node_aliases').select('alias,canonical_name');
+      if (data) {
+        this._aliases = {};
+        data.forEach(a => { this._aliases[a.alias] = a.canonical_name; });
+      }
+    } catch (e) {
+      // Build aliases from nodes — names with common short forms
+      this._aliases = {};
+      (this.nodes || []).forEach(n => {
+        const name = n.name || '';
+        const words = name.split(/\s+/);
+        if (words.length > 1) {
+          // First name → full name
+          this._aliases[words[0].toLowerCase()] = name;
+          // First + last initial → full name
+          if (words.length >= 2) this._aliases[(words[0] + ' ' + words[1][0]).toLowerCase()] = name;
+        }
+      });
+    }
+  },
+
+  async loadCriticalFacts() {
+    try {
+      const { data } = await this.sb.from('critical_facts').select('content,priority').order('priority');
+      if (data) this._criticalFacts = data;
+    } catch (e) {
+      // Table might not exist — use defaults from nodes
+      this._criticalFacts = [
+        { content: '3 restaurants: Suerte (Mexican), Este (Italian), Bar Toti (cocktail bar) — all Austin TX', priority: 1 },
+        { content: 'Alfredo "Ders" Ortiz is the owner/operator of all three', priority: 2 },
+      ];
+    }
+  },
+
   async loadNodes() {
     if (this.paused) return;
     try {
@@ -299,6 +365,10 @@ const NX = {
 
     // Continue with normal init
     this.loadNodes().then(() => {
+      // Load AI context systems
+      this.loadGlossary();
+      this.loadAliases();
+      this.loadCriticalFacts();
       this.loadScript('js/brain-canvas.js', () => {
         this.loadScript('js/brain-list.js', () => {
           this.loadScript('js/brain-events.js', () => {
@@ -962,50 +1032,94 @@ const NX = {
 
   async showBriefing(){
     if(this.paused||!this.currentUser)return;
-    const items=[];
+    const briefing={tickets:[],contractors:[],overdue:[],hours:{},cleaning:{},queue:0,clockedIn:false};
     try{
       const today=new Date().toISOString().split('T')[0];
+      const weekAgo=new Date(Date.now()-7*86400000).toISOString();
 
-      // Open tickets
-      const{count:tickets}=await this.sb.from('tickets').select('*',{count:'exact',head:true}).eq('status','open');
-      if(tickets>0)items.push(`🔴 ${tickets} open ticket${tickets>1?'s':''}`);
+      // Open tickets with details
+      const{data:ticketData}=await this.sb.from('tickets').select('title,location,status,created_at').eq('status','open').limit(10);
+      if(ticketData)briefing.tickets=ticketData;
 
-      // Contractors today — show persistent banner
+      // Contractors today
       const{data:events}=await this.sb.from('contractor_events').select('contractor_name,event_time,location,description').eq('event_date',today);
-      if(events&&events.length){
-        items.push(`🔵 ${events.map(e=>e.contractor_name).join(', ')} today`);
+      if(events)briefing.contractors=events;
+
+      // Show contractor banner
+      if(briefing.contractors.length){
         const banner=document.getElementById('contractorBanner');
         if(banner&&!banner.dataset.dismissed){
-          banner.innerHTML='🔵 TODAY: '+events.map(e=>`<b>${e.contractor_name}</b>${e.event_time?' @ '+e.event_time:''}${e.location?' · '+e.location:''}`).join(' | ')+' <button class="alert-dismiss" onclick="this.parentElement.style.display=\'none\';this.parentElement.dataset.dismissed=\'1\'">✕</button>';
+          banner.innerHTML='🔵 TODAY: '+briefing.contractors.map(e=>`<b>${e.contractor_name}</b>${e.event_time?' @ '+e.event_time:''}${e.location?' · '+e.location:''}`).join(' | ')+' <button class="alert-dismiss" onclick="this.parentElement.style.display=\'none\';this.parentElement.dataset.dismissed=\'1\'">✕</button>';
           banner.style.display='';
         }
       }
 
-      // Overdue board cards — show persistent banner (dismissable)
+      // Overdue cards
       const{data:overdue}=await this.sb.from('kanban_cards').select('title,due_date')
         .lt('due_date',today).neq('column_name','done').limit(20);
-      if(overdue&&overdue.length){
-        const count=overdue.length>=20?'20+':overdue.length;
-        items.push(`⚠ ${count} overdue task${overdue.length>1?'s':''}`);
+      if(overdue)briefing.overdue=overdue;
+
+      // Show overdue banner
+      if(briefing.overdue.length){
+        const count=briefing.overdue.length>=20?'20+':briefing.overdue.length;
         const banner=document.getElementById('overdueBanner');
         if(banner&&!banner.dataset.dismissed){
-          banner.innerHTML=`⚠ ${count} OVERDUE: ${overdue.slice(0,3).map(c=>c.title).join(', ')}${overdue.length>3?' +more':''} <button class="alert-dismiss" onclick="this.parentElement.style.display='none';this.parentElement.dataset.dismissed='1'">✕</button>`;
+          banner.innerHTML=`⚠ ${count} OVERDUE: ${briefing.overdue.slice(0,3).map(c=>c.title).join(', ')}${briefing.overdue.length>3?' +more':''} <button class="alert-dismiss" onclick="this.parentElement.style.display='none';this.parentElement.dataset.dismissed='1'">✕</button>`;
           banner.style.display='';
         }
       }
+
+      // Hours worked this week — all staff
+      try{
+        const{data:hours}=await this.sb.from('time_clock').select('user_name,hours')
+          .gte('clock_in',weekAgo).not('hours','is',null);
+        if(hours){
+          const byPerson={};
+          hours.forEach(h=>{byPerson[h.user_name]=(byPerson[h.user_name]||0)+parseFloat(h.hours||0);});
+          briefing.hours=byPerson;
+        }
+      }catch(e){}
+
+      // Cleaning scores this week
+      try{
+        const{data:cleanLogs}=await this.sb.from('daily_logs').select('entry,created_at')
+          .gte('created_at',weekAgo).like('entry','%Cleaning%').limit(20);
+        if(cleanLogs){
+          const byLoc={};
+          cleanLogs.forEach(l=>{
+            const pcts=(l.entry||'').matchAll(/(\w+)\s*\((\d+)%\)/g);
+            for(const m of pcts){
+              if(!byLoc[m[1]])byLoc[m[1]]={scores:[],count:0};
+              byLoc[m[1]].scores.push(parseInt(m[2]));
+              byLoc[m[1]].count++;
+            }
+          });
+          Object.entries(byLoc).forEach(([loc,d])=>{
+            d.avg=Math.round(d.scores.reduce((a,b)=>a+b,0)/d.scores.length);
+          });
+          briefing.cleaning=byLoc;
+        }
+      }catch(e){}
 
       // Pending queue
       const{count:queue}=await this.sb.from('raw_emails').select('*',{count:'exact',head:true}).eq('processed',false);
-      if(queue>10)items.push(`⏳ ${queue} emails pending`);
+      briefing.queue=queue||0;
 
-      // Clocked in status
-      const isIn=await NX.timeClock.checkStatus();
-      if(!isIn)items.push(`⏱ Not clocked in`);
-    }catch(e){}
+      // Clock status
+      briefing.clockedIn=await NX.timeClock.checkStatus();
 
-    if(items.length){
-      this.toast(items.join(' · '),'info',5000);
-    }
+    }catch(e){console.error('Briefing error:',e);}
+
+    // Store for proactive chat
+    this._briefingData=briefing;
+
+    // Quick toast summary
+    const items=[];
+    if(briefing.tickets.length)items.push(`🔴 ${briefing.tickets.length} ticket${briefing.tickets.length>1?'s':''}`);
+    if(briefing.contractors.length)items.push(`🔵 ${briefing.contractors.map(e=>e.contractor_name).join(', ')} today`);
+    if(briefing.overdue.length>3)items.push(`⚠ ${briefing.overdue.length} overdue`);
+    if(!briefing.clockedIn)items.push(`⏱ Not clocked in`);
+    if(items.length)this.toast(items.join(' · '),'info',5000);
   },
 
   // ─── Claude API ───
@@ -1051,7 +1165,30 @@ document.addEventListener('DOMContentLoaded', () => NX.init());
 
 // Register service worker for offline support
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    // Push notification setup
+    if ('PushManager' in window && NX.currentUser) {
+      NX.setupPush = async function(vapidPublicKey) {
+        try {
+          const permission = await Notification.requestPermission();
+          if (permission !== 'granted') return;
+          const sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: vapidPublicKey
+          });
+          // Save subscription to Supabase
+          await NX.sb.from('push_subscriptions').upsert({
+            user_id: NX.currentUser.id,
+            user_name: NX.currentUser.name,
+            subscription: sub.toJSON()
+          }, { onConflict: 'user_id' });
+          if (NX.toast) NX.toast('Notifications enabled ✓', 'success');
+        } catch (e) {
+          console.warn('Push setup failed:', e);
+        }
+      };
+    }
+  }).catch(() => {});
 }
 
 // ═══ OFFLINE QUEUE — stores actions when offline, replays when back ═══

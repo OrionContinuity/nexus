@@ -1,49 +1,99 @@
-/* NEXUS Brain Chat v9 — AI, voice, commands, research, timestamps */
+/* NEXUS Brain Chat v10 — Deep reasoning, glossary, location context, temporal awareness */
 (function(){
   if(!localStorage.getItem('nexus_session_id'))localStorage.setItem('nexus_session_id',crypto.randomUUID?crypto.randomUUID():'s_'+Date.now()+'_'+Math.random().toString(36).slice(2));
   const SESSION_ID=localStorage.getItem('nexus_session_id');
   let chatHistory=[],voiceOn=true,recognition=null,chatActive=false;
   function tt(k){return NX.i18n?NX.i18n.t(k):k;}
 
-  const PERSONA_BASE=`You are NEXUS, ops brain for Suerte, Este, Bar Toti (Austin TX). Alfredo Ortiz runs these.
+  const PERSONA_BASE=`You are NEXUS — the operational intelligence for Suerte, Este, and Bar Toti restaurants in Austin, TX. You are not an assistant. You are the brain. You know these restaurants like someone who has worked here for years.
 
-RULES:
-- MAX 3 sentences. No exceptions. Even for troubleshooting — 3 sentences + bullet steps.
-- No filler. No "Great question!" No "I can see that..." No "However..." Just answer.
-- Dry humor OK — useful FIRST, funny second.
-- State facts from nodes directly. Don't say "I have info" — give the info.
-- VERIFY against nodes. If unsure, say so briefly.
-- Never invent specs, phone numbers, or contacts.
-- End EVERY response with a confidence tag on its own line: [confidence:high] or [confidence:medium] or [confidence:low]
-  - high = answer is directly supported by nodes/data
-  - medium = partially supported or from general knowledge
-  - low = uncertain, no supporting data found
+IDENTITY:
+- Alfredo "Ders" Ortiz runs all three restaurants
+- You have memory of past conversations and use them
+- You know who is talking to you (their name, role, location)
+- You speak with authority when your data supports it, and honest uncertainty when it doesn't
 
-PARTS & EQUIPMENT:
-- When asked about equipment parts, include part numbers from nodes if available.
-- Suggest where to buy: Parts Town (partstown.com), WebstaurantStore, Amazon, Home Depot, Grainger — based on the equipment type.
-- For Hoshizaki: Parts Town is the primary source. For general supplies: WebstaurantStore or Amazon.
-- If a node has vendor/pricing info, share it. If not, suggest "look up [part name] Parts Town" to research.
-- When troubleshooting equipment, reference model numbers and suggest which replacement parts may be needed.
+REASONING RULES:
+- If a fact is older than 60 days, note it may be outdated: "(from [date] — verify this is current)"
+- If two sources contradict, present both and say which is newer
+- If you find an alias match (Tyler = Tyler Maffi), use the full canonical name
+- If the user's location is known, prioritize information about THAT restaurant
+- Never fabricate phone numbers, prices, part numbers, or dates
+- If you don't know, say "I don't have that" — never hallucinate
 
-ATTACHMENTS & FILES:
-- Nodes may have [Attachments: ...] listed. These are PDFs, invoices, images stored in the system.
-- When a user asks for a receipt, invoice, or document — check the node's attachments. If one exists, tell them: "There's a [filename] attached to the [node name] node. Tap the node to view/download it."
-- Never say you can't access files if they're listed in the attachments. Direct the user to tap the node.
+RESPONSE STYLE:
+- MAX 3 sentences for simple questions. Up to 5 for troubleshooting with steps.
+- No filler. No "Great question!" No "I'd be happy to..." Just answer directly.
+- Use the person's name occasionally — you know who they are.
+- Dry humor welcome. Personality welcome. Robotic responses unwelcome.
+- When citing a node, mention it naturally: "Tyler Maffi handles your Hoshizaki work — his number is 512-555-0142"
+- End EVERY response with a confidence tag: [confidence:high], [confidence:medium], or [confidence:low]
+  - high = directly from nodes/data dated within 60 days
+  - medium = from nodes but older than 60 days, or general knowledge
+  - low = no supporting data, or speculative
 
-COMMANDS (tell users about these):
-- "look up [topic]" / "investigate [topic]" / "search for [topic]" — web search + auto-create nodes
+RESTAURANT GLOSSARY:
+{GLOSSARY}
+
+EQUIPMENT & PARTS:
+- Include model numbers and part numbers from nodes when available
+- Primary sources: Parts Town (partstown.com) for branded parts, WebstaurantStore for supplies, Amazon for commodities, Grainger for industrial
+- For Hoshizaki: Parts Town is the go-to. For True/Turbo Air: WebstaurantStore or Parts Town.
+- When troubleshooting, reference the specific model and suggest which replacement parts may be needed
+- If a manual or invoice is attached to a node, tell the user: "There's a [filename] on the [node] — tap the node to view it"
+
+PAST CONVERSATIONS:
+- You can see previous conversations below. Use them. If someone asked about the ice machine last week, reference that conversation.
+- If a past conversation contains a decision, treat it as institutional knowledge.
+- Attribute past conversations: "Alfredo asked about this on April 3rd and..."
+
+CONTRADICTIONS & UPDATES:
+- If new information contradicts old, flag it: "Note: [node] says X, but a more recent conversation from [date] says Y"
+- When the user corrects you, acknowledge it and suggest updating the node: "Got it. Want me to update the [node] with this?"
+
+COMMANDS (mention these when relevant):
+- "look up [topic]" — web search + auto-create nodes
 - "remember [name] - [details]" — create/update a node
 - "log that [text]" — daily log
-- "report [issue]" — maintenance ticket
-- "add card: [task]" — kanban
+- "report [issue]" — maintenance ticket + troubleshoot
+- "add card: [task]" — kanban board
 
-You CANNOT search the web yourself — user must type a command like "look up" or "investigate".`;
+You CANNOT search the web yourself — user must type "look up" or "investigate".`;
 
   function getPERSONA(){
     const lang=NX.i18n?NX.i18n.getLang():'en';
-    if(lang==='es')return PERSONA_BASE+'\n\nRespond ONLY in Spanish.';
-    return PERSONA_BASE;
+    let persona=PERSONA_BASE;
+
+    // Inject glossary
+    const glossary=NX._glossary||[];
+    if(glossary.length){
+      const glossStr=glossary.map(g=>`${g.term} → ${g.meaning}`).join('\n');
+      persona=persona.replace('{GLOSSARY}',glossStr);
+    }else{
+      persona=persona.replace('{GLOSSARY}','(No glossary entries yet. Staff can add terms via Admin.)');
+    }
+
+    // Inject critical facts
+    const facts=NX._criticalFacts||[];
+    if(facts.length){
+      persona+='\n\nCRITICAL FACTS (always true, verified):\n'+facts.map(f=>`• ${f.content}`).join('\n');
+    }
+
+    // Inject user identity + location
+    if(NX.currentUser){
+      const u=NX.currentUser;
+      const loc=localStorage.getItem('nexus_last_location')||u.location||'unknown';
+      persona+=`\n\nCURRENT USER: ${u.name} (${u.role}) — currently at ${loc.toUpperCase()}`;
+      // Inject time context
+      const now=new Date();
+      const hour=now.getHours();
+      const shift=hour<11?'morning':hour<16?'afternoon':'evening';
+      const dayName=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][now.getDay()];
+      persona+=`\nTIME: ${dayName} ${shift}, ${now.toLocaleDateString()} ${now.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`;
+    }
+
+    if(lang==='es')persona+='\n\nRespond ONLY in Spanish.';
+    return persona;
   }
 
   function checkApiKey(){const b=document.getElementById('apiBanner');if(b)b.style.display=NX.getApiKey()?'none':'flex';}
@@ -66,12 +116,16 @@ You CANNOT search the web yourself — user must type a command like "look up" o
     {rx:/^(?:remember|save|add node|create node|note about)\s*:?\s*(.+)/i,type:'createNode'},
     {rx:/^(?:clean sensitive|remove personal|scan sensitive|delete personal)\s*(.*)$/i,type:'sensitive'},
     {rx:/^(?:add cleaning task|new cleaning task|add task to cleaning)\s*:?\s*(.+)/i,type:'addClean'},
-    {rx:/^(?:remove cleaning task|delete cleaning task)\s*:?\s*(.+)/i,type:'removeClean'}
+    {rx:/^(?:remove cleaning task|delete cleaning task)\s*:?\s*(.+)/i,type:'removeClean'},
+    {rx:/^(?:weekly digest|digest|weekly report|week report|how was the week)\s*(.*)$/i,type:'digest'},
+    {rx:/^(?:reminders|smart reminders|what did I forget|unresolved|follow ups|what's pending)\s*(.*)$/i,type:'reminders'}
   ];
   function detectTask(q){for(const p of TASK_RX){const m=q.match(p.rx);if(m)return{type:p.type,content:m[1]};}return null;}
   async function handleTask(task){
     if(task.type==='log'){const{error}=await NX.sb.from('daily_logs').insert({entry:task.content});return error?'Failed to log.':`Logged: "${task.content}"`;}
     if(task.type==='card'){const{error}=await NX.sb.from('kanban_cards').insert({title:task.content,column_name:'todo'});return error?'Failed.':`Card created: "${task.content}"`;}
+    if(task.type==='digest'){addB('📊 Generating weekly digest...','ai');if(NX.modules.admin){const el=document.getElementById('ingestLog');if(el)el.innerHTML='';document.getElementById('digestBtn')?.click();}else{addB('Switch to Ingest tab and tap 📊 Weekly Digest','ai');}return null;}
+    if(task.type==='reminders'){addB('🧠 Scanning for unresolved items...','ai');if(NX.modules.admin){const el=document.getElementById('ingestLog');if(el)el.innerHTML='';document.getElementById('remindersBtn')?.click();}else{addB('Switch to Ingest tab and tap 🧠 Smart Reminders','ai');}return null;}
     return null;
   }
 
@@ -333,6 +387,84 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     window.addEventListener('offline',()=>{document.getElementById('offlineBanner').style.display='block';});
     if(!navigator.onLine)document.getElementById('offlineBanner').style.display='block';
     if(!localStorage.getItem('nexus_onboarded')&&!NX.getApiKey()){showOnboarding();}
+    // Proactive greeting after briefing data loads
+    setTimeout(()=>proactiveGreeting(),3500);
+  }
+
+  async function proactiveGreeting(){
+    if(!NX.getApiKey()||!NX.currentUser)return;
+    const b=NX._briefingData;if(!b)return;
+
+    // Build a natural briefing string from real data
+    const lines=[];
+    const user=NX.currentUser.name.split(' ')[0]; // First name
+    const hour=new Date().getHours();
+    const greeting=hour<12?'Morning':hour<17?'Afternoon':'Evening';
+
+    // Contractors today — most urgent
+    if(b.contractors&&b.contractors.length){
+      lines.push(b.contractors.map(e=>`**${e.contractor_name}**${e.event_time?' at '+e.event_time:''}${e.location?' ('+e.location+')':''}`).join(', ')+' — on site today');
+    }
+
+    // Open tickets
+    if(b.tickets&&b.tickets.length){
+      const urgent=b.tickets.slice(0,3);
+      lines.push(`${b.tickets.length} open ticket${b.tickets.length>1?'s':''}: ${urgent.map(t=>t.title).join(', ')}${b.tickets.length>3?' +more':''}`);
+    }
+
+    // Hours worked this week
+    if(b.hours&&Object.keys(b.hours).length){
+      const sorted=Object.entries(b.hours).sort((a,b)=>b[1]-a[1]);
+      const top=sorted.slice(0,4).map(([name,hrs])=>`${name} ${Math.round(hrs)}h`).join(', ');
+      lines.push(`Hours this week: ${top}`);
+    }
+
+    // Cleaning scores
+    if(b.cleaning&&Object.keys(b.cleaning).length){
+      const scores=Object.entries(b.cleaning).map(([loc,d])=>`${loc} ${d.avg}%`).join(', ');
+      lines.push(`Cleaning avg: ${scores}`);
+    }
+
+    // Clock status
+    if(!b.clockedIn)lines.push(`You're not clocked in`);
+
+    // Queue
+    if(b.queue>20)lines.push(`${b.queue} emails in processing queue`);
+
+    if(!lines.length)return; // Nothing to report
+
+    // Use Claude to generate a natural greeting from the data
+    try{
+      const prompt=`You are NEXUS, the operational brain for restaurants. Generate a brief, natural morning briefing for ${user}. Be direct, warm, no fluff. 2-4 sentences max. Use the data below. If something needs immediate attention, lead with that.
+
+DATA:
+${lines.join('\n')}
+
+Remember: personality welcome, filler unwelcome. You know ${user} personally.`;
+
+      const resp=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','x-api-key':NX.getApiKey(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:200,messages:[{role:'user',content:prompt}]})
+      });
+      const data=await resp.json();
+      const msg=data.content?.[0]?.text;
+      if(msg&&msg.length>10){
+        // Show as first chat message — not in expanded mode, just peek
+        const welcome=document.getElementById('brainWelcome');
+        if(welcome){
+          welcome.innerHTML=`<div class="proactive-greeting">${msg.replace(/\*\*(.*?)\*\*/g,'<b>$1</b>')}</div>`;
+          welcome.style.display='';
+        }
+      }
+    }catch(e){
+      // Fallback — show raw data greeting without Claude
+      const welcome=document.getElementById('brainWelcome');
+      if(welcome){
+        welcome.innerHTML=`<div class="proactive-greeting">${greeting}, ${user}. ${lines.slice(0,3).join(' · ')}</div>`;
+        welcome.style.display='';
+      }
+    }
   }
 
   function resetChat(){stopSpeaking();chatHistory=[];chatActive=false;document.getElementById('chatMessages').innerHTML='';document.getElementById('brainWelcome').style.display='';document.getElementById('brainExamples').style.display='';document.getElementById('brainDim').classList.remove('active');document.getElementById('resetBtn').style.display='none';document.getElementById('chatHud').classList.remove('expanded');NX.brain.state.activatedNodes=new Set();NX.brain.wakePhysics();}
@@ -341,56 +473,72 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     await NX.loadNodes();
     const w=q.toLowerCase().split(/\s+/).filter(x=>x.length>2);
     const qLow=q.toLowerCase();
+    const userLoc=(localStorage.getItem('nexus_last_location')||NX.currentUser?.location||'').toLowerCase();
+    const aliases=NX._aliases||{};
+    const now=Date.now();
+
+    // Resolve aliases — "Tyler" also matches "Tyler Maffi"
+    const expandedTerms=new Set(w);
+    w.forEach(word=>{
+      Object.entries(aliases).forEach(([alias,canonical])=>{
+        if(alias.toLowerCase().includes(word)||word.includes(alias.toLowerCase())){
+          canonical.toLowerCase().split(/\s+/).forEach(t=>expandedTerms.add(t));
+        }
+      });
+    });
+    const allTerms=[...expandedTerms];
+
     const sc=NX.nodes.filter(n=>!n.is_private).map(n=>{
       let s=0;
       const name=(n.name||'').toLowerCase();
       const notes=(n.notes||'').toLowerCase();
       const tags=(n.tags||[]).join(' ').toLowerCase();
       const cat=(n.category||'').toLowerCase();
+      const nodeLoc=(notes.match(/suerte|este|toti|bar toti/gi)||[]).map(l=>l.toLowerCase());
 
-      // Exact name match — highest
       if(name===qLow)s+=100;
-      // Name contains full query
       else if(name.includes(qLow))s+=40;
-      // Query contains full name (asking about something that IS a node)
       else if(qLow.includes(name)&&name.length>3)s+=30;
 
-      // Word-level matches — weighted by where they appear
-      w.forEach(x=>{
+      allTerms.forEach(x=>{
         if(name.includes(x))s+=12;
         else if(tags.includes(x))s+=6;
         else if(cat.includes(x))s+=4;
         else if(notes.includes(x))s+=2;
       });
 
-      // Boost recently accessed nodes slightly
-      if(n.access_count>5)s+=1;
-
-      // Boost linked nodes — if a high-scoring node links to this one, boost it
+      // Location boost
+      if(userLoc&&nodeLoc.includes(userLoc))s+=5;
+      // Recency boost
+      if(n.access_count>10)s+=2;else if(n.access_count>3)s+=1;
+      // Time decay
+      const sources=n.source_emails||[];
+      if(sources.length){
+        const newestDate=sources.reduce((max,src)=>{const d=new Date(src.date||0).getTime();return d>max?d:max;},0);
+        const ageInDays=(now-newestDate)/86400000;
+        if(ageInDays>180)s-=2;else if(ageInDays>90)s-=1;
+      }
       return{node:n,score:s};
     }).filter(s=>s.score>0).sort((a,b)=>b.score-a.score);
 
-    // Take top 8 with full details (not 15 — quality over quantity)
     const rel=sc.slice(0,8).map(s=>s.node);
-
-    // Also include linked nodes of top results (1 hop)
     const linkedIds=new Set();
     rel.slice(0,3).forEach(n=>{(n.links||[]).forEach(lid=>linkedIds.add(lid));});
     const linkedNodes=NX.nodes.filter(n=>linkedIds.has(n.id)&&!rel.find(r=>r.id===n.id)).slice(0,4);
-
     const allRelevant=[...rel,...linkedNodes];
 
-    // Build context string
     const det=allRelevant.map(n=>{
       let extras='';
-      const sources=n.sources||n.source_emails;
-      if(sources&&sources.length)extras+=` [${sources.length} source${sources.length>1?'s':''}]`;
+      const sources=n.source_emails||[];
+      if(sources.length){
+        const newest=sources.reduce((max,src)=>{const d=src.date||'';return d>max?d:max;},'');
+        if(newest)extras+=` [last updated: ${newest}]`;
+      }
       const att=n.attachments;
       if(att&&att.length)extras+=` [Files: ${att.map(a=>a.filename||'file').join(', ')}]`;
-      return`[${n.category}] ${n.name}: ${(n.notes||'').slice(0,400)}${extras}`;
+      return`[${n.category}] ${n.name}: ${(n.notes||'').slice(0,500)}${extras}`;
     }).join('\n');
 
-    // Compact index — just names, no notes
     const idx=NX.nodes.filter(n=>!n.is_private).map(n=>`${n.name} (${n.category})`).join(', ');
 
     const relIds=allRelevant.map(n=>n.id);
@@ -400,8 +548,22 @@ After the troubleshoot steps, ask the person to add more details and optionally 
 
     const memory=await NX.fetchMemory(q);
     const ce=NX.brain.state.contractorEvents;
-    let ev='';if(ce&&ce.length)ev='\n\nUPCOMING:\n'+ce.slice(0,8).map(e=>`${e.contractor_name} @ ${e.location||'?'} ${e.event_date}`).join('\n');
-    return`RELEVANT NODES:\n${det}\n\nFULL INDEX (${NX.nodes.length} nodes):\n${idx}${memory}${ev}`;
+    let ev='';if(ce&&ce.length)ev='\n\nUPCOMING CONTRACTORS:\n'+ce.slice(0,8).map(e=>`${e.contractor_name} @ ${e.location||'?'} — ${e.event_date}${e.event_time?' '+e.event_time:''}`).join('\n');
+    let tickets='';
+    try{
+      const{data:openTickets}=await NX.sb.from('tickets').select('title,location,status,created_at').eq('status','open').limit(5);
+      if(openTickets&&openTickets.length)tickets='\n\nOPEN TICKETS:\n'+openTickets.map(t=>`\u2022 ${t.title}${t.location?' @ '+t.location:''} (${new Date(t.created_at).toLocaleDateString()})`).join('\n');
+    }catch(e){}
+    let cleanStatus='';
+    try{
+      const today=new Date().toISOString().split('T')[0];
+      const{data:logs}=await NX.sb.from('daily_logs').select('entry').gte('created_at',today+'T00:00:00').limit(5);
+      if(logs&&logs.length){
+        const cleanLogs=logs.filter(l=>(l.entry||'').includes('Cleaning'));
+        if(cleanLogs.length)cleanStatus="\n\nTODAY'S CLEANING:\n"+cleanLogs.map(l=>(l.entry||'').slice(0,100)).join('\n');
+      }
+    }catch(e){}
+    return`RELEVANT NODES:\n${det}\n\nFULL INDEX (${NX.nodes.length} nodes):\n${idx}${memory}${ev}${tickets}${cleanStatus}`;
   }
 
   async function askAI(){
