@@ -1024,9 +1024,34 @@ const NX = {
   async checkTicketBadge(){
     if(this.paused)return;
     try{
-      const{count}=await this.sb.from('tickets').select('*',{count:'exact',head:true}).eq('status','open');
+      // Try unified cards table first
+      let count=0;
+      const{count:c1,error}=await this.sb.from('cards').select('*',{count:'exact',head:true}).eq('status','todo').eq('priority','urgent');
+      if(!error){count=c1||0;}
+      else{
+        const{count:c2}=await this.sb.from('tickets').select('*',{count:'exact',head:true}).eq('status','open');
+        count=c2||0;
+      }
       const badge=document.getElementById('ticketBadge');
       if(badge){badge.textContent=count||'';badge.style.display=count?'flex':'none';}
+    }catch(e){}
+  },
+
+  // ─── Expanded System Logging ───
+  // Auto-logs every system event to daily_logs
+  async syslog(event,detail){
+    const ICONS={
+      clock_in:'⏱',clock_out:'⏱',card_created:'☑',card_moved:'☑',card_closed:'☑',card_deleted:'☑',
+      node_created:'🧠',email_processed:'✉',doc_scanned:'📷',cleaning_submitted:'🧹',
+      chat_query:'💬',login:'🔑',whatsapp_import:'📱',digest_generated:'📊',backup_exported:'⬇'
+    };
+    const icon=ICONS[event]||'⚡';
+    const entry=`[SYS] ${icon} ${event}: ${(detail||'').slice(0,200)}`;
+    try{
+      await this.sb.from('daily_logs').insert({
+        entry,user_name:this.currentUser?.name||'NEXUS',
+        user_id:this.currentUser?.id||0
+      });
     }catch(e){}
   },
 
@@ -1054,10 +1079,17 @@ const NX = {
         }
       }
 
-      // Overdue cards
-      const{data:overdue}=await this.sb.from('kanban_cards').select('title,due_date')
-        .lt('due_date',today).neq('column_name','done').limit(20);
-      if(overdue)briefing.overdue=overdue;
+      // Overdue cards — try unified cards table first
+      let overdue=[];
+      const{data:oCards,error:oErr}=await this.sb.from('cards').select('title,due_date')
+        .lt('due_date',today).not('status','eq','done').not('status','eq','closed').limit(20);
+      if(!oErr&&oCards){overdue=oCards;}
+      else{
+        const{data:oLegacy}=await this.sb.from('kanban_cards').select('title,due_date')
+          .lt('due_date',today).neq('column_name','done').limit(20);
+        if(oLegacy)overdue=oLegacy;
+      }
+      briefing.overdue=overdue;
 
       // Show overdue banner
       if(briefing.overdue.length){
@@ -1291,6 +1323,7 @@ NX.timeClock = {
     if (!error && data) {
       this._activeEntry = data;
       if (NX.toast) NX.toast('Clocked in ✓', 'success');
+      NX.syslog('clock_in',`${NX.currentUser.name} at ${location||NX.currentUser.location||'?'}`);
     }
     this.updateUI();
   },
@@ -1305,6 +1338,7 @@ NX.timeClock = {
       .eq('id', this._activeEntry.id);
     if (!error) {
       if (NX.toast) NX.toast(`Clocked out — ${hours} hrs ✓`, 'success');
+      NX.syslog('clock_out',`${NX.currentUser?.name||'?'} — ${hours}h`);
       this._activeEntry = null;
     }
     this.updateUI();
