@@ -1,281 +1,361 @@
-/* NEXUS i18n v3 — Complete EN/ES coverage */
+/* NEXUS i18n v4 — data-i18n attribute system
+   Usage in HTML:
+     data-i18n="key"       → textContent
+     data-i18n-html="key"  → innerHTML
+     data-i18n-ph="key"    → placeholder
+     data-i18n-tip="key"   → data-tip (tooltips)
+*/
 const NEXUS_I18N=(function(){
+
 const T={
-  en:{
-    // Nav
-    cleaning:'Cleaning',log:'Log',board:'Board',ingest:'Ingest',
-    // PIN
-    enterPin:'Enter your PIN',welcome:'Welcome,',invalidPin:'Invalid PIN',
-    // Brain
-    searchNodes:'Search nodes...',askNexus:'Ask NEXUS...',
-    imNexus:"I'm <b>NEXUS</b> — your ops brain. Ask me anything.",
-    noNodes:'No knowledge nodes yet',getStarted:'Get started:',
-    tipIngest:'Open <b>Ingest</b> → connect Gmail or drop email files',
-    tipRemember:'Chat: type <b>remember [name] - [details]</b> to add knowledge',
-    tipLookup:'Chat: type <b>look up [topic]</b> to search the web',
-    // Chat
-    searching:'Searching',nodes:'nodes',
-    noApiKey:'No API key — open Admin ⚙ to add your Anthropic key.',
-    researchingWeb:'Searching the web for',
-    extractingKnowledge:'Extracting knowledge',
-    nodesAdded:'nodes added to brain.',
-    researchFailed:'Research failed',
-    tooVague:'Response too vague. Try a more specific topic.',
-    // Cleaning
-    shiftProgress:'SHIFT PROGRESS',submitReport:'Submit Daily Report',
-    submitting:'Submitting...',submitted:'✓ Submitted',
-    savedToLog:'Saved to daily log — view in Log tab',
-    extras:'Extras',logged:'logged',quickAdd:'Quick add extra...',
-    custom:'+ Custom...',logIt:'Log',addTask:'+ Add',
-    taskEs:'Task in Spanish...',taskEn:'Task in English...',
-    neverDone:'Never done',overdue:'OVERDUE',dueSoon:'Due soon',
-    checkAll:'All ✓',undo:'Undo',
-    // Log
-    logPlaceholder:'Log a repair, observation, or note...',
-    knowledgePlaceholder:'Add knowledge to the brain...',
-    addBrain:'+ Brain',nothingLogged:'Nothing logged yet.',
-    logTip:'Log a repair, observation, or note above.',
-    logTip2:'Cleaning reports auto-save here too.',
-    // Board
-    todo:'To Do',inProgress:'In Progress',done:'Done',
-    // Admin
-    admin:'ADMIN',apiKeys:'API Keys',aiModel:'AI Model',voiceLabel:'Voice',
-    integrations:'Integrations',saveKeys:'Save Keys',
-    teamMembers:'Team Members',keySyncDrive:'Key Sync (Google Drive)',
-    connectDrive:'Connect Drive',backup:'Backup ↑',restore:'Restore ↓',
-    logOut:'Log Out',close:'Close',language:'Language',
-    name:'Name',pin:'PIN',role:'Role',location:'Location',
-    staff:'Staff',manager:'Manager',chatHistory:'Chat History',
-    // Ingest
-    ingestion:'INGESTION',
-    email:'Email',mailMonitor:'Mail Monitor',pasteText:'Paste Text',
-    trello:'Trello',slack:'Slack',tools:'Tools',activity:'Activity',
-    autoProcess:'Auto-process (3 every 5 min)',syncing:'● Syncing',paused:'⏸ Paused',
-    connectGmail:'Connect Gmail',reconnect:'Reconnect',
-    syncToBrain:'⚡ Sync to Brain',reIngest:'♻ Re-ingest Archive',
-    dropEmail:'Drop email files or',browse:'browse',
-    scanOrders:'Scan Orders & Scheduling',
-    scanDesc:'Scans Gmail for orders, invoices, scheduling & attachments.',
-    pastePlaceholder:'Paste email, notes, transcript, vendor info...',
-    processText:'Process Text',importTrello:'Import from Trello',
-    slackDesc:'Import Slack export (.zip or .json files) or paste channel content.',
-    slackPaste:'Or paste Slack channel content here...',
-    processSlack:'Process Slack Content',
-    relationships:'Relationships',privacyScan:'Privacy Scan',
-    relDesc:'AI links related nodes together.',buildLinks:'Build Links',
-    autoLinkImport:'Auto-link on import',
-    privDesc:'Find & remove personal data.',scanNodes:'Scan Nodes',
-    clear:'Clear',
-    // Contractor
-    contractorSchedule:'CONTRACTOR SCHEDULE',schedule:'+ Schedule',
-    contractor:'Contractor...',service:'Service...',
-    // Node panel
-    sources:'SOURCES',attachments:'ATTACHMENTS',connectedTo:'CONNECTED TO',
-    deleteNode:'Delete Node',showEmail:'Show full email ▼',hideEmail:'Hide email ▲',
-    noSources:'No source emails linked.',editNotes:'Edit Notes',save:'Save',cancel:'Cancel',
-    addFile:'Add File/Photo',
-    // Offline
-    noConnection:'No connection — check WiFi',
-    // Agenda
-    suerte:'SUERTE',este:'ESTE',toti:'TOTI',
-    // Category filters
-    all:'All',
-  },
-  es:{
-    cleaning:'Limpieza',log:'Registro',board:'Tablero',ingest:'Importar',
-    enterPin:'Ingrese su PIN',welcome:'Bienvenido,',invalidPin:'PIN inválido',
-    searchNodes:'Buscar nodos...',askNexus:'Pregunta a NEXUS...',
-    imNexus:"Soy <b>NEXUS</b> — tu cerebro de operaciones. Pregúntame lo que sea.",
-    noNodes:'No hay nodos de conocimiento',getStarted:'Para empezar:',
-    tipIngest:'Abre <b>Importar</b> → conecta Gmail o sube archivos',
-    tipRemember:'Chat: escribe <b>recuerda [nombre] - [detalles]</b>',
-    tipLookup:'Chat: escribe <b>buscar [tema]</b> para buscar en la web',
-    searching:'Buscando',nodes:'nodos',
-    noApiKey:'Sin clave API — abre Admin ⚙ para agregar tu clave.',
-    researchingWeb:'Buscando en la web',
-    extractingKnowledge:'Extrayendo conocimiento',
-    nodesAdded:'nodos agregados.',
-    researchFailed:'Investigación fallida',
-    tooVague:'Respuesta vaga. Intenta un tema más específico.',
-    shiftProgress:'PROGRESO DEL TURNO',submitReport:'Enviar Reporte Diario',
-    submitting:'Enviando...',submitted:'✓ Enviado',
-    savedToLog:'Guardado en registro',
-    extras:'Extras',logged:'registrados',quickAdd:'Agregar extra rápido...',
-    custom:'+ Personalizado...',logIt:'Registrar',addTask:'+ Agregar',
-    taskEs:'Tarea en español...',taskEn:'Task in English...',
-    neverDone:'Nunca hecho',overdue:'ATRASADO',dueSoon:'Próximamente',
-    checkAll:'Todo ✓',undo:'Deshacer',
-    logPlaceholder:'Registrar una reparación, observación o nota...',
-    knowledgePlaceholder:'Agregar conocimiento al cerebro...',
-    addBrain:'+ Cerebro',nothingLogged:'Nada registrado.',
-    logTip:'Registra una reparación, observación o nota arriba.',
-    logTip2:'Los reportes de limpieza se guardan aquí también.',
-    todo:'Por Hacer',inProgress:'En Progreso',done:'Hecho',
-    admin:'ADMIN',apiKeys:'Claves API',aiModel:'Modelo IA',voiceLabel:'Voz',
-    integrations:'Integraciones',saveKeys:'Guardar Claves',
-    teamMembers:'Equipo',keySyncDrive:'Sincronizar (Google Drive)',
-    connectDrive:'Conectar Drive',backup:'Respaldar ↑',restore:'Restaurar ↓',
-    logOut:'Cerrar Sesión',close:'Cerrar',language:'Idioma',
-    name:'Nombre',pin:'PIN',role:'Rol',location:'Ubicación',
-    staff:'Personal',manager:'Gerente',chatHistory:'Historial de Chat',
-    ingestion:'IMPORTACIÓN',
-    email:'Correo',mailMonitor:'Monitor de Correo',pasteText:'Pegar Texto',
-    trello:'Trello',slack:'Slack',tools:'Herramientas',activity:'Actividad',
-    autoProcess:'Auto-procesar (3 cada 5 min)',syncing:'● Sincronizando',paused:'⏸ Pausado',
-    connectGmail:'Conectar Gmail',reconnect:'Reconectar',
-    syncToBrain:'⚡ Sincronizar al Cerebro',reIngest:'♻ Re-importar Archivo',
-    dropEmail:'Arrastra archivos de correo o',browse:'buscar',
-    scanOrders:'Escanear Pedidos y Citas',
-    scanDesc:'Escanea Gmail por pedidos, facturas, citas y adjuntos.',
-    pastePlaceholder:'Pegar correo, notas, transcripción, info de proveedor...',
-    processText:'Procesar Texto',importTrello:'Importar de Trello',
-    slackDesc:'Importar exportación de Slack (.zip o .json) o pegar contenido.',
-    slackPaste:'O pegar contenido del canal de Slack aquí...',
-    processSlack:'Procesar Contenido de Slack',
-    relationships:'Relaciones',privacyScan:'Escaneo de Privacidad',
-    relDesc:'IA vincula nodos relacionados.',buildLinks:'Construir Vínculos',
-    autoLinkImport:'Auto-vincular al importar',
-    privDesc:'Encontrar y eliminar datos personales.',scanNodes:'Escanear Nodos',
-    clear:'Limpiar',
-    contractorSchedule:'CALENDARIO DE CONTRATISTAS',schedule:'+ Agendar',
-    contractor:'Contratista...',service:'Servicio...',
-    sources:'FUENTES',attachments:'ADJUNTOS',connectedTo:'CONECTADO A',
-    deleteNode:'Eliminar Nodo',showEmail:'Ver correo completo ▼',hideEmail:'Ocultar correo ▲',
-    noSources:'Sin correos vinculados.',editNotes:'Editar Notas',save:'Guardar',cancel:'Cancelar',
-    addFile:'Agregar Archivo/Foto',
-    noConnection:'Sin conexión — revisa WiFi',
-    suerte:'SUERTE',este:'ESTE',toti:'TOTI',
-    all:'Todos',
-  }
+en:{
+  // ── PIN SCREEN ──
+  enterPin:'Enter your PIN',
+  welcome:'Welcome,',
+  invalidPin:'Invalid PIN',
+  clockIn:'Clock In',
+  clockOut:'Clock Out',
+  enterNexus:'Enter NEXUS →',
+  notClockedIn:'NOT CLOCKED IN',
+  clockedIn:'CLOCKED IN',
+
+  // ── NAV ──
+  cleaning:'Cleaning',
+  log:'Log',
+  board:'Board',
+  cal:'Cal',
+  ingest:'Ingest',
+
+  // ── BRAIN ──
+  searchNodes:'Search nodes...',
+  askNexus:'Ask NEXUS...',
+  nexusWelcome:"I'm <b>NEXUS</b> — your ops brain. Ask me anything.",
+  noNodes:'No knowledge nodes yet',
+  getStarted:'Get started:',
+  tipIngest:'Open <b>Ingest</b> → connect Gmail or drop email files',
+  tipRemember:'Chat: type <b>remember [name] - [details]</b> to add knowledge',
+  tipLookup:'Chat: type <b>look up [topic]</b> to search the web',
+  shared:'Shared',
+  myBrain:'My Brain',
+  all:'All',
+  sortAZ:'A–Z',
+  mostUsed:'Most Used',
+  recent:'Recent',
+  contractorSchedule:'CONTRACTOR SCHEDULE',
+  contractor:'Contractor...',
+  service:'Service...',
+  schedule:'+ Schedule',
+  editNotes:'✏ Edit Notes',
+  addFilePhoto:'📎 Add File / Photo',
+  noConnection:'No connection — check WiFi',
+
+  // ── CLEANING ──
+  shiftProgress:'SHIFT PROGRESS',
+  submitReport:'Submit Daily Report',
+  submitting:'Submitting...',
+  submitted:'✓ Submitted',
+  taskEs:'Tarea en español...',
+  taskEn:'Task in English...',
+  addTask:'+ Add',
+
+  // ── LOG ──
+  logPlaceholder:'Log a repair, observation, or note...',
+  knowledgePlaceholder:'Add knowledge to the brain...',
+  addBrain:'+ Brain',
+  timeClock:'⏱ Time Clock',
+  allTeam:'All Team',
+  days7:'7 days',
+  days14:'14 days',
+  days30:'30 days',
+  allTime:'All time',
+
+  // ── CALENDAR ──
+  today:'Today',
+  sun:'Sun',mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',
+
+  // ── BOARD ──
+  todo:'To Do',
+  inProgress:'In Progress',
+  done:'Done',
+
+  // ── INGEST STATS ──
+  pending:'PENDING',
+  knowledge:'KNOWLEDGE',
+  archived:'ARCHIVED',
+  tipPending:'Emails waiting for AI to read and extract knowledge from',
+  tipKnowledge:'Total nodes in your brain — equipment, vendors, contractors, parts, procedures',
+  tipArchived:'Total emails downloaded from Gmail and stored for processing',
+
+  // ── PROCESSOR ──
+  processor:'Processor',
+  auto:'Auto',
+  mode:'MODE',
+  tipMode:'Process Queue: work through pending items. Pull+Process: fetch new Gmail then process. Re-scan: reset all and reprocess with current AI.',
+  processQueue:'Process Queue',
+  pullProcess:'Pull + Process',
+  rescanAll:'Re-scan All',
+  batch:'BATCH',
+  tipBatch:'How many emails to process per cycle. Higher = faster but uses more API tokens.',
+  every:'EVERY',
+  tipEvery:'Time between processing cycles. 1m is aggressive, 10m is gentle on API usage.',
+  extract:'EXTRACT',
+  tipExtract:'PDFs: read PDF text. Images: use Vision AI to read photos/receipts. Parts: extract part numbers and vendors. Links: auto-connect related nodes.',
+  runBatchNow:'▶ Run Batch Now',
+  syncing:'● Syncing',
+  paused:'⏸ Paused',
+
+  // ── EMAIL & DOCS ──
+  emailDocs:'Email & Documents',
+  notConnected:'Not connected',
+  connectGmail:'Connect Gmail',
+  reconnect:'Reconnect',
+  syncToBrain:'⚡ Sync to Brain',
+  reIngest:'↻ Re-ingest',
+  dropFiles:'Drop files or',
+  browse:'browse',
+  pasteText:'Paste Text',
+  pastePlaceholder:'Paste email, notes, transcript, vendor info…',
+  processText:'Process Text',
+
+  // ── TOOLS ──
+  toolsBackup:'Tools & Backup',
+  buildLinks:'🔗 Build Links',
+  privacyScan:'🔒 Privacy Scan',
+  exportBackup:'⬇ Export Backup',
+  importBackup:'⬆ Import Backup',
+  autoLink:'Auto-link on import',
+  activity:'Activity',
+  clear:'Clear',
+
+  // ── ADMIN ──
+  admin:'ADMIN',
+  apiKeys:'API Keys',
+  aiModel:'AI Model',
+  voice:'Voice',
+  integrations:'Integrations',
+  saveKeys:'Save Keys',
+  keySyncDrive:'Key Sync (Google Drive)',
+  connectDrive:'Connect Drive',
+  backup:'Backup ↑',
+  restore:'Restore ↓',
+  teamMembers:'Team Members',
+  name:'Name',
+  pin:'PIN',
+  role:'Role',
+  location:'Location',
+  staff:'Staff',
+  manager:'Manager',
+  chatHistory:'Chat History',
+  refresh:'Refresh',
+  clearAll:'Clear All',
+  exportAllData:'⬇ Export All Data',
+  nodesOnly:'⬇ Nodes Only',
+  logOut:'Log Out',
+  close:'Close',
+
+  // ── SOURCES (node panel) ──
+  sources:'SOURCES',
+  showEmail:'Show email',
+  hideEmail:'Hide email',
+  connectedTo:'CONNECTED TO',
+  mentionedIn:'MENTIONED IN',
+  relatedDetails:'RELATED DETAILS',
+},
+es:{
+  // ── PIN ──
+  enterPin:'Ingrese su PIN',
+  welcome:'Bienvenido,',
+  invalidPin:'PIN inválido',
+  clockIn:'Registrar Entrada',
+  clockOut:'Registrar Salida',
+  enterNexus:'Entrar a NEXUS →',
+  notClockedIn:'SIN REGISTRAR',
+  clockedIn:'REGISTRADO',
+
+  // ── NAV ──
+  cleaning:'Limpieza',
+  log:'Registro',
+  board:'Tablero',
+  cal:'Cal',
+  ingest:'Ingesta',
+
+  // ── BRAIN ──
+  searchNodes:'Buscar nodos...',
+  askNexus:'Pregunta a NEXUS...',
+  nexusWelcome:"Soy <b>NEXUS</b> — tu cerebro de operaciones. Pregúntame lo que sea.",
+  noNodes:'No hay nodos de conocimiento',
+  getStarted:'Comienza:',
+  tipIngest:'Abre <b>Ingesta</b> → conecta Gmail o arrastra archivos',
+  tipRemember:'Chat: escribe <b>remember [nombre] - [detalles]</b> para agregar',
+  tipLookup:'Chat: escribe <b>look up [tema]</b> para buscar en la web',
+  shared:'Compartido',
+  myBrain:'Mi Cerebro',
+  all:'Todo',
+  sortAZ:'A–Z',
+  mostUsed:'Más Usado',
+  recent:'Reciente',
+  contractorSchedule:'AGENDA DE CONTRATISTAS',
+  contractor:'Contratista...',
+  service:'Servicio...',
+  schedule:'+ Agendar',
+  editNotes:'✏ Editar Notas',
+  addFilePhoto:'📎 Agregar Archivo / Foto',
+  noConnection:'Sin conexión — revisa WiFi',
+
+  // ── CLEANING ──
+  shiftProgress:'PROGRESO DEL TURNO',
+  submitReport:'Enviar Reporte Diario',
+  submitting:'Enviando...',
+  submitted:'✓ Enviado',
+  taskEs:'Tarea en español...',
+  taskEn:'Tarea en inglés...',
+  addTask:'+ Agregar',
+
+  // ── LOG ──
+  logPlaceholder:'Registrar reparación, observación o nota...',
+  knowledgePlaceholder:'Agregar conocimiento al cerebro...',
+  addBrain:'+ Cerebro',
+  timeClock:'⏱ Reloj de Tiempo',
+  allTeam:'Todo el Equipo',
+  days7:'7 días',
+  days14:'14 días',
+  days30:'30 días',
+  allTime:'Todo',
+
+  // ── CALENDAR ──
+  today:'Hoy',
+  sun:'Dom',mon:'Lun',tue:'Mar',wed:'Mié',thu:'Jue',fri:'Vie',sat:'Sáb',
+
+  // ── BOARD ──
+  todo:'Por Hacer',
+  inProgress:'En Progreso',
+  done:'Hecho',
+
+  // ── INGEST STATS ──
+  pending:'PENDIENTE',
+  knowledge:'CONOCIMIENTO',
+  archived:'ARCHIVADO',
+  tipPending:'Correos esperando que la IA los lea y extraiga conocimiento',
+  tipKnowledge:'Total de nodos en tu cerebro — equipo, proveedores, contratistas, partes, procedimientos',
+  tipArchived:'Total de correos descargados de Gmail y almacenados para procesar',
+
+  // ── PROCESSOR ──
+  processor:'Procesador',
+  auto:'Auto',
+  mode:'MODO',
+  tipMode:'Procesar Cola: trabaja los pendientes. Jalar+Procesar: busca nuevos Gmail y procesa. Re-escanear: reinicia todo y reprocesa con IA actual.',
+  processQueue:'Procesar Cola',
+  pullProcess:'Jalar + Procesar',
+  rescanAll:'Re-escanear Todo',
+  batch:'LOTE',
+  tipBatch:'Cuántos correos procesar por ciclo. Mayor = más rápido pero usa más tokens de API.',
+  every:'CADA',
+  tipEvery:'Tiempo entre ciclos de procesamiento. 1m es agresivo, 10m es gentil con el uso de API.',
+  extract:'EXTRAER',
+  tipExtract:'PDFs: leer texto PDF. Imágenes: usar Vision AI para leer fotos/recibos. Partes: extraer números de parte y proveedores. Links: auto-conectar nodos relacionados.',
+  runBatchNow:'▶ Ejecutar Ahora',
+  syncing:'● Sincronizando',
+  paused:'⏸ Pausado',
+
+  // ── EMAIL & DOCS ──
+  emailDocs:'Correo y Documentos',
+  notConnected:'No conectado',
+  connectGmail:'Conectar Gmail',
+  reconnect:'Reconectar',
+  syncToBrain:'⚡ Sincronizar al Cerebro',
+  reIngest:'↻ Re-ingestar',
+  dropFiles:'Arrastra archivos o',
+  browse:'buscar',
+  pasteText:'Pegar Texto',
+  pastePlaceholder:'Pega correo, notas, transcripción, info de proveedor…',
+  processText:'Procesar Texto',
+
+  // ── TOOLS ──
+  toolsBackup:'Herramientas y Respaldo',
+  buildLinks:'🔗 Crear Enlaces',
+  privacyScan:'🔒 Escaneo de Privacidad',
+  exportBackup:'⬇ Exportar Respaldo',
+  importBackup:'⬆ Importar Respaldo',
+  autoLink:'Auto-enlazar al importar',
+  activity:'Actividad',
+  clear:'Limpiar',
+
+  // ── ADMIN ──
+  admin:'ADMIN',
+  apiKeys:'Claves API',
+  aiModel:'Modelo IA',
+  voice:'Voz',
+  integrations:'Integraciones',
+  saveKeys:'Guardar Claves',
+  keySyncDrive:'Sincronizar Claves (Google Drive)',
+  connectDrive:'Conectar Drive',
+  backup:'Respaldo ↑',
+  restore:'Restaurar ↓',
+  teamMembers:'Equipo',
+  name:'Nombre',
+  pin:'PIN',
+  role:'Rol',
+  location:'Ubicación',
+  staff:'Personal',
+  manager:'Gerente',
+  chatHistory:'Historial de Chat',
+  refresh:'Actualizar',
+  clearAll:'Borrar Todo',
+  exportAllData:'⬇ Exportar Todo',
+  nodesOnly:'⬇ Solo Nodos',
+  logOut:'Cerrar Sesión',
+  close:'Cerrar',
+
+  // ── SOURCES ──
+  sources:'FUENTES',
+  showEmail:'Ver correo',
+  hideEmail:'Ocultar correo',
+  connectedTo:'CONECTADO A',
+  mentionedIn:'MENCIONADO EN',
+  relatedDetails:'DETALLES RELACIONADOS',
+}
 };
 
-function getLang(){return localStorage.getItem('nexus_lang')||'en';}
-function setLang(lang){localStorage.setItem('nexus_lang',lang);applyUI();}
-function t(key){return T[getLang()]?.[key]||T.en[key]||key;}
+let lang=localStorage.getItem('nexus_lang')||'en';
+
+function getLang(){return lang;}
+
+function setLang(newLang){
+  lang=newLang;
+  localStorage.setItem('nexus_lang',newLang);
+  applyUI();
+}
+
+function t(key){return T[lang]?.[key]||T.en[key]||key;}
 
 function applyUI(){
-  const lang=getLang();
-
-  // Nav tabs
-  document.querySelectorAll('.nav-tab').forEach(tab=>{
-    const v=tab.dataset.view;
-    const map={clean:'cleaning',log:'log',board:'board',ingest:'ingest'};
-    if(!map[v])return;
-    const svg=tab.querySelector('svg')||tab.querySelector('i');
-    while(tab.childNodes.length>0)tab.removeChild(tab.lastChild);
-    if(svg)tab.appendChild(svg);
-    tab.appendChild(document.createTextNode(' '+t(map[v])));
+  // Text content
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const key=el.dataset.i18n;
+    const val=t(key);
+    if(val)el.textContent=val;
   });
-
-  // PIN screen
-  const ps=document.querySelector('.pin-sub');if(ps)ps.textContent=t('enterPin');
-
-  // Brain search + chat
-  const bs=document.getElementById('brainSearch');if(bs)bs.placeholder=t('searchNodes');
-  const ci=document.getElementById('chatInput');if(ci)ci.placeholder=t('askNexus');
-  const hw=document.querySelector('.hud-welcome-text');if(hw)hw.innerHTML=t('imNexus');
-
-  // Empty state
-  const cet=document.querySelector('.canvas-empty-text');if(cet)cet.textContent=t('noNodes');
-  const ces=document.querySelector('.canvas-empty-sub');if(ces)ces.textContent=t('getStarted');
-  const tips=document.querySelectorAll('.empty-tip');
-  if(tips.length>=3){tips[0].innerHTML=t('tipIngest');tips[1].innerHTML=t('tipRemember');tips[2].innerHTML=t('tipLookup');}
-
-  // Cleaning
-  const sp=document.querySelector('.clean-progress-label');if(sp)sp.textContent=t('shiftProgress');
-  const cs=document.getElementById('cleanSubmit');if(cs&&!cs.disabled)cs.textContent=t('submitReport');
-  const cte=document.getElementById('cleanTaskEs');if(cte)cte.placeholder=t('taskEs');
-  const ctn=document.getElementById('cleanTaskEn');if(ctn)ctn.placeholder=t('taskEn');
-  const cab=document.getElementById('cleanAddBtn');if(cab)cab.textContent=t('addTask');
-
-  // Log
-  const li=document.getElementById('logInput');if(li)li.placeholder=t('logPlaceholder');
-  const ki=document.getElementById('knowledgeInput');if(ki)ki.placeholder=t('knowledgePlaceholder');
-  const kb=document.getElementById('knowledgeBtn');if(kb)kb.textContent=t('addBrain');
-
-  // Ingest — new card-based UI
-  const ih=document.querySelector('.ingest-heading');if(ih)ih.textContent=t('ingestion');
-  document.querySelectorAll('.ig-title').forEach(el=>{
-    const txt=el.textContent.trim();
-    if(txt==='Email'||txt==='Correo')el.textContent=t('email');
-    if(txt==='Mail Monitor'||txt==='Monitor de Correo')el.textContent=t('mailMonitor');
-    if(txt==='Paste Text'||txt==='Pegar Texto')el.textContent=t('pasteText');
-    if(txt==='Trello')el.textContent=t('trello');
-    if(txt==='Slack')el.textContent=t('slack');
-    if(txt==='Tools'||txt==='Herramientas')el.textContent=t('tools');
-    if(txt==='Activity'||txt==='Actividad')el.textContent=t('activity');
+  // innerHTML (for bold text etc)
+  document.querySelectorAll('[data-i18n-html]').forEach(el=>{
+    const key=el.dataset.i18nHtml;
+    const val=t(key);
+    if(val)el.innerHTML=val;
   });
-  const gcb=document.getElementById('gmailConnectBtn');if(gcb&&gcb.textContent.includes('Connect'))gcb.textContent=t('connectGmail');
-  const gsb=document.getElementById('gmailSyncBtn');if(gsb)gsb.textContent=t('syncToBrain');
-  const rib=document.getElementById('reIngestBtn');if(rib)rib.textContent=t('reIngest');
-  const mmb=document.getElementById('mailMonitorBtn');if(mmb)mmb.textContent=t('scanOrders');
-  const itb=document.getElementById('ingestTextBtn');if(itb)itb.textContent=t('processText');
-  const trb=document.getElementById('trelloBtn');if(trb)trb.textContent=t('importTrello');
-  const spb=document.getElementById('slackProcessBtn');if(spb)spb.textContent=t('processSlack');
-  const spt=document.getElementById('slackPasteText');if(spt)spt.placeholder=t('slackPaste');
-  const ipt=document.getElementById('ingestText');if(ipt)ipt.placeholder=t('pastePlaceholder');
-
-  // Ingest descriptions
-  document.querySelectorAll('.ig-desc').forEach(el=>{
-    const txt=el.textContent.trim();
-    if(txt.includes('Scans Gmail')||txt.includes('Escanea'))el.textContent=t('scanDesc');
-    if(txt.includes('links related')||txt.includes('vincula'))el.textContent=t('relDesc');
-    if(txt.includes('remove personal')||txt.includes('eliminar'))el.textContent=t('privDesc');
-    if(txt.includes('Slack export')||txt.includes('exportación'))el.textContent=t('slackDesc');
+  // Placeholders
+  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{
+    const key=el.dataset.i18nPh;
+    const val=t(key);
+    if(val)el.placeholder=val;
   });
-
-  // Tools
-  document.querySelectorAll('.ig-tool-label').forEach(el=>{
-    const txt=el.textContent.trim();
-    if(txt.includes('Relationship')||txt.includes('Relaciones'))el.textContent='🔗 '+t('relationships');
-    if(txt.includes('Privacy')||txt.includes('Privacidad'))el.textContent='🔒 '+t('privacyScan');
+  // Tooltips (data-tip attribute)
+  document.querySelectorAll('[data-i18n-tip]').forEach(el=>{
+    const key=el.dataset.i18nTip;
+    const val=t(key);
+    if(val)el.dataset.tip=val;
   });
-  const rlb=document.getElementById('relationshipBtn');if(rlb)rlb.textContent=t('buildLinks');
-  const snb=document.getElementById('sensitiveBtn');if(snb)snb.textContent=t('scanNodes');
-
-  // Background processor
-  const bgt=document.querySelector('.ig-bg-bar .ig-toggle span');if(bgt)bgt.textContent=t('autoProcess');
-  const pb=document.getElementById('pauseBtn');if(pb&&!NX.paused)pb.textContent=t('syncing');
-  if(pb&&NX.paused)pb.textContent=t('paused');
-
-  // Agenda labels
-  document.querySelectorAll('.agenda-label').forEach(el=>{
-    const txt=el.textContent.trim().toUpperCase();
-    if(txt==='SUERTE')el.textContent=t('suerte');
-    if(txt==='ESTE')el.textContent=t('este');
-    if(txt==='TOTI')el.textContent=t('toti');
-  });
-
-  // Admin
-  document.querySelectorAll('.admin-section-label').forEach(el=>{
-    const txt=el.textContent.trim();
-    if(txt==='API Keys'||txt==='Claves API')el.textContent=t('apiKeys');
-    if(txt==='AI Model'||txt==='Modelo IA')el.textContent=t('aiModel');
-    if(txt==='Voice'||txt==='Voz')el.textContent=t('voiceLabel');
-    if(txt==='Integrations'||txt==='Integraciones')el.textContent=t('integrations');
-    if(txt.includes('Team')||txt.includes('Equipo'))el.textContent=t('teamMembers');
-    if(txt.includes('Key Sync')||txt.includes('Sincronizar'))el.textContent=t('keySyncDrive');
-    if(txt.includes('Chat History')||txt.includes('Historial'))el.innerHTML=t('chatHistory');
-  });
-  const ask=document.getElementById('adminSaveKeys');if(ask)ask.textContent=t('saveKeys');
-  const alo=document.getElementById('adminLogout');if(alo)alo.textContent=t('logOut');
-  const acn=document.getElementById('adminCancel');if(acn)acn.textContent=t('close');
-
-  // Board columns
-  document.querySelectorAll('.board-col-title').forEach(el=>{
-    const txt=el.textContent.trim().toLowerCase();
-    if(txt==='to do'||txt==='por hacer')el.textContent=t('todo');
-    if(txt==='in progress'||txt==='en progreso')el.textContent=t('inProgress');
-    if(txt==='done'||txt==='hecho')el.textContent=t('done');
-  });
-
-  // Contractor
-  const ec=document.getElementById('eventContractor');if(ec)ec.placeholder=t('contractor');
-  const ed=document.getElementById('eventDesc');if(ed)ed.placeholder=t('service');
-  const eab=document.getElementById('eventAddBtn');if(eab)eab.textContent=t('schedule');
-
-  // Lang toggle button
-  const ltb=document.getElementById('langToggle');if(ltb)ltb.textContent=lang.toUpperCase();
+  // Language toggle button
+  const ltb=document.getElementById('langToggle');
+  if(ltb)ltb.textContent=lang.toUpperCase();
 }
 
 return{t,getLang,setLang,applyUI};
