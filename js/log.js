@@ -154,5 +154,5 @@ async function addKnowledge(){
   }catch(e){btn.textContent='Error';}
   setTimeout(()=>{btn.disabled=false;btn.textContent='+ Brain';},2500);
 }
-NX.modules.log={init,show:load};
+NX.modules.log={init:()=>{init();if(NX.timeClock)NX.timeClock.setupLogFilters();},show:()=>{load();if(NX.timeClock)NX.timeClock._reloadLog();}};
 })();
