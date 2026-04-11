@@ -1,5 +1,5 @@
-/* NEXUS Service Worker — offline cache */
-const CACHE_NAME = 'nexus-v4';
+/* NEXUS Service Worker v6 — offline cache + push notifications */
+const CACHE_NAME = 'nexus-v6';
 const ASSET_NAMES = [
   '',
   'index.html',
@@ -73,5 +73,51 @@ self.addEventListener('fetch', event => {
           return new Response('Offline', { status: 503 });
         });
       })
+  );
+});
+
+// ═══ PUSH NOTIFICATIONS ═══
+self.addEventListener('push', event => {
+  let data = { title: 'NEXUS', body: 'New notification', icon: '/icon-192.png' };
+  try {
+    if (event.data) {
+      const parsed = event.data.json();
+      data = { ...data, ...parsed };
+    }
+  } catch (e) {
+    if (event.data) data.body = event.data.text();
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: data.icon || '/icon-192.png',
+      badge: '/icon-192.png',
+      vibrate: [200, 100, 200],
+      tag: 'nexus-' + Date.now(),
+      data: { url: self.registration.scope },
+      actions: [
+        { action: 'open', title: 'Open NEXUS' },
+        { action: 'dismiss', title: 'Dismiss' }
+      ]
+    })
+  );
+});
+
+// Notification click — open NEXUS
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  if (event.action === 'dismiss') return;
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+      // Focus existing NEXUS tab if open
+      for (const client of windowClients) {
+        if (client.url.includes(self.registration.scope) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Otherwise open new tab
+      return clients.openWindow(self.registration.scope);
+    })
   );
 });
