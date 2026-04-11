@@ -962,14 +962,34 @@ const NX = {
     if(this.paused||!this.currentUser)return;
     const items=[];
     try{
+      const today=new Date().toISOString().split('T')[0];
+
       // Open tickets
       const{count:tickets}=await this.sb.from('tickets').select('*',{count:'exact',head:true}).eq('status','open');
       if(tickets>0)items.push(`🔴 ${tickets} open ticket${tickets>1?'s':''}`);
 
-      // Contractors today
-      const today=new Date().toISOString().split('T')[0];
-      const{data:events}=await this.sb.from('contractor_events').select('contractor_name').eq('event_date',today);
-      if(events&&events.length)items.push(`🔵 ${events.map(e=>e.contractor_name).join(', ')} today`);
+      // Contractors today — show persistent banner
+      const{data:events}=await this.sb.from('contractor_events').select('contractor_name,event_time,location,description').eq('event_date',today);
+      if(events&&events.length){
+        items.push(`🔵 ${events.map(e=>e.contractor_name).join(', ')} today`);
+        const banner=document.getElementById('contractorBanner');
+        if(banner){
+          banner.innerHTML='🔵 TODAY: '+events.map(e=>`<b>${e.contractor_name}</b>${e.event_time?' @ '+e.event_time:''}${e.location?' · '+e.location:''}`).join(' | ');
+          banner.style.display='';
+        }
+      }
+
+      // Overdue board cards — show persistent banner
+      const{data:overdue}=await this.sb.from('kanban_cards').select('title,due_date')
+        .lt('due_date',today).neq('column_name','done');
+      if(overdue&&overdue.length){
+        items.push(`⚠ ${overdue.length} overdue task${overdue.length>1?'s':''}`);
+        const banner=document.getElementById('overdueBanner');
+        if(banner){
+          banner.innerHTML=`⚠ ${overdue.length} OVERDUE: ${overdue.slice(0,3).map(c=>c.title).join(', ')}${overdue.length>3?' +more':''}`;
+          banner.style.display='';
+        }
+      }
 
       // Pending queue
       const{count:queue}=await this.sb.from('raw_emails').select('*',{count:'exact',head:true}).eq('processed',false);
@@ -1101,7 +1121,19 @@ NX.timeClock = {
         const { data } = await NX.sb.from('time_clock').select('*')
           .eq('user_id', NX.currentUser.id).is('clock_out', null)
           .order('clock_in', { ascending: false }).limit(1).single();
-        if (data) this._activeEntry = data;
+        if (data) {
+          // Auto clock-out after 14 hours
+          const elapsed = (Date.now() - new Date(data.clock_in).getTime()) / 3600000;
+          if (elapsed > 14) {
+            const hours = 14;
+            const autoOut = new Date(new Date(data.clock_in).getTime() + 14 * 3600000).toISOString();
+            await NX.sb.from('time_clock').update({ clock_out: autoOut, hours }).eq('id', data.id);
+            if (NX.toast) NX.toast(`Auto clock-out: ${data.user_name} (14hr limit)`, 'info', 5000);
+            this._activeEntry = null;
+          } else {
+            this._activeEntry = data;
+          }
+        }
       } catch (e) {}
     }
     return !!this._activeEntry;
