@@ -1259,8 +1259,7 @@ NX.timeClock = {
         <div class="tc-popup-total" id="tcPopupTotal"></div>
         <button class="tc-popup-export" id="tcExportBtn">⬇ Export Timesheet</button>
       `;
-      clockBtn.style.position = 'relative';
-      clockBtn.appendChild(popup);
+      document.body.appendChild(popup);
 
       popup.querySelector('.tc-popup-btn').addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -1283,7 +1282,7 @@ NX.timeClock = {
     });
 
     document.addEventListener('click', (e) => {
-      if (!clockBtn.contains(e.target)) popup.classList.remove('open');
+      if (!clockBtn.contains(e.target) && !popup.contains(e.target)) popup.classList.remove('open');
     });
 
     this.checkStatus().then(() => {
