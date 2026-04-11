@@ -902,3 +902,19 @@ body::-webkit-scrollbar{display:none}
 /* Alert dismiss button */
 .alert-dismiss{background:none;border:none;color:inherit;opacity:.5;cursor:pointer;font-size:14px;padding:0 4px;margin-left:8px;vertical-align:middle}
 .alert-dismiss:active{opacity:1}
+
+/* ═══ PROACTIVE GREETING ═══ */
+.proactive-greeting{font-size:13px;color:var(--muted);line-height:1.6;padding:4px 0;max-width:320px}
+.proactive-greeting b{color:var(--accent);font-weight:600}
+
+/* ═══ SMART REMINDERS ═══ */
+.reminder-item{background:var(--elevated);border-radius:var(--rs);padding:10px 12px;margin:6px 0;border-left:3px solid var(--accent)}
+.reminder-what{font-size:13px;font-weight:500;color:var(--text);margin-bottom:4px}
+.reminder-who{font-size:11px;color:var(--faint);margin-bottom:6px}
+.reminder-action{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
+.reminder-btn{padding:4px 12px;border-radius:6px;border:1px solid rgba(200,164,78,.3);background:none;color:var(--accent);font-size:11px;cursor:pointer;font-family:inherit}
+.reminder-btn:active{background:rgba(200,164,78,.1)}
+
+/* ═══ NATIVE BUTTONS ═══ */
+.native-btn{font-size:16px;padding:6px 8px;background:none;border:none;cursor:pointer;opacity:.7;transition:opacity .2s}
+.native-btn:active{opacity:1;transform:scale(1.1)}
