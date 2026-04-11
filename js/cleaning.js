@@ -276,6 +276,34 @@ function render(){
           NX.offlineQueue.add({type:'cleaning',data:upsertData});
         }
       };
+      // Camera button — photo proof
+      const cam=document.createElement('button');cam.className='clean-cam';cam.textContent='📷';cam.title='Take photo';
+      cam.addEventListener('click',async(e)=>{
+        e.stopPropagation();
+        const input=document.createElement('input');input.type='file';input.accept='image/*';input.capture='environment';
+        input.addEventListener('change',async()=>{
+          if(!input.files.length)return;
+          const file=input.files[0];
+          cam.textContent='⏳';cam.disabled=true;
+          try{
+            const path=`cleaning/${loc}/${today}/${sec.sec}_${i}_${Date.now()}.jpg`;
+            const{error}=await NX.sb.storage.from('nexus-files').upload(path,file,{contentType:file.type,upsert:true});
+            if(!error){
+              cam.textContent='✅';
+              // Store photo ref in cleaning log
+              await NX.sb.from('cleaning_logs').upsert({
+                location:loc,log_date:today,task_index:i,section:sec.sec,
+                done:getState(k),completed_at:new Date().toISOString(),
+                photo_path:path
+              },{onConflict:'location,log_date,task_index,section'});
+              if(NX.toast)NX.toast('Photo saved ✓','success');
+            }else{cam.textContent='❌';if(NX.toast)NX.toast('Upload failed','error');}
+          }catch(err){cam.textContent='❌';if(NX.toast)NX.toast('Upload failed','error');}
+          setTimeout(()=>{cam.textContent='📷';cam.disabled=false;},2000);
+        });
+        input.click();
+      });
+      it.appendChild(cam);
       body.appendChild(it);
     });
 
