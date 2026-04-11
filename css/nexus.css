@@ -804,9 +804,13 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .tc-enter:active{background:rgba(200,164,78,.1)}
 
 /* Nav clock widget */
-.nav-clock{position:relative;background:none;border:none;color:var(--faint);cursor:pointer;padding:8px}
+.nav-clock{position:relative;background:none;border:none;color:var(--faint);cursor:pointer;padding:8px;display:flex;align-items:center;gap:4px}
+.nav-clock.clocked-in{color:#39ff14}
+.nav-clock.clocked-in .nav-icon{color:#39ff14}
 .tc-indicator{position:absolute;top:4px;right:4px;width:6px;height:6px;border-radius:50%;display:none}
-.tc-indicator.clocked-in{display:block;background:#39ff14;box-shadow:0 0 6px rgba(57,255,20,.5);animation:pulse 2s infinite}
+.tc-indicator.clocked-in{display:block;background:#39ff14;box-shadow:0 0 6px rgba(57,255,20,.5);animation:tcPulse 2s infinite}
+@keyframes tcPulse{0%,100%{box-shadow:0 0 4px rgba(57,255,20,.4)}50%{box-shadow:0 0 12px rgba(57,255,20,.8)}}
+.tc-nav-time{font-size:10px;font-weight:700;color:#39ff14;font-family:'JetBrains Mono',monospace;letter-spacing:.5px}
 
 /* Clock popup on nav */
 .tc-popup{position:absolute;top:100%;right:0;background:rgba(14,14,18,.97);border:1px solid rgba(200,164,78,.2);border-radius:12px;padding:16px;min-width:220px;z-index:50;backdrop-filter:blur(12px);box-shadow:0 12px 40px rgba(0,0,0,.5);display:none}
