@@ -862,3 +862,15 @@ body{font-family:'Libre Franklin',system-ui,sans-serif;background:var(--bg);colo
 .tc-popup-total{font-size:11px;font-weight:700;color:var(--accent);text-align:right;margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.08);font-family:'JetBrains Mono',monospace}
 .tc-popup-export{width:100%;margin-top:8px;padding:8px;border-radius:6px;border:1px solid rgba(200,164,78,.2);background:none;color:var(--accent);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s}
 .tc-popup-export:active{background:rgba(200,164,78,.1)}
+
+/* ═══ TIME CLOCK PIN SCREEN — expanded ═══ */
+.tc-loc-row{margin-bottom:10px}
+.tc-loc-select{padding:8px 14px;border-radius:8px;border:1px solid rgba(200,164,78,.2);background:rgba(255,255,255,.05);color:var(--text);font-size:13px;font-family:inherit;width:100%;max-width:200px;text-align:center;outline:none}
+.tc-pin-log{margin:14px 0 10px;max-height:140px;overflow-y:auto;text-align:left;width:100%}
+.tc-pin-log-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px}
+.tc-pin-log-date{color:var(--faint)}
+.tc-pin-log-hrs{color:var(--accent);font-weight:700;font-family:'JetBrains Mono',monospace}
+.tc-pin-log-loc{color:rgba(255,255,255,.3);font-size:10px}
+.tc-pin-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:4px}
+.tc-download{padding:10px 20px;border-radius:8px;border:1px solid rgba(200,164,78,.2);background:none;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
+.tc-download:active{background:rgba(200,164,78,.1)}
