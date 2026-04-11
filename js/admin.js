@@ -58,13 +58,16 @@ function log(msg,type){const el=document.getElementById('ingestLog');if(!el)retu
 function clearLog(){const el=document.getElementById('ingestLog');if(el)el.innerHTML='';}
 
 async function init(){
+  try{
+  // ── PASTE TEXT ──
   document.getElementById('ingestTextBtn')?.addEventListener('click',ingestText);
-  document.getElementById('trelloBtn')?.addEventListener('click',trelloImport);
+
+  // ── EMAIL & DOCUMENTS ──
   document.getElementById('gmailConnectBtn')?.addEventListener('click',connectGmail);
   document.getElementById('gmailSyncBtn')?.addEventListener('click',syncEmails);
-  document.getElementById('clearLogBtn')?.addEventListener('click',clearLog);
   document.getElementById('reIngestBtn')?.addEventListener('click',reIngestArchived);
-  // Smart file router — emails vs documents
+
+  // ── UNIVERSAL DROP ZONE ──
   function routeFiles(files){
     const emailFiles=[],docFiles=[];
     for(const f of files){
@@ -82,88 +85,121 @@ async function init(){
     dropzone.addEventListener('dragover',e=>{e.preventDefault();dropzone.classList.add('dragover');});
     dropzone.addEventListener('dragleave',()=>dropzone.classList.remove('dragover'));
     dropzone.addEventListener('drop',e=>{e.preventDefault();dropzone.classList.remove('dragover');routeFiles(e.dataTransfer.files);});
-    dropzone.addEventListener('click',()=>fileInput?.click());
-    fileInput?.addEventListener('change',()=>{if(fileInput.files.length)routeFiles(fileInput.files);});
+    dropzone.addEventListener('click',e=>{
+      if(e.target.tagName==='INPUT')return; // Don't double-trigger
+      fileInput?.click();
+    });
+    fileInput?.addEventListener('change',()=>{if(fileInput.files.length){routeFiles(fileInput.files);fileInput.value='';}});
   }
-  // Import backup
-  document.getElementById('importFileInput')?.addEventListener('change',function(){if(this.files.length)importBackup(this.files[0]);});
+
+  // ── TOOLS & BACKUP ──
   document.getElementById('exportBtn')?.addEventListener('click',exportBackup);
   document.getElementById('sensitiveBtn')?.addEventListener('click',scanSensitive);
   document.getElementById('relationshipBtn')?.addEventListener('click',()=>buildRelationships(false));
-  document.getElementById('autoLinkToggle')?.addEventListener('change',(e)=>{localStorage.setItem('nexus_auto_link',e.target.checked?'on':'off');});
-  document.getElementById('bgProcessToggle')?.addEventListener('change',(e)=>{
+  document.getElementById('dedupBtn')?.addEventListener('click',findDuplicates);
+  document.getElementById('importFileInput')?.addEventListener('change',function(){if(this.files.length)importBackup(this.files[0]);});
+  document.getElementById('autoLinkToggle')?.addEventListener('change',e=>{localStorage.setItem('nexus_auto_link',e.target.checked?'on':'off');});
+
+  // ── ACTIVITY LOG ──
+  document.getElementById('clearLogBtn')?.addEventListener('click',clearLog);
+
+  // ── PROCESSOR CONTROLS ──
+  document.getElementById('bgProcessToggle')?.addEventListener('change',e=>{
     localStorage.setItem('nexus_bg_process',e.target.checked?'on':'off');
     if(e.target.checked)startBackgroundProcessor();
-    else if(bgInterval){clearInterval(bgInterval);bgInterval=null;log('⚙ Background processor stopped');}
+    else if(bgInterval){clearInterval(bgInterval);bgInterval=null;log('⚙ Processor stopped');}
   });
-  // Batch size presets
-  document.querySelectorAll('#batchPresets .ig-chip').forEach(btn=>{
-    if(btn.dataset.val===String(getBatchSize()))btn.classList.add('active');
-    btn.addEventListener('click',()=>{
-      document.querySelectorAll('#batchPresets .ig-chip').forEach(b=>b.classList.remove('active'));
-      btn.classList.add('active');
-      localStorage.setItem('nexus_bg_batch',btn.dataset.val);
-      if(bgInterval)startBackgroundProcessor();
-      updateProcStatus();
-    });
-  });
-  // Mode presets
-  document.querySelectorAll('#modePresets .ig-chip').forEach(btn=>{
-    if(btn.dataset.val===getMode())btn.classList.add('active');
-    btn.addEventListener('click',()=>{
-      document.querySelectorAll('#modePresets .ig-chip').forEach(b=>b.classList.remove('active'));
-      btn.classList.add('active');
-      localStorage.setItem('nexus_bg_mode',btn.dataset.val);
-      updateProcStatus();
-      if(btn.dataset.val==='rescan'){
-        log('♻ Re-scan mode — archive will reset on next cycle');
-      }else if(btn.dataset.val==='pull'){
-        log('📬 Pull+Process mode — will fetch new Gmail emails each cycle');
-      }
-    });
-  });
-  // Interval presets
-  document.querySelectorAll('#intervalPresets .ig-chip').forEach(btn=>{
-    if(btn.dataset.val===localStorage.getItem('nexus_bg_interval'))btn.classList.add('active');
-    btn.addEventListener('click',()=>{
-      document.querySelectorAll('#intervalPresets .ig-chip').forEach(b=>b.classList.remove('active'));
-      btn.classList.add('active');
-      localStorage.setItem('nexus_bg_interval',btn.dataset.val);
-      if(bgInterval)startBackgroundProcessor();
-      updateProcStatus();
-    });
-  });
-  // Pause button
-  const pauseBtn=document.getElementById('pauseBtn');
-  if(pauseBtn){
-    pauseBtn.addEventListener('click',()=>{
-      NX.paused=!NX.paused;
-      pauseBtn.textContent=NX.paused?'⏸ Paused':'● Syncing';
-      pauseBtn.classList.toggle('paused',NX.paused);
+
+  // Chip presets — generic handler
+  function setupChips(containerId,storageKey,onSelect){
+    document.querySelectorAll(`#${containerId} .ig-chip`).forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        document.querySelectorAll(`#${containerId} .ig-chip`).forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        localStorage.setItem(storageKey,btn.dataset.val);
+        if(onSelect)onSelect(btn.dataset.val);
+      });
     });
   }
-  // Start if enabled
-  if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
-  updateProcStatus();
-  // Run Now button
-  document.getElementById('procRunNow')?.addEventListener('click',async()=>{
-    const btn=document.getElementById('procRunNow');
-    btn.disabled=true;btn.textContent='Running...';
-    await processNextBatch();
-    btn.disabled=false;btn.textContent='▶ Run batch now';
+  setupChips('batchPresets','nexus_bg_batch',()=>{if(bgInterval)startBackgroundProcessor();updateProcStatus();});
+  setupChips('intervalPresets','nexus_bg_interval',()=>{if(bgInterval)startBackgroundProcessor();updateProcStatus();});
+  setupChips('modePresets','nexus_bg_mode',val=>{
+    updateProcStatus();
+    if(val==='rescan')log('♻ Re-scan mode — archive resets on next cycle');
+    if(val==='pull')log('📬 Pull+Process — fetches new Gmail each cycle');
   });
+
+  // Pause button
+  document.getElementById('pauseBtn')?.addEventListener('click',function(){
+    NX.paused=!NX.paused;
+    this.textContent=NX.paused?'⏸ Paused':'● Syncing';
+    this.classList.toggle('paused',NX.paused);
+  });
+
+  // Run Now
+  document.getElementById('procRunNow')?.addEventListener('click',async function(){
+    this.disabled=true;this.textContent='Running...';
+    await processNextBatch();
+    this.disabled=false;this.textContent='▶ Run Batch Now';
+  });
+
+  // ── INFO TOOLTIPS — tap to show ──
+  document.querySelectorAll('.ig-info').forEach(el=>{
+    el.addEventListener('click',e=>{
+      e.stopPropagation();
+      // Close any open tooltips
+      document.querySelectorAll('.ig-info-tip').forEach(t=>t.remove());
+      document.querySelectorAll('.ig-info.active').forEach(i=>i.classList.remove('active'));
+      // Show this one
+      const tip=document.createElement('div');tip.className='ig-info-tip';
+      tip.textContent=el.dataset.tip;
+      el.classList.add('active');
+      el.appendChild(tip);
+      // Close on outside tap
+      const close=()=>{tip.remove();el.classList.remove('active');document.removeEventListener('click',close);};
+      setTimeout(()=>document.addEventListener('click',close),10);
+      // Auto-close after 4s
+      setTimeout(()=>{try{tip.remove();el.classList.remove('active');}catch(e){}},4000);
+    });
+  });
+
+  // ── STARTUP ──
   loadGoogleAuth();
   await loadProcessedIds();
-  const s=localStorage.getItem('nexus_gmail_token');
-  if(s){try{const p=JSON.parse(s);if(p.expiry>Date.now()){gmailToken=p.token;showGmailConnected();}else localStorage.removeItem('nexus_gmail_token');}catch(e){}}
-  updateStats();
+  // Restore Gmail token
+  const saved=localStorage.getItem('nexus_gmail_token');
+  if(saved){try{const p=JSON.parse(saved);if(p.expiry>Date.now()){gmailToken=p.token;showGmailConnected();}else localStorage.removeItem('nexus_gmail_token');}catch(e){}}
+  // Restore chip states
+  restoreChipStates();
+  // Start processor if enabled
+  if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
+  updateProcStatus();
+  updateQueueStatus();
+  log('Ingest ready','success');
+  }catch(e){console.error('INGEST INIT ERROR:',e);log('Init error: '+e.message,'error');}
+}
+
+function restoreChipStates(){
+  const batch=String(getBatchSize());
+  const interval=localStorage.getItem('nexus_bg_interval')||'300';
+  const mode=getMode();
+  document.querySelectorAll('#batchPresets .ig-chip').forEach(b=>{b.classList.toggle('active',b.dataset.val===batch);});
+  document.querySelectorAll('#intervalPresets .ig-chip').forEach(b=>{b.classList.toggle('active',b.dataset.val===interval);});
+  document.querySelectorAll('#modePresets .ig-chip').forEach(b=>{b.classList.toggle('active',b.dataset.val===mode);});
 }
 
 // ═══ GOOGLE AUTH ═══
 function loadGoogleAuth(){const c=NX.getGoogleClientId();if(!c)return;if(!document.querySelector('script[src*="accounts.google.com/gsi/client"]')){const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.onload=()=>initTC();document.head.appendChild(s);}else initTC();}
 function initTC(){const c=NX.getGoogleClientId();if(!c||!window.google?.accounts?.oauth2)return;gisLoaded=true;tokenClient=google.accounts.oauth2.initTokenClient({client_id:c,scope:'https://www.googleapis.com/auth/gmail.readonly',callback:r=>{if(r.access_token){gmailToken=r.access_token;localStorage.setItem('nexus_gmail_token',JSON.stringify({token:r.access_token,expiry:Date.now()+55*60*1000}));showGmailConnected();log('Gmail connected ✓','success');}}});}
 function connectGmail(){const c=NX.getGoogleClientId();if(!c){log('No Google Client ID. Open Admin ⚙.','error');return;}if(!gisLoaded){loadGoogleAuth();setTimeout(connectGmail,1000);return;}if(tokenClient)tokenClient.requestAccessToken();}
-function showGmailConnected(){document.getElementById('gmailStatusText').textContent='✓ Connected';document.getElementById('gmailStatusText').style.color='var(--green)';document.getElementById('gmailConnectBtn').textContent='Reconnect';document.getElementById('gmailSyncControls').style.display='block';}
+function showGmailConnected(){
+  const st=document.getElementById('gmailStatusText');
+  if(st){st.textContent='✓ Connected';st.style.color='#4ade80';}
+  const cb=document.getElementById('gmailConnectBtn');
+  if(cb)cb.textContent='Reconnect';
+  const sc=document.getElementById('gmailSyncControls');
+  if(sc)sc.style.display='block';
+}
 
 // ═══ GMAIL SYNC — OPTIMIZED ═══
 const JUNK_PATTERNS=[/unsubscribe/i,/no-reply/i,/noreply/i,/newsletter/i,/marketing/i,/donotreply/i,/notification@/i,/updates@/i,/mailer-daemon/i,/postmaster/i];
@@ -1043,36 +1079,38 @@ async function reIngestArchived(){
 async function aiProcessWithSources(text,sourceMap){
   const existing=getExistingNodeList();
   try{const a=await NX.askClaude(
-    `You extract knowledge for restaurant operations (Suerte, Este, Bar Toti — Austin TX).
-Each email/document is labeled [EMAIL #N]. For each node, include which source(s) it came from.
+    `You are an entity extractor for Suerte, Este, and Bar Toti restaurants in Austin, TX.
 
-EXTRACT ALL restaurant-relevant information:
-✓ Equipment — models, serial numbers, specs, warranties, manuals, maintenance schedules
-✓ Parts — part numbers, where to buy (Amazon, Parts Town, WebstaurantStore, etc.), prices, compatibility
-✓ Vendors & suppliers — company name, contacts, phone, email, account numbers, pricing
-✓ Contractors — names, specialties, services, schedules, contact info, rates
-✓ Invoices — amounts, dates, order numbers, tracking, what was ordered
-✓ Procedures, inspections, permits, licenses, health codes
-✓ Projects, renovations, installations, timelines
-✓ Food suppliers, menu items, purveyors
-✓ Staff restaurant roles
+TASK: Extract EVERY distinct entity from the emails below into structured nodes.
 
-IMPORTANT — For equipment and parts:
-- Extract model numbers and part numbers exactly as written
-- Note which vendor sells them (Parts Town, Amazon, Home Depot, etc.)
-- Include pricing if mentioned
-- If a manual mentions replacement parts, extract each part with its number
+RULES:
+1. USE FULL PROPER NAMES — "Tyler Maffi" not "Tyler". "Hoshizaki KM-901MAJ" not "ice machine".
+2. ONE NODE PER ENTITY — don't create separate nodes for the same thing. If an email mentions "Hoshizaki" and another mentions "Hoshizaki KM-901MAJ", that's ONE node with the full name.
+3. CHECK THE EXISTING NODES LIST — if a node already exists with the same or similar name, DO NOT create it again. Output it as a match using "merge_with" field.
+4. INCLUDE EVERY DETAIL in notes — phone numbers, emails, amounts, dates, part numbers, serial numbers, model numbers, order numbers, tracking numbers. Never summarize, always preserve raw data.
+5. NOTES MUST BE FACTUAL — only state things directly from the source text. Never infer or assume.
 
-DO NOT EXTRACT:
-✗ Personal bonuses, salaries, compensation
-✗ Credit card or bank numbers
-✗ Personal medical/family info
-✗ Marketing spam, newsletters
-✗ Social media notifications
+CATEGORIES (use exactly one):
+equipment | contractors | vendors | procedure | projects | people | systems | parts | location
 
-DO NOT create nodes that already exist — check list below.
-RESPOND ONLY RAW JSON:
-{"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"Include ALL details: specs, prices, phone numbers, model numbers, part numbers, where to buy, order numbers, tracking info","email_refs":[1,3]}],"cards":[{"title":"...","column_name":"todo"}]}${existing}`,
+RESPOND ONLY WITH RAW JSON — no markdown, no backticks, no explanation:
+{
+  "nodes": [
+    {
+      "name": "Full Proper Name (include model numbers for equipment)",
+      "category": "one of the categories above",
+      "tags": ["relevant", "searchable", "terms"],
+      "notes": "ALL details: specs, prices, phone, email, model numbers, part numbers, serial numbers, order info, dates, amounts. Preserve exact numbers.",
+      "email_refs": [1],
+      "merge_with": "Existing Node Name if this is the same entity, otherwise omit"
+    }
+  ],
+  "cards": [
+    {"title": "Action item if any", "column_name": "todo"}
+  ]
+}
+
+EXISTING NODES (do NOT duplicate these):${existing}`,
     [{role:'user',content:text.slice(0,14000)}],4096);
   let j=a.replace(/```json\s*/gi,'').replace(/```\s*/g,'');const s=j.indexOf('{'),e=j.lastIndexOf('}');if(s===-1||e<=s){log('No JSON','warn');return null;}j=j.slice(s,e+1);
   try{const p=JSON.parse(j);if(!p.nodes||!Array.isArray(p.nodes))return null;
@@ -1110,43 +1148,61 @@ const createdNames=[];
 // Build existing node map from Supabase
 let existingMap={};
 try{const{data}=await NX.sb.from('nodes').select('id,name,notes,tags,source_emails,attachments');
-  if(data)data.forEach(n=>{if(n.name)existingMap[n.name.toLowerCase()]={id:n.id,notes:n.notes||'',tags:n.tags||[],source_emails:n.source_emails||[],attachments:n.attachments||[]};});}catch(e){}
+  if(data)data.forEach(n=>{if(n.name)existingMap[n.name.toLowerCase()]={id:n.id,name:n.name,notes:n.notes||'',tags:n.tags||[],source_emails:n.source_emails||[],attachments:n.attachments||[]};});}catch(e){
+  if(NX.toast)NX.toast('Failed to load existing nodes','error');return 0;
+}
 const vc=['equipment','contractors','vendors','procedure','projects','people','systems','parts','location'];
 for(const n of r.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2)continue;
-  const newNotes=(n.notes||'').slice(0,2000);
+  const newNotes=(n.notes||'').slice(0,3000);
   const newTags=Array.isArray(n.tags)?n.tags.filter(t=>typeof t==='string').slice(0,20):[];
   const newSources=n.source_emails||[];
   const newAtts=n.attachments||[];
 
-  // Check for existing node with same/similar name
-  const existKey=Object.keys(existingMap).find(k=>k===nm.toLowerCase()||isFuzzyDuplicate(nm,new Set([k])));
+  // Check for merge_with (AI-suggested match)
+  let existKey=null;
+  if(n.merge_with){
+    existKey=Object.keys(existingMap).find(k=>k===n.merge_with.toLowerCase());
+  }
+  // Fallback to fuzzy name match
+  if(!existKey){
+    existKey=Object.keys(existingMap).find(k=>
+      k===nm.toLowerCase()||
+      isFuzzyDuplicate(nm,new Set([k]))||
+      // Also catch substring matches like "Tyler" matching "Tyler Maffi"
+      (nm.length>3 && k.includes(nm.toLowerCase())) ||
+      (k.length>3 && nm.toLowerCase().includes(k))
+    );
+  }
+
   if(existKey){
-    // MERGE — update existing node with better data
+    // MERGE — update existing node with new data
     const ex=existingMap[existKey];
-    const mergedNotes=newNotes.length>ex.notes.length?newNotes:ex.notes; // Keep longer notes
+    // Append notes instead of replacing (keep both)
+    let mergedNotes=ex.notes;
+    if(newNotes&&newNotes.length>10&&!ex.notes.includes(newNotes.slice(0,50))){
+      mergedNotes=(ex.notes+'\n\n'+newNotes).slice(0,4000);
+    }
     const mergedTags=[...new Set([...ex.tags,...newTags])].slice(0,30);
     const mergedSources=[...ex.source_emails,...newSources].slice(0,50);
-    // Deduplicate attachments by filename+url
     const allAtts=[...ex.attachments,...newAtts];
     const attSeen=new Set();const mergedAtts=allAtts.filter(a=>{const k=(a.filename||'')+'|'+(a.url||'');if(attSeen.has(k))return false;attSeen.add(k);return true;}).slice(0,20);
-    // Only update if we have something new
-    if(newNotes.length>ex.notes.length||newTags.length||newSources.length||newAtts.length){
-      try{await NX.sb.from('nodes').update({
-        notes:mergedNotes,tags:mergedTags,
-        source_emails:mergedSources,attachments:mergedAtts
-      }).eq('id',ex.id);
+    // Use the longer/more specific name
+    const betterName=nm.length>ex.name.length?nm.slice(0,200):ex.name;
+    const updates={notes:mergedNotes,tags:mergedTags,source_emails:mergedSources,attachments:mergedAtts};
+    if(betterName!==ex.name)updates.name=betterName;
+    try{await NX.sb.from('nodes').update(updates).eq('id',ex.id);
       updated++;
-      // Update local map
-      existingMap[existKey]={...ex,notes:mergedNotes,tags:mergedTags,source_emails:mergedSources,attachments:mergedAtts};
-      }catch(e){}
+      existingMap[existKey]={...ex,...updates,name:betterName};
+    }catch(e){
+      er++;if(NX.toast)NX.toast(`Merge failed: ${nm}`,'error');
     }
     continue;
   }
   // New node — insert
   const row={name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'equipment',tags:newTags,notes:newNotes,links:[],access_count:1,source_emails:newSources,attachments:newAtts};
   const{error}=await NX.sb.from('nodes').insert(row);
-  if(error){er++;if(er<=3)log(`Insert "${nm}": ${error.message}`,'error');}
-  else{existingMap[nm.toLowerCase()]={id:0,notes:newNotes,tags:newTags,source_emails:newSources,attachments:newAtts};createdNames.push(nm);c++;}}
+  if(error){er++;if(er<=3)log(`Insert "${nm}": ${error.message}`,'error');if(NX.toast)NX.toast(`Failed: ${nm}`,'error');}
+  else{existingMap[nm.toLowerCase()]={id:0,name:nm,notes:newNotes,tags:newTags,source_emails:newSources,attachments:newAtts};createdNames.push(nm);c++;}}
 if(r.cards)for(const x of r.cards){if(!x.title)continue;await NX.sb.from('kanban_cards').insert({title:(x.title||'').slice(0,200),column_name:x.column_name||'todo'});}
 if(updated)log(`${updated} existing nodes enriched`,'success');
 if(er)log(`${er} inserts failed`,'error');
@@ -1323,6 +1379,82 @@ function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 function updateStats(){const el=document.getElementById('ingestStats');if(!el)return;const t=NX.nodes.length,c={};NX.nodes.forEach(n=>{c[n.category]=(c[n.category]||0)+1;});el.innerHTML=`<div class="stat-total">${t} nodes in brain · ${processedIds.size} items processed</div><div class="stat-chips">${Object.entries(c).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<span class="stat-chip">${k} <b>${v}</b></span>`).join('')}</div>`;}
 
 // ═══ SENSITIVE DATA SCANNER — AI identifies and removes personal nodes ═══
+// ═══ NODE DEDUPLICATION TOOL ═══
+async function findDuplicates(){
+  clearLog();log('🔍 Scanning for duplicate nodes...');
+  try{
+    const{data}=await NX.sb.from('nodes').select('id,name,category,notes,tags');
+    if(!data||data.length<2){log('Not enough nodes to check.','warn');return;}
+    // Build name list for Claude
+    const nodeList=data.map(n=>`#${n.id}: ${n.name} (${n.category})`).join('\n');
+    log(`Analyzing ${data.length} nodes...`);
+    const result=await NX.askClaude(
+      `You are analyzing a knowledge base for duplicate entries. These nodes may refer to the same entity with different names.
+
+FIND DUPLICATES — same entity, different names. Examples:
+- "Tyler" and "Tyler Maffi" → same person
+- "Hoshizaki" and "Hoshizaki KM-901MAJ" → same equipment
+- "ice machine suerte" and "Hoshizaki KM-901MAJ" → same equipment
+- "Parts Town" and "partstown.com" → same vendor
+
+DO NOT flag as duplicates:
+- Different models of same brand (Hoshizaki KM-901 vs Hoshizaki AM-50BAJ are different machines)
+- Same category but different entities (two different contractors)
+
+Return ONLY raw JSON:
+{"duplicates":[{"keep_id":123,"keep_name":"Tyler Maffi","merge_ids":[456],"merge_names":["Tyler"],"reason":"Same person, keep full name"}]}
+
+If no duplicates found, return: {"duplicates":[]}`,
+      [{role:'user',content:nodeList.slice(0,14000)}],2000);
+
+    let j=result.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
+    const s=j.indexOf('{'),e=j.lastIndexOf('}');
+    if(s===-1||e<=s){log('No results from AI.','warn');return;}
+    const parsed=JSON.parse(j.slice(s,e+1));
+    if(!parsed.duplicates||!parsed.duplicates.length){
+      log('✓ No duplicates found!','success');return;
+    }
+    log(`Found ${parsed.duplicates.length} duplicate groups:`);
+    // Show review UI
+    const reviewDiv=document.createElement('div');reviewDiv.className='dedup-review';
+    parsed.duplicates.forEach((d,i)=>{
+      const item=document.createElement('div');item.className='dedup-item';
+      item.innerHTML=`
+        <div class="dedup-header">
+          <span class="dedup-keep">Keep: <b>${d.keep_name}</b> (#${d.keep_id})</span>
+          <span class="dedup-merge">Merge: ${d.merge_names.join(', ')}</span>
+        </div>
+        <div class="dedup-reason">${d.reason}</div>
+        <button class="dedup-btn" data-idx="${i}">Merge ✓</button>
+        <button class="dedup-skip" data-idx="${i}">Skip</button>
+      `;
+      // Merge handler
+      item.querySelector('.dedup-btn').addEventListener('click',async function(){
+        this.disabled=true;this.textContent='Merging...';
+        const keepNode=data.find(n=>n.id===d.keep_id);
+        if(!keepNode){this.textContent='Node not found';return;}
+        for(const mid of d.merge_ids){
+          const mergeNode=data.find(n=>n.id===mid);
+          if(!mergeNode)continue;
+          // Combine notes
+          const combinedNotes=((keepNode.notes||'')+'\n\n'+(mergeNode.notes||'')).slice(0,4000);
+          const combinedTags=[...new Set([...(keepNode.tags||[]),...(mergeNode.tags||[])])].slice(0,30);
+          await NX.sb.from('nodes').update({notes:combinedNotes,tags:combinedTags}).eq('id',d.keep_id);
+          await NX.sb.from('nodes').delete().eq('id',mid);
+          log(`  Merged "${mergeNode.name}" → "${keepNode.name}"`,'success');
+        }
+        this.textContent='✓ Merged';
+        item.style.opacity='0.4';
+      });
+      item.querySelector('.dedup-skip').addEventListener('click',function(){
+        item.style.opacity='0.3';this.textContent='Skipped';
+      });
+      reviewDiv.appendChild(item);
+    });
+    document.getElementById('ingestLog')?.appendChild(reviewDiv);
+  }catch(e){log('Dedup error: '+e.message,'error');}
+}
+
 async function scanSensitive(){
   const btn=document.getElementById('sensitiveBtn');if(!btn)return;
   btn.disabled=true;btn.textContent='Scanning...';clearLog();
@@ -1592,12 +1724,13 @@ async function autoLinkNewNodes(newNodeNames){
 NX.buildRelationships=buildRelationships;
 NX.autoLinkNewNodes=autoLinkNewNodes;
 
-NX.modules.ingest={init,show:()=>{updateProcStatus();
-  const alt=document.getElementById('autoLinkToggle');if(alt)alt.checked=localStorage.getItem('nexus_auto_link')!=='off';
-  const bgt=document.getElementById('bgProcessToggle');if(bgt)bgt.checked=localStorage.getItem('nexus_bg_process')!=='off';
-  const batch=String(getBatchSize());const interval=localStorage.getItem('nexus_bg_interval')||'300';const mode=getMode();
-  document.querySelectorAll('#batchPresets .ig-chip').forEach(b=>{b.classList.toggle('active',b.dataset.val===batch);});
-  document.querySelectorAll('#intervalPresets .ig-chip').forEach(b=>{b.classList.toggle('active',b.dataset.val===interval);});
-  document.querySelectorAll('#modePresets .ig-chip').forEach(b=>{b.classList.toggle('active',b.dataset.val===mode);});
+NX.modules.ingest={init,show:()=>{
+  try{
+    restoreChipStates();
+    const alt=document.getElementById('autoLinkToggle');if(alt)alt.checked=localStorage.getItem('nexus_auto_link')!=='off';
+    const bgt=document.getElementById('bgProcessToggle');if(bgt)bgt.checked=localStorage.getItem('nexus_bg_process')!=='off';
+    updateProcStatus();
+    updateQueueStatus();
+  }catch(e){console.error('Ingest show error:',e);}
 }};
 })();
