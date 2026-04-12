@@ -324,9 +324,9 @@
       bgGrad.addColorStop(0.5,'#0c0c14');
       bgGrad.addColorStop(1,'#060608');
     }else{
-      bgGrad.addColorStop(0,'#F0EDE6');
-      bgGrad.addColorStop(0.5,'#E8E4DC');
-      bgGrad.addColorStop(1,'#DDD8CE');
+      bgGrad.addColorStop(0,'#E4E0D6');
+      bgGrad.addColorStop(0.5,'#DBD6CC');
+      bgGrad.addColorStop(1,'#D0CABC');
     }
     ctx.fillStyle=bgGrad;ctx.fillRect(0,0,W,H);
     ctx.translate(t.x,t.y);ctx.scale(t.scale,t.scale);
