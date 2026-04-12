@@ -1935,16 +1935,16 @@ return c+updated;}
 
 // ═══ AUTO-TRIAGE — flag urgent items during pipeline ═══
 const URGENT_PATTERNS=[
-  {re:/health\s*(?:dept|department|inspector|inspection|violation)/i,label:'🏥 Health Department'},
-  {re:/equipment\s*(?:failure|down|broken|not\s*working)/i,label:'🔧 Equipment Down'},
-  {re:/leak|flood|water\s*damage/i,label:'💧 Water/Leak'},
-  {re:/fire|smoke|burn/i,label:'🔥 Fire/Safety'},
-  {re:/pest|roach|rodent|mouse|rat/i,label:'🐛 Pest Issue'},
-  {re:/price\s*increase|rate\s*change|cost\s*increase/i,label:'💰 Price Change'},
-  {re:/cancel|terminat|discontinue/i,label:'⚠ Cancellation'},
-  {re:/expire|expir|past\s*due|overdue\s*(?:invoice|payment|bill)/i,label:'⏰ Expiring/Overdue'},
-  {re:/urgent|emergency|asap|immediately|critical/i,label:'🚨 Urgent'},
-  {re:/recall|safety\s*alert|warning\s*notice/i,label:'⚠ Safety Alert'},
+  {re:/health\s*(?:dept|department|inspector|inspection|violation)/i,label:'🏥 Health Dept'},
+  {re:/equipment\s*(?:failure|down|broken|not\s*working|malfunction)/i,label:'🔧 Equipment Down'},
+  {re:/\b(?:water\s*leak|flood|water\s*damage|burst\s*pipe)\b/i,label:'💧 Water/Leak'},
+  {re:/\b(?:fire\s*(?:alarm|damage|hazard)|smoke\s*(?:alarm|damage))\b/i,label:'🔥 Fire/Safety'},
+  {re:/\b(?:pest\s*(?:control|issue|problem|inspection|treatment|infestation)|cockroach|rodent|mice\b|mouse\s*trap|rat\s*trap)\b/i,label:'🐛 Pest Issue'},
+  {re:/\b(?:price\s*increase|rate\s*(?:increase|change)|cost\s*increase)\b/i,label:'💰 Price Change'},
+  {re:/\b(?:cancel|terminat|discontinue)\b/i,label:'⚠ Cancellation'},
+  {re:/\b(?:expire|past\s*due|overdue\s*(?:invoice|payment|bill))\b/i,label:'⏰ Expiring/Overdue'},
+  {re:/\b(?:urgent|emergency|asap|immediately|critical)\b/i,label:'🚨 Urgent'},
+  {re:/\b(?:recall|safety\s*alert|warning\s*notice)\b/i,label:'⚠ Safety Alert'},
 ];
 
 function triageNewNodes(nodes){
