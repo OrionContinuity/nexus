@@ -2,13 +2,13 @@
 (function(){
 let feed=[],activeFilter='all';
 const FILTERS=[
-  {key:'all',label:'All',icon:'⚡'},
-  {key:'log',label:'Logs',icon:'📋'},
-  {key:'ticket',label:'Tickets',icon:'🔧'},
-  {key:'task',label:'Tasks',icon:'☑'},
-  {key:'clock',label:'Clock',icon:'⏱'},
-  {key:'chat',label:'Chat',icon:'💬'},
-  {key:'clean',label:'Clean',icon:'🧹'}
+  {key:'all',label:'All',icon:''},
+  {key:'log',label:'Logs',icon:''},
+  {key:'ticket',label:'Tickets',icon:''},
+  {key:'task',label:'Tasks',icon:''},
+  {key:'clock',label:'Clock',icon:''},
+  {key:'chat',label:'Chat',icon:''},
+  {key:'clean',label:'Clean',icon:''}
 ];
 const TYPE_COLORS={log:'var(--accent)',ticket:'#ffb020',task:'var(--blue)',clock:'var(--green)',chat:'var(--purple)',clean:'#39ff14'};
 
@@ -27,7 +27,7 @@ function renderFilterBar(){
   FILTERS.forEach(f=>{
     const btn=document.createElement('button');
     btn.className='feed-chip'+(activeFilter===f.key?' active':'');
-    btn.textContent=f.icon+' '+f.label;
+    btn.textContent=f.label;
     btn.addEventListener('click',()=>{activeFilter=f.key;renderFilterBar();render();});
     bar.appendChild(btn);
   });
