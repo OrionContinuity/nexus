@@ -283,9 +283,10 @@
     if(!brainEl||!brainEl.classList.contains('active')){
       requestAnimationFrame(draw);return;
     }
+    // Recenter particles if canvas center shifted (tab switch, resize)
+    const oldCx=W/2,oldCy=H/2;
     if(W<10||H<10){
       resize();
-      // If still bad, force canvas to fill parent
       if(W<10||H<10){
         const parent=canvas.parentElement;
         if(parent){
@@ -299,6 +300,26 @@
         }
       }
       requestAnimationFrame(draw);return;
+    }
+    // Check if center moved (happens after tab switch)
+    if(oldCx>10&&oldCy>10){
+      const newCx=W/2,newCy=H/2;
+      const shiftX=newCx-oldCx,shiftY=newCy-oldCy;
+      if(Math.abs(shiftX)>5||Math.abs(shiftY)>5){
+        state.particles.forEach(p=>{p.x+=shiftX;p.y+=shiftY;});
+      }
+    }
+    // Force resize check each frame when just became visible
+    const rect=canvas.getBoundingClientRect();
+    const dpr=Math.min(window.devicePixelRatio||1,1.5);
+    const expectedW=rect.width*dpr,expectedH=rect.height*dpr;
+    if(Math.abs(W-expectedW)>20||Math.abs(H-expectedH)>20){
+      const prevCx=W/2,prevCy=H/2;
+      resize();
+      const dx=W/2-prevCx,dy=H/2-prevCy;
+      if(Math.abs(dx)>5||Math.abs(dy)>5){
+        state.particles.forEach(p=>{p.x+=dx;p.y+=dy;});
+      }
     }
     time+=0.005;physicsFrame++;
     const P=state.particles,t=state.transform;
@@ -338,25 +359,6 @@
 
     // Nebula particles (behind everything)
     drawNebula(t);
-
-    // ═══ SPIRAL ARM DUST — faint golden lanes ═══
-    if(!isA){
-      ctx.globalAlpha=isDark()?0.025:0.06;
-      for(let arm=0;arm<4;arm++){
-        const armBase=(arm/4)*Math.PI*2;
-        ctx.beginPath();
-        for(let s=0;s<80;s++){
-          const t2=s/80;
-          const r=40+Math.pow(t2,0.5)*galaxyR;
-          const angle=armBase+Math.log(1+t2*10)*1.8;
-          const px=cx+Math.cos(angle)*r;
-          const py=cy+Math.sin(angle)*r;
-          if(s===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
-        }
-        ctx.strokeStyle=isDark()?'rgba(200,170,110,1)':'rgba(160,130,60,1)';ctx.lineWidth=12+Math.sin(time+arm)*3;ctx.lineCap='round';ctx.stroke();
-      }
-      ctx.globalAlpha=1;
-    }
 
     // Gold connection lines — curved for tapped node + search hits
     if(state.frozenNode||state.searchHits.size>0){
