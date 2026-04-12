@@ -289,9 +289,13 @@ async function init(){
   // ── STARTUP ──
   loadGoogleAuth();
   await loadProcessedIds();
-  // Restore Gmail token
+  // Restore Gmail token — or auto-refresh from stored refresh token
   const saved=localStorage.getItem('nexus_gmail_token');
-  if(saved){try{const p=JSON.parse(saved);if(p.expiry>Date.now()){gmailToken=p.token;showGmailConnected();}else localStorage.removeItem('nexus_gmail_token');}catch(e){}}
+  if(saved){
+    try{const p=JSON.parse(saved);if(p.expiry>Date.now()){gmailToken=p.token;showGmailConnected(true);}else{localStorage.removeItem('nexus_gmail_token');await autoRefreshGmail();}}catch(e){await autoRefreshGmail();}
+  }else{
+    await autoRefreshGmail();
+  }
   // Restore chip states
   restoreChipStates();
   // Start processor if enabled
@@ -349,6 +353,18 @@ function initTC(){
   });
 }
 function connectGmail(){const c=NX.getGoogleClientId();if(!c){log('No Google Client ID. Open Admin ⚙.','error');return;}if(!gisLoaded){loadGoogleAuth();setTimeout(connectGmail,1000);return;}if(tokenClient)tokenClient.requestCode();}
+
+async function autoRefreshGmail(){
+  try{
+    const resp=await NX.sb.functions.invoke('gmail-auth',{body:{action:'refresh'}});
+    if(resp.data?.access_token){
+      gmailToken=resp.data.access_token;
+      localStorage.setItem('nexus_gmail_token',JSON.stringify({token:resp.data.access_token,expiry:Date.now()+(resp.data.expires_in||3500)*1000}));
+      showGmailConnected(true);
+      log('Gmail auto-refreshed ✓','success');
+    }
+  }catch(e){}
+}
 function showGmailConnected(permanent){
   const st=document.getElementById('gmailStatusText');
   if(st){st.textContent=permanent?'✓ Permanent':'✓ Connected';st.style.color='#4ade80';}
