@@ -1042,12 +1042,26 @@ const NX = {
   // Auto-logs every system event to daily_logs
   async syslog(event,detail){
     const ICONS={
-      clock_in:'⏱',clock_out:'⏱',card_created:'☑',card_moved:'☑',card_closed:'☑',card_deleted:'☑',
-      node_created:'🧠',email_processed:'✉',doc_scanned:'📷',cleaning_submitted:'🧹',
-      chat_query:'💬',login:'🔑',whatsapp_import:'📱',digest_generated:'📊',backup_exported:'⬇'
+      login:'🔑',logout:'🔑',
+      clock_in:'⏱',clock_out:'⏱',
+      card_created:'📋',card_moved:'📋',card_closed:'📋',card_deleted:'📋',
+      clean_checked:'🧹',clean_unchecked:'🧹',clean_report:'🧹',
+      chat_ask:'💬',
+      batch_complete:'📥',
+      notify_captured:'📱',sms_captured:'📱',
+      privacy_delete:'🔒',privacy_keep:'🔒',privacy_private:'🔒',privacy_edit:'🔒',
+      node_created:'🧠',node_updated:'🧠',node_deleted:'🧠',
+      email_processed:'✉',gmail_refresh:'✉',
+      doc_scanned:'📷',
+      whatsapp_import:'📱',sms_import:'📱',contact_import:'👤',
+      digest_generated:'📊',
+      backup_exported:'⬇',backup_imported:'⬆',
+      link_built:'🔗',
+      theme_change:'🎨',
+      error:'❌'
     };
     const icon=ICONS[event]||'⚡';
-    const entry=`[SYS] ${icon} ${event}: ${(detail||'').slice(0,200)}`;
+    const entry=`[SYS] ${event}: ${(detail||'').slice(0,200)}`;
     try{
       await this.sb.from('daily_logs').insert({
         entry,user_name:this.currentUser?.name||'NEXUS',
