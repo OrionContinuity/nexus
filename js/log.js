@@ -11,7 +11,8 @@ const FILTERS = [
   { key: 'task',   label: 'Tasks' },
   { key: 'clock',  label: 'Clock' },
   { key: 'chat',   label: 'Chat' },
-  { key: 'clean',  label: 'Clean' }
+  { key: 'clean',  label: 'Clean' },
+  { key: 'system', label: 'System' }
 ];
 
 const COLORS = {
@@ -20,7 +21,8 @@ const COLORS = {
   task:   'var(--blue)',
   clock:  'var(--green)',
   chat:   'var(--purple)',
-  clean:  'var(--green)'
+  clean:  'var(--green)',
+  system: 'var(--blue)'
 };
 
 /* ═══ INIT ═══ */
@@ -80,11 +82,13 @@ async function loadFeed() {
     useLegacy = true;
   }
 
-  // Daily logs
+  // Daily logs → split into cleaning reports, system events, and regular logs
   getData(0).forEach(r => {
     const entry = r.entry || '';
     const isClean = entry.startsWith('Cleaning Report') || entry.startsWith('[AUTO');
-    feed.push({ type: isClean ? 'clean' : 'log', ts: r.created_at, id: 'dl-' + r.id, data: r, src: 'daily_logs' });
+    const isSys = entry.startsWith('[SYS]') || entry.startsWith('⚙') || entry.startsWith('📬') || entry.startsWith('🚨');
+    const type = isClean ? 'clean' : isSys ? 'system' : 'log';
+    feed.push({ type, ts: r.created_at, id: 'dl-' + r.id, data: r, src: 'daily_logs' });
   });
 
   // Cards or legacy
@@ -196,6 +200,7 @@ function buildCard(item) {
     case 'clock':  return buildClockCard(item.data);
     case 'chat':   return buildChatCard(item.data);
     case 'clean':  return item.src === 'daily_logs' ? buildCleanReportCard(item.data) : buildCleanTaskCard(item.data);
+    case 'system': return buildSystemCard(item.data);
     default: return null;
   }
 }
@@ -415,6 +420,42 @@ function buildCleanTaskCard(r) {
     '<div class="feed-text">✓ ' + escHTML(r.task || 'Task completed') + '</div>' +
     '<div class="feed-who">' + escHTML(r.completed_by || '') + ' · ' + escHTML(r.location || '') + '</div>',
     r.created_at);
+}
+
+/* ═══ SYSTEM EVENT CARD ═══ */
+function buildSystemCard(r) {
+  const entry = r.entry || '';
+  // Clean up the entry for display
+  let clean = entry.replace(/^\[SYS\]\s*/,'');
+  // Parse event type from syslog format: [SYS] event_name: detail
+  const parts = clean.match(/^(\w+?):\s*(.+)$/);
+  let icon = '⚙';
+  let label = clean;
+  if (parts) {
+    const event = parts[1];
+    label = parts[2];
+    if (event.includes('login')) icon = '🔑';
+    else if (event.includes('clock')) icon = '⏱';
+    else if (event.includes('card')) icon = '📋';
+    else if (event.includes('clean')) icon = '🧹';
+    else if (event.includes('chat')) icon = '💬';
+    else if (event.includes('batch')) icon = '📥';
+    else if (event.includes('notify') || event.includes('capture')) icon = '📱';
+    else if (event.includes('privacy')) icon = '🔒';
+    else if (event.includes('node')) icon = '🧠';
+    else if (event.includes('gmail') || event.includes('email')) icon = '✉';
+  }
+  // Also handle edge function logs
+  if (entry.startsWith('⚙')) { icon = '⚙'; label = entry.slice(2).trim(); }
+  if (entry.startsWith('📬')) { icon = '📬'; label = entry.slice(2).trim(); }
+  if (entry.startsWith('🚨')) { icon = '🚨'; label = entry.slice(2).trim(); }
+
+  const el = baseCard('system',
+    '<div class="feed-text"><span class="feed-sys-icon">' + icon + '</span> ' + escHTML(label) + '</div>' +
+    (r.user_name && r.user_name !== 'NEXUS' ? '<div class="feed-who">' + escHTML(r.user_name) + '</div>' : ''),
+    r.created_at);
+  addDeleteBtn(el, r.id, 'daily_logs');
+  return el;
 }
 
 /* ═══ UTILITIES ═══ */
