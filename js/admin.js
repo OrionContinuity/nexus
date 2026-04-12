@@ -1024,6 +1024,7 @@ async function exportBackup(){
     URL.revokeObjectURL(url);
     const sizeMB=(json.length/1024/1024).toFixed(1);
     log(`<b>✓ Backup exported</b> (${sizeMB} MB)`,'success');
+    if(NX.syslog)NX.syslog('backup_exported',`${sizeMB} MB backup exported`);
     if(NX.toast)NX.toast('Backup downloaded ✓','success');
   }catch(e){log('Export error: '+e.message,'error');}
   btn.disabled=false;btn.textContent='⬇ Export Full Backup';
@@ -1590,6 +1591,7 @@ async function importFilteredMessages(byContact,source,filename){
   }
   log(`💾 ${totalArchived} new chunks queued (${skipped} duplicates skipped)`,'success');
   if(NX.toast)NX.toast(`${totalArchived} new chunks imported${skipped?' · '+skipped+' skipped':''}`,'success');
+  if(NX.syslog)NX.syslog('whatsapp_import',`${totalArchived} messages imported${skipped?' ('+skipped+' skipped)':''}`);
   NX.syslog&&NX.syslog(`${source}_import`,`${totalMsgs} msgs from ${contactNames.join(', ')} — ${skipped} dupes skipped`);
   updateQueueStatus();
   if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
@@ -1790,6 +1792,7 @@ async function importSelectedContacts(contacts,catMode){
   }
 
   log(`✅ ${created} contacts imported as nodes${errors?' ('+errors+' failed)':''}`,'success');
+  if(NX.syslog)NX.syslog('contact_import',`${created} contacts imported`);
   if(NX.toast)NX.toast(`${created} contacts added to Brain`,'success');
   NX.syslog&&NX.syslog('contacts_imported',`${created} contacts`);
   await NX.loadNodes();if(NX.brain)NX.brain.init();
@@ -2513,6 +2516,7 @@ Only include strong, clear relationships. Max 20 links per batch.`,
   }
 
   log(`<b>Done: ${totalLinks} new relationships created.</b>`,'success');
+  if(NX.syslog)NX.syslog('link_built',`${totalLinks} relationships created`);
   if(btn){btn.disabled=false;btn.textContent='Build Relationships';}
   await NX.loadNodes();if(NX.brain)NX.brain.init();
 }
