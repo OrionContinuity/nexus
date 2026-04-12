@@ -163,13 +163,12 @@
         <div class="hud-examples" id="brainExamples"></div>
         <div class="hud-messages" id="chatMessages"></div>
       </div>
-      <div class="hud-mic-row">
-        <button class="btn-mic-float" id="micBtn"><i data-lucide="mic" class="hud-icon"></i></button>
-        <button class="btn-voice-float" id="voiceBtn" title="Toggle AI voice"><i data-lucide="volume-2" class="hud-icon"></i></button>
-      </div>
       <div class="hud-input">
         <button class="btn-reset" id="resetBtn" style="display:none"><i data-lucide="rotate-ccw" class="hud-icon"></i></button>
+        <button class="hud-tool-btn" id="camBtn" title="Scan document"><i data-lucide="camera" class="hud-icon"></i></button>
+        <button class="hud-tool-btn" id="micBtn" title="Voice input"><i data-lucide="mic" class="hud-icon"></i></button>
         <input autocomplete="nexus-off" data-lpignore="true" data-form-type="other" data-1p-ignore="true" id="chatInput" placeholder="Ask NEXUS..." data-i18n-ph="askNexus" aria-label="Ask NEXUS">
+        <button class="hud-tool-btn" id="voiceBtn" title="AI voice (hold to switch)"><i data-lucide="volume-2" class="hud-icon"></i></button>
         <button class="btn-send" id="chatSend" disabled><i data-lucide="send" class="hud-icon-send"></i></button>
       </div>
     </div>
