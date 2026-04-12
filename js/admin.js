@@ -1937,7 +1937,23 @@ for(const n of r.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2)continu
     }
     continue;
   }
-  // New node — insert
+  // New node — privacy pre-filter before insert
+  const fullText=nm+' '+(newNotes||'');
+  const SENSITIVE_PATTERNS=[
+    /\b\d{3}-\d{2}-\d{4}\b/,          // SSN
+    /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/, // credit card
+    /\b(?:bank\s*account|routing\s*number|acct\s*#)\b/i,
+    /\b(?:salary|wage|pay\s*rate|hourly\s*rate|bonus|compensation)\s*[\$:]\s*\d/i,
+  ];
+  let isSensitive=false;
+  for(const pat of SENSITIVE_PATTERNS){
+    if(pat.test(fullText)){
+      log(`🔒 Blocked: "${nm}" contains sensitive data (auto-redacted)`,'warn');
+      isSensitive=true;break;
+    }
+  }
+  if(isSensitive){er++;continue;}
+
   const row={name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'equipment',tags:newTags,notes:newNotes,links:[],access_count:1,source_emails:newSources,attachments:newAtts};
   const{error}=await NX.sb.from('nodes').insert(row);
   if(error){er++;if(er<=3)log(`Insert "${nm}": ${error.message}`,'error');if(NX.toast)NX.toast(`Failed: ${nm}`,'error');}
@@ -2239,8 +2255,20 @@ async function scanSensitive(){
   btn.disabled=true;btn.textContent='Scanning...';clearLog();
   log('🔒 Scanning nodes for sensitive/personal data...');
 
-  // Load safe patterns — nodes user previously marked as OK
-  const safePatterns=JSON.parse(localStorage.getItem('nexus_safe_patterns')||'[]');
+  // Load learned rules from Supabase (persists across devices)
+  let safePatterns=[];
+  let deletePatterns=[];
+  let customRules=[];
+  try{
+    const{data}=await NX.sb.from('nexus_config').select('config').eq('id',1).single();
+    const cfg=data?.config||{};
+    safePatterns=cfg.privacy_safe||[];
+    deletePatterns=cfg.privacy_deleted||[];
+    customRules=cfg.privacy_custom_rules||[];
+  }catch(e){
+    // Fallback to localStorage
+    safePatterns=JSON.parse(localStorage.getItem('nexus_safe_patterns')||'[]');
+  }
 
   const allNodes=NX.nodes.filter(n=>!n.is_private);
   if(!allNodes.length){log('No nodes to scan.','warn');btn.disabled=false;btn.textContent='Scan & Remove Personal Data';return;}
@@ -2252,8 +2280,9 @@ async function scanSensitive(){
     log(`Scanning batch ${Math.floor(i/BATCH)+1}/${Math.ceil(allNodes.length/BATCH)}...`);
     const nodeList=batch.map(n=>`[ID:${n.id}] ${n.name} (${n.category}): ${(n.notes||'').slice(0,200)}`).join('\n');
 
-    // Tell AI about safe patterns so it skips them
-    const safeNote=safePatterns.length?`\n\nPREVIOUSLY APPROVED (do NOT flag these):\n${safePatterns.join('\n')}`:'';
+    const safeNote=safePatterns.length?`\n\nPREVIOUSLY APPROVED AS SAFE (do NOT flag these):\n${safePatterns.slice(-30).join('\n')}`:'';
+    const deletedNote=deletePatterns.length?`\n\nPREVIOUSLY DELETED AS SENSITIVE (flag similar patterns):\n${deletePatterns.slice(-20).join('\n')}`:'';
+    const customNote=customRules.length?`\n\nCUSTOM RULES FROM USER:\n${customRules.join('\n')}`:'';
 
     try{
       const result=await NX.askClaude(
@@ -2273,9 +2302,10 @@ Do NOT flag:
 - Business contacts, vendor info, equipment specs, procedures, parts, projects
 - Contractor business phones or emails
 - Restaurant addresses or business info
-- Staff names with restaurant roles only${safeNote}
+- Staff names with restaurant roles only
+- Delivery confirmations, order numbers, invoices${safeNote}${deletedNote}${customNote}
 
-For each flagged node, classify the sensitivity:
+Severity levels:
 - "high" = SSN, bank accounts, credit cards — should definitely delete
 - "medium" = salaries, bonuses, personal addresses — probably delete
 - "low" = could be personal or business — needs review
@@ -2301,14 +2331,28 @@ If nothing sensitive: {"flagged":[]}`,
 
   log(`\n🔒 Found <b>${flagged.length} item(s)</b> to review.\n`,'warn');
 
-  // Render per-node review cards
+  // Save learned rules back to Supabase
+  async function savePrivacyRules(){
+    try{
+      const{data}=await NX.sb.from('nexus_config').select('config').eq('id',1).single();
+      const cfg=data?.config||{};
+      cfg.privacy_safe=safePatterns.slice(-50);
+      cfg.privacy_deleted=deletePatterns.slice(-30);
+      cfg.privacy_custom_rules=customRules;
+      await NX.sb.from('nexus_config').upsert({id:1,config:cfg});
+    }catch(e){
+      // Fallback save to localStorage
+      localStorage.setItem('nexus_safe_patterns',JSON.stringify(safePatterns));
+    }
+  }
+
   const reviewDiv=document.createElement('div');reviewDiv.className='sensitive-review';
   let reviewed=0;
 
   for(const f of flagged){
     const node=NX.nodes.find(n=>String(n.id)===String(f.id));
     const card=document.createElement('div');card.className='sensitive-card';
-    const sevColor=f.severity==='high'?'#ff5533':f.severity==='medium'?'#ffb020':'#5b8def';
+    const sevColor=f.severity==='high'?'var(--red)':f.severity==='medium'?'var(--amber)':'var(--blue)';
     card.innerHTML=`
       <div class="sensitive-header">
         <span class="sensitive-severity" style="color:${sevColor}">${(f.severity||'medium').toUpperCase()}</span>
@@ -2321,47 +2365,53 @@ If nothing sensitive: {"flagged":[]}`,
 
     const actions=card.querySelector('.sensitive-actions');
 
-    // DELETE button
+    // DELETE — learns from this deletion
     const delBtn=document.createElement('button');delBtn.className='sensitive-btn sensitive-btn-del';
-    delBtn.textContent='🗑 Delete';
+    delBtn.textContent='Delete';
     delBtn.addEventListener('click',async()=>{
       try{await NX.sb.from('nodes').delete().eq('id',f.id);
         NX.nodes=NX.nodes.filter(x=>String(x.id)!==String(f.id));
         card.style.opacity='0.3';card.style.pointerEvents='none';
         delBtn.textContent='Deleted';reviewed++;
-        log(`🗑 Deleted: <b>${f.name}</b>`,'success');
+        // Learn from deletion
+        deletePatterns.push(`${f.reason} (${f.severity}) — deleted ${f.name}`);
+        savePrivacyRules();
+        log(`Deleted: ${f.name}`,'success');
+        if(NX.syslog)NX.syslog('privacy_delete',f.name+' — '+f.reason);
         checkDone();
       }catch(e){delBtn.textContent='Error';}
     });
 
-    // KEEP button — mark as safe for future scans
+    // KEEP — learns this is safe
     const keepBtn=document.createElement('button');keepBtn.className='sensitive-btn sensitive-btn-keep';
-    keepBtn.textContent='✓ Keep (not sensitive)';
+    keepBtn.textContent='Keep';
     keepBtn.addEventListener('click',()=>{
-      safePatterns.push(f.name+' — '+f.reason);
-      localStorage.setItem('nexus_safe_patterns',JSON.stringify(safePatterns));
+      safePatterns.push(`${f.name} — ${f.reason} (user approved)`);
+      savePrivacyRules();
       card.style.opacity='0.3';card.style.pointerEvents='none';
       keepBtn.textContent='Marked safe';reviewed++;
-      log(`✓ Kept: <b>${f.name}</b> (won't flag again)`,'success');
+      log(`Kept: ${f.name} (won't flag again)`,'success');
+      if(NX.syslog)NX.syslog('privacy_keep',f.name);
       checkDone();
     });
 
-    // MAKE PRIVATE button — hide from non-admin users
+    // MAKE PRIVATE
     const privBtn=document.createElement('button');privBtn.className='sensitive-btn sensitive-btn-priv';
-    privBtn.textContent='🔒 Make Private';
+    privBtn.textContent='Private';
     privBtn.addEventListener('click',async()=>{
       try{await NX.sb.from('nodes').update({is_private:true}).eq('id',f.id);
         if(node)node.is_private=true;
         card.style.opacity='0.3';card.style.pointerEvents='none';
         privBtn.textContent='Made private';reviewed++;
-        log(`🔒 Private: <b>${f.name}</b> (admin only)`,'success');
+        log(`Private: ${f.name} (admin only)`,'success');
+        if(NX.syslog)NX.syslog('privacy_private',f.name);
         checkDone();
       }catch(e){privBtn.textContent='Error';}
     });
 
-    // EDIT button — let user redact the sensitive part
+    // EDIT
     const editBtn=document.createElement('button');editBtn.className='sensitive-btn sensitive-btn-edit';
-    editBtn.textContent='✏ Edit Notes';
+    editBtn.textContent='Edit';
     editBtn.addEventListener('click',()=>{
       const current=node?node.notes||'':'';
       const newNotes=prompt('Edit notes (remove sensitive info):',current);
@@ -2370,7 +2420,8 @@ If nothing sensitive: {"flagged":[]}`,
         node.notes=newNotes;
         card.style.opacity='0.3';card.style.pointerEvents='none';
         editBtn.textContent='Updated';reviewed++;
-        log(`✏ Edited: <b>${f.name}</b>`,'success');
+        log(`Edited: ${f.name}`,'success');
+        if(NX.syslog)NX.syslog('privacy_edit',f.name);
         checkDone();
       }
     });
