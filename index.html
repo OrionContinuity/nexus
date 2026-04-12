@@ -79,10 +79,15 @@
     <button class="nav-tab" data-view="cal" title="Calendar"><i data-lucide="calendar" class="nav-icon"></i> <span data-i18n="cal">Cal</span></button>
     <button class="nav-tab" data-view="ingest" id="ingestTab" style="display:none"><i data-lucide="zap" class="nav-icon"></i> <span data-i18n="ingest">Ingest</span></button>
   </div>
-  <button class="nav-clock" id="navClock" title="Time Clock"><i data-lucide="clock" class="nav-icon"></i><span class="tc-indicator" id="tcIndicator"></span></button>
-  <button class="theme-toggle" id="themeToggle" title="Toggle theme"><i data-lucide="sun" class="nav-icon" id="themeIcon"></i></button>
-  <button class="nav-admin" id="adminBtn"><i data-lucide="settings" class="nav-icon"></i><span class="ticket-badge" id="ticketBadge" style="display:none"></span></button>
+  <button class="nav-more" id="navMore" title="More"><i data-lucide="menu" class="nav-icon"></i></button>
 </nav>
+
+<!-- Utility tray — slides down from nav -->
+<div class="util-tray" id="utilTray">
+  <button class="util-btn" id="navClock" title="Time Clock"><i data-lucide="clock" class="util-icon"></i><span>Clock</span><span class="tc-indicator" id="tcIndicator"></span></button>
+  <button class="util-btn" id="themeToggle" title="Toggle theme"><i data-lucide="sun" class="util-icon" id="themeIcon"></i><span>Theme</span></button>
+  <button class="util-btn" id="adminBtn"><i data-lucide="settings" class="util-icon"></i><span>Settings</span><span class="ticket-badge" id="ticketBadge" style="display:none"></span></button>
+</div>
 
 <div class="offline-banner" id="offlineBanner" style="display:none" data-i18n="noConnection">No connection — check WiFi</div>
 <div class="alert-banner alert-contractor" id="contractorBanner" style="display:none"></div>
@@ -591,6 +596,7 @@
   }
   document.addEventListener('DOMContentLoaded',()=>{
     updateIcon();
+    // Theme toggle
     document.getElementById('themeToggle')?.addEventListener('click',()=>{
       const current=document.documentElement.getAttribute('data-theme')||'dark';
       const next=current==='dark'?'light':'dark';
@@ -599,6 +605,23 @@
       const icon=document.getElementById('themeIcon');
       if(icon)icon.setAttribute('data-lucide',next==='dark'?'sun':'moon');
       if(window.lucide)lucide.createIcons();
+    });
+    // Utility tray toggle
+    const tray=document.getElementById('utilTray');
+    document.getElementById('navMore')?.addEventListener('click',e=>{
+      e.stopPropagation();
+      tray?.classList.toggle('open');
+    });
+    // Close tray when clicking outside or on a button inside
+    document.addEventListener('click',e=>{
+      if(tray?.classList.contains('open')&&!tray.contains(e.target)){tray.classList.remove('open');}
+    });
+    tray?.querySelectorAll('.util-btn').forEach(btn=>{
+      const origClick=btn.onclick;
+      btn.addEventListener('click',()=>{
+        // Don't close for clock (it has its own popup) — close for others
+        if(btn.id!=='navClock')setTimeout(()=>tray.classList.remove('open'),150);
+      });
     });
   });
 })();
