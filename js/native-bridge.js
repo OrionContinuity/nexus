@@ -351,41 +351,45 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
   NX.startNotificationListener = async function() {
     if (!isNative) return;
     try {
-      // This uses a custom Capacitor plugin that wraps Android's NotificationListenerService
-      // The plugin must be installed separately — see BUILD-GUIDE.md
-      const { NotificationListener } = await import('capacitor-notification-listener');
-      
-      const { enabled } = await NotificationListener.isEnabled();
+      const NotificationListenerPlugin = window.Capacitor?.Plugins?.NotificationListenerPlugin;
+      if (!NotificationListenerPlugin) {
+        console.warn('[NEXUS] NotificationListenerPlugin not registered');
+        return;
+      }
+
+      const { enabled } = await NotificationListenerPlugin.isEnabled();
       if (!enabled) {
-        // Prompt user to enable in Android settings
-        await NotificationListener.requestPermission();
+        await NotificationListenerPlugin.requestPermission();
         NX.toast('Enable NEXUS in Notification Access settings', 'info', 5000);
         return;
       }
-      
+
       // Watch list — which apps to capture
-      const watchApps = JSON.parse(localStorage.getItem('nexus_notify_watch') || '["com.whatsapp","com.whatsapp.w4b","org.telegram.messenger"]');
-      
-      NotificationListener.addListener('notificationReceived', async (notification) => {
+      const watchApps = JSON.parse(localStorage.getItem('nexus_notify_watch') || '["com.whatsapp","com.whatsapp.w4b","org.telegram.messenger","com.google.android.apps.messaging"]');
+
+      await NotificationListenerPlugin.startListening();
+
+      await NotificationListenerPlugin.addListener('notificationReceived', async (notification) => {
         const pkg = notification.packageName || '';
         if (!watchApps.some(a => pkg.includes(a))) return;
-        
+
         const title = notification.title || '';
         const text = notification.text || '';
         if (text.length < 3) return;
-        
+
         // Determine source app
-        const appName = pkg.includes('whatsapp') ? 'WhatsApp' : 
-                       pkg.includes('telegram') ? 'Telegram' : pkg;
-        
+        const appName = pkg.includes('whatsapp') ? 'WhatsApp' :
+                       pkg.includes('telegram') ? 'Telegram' :
+                       pkg.includes('messaging') ? 'SMS' : pkg;
+
         // Debounce — skip if same message in last 30 seconds
         const dedupeKey = `${title}|${text.slice(0,50)}`;
         if (NX._lastNotify === dedupeKey && Date.now() - (NX._lastNotifyTime||0) < 30000) return;
         NX._lastNotify = dedupeKey;
         NX._lastNotifyTime = Date.now();
-        
+
         // Queue for AI processing
-        const id = `notify_${pkg.split('.').pop()}_${Date.now()}`;
+        const id = `notify_${appName.toLowerCase()}_${Date.now()}`;
         try {
           await NX.sb.from('raw_emails').upsert({
             id,
@@ -398,13 +402,15 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
             attachment_count: 0, attachments: [],
             processed: false
           }, { onConflict: 'id' });
+
+          if (NX.syslog) NX.syslog('notify_captured', `${appName}: ${title} — ${text.slice(0,60)}`);
         } catch(e) {}
       });
-      
+
       console.log('[NEXUS] Notification listener active for:', watchApps.join(', '));
+      NX.toast('Notification capture active', 'success');
     } catch(e) {
       console.warn('[NEXUS] Notification listener not available:', e.message);
-      // Expected on PWA — this only works in the APK
     }
   };
 
