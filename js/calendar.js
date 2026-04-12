@@ -114,7 +114,11 @@ function render(){
         }
       }
 
-      cell.addEventListener('click',()=>showDetail(dateStr,dayEvents));
+      cell.addEventListener('click',()=>{
+        document.querySelectorAll('.cal-cell.selected').forEach(c=>c.classList.remove('selected'));
+        cell.classList.add('selected');
+        showDetail(dateStr,dayEvents);
+      });
       grid.appendChild(cell);
     }
   }catch(e){console.error('Cal render error:',e);}
@@ -129,15 +133,21 @@ function showDetail(dateStr,dayEvents){
     detail.innerHTML=`<div class="cal-detail-date">${dateStr}</div><div class="cal-detail-empty">No events</div>`;
     return;
   }
-  detail.innerHTML=`<div class="cal-detail-date">${dateStr}</div>
-    ${dayEvents.map(e=>`
-      <div class="cal-event">
+  detail.innerHTML=`<div class="cal-detail-date">${dateStr} · ${dayEvents.length} event${dayEvents.length>1?'s':''}</div>
+    ${dayEvents.map((e,i)=>`
+      <div class="cal-event" data-idx="${i}">
         <span class="cal-event-dot" style="background:${e.color}"></span>
         <div class="cal-event-body">
           <div class="cal-event-title">${e.title||''}</div>
-          <div class="cal-event-detail">${(e.detail||'').slice(0,200)}</div>
+          <div class="cal-event-expand">Details</div>
+          <div class="cal-event-detail">${e.detail||''}</div>
         </div>
       </div>`).join('')}`;
+
+  // Add expand/collapse click handlers
+  detail.querySelectorAll('.cal-event').forEach(card=>{
+    card.addEventListener('click',()=>card.classList.toggle('expanded'));
+  });
 }
 
 async function init(){
