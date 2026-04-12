@@ -1,32 +1,24 @@
-// NEXUS Process Emails — background pipeline, runs via pg_cron
-// Deploy: supabase functions deploy process-emails
-// Secrets needed: ANTHROPIC_API_KEY
-// Optional:  GMAIL_REFRESH_TOKEN, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
-//            (set these to enable auto-pull from Gmail without browser)
-
+// NEXUS Process Emails v2 — with attachment handling + fixed urgent detection
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const URGENT_PATTERNS = [
-  { re: /health\s*(?:dept|department|inspector|inspection|violation)/i, label: "🏥 Health Department" },
-  { re: /equipment\s*(?:failure|down|broken|not\s*working)/i, label: "🔧 Equipment Down" },
-  { re: /leak|flood|water\s*damage/i, label: "💧 Water/Leak" },
-  { re: /fire|smoke|burn/i, label: "🔥 Fire/Safety" },
-  { re: /pest|roach|rodent|mouse|rat/i, label: "🐛 Pest Issue" },
-  { re: /price\s*increase|rate\s*change/i, label: "💰 Price Change" },
-  { re: /urgent|emergency|asap|critical/i, label: "🚨 Urgent" },
+  { re: /health\s*(?:dept|department|inspector|inspection|violation)/i, label: "🏥 Health Dept" },
+  { re: /equipment\s*(?:failure|down|broken|not\s*working|malfunction)/i, label: "🔧 Equipment Down" },
+  { re: /\b(?:water\s*leak|flood|water\s*damage|burst\s*pipe)\b/i, label: "💧 Water/Leak" },
+  { re: /\b(?:fire\s*(?:alarm|damage|hazard)|smoke\s*(?:alarm|damage))\b/i, label: "🔥 Fire/Safety" },
+  { re: /\b(?:pest\s*(?:control|issue|problem|inspection|treatment|infestation)|cockroach|rodent|mice\b|mouse\s*trap|rat\s*trap)\b/i, label: "🐛 Pest Issue" },
+  { re: /\b(?:price\s*increase|rate\s*(?:increase|change)|cost\s*increase)\b/i, label: "💰 Price Change" },
+  { re: /\b(?:urgent|emergency|asap|immediately|critical)\b/i, label: "🚨 Urgent" },
 ];
 
-const JUNK_FROM = [/unsubscribe/i, /no-reply/i, /noreply/i, /newsletter/i, /marketing/i, /donotreply/i, /mailer-daemon/i];
-const JUNK_SUBJ = [/out of office/i, /automatic reply/i, /your password/i, /verify your email/i, /your receipt from apple/i, /track your package/i];
+const JUNK_FROM = [/unsubscribe@/i, /newsletter@/i, /marketing@/i, /mailer-daemon/i, /donotreply@/i];
+const JUNK_SUBJ = [/out of office/i, /automatic reply/i, /your password/i, /verify your email/i, /your receipt from apple/i];
 
-// ═══ GMAIL AUTO-PULL — uses refresh token, no browser needed ═══
 async function pullGmail(sb: any): Promise<number> {
   let refreshToken = Deno.env.get("GMAIL_REFRESH_TOKEN");
   let clientId = Deno.env.get("GOOGLE_CLIENT_ID");
   let clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
-  
-  // Fallback: read from nexus_config if env vars not set
   if (!refreshToken) {
     try {
       const { data } = await sb.from("nexus_config").select("config").eq("id", 1).single();
@@ -39,45 +31,29 @@ async function pullGmail(sb: any): Promise<number> {
   if (!refreshToken || !clientId || !clientSecret) return 0;
 
   try {
-    // Exchange refresh token for access token
     const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken,
-        grant_type: "refresh_token",
-      }),
+      body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" }),
     });
     const tokenData = await tokenResp.json();
     const accessToken = tokenData.access_token;
     if (!accessToken) return 0;
 
-    // Get recent message IDs (last 24 hours)
-    const after = Math.floor((Date.now() - 86400000) / 1000);
-    const listResp = await fetch(
-      `https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=50&q=after:${after}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
+    const listResp = await fetch("https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=newer_than:2d", { headers: { Authorization: `Bearer ${accessToken}` } });
     const listData = await listResp.json();
-    if (!listData.messages?.length) return 0;
+    const messages = listData.messages || [];
+    if (!messages.length) return 0;
 
-    // Check which IDs are already archived
-    const ids = listData.messages.map((m: any) => m.id);
+    const ids = messages.map((m: any) => m.id);
     const { data: existing } = await sb.from("raw_emails").select("id").in("id", ids);
     const existingIds = new Set((existing || []).map((e: any) => e.id));
-    const newIds = ids.filter((id: string) => !existingIds.has(id));
-    if (!newIds.length) return 0;
 
-    // Fetch and archive new emails (max 20 per cycle)
     let archived = 0;
-    for (const id of newIds.slice(0, 20)) {
+    for (const m of messages) {
+      if (existingIds.has(m.id)) continue;
       try {
-        const msgResp = await fetch(
-          `https://www.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        );
+        const msgResp = await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`, { headers: { Authorization: `Bearer ${accessToken}` } });
         const msg = await msgResp.json();
         if (!msg?.payload) continue;
 
@@ -85,42 +61,55 @@ async function pullGmail(sb: any): Promise<number> {
         const getH = (name: string) => (headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase()) || {}).value || "";
         const from = getH("From");
         const subject = getH("Subject");
-
-        // Skip junk
         if (JUNK_FROM.some((p) => p.test(from)) || JUNK_SUBJ.some((p) => p.test(subject))) continue;
 
-        // Extract body text
         let body = "";
-        function extractText(parts: any[]) {
+        const attachments: any[] = [];
+
+        function walkParts(parts: any[]) {
           if (!parts) return;
           for (const part of parts) {
             if (part.mimeType === "text/plain" && part.body?.data) {
               try { body += atob(part.body.data.replace(/-/g, "+").replace(/_/g, "/")); } catch (_) {}
             }
-            if (part.parts) extractText(part.parts);
+            if (part.filename && part.body?.attachmentId) {
+              attachments.push({ filename: part.filename, mimeType: part.mimeType || "", attachmentId: part.body.attachmentId, size: part.body.size || 0 });
+            }
+            if (part.parts) walkParts(part.parts);
           }
         }
+
         if (msg.payload.body?.data) {
           try { body = atob(msg.payload.body.data.replace(/-/g, "+").replace(/_/g, "/")); } catch (_) {}
         }
-        if (!body) extractText(msg.payload.parts);
+        walkParts(msg.payload.parts);
 
-        // Clean body
         body = body.replace(/<[^>]+>/g, " ").replace(/^>.*$/gm, "").replace(/\n{3,}/g, "\n\n").trim().slice(0, 5000);
         if (body.length < 10) continue;
 
-        await sb.from("raw_emails").upsert({
-          id,
-          from_addr: from,
-          to_addr: getH("To"),
-          date: getH("Date"),
-          subject,
-          body,
-          snippet: msg.snippet || "",
-          attachment_count: 0,
-          attachments: [],
-          processed: false,
-        }, { onConflict: "id" });
+        // Download and upload attachments to Supabase storage
+        const savedAtts: any[] = [];
+        const ALLOWED_EXTS = ["pdf", "docx", "xlsx", "xls", "csv", "pptx", "jpg", "jpeg", "png", "webp"];
+        for (const att of attachments) {
+          const ext = (att.filename.split(".").pop() || "").toLowerCase();
+          if (!ALLOWED_EXTS.includes(ext) || att.size > 10 * 1024 * 1024) continue;
+          try {
+            const attResp = await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${m.id}/attachments/${att.attachmentId}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+            const attData = await attResp.json();
+            if (!attData.data) continue;
+            const b64 = attData.data.replace(/-/g, "+").replace(/_/g, "/");
+            const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+            const safeName = att.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+            const path = `email-attachments/${Date.now()}_${safeName}`;
+            const { error: upErr } = await sb.storage.from("nexus-files").upload(path, bytes, { contentType: att.mimeType || "application/octet-stream", upsert: true });
+            if (!upErr) {
+              const { data: urlData } = sb.storage.from("nexus-files").getPublicUrl(path);
+              if (urlData?.publicUrl) savedAtts.push({ url: urlData.publicUrl, filename: att.filename, type: att.mimeType });
+            }
+          } catch (_) {}
+        }
+
+        await sb.from("raw_emails").upsert({ id: m.id, from_addr: from, to_addr: getH("To"), date: getH("Date"), subject, body, snippet: msg.snippet || "", attachment_count: savedAtts.length, attachments: savedAtts, processed: false }, { onConflict: "id" });
         archived++;
       } catch (_) {}
     }
@@ -132,10 +121,7 @@ async function pullGmail(sb: any): Promise<number> {
 }
 
 serve(async (req) => {
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  };
+  const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
@@ -145,75 +131,45 @@ serve(async (req) => {
     if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY not set");
 
     const sb = createClient(supabaseUrl, supabaseKey);
-    const BATCH_SIZE = 5;
-
-    // ── STEP 1: Pull new emails from Gmail (if configured) ──
     const pulled = await pullGmail(sb);
     if (pulled > 0) {
-      await sb.from("daily_logs").insert({
-        entry: `📬 Auto-pull: ${pulled} new emails from Gmail`,
-        user_id: 0, user_name: "NEXUS",
-      });
+      await sb.from("daily_logs").insert({ entry: `📬 Auto-pull: ${pulled} new emails from Gmail`, user_id: 0, user_name: "NEXUS" });
     }
 
-    // ── STEP 2: Process unprocessed emails ──
-    const { data: emails, error } = await sb
-      .from("raw_emails")
-      .select("*")
-      .eq("processed", false)
-      .order("ingested_at", { ascending: true })
-      .limit(BATCH_SIZE);
-
+    const { data: emails, error } = await sb.from("raw_emails").select("*").eq("processed", false).order("ingested_at", { ascending: true }).limit(5);
     if (error || !emails || !emails.length) {
-      return new Response(JSON.stringify({ status: "idle", processed: 0 }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(JSON.stringify({ status: "idle", processed: 0 }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Enrich emails with document attachment text via MarkItDown
-    const DOC_EXTS = ["docx", "xlsx", "xls", "pptx", "csv", "html", "htm"];
+    // Extract document text from attachments via MarkItDown
     for (const email of emails) {
       const atts = email.attachments || [];
-      if (!atts.length) continue;
       for (const att of atts) {
         if (!att.url || !att.filename) continue;
         const ext = (att.filename.split(".").pop() || "").toLowerCase();
-        if (!DOC_EXTS.includes(ext)) continue;
-        try {
-          // Fetch the file and get text
-          const fileResp = await fetch(att.url);
-          if (!fileResp.ok) continue;
-          const rawText = await fileResp.text();
-          if (rawText.length < 30) continue;
-          // Call markitdown function for structured extraction
-          const mdResp = await fetch(`${supabaseUrl}/functions/v1/markitdown`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${supabaseKey}`,
-            },
-            body: JSON.stringify({
-              content: rawText.slice(0, 20000),
-              filename: att.filename,
-              mode: "extract",
-            }),
-          });
-          if (mdResp.ok) {
-            const mdResult = await mdResp.json();
-            if (mdResult.markdown) {
-              email.body = (email.body || "") + `\n[DOC:${att.filename}]\n${mdResult.markdown.slice(0, 5000)}`;
+        if (["docx", "xlsx", "xls", "pptx", "csv", "html", "htm"].includes(ext)) {
+          try {
+            const fileResp = await fetch(att.url);
+            if (!fileResp.ok) continue;
+            const rawText = await fileResp.text();
+            if (rawText.length < 30) continue;
+            const mdResp = await fetch(`${supabaseUrl}/functions/v1/markitdown`, {
+              method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
+              body: JSON.stringify({ content: rawText.slice(0, 20000), filename: att.filename, mode: "extract" }),
+            });
+            if (mdResp.ok) {
+              const mdResult = await mdResp.json();
+              if (mdResult.markdown) email.body = (email.body || "") + `\n[DOC:${att.filename}]\n${mdResult.markdown.slice(0, 5000)}`;
             }
-          }
-        } catch (_) { /* skip on error */ }
+          } catch (_) {}
+        }
+        if (ext === "pdf") email.body = (email.body || "") + `\n[PDF: ${att.filename} — ${att.url}]`;
+        if (["jpg", "jpeg", "png", "webp"].includes(ext)) email.body = (email.body || "") + `\n[IMAGE: ${att.filename} — ${att.url}]`;
       }
     }
 
-    // Build chunk for Claude
-    const chunk = emails.map((e, i) =>
-      `[EMAIL #${i + 1}]\nFROM: ${e.from_addr}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\n---\n${(e.body || e.snippet || "").slice(0, 3000)}`
-    ).join("\n\n========\n\n");
-
-    // Load existing node names for dedup
+    // AI Processing
+    const chunk = emails.map((e, i) => `[EMAIL #${i + 1}]\nFROM: ${e.from_addr}\nDATE: ${e.date}\nSUBJECT: ${e.subject}\n---\n${(e.body || e.snippet || "").slice(0, 3000)}`).join("\n\n========\n\n");
     const { data: existingNodes } = await sb.from("nodes").select("name");
     const existingNames = (existingNodes || []).map((n) => n.name);
 
@@ -221,148 +177,77 @@ serve(async (req) => {
 
 EXISTING NODES (do not duplicate): ${existingNames.slice(0, 100).join(", ")}
 
-For each email, extract entities: people, equipment, vendors, contractors, parts, procedures, projects, locations, systems.
+Extract entities: people, equipment, vendors, contractors, parts, procedures, projects, locations, systems.
 
 RULES:
-- USE FULL PROPER NAMES — "Tyler Maffi" not "Tyler"
+- USE FULL PROPER NAMES — "Tyler Maffi" not "Tyler", "Excalibur Dehydrator" not "dehydrator"
 - If an entity matches an existing node, set "merge_with" to the exact existing name
-- Include phone numbers, emails, model numbers, part numbers, prices in notes
-- Category must be one of: equipment, contractors, vendors, procedure, projects, people, systems, parts, location
+- Include phone numbers, emails, model numbers, part numbers, prices, invoice numbers in notes
+- Category: equipment, contractors, vendors, procedure, projects, people, systems, parts, location
+- Deliveries/shipments: extract PRODUCT as equipment or parts, VENDOR as vendors
+- Invoices: extract COMPANY as vendors/contractors, include invoice # and amount in notes
+- Do NOT flag routine deliveries, invoices, or order confirmations as urgent or pest-related
+- Only flag pest-related if email is SPECIFICALLY about pest control or pest sightings
 
-Respond ONLY with JSON: {"nodes":[{"name":"...","category":"...","notes":"...","tags":[],"merge_with":null,"source_emails":[{"from":"...","date":"...","subject":"..."}]}]}
+JSON only: {"nodes":[{"name":"...","category":"...","notes":"...","tags":[],"merge_with":null,"source_emails":[{"from":"...","date":"...","subject":"..."}]}]}
 
 EMAILS:
 ${chunk}`;
 
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 2000,
-        messages: [{ role: "user", content: prompt }],
-      }),
+      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 2000, messages: [{ role: "user", content: prompt }] }),
     });
-
     const aiResult = await resp.json();
     const text = aiResult.content?.[0]?.text || "";
-
     let parsed;
-    try {
-      const clean = text.replace(/```json|```/g, "").trim();
-      parsed = JSON.parse(clean);
-    } catch (_) {
-      parsed = { nodes: [] };
-    }
+    try { parsed = JSON.parse(text.replace(/```json|```/g, "").trim()); } catch (_) { parsed = { nodes: [] }; }
 
-    // Save nodes
     let created = 0, merged = 0;
     const urgentAlerts: string[] = [];
     const existingMap: Record<string, any> = {};
     const { data: allNodes } = await sb.from("nodes").select("id,name,notes,tags,source_emails");
     (allNodes || []).forEach((n) => { if (n.name) existingMap[n.name.toLowerCase()] = n; });
-
     const validCats = ["equipment", "contractors", "vendors", "procedure", "projects", "people", "systems", "parts", "location"];
 
-    for (const n of (parsed.nodes || [])) {
+    for (const n of parsed.nodes || []) {
       const nm = (n.name || "").trim();
       if (!nm || nm.length < 2) continue;
-
-      // Check urgency
       const fullText = `${nm} ${n.notes || ""}`;
-      for (const p of URGENT_PATTERNS) {
-        if (p.re.test(fullText)) {
-          urgentAlerts.push(`${p.label}: ${nm}`);
-          break;
-        }
-      }
-
-      // Check for existing match
+      for (const p of URGENT_PATTERNS) { if (p.re.test(fullText)) { urgentAlerts.push(`${p.label}: ${nm}`); break; } }
       const existKey = n.merge_with
         ? Object.keys(existingMap).find((k) => k === n.merge_with?.toLowerCase())
-        : Object.keys(existingMap).find((k) => k === nm.toLowerCase() || (nm.length > 3 && k.includes(nm.toLowerCase())));
-
+        : Object.keys(existingMap).find((k) => k === nm.toLowerCase() || (nm.length > 5 && k.includes(nm.toLowerCase())));
       if (existKey) {
         const ex = existingMap[existKey];
         const newNotes = (n.notes || "").slice(0, 3000);
         if (newNotes.length > 10 && !(ex.notes || "").includes(newNotes.slice(0, 50))) {
-          const mergedNotes = ((ex.notes || "") + "\n\n" + newNotes).slice(0, 4000);
-          const mergedSources = [...(ex.source_emails || []), ...(n.source_emails || [])].slice(0, 50);
-          await sb.from("nodes").update({ notes: mergedNotes, source_emails: mergedSources }).eq("id", ex.id);
+          await sb.from("nodes").update({ notes: ((ex.notes || "") + "\n\n" + newNotes).slice(0, 4000), source_emails: [...(ex.source_emails || []), ...(n.source_emails || [])].slice(0, 50) }).eq("id", ex.id);
           merged++;
         }
       } else {
-        const row = {
-          name: nm.slice(0, 200),
-          category: validCats.includes(n.category) ? n.category : "equipment",
-          tags: Array.isArray(n.tags) ? n.tags.slice(0, 20) : [],
-          notes: (n.notes || "").slice(0, 3000),
-          links: [],
-          access_count: 1,
-          source_emails: n.source_emails || [],
-        };
-        const { error: insertErr } = await sb.from("nodes").insert(row);
+        const { error: insertErr } = await sb.from("nodes").insert({ name: nm.slice(0, 200), category: validCats.includes(n.category) ? n.category : "equipment", tags: Array.isArray(n.tags) ? n.tags.slice(0, 20) : [], notes: (n.notes || "").slice(0, 3000), links: [], access_count: 1, source_emails: n.source_emails || [] });
         if (!insertErr) created++;
       }
     }
 
-    // Mark emails as processed
-    for (const e of emails) {
-      await sb.from("raw_emails").update({ processed: true }).eq("id", e.id);
-    }
+    for (const e of emails) { await sb.from("raw_emails").update({ processed: true }).eq("id", e.id); }
 
-    // Send push notifications for urgent items
     if (urgentAlerts.length) {
       try {
         const { data: subs } = await sb.from("push_subscriptions").select("subscription");
-        if (subs && subs.length) {
-          await fetch(`${supabaseUrl}/functions/v1/push-notify`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${supabaseKey}`,
-            },
-            body: JSON.stringify({
-              title: "🚨 NEXUS Alert",
-              body: urgentAlerts.join(" | "),
-              subscriptions: subs.map((s) => s.subscription),
-            }),
-          });
+        if (subs?.length) {
+          await fetch(`${supabaseUrl}/functions/v1/push-notify`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` }, body: JSON.stringify({ title: "🚨 NEXUS Alert", body: urgentAlerts.join(" | "), subscriptions: subs.map((s) => s.subscription) }) });
         }
       } catch (_) {}
-
-      // Log urgent items
-      await sb.from("daily_logs").insert({
-        entry: `🚨 AUTO-TRIAGE: ${urgentAlerts.join(", ")}`,
-        user_id: 0,
-        user_name: "NEXUS",
-      });
+      await sb.from("daily_logs").insert({ entry: `🚨 AUTO-TRIAGE: ${urgentAlerts.join(", ")}`, user_id: 0, user_name: "NEXUS" });
     }
 
-    // Log processing
-    await sb.from("daily_logs").insert({
-      entry: `⚙ Background pipeline: ${emails.length} emails → ${created} new, ${merged} merged${urgentAlerts.length ? `, ${urgentAlerts.length} URGENT` : ""}`,
-      user_id: 0,
-      user_name: "NEXUS",
-    });
+    await sb.from("daily_logs").insert({ entry: `⚙ Pipeline: ${emails.length} emails → ${created} new, ${merged} merged${urgentAlerts.length ? `, ${urgentAlerts.length} URGENT` : ""}`, user_id: 0, user_name: "NEXUS" });
 
-    return new Response(JSON.stringify({
-      status: "ok",
-      processed: emails.length,
-      created,
-      merged,
-      urgent: urgentAlerts,
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(JSON.stringify({ status: "ok", processed: emails.length, created, merged, urgent: urgentAlerts }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
-    return new Response(JSON.stringify({ error: e.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
 });
