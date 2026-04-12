@@ -302,6 +302,125 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
     }, intervalMs);
   };
 
+  // ═══ SMS LISTENER (APK only) ═══
+  // Captures incoming SMS and queues for AI processing
+  NX.startSmsListener = async function() {
+    if (!isNative) return;
+    try {
+      // Register broadcast receiver for incoming SMS via Capacitor plugin
+      const { SmsReceiver } = await import('capacitor-sms-receiver');
+      await SmsReceiver.requestPermission();
+      
+      SmsReceiver.addListener('smsReceived', async (msg) => {
+        const sender = msg.from || msg.address || 'Unknown';
+        const body = msg.body || '';
+        if (body.length < 3) return;
+        
+        // Check if this contact is in our watch list
+        const watchList = JSON.parse(localStorage.getItem('nexus_sms_watch') || '[]');
+        if (watchList.length && !watchList.some(w => sender.includes(w))) return;
+        
+        // Queue for AI processing
+        const id = `sms_live_${Date.now()}_${sender.replace(/\D/g,'').slice(-6)}`;
+        try {
+          await NX.sb.from('raw_emails').upsert({
+            id,
+            from_addr: 'SMS: ' + sender,
+            to_addr: 'nexus-live',
+            date: new Date().toISOString(),
+            subject: 'SMS from ' + sender,
+            body: body.slice(0, 12000),
+            snippet: body.slice(0, 200),
+            attachment_count: 0, attachments: [],
+            processed: false
+          }, { onConflict: 'id' });
+          
+          NX.localNotify('📱 SMS captured', `${sender}: ${body.slice(0, 60)}`);
+        } catch(e) {}
+      });
+      
+      console.log('[NEXUS] SMS listener active');
+    } catch(e) {
+      console.warn('[NEXUS] SMS listener not available:', e.message);
+    }
+  };
+
+  // ═══ NOTIFICATION LISTENER (APK only) ═══
+  // Captures WhatsApp/other app notifications for passive message collection
+  // Requires: Android NotificationListenerService permission
+  NX.startNotificationListener = async function() {
+    if (!isNative) return;
+    try {
+      // This uses a custom Capacitor plugin that wraps Android's NotificationListenerService
+      // The plugin must be installed separately — see BUILD-GUIDE.md
+      const { NotificationListener } = await import('capacitor-notification-listener');
+      
+      const { enabled } = await NotificationListener.isEnabled();
+      if (!enabled) {
+        // Prompt user to enable in Android settings
+        await NotificationListener.requestPermission();
+        NX.toast('Enable NEXUS in Notification Access settings', 'info', 5000);
+        return;
+      }
+      
+      // Watch list — which apps to capture
+      const watchApps = JSON.parse(localStorage.getItem('nexus_notify_watch') || '["com.whatsapp","com.whatsapp.w4b","org.telegram.messenger"]');
+      
+      NotificationListener.addListener('notificationReceived', async (notification) => {
+        const pkg = notification.packageName || '';
+        if (!watchApps.some(a => pkg.includes(a))) return;
+        
+        const title = notification.title || '';
+        const text = notification.text || '';
+        if (text.length < 3) return;
+        
+        // Determine source app
+        const appName = pkg.includes('whatsapp') ? 'WhatsApp' : 
+                       pkg.includes('telegram') ? 'Telegram' : pkg;
+        
+        // Debounce — skip if same message in last 30 seconds
+        const dedupeKey = `${title}|${text.slice(0,50)}`;
+        if (NX._lastNotify === dedupeKey && Date.now() - (NX._lastNotifyTime||0) < 30000) return;
+        NX._lastNotify = dedupeKey;
+        NX._lastNotifyTime = Date.now();
+        
+        // Queue for AI processing
+        const id = `notify_${pkg.split('.').pop()}_${Date.now()}`;
+        try {
+          await NX.sb.from('raw_emails').upsert({
+            id,
+            from_addr: `${appName}: ${title}`,
+            to_addr: 'nexus-live',
+            date: new Date().toISOString(),
+            subject: `${appName} — ${title}`,
+            body: text.slice(0, 12000),
+            snippet: text.slice(0, 200),
+            attachment_count: 0, attachments: [],
+            processed: false
+          }, { onConflict: 'id' });
+        } catch(e) {}
+      });
+      
+      console.log('[NEXUS] Notification listener active for:', watchApps.join(', '));
+    } catch(e) {
+      console.warn('[NEXUS] Notification listener not available:', e.message);
+      // Expected on PWA — this only works in the APK
+    }
+  };
+
+  // ═══ SMS/NOTIFICATION WATCH LIST MANAGEMENT ═══
+  NX.setSmsWatchList = function(contacts) {
+    // contacts = ['5125551234', 'John', '+1512...']
+    localStorage.setItem('nexus_sms_watch', JSON.stringify(contacts));
+    NX.toast(`Watching ${contacts.length} SMS contacts`, 'success');
+  };
+  
+  NX.setNotifyWatchApps = function(apps) {
+    // apps = ['com.whatsapp', 'org.telegram.messenger']
+    localStorage.setItem('nexus_notify_watch', JSON.stringify(apps));
+    NX.toast(`Watching ${apps.length} apps`, 'success');
+  };
+
   // ═══ SHARE ═══
   // Share node info, reports, etc.
   NX.shareContent = async function(title, text) {
@@ -393,6 +512,10 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
     
     // Start background sync
     NX.startBackgroundSync();
+    
+    // Start message listeners (APK only — fail silently on PWA)
+    NX.startSmsListener();
+    NX.startNotificationListener();
     
     // Set status bar color on native
     if (isNative) {
