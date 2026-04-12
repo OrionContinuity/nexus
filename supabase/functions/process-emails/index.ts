@@ -1,6 +1,8 @@
 // NEXUS Process Emails — background pipeline, runs via pg_cron
 // Deploy: supabase functions deploy process-emails
 // Secrets needed: ANTHROPIC_API_KEY
+// Optional:  GMAIL_REFRESH_TOKEN, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+//            (set these to enable auto-pull from Gmail without browser)
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -14,6 +16,120 @@ const URGENT_PATTERNS = [
   { re: /price\s*increase|rate\s*change/i, label: "💰 Price Change" },
   { re: /urgent|emergency|asap|critical/i, label: "🚨 Urgent" },
 ];
+
+const JUNK_FROM = [/unsubscribe/i, /no-reply/i, /noreply/i, /newsletter/i, /marketing/i, /donotreply/i, /mailer-daemon/i];
+const JUNK_SUBJ = [/out of office/i, /automatic reply/i, /your password/i, /verify your email/i, /your receipt from apple/i, /track your package/i];
+
+// ═══ GMAIL AUTO-PULL — uses refresh token, no browser needed ═══
+async function pullGmail(sb: any): Promise<number> {
+  let refreshToken = Deno.env.get("GMAIL_REFRESH_TOKEN");
+  let clientId = Deno.env.get("GOOGLE_CLIENT_ID");
+  let clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
+  
+  // Fallback: read from nexus_config if env vars not set
+  if (!refreshToken) {
+    try {
+      const { data } = await sb.from("nexus_config").select("config").eq("id", 1).single();
+      const cfg = data?.config || {};
+      refreshToken = cfg.gmail_refresh_token;
+      clientId = clientId || cfg.google_client_id;
+      clientSecret = clientSecret || cfg.google_client_secret;
+    } catch (_) {}
+  }
+  if (!refreshToken || !clientId || !clientSecret) return 0;
+
+  try {
+    // Exchange refresh token for access token
+    const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: "refresh_token",
+      }),
+    });
+    const tokenData = await tokenResp.json();
+    const accessToken = tokenData.access_token;
+    if (!accessToken) return 0;
+
+    // Get recent message IDs (last 24 hours)
+    const after = Math.floor((Date.now() - 86400000) / 1000);
+    const listResp = await fetch(
+      `https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=50&q=after:${after}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const listData = await listResp.json();
+    if (!listData.messages?.length) return 0;
+
+    // Check which IDs are already archived
+    const ids = listData.messages.map((m: any) => m.id);
+    const { data: existing } = await sb.from("raw_emails").select("id").in("id", ids);
+    const existingIds = new Set((existing || []).map((e: any) => e.id));
+    const newIds = ids.filter((id: string) => !existingIds.has(id));
+    if (!newIds.length) return 0;
+
+    // Fetch and archive new emails (max 20 per cycle)
+    let archived = 0;
+    for (const id of newIds.slice(0, 20)) {
+      try {
+        const msgResp = await fetch(
+          `https://www.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        const msg = await msgResp.json();
+        if (!msg?.payload) continue;
+
+        const headers = msg.payload.headers || [];
+        const getH = (name: string) => (headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase()) || {}).value || "";
+        const from = getH("From");
+        const subject = getH("Subject");
+
+        // Skip junk
+        if (JUNK_FROM.some((p) => p.test(from)) || JUNK_SUBJ.some((p) => p.test(subject))) continue;
+
+        // Extract body text
+        let body = "";
+        function extractText(parts: any[]) {
+          if (!parts) return;
+          for (const part of parts) {
+            if (part.mimeType === "text/plain" && part.body?.data) {
+              try { body += atob(part.body.data.replace(/-/g, "+").replace(/_/g, "/")); } catch (_) {}
+            }
+            if (part.parts) extractText(part.parts);
+          }
+        }
+        if (msg.payload.body?.data) {
+          try { body = atob(msg.payload.body.data.replace(/-/g, "+").replace(/_/g, "/")); } catch (_) {}
+        }
+        if (!body) extractText(msg.payload.parts);
+
+        // Clean body
+        body = body.replace(/<[^>]+>/g, " ").replace(/^>.*$/gm, "").replace(/\n{3,}/g, "\n\n").trim().slice(0, 5000);
+        if (body.length < 10) continue;
+
+        await sb.from("raw_emails").upsert({
+          id,
+          from_addr: from,
+          to_addr: getH("To"),
+          date: getH("Date"),
+          subject,
+          body,
+          snippet: msg.snippet || "",
+          attachment_count: 0,
+          attachments: [],
+          processed: false,
+        }, { onConflict: "id" });
+        archived++;
+      } catch (_) {}
+    }
+    return archived;
+  } catch (e) {
+    console.error("Gmail pull error:", e.message);
+    return 0;
+  }
+}
 
 serve(async (req) => {
   const corsHeaders = {
@@ -31,7 +147,16 @@ serve(async (req) => {
     const sb = createClient(supabaseUrl, supabaseKey);
     const BATCH_SIZE = 5;
 
-    // Pull unprocessed emails
+    // ── STEP 1: Pull new emails from Gmail (if configured) ──
+    const pulled = await pullGmail(sb);
+    if (pulled > 0) {
+      await sb.from("daily_logs").insert({
+        entry: `📬 Auto-pull: ${pulled} new emails from Gmail`,
+        user_id: 0, user_name: "NEXUS",
+      });
+    }
+
+    // ── STEP 2: Process unprocessed emails ──
     const { data: emails, error } = await sb
       .from("raw_emails")
       .select("*")
@@ -43,6 +168,44 @@ serve(async (req) => {
       return new Response(JSON.stringify({ status: "idle", processed: 0 }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // Enrich emails with document attachment text via MarkItDown
+    const DOC_EXTS = ["docx", "xlsx", "xls", "pptx", "csv", "html", "htm"];
+    for (const email of emails) {
+      const atts = email.attachments || [];
+      if (!atts.length) continue;
+      for (const att of atts) {
+        if (!att.url || !att.filename) continue;
+        const ext = (att.filename.split(".").pop() || "").toLowerCase();
+        if (!DOC_EXTS.includes(ext)) continue;
+        try {
+          // Fetch the file and get text
+          const fileResp = await fetch(att.url);
+          if (!fileResp.ok) continue;
+          const rawText = await fileResp.text();
+          if (rawText.length < 30) continue;
+          // Call markitdown function for structured extraction
+          const mdResp = await fetch(`${supabaseUrl}/functions/v1/markitdown`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${supabaseKey}`,
+            },
+            body: JSON.stringify({
+              content: rawText.slice(0, 20000),
+              filename: att.filename,
+              mode: "extract",
+            }),
+          });
+          if (mdResp.ok) {
+            const mdResult = await mdResp.json();
+            if (mdResult.markdown) {
+              email.body = (email.body || "") + `\n[DOC:${att.filename}]\n${mdResult.markdown.slice(0, 5000)}`;
+            }
+          }
+        } catch (_) { /* skip on error */ }
+      }
     }
 
     // Build chunk for Claude
