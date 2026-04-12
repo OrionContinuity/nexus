@@ -390,6 +390,7 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     document.querySelectorAll('.brain-ex').forEach(b=>b.addEventListener('click',()=>{i.value=b.textContent;s.disabled=false;askAI();}));
     checkApiKey();buildDynamicChips();
     setupVoice();
+    setupCamera();
     window.addEventListener('online',()=>{document.getElementById('offlineBanner').style.display='none';});
     window.addEventListener('offline',()=>{document.getElementById('offlineBanner').style.display='block';});
     if(!navigator.onLine)document.getElementById('offlineBanner').style.display='block';
@@ -704,6 +705,45 @@ Remember: personality welcome, filler unwelcome. You know ${user} personally.`;
   let currentAudio=null;
   async function speak(text){cvi=getVoiceIdx();const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.35,similarity_boost:.82,style:.45,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl);if(currentAudio){currentAudio.pause();currentAudio=null;}const a=new Audio(u);a.playbackRate=1.05;currentAudio=a;a.play();a.onended=()=>{URL.revokeObjectURL(u);currentAudio=null;};return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=1.1;speechSynthesis.speak(u);}
   function stopSpeaking(){if(currentAudio){currentAudio.pause();currentAudio=null;}if('speechSynthesis'in window)speechSynthesis.cancel();}
+
+  // Camera — scan receipt/document directly from chat
+  function setupCamera(){
+    const camBtn=document.getElementById('camBtn');
+    if(!camBtn)return;
+    camBtn.addEventListener('click',async()=>{
+      // Expand chat if collapsed
+      const hud=document.getElementById('chatHud');
+      if(!hud.classList.contains('expanded')){
+        hud.classList.add('expanded');
+        document.getElementById('brainDim')?.classList.add('active');
+      }
+      // Use native camera or file input
+      try{
+        const result=await NX.scanReceipt();
+        if(result){
+          // Show what was scanned
+          const summary=result.vendor?`Scanned: ${result.vendor}${result.amount?' — $'+result.amount:''}${result.date?' ('+result.date+')':''}`:
+            result.text?'Scanned document: '+result.text.slice(0,100)+'...':'Scan complete';
+          addB(summary,'user');
+          chatHistory.push({role:'user',content:'I just scanned this: '+JSON.stringify(result)});
+          // Ask AI to process it
+          showTyping();
+          const ctx=await getCtx('process scanned document');
+          const ans=await NX.askClaude(getPERSONA()+'\n\n'+ctx,[
+            ...chatHistory.slice(-4),
+            {role:'user',content:'I just scanned this document/receipt. Tell me what it is and if I should save it as a node. Here is the data: '+JSON.stringify(result)}
+          ],800,false);
+          hideTyping();
+          let cleanAns=(ans||'').replace(/\[confidence:(high|medium|low)\]/i,'').replace(/\*\*([^*]+)\*\*/g,'$1').replace(/\*([^*]+)\*/g,'$1').replace(/^#+\s*/gm,'').replace(/^[-•]\s*/gm,'').trim();
+          addB(cleanAns||'Got the scan. What do you want to do with it?','ai');
+          chatHistory.push({role:'assistant',content:cleanAns});
+          if(voiceOn)speak(cleanAns);
+        }
+      }catch(e){
+        addB('Camera not available. Try from the NEXUS app.','ai');
+      }
+    });
+  }
 
   // Auto-extract nodes silently from AI responses
   async function autoExtractNodes(question,answer){
