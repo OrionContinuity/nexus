@@ -397,14 +397,6 @@ async function submitDailyReport(){
   const isEditing=!!NX.editingReport;
   const reportDate=isEditing?NX.editingReport.date:today;
 
-  if(!isEditing){
-    const dupKey='nexus_submit_all_'+today;
-    if(localStorage.getItem(dupKey)){
-      const overwrite=window.confirm('A report was already submitted today. Submit again?');
-      if(!overwrite){btn.textContent='Cancelled';setTimeout(()=>{btn.textContent='Submit Daily Report';},2000);return;}
-    }
-  }
-
   btn.disabled=true;btn.textContent='Loading all restaurants...';
 
   const parts=[];
@@ -421,21 +413,25 @@ async function submitDailyReport(){
   const combined='Cleaning Report — '+reportDate+'\n===\n'+parts.join('\n===\n');
 
   if(isEditing){
-    // Update existing log entry
     const{error}=await NX.sb.from('daily_logs').update({entry:combined}).eq('id',NX.editingReport.logId);
     if(!error){
       btn.textContent='✓ Updated';
       if(NX.toast)NX.toast('Report updated ✓','success');
       NX.editingReport=null;today=getCleaningDate();
       const banner=document.getElementById('cleanEditBanner');if(banner)banner.style.display='none';
-      // Switch to Log tab
       setTimeout(()=>{document.querySelector('.nav-tab[data-view="log"]')?.click();},800);
     }else{btn.textContent='Error — try again';}
   }else{
-    const{error}=await NX.sb.from('daily_logs').insert({entry:combined});
+    // Check if a report for today already exists — update it instead of creating a duplicate
+    const{data:existing}=await NX.sb.from('daily_logs').select('id').ilike('entry','Cleaning Report%'+reportDate+'%').limit(1);
+    let error;
+    if(existing&&existing.length){
+      ({error}=await NX.sb.from('daily_logs').update({entry:combined}).eq('id',existing[0].id));
+    }else{
+      ({error}=await NX.sb.from('daily_logs').insert({entry:combined}));
+    }
     if(!error){
       btn.textContent='✓ Submitted';
-      localStorage.setItem('nexus_submit_all_'+today,'1');
       confirm_el.textContent='All 3 restaurants saved to log.';
       confirm_el.style.display='block';
       if(NX.toast)NX.toast('Cleaning report submitted ✓','success');
@@ -445,29 +441,6 @@ async function submitDailyReport(){
 }
 
 NX.cleaningAPI={addTask,removeTask,getLocations:()=>Object.keys(DEFAULTS)};
-
-// ═══ AUTO-SUBMIT 10 PM — full details all locations ═══
-function startAutoSubmit(){
-  setInterval(async()=>{
-    const now=new Date();
-    const autoKey='nexus_auto_clean_'+today;
-    if(now.getHours()===8&&now.getMinutes()===0&&!localStorage.getItem(autoKey)){
-      localStorage.setItem(autoKey,'1');
-      const parts=[];
-      for(const location of Object.keys(DEFAULTS)){
-        try{
-          const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,done').eq('log_date',today).eq('location',location);
-          const locState={};if(data)data.forEach(c=>{locState[location+'_'+c.section+'_'+c.task_index]={done:c.done,by:''};});
-          parts.push(buildFullReport(location,locState));
-        }catch(e){}
-      }
-      const combined='[AUTO 8AM] Cleaning Report — '+today+'\n===\n'+parts.join('\n===\n');
-      await NX.sb.from('daily_logs').insert({entry:combined});
-      if(NX.toast)NX.toast('Cleaning auto-submitted (8 AM)','info');
-    }
-  },60000);
-}
-startAutoSubmit();
 
 NX.modules.clean={init,show};
 NX.cleaningTasks=DEFAULTS;
