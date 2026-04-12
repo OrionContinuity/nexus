@@ -233,12 +233,16 @@ function render(){
     // Check All button
     const caBtn=document.createElement('button');caBtn.className='clean-check-all';
     caBtn.textContent=isComplete?'Undo':'All ✓';
-    caBtn.addEventListener('click',(e)=>{
+    caBtn.addEventListener('click',async(e)=>{
       e.stopPropagation();const newState=!isComplete;
       sec.items.forEach((_,i)=>{
         const k=loc+'_'+sec.sec+'_'+i;setState(k,newState);
-        try{NX.sb.from('cleaning_logs').upsert({location:loc,log_date:today,task_index:i,section:sec.sec,done:newState,completed_at:newState?new Date().toISOString():null},{onConflict:'location,log_date,task_index,section'});}catch(e){}
-      });render();
+      });
+      render();
+      // Save all to DB with await
+      for(let i=0;i<sec.items.length;i++){
+        try{await NX.sb.from('cleaning_logs').upsert({location:loc,log_date:today,task_index:i,section:sec.sec,done:newState,completed_at:newState?new Date().toISOString():null},{onConflict:'location,log_date,task_index,section'});}catch(e){console.error('Cleaning save error:',e);}
+      }
     });
 
     h.appendChild(caBtn);
@@ -271,11 +275,14 @@ function render(){
         });
         it.appendChild(del);
       }
-      it.onclick=()=>{
+      it.onclick=async()=>{
         const newVal=!getState(k);setState(k,newVal);render();
         const upsertData={location:loc,log_date:today,task_index:i,section:sec.sec,done:newVal,completed_at:newVal?new Date().toISOString():null};
         if(navigator.onLine){
-          try{NX.sb.from('cleaning_logs').upsert(upsertData,{onConflict:'location,log_date,task_index,section'});}catch(e){}
+          try{
+            const{error}=await NX.sb.from('cleaning_logs').upsert(upsertData,{onConflict:'location,log_date,task_index,section'});
+            if(error)console.error('Cleaning save error:',error);
+          }catch(e){console.error('Cleaning save exception:',e);}
         }else if(NX.offlineQueue){
           NX.offlineQueue.add({type:'cleaning',data:upsertData});
         }
@@ -401,45 +408,58 @@ async function submitDailyReport(){
   const isEditing=!!NX.editingReport;
   const reportDate=isEditing?NX.editingReport.date:today;
 
-  btn.disabled=true;btn.textContent='Loading all restaurants...';
+  btn.disabled=true;btn.textContent='Building report...';
 
   const parts=[];
   for(const location of Object.keys(DEFAULTS)){
-    let locState={};
-    try{
-      const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,done').eq('log_date',reportDate).eq('location',location);
-      if(data)data.forEach(c=>{locState[location+'_'+c.section+'_'+c.task_index]={done:c.done,by:''};});
-    }catch(e){}
+    // PRIMARY: use stateCache (what the user actually sees on screen)
+    // FALLBACK: query database if cache is empty for this location
+    let locState=stateCache[location]||{};
+
+    if(!Object.keys(locState).length){
+      try{
+        const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,done').eq('log_date',reportDate).eq('location',location);
+        if(data&&data.length){
+          locState={};
+          data.forEach(c=>{locState[location+'_'+c.section+'_'+c.task_index]={done:c.done,by:''};});
+        }
+      }catch(e){console.error('Failed to load cleaning data for',location,e);}
+    }
+
     parts.push(buildFullReport(location,locState));
   }
 
   btn.textContent='Submitting...';
-  const combined='Cleaning Report — '+reportDate+'\n===\n'+parts.join('\n===\n');
+  const combined='Cleaning Report \u2014 '+reportDate+'\n===\n'+parts.join('\n===\n');
 
   if(isEditing){
     const{error}=await NX.sb.from('daily_logs').update({entry:combined}).eq('id',NX.editingReport.logId);
     if(!error){
-      btn.textContent='✓ Updated';
-      if(NX.toast)NX.toast('Report updated ✓','success');
+      btn.textContent='\u2713 Updated';
+      if(NX.toast)NX.toast('Report updated \u2713','success');
       NX.editingReport=null;today=getCleaningDate();
       const banner=document.getElementById('cleanEditBanner');if(banner)banner.style.display='none';
       setTimeout(()=>{document.querySelector('.nav-tab[data-view="log"]')?.click();},800);
-    }else{btn.textContent='Error — try again';}
+    }else{btn.textContent='Error \u2014 try again';console.error('Update error:',error);}
   }else{
-    // Check if a report for today already exists — update it instead of creating a duplicate
-    const{data:existing}=await NX.sb.from('daily_logs').select('id').ilike('entry','Cleaning Report%'+reportDate+'%').limit(1);
+    // Check if a report for today already exists — update instead of duplicate
     let error;
-    if(existing&&existing.length){
-      ({error}=await NX.sb.from('daily_logs').update({entry:combined}).eq('id',existing[0].id));
-    }else{
-      ({error}=await NX.sb.from('daily_logs').insert({entry:combined}));
+    try{
+      const{data:existing}=await NX.sb.from('daily_logs').select('id').ilike('entry','Cleaning Report%'+reportDate+'%').limit(1);
+      if(existing&&existing.length){
+        ({error}=await NX.sb.from('daily_logs').update({entry:combined}).eq('id',existing[0].id));
+      }else{
+        ({error}=await NX.sb.from('daily_logs').insert({entry:combined}));
+      }
+    }catch(e){
+      error=e;
     }
     if(!error){
-      btn.textContent='✓ Submitted';
+      btn.textContent='\u2713 Submitted';
       confirm_el.textContent='All 3 restaurants saved to log.';
       confirm_el.style.display='block';
-      if(NX.toast)NX.toast('Cleaning report submitted ✓','success');
-    }else{btn.textContent='Error — try again';confirm_el.style.display='none';}
+      if(NX.toast)NX.toast('Cleaning report submitted \u2713','success');
+    }else{btn.textContent='Error \u2014 try again';confirm_el.style.display='none';console.error('Submit error:',error);}
   }
   setTimeout(()=>{btn.disabled=false;btn.textContent='Submit Daily Report';},3000);
 }
