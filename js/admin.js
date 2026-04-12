@@ -160,7 +160,6 @@ async function init(){
       if(status)status.textContent='';
       try{
         if(ext==='xml'){
-          // Peek to confirm SMS
           const peek=await msgPendingFile.slice(0,2048).text();
           if(peek.includes('<sms')||peek.includes('<smses')){
             await ingestSmsStreamed(msgPendingFile);
@@ -168,7 +167,6 @@ async function init(){
             if(status)status.textContent='Not an SMS backup XML file.';
           }
         }else{
-          // WhatsApp .txt
           const peek=await msgPendingFile.slice(0,2048).text();
           const waTest=/^\[?\d{1,2}\/\d{1,2}\/\d{2,4},?\s*\d{1,2}:\d{2}/m;
           if(waTest.test(peek)){
@@ -179,6 +177,52 @@ async function init(){
         }
       }catch(e){if(status)status.textContent='Error: '+e.message;}
       msgSubmit.disabled=false;msgSubmit.textContent='Import Messages';
+    });
+  }
+
+  // ── CONTACTS FILE PICKER ──
+  const ctInput=document.getElementById('contactFileInput');
+  const ctLabel=document.getElementById('contactFileLabel');
+  const ctName=document.getElementById('contactFileName');
+  const ctSubmit=document.getElementById('contactSubmitBtn');
+  let ctPendingFiles=null;
+  if(ctInput){
+    ctInput.addEventListener('change',()=>{
+      if(ctInput.files.length){
+        ctPendingFiles=ctInput.files;
+        const names=[...ctInput.files].map(f=>f.name).join(', ');
+        ctName.textContent=ctInput.files.length>1?`${ctInput.files.length} files selected`:names;
+        ctLabel.classList.add('has-file');
+        ctSubmit.disabled=false;
+      }else{
+        ctPendingFiles=null;
+        ctName.textContent='Choose .vcf or .csv file…';
+        ctLabel.classList.remove('has-file');
+        ctSubmit.disabled=true;
+      }
+    });
+  }
+  if(ctSubmit){
+    ctSubmit.addEventListener('click',async()=>{
+      if(!ctPendingFiles||!ctPendingFiles.length)return;
+      ctSubmit.disabled=true;ctSubmit.textContent='Reading...';
+      const status=document.getElementById('contactFileStatus');
+      if(status)status.textContent='';
+      try{
+        let allContacts=[];
+        for(const file of ctPendingFiles){
+          const text=await file.text();
+          const ext=(file.name.split('.').pop()||'').toLowerCase();
+          if(ext==='vcf')allContacts=allContacts.concat(parseVcf(text));
+          else if(ext==='csv')allContacts=allContacts.concat(parseContactsCsv(text));
+        }
+        if(!allContacts.length){
+          if(status)status.textContent='No contacts found in file.';
+        }else{
+          showContactImportPicker(allContacts);
+        }
+      }catch(e){if(status)status.textContent='Error: '+e.message;}
+      ctSubmit.disabled=false;ctSubmit.textContent='Import Contacts';
     });
   }
 
@@ -269,13 +313,47 @@ function restoreChipStates(){
 
 // ═══ GOOGLE AUTH ═══
 function loadGoogleAuth(){const c=NX.getGoogleClientId();if(!c)return;if(!document.querySelector('script[src*="accounts.google.com/gsi/client"]')){const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.onload=()=>initTC();document.head.appendChild(s);}else initTC();}
-function initTC(){const c=NX.getGoogleClientId();if(!c||!window.google?.accounts?.oauth2)return;gisLoaded=true;tokenClient=google.accounts.oauth2.initTokenClient({client_id:c,scope:'https://www.googleapis.com/auth/gmail.readonly',callback:r=>{if(r.access_token){gmailToken=r.access_token;localStorage.setItem('nexus_gmail_token',JSON.stringify({token:r.access_token,expiry:Date.now()+55*60*1000}));showGmailConnected();log('Gmail connected ✓','success');}}});}
-function connectGmail(){const c=NX.getGoogleClientId();if(!c){log('No Google Client ID. Open Admin ⚙.','error');return;}if(!gisLoaded){loadGoogleAuth();setTimeout(connectGmail,1000);return;}if(tokenClient)tokenClient.requestAccessToken();}
-function showGmailConnected(){
+function initTC(){
+  const c=NX.getGoogleClientId();if(!c||!window.google?.accounts?.oauth2)return;gisLoaded=true;
+  // Use CODE flow to get a refresh token (persists forever)
+  tokenClient=google.accounts.oauth2.initCodeClient({
+    client_id:c,
+    scope:'https://www.googleapis.com/auth/gmail.readonly',
+    access_type:'offline',
+    prompt:'consent',
+    callback:async r=>{
+      if(r.code){
+        log('Exchanging auth code for permanent access...');
+        try{
+          // Send code to gmail-auth edge function
+          const resp=await NX.sb.functions.invoke('gmail-auth',{body:{code:r.code}});
+          if(resp.data?.access_token){
+            gmailToken=resp.data.access_token;
+            localStorage.setItem('nexus_gmail_token',JSON.stringify({token:resp.data.access_token,expiry:Date.now()+(resp.data.expires_in||3500)*1000}));
+            showGmailConnected(resp.data.has_refresh_token);
+            if(resp.data.has_refresh_token){
+              log('✓ Gmail connected permanently — will auto-pull emails even without browser','success');
+            }else{
+              log('✓ Gmail connected (session only — re-authorize for permanent access)','success');
+            }
+          }else if(resp.data?.error){
+            log('Auth error: '+resp.data.error,'error');
+          }
+        }catch(e){
+          log('Auth exchange failed: '+e.message,'error');
+          // Fallback to using code directly won't work — need edge function
+          log('Deploy the gmail-auth edge function: supabase functions deploy gmail-auth','warn');
+        }
+      }
+    }
+  });
+}
+function connectGmail(){const c=NX.getGoogleClientId();if(!c){log('No Google Client ID. Open Admin ⚙.','error');return;}if(!gisLoaded){loadGoogleAuth();setTimeout(connectGmail,1000);return;}if(tokenClient)tokenClient.requestCode();}
+function showGmailConnected(permanent){
   const st=document.getElementById('gmailStatusText');
-  if(st){st.textContent='✓ Connected';st.style.color='#4ade80';}
+  if(st){st.textContent=permanent?'✓ Permanent':'✓ Connected';st.style.color='#4ade80';}
   const cb=document.getElementById('gmailConnectBtn');
-  if(cb)cb.textContent='Reconnect';
+  if(cb)cb.textContent=permanent?'Reconnect':'Reconnect';
   const sc=document.getElementById('gmailSyncControls');
   if(sc)sc.style.display='block';
 }
@@ -716,13 +794,76 @@ async function updateQueueStatus(){
     // Update stat cards
     const nc=document.getElementById('igNodeCount');
     const ec=document.getElementById('igEmailCount');
+    let nodeCount=0,emailCount=0;
     if(nc||ec){
-      const{count:nodeCount}=await NX.sb.from('nodes').select('*',{count:'exact',head:true});
-      const{count:emailCount}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true});
-      if(nc)nc.textContent=nodeCount||0;
-      if(ec)ec.textContent=emailCount||0;
+      const r1=await NX.sb.from('nodes').select('*',{count:'exact',head:true});
+      const r2=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true});
+      nodeCount=r1.count||0;emailCount=r2.count||0;
+      if(nc)nc.textContent=nodeCount;
+      if(ec)ec.textContent=emailCount;
     }
+    // Show contextual guidance
+    showGuide(count||0,nodeCount,emailCount);
   }catch(e){}
+}
+
+function showGuide(pending,nodes,archived){
+  const el=document.getElementById('igGuide');if(!el)return;
+  const batch=getBatchSize();
+  const sec=parseInt(localStorage.getItem('nexus_bg_interval')||'300');
+  const procOn=localStorage.getItem('nexus_bg_process')!=='off';
+
+  if(pending>0){
+    const estMin=Math.ceil(pending/batch)*(sec/60);
+    const estStr=estMin<60?`~${Math.round(estMin)} min`:`~${(estMin/60).toFixed(1)} hours`;
+    el.style.display='';
+    if(!procOn){
+      el.innerHTML=`<div class="ig-guide-icon">⏸</div>
+        <div class="ig-guide-body">
+          <div class="ig-guide-title">${pending} items queued — processor is OFF</div>
+          <div class="ig-guide-steps">
+            <div class="ig-guide-step">1. Open <b>Processor</b> section below</div>
+            <div class="ig-guide-step">2. Toggle <b>Auto</b> to ON</div>
+            <div class="ig-guide-step">3. AI will start extracting knowledge automatically</div>
+          </div>
+        </div>`;
+    }else{
+      el.innerHTML=`<div class="ig-guide-icon">⚙</div>
+        <div class="ig-guide-body">
+          <div class="ig-guide-title">Processing ${pending} items — ETA ${estStr}</div>
+          <div class="ig-guide-steps">
+            <div class="ig-guide-step">AI is reading ${batch} items every ${sec<60?sec+'s':Math.round(sec/60)+'m'} and extracting knowledge into your Brain.</div>
+            <div class="ig-guide-step"><b>Speed it up?</b> Open Processor → set Batch to <b>10-20</b> and Every to <b>1m</b>.</div>
+            <div class="ig-guide-step">You can close this tab — it runs in the background. Check the <b>Brain</b> tab to see new nodes appear.</div>
+          </div>
+        </div>`;
+    }
+  }else if(nodes<5&&archived===0){
+    el.style.display='';
+    el.innerHTML=`<div class="ig-guide-icon">👋</div>
+      <div class="ig-guide-body">
+        <div class="ig-guide-title">Get started — feed your Brain</div>
+        <div class="ig-guide-steps">
+          <div class="ig-guide-step"><b>Gmail:</b> Connect below → Sync emails → AI extracts vendors, equipment, contacts</div>
+          <div class="ig-guide-step"><b>WhatsApp/SMS:</b> Open the 📱 section → pick a .txt or .xml export → choose contacts</div>
+          <div class="ig-guide-step"><b>Documents:</b> Drop PDFs, Word, Excel into the drop zone</div>
+          <div class="ig-guide-step"><b>Paste:</b> Copy-paste any notes, transcripts, or vendor info</div>
+        </div>
+      </div>`;
+  }else if(pending===0&&nodes>0){
+    el.style.display='';
+    el.innerHTML=`<div class="ig-guide-icon">✅</div>
+      <div class="ig-guide-body">
+        <div class="ig-guide-title">Queue empty — ${nodes} nodes in Brain</div>
+        <div class="ig-guide-steps">
+          <div class="ig-guide-step">Open the <b>Brain</b> tab to explore your knowledge galaxy.</div>
+          <div class="ig-guide-step">Use <b>Tools</b> → <b>Build Links</b> to connect related nodes.</div>
+          <div class="ig-guide-step">Import more data anytime — duplicates are skipped automatically.</div>
+        </div>
+      </div>`;
+  }else{
+    el.style.display='none';
+  }
 }
 
 // ═══ EMAIL FILE UPLOAD — parse .eml, .mbox, .msg ═══
@@ -1440,6 +1581,202 @@ async function importFilteredMessages(byContact,source,filename){
 
 
 
+
+// ═══ CONTACT PARSERS — vCard (.vcf) and CSV ═══
+
+function parseVcf(text){
+  const contacts=[];
+  const cards=text.split('BEGIN:VCARD').slice(1);
+  for(const card of cards){
+    const get=(field)=>{const m=card.match(new RegExp(field+'[^:]*:(.+)','i'));return m?m[1].trim():'';};
+    const fn=get('FN')||'';
+    const n=get('N');
+    // N format: Last;First;Middle;Prefix;Suffix
+    const nParts=n.split(';');
+    const name=fn||(nParts[1]?`${nParts[1]} ${nParts[0]}`.trim():nParts[0]||'');
+    if(!name||name.length<2)continue;
+    // Phone — can have multiple
+    const phones=[];
+    const phoneRe=/TEL[^:]*:(.+)/gi;
+    let pm;while((pm=phoneRe.exec(card))!==null)phones.push(pm[1].trim());
+    // Email — can have multiple
+    const emails=[];
+    const emailRe=/EMAIL[^:]*:(.+)/gi;
+    let em;while((em=emailRe.exec(card))!==null)emails.push(em[1].trim());
+    // Organization
+    const org=get('ORG').replace(/;+$/,'');
+    const title=get('TITLE');
+    const note=get('NOTE');
+    const addr=get('ADR').replace(/;/g,' ').replace(/\s+/g,' ').trim();
+    contacts.push({
+      name,org,title,
+      phones,emails,
+      address:addr,note,
+      raw:`${name}${org?' — '+org:''}${title?' ('+title+')':''}`
+    });
+  }
+  return contacts;
+}
+
+function parseContactsCsv(text){
+  const contacts=[];
+  const lines=text.split('\n').filter(l=>l.trim());
+  if(lines.length<2)return contacts;
+  // Parse header
+  const header=lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase());
+  const idx=(names)=>{for(const n of names){const i=header.indexOf(n);if(i>=0)return i;}return-1;};
+  // Common column name variations
+  const nameCol=idx(['name','full name','display name','first name','nombre']);
+  const lastCol=idx(['last name','family name','apellido']);
+  const phoneCol=idx(['phone','phone 1 - value','mobile','phone number','telefono','primary phone']);
+  const phone2Col=idx(['phone 2 - value','work phone','other phone']);
+  const emailCol=idx(['email','e-mail','email 1 - value','e-mail address','correo']);
+  const email2Col=idx(['email 2 - value','e-mail 2']);
+  const orgCol=idx(['organization','company','organization 1 - name','empresa']);
+  const titleCol=idx(['title','job title','organization 1 - title','cargo']);
+  const noteCol=idx(['notes','note']);
+  const addrCol=idx(['address','address 1 - formatted','address 1 - street']);
+  if(nameCol<0&&lastCol<0)return contacts;
+
+  for(let i=1;i<lines.length;i++){
+    // Simple CSV parse (handles quoted commas)
+    const vals=[];let current='',inQuote=false;
+    for(const ch of lines[i]){
+      if(ch==='"'){inQuote=!inQuote;}
+      else if(ch===','&&!inQuote){vals.push(current.trim());current='';}
+      else current+=ch;
+    }
+    vals.push(current.trim());
+    const g=(col)=>col>=0&&col<vals.length?vals[col].replace(/^"|"$/g,'').trim():'';
+
+    let name=g(nameCol);
+    if(lastCol>=0&&g(lastCol)){name=name?(name+' '+g(lastCol)):g(lastCol);}
+    if(!name||name.length<2)continue;
+
+    const phones=[g(phoneCol),g(phone2Col)].filter(Boolean);
+    const emails=[g(emailCol),g(email2Col)].filter(Boolean);
+    contacts.push({
+      name,org:g(orgCol),title:g(titleCol),
+      phones,emails,
+      address:g(addrCol),note:g(noteCol),
+      raw:`${name}${g(orgCol)?' — '+g(orgCol):''}${g(titleCol)?' ('+g(titleCol)+')':''}`
+    });
+  }
+  return contacts;
+}
+
+function showContactImportPicker(contacts){
+  clearLog();
+  log(`👤 ${contacts.length} contacts found`);
+
+  // Check which already exist as nodes
+  const existingNames=new Set((NX.nodes||[]).map(n=>n.name.toLowerCase()));
+  contacts.forEach(c=>{c._exists=existingNames.has(c.name.toLowerCase());});
+  const newContacts=contacts.filter(c=>!c._exists);
+  const existCount=contacts.length-newContacts.length;
+  if(existCount)log(`⏭ ${existCount} already in Brain`);
+
+  const overlay=document.createElement('div');overlay.className='board-modal-overlay';
+  overlay.innerHTML=`<div class="board-modal" style="max-height:85vh;overflow-y:auto;max-width:440px">
+    <div class="board-modal-title">👤 Import Contacts (${newContacts.length} new${existCount?' · '+existCount+' existing':''})</div>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <select class="ig-select" id="ctCatSelect" style="flex:1">
+        <option value="auto">Auto-categorize</option>
+        <option value="people">All → People</option>
+        <option value="contractors">All → Contractors</option>
+        <option value="vendors">All → Vendors</option>
+      </select>
+    </div>
+    <div class="cp-actions" style="display:flex;gap:6px;margin-bottom:10px">
+      <button class="ig-chip active" id="ctAll">Select All</button>
+      <button class="ig-chip" id="ctNone">Select None</button>
+    </div>
+    <div id="ctList" style="display:flex;flex-direction:column;gap:4px;max-height:50vh;overflow-y:auto"></div>
+    <div class="board-modal-actions" style="margin-top:12px">
+      <button class="board-modal-cancel" id="ctCancel">Cancel</button>
+      <button class="board-modal-save" id="ctImport">Import Selected</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  const listEl=overlay.querySelector('#ctList');
+  newContacts.forEach((c,i)=>{
+    const detail=[...c.phones,...c.emails].slice(0,2).join(' · ')||c.org||'';
+    const row=document.createElement('label');row.className='cp-row';
+    row.innerHTML=`<input type="checkbox" checked data-idx="${i}">
+      <div class="cp-info">
+        <div class="cp-name">${c.name}${c.org?` <span class="cp-count">${c.org}</span>`:''}</div>
+        <div class="cp-preview">${detail}</div>
+      </div>`;
+    listEl.appendChild(row);
+  });
+
+  overlay.querySelector('#ctAll').addEventListener('click',()=>{overlay.querySelectorAll('#ctList input').forEach(cb=>cb.checked=true);});
+  overlay.querySelector('#ctNone').addEventListener('click',()=>{overlay.querySelectorAll('#ctList input').forEach(cb=>cb.checked=false);});
+  overlay.querySelector('#ctCancel').addEventListener('click',()=>overlay.remove());
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+
+  overlay.querySelector('#ctImport').addEventListener('click',async()=>{
+    const selected=[];
+    overlay.querySelectorAll('#ctList input:checked').forEach(cb=>{
+      const idx=parseInt(cb.dataset.idx);
+      if(newContacts[idx])selected.push(newContacts[idx]);
+    });
+    const catMode=overlay.querySelector('#ctCatSelect')?.value||'auto';
+    overlay.remove();
+    if(!selected.length){log('No contacts selected.','warn');return;}
+    await importSelectedContacts(selected,catMode);
+  });
+}
+
+async function importSelectedContacts(contacts,catMode){
+  log(`Importing ${contacts.length} contacts...`);
+  let created=0,errors=0;
+
+  for(const c of contacts){
+    // Determine category
+    let category='people';
+    if(catMode!=='auto'){
+      category=catMode;
+    }else{
+      // Auto-categorize by keywords
+      const text=`${c.name} ${c.org} ${c.title} ${c.note}`.toLowerCase();
+      if(/plumb|hvac|electric|repair|maint|clean|service|pest|fire|install/i.test(text))category='contractors';
+      else if(/supply|food|bev|wine|produce|meat|dairy|linen|chem|paper|wholesale|distribut/i.test(text))category='vendors';
+      else if(/chef|cook|server|bartend|manager|host|dish|busser|prep|sous|somm/i.test(text))category='people';
+      else if(c.org&&!c.title)category='vendors';
+    }
+
+    // Build notes
+    const notes=[];
+    if(c.org)notes.push(`Company: ${c.org}`);
+    if(c.title)notes.push(`Title: ${c.title}`);
+    if(c.phones.length)notes.push(`Phone: ${c.phones.join(', ')}`);
+    if(c.emails.length)notes.push(`Email: ${c.emails.join(', ')}`);
+    if(c.address)notes.push(`Address: ${c.address}`);
+    if(c.note)notes.push(`Note: ${c.note}`);
+
+    const tags=['imported','contact'];
+    if(c.org)tags.push(c.org.toLowerCase().slice(0,30));
+
+    try{
+      const{error}=await NX.sb.from('nodes').insert({
+        name:c.name.slice(0,200),
+        category,
+        tags:tags.slice(0,10),
+        notes:notes.join('\n').slice(0,3000),
+        links:[],access_count:1,source_emails:[]
+      });
+      if(!error)created++;
+      else errors++;
+    }catch(e){errors++;}
+  }
+
+  log(`✅ ${created} contacts imported as nodes${errors?' ('+errors+' failed)':''}`,'success');
+  if(NX.toast)NX.toast(`${created} contacts added to Brain`,'success');
+  NX.syslog&&NX.syslog('contacts_imported',`${created} contacts`);
+  await NX.loadNodes();if(NX.brain)NX.brain.init();
+}
 
 // ═══ RE-INGEST — reprocess archived emails with improved AI ═══
 async function reIngestArchived(){
