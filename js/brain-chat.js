@@ -74,17 +74,29 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
       persona+='\n\nCRITICAL FACTS (always true, verified):\n'+facts.map(f=>`• ${f.content}`).join('\n');
     }
 
-    // Inject user identity + location
+    // Inject user identity + location + personality
     if(NX.currentUser){
       const u=NX.currentUser;
       const loc=localStorage.getItem('nexus_last_location')||u.location||'unknown';
       persona+=`\n\nCURRENT USER: ${u.name} (${u.role}) — currently at ${loc.toUpperCase()}`;
-      // Inject time context
       const now=new Date();
       const hour=now.getHours();
       const shift=hour<11?'morning':hour<16?'afternoon':'evening';
       const dayName=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][now.getDay()];
       persona+=`\nTIME: ${dayName} ${shift}, ${now.toLocaleDateString()} ${now.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`;
+
+      // Match the team's energy
+      persona+=`\n\nPERSONALITY MATCH:
+- This team moves fast and talks direct. Match that energy.
+- Keep answers tight. If they ask a yes/no, answer yes or no first, then explain if needed.
+- Don't over-explain. They'll ask if they want more.
+- Be confident. Say "yeah that's the Hoshizaki compressor" not "it appears to be related to the Hoshizaki compressor"
+- When they're frustrated, be straight: "here's what's wrong, here's the fix" — no sympathy padding
+- Use restaurant lingo naturally: BOH, FOH, 86'd, covers, ticket times, line, expo, walk-in
+- Bilingual context — if they switch to Spanish, switch with them
+- Late night questions get shorter answers. Morning questions can be more detailed.
+- If they say "deep dive" they want you to be thorough for once — give the full picture
+- Never say "I understand your concern" or "that's a great point" — just get to it`;
     }
 
     if(lang==='es')persona+='\n\nRespond ONLY in Spanish.';
@@ -572,6 +584,7 @@ Remember: personality welcome, filler unwelcome. You know ${user} personally.`;
     document.getElementById('chatHud').classList.remove('collapsed');
     document.getElementById('resetBtn').style.display='';
     chatActive=true;addB(q,'user');chatHistory.push({role:'user',content:q});
+    if(NX.syslog)NX.syslog('chat_ask',q.slice(0,80));
     showTyping();
     if(!NX.getApiKey()){hideTyping();addB(tt('noApiKey'),'ai');return;}
     const task=detectTask(q);
@@ -683,13 +696,13 @@ Remember: personality welcome, filler unwelcome. You know ${user} personally.`;
 
   // Voice
   let pv=null;
-  const VOICES=[{id:'pNInz6obpgDQGcFmaJgB',name:'Adam'},{id:'EXAVITQu4vr4xnSDxMaL',name:'Bella'},{id:'onwK4e9ZLuTAKqWW03F9',name:'Daniel'},{id:'XB0fDUnXU5powFXDhCwa',name:'Charlotte'},{id:'TX3LPaxmHKxFdv7VOQHJ',name:'Liam'},{id:'LcfcDJNUP1GQjkzn1xUU',name:'Emily'},{id:'yoZ06aMxZJJ28mfd3POQ',name:'Sam'},{id:'ThT5KcBeYPX3keUQqHPh',name:'Dorothy'},{id:'VR6AewLTigWG4xSOukaG',name:'Arnold'},{id:'pqHfZKP75CvOlQylNhV4',name:'Bill'},{id:'ErXwobaYiN019PkySvjV',name:'Antoni'},{id:'AZnzlk1XvdvUeBnXmlld',name:'Domi'},{id:'D38z5RcWu1voky8WS1ja',name:'Fin'},{id:'jsCqWAovK2LkecY7zXl4',name:'Freya'},{id:'jBpfuIE2acCO8z3wKNLl',name:'Gigi'},{id:'oWAxZDx7w5VEj9dCyTzz',name:'Grace'},{id:'SOYHLrjzK2X1ezoPC6cr',name:'Harry'},{id:'ZQe5CZNOzWyzPSCn5a3c',name:'James'},{id:'TxGEqnHWrfWFTfGW9XjX',name:'Josh'},{id:'21m00Tcm4TlvDq8ikWAM',name:'Rachel'}];
+  const VOICES=[{id:'ErXwobaYiN019PkySvjV',name:'Antoni'},{id:'onwK4e9ZLuTAKqWW03F9',name:'Daniel'},{id:'TX3LPaxmHKxFdv7VOQHJ',name:'Liam'},{id:'TxGEqnHWrfWFTfGW9XjX',name:'Josh'},{id:'SOYHLrjzK2X1ezoPC6cr',name:'Harry'},{id:'ZQe5CZNOzWyzPSCn5a3c',name:'James'},{id:'pNInz6obpgDQGcFmaJgB',name:'Adam'},{id:'EXAVITQu4vr4xnSDxMaL',name:'Bella'},{id:'XB0fDUnXU5powFXDhCwa',name:'Charlotte'},{id:'LcfcDJNUP1GQjkzn1xUU',name:'Emily'},{id:'jsCqWAovK2LkecY7zXl4',name:'Freya'},{id:'oWAxZDx7w5VEj9dCyTzz',name:'Grace'},{id:'21m00Tcm4TlvDq8ikWAM',name:'Rachel'},{id:'yoZ06aMxZJJ28mfd3POQ',name:'Sam'},{id:'ThT5KcBeYPX3keUQqHPh',name:'Dorothy'},{id:'VR6AewLTigWG4xSOukaG',name:'Arnold'},{id:'pqHfZKP75CvOlQylNhV4',name:'Bill'},{id:'AZnzlk1XvdvUeBnXmlld',name:'Domi'},{id:'D38z5RcWu1voky8WS1ja',name:'Fin'},{id:'jBpfuIE2acCO8z3wKNLl',name:'Gigi'}];
   function getVoiceIdx(){return parseInt((NX.config&&NX.config.voice_idx!=null)?NX.config.voice_idx:(localStorage.getItem('nexus_voice_idx')||'0'))%VOICES.length;}
   let cvi=0;
   function setupVoice(){document.getElementById('micBtn').addEventListener('click',toggleMic);const vb=document.getElementById('voiceBtn');vb.classList.add('on');let pt=null;vb.addEventListener('click',()=>{voiceOn=!voiceOn;vb.classList.toggle('on',voiceOn);});vb.addEventListener('pointerdown',()=>{pt=setTimeout(()=>{cvi=(cvi+1)%VOICES.length;localStorage.setItem('nexus_voice_idx',cvi);voiceOn=true;vb.classList.add('on');speak(`${VOICES[cvi].name} here.`);pt=null;},600);});vb.addEventListener('pointerup',()=>{if(pt)clearTimeout(pt);});vb.addEventListener('pointerleave',()=>{if(pt)clearTimeout(pt);});if('speechSynthesis'in window){const pk=()=>{const v=speechSynthesis.getVoices();for(const n of['Samantha','Karen','Daniel','Microsoft Aria']){const f=v.find(x=>x.name.includes(n));if(f){pv=f;break;}}};pk();speechSynthesis.onvoiceschanged=pk;}}
   function toggleMic(){const b=document.getElementById('micBtn');if(recognition){recognition.stop();recognition=null;b.classList.remove('recording');return;}if(!('webkitSpeechRecognition'in window||'SpeechRecognition'in window))return;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;recognition=new SR();recognition.continuous=false;recognition.interimResults=false;recognition.onresult=e=>{document.getElementById('chatInput').value=e.results[0][0].transcript;document.getElementById('chatSend').disabled=false;b.classList.remove('recording');recognition=null;askAI();};recognition.onerror=()=>{b.classList.remove('recording');recognition=null;};recognition.onend=()=>{b.classList.remove('recording');recognition=null;};b.classList.add('recording');recognition.start();}
   let currentAudio=null;
-  async function speak(text){cvi=getVoiceIdx();const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.45,similarity_boost:.78,style:.35,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl);if(currentAudio){currentAudio.pause();currentAudio=null;}const a=new Audio(u);a.playbackRate=1.1;currentAudio=a;a.play();a.onended=()=>{URL.revokeObjectURL(u);currentAudio=null;};return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=1.1;speechSynthesis.speak(u);}
+  async function speak(text){cvi=getVoiceIdx();const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.35,similarity_boost:.82,style:.45,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl);if(currentAudio){currentAudio.pause();currentAudio=null;}const a=new Audio(u);a.playbackRate=1.05;currentAudio=a;a.play();a.onended=()=>{URL.revokeObjectURL(u);currentAudio=null;};return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=1.1;speechSynthesis.speak(u);}
   function stopSpeaking(){if(currentAudio){currentAudio.pause();currentAudio=null;}if('speechSynthesis'in window)speechSynthesis.cancel();}
 
   // Auto-extract nodes silently from AI responses
