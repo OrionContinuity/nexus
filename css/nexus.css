@@ -1246,3 +1246,21 @@ button,a,input,select,textarea,.feed-item,.board-card,.cal-cell,.cal-event,.clea
 [data-theme="light"] .confidence-high{background:rgba(22,163,74,.08);color:var(--green)}
 [data-theme="light"] .confidence-medium{background:rgba(217,119,6,.08);color:var(--amber)}
 [data-theme="light"] .confidence-low{background:rgba(220,38,38,.08);color:var(--red)}
+
+/* ═══ UTILITY TRAY ═══ */
+.nav-more{display:flex;align-items:center;padding:8px;border:none;background:none;color:var(--muted);cursor:pointer;border-radius:var(--rs);transition:all .2s;flex-shrink:0}
+.nav-more:active{color:var(--accent)}
+.nav-more svg{width:16px;height:16px;stroke-width:1.8}
+.util-tray{position:fixed;top:52px;right:0;z-index:99;display:none;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:0 0 0 14px;box-shadow:0 8px 32px rgba(0,0,0,.3);overflow:hidden;min-width:160px}
+.util-tray.open{display:flex;animation:fadeIn .15s ease}
+.util-btn{display:flex;align-items:center;gap:10px;padding:14px 18px;border:none;background:none;color:var(--text);font-size:13px;font-family:inherit;cursor:pointer;transition:background .15s;text-align:left;position:relative}
+.util-btn:active{background:rgba(200,164,78,.08)}
+.util-btn:not(:last-child){border-bottom:1px solid var(--border)}
+.util-icon{width:18px;height:18px;stroke-width:1.8;color:var(--muted);flex-shrink:0}
+.util-btn .ticket-badge{position:absolute;top:8px;right:12px}
+.util-btn .tc-indicator{margin-left:auto}
+[data-theme="light"] .util-tray{box-shadow:0 8px 32px rgba(0,0,0,.08)}
+
+/* Clocked-in state for utility tray */
+.util-btn.clocked-in{color:var(--green)}
+.util-btn.clocked-in .util-icon{color:var(--green)}
