@@ -772,6 +772,7 @@ async function processNextBatch(){
     if(imgCount)summary.push(`${imgCount} images`);
     if(docCount)summary.push(`${docCount} docs`);
     log(`✓ Batch complete: ${itemsProcessed} emails → ${summary.join(', ')||'no new data'}`,'success');
+    if(NX.syslog&&(nodesCreated||pdfCount||imgCount||docCount))NX.syslog('batch_complete',`${itemsProcessed} emails → ${summary.join(', ')}`);
     setProcLive('active',summary.length?summary.join(', '):'Queue processed');
 
     await NX.loadNodes();if(NX.brain)NX.brain.init();
