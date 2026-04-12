@@ -365,7 +365,7 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
       }
 
       // Watch list — which apps to capture
-      const watchApps = JSON.parse(localStorage.getItem('nexus_notify_watch') || '["com.whatsapp","com.whatsapp.w4b","org.telegram.messenger","com.google.android.apps.messaging"]');
+      const watchApps = JSON.parse(localStorage.getItem('nexus_notify_watch') || '["com.whatsapp","com.whatsapp.w4b","org.telegram.messenger","com.google.android.apps.messaging","com.google.android.gm","com.slack"]');
 
       await NotificationListenerPlugin.startListening();
 
@@ -380,7 +380,9 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
         // Determine source app
         const appName = pkg.includes('whatsapp') ? 'WhatsApp' :
                        pkg.includes('telegram') ? 'Telegram' :
-                       pkg.includes('messaging') ? 'SMS' : pkg;
+                       pkg.includes('messaging') ? 'SMS' :
+                       pkg.includes('com.google.android.gm') ? 'Gmail' :
+                       pkg.includes('slack') ? 'Slack' : pkg;
 
         // Debounce — skip if same message in last 30 seconds
         const dedupeKey = `${title}|${text.slice(0,50)}`;
@@ -409,6 +411,10 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
 
       console.log('[NEXUS] Notification listener active for:', watchApps.join(', '));
       NX.toast('Notification capture active', 'success');
+      // Show listening indicator
+      const dot=document.getElementById('listenDot');
+      if(dot)dot.classList.add('active');
+      NX._isListening=true;
     } catch(e) {
       console.warn('[NEXUS] Notification listener not available:', e.message);
     }
