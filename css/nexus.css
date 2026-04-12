@@ -1277,3 +1277,9 @@ button,a,input,select,textarea,.feed-item,.board-card,.cal-cell,.cal-event,.clea
 /* Remove old floating mic/voice row */
 .hud-mic-row{display:none}
 .btn-mic-float,.btn-voice-float{display:none}
+
+/* ═══ LISTENING INDICATOR ═══ */
+.listen-dot{display:none;width:6px;height:6px;border-radius:50%;background:var(--green);margin-left:4px;flex-shrink:0}
+.listen-dot.active{display:inline-block;animation:listenPulse 2s infinite}
+@keyframes listenPulse{0%,100%{opacity:1;box-shadow:0 0 4px var(--green)}50%{opacity:.4;box-shadow:0 0 8px var(--green)}}
+[data-theme="light"] .listen-dot.active{background:#16A34A}
