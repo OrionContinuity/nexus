@@ -46,7 +46,7 @@ const DEFAULTS={suerte:[
   {sec:'Jardín',items:[['Soplar hojas.','Blow leaves.'],['Limpiar Basurero.','Garbage.'],['Inspeccionar plantas.','Inspect plants.']]}
 ],toti:[
   {sec:'Comedor',items:[['Barrer.','Sweep.'],['Trapear.','Mop.'],['Inspeccionar ventanas.','Windows.'],['Limpiar mesas.','Tables.'],['Limpiar repisas.','Ledges.']]},
-  {sec:'Baños',items:[['Inodoro.','Toilet.'],['Superficies metálicas.','Metal.'],['Barrer.','Sweep.'],['Cristales y espejos.','Glass/Mirror.'],['Mostradores.','Sink.'],['Azulejos.','Tile.'],['Trapear.','Mop.']]},
+  {sec:'Baños',items:[['Inodoro.','Toilet.'],['Superficies metálicas.','Metal.'],['Barrer.','Sweep.'],['Cristales y espejos.','Glass/Mirror.'],['Mostores.','Sink.'],['Azulejos.','Tile.'],['Trapear.','Mop.']]},
   {sec:'Cocina',items:[['Parrillas.','Grills.'],['Atrás de parrilla.','Behind Grill.'],['Trapear.','Mop.'],['Superficies metálicas.','Metal.'],['Cestas de drenaje.','Drain Baskets.']]},
   {sec:'Jardín',items:[['Soplar hojas.','Blow leaves.'],['Limpiar Basurero.','Garbage.']]}
 ]};
