@@ -4,13 +4,13 @@
 :root,[data-theme="dark"]{
   --bg:#0a0a0e;--surface:#141418;--elevated:#1c1c22;--border:rgba(255,255,255,.06);
   --text:#ece9e1;--muted:#9a948c;--faint:#706b63;--accent:#d4b68a;--glow:rgba(212,182,138,.35);
-  --green:#4caf50;--blue:#5b8def;--purple:#9c82d4;--red:#e05555;
+  --green:#4caf50;--blue:#5b8def;--purple:#9c82d4;--red:#e05555;--amber:#ffb020;
   --r:8px;--rs:6px;--rp:20px;
 }
 [data-theme="light"]{
   --bg:#E8E4DB;--surface:#F0ECE4;--elevated:#F0ECE4;--border:rgba(0,0,0,.08);
   --text:#2C3A4E;--muted:#5A6474;--faint:#8A9098;--accent:#9E8428;--glow:rgba(158,132,40,.2);
-  --green:#16A34A;--blue:#3B6BC4;--purple:#7C3AED;--red:#DC2626;
+  --green:#16A34A;--blue:#3B6BC4;--purple:#7C3AED;--red:#DC2626;--amber:#D97706;
 }
 html{font-size:14px;scrollbar-width:none}
 html::-webkit-scrollbar{display:none}
