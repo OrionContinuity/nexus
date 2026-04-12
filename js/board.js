@@ -1,4 +1,4 @@
-/* NEXUS Board v8 — unified cards table (replaces kanban_cards + tickets) *
+/* NEXUS Board v8 — unified cards table (replaces kanban_cards + tickets) */
 (function(){
 let cards=[];
 const TABLE='cards';
