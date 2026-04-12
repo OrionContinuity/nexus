@@ -232,16 +232,31 @@ function renderChat(r){
 
 function renderCleanReport(r){
   const entry=r.entry||'',dateMatch=entry.match(/\d{4}-\d{2}-\d{2}/),isAuto=entry.includes('[AUTO');
-  const pcts=[];for(const m of entry.matchAll(/(\w+)\s*.*?(\d+)%/g))pcts.push({name:m[1],pct:parseInt(m[2])});
+  // Parse per-restaurant percentages from "Cleaning Report — {loc} — {date}\nDaily: {pct}%"
+  const pcts=[];
+  const sections=entry.split('===');
+  for(const sec of sections){
+    const locMatch=sec.match(/Cleaning Report\s*[—–-]\s*(\w[\w\s]*?)\s*[—–-]\s*\d{4}/);
+    const pctMatch=sec.match(/Daily:\s*(\d+)%/);
+    if(locMatch&&pctMatch){
+      pcts.push({name:locMatch[1].trim(),pct:parseInt(pctMatch[1])});
+    }
+  }
+  // Fallback: try "Cleaning {pct}%" format
+  if(!pcts.length){
+    for(const m of entry.matchAll(/Cleaning\s+(\d+)%/g)){
+      pcts.push({name:'Overall',pct:parseInt(m[1])});
+    }
+  }
   const d=document.createElement('div');d.className='feed-item feed-clean';
-  d.innerHTML=`<div class="feed-bar" style="background:#39ff14"></div>
+  d.innerHTML=`<div class="feed-bar" style="background:var(--green)"></div>
     <div class="feed-body">
       <div class="feed-head"><span class="feed-badge feed-badge-clean">🧹</span>${isAuto?'<span class="feed-auto">AUTO</span>':''}<span class="feed-ts">${fmtTime(r.created_at)}</span>
         <button class="feed-edit-btn" title="Edit">✏</button>
       </div>
       <div class="feed-content">
         <div class="feed-text">Cleaning Report ${dateMatch?dateMatch[0]:''}</div>
-        <div class="feed-pcts">${pcts.map(p=>{const c=p.pct>=90?'#39ff14':p.pct>=70?'#ffb020':'#ff5533';return`<span class="feed-pct-chip" style="border-color:${c};color:${c}">${p.name} ${p.pct}%</span>`;}).join('')}</div>
+        <div class="feed-pcts">${pcts.map(p=>{const c=p.pct>=90?'var(--green)':p.pct>=70?'var(--amber)':'var(--red)';return`<span class="feed-pct-chip" style="border-color:${c};color:${c}">${p.name} ${p.pct}%</span>`;}).join('')}</div>
         <details class="feed-raw-detail"><summary>Details</summary><pre class="feed-raw-pre">${entry}</pre></details>
       </div>
     </div>`;
