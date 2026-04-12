@@ -277,6 +277,7 @@ function render(){
       }
       it.onclick=async()=>{
         const newVal=!getState(k);setState(k,newVal);render();
+        if(NX.syslog)NX.syslog('clean_'+(newVal?'checked':'unchecked'),item[1]+' ('+loc+'/'+sec.sec+')');
         const upsertData={location:loc,log_date:today,task_index:i,section:sec.sec,done:newVal,completed_at:newVal?new Date().toISOString():null};
         if(navigator.onLine){
           try{
@@ -459,6 +460,7 @@ async function submitDailyReport(){
       confirm_el.textContent='All 3 restaurants saved to log.';
       confirm_el.style.display='block';
       if(NX.toast)NX.toast('Cleaning report submitted \u2713','success');
+      if(NX.syslog)NX.syslog('clean_report','Cleaning report submitted for '+reportDate);
     }else{btn.textContent='Error \u2014 try again';confirm_el.style.display='none';console.error('Submit error:',error);}
   }
   setTimeout(()=>{btn.disabled=false;btn.textContent='Submit Daily Report';},3000);
