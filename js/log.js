@@ -1,312 +1,513 @@
-/* NEXUS Activity Feed v10 — unified timeline across all systems */
+/* ═══ NEXUS Activity Feed v11 — Complete Rebuild ═══ */
 (function(){
-let feed=[],activeFilter='all';
-const FILTERS=[
-  {key:'all',label:'All',icon:''},
-  {key:'log',label:'Logs',icon:''},
-  {key:'ticket',label:'Tickets',icon:''},
-  {key:'task',label:'Tasks',icon:''},
-  {key:'clock',label:'Clock',icon:''},
-  {key:'chat',label:'Chat',icon:''},
-  {key:'clean',label:'Clean',icon:''}
-];
-const TYPE_COLORS={log:'var(--accent)',ticket:'#ffb020',task:'var(--blue)',clock:'var(--green)',chat:'var(--purple)',clean:'#39ff14'};
 
-async function init(){
-  renderFilterBar();
-  document.getElementById('logAdd').addEventListener('click',addLog);
-  document.getElementById('logInput').addEventListener('keydown',e=>{if(e.key==='Enter')addLog();});
-  document.getElementById('knowledgeBtn').addEventListener('click',addKnowledge);
-  document.getElementById('knowledgeInput').addEventListener('keydown',e=>{if(e.key==='Enter')addKnowledge();});
-  await loadAll();
+let feed = [];
+let activeFilter = 'all';
+
+const FILTERS = [
+  { key: 'all',    label: 'All' },
+  { key: 'log',    label: 'Logs' },
+  { key: 'ticket', label: 'Tickets' },
+  { key: 'task',   label: 'Tasks' },
+  { key: 'clock',  label: 'Clock' },
+  { key: 'chat',   label: 'Chat' },
+  { key: 'clean',  label: 'Clean' }
+];
+
+const COLORS = {
+  log:    'var(--accent)',
+  ticket: 'var(--amber)',
+  task:   'var(--blue)',
+  clock:  'var(--green)',
+  chat:   'var(--purple)',
+  clean:  'var(--green)'
+};
+
+/* ═══ INIT ═══ */
+async function init() {
+  buildFilterBar();
+
+  const logBtn = document.getElementById('logAdd');
+  const logIn  = document.getElementById('logInput');
+  const kbBtn  = document.getElementById('knowledgeBtn');
+  const kbIn   = document.getElementById('knowledgeInput');
+
+  if (logBtn) logBtn.addEventListener('click', addLog);
+  if (logIn)  logIn.addEventListener('keydown', e => { if (e.key === 'Enter') addLog(); });
+  if (kbBtn)  kbBtn.addEventListener('click', addKnowledge);
+  if (kbIn)   kbIn.addEventListener('keydown', e => { if (e.key === 'Enter') addKnowledge(); });
+
+  await loadFeed();
 }
 
-function renderFilterBar(){
-  const bar=document.getElementById('feedFilters');if(!bar)return;
-  bar.innerHTML='';
-  FILTERS.forEach(f=>{
-    const btn=document.createElement('button');
-    btn.className='feed-chip'+(activeFilter===f.key?' active':'');
-    btn.textContent=f.label;
-    btn.addEventListener('click',()=>{activeFilter=f.key;renderFilterBar();render();});
+/* ═══ FILTER BAR ═══ */
+function buildFilterBar() {
+  const bar = document.getElementById('feedFilters');
+  if (!bar) return;
+  bar.innerHTML = '';
+  FILTERS.forEach(f => {
+    const btn = document.createElement('button');
+    btn.className = 'feed-chip' + (activeFilter === f.key ? ' active' : '');
+    btn.textContent = f.label;
+    btn.addEventListener('click', () => {
+      activeFilter = f.key;
+      buildFilterBar();
+      renderFeed();
+    });
     bar.appendChild(btn);
   });
 }
 
-async function loadAll(){
-  const now=new Date();
-  const since=new Date(now.getTime()-30*86400000).toISOString();
+/* ═══ LOAD ALL DATA ═══ */
+async function loadFeed() {
+  const since = new Date(Date.now() - 30 * 86400000).toISOString();
+  let useLegacy = false;
 
-  // Try unified cards table first, fall back to legacy
-  let cardsQuery=NX.sb.from('cards').select('*').gte('created_at',since).order('created_at',{ascending:false}).limit(100);
-  let useLegacyCards=false;
-
-  const results=await Promise.allSettled([
-    NX.sb.from('daily_logs').select('*').gte('created_at',since).order('created_at',{ascending:false}).limit(100),
-    cardsQuery,
-    NX.sb.from('time_clock').select('*').gte('clock_in',since).order('clock_in',{ascending:false}).limit(100),
-    NX.sb.from('chat_history').select('*').gte('created_at',since).order('created_at',{ascending:false}).limit(50),
-    NX.sb.from('cleaning_logs').select('*').gte('created_at',since).order('created_at',{ascending:false}).limit(100)
+  const results = await Promise.allSettled([
+    NX.sb.from('daily_logs').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(100),
+    NX.sb.from('cards').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(100),
+    NX.sb.from('time_clock').select('*').gte('clock_in', since).order('clock_in', { ascending: false }).limit(100),
+    NX.sb.from('chat_history').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(50),
+    NX.sb.from('cleaning_logs').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(100)
   ]);
 
-  feed=[];
-  const get=i=>(results[i].status==='fulfilled'&&results[i].value.data)||[];
+  feed = [];
+  const getData = i => (results[i].status === 'fulfilled' && results[i].value.data) || [];
 
   // Check if cards table exists
-  const cardsResult=results[1];
-  if(cardsResult.status==='fulfilled'&&cardsResult.value.error?.message?.includes('does not exist')){
-    useLegacyCards=true;
+  const cardsRes = results[1];
+  if (cardsRes.status === 'fulfilled' && cardsRes.value.error?.message?.includes('does not exist')) {
+    useLegacy = true;
   }
 
-  // daily_logs
-  get(0).forEach(r=>{
-    const entry=r.entry||'';
-    const isCR=entry.startsWith('Cleaning Report')||entry.startsWith('[AUTO');
-    feed.push({type:isCR?'clean':'log',ts:r.created_at,id:'dl-'+r.id,data:r,src:'daily_logs'});
+  // Daily logs
+  getData(0).forEach(r => {
+    const entry = r.entry || '';
+    const isClean = entry.startsWith('Cleaning Report') || entry.startsWith('[AUTO');
+    feed.push({ type: isClean ? 'clean' : 'log', ts: r.created_at, id: 'dl-' + r.id, data: r, src: 'daily_logs' });
   });
 
-  if(useLegacyCards){
-    // Legacy: pull from tickets + kanban_cards
-    try{
-      const tkR=await NX.sb.from('tickets').select('*').order('created_at',{ascending:false}).limit(50);
-      (tkR.data||[]).forEach(r=>feed.push({type:'ticket',ts:r.created_at,id:'tk-'+r.id,data:r}));
-    }catch(e){}
-    try{
-      const kbR=await NX.sb.from('kanban_cards').select('*').order('created_at',{ascending:false}).limit(50);
-      (kbR.data||[]).forEach(r=>feed.push({type:'task',ts:r.created_at,id:'kb-'+r.id,data:r}));
-    }catch(e){}
-  }else{
-    // Unified cards — split into ticket vs task by priority
-    get(1).forEach(r=>{
-      const isTicket=r.priority==='urgent'||r.source==='ticket'||r.ai_troubleshoot;
-      feed.push({type:isTicket?'ticket':'task',ts:r.created_at,id:'cd-'+r.id,data:{
-        ...r,status:r.status||'todo',column_name:r.status,reported_by:r.reported_by||r.assignee
-      }});
+  // Cards or legacy
+  if (useLegacy) {
+    try {
+      const tk = await NX.sb.from('tickets').select('*').order('created_at', { ascending: false }).limit(50);
+      (tk.data || []).forEach(r => feed.push({ type: 'ticket', ts: r.created_at, id: 'tk-' + r.id, data: r }));
+    } catch (e) {}
+    try {
+      const kb = await NX.sb.from('kanban_cards').select('*').order('created_at', { ascending: false }).limit(50);
+      (kb.data || []).forEach(r => feed.push({ type: 'task', ts: r.created_at, id: 'kb-' + r.id, data: r }));
+    } catch (e) {}
+  } else {
+    getData(1).forEach(r => {
+      const isTicket = r.priority === 'urgent' || r.source === 'ticket' || r.ai_troubleshoot;
+      feed.push({
+        type: isTicket ? 'ticket' : 'task',
+        ts: r.created_at,
+        id: 'cd-' + r.id,
+        data: { ...r, status: r.status || 'todo', column_name: r.status, reported_by: r.reported_by || r.assignee }
+      });
     });
   }
 
-  // time clock
-  get(2).forEach(r=>feed.push({type:'clock',ts:r.clock_in,id:'tc-'+r.id,data:r}));
+  // Time clock
+  getData(2).forEach(r => feed.push({ type: 'clock', ts: r.clock_in, id: 'tc-' + r.id, data: r }));
 
-  // chat history
-  get(3).forEach(r=>feed.push({type:'chat',ts:r.created_at,id:'ch-'+r.id,data:r}));
+  // Chat
+  getData(3).forEach(r => feed.push({ type: 'chat', ts: r.created_at, id: 'ch-' + r.id, data: r }));
 
-  // cleaning_logs
-  const crDates=new Set(feed.filter(f=>f.type==='clean'&&f.src==='daily_logs').map(f=>{
-    const m=(f.data.entry||'').match(/\d{4}-\d{2}-\d{2}/);return m?m[0]:null;
-  }).filter(Boolean));
-  get(4).forEach(r=>{
-    const d=r.date||r.created_at?.slice(0,10);
-    if(!crDates.has(d))feed.push({type:'clean',ts:r.created_at,id:'cl-'+r.id,data:r,src:'cleaning_logs'});
+  // Individual cleaning tasks (skip if report already covers that date)
+  const reportDates = new Set(
+    feed.filter(f => f.type === 'clean' && f.src === 'daily_logs')
+      .map(f => { const m = (f.data.entry || '').match(/\d{4}-\d{2}-\d{2}/); return m ? m[0] : null; })
+      .filter(Boolean)
+  );
+  getData(4).forEach(r => {
+    const d = r.date || r.created_at?.slice(0, 10);
+    if (!reportDates.has(d)) {
+      feed.push({ type: 'clean', ts: r.created_at, id: 'cl-' + r.id, data: r, src: 'cleaning_logs' });
+    }
   });
 
-  feed.sort((a,b)=>new Date(b.ts)-new Date(a.ts));
-  render();
+  feed.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  renderFeed();
 }
 
-function fmtTime(ts){
-  if(!ts)return'';
-  const d=new Date(ts),diff=Date.now()-d;
-  if(diff<60000)return'just now';
-  if(diff<3600000)return Math.floor(diff/60000)+'m ago';
-  if(diff<86400000)return Math.floor(diff/3600000)+'h ago';
-  const days=Math.floor(diff/86400000);
-  if(days<7)return days+'d ago';
-  return d.toLocaleDateString([],{month:'short',day:'numeric'});
+/* ═══ TIME FORMAT ═══ */
+function timeAgo(ts) {
+  if (!ts) return '';
+  const diff = Date.now() - new Date(ts);
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+  const days = Math.floor(diff / 86400000);
+  if (days < 7) return days + 'd ago';
+  return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-function render(){
-  const list=document.getElementById('logList');list.innerHTML='';
-  const filtered=activeFilter==='all'?feed:feed.filter(f=>f.type===activeFilter);
+/* ═══ RENDER FEED ═══ */
+function renderFeed() {
+  const list = document.getElementById('logList');
+  if (!list) return;
+  list.innerHTML = '';
 
-  // Pin open tickets at top
-  if(activeFilter==='all'||activeFilter==='ticket'){
-    const open=feed.filter(f=>f.type==='ticket'&&f.data.status==='open');
-    if(open.length){
-      const sec=document.createElement('div');sec.className='feed-pinned';
-      sec.innerHTML=`<div class="feed-pinned-title">🔧 OPEN TICKETS (${open.length})</div>`;
-      open.forEach(item=>sec.appendChild(renderTicket(item.data,true)));
+  const filtered = activeFilter === 'all' ? feed : feed.filter(f => f.type === activeFilter);
+
+  // Pin open tickets
+  if (activeFilter === 'all' || activeFilter === 'ticket') {
+    const open = feed.filter(f => f.type === 'ticket' && f.data.status === 'open');
+    if (open.length) {
+      const sec = document.createElement('div');
+      sec.className = 'feed-pinned';
+      sec.innerHTML = '<div class="feed-pinned-title">OPEN TICKETS (' + open.length + ')</div>';
+      open.forEach(item => sec.appendChild(buildTicketCard(item.data, true)));
       list.appendChild(sec);
     }
   }
 
-  if(!filtered.length){
-    list.innerHTML='<div class="log-empty"><div style="font-size:20px;margin-bottom:8px;opacity:.3">⚡</div>No activity yet.<br><span style="font-size:11px;color:var(--faint)">Actions across all systems appear here.</span></div>';
+  if (!filtered.length) {
+    list.innerHTML = '<div class="log-empty">No activity yet.<br><span style="font-size:11px;color:var(--faint)">Actions across all systems appear here.</span></div>';
     return;
   }
 
   // Group by day
-  const days=new Map();
-  filtered.forEach(item=>{
-    if(item.type==='ticket'&&item.data.status==='open'&&(activeFilter==='all'||activeFilter==='ticket'))return;
-    const dayKey=new Date(item.ts).toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'});
-    if(!days.has(dayKey))days.set(dayKey,[]);
+  const days = new Map();
+  filtered.forEach(item => {
+    if (item.type === 'ticket' && item.data.status === 'open' && (activeFilter === 'all' || activeFilter === 'ticket')) return;
+    const dayKey = new Date(item.ts).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    if (!days.has(dayKey)) days.set(dayKey, []);
     days.get(dayKey).push(item);
   });
 
-  for(const[day,items]of days){
-    const sec=document.createElement('div');sec.className='feed-day';
-    sec.innerHTML=`<div class="feed-day-label">${day}</div>`;
-    items.forEach(item=>{const el=renderItem(item);if(el)sec.appendChild(el);});
-    if(sec.children.length>1)list.appendChild(sec);
+  for (const [day, items] of days) {
+    const sec = document.createElement('div');
+    sec.className = 'feed-day';
+    sec.innerHTML = '<div class="feed-day-label">' + day + '</div>';
+    items.forEach(item => { const el = buildCard(item); if (el) sec.appendChild(el); });
+    if (sec.children.length > 1) list.appendChild(sec);
   }
 }
 
-function renderItem(item){
-  switch(item.type){
-    case'log':return renderLog(item.data);
-    case'ticket':return renderTicket(item.data,false);
-    case'task':return renderTask(item.data);
-    case'clock':return renderClock(item.data);
-    case'chat':return renderChat(item.data);
-    case'clean':return item.src==='daily_logs'?renderCleanReport(item.data):renderCleanTask(item.data);
-    default:return null;
+/* ═══ CARD ROUTER ═══ */
+function buildCard(item) {
+  switch (item.type) {
+    case 'log':    return buildLogCard(item.data);
+    case 'ticket': return buildTicketCard(item.data, false);
+    case 'task':   return buildTaskCard(item.data);
+    case 'clock':  return buildClockCard(item.data);
+    case 'chat':   return buildChatCard(item.data);
+    case 'clean':  return item.src === 'daily_logs' ? buildCleanReportCard(item.data) : buildCleanTaskCard(item.data);
+    default: return null;
   }
 }
 
-function mkCard(type,inner,ts){
-  const d=document.createElement('div');d.className='feed-item feed-'+type;
-  d.innerHTML=`<div class="feed-bar" style="background:${TYPE_COLORS[type]||'var(--border)'}"></div>
-    <div class="feed-body">
-      <div class="feed-head"><span class="feed-badge feed-badge-${type}">${FILTERS.find(f=>f.key===type)?.icon||''}</span><span class="feed-ts">${fmtTime(ts)}</span></div>
-      <div class="feed-content">${inner}</div>
-    </div>`;
+/* ═══ BASE CARD ═══ */
+function baseCard(type, html, ts) {
+  const d = document.createElement('div');
+  d.className = 'feed-item feed-' + type;
+  d.innerHTML =
+    '<div class="feed-bar" style="background:' + (COLORS[type] || 'var(--border)') + '"></div>' +
+    '<div class="feed-body">' +
+      '<div class="feed-head"><span class="feed-ts">' + timeAgo(ts) + '</span></div>' +
+      '<div class="feed-content">' + html + '</div>' +
+    '</div>';
   return d;
 }
 
-function renderLog(r){
-  const entry=r.entry||'',isTK=entry.includes('TICKET');
-  const el=mkCard('log',`<div class="feed-text${isTK?' feed-text-tk':''}">${isTK?'🔧 ':''}${entry}</div>${r.user_name?`<div class="feed-who">${r.user_name}</div>`:''}`,r.created_at);
-  addDel(el,r.id,'daily_logs');
+/* ═══ LOG CARD ═══ */
+function buildLogCard(r) {
+  const entry = r.entry || '';
+  const isTicket = entry.includes('TICKET');
+  const el = baseCard('log',
+    '<div class="feed-text' + (isTicket ? ' feed-text-tk' : '') + '">' + escHTML(entry) + '</div>' +
+    (r.user_name ? '<div class="feed-who">' + escHTML(r.user_name) + '</div>' : ''),
+    r.created_at);
+  addDeleteBtn(el, r.id, 'daily_logs');
   return el;
 }
 
-function renderTicket(r,pinned){
-  const pc=r.priority==='urgent'?'#ff5533':r.priority==='low'?'#39ff14':'#ffb020';
-  const d=document.createElement('div');d.className='feed-item feed-ticket'+(pinned?' feed-pinned-item':'');
-  d.innerHTML=`<div class="feed-bar" style="background:${pc}"></div>
-    <div class="feed-body">
-      <div class="feed-head">
-        <span class="feed-badge feed-badge-ticket">🔧</span>
-        <span class="feed-pri" style="color:${pc}">${(r.priority||'normal').toUpperCase()}</span>
-        <span class="feed-loc">${r.location||''}</span>
-        <span class="feed-ts">${fmtTime(r.created_at)}</span>
-      </div>
-      <div class="feed-content">
-        <div class="feed-text">${r.title||r.notes||''}</div>
-        ${r.notes&&r.title?`<div class="feed-sub">${r.notes}</div>`:''}
-        ${r.photo_url?`<img src="${r.photo_url}" class="feed-photo">`:''}
-        ${r.ai_troubleshoot?`<details class="feed-ai-detail"><summary>AI Troubleshoot</summary><div class="feed-ai-body">${r.ai_troubleshoot}</div></details>`:''}
-        <div class="feed-who">${r.reported_by||''} · ${r.status||'open'}</div>
-      </div>
-    </div>`;
-  if(pinned&&r.status==='open'){
-    const btn=document.createElement('button');btn.className='feed-close-btn';btn.textContent='✓ Close';
-    btn.addEventListener('click',async()=>{
-      // Try cards table first, fall back to tickets
-      const{error}=await NX.sb.from('cards').update({status:'closed',updated_at:new Date().toISOString()}).eq('id',r.id);
-      if(error)await NX.sb.from('tickets').update({status:'closed'}).eq('id',r.id);
-      btn.textContent='Closed';d.style.opacity='0.4';
-      if(NX.checkTicketBadge)NX.checkTicketBadge();
-      NX.syslog&&NX.syslog('card_closed',r.title||'ticket');
+/* ═══ TICKET CARD ═══ */
+function buildTicketCard(r, pinned) {
+  const pc = r.priority === 'urgent' ? 'var(--red)' : r.priority === 'low' ? 'var(--green)' : 'var(--amber)';
+  const d = document.createElement('div');
+  d.className = 'feed-item feed-ticket' + (pinned ? ' feed-pinned-item' : '');
+  d.innerHTML =
+    '<div class="feed-bar" style="background:' + pc + '"></div>' +
+    '<div class="feed-body">' +
+      '<div class="feed-head">' +
+        '<span class="feed-pri" style="color:' + pc + '">' + (r.priority || 'normal').toUpperCase() + '</span> ' +
+        '<span class="feed-loc">' + escHTML(r.location || '') + '</span>' +
+        '<span class="feed-ts">' + timeAgo(r.created_at) + '</span>' +
+      '</div>' +
+      '<div class="feed-content">' +
+        '<div class="feed-text">' + escHTML(r.title || r.notes || '') + '</div>' +
+        (r.notes && r.title ? '<div class="feed-sub">' + escHTML(r.notes) + '</div>' : '') +
+        (r.photo_url ? '<img src="' + r.photo_url + '" class="feed-photo">' : '') +
+        (r.ai_troubleshoot ? '<details class="feed-ai-detail"><summary>AI Troubleshoot</summary><div class="feed-ai-body">' + r.ai_troubleshoot + '</div></details>' : '') +
+        '<div class="feed-who">' + escHTML(r.reported_by || '') + ' · ' + (r.status || 'open') + '</div>' +
+      '</div>' +
+    '</div>';
+
+  if (pinned && r.status === 'open') {
+    const btn = document.createElement('button');
+    btn.className = 'feed-close-btn';
+    btn.textContent = '✓ Close';
+    btn.addEventListener('click', async () => {
+      const { error } = await NX.sb.from('cards').update({ status: 'closed', updated_at: new Date().toISOString() }).eq('id', r.id);
+      if (error) await NX.sb.from('tickets').update({ status: 'closed' }).eq('id', r.id);
+      btn.textContent = 'Closed';
+      d.style.opacity = '0.4';
+      if (NX.checkTicketBadge) NX.checkTicketBadge();
+      if (NX.syslog) NX.syslog('card_closed', r.title || 'ticket');
     });
     d.querySelector('.feed-content').appendChild(btn);
   }
   return d;
 }
 
-function renderTask(r){
-  const icon=r.column_name==='done'?'✅':r.column_name==='doing'?'🔄':'📌';
-  const due=r.due_date?`<span class="feed-due${new Date(r.due_date)<new Date()?' feed-overdue':''}">Due ${new Date(r.due_date).toLocaleDateString([],{month:'short',day:'numeric'})}</span>`:'';
-  return mkCard('task',`<div class="feed-text">${icon} ${r.title||''}</div><div class="feed-who">${(r.column_name||'todo').toUpperCase()} ${r.location?'· '+r.location:''} ${due}</div>`,r.created_at);
+/* ═══ TASK CARD ═══ */
+function buildTaskCard(r) {
+  const status = (r.column_name || 'todo').toLowerCase();
+  const icon = status === 'done' ? '✅' : status === 'doing' ? '🔄' : '📌';
+  const due = r.due_date
+    ? '<span class="feed-due' + (new Date(r.due_date) < new Date() ? ' feed-overdue' : '') + '">Due ' +
+      new Date(r.due_date).toLocaleDateString([], { month: 'short', day: 'numeric' }) + '</span>'
+    : '';
+  return baseCard('task',
+    '<div class="feed-text">' + icon + ' ' + escHTML(r.title || '') + '</div>' +
+    '<div class="feed-who">' + status.toUpperCase() + (r.location ? ' · ' + r.location : '') + ' ' + due + '</div>',
+    r.created_at);
 }
 
-function renderClock(r){
-  const hrs=r.hours?parseFloat(r.hours).toFixed(1)+'h':'active';
-  return mkCard('clock',`<div class="feed-text">${r.clock_out?'🔴 Out':'🟢 In'} — ${r.user_name||'?'}</div><div class="feed-who">${r.location||''} · ${hrs}</div>`,r.clock_in);
+/* ═══ CLOCK CARD ═══ */
+function buildClockCard(r) {
+  const hrs = r.hours ? parseFloat(r.hours).toFixed(1) + 'h' : 'active';
+  const dot = r.clock_out ? '🔴' : '🟢';
+  return baseCard('clock',
+    '<div class="feed-text">' + dot + ' ' + (r.clock_out ? 'Out' : 'In') + ' — ' + escHTML(r.user_name || '?') + '</div>' +
+    '<div class="feed-who">' + escHTML(r.location || '') + ' · ' + hrs + '</div>',
+    r.clock_in);
 }
 
-function renderChat(r){
-  return mkCard('chat',`<div class="feed-text feed-chat-q">${r.user_name||'?'}: ${(r.question||'').slice(0,120)}${(r.question||'').length>120?'…':''}</div><div class="feed-chat-a" onclick="this.classList.toggle('expanded')">${(r.answer||'').slice(0,200)}${(r.answer||'').length>200?'…':''}</div>`,r.created_at);
+/* ═══ CHAT CARD ═══ */
+function buildChatCard(r) {
+  const q = escHTML((r.question || '').slice(0, 120));
+  const a = escHTML((r.answer || '').slice(0, 200));
+  return baseCard('chat',
+    '<div class="feed-text feed-chat-q">' + escHTML(r.user_name || '?') + ': ' + q + '</div>' +
+    '<div class="feed-chat-a" onclick="this.classList.toggle(\'expanded\')">' + a + '</div>',
+    r.created_at);
 }
 
-function renderCleanReport(r){
-  const entry=r.entry||'',dateMatch=entry.match(/\d{4}-\d{2}-\d{2}/),isAuto=entry.includes('[AUTO');
-  // Parse per-restaurant percentages from "Cleaning Report — {loc} — {date}\nDaily: {pct}%"
-  const pcts=[];
-  const sections=entry.split('===');
-  for(const sec of sections){
-    const locMatch=sec.match(/Cleaning Report\s*[—–-]\s*(\w[\w\s]*?)\s*[—–-]\s*\d{4}/);
-    const pctMatch=sec.match(/Daily:\s*(\d+)%/);
-    if(locMatch&&pctMatch){
-      pcts.push({name:locMatch[1].trim(),pct:parseInt(pctMatch[1])});
-    }
+/* ═══════════════════════════════════════════════════
+   CLEANING REPORT CARD
+   ═══════════════════════════════════════════════════
+   The cleaning report stored in daily_logs.entry has this format:
+   
+   Cleaning Report — 2026-04-11        ← header line
+   ===                                 ← section separator
+   Cleaning Report — Suerte — 2026-04-11
+   Daily: 71% (5/7)
+   ---
+   Comedor (3/6)
+   MISSED: Mop Floor, Inspect windows
+   Baños (2/9)
+   ...
+   ===                                 ← next restaurant
+   Cleaning Report — Este — 2026-04-11
+   Daily: 50% (3/6)
+   ...
+   ═══════════════════════════════════════════════════ */
+function buildCleanReportCard(r) {
+  const entry = r.entry || '';
+  const dateMatch = entry.match(/\d{4}-\d{2}-\d{2}/);
+  const reportDate = dateMatch ? dateMatch[0] : '';
+  const isAuto = entry.includes('[AUTO');
+
+  // Parse percentages
+  const pcts = parseCleanPcts(entry);
+
+  const d = document.createElement('div');
+  d.className = 'feed-item feed-clean';
+
+  let pctChips = '';
+  if (pcts.length) {
+    pctChips = '<div class="feed-pcts">' + pcts.map(p => {
+      const color = p.pct >= 90 ? 'var(--green)' : p.pct >= 70 ? 'var(--amber)' : 'var(--red)';
+      return '<span class="feed-pct-chip" style="border-color:' + color + ';color:' + color + '">' +
+        escHTML(p.name) + ' ' + p.pct + '%</span>';
+    }).join('') + '</div>';
   }
-  // Fallback: try "Cleaning {pct}%" format
-  if(!pcts.length){
-    for(const m of entry.matchAll(/Cleaning\s+(\d+)%/g)){
-      pcts.push({name:'Overall',pct:parseInt(m[1])});
-    }
+
+  d.innerHTML =
+    '<div class="feed-bar" style="background:var(--green)"></div>' +
+    '<div class="feed-body">' +
+      '<div class="feed-head">' +
+        (isAuto ? '<span class="feed-auto">AUTO</span>' : '') +
+        '<span class="feed-ts">' + timeAgo(r.created_at) + '</span>' +
+        '<button class="feed-edit-btn" title="Edit report">✏</button>' +
+      '</div>' +
+      '<div class="feed-content">' +
+        '<div class="feed-text">Cleaning Report ' + reportDate + '</div>' +
+        pctChips +
+        '<details class="feed-raw-detail"><summary>Full report</summary><pre class="feed-raw-pre">' + escHTML(entry) + '</pre></details>' +
+      '</div>' +
+    '</div>';
+
+  const editBtn = d.querySelector('.feed-edit-btn');
+  if (editBtn) {
+    editBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      if (dateMatch) NX.editingReport = { logId: r.id, date: dateMatch[0] };
+      document.querySelector('.nav-tab[data-view="clean"]')?.click();
+    });
   }
-  const d=document.createElement('div');d.className='feed-item feed-clean';
-  d.innerHTML=`<div class="feed-bar" style="background:var(--green)"></div>
-    <div class="feed-body">
-      <div class="feed-head"><span class="feed-badge feed-badge-clean">🧹</span>${isAuto?'<span class="feed-auto">AUTO</span>':''}<span class="feed-ts">${fmtTime(r.created_at)}</span>
-        <button class="feed-edit-btn" title="Edit">✏</button>
-      </div>
-      <div class="feed-content">
-        <div class="feed-text">Cleaning Report ${dateMatch?dateMatch[0]:''}</div>
-        <div class="feed-pcts">${pcts.map(p=>{const c=p.pct>=90?'var(--green)':p.pct>=70?'var(--amber)':'var(--red)';return`<span class="feed-pct-chip" style="border-color:${c};color:${c}">${p.name} ${p.pct}%</span>`;}).join('')}</div>
-        <details class="feed-raw-detail"><summary>Details</summary><pre class="feed-raw-pre">${entry}</pre></details>
-      </div>
-    </div>`;
-  d.querySelector('.feed-edit-btn').addEventListener('click',e=>{
-    e.stopPropagation();
-    if(dateMatch)NX.editingReport={logId:r.id,date:dateMatch[1]};
-    document.querySelector('.nav-tab[data-view="clean"]')?.click();
-  });
-  addDel(d,r.id,'daily_logs');
+
+  addDeleteBtn(d, r.id, 'daily_logs');
   return d;
 }
 
-function renderCleanTask(r){
-  return mkCard('clean',`<div class="feed-text">✓ ${r.task||'Task completed'}</div><div class="feed-who">${r.completed_by||''} · ${r.location||''}</div>`,r.created_at);
+/* ═══ PARSE CLEANING PERCENTAGES ═══
+   Splits entry by "===" and finds "Daily: NN%" in each section.
+   Restaurant name comes from "Cleaning Report — {Name} — {date}" */
+function parseCleanPcts(entry) {
+  const results = [];
+  const sections = entry.split(/={3,}/);
+
+  for (const section of sections) {
+    const lines = section.trim().split('\n');
+    let name = null;
+    let pct = null;
+
+    for (const line of lines) {
+      // Look for restaurant name: "Cleaning Report — Suerte — 2026-..."
+      if (!name) {
+        const m = line.match(/Cleaning Report\s*[\u2014\u2013\-\u2015]+\s*([A-Za-z][A-Za-z\s]*?)\s*[\u2014\u2013\-\u2015]+\s*\d/);
+        if (m) name = m[1].trim();
+      }
+      // Look for percentage: "Daily: 71% (5/7)"
+      if (!pct) {
+        const m = line.match(/Daily:\s*(\d+)%/);
+        if (m) pct = parseInt(m[1]);
+      }
+      if (name && pct !== null) break;
+    }
+
+    if (name && pct !== null) {
+      results.push({ name, pct });
+    }
+  }
+
+  // Fallback for single-restaurant reports (no === separators)
+  if (!results.length) {
+    const pctM = entry.match(/Daily:\s*(\d+)%/);
+    if (pctM) {
+      const nameM = entry.match(/Cleaning Report\s*[\u2014\u2013\-\u2015]+\s*([A-Za-z][A-Za-z\s]*?)\s*[\u2014\u2013\-\u2015]/);
+      results.push({ name: nameM ? nameM[1].trim() : 'Overall', pct: parseInt(pctM[1]) });
+    }
+  }
+
+  return results;
 }
 
-function addDel(el,id,table){
-  const btn=document.createElement('button');btn.className='log-del';btn.textContent='✕';
-  btn.addEventListener('click',async e=>{e.stopPropagation();if(!confirm('Delete?'))return;await NX.sb.from(table).delete().eq('id',id);loadAll();});
-  el.querySelector('.feed-body')?.appendChild(btn);
+/* ═══ CLEAN TASK CARD ═══ */
+function buildCleanTaskCard(r) {
+  return baseCard('clean',
+    '<div class="feed-text">✓ ' + escHTML(r.task || 'Task completed') + '</div>' +
+    '<div class="feed-who">' + escHTML(r.completed_by || '') + ' · ' + escHTML(r.location || '') + '</div>',
+    r.created_at);
 }
 
-async function addLog(){
-  const input=document.getElementById('logInput');if(!input.value.trim())return;
-  await NX.sb.from('daily_logs').insert({entry:input.value.trim(),user_name:NX.user?.name||''});
-  if(NX.toast)NX.toast('Logged ✓','success');input.value='';loadAll();
+/* ═══ UTILITIES ═══ */
+function escHTML(s) {
+  if (!s) return '';
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-async function addKnowledge(){
-  const inp=document.getElementById('knowledgeInput'),btn=document.getElementById('knowledgeBtn');
-  const t=inp.value.trim();if(!t)return;btn.disabled=true;btn.textContent='Processing...';
-  try{
-    const answer=await NX.askClaude('Extract knowledge for restaurant ops (Suerte, Este, Bar Toti — Austin TX). Return ONLY raw JSON: {"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"..."}]}',[{role:'user',content:t}],1000);
-    let json=answer.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
-    const s=json.indexOf('{'),e=json.lastIndexOf('}');
-    if(s!==-1&&e>s){json=json.slice(s,e+1);
-      const parsed=JSON.parse(json);
-      if(parsed.nodes&&parsed.nodes.length){let created=0;
-        const vc=['equipment','contractors','vendors','procedure','projects','people','systems','parts','location'];
-        for(const n of parsed.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2)continue;
-          const{error}=await NX.sb.from('nodes').insert({name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'equipment',tags:Array.isArray(n.tags)?n.tags.filter(x=>typeof x==='string').slice(0,20):[],notes:(n.notes||'').slice(0,2000),links:[],access_count:1,source_emails:[]});
-          if(!error)created++;}
-        inp.value='';btn.textContent=`✓ ${created} node${created!==1?'s':''} added`;
-        if(NX.toast)NX.toast(`${created} node${created!==1?'s':''} added to brain ✓`,'success');
-        await NX.loadNodes();if(NX.brain)NX.brain.init();
-      }else btn.textContent='No knowledge found';
-    }else btn.textContent='No data';
-  }catch(e){btn.textContent='Error';}
-  setTimeout(()=>{btn.disabled=false;btn.textContent='+ Brain';},2500);
+function addDeleteBtn(el, id, table) {
+  const btn = document.createElement('button');
+  btn.className = 'log-del';
+  btn.textContent = '✕';
+  btn.addEventListener('click', async e => {
+    e.stopPropagation();
+    if (!confirm('Delete this entry?')) return;
+    await NX.sb.from(table).delete().eq('id', id);
+    loadFeed();
+  });
+  const body = el.querySelector('.feed-body');
+  if (body) body.appendChild(btn);
 }
 
-NX.modules.log={init:()=>{init();if(NX.timeClock)NX.timeClock.setupLogFilters();},show:()=>{loadAll();if(NX.timeClock)NX.timeClock._reloadLog();}};
+/* ═══ ADD LOG ═══ */
+async function addLog() {
+  const input = document.getElementById('logInput');
+  const text = input?.value.trim();
+  if (!text) return;
+  await NX.sb.from('daily_logs').insert({ entry: text, user_name: NX.user?.name || '' });
+  if (NX.toast) NX.toast('Logged ✓', 'success');
+  input.value = '';
+  loadFeed();
+}
+
+/* ═══ ADD KNOWLEDGE ═══ */
+async function addKnowledge() {
+  const inp = document.getElementById('knowledgeInput');
+  const btn = document.getElementById('knowledgeBtn');
+  const text = inp?.value.trim();
+  if (!text) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Processing...';
+
+  try {
+    const prompt = 'Extract knowledge for restaurant ops (Suerte, Este, Bar Toti — Austin TX). Return ONLY raw JSON: {"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"..."}]}';
+    const answer = await NX.askClaude(prompt, [{ role: 'user', content: text }], 1000);
+
+    let json = answer.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+    const s = json.indexOf('{'), e = json.lastIndexOf('}');
+
+    if (s !== -1 && e > s) {
+      const parsed = JSON.parse(json.slice(s, e + 1));
+
+      if (parsed.nodes?.length) {
+        let created = 0;
+        const cats = ['equipment','contractors','vendors','procedure','projects','people','systems','parts','location'];
+
+        for (const n of parsed.nodes) {
+          const nm = (n.name || '').trim();
+          if (!nm || nm.length < 2) continue;
+          const { error } = await NX.sb.from('nodes').insert({
+            name: nm.slice(0, 200),
+            category: cats.includes(n.category) ? n.category : 'equipment',
+            tags: Array.isArray(n.tags) ? n.tags.filter(x => typeof x === 'string').slice(0, 20) : [],
+            notes: (n.notes || '').slice(0, 2000),
+            links: [], access_count: 1, source_emails: []
+          });
+          if (!error) created++;
+        }
+
+        inp.value = '';
+        btn.textContent = '✓ ' + created + ' node' + (created !== 1 ? 's' : '') + ' added';
+        if (NX.toast) NX.toast(created + ' node' + (created !== 1 ? 's' : '') + ' added to brain ✓', 'success');
+        await NX.loadNodes();
+        if (NX.brain) NX.brain.init();
+      } else {
+        btn.textContent = 'No knowledge found';
+      }
+    } else {
+      btn.textContent = 'No data extracted';
+    }
+  } catch (err) {
+    console.error('Knowledge error:', err);
+    btn.textContent = 'Error';
+  }
+
+  setTimeout(() => { btn.disabled = false; btn.textContent = '+ Brain'; }, 2500);
+}
+
+/* ═══ EXPORT ═══ */
+NX.modules.log = {
+  init: () => { init(); if (NX.timeClock) NX.timeClock.setupLogFilters(); },
+  show: () => { loadFeed(); if (NX.timeClock) NX.timeClock._reloadLog(); }
+};
+
 })();
