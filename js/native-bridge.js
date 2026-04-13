@@ -480,52 +480,8 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
     }
   };
 
-  // ═══ UI — Add native action buttons to the nav ═══
-  function addNativeButtons() {
-    // Wait for DOM
-    const nav = document.querySelector('.nav');
-    if (!nav) { setTimeout(addNativeButtons, 500); return; }
-    
-    // Scan button (camera icon)
-    const scanBtn = document.createElement('button');
-    scanBtn.className = 'nav-tab native-btn';
-    scanBtn.innerHTML = '📷';
-    scanBtn.title = 'Scan Receipt';
-    scanBtn.addEventListener('click', async () => {
-      const result = await NX.scanReceipt();
-      if (result) {
-        // Open chat with result context
-        const input = document.getElementById('chatInput');
-        if (input) {
-          input.value = `I just scanned a receipt from ${result.vendor || 'a vendor'}`;
-          input.dispatchEvent(new Event('input'));
-        }
-      }
-    });
-    
-    // Voice button (mic icon)
-    const voiceBtn = document.createElement('button');
-    voiceBtn.className = 'nav-tab native-btn';
-    voiceBtn.innerHTML = '🎙';
-    voiceBtn.title = 'Voice Log';
-    let voiceHoldTimer = null;
-    
-    // Tap = log mode, Long press = chat mode
-    voiceBtn.addEventListener('click', () => NX.voiceLog('log'));
-    voiceBtn.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      NX.voiceLog('chat');
-    });
-    
-    // Insert before the settings gear
-    const gear = nav.querySelector('[data-view="admin"]') || nav.lastElementChild;
-    nav.insertBefore(scanBtn, gear);
-    nav.insertBefore(voiceBtn, gear);
-  }
-
   // ═══ INIT ═══
   function initNative() {
-    addNativeButtons();
     
     // Start background sync
     NX.startBackgroundSync();
