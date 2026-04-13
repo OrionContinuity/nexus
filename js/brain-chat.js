@@ -32,6 +32,12 @@ KNOWLEDGE RULES:
 - If two sources disagree, mention both and which is newer
 - Never make up phone numbers, prices, part numbers, or dates
 - For equipment, include model numbers and part numbers when you have them
+- When MEMORY PALACE data is available, follow connections between zones — don't just answer from one zone, trace how things connect
+- Mention bridge connections when they add useful context: "that vendor also connects to your equipment through..."
+- If a node is marked [central node], it's the most important entity in its zone
+- If a node is marked [bridge between zones], it connects different areas of knowledge
+- Verified links (extracted) are more reliable than inferred ones
+- "deep dive" means walk the full palace — explore every connected zone and bridge
 
 CONFIDENCE:
 - End every response with: [confidence:high] [confidence:medium] or [confidence:low]
@@ -536,6 +542,71 @@ Keep it casual and warm. No markdown formatting.`;
     const linkedNodes=NX.nodes.filter(n=>linkedIds.has(n.id)&&!rel.find(r=>r.id===n.id)).slice(0,4);
     const allRelevant=[...rel,...linkedNodes];
 
+    // ═══ PALACE NAVIGATION — walk communities for deeper context ═══
+    let palaceCtx='';
+    const hasCommunities=allRelevant.some(n=>n.community_id!=null);
+    if(hasCommunities){
+      // Find which communities the relevant nodes belong to
+      const relComms=new Map();
+      allRelevant.forEach(n=>{
+        const cid=n.community_id;
+        if(cid==null)return;
+        if(!relComms.has(cid))relComms.set(cid,{nodes:[],label:n.community_label||'Zone '+cid});
+        relComms.get(cid).nodes.push(n);
+      });
+
+      // For each relevant community, find bridge nodes that connect to other communities
+      const bridgeContext=[];
+      relComms.forEach((comm,cid)=>{
+        const communityNodes=NX.nodes.filter(n=>n.community_id===cid&&!n.is_private);
+        const bridges=communityNodes.filter(n=>n.community_role==='bridge');
+        const godNode=communityNodes.find(n=>n.community_role==='god');
+
+        // Walk bridges to find connected communities
+        bridges.slice(0,3).forEach(b=>{
+          const crossLinks=(b.links||[]).map(lid=>NX.nodes.find(nn=>nn.id===lid)).filter(nn=>nn&&nn.community_id!=null&&nn.community_id!==cid);
+          crossLinks.slice(0,2).forEach(cl=>{
+            bridgeContext.push(`${b.name} connects "${comm.label}" to "${cl.community_label||'Zone '+cl.community_id}" (via ${cl.name})`);
+          });
+        });
+
+        // Add god node context if not already in allRelevant
+        if(godNode&&!allRelevant.find(n=>n.id===godNode.id)){
+          allRelevant.push(godNode);
+        }
+      });
+
+      if(relComms.size>0){
+        palaceCtx='\n\nMEMORY PALACE (community structure):\n';
+        relComms.forEach((comm,cid)=>{
+          const communityNodes=NX.nodes.filter(n=>n.community_id===cid&&!n.is_private);
+          palaceCtx+=`Room "${comm.label}" (${communityNodes.length} items): ${communityNodes.slice(0,6).map(n=>n.name).join(', ')}${communityNodes.length>6?'...':''}\n`;
+        });
+        if(bridgeContext.length){
+          palaceCtx+='Connections: '+bridgeContext.slice(0,4).join('; ')+'\n';
+        }
+      }
+
+      // Deep dive: include adjacent communities too
+      if(/deep dive|thorough|tell me everything|full picture/i.test(q)&&relComms.size>0){
+        const adjacentComms=new Set();
+        relComms.forEach((comm,cid)=>{
+          const communityNodes=NX.nodes.filter(n=>n.community_id===cid);
+          communityNodes.forEach(n=>{
+            (n.links||[]).forEach(lid=>{
+              const linked=NX.nodes.find(nn=>nn.id===lid);
+              if(linked&&linked.community_id!=null&&!relComms.has(linked.community_id))adjacentComms.add(linked.community_id);
+            });
+          });
+        });
+        adjacentComms.forEach(adjCid=>{
+          const adjNodes=NX.nodes.filter(n=>n.community_id===adjCid&&!n.is_private);
+          const adjLabel=adjNodes[0]?.community_label||'Zone '+adjCid;
+          palaceCtx+=`Adjacent room "${adjLabel}" (${adjNodes.length} items): ${adjNodes.slice(0,4).map(n=>n.name).join(', ')}\n`;
+        });
+      }
+    }
+
     const det=allRelevant.map(n=>{
       let extras='';
       const sources=n.source_emails||[];
@@ -545,6 +616,15 @@ Keep it casual and warm. No markdown formatting.`;
       }
       const att=n.attachments;
       if(att&&att.length)extras+=` [Files: ${att.map(a=>a.filename||'file').join(', ')}]`;
+      // Add confidence and role info
+      if(n.community_role==='god')extras+=' [central node]';
+      if(n.community_role==='bridge')extras+=' [bridge between zones]';
+      const conf=n.link_confidence;
+      if(conf&&Object.keys(conf).length){
+        const extracted=Object.values(conf).filter(v=>v==='extracted').length;
+        const total=Object.keys(conf).length;
+        if(extracted>0)extras+=` [${extracted}/${total} verified links]`;
+      }
       return`[${n.category}] ${n.name}: ${(n.notes||'').slice(0,500)}${extras}`;
     }).join('\n');
 
@@ -572,7 +652,7 @@ Keep it casual and warm. No markdown formatting.`;
         if(cleanLogs.length)cleanStatus="\n\nTODAY'S CLEANING:\n"+cleanLogs.map(l=>(l.entry||'').slice(0,100)).join('\n');
       }
     }catch(e){}
-    return`RELEVANT NODES:\n${det}\n\nFULL INDEX (${NX.nodes.length} nodes):\n${idx}${memory}${ev}${tickets}${cleanStatus}`;
+    return`RELEVANT NODES:\n${det}${palaceCtx}\n\nFULL INDEX (${NX.nodes.length} nodes):\n${idx}${memory}${ev}${tickets}${cleanStatus}`;
   }
 
   async function askAI(){
