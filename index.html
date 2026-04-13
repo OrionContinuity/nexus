@@ -128,6 +128,7 @@
         <button class="sort-btn active" data-sort="az" data-i18n="sortAZ">A–Z</button>
         <button class="sort-btn" data-sort="access" data-i18n="mostUsed">Most Used</button>
         <button class="sort-btn" data-sort="recent" data-i18n="recent">Recent</button>
+        <span class="list-count" id="listCount"></span>
       </div>
       <div class="list-items" id="listItems"></div>
     </div>
@@ -182,6 +183,7 @@
       <div class="np-body">
         <div id="npNotes" class="np-notes"></div>
         <button id="npEditNotes" class="np-edit-btn" data-i18n="editNotes">✏ Edit Notes</button>
+        <button id="npShowConnected" class="np-edit-btn" onclick="if(NX.brain.state.activeNode)NX.showConnected(NX.brain.state.activeNode)">◇ Show Connected</button>
         <!-- Add files -->
         <div class="np-add-section">
           <label class="np-add-file-btn"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="npFileInput" multiple accept="image/*,.pdf,.doc,.docx,.xlsx,.csv" hidden data-i18n="addFilePhoto">📎 Add File / Photo</label>
@@ -244,7 +246,7 @@
   </div>
 
   <!-- BOARD -->
-  <div class="view" id="boardView" data-view="board"><div class="board" id="boardContainer"></div></div>
+  <div class="view" id="boardView" data-view="board"><div class="board-wrap" id="boardWrap"></div></div>
 
   <!-- CALENDAR -->
   <div class="view" id="calView" data-view="cal">
@@ -462,6 +464,31 @@
     </div>
   </div>
 </main>
+
+<!-- Bottom Navigation — mobile primary nav -->
+<nav class="bottom-nav" id="bottomNav" role="navigation">
+  <button class="bnav-btn active" data-view="brain" aria-label="Brain">
+    <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8" stroke-dasharray="2 3"/></svg>
+    <span>Brain</span>
+  </button>
+  <button class="bnav-btn" data-view="clean" aria-label="Cleaning">
+    <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M12 5l3 3-3 3M12 5l-3 3 3 3"/><path d="M5 19h14" stroke-dasharray="2 2"/></svg>
+    <span data-i18n="cleaning">Clean</span>
+  </button>
+  <button class="bnav-btn" data-view="log" aria-label="Log">
+    <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>
+    <span data-i18n="log">Log</span>
+  </button>
+  <button class="bnav-btn" data-view="board" aria-label="Board">
+    <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="3" y="15" width="7" height="6" rx="1"/><rect x="14" y="11" width="7" height="10" rx="1"/></svg>
+    <span data-i18n="board">Board</span>
+  </button>
+  <button class="bnav-btn" data-view="cal" aria-label="Calendar">
+    <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>
+    <span data-i18n="cal">Cal</span>
+  </button>
+</nav>
+
 </div><!-- /appWrap -->
 
 <!-- ADMIN MODAL -->
