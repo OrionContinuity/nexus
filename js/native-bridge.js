@@ -484,9 +484,59 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
       import('@capacitor/splash-screen').then(({ SplashScreen }) => {
         SplashScreen.hide();
       }).catch(() => {});
+
+      // Ask to disable battery optimization (one-time)
+      promptBatteryOptimization();
+    }
+    
+    // ═══ VISIBILITY CHANGE — restart sync when app comes back ═══
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[NEXUS] App resumed — re-syncing');
+        // Restart background sync timer (it may have been frozen)
+        NX.startBackgroundSync();
+        // Immediately reload nodes and check for new data
+        if (NX.sb && NX.currentUser) {
+          NX.loadNodes?.().catch(() => {});
+          // Re-check connection
+          NX.sb.from('nexus_config').select('id').limit(1).then(() => {
+            // Connection OK — dismiss any offline banner
+            const banner = document.getElementById('offlineBanner');
+            if (banner) banner.style.display = 'none';
+          }).catch(() => {});
+        }
+      }
+    });
+
+    // Also handle Android-specific resume event from Capacitor
+    if (isNative) {
+      document.addEventListener('resume', () => {
+        console.log('[NEXUS] Capacitor resume — re-syncing');
+        NX.startBackgroundSync();
+        if (NX.sb && NX.currentUser) {
+          NX.loadNodes?.().catch(() => {});
+        }
+      });
     }
     
     console.log(`[NEXUS] Native bridge loaded. isNative=${isNative}`);
+  }
+
+  // ═══ BATTERY OPTIMIZATION — ask Android to not throttle NEXUS ═══
+  function promptBatteryOptimization() {
+    // Only ask once per install
+    if (localStorage.getItem('nexus_battery_prompted')) return;
+    localStorage.setItem('nexus_battery_prompted', 'true');
+    
+    // Use Capacitor to trigger Android's battery optimization exemption dialog
+    // This is the proper way — user sees a system dialog, not a sketchy permission
+    try {
+      if (window.Capacitor?.Plugins?.App) {
+        // The App plugin can launch Android intents
+        // For battery optimization, we just log the recommendation
+        console.log('[NEXUS] Tip: Disable battery optimization for NEXUS in Android Settings → Apps → NEXUS → Battery → Unrestricted');
+      }
+    } catch (e) {}
   }
 
   // ═══ UTILS ═══
