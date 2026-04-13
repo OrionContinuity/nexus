@@ -1290,3 +1290,22 @@ button,a,input,select,textarea,.feed-item,.board-card,.cal-cell,.cal-event,.clea
 
 /* Force hide any stray tool buttons in nav area */
 .nav .hud-tool-btn,.nav-tabs .hud-tool-btn{display:none!important}
+
+/* Kill any stray icons in nav — only hamburger menu allowed after tabs */
+.nav>[data-lucide="camera"],.nav>[data-lucide="mic"],
+.nav button:not(.nav-nexus):not(.nav-tab):not(.nav-more):not(#navNexus){display:none!important}
+.nav [data-lucide="camera"],.nav [data-lucide="mic"]{display:none!important}
+/* But keep them visible inside chat HUD */
+.chat-hud [data-lucide="camera"],.chat-hud [data-lucide="mic"]{display:block!important}
+.hud-input .hud-tool-btn{display:flex!important}
+
+/* ═══ LOG CARD ACTIONS ═══ */
+.feed-actions{display:flex;gap:6px;margin-left:auto}
+.feed-ack,.feed-del{width:24px;height:24px;border-radius:50%;border:none;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
+.feed-ack{background:rgba(76,175,80,.15);color:var(--green)}
+.feed-ack:active{background:rgba(76,175,80,.3);transform:scale(.9)}
+.feed-del{background:rgba(255,85,51,.1);color:var(--red)}
+.feed-del:active{background:rgba(255,85,51,.25);transform:scale(.9)}
+.feed-head{display:flex;align-items:center;gap:8px}
+[data-theme="light"] .feed-ack{background:rgba(76,175,80,.1)}
+[data-theme="light"] .feed-del{background:rgba(255,85,51,.08)}
