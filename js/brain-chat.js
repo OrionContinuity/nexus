@@ -5,36 +5,36 @@
   let chatHistory=[],voiceOn=true,recognition=null,chatActive=false;
   function tt(k){return NX.i18n?NX.i18n.t(k):k;}
 
-  const PERSONA_BASE=`You are NEXUS, the ops brain for Suerte, Este, and Bar Toti in Austin. You talk like a sharp, experienced restaurant manager, not an AI assistant. Think of yourself as the person who has been here since day one and knows where everything is.
+  const PERSONA_BASE=`You are NEXUS, the personal assistant for Suerte, Este, and Bar Toti in Austin. You're warm, sharp, and a little flirty. Think of yourself as that one coworker everyone loves — you know everything, you're always on it, and you make people smile while keeping things running.
 
 HOW YOU TALK:
-- Talk like a real person. Short sentences. Casual but competent.
-- Never use asterisks, bold markers, bullet points, numbered lists, or markdown formatting of any kind. Just plain conversational text.
-- Never start with "Great question" or "I'd be happy to" or "Certainly" or any assistant-speak. Just answer.
-- Use contractions naturally. Say "don't" not "do not". Say "it's" not "it is".
-- Keep it tight. 2-3 sentences for simple stuff. Maybe 4-5 if you're walking someone through a fix.
-- Use their name sometimes. You know who is talking to you.
-- If you are not sure about something, just say so. "I don't have that" or "not sure, want me to look it up?"
-- A little personality is good. Dry humor is fine. Just don't be corny.
-- When you reference a contact or vendor, weave it in naturally: "Tyler Maffi is your Hoshizaki guy, his number is 512-555-0142"
-- Never say "based on my data" or "according to my records." Just state the info like you know it.
+- Warm and playful. You can call people "love", "babe", or toss in a casual compliment when they do something good — "nice work on that" or "look at you staying on top of things"
+- Still professional when it matters. Flirty doesn't mean unserious. When there's a real issue, you're direct and sharp.
+- Short and sweet. 2-3 sentences usually. Don't ramble.
+- Never use asterisks, bold markers, bullet points, numbered lists, or markdown formatting. Plain text only.
+- Never start with "Great question" or "I'd be happy to" or "Certainly". Just answer with personality.
+- Use contractions. Say "don't" not "do not". Say "it's" not "it is".
+- Never say "based on my data" or "according to my records." You just know things.
+- Never use anyone's name in your responses.
+
+YOUR ROLE:
+- You're a personal assistant, not just an ops manager. You remind, update, and keep things organized.
+- Proactively mention upcoming deadlines, contractor visits, expiring items.
+- When asked about schedules, give times and details confidently.
+- If something needs attention, flag it with a little urgency but keep it light.
 
 IDENTITY:
 - Alfredo "Ders" Ortiz runs all three spots
 - You remember past conversations and reference them naturally
-- You know the current user name, role, and which restaurant they are at
 
 KNOWLEDGE RULES:
-- If info is older than 60 days, mention it casually: "last I heard back in March" or "that was a couple months ago, might want to double check"
+- If info is older than 60 days, mention it casually: "last I heard back in March, might wanna double check that"
 - If two sources disagree, mention both and which is newer
 - Never make up phone numbers, prices, part numbers, or dates
 - For equipment, include model numbers and part numbers when you have them
 
 CONFIDENCE:
-- End every response with one of these tags (the app strips it and shows a dot): [confidence:high] [confidence:medium] [confidence:low]
-- high means directly from recent data
-- medium means older data or general knowledge
-- low means guessing or no data
+- End every response with: [confidence:high] [confidence:medium] or [confidence:low]
 
 RESTAURANT GLOSSARY:
 {GLOSSARY}
@@ -44,7 +44,6 @@ EQUIPMENT SOURCING:
 - WebstaurantStore for general supplies
 - Amazon for commodity stuff
 - Grainger for industrial
-- If a manual or invoice is attached to a node, mention it: "there is a manual on that node if you tap it"
 
 COMMANDS (mention when relevant):
 - "look up [topic]" for web search
@@ -78,7 +77,7 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
     if(NX.currentUser){
       const u=NX.currentUser;
       const loc=localStorage.getItem('nexus_last_location')||u.location||'unknown';
-      persona+=`\n\nCURRENT USER: ${u.name} (${u.role}) — currently at ${loc.toUpperCase()}`;
+      persona+=`\n\nCURRENT LOCATION: ${loc.toUpperCase()}`;
       const now=new Date();
       const hour=now.getHours();
       const shift=hour<11?'morning':hour<16?'afternoon':'evening';
@@ -87,15 +86,17 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
 
       // Match the team's energy
       persona+=`\n\nPERSONALITY MATCH:
-- This team moves fast and talks direct. Match that energy.
+- Warm, playful, a little flirty. You're the assistant everyone wants.
 - Keep answers tight. If they ask a yes/no, answer yes or no first, then explain if needed.
 - Don't over-explain. They'll ask if they want more.
+- Never use anyone's name in your responses.
 - Be confident. Say "yeah that's the Hoshizaki compressor" not "it appears to be related to the Hoshizaki compressor"
-- When they're frustrated, be straight: "here's what's wrong, here's the fix" — no sympathy padding
+- Toss in a casual compliment when they're on top of things. "Look at you" or "nice" works.
+- When something's wrong, still be direct but keep it warm: "hey heads up, the walk-in temp is off"
 - Use restaurant lingo naturally: BOH, FOH, 86'd, covers, ticket times, line, expo, walk-in
-- Bilingual context — if they switch to Spanish, switch with them
-- Late night questions get shorter answers. Morning questions can be more detailed.
-- If they say "deep dive" they want you to be thorough for once — give the full picture
+- Bilingual — if they switch to Spanish, switch with them
+- Late night questions get shorter, softer answers
+- If they say "deep dive" go thorough
 - Never say "I understand your concern" or "that's a great point" — just get to it`;
     }
 
@@ -433,8 +434,8 @@ After the troubleshoot steps, ask the person to add more details and optionally 
       lines.push(`Cleaning avg: ${scores}`);
     }
 
-    // Clock status
-    if(!b.clockedIn)lines.push(`You're not clocked in`);
+    // Clock status — removed, not needed
+    // if(!b.clockedIn)lines.push(`You're not clocked in`);
 
     // Queue
     if(b.queue>20)lines.push(`${b.queue} emails in processing queue`);
@@ -443,12 +444,12 @@ After the troubleshoot steps, ask the person to add more details and optionally 
 
     // Use Claude to generate a natural greeting from the data
     try{
-      const prompt=`You are NEXUS, the operational brain for restaurants. Generate a brief, natural morning briefing for ${user}. Be direct, warm, no fluff. 2-4 sentences max. Use the data below. If something needs immediate attention, lead with that.
+      const prompt=`You are NEXUS, a warm and slightly flirty personal assistant for restaurants. Generate a brief, natural update. Be playful but informative. 2-3 sentences max. Don't use anyone's name. Use the data below. If something needs attention, lead with that.
 
 DATA:
 ${lines.join('\n')}
 
-Remember: personality welcome, filler unwelcome. You know ${user} personally.`;
+Keep it casual and warm. No markdown formatting.`;
 
       const resp=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
@@ -469,7 +470,7 @@ Remember: personality welcome, filler unwelcome. You know ${user} personally.`;
       // Fallback — show raw data greeting without Claude
       const welcome=document.getElementById('brainWelcome');
       if(welcome){
-        welcome.innerHTML=`<div class="proactive-greeting">${greeting}, ${user}. ${lines.slice(0,3).join(' · ')}</div>`;
+        welcome.innerHTML=`<div class="proactive-greeting">${greeting}! ${lines.slice(0,3).join(' · ')}</div>`;
         welcome.style.display='';
       }
     }
@@ -697,11 +698,58 @@ Remember: personality welcome, filler unwelcome. You know ${user} personally.`;
 
   // Voice
   let pv=null;
-  const VOICES=[{id:'ErXwobaYiN019PkySvjV',name:'Antoni'},{id:'onwK4e9ZLuTAKqWW03F9',name:'Daniel'},{id:'TX3LPaxmHKxFdv7VOQHJ',name:'Liam'},{id:'TxGEqnHWrfWFTfGW9XjX',name:'Josh'},{id:'SOYHLrjzK2X1ezoPC6cr',name:'Harry'},{id:'ZQe5CZNOzWyzPSCn5a3c',name:'James'},{id:'pNInz6obpgDQGcFmaJgB',name:'Adam'},{id:'EXAVITQu4vr4xnSDxMaL',name:'Bella'},{id:'XB0fDUnXU5powFXDhCwa',name:'Charlotte'},{id:'LcfcDJNUP1GQjkzn1xUU',name:'Emily'},{id:'jsCqWAovK2LkecY7zXl4',name:'Freya'},{id:'oWAxZDx7w5VEj9dCyTzz',name:'Grace'},{id:'21m00Tcm4TlvDq8ikWAM',name:'Rachel'},{id:'yoZ06aMxZJJ28mfd3POQ',name:'Sam'},{id:'ThT5KcBeYPX3keUQqHPh',name:'Dorothy'},{id:'VR6AewLTigWG4xSOukaG',name:'Arnold'},{id:'pqHfZKP75CvOlQylNhV4',name:'Bill'},{id:'AZnzlk1XvdvUeBnXmlld',name:'Domi'},{id:'D38z5RcWu1voky8WS1ja',name:'Fin'},{id:'jBpfuIE2acCO8z3wKNLl',name:'Gigi'}];
+  const VOICES=[{id:'XB0fDUnXU5powFXDhCwa',name:'Charlotte'},{id:'EXAVITQu4vr4xnSDxMaL',name:'Bella'},{id:'jsCqWAovK2LkecY7zXl4',name:'Freya'},{id:'oWAxZDx7w5VEj9dCyTzz',name:'Grace'},{id:'21m00Tcm4TlvDq8ikWAM',name:'Rachel'},{id:'LcfcDJNUP1GQjkzn1xUU',name:'Emily'},{id:'jBpfuIE2acCO8z3wKNLl',name:'Gigi'},{id:'ErXwobaYiN019PkySvjV',name:'Antoni'},{id:'onwK4e9ZLuTAKqWW03F9',name:'Daniel'},{id:'TX3LPaxmHKxFdv7VOQHJ',name:'Liam'},{id:'TxGEqnHWrfWFTfGW9XjX',name:'Josh'},{id:'SOYHLrjzK2X1ezoPC6cr',name:'Harry'},{id:'ZQe5CZNOzWyzPSCn5a3c',name:'James'},{id:'pNInz6obpgDQGcFmaJgB',name:'Adam'},{id:'yoZ06aMxZJJ28mfd3POQ',name:'Sam'},{id:'ThT5KcBeYPX3keUQqHPh',name:'Dorothy'},{id:'VR6AewLTigWG4xSOukaG',name:'Arnold'},{id:'pqHfZKP75CvOlQylNhV4',name:'Bill'},{id:'AZnzlk1XvdvUeBnXmlld',name:'Domi'},{id:'D38z5RcWu1voky8WS1ja',name:'Fin'}];
   function getVoiceIdx(){return parseInt((NX.config&&NX.config.voice_idx!=null)?NX.config.voice_idx:(localStorage.getItem('nexus_voice_idx')||'0'))%VOICES.length;}
   let cvi=0;
   function setupVoice(){document.getElementById('micBtn').addEventListener('click',toggleMic);const vb=document.getElementById('voiceBtn');vb.classList.add('on');let pt=null;vb.addEventListener('click',()=>{voiceOn=!voiceOn;vb.classList.toggle('on',voiceOn);});vb.addEventListener('pointerdown',()=>{pt=setTimeout(()=>{cvi=(cvi+1)%VOICES.length;localStorage.setItem('nexus_voice_idx',cvi);voiceOn=true;vb.classList.add('on');speak(`${VOICES[cvi].name} here.`);pt=null;},600);});vb.addEventListener('pointerup',()=>{if(pt)clearTimeout(pt);});vb.addEventListener('pointerleave',()=>{if(pt)clearTimeout(pt);});if('speechSynthesis'in window){const pk=()=>{const v=speechSynthesis.getVoices();for(const n of['Samantha','Karen','Daniel','Microsoft Aria']){const f=v.find(x=>x.name.includes(n));if(f){pv=f;break;}}};pk();speechSynthesis.onvoiceschanged=pk;}}
-  function toggleMic(){const b=document.getElementById('micBtn');if(recognition){recognition.stop();recognition=null;b.classList.remove('recording');return;}if(!('webkitSpeechRecognition'in window||'SpeechRecognition'in window))return;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;recognition=new SR();recognition.continuous=false;recognition.interimResults=false;recognition.onresult=e=>{document.getElementById('chatInput').value=e.results[0][0].transcript;document.getElementById('chatSend').disabled=false;b.classList.remove('recording');recognition=null;askAI();};recognition.onerror=()=>{b.classList.remove('recording');recognition=null;};recognition.onend=()=>{b.classList.remove('recording');recognition=null;};b.classList.add('recording');recognition.start();}
+  function toggleMic(){
+    const b=document.getElementById('micBtn');
+    if(recognition){recognition.stop();recognition=null;b.classList.remove('recording');return;}
+    
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){
+      // No speech API — try requesting mic permission first then retry
+      if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
+        navigator.mediaDevices.getUserMedia({audio:true}).then(stream=>{
+          stream.getTracks().forEach(t=>t.stop()); // Release mic
+          // Permission granted — check again
+          const SR2=window.SpeechRecognition||window.webkitSpeechRecognition;
+          if(SR2){startRecognition(SR2,b);}
+          else{addB('Voice input not supported in this app. Use the browser version for voice.','ai');}
+        }).catch(()=>{
+          addB('Microphone access denied. Check app permissions: Settings → Apps → NEXUS → Permissions → Microphone.','ai');
+        });
+      }else{
+        addB('Voice input not available. Use the browser version for voice.','ai');
+      }
+      return;
+    }
+    startRecognition(SR,b);
+  }
+  
+  function startRecognition(SR,b){
+    recognition=new SR();
+    recognition.continuous=false;
+    recognition.interimResults=false;
+    recognition.lang=NX.i18n?.getLang()==='es'?'es-US':'en-US';
+    recognition.onresult=e=>{
+      document.getElementById('chatInput').value=e.results[0][0].transcript;
+      document.getElementById('chatSend').disabled=false;
+      b.classList.remove('recording');
+      recognition=null;
+      askAI();
+    };
+    recognition.onerror=e=>{
+      b.classList.remove('recording');
+      recognition=null;
+      if(e.error==='not-allowed'){
+        addB('Microphone blocked. Check app permissions in phone Settings.','ai');
+      }
+    };
+    recognition.onend=()=>{b.classList.remove('recording');recognition=null;};
+    b.classList.add('recording');
+    recognition.start();
+  }
   let currentAudio=null;
   async function speak(text){cvi=getVoiceIdx();const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.35,similarity_boost:.82,style:.45,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl);if(currentAudio){currentAudio.pause();currentAudio=null;}const a=new Audio(u);a.playbackRate=1.05;currentAudio=a;a.play();a.onended=()=>{URL.revokeObjectURL(u);currentAudio=null;};return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=1.1;speechSynthesis.speak(u);}
   function stopSpeaking(){if(currentAudio){currentAudio.pause();currentAudio=null;}if('speechSynthesis'in window)speechSynthesis.cancel();}
