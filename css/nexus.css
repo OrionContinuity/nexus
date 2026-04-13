@@ -1287,3 +1287,6 @@ button,a,input,select,textarea,.feed-item,.board-card,.cal-cell,.cal-event,.clea
 /* ═══ NOTIFICATION COUNTER ═══ */
 .notify-count{display:none;min-width:16px;height:16px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;padding:0 4px;margin-left:2px;flex-shrink:0}
 .notify-count.has-count{display:inline-block}
+
+/* Force hide any stray tool buttons in nav area */
+.nav .hud-tool-btn,.nav-tabs .hud-tool-btn{display:none!important}
