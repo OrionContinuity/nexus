@@ -9,58 +9,41 @@
   // ═══ RECEIPT / DOCUMENT SCANNER ═══
   // Camera → photo → on-device OCR → extract vendor, amount, date → create node
   NX.scanReceipt = async function() {
-    if (!isNative) {
-      // PWA fallback — use file input
-      return new Promise((resolve) => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'image/*';
-        input.capture = 'environment';
-        input.onchange = async (e) => {
-          const file = e.target.files?.[0];
-          if (!file) return resolve(null);
-          const b64 = await fileToBase64(file);
-          const result = await ocrViaClaudeVision(b64, file.type);
-          resolve(result);
-        };
-        input.click();
-      });
-    }
-    
-    try {
-      const { Camera } = await import('@capacitor/camera');
-      const photo = await Camera.getPhoto({
-        quality: 85,
-        resultType: 'base64',
-        source: 'CAMERA',
-        width: 1200,
-        correctOrientation: true,
-      });
-      
-      if (!photo.base64String) return null;
-      
-      // Try on-device OCR first via ML Kit
-      let ocrText = '';
+    // Try native Capacitor camera first
+    if (isNative && window.Capacitor?.Plugins?.Camera) {
       try {
-        const { TextRecognition } = await import('@aspect/capacitor-mlkit-text-recognition');
-        const result = await TextRecognition.recognizeText({
-          base64: photo.base64String,
+        const Camera = window.Capacitor.Plugins.Camera;
+        const photo = await Camera.getPhoto({
+          quality: 85,
+          resultType: 'base64',
+          source: 'CAMERA',
+          width: 1200,
+          correctOrientation: true,
         });
-        ocrText = result.text || '';
+        if (photo.base64String) {
+          return await ocrViaClaudeVision(photo.base64String, 'image/jpeg');
+        }
       } catch (e) {
-        // ML Kit not available — fall through to Claude Vision
+        console.warn('Native camera failed:', e.message);
+        // Fall through to web fallback
       }
-      
-      // If on-device OCR got text, use it; otherwise use Claude Vision
-      if (ocrText.length > 20) {
-        return await parseReceiptText(ocrText);
-      } else {
-        return await ocrViaClaudeVision(photo.base64String, 'image/jpeg');
-      }
-    } catch (e) {
-      console.warn('Camera error:', e);
-      return null;
     }
+
+    // Web fallback — file input
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.capture = 'environment';
+      input.onchange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return resolve(null);
+        const b64 = await fileToBase64(file);
+        const result = await ocrViaClaudeVision(b64, file.type);
+        resolve(result);
+      };
+      input.click();
+    });
   };
 
   // Parse receipt text via Claude API
