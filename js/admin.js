@@ -1849,6 +1849,9 @@ RESPOND ONLY WITH RAW JSON — no markdown, no backticks, no explanation:
   ],
   "cards": [
     {"title": "Action item if any", "column_name": "todo"}
+  ],
+  "contractor_events": [
+    {"contractor_name": "Full name", "event_date": "YYYY-MM-DD", "event_time": "HH:MM AM/PM or null", "location": "suerte|este|toti or null", "description": "what they are doing"}
   ]
 }
 
@@ -1962,6 +1965,25 @@ for(const n of r.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2)continu
   if(error){er++;if(er<=3)log(`Insert "${nm}": ${error.message}`,'error');if(NX.toast)NX.toast(`Failed: ${nm}`,'error');}
   else{existingMap[nm.toLowerCase()]={id:0,name:nm,notes:newNotes,tags:newTags,source_emails:newSources,attachments:newAtts};createdNames.push(nm);c++;}}
 if(r.cards)for(const x of r.cards){if(!x.title)continue;await NX.sb.from('kanban_cards').insert({title:(x.title||'').slice(0,200),column_name:x.column_name||'todo'});}
+// Save contractor events
+if(r.contractor_events){
+  let evtCount=0;
+  for(const evt of r.contractor_events){
+    if(!evt.contractor_name||!evt.event_date)continue;
+    try{
+      await NX.sb.from('contractor_events').upsert({
+        contractor_name:evt.contractor_name.slice(0,200),
+        event_date:evt.event_date,
+        event_time:evt.event_time||null,
+        location:evt.location||null,
+        description:(evt.description||'').slice(0,500),
+        status:'scheduled'
+      },{onConflict:'contractor_name,event_date'});
+      evtCount++;
+    }catch(e){}
+  }
+  if(evtCount)log(`📅 ${evtCount} contractor visit(s) scheduled`,'success');
+}
 if(updated)log(`${updated} existing nodes enriched`,'success');
 if(er)log(`${er} inserts failed`,'error');
 if(createdNames.length&&NX.autoLinkNewNodes&&shouldAutoLink()){await NX.loadNodes();NX.autoLinkNewNodes(createdNames);}
