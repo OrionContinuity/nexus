@@ -406,6 +406,11 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
           }, { onConflict: 'id' });
 
           if (NX.syslog) NX.syslog('notify_captured', `${appName}: ${title} — ${text.slice(0,60)}`);
+          
+          // Update notification counter
+          NX._notifyCount = (NX._notifyCount || 0) + 1;
+          const badge = document.getElementById('notifyCount');
+          if (badge) { badge.textContent = NX._notifyCount; badge.classList.add('has-count'); }
         } catch(e) {}
       });
 
