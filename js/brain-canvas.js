@@ -11,7 +11,13 @@
     hoverNode:null,activeNode:null,frozenNode:null,dragStart:{x:0,y:0},
     activatedNodes:new Set(),searchHits:new Set(),
     linkMap:{},catMap:{},tagSets:{},
-    contractorEvents:[],W:0,H:0,canvas,ctx
+    contractorEvents:[],W:0,H:0,canvas,ctx,
+    // ═══ PALACE STATE ═══
+    commCenters:{},   // communityId -> {x, y, r, label, color, godId, count}
+    activeRoom:null,  // communityId when zoomed into a room, null = galaxy view
+    roomTransition:0, // 0-1 animation progress for room zoom
+    roomTarget:null,  // target community for zoom animation
+    communities:[]    // cached community metadata from DB
   };
 
   const DAMP=0.996,MAXV=0.28,DOT_BASE=3,DOT_HIT=6,DOT_ACTIVE=10;
@@ -19,6 +25,44 @@
   function getDOT(){const n=(state.particles||[]).length;if(n<200)return DOT_BASE;if(n<500)return 2.5;if(n<1000)return 2;return 1.5;}
   // Dynamic galaxy radius — expands for large node counts
   function getGalaxyR(){const n=(state.particles||[]).length;const base=Math.min(W,H)*0.42;if(n<300)return base;if(n<800)return base*1.2;if(n<1500)return base*1.5;return base*1.7;}
+
+  // ═══ COMMUNITY LAYOUT — arrange communities as zones in the galaxy ═══
+  function buildCommCenters(){
+    const P=state.particles,cx=W/2,cy=H/2,gR=getGalaxyR();
+    // Group particles by community_id
+    const groups=new Map();
+    P.forEach(p=>{
+      const cid=p.node?.community_id;
+      if(cid==null)return;
+      if(!groups.has(cid))groups.set(cid,[]);
+      groups.get(cid).push(p);
+    });
+    // Sort communities by size (largest in center)
+    const sorted=[...groups.entries()].sort((a,b)=>b[1].length-a[1].length);
+    const centers={};
+    const n=sorted.length;
+    if(n===0)return centers;
+    // Place communities in a spiral: biggest at center, rest around
+    sorted.forEach(([cid,members],idx)=>{
+      let zx,zy;
+      if(idx===0){zx=cx;zy=cy;}// Biggest community near center
+      else{
+        const ring=Math.ceil(idx/6);
+        const angleIdx=(idx-1)%6;
+        const angle=(angleIdx/6)*Math.PI*2+(ring%2?0.5:0);
+        const dist=gR*0.35*ring;
+        zx=cx+Math.cos(angle)*dist;
+        zy=cy+Math.sin(angle)*dist;
+      }
+      const node0=members[0]?.node;
+      const meta=state.communities?.find((c)=>c.community_id===cid);
+      const catColors={equipment:[140,170,240],contractors:[100,200,170],vendors:[210,175,100],procedure:[180,140,210],projects:[200,180,80],people:[160,210,190],systems:[130,160,210],parts:[190,170,150],location:[140,190,140]};
+      const domCat=meta?.dominant_category||node0?.category||'';
+      centers[cid]={x:zx,y:zy,r:Math.max(40,Math.sqrt(members.length)*12),label:meta?.label||domCat||'Zone '+cid,color:catColors[domCat]||[200,195,185],godId:meta?.god_node_id||null,count:members.length};
+    });
+    state.commCenters=centers;
+    return centers;
+  }
   let drawRunning=false;
 
   // Theme detection
@@ -215,46 +259,75 @@
   function buildParticles(){
     const nodes=NX.nodes.filter(n=>!n.is_private),cx=W/2,cy=H/2;
     const ARMS=4,galaxyR=getGalaxyR();
-    // Scatter scales up with node count so particles spread more
     const scatterMult=nodes.length>800?35:nodes.length>400?25:18;
+    const hasCommunities=nodes.some(n=>n.community_id!=null);
     const existingIds=new Set(state.particles.map(p=>p.id));
-    const newParticles=[];
-    nodes.forEach((n,idx)=>{
-      if(existingIds.has(n.id))return; // Already in galaxy
-      const arm=idx%ARMS,armBase=(arm/ARMS)*Math.PI*2;
-      const t=(idx+1)/(nodes.length+1);
-      const r=40+Math.pow(t,0.5)*galaxyR;
-      const wind=armBase+Math.log(1+t*10)*1.8+(Math.random()-0.5)*0.4;
-      const scatter=(Math.random()-0.5)*scatterMult*(0.3+t*0.7);
-      const px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
-      const py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
-      const speed=1.2/Math.sqrt(Math.max(r/galaxyR,0.08)); // Slower orbits
-      const p={id:n.id,x:px,y:py,vx:(py-cy)/(r||1)*speed*0.003,vy:-(px-cx)/(r||1)*speed*0.003,
-        node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,
-        glowAlpha:0,birthAge:0,isBorn:true};
-      newParticles.push(p);
-    });
-    if(newParticles.length&&state.particles.length>0){
-      // Add new ones with birth animation
-      state.particles=state.particles.concat(newParticles);
-    }else if(!state.particles.length){
-      // First build — all at once
-      state.particles=nodes.map((n,idx)=>{
+
+    // Load community metadata if available
+    if(hasCommunities&&NX.sb){
+      NX.sb.from('communities').select('*').then(({data})=>{
+        if(data)state.communities=data;
+      }).catch(()=>{});
+    }
+
+    // Position helper: community-based or spiral fallback
+    function placeNode(n,idx,total){
+      const cid=n.community_id;
+      let px,py;
+      if(hasCommunities&&cid!=null){
+        // First pass: use buildCommCenters after particles exist
+        // For now, spread communities around galaxy using their ID as angle
+        const commAngle=(cid*2.399+0.7)*Math.PI; // Golden angle spread
+        const commRing=0.25+((cid%5)/5)*0.5;
+        const commCx=cx+Math.cos(commAngle)*galaxyR*commRing;
+        const commCy=cy+Math.sin(commAngle)*galaxyR*commRing;
+        // Scatter within community zone
+        const spread=Math.max(30,Math.sqrt(nodes.filter(nn=>nn.community_id===cid).length)*8);
+        const a=Math.random()*Math.PI*2;
+        const r=Math.random()*spread;
+        px=commCx+Math.cos(a)*r;
+        py=commCy+Math.sin(a)*r;
+      }else{
+        // Fallback: original spiral placement
         const arm=idx%ARMS,armBase=(arm/ARMS)*Math.PI*2;
-        const t=(idx+1)/(nodes.length+1);
+        const t=(idx+1)/(total+1);
         const r=40+Math.pow(t,0.5)*galaxyR;
         const wind=armBase+Math.log(1+t*10)*1.8+(Math.random()-0.5)*0.4;
         const scatter=(Math.random()-0.5)*scatterMult*(0.3+t*0.7);
-        const px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
-        const py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
-        const speed=1.2/Math.sqrt(Math.max(r/galaxyR,0.08));
-        return{id:n.id,x:px,y:py,vx:(py-cy)/(r||1)*speed*0.003,vy:-(px-cx)/(r||1)*speed*0.003,
+        px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
+        py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
+      }
+      return{px,py};
+    }
+
+    const newParticles=[];
+    nodes.forEach((n,idx)=>{
+      if(existingIds.has(n.id))return;
+      const{px,py}=placeNode(n,idx,nodes.length);
+      const dist=Math.sqrt((px-cx)**2+(py-cy)**2)||1;
+      const speed=1.2/Math.sqrt(Math.max(dist/galaxyR,0.08));
+      newParticles.push({id:n.id,x:px,y:py,vx:(py-cy)/(dist)*speed*0.003,vy:-(px-cx)/(dist)*speed*0.003,
+        node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,
+        commId:n.community_id,commRole:n.community_role||'peripheral',
+        glowAlpha:0,birthAge:0,isBorn:true});
+    });
+    if(newParticles.length&&state.particles.length>0){
+      state.particles=state.particles.concat(newParticles);
+    }else if(!state.particles.length){
+      state.particles=nodes.map((n,idx)=>{
+        const{px,py}=placeNode(n,idx,nodes.length);
+        const dist=Math.sqrt((px-cx)**2+(py-cy)**2)||1;
+        const speed=1.2/Math.sqrt(Math.max(dist/galaxyR,0.08));
+        return{id:n.id,x:px,y:py,vx:(py-cy)/(dist)*speed*0.003,vy:-(px-cx)/(dist)*speed*0.003,
           node:n,cat:n.category,tags:n.tags||[],links:n.links||[],access:n.access_count||1,
+          commId:n.community_id,commRole:n.community_role||'peripheral',
           glowAlpha:0,birthAge:0,isBorn:false};
       });
     }
     state.linkMap={};state.catMap={};state.tagSets={};
     state.particles.forEach((p,i)=>{state.linkMap[p.id]=p;if(!state.catMap[p.cat])state.catMap[p.cat]=[];state.catMap[p.cat].push(i);state.tagSets[i]=new Set(p.tags);});
+    // Build community centers after particles are placed
+    if(hasCommunities)setTimeout(()=>buildCommCenters(),100);
   }
 
   // ═══ PHYSICS ═══
@@ -274,6 +347,18 @@
       a.vx-=dx/dist*0.0006;a.vy-=dy/dist*0.0006;
       if(dist>galaxyR*1.3){const o=(dist-galaxyR*1.3)*0.003;a.vx-=dx/dist*o;a.vy-=dy/dist*o;}
       if(isPlaying&&audioEnergy>0.1){a.vx+=dx/dist*audioEnergy*0.02;a.vy+=dy/dist*audioEnergy*0.02;}
+      // ═══ COMMUNITY GRAVITY — pull toward community center ═══
+      if(a.commId!=null&&state.commCenters[a.commId]){
+        const cc=state.commCenters[a.commId];
+        const cdx=cc.x-a.x,cdy=cc.y-a.y;
+        const cdist=Math.sqrt(cdx*cdx+cdy*cdy)||1;
+        // Gentle pull toward community center (stronger if far away)
+        const pullStr=cdist>cc.r*2?0.008:cdist>cc.r?0.003:0.0008;
+        a.vx+=cdx/cdist*pullStr*cdist*0.01;
+        a.vy+=cdy/cdist*pullStr*cdist*0.01;
+        // God nodes get extra centering
+        if(a.commRole==='god'&&cdist>15){a.vx+=cdx/cdist*0.01;a.vy+=cdy/cdist*0.01;}
+      }
       // Overlap — only when doOverlap
       if(doOverlap&&grid){const CELL=40,gx=Math.floor(a.x/CELL)+500,gy=Math.floor(a.y/CELL)+500;
       for(let ox=-1;ox<=1;ox++)for(let oy=-1;oy<=1;oy++){const nb=grid.get(((gx+ox)<<16)|(gy+oy));if(!nb)continue;for(let ni=0;ni<nb.length;ni++){const j=nb[ni];if(j<=i)continue;const b=P[j];const ddx=a.x-b.x,ddy=a.y-b.y,dd=Math.sqrt(ddx*ddx+ddy*ddy)||1;if(dd<DOT*3){const push=(DOT*3-dd)*0.05;a.vx+=ddx/dd*push;a.vy+=ddy/dd*push;b.vx-=ddx/dd*push;b.vy-=ddy/dd*push;}}}}
@@ -366,6 +451,83 @@
 
     // Nebula particles (behind everything)
     drawNebula(t);
+
+    // ═══ PALACE ZONES — community regions rendered as soft glowing areas ═══
+    const centers=state.commCenters;
+    const dk=isDark();
+    if(centers&&Object.keys(centers).length>1){
+      // Update community centers based on actual particle positions
+      if(physicsFrame%60===0){
+        Object.keys(centers).forEach(cid=>{
+          const members=P.filter(p=>p.commId==cid);
+          if(!members.length)return;
+          let sx=0,sy=0;members.forEach(m=>{sx+=m.x;sy+=m.y;});
+          centers[cid].x=sx/members.length;
+          centers[cid].y=sy/members.length;
+          centers[cid].count=members.length;
+          centers[cid].r=Math.max(40,Math.sqrt(members.length)*12);
+        });
+      }
+
+      // Draw zone backgrounds — soft radial gradients
+      Object.entries(centers).forEach(([cid,cc])=>{
+        const c=cc.color||[200,195,185];
+        const zoneR=cc.r*1.8;
+        // Dim zones not in active room
+        const inRoom=state.activeRoom!=null;
+        const isThisRoom=state.activeRoom==cid;
+        const zoneAlpha=inRoom?(isThisRoom?0.08:0.015):0.04;
+
+        const grad=ctx.createRadialGradient(cc.x,cc.y,0,cc.x,cc.y,zoneR);
+        grad.addColorStop(0,`rgba(${c[0]},${c[1]},${c[2]},${zoneAlpha})`);
+        grad.addColorStop(0.7,`rgba(${c[0]},${c[1]},${c[2]},${zoneAlpha*0.3})`);
+        grad.addColorStop(1,`rgba(${c[0]},${c[1]},${c[2]},0)`);
+        ctx.fillStyle=grad;
+        ctx.beginPath();ctx.arc(cc.x,cc.y,zoneR,0,Math.PI*2);ctx.fill();
+
+        // Zone border ring — subtle
+        ctx.beginPath();ctx.arc(cc.x,cc.y,zoneR*0.85,0,Math.PI*2);
+        ctx.strokeStyle=`rgba(${c[0]},${c[1]},${c[2]},${inRoom?(isThisRoom?0.15:0.03):0.06})`;
+        ctx.lineWidth=0.8;ctx.stroke();
+
+        // Zone label — only at sufficient zoom or galaxy view
+        if(t.scale>0.4||!inRoom){
+          const labelAlpha=inRoom?(isThisRoom?0.7:0.1):0.35;
+          const labelSize=Math.max(9,Math.min(13,cc.r*0.15));
+          ctx.font=`500 ${labelSize}px "DM Sans","Outfit",sans-serif`;
+          ctx.textAlign='center';
+          const lbl=(cc.label||'').replace(/^[^:]+:\s*/,''); // Show just the name part
+          if(dk){
+            ctx.fillStyle=`rgba(0,0,0,${labelAlpha*0.5})`;ctx.fillText(lbl,cc.x+1,cc.y+cc.r*0.9+1);
+            ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${labelAlpha})`;ctx.fillText(lbl,cc.x,cc.y+cc.r*0.9);
+          }else{
+            ctx.fillStyle=`rgba(255,255,255,${labelAlpha*0.6})`;ctx.fillText(lbl,cc.x+1,cc.y+cc.r*0.9+1);
+            ctx.fillStyle=`rgba(${c[0]*0.4},${c[1]*0.4},${c[2]*0.4},${labelAlpha})`;ctx.fillText(lbl,cc.x,cc.y+cc.r*0.9);
+          }
+        }
+      });
+
+      // ═══ BRIDGE LINES — connections between communities ═══
+      if(!state.activeRoom){
+        const drawnBridges=new Set();
+        P.forEach(p=>{
+          if(p.commRole!=='bridge')return;
+          (p.links||[]).forEach(lid=>{
+            const b=state.linkMap[lid];
+            if(!b||b.commId===p.commId)return; // Only cross-community
+            const key=p.commId<b.commId?`${p.commId}-${b.commId}`:`${b.commId}-${p.commId}`;
+            if(drawnBridges.has(key))return;
+            drawnBridges.add(key);
+            const ccA=centers[p.commId],ccB=centers[b.commId];
+            if(!ccA||!ccB)return;
+            const cA=ccA.color,cB=ccB.color;
+            ctx.beginPath();ctx.moveTo(ccA.x,ccA.y);ctx.lineTo(ccB.x,ccB.y);
+            ctx.strokeStyle=dk?`rgba(212,182,138,0.06)`:`rgba(120,100,60,0.08)`;
+            ctx.lineWidth=1;ctx.setLineDash([4,8]);ctx.stroke();ctx.setLineDash([]);
+          });
+        });
+      }
+    }
 
     // Gold connection lines — curved for tapped node + search hits
     if(state.frozenNode||state.searchHits.size>0){
@@ -545,6 +707,22 @@
     requestAnimationFrame(draw);
   }
 
+  // ═══ SMOOTH ZOOM — animate camera to target point and scale ═══
+  function animateZoom(targetX,targetY,targetScale,duration=400){
+    const startX=state.transform.x,startY=state.transform.y,startS=state.transform.scale;
+    const endX=W/2-targetX*targetScale,endY=H/2-targetY*targetScale,endS=targetScale;
+    const t0=performance.now();
+    function step(now){
+      const p=Math.min(1,(now-t0)/duration);
+      const ease=p<0.5?2*p*p:1-Math.pow(-2*p+2,2)/2; // easeInOutQuad
+      state.transform.x=startX+(endX-startX)*ease;
+      state.transform.y=startY+(endY-startY)*ease;
+      state.transform.scale=startS+(endS-startS)*ease;
+      if(p<1)requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
   // ═══ INTERACTION ═══
   function setupCanvas(){
     const dpr=()=>Math.min(window.devicePixelRatio||1,1.5);
@@ -567,7 +745,27 @@
       if(closest){
         if(state.frozenNode&&state.frozenNode.id===closest.id){state.frozenNode=null;state.activeNode=null;closePanel();}
         else{state.frozenNode=closest;state.activeNode=closest.node;openPanel(closest.node);}
-      }else{state.frozenNode=null;state.activeNode=null;closePanel();}
+      }else{
+        state.frozenNode=null;state.activeNode=null;closePanel();
+        // ═══ ROOM ZOOM — click empty space to enter/exit community rooms ═══
+        if(state.activeRoom!=null){
+          // Exit room — zoom back out
+          state.activeRoom=null;
+          animateZoom(W/2,H/2,1);
+        }else{
+          // Check if clicked inside a community zone
+          const centers=state.commCenters;
+          for(const[cid,cc]of Object.entries(centers)){
+            const d=Math.hypot(p.x-cc.x,p.y-cc.y);
+            if(d<cc.r*1.5){
+              // Enter this room
+              state.activeRoom=parseInt(cid);
+              animateZoom(cc.x,cc.y,2.5);
+              break;
+            }
+          }
+        }
+      }
     });
 
     canvas.addEventListener('mousemove',e=>{if(state.dragging)return;const p=stw(e.clientX,e.clientY);state.hoverNode=null;state.particles.forEach(a=>{if(Math.hypot(p.x-a.x,p.y-a.y)<15/state.transform.scale)state.hoverNode=a;});const cx=W/2,cy=H/2;const overBeacon=Math.hypot(p.x-cx,p.y-cy)<35;canvas.style.cursor=(state.hoverNode||overBeacon)?'pointer':'default';});
@@ -594,7 +792,12 @@
       let closest=null,closestD=25/state.transform.scale;
       state.particles.forEach(a=>{const d=Math.hypot(p.x-a.x,p.y-a.y);if(d<closestD){closest=a;closestD=d;}});
       if(closest){if(state.frozenNode&&state.frozenNode.id===closest.id){state.frozenNode=null;state.activeNode=null;closePanel();}else{state.frozenNode=closest;state.activeNode=closest.node;openPanel(closest.node);}}
-      else{state.frozenNode=null;state.activeNode=null;closePanel();}
+      else{
+        state.frozenNode=null;state.activeNode=null;closePanel();
+        // Room zoom on touch
+        if(state.activeRoom!=null){state.activeRoom=null;animateZoom(W/2,H/2,1);}
+        else{const centers=state.commCenters;for(const[cid,cc]of Object.entries(centers)){if(Math.hypot(p.x-cc.x,p.y-cc.y)<cc.r*1.5){state.activeRoom=parseInt(cid);animateZoom(cc.x,cc.y,2.5);break;}}}
+      }
     },{passive:true});
   }
 
