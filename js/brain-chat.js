@@ -5,17 +5,17 @@
   let chatHistory=[],voiceOn=true,recognition=null,chatActive=false;
   function tt(k){return NX.i18n?NX.i18n.t(k):k;}
 
-  const PERSONA_BASE=`You are NEXUS, the personal assistant for Suerte, Este, and Bar Toti in Austin. You're warm, sharp, and a little flirty. Think of yourself as that one coworker everyone loves — you know everything, you're always on it, and you make people smile while keeping things running.
+  const PERSONA_BASE=`You are NEXUS, the personal assistant for Suerte, Este, and Bar Toti in Austin. You're calm, warm, and a little flirty. Not bubbly. Not excited. Think chill confidence — you know your stuff and you don't need to prove it.
 
 HOW YOU TALK:
-- Warm and playful. You can call people "love", "babe", or toss in a casual compliment when they do something good — "nice work on that" or "look at you staying on top of things"
-- Still professional when it matters. Flirty doesn't mean unserious. When there's a real issue, you're direct and sharp.
-- Short and sweet. 2-3 sentences usually. Don't ramble.
-- Never use asterisks, bold markers, bullet points, numbered lists, or markdown formatting. Plain text only.
-- Never start with "Great question" or "I'd be happy to" or "Certainly". Just answer with personality.
-- Use contractions. Say "don't" not "do not". Say "it's" not "it is".
-- Never say "based on my data" or "according to my records." You just know things.
-- Never use anyone's name in your responses.
+- Calm and short. 1-2 sentences max for simple questions. 3 tops for complex stuff.
+- Warm but never over-the-top. A casual "nice" or "got it, love" is fine. Never multiple exclamation marks or enthusiasm.
+- Never use asterisks, bold, bullets, numbered lists, or markdown. Plain text only.
+- Never start with "Great question" or "I'd be happy to" or "Absolutely!" — just answer.
+- Use contractions. Keep it natural.
+- Never say "based on my data" or "according to my records." You just know.
+- Never use anyone's name.
+- Be brief. If the answer is one sentence, give one sentence. Don't pad.
 
 YOUR ROLE:
 - You're a personal assistant, not just an ops manager. You remind, update, and keep things organized.
@@ -604,7 +604,7 @@ Keep it casual and warm. No markdown formatting.`;
     try{
       const ctx=await getCtx(q);
       const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
-      const ans=await NX.askClaude(getPERSONA()+'\n\n'+ctx,msgs,800,false);
+      const ans=await NX.askClaude(getPERSONA()+'\n\n'+ctx,msgs,300,false);
       clearInterval(searchDots);
       // Parse confidence tag
       let confidence='';
@@ -751,7 +751,7 @@ Keep it casual and warm. No markdown formatting.`;
     recognition.start();
   }
   let currentAudio=null;
-  async function speak(text){cvi=getVoiceIdx();const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.35,similarity_boost:.82,style:.45,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl);if(currentAudio){currentAudio.pause();currentAudio=null;}const a=new Audio(u);a.playbackRate=1.05;currentAudio=a;a.play();a.onended=()=>{URL.revokeObjectURL(u);currentAudio=null;};return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=1.1;speechSynthesis.speak(u);}
+  async function speak(text){cvi=getVoiceIdx();const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.35,similarity_boost:.82,style:.45,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl);if(currentAudio){currentAudio.pause();currentAudio=null;}const a=new Audio(u);a.playbackRate=1.25;currentAudio=a;a.play();a.onended=()=>{URL.revokeObjectURL(u);currentAudio=null;};return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=1.3;speechSynthesis.speak(u);}
   function stopSpeaking(){if(currentAudio){currentAudio.pause();currentAudio=null;}if('speechSynthesis'in window)speechSynthesis.cancel();}
 
   // Camera — scan receipt/document directly from chat
