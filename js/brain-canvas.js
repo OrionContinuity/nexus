@@ -14,7 +14,11 @@
     contractorEvents:[],W:0,H:0,canvas,ctx
   };
 
-  const DAMP=0.996,MAXV=0.28,DOT=3,DOT_HIT=6,DOT_ACTIVE=10;
+  const DAMP=0.996,MAXV=0.28,DOT_BASE=3,DOT_HIT=6,DOT_ACTIVE=10;
+  // Dynamic DOT — shrinks as node count grows so the galaxy stays readable
+  function getDOT(){const n=(state.particles||[]).length;if(n<200)return DOT_BASE;if(n<500)return 2.5;if(n<1000)return 2;return 1.5;}
+  // Dynamic galaxy radius — expands for large node counts
+  function getGalaxyR(){const n=(state.particles||[]).length;const base=Math.min(W,H)*0.42;if(n<300)return base;if(n<800)return base*1.2;if(n<1500)return base*1.5;return base*1.7;}
   let drawRunning=false;
 
   // Theme detection
@@ -210,7 +214,9 @@
 
   function buildParticles(){
     const nodes=NX.nodes.filter(n=>!n.is_private),cx=W/2,cy=H/2;
-    const ARMS=4,galaxyR=Math.min(W,H)*0.42;
+    const ARMS=4,galaxyR=getGalaxyR();
+    // Scatter scales up with node count so particles spread more
+    const scatterMult=nodes.length>800?35:nodes.length>400?25:18;
     const existingIds=new Set(state.particles.map(p=>p.id));
     const newParticles=[];
     nodes.forEach((n,idx)=>{
@@ -218,8 +224,8 @@
       const arm=idx%ARMS,armBase=(arm/ARMS)*Math.PI*2;
       const t=(idx+1)/(nodes.length+1);
       const r=40+Math.pow(t,0.5)*galaxyR;
-      const wind=armBase+Math.log(1+t*10)*1.8+(Math.random()-0.5)*0.3;
-      const scatter=(Math.random()-0.5)*18*(0.3+t*0.7);
+      const wind=armBase+Math.log(1+t*10)*1.8+(Math.random()-0.5)*0.4;
+      const scatter=(Math.random()-0.5)*scatterMult*(0.3+t*0.7);
       const px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
       const py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
       const speed=1.2/Math.sqrt(Math.max(r/galaxyR,0.08)); // Slower orbits
@@ -237,8 +243,8 @@
         const arm=idx%ARMS,armBase=(arm/ARMS)*Math.PI*2;
         const t=(idx+1)/(nodes.length+1);
         const r=40+Math.pow(t,0.5)*galaxyR;
-        const wind=armBase+Math.log(1+t*10)*1.8+(Math.random()-0.5)*0.3;
-        const scatter=(Math.random()-0.5)*18*(0.3+t*0.7);
+        const wind=armBase+Math.log(1+t*10)*1.8+(Math.random()-0.5)*0.4;
+        const scatter=(Math.random()-0.5)*scatterMult*(0.3+t*0.7);
         const px=cx+Math.cos(wind)*r+Math.cos(wind+1.57)*scatter;
         const py=cy+Math.sin(wind)*r+Math.sin(wind+1.57)*scatter;
         const speed=1.2/Math.sqrt(Math.max(r/galaxyR,0.08));
@@ -254,7 +260,8 @@
   // ═══ PHYSICS ═══
   function physics(){
     const P=state.particles,len=P.length,cx=W/2,cy=H/2;
-    const galaxyR=Math.min(W,H)*0.42;
+    const galaxyR=getGalaxyR();
+    const DOT=getDOT();
     const doOverlap=len<500||physicsFrame%3===0; // Skip overlap check 2/3 frames at 500+
     let grid;
     if(doOverlap){const CELL=40;grid=new Map();for(let i=0;i<len;i++){const a=P[i];const key=((Math.floor(a.x/CELL)+500)<<16)|(Math.floor(a.y/CELL)+500);let c=grid.get(key);if(!c){c=[];grid.set(key,c);}c.push(i);}}
@@ -328,7 +335,7 @@
 
     // Spawn nebula particles — gentler, slower
     const cx=W/2,cy=H/2;
-    const galaxyR=Math.min(W,H)*0.42;
+    const galaxyR=getGalaxyR();
     if(isPlaying){
       const spawnRate=1+Math.floor(audioEnergy*4);
       for(let i=0;i<spawnRate;i++)spawnNebula(cx,cy,audioEnergy);
@@ -442,6 +449,7 @@
     }
 
     // ═══ NODE DOTS — category colored ═══
+    const DOT=getDOT();
     for(let i=0;i<P.length;i++){
       const a=P[i];if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
       const isHit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id);
