@@ -469,61 +469,59 @@
         });
       }
 
-      // Draw zone backgrounds — soft radial gradients
+      // Draw zone backgrounds — gold accretion glow, black hole aesthetic
       Object.entries(centers).forEach(([cid,cc])=>{
-        const c=cc.color||[200,195,185];
-        const zoneR=cc.r*1.8;
-        // Dim zones not in active room
+        const zoneR=cc.r*1.5;
         const inRoom=state.activeRoom!=null;
         const isThisRoom=state.activeRoom==cid;
-        const zoneAlpha=inRoom?(isThisRoom?0.08:0.015):0.04;
+        const zoneAlpha=inRoom?(isThisRoom?0.035:0.005):0.012;
 
-        const grad=ctx.createRadialGradient(cc.x,cc.y,0,cc.x,cc.y,zoneR);
-        grad.addColorStop(0,`rgba(${c[0]},${c[1]},${c[2]},${zoneAlpha})`);
-        grad.addColorStop(0.7,`rgba(${c[0]},${c[1]},${c[2]},${zoneAlpha*0.3})`);
-        grad.addColorStop(1,`rgba(${c[0]},${c[1]},${c[2]},0)`);
+        const grad=ctx.createRadialGradient(cc.x,cc.y,zoneR*0.1,cc.x,cc.y,zoneR);
+        grad.addColorStop(0,`rgba(212,182,138,${zoneAlpha*1.5})`);
+        grad.addColorStop(0.4,`rgba(180,150,100,${zoneAlpha})`);
+        grad.addColorStop(0.8,`rgba(140,110,60,${zoneAlpha*0.3})`);
+        grad.addColorStop(1,'rgba(100,70,30,0)');
         ctx.fillStyle=grad;
         ctx.beginPath();ctx.arc(cc.x,cc.y,zoneR,0,Math.PI*2);ctx.fill();
 
-        // Zone border ring — subtle
-        ctx.beginPath();ctx.arc(cc.x,cc.y,zoneR*0.85,0,Math.PI*2);
-        ctx.strokeStyle=`rgba(${c[0]},${c[1]},${c[2]},${inRoom?(isThisRoom?0.15:0.03):0.06})`;
-        ctx.lineWidth=0.8;ctx.stroke();
+        // Accretion ring — thin gold orbit line
+        ctx.beginPath();ctx.arc(cc.x,cc.y,zoneR*0.7,0,Math.PI*2);
+        ctx.strokeStyle=`rgba(212,182,138,${inRoom?(isThisRoom?0.08:0.015):0.025})`;
+        ctx.lineWidth=0.5;ctx.stroke();
 
-        // Zone label — only at sufficient zoom or galaxy view
+        // Zone label — gold on dark
         if(t.scale>0.4||!inRoom){
-          const labelAlpha=inRoom?(isThisRoom?0.7:0.1):0.35;
-          const labelSize=Math.max(9,Math.min(13,cc.r*0.15));
-          ctx.font=`500 ${labelSize}px "DM Sans","Outfit",sans-serif`;
+          const labelAlpha=inRoom?(isThisRoom?0.5:0.08):0.2;
+          const labelSize=Math.max(8,Math.min(11,cc.r*0.12));
+          ctx.font=`400 ${labelSize}px "DM Sans","Outfit",sans-serif`;
           ctx.textAlign='center';
-          const lbl=(cc.label||'').replace(/^[^:]+:\s*/,''); // Show just the name part
+          const lbl=(cc.label||'').replace(/^[^:]+:\s*/,'');
           if(dk){
-            ctx.fillStyle=`rgba(0,0,0,${labelAlpha*0.5})`;ctx.fillText(lbl,cc.x+1,cc.y+cc.r*0.9+1);
-            ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${labelAlpha})`;ctx.fillText(lbl,cc.x,cc.y+cc.r*0.9);
+            ctx.fillStyle=`rgba(0,0,0,${labelAlpha*0.4})`;ctx.fillText(lbl,cc.x+1,cc.y+cc.r*0.85+1);
+            ctx.fillStyle=`rgba(212,182,138,${labelAlpha})`;ctx.fillText(lbl,cc.x,cc.y+cc.r*0.85);
           }else{
-            ctx.fillStyle=`rgba(255,255,255,${labelAlpha*0.6})`;ctx.fillText(lbl,cc.x+1,cc.y+cc.r*0.9+1);
-            ctx.fillStyle=`rgba(${c[0]*0.4},${c[1]*0.4},${c[2]*0.4},${labelAlpha})`;ctx.fillText(lbl,cc.x,cc.y+cc.r*0.9);
+            ctx.fillStyle=`rgba(255,255,255,${labelAlpha*0.5})`;ctx.fillText(lbl,cc.x+1,cc.y+cc.r*0.85+1);
+            ctx.fillStyle=`rgba(120,95,50,${labelAlpha})`;ctx.fillText(lbl,cc.x,cc.y+cc.r*0.85);
           }
         }
       });
 
-      // ═══ BRIDGE LINES — connections between communities ═══
+      // ═══ BRIDGE LINES — gold threads between communities ═══
       if(!state.activeRoom){
         const drawnBridges=new Set();
         P.forEach(p=>{
           if(p.commRole!=='bridge')return;
           (p.links||[]).forEach(lid=>{
             const b=state.linkMap[lid];
-            if(!b||b.commId===p.commId)return; // Only cross-community
+            if(!b||b.commId===p.commId)return;
             const key=p.commId<b.commId?`${p.commId}-${b.commId}`:`${b.commId}-${p.commId}`;
             if(drawnBridges.has(key))return;
             drawnBridges.add(key);
             const ccA=centers[p.commId],ccB=centers[b.commId];
             if(!ccA||!ccB)return;
-            const cA=ccA.color,cB=ccB.color;
             ctx.beginPath();ctx.moveTo(ccA.x,ccA.y);ctx.lineTo(ccB.x,ccB.y);
-            ctx.strokeStyle=dk?`rgba(212,182,138,0.06)`:`rgba(120,100,60,0.08)`;
-            ctx.lineWidth=1;ctx.setLineDash([4,8]);ctx.stroke();ctx.setLineDash([]);
+            ctx.strokeStyle=dk?`rgba(180,150,100,0.03)`:`rgba(100,80,40,0.04)`;
+            ctx.lineWidth=0.5;ctx.setLineDash([3,9]);ctx.stroke();ctx.setLineDash([]);
           });
         });
       }
