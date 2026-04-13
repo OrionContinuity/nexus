@@ -8,7 +8,7 @@
   const state={
     particles:[],transform:{x:0,y:0,scale:1},
     dragging:false,dragStart:{x:0,y:0},dragTransStart:{x:0,y:0},
-    hoverNode:null,activeNode:null,frozenNode:null,
+    hoverNode:null,activeNode:null,frozenNode:null,dragStart:{x:0,y:0},
     activatedNodes:new Set(),searchHits:new Set(),
     linkMap:{},catMap:{},tagSets:{},
     contractorEvents:[],W:0,H:0,canvas,ctx
@@ -577,6 +577,7 @@
     canvas.addEventListener('touchmove',e=>{e.preventDefault();const d=dpr();if(e.touches.length===1){const dx=e.touches[0].clientX-state.dragStart.x,dy=e.touches[0].clientY-state.dragStart.y;if(Math.abs(dx)+Math.abs(dy)>5)state.dragging=true;state.transform.x=state.dragTransStart.x+dx*d;state.transform.y=state.dragTransStart.y+dy*d;}if(e.touches.length===2){const nd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);state.transform.scale=Math.max(.1,Math.min(8,state.transform.scale*nd/ltd));ltd=nd;}},{passive:false});
     canvas.addEventListener('touchend',e=>{
       if(state.dragging){state.dragging=false;return;}
+      if(!state.dragStart)return;
       const hud=document.getElementById('chatHud');
       if(hud&&hud.classList.contains('expanded'))return;
       const sx=state.dragStart.x,sy=state.dragStart.y;
