@@ -465,17 +465,44 @@ function escHTML(s) {
 }
 
 function addDeleteBtn(el, id, table) {
-  const btn = document.createElement('button');
-  btn.className = 'log-del';
-  btn.textContent = '✕';
-  btn.addEventListener('click', async e => {
+  const actions = document.createElement('div');
+  actions.className = 'feed-actions';
+
+  // Acknowledge — marks as read, fades out
+  const ackBtn = document.createElement('button');
+  ackBtn.className = 'feed-ack';
+  ackBtn.textContent = '✓';
+  ackBtn.title = 'Acknowledge';
+  ackBtn.addEventListener('click', e => {
     e.stopPropagation();
-    if (!confirm('Delete this entry?')) return;
-    await NX.sb.from(table).delete().eq('id', id);
-    loadFeed();
+    el.style.transition = 'opacity .3s, max-height .3s';
+    el.style.opacity = '0';
+    el.style.maxHeight = '0';
+    el.style.overflow = 'hidden';
+    setTimeout(() => el.remove(), 350);
+    // Mark as acknowledged in feed (don't delete from DB)
+    feed = feed.filter(f => f.id !== (table === 'daily_logs' ? 'dl-' + id : f.id));
   });
-  const body = el.querySelector('.feed-body');
-  if (body) body.appendChild(btn);
+
+  // Delete — removes from database
+  const delBtn = document.createElement('button');
+  delBtn.className = 'feed-del';
+  delBtn.textContent = '✕';
+  delBtn.title = 'Delete';
+  delBtn.addEventListener('click', async e => {
+    e.stopPropagation();
+    el.style.transition = 'opacity .3s, max-height .3s';
+    el.style.opacity = '0';
+    el.style.maxHeight = '0';
+    el.style.overflow = 'hidden';
+    setTimeout(() => el.remove(), 350);
+    await NX.sb.from(table).delete().eq('id', id);
+  });
+
+  actions.appendChild(ackBtn);
+  actions.appendChild(delBtn);
+  const head = el.querySelector('.feed-head');
+  if (head) head.appendChild(actions);
 }
 
 /* ═══ ADD LOG ═══ */
