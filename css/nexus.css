@@ -1283,3 +1283,7 @@ button,a,input,select,textarea,.feed-item,.board-card,.cal-cell,.cal-event,.clea
 .listen-dot.active{display:inline-block;animation:listenPulse 2s infinite}
 @keyframes listenPulse{0%,100%{opacity:1;box-shadow:0 0 4px var(--green)}50%{opacity:.4;box-shadow:0 0 8px var(--green)}}
 [data-theme="light"] .listen-dot.active{background:#16A34A}
+
+/* ═══ NOTIFICATION COUNTER ═══ */
+.notify-count{display:none;min-width:16px;height:16px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;padding:0 4px;margin-left:2px;flex-shrink:0}
+.notify-count.has-count{display:inline-block}
