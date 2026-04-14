@@ -433,13 +433,13 @@
     // Background — theme-aware radial gradient
     const bgGrad=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*0.7);
     if(isDark()){
-      bgGrad.addColorStop(0,'#10101a');
-      bgGrad.addColorStop(0.5,'#0c0c14');
-      bgGrad.addColorStop(1,'#060608');
+      bgGrad.addColorStop(0,'#151520');
+      bgGrad.addColorStop(0.5,'#111118');
+      bgGrad.addColorStop(1,'#0d0d12');
     }else{
-      bgGrad.addColorStop(0,'#E4E0D6');
-      bgGrad.addColorStop(0.5,'#DBD6CC');
-      bgGrad.addColorStop(1,'#D0CABC');
+      bgGrad.addColorStop(0,'#F0EDE6');
+      bgGrad.addColorStop(0.5,'#EAE6DD');
+      bgGrad.addColorStop(1,'#E2DED4');
     }
     ctx.fillStyle=bgGrad;ctx.fillRect(0,0,W,H);
     ctx.translate(t.x,t.y);ctx.scale(t.scale,t.scale);
@@ -587,7 +587,7 @@
     ctx.shadowBlur=isPlaying?25+audioBass*30:20;
     ctx.shadowColor=`rgba(212,182,138,${isPlaying?0.6+audioEnergy*0.4:0.5})`;
     ctx.beginPath();ctx.arc(cx,cy,beaconR,0,Math.PI*2);
-    ctx.fillStyle=isDark()?'#10101a':'#F0EDE6';ctx.fill();
+    ctx.fillStyle=isDark()?'#151520':'#F0EDE6';ctx.fill();
     const ringAlpha=isPlaying?0.6+audioBass*0.3:0.65+br*0.1;
     ctx.strokeStyle=isDark()?`rgba(212,182,138,${ringAlpha})`:`rgba(160,130,60,${ringAlpha})`;
     ctx.lineWidth=isPlaying?2+audioBass*2:1.8;ctx.stroke();
