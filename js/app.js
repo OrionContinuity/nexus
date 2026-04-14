@@ -206,11 +206,34 @@ const NX = {
         localStorage.setItem('nexus_lang', lang);
         document.querySelectorAll('.pin-lang-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        // Update PIN screen text immediately
         const sub = document.querySelector('.pin-sub');
         if (sub) sub.textContent = lang === 'es' ? 'Ingrese su PIN' : 'Enter your PIN';
       });
     });
+
+    // ═══ BIOMETRIC AUTH — fingerprint/face as PIN alternative ═══
+    if (NX.biometric && await NX.biometric.check()) {
+      // Show fingerprint button on PIN screen
+      const pinPad = document.querySelector('.pin-pad');
+      if (pinPad) {
+        const bioBtn = document.createElement('button');
+        bioBtn.className = 'pin-bio-btn';
+        bioBtn.innerHTML = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 10a2 2 0 100 4 2 2 0 000-4z"/><path d="M5.45 5.11L2 12l3.45 6.89A1 1 0 006.35 20h11.3a1 1 0 00.9-1.11L22 12l-3.45-6.89A1 1 0 0017.65 4H6.35a1 1 0 00-.9 1.11z"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg><span>Use Fingerprint</span>';
+        bioBtn.addEventListener('click', async () => {
+          const ok = await NX.biometric.authenticate();
+          if (ok) {
+            const storedPin = await NX.biometric.getCredentials();
+            if (storedPin) {
+              // Auto-authenticate with stored PIN
+              this.authenticatePin(storedPin, error, userEl, () => {});
+            } else {
+              error.textContent = 'Enter PIN first to enable fingerprint';
+            }
+          }
+        });
+        pinPad.appendChild(bioBtn);
+      }
+    }
 
     // Check if user was previously logged in — RE-VERIFY against Supabase
     const savedUser = sessionStorage.getItem('nexus_current_user');
@@ -281,6 +304,10 @@ const NX = {
       userEl.textContent = (this.i18n ? this.i18n.t('welcome') : 'Welcome,') + ' ' + data.name;
       userEl.classList.add('visible');
       this._applyRole(data.role);
+      // Save PIN to biometric keychain for future fingerprint auth
+      if (NX.biometric && NX.biometric.available) {
+        NX.biometric.saveCredentials(pin);
+      }
       // Show time clock panel — user can clock in/out before entering
       setTimeout(() => NX.timeClock.showOnPinScreen(), 600);
     } catch (e) {
@@ -358,6 +385,23 @@ const NX = {
     // Apply role visibility
     if (this.isAdmin || this.isManager) {
       document.getElementById('ingestTab').style.display = '';
+      const utilIngest = document.getElementById('utilIngest');
+      if (utilIngest) {
+        utilIngest.style.display = '';
+        utilIngest.addEventListener('click', () => {
+          // Switch to ingest view
+          document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+          document.querySelectorAll('.bnav-btn').forEach(b => b.classList.remove('active'));
+          document.getElementById('navNexus').classList.remove('active');
+          document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+          const tab = document.querySelector('.nav-tab[data-view="ingest"]');
+          if (tab) tab.classList.add('active');
+          document.getElementById('ingestView').classList.add('active');
+          this.activateModule('ingest');
+          // Close tray
+          document.getElementById('utilTray').classList.remove('open');
+        });
+      }
     }
     // Staff: hide board and ingest, show only cleaning + log
     if (!this.isManager && !this.isAdmin) {
