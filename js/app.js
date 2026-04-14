@@ -421,6 +421,7 @@ const NX = {
   // ─── Nav ───
   setupNav() {
     const tabs = document.querySelectorAll('.nav-tab');
+    const bnavBtns = document.querySelectorAll('.bnav-btn');
     const nexusBtn = document.getElementById('navNexus');
     const switchTo = (view) => {
       // Stop any playing speech
@@ -428,17 +429,27 @@ const NX = {
       if(NX.brain&&NX.brain.stopSpeaking)NX.brain.stopSpeaking();
       // Close node panel
       const np=document.getElementById('nodePanel');if(np)np.classList.remove('open');
+      // Clear active on ALL nav buttons (top + bottom)
       tabs.forEach(t => t.classList.remove('active'));
+      bnavBtns.forEach(b => b.classList.remove('active'));
       nexusBtn.classList.remove('active');
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      // Set active on correct buttons
       if (view === 'brain') { nexusBtn.classList.add('active'); }
       else { const tab = document.querySelector(`.nav-tab[data-view="${view}"]`); if (tab) tab.classList.add('active'); }
+      // Also activate bottom nav button
+      const bnav = document.querySelector(`.bnav-btn[data-view="${view}"]`);
+      if (bnav) bnav.classList.add('active');
       document.getElementById(view + 'View').classList.add('active');
       this.activateModule(view);
       // Re-apply language after view switch
       if(this.i18n)setTimeout(()=>this.i18n.applyUI(),100);
     };
+    // Bind top nav tabs
     tabs.forEach(tab => tab.addEventListener('click', () => switchTo(tab.dataset.view)));
+    // Bind bottom nav buttons
+    bnavBtns.forEach(btn => btn.addEventListener('click', () => switchTo(btn.dataset.view)));
+    // Default active state
     nexusBtn.classList.add('active');
     nexusBtn.addEventListener('click', () => switchTo('brain'));
   },
@@ -468,7 +479,7 @@ const NX = {
     const userInfo = document.getElementById('adminUserInfo');
     if (this.currentUser) {
       const hasKey = this.getApiKey() ? '✓ API Key loaded' : '✗ No API Key';
-      const keyColor = this.getApiKey() ? '#39ff14' : '#ff5533';
+      const keyColor = this.getApiKey() ? '#5bba5f' : '#d45858';
       const source = this.config?.anthropic_key ? 'Supabase' : (localStorage.getItem('nexus_api_key') ? 'localStorage' : 'none');
       userInfo.innerHTML = `<span class="admin-user-name">${this.currentUser.name}</span><span class="admin-user-role">${this.currentUser.role.toUpperCase()}</span><div style="font-size:11px;margin-top:6px;color:${keyColor}">${hasKey} (source: ${source})</div>`;
     }
@@ -496,7 +507,7 @@ const NX = {
           try { await this.sb.from('nexus_config').update({ voice_idx: idx }).eq('id', 1); } catch(e) {}
           const voiceNames = ['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
           const vs = document.getElementById('voiceTestStatus');
-          if (vs) { vs.textContent = `✓ ${voiceNames[idx]} selected & saved`; vs.style.color = '#39ff14'; }
+          if (vs) { vs.textContent = `✓ ${voiceNames[idx]} selected & saved`; vs.style.color = '#5bba5f'; }
         });
         this.loadUserList();
         // Show chat log for admin
@@ -563,7 +574,7 @@ const NX = {
       const voiceNames=['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
       const voiceIdx=updates.voice_idx||0;
       document.getElementById('adminKeyStatus').textContent = error ? 'Save failed: ' + error.message : `✓ Saved — Voice: ${voiceNames[voiceIdx]||'Unknown'}, Model: ${updates.model.includes('opus')?'Opus':'Sonnet'}`;
-      document.getElementById('adminKeyStatus').style.color = error ? '#ff5533' : '#39ff14';
+      document.getElementById('adminKeyStatus').style.color = error ? '#d45858' : '#5bba5f';
       setTimeout(() => { document.getElementById('adminKeyStatus').textContent = ''; }, 5000);
     });
 
@@ -584,7 +595,7 @@ const NX = {
       const voiceIds = ['pNInz6obpgDQGcFmaJgB','EXAVITQu4vr4xnSDxMaL','onwK4e9ZLuTAKqWW03F9','XB0fDUnXU5powFXDhCwa','TX3LPaxmHKxFdv7VOQHJ','LcfcDJNUP1GQjkzn1xUU','yoZ06aMxZJJ28mfd3POQ','ThT5KcBeYPX3keUQqHPh','VR6AewLTigWG4xSOukaG','pqHfZKP75CvOlQylNhV4','ErXwobaYiN019PkySvjV','AZnzlk1XvdvUeBnXmlld','D38z5RcWu1voky8WS1ja','jsCqWAovK2LkecY7zXl4','jBpfuIE2acCO8z3wKNLl','oWAxZDx7w5VEj9dCyTzz','SOYHLrjzK2X1ezoPC6cr','ZQe5CZNOzWyzPSCn5a3c','TxGEqnHWrfWFTfGW9XjX','21m00Tcm4TlvDq8ikWAM'];
       const status = document.getElementById('voiceTestStatus');
       const ek = this.getElevenLabsKey();
-      if (!ek) { status.textContent = 'Add ElevenLabs key first'; status.style.color = '#ff5533'; return; }
+      if (!ek) { status.textContent = 'Add ElevenLabs key first'; status.style.color = '#d45858'; return; }
       status.textContent = `Playing ${voiceNames[voiceIdx]}...`; status.style.color = 'var(--accent)';
       try {
         const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceIds[voiceIdx]}`, {
@@ -593,9 +604,9 @@ const NX = {
         });
         if (r.ok) {
           const bl = await r.blob(), u = URL.createObjectURL(bl), a = new Audio(u);
-          a.play(); a.onended = () => { URL.revokeObjectURL(u); status.textContent = `✓ ${voiceNames[voiceIdx]} ready`; status.style.color = '#39ff14'; };
-        } else { status.textContent = 'Voice test failed'; status.style.color = '#ff5533'; }
-      } catch (e) { status.textContent = 'Error: ' + e.message; status.style.color = '#ff5533'; }
+          a.play(); a.onended = () => { URL.revokeObjectURL(u); status.textContent = `✓ ${voiceNames[voiceIdx]} ready`; status.style.color = '#5bba5f'; };
+        } else { status.textContent = 'Voice test failed'; status.style.color = '#d45858'; }
+      } catch (e) { status.textContent = 'Error: ' + e.message; status.style.color = '#d45858'; }
     });
 
     // Drive sync
@@ -603,8 +614,8 @@ const NX = {
     document.getElementById('driveBackupBtn').addEventListener('click', async () => {
       const s = document.getElementById('driveStatus');
       try { s.textContent = 'Backing up...'; s.style.color = 'var(--muted)';
-        await this.driveBackupKeys(); s.textContent = '✓ Backed up to Drive'; s.style.color = '#39ff14';
-      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = '#ff5533'; }
+        await this.driveBackupKeys(); s.textContent = '✓ Backed up to Drive'; s.style.color = '#5bba5f';
+      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = '#d45858'; }
     });
     document.getElementById('driveRestoreBtn').addEventListener('click', async () => {
       const s = document.getElementById('driveStatus');
@@ -621,15 +632,15 @@ const NX = {
           await this.sb.from('nexus_config').update(updates).eq('id', 1);
           Object.assign(this.config || {}, updates);
         }
-        s.textContent = '✓ Restored from Drive'; s.style.color = '#39ff14';
-      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = '#ff5533'; }
+        s.textContent = '✓ Restored from Drive'; s.style.color = '#5bba5f';
+      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = '#d45858'; }
     });
 
     const driveToken = localStorage.getItem('nexus_drive_token');
     const driveExpiry = localStorage.getItem('nexus_drive_expiry');
     if (driveToken && driveExpiry && Date.now() < parseInt(driveExpiry)) {
       const ds = document.getElementById('driveStatus');
-      if (ds) { ds.textContent = '✓ Connected'; ds.style.color = '#39ff14'; }
+      if (ds) { ds.textContent = '✓ Connected'; ds.style.color = '#5bba5f'; }
     }
 
     // Add user
@@ -737,7 +748,7 @@ const NX = {
             localStorage.setItem('nexus_drive_token', r.access_token);
             localStorage.setItem('nexus_drive_expiry', String(Date.now() + 55 * 60 * 1000));
             const s = document.getElementById('driveStatus');
-            if (s) { s.textContent = '✓ Connected'; s.style.color = '#39ff14'; }
+            if (s) { s.textContent = '✓ Connected'; s.style.color = '#5bba5f'; }
           }
         }
       });
@@ -803,7 +814,7 @@ const NX = {
       // Open tickets
       const { data: tickets } = await this.sb.from('tickets').select('*').eq('status', 'open').order('created_at', { ascending: false }).limit(15);
       // Upcoming contractor events
-      const { data: events } = await this.sb.from('contractor_events').select('*').neq('status', 'done').order('event_date', { ascending: true }).limit(15);
+      const { data: events } = await this.sb.from('contractor_events').select('*').in('status', ['pending', null]).order('event_date', { ascending: true }).limit(15);
 
       for (const loc of locs) {
         const col = document.querySelector(`#agenda${loc.charAt(0).toUpperCase() + loc.slice(1)} .agenda-items`);
@@ -819,25 +830,35 @@ const NX = {
           col.appendChild(el);
         });
 
-        // Contractor events for this location
-        const locEvents = (events || []).filter(e => (e.location || '').toLowerCase() === loc).slice(0, 3);
+        // Contractor events for this location — with triage actions
+        const locEvents = (events || []).filter(e => (e.location || '').toLowerCase() === loc).slice(0, 4);
         locEvents.forEach(e => {
           const el = document.createElement('div');
           el.className = 'agenda-item agenda-event';
-          const isDone = e.status === 'done';
-          if (isDone) el.classList.add('agenda-done');
-          el.innerHTML = `<div class="agenda-item-title">👷 ${e.contractor_name}${isDone?' ✓':''}</div><div class="agenda-item-meta">${e.event_date || ''} ${e.event_time || ''} · ${e.description || ''}</div>`;
-          if (!isDone) {
-            el.style.cursor = 'pointer';
-            el.addEventListener('click', async () => {
+          el.innerHTML = `<div class="agenda-item-title">👷 ${e.contractor_name}</div><div class="agenda-item-meta">${e.event_date || ''} ${e.event_time || ''} · ${e.description || ''}</div><div class="agenda-actions"><button class="ag-btn ag-accept" data-action="accepted" title="Confirm">✓</button><button class="ag-btn ag-dismiss" data-action="dismissed" title="Dismiss">—</button><button class="ag-btn ag-disregard" data-action="disregarded" title="Disregard">✕</button></div>`;
+          el.querySelectorAll('.ag-btn').forEach(btn => {
+            btn.addEventListener('click', async (ev) => {
+              ev.stopPropagation();
+              const action = btn.dataset.action;
+              const userName = NX.currentUser?.name || 'Unknown';
               try {
-                await this.sb.from('contractor_events').update({ status: 'done' }).eq('id', e.id);
-                el.classList.add('agenda-done');
-                el.querySelector('.agenda-item-title').textContent = '👷 ' + e.contractor_name + ' ✓';
-                this.toast(e.contractor_name + ' marked done', 'success');
-              } catch (err) {}
+                await this.sb.from('contractor_events').update({ status: action, triaged_by: userName, triaged_at: new Date().toISOString() }).eq('id', e.id);
+                if (action === 'disregarded') {
+                  await this.sb.from('daily_logs').insert({ entry: `[DISREGARDED] Contractor: ${e.contractor_name} | ${e.event_date} ${e.event_time || ''} | ${e.location || ''} | ${e.description || ''} | by ${userName}` });
+                  this.toast(e.contractor_name + ' moved to logs', 'info');
+                } else if (action === 'accepted') {
+                  this.toast(e.contractor_name + ' confirmed ✓', 'success');
+                } else {
+                  this.toast(e.contractor_name + ' noted', 'info');
+                }
+                el.style.transition = 'opacity .3s, transform .3s';
+                el.style.opacity = '0';
+                el.style.transform = 'translateX(40px)';
+                setTimeout(() => el.remove(), 300);
+                if (NX.syslog) NX.syslog('contractor_triage', `${action}: ${e.contractor_name} (${e.event_date})`);
+              } catch (err) { this.toast('Error: ' + (err.message || 'Failed'), 'error'); }
             });
-          }
+          });
           col.appendChild(el);
         });
 
@@ -957,13 +978,13 @@ const NX = {
       }
 
       status.textContent = '✓ Import complete';
-      status.style.color = '#39ff14';
+      status.style.color = '#5bba5f';
       this.toast('Imported: ' + summary.join(', '), 'success');
       await this.loadNodes();
       if (this.brain) this.brain.init();
     } catch (e) {
       status.textContent = 'Error: ' + e.message;
-      status.style.color = '#ff5533';
+      status.style.color = '#d45858';
     }
   },
 
@@ -1157,6 +1178,25 @@ const NX = {
 
     }catch(e){console.error('Briefing error:',e);}
 
+    // ═══ AI MORNING BRIEF (Layer 2) ═══
+    try{
+      const today=new Date().toISOString().split('T')[0];
+      const{data:brief}=await this.sb.from('briefs').select('brief_text,priorities').eq('brief_date',today).limit(1);
+      if(brief?.length&&brief[0].brief_text){
+        briefing.aiBrief=brief[0].brief_text;
+        // Show brief in the brain view welcome area
+        const welcome=document.getElementById('brainWelcome');
+        if(welcome&&!document.getElementById('morningBrief')){
+          const briefEl=document.createElement('div');
+          briefEl.id='morningBrief';
+          briefEl.className='morning-brief';
+          briefEl.innerHTML=`<div class="brief-header">☀ Morning Brief</div><div class="brief-text">${brief[0].brief_text}</div><button class="brief-dismiss" onclick="this.parentElement.style.display='none';NX.trackBriefDismiss()">✕</button>`;
+          briefEl.dataset.shownAt=Date.now();
+          welcome.parentElement.insertBefore(briefEl,welcome.nextSibling);
+        }
+      }
+    }catch(e){}
+
     // Store for proactive chat
     this._briefingData=briefing;
 
@@ -1170,6 +1210,18 @@ const NX = {
   },
 
   // ─── Claude API ───
+  // ═══ FEEDBACK LOOPS — track engagement for intelligence improvement ═══
+  trackBriefDismiss(){
+    const briefEl=document.getElementById('morningBrief');
+    if(!briefEl)return;
+    const shownAt=parseInt(briefEl.dataset.shownAt||'0');
+    const readTime=shownAt?Math.round((Date.now()-shownAt)/1000):0;
+    const engagement=readTime<5?'dismissed':readTime<15?'glanced':'read';
+    try{
+      this.sb.from('meta_signals').insert({signal_type:'brief_engagement',signal_data:{type:engagement,seconds:readTime}}).then(()=>{});
+      this.sb.from('daily_logs').insert({entry:`[BRIEF-FEEDBACK] ${engagement}: ${readTime}s`}).then(()=>{});
+    }catch(e){}
+  },
   async askClaude(system, messages, maxTokens = 600, useSearch = false) {
     const key = this.getApiKey();
     if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
@@ -1374,7 +1426,7 @@ NX.timeClock = {
     const tcPanel = document.getElementById('tcPanel');
     if (tcPanel && tcPanel.style.display !== 'none') {
       document.getElementById('tcStatus').textContent = isIn ? 'CLOCKED IN' : 'NOT CLOCKED IN';
-      document.getElementById('tcStatus').style.color = isIn ? '#39ff14' : 'rgba(255,255,255,.4)';
+      document.getElementById('tcStatus').style.color = isIn ? '#5bba5f' : 'rgba(255,255,255,.4)';
       document.getElementById('tcTime').textContent = isIn ? this.getElapsed() || '0:00:00' : '';
       document.getElementById('tcClockIn').style.display = isIn ? 'none' : '';
       document.getElementById('tcClockOut').style.display = isIn ? '' : 'none';
@@ -1400,7 +1452,7 @@ NX.timeClock = {
     if (popup && popup.classList.contains('open')) {
       popup.querySelector('.tc-popup-status').textContent = isIn ? 'CLOCKED IN' : 'NOT CLOCKED IN';
       popup.querySelector('.tc-popup-time').textContent = isIn ? this.getElapsed() || '0:00:00' : '--:--';
-      popup.querySelector('.tc-popup-time').style.color = isIn ? '#39ff14' : 'var(--faint)';
+      popup.querySelector('.tc-popup-time').style.color = isIn ? '#5bba5f' : 'var(--faint)';
       const btn = popup.querySelector('.tc-popup-btn');
       if (btn) {
         btn.textContent = isIn ? 'Clock Out' : 'Clock In';
