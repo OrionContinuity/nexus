@@ -1,234 +1,351 @@
-/* NEXUS Board v8 — unified cards table (replaces kanban_cards + tickets) */
+/* NEXUS Board v3 — Trello-level project management
+   Multiple boards, custom lists, card details, checklists, labels, comments, drag, archive
+*/
 (function(){
-let cards=[];
-const TABLE='cards';
-// Fallback: if cards table doesn't exist yet, use kanban_cards
-let useLegacy=false;
-const COLS=['todo','doing','done'];
-const LABELS={todo:'To Do',doing:'In Progress',done:'Done'};
-const PRI_COLORS={urgent:'#ff5533',normal:'#ffb020',low:'#39ff14'};
+let boards=[],activeBoard=null,lists=[],cards=[],dragCard=null,dragOverList=null;
 
-async function init(){await load();}
+const LABEL_COLORS=['#d45858','#e8a830','#5bba5f','#5b9bd5','#a88fd8','#d4a44e','#6b9bf0','#a49c94'];
 
-async function load(){
+async function loadBoards(){
   try{
-    const r=await NX.sb.from(TABLE).select('*').neq('status','closed').order('created_at',{ascending:true}).limit(200);
-    if(r.error&&r.error.message?.includes('does not exist')){
-      // Fallback to legacy tables
-      useLegacy=true;
-      const r2=await NX.sb.from('kanban_cards').select('*').order('created_at',{ascending:true}).limit(200);
-      cards=(r2.data||[]).map(c=>({...c,status:c.column_name||'todo',priority:'normal',source:'legacy'}));
-      // Also pull open tickets into the board
-      try{
-        const r3=await NX.sb.from('tickets').select('*').eq('status','open').order('created_at',{ascending:false}).limit(50);
-        if(r3.data)cards=cards.concat(r3.data.map(t=>({...t,status:'todo',source:'ticket'})));
-      }catch(e){}
-    }else{
-      cards=r.data||[];
+    const{data}=await NX.sb.from('boards').select('*').eq('archived',false).order('position');
+    boards=data||[];
+    if(!boards.length){
+      // Create default board
+      const{data:nb}=await NX.sb.from('boards').insert({name:'Operations',color:'#c8a44e',position:0}).select().single();
+      if(nb){boards=[nb];
+        await NX.sb.from('board_lists').insert([
+          {board_id:nb.id,name:'To Do',position:0},
+          {board_id:nb.id,name:'In Progress',position:1},
+          {board_id:nb.id,name:'Done',position:2}
+        ]);
+      }
     }
-  }catch(e){cards=[];}
-  render();
+    if(!activeBoard&&boards.length)activeBoard=boards[0];
+  }catch(e){console.error('Board load:',e);}
 }
 
-function tbl(){return useLegacy?'kanban_cards':TABLE;}
+async function loadLists(){
+  if(!activeBoard)return;
+  try{
+    const{data}=await NX.sb.from('board_lists').select('*').eq('board_id',activeBoard.id).order('position');
+    lists=data||[];
+  }catch(e){lists=[];}
+}
+
+async function loadCards(){
+  if(!activeBoard)return;
+  try{
+    const{data}=await NX.sb.from('kanban_cards').select('*').eq('board_id',activeBoard.id).eq('archived',false).order('position');
+    cards=data||[];
+  }catch(e){cards=[];}
+}
 
 function render(){
-  const container=document.getElementById('boardContainer');container.innerHTML='';
-  const today=new Date().toISOString().split('T')[0];
-  if(!cards.length){container.innerHTML='<div class="board-empty">No cards yet.<br>Add one with the + button below,<br>or say "add card: ..." in chat.</div>';return;}
+  const wrap=document.getElementById('boardWrap');
+  if(!wrap)return;
+  wrap.innerHTML='';
 
-  COLS.forEach(col=>{
-    // Map legacy column_name to status
-    const cc=cards.filter(c=>{
-      const st=c.status||c.column_name||'todo';
-      if(col==='doing')return st==='doing'||st==='in_progress';
-      return st===col;
+  // Board selector
+  const header=document.createElement('div');header.className='board-header';
+  header.innerHTML=`<div class="board-selector">${boards.map(b=>
+    `<button class="board-tab${b.id===activeBoard?.id?' active':''}" data-bid="${b.id}" style="border-color:${b.color}">${b.name}</button>`
+  ).join('')}<button class="board-tab board-add-tab" id="addBoardBtn">+</button></div>`;
+  wrap.appendChild(header);
+
+  // Bind board tabs
+  header.querySelectorAll('.board-tab[data-bid]').forEach(btn=>{
+    btn.addEventListener('click',async()=>{
+      activeBoard=boards.find(b=>b.id==btn.dataset.bid);
+      await loadLists();await loadCards();render();
     });
-    const colEl=document.createElement('div');colEl.className='board-col';colEl.dataset.col=col;
-    const overdueCount=col!=='done'?cc.filter(c=>c.due_date&&c.due_date<today).length:0;
-    colEl.innerHTML=`<div class="board-col-header">${LABELS[col]}<span class="board-col-count">${cc.length}${overdueCount?' · <span style="color:#ff5533">'+overdueCount+' overdue</span>':''}</span></div>`;
-    const body=document.createElement('div');body.className='board-col-body';
+  });
+  header.querySelector('#addBoardBtn')?.addEventListener('click',()=>promptNewBoard());
 
-    // Drag & drop
-    colEl.addEventListener('dragover',e=>{e.preventDefault();colEl.classList.add('drag-over');});
-    colEl.addEventListener('dragleave',()=>colEl.classList.remove('drag-over'));
-    colEl.addEventListener('drop',async e=>{
-      e.preventDefault();colEl.classList.remove('drag-over');
-      const cid=e.dataTransfer.getData('text/plain');if(!cid)return;
-      const card=cards.find(c=>String(c.id)===cid);
-      if(card){await moveCard(card,col);}
+  // Lists container
+  const listsWrap=document.createElement('div');listsWrap.className='board-lists';
+
+  lists.forEach(list=>{
+    const listEl=document.createElement('div');listEl.className='board-list';listEl.dataset.listId=list.id;
+
+    // List header
+    const lh=document.createElement('div');lh.className='board-list-header';
+    const listCards=cards.filter(c=>c.list_id===list.id);
+    lh.innerHTML=`<span class="board-list-name">${list.name}</span><span class="board-list-count">${listCards.length}</span>`;
+    listEl.appendChild(lh);
+
+    // Cards
+    const cardsWrap=document.createElement('div');cardsWrap.className='board-list-cards';
+    cardsWrap.dataset.listId=list.id;
+
+    listCards.sort((a,b)=>(a.position||0)-(b.position||0)).forEach(card=>{
+      const cardEl=createCardEl(card);
+      cardsWrap.appendChild(cardEl);
     });
 
-    cc.forEach(card=>{
-      const el=document.createElement('div');el.className='board-card';el.draggable=true;el.dataset.id=card.id;
-      const pri=card.priority||'normal';
-      const priDot=pri!=='normal'?`<span class="board-pri-dot" style="background:${PRI_COLORS[pri]||PRI_COLORS.normal}" title="${pri}"></span>`:'';
-      let dueMeta='';
-      if(card.due_date){
-        const ov=card.due_date<today&&col!=='done';
-        const sn=!ov&&card.due_date<=new Date(Date.now()+3*86400000).toISOString().split('T')[0]&&col!=='done';
-        dueMeta=`<span class="${ov?'due-overdue':sn?'due-soon':'due-ok'}">${card.due_date}</span>`;
+    // Drop zone
+    cardsWrap.addEventListener('dragover',e=>{e.preventDefault();cardsWrap.classList.add('drag-over');dragOverList=list.id;});
+    cardsWrap.addEventListener('dragleave',()=>cardsWrap.classList.remove('drag-over'));
+    cardsWrap.addEventListener('drop',async e=>{
+      e.preventDefault();cardsWrap.classList.remove('drag-over');
+      if(dragCard&&dragCard.list_id!==list.id){
+        await NX.sb.from('kanban_cards').update({list_id:list.id,column_name:list.name.toLowerCase().replace(/\s+/g,'_')}).eq('id',dragCard.id);
+        dragCard.list_id=list.id;render();
       }
-      const assignee=card.assignee?`<span class="board-assignee">👤 ${card.assignee}</span>`:'';
-      el.innerHTML=`<div class="board-card-top">${priDot}<div class="board-card-title">${card.title}</div></div>
-        <div class="board-card-meta">${card.location?'📍 '+card.location:''}${dueMeta?' · '+dueMeta:''} ${assignee}</div>`;
+    });
 
-      el.addEventListener('click',()=>editCard(card));
-      el.addEventListener('dragstart',e=>{e.dataTransfer.setData('text/plain',String(card.id));el.classList.add('dragging');setTimeout(()=>el.style.display='none',0);});
-      el.addEventListener('dragend',()=>{el.classList.remove('dragging');el.style.display='';});
+    // Touch drag support
+    cardsWrap.addEventListener('touchmove',e=>{e.preventDefault();},{passive:false});
 
-      // Touch drag
-      let tc=null;
-      el.addEventListener('touchstart',e=>{const t=e.touches[0];tc=el.cloneNode(true);tc.style.cssText='position:fixed;z-index:1000;opacity:0.7;pointer-events:none;width:'+el.offsetWidth+'px';document.body.appendChild(tc);el._td={id:card.id};},{passive:true});
-      el.addEventListener('touchmove',e=>{if(!tc)return;const t=e.touches[0];tc.style.left=t.clientX-50+'px';tc.style.top=t.clientY-20+'px';},{passive:true});
-      el.addEventListener('touchend',async e=>{
-        if(tc){tc.remove();tc=null;}if(!el._td)return;
-        const t=e.changedTouches[0],de=document.elementFromPoint(t.clientX,t.clientY),ce=de?.closest('.board-col');
-        if(ce){const nc=ce.dataset.col;const c2=cards.find(c=>String(c.id)===String(el._td.id));
-          if(c2)await moveCard(c2,nc);
-        }el._td=null;
+    listEl.appendChild(cardsWrap);
+
+    // Add card button
+    const addBtn=document.createElement('button');addBtn.className='board-list-add';
+    addBtn.textContent='+ Add card';
+    addBtn.addEventListener('click',()=>promptNewCard(list.id));
+    listEl.appendChild(addBtn);
+
+    listsWrap.appendChild(listEl);
+  });
+
+  // Add list button
+  const addListEl=document.createElement('div');addListEl.className='board-list board-list-new';
+  addListEl.innerHTML='<button class="board-list-add-new">+ Add list</button>';
+  addListEl.querySelector('button').addEventListener('click',()=>promptNewList());
+  listsWrap.appendChild(addListEl);
+
+  wrap.appendChild(listsWrap);
+}
+
+function createCardEl(card){
+  const el=document.createElement('div');el.className='board-card';
+  el.draggable=true;el.dataset.cardId=card.id;
+
+  // Labels
+  const labels=card.labels||[];
+  let labelHtml='';
+  if(labels.length){labelHtml='<div class="card-labels">'+labels.map(l=>`<span class="card-label" style="background:${l.color||'#a49c94'}">${l.name||''}</span>`).join('')+'</div>';}
+
+  // Checklist progress
+  const checklist=card.checklist||[];
+  let checkHtml='';
+  if(checklist.length){
+    const done=checklist.filter(c=>c.done).length;
+    checkHtml=`<span class="card-check-count">☑ ${done}/${checklist.length}</span>`;
+  }
+
+  // Due date
+  let dueHtml='';
+  if(card.due_date){
+    const isOverdue=card.due_date<new Date().toISOString().split('T')[0];
+    dueHtml=`<span class="card-due${isOverdue?' overdue':''}">${card.due_date}</span>`;
+  }
+
+  // Assignee
+  const assignee=card.assignee?`<span class="card-assignee">${card.assignee}</span>`:'';
+
+  // Comments count
+  const comments=card.comments||[];
+  const commentHtml=comments.length?`<span class="card-comment-count">💬 ${comments.length}</span>`:'';
+
+  el.innerHTML=`${labelHtml}<div class="card-title">${card.title||'Untitled'}</div><div class="card-meta">${checkHtml}${dueHtml}${assignee}${commentHtml}</div>`;
+
+  // Click to open detail
+  el.addEventListener('click',e=>{if(!el.classList.contains('dragging'))openCardDetail(card);});
+
+  // Drag
+  el.addEventListener('dragstart',e=>{dragCard=card;el.classList.add('dragging');e.dataTransfer.effectAllowed='move';});
+  el.addEventListener('dragend',()=>{el.classList.remove('dragging');dragCard=null;});
+
+  // Touch drag
+  let touchStartY=0,touchClone=null;
+  el.addEventListener('touchstart',e=>{
+    touchStartY=e.touches[0].clientY;
+    dragCard=card;
+  },{passive:true});
+  el.addEventListener('touchend',e=>{
+    if(touchClone){touchClone.remove();touchClone=null;}
+    if(dragOverList&&dragCard&&dragCard.list_id!==dragOverList){
+      NX.sb.from('kanban_cards').update({list_id:dragOverList,column_name:''}).eq('id',dragCard.id).then(()=>{
+        dragCard.list_id=dragOverList;render();
       });
-      body.appendChild(el);
-    });
-
-    const addBtn=document.createElement('button');addBtn.className='board-add';addBtn.textContent='+ Add Card';
-    addBtn.onclick=()=>addCard(col);
-    body.appendChild(addBtn);colEl.appendChild(body);container.appendChild(colEl);
-  });
-}
-
-async function moveCard(card,newStatus){
-  const oldStatus=card.status||card.column_name;
-  if(oldStatus===newStatus||(newStatus==='doing'&&oldStatus==='in_progress'))return;
-  if(useLegacy){
-    const legacyCol=newStatus==='doing'?'in_progress':newStatus;
-    card.column_name=legacyCol;card.status=newStatus;
-    render();
-    if(card.source==='ticket'){
-      if(newStatus==='done')await NX.sb.from('tickets').update({status:'closed'}).eq('id',card.id);
-    }else{
-      await NX.sb.from('kanban_cards').update({column_name:legacyCol}).eq('id',card.id);
     }
-  }else{
-    card.status=newStatus;render();
-    await NX.sb.from(TABLE).update({status:newStatus,updated_at:new Date().toISOString()}).eq('id',card.id);
-  }
-  NX.syslog&&NX.syslog('card_moved',`${card.title} → ${newStatus}`);
+    dragCard=null;dragOverList=null;
+  },{passive:true});
+
+  return el;
 }
 
-function addCard(col){
-  const overlay=document.createElement('div');overlay.className='board-modal-overlay';
-  overlay.innerHTML=`<div class="board-modal">
-    <div class="board-modal-title">New Card</div>
-    <input class="board-modal-input" id="bcTitle" placeholder="What needs to be done?">
-    <div class="board-modal-row">
-      <input type="date" class="board-modal-input board-modal-date" id="bcDue">
-      <select class="board-modal-input board-modal-pri" id="bcPri"><option value="normal">Normal</option><option value="urgent">Urgent</option><option value="low">Low</option></select>
+function openCardDetail(card){
+  const modal=document.createElement('div');modal.className='card-detail-overlay';
+  const labels=card.labels||[];
+  const checklist=card.checklist||[];
+  const comments=card.comments||[];
+
+  modal.innerHTML=`<div class="card-detail">
+    <div class="card-detail-header">
+      <input class="card-detail-title" value="${(card.title||'').replace(/"/g,'&quot;')}" placeholder="Card title">
+      <button class="card-detail-close">✕</button>
     </div>
-    <div class="board-modal-row">
-      <input class="board-modal-input" id="bcLoc" placeholder="Location">
-      <input class="board-modal-input" id="bcAssign" placeholder="Assignee">
-    </div>
-    <div class="board-modal-actions">
-      <button class="board-modal-cancel" id="bcCancel">Cancel</button>
-      <button class="board-modal-save" id="bcSave">Add Card</button>
+    <div class="card-detail-body">
+      <div class="card-detail-section">
+        <div class="card-detail-label">Description</div>
+        <textarea class="card-detail-desc" placeholder="Add details...">${card.description||''}</textarea>
+      </div>
+      <div class="card-detail-section">
+        <div class="card-detail-label">Labels</div>
+        <div class="card-detail-labels" id="cdLabels">${labels.map((l,i)=>`<span class="card-label" style="background:${l.color}">${l.name} <button class="label-remove" data-idx="${i}">✕</button></span>`).join('')}<button class="label-add-btn" id="cdAddLabel">+ Label</button></div>
+      </div>
+      <div class="card-detail-section">
+        <div class="card-detail-label">Checklist</div>
+        <div class="card-detail-checklist" id="cdChecklist">${checklist.map((c,i)=>`<div class="check-item"><input type="checkbox" ${c.done?'checked':''} data-idx="${i}"><span${c.done?' class="check-done"':''}>${c.text}</span></div>`).join('')}</div>
+        <div class="check-add"><input placeholder="Add item..." id="cdCheckInput"><button id="cdCheckAdd">+</button></div>
+      </div>
+      <div class="card-detail-section">
+        <div class="card-detail-label">Assignee</div>
+        <input class="card-detail-assignee" value="${card.assignee||''}" placeholder="Who's responsible?" id="cdAssignee">
+      </div>
+      <div class="card-detail-section">
+        <div class="card-detail-label">Due Date</div>
+        <input type="date" class="card-detail-due" value="${card.due_date||''}" id="cdDue">
+      </div>
+      <div class="card-detail-section">
+        <div class="card-detail-label">Comments (${comments.length})</div>
+        <div class="card-detail-comments" id="cdComments">${comments.map(c=>`<div class="comment-item"><span class="comment-by">${c.by||'?'}</span><span class="comment-time">${c.at?new Date(c.at).toLocaleDateString():''}</span><div class="comment-text">${c.text}</div></div>`).join('')}</div>
+        <div class="comment-add"><input placeholder="Write a comment..." id="cdCommentInput"><button id="cdCommentAdd">Post</button></div>
+      </div>
+      <div class="card-detail-actions">
+        <button class="card-archive-btn" id="cdArchive">Archive Card</button>
+      </div>
     </div>
   </div>`;
-  document.body.appendChild(overlay);
-  document.getElementById('bcTitle')?.focus();
-  document.getElementById('bcCancel')?.addEventListener('click',()=>overlay.remove());
-  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
-  document.getElementById('bcSave')?.addEventListener('click',async()=>{
-    const title=document.getElementById('bcTitle')?.value?.trim();if(!title)return;
-    const due=document.getElementById('bcDue')?.value||null;
-    const loc=document.getElementById('bcLoc')?.value?.trim()||null;
-    const pri=document.getElementById('bcPri')?.value||'normal';
-    const assignee=document.getElementById('bcAssign')?.value?.trim()||null;
-    overlay.remove();
-    if(useLegacy){
-      await NX.sb.from('kanban_cards').insert({title,column_name:col==='doing'?'in_progress':col,due_date:due,location:loc});
-    }else{
-      await NX.sb.from(TABLE).insert({title,status:col,due_date:due,location:loc,priority:pri,assignee,source:'manual',reported_by:NX.currentUser?.name||''});
-    }
-    NX.syslog&&NX.syslog('card_created',title);
-    load();
-  });
-}
 
-function editCard(card){
-  const overlay=document.createElement('div');overlay.className='board-modal-overlay';
-  overlay.innerHTML=`<div class="board-modal">
-    <div class="board-modal-title">Edit Card</div>
-    <input class="board-modal-input" id="bcTitle" value="${(card.title||'').replace(/"/g,'&quot;')}">
-    <textarea class="board-modal-input" id="bcNotes" placeholder="Notes..." rows="3">${(card.notes||'').replace(/</g,'&lt;')}</textarea>
-    <div class="board-modal-row">
-      <input type="date" class="board-modal-input board-modal-date" id="bcDue" value="${card.due_date||''}">
-      <select class="board-modal-input board-modal-pri" id="bcPri">
-        <option value="normal"${card.priority==='normal'?' selected':''}>Normal</option>
-        <option value="urgent"${card.priority==='urgent'?' selected':''}>Urgent</option>
-        <option value="low"${card.priority==='low'?' selected':''}>Low</option>
-      </select>
-    </div>
-    <div class="board-modal-row">
-      <input class="board-modal-input" id="bcLoc" value="${card.location||''}" placeholder="Location">
-      <input class="board-modal-input" id="bcAssign" value="${card.assignee||''}" placeholder="Assignee">
-    </div>
-    <div class="board-modal-actions">
-      <button class="board-modal-delete" id="bcDelete">Delete</button>
-      <button class="board-modal-cancel" id="bcCancel">Cancel</button>
-      <button class="board-modal-save" id="bcSave">Save</button>
-    </div>
-  </div>`;
-  document.body.appendChild(overlay);
-  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
-  document.getElementById('bcCancel')?.addEventListener('click',()=>overlay.remove());
-  document.getElementById('bcDelete')?.addEventListener('click',async()=>{
-    if(!confirm('Delete this card?'))return;overlay.remove();
-    if(useLegacy){
-      if(card.source==='ticket')await NX.sb.from('tickets').delete().eq('id',card.id);
-      else await NX.sb.from('kanban_cards').delete().eq('id',card.id);
-    }else await NX.sb.from(TABLE).delete().eq('id',card.id);
-    NX.syslog&&NX.syslog('card_deleted',card.title);
-    load();
-  });
-  document.getElementById('bcSave')?.addEventListener('click',async()=>{
-    const title=document.getElementById('bcTitle')?.value?.trim();if(!title)return;
-    const notes=document.getElementById('bcNotes')?.value?.trim()||null;
-    const due=document.getElementById('bcDue')?.value||null;
-    const loc=document.getElementById('bcLoc')?.value?.trim()||null;
-    const pri=document.getElementById('bcPri')?.value||'normal';
-    const assignee=document.getElementById('bcAssign')?.value?.trim()||null;
-    overlay.remove();
-    if(useLegacy){
-      if(card.source==='ticket')await NX.sb.from('tickets').update({title,notes,location:loc,priority:pri}).eq('id',card.id);
-      else await NX.sb.from('kanban_cards').update({title,due_date:due,location:loc}).eq('id',card.id);
-    }else{
-      await NX.sb.from(TABLE).update({title,notes,due_date:due,location:loc,priority:pri,assignee,updated_at:new Date().toISOString()}).eq('id',card.id);
-    }
-    load();
-  });
-}
+  document.body.appendChild(modal);
 
-// Public API for creating cards from other modules (chat commands, triage)
-NX.createCard=async function(data){
-  if(useLegacy){
-    if(data.priority==='urgent'){
-      await NX.sb.from('tickets').insert({title:data.title,notes:data.notes,location:data.location,priority:data.priority,status:'open',reported_by:data.reported_by||NX.currentUser?.name||''});
-    }else{
-      await NX.sb.from('kanban_cards').insert({title:data.title,column_name:data.status||'todo',due_date:data.due_date,location:data.location});
-    }
-  }else{
-    await NX.sb.from(TABLE).insert({
-      title:data.title,notes:data.notes||null,status:data.status||'todo',
-      assignee:data.assignee||null,location:data.location||null,
-      due_date:data.due_date||null,priority:data.priority||'normal',
-      tags:data.tags||[],source:data.source||'manual',source_ref:data.source_ref||null,
-      photo_url:data.photo_url||null,ai_troubleshoot:data.ai_troubleshoot||null,
-      reported_by:data.reported_by||NX.currentUser?.name||''
+  // Close
+  modal.querySelector('.card-detail-close').onclick=()=>saveAndClose(card,modal);
+  modal.addEventListener('click',e=>{if(e.target===modal)saveAndClose(card,modal);});
+
+  // Checklist checkboxes
+  modal.querySelectorAll('.check-item input[type=checkbox]').forEach(cb=>{
+    cb.addEventListener('change',()=>{
+      const idx=parseInt(cb.dataset.idx);
+      checklist[idx].done=cb.checked;
+      cb.nextElementSibling.classList.toggle('check-done',cb.checked);
     });
-  }
-  NX.syslog&&NX.syslog('card_created',data.title);
-};
+  });
 
-NX.modules.board={init,show:load};
+  // Add checklist item
+  modal.querySelector('#cdCheckAdd').onclick=()=>{
+    const inp=modal.querySelector('#cdCheckInput');
+    const text=inp.value.trim();if(!text)return;
+    checklist.push({text,done:false});
+    const cl=modal.querySelector('#cdChecklist');
+    const idx=checklist.length-1;
+    cl.innerHTML+=`<div class="check-item"><input type="checkbox" data-idx="${idx}"><span>${text}</span></div>`;
+    inp.value='';
+    // Re-bind checkboxes
+    cl.querySelectorAll('input[type=checkbox]').forEach(cb=>{
+      cb.onchange=()=>{checklist[parseInt(cb.dataset.idx)].done=cb.checked;cb.nextElementSibling.classList.toggle('check-done',cb.checked);};
+    });
+  };
+  modal.querySelector('#cdCheckInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();modal.querySelector('#cdCheckAdd').click();}});
+
+  // Add comment
+  modal.querySelector('#cdCommentAdd').onclick=()=>{
+    const inp=modal.querySelector('#cdCommentInput');
+    const text=inp.value.trim();if(!text)return;
+    const comment={text,by:NX.currentUser?.name||'?',at:new Date().toISOString()};
+    comments.push(comment);
+    modal.querySelector('#cdComments').innerHTML+=`<div class="comment-item"><span class="comment-by">${comment.by}</span><span class="comment-time">${new Date().toLocaleDateString()}</span><div class="comment-text">${text}</div></div>`;
+    inp.value='';
+  };
+  modal.querySelector('#cdCommentInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();modal.querySelector('#cdCommentAdd').click();}});
+
+  // Add label
+  modal.querySelector('#cdAddLabel').onclick=()=>{
+    const name=prompt('Label name:');if(!name)return;
+    const color=LABEL_COLORS[labels.length%LABEL_COLORS.length];
+    labels.push({name,color});
+    const container=modal.querySelector('#cdLabels');
+    const btn=container.querySelector('.label-add-btn');
+    const span=document.createElement('span');span.className='card-label';span.style.background=color;
+    span.innerHTML=`${name} <button class="label-remove" data-idx="${labels.length-1}">✕</button>`;
+    container.insertBefore(span,btn);
+  };
+
+  // Archive
+  modal.querySelector('#cdArchive').onclick=async()=>{
+    if(!confirm('Archive this card?'))return;
+    await NX.sb.from('kanban_cards').update({archived:true}).eq('id',card.id);
+    modal.remove();await loadCards();render();
+    NX.toast('Card archived','info');
+  };
+}
+
+async function saveAndClose(card,modal){
+  const title=modal.querySelector('.card-detail-title').value.trim();
+  const desc=modal.querySelector('.card-detail-desc').value.trim();
+  const assignee=modal.querySelector('#cdAssignee').value.trim();
+  const dueDate=modal.querySelector('#cdDue').value||null;
+  const checklist=card.checklist||[];
+  const comments=card.comments||[];
+  const labels=card.labels||[];
+
+  await NX.sb.from('kanban_cards').update({
+    title:title||card.title,
+    description:desc,
+    assignee:assignee||null,
+    due_date:dueDate,
+    checklist,comments,labels,
+  }).eq('id',card.id);
+
+  modal.remove();
+  await loadCards();render();
+}
+
+async function promptNewCard(listId){
+  const title=prompt('Card title:');if(!title)return;
+  await NX.sb.from('kanban_cards').insert({
+    title,board_id:activeBoard.id,list_id:listId,
+    column_name:'',position:cards.filter(c=>c.list_id===listId).length,
+    checklist:[],comments:[],labels:[],archived:false
+  });
+  await loadCards();render();
+  NX.toast('Card created','success');
+}
+
+async function promptNewList(){
+  const name=prompt('List name:');if(!name)return;
+  await NX.sb.from('board_lists').insert({
+    board_id:activeBoard.id,name,position:lists.length
+  });
+  await loadLists();render();
+}
+
+async function promptNewBoard(){
+  const name=prompt('Board name:');if(!name)return;
+  const color=LABEL_COLORS[boards.length%LABEL_COLORS.length];
+  const{data}=await NX.sb.from('boards').insert({name,color,position:boards.length}).select().single();
+  if(data){
+    boards.push(data);activeBoard=data;
+    await NX.sb.from('board_lists').insert([
+      {board_id:data.id,name:'To Do',position:0},
+      {board_id:data.id,name:'In Progress',position:1},
+      {board_id:data.id,name:'Done',position:2}
+    ]);
+    await loadLists();await loadCards();render();
+    NX.toast('Board created','success');
+  }
+}
+
+async function init(){
+  await loadBoards();await loadLists();await loadCards();render();
+}
+
+async function show(){
+  await loadBoards();await loadLists();await loadCards();render();
+}
+
+NX.modules.board={init,show};
 })();
