@@ -24,7 +24,7 @@
   // Dynamic DOT — shrinks as node count grows so the galaxy stays readable
   function getDOT(){const n=(state.particles||[]).length;if(n<200)return DOT_BASE;if(n<500)return 2.5;if(n<1000)return 2;return 1.5;}
   // Dynamic galaxy radius — expands for large node counts
-  function getGalaxyR(){const n=(state.particles||[]).length;const base=Math.min(W,H)*0.42;if(n<300)return base;if(n<800)return base*1.2;if(n<1500)return base*1.5;return base*1.7;}
+  function getGalaxyR(){const n=(state.particles||[]).length;const base=Math.min(W,H)*0.42;if(n<300)return base;if(n<800)return base*1.3;if(n<1500)return base*1.7;return base*2.0;}
 
   // ═══ COMMUNITY LAYOUT — arrange communities as zones in the galaxy ═══
   function buildCommCenters(){
@@ -259,7 +259,7 @@
   function buildParticles(){
     const nodes=NX.nodes.filter(n=>!n.is_private),cx=W/2,cy=H/2;
     const ARMS=4,galaxyR=getGalaxyR();
-    const scatterMult=nodes.length>800?35:nodes.length>400?25:18;
+    const scatterMult=nodes.length>800?45:nodes.length>400?30:18;
     const hasCommunities=nodes.some(n=>n.community_id!=null);
     const existingIds=new Set(state.particles.map(p=>p.id));
 
@@ -278,11 +278,12 @@
         // First pass: use buildCommCenters after particles exist
         // For now, spread communities around galaxy using their ID as angle
         const commAngle=(cid*2.399+0.7)*Math.PI; // Golden angle spread
-        const commRing=0.25+((cid%5)/5)*0.5;
+        const commRing=0.3+((cid%7)/7)*0.55;
         const commCx=cx+Math.cos(commAngle)*galaxyR*commRing;
         const commCy=cy+Math.sin(commAngle)*galaxyR*commRing;
-        // Scatter within community zone
-        const spread=Math.max(30,Math.sqrt(nodes.filter(nn=>nn.community_id===cid).length)*8);
+        // Scatter within community zone — wider spread
+        const commSize=nodes.filter(nn=>nn.community_id===cid).length;
+        const spread=Math.max(50,Math.sqrt(commSize)*12);
         const a=Math.random()*Math.PI*2;
         const r=Math.random()*spread;
         px=commCx+Math.cos(a)*r;
@@ -469,51 +470,66 @@
         });
       }
 
-      // Draw zone backgrounds — gold accretion glow, black hole aesthetic
-      Object.entries(centers).forEach(([cid,cc])=>{
+      // Draw zone backgrounds — only significant communities (top 15 by size)
+      const sortedZones=Object.entries(centers)
+        .filter(([,cc])=>cc.count>=5)
+        .sort((a,b)=>b[1].count-a[1].count)
+        .slice(0,15);
+
+      sortedZones.forEach(([cid,cc])=>{
         const zoneR=cc.r*1.5;
         const inRoom=state.activeRoom!=null;
         const isThisRoom=state.activeRoom==cid;
-        const zoneAlpha=inRoom?(isThisRoom?0.035:0.005):0.012;
+        const zoneAlpha=inRoom?(isThisRoom?0.035:0.003):0.008;
 
         const grad=ctx.createRadialGradient(cc.x,cc.y,zoneR*0.1,cc.x,cc.y,zoneR);
-        grad.addColorStop(0,`rgba(212,182,138,${zoneAlpha*1.5})`);
-        grad.addColorStop(0.4,`rgba(180,150,100,${zoneAlpha})`);
-        grad.addColorStop(0.8,`rgba(140,110,60,${zoneAlpha*0.3})`);
+        grad.addColorStop(0,`rgba(212,182,138,${zoneAlpha*1.2})`);
+        grad.addColorStop(0.5,`rgba(180,150,100,${zoneAlpha*0.5})`);
         grad.addColorStop(1,'rgba(100,70,30,0)');
         ctx.fillStyle=grad;
         ctx.beginPath();ctx.arc(cc.x,cc.y,zoneR,0,Math.PI*2);ctx.fill();
 
-        // Accretion ring — thin gold orbit line
-        ctx.beginPath();ctx.arc(cc.x,cc.y,zoneR*0.7,0,Math.PI*2);
-        ctx.strokeStyle=`rgba(212,182,138,${inRoom?(isThisRoom?0.08:0.015):0.025})`;
-        ctx.lineWidth=0.5;ctx.stroke();
-
-        // Zone label — gold on dark
-        if(t.scale>0.4||!inRoom){
-          const labelAlpha=inRoom?(isThisRoom?0.5:0.08):0.2;
-          const labelSize=Math.max(8,Math.min(11,cc.r*0.12));
-          ctx.font=`400 ${labelSize}px "DM Sans","Outfit",sans-serif`;
-          ctx.textAlign='center';
-          const lbl=(cc.label||'').replace(/^[^:]+:\s*/,'');
-          if(dk){
-            ctx.fillStyle=`rgba(0,0,0,${labelAlpha*0.4})`;ctx.fillText(lbl,cc.x+1,cc.y+cc.r*0.85+1);
-            ctx.fillStyle=`rgba(212,182,138,${labelAlpha})`;ctx.fillText(lbl,cc.x,cc.y+cc.r*0.85);
-          }else{
-            ctx.fillStyle=`rgba(255,255,255,${labelAlpha*0.5})`;ctx.fillText(lbl,cc.x+1,cc.y+cc.r*0.85+1);
-            ctx.fillStyle=`rgba(120,95,50,${labelAlpha})`;ctx.fillText(lbl,cc.x,cc.y+cc.r*0.85);
-          }
+        // Accretion ring — only for rooms with 20+ nodes
+        if(cc.count>=20){
+          ctx.beginPath();ctx.arc(cc.x,cc.y,zoneR*0.7,0,Math.PI*2);
+          ctx.strokeStyle=`rgba(212,182,138,${inRoom?(isThisRoom?0.06:0.01):0.015})`;
+          ctx.lineWidth=0.5;ctx.stroke();
         }
       });
 
-      // ═══ BRIDGE LINES — gold threads between communities ═══
+      // Zone labels — only top 8, only at reasonable zoom
+      if(t.scale>0.3){
+        const labelZones=sortedZones.slice(0,8);
+        labelZones.forEach(([cid,cc])=>{
+          const inRoom=state.activeRoom!=null;
+          const isThisRoom=state.activeRoom==cid;
+          const labelAlpha=inRoom?(isThisRoom?0.6:0.05):0.25;
+          // Scale label size with community size
+          const labelSize=Math.max(9,Math.min(14,cc.count*0.15));
+          ctx.font=`500 ${labelSize}px "DM Sans","Outfit",sans-serif`;
+          ctx.textAlign='center';
+          const lbl=(cc.label||'').replace(/^[^:]+:\s*/,'').slice(0,20);
+          if(dk){
+            ctx.fillStyle=`rgba(0,0,0,${labelAlpha*0.3})`;ctx.fillText(lbl,cc.x+1,cc.y+cc.r*0.85+1);
+            ctx.fillStyle=`rgba(212,182,138,${labelAlpha})`;ctx.fillText(lbl,cc.x,cc.y+cc.r*0.85);
+          }else{
+            ctx.fillStyle=`rgba(255,255,255,${labelAlpha*0.4})`;ctx.fillText(lbl,cc.x+1,cc.y+cc.r*0.85+1);
+            ctx.fillStyle=`rgba(120,95,50,${labelAlpha})`;ctx.fillText(lbl,cc.x,cc.y+cc.r*0.85);
+          }
+        });
+      }
+
+      // ═══ BRIDGE LINES — gold threads between significant communities only ═══
       if(!state.activeRoom){
+        const sigComms=new Set(sortedZones.map(([cid])=>cid));
         const drawnBridges=new Set();
         P.forEach(p=>{
           if(p.commRole!=='bridge')return;
+          if(!sigComms.has(String(p.commId)))return;
           (p.links||[]).forEach(lid=>{
             const b=state.linkMap[lid];
             if(!b||b.commId===p.commId)return;
+            if(!sigComms.has(String(b.commId)))return;
             const key=p.commId<b.commId?`${p.commId}-${b.commId}`:`${b.commId}-${p.commId}`;
             if(drawnBridges.has(key))return;
             drawnBridges.add(key);
@@ -608,18 +624,37 @@
       for(let b=0;b<burstCount;b++)spawnNebula(fx,fy,audioEnergy*0.4);
     }
 
-    // ═══ NODE DOTS — category colored ═══
+    // ═══ NODE DOTS — LOD + visual hierarchy ═══
     const DOT=getDOT();
+    const currentScale=t.scale;
+    // LOD: at overview zoom, skip peripheral nodes to reduce clutter
+    const showAll=currentScale>0.7||state.activeRoom!=null;
+    let skipCounter=0;
+
     for(let i=0;i<P.length;i++){
       const a=P[i];if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
       const isHit=state.searchHits.has(a.id)||state.activatedNodes.has(a.id);
       const isActive=state.activeNode&&state.activeNode.id===a.id;
       const isFrozen=state.frozenNode&&state.frozenNode.id===a.id;
       const isHover=state.hoverNode&&state.hoverNode.id===a.id;
+
+      // LOD culling: at overview, only show god/bridge + every Nth peripheral
+      if(!showAll&&!isHit&&!isActive&&!isFrozen&&!isHover){
+        if(a.commRole==='peripheral'){
+          skipCounter++;
+          if(currentScale<0.4){if(skipCounter%5!==0)continue;} // Show 20%
+          else if(currentScale<0.6){if(skipCounter%3!==0)continue;} // Show 33%
+          else{if(skipCounter%2!==0)continue;} // Show 50%
+        }
+      }
+
       const dim=(isA&&!isHit&&!isActive)||a.filtered;
       const pulse=0.85+0.15*Math.sin(time*1.3+a.id*0.9);
       const musicPulse=isPlaying?1+audioEnergy*0.3:1;
       const cc=getCC(a.cat);
+
+      // Size multiplier based on community role
+      const roleMult=a.commRole==='god'?2.5:a.commRole==='bridge'?1.8:a.commRole==='core'?1.3:1.0;
 
       // Slow glow ramp-up when hit, slow fade when not
       if(!a.searchGlow)a.searchGlow=0;
@@ -647,13 +682,13 @@
         drawLabel(a.node.name,a.x,a.y-r-6,0.9);
       }else if(isHit||a.searchGlow>0.05){
         const g=a.searchGlow;
-        const r=(DOT+g*(DOT_HIT-DOT))*pulse*musicPulse;
+        const r=(DOT*roleMult+g*(DOT_HIT-DOT))*pulse*musicPulse;
         ctx.beginPath();ctx.arc(a.x,a.y,r*2.5,0,Math.PI*2);ctx.fillStyle=`rgba(${cc[0]},${cc[1]},${cc[2]},${0.08*g})`;ctx.fill();
         ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fillStyle=`rgba(255,248,235,${0.5+g*0.5})`;ctx.fill();
         if(g>0.3){ctx.strokeStyle=`rgba(${cc[0]},${cc[1]},${cc[2]},${g*0.6})`;ctx.lineWidth=1.2*g;ctx.stroke();}
         if(g>0.4)drawLabel(a.node.name.slice(0,25),a.x,a.y-r-5,g*0.9);
       }else if(isHover){
-        const r=DOT*1.8;
+        const r=DOT*roleMult*1.8;
         ctx.beginPath();ctx.arc(a.x,a.y,r*2,0,Math.PI*2);ctx.fillStyle=`rgba(${cc[0]},${cc[1]},${cc[2]},.06)`;ctx.fill();
         ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fillStyle=`rgba(${cc[0]},${cc[1]},${cc[2]},.85)`;ctx.fill();
         ctx.strokeStyle=`rgba(212,182,138,.4)`;ctx.lineWidth=1;ctx.stroke();
@@ -667,7 +702,7 @@
           const birthAlpha=Math.min(birthT*4,1);
           const flashAlpha=birthT<0.4?(1-birthT/0.4)*0.8:0;
           const ringExpand=birthT<0.5?birthT/0.5:1;
-          const r=DOT*pop*musicPulse;
+          const r=DOT*roleMult*pop*musicPulse;
           if(flashAlpha>0.01){
             ctx.beginPath();ctx.arc(a.x,a.y,r*10*ringExpand,0,Math.PI*2);
             ctx.fillStyle=`rgba(${cc[0]},${cc[1]},${cc[2]},${flashAlpha*0.03})`;ctx.fill();
@@ -683,8 +718,8 @@
           if(a.birthAge===30){for(let b=0;b<6;b++)spawnNebula(a.x,a.y,0.3);}
         }else{
           a.isBorn=false;
-          const r=DOT*pulse*musicPulse;
-          const alpha=dim?0.12:0.65;
+          const r=DOT*roleMult*pulse*musicPulse;
+          const alpha=dim?0.12:(a.commRole==='god'?0.9:a.commRole==='bridge'?0.8:0.55);
           const glow=a.glowAlpha||0;
           if(glow>0.05){
             ctx.beginPath();ctx.arc(a.x,a.y,r*4,0,Math.PI*2);
