@@ -249,6 +249,8 @@ body::-webkit-scrollbar{display:none}
 .chat-action-btn{display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:8px;border:1px solid rgba(212,164,78,.2);background:rgba(212,164,78,.06);color:var(--text);font-size:12px;cursor:pointer;font-family:inherit;transition:all .15s;text-align:left}
 .chat-action-btn:active{background:rgba(212,164,78,.15);transform:scale(.98)}
 .chat-action-btn:disabled{opacity:.5;cursor:default}
+/* Reasoning indicators */
+.chat-tool-note{font-size:9px;color:var(--faint);letter-spacing:.5px;padding:2px 12px;opacity:.7}
 /* Morning Brief */
 .morning-brief{position:absolute;top:82px;left:12px;right:12px;z-index:11;background:var(--elevated);border:1px solid rgba(212,164,78,.15);border-radius:12px;padding:14px 16px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);pointer-events:auto}
 .brief-header{font-size:11px;letter-spacing:1.5px;color:var(--accent);font-weight:600;margin-bottom:6px}
