@@ -480,6 +480,286 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     }else addB('Cleaning module not loaded.','ai');
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // REASONING ENGINE — Tier 1: Query Decomposition + Tier 2: ReAct
+  // ═══════════════════════════════════════════════════════════════
+
+  // Detect if a question is "complex" enough to warrant decomposition
+  function isComplex(q){
+    if(q.split(/\s+/).length<4)return false; // Too short to decompose
+    // Multi-entity: mentions multiple categories or asks about relationships
+    const complexSignals=[
+      /\b(and|versus|vs|compared|between|relationship|connect|relate)\b/i,
+      /\b(ready|prepare|status|overview|situation|everything|full picture)\b/i,
+      /\b(should|recommend|decide|compare|which|best|option)\b/i,
+      /\b(history|timeline|over time|pattern|trend|usually|always)\b/i,
+      /\b(all|every|complete|whole|across|both)\b/i,
+      /\?.*\?/, // Multiple question marks
+      /\b(who|what|when|where|why|how)\b.*\b(who|what|when|where|why|how)\b/i, // Multiple W-questions
+    ];
+    return complexSignals.some(rx=>rx.test(q));
+  }
+
+  // TIER 1: Decompose a complex question into sub-questions
+  async function decomposeQuery(q){
+    try{
+      const resp=await NX.askClaude(
+        'You decompose complex questions into simpler sub-questions for a knowledge graph search. Return ONLY a JSON array of 2-4 short sub-questions. Each sub-question should target a different aspect of the original question. No explanation, no markdown. Example: ["Who services the walk-in?","Are there open tickets for the walk-in?","When was the last maintenance visit?"]',
+        [{role:'user',content:q}],
+        150
+      );
+      let clean=resp.replace(/```json|```/g,'').trim();
+      const s=clean.indexOf('['),e=clean.lastIndexOf(']');
+      if(s===-1||e<=s)return[q];
+      const parsed=JSON.parse(clean.slice(s,e+1));
+      if(Array.isArray(parsed)&&parsed.length>=2)return parsed.slice(0,4);
+      return[q];
+    }catch(e){
+      console.warn('[Reasoning] Decomposition failed:',e);
+      return[q];
+    }
+  }
+
+  // Enhanced getCtx that can merge results from multiple sub-queries
+  async function getCtxMulti(subQueries){
+    const seenIds=new Set();
+    const allNodes=[];
+    const allLinked=[];
+
+    for(const sq of subQueries){
+      // Run scoring for each sub-query
+      const w=sq.toLowerCase().split(/\s+/).filter(x=>x.length>2);
+      const sqLow=sq.toLowerCase();
+      const aliases=NX._aliases||{};
+      const now=Date.now();
+
+      const expandedTerms=new Set(w);
+      w.forEach(word=>{
+        Object.entries(aliases).forEach(([alias,canonical])=>{
+          if(alias.toLowerCase().includes(word)||word.includes(alias.toLowerCase())){
+            canonical.toLowerCase().split(/\s+/).forEach(t=>expandedTerms.add(t));
+          }
+        });
+      });
+      const allTerms=[...expandedTerms];
+
+      const scored=NX.nodes.filter(n=>!n.is_private).map(n=>{
+        let s=0;
+        const name=(n.name||'').toLowerCase();
+        const notes=(n.notes||'').toLowerCase();
+        const tags=(n.tags||[]).join(' ').toLowerCase();
+        const cat=(n.category||'').toLowerCase();
+
+        if(name===sqLow)s+=100;
+        else if(name.includes(sqLow))s+=40;
+        else if(sqLow.includes(name)&&name.length>3)s+=30;
+
+        allTerms.forEach(x=>{
+          if(name.includes(x))s+=12;
+          else if(tags.includes(x))s+=6;
+          else if(cat.includes(x))s+=4;
+          else if(notes.includes(x))s+=2;
+        });
+
+        // Temporal decay
+        const relDate=n.last_relevant_date||null;
+        const sources=n.source_emails||[];
+        let newestMs=0;
+        if(relDate)newestMs=new Date(relDate).getTime();
+        else if(sources.length){newestMs=sources.reduce((max,src)=>{const d=new Date(src.date||0).getTime();return d>max?d:max;},0);}
+        if(newestMs>0){
+          const ageInDays=(now-newestMs)/86400000;
+          if(ageInDays<14)s+=4;else if(ageInDays<30)s+=2;else if(ageInDays>90)s-=Math.min(4,Math.floor((ageInDays-90)/60));
+        }
+        if(n.community_role==='god')s+=3;
+        if(n.community_role==='bridge')s+=2;
+        return{node:n,score:s};
+      }).filter(s=>s.score>0).sort((a,b)=>b.score-a.score);
+
+      // Take top results, skip already-seen nodes
+      scored.slice(0,6).forEach(s=>{
+        if(!seenIds.has(s.node.id)){
+          seenIds.add(s.node.id);
+          allNodes.push(s.node);
+        }
+      });
+    }
+
+    // Multi-hop from collected nodes (same as getCtx)
+    const hopNodes=[];
+    allNodes.slice(0,6).forEach(n=>{
+      const conf=n.link_confidence||{};
+      (n.links||[]).forEach(lid=>{
+        if(seenIds.has(lid))return;
+        const linked=NX.nodes.find(nn=>nn.id===lid);
+        if(!linked||linked.is_private)return;
+        seenIds.add(lid);
+        hopNodes.push(linked);
+      });
+    });
+
+    return[...allNodes,...hopNodes.slice(0,6)];
+  }
+
+  // ═══ TIER 2: ReAct — Graph Tools the AI can call ═══
+  const GRAPH_TOOLS=[
+    {name:'search_nodes',description:'Search the knowledge graph for nodes matching a query. Returns name, category, notes, and links.',params:{query:'string'}},
+    {name:'get_node_detail',description:'Get full details of a specific node by name (exact or partial match).',params:{name:'string'}},
+    {name:'check_patterns',description:'Check for predicted recurring patterns for an entity.',params:{entity:'string'}},
+    {name:'count_tickets',description:'Count open tickets, optionally filtered by location.',params:{status:'string',location:'string (optional)'}},
+    {name:'get_recent_events',description:'Get contractor events from the last N days.',params:{days:'number'}},
+    {name:'get_community',description:'Get the community summary and members for a node.',params:{node_name:'string'}},
+    {name:'reverse_lookup',description:'Find all nodes that link TO a given node (who references it?).',params:{node_name:'string'}},
+  ];
+
+  // Execute a graph tool call against real data
+  async function executeGraphTool(toolName,params){
+    try{
+      switch(toolName){
+        case 'search_nodes':{
+          const q=(params.query||'').toLowerCase();
+          const results=NX.nodes.filter(n=>!n.is_private&&(
+            (n.name||'').toLowerCase().includes(q)||
+            (n.notes||'').toLowerCase().includes(q)||
+            (n.tags||[]).some(t=>t.toLowerCase().includes(q))||
+            (n.category||'').toLowerCase().includes(q)
+          )).slice(0,8);
+          return results.map(n=>`[${n.category}] ${n.name}: ${(n.notes||'').slice(0,120)} (links: ${(n.links||[]).length}, role: ${n.community_role||'peripheral'})`).join('\n')||'No nodes found matching "'+params.query+'"';
+        }
+        case 'get_node_detail':{
+          const q=(params.name||'').toLowerCase();
+          const node=NX.nodes.find(n=>(n.name||'').toLowerCase()===q)||
+                     NX.nodes.find(n=>(n.name||'').toLowerCase().includes(q));
+          if(!node)return'Node not found: "'+params.name+'"';
+          const linked=(node.links||[]).map(lid=>{const ln=NX.nodes.find(n=>n.id===lid);return ln?ln.name:null;}).filter(Boolean);
+          const age=node.last_relevant_date?Math.floor((Date.now()-new Date(node.last_relevant_date).getTime())/86400000)+'d ago':'unknown age';
+          return`${node.name} (${node.category})\nNotes: ${node.notes||'none'}\nTags: ${(node.tags||[]).join(', ')}\nLinks to: ${linked.join(', ')||'none'}\nCommunity: ${node.community_label||'none'} (role: ${node.community_role||'peripheral'})\nData age: ${age}`;
+        }
+        case 'check_patterns':{
+          const entity=(params.entity||'').toLowerCase();
+          const{data}=await NX.sb.from('patterns').select('*').eq('active',true);
+          const matches=(data||[]).filter(p=>(p.entity_name||'').toLowerCase().includes(entity));
+          if(!matches.length)return'No patterns found for "'+params.entity+'"';
+          return matches.map(p=>`${p.entity_name}: ${p.pattern_type}, every ~${p.interval_days} days, next predicted: ${p.next_predicted}, confidence: ${Math.round(p.confidence*100)}%`).join('\n');
+        }
+        case 'count_tickets':{
+          let query=NX.sb.from('tickets').select('title,status,location,created_at');
+          if(params.status)query=query.eq('status',params.status);
+          if(params.location)query=query.ilike('location','%'+params.location+'%');
+          const{data}=await query.limit(20);
+          if(!data||!data.length)return'No tickets found';
+          return`${data.length} ticket(s):\n`+data.map(t=>{
+            const age=Math.floor((Date.now()-new Date(t.created_at).getTime())/86400000);
+            return`- ${t.title} [${t.status}] @ ${t.location||'?'} (${age}d old)`;
+          }).join('\n');
+        }
+        case 'get_recent_events':{
+          const days=parseInt(params.days)||14;
+          const since=new Date(Date.now()-days*86400000).toISOString().split('T')[0];
+          const{data}=await NX.sb.from('contractor_events').select('*').gte('event_date',since).order('event_date',{ascending:false}).limit(15);
+          if(!data||!data.length)return'No contractor events in the last '+days+' days';
+          return data.map(e=>`${e.event_date}: ${e.contractor_name} @ ${e.location||'?'} — ${(e.description||'').slice(0,80)} [${e.status||'pending'}]`).join('\n');
+        }
+        case 'get_community':{
+          const q=(params.node_name||'').toLowerCase();
+          const node=NX.nodes.find(n=>(n.name||'').toLowerCase().includes(q));
+          if(!node||!node.community_id)return'No community found for "'+params.node_name+'"';
+          const{data:comm}=await NX.sb.from('communities').select('*').eq('community_id',node.community_id).single();
+          const members=NX.nodes.filter(n=>n.community_id===node.community_id).slice(0,10);
+          let result=`Community: ${comm?.label||'Zone '+node.community_id}\nSummary: ${comm?.summary||'no summary yet'}\nMembers (${members.length}): ${members.map(m=>m.name).join(', ')}`;
+          if(comm?.bridge_node_ids?.length){
+            const bridges=NX.nodes.filter(n=>comm.bridge_node_ids.includes(String(n.id)));
+            result+=`\nBridges to other zones: ${bridges.map(b=>b.name).join(', ')}`;
+          }
+          return result;
+        }
+        case 'reverse_lookup':{
+          const q=(params.node_name||'').toLowerCase();
+          const target=NX.nodes.find(n=>(n.name||'').toLowerCase().includes(q));
+          if(!target)return'Node not found: "'+params.node_name+'"';
+          const referrers=NX.nodes.filter(n=>n.links&&n.links.includes(target.id));
+          if(!referrers.length)return'No nodes link to "'+target.name+'"';
+          return`${referrers.length} node(s) reference ${target.name}:\n`+referrers.map(r=>`- ${r.name} (${r.category})`).join('\n');
+        }
+        default:return'Unknown tool: '+toolName;
+      }
+    }catch(e){return'Tool error: '+e.message;}
+  }
+
+  // Build the tool description for the AI system prompt
+  function getToolPrompt(){
+    return`\n\nGRAPH TOOLS (you can use these to investigate before answering):
+To use a tool, respond with ONLY a JSON object: {"tool":"tool_name","params":{"key":"value"}}
+After receiving tool results, you can use another tool or give your final answer.
+You have up to 3 tool uses per question. Use them when you need more information.
+Available tools:
+${GRAPH_TOOLS.map(t=>`- ${t.name}: ${t.description}`).join('\n')}
+
+IMPORTANT: Only use tools when you genuinely need more information. For simple questions, answer directly.
+When you're ready to give your final answer, just respond normally (no JSON, no tool call).`;
+  }
+
+  // The ReAct loop — alternate between AI thinking and tool execution
+  async function reactLoop(question, initialCtx, persona, maxSteps=3){
+    let ctx=initialCtx;
+    let toolHistory=[];
+    let finalAnswer=null;
+
+    const msgs=chatHistory.slice(-4).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
+    msgs.push({role:'user',content:question});
+
+    for(let step=0;step<maxSteps;step++){
+      // Build system prompt with context + tool descriptions + tool history
+      let systemPrompt=persona+'\n\n'+ctx+getToolPrompt();
+      if(toolHistory.length){
+        systemPrompt+='\n\nTOOL RESULTS FROM YOUR PREVIOUS CALLS:\n'+toolHistory.map((h,i)=>`[Call ${i+1}] ${h.tool}(${JSON.stringify(h.params)}) → ${h.result}`).join('\n\n');
+      }
+
+      const resp=await NX.askClaude(systemPrompt,msgs,400,false);
+      const trimmed=(resp||'').trim();
+
+      // Check if the AI wants to use a tool
+      let toolCall=null;
+      try{
+        // Look for JSON tool call in the response
+        const jsonStart=trimmed.indexOf('{');
+        const jsonEnd=trimmed.lastIndexOf('}');
+        if(jsonStart!==-1&&jsonEnd>jsonStart){
+          const jsonStr=trimmed.slice(jsonStart,jsonEnd+1);
+          const parsed=JSON.parse(jsonStr);
+          if(parsed.tool&&GRAPH_TOOLS.some(t=>t.name===parsed.tool)){
+            toolCall=parsed;
+          }
+        }
+      }catch(e){/* Not JSON — it's a final answer */}
+
+      if(toolCall){
+        // Execute the tool
+        const result=await executeGraphTool(toolCall.tool,toolCall.params||{});
+        toolHistory.push({tool:toolCall.tool,params:toolCall.params||{},result:result.slice(0,800)});
+
+        // Update the thinking indicator
+        const thinkEl=document.querySelector('.chat-thinking');
+        if(thinkEl){
+          const toolLabel=toolCall.tool.replace(/_/g,' ');
+          thinkEl.textContent=`🧠 Investigating: ${toolLabel}...`;
+        }
+      }else{
+        // No tool call — this is the final answer
+        finalAnswer=trimmed;
+        break;
+      }
+    }
+
+    // If we exhausted steps without a final answer, force one
+    if(!finalAnswer){
+      const systemPrompt=persona+'\n\n'+ctx+'\n\nTOOL RESULTS:\n'+toolHistory.map((h,i)=>`[${h.tool}] ${h.result}`).join('\n\n')+'\n\nNow give your final answer based on everything you found. No more tool calls.';
+      finalAnswer=await NX.askClaude(systemPrompt,msgs,400,false);
+    }
+
+    return{answer:finalAnswer,toolsUsed:toolHistory};
+  }
+
   function setupChat(){
     const i=document.getElementById('chatInput'),s=document.getElementById('chatSend'),hud=document.getElementById('chatHud'),dim=document.getElementById('brainDim'),r=document.getElementById('resetBtn'),chev=document.getElementById('hudChevron');
     // Handle toggles chat
@@ -885,13 +1165,74 @@ Keep it casual and warm. No markdown formatting.`;
     const th=addB('🔍 '+tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'...','ai thinking');
     let sd=0;let searchDots=setInterval(()=>{sd=(sd+1)%4;th.textContent='🔍 '+tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'.'.repeat(sd);},400);
     try{
-      const ctx=await getCtx(q);
-      const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
-      const ans=await NX.askClaude(getPERSONA()+'\n\n'+ctx,msgs,300,false);
+      const complex=isComplex(q);
+      let ctx;
+
+      if(complex){
+        // ═══ TIER 1: Query Decomposition ═══
+        th.textContent='🧠 Analyzing question...';
+        const subQueries=await decomposeQuery(q);
+        if(subQueries.length>1){
+          th.textContent=`🔍 Searching ${subQueries.length} angles...`;
+        }
+        // Multi-query retrieval — searches from each sub-question angle
+        const multiNodes=await getCtxMulti(subQueries);
+        // Build context string from multi-query results
+        const det=multiNodes.map(n=>{
+          const src=(n.source_emails||[]).slice(0,2).map(s=>`[${s.date||'?'} from ${s.from||'?'}] ${(s.subject||'').slice(0,40)}`).join('; ');
+          return`[${n.category}] ${n.name}: ${n.notes||''}${src?'\n  Sources: '+src:''}`;
+        }).join('\n');
+        const idx=NX.nodes.filter(n=>!n.is_private).map(n=>`${n.name} (${n.category})`).join(', ');
+        ctx=`RELEVANT NODES (from ${subQueries.length} search angles):\n${det}\n\nFULL INDEX (${NX.nodes.length} nodes):\n${idx}`;
+        // Append community summaries, patterns, brief
+        try{
+          const commIds=[...new Set(multiNodes.map(n=>n.community_id).filter(Boolean))];
+          if(commIds.length){
+            const{data:comms}=await NX.sb.from('communities').select('community_id,label,summary').in('community_id',commIds);
+            const withSummary=(comms||[]).filter(c=>c.summary);
+            if(withSummary.length)ctx+='\n\nCOMMUNITY INTELLIGENCE:\n'+withSummary.map(c=>`${c.label}: ${c.summary}`).join('\n');
+          }
+        }catch(e){}
+        try{
+          const weekAhead=new Date(Date.now()+7*86400000).toISOString().split('T')[0];
+          const{data:pats}=await NX.sb.from('patterns').select('*').lte('next_predicted',weekAhead).eq('active',true).limit(5);
+          if(pats?.length)ctx+='\n\nPREDICTED PATTERNS:\n'+pats.map(p=>`${p.entity_name}: ${p.pattern_type} (next: ${p.next_predicted}, ~${p.interval_days}d, ${Math.round(p.confidence*100)}%)`).join('\n');
+        }catch(e){}
+        try{
+          const todayStr=new Date().toISOString().split('T')[0];
+          const{data:brief}=await NX.sb.from('briefs').select('brief_text').eq('brief_date',todayStr).limit(1);
+          if(brief?.length&&brief[0].brief_text)ctx+='\n\nTODAY\'S BRIEF:\n'+brief[0].brief_text;
+        }catch(e){}
+      }else{
+        // Simple question — standard single-pass retrieval
+        ctx=await getCtx(q);
+      }
+
+      // ═══ TIER 2: ReAct Loop for complex questions, single-pass for simple ═══
+      let cleanAns,confidence='';
+      const persona=getPERSONA();
+
+      if(complex){
+        th.textContent='🧠 Reasoning...';
+        const{answer,toolsUsed}=await reactLoop(q,ctx,persona,3);
+        cleanAns=(answer||'No response.');
+        // Show tool usage indicator if tools were used
+        if(toolsUsed.length){
+          const toolNames=[...new Set(toolsUsed.map(t=>t.tool.replace(/_/g,' ')))];
+          const toolNote=document.createElement('div');
+          toolNote.className='chat-tool-note';
+          toolNote.textContent=`investigated: ${toolNames.join(', ')}`;
+          th.parentElement?.insertBefore(toolNote,th);
+        }
+      }else{
+        // Simple single-pass
+        const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
+        cleanAns=await NX.askClaude(persona+'\n\n'+ctx,msgs,300,false)||'No response.';
+      }
+
       clearInterval(searchDots);
       // Parse confidence tag
-      let confidence='';
-      let cleanAns=(ans||'No response.').replace(/\[confidence:(high|medium|low)\]/i,(m,level)=>{confidence=level.toLowerCase();return '';}).trim();
+      cleanAns=cleanAns.replace(/\[confidence:(high|medium|low)\]/i,(m,level)=>{confidence=level.toLowerCase();return '';}).trim();
       // Strip markdown formatting — no asterisks, bullets, headers, or symbols
       cleanAns=cleanAns
         .replace(/\*\*([^*]+)\*\*/g,'$1')   // **bold**
