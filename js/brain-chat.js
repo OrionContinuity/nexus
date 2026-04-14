@@ -5,33 +5,58 @@
   let chatHistory=[],voiceOn=true,recognition=null,chatActive=false;
   function tt(k){return NX.i18n?NX.i18n.t(k):k;}
 
-  const PERSONA_BASE=`You are NEXUS, the personal assistant for Suerte, Este, and Bar Toti in Austin. You're calm, warm, and a little flirty. Not bubbly. Not excited. Think chill confidence — you know your stuff and you don't need to prove it.
+  // ═══ SELF-OPTIMIZATION (Layer 6) — Meta-signal tracking ═══
+  let lastAIResponse='',lastUserQuery='',consecutiveFollowUps=0;
+
+  async function logMeta(signalType, data){
+    try{
+      await NX.sb.from('meta_signals').insert({signal_type:signalType,signal_data:data});
+    }catch(e){}
+  }
+
+  function trackChatQuality(query, response, confidence){
+    // Detect follow-up (user asking again = previous answer was insufficient)
+    const isFollowUp=/^(what|but|no|wait|actually|I mean|that's not|can you|more|elaborate|explain)/i.test(query);
+    if(isFollowUp&&lastAIResponse){
+      consecutiveFollowUps++;
+      logMeta('chat_quality',{type:'follow_up',count:consecutiveFollowUps,prev_query:lastUserQuery?.slice(0,100),query:query.slice(0,100),confidence});
+    }else{
+      if(lastUserQuery&&consecutiveFollowUps===0){
+        // User moved on without follow-up = good answer
+        logMeta('chat_quality',{type:'satisfied',query:lastUserQuery?.slice(0,100),confidence});
+      }
+      consecutiveFollowUps=0;
+    }
+    lastUserQuery=query;lastAIResponse=response;
+  }
+
+  function trackNodeAccess(nodeId, nodeName, source){
+    logMeta('node_access',{node_id:nodeId,name:nodeName?.slice(0,50),source});
+  }
+
+  const PERSONA_BASE=`You are NEXUS — a personal intelligence system. Calm, warm, a little dry. Not bubbly, not excited. Chill confidence — you know your stuff and you don't need to prove it.
 
 HOW YOU TALK:
 - Calm and short. 1-2 sentences max for simple questions. 3 tops for complex stuff.
-- Warm but never over-the-top. A casual "nice" or "got it, love" is fine. Never multiple exclamation marks or enthusiasm.
+- Warm but never over-the-top. A casual "nice" or "got it" is fine. Never multiple exclamation marks.
 - Never use asterisks, bold, bullets, numbered lists, or markdown. Plain text only.
 - Never start with "Great question" or "I'd be happy to" or "Absolutely!" — just answer.
 - Use contractions. Keep it natural.
 - Never say "based on my data" or "according to my records." You just know.
-- Never use anyone's name.
 - Be brief. If the answer is one sentence, give one sentence. Don't pad.
 
 YOUR ROLE:
-- You're a personal assistant, not just an ops manager. You remind, update, and keep things organized.
-- Proactively mention upcoming deadlines, contractor visits, expiring items.
-- When asked about schedules, give times and details confidently.
+- You're a personal intelligence system. You store knowledge, find connections, predict patterns, and keep things organized.
+- You learn from every piece of information fed to you — emails, notes, conversations — and build a knowledge graph of how things connect.
+- Proactively mention upcoming deadlines, scheduled events, expiring items, and predicted patterns.
+- When asked about people, places, equipment, or projects, trace connections through the knowledge graph.
 - If something needs attention, flag it with a little urgency but keep it light.
-
-IDENTITY:
-- Alfredo "Ders" Ortiz runs all three spots
-- You remember past conversations and reference them naturally
 
 KNOWLEDGE RULES:
 - If info is older than 60 days, mention it casually: "last I heard back in March, might wanna double check that"
 - If two sources disagree, mention both and which is newer
 - Never make up phone numbers, prices, part numbers, or dates
-- For equipment, include model numbers and part numbers when you have them
+- Include specific details (model numbers, account numbers, addresses) when you have them
 - When MEMORY PALACE data is available, follow connections between zones — don't just answer from one zone, trace how things connect
 - Mention bridge connections when they add useful context: "that vendor also connects to your equipment through..."
 - If a node is marked [central node], it's the most important entity in its zone
@@ -39,23 +64,21 @@ KNOWLEDGE RULES:
 - Verified links (extracted) are more reliable than inferred ones
 - "deep dive" means walk the full palace — explore every connected zone and bridge
 
+INTELLIGENCE SYSTEMS (use these proactively):
+- PREDICTED PATTERNS: You can see recurring patterns. If relevant, mention naturally: "that usually happens every 6 weeks, so the next one should be around May 20"
+- COMMUNITY INTELLIGENCE: When you see community summaries, use them for connected answers. Tell the story of how things relate, don't just list facts
+- TODAY'S BRIEF: If a morning brief is in your context, reference it when relevant
+- COMPOUND ACTIONS: When someone reports a problem, think about ALL actions needed. Offer to create a ticket, look up the right contact, add a task
+- STALENESS: If the data is old (check dates), say so. "I have info from February but things might have changed"
+
 CONFIDENCE:
 - End every response with: [confidence:high] [confidence:medium] or [confidence:low]
 
-RESTAURANT GLOSSARY:
-{GLOSSARY}
-
-EQUIPMENT SOURCING:
-- Parts Town for branded parts like Hoshizaki and True
-- WebstaurantStore for general supplies
-- Amazon for commodity stuff
-- Grainger for industrial
-
 COMMANDS (mention when relevant):
 - "look up [topic]" for web search
-- "remember [name] - [details]" to save info
+- "remember [name] - [details]" to save knowledge
 - "log that [text]" for daily log
-- "report [issue]" for maintenance ticket
+- "report [issue]" for ticket
 - "add card: [task]" for the board
 
 You CANNOT search the web yourself. User must type "look up" or "investigate".`;
@@ -99,7 +122,7 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
 - Be confident. Say "yeah that's the Hoshizaki compressor" not "it appears to be related to the Hoshizaki compressor"
 - Toss in a casual compliment when they're on top of things. "Look at you" or "nice" works.
 - When something's wrong, still be direct but keep it warm: "hey heads up, the walk-in temp is off"
-- Use restaurant lingo naturally: BOH, FOH, 86'd, covers, ticket times, line, expo, walk-in
+- Use terminology that matches the knowledge in your nodes naturally
 - Bilingual — if they switch to Spanish, switch with them
 - Late night questions get shorter, softer answers
 - If they say "deep dive" go thorough
@@ -135,6 +158,85 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
     {rx:/^(?:reminders|smart reminders|what did I forget|unresolved|follow ups|what's pending)\s*(.*)$/i,type:'reminders'}
   ];
   function detectTask(q){for(const p of TASK_RX){const m=q.match(p.rx);if(m)return{type:p.type,content:m[1]};}return null;}
+
+  // ═══ COMPOUND INTENT DETECTION (Layer 5 — Agentic Actions) ═══
+  const COMPOUND_RX=[
+    /(?:broken|not working|running warm|running hot|leaking|down|malfunction|stopped)/i,
+    /(?:schedule|set up|arrange|book)\s+(?:a\s+)?(?:visit|appointment|service|repair)/i,
+    /(?:prepare|get ready|prep)\s+(?:for|before)\s+(?:inspection|health|audit|visit)/i,
+    /(?:follow up|check on|what happened|status of|update on)\s+/i,
+  ];
+  function detectCompound(q){return COMPOUND_RX.some(rx=>rx.test(q));}
+
+  async function handleCompoundAction(q,aiResponse){
+    // Ask Claude to detect actionable intents from the conversation
+    try{
+      const result=await NX.askClaude(
+        'Analyze this restaurant operations message and AI response. Identify specific actions that should be taken. Return ONLY JSON: {"actions":[{"type":"ticket|card|log|schedule","title":"short title","detail":"specifics","urgency":"high|normal|low"}]} Return empty array if no actions needed. Max 3 actions.',
+        [{role:'user',content:`USER: ${q}\nAI RESPONSE: ${aiResponse}`}],400);
+      let json=result.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
+      const s=json.indexOf('{'),e=json.lastIndexOf('}');
+      if(s===-1||e<=s)return;
+      json=json.slice(s,e+1);
+      const parsed=JSON.parse(json);
+      if(!parsed.actions||!parsed.actions.length)return;
+
+      // Present action suggestions as buttons
+      const actionsDiv=document.createElement('div');
+      actionsDiv.className='chat-actions';
+      const chainLog=[];
+
+      for(const action of parsed.actions.slice(0,3)){
+        const btn=document.createElement('button');
+        btn.className='chat-action-btn';
+        const icon=action.type==='ticket'?'⚠':action.type==='card'?'☑':action.type==='schedule'?'📅':'📝';
+        btn.textContent=`${icon} ${action.type}: ${action.title}`;
+        btn.addEventListener('click',async()=>{
+          btn.disabled=true;btn.textContent+=' ✓';
+          try{
+            if(action.type==='ticket'){
+              await NX.sb.from('tickets').insert({title:action.title,notes:action.detail,status:'open',priority:action.urgency==='high'?'urgent':'normal',reported_by:NX.currentUser?.name||'AI'});
+              chainLog.push({type:'ticket',title:action.title,result:'created'});
+            }else if(action.type==='card'){
+              await NX.sb.from('kanban_cards').insert({title:action.title,column_name:'todo',priority:action.urgency});
+              chainLog.push({type:'card',title:action.title,result:'created'});
+            }else if(action.type==='log'){
+              await NX.sb.from('daily_logs').insert({entry:action.title+' — '+action.detail});
+              chainLog.push({type:'log',title:action.title,result:'logged'});
+            }else if(action.type==='schedule'){
+              // Look up contractor from brain
+              const contractor=NX.nodes.find(n=>n.category==='contractors'&&(n.name||'').toLowerCase().includes((action.detail||'').toLowerCase().split(' ')[0]));
+              if(contractor){
+                const tomorrow=new Date(Date.now()+86400000).toISOString().split('T')[0];
+                await NX.sb.from('contractor_events').insert({contractor_name:contractor.name,event_date:tomorrow,description:action.title,status:'pending'});
+                chainLog.push({type:'schedule',title:contractor.name,result:'event created'});
+              }else{
+                await NX.sb.from('kanban_cards').insert({title:'Schedule: '+action.title,column_name:'todo'});
+                chainLog.push({type:'card',title:'Schedule: '+action.title,result:'card created (no contractor found)'});
+              }
+            }
+            NX.toast(`${action.type}: ${action.title} ✓`,'success');
+          }catch(err){NX.toast('Failed: '+err.message,'error');}
+        });
+        actionsDiv.appendChild(btn);
+      }
+
+      // Add to chat
+      const msgEl=document.createElement('div');
+      msgEl.className='chat-bubble chat-ai';
+      msgEl.textContent='Actions I can take:';
+      msgEl.appendChild(actionsDiv);
+      document.getElementById('chatMessages').appendChild(msgEl);
+      requestAnimationFrame(()=>{const c=document.getElementById('chatMessages');c.scrollTop=c.scrollHeight;});
+
+      // Log the action chain
+      if(chainLog.length){
+        try{
+          await NX.sb.from('action_chains').insert({trigger_text:q.slice(0,200),actions:chainLog,user_name:NX.currentUser?.name||'Unknown'});
+        }catch(e){}
+      }
+    }catch(e){console.log('Compound action detection failed:',e);}
+  }
   async function handleTask(task){
     if(task.type==='log'){const{error}=await NX.sb.from('daily_logs').insert({entry:task.content});return error?'Failed to log.':`Logged: "${task.content}"`;}
     if(task.type==='card'){const{error}=await NX.sb.from('kanban_cards').insert({title:task.content,column_name:'todo'});return error?'Failed.':`Card created: "${task.content}"`;}
@@ -524,22 +626,88 @@ Keep it casual and warm. No markdown formatting.`;
 
       // Location boost
       if(userLoc&&nodeLoc.includes(userLoc))s+=5;
-      // Recency boost
+      // Recency boost (access frequency)
       if(n.access_count>10)s+=2;else if(n.access_count>3)s+=1;
-      // Time decay
+      // ═══ TEMPORAL DECAY (Layer 3) — exponential decay based on data age ═══
+      const relDate=n.last_relevant_date||null;
       const sources=n.source_emails||[];
-      if(sources.length){
-        const newestDate=sources.reduce((max,src)=>{const d=new Date(src.date||0).getTime();return d>max?d:max;},0);
-        const ageInDays=(now-newestDate)/86400000;
-        if(ageInDays>180)s-=2;else if(ageInDays>90)s-=1;
+      let newestMs=0;
+      if(relDate)newestMs=new Date(relDate).getTime();
+      else if(sources.length){newestMs=sources.reduce((max,src)=>{const d=new Date(src.date||0).getTime();return d>max?d:max;},0);}
+      if(newestMs>0){
+        const ageInDays=(now-newestMs)/86400000;
+        // Exponential decay: halves every 90 days
+        const decayFactor=Math.pow(0.5,ageInDays/90);
+        // Recent items get boosted, old items get penalized
+        if(ageInDays<14)s+=4;       // Last 2 weeks: strong boost
+        else if(ageInDays<30)s+=2;  // Last month: mild boost
+        else if(ageInDays<90)s+=0;  // 1-3 months: neutral
+        else s-=Math.min(4,Math.floor((ageInDays-90)/60)); // Older: increasing penalty
+        // Also scale the total score by decay
+        s=Math.max(1,Math.round(s*Math.max(0.3,decayFactor)));
       }
+      // Bridge/god node boost (palace structure)
+      if(n.community_role==='god')s+=3;
+      if(n.community_role==='bridge')s+=2;
       return{node:n,score:s};
     }).filter(s=>s.score>0).sort((a,b)=>b.score-a.score);
 
     const rel=sc.slice(0,8).map(s=>s.node);
-    const linkedIds=new Set();
-    rel.slice(0,3).forEach(n=>{(n.links||[]).forEach(lid=>linkedIds.add(lid));});
-    const linkedNodes=NX.nodes.filter(n=>linkedIds.has(n.id)&&!rel.find(r=>r.id===n.id)).slice(0,4);
+    // ═══ MULTI-HOP TRAVERSAL (Layer 4) — follow 2-3 hops weighted by confidence ═══
+    const hopNodes=new Map(); // id -> {node, hopDistance, confidence}
+    const seenIds=new Set(rel.map(n=>n.id));
+
+    // Hop 1: direct links from top results
+    rel.slice(0,4).forEach(n=>{
+      const conf=n.link_confidence||{};
+      (n.links||[]).forEach(lid=>{
+        if(seenIds.has(lid))return;
+        const linked=NX.nodes.find(nn=>nn.id===lid);
+        if(!linked||linked.is_private)return;
+        const linkConf=conf[lid]||'inferred';
+        const weight=linkConf==='extracted'?1.0:0.6;
+        hopNodes.set(lid,{node:linked,hop:1,weight});
+        seenIds.add(lid);
+      });
+    });
+
+    // Hop 2: links from hop-1 nodes (only follow extracted links at hop 2)
+    const hop1Ids=[...hopNodes.entries()].filter(([,v])=>v.hop===1&&v.weight>0.5).map(([id])=>id);
+    hop1Ids.slice(0,6).forEach(h1id=>{
+      const h1node=hopNodes.get(h1id)?.node;
+      if(!h1node)return;
+      const conf=h1node.link_confidence||{};
+      (h1node.links||[]).forEach(lid=>{
+        if(seenIds.has(lid))return;
+        const linked=NX.nodes.find(nn=>nn.id===lid);
+        if(!linked||linked.is_private)return;
+        const linkConf=conf[lid]||'inferred';
+        if(linkConf!=='extracted')return; // Only follow strong links at hop 2
+        hopNodes.set(lid,{node:linked,hop:2,weight:0.4});
+        seenIds.add(lid);
+      });
+    });
+
+    // Hop 3: only for "deep dive" queries, only god/bridge nodes
+    if(/deep dive|thorough|tell me everything|full picture|investigate/i.test(q)){
+      const hop2Ids=[...hopNodes.entries()].filter(([,v])=>v.hop===2).map(([id])=>id);
+      hop2Ids.slice(0,4).forEach(h2id=>{
+        const h2node=hopNodes.get(h2id)?.node;
+        if(!h2node)return;
+        (h2node.links||[]).forEach(lid=>{
+          if(seenIds.has(lid))return;
+          const linked=NX.nodes.find(nn=>nn.id===lid);
+          if(!linked||linked.is_private)return;
+          if(linked.community_role!=='god'&&linked.community_role!=='bridge')return;
+          hopNodes.set(lid,{node:linked,hop:3,weight:0.2});
+          seenIds.add(lid);
+        });
+      });
+    }
+
+    // Sort hop nodes by weight, take top ones
+    const sortedHops=[...hopNodes.values()].sort((a,b)=>b.weight-a.weight).slice(0,8);
+    const linkedNodes=sortedHops.map(h=>h.node);
     const allRelevant=[...rel,...linkedNodes];
 
     // ═══ PALACE NAVIGATION — walk communities for deeper context ═══
@@ -652,7 +820,42 @@ Keep it casual and warm. No markdown formatting.`;
         if(cleanLogs.length)cleanStatus="\n\nTODAY'S CLEANING:\n"+cleanLogs.map(l=>(l.entry||'').slice(0,100)).join('\n');
       }
     }catch(e){}
-    return`RELEVANT NODES:\n${det}${palaceCtx}\n\nFULL INDEX (${NX.nodes.length} nodes):\n${idx}${memory}${ev}${tickets}${cleanStatus}`;
+    // ═══ COMMUNITY SUMMARIES (Layer 1 — GraphRAG) ═══
+    let summaryCtx='';
+    if(hasCommunities){
+      const relCommIds=[...new Set(allRelevant.map(n=>n.community_id).filter(Boolean))];
+      try{
+        const{data:comms}=await NX.sb.from('communities').select('community_id,label,summary').in('community_id',relCommIds);
+        if(comms?.length){
+          const withSummary=comms.filter(c=>c.summary);
+          if(withSummary.length){
+            summaryCtx='\n\nCOMMUNITY INTELLIGENCE:\n'+withSummary.map(c=>`${c.label}: ${c.summary}`).join('\n');
+          }
+        }
+      }catch(e){}
+    }
+
+    // ═══ PATTERN PREDICTIONS (Layer 6) ═══
+    let patternCtx='';
+    try{
+      const weekAhead=new Date(Date.now()+7*86400000).toISOString().split('T')[0];
+      const{data:pats}=await NX.sb.from('patterns').select('*').lte('next_predicted',weekAhead).eq('active',true).limit(5);
+      if(pats?.length){
+        patternCtx='\n\nPREDICTED PATTERNS:\n'+pats.map(p=>`${p.entity_name}: ${p.pattern_type} (next: ${p.next_predicted}, every ~${p.interval_days} days, ${Math.round(p.confidence*100)}% confidence)`).join('\n');
+      }
+    }catch(e){}
+
+    // ═══ MORNING BRIEF (Layer 2) ═══
+    let briefCtx='';
+    try{
+      const todayStr=new Date().toISOString().split('T')[0];
+      const{data:brief}=await NX.sb.from('briefs').select('brief_text').eq('brief_date',todayStr).limit(1);
+      if(brief?.length&&brief[0].brief_text){
+        briefCtx='\n\nTODAY\'S BRIEF:\n'+brief[0].brief_text;
+      }
+    }catch(e){}
+
+    return`RELEVANT NODES:\n${det}${palaceCtx}${summaryCtx}${patternCtx}${briefCtx}\n\nFULL INDEX (${NX.nodes.length} nodes):\n${idx}${memory}${ev}${tickets}${cleanStatus}`;
   }
 
   async function askAI(){
@@ -725,7 +928,13 @@ Keep it casual and warm. No markdown formatting.`;
       if(cleanAns.length>80&&confidence!=='low'){
         autoExtractNodes(q,cleanAns);
       }
+      // ═══ COMPOUND ACTIONS (Layer 5) — detect and suggest multi-step actions ═══
+      if(detectCompound(q)&&confidence!=='low'){
+        handleCompoundAction(q,cleanAns);
+      }
       try{await NX.sb.from('chat_history').insert({question:q,answer:cleanAns,session_id:SESSION_ID,user_name:(NX.currentUser?NX.currentUser.name:'Unknown')});}catch(e){}
+      // ═══ SELF-OPTIMIZATION — track chat quality ═══
+      trackChatQuality(q,cleanAns,confidence);
     }catch(e){clearInterval(searchDots);th.textContent='Error: '+(e.message||'Unknown');th.classList.remove('chat-thinking');}
     }catch(outerErr){hideTyping();addB('Error: '+(outerErr.message||'Chat failed'),'ai');console.error('askAI:',outerErr);}
   }
