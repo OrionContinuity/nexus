@@ -171,7 +171,7 @@
       const c=p.color;
       ctx.beginPath();ctx.arc(p.x,p.y,sz*2,0,Math.PI*2);
       ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a*0.25})`;ctx.fill();
-      ctx.beginPath();ctx.arc(p.x,p.y,bassSize,0,Math.PI*2);
+      ctx.beginPath();ctx.arc(p.x,p.y,sz,0,Math.PI*2);
       ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a})`;ctx.fill();
     }
   }
@@ -364,18 +364,54 @@
       a.vx*=DAMP;a.vy*=DAMP;const sp=a.vx*a.vx+a.vy*a.vy;
       if(dist>25&&sp>MAXV*MAXV){const s=Math.sqrt(sp);a.vx=a.vx/s*MAXV;a.vy=a.vy/s*MAXV;}
       a.x+=a.vx;a.y+=a.vy;
+      // Hard bounds — never let particles escape beyond 2x galaxy radius
+      const maxDist=galaxyR*2.2;
+      if(dist>maxDist){const pullBack=(dist-maxDist)*0.05;a.vx-=dx/dist*pullBack;a.vy-=dy/dist*pullBack;}
     }
   }
 
   // ═══ RENDER ═══
+  let wasHidden=false, lastDrawTime=0;
+
   function draw(){
+    const now=performance.now();
     // Always keep loop running — skip rendering when hidden
     const brainEl=document.getElementById('brainView');
     if(!brainEl||!brainEl.classList.contains('active')){
+      wasHidden=true;
       requestAnimationFrame(draw);return;
     }
-    // Recenter particles if canvas center shifted (tab switch, resize)
-    const oldCx=W/2,oldCy=H/2;
+
+    // ═══ TAB RESUME — prevent blobbing ═══
+    if(wasHidden||now-lastDrawTime>2000){
+      wasHidden=false;
+      // Resize canvas without shifting particles
+      const rect=canvas.getBoundingClientRect();
+      const dpr=Math.min(window.devicePixelRatio||1, window.innerWidth<768?1:1.5);
+      if(rect.width>10&&rect.height>10){
+        const newW=rect.width*dpr,newH=rect.height*dpr;
+        if(Math.abs(W-newW)>5||Math.abs(H-newH)>5){
+          // Canvas size changed while hidden — reposition particles relative to new center
+          const oldCx=W/2,oldCy=H/2;
+          W=newW;H=newH;canvas.width=W;canvas.height=H;
+          canvas.style.width=rect.width+'px';canvas.style.height=rect.height+'px';
+          state.W=W;state.H=H;
+          const dx=W/2-oldCx,dy=H/2-oldCy;
+          if(oldCx>10&&(Math.abs(dx)>5||Math.abs(dy)>5)){
+            state.particles.forEach(p=>{p.x+=dx;p.y+=dy;});
+          }
+        }
+        // Kill accumulated velocity — prevents drift after resume
+        state.particles.forEach(p=>{p.vx*=0.1;p.vy*=0.1;});
+        // Rebuild community centers immediately
+        if(state.particles.some(p=>p.commId!=null))buildCommCenters();
+      }
+      lastDrawTime=now;
+      requestAnimationFrame(draw);return; // Skip one frame to stabilize
+    }
+    lastDrawTime=now;
+
+    // Normal resize check (small adjustments while active)
     if(W<10||H<10){
       resize();
       if(W<10||H<10){
@@ -392,21 +428,15 @@
       }
       requestAnimationFrame(draw);return;
     }
-    // Check if center moved (happens after tab switch)
-    if(oldCx>10&&oldCy>10){
-      const newCx=W/2,newCy=H/2;
-      const shiftX=newCx-oldCx,shiftY=newCy-oldCy;
-      if(Math.abs(shiftX)>5||Math.abs(shiftY)>5){
-        state.particles.forEach(p=>{p.x+=shiftX;p.y+=shiftY;});
-      }
-    }
-    // Force resize check each frame when just became visible
+    // Gentle resize detection for active tab (phone rotation, etc)
     const rect=canvas.getBoundingClientRect();
     const dpr=Math.min(window.devicePixelRatio||1, window.innerWidth<768?1:1.5);
     const expectedW=rect.width*dpr,expectedH=rect.height*dpr;
     if(Math.abs(W-expectedW)>20||Math.abs(H-expectedH)>20){
       const prevCx=W/2,prevCy=H/2;
-      resize();
+      W=expectedW;H=expectedH;canvas.width=W;canvas.height=H;
+      canvas.style.width=rect.width+'px';canvas.style.height=rect.height+'px';
+      state.W=W;state.H=H;
       const dx=W/2-prevCx,dy=H/2-prevCy;
       if(Math.abs(dx)>5||Math.abs(dy)>5){
         state.particles.forEach(p=>{p.x+=dx;p.y+=dy;});
