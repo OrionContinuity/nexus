@@ -421,6 +421,419 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
     NX.toast(`Watching ${apps.length} apps`, 'success');
   };
 
+  // ═══ WEEKLY CHECKLIST SCANNER ═══
+  // Scan 3 pages of a weekly laminated checklist → create daily logs for each day
+  NX.scanWeeklyChecklist = async function() {
+    const apiKey = NX.getApiKey();
+    if (!apiKey) { NX.toast('No API key', 'error'); return null; }
+
+    const cleanTasks = NX.cleaningTasks;
+    if (!cleanTasks) { NX.toast('Tasks not loaded', 'error'); return null; }
+
+    const activeTab = document.querySelector('.clean-tab.active');
+    const location = activeTab?.dataset?.cloc || 'suerte';
+    const locationTasks = cleanTasks[location] || [];
+
+    // Build task reference
+    const taskRef = locationTasks.map(sec => {
+      return 'SECTION: ' + sec.sec + '\n' + sec.items.map((item, i) =>
+        '  ' + i + ': "' + item[0] + '" / "' + item[1] + '"'
+      ).join('\n');
+    }).join('\n\n');
+
+    const pages = ['Página 1 (Comedor, Baños, Exterior, Cocina)', 'Página 2 (Periódico + Jardín)'];
+    const allResults = [];
+
+    for (let pageNum = 0; pageNum < 2; pageNum++) {
+      NX.toast('📷 Foto ' + (pageNum + 1) + '/2: ' + pages[pageNum], 'info', 10000);
+
+      let base64, mimeType = 'image/jpeg';
+
+      if (window.Capacitor?.Plugins?.Camera) {
+        try {
+          const Camera = window.Capacitor.Plugins.Camera;
+          const photo = await Camera.getPhoto({
+            quality: 90, resultType: 'base64', source: 'CAMERA',
+            width: 2000, correctOrientation: true,
+          });
+          if (photo.base64String) { base64 = photo.base64String; mimeType = 'image/' + (photo.format || 'jpeg'); }
+        } catch (e) { if (e.message?.includes('cancelled')) { NX.toast('Scan cancelled', 'warn'); return null; } }
+      }
+
+      if (!base64) {
+        base64 = await new Promise((resolve) => {
+          const input = document.createElement('input');
+          input.type = 'file'; input.accept = 'image/*'; input.capture = 'environment';
+          input.onchange = async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return resolve(null);
+            resolve(await fileToBase64(file));
+          };
+          input.click();
+        });
+        if (!base64) { NX.toast('Scan cancelled', 'warn'); return null; }
+      }
+
+      NX.toast('🔍 Leyendo página ' + (pageNum + 1) + '...', 'info', 8000);
+
+      try {
+        const resp = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json', 'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514', max_tokens: 2000,
+            messages: [{ role: 'user', content: [
+              { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+              { type: 'text', text: 'This is page ' + (pageNum + 1) + ' of 2 of a WEEKLY cleaning checklist for "' + location.toUpperCase() + '". It has 7 day columns: L (Lunes/Mon), MA (Martes/Tue), MI (Miércoles/Wed), J (Jueves/Thu), V (Viernes/Fri), S (Sábado/Sat), D (Domingo/Sun).\n\nThe checkboxes are ☐ when empty and should have a mark (☑, ✓, X, or any filling) when completed.\n\nRead EVERY task row and report which boxes are checked for EACH of the 7 days.\n\nKnown tasks:\n' + taskRef + '\n\nReturn ONLY valid JSON:\n{"results": [{"section": "section name", "task_index": <number>, "days": [<true/false for L>, <true/false for MA>, <true/false for MI>, <true/false for J>, <true/false for V>, <true/false for S>, <true/false for D>]}], "additions": [{"section": "section name or New", "text_es": "Spanish", "text_en": "English", "days": [7 booleans]}]}\n\nIMPORTANT: Include ALL tasks visible on this page. The "days" array must always have exactly 7 booleans. Match section names to the known tasks above. If a checkbox has ANY mark in it, report true.' }
+            ]}]
+          })
+        });
+
+        const data = await resp.json();
+        const text = data.content?.[0]?.text || '';
+        let clean = text.replace(/```json|```/g, '').trim();
+        const s = clean.indexOf('{'), e = clean.lastIndexOf('}');
+        if (s !== -1 && e > s) {
+          const parsed = JSON.parse(clean.slice(s, e + 1));
+          allResults.push({ page: pageNum + 1, ...parsed });
+        }
+      } catch (e) {
+        NX.toast('Error page ' + (pageNum + 1) + ': ' + e.message, 'error');
+      }
+
+      // Save photo
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const blob = base64ToBlob(base64, mimeType);
+        await NX.sb.storage.from('attachments').upload(
+          'cleaning-scans/' + today + '_' + location + '_p' + (pageNum + 1) + '.jpg', blob
+        );
+      } catch (e) {}
+    }
+
+    // ═══ PROCESS ALL PAGES → CREATE DAILY LOGS ═══
+    if (!allResults.length) { NX.toast('No results from scan', 'error'); return null; }
+
+    // Determine the week dates (Mon-Sun of the scanned week)
+    // Assume current week — find last Monday
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon, ...
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + mondayOffset);
+
+    const weekDates = [];
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + d);
+      weekDates.push(date.toISOString().split('T')[0]);
+    }
+
+    let totalUpserts = 0;
+    const daySummary = [0, 0, 0, 0, 0, 0, 0]; // checked count per day
+
+    for (const pageResult of allResults) {
+      for (const result of (pageResult.results || [])) {
+        const days = result.days || [];
+        for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
+          if (dayIdx >= days.length) continue;
+          const checked = days[dayIdx];
+          if (checked) daySummary[dayIdx]++;
+
+          try {
+            await NX.sb.from('cleaning_logs').upsert({
+              location: location,
+              log_date: weekDates[dayIdx],
+              task_index: result.task_index,
+              section: result.section,
+              done: checked,
+              completed_at: checked ? new Date().toISOString() : null,
+            }, { onConflict: 'location,log_date,task_index,section' });
+            totalUpserts++;
+          } catch (e) {}
+        }
+      }
+
+      // Handle additions
+      for (const add of (pageResult.additions || [])) {
+        if (NX.cleaningAPI && NX.cleaningAPI.addTask) {
+          NX.cleaningAPI.addTask(location, add.section || 'Custom', add.text_es || add.text_en, add.text_en || add.text_es);
+        }
+      }
+    }
+
+    // Create daily log summaries for each day
+    const dayNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    for (let d = 0; d < 7; d++) {
+      if (daySummary[d] > 0) {
+        try {
+          await NX.sb.from('daily_logs').insert({
+            entry: '📷 Cleaning: ' + location + ' ' + dayNames[d] + ' — ' + daySummary[d] + ' tasks completed (scanned from weekly sheet)',
+            user_name: NX.currentUser?.name || location.toUpperCase(),
+            created_at: weekDates[d] + 'T18:00:00.000Z',
+          });
+        } catch (e) {}
+      }
+    }
+
+    // Summary
+    const totalChecked = daySummary.reduce((a, b) => a + b, 0);
+    const activeDays = daySummary.filter(d => d > 0).length;
+    NX.toast('✓ ' + location + ': ' + totalChecked + ' checks across ' + activeDays + ' days logged', 'success', 6000);
+
+    if (NX.modules.clean && NX.modules.clean.show) NX.modules.clean.show();
+
+    return { location, weekDates, daySummary, totalUpserts };
+  };
+
+  // ═══ CHECKLIST SCANNER ═══
+  // Photograph laminated cleaning sheet → Claude Vision reads checked items → auto-log
+  NX.scanChecklist = async function() {
+    let base64, mimeType = 'image/jpeg';
+
+    // Capture photo
+    if (isNative && window.Capacitor?.Plugins?.Camera) {
+      try {
+        const Camera = window.Capacitor.Plugins.Camera;
+        const photo = await Camera.getPhoto({
+          quality: 90,
+          resultType: 'base64',
+          source: 'CAMERA',
+          width: 2000,      // High res for reading checkmarks
+          correctOrientation: true,
+        });
+        if (photo.base64String) {
+          base64 = photo.base64String;
+          mimeType = 'image/' + (photo.format || 'jpeg');
+        }
+      } catch (e) {
+        if (e.message?.includes('cancelled')) return null;
+      }
+    }
+
+    // Web fallback
+    if (!base64) {
+      base64 = await new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.capture = 'environment';
+        input.onchange = async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return resolve(null);
+          resolve(await fileToBase64(file));
+        };
+        input.click();
+      });
+      if (!base64) return null;
+    }
+
+    const apiKey = NX.getApiKey();
+    if (!apiKey) { NX.toast('No API key', 'error'); return null; }
+
+    NX.toast('📷 Reading checklist...', 'info', 8000);
+
+    // Get the current location's task list for reference
+    const cleanTasks = NX.cleaningTasks;
+    if (!cleanTasks) { NX.toast('Cleaning tasks not loaded', 'error'); return null; }
+
+    // Detect which location tab is active
+    const activeTab = document.querySelector('.clean-tab.active');
+    const location = activeTab?.dataset?.cloc || 'suerte';
+    const locationTasks = cleanTasks[location] || [];
+
+    // Build the task reference for Claude — so it knows exactly what to look for
+    const taskRef = locationTasks.map(sec => {
+      return `SECTION: ${sec.sec}\n` + sec.items.map((item, i) => 
+        `  ${i}: "${item[0]}" / "${item[1]}"`
+      ).join('\n');
+    }).join('\n\n');
+
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1500,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+              { type: 'text', text: `This is a photograph of a laminated restaurant cleaning checklist filled out with dry-erase marker. The sheet has checkboxes for each day of the week (Mon-Sun).
+
+TWO TASKS:
+
+TASK 1 — READ CHECKMARKS:
+Read each row and determine which checkboxes are CHECKED (marked, filled, X'd, ticked) versus UNCHECKED (empty, blank).
+
+TASK 2 — DETECT HANDWRITTEN ADDITIONS:
+Look for any HANDWRITTEN text that was ADDED to the sheet — new tasks written in pen or marker that are NOT part of the original printed template. These could appear at the bottom of a section, in margins, or between existing rows. Also look for crossed-out or modified printed tasks.
+
+The location is "${location.toUpperCase()}" and here are the ORIGINAL PRINTED tasks:
+
+${taskRef}
+
+Return ONLY valid JSON in this exact format:
+{
+  "day_index": <0-6 where 0=Monday>,
+  "results": [{"section": "section name", "task_index": <number>, "checked": <true/false>}],
+  "additions": [{"section": "section name or 'New'", "text_es": "Spanish text if visible", "text_en": "English text or description", "checked": <true/false>}],
+  "modifications": [{"section": "section name", "task_index": <number>, "note": "what was changed — crossed out, arrow, note added"}]
+}
+
+IMPORTANT:
+- Determine which DAY column has the most markings — that's today's column.
+- If multiple days are filled, use the RIGHTMOST filled column.
+- Include ALL tasks in results, both checked and unchecked.
+- Only include "additions" if you see genuinely NEW handwritten text not in the original template.
+- Only include "modifications" if an original task was visibly crossed out or altered.
+- If no additions or modifications, return empty arrays for those fields.` }
+            ]
+          }]
+        })
+      });
+
+      const data = await resp.json();
+      const text = data.content?.[0]?.text || '';
+      
+      // Parse response
+      let clean = text.replace(/```json|```/g, '').trim();
+      const s = clean.indexOf('{'), e = clean.lastIndexOf('}');
+      if (s === -1 || e <= s) {
+        NX.toast('Could not read checklist', 'error');
+        return null;
+      }
+      const parsed = JSON.parse(clean.slice(s, e + 1));
+      
+      if (!parsed.results || !parsed.results.length) {
+        NX.toast('No tasks detected in photo', 'warn');
+        return null;
+      }
+
+      // ═══ APPLY RESULTS TO CLEANING SYSTEM ═══
+      const today = new Date();
+      // Use 8AM rollover logic
+      if (today.getHours() < 8) today.setDate(today.getDate() - 1);
+      const dateStr = today.getFullYear() + '-' + 
+        String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+        String(today.getDate()).padStart(2, '0');
+
+      let checked = 0, total = 0;
+      const upserts = [];
+
+      for (const result of parsed.results) {
+        total++;
+        if (result.checked) checked++;
+        
+        upserts.push({
+          location: location,
+          log_date: dateStr,
+          task_index: result.task_index,
+          section: result.section,
+          done: result.checked,
+          completed_at: result.checked ? new Date().toISOString() : null,
+        });
+      }
+
+      // Batch upsert to database
+      let saved = 0;
+      for (const u of upserts) {
+        try {
+          const { error } = await NX.sb.from('cleaning_logs').upsert(u, {
+            onConflict: 'location,log_date,task_index,section'
+          });
+          if (!error) saved++;
+        } catch (e) {}
+      }
+
+      const pct = total > 0 ? Math.round((checked / total) * 100) : 0;
+      
+      // Log to daily_logs
+      try {
+        await NX.sb.from('daily_logs').insert({
+          entry: `📷 Cleaning scan: ${location} — ${checked}/${total} (${pct}%) — scanned from photo`,
+          user_name: NX.currentUser?.name || 'Scanner',
+        });
+      } catch (e) {}
+
+      // Haptic feedback
+      if (isNative) {
+        try { const { Haptics } = await import('@capacitor/haptics'); Haptics.notification({ type: 'SUCCESS' }); } catch(e) {}
+      }
+
+      NX.toast(`✓ ${location}: ${checked}/${total} tasks (${pct}%) — ${saved} logged`, 'success', 5000);
+
+      // ═══ PROCESS HANDWRITTEN ADDITIONS ═══
+      const additions = parsed.additions || [];
+      if (additions.length) {
+        for (const add of additions) {
+          const section = add.section || 'Custom';
+          const es = add.text_es || add.text_en || '';
+          const en = add.text_en || add.text_es || '';
+          if (!en && !es) continue;
+
+          // Add as custom task via the cleaning API
+          if (NX.cleaningAPI && NX.cleaningAPI.addTask) {
+            NX.cleaningAPI.addTask(location, section, es || en, en || es);
+          }
+
+          // Also save to capture_queue for tracking
+          try {
+            await NX.sb.from('capture_queue').insert({
+              capture_type: 'text',
+              raw_content: `[SCAN-ADDITION] ${location}/${section}: ${en} / ${es}`,
+              processed: true,
+              user_name: NX.currentUser?.name || 'Scanner',
+            });
+          } catch (e) {}
+        }
+        NX.toast(`+ ${additions.length} new task${additions.length > 1 ? 's' : ''} added from sheet`, 'info', 4000);
+      }
+
+      // ═══ PROCESS MODIFICATIONS ═══
+      const modifications = parsed.modifications || [];
+      if (modifications.length) {
+        // Log modifications but don't auto-delete (safety)
+        for (const mod of modifications) {
+          try {
+            await NX.sb.from('daily_logs').insert({
+              entry: `[SCAN-MODIFICATION] ${location}/${mod.section} task #${mod.task_index}: ${mod.note}`,
+              user_name: NX.currentUser?.name || 'Scanner',
+            });
+          } catch (e) {}
+        }
+        NX.toast(`⚠ ${modifications.length} task modification${modifications.length > 1 ? 's' : ''} detected — logged for review`, 'warn', 4000);
+      }
+
+      // Refresh the cleaning view
+      if (NX.modules.clean && NX.modules.clean.show) {
+        NX.modules.clean.show();
+      }
+
+      // Save the photo as proof
+      try {
+        const fileName = `cleaning-scans/${dateStr}_${location}_${Date.now()}.jpg`;
+        const blob = base64ToBlob(base64, mimeType);
+        await NX.sb.storage.from('attachments').upload(fileName, blob);
+      } catch (e) {}
+
+      return { location, date: dateStr, checked, total, pct };
+
+    } catch (e) {
+      NX.toast('Scan failed: ' + e.message, 'error');
+      return null;
+    }
+  };
+
   // ═══ SHARE ═══
   // Share node info, reports, etc.
   NX.shareContent = async function(title, text) {
@@ -463,6 +876,298 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
     }
   };
 
+  // ═══ NATIVE CALENDAR ═══
+  // Read/write device calendar — syncs with Google Calendar via Android
+  NX.calNative = {
+    async getEvents(startDate, endDate) {
+      if (!isNative) return [];
+      try {
+        const { Calendar } = await import('@capacitor-community/calendar');
+        const { granted } = await Calendar.requestPermissions();
+        if (!granted) { NX.toast('Calendar permission denied', 'error'); return []; }
+        const result = await Calendar.getEvents({
+          startDate: startDate || new Date().toISOString(),
+          endDate: endDate || new Date(Date.now() + 14 * 86400000).toISOString(),
+        });
+        return (result.events || []).map(e => ({
+          id: e.id,
+          title: e.title || '',
+          start: e.startDate || e.dtstart,
+          end: e.endDate || e.dtend,
+          location: e.eventLocation || e.location || '',
+          allDay: e.allDay || false,
+          notes: e.description || '',
+          source: 'device',
+        }));
+      } catch (e) {
+        console.warn('[Calendar] Native read failed:', e.message);
+        return [];
+      }
+    },
+
+    async createEvent(title, startDate, endDate, location, notes) {
+      if (!isNative) { NX.toast('Calendar requires the app', 'warn'); return false; }
+      try {
+        const { Calendar } = await import('@capacitor-community/calendar');
+        const { granted } = await Calendar.requestPermissions();
+        if (!granted) return false;
+        await Calendar.createEvent({
+          title,
+          startDate: startDate || new Date(Date.now() + 86400000).toISOString(),
+          endDate: endDate || new Date(Date.now() + 86400000 + 3600000).toISOString(),
+          location: location || '',
+          notes: notes || '',
+        });
+        NX.toast(`📅 ${title} added to calendar`, 'success');
+        if (isNative) {
+          try { const{Haptics}=await import('@capacitor/haptics');Haptics.notification({type:'SUCCESS'}); } catch(e){}
+        }
+        return true;
+      } catch (e) {
+        NX.toast('Calendar write failed: ' + e.message, 'error');
+        return false;
+      }
+    },
+
+    // Merge device calendar events into NEXUS calendar view
+    async mergeIntoView() {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const end = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString();
+      const events = await this.getEvents(start, end);
+      if (!events.length) return;
+      // Store for calendar.js to read
+      NX._deviceCalEvents = events;
+      console.log(`[Calendar] Loaded ${events.length} device events`);
+    }
+  };
+
+  // ═══ SMART PHOTO CAPTURE ═══
+  // General-purpose: photo → Claude vision → auto-categorize → create node
+  NX.smartCapture = async function() {
+    let base64, mimeType = 'image/jpeg';
+
+    if (isNative && window.Capacitor?.Plugins?.Camera) {
+      try {
+        const Camera = window.Capacitor.Plugins.Camera;
+        const photo = await Camera.getPhoto({
+          quality: 85,
+          resultType: 'base64',
+          source: 'PROMPT', // Let user choose camera or gallery
+          width: 1400,
+          correctOrientation: true,
+        });
+        if (photo.base64String) {
+          base64 = photo.base64String;
+          mimeType = 'image/' + (photo.format || 'jpeg');
+        }
+      } catch (e) {
+        if (e.message?.includes('cancelled')) return null;
+        console.warn('Native camera failed:', e.message);
+      }
+    }
+
+    // Web fallback
+    if (!base64) {
+      base64 = await new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.capture = 'environment';
+        input.onchange = async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return resolve(null);
+          resolve(await fileToBase64(file));
+        };
+        input.click();
+      });
+      if (!base64) return null;
+    }
+
+    // Send to Claude vision for smart categorization
+    const apiKey = NX.getApiKey();
+    if (!apiKey) { NX.toast('No API key', 'error'); return null; }
+
+    NX.toast('🔍 Analyzing...', 'info', 5000);
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 500,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+              { type: 'text', text: `Analyze this image. What is it? Return ONLY JSON:
+{"name":"short descriptive title","category":"one of: equipment|contractors|vendors|people|procedure|location|parts|projects|systems","notes":"detailed description including any text, numbers, model numbers, prices, dates visible","tags":["relevant","tags"]}
+Be specific. If it's equipment, include the make/model. If it's a document, extract key info. If it's a person, describe the context.` }
+            ]
+          }]
+        })
+      });
+
+      const data = await resp.json();
+      const text = data.content?.[0]?.text || '';
+      const clean = text.replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(clean);
+
+      // Create node
+      const { error } = await NX.sb.from('nodes').insert({
+        name: (parsed.name || 'Photo Capture').slice(0, 200),
+        category: parsed.category || 'projects',
+        notes: (parsed.notes || '').slice(0, 3000),
+        tags: [...(parsed.tags || []), 'photo-capture'],
+        links: [],
+        access_count: 1,
+      });
+
+      if (!error) {
+        NX.toast(`✓ ${parsed.name}`, 'success');
+        // Save image to storage
+        try {
+          const fileName = `captures/${Date.now()}_${(parsed.name||'').replace(/[^a-z0-9]/gi,'_').slice(0,30)}.jpg`;
+          const blob = base64ToBlob(base64, mimeType);
+          await NX.sb.storage.from('attachments').upload(fileName, blob);
+        } catch (e) {}
+        // Also queue in capture_queue for tracking
+        try {
+          await NX.sb.from('capture_queue').insert({
+            capture_type: 'photo',
+            raw_content: parsed.name + ': ' + (parsed.notes || '').slice(0, 500),
+            processed: true,
+            user_name: NX.currentUser?.name || 'Unknown',
+          });
+        } catch (e) {}
+        await NX.loadNodes();
+        if (NX.brain) NX.brain.init();
+        if (isNative) {
+          try { const{Haptics}=await import('@capacitor/haptics');Haptics.notification({type:'SUCCESS'}); } catch(e){}
+        }
+      }
+      return parsed;
+    } catch (e) {
+      NX.toast('Capture failed: ' + e.message, 'error');
+      return null;
+    }
+  };
+
+  // ═══ PUSH NOTIFICATIONS (Firebase Cloud Messaging) ═══
+  NX.pushNotify = {
+    token: null,
+    async register() {
+      if (!isNative) return;
+      try {
+        const { PushNotifications } = await import('@capacitor/push-notifications');
+        const perm = await PushNotifications.requestPermissions();
+        if (perm.receive !== 'granted') {
+          console.warn('[Push] Permission denied');
+          return;
+        }
+        await PushNotifications.register();
+
+        PushNotifications.addListener('registration', async (token) => {
+          NX.pushNotify.token = token.value;
+          console.log('[Push] Token:', token.value);
+          // Store token in Supabase for server-side push
+          if (NX.sb && NX.currentUser) {
+            try {
+              await NX.sb.from('nexus_users').update({
+                push_token: token.value
+              }).eq('id', NX.currentUser.id);
+            } catch (e) {}
+          }
+        });
+
+        PushNotifications.addListener('pushNotificationReceived', (notification) => {
+          console.log('[Push] Received:', notification);
+          // Show as in-app toast
+          NX.toast(notification.title + ': ' + (notification.body || '').slice(0, 80), 'info', 5000);
+        });
+
+        PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+          console.log('[Push] Action:', action);
+          // Deep link handling — open specific view based on notification data
+          const data = action.notification?.data || {};
+          if (data.view) {
+            // Switch to the requested view
+            const tab = document.querySelector(`.bnav-btn[data-view="${data.view}"]`);
+            if (tab) tab.click();
+          }
+        });
+
+        console.log('[Push] Notifications registered');
+      } catch (e) {
+        console.warn('[Push] Setup failed:', e.message);
+      }
+    }
+  };
+
+  // ═══ BIOMETRIC AUTH ═══
+  // Fingerprint / face unlock replaces PIN entry
+  NX.biometric = {
+    available: false,
+    async check() {
+      if (!isNative) return false;
+      try {
+        const { NativeBiometric } = await import('capacitor-native-biometric');
+        const result = await NativeBiometric.isAvailable();
+        this.available = result.isAvailable;
+        return result.isAvailable;
+      } catch (e) {
+        return false;
+      }
+    },
+
+    async authenticate() {
+      if (!isNative || !this.available) return false;
+      try {
+        const { NativeBiometric } = await import('capacitor-native-biometric');
+        await NativeBiometric.verifyIdentity({
+          reason: 'Unlock NEXUS',
+          title: 'NEXUS',
+          subtitle: 'Authenticate to continue',
+          useFallback: true, // Allow PIN fallback
+          maxAttempts: 3,
+        });
+        return true;
+      } catch (e) {
+        console.warn('[Biometric] Auth failed:', e.message);
+        return false;
+      }
+    },
+
+    // Store credentials securely in device keychain
+    async saveCredentials(pin) {
+      if (!isNative) return;
+      try {
+        const { NativeBiometric } = await import('capacitor-native-biometric');
+        await NativeBiometric.setCredentials({
+          username: 'nexus_user',
+          password: pin,
+          server: 'nexus.app',
+        });
+      } catch (e) {}
+    },
+
+    async getCredentials() {
+      if (!isNative) return null;
+      try {
+        const { NativeBiometric } = await import('capacitor-native-biometric');
+        const cred = await NativeBiometric.getCredentials({ server: 'nexus.app' });
+        return cred.password || null;
+      } catch (e) {
+        return null;
+      }
+    }
+  };
+
   // ═══ INIT ═══
   function initNative() {
     
@@ -473,11 +1178,20 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
     NX.startSmsListener();
     NX.startNotificationListener();
     
+    // Register push notifications
+    NX.pushNotify.register();
+    
+    // Check biometric availability
+    NX.biometric.check();
+
+    // Load device calendar events
+    NX.calNative.mergeIntoView();
+    
     // Set status bar color on native
     if (isNative) {
       import('@capacitor/status-bar').then(({ StatusBar, Style }) => {
         StatusBar.setStyle({ style: Style.Dark });
-        StatusBar.setBackgroundColor({ color: '#0a0a0c' });
+        StatusBar.setBackgroundColor({ color: '#111116' });
       }).catch(() => {});
       
       // Hide splash screen
