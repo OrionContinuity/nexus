@@ -371,77 +371,43 @@
   }
 
   // ═══ RENDER ═══
-  let wasHidden=false, lastDrawTime=0;
+  let lastDrawTime=0;
 
   function draw(){
     const now=performance.now();
-    // Always keep loop running — skip rendering when hidden
+    // Skip rendering when brain view isn't active
     const brainEl=document.getElementById('brainView');
     if(!brainEl||!brainEl.classList.contains('active')){
-      wasHidden=true;
+      lastDrawTime=0; // Reset so we detect resume
       requestAnimationFrame(draw);return;
     }
 
-    // ═══ TAB RESUME — prevent blobbing ═══
-    if(wasHidden||now-lastDrawTime>2000){
-      wasHidden=false;
-      // Resize canvas without shifting particles
-      const rect=canvas.getBoundingClientRect();
-      const dpr=Math.min(window.devicePixelRatio||1, window.innerWidth<768?1:1.5);
-      if(rect.width>10&&rect.height>10){
-        const newW=rect.width*dpr,newH=rect.height*dpr;
-        if(Math.abs(W-newW)>5||Math.abs(H-newH)>5){
-          // Canvas size changed while hidden — reposition particles relative to new center
-          const oldCx=W/2,oldCy=H/2;
-          W=newW;H=newH;canvas.width=W;canvas.height=H;
-          canvas.style.width=rect.width+'px';canvas.style.height=rect.height+'px';
-          state.W=W;state.H=H;
-          const dx=W/2-oldCx,dy=H/2-oldCy;
-          if(oldCx>10&&(Math.abs(dx)>5||Math.abs(dy)>5)){
-            state.particles.forEach(p=>{p.x+=dx;p.y+=dy;});
-          }
-        }
-        // Kill accumulated velocity — prevents drift after resume
-        state.particles.forEach(p=>{p.vx*=0.1;p.vy*=0.1;});
-        // Rebuild community centers immediately
-        if(state.particles.some(p=>p.commId!=null))buildCommCenters();
-      }
-      lastDrawTime=now;
-      requestAnimationFrame(draw);return; // Skip one frame to stabilize
-    }
-    lastDrawTime=now;
-
-    // Normal resize check (small adjustments while active)
-    if(W<10||H<10){
-      resize();
-      if(W<10||H<10){
-        const parent=canvas.parentElement;
-        if(parent){
-          const pr=parent.getBoundingClientRect();
-          const dpr=Math.min(window.devicePixelRatio||1, window.innerWidth<768?1:1.5);
-          if(pr.width>10&&pr.height>10){
-            W=pr.width*dpr;H=pr.height*dpr;canvas.width=W;canvas.height=H;
-            canvas.style.width=pr.width+'px';canvas.style.height=pr.height+'px';
-            state.W=W;state.H=H;
-          }
-        }
-      }
-      requestAnimationFrame(draw);return;
-    }
-    // Gentle resize detection for active tab (phone rotation, etc)
+    // ═══ CANVAS SIZE CHECK ═══
     const rect=canvas.getBoundingClientRect();
     const dpr=Math.min(window.devicePixelRatio||1, window.innerWidth<768?1:1.5);
-    const expectedW=rect.width*dpr,expectedH=rect.height*dpr;
-    if(Math.abs(W-expectedW)>20||Math.abs(H-expectedH)>20){
+    if(rect.width<10||rect.height<10){requestAnimationFrame(draw);return;}
+
+    const expectedW=Math.round(rect.width*dpr),expectedH=Math.round(rect.height*dpr);
+    if(Math.abs(W-expectedW)>10||Math.abs(H-expectedH)>10){
       const prevCx=W/2,prevCy=H/2;
       W=expectedW;H=expectedH;canvas.width=W;canvas.height=H;
       canvas.style.width=rect.width+'px';canvas.style.height=rect.height+'px';
       state.W=W;state.H=H;
-      const dx=W/2-prevCx,dy=H/2-prevCy;
-      if(Math.abs(dx)>5||Math.abs(dy)>5){
-        state.particles.forEach(p=>{p.x+=dx;p.y+=dy;});
+      // Shift particles to match new center (only if we had a valid previous center)
+      if(prevCx>10&&prevCy>10){
+        const dx=W/2-prevCx,dy=H/2-prevCy;
+        if(Math.abs(dx)>3||Math.abs(dy)>3){
+          state.particles.forEach(p=>{p.x+=dx;p.y+=dy;});
+        }
       }
     }
+
+    // ═══ TAB RESUME — dampen velocities to prevent blob ═══
+    if(lastDrawTime>0&&now-lastDrawTime>500){
+      // We were away for a while — kill momentum so nodes don't drift
+      state.particles.forEach(p=>{p.vx*=0.05;p.vy*=0.05;});
+    }
+    lastDrawTime=now;
     time+=0.005;physicsFrame++;
     const P=state.particles,t=state.transform;
     if(P.length<500)physics();
