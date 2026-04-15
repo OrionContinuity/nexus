@@ -238,6 +238,26 @@ const NX = {
     // Check if user was previously logged in — RE-VERIFY against Supabase
     const savedUser = sessionStorage.getItem('nexus_current_user');
     const savedToken = sessionStorage.getItem('nexus_session_token');
+
+    // ═══ QR AUTO-LOGIN — check URL params for pin & scan action ═══
+    const urlParams = new URLSearchParams(window.location.search);
+    const autoPin = urlParams.get('pin');
+    const autoScan = urlParams.get('scan');
+    if (autoPin && !savedUser) {
+      // Auto-login with PIN from QR code
+      const errorEl = document.getElementById('pinError');
+      const userEl = document.getElementById('pinUser');
+      await this.authenticatePin(autoPin, errorEl, userEl, () => {});
+      // Clean URL params after login
+      if (window.history.replaceState) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+      // If scan=clean, auto-open cleaning scanner after login
+      if (autoScan === 'clean') {
+        this._pendingScan = true;
+      }
+      return;
+    }
     if (savedUser && savedToken) {
       try {
         const u = JSON.parse(savedUser);
@@ -435,8 +455,125 @@ const NX = {
     this.loadAgenda();
     // Brain view toggle — managers + admin only
     this.setupBrainViewToggle();
+    // Wire cleaning scan button — weekly scanner (3 photos)
+    const scanBtn = document.getElementById('cleanScan');
+    if (scanBtn) {
+      scanBtn.addEventListener('click', async () => {
+        scanBtn.disabled = true; scanBtn.textContent = '📷...';
+        try {
+          if (NX.scanWeeklyChecklist) { await NX.scanWeeklyChecklist(); }
+          else if (NX.scanChecklist) { await NX.scanChecklist(); }
+        } catch(e) { NX.toast('Scan error: '+e.message, 'error'); }
+        scanBtn.disabled = false; scanBtn.textContent = '📷 Scan';
+      });
+    }
+    // Wire print/export checklist button
+    const exportBtn = document.getElementById('cleanExport');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => {
+        const tasks = NX.cleaningTasks;
+        if (!tasks) { NX.toast('Tasks not loaded', 'error'); return; }
+        const activeLoc = document.querySelector('.clean-tab.active')?.dataset?.cloc || 'suerte';
+        const locTasks = tasks[activeLoc] || [];
+        const locName = activeLoc.charAt(0).toUpperCase() + activeLoc.slice(1);
+        const days = ['LUN','MAR','MIE','JUE','VIE','SAB','DOM'];
+
+        // Also include custom tasks
+        let customTasks = {};
+        try { customTasks = JSON.parse(localStorage.getItem('nexus_custom_tasks') || '{}'); } catch(e) {}
+        const customs = customTasks[activeLoc] || [];
+
+        let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>NEXUS — ${locName} Cleaning</title>
+<style>
+@page{size:legal landscape;margin:0.3in}
+body{font-family:Arial,sans-serif;color:#2A2520;margin:0;padding:20px;position:relative}
+h1{font-size:24px;margin:0;color:#000}
+.sub{font-size:12px;color:#666;margin-bottom:4px}
+.url{font-size:7px;color:#999}
+.qr{position:absolute;top:12px;right:20px;width:32px;height:32px}
+.gold-line{height:2px;background:#999;margin:6px 0}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{background:#444;color:#fff;padding:8px;font-size:10px}
+th.day{width:42px;font-size:7px}
+.sec{background:#D9D9D9;font-size:14px;font-weight:bold;padding:10px;text-align:left}
+td{padding:8px;border:1px solid #BBB}
+td.task-es{font-size:13px;font-weight:500}
+td.task-en{font-size:10px;color:#666}
+td.check{text-align:center;font-size:18px;color:#CCC;background:#F5F5F5;width:38px}
+tr:nth-child(even) td{background:#FAFAF6}
+tr:nth-child(odd) td{background:#F4F1EB}
+td.check{background:#F0EDE6 !important}
+.footer{margin-top:12px;font-size:10px;color:#635B50;display:flex;justify-content:space-between}
+.custom-tag{font-size:8px;color:#999;margin-left:4px}
+</style></head><body>
+<h1>NEXUS — ${locName.toUpperCase()}</h1>
+<div class="sub">Lista de Limpieza / Cleaning Checklist</div>
+<div class="url">Scan QR to log</div><img class="qr" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAD4AAAA+CAIAAAD8oz8TAAAB0UlEQVR4nO2aMU4FMQxE+Ygb0dBw+t/QcKalMEIjWTOMvUhgL9OwCo5/9JJ4HWdvx3E8zNTjbw+gr6f48/rybHa4v71/PUev3IKWaMOee2OYTz2EDLIyFeSn1ZtV7WcL9RCj69jo1ax9Vsewi7qjvMoZY92O3qq6HvWQXtNsZrJNT7uo+yScdZw9OzvEGcMW6v47z8lMdIxnb2J/DPOp93Y6I6Tb9Tz4mk+9lxWijV7lTPqdqrOg+dSZqhRRupcf45nPvdQ1FYdTyGGfn/U8D6Z+y3UY/5TEZoDVBRzpegG2DKb+TR2GUXQsmefeSRctt0QYnwRT76zZ2wOh+dRDbKVWq4Q63uvc3c9G51PXkdivY7Fe/prW2hXXnRzDOV/mGfBzRuYBtSuuM/m5StZP7QFmP5j6Z+box+9qFunIPx/hGOZTDzk1cj/LY339udX286lXmeF/Q36e48cWvfrnU6/KOX1W77Wzf+15MPVT3whom+qdR/XNPZ96qHqDjO3+Scdf8VlL4nrzGwFsZ9m8ngH9i/l3/78RqGSFeh501SA/Y6/rUT+fwesdonuFdlE/c4eKtxHZp1/tuUZ9PXSmRuXnLb3TFvoZH2Ga+fpf0GDqH5sjFdchMQYsAAAAAElFTkSuQmCC" alt="QR">
+<div class="gold-line"></div>
+<table><tr><th>TAREA</th><th>TASK</th>`;
+        days.forEach(d => { html += `<th class="day">${d}</th>`; });
+        html += '</tr>';
+
+        locTasks.forEach(sec => {
+          const secName = sec.sec;
+          html += `<tr><td class="sec" colspan="${2 + days.length}">${secName.toUpperCase()}</td></tr>`;
+          sec.items.forEach(item => {
+            html += `<tr><td class="task-es">${item[0]}</td><td class="task-en">${item[1]}</td>`;
+            days.forEach(() => { html += '<td class="check">☐</td>'; });
+            html += '</tr>';
+          });
+          // Append custom tasks for this section
+          customs.filter(c => c.section === secName).forEach(ct => {
+            html += `<tr><td class="task-es">${ct.es}<span class="custom-tag">★</span></td><td class="task-en">${ct.en}<span class="custom-tag">★</span></td>`;
+            days.forEach(() => { html += '<td class="check">☐</td>'; });
+            html += '</tr>';
+          });
+        });
+
+        // Custom tasks in new sections
+        const existingSecs = new Set(locTasks.map(s => s.sec));
+        const newSecCustoms = customs.filter(c => !existingSecs.has(c.section));
+        const newSecs = [...new Set(newSecCustoms.map(c => c.section))];
+        newSecs.forEach(secName => {
+          html += `<tr><td class="sec" colspan="${2 + days.length}">${secName.toUpperCase()} ★</td></tr>`;
+          newSecCustoms.filter(c => c.section === secName).forEach(ct => {
+            html += `<tr><td class="task-es">${ct.es}</td><td class="task-en">${ct.en}</td>`;
+            days.forEach(() => { html += '<td class="check">☐</td>'; });
+            html += '</tr>';
+          });
+        });
+
+        html += `</table>
+<div class="footer"><span>Nombre / Name: __________________ Firma / Signature: __________________</span><span>Semana / Week: __________</span></div>
+<div style="text-align:center;font-size:7px;color:#857D72;margin-top:8px">NEXUS — Generated ${new Date().toLocaleDateString()} — Use dry-erase marker, scan with 📷 to log</div>
+</body></html>`;
+
+        const printWin = window.open('', '_blank');
+        if (printWin) {
+          printWin.document.write(html);
+          printWin.document.close();
+          setTimeout(() => printWin.print(), 500);
+        } else {
+          NX.toast('Pop-up blocked — allow pop-ups to print', 'warn');
+        }
+      });
+    }
     // Morning briefing — show pending items on login
     setTimeout(() => this.showBriefing(), 2000);
+    // Auto-scan if triggered by QR code
+    if (this._pendingScan) {
+      this._pendingScan = false;
+      setTimeout(() => {
+        // Switch to cleaning view
+        const cleanBtn = document.querySelector('.bnav-btn[data-view="clean"]') || document.querySelector('.nav-tab[data-view="clean"]');
+        if (cleanBtn) cleanBtn.click();
+        // Trigger scan after view loads
+        setTimeout(() => {
+          if (NX.scanWeeklyChecklist) NX.scanWeeklyChecklist();
+          else if (NX.scanChecklist) NX.scanChecklist();
+        }, 1500);
+      }, 2000);
+    }
     // Apply translations after Lucide icons render
     if (this.i18n) {
       setTimeout(()=>{if(this.i18n)this.i18n.applyUI();},500);
