@@ -122,7 +122,7 @@ body::-webkit-scrollbar{display:none}
 .view::-webkit-scrollbar{display:none}
 .view.active{display:flex}
 #brainView{overflow:hidden}
-.offline-banner{position:fixed;top:57px;left:0;right:0;z-index:40;background:var(--red);color:#fff;text-align:center;padding:8px;font-size:12px;letter-spacing:1px}
+.offline-banner{position:fixed;top:53px;left:0;right:0;z-index:40;background:var(--red);color:#fff;text-align:center;padding:8px;font-size:12px;letter-spacing:1px}
 
 /* ═══ BOTTOM NAV — primary mobile navigation ═══ */
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:50;display:flex;align-items:stretch;justify-content:space-around;background:var(--surface);border-top:1px solid var(--border);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding-bottom:env(safe-area-inset-bottom);height:auto;min-height:56px}
@@ -1108,9 +1108,10 @@ body::-webkit-scrollbar{display:none}
 .due-ok{color:var(--faint)}
 
 /* ═══ ALERT BANNERS ═══ */
-.alert-banner{position:sticky;top:46px;left:0;right:0;z-index:40;text-align:center;padding:6px 12px;font-size:11px;letter-spacing:.3px}
-.alert-contractor{background:rgba(74,158,255,.12);border-bottom:1px solid rgba(74,158,255,.2);color:#4a9eff}
-.alert-overdue{background:rgba(212,88,88,.1);border-bottom:1px solid rgba(212,88,88,.2);color:#d45858}
+.alert-banner{position:fixed;top:53px;left:0;right:0;z-index:39;text-align:center;padding:8px 12px;font-size:11px;letter-spacing:.3px}
+.alert-contractor{background:rgba(74,158,255,.95);border-bottom:1px solid rgba(74,158,255,.3);color:#fff}
+.alert-overdue{background:rgba(212,88,88,.95);border-bottom:1px solid rgba(212,88,88,.3);color:#fff}
+.alert-contractor+.alert-overdue{top:85px}
 
 /* Alert dismiss button */
 .alert-dismiss{background:none;border:none;color:inherit;opacity:.5;cursor:pointer;font-size:14px;padding:0 4px;margin-left:8px;vertical-align:middle}
