@@ -259,7 +259,7 @@ body::-webkit-scrollbar{display:none}
 .chat-conf-high{color:#5bba5f}
 .chat-conf-medium{color:#e8a830}
 .chat-conf-low{color:#d45858}
-.hud-input{display:flex;align-items:center;gap:8px;padding:10px 12px;padding-bottom:max(24px,calc(env(safe-area-inset-bottom) + 12px));min-height:56px}
+.hud-input{display:flex;align-items:center;gap:8px;padding:10px 12px 14px;min-height:56px}
 .hud-input input{flex:1;background:var(--elevated);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;color:var(--text);font-size:14px;outline:none;min-height:44px;font-family:inherit}
 .hud-input input::placeholder{color:var(--faint)}
 .btn-mic,.btn-voice,.btn-send,.btn-reset{width:44px;height:44px;border-radius:50%;border:1px solid var(--border);background:rgba(28,28,34,.9);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .2s}
