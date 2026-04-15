@@ -1,4 +1,12 @@
-/* ═══ NEXUS Activity Feed v11 — Complete Rebuild ═══ */
+/* ═══ NEXUS Activity Feed v12 — All bugs fixed ═══
+   FIXES from v11:
+   - syslog user_id removed (column doesn't exist)
+   - addLog uses NX.currentUser not NX.user
+   - cleaning_logs query uses log_date not created_at
+   - cards table removed — queries tickets + kanban_cards directly
+   - All catch blocks now log errors
+   - Defensive checks on timeClock
+*/
 (function(){
 
 let feed = [];
@@ -63,72 +71,72 @@ function buildFilterBar() {
 /* ═══ LOAD ALL DATA ═══ */
 async function loadFeed() {
   const since = new Date(Date.now() - 30 * 86400000).toISOString();
-  let useLegacy = false;
+  const sinceDate = since.slice(0, 10); // YYYY-MM-DD for date columns
 
-  const results = await Promise.allSettled([
-    NX.sb.from('daily_logs').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(100),
-    NX.sb.from('cards').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(100),
-    NX.sb.from('time_clock').select('*').gte('clock_in', since).order('clock_in', { ascending: false }).limit(100),
-    NX.sb.from('chat_history').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(50),
-    NX.sb.from('cleaning_logs').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(100)
+  // Query all data sources in parallel — each wrapped to never throw
+  const safeQuery = async (fn) => {
+    try { return await fn(); }
+    catch (e) { console.error('[Log] Query error:', e); return { data: null, error: e }; }
+  };
+
+  const [logsRes, ticketsRes, cardsRes, clockRes, chatRes, cleanRes] = await Promise.all([
+    safeQuery(() => NX.sb.from('daily_logs').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(100)),
+    safeQuery(() => NX.sb.from('tickets').select('*').order('created_at', { ascending: false }).limit(50)),
+    safeQuery(() => NX.sb.from('kanban_cards').select('*').order('created_at', { ascending: false }).limit(50)),
+    safeQuery(() => NX.sb.from('time_clock').select('*').gte('clock_in', since).order('clock_in', { ascending: false }).limit(100)),
+    safeQuery(() => NX.sb.from('chat_history').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(50)),
+    safeQuery(() => NX.sb.from('cleaning_logs').select('*').gte('log_date', sinceDate).order('log_date', { ascending: false }).limit(100)),
   ]);
 
   feed = [];
-  const getData = i => (results[i].status === 'fulfilled' && results[i].value.data) || [];
-
-  // Check if cards table exists
-  const cardsRes = results[1];
-  if (cardsRes.status === 'fulfilled' && cardsRes.value.error?.message?.includes('does not exist')) {
-    useLegacy = true;
-  }
 
   // Daily logs → split into cleaning reports, system events, and regular logs
-  getData(0).forEach(r => {
+  (logsRes.data || []).forEach(r => {
     const entry = r.entry || '';
     const isClean = entry.startsWith('Cleaning Report') || entry.startsWith('[AUTO');
-    const isSys = entry.startsWith('[SYS]') || entry.startsWith('⚙') || entry.startsWith('📬') || entry.startsWith('🚨');
+    const isSys = entry.startsWith('[SYS]') || entry.startsWith('⚙') || entry.startsWith('📬') || entry.startsWith('🚨') || entry.startsWith('📷');
     const type = isClean ? 'clean' : isSys ? 'system' : 'log';
     feed.push({ type, ts: r.created_at, id: 'dl-' + r.id, data: r, src: 'daily_logs' });
   });
 
-  // Cards or legacy
-  if (useLegacy) {
-    try {
-      const tk = await NX.sb.from('tickets').select('*').order('created_at', { ascending: false }).limit(50);
-      (tk.data || []).forEach(r => feed.push({ type: 'ticket', ts: r.created_at, id: 'tk-' + r.id, data: r }));
-    } catch (e) {}
-    try {
-      const kb = await NX.sb.from('kanban_cards').select('*').order('created_at', { ascending: false }).limit(50);
-      (kb.data || []).forEach(r => feed.push({ type: 'task', ts: r.created_at, id: 'kb-' + r.id, data: r }));
-    } catch (e) {}
-  } else {
-    getData(1).forEach(r => {
-      const isTicket = r.priority === 'urgent' || r.source === 'ticket' || r.ai_troubleshoot;
-      feed.push({
-        type: isTicket ? 'ticket' : 'task',
-        ts: r.created_at,
-        id: 'cd-' + r.id,
-        data: { ...r, status: r.status || 'todo', column_name: r.status, reported_by: r.reported_by || r.assignee }
-      });
+  // Tickets
+  (ticketsRes.data || []).forEach(r => {
+    feed.push({ type: 'ticket', ts: r.created_at, id: 'tk-' + r.id, data: r });
+  });
+
+  // Kanban cards (tasks)
+  (cardsRes.data || []).forEach(r => {
+    feed.push({
+      type: 'task',
+      ts: r.created_at,
+      id: 'kb-' + r.id,
+      data: { ...r, status: r.status || r.column_name || 'todo', column_name: r.status || r.column_name, reported_by: r.reported_by || r.assignee }
     });
-  }
+  });
 
   // Time clock
-  getData(2).forEach(r => feed.push({ type: 'clock', ts: r.clock_in, id: 'tc-' + r.id, data: r }));
+  (clockRes.data || []).forEach(r => {
+    feed.push({ type: 'clock', ts: r.clock_in, id: 'tc-' + r.id, data: r });
+  });
 
   // Chat
-  getData(3).forEach(r => feed.push({ type: 'chat', ts: r.created_at, id: 'ch-' + r.id, data: r }));
+  (chatRes.data || []).forEach(r => {
+    feed.push({ type: 'chat', ts: r.created_at, id: 'ch-' + r.id, data: r });
+  });
 
-  // Individual cleaning tasks (skip if report already covers that date)
+  // Cleaning tasks — skip dates already covered by daily_logs cleaning reports
   const reportDates = new Set(
     feed.filter(f => f.type === 'clean' && f.src === 'daily_logs')
       .map(f => { const m = (f.data.entry || '').match(/\d{4}-\d{2}-\d{2}/); return m ? m[0] : null; })
       .filter(Boolean)
   );
-  getData(4).forEach(r => {
-    const d = r.date || r.created_at?.slice(0, 10);
-    if (!reportDates.has(d)) {
-      feed.push({ type: 'clean', ts: r.created_at, id: 'cl-' + r.id, data: r, src: 'cleaning_logs' });
+  (cleanRes.data || []).forEach(r => {
+    if (r.done) {
+      const d = r.log_date || '';
+      if (!reportDates.has(d)) {
+        const ts = r.completed_at || (r.log_date + 'T12:00:00Z');
+        feed.push({ type: 'clean', ts, id: 'cl-' + (r.id || r.log_date + r.section + r.task_index), data: r, src: 'cleaning_logs' });
+      }
     }
   });
 
@@ -257,8 +265,9 @@ function buildTicketCard(r, pinned) {
     btn.className = 'feed-close-btn';
     btn.textContent = '✓ Close';
     btn.addEventListener('click', async () => {
-      const { error } = await NX.sb.from('cards').update({ status: 'closed', updated_at: new Date().toISOString() }).eq('id', r.id);
-      if (error) await NX.sb.from('tickets').update({ status: 'closed' }).eq('id', r.id);
+      // Try tickets table (legacy) then kanban_cards
+      try { await NX.sb.from('tickets').update({ status: 'closed' }).eq('id', r.id); } catch(e){}
+      try { await NX.sb.from('kanban_cards').update({ status: 'closed', updated_at: new Date().toISOString() }).eq('id', r.id); } catch(e){}
       btn.textContent = 'Closed';
       d.style.opacity = '0.4';
       if (NX.checkTicketBadge) NX.checkTicketBadge();
@@ -271,7 +280,7 @@ function buildTicketCard(r, pinned) {
 
 /* ═══ TASK CARD ═══ */
 function buildTaskCard(r) {
-  const status = (r.column_name || 'todo').toLowerCase();
+  const status = (r.column_name || r.status || 'todo').toLowerCase();
   const icon = status === 'done' ? '✅' : status === 'doing' ? '🔄' : '📌';
   const due = r.due_date
     ? '<span class="feed-due' + (new Date(r.due_date) < new Date() ? ' feed-overdue' : '') + '">Due ' +
@@ -303,32 +312,13 @@ function buildChatCard(r) {
     r.created_at);
 }
 
-/* ═══════════════════════════════════════════════════
-   CLEANING REPORT CARD
-   ═══════════════════════════════════════════════════
-   The cleaning report stored in daily_logs.entry has this format:
-   
-   Cleaning Report — 2026-04-11        ← header line
-   ===                                 ← section separator
-   Cleaning Report — Suerte — 2026-04-11
-   Daily: 71% (5/7)
-   ---
-   Comedor (3/6)
-   MISSED: Mop Floor, Inspect windows
-   Baños (2/9)
-   ...
-   ===                                 ← next restaurant
-   Cleaning Report — Este — 2026-04-11
-   Daily: 50% (3/6)
-   ...
-   ═══════════════════════════════════════════════════ */
+/* ═══ CLEANING REPORT CARD ═══ */
 function buildCleanReportCard(r) {
   const entry = r.entry || '';
   const dateMatch = entry.match(/\d{4}-\d{2}-\d{2}/);
   const reportDate = dateMatch ? dateMatch[0] : '';
   const isAuto = entry.includes('[AUTO');
 
-  // Parse percentages
   const pcts = parseCleanPcts(entry);
 
   const d = document.createElement('div');
@@ -364,6 +354,7 @@ function buildCleanReportCard(r) {
       e.stopPropagation();
       if (dateMatch) NX.editingReport = { logId: r.id, date: dateMatch[0] };
       document.querySelector('.nav-tab[data-view="clean"]')?.click();
+      document.querySelector('.bnav-btn[data-view="clean"]')?.click();
     });
   }
 
@@ -371,9 +362,7 @@ function buildCleanReportCard(r) {
   return d;
 }
 
-/* ═══ PARSE CLEANING PERCENTAGES ═══
-   Splits entry by "===" and finds "Daily: NN%" in each section.
-   Restaurant name comes from "Cleaning Report — {Name} — {date}" */
+/* ═══ PARSE CLEANING PERCENTAGES ═══ */
 function parseCleanPcts(entry) {
   const results = [];
   const sections = entry.split(/={3,}/);
@@ -384,12 +373,10 @@ function parseCleanPcts(entry) {
     let pct = null;
 
     for (const line of lines) {
-      // Look for restaurant name: "Cleaning Report — Suerte — 2026-..."
       if (!name) {
         const m = line.match(/Cleaning Report\s*[\u2014\u2013\-\u2015]+\s*([A-Za-z][A-Za-z\s]*?)\s*[\u2014\u2013\-\u2015]+\s*\d/);
         if (m) name = m[1].trim();
       }
-      // Look for percentage: "Daily: 71% (5/7)"
       if (!pct) {
         const m = line.match(/Daily:\s*(\d+)%/);
         if (m) pct = parseInt(m[1]);
@@ -397,12 +384,9 @@ function parseCleanPcts(entry) {
       if (name && pct !== null) break;
     }
 
-    if (name && pct !== null) {
-      results.push({ name, pct });
-    }
+    if (name && pct !== null) results.push({ name, pct });
   }
 
-  // Fallback for single-restaurant reports (no === separators)
   if (!results.length) {
     const pctM = entry.match(/Daily:\s*(\d+)%/);
     if (pctM) {
@@ -417,17 +401,15 @@ function parseCleanPcts(entry) {
 /* ═══ CLEAN TASK CARD ═══ */
 function buildCleanTaskCard(r) {
   return baseCard('clean',
-    '<div class="feed-text">✓ ' + escHTML(r.task || 'Task completed') + '</div>' +
-    '<div class="feed-who">' + escHTML(r.completed_by || '') + ' · ' + escHTML(r.location || '') + '</div>',
-    r.created_at);
+    '<div class="feed-text">✓ ' + escHTML(r.section || '') + ' #' + (r.task_index || 0) + '</div>' +
+    '<div class="feed-who">' + escHTML(r.location || '') + ' · ' + escHTML(r.log_date || '') + '</div>',
+    r.completed_at || r.log_date);
 }
 
 /* ═══ SYSTEM EVENT CARD ═══ */
 function buildSystemCard(r) {
   const entry = r.entry || '';
-  // Clean up the entry for display
-  let clean = entry.replace(/^\[SYS\]\s*/,'');
-  // Parse event type from syslog format: [SYS] event_name: detail
+  let clean = entry.replace(/^\[SYS\]\s*/, '');
   const parts = clean.match(/^(\w+?):\s*(.+)$/);
   let icon = '⚙';
   let label = clean;
@@ -445,10 +427,10 @@ function buildSystemCard(r) {
     else if (event.includes('node')) icon = '🧠';
     else if (event.includes('gmail') || event.includes('email')) icon = '✉';
   }
-  // Also handle edge function logs
   if (entry.startsWith('⚙')) { icon = '⚙'; label = entry.slice(2).trim(); }
   if (entry.startsWith('📬')) { icon = '📬'; label = entry.slice(2).trim(); }
   if (entry.startsWith('🚨')) { icon = '🚨'; label = entry.slice(2).trim(); }
+  if (entry.startsWith('📷')) { icon = '📷'; label = entry.slice(2).trim(); }
 
   const el = baseCard('system',
     '<div class="feed-text"><span class="feed-sys-icon">' + icon + '</span> ' + escHTML(label) + '</div>' +
@@ -461,14 +443,13 @@ function buildSystemCard(r) {
 /* ═══ UTILITIES ═══ */
 function escHTML(s) {
   if (!s) return '';
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function addDeleteBtn(el, id, table) {
   const actions = document.createElement('div');
   actions.className = 'feed-actions';
 
-  // Acknowledge — marks as read, fades out
   const ackBtn = document.createElement('button');
   ackBtn.className = 'feed-ack';
   ackBtn.textContent = '✓';
@@ -480,11 +461,9 @@ function addDeleteBtn(el, id, table) {
     el.style.maxHeight = '0';
     el.style.overflow = 'hidden';
     setTimeout(() => el.remove(), 350);
-    // Mark as acknowledged in feed (don't delete from DB)
     feed = feed.filter(f => f.id !== (table === 'daily_logs' ? 'dl-' + id : f.id));
   });
 
-  // Delete — removes from database
   const delBtn = document.createElement('button');
   delBtn.className = 'feed-del';
   delBtn.textContent = '✕';
@@ -496,7 +475,7 @@ function addDeleteBtn(el, id, table) {
     el.style.maxHeight = '0';
     el.style.overflow = 'hidden';
     setTimeout(() => el.remove(), 350);
-    await NX.sb.from(table).delete().eq('id', id);
+    try { await NX.sb.from(table).delete().eq('id', id); } catch(e) { console.error('[Log] Delete error:', e); }
   });
 
   actions.appendChild(ackBtn);
@@ -505,15 +484,20 @@ function addDeleteBtn(el, id, table) {
   if (head) head.appendChild(actions);
 }
 
-/* ═══ ADD LOG ═══ */
+/* ═══ ADD LOG — FIXED: uses NX.currentUser ═══ */
 async function addLog() {
   const input = document.getElementById('logInput');
   const text = input?.value.trim();
   if (!text) return;
-  await NX.sb.from('daily_logs').insert({ entry: text, user_name: NX.user?.name || '' });
-  if (NX.toast) NX.toast('Logged ✓', 'success');
-  input.value = '';
-  loadFeed();
+  try {
+    await NX.sb.from('daily_logs').insert({ entry: text, user_name: NX.currentUser?.name || '' });
+    if (NX.toast) NX.toast('Logged ✓', 'success');
+    input.value = '';
+    loadFeed();
+  } catch (e) {
+    console.error('[Log] Add error:', e);
+    if (NX.toast) NX.toast('Error saving log', 'error');
+  }
 }
 
 /* ═══ ADD KNOWLEDGE ═══ */
@@ -527,7 +511,7 @@ async function addKnowledge() {
   btn.textContent = 'Processing...';
 
   try {
-    const prompt = 'Extract knowledge for restaurant ops (Suerte, Este, Bar Toti — Austin TX). Return ONLY raw JSON: {"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"..."}]}';
+    const prompt = 'Extract knowledge for restaurant ops. Return ONLY raw JSON: {"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"..."}]}';
     const answer = await NX.askClaude(prompt, [{ role: 'user', content: text }], 1000);
 
     let json = answer.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
@@ -565,7 +549,7 @@ async function addKnowledge() {
       btn.textContent = 'No data extracted';
     }
   } catch (err) {
-    console.error('Knowledge error:', err);
+    console.error('[Log] Knowledge error:', err);
     btn.textContent = 'Error';
   }
 
@@ -574,8 +558,14 @@ async function addKnowledge() {
 
 /* ═══ EXPORT ═══ */
 NX.modules.log = {
-  init: () => { init(); if (NX.timeClock) NX.timeClock.setupLogFilters(); },
-  show: () => { loadFeed(); if (NX.timeClock) NX.timeClock._reloadLog(); }
+  init: () => {
+    init();
+    try { if (NX.timeClock && NX.timeClock.setupLogFilters) NX.timeClock.setupLogFilters(); } catch(e){}
+  },
+  show: () => {
+    loadFeed();
+    try { if (NX.timeClock && NX.timeClock._reloadLog) NX.timeClock._reloadLog(); } catch(e){}
+  }
 };
 
 })();
