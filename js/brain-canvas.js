@@ -96,7 +96,7 @@
   function getCC(cat){return isDark()?(CAT_DARK[cat]||DEFAULT_DARK):(CAT_LIGHT[cat]||DEFAULT_LIGHT);}
 
   // ═══ NEBULA PARTICLES — beacon-001 inspired ═══
-  const nebula=[];const MAX_NEBULA=300;
+  const nebula=[];const MAX_NEBULA=60;
   const NEBULA_DARK=[
     [212,182,138],[220,195,155],[245,230,200],[180,160,130],
     [200,175,140],[230,210,170],[190,170,145],[255,240,210],
@@ -140,21 +140,22 @@
       p.y+=p.vy+wobble*(p.vx/perpLen)*0.15;
     }
     // Particle-node interaction — nodes glow when particles pass near
-    if(isPlaying){
+    if(isPlaying&&physicsFrame%4===0){
       const P=state.particles;
       for(let i=0;i<P.length;i++){
         const a=P[i];
-        if(a.glowAlpha>0)a.glowAlpha*=0.95; // Decay glow
+        if(a.glowAlpha>0)a.glowAlpha*=0.95;
         for(let j=0;j<nebula.length;j++){
           const np=nebula[j];
-          const d=Math.abs(a.x-np.x)+Math.abs(a.y-np.y); // Manhattan for speed
+          const d=Math.abs(a.x-np.x)+Math.abs(a.y-np.y);
           if(d<30){a.glowAlpha=Math.min(a.glowAlpha+0.15,0.8);break;}
         }
       }
-    }else{
-      // Decay all glows when not playing
-      for(let i=0;i<state.particles.length;i++){
-        if(state.particles[i].glowAlpha>0)state.particles[i].glowAlpha*=0.92;
+    }else if(!isPlaying){
+      if(physicsFrame%6===0){
+        for(let i=0;i<state.particles.length;i++){
+          if(state.particles[i].glowAlpha>0)state.particles[i].glowAlpha*=0.85;
+        }
       }
     }
   }
@@ -162,20 +163,14 @@
   function drawNebula(){
     for(let i=0;i<nebula.length;i++){
       const p=nebula[i];
-      const pulse=0.7+0.3*Math.sin(time*p.pulseSpeed*60+p.pulsePhase);
       const fadeIn=Math.min(p.age/60,1);
       const fadeOut=Math.pow(p.life,0.6);
-      const musicGlow=p.fromCenter&&isPlaying?(1+audioEnergy*1.5):1;
-      const a=Math.min(p.baseAlpha*fadeIn*fadeOut*musicGlow*pulse,0.8);
-      if(a<0.004)continue;
-      const sz=p.size*pulse;
-      const bassSize=isPlaying?sz+audioBass*2:sz;
+      const a=Math.min(p.baseAlpha*fadeIn*fadeOut,0.6);
+      if(a<0.01)continue;
+      const sz=p.size;
       const c=p.color;
-      // Triple layer — beacon style
-      ctx.beginPath();ctx.arc(p.x,p.y,bassSize*4,0,Math.PI*2);
-      ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a*0.12})`;ctx.fill();
-      ctx.beginPath();ctx.arc(p.x,p.y,bassSize*2,0,Math.PI*2);
-      ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a*0.3})`;ctx.fill();
+      ctx.beginPath();ctx.arc(p.x,p.y,sz*2,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a*0.25})`;ctx.fill();
       ctx.beginPath();ctx.arc(p.x,p.y,bassSize,0,Math.PI*2);
       ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${a})`;ctx.fill();
     }
@@ -249,7 +244,7 @@
   // ═══ GALAXY PLACEMENT ═══
   function resize(){
     const r=canvas.getBoundingClientRect();
-    const dpr=Math.min(window.devicePixelRatio||1,1.5);
+    const dpr=Math.min(window.devicePixelRatio||1, window.innerWidth<768?1:1.5);
     W=r.width*dpr;H=r.height*dpr;canvas.width=W;canvas.height=H;
     canvas.style.width=r.width+'px';canvas.style.height=r.height+'px';
     state.W=W;state.H=H;
@@ -336,7 +331,10 @@
     const P=state.particles,len=P.length,cx=W/2,cy=H/2;
     const galaxyR=getGalaxyR();
     const DOT=getDOT();
-    const doOverlap=len<500||physicsFrame%3===0; // Skip overlap check 2/3 frames at 500+
+    const doOverlap=len<300||
+      (len<800&&physicsFrame%3===0)||
+      (len<1500&&physicsFrame%5===0)||
+      physicsFrame%8===0; // 2500+: overlap only every 8th physics frame
     let grid;
     if(doOverlap){const CELL=40;grid=new Map();for(let i=0;i<len;i++){const a=P[i];const key=((Math.floor(a.x/CELL)+500)<<16)|(Math.floor(a.y/CELL)+500);let c=grid.get(key);if(!c){c=[];grid.set(key,c);}c.push(i);}}
     for(let i=0;i<len;i++){const a=P[i];
@@ -384,7 +382,7 @@
         const parent=canvas.parentElement;
         if(parent){
           const pr=parent.getBoundingClientRect();
-          const dpr=Math.min(window.devicePixelRatio||1,1.5);
+          const dpr=Math.min(window.devicePixelRatio||1, window.innerWidth<768?1:1.5);
           if(pr.width>10&&pr.height>10){
             W=pr.width*dpr;H=pr.height*dpr;canvas.width=W;canvas.height=H;
             canvas.style.width=pr.width+'px';canvas.style.height=pr.height+'px';
@@ -404,7 +402,7 @@
     }
     // Force resize check each frame when just became visible
     const rect=canvas.getBoundingClientRect();
-    const dpr=Math.min(window.devicePixelRatio||1,1.5);
+    const dpr=Math.min(window.devicePixelRatio||1, window.innerWidth<768?1:1.5);
     const expectedW=rect.width*dpr,expectedH=rect.height*dpr;
     if(Math.abs(W-expectedW)>20||Math.abs(H-expectedH)>20){
       const prevCx=W/2,prevCy=H/2;
@@ -416,17 +414,19 @@
     }
     time+=0.005;physicsFrame++;
     const P=state.particles,t=state.transform;
-    if(P.length<800||physicsFrame%2===0)physics();
+    if(P.length<500)physics();
+    else if(P.length<1500&&physicsFrame%2===0)physics();
+    else if(physicsFrame%3===0)physics(); // 2500+ nodes: physics only every 3rd frame
     updateAudio();
 
     // Spawn nebula particles — gentler, slower
     const cx=W/2,cy=H/2;
     const galaxyR=getGalaxyR();
     if(isPlaying){
-      const spawnRate=1+Math.floor(audioEnergy*4);
+      const spawnRate=Math.min(2, 1+Math.floor(audioEnergy*2));
       for(let i=0;i<spawnRate;i++)spawnNebula(cx,cy,audioEnergy);
-    }else if(Math.random()<0.05){
-      spawnNebula(cx,cy,0); // Very occasional idle particle
+    }else if(Math.random()<0.01){
+      spawnNebula(cx,cy,0); // Very rare idle particle
     }
     updateNebula();
 
@@ -458,7 +458,7 @@
     const dk=isDark();
     if(centers&&Object.keys(centers).length>1){
       // Update community centers based on actual particle positions
-      if(physicsFrame%60===0){
+      if(physicsFrame%120===0){
         Object.keys(centers).forEach(cid=>{
           const members=P.filter(p=>p.commId==cid);
           if(!members.length)return;
@@ -589,10 +589,8 @@
 
     // Massive soft outer bloom when playing
     if(isPlaying){
-      ctx.beginPath();ctx.arc(cx,cy,beaconR*8,0,Math.PI*2);
-      ctx.fillStyle=`rgba(212,182,138,${0.02+audioEnergy*0.04})`;ctx.fill();
       ctx.beginPath();ctx.arc(cx,cy,beaconR*5,0,Math.PI*2);
-      ctx.fillStyle=`rgba(212,182,138,${0.04+audioEnergy*0.06})`;ctx.fill();
+      ctx.fillStyle=`rgba(212,182,138,${0.02+audioEnergy*0.03})`;ctx.fill();
     }
     // Standard triple glow
     ctx.beginPath();ctx.arc(cx,cy,beaconR*3,0,Math.PI*2);
@@ -614,14 +612,13 @@
     ctx.fillText('NEXUS',cx,cy+3);
 
     // ═══ FIREWORK PARTICLES — random bursts across the field ═══
-    if(isPlaying&&Math.random()<audioEnergy*0.3){
-      // Random position in the galaxy field
+    if(isPlaying&&Math.random()<audioEnergy*0.1){
       const fAngle=Math.random()*Math.PI*2;
       const fDist=80+Math.random()*galaxyR*0.8;
       const fx=cx+Math.cos(fAngle)*fDist;
       const fy=cy+Math.sin(fAngle)*fDist;
-      const burstCount=3+Math.floor(audioBass*8);
-      for(let b=0;b<burstCount;b++)spawnNebula(fx,fy,audioEnergy*0.4);
+      const burstCount=2+Math.floor(audioBass*3);
+      for(let b=0;b<burstCount;b++)spawnNebula(fx,fy,audioEnergy*0.3);
     }
 
     // ═══ NODE DOTS — LOD + visual hierarchy ═══
@@ -714,23 +711,21 @@
           ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);
           ctx.fillStyle=`rgba(${cc[0]},${cc[1]},${cc[2]},${birthAlpha*0.8})`;ctx.fill();
           if(birthT<0.6&&birthT>0.1)drawLabel(a.node.name.slice(0,20),a.x,a.y-r*3-8,(1-birthT/0.6)*0.7,10);
-          if(a.birthAge===1){for(let b=0;b<12;b++)spawnNebula(a.x,a.y,0.5);}
-          if(a.birthAge===30){for(let b=0;b<6;b++)spawnNebula(a.x,a.y,0.3);}
+          if(a.birthAge===1){for(let b=0;b<4;b++)spawnNebula(a.x,a.y,0.3);}
+          if(a.birthAge===30){spawnNebula(a.x,a.y,0.2);}
         }else{
           a.isBorn=false;
           const r=DOT*roleMult*pulse*musicPulse;
           const alpha=dim?0.12:(a.commRole==='god'?0.9:a.commRole==='bridge'?0.8:0.55);
           const glow=a.glowAlpha||0;
-          if(glow>0.05){
-            ctx.beginPath();ctx.arc(a.x,a.y,r*4,0,Math.PI*2);
-            ctx.fillStyle=`rgba(${cc[0]},${cc[1]},${cc[2]},${glow*0.12})`;ctx.fill();
+          if(glow>0.05&&(a.commRole==='god'||a.commRole==='bridge')){
             ctx.beginPath();ctx.arc(a.x,a.y,r*2,0,Math.PI*2);
-            ctx.fillStyle=`rgba(${cc[0]},${cc[1]},${cc[2]},${glow*0.3})`;ctx.fill();
+            ctx.fillStyle=`rgba(${cc[0]},${cc[1]},${cc[2]},${glow*0.2})`;ctx.fill();
             ctx.beginPath();ctx.arc(a.x,a.y,r*1.3,0,Math.PI*2);
-            ctx.fillStyle=`rgba(${cc[0]},${cc[1]},${cc[2]},${alpha+glow*0.4})`;ctx.fill();
+            ctx.fillStyle=`rgba(${cc[0]},${cc[1]},${cc[2]},${alpha+glow*0.3})`;ctx.fill();
           }else{
             ctx.beginPath();ctx.arc(a.x,a.y,r,0,Math.PI*2);
-            ctx.fillStyle=`rgba(${cc[0]},${cc[1]},${cc[2]},${alpha*pulse})`;ctx.fill();
+            ctx.fillStyle=`rgba(${cc[0]},${cc[1]},${cc[2]},${alpha})`;ctx.fill();
           }
         }
       }
@@ -758,7 +753,7 @@
 
   // ═══ INTERACTION ═══
   function setupCanvas(){
-    const dpr=()=>Math.min(window.devicePixelRatio||1,1.5);
+    const dpr=()=>Math.min(window.devicePixelRatio||1, window.innerWidth<768?1:1.5);
 
     canvas.addEventListener('click',e=>{
       if(state.dragging)return;
@@ -834,7 +829,7 @@
     },{passive:true});
   }
 
-  function stw(sx,sy){const r=canvas.getBoundingClientRect(),d=Math.min(window.devicePixelRatio||1,1.5);return{x:((sx-r.left)*d-state.transform.x)/state.transform.scale,y:((sy-r.top)*d-state.transform.y)/state.transform.scale};}
+  function stw(sx,sy){const r=canvas.getBoundingClientRect(),d=Math.min(window.devicePixelRatio||1, window.innerWidth<768?1:1.5);return{x:((sx-r.left)*d-state.transform.x)/state.transform.scale,y:((sy-r.top)*d-state.transform.y)/state.transform.scale};}
 
   // ═══ NODE PANEL ═══
   function openPanel(n){
