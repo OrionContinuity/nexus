@@ -1266,10 +1266,9 @@ td.check{background:#F0EDE6 !important}
     const entry=`[SYS] ${event}: ${(detail||'').slice(0,200)}`;
     try{
       await this.sb.from('daily_logs').insert({
-        entry,user_name:this.currentUser?.name||'NEXUS',
-        user_id:this.currentUser?.id||0
+        entry,user_name:this.currentUser?.name||'NEXUS'
       });
-    }catch(e){}
+    }catch(e){console.error('syslog error:',e);}
   },
 
   async showBriefing(){
