@@ -223,7 +223,7 @@ body::-webkit-scrollbar{display:none}
 
 /* Chat HUD */
 .chat-hud{position:absolute;bottom:0;left:0;right:0;z-index:20;background:var(--surface);border-top:2px solid var(--accent);display:flex;flex-direction:column;max-height:80px;transition:max-height .3s ease;overflow:hidden}
-.chat-hud.expanded{max-height:65%;overflow:visible}
+.chat-hud.expanded{max-height:65%}
 .chat-hud .hud-body{display:none}
 .chat-hud.expanded .hud-body{display:flex}
 .hud-handle{display:flex;justify-content:center;padding:4px;cursor:pointer;-webkit-tap-highlight-color:transparent}
