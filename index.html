@@ -79,6 +79,7 @@
     <button class="nav-tab" data-view="log"><i data-lucide="file-text" class="nav-icon"></i> <span data-i18n="log">Log</span></button>
     <button class="nav-tab" data-view="board" title="Task Board"><i data-lucide="columns-3" class="nav-icon"></i> <span data-i18n="board">Board</span></button>
     <button class="nav-tab" data-view="cal" title="Calendar"><i data-lucide="calendar" class="nav-icon"></i> <span data-i18n="cal">Cal</span></button>
+    <button class="nav-tab" data-view="equipment" title="Equipment"><i data-lucide="wrench" class="nav-icon"></i> <span data-i18n="equipment">Equipment</span></button>
     <button class="nav-tab" data-view="ingest" id="ingestTab" style="display:none"><i data-lucide="zap" class="nav-icon"></i> <span data-i18n="ingest">Ingest</span></button>
   </div>
   <button class="nav-more" id="navMore" title="More"><i data-lucide="menu" class="nav-icon"></i></button>
@@ -250,6 +251,9 @@
 
   <!-- BOARD -->
   <div class="view" id="boardView" data-view="board"><div class="board-wrap" id="boardWrap"></div></div>
+
+  <!-- EQUIPMENT -->
+  <div class="view" id="equipmentView" data-view="equipment"></div>
 
   <!-- CALENDAR -->
   <div class="view" id="calView" data-view="cal">
@@ -485,6 +489,10 @@
   <button class="bnav-btn" data-view="board" aria-label="Board">
     <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="3" y="15" width="7" height="6" rx="1"/><rect x="14" y="11" width="7" height="10" rx="1"/></svg>
     <span data-i18n="board">Board</span>
+  </button>
+  <button class="bnav-btn" data-view="equipment" aria-label="Equipment">
+    <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+    <span data-i18n="equipment">Equip</span>
   </button>
   <button class="bnav-btn" data-view="cal" aria-label="Calendar">
     <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>
