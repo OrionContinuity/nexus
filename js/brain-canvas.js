@@ -484,27 +484,9 @@
         }
       });
 
-      // Zone labels — only top 8, only at reasonable zoom
-      if(t.scale>0.3){
-        const labelZones=sortedZones.slice(0,8);
-        labelZones.forEach(([cid,cc])=>{
-          const inRoom=state.activeRoom!=null;
-          const isThisRoom=state.activeRoom==cid;
-          const labelAlpha=inRoom?(isThisRoom?0.6:0.05):0.25;
-          // Scale label size with community size
-          const labelSize=Math.max(9,Math.min(14,cc.count*0.15));
-          ctx.font=`500 ${labelSize}px "DM Sans","Outfit",sans-serif`;
-          ctx.textAlign='center';
-          const lbl=(cc.label||'').replace(/^[^:]+:\s*/,'').slice(0,20);
-          if(dk){
-            ctx.fillStyle=`rgba(0,0,0,${labelAlpha*0.3})`;ctx.fillText(lbl,cc.x+1,cc.y+cc.r*0.85+1);
-            ctx.fillStyle=`rgba(212,182,138,${labelAlpha})`;ctx.fillText(lbl,cc.x,cc.y+cc.r*0.85);
-          }else{
-            ctx.fillStyle=`rgba(255,255,255,${labelAlpha*0.4})`;ctx.fillText(lbl,cc.x+1,cc.y+cc.r*0.85+1);
-            ctx.fillStyle=`rgba(120,95,50,${labelAlpha})`;ctx.fillText(lbl,cc.x,cc.y+cc.r*0.85);
-          }
-        });
-      }
+      // Zone labels — REMOVED per design. Cluster names (equipment, systems, people, etc.)
+      // no longer float in the galaxy. Tap a node to see its label instead.
+      // if(t.scale>0.3){ ...removed... }
 
       // ═══ BRIDGE LINES — cached, recomputed every 60 frames ═══
       if(!state.activeRoom){
@@ -658,8 +640,13 @@
       // Fast path: batch peripheral nodes by color
       const dim=(isA&&!isHit)||a.filtered;
       const cc=getCC(a.cat);
-      const r=DOT*0.9;
-      const alpha=dim?0.12:0.55;
+      // Scale size by access_count (importance) — gives visual hierarchy
+      // Access 1 = 0.7x, access 10 = ~1.1x, access 50+ = 1.5x max
+      const accessScale=0.7+Math.min((a.access||1)/20,1)*0.8;
+      const r=DOT*accessScale;
+      // Brighter when a filter is active and this node matches (not filtered out)
+      const filterActive=state.particles.some(p=>p.filtered);
+      const alpha=dim?0.1:(filterActive&&!a.filtered?0.85:0.55);
       const key=`${cc[0]},${cc[1]},${cc[2]},${alpha.toFixed(2)}`;
       if(!peripheralBatches[key])peripheralBatches[key]=[];
       peripheralBatches[key].push({x:a.x,y:a.y,r});
@@ -687,6 +674,8 @@
       const musicPulse=isPlaying?1+audioEnergy*0.3:1;
       const cc=getCC(a.cat);
       const roleMult=a.commRole==='god'?2.5:a.commRole==='bridge'?1.8:a.commRole==='core'?1.3:1.0;
+      // Importance scaling from access count
+      const accessMult=0.7+Math.min((a.access||1)/20,1)*0.8;
 
       if(!a.searchGlow)a.searchGlow=0;
       if(isHit||isActive){a.searchGlow=Math.min(a.searchGlow+0.02,1);}
@@ -748,8 +737,11 @@
           if(a.birthAge===30){spawnNebula(a.x,a.y,0.2);}
         }else{
           a.isBorn=false;
-          const r=DOT*roleMult*pulse*musicPulse;
-          const alpha=dim?0.12:(a.commRole==='god'?0.9:a.commRole==='bridge'?0.8:0.55);
+          const r=DOT*roleMult*accessMult*pulse*musicPulse;
+          // Brighter when filter is active and this node matches
+          const filterActive=state.particles.some(p=>p.filtered);
+          const baseAlpha=a.commRole==='god'?0.9:a.commRole==='bridge'?0.8:0.55;
+          const alpha=dim?0.1:(filterActive&&!a.filtered?Math.min(baseAlpha+0.3,1):baseAlpha);
           const glow=a.glowAlpha||0;
           if(glow>0.05&&(a.commRole==='god'||a.commRole==='bridge')){
             ctx.beginPath();ctx.arc(a.x,a.y,r*2,0,Math.PI*2);
@@ -1073,10 +1065,12 @@
       setTimeout(()=>{uploadStatus.textContent='';},3000);
     };
 
-    document.getElementById('nodePanel').classList.add('open');if(window.lucide)lucide.createIcons();
+    document.getElementById('nodePanel').classList.add('open');
+    document.body.classList.add('panel-open');
+    if(window.lucide)lucide.createIcons();
   }
 
-  function closePanel(){state.activeNode=null;state.frozenNode=null;const np=document.getElementById('nodePanel');if(np)np.classList.remove('open');}
+  function closePanel(){state.activeNode=null;state.frozenNode=null;const np=document.getElementById('nodePanel');if(np)np.classList.remove('open');document.body.classList.remove('panel-open');}
 
   // Close panel when leaving brain view
   function hideOnLeave(){closePanel();const hud=document.getElementById('chatHud');if(hud)hud.classList.remove('expanded');}
