@@ -1,0 +1,98 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Equipment UX Patches — Styles
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Per-row print button in list view */
+.eq-row-print {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+  transition: all 0.15s;
+  z-index: 5;
+}
+
+.eq-row {
+  position: relative;
+  padding-right: 52px !important;
+}
+
+.eq-row:hover .eq-row-print,
+.eq-row-print:focus {
+  opacity: 1;
+  border-color: var(--accent);
+  background: rgba(200, 164, 78, 0.1);
+}
+
+.eq-row-print:active {
+  transform: translateY(-50%) scale(0.92);
+}
+
+.eq-row-head {
+  padding-right: 14px !important;
+}
+
+.eq-row-head .eq-row-print {
+  display: none;
+}
+
+/* Grid card print button overlay */
+.eq-card-print {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: var(--accent);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.9;
+  transition: all 0.15s;
+  z-index: 5;
+}
+
+.eq-card-print:hover {
+  background: rgba(200, 164, 78, 0.3);
+  opacity: 1;
+}
+
+.eq-card-print:active {
+  transform: scale(0.92);
+}
+
+/* Make the detail action bar Zebra button unmistakable */
+.eq-zebra-action-btn {
+  font-weight: 600;
+}
+
+/* Mobile: bigger touch targets */
+@media (max-width: 600px) {
+  .eq-row-print {
+    width: 36px;
+    height: 36px;
+    right: 8px;
+  }
+  .eq-row {
+    padding-right: 52px !important;
+  }
+}
