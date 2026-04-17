@@ -117,7 +117,11 @@ body::-webkit-scrollbar{display:none}
 .ig-pause-btn.paused{border-color:#d45858;color:#d45858;background:rgba(212,88,88,.08)}
 
 /* ═══ MAIN ═══ */
-.main{height:calc(100vh - 53px);overflow:hidden;padding-bottom:calc(58px + env(safe-area-inset-bottom))}
+/* Use dvh (dynamic viewport height) for Android Chrome URL bar correctness.
+   Fallback to vh for older browsers. */
+.main{height:calc(100vh - 53px);height:calc(100dvh - 53px);overflow:hidden;padding-bottom:calc(56px + env(safe-area-inset-bottom))}
+/* On brain view, main has LESS usable area because chat HUD sits above the nav */
+body.view-brain .main{padding-bottom:calc(120px + env(safe-area-inset-bottom))}
 .view{display:none;flex-direction:column;height:100%;overflow-y:auto;position:relative;scrollbar-width:none}
 .view::-webkit-scrollbar{display:none}
 .view.active{display:flex}
@@ -221,13 +225,34 @@ body::-webkit-scrollbar{display:none}
 .event-done-btn:hover{border-color:var(--green);color:var(--green)}
 .event-del-btn:hover{border-color:var(--red);color:var(--red)}
 
-/* Chat HUD */
-.chat-hud{position:absolute;bottom:0;left:0;right:0;z-index:20;background:var(--surface);border-top:2px solid var(--accent);display:flex;flex-direction:column;max-height:88px;min-height:88px;transition:max-height .3s ease;overflow:hidden}
-.chat-hud.expanded{max-height:65%}
+/* Chat HUD — Mobile: ALWAYS visible at fixed position above bottom nav.
+   No collapse state. Always shows input row. Tap to focus = keyboard opens.
+   History is shown when user opens it via the handle/button. */
+.chat-hud{
+  position:fixed;
+  left:0; right:0;
+  bottom:calc(56px + env(safe-area-inset-bottom));
+  z-index:30;
+  background:var(--surface);
+  border-top:2px solid var(--accent);
+  display:flex;
+  flex-direction:column;
+  height:64px;
+  overflow:hidden;
+  box-shadow:0 -4px 20px rgba(0,0,0,.3);
+  transition:height .25s ease;
+}
+.chat-hud.expanded{
+  height:calc(100dvh - 56px - env(safe-area-inset-bottom) - 53px);
+  height:calc(100vh - 56px - env(safe-area-inset-bottom) - 53px);
+}
+/* Hide chat-hud on non-brain views */
+body:not(.view-brain) .chat-hud{display:none}
+/* Body always contains the input; only shows messages when expanded */
 .chat-hud .hud-body{display:none}
 .chat-hud.expanded .hud-body{display:flex}
-.hud-handle{display:flex;justify-content:center;padding:4px;cursor:pointer;-webkit-tap-highlight-color:transparent}
-.hud-handle-bar{width:36px;height:3px;border-radius:2px;background:var(--accent);opacity:.3}
+.hud-handle{display:flex;justify-content:center;padding:2px 4px;cursor:pointer;-webkit-tap-highlight-color:transparent;min-height:8px;flex-shrink:0}
+.hud-handle-bar{width:40px;height:3px;border-radius:2px;background:var(--accent);opacity:.6}
 .hud-body{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .api-banner{padding:8px 12px;background:rgba(224,85,85,.1);color:var(--red);font-size:12px;text-align:center;display:flex;align-items:center;justify-content:center;gap:8px}
 .api-banner button{background:var(--red);color:#fff;border:none;padding:4px 10px;border-radius:var(--rs);font-size:11px;cursor:pointer}
@@ -259,10 +284,10 @@ body::-webkit-scrollbar{display:none}
 .chat-conf-high{color:#5bba5f}
 .chat-conf-medium{color:#e8a830}
 .chat-conf-low{color:#d45858}
-.hud-input{display:flex;align-items:center;gap:8px;padding:10px 12px 14px;min-height:56px}
-.hud-input input{flex:1;background:var(--elevated);border:1.5px solid var(--accent);border-radius:var(--r);padding:10px 14px;color:var(--text);font-size:14px;outline:none;min-height:44px;font-family:inherit}
+.hud-input{display:flex;align-items:center;gap:6px;padding:6px 10px;min-height:56px;height:56px;flex-shrink:0}
+.hud-input input{flex:1;background:var(--elevated);border:1.5px solid var(--accent);border-radius:var(--r);padding:8px 12px;color:var(--text);font-size:14px;outline:none;height:40px;font-family:inherit}
 .hud-input input::placeholder{color:var(--faint)}
-.btn-mic,.btn-voice,.btn-send,.btn-reset{width:44px;height:44px;border-radius:50%;border:1px solid var(--border);background:rgba(28,28,34,.9);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .2s}
+.btn-mic,.btn-voice,.btn-send,.btn-reset{width:40px;height:40px;border-radius:50%;border:1px solid var(--border);background:rgba(28,28,34,.9);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .2s}
 .btn-mic.recording{border-color:var(--red);color:var(--red);animation:pulse 1s infinite}
 .btn-voice.on,.btn-voice-float.on{border-color:var(--accent);color:var(--accent)}
 .btn-send{background:var(--accent);color:var(--bg);border-color:var(--accent)}
@@ -1247,7 +1272,8 @@ body::-webkit-scrollbar{display:none}
 .ig-guide-title{font-family:'Outfit',sans-serif}
 
 /* ─── CHAT HUD UPGRADE ─── */
-.chat-hud{border-top:2px solid var(--accent);-webkit-backdrop-filter:blur(12px)}
+/* Chat HUD styling enhancements */
+.chat-hud{-webkit-backdrop-filter:blur(12px)}
 .hud-msg{border-radius:14px}
 .hud-msg-user{background:rgba(200,164,78,.08);border:1px solid rgba(200,164,78,.15)}
 [data-theme="light"] .hud-msg-user{background:rgba(139,105,20,.06);border:1px solid rgba(139,105,20,.12)}
