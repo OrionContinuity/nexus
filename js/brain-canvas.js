@@ -139,23 +139,12 @@
       p.x+=p.vx+wobble*(-p.vy/perpLen)*0.15;
       p.y+=p.vy+wobble*(p.vx/perpLen)*0.15;
     }
-    // Particle-node interaction — nodes glow when particles pass near
-    if(isPlaying&&physicsFrame%4===0){
+    // Only decay glows — skip the expensive O(N*M) proximity detection on mobile
+    // The music-node glow effect was the main performance killer
+    if(physicsFrame%6===0){
       const P=state.particles;
       for(let i=0;i<P.length;i++){
-        const a=P[i];
-        if(a.glowAlpha>0)a.glowAlpha*=0.95;
-        for(let j=0;j<nebula.length;j++){
-          const np=nebula[j];
-          const d=Math.abs(a.x-np.x)+Math.abs(a.y-np.y);
-          if(d<30){a.glowAlpha=Math.min(a.glowAlpha+0.15,0.8);break;}
-        }
-      }
-    }else if(!isPlaying){
-      if(physicsFrame%6===0){
-        for(let i=0;i<state.particles.length;i++){
-          if(state.particles[i].glowAlpha>0)state.particles[i].glowAlpha*=0.85;
-        }
+        if(P[i].glowAlpha>0)P[i].glowAlpha*=0.9;
       }
     }
   }
@@ -372,39 +361,47 @@
 
   // ═══ RENDER ═══
   let lastDrawTime=0;
+  let lastRectCheck=0;
+  let cachedRect=null;
 
   function draw(){
     const now=performance.now();
     // Skip rendering when brain view isn't active
     const brainEl=document.getElementById('brainView');
     if(!brainEl||!brainEl.classList.contains('active')){
-      lastDrawTime=0; // Reset so we detect resume
+      lastDrawTime=0;
+      cachedRect=null; // Force rect re-read when we come back
       requestAnimationFrame(draw);return;
     }
 
-    // ═══ CANVAS SIZE CHECK ═══
-    const rect=canvas.getBoundingClientRect();
-    const dpr=Math.min(window.devicePixelRatio||1, window.innerWidth<768?1:1.5);
-    if(rect.width<10||rect.height<10){requestAnimationFrame(draw);return;}
+    // ═══ CANVAS SIZE CHECK — only every 500ms, not every frame ═══
+    if(!cachedRect||now-lastRectCheck>500){
+      cachedRect=canvas.getBoundingClientRect();
+      lastRectCheck=now;
 
-    const expectedW=Math.round(rect.width*dpr),expectedH=Math.round(rect.height*dpr);
-    if(Math.abs(W-expectedW)>10||Math.abs(H-expectedH)>10){
-      const prevCx=W/2,prevCy=H/2;
-      W=expectedW;H=expectedH;canvas.width=W;canvas.height=H;
-      canvas.style.width=rect.width+'px';canvas.style.height=rect.height+'px';
-      state.W=W;state.H=H;
-      // Shift particles to match new center (only if we had a valid previous center)
-      if(prevCx>10&&prevCy>10){
-        const dx=W/2-prevCx,dy=H/2-prevCy;
-        if(Math.abs(dx)>3||Math.abs(dy)>3){
-          state.particles.forEach(p=>{p.x+=dx;p.y+=dy;});
+      if(cachedRect.width>=10&&cachedRect.height>=10){
+        const dpr=Math.min(window.devicePixelRatio||1, window.innerWidth<768?1:1.5);
+        const expectedW=Math.round(cachedRect.width*dpr),expectedH=Math.round(cachedRect.height*dpr);
+        // Only resize if truly different (50+ pixels, not 10)
+        if(Math.abs(W-expectedW)>50||Math.abs(H-expectedH)>50){
+          const prevCx=W/2,prevCy=H/2;
+          W=expectedW;H=expectedH;canvas.width=W;canvas.height=H;
+          canvas.style.width=cachedRect.width+'px';canvas.style.height=cachedRect.height+'px';
+          state.W=W;state.H=H;
+          if(prevCx>10&&prevCy>10){
+            const dx=W/2-prevCx,dy=H/2-prevCy;
+            if(Math.abs(dx)>3||Math.abs(dy)>3){
+              state.particles.forEach(p=>{p.x+=dx;p.y+=dy;});
+            }
+          }
         }
       }
     }
 
+    if(W<10||H<10){requestAnimationFrame(draw);return;}
+
     // ═══ TAB RESUME — dampen velocities to prevent blob ═══
     if(lastDrawTime>0&&now-lastDrawTime>500){
-      // We were away for a while — kill momentum so nodes don't drift
       state.particles.forEach(p=>{p.vx*=0.05;p.vy*=0.05;});
     }
     lastDrawTime=now;
@@ -427,18 +424,9 @@
     updateNebula();
 
     ctx.save();
-    // Background — theme-aware radial gradient
-    const bgGrad=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*0.7);
-    if(isDark()){
-      bgGrad.addColorStop(0,'#151520');
-      bgGrad.addColorStop(0.5,'#111118');
-      bgGrad.addColorStop(1,'#0d0d12');
-    }else{
-      bgGrad.addColorStop(0,'#F0EDE6');
-      bgGrad.addColorStop(0.5,'#EAE6DD');
-      bgGrad.addColorStop(1,'#E2DED4');
-    }
-    ctx.fillStyle=bgGrad;ctx.fillRect(0,0,W,H);
+    // Background — use simple solid fill instead of expensive gradient on mobile
+    ctx.fillStyle=isDark()?'#111118':'#EAE6DD';
+    ctx.fillRect(0,0,W,H);
     ctx.translate(t.x,t.y);ctx.scale(t.scale,t.scale);
 
     const isA=state.activatedNodes.size>0||state.searchHits.size>0;
@@ -453,16 +441,22 @@
     const centers=state.commCenters;
     const dk=isDark();
     if(centers&&Object.keys(centers).length>1){
-      // Update community centers based on actual particle positions
-      if(physicsFrame%120===0){
+      // Update community centers based on actual particle positions — single pass
+      if(physicsFrame%180===0){
+        const stats={};
+        for(let i=0;i<P.length;i++){
+          const p=P[i];
+          if(p.commId==null)continue;
+          if(!stats[p.commId])stats[p.commId]={sx:0,sy:0,count:0};
+          stats[p.commId].sx+=p.x;stats[p.commId].sy+=p.y;stats[p.commId].count++;
+        }
         Object.keys(centers).forEach(cid=>{
-          const members=P.filter(p=>p.commId==cid);
-          if(!members.length)return;
-          let sx=0,sy=0;members.forEach(m=>{sx+=m.x;sy+=m.y;});
-          centers[cid].x=sx/members.length;
-          centers[cid].y=sy/members.length;
-          centers[cid].count=members.length;
-          centers[cid].r=Math.max(40,Math.sqrt(members.length)*12);
+          const s=stats[cid];
+          if(!s||!s.count)return;
+          centers[cid].x=s.sx/s.count;
+          centers[cid].y=s.sy/s.count;
+          centers[cid].count=s.count;
+          centers[cid].r=Math.max(40,Math.sqrt(s.count)*12);
         });
       }
 
@@ -478,11 +472,8 @@
         const isThisRoom=state.activeRoom==cid;
         const zoneAlpha=inRoom?(isThisRoom?0.035:0.003):0.008;
 
-        const grad=ctx.createRadialGradient(cc.x,cc.y,zoneR*0.1,cc.x,cc.y,zoneR);
-        grad.addColorStop(0,`rgba(212,182,138,${zoneAlpha*1.2})`);
-        grad.addColorStop(0.5,`rgba(180,150,100,${zoneAlpha*0.5})`);
-        grad.addColorStop(1,'rgba(100,70,30,0)');
-        ctx.fillStyle=grad;
+        // Simple fill instead of radial gradient — 10x faster
+        ctx.fillStyle=`rgba(212,182,138,${zoneAlpha})`;
         ctx.beginPath();ctx.arc(cc.x,cc.y,zoneR,0,Math.PI*2);ctx.fill();
 
         // Accretion ring — only for rooms with 20+ nodes
@@ -515,27 +506,41 @@
         });
       }
 
-      // ═══ BRIDGE LINES — gold threads between significant communities only ═══
+      // ═══ BRIDGE LINES — cached, recomputed every 60 frames ═══
       if(!state.activeRoom){
-        const sigComms=new Set(sortedZones.map(([cid])=>cid));
-        const drawnBridges=new Set();
-        P.forEach(p=>{
-          if(p.commRole!=='bridge')return;
-          if(!sigComms.has(String(p.commId)))return;
-          (p.links||[]).forEach(lid=>{
-            const b=state.linkMap[lid];
-            if(!b||b.commId===p.commId)return;
-            if(!sigComms.has(String(b.commId)))return;
-            const key=p.commId<b.commId?`${p.commId}-${b.commId}`:`${b.commId}-${p.commId}`;
-            if(drawnBridges.has(key))return;
-            drawnBridges.add(key);
-            const ccA=centers[p.commId],ccB=centers[b.commId];
-            if(!ccA||!ccB)return;
-            ctx.beginPath();ctx.moveTo(ccA.x,ccA.y);ctx.lineTo(ccB.x,ccB.y);
-            ctx.strokeStyle=dk?`rgba(180,150,100,0.03)`:`rgba(100,80,40,0.04)`;
-            ctx.lineWidth=0.5;ctx.setLineDash([3,9]);ctx.stroke();ctx.setLineDash([]);
-          });
+        if(!state._bridgeCache||physicsFrame%60===0){
+          const sigComms=new Set(sortedZones.map(([cid])=>cid));
+          const drawnBridges=new Set();
+          const pairs=[];
+          for(let bi=0;bi<P.length;bi++){
+            const p=P[bi];
+            if(p.commRole!=='bridge')continue;
+            if(!sigComms.has(String(p.commId)))continue;
+            const links=p.links||[];
+            for(let li=0;li<links.length;li++){
+              const b=state.linkMap[links[li]];
+              if(!b||b.commId===p.commId)continue;
+              if(!sigComms.has(String(b.commId)))continue;
+              const key=p.commId<b.commId?`${p.commId}-${b.commId}`:`${b.commId}-${p.commId}`;
+              if(drawnBridges.has(key))continue;
+              drawnBridges.add(key);
+              pairs.push([p.commId,b.commId]);
+            }
+          }
+          state._bridgeCache=pairs;
+        }
+        // Draw cached bridges
+        ctx.setLineDash([3,9]);
+        ctx.strokeStyle=dk?`rgba(180,150,100,0.03)`:`rgba(100,80,40,0.04)`;
+        ctx.lineWidth=0.5;
+        ctx.beginPath();
+        state._bridgeCache.forEach(([aId,bId])=>{
+          const ccA=centers[aId],ccB=centers[bId];
+          if(!ccA||!ccB)return;
+          ctx.moveTo(ccA.x,ccA.y);ctx.lineTo(ccB.x,ccB.y);
         });
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
     }
 
@@ -620,9 +625,12 @@
     // ═══ NODE DOTS — LOD + visual hierarchy ═══
     const DOT=getDOT();
     const currentScale=t.scale;
-    // LOD: at overview zoom, skip peripheral nodes to reduce clutter
     const showAll=currentScale>0.7||state.activeRoom!=null;
     let skipCounter=0;
+
+    // Batch peripheral nodes by color for single draw call
+    const peripheralBatches={}; // "r,g,b,alpha" -> [{x,y,r}]
+    const specialNodes=[]; // Hit/active/frozen/hover/god/bridge — draw individually
 
     for(let i=0;i<P.length;i++){
       const a=P[i];if(a.x<vl||a.x>vr||a.y<vt||a.y>vb)continue;
@@ -631,30 +639,59 @@
       const isFrozen=state.frozenNode&&state.frozenNode.id===a.id;
       const isHover=state.hoverNode&&state.hoverNode.id===a.id;
 
-      // LOD culling: at overview, only show god/bridge + every Nth peripheral
+      // LOD culling
       if(!showAll&&!isHit&&!isActive&&!isFrozen&&!isHover){
         if(a.commRole==='peripheral'){
           skipCounter++;
-          if(currentScale<0.4){if(skipCounter%5!==0)continue;} // Show 20%
-          else if(currentScale<0.6){if(skipCounter%3!==0)continue;} // Show 33%
-          else{if(skipCounter%2!==0)continue;} // Show 50%
+          if(currentScale<0.4){if(skipCounter%5!==0)continue;}
+          else if(currentScale<0.6){if(skipCounter%3!==0)continue;}
+          else{if(skipCounter%2!==0)continue;}
         }
       }
 
+      // Special handling for interactive/important nodes
+      if(isHit||isActive||isFrozen||isHover||a.commRole==='god'||a.commRole==='bridge'||a.isBorn){
+        specialNodes.push({a,isHit,isActive,isFrozen,isHover});
+        continue;
+      }
+
+      // Fast path: batch peripheral nodes by color
+      const dim=(isA&&!isHit)||a.filtered;
+      const cc=getCC(a.cat);
+      const r=DOT*0.9;
+      const alpha=dim?0.12:0.55;
+      const key=`${cc[0]},${cc[1]},${cc[2]},${alpha.toFixed(2)}`;
+      if(!peripheralBatches[key])peripheralBatches[key]=[];
+      peripheralBatches[key].push({x:a.x,y:a.y,r});
+    }
+
+    // Draw all peripherals in batches — one beginPath per color
+    for(const key in peripheralBatches){
+      const [r,g,b,alpha]=key.split(',');
+      ctx.fillStyle=`rgba(${r},${g},${b},${alpha})`;
+      ctx.beginPath();
+      const nodes=peripheralBatches[key];
+      for(let i=0;i<nodes.length;i++){
+        const n=nodes[i];
+        ctx.moveTo(n.x+n.r,n.y);
+        ctx.arc(n.x,n.y,n.r,0,Math.PI*2);
+      }
+      ctx.fill();
+    }
+
+    // Draw special nodes individually
+    for(let si=0;si<specialNodes.length;si++){
+      const {a,isHit,isActive,isFrozen,isHover}=specialNodes[si];
       const dim=(isA&&!isHit&&!isActive)||a.filtered;
       const pulse=0.85+0.15*Math.sin(time*1.3+a.id*0.9);
       const musicPulse=isPlaying?1+audioEnergy*0.3:1;
       const cc=getCC(a.cat);
-
-      // Size multiplier based on community role
       const roleMult=a.commRole==='god'?2.5:a.commRole==='bridge'?1.8:a.commRole==='core'?1.3:1.0;
 
-      // Slow glow ramp-up when hit, slow fade when not
       if(!a.searchGlow)a.searchGlow=0;
       if(isHit||isActive){a.searchGlow=Math.min(a.searchGlow+0.02,1);}
       else{a.searchGlow=Math.max(a.searchGlow-0.008,0);}
 
-      // Helper: draw label with shadow
       const drawLabel=(text,x,y,alpha,size)=>{
         const dk=isDark();
         ctx.font=`500 ${size||11}px "DM Sans","Outfit",sans-serif`;ctx.textAlign='center';
