@@ -615,6 +615,9 @@ td.check{background:#F0EDE6 !important}
       bnavBtns.forEach(b => b.classList.remove('active'));
       nexusBtn.classList.remove('active');
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      // Sync body class for view-aware CSS (e.g. chat HUD only shows on brain)
+      document.body.classList.remove('view-brain','view-clean','view-log','view-board','view-cal','view-equipment','view-ingest');
+      document.body.classList.add('view-' + view);
       // Set active on correct buttons
       if (view === 'brain') { nexusBtn.classList.add('active'); }
       else { const tab = document.querySelector(`.nav-tab[data-view="${view}"]`); if (tab) tab.classList.add('active'); }
@@ -633,6 +636,8 @@ td.check{background:#F0EDE6 !important}
     // Default active state
     nexusBtn.classList.add('active');
     nexusBtn.addEventListener('click', () => switchTo('brain'));
+    // Initialize body class for default view (brain)
+    document.body.classList.add('view-brain');
   },
 
   activateModule(view) {
