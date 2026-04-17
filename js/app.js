@@ -646,7 +646,13 @@ td.check{background:#F0EDE6 !important}
         // For equipment, also load phase 2 + 3 extensions after base loads
         if (view === 'equipment') {
           this.loadScript('js/equipment-ai.js', () => {
-            this.loadScript('js/equipment-p3.js', () => {});
+            this.loadScript('js/equipment-p3.js', () => {
+              this.loadScript('js/equipment-ux.js', () => {
+                this.loadScript('js/equipment-ai-creator.js', () => {
+                  this.loadScript('js/equipment-full-editor.js', () => {});
+                });
+              });
+            });
           });
         }
         const mod = this.modules[view]; if (mod && mod.init) mod.init();
