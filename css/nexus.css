@@ -126,9 +126,9 @@ body::-webkit-scrollbar{display:none}
 
 /* ═══ BOTTOM NAV — primary mobile navigation ═══ */
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:50;display:flex;align-items:stretch;justify-content:space-around;background:var(--surface);border-top:1px solid var(--border);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding-bottom:env(safe-area-inset-bottom);height:auto;min-height:56px}
-.bnav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:8px 4px;background:none;border:none;color:var(--faint);cursor:pointer;transition:color .2s;-webkit-tap-highlight-color:transparent;position:relative;font-family:inherit}
-.bnav-btn span{font-size:9px;letter-spacing:.5px;font-weight:500}
-.bnav-icon{width:22px;height:22px;stroke-width:1.6}
+.bnav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:8px 2px;background:none;border:none;color:var(--faint);cursor:pointer;transition:color .2s;-webkit-tap-highlight-color:transparent;position:relative;font-family:inherit;min-width:0}
+.bnav-btn span{font-size:9px;letter-spacing:.3px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.bnav-icon{width:22px;height:22px;stroke-width:1.6;flex-shrink:0}
 .bnav-btn.active{color:var(--accent)}
 .bnav-btn.active::after{content:'';position:absolute;top:0;left:25%;right:25%;height:2px;background:var(--accent);border-radius:0 0 2px 2px}
 .bnav-btn:active{transform:scale(.92);transition:transform .1s}
@@ -222,7 +222,7 @@ body::-webkit-scrollbar{display:none}
 .event-del-btn:hover{border-color:var(--red);color:var(--red)}
 
 /* Chat HUD */
-.chat-hud{position:absolute;bottom:0;left:0;right:0;z-index:20;background:var(--surface);border-top:2px solid var(--accent);display:flex;flex-direction:column;max-height:80px;transition:max-height .3s ease;overflow:hidden}
+.chat-hud{position:absolute;bottom:0;left:0;right:0;z-index:20;background:var(--surface);border-top:2px solid var(--accent);display:flex;flex-direction:column;max-height:76px;min-height:76px;transition:max-height .3s ease;overflow:hidden}
 .chat-hud.expanded{max-height:65%}
 .chat-hud .hud-body{display:none}
 .chat-hud.expanded .hud-body{display:flex}
