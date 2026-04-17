@@ -1408,7 +1408,11 @@ td.check{background:#F0EDE6 !important}
     if(briefing.tickets.length)items.push(`🔴 ${briefing.tickets.length} ticket${briefing.tickets.length>1?'s':''}`);
     if(briefing.contractors.length)items.push(`🔵 ${briefing.contractors.map(e=>e.contractor_name).join(', ')} today`);
     if(briefing.overdue.length>3)items.push(`⚠ ${briefing.overdue.length} overdue`);
-    if(!briefing.clockedIn)items.push(`⏱ Not clocked in`);
+    if(!briefing.clockedIn){
+      // Only remind during typical operating hours (10am-11pm). No point nagging at 3am.
+      const hour=new Date().getHours();
+      if(hour>=10&&hour<23)items.push(`⏱ Not clocked in`);
+    }
     if(items.length)this.toast(items.join(' · '),'info',5000);
   },
 
