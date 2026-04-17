@@ -636,11 +636,23 @@ td.check{background:#F0EDE6 !important}
   },
 
   activateModule(view) {
-    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js' };
+    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js' };
     if (view === 'brain') { if (NX.brain && NX.brain.show) NX.brain.show(); return; }
     const file = moduleMap[view]; if (!file) return;
     if (this.loaded[view]) { const mod = this.modules[view]; if (mod && mod.show) mod.show(); }
-    else { this.loadScript(file, () => { this.loaded[view] = true; const mod = this.modules[view]; if (mod && mod.init) mod.init(); if(this.i18n)setTimeout(()=>this.i18n.applyUI(),200); }); }
+    else {
+      this.loadScript(file, () => {
+        this.loaded[view] = true;
+        // For equipment, also load phase 2 + 3 extensions after base loads
+        if (view === 'equipment') {
+          this.loadScript('js/equipment-ai.js', () => {
+            this.loadScript('js/equipment-p3.js', () => {});
+          });
+        }
+        const mod = this.modules[view]; if (mod && mod.init) mod.init();
+        if(this.i18n)setTimeout(()=>this.i18n.applyUI(),200);
+      });
+    }
   },
 
   loadScript(src, cb) {
