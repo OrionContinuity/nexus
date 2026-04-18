@@ -1,44 +1,30 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   NEXUS — GALAXY SOUL  ·  STYLES
-
-   The time scrubber and its companion audio toggle. Designed to be almost
-   invisible until the user wants them, then breathe. The ribbon lives
-   just above the bottom nav and below the chat HUD. On mobile it's
-   positioned carefully to not conflict with thumb territory.
+   NEXUS — GALAXY SOUL  ·  v2 STYLES
+   Fixed: scrubber positioned above bottom nav + chat HUD (120px on mobile)
    ══════════════════════════════════════════════════════════════════════════ */
 
-
-/* ─── TIME SCRUBBER ───
-   Appears only on the brain view. A slim ribbon, resting quietly at the
-   very bottom of the galaxy, above the nav. It fades to almost nothing
-   until hovered or touched. Once engaged, it blooms.
-*/
 #timeScrubber {
   position: fixed;
-  bottom: 72px;                           /* sits above bottom nav on mobile */
+  bottom: 140px;                          /* above bottom nav (60px) + chat HUD (~70px) */
   left: 50%;
   transform: translateX(-50%);
   width: min(620px, calc(100vw - 32px));
-  height: 38px;
+  height: 34px;
   z-index: 50;
   pointer-events: auto;
-  opacity: 0.35;
+  opacity: 0.4;
   transition: opacity .35s ease;
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-/* On desktop, position at bottom of the galaxy view — below the chat HUD input */
 @media (min-width: 768px) {
-  #timeScrubber {
-    bottom: 24px;
-  }
+  #timeScrubber { bottom: 90px; }
 }
 
-/* When chat HUD is expanded, scrubber drifts upward so it doesn't overlap */
-body.panel-open #timeScrubber,
-body:has(.chat-hud.expanded) #timeScrubber {
+/* When chat HUD is expanded or node panel is open, hide the scrubber */
+body.panel-open #timeScrubber {
   opacity: 0;
   pointer-events: none;
 }
@@ -55,43 +41,42 @@ body:has(.chat-hud.expanded) #timeScrubber {
   cursor: ew-resize;
   display: flex;
   align-items: center;
-  /* subtle rail — visible only when hovered */
   background: linear-gradient(to right,
-    rgba(212,182,138,0.02) 0%,
-    rgba(212,182,138,0.04) 50%,
-    rgba(212,182,138,0.02) 100%);
-  border-radius: 19px;
-  border: 1px solid rgba(212,182,138,0.05);
+    rgba(212,182,138,0.04) 0%,
+    rgba(212,182,138,0.08) 50%,
+    rgba(212,182,138,0.04) 100%);
+  border-radius: 17px;
+  border: 1px solid rgba(212,182,138,0.10);
   transition: background .3s, border-color .3s;
 }
 
 #timeScrubber:hover .ts-track,
 #timeScrubber.active .ts-track {
   background: linear-gradient(to right,
-    rgba(212,182,138,0.04) 0%,
-    rgba(212,182,138,0.10) 50%,
-    rgba(212,182,138,0.04) 100%);
-  border-color: rgba(212,182,138,0.18);
+    rgba(212,182,138,0.06) 0%,
+    rgba(212,182,138,0.14) 50%,
+    rgba(212,182,138,0.06) 100%);
+  border-color: rgba(212,182,138,0.25);
 }
 
-/* The "now" marker — the still point in the scrubber. At 365/425 ≈ 85.9% */
 #timeScrubber .ts-marker-now {
   position: absolute;
   left: calc(365 / 425 * 100%);
   top: 25%;
   bottom: 25%;
   width: 1.5px;
-  background: rgba(212,182,138,0.4);
+  background: rgba(212,182,138,0.45);
   transform: translateX(-50%);
   box-shadow: 0 0 6px rgba(212,182,138,0.5);
+  pointer-events: none;
 }
 
 #timeScrubber .ts-cursor {
   position: absolute;
   left: calc(365 / 425 * 100%);
   top: 50%;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: rgba(255,240,200,0.95);
   box-shadow:
@@ -99,17 +84,16 @@ body:has(.chat-hud.expanded) #timeScrubber {
     0 0 24px rgba(212,182,138,0.3);
   transform: translate(-50%, -50%);
   pointer-events: none;
-  transition: left .06s linear, background .2s;
+  transition: left .06s linear, width .15s, height .15s;
 }
 
 #timeScrubber.active .ts-cursor {
-  width: 12px; height: 12px;
+  width: 14px; height: 14px;
   box-shadow:
     0 0 18px rgba(255,240,200,1),
     0 0 36px rgba(212,182,138,0.5);
 }
 
-/* Bubble label — floats above the cursor */
 #timeScrubber .ts-bubble {
   position: absolute;
   left: calc(365 / 425 * 100%);
@@ -118,11 +102,11 @@ body:has(.chat-hud.expanded) #timeScrubber {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   letter-spacing: 0.04em;
-  color: rgba(212,182,138,0.85);
+  color: rgba(212,182,138,0.9);
   padding: 3px 8px;
   border-radius: 10px;
-  background: rgba(21,21,32,0.85);
-  border: 1px solid rgba(212,182,138,0.18);
+  background: rgba(21,21,32,0.9);
+  border: 1px solid rgba(212,182,138,0.25);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   pointer-events: none;
@@ -137,38 +121,23 @@ body:has(.chat-hud.expanded) #timeScrubber {
 }
 
 #timeScrubber .ts-bubble.past {
-  color: rgba(180,200,230,0.95);
-  border-color: rgba(180,200,230,0.3);
+  color: rgba(200,215,240,1);
+  border-color: rgba(180,200,230,0.35);
 }
 
 #timeScrubber .ts-bubble.future {
-  color: rgba(200,220,255,0.95);
-  border-color: rgba(200,220,255,0.3);
+  color: rgba(210,225,255,1);
+  border-color: rgba(200,220,255,0.35);
 }
 
-/* Hint text — appears only at rest to suggest the affordance */
-#timeScrubber .ts-hint {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  color: rgba(212,182,138,0.35);
-  pointer-events: none;
-  transition: opacity .4s;
-}
-
-/* Audio toggle — sits at the right edge of the scrubber */
 #timeScrubber .ts-audio-toggle {
   position: relative;
   width: 28px;
   height: 28px;
   border-radius: 50%;
   background: transparent;
-  border: 1px solid rgba(212,182,138,0.15);
-  color: rgba(212,182,138,0.65);
+  border: 1px solid rgba(212,182,138,0.2);
+  color: rgba(212,182,138,0.7);
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
@@ -182,30 +151,30 @@ body:has(.chat-hud.expanded) #timeScrubber {
 }
 
 #timeScrubber .ts-audio-toggle:hover {
-  border-color: rgba(212,182,138,0.45);
+  border-color: rgba(212,182,138,0.55);
   color: rgba(255,240,200,1);
   transform: scale(1.1);
   box-shadow: 0 0 12px rgba(212,182,138,0.3);
 }
 
-/* ─── LIGHT THEME ─── */
+/* LIGHT THEME */
 :root[data-theme="light"] #timeScrubber .ts-track {
   background: linear-gradient(to right,
-    rgba(139,105,20,0.03) 0%,
-    rgba(139,105,20,0.06) 50%,
-    rgba(139,105,20,0.03) 100%);
-  border-color: rgba(139,105,20,0.08);
+    rgba(139,105,20,0.04) 0%,
+    rgba(139,105,20,0.08) 50%,
+    rgba(139,105,20,0.04) 100%);
+  border-color: rgba(139,105,20,0.12);
 }
 :root[data-theme="light"] #timeScrubber:hover .ts-track,
 :root[data-theme="light"] #timeScrubber.active .ts-track {
   background: linear-gradient(to right,
-    rgba(139,105,20,0.06) 0%,
-    rgba(139,105,20,0.14) 50%,
-    rgba(139,105,20,0.06) 100%);
-  border-color: rgba(139,105,20,0.25);
+    rgba(139,105,20,0.08) 0%,
+    rgba(139,105,20,0.16) 50%,
+    rgba(139,105,20,0.08) 100%);
+  border-color: rgba(139,105,20,0.3);
 }
 :root[data-theme="light"] #timeScrubber .ts-marker-now {
-  background: rgba(139,105,20,0.5);
+  background: rgba(139,105,20,0.55);
   box-shadow: 0 0 6px rgba(139,105,20,0.4);
 }
 :root[data-theme="light"] #timeScrubber .ts-cursor {
@@ -213,48 +182,34 @@ body:has(.chat-hud.expanded) #timeScrubber {
   box-shadow: 0 0 12px rgba(139,105,20,0.6), 0 0 24px rgba(139,105,20,0.2);
 }
 :root[data-theme="light"] #timeScrubber .ts-bubble {
-  background: rgba(255,255,250,0.92);
-  color: rgba(80,60,20,0.9);
-  border-color: rgba(139,105,20,0.25);
-}
-:root[data-theme="light"] #timeScrubber .ts-hint {
-  color: rgba(80,60,20,0.35);
+  background: rgba(255,255,250,0.95);
+  color: rgba(80,60,20,1);
+  border-color: rgba(139,105,20,0.3);
 }
 :root[data-theme="light"] #timeScrubber .ts-audio-toggle {
-  border-color: rgba(139,105,20,0.2);
-  color: rgba(80,60,20,0.7);
+  border-color: rgba(139,105,20,0.25);
+  color: rgba(80,60,20,0.8);
 }
 :root[data-theme="light"] #timeScrubber .ts-audio-toggle:hover {
-  border-color: rgba(139,105,20,0.5);
+  border-color: rgba(139,105,20,0.55);
   color: rgba(60,40,10,1);
-  box-shadow: 0 0 12px rgba(139,105,20,0.25);
+  box-shadow: 0 0 12px rgba(139,105,20,0.3);
 }
 
-
-/* ─── GALAXY SOUL CANVAS ─── */
-/* The overlay canvas sits on top of #brainCanvas. Positioning is set
-   inline by JS, but we guarantee here that it never intercepts input. */
 #galaxySoul {
   pointer-events: none !important;
 }
 
-
-/* ─── MOBILE TIGHTENING ─── */
 @media (max-width: 480px) {
   #timeScrubber {
-    bottom: 78px;
-    height: 32px;
+    bottom: 148px;
+    height: 30px;
     width: calc(100vw - 24px);
   }
   #timeScrubber .ts-bubble { font-size: 9px; padding: 2px 6px; }
-  #timeScrubber .ts-hint { font-size: 8px; }
-  #timeScrubber .ts-audio-toggle { width: 24px; height: 24px; font-size: 12px; }
+  #timeScrubber .ts-audio-toggle { width: 26px; height: 26px; font-size: 12px; }
 }
 
-/* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  #timeScrubber,
-  #timeScrubber * {
-    transition: none !important;
-  }
+  #timeScrubber, #timeScrubber * { transition: none !important; }
 }
