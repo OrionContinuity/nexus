@@ -678,6 +678,10 @@ td.check{background:#F0EDE6 !important}
 
     document.getElementById('adminBtn').addEventListener('click', () => {
       modal.classList.add('open'); modal.style.display = 'flex';
+
+      // ─── Notifications section — renders inside the admin modal if not already there ───
+      this.renderNotificationsSection(modal);
+
       if (this.isAdmin) {
         keySection.style.display = 'block';
         // Pre-fill hints
@@ -857,6 +861,58 @@ td.check{background:#F0EDE6 !important}
       btn.disabled = false; btn.textContent = '+ Add';
       this.loadUserList();
     });
+  },
+
+  // ─── Notifications section in admin modal ───
+  async renderNotificationsSection(modal) {
+    if (!modal) modal = document.getElementById('adminModal');
+    if (!modal) return;
+    let section = modal.querySelector('#adminNotifySection');
+    if (!section) {
+      section = document.createElement('div');
+      section.id = 'adminNotifySection';
+      section.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:rgba(212,164,78,0.06);border:1px solid rgba(212,164,78,0.2)';
+      // Insert near the top of the modal body, after the user info
+      const userInfo = modal.querySelector('#adminUserInfo');
+      if (userInfo?.parentElement) {
+        userInfo.parentElement.insertBefore(section, userInfo.nextSibling);
+      } else {
+        modal.querySelector('.admin-modal-body, .modal-body')?.prepend(section) || modal.appendChild(section);
+      }
+    }
+    // Render current state
+    const status = NX.getPushStatus ? await NX.getPushStatus() : 'unsupported';
+    const label = {
+      unsupported: ['Notifications not supported in this browser', '—', '', true],
+      blocked:     ['Notifications blocked by browser', 'Unblock in browser settings', '#d45858', true],
+      disabled:    ['Notifications off', 'Turn on', '#5bba5f', false],
+      enabled:     ['Notifications on ✓', 'Turn off', '#666', false],
+    }[status];
+    section.innerHTML = `
+      <div style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:6px">
+        🔔 Push Notifications
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+        ${label[0]}
+      </div>
+      ${label[3] ? '' : `
+        <button id="adminPushToggleBtn" style="padding:8px 14px;border-radius:8px;border:none;background:${label[2]};color:white;font-size:12px;cursor:pointer">
+          ${label[1]}
+        </button>
+      `}
+    `;
+    const btn = section.querySelector('#adminPushToggleBtn');
+    if (btn) {
+      btn.addEventListener('click', async () => {
+        if (status === 'disabled') {
+          await NX.setupPush();
+        } else if (status === 'enabled') {
+          await NX.disablePush();
+        }
+        // Re-render to update button
+        setTimeout(() => NX.renderNotificationsSection(modal), 300);
+      });
+    }
   },
 
   async loadUserList() {
@@ -1457,32 +1513,100 @@ td.check{background:#F0EDE6 !important}
 
 document.addEventListener('DOMContentLoaded', () => NX.init());
 
-// Register service worker for offline support
+// Register service worker for offline support + push notifications
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
-    // Push notification setup
-    if ('PushManager' in window && NX.currentUser) {
-      NX.setupPush = async function(vapidPublicKey) {
+    NX._swRegistration = reg;
+
+    // ─── Push notification setup ───
+    // Defined unconditionally so login flow can call it later when currentUser exists
+    if ('PushManager' in window) {
+      NX.setupPush = async function() {
+        if (!NX.currentUser) {
+          NX.toast && NX.toast('Sign in first', 'info');
+          return false;
+        }
+        // VAPID public key — read from nexus_config.vapid_public_key (the preferred path)
+        // or from window.NEXUS_VAPID_PUBLIC_KEY (for local dev override)
+        const vapidPublicKey = NX.config?.vapid_public_key
+                           || NX.config?.vapidPublicKey
+                           || window.NEXUS_VAPID_PUBLIC_KEY;
+        if (!vapidPublicKey) {
+          console.warn('[Push] No VAPID public key configured');
+          NX.toast && NX.toast('Push not configured yet', 'error');
+          return false;
+        }
+
         try {
           const permission = await Notification.requestPermission();
-          if (permission !== 'granted') return;
-          const sub = await reg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: vapidPublicKey
-          });
-          // Save subscription to Supabase
+          if (permission !== 'granted') {
+            NX.toast && NX.toast('Notifications blocked', 'info');
+            return false;
+          }
+
+          // Check for existing subscription first — don't re-subscribe if valid
+          let sub = await reg.pushManager.getSubscription();
+          if (!sub) {
+            sub = await reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+            });
+          }
+
+          // Upsert by endpoint — same user on different devices each get their own row
           await NX.sb.from('push_subscriptions').upsert({
             user_id: NX.currentUser.id,
             user_name: NX.currentUser.name,
-            subscription: sub.toJSON()
-          }, { onConflict: 'user_id' });
-          if (NX.toast) NX.toast('Notifications enabled ✓', 'success');
+            subscription: sub.toJSON(),
+            user_agent: navigator.userAgent,
+            last_seen_at: new Date().toISOString()
+          }, { onConflict: 'subscription->>endpoint' });
+
+          NX.toast && NX.toast('Notifications enabled ✓', 'success');
+          return true;
         } catch (e) {
-          console.warn('Push setup failed:', e);
+          console.warn('[Push] Setup failed:', e);
+          NX.toast && NX.toast('Push setup failed: ' + e.message, 'error');
+          return false;
+        }
+      };
+
+      // Check current notification status (for UI to show the button state)
+      NX.getPushStatus = async function() {
+        if (!('Notification' in window)) return 'unsupported';
+        if (Notification.permission === 'denied') return 'blocked';
+        const sub = await reg.pushManager.getSubscription();
+        return sub ? 'enabled' : 'disabled';
+      };
+
+      // Unsubscribe (for a "Disable notifications" button)
+      NX.disablePush = async function() {
+        try {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub) {
+            const endpoint = sub.endpoint;
+            await sub.unsubscribe();
+            await NX.sb.from('push_subscriptions')
+              .delete()
+              .eq('subscription->>endpoint', endpoint);
+          }
+          NX.toast && NX.toast('Notifications disabled', 'info');
+        } catch (e) {
+          console.warn('[Push] Disable failed:', e);
         }
       };
     }
   }).catch(() => {});
+}
+
+// Convert a URL-safe base64 VAPID key to the Uint8Array the browser expects
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
 }
 
 // ═══ OFFLINE QUEUE — stores actions when offline, replays when back ═══
