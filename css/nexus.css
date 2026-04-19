@@ -312,10 +312,12 @@ body:not(.view-brain) .chat-hud{display:none}
 .hud-input{display:flex;align-items:center;gap:6px;padding:6px 10px;min-height:56px;height:56px;flex-shrink:0}
 .hud-input input{flex:1;background:var(--elevated);border:1.5px solid var(--accent);border-radius:var(--r);padding:8px 12px;color:var(--text);font-size:14px;outline:none;height:40px;font-family:inherit}
 .hud-input input::placeholder{color:var(--faint)}
-.btn-mic,.btn-voice,.btn-send,.btn-reset{width:40px;height:40px;border-radius:50%;border:1px solid var(--border);background:rgba(28,28,34,.9);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .2s}
+.btn-mic,.btn-voice,.btn-send,.btn-reset{width:40px;height:40px;border-radius:50%;border:1px solid var(--border);background:rgba(28,28,34,.9);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .15s}
+.btn-mic:active,.btn-voice:active,.btn-reset:active{background:rgba(200,164,78,.25);border-color:var(--accent);color:var(--accent);transform:scale(.92)}
 .btn-mic.recording{border-color:var(--red);color:var(--red);animation:pulse 1s infinite}
 .btn-voice.on,.btn-voice-float.on{border-color:var(--accent);color:var(--accent)}
 .btn-send{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.btn-send:active:not(:disabled){background:#e6c06a;transform:scale(.92);box-shadow:0 0 12px rgba(200,164,78,.4)}
 .btn-send:disabled{opacity:.3;cursor:default}
 .btn-reset{width:36px;height:36px;font-size:12px}
 
@@ -1449,13 +1451,14 @@ button,a,input,select,textarea,.feed-item,.board-card,.cal-cell,.cal-event,.clea
 .util-btn.clocked-in .util-icon{color:var(--green)}
 
 /* ═══ CHAT INPUT — inline tools ═══ */
-.hud-tool-btn{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;background:none;color:var(--faint);cursor:pointer;border-radius:50%;transition:all .15s;flex-shrink:0;padding:0}
-.hud-tool-btn:active{color:var(--accent);background:rgba(200,164,78,.1)}
+.hud-tool-btn{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;background:none;color:rgba(200,164,78,.75);cursor:pointer;border-radius:50%;transition:all .15s;flex-shrink:0;padding:0}
+.hud-tool-btn:hover{color:var(--accent);background:rgba(200,164,78,.08)}
+.hud-tool-btn:active{color:#fff;background:rgba(200,164,78,.35);transform:scale(.92)}
 .hud-tool-btn.recording{color:var(--red);animation:pulse 1s infinite}
-.hud-tool-btn.on{color:var(--accent)}
+.hud-tool-btn.on{color:var(--accent);background:rgba(200,164,78,.12)}
 .hud-tool-btn .hud-icon{width:18px;height:18px;stroke-width:1.8}
-[data-theme="light"] .hud-tool-btn{color:var(--muted)}
-[data-theme="light"] .hud-tool-btn:active{color:var(--accent);background:rgba(139,105,20,.08)}
+[data-theme="light"] .hud-tool-btn{color:rgba(139,105,20,.85)}
+[data-theme="light"] .hud-tool-btn:active{color:#000;background:rgba(139,105,20,.25);transform:scale(.92)}
 
 /* Remove old floating mic/voice row */
 .hud-mic-row{display:none}
