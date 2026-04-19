@@ -434,7 +434,7 @@ const NX = {
       this.loadGlossary();
       this.loadAliases();
       this.loadCriticalFacts();
-      this.loadScript('js/brain-canvas.js', () => {
+      this.loadScript('js/galaxy.js', () => {
         this.loadScript('js/brain-list.js', () => {
           this.loadScript('js/brain-events.js', () => {
             this.loadScript('js/ai-writer.js', () => {
