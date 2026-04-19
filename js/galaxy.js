@@ -1322,8 +1322,7 @@
         state.activeNode = node.node;
         state.frozenNode = node;
         openPanel(node.node);
-        // Subtle zoom focus
-        state.cam.targetZoom = Math.min(2.2, state.cam.targetZoom * 1.25);
+        // No zoom — just open the panel, keep the view steady
       } else {
         // Tap on empty space — close panel if open
         if (state.activeNode) closePanel();
