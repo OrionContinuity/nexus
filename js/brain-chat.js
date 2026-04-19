@@ -487,6 +487,12 @@ After the troubleshoot steps, ask the person to add more details and optionally 
   // Detect if a question is "complex" enough to warrant decomposition
   function isComplex(q){
     if(q.split(/\s+/).length<4)return false; // Too short to decompose
+    // Write intent — any phrasing that suggests taking action must go through ReAct loop
+    const writeIntent=[
+      /\b(log|record|remember|save|note|add|create|make|write|update|change|rename|link|schedule|complete|close|open)\b/i,
+      /\b(ticket|equipment|contractor|warranty|pm|board|card|task)\b.*\b(for|at|to|needs|create|open|add)\b/i,
+    ];
+    if(writeIntent.some(rx=>rx.test(q))) return true;
     // Multi-entity: mentions multiple categories or asks about relationships
     const complexSignals=[
       /\b(and|versus|vs|compared|between|relationship|connect|relate)\b/i,
@@ -703,14 +709,24 @@ When you're ready to give your final answer, just respond normally (no JSON, no 
   async function reactLoop(question, initialCtx, persona, maxSteps=3){
     let ctx=initialCtx;
     let toolHistory=[];
+    let writeActions=[];   // accumulate write-tool action cards to render
     let finalAnswer=null;
 
     const msgs=chatHistory.slice(-4).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
     msgs.push({role:'user',content:question});
 
+    // Max write tool uses per conversation — prevent runaway loops
+    const MAX_WRITES=8;
+    let writesUsed=0;
+
+    // Increase step budget when write tools are available
+    if(NX.aiWriter) maxSteps=Math.max(maxSteps,8);
+
     for(let step=0;step<maxSteps;step++){
       // Build system prompt with context + tool descriptions + tool history
       let systemPrompt=persona+'\n\n'+ctx+getToolPrompt();
+      // Append write tools section if available
+      if(NX.aiWriter) systemPrompt+=NX.aiWriter.getToolPromptSection();
       if(toolHistory.length){
         systemPrompt+='\n\nTOOL RESULTS FROM YOUR PREVIOUS CALLS:\n'+toolHistory.map((h,i)=>`[Call ${i+1}] ${h.tool}(${JSON.stringify(h.params)}) → ${h.result}`).join('\n\n');
       }
@@ -718,27 +734,62 @@ When you're ready to give your final answer, just respond normally (no JSON, no 
       const resp=await NX.askClaude(systemPrompt,msgs,400,false);
       const trimmed=(resp||'').trim();
 
-      // Check if the AI wants to use a tool
+      // Check if the AI wants to use a tool (read OR write)
       let toolCall=null;
+      let isWriteTool=false;
       try{
-        // Look for JSON tool call in the response
         const jsonStart=trimmed.indexOf('{');
         const jsonEnd=trimmed.lastIndexOf('}');
         if(jsonStart!==-1&&jsonEnd>jsonStart){
           const jsonStr=trimmed.slice(jsonStart,jsonEnd+1);
           const parsed=JSON.parse(jsonStr);
-          if(parsed.tool&&GRAPH_TOOLS.some(t=>t.name===parsed.tool)){
-            toolCall=parsed;
+          if(parsed.tool){
+            // Is it a read tool?
+            if(GRAPH_TOOLS.some(t=>t.name===parsed.tool)){
+              toolCall=parsed;
+            }
+            // Or is it a write tool?
+            else if(NX.aiWriter && NX.aiWriter.TOOLS.some(t=>t.name===parsed.tool)){
+              toolCall=parsed;
+              isWriteTool=true;
+            }
           }
         }
       }catch(e){/* Not JSON — it's a final answer */}
 
-      if(toolCall){
-        // Execute the tool
+      if(toolCall && isWriteTool){
+        // ─── WRITE TOOL PATH ───
+        if(writesUsed>=MAX_WRITES){
+          toolHistory.push({
+            tool:toolCall.tool, params:toolCall.params||{},
+            result:`BLOCKED: max ${MAX_WRITES} writes per conversation reached. Finish your response without more writes.`
+          });
+          continue;
+        }
+        writesUsed++;
+        const thinkEl=document.querySelector('.chat-thinking');
+        if(thinkEl) thinkEl.textContent=`⚡ ${toolCall.tool.replace(/_/g,' ')}...`;
+        const execResult=await NX.aiWriter.execute(
+          toolCall.tool,
+          toolCall.params||{},
+          {userQuery:question, reasoning:toolCall.reasoning||null}
+        );
+        // Collect for chat rendering
+        if(execResult.logged) writeActions.push(execResult.logged);
+        // Feed result back to AI so it can continue reasoning
+        let resultSummary;
+        if(execResult.status==='success'){
+          resultSummary=`SUCCESS: ${JSON.stringify(execResult.result||{}).slice(0,400)}`;
+        }else if(execResult.status==='blocked'){
+          resultSummary=`BLOCKED: ${execResult.error}`;
+        }else{
+          resultSummary=`ERROR: ${execResult.error}`;
+        }
+        toolHistory.push({tool:toolCall.tool, params:toolCall.params||{}, result:resultSummary});
+      }else if(toolCall){
+        // ─── READ TOOL PATH (existing) ───
         const result=await executeGraphTool(toolCall.tool,toolCall.params||{});
         toolHistory.push({tool:toolCall.tool,params:toolCall.params||{},result:result.slice(0,800)});
-
-        // Update the thinking indicator
         const thinkEl=document.querySelector('.chat-thinking');
         if(thinkEl){
           const toolLabel=toolCall.tool.replace(/_/g,' ');
@@ -757,7 +808,7 @@ When you're ready to give your final answer, just respond normally (no JSON, no 
       finalAnswer=await NX.askClaude(systemPrompt,msgs,400,false);
     }
 
-    return{answer:finalAnswer,toolsUsed:toolHistory};
+    return{answer:finalAnswer,toolsUsed:toolHistory,writeActions};
   }
 
   function setupChat(){
@@ -777,23 +828,6 @@ When you're ready to give your final answer, just respond normally (no JSON, no 
     i.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();askAI();}});
     s.addEventListener('click',askAI);r.addEventListener('click',resetChat);
     document.querySelectorAll('.brain-ex').forEach(b=>b.addEventListener('click',()=>{i.value=b.textContent;s.disabled=false;askAI();}));
-    // Dismiss suggestions — hides welcome + examples for this session
-    const dismissBtn=document.getElementById('hudDismiss');
-    const welcomeEl=document.getElementById('brainWelcome');
-    const examplesEl=document.getElementById('brainExamples');
-    // Restore dismissed state from localStorage
-    if(localStorage.getItem('nexus_suggestions_dismissed')==='1'){
-      if(welcomeEl)welcomeEl.classList.add('hidden');
-      if(examplesEl)examplesEl.classList.add('hidden');
-    }
-    if(dismissBtn){
-      dismissBtn.addEventListener('click',e=>{
-        e.stopPropagation();
-        if(welcomeEl)welcomeEl.classList.add('hidden');
-        if(examplesEl)examplesEl.classList.add('hidden');
-        try{localStorage.setItem('nexus_suggestions_dismissed','1');}catch(_){}
-      });
-    }
     checkApiKey();buildDynamicChips();
     setupVoice();
     setupCamera();
@@ -1231,7 +1265,7 @@ Keep it casual and warm. No markdown formatting.`;
 
       if(complex){
         th.textContent='🧠 Reasoning...';
-        const{answer,toolsUsed}=await reactLoop(q,ctx,persona,3);
+        const{answer,toolsUsed,writeActions}=await reactLoop(q,ctx,persona,3);
         cleanAns=(answer||'No response.');
         // Show tool usage indicator if tools were used
         if(toolsUsed.length){
@@ -1240,6 +1274,26 @@ Keep it casual and warm. No markdown formatting.`;
           toolNote.className='chat-tool-note';
           toolNote.textContent=`investigated: ${toolNames.join(', ')}`;
           th.parentElement?.insertBefore(toolNote,th);
+        }
+        // Render action cards for write tools that executed
+        if(writeActions&&writeActions.length&&NX.aiWriter){
+          const cardsContainer=document.createElement('div');
+          cardsContainer.className='ai-action-cards-wrap';
+          const header=document.createElement('div');
+          header.className='ai-action-cards-header';
+          const successCount=writeActions.filter(a=>a.result_status==='success').length;
+          const errorCount=writeActions.filter(a=>a.result_status==='error').length;
+          const blockedCount=writeActions.filter(a=>a.result_status==='blocked').length;
+          let parts=[];
+          if(successCount) parts.push(`⚡ ${successCount} action${successCount>1?'s':''}`);
+          if(errorCount) parts.push(`⚠ ${errorCount} error${errorCount>1?'s':''}`);
+          if(blockedCount) parts.push(`🔒 ${blockedCount} blocked`);
+          header.textContent=parts.join(' · ');
+          cardsContainer.appendChild(header);
+          for(const action of writeActions){
+            cardsContainer.appendChild(NX.aiWriter.renderActionCard(action));
+          }
+          th.parentElement?.insertBefore(cardsContainer,th);
         }
       }else{
         // Simple single-pass
