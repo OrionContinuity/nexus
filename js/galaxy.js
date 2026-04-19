@@ -94,7 +94,15 @@
     ingestionActive: false,
 
     // Black hole
-    hole: { r: 26, ringAngle: 0, ringBrightness: 0.6, scale: 1.0, progress: 0 }
+    hole: {
+      r: 26,
+      ringAngle: 0,
+      ringBrightness: 0.6,
+      scale: 1.0,
+      progress: 0,          // displayed progress (eased, glides toward target)
+      progressTarget: 0,    // true position from audio.currentTime
+      hazeAmount: 0         // 0..1 — smoothed haze presence, eases with play/pause
+    }
   };
 
   // Make state reachable from external code that expects it (preserves contract)
@@ -125,7 +133,7 @@
   const OUTER_R_FRAC   = 0.55;      // arms reach further toward edges
   const ARM_WIDTH      = 0.28;      // fatter arms — more dispersion for depth
 
-  const BASE_OMEGA     = -0.006;    // reversed direction — galaxy spins opposite
+  const BASE_OMEGA     = -0.004;    // slower still — minutes per rotation
   const DIFFERENTIAL   = 0.6;       // stronger inner-faster effect
 
   const DISTANT_COUNT  = 3500;      // more background fog density
@@ -875,94 +883,116 @@
     const cx = state.W / 2, cy = state.H / 2;
     state.hole.ringAngle += dt * 0.12;
 
-    // Audio/state-driven brightness
-    let hazeStrength = 0.22;
+    // ─── Smooth haze amount — eases 0↔1 with play/pause ──────────────
+    // When playing: haze target is 1.0 (full presence).
+    // When fading out / idle: target is 0 (disappears completely).
+    // When ingesting: target is 0.5 (quiet hum).
+    let hazeTarget;
+    if (state.fadeState === 'in' || state.fadeState === 'playing') hazeTarget = 1.0;
+    else if (state.fadeState === 'out') hazeTarget = 0.0;
+    else if (state.ingestionActive) hazeTarget = 0.5;
+    else hazeTarget = 0.0;
+
+    // Ease toward target — 3-second time constant feels gentle
+    const hazeEaseRate = 0.4;  // per second
+    state.hole.hazeAmount += (hazeTarget - state.hole.hazeAmount) * Math.min(1, dt * hazeEaseRate * 2);
+
+    // Breathing amplitude scales with haze amount — no breath when haze is gone
+    const idlePulse = 0.5 + Math.sin(state.t / 8 * Math.PI * 2) * 0.5;
+    const breathAmp = state.hole.hazeAmount * 0.1;
+    const baseGlow = 0.12 + state.hole.hazeAmount * 0.5;
+    let hazeStrength = baseGlow + breathAmp * idlePulse;
+
+    // Bass bump during playback
     let discScale = 1.0;
     if (state.songPlaying) {
       const bassN = Math.min(1, state.bass / state.bassMax);
-      hazeStrength = 0.32 + bassN * 0.35;
-      discScale = 1.0 + bassN * 0.08;
+      hazeStrength += bassN * 0.25 * state.hole.hazeAmount;
+      discScale = 1.0 + bassN * 0.08 * state.hole.hazeAmount;
     }
-    if (state.ingestionActive) hazeStrength = Math.max(hazeStrength, 0.3);
-    // Idle breath
-    const idlePulse = 0.5 + Math.sin(state.t / 8 * Math.PI * 2) * 0.5;
-    hazeStrength = Math.max(hazeStrength, 0.2 + idlePulse * 0.08);
 
     const screenX = cx + state.cam.x;
     const screenY = cy + state.cam.y;
     const r = state.hole.r * state.cam.zoom * discScale;
 
-    // ─── Layer 1: TIGHT haze (close to disc, doesn't eat into arms) ──
-    ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    const hazeR = r * 3.2;  // was 5.5 — tight now
-    const hazeGrd = ctx.createRadialGradient(screenX, screenY, r * 0.9, screenX, screenY, hazeR);
-    hazeGrd.addColorStop(0.0, rgba([240, 200, 130], hazeStrength * 0.6));
-    hazeGrd.addColorStop(0.4, rgba(AMBER, hazeStrength * 0.2));
-    hazeGrd.addColorStop(1.0, 'rgba(0,0,0,0)');
-    ctx.fillStyle = hazeGrd;
-    ctx.beginPath();
-    ctx.arc(screenX, screenY, hazeR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    // ─── Layer 2: Thin accretion ring (continuous, subtle rotating brightness) ──
-    ctx.save();
-    const ringR = r * 1.35;
-    ctx.lineWidth = Math.max(1.2, r * 0.08);
-    ctx.strokeStyle = rgba([255, 230, 170], 0.4 + hazeStrength * 0.3);
-    ctx.beginPath();
-    ctx.arc(screenX, screenY, ringR, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Rotating-brightness hot-spots along the ring (material orbiting)
-    const segments = 48;
-    for (let s = 0; s < segments; s++) {
-      const a0 = state.hole.ringAngle + s * (Math.PI * 2 / segments);
-      const a1 = a0 + (Math.PI * 2 / segments);
-      const brightnessMod = Math.max(0, Math.sin(a0 * 2.3 + state.t * 0.4));
-      if (brightnessMod < 0.2) continue;
-      ctx.lineWidth = Math.max(1, r * 0.1);
-      ctx.strokeStyle = rgba(AMBER_BRIGHT, brightnessMod * 0.35 * (0.5 + hazeStrength));
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, ringR, a0, a1);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    // ─── Layer 3: SONG PROGRESS ARC ─────────────────────────────────
-    // Fills clockwise around the hole as the song plays. Replaces the static
-    // outer atmosphere — this IS the atmosphere, now, and it means something.
-    if (state.songPlaying && state.audio && state.audio.duration) {
-      state.hole.progress = state.audio.currentTime / state.audio.duration;
-    } else if (!state.songPlaying && state.fadeState === 'idle') {
-      // Slowly decay progress arc when song not playing
-      state.hole.progress *= Math.exp(-dt * 0.8);
-    }
-
-    if (state.hole.progress > 0.003) {
-      const progR = r * 1.35;  // on the ring — progress IS the ring
-      const startA = -Math.PI / 2;  // 12 o'clock
-      const endA = startA + state.hole.progress * Math.PI * 2;
+    // ─── Layer 1: TIGHT haze (scales with hazeAmount) ────────────────
+    if (state.hole.hazeAmount > 0.01) {
       ctx.save();
-      // Wide soft glow for the arc
+      ctx.globalCompositeOperation = 'screen';
+      const hazeR = r * 3.2;
+      const hazeGrd = ctx.createRadialGradient(screenX, screenY, r * 0.9, screenX, screenY, hazeR);
+      hazeGrd.addColorStop(0.0, rgba([240, 200, 130], hazeStrength * 0.6));
+      hazeGrd.addColorStop(0.4, rgba(AMBER, hazeStrength * 0.2));
+      hazeGrd.addColorStop(1.0, 'rgba(0,0,0,0)');
+      ctx.fillStyle = hazeGrd;
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, hazeR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // ─── Layer 2: Thin accretion ring (scales with hazeAmount) ───────
+    // When idle and haze faded out, only the dark disc + NEXUS label remain.
+    if (state.hole.hazeAmount > 0.02) {
+      ctx.save();
+      const ringR = r * 1.35;
+      ctx.lineWidth = Math.max(1.2, r * 0.08);
+      ctx.strokeStyle = rgba([255, 230, 170], (0.4 + hazeStrength * 0.3) * state.hole.hazeAmount);
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Rotating-brightness hot-spots along the ring (material orbiting)
+      const segments = 48;
+      for (let s = 0; s < segments; s++) {
+        const a0 = state.hole.ringAngle + s * (Math.PI * 2 / segments);
+        const a1 = a0 + (Math.PI * 2 / segments);
+        const brightnessMod = Math.max(0, Math.sin(a0 * 2.3 + state.t * 0.4));
+        if (brightnessMod < 0.2) continue;
+        ctx.lineWidth = Math.max(1, r * 0.1);
+        ctx.strokeStyle = rgba(AMBER_BRIGHT, brightnessMod * 0.35 * (0.5 + hazeStrength) * state.hole.hazeAmount);
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, ringR, a0, a1);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // ─── Layer 3: SONG PROGRESS ARC — smoothly tracks audio ─────────
+    // When playing, progressTarget follows audio.currentTime. The displayed
+    // progress eases toward that target so pressing play glides in instead
+    // of snapping.
+    if (state.songPlaying && state.audio && state.audio.duration) {
+      state.hole.progressTarget = state.audio.currentTime / state.audio.duration;
+    } else if (!state.songPlaying && state.fadeState === 'idle') {
+      // When truly stopped, target decays to 0 (arc empties out)
+      state.hole.progressTarget *= Math.exp(-dt * 0.6);
+    }
+    // Ease displayed progress toward target — 1.5s time constant
+    const progEase = Math.min(1, dt * 0.8);
+    state.hole.progress += (state.hole.progressTarget - state.hole.progress) * progEase;
+
+    if (state.hole.progress > 0.003 && state.hole.hazeAmount > 0.05) {
+      const progR = r * 1.35;
+      const startA = -Math.PI / 2;
+      const endA = startA + state.hole.progress * Math.PI * 2;
+      const progFade = state.hole.hazeAmount;  // fades with haze
+      ctx.save();
       ctx.lineWidth = Math.max(2, r * 0.14);
-      ctx.strokeStyle = rgba(AMBER_BRIGHT, 0.22);
+      ctx.strokeStyle = rgba(AMBER_BRIGHT, 0.22 * progFade);
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.arc(screenX, screenY, progR, startA, endA);
       ctx.stroke();
-      // Sharp inner arc
       ctx.lineWidth = Math.max(1.2, r * 0.09);
-      ctx.strokeStyle = rgba([255, 240, 200], 0.85);
+      ctx.strokeStyle = rgba([255, 240, 200], 0.85 * progFade);
       ctx.beginPath();
       ctx.arc(screenX, screenY, progR, startA, endA);
       ctx.stroke();
-      // Leading-edge bright dot
       const tipX = screenX + Math.cos(endA) * progR;
       const tipY = screenY + Math.sin(endA) * progR;
       const tipGrd = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, r * 0.25);
-      tipGrd.addColorStop(0.0, rgba([255, 245, 210], 0.95));
+      tipGrd.addColorStop(0.0, rgba([255, 245, 210], 0.95 * progFade));
       tipGrd.addColorStop(1.0, rgba(AMBER_BRIGHT, 0));
       ctx.fillStyle = tipGrd;
       ctx.beginPath();
@@ -971,23 +1001,23 @@
       ctx.restore();
     }
 
-    // ─── Layer 4: Event horizon (dark disc) ──────────────────────────
+    // ─── Layer 4: Event horizon (dark disc) — always present ────────
     ctx.fillStyle = '#020208';
     ctx.beginPath();
     ctx.arc(screenX, screenY, r, 0, Math.PI * 2);
     ctx.fill();
 
-    // Inner edge glint
-    ctx.strokeStyle = rgba([255, 220, 150], 0.3 + hazeStrength * 0.2);
+    // Inner edge glint — faint when idle, brighter with haze
+    ctx.strokeStyle = rgba([255, 220, 150], 0.15 + state.hole.hazeAmount * 0.25);
     ctx.lineWidth = 0.8;
     ctx.beginPath();
     ctx.arc(screenX, screenY, r * 0.98, 0, Math.PI * 2);
     ctx.stroke();
 
-    // ─── Layer 5: NEXUS label (brighter, bigger) ────────────────────
+    // ─── Layer 5: NEXUS label — always bright ───────────────────────
     ctx.save();
-    ctx.fillStyle = rgba([255, 230, 170], 0.92);   // was amber @ 0.35 — now warm-white @ 0.92
-    ctx.font = `500 ${Math.max(11, r * 0.36)}px -apple-system, "SF Pro Display", system-ui, sans-serif`;
+    ctx.fillStyle = rgba([255, 230, 170], 0.92);
+    ctx.font = `500 ${Math.max(9, r * 0.28)}px -apple-system, "SF Pro Display", system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     try { ctx.letterSpacing = '2px'; } catch(_) {}
