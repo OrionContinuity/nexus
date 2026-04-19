@@ -1280,9 +1280,15 @@ body.panel-open .chat-hud{opacity:0;pointer-events:none;transform:translateY(100
 .hud-msg{border-radius:14px}
 .hud-msg-user{background:rgba(200,164,78,.08);border:1px solid rgba(200,164,78,.15)}
 [data-theme="light"] .hud-msg-user{background:rgba(139,105,20,.06);border:1px solid rgba(139,105,20,.12)}
-.hud-input button{background:linear-gradient(135deg,var(--accent),#D4B86A);border-radius:var(--rp);font-weight:600;transition:all .15s}
-.hud-input button:active{transform:scale(.95);opacity:.9}
-[data-theme="light"] .hud-input button{color:#fff}
+.hud-input .btn-send{background:linear-gradient(135deg,var(--accent),#D4B86A);border-radius:50%;font-weight:600;transition:all .15s;color:#1a1408}
+.hud-input .btn-send:active:not(:disabled){transform:scale(.92);opacity:.9;box-shadow:0 0 12px rgba(200,164,78,.4)}
+.hud-input .btn-send .hud-icon,.hud-input .btn-send .hud-icon-send{color:#1a1408;stroke:#1a1408}
+.hud-input .hud-tool-btn{background:transparent!important}
+.hud-input .hud-tool-btn .hud-icon{color:rgba(200,164,78,.85);stroke:rgba(200,164,78,.85)}
+.hud-input .hud-tool-btn:active{background:rgba(200,164,78,.2)!important;transform:scale(.92)}
+.hud-input .hud-tool-btn:active .hud-icon{color:#fff;stroke:#fff}
+[data-theme="light"] .hud-input .btn-send{color:#1a1408}
+[data-theme="light"] .hud-input .hud-tool-btn .hud-icon{color:rgba(139,105,20,.9);stroke:rgba(139,105,20,.9)}
 .hud-input input{border-radius:var(--rp)}
 
 /* ─── NODE PANEL UPGRADE ─── */
