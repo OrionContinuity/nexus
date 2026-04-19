@@ -1518,16 +1518,84 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
     NX._swRegistration = reg;
 
+    // Detect if we're running inside the Capacitor APK wrapper.
+    // In that case we use native FCM (via @capacitor/push-notifications) instead of
+    // browser web push (VAPID), because Capacitor's WebView doesn't support web push.
+    const isCapacitor = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+    const nativePush = isCapacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications;
+
     // ─── Push notification setup ───
     // Defined unconditionally so login flow can call it later when currentUser exists
-    if ('PushManager' in window) {
+    if ('PushManager' in window || nativePush) {
       NX.setupPush = async function() {
         if (!NX.currentUser) {
           NX.toast && NX.toast('Sign in first', 'info');
           return false;
         }
-        // VAPID public key — read from nexus_config.vapid_public_key (the preferred path)
-        // or from window.NEXUS_VAPID_PUBLIC_KEY (for local dev override)
+
+        // ═══ NATIVE PATH (Capacitor APK) ═══════════════════════════════════
+        // Uses @capacitor/push-notifications → FCM. No VAPID needed.
+        // The APK must have google-services.json configured at build time.
+        if (nativePush) {
+          try {
+            const perm = await nativePush.requestPermissions();
+            if (perm.receive !== 'granted') {
+              NX.toast && NX.toast('Notifications blocked', 'info');
+              return false;
+            }
+
+            // Clean up any old listeners before adding new ones (re-subscribe case)
+            try { await nativePush.removeAllListeners(); } catch (e) {}
+
+            // Register with FCM — this triggers the 'registration' event below
+            await nativePush.register();
+
+            // Wait for the token via the registration event (up to 10s)
+            const token = await new Promise((resolve, reject) => {
+              const timer = setTimeout(() => reject(new Error('FCM token timeout')), 10000);
+              nativePush.addListener('registration', t => {
+                clearTimeout(timer);
+                resolve(t.value || t); // Capacitor returns {value: '...'} object
+              });
+              nativePush.addListener('registrationError', err => {
+                clearTimeout(timer);
+                reject(new Error(err.error || 'FCM registration failed'));
+              });
+            });
+
+            // Save FCM token to nexus_users.push_token
+            await NX.sb.from('nexus_users')
+              .update({ push_token: token })
+              .eq('id', NX.currentUser.id);
+
+            // Listener: handle notifications received while app is open
+            nativePush.addListener('pushNotificationReceived', notif => {
+              console.log('[Push] Received (foreground):', notif);
+              // Optional: show an in-app toast since native banner may not show while app is foregrounded
+              if (NX.toast) NX.toast(notif.title || 'New notification', 'info', 5000);
+            });
+
+            // Listener: handle notification tap (navigate to deep link)
+            nativePush.addListener('pushNotificationActionPerformed', action => {
+              const data = action.notification?.data || {};
+              if (data.url) {
+                // Strip the origin if present and navigate in-app
+                const path = data.url.replace(/^https?:\/\/[^\/]+/, '');
+                window.location.hash = path.startsWith('#') ? path : ('#' + path);
+              }
+            });
+
+            NX.toast && NX.toast('Notifications enabled ✓', 'success');
+            return true;
+          } catch (e) {
+            console.warn('[Push] Native setup failed:', e);
+            NX.toast && NX.toast('Push setup failed: ' + e.message, 'error');
+            return false;
+          }
+        }
+
+        // ═══ WEB PATH (browser / PWA) ══════════════════════════════════════
+        // Uses VAPID web push via service worker.
         const vapidPublicKey = NX.config?.vapid_public_key
                            || NX.config?.vapidPublicKey
                            || window.NEXUS_VAPID_PUBLIC_KEY;
@@ -1573,15 +1641,42 @@ if ('serviceWorker' in navigator) {
 
       // Check current notification status (for UI to show the button state)
       NX.getPushStatus = async function() {
+        if (nativePush) {
+          try {
+            const perm = await nativePush.checkPermissions();
+            if (perm.receive === 'denied') return 'blocked';
+            if (perm.receive === 'granted') {
+              // Granted but only "enabled" if we also have a stored token
+              if (NX.currentUser) {
+                const { data } = await NX.sb.from('nexus_users')
+                  .select('push_token').eq('id', NX.currentUser.id).single();
+                return data?.push_token ? 'enabled' : 'disabled';
+              }
+              return 'disabled';
+            }
+            return 'disabled';
+          } catch (e) { return 'disabled'; }
+        }
         if (!('Notification' in window)) return 'unsupported';
         if (Notification.permission === 'denied') return 'blocked';
         const sub = await reg.pushManager.getSubscription();
         return sub ? 'enabled' : 'disabled';
       };
 
-      // Unsubscribe (for a "Disable notifications" button)
+      // Unsubscribe (for the "Turn off" button)
       NX.disablePush = async function() {
         try {
+          if (nativePush) {
+            try { await nativePush.removeAllListeners(); } catch (e) {}
+            try { await nativePush.unregister(); } catch (e) {}
+            if (NX.currentUser) {
+              await NX.sb.from('nexus_users')
+                .update({ push_token: null })
+                .eq('id', NX.currentUser.id);
+            }
+            NX.toast && NX.toast('Notifications disabled', 'info');
+            return;
+          }
           const sub = await reg.pushManager.getSubscription();
           if (sub) {
             const endpoint = sub.endpoint;
