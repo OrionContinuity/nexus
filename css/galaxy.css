@@ -1,0 +1,151 @@
+/* ═══════════════════════════════════════════════════════════════════════════════
+
+   NEXUS GALAXY — styles for the galaxy canvas + its interaction surfaces
+
+   Replaces: galaxy-soul.css (deleted)
+
+   The galaxy is rendered entirely in canvas. This file handles:
+     — the canvas container sizing
+     — the node-open detail panel (slides from bottom)
+     — the system activity indicator
+
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* The canvas itself — fills its container, no scrollbars */
+#brainCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #04040c;
+  touch-action: none;           /* We handle pan/zoom manually */
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: grab;
+}
+#brainCanvas:active { cursor: grabbing; }
+
+
+/* ─── Node detail panel (slides in from bottom when a star is tapped) ─── */
+/* This is an opt-in panel — fires on the 'galaxy:node-open' CustomEvent.
+   If brain-list.js or brain-chat.js wants to handle it, they can.
+   Otherwise this is a sensible default. */
+.galaxy-panel {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  max-height: 60vh;
+  background: rgba(9, 9, 24, 0.96);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-top: 1px solid rgba(200, 164, 78, 0.25);
+  padding: 18px 20px 32px;
+  transform: translateY(100%);
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 100;
+  overflow-y: auto;
+  color: rgba(255, 255, 255, 0.88);
+  font-family: -apple-system, "SF Pro Display", system-ui, sans-serif;
+}
+.galaxy-panel.open { transform: translateY(0); }
+
+.galaxy-panel-handle {
+  width: 36px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(200, 164, 78, 0.3);
+  margin: 0 auto 16px;
+}
+
+.galaxy-panel-title {
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
+  color: #c8a44e;
+}
+
+.galaxy-panel-sub {
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 14px;
+}
+
+.galaxy-panel-body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+
+/* ─── System activity indicator (top-right corner) ─── */
+/* Small status chip showing ingestion state + pending count */
+.galaxy-status {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  padding: 6px 12px;
+  border-radius: 99px;
+  background: rgba(9, 9, 24, 0.7);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(200, 164, 78, 0.18);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: rgba(200, 164, 78, 0.7);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.6s;
+  z-index: 20;
+}
+.galaxy-status.visible { opacity: 1; }
+
+.galaxy-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c8a44e;
+  box-shadow: 0 0 6px rgba(200, 164, 78, 0.6);
+  animation: galaxy-pulse 3s ease-in-out infinite;
+}
+@keyframes galaxy-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+
+/* ─── Hint on first load ─── */
+/* One-time overlay: "Tap NEXUS to play" fades in over the black hole the first
+   time the user sees the galaxy, then fades out after 4s or on first tap. */
+.galaxy-hint {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 75px);
+  transform: translateX(-50%);
+  font-family: "SF Mono", "Menlo", monospace;
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: rgba(200, 164, 78, 0.5);
+  opacity: 0;
+  animation: galaxy-hint-fade 8s ease-in-out forwards;
+  animation-delay: 1.2s;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 15;
+}
+@keyframes galaxy-hint-fade {
+  0%   { opacity: 0; }
+  15%  { opacity: 0.6; }
+  75%  { opacity: 0.6; }
+  100% { opacity: 0; }
+}
+
+
+/* Hide the old scrubber bar from galaxy-soul if it got left behind in HTML */
+.galaxy-scrubber,
+.gs-scrubber,
+.galaxy-soul-overlay { display: none !important; }
