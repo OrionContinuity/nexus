@@ -102,6 +102,18 @@
       progress: 0,          // displayed progress (eased, glides toward target)
       progressTarget: 0,    // true position from audio.currentTime
       hazeAmount: 0         // 0..1 — smoothed haze presence, eases with play/pause
+    },
+
+    // ─── DATA LAYERS — every light in the sky represents something real ───
+    dataLayers: {
+      pending: [],           // raw_emails where processed=false → inter-arm stars
+      tickets: [],           // open tickets → H-II bright puffs clustered by location
+      openTicketsByLocation: {}, // for auxiliary glow density per arm
+      contractorEvents: [],  // pending/confirmed events → soft pulsing signals
+      recentLogs: [],        // last 24h daily_logs → activity haze clouds
+      cards: [],              // kanban_cards not done → nebular clusters by column
+      lastFetched: 0,        // timestamp of last DB query
+      fetching: false        // prevent overlapping queries
     }
   };
 
@@ -355,10 +367,27 @@
     const minDim = Math.min(W, H);
     const innerR = minDim * INNER_R_FRAC;
     const outerR = minDim * OUTER_R_FRAC;
+    const DL = state.dataLayers;
 
-    /* ─── LAYER 0: Outer halo — diffuse glow beyond the disc ────────── */
-    // Real galaxies have a faint halo of old stars extending well beyond the disc.
-    // Big soft radial gradient.
+    /* ─── LOCATION → ARM mapping ──────────────────────────────────────
+     * Each restaurant gets its own arm so you can visually tell which
+     * location has the most activity at a glance.
+     */
+    const LOCATION_ARMS = { 'Suerte': 0, 'Este': 1, 'Bar Toti': 2 };
+    function locToArm(loc) {
+      if (!loc) return Math.floor(Math.random() * ARM_COUNT);
+      const trimmed = String(loc).trim();
+      if (LOCATION_ARMS[trimmed] !== undefined) return LOCATION_ARMS[trimmed];
+      // Fallback — hash to arm for stable placement
+      return Math.abs(hash01(trimmed) * 1000 | 0) % ARM_COUNT;
+    }
+
+    /* ─── AMBIENT LIGHTING LAYERS — pure decoration (no data meaning) ──
+     * These are gradient fills that give the galaxy its luminous
+     * structure. No particles — just light.
+     */
+
+    // Outer halo — diffuse glow beyond the disc
     octx.globalCompositeOperation = 'screen';
     const haloGrd = octx.createRadialGradient(cx, cy, outerR * 0.5, cx, cy, outerR * 1.8);
     haloGrd.addColorStop(0.0, 'rgba(120, 100, 70, 0.06)');
@@ -367,11 +396,9 @@
     octx.fillStyle = haloGrd;
     octx.fillRect(0, 0, W, H);
 
-    /* ─── LAYER 1: Bright bulge — dense warm core ───────────────────── */
-    // Multi-stop gradient from hot white center → warm amber → fade.
-    // This is what makes the galaxy look ALIVE at the center.
+    // Bright bulge — multi-stop warm gradient
     const coreGrd = octx.createRadialGradient(cx, cy, 0, cx, cy, outerR * 0.45);
-    coreGrd.addColorStop(0.00, 'rgba(255, 240, 200, 0.55)');  // hot white center
+    coreGrd.addColorStop(0.00, 'rgba(255, 240, 200, 0.55)');
     coreGrd.addColorStop(0.08, 'rgba(255, 225, 170, 0.42)');
     coreGrd.addColorStop(0.20, 'rgba(240, 195, 140, 0.28)');
     coreGrd.addColorStop(0.40, 'rgba(210, 165, 100, 0.15)');
@@ -380,7 +407,7 @@
     octx.fillStyle = coreGrd;
     octx.fillRect(0, 0, W, H);
 
-    // Secondary inner glow — tighter and brighter, gives the core that dense luminous feel
+    // Tight inner glow
     const innerGlow = octx.createRadialGradient(cx, cy, 0, cx, cy, outerR * 0.18);
     innerGlow.addColorStop(0.0, 'rgba(255, 250, 230, 0.5)');
     innerGlow.addColorStop(0.5, 'rgba(255, 230, 180, 0.25)');
@@ -388,7 +415,7 @@
     octx.fillStyle = innerGlow;
     octx.fillRect(0, 0, W, H);
 
-    // Barred spiral signature — elongated glow along the major axis
+    // Barred spiral signature
     octx.save();
     octx.translate(cx, cy);
     octx.scale(1.8, 0.5);
@@ -400,27 +427,39 @@
     octx.fillRect(-outerR, -outerR, outerR * 2, outerR * 2);
     octx.restore();
 
-    /* ─── LAYER 2: Arm nebular haze — big soft blobs along arms ─────── */
-    // More blobs, bigger, more varied — these are the "clouds" that make it beautiful
-    for (let arm = 0; arm < ARM_COUNT; arm++) {
-      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-      // Main arm haze — larger count, varied sizes
-      for (let i = 0; i < 70; i++) {
-        const t = i / 70;
+    /* ─── DATA LAYER A: Recent activity haze (daily_logs last 24h) ────
+     * Every entry in daily_logs becomes a soft amber glow at its
+     * location's arm + random radius. Clusters form where activity
+     * is concentrated.
+     *
+     * Meaning: bright haze = active ops happening RIGHT NOW.
+     */
+    if (DL.recentLogs.length > 0) {
+      for (const log of DL.recentLogs) {
+        // Parse location from entry text if present (entries often start with [LOC])
+        const match = /\[(Suerte|Este|Bar Toti|CLEAN|TICKET|SYSTEM)\]/i.exec(log.entry || '');
+        const locToken = match ? match[1] : null;
+        const arm = locToArm(locToken);
+        const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
+
+        // Age in hours (0 = just now, 24 = oldest we fetched)
+        const ageMs = Date.now() - new Date(log.created_at).getTime();
+        const ageHrs = Math.max(0, Math.min(24, ageMs / (1000 * 60 * 60)));
+        const freshness = 1 - (ageHrs / 24);  // 1 = fresh, 0 = day-old
+
+        // Radial placement: recent ops cluster mid-arm
+        const t = 0.25 + Math.random() * 0.55;
         const r = innerR + t * (outerR - innerR);
-        const thetaJitter = gauss(0.04);
-        const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + thetaJitter;
-        // Offset perpendicular to arm for scatter
-        const perpOffset = gauss(r * 0.05);
+        const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.08);
+        const perpOffset = gauss(r * 0.04);
         const x = cx + Math.cos(theta) * r + Math.cos(theta + Math.PI/2) * perpOffset;
         const y = cy + Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset;
 
-        // Larger, more organic blob sizes — varied for natural look
-        const blobR = 45 + Math.random() * 70 + (1 - t) * 30;
-        const intensity = 0.04 + (1 - t) * 0.06 + Math.random() * 0.03;
+        const blobR = 25 + Math.random() * 25;
+        const intensity = 0.04 + freshness * 0.08;
         const blobGrd = octx.createRadialGradient(x, y, 0, x, y, blobR);
         blobGrd.addColorStop(0.0, `rgba(220, 180, 110, ${intensity})`);
-        blobGrd.addColorStop(0.5, `rgba(180, 140, 85, ${intensity * 0.4})`);
+        blobGrd.addColorStop(0.6, `rgba(180, 140, 85, ${intensity * 0.4})`);
         blobGrd.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
         octx.fillStyle = blobGrd;
         octx.beginPath();
@@ -429,43 +468,52 @@
       }
     }
 
-    /* ─── LAYER 3: H-II regions (nebulae) — brighter warm puffs ─────── */
-    // ~18 bright nebular puffs, scattered along mid-arm regions.
-    // Color varies within the warm palette: gold, amber, peach, warm-pink (but muted).
-    const NEBULA_TINTS = [
-      [255, 200, 130],   // gold
-      [240, 170, 110],   // amber-peach
-      [230, 150, 120],   // muted warm rose (stays warm)
-      [250, 220, 160],   // pale gold
-      [220, 180, 100],   // deep amber
-    ];
-    for (let i = 0; i < 18; i++) {
-      const arm = i % ARM_COUNT;
+    /* ─── DATA LAYER B: Open tickets → H-II bright nebulae ─────────────
+     * Each open ticket is a concentrated bright puff. Color + size vary
+     * with priority. Position on the arm corresponding to ticket.location.
+     *
+     * Meaning: visible bright clouds = places that need attention.
+     * More tickets at Suerte → Suerte's arm glows brighter.
+     */
+    const TICKET_TINTS = {
+      urgent: [255, 180, 130],    // hot peach
+      high:   [250, 200, 140],    // bright gold
+      normal: [230, 180, 110],    // amber
+      low:    [200, 160, 90]      // muted amber
+    };
+    const TICKET_SIZE = { urgent: 70, high: 55, normal: 40, low: 28 };
+    const TICKET_INTENSITY = { urgent: 0.18, high: 0.14, normal: 0.10, low: 0.07 };
+
+    for (const ticket of DL.tickets) {
+      const arm = locToArm(ticket.location);
       const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-      // Bias toward mid arm (0.3 - 0.85) where nebulae concentrate
-      const t = 0.3 + Math.random() * 0.55;
+      const priority = (ticket.priority || 'normal').toLowerCase();
+      const tint = TICKET_TINTS[priority] || TICKET_TINTS.normal;
+      const nebR = TICKET_SIZE[priority] || TICKET_SIZE.normal;
+      const intensity = TICKET_INTENSITY[priority] || TICKET_INTENSITY.normal;
+
+      // Age → older tickets drift outward (unresolved debt moves to the outskirts)
+      const ageMs = Date.now() - new Date(ticket.created_at).getTime();
+      const ageDays = ageMs / (1000 * 60 * 60 * 24);
+      const t = Math.min(0.85, 0.35 + ageDays * 0.04 + Math.random() * 0.15);
       const r = innerR + t * (outerR - innerR);
-      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.05);
-      const perpOffset = gauss(r * 0.04);
+      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.06);
+      const perpOffset = gauss(r * 0.035);
       const x = cx + Math.cos(theta) * r + Math.cos(theta + Math.PI/2) * perpOffset;
       const y = cy + Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset;
 
-      const tint = NEBULA_TINTS[Math.floor(Math.random() * NEBULA_TINTS.length)];
-      const nebR = 30 + Math.random() * 45;
-      const nebIntensity = 0.10 + Math.random() * 0.08;
-
-      // Soft outer glow
+      // Outer soft glow
       const outerGlow = octx.createRadialGradient(x, y, 0, x, y, nebR * 1.6);
-      outerGlow.addColorStop(0.0, `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${nebIntensity * 0.5})`);
+      outerGlow.addColorStop(0.0, `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${intensity * 0.55})`);
       outerGlow.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
       octx.fillStyle = outerGlow;
       octx.beginPath();
       octx.arc(x, y, nebR * 1.6, 0, Math.PI * 2);
       octx.fill();
 
-      // Brighter inner core of the nebula
+      // Brighter inner core
       const innerNeb = octx.createRadialGradient(x, y, 0, x, y, nebR * 0.5);
-      innerNeb.addColorStop(0.0, `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${nebIntensity * 1.2})`);
+      innerNeb.addColorStop(0.0, `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${intensity * 1.3})`);
       innerNeb.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
       octx.fillStyle = innerNeb;
       octx.beginPath();
@@ -473,99 +521,67 @@
       octx.fill();
     }
 
-    // Switch back to normal compositing for point stars
-    octx.globalCompositeOperation = 'source-over';
-
-    /* ─── LAYER 4: Dust lanes — dark streaks along inner arms ───────── */
-    // This is what gives the Milky Way that iconic "scribbled" appearance.
-    // Drawn as dark semi-transparent curves that subtract from the bright areas.
-    octx.globalCompositeOperation = 'multiply';
-    for (let arm = 0; arm < ARM_COUNT; arm++) {
+    /* ─── DATA LAYER C: Kanban cards → nebular clusters by column ─────
+     * Cards in "todo" → mid-arm haze. Cards in "doing" → inner, closer
+     * to the black hole (actively being processed).
+     */
+    const CARD_COLOR = {
+      todo:  [200, 170, 110],
+      doing: [240, 200, 130],
+      other: [180, 155, 100]
+    };
+    for (const card of DL.cards) {
+      const col = (card.column_name || '').toLowerCase();
+      const tint = CARD_COLOR[col] || CARD_COLOR.other;
+      // Cards don't have a location field reliably, so distribute across arms by hash
+      const arm = Math.abs(hash01(String(card.id)) * 1000 | 0) % ARM_COUNT;
       const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-      // Offset dust lane slightly from arm centerline
-      const laneOffset = 0.08;
+      // "doing" cards closer to center, "todo" mid, others further out
+      const tTarget = col === 'doing' ? 0.25 : col === 'todo' ? 0.55 : 0.75;
+      const t = Math.max(0.1, Math.min(0.9, tTarget + gauss(0.08)));
+      const r = innerR + t * (outerR - innerR);
+      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.06);
+      const perpOffset = gauss(r * 0.03);
+      const x = cx + Math.cos(theta) * r + Math.cos(theta + Math.PI/2) * perpOffset;
+      const y = cy + Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset;
+
+      const blobR = 18 + Math.random() * 18;
+      const intensity = 0.08;
+      const blobGrd = octx.createRadialGradient(x, y, 0, x, y, blobR);
+      blobGrd.addColorStop(0.0, `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${intensity})`);
+      blobGrd.addColorStop(0.6, `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${intensity * 0.3})`);
+      blobGrd.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+      octx.fillStyle = blobGrd;
       octx.beginPath();
-      const SEGS = 60;
-      for (let i = 0; i <= SEGS; i++) {
-        const t = i / SEGS;
-        const r = innerR * 0.8 + t * (outerR - innerR * 0.8);
-        const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + laneOffset;
-        const x = cx + Math.cos(theta) * r;
-        const y = cy + Math.sin(theta) * r;
-        if (i === 0) octx.moveTo(x, y);
-        else octx.lineTo(x, y);
-      }
-      // Dark brown streak — multiplied against brighter background creates the dust lane effect
-      const laneGrd = octx.createRadialGradient(cx, cy, innerR, cx, cy, outerR);
-      laneGrd.addColorStop(0.0, 'rgba(30, 20, 15, 0.75)');
-      laneGrd.addColorStop(0.5, 'rgba(25, 18, 12, 0.55)');
-      laneGrd.addColorStop(1.0, 'rgba(40, 30, 20, 0.85)');
-      octx.strokeStyle = laneGrd;
-      octx.lineWidth = 8 + Math.random() * 4;
-      octx.lineCap = 'round';
-      octx.stroke();
-
-      // Second thinner sub-lane with jitter for organic feel
-      octx.beginPath();
-      for (let i = 0; i <= SEGS; i++) {
-        const t = i / SEGS;
-        const r = innerR * 0.9 + t * (outerR - innerR * 0.9);
-        const jitter = Math.sin(i * 0.7 + arm * 2.3) * 0.02;
-        const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + laneOffset * 1.5 + jitter;
-        const x = cx + Math.cos(theta) * r;
-        const y = cy + Math.sin(theta) * r;
-        if (i === 0) octx.moveTo(x, y);
-        else octx.lineTo(x, y);
-      }
-      octx.strokeStyle = 'rgba(20, 15, 10, 0.5)';
-      octx.lineWidth = 4;
-      octx.stroke();
-    }
-    octx.globalCompositeOperation = 'source-over';
-
-    /* ─── LAYER 5: Point stars (dust along arms) — DENSE ─────────────── */
-    // Tripled density vs before. Stars concentrated along arms with Sérsic falloff.
-    for (let i = 0; i < DISTANT_COUNT; i++) {
-      const arm = i % ARM_COUNT;
-      const t = Math.pow(Math.random(), 0.42);
-      const r = innerR + t * (outerR - innerR) * 1.2;
-
-      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B;
-      const thetaJitter = gauss(ARM_WIDTH * 1.3);
-      const radialJitter = gauss(r * 0.08);
-      const finalR = r + radialJitter;
-      const finalT = theta + thetaJitter;
-
-      const x = cx + Math.cos(finalT) * finalR;
-      const y = cy + Math.sin(finalT) * finalR;
-      if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
-
-      const radialNorm = finalR / outerR;
-      const color = radialNorm < 0.3
-        ? mix([255, 230, 170], AMBER, radialNorm / 0.3)
-        : mix(AMBER, AMBER_DIM, Math.min(1, (radialNorm - 0.3) / 0.7));
-
-      const falloff = Math.exp(-radialNorm * 1.5);
-      const alpha = 0.18 + Math.random() * 0.42 * falloff;
-      const size = Math.random() < 0.82 ? 0.6 : Math.random() < 0.97 ? 1.0 : 1.4;
-
-      octx.fillStyle = rgba(color, alpha);
-      octx.beginPath();
-      octx.arc(x, y, size, 0, Math.PI * 2);
+      octx.arc(x, y, blobR, 0, Math.PI * 2);
       octx.fill();
     }
 
-    /* ─── LAYER 6: Inter-arm sprinkle — stars BETWEEN the arms ───────── */
-    // Real galaxies have lots of stars between arms, not just on them.
-    // Uniform angular distribution with radial falloff.
-    const INTER_ARM = Math.floor(DISTANT_COUNT * 0.45);
-    for (let i = 0; i < INTER_ARM; i++) {
-      // Uniform angle — ignores arm structure
+    // Switch back to normal compositing for point stars
+    octx.globalCompositeOperation = 'source-over';
+
+    /* ─── DATA LAYER D: Pending queue (raw_emails) → inter-arm stars ──
+     * Every unprocessed email is a dim amber speck scattered between
+     * the arms. High pending count = visually dense noise throughout
+     * the galaxy — reads as "system has a lot of backlog."
+     *
+     * If we have the sample, use it. Otherwise synthesize count-driven
+     * stars at random angles.
+     */
+    const pendingList = DL.pending || [];
+    const pendingTotal = typeof state.pendingCount === 'number' ? state.pendingCount : pendingList.length;
+    // Render up to 3000 pending stars for visual density, even if we have more in DB
+    const pendingToRender = Math.min(3000, pendingTotal);
+
+    for (let i = 0; i < pendingToRender; i++) {
+      // Use sample row if available (for age data); otherwise synthesize
+      const src = pendingList[i % Math.max(1, pendingList.length)] || null;
+
+      // Uniform angle — between-arm distribution
       const theta = Math.random() * Math.PI * 2;
-      // Radial distribution with bulge bias
-      const t = Math.pow(Math.random(), 0.8);
-      const r = innerR * 0.5 + t * (outerR * 1.1 - innerR * 0.5);
+      // Radial — slight bulge bias, extends outward
+      const t = Math.pow(Math.random(), 0.75);
+      const r = innerR * 0.5 + t * (outerR * 1.15 - innerR * 0.5);
 
       const x = cx + Math.cos(theta) * r;
       const y = cy + Math.sin(theta) * r;
@@ -575,9 +591,17 @@
       const color = radialNorm < 0.25
         ? mix([255, 235, 180], AMBER, radialNorm / 0.25)
         : mix(AMBER, AMBER_DIM, Math.min(1, (radialNorm - 0.25) / 0.85));
-      // Dimmer than arm stars — these are the "between" stars
+
+      // Age-based brightness if we have the row
+      let brightness = 0.25;
+      if (src && src.created_at) {
+        const ageMs = Date.now() - new Date(src.created_at).getTime();
+        const ageHrs = Math.min(168, ageMs / (1000 * 60 * 60));  // cap at 1 week
+        brightness = 0.4 - (ageHrs / 168) * 0.25;  // fresh = 0.4, week-old = 0.15
+      }
+
       const falloff = Math.exp(-radialNorm * 1.3);
-      const alpha = 0.08 + Math.random() * 0.22 * falloff;
+      const alpha = 0.08 + brightness * 0.22 * falloff;
       const size = Math.random() < 0.92 ? 0.5 : 0.8;
 
       octx.fillStyle = rgba(color, alpha);
@@ -586,36 +610,55 @@
       octx.fill();
     }
 
-    /* ─── LAYER 7: Bulge sparkle — dense bright points in the core ──── */
-    // Fills the empty area near the black hole with sparse bright specks
-    // to sell the "dense concentrated core" look.
-    const BULGE_STARS = 450;
-    for (let i = 0; i < BULGE_STARS; i++) {
-      // Concentrate tightly near center
-      const t = Math.pow(Math.random(), 1.6);
-      const r = innerR * 0.3 + t * innerR * 1.6;
-      const theta = Math.random() * Math.PI * 2;
-      // Slight flattening of bulge
+    /* ─── DATA LAYER E: Contractor events → pulsing signals ───────────
+     * Small bright specks at event location's arm. These are "about to
+     * happen" items — inherently pulsing in the live layer (not here).
+     * Here we just lay down the base markers as brighter-than-pending.
+     */
+    for (const ev of DL.contractorEvents) {
+      const arm = locToArm(ev.location);
+      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
+
+      // Events drift outward with time (upcoming = inner, far-future = outer)
+      const eventDate = new Date(ev.event_date).getTime();
+      const daysUntil = (eventDate - Date.now()) / (1000 * 60 * 60 * 24);
+      // Upcoming (near 0) = inner, further = outer
+      const tTarget = 0.35 + Math.max(0, Math.min(0.45, daysUntil / 30));
+      const t = tTarget + gauss(0.04);
+      const r = innerR + Math.max(0.15, Math.min(0.95, t)) * (outerR - innerR);
+      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.05);
       const x = cx + Math.cos(theta) * r;
-      const y = cy + Math.sin(theta) * r * 0.85;
+      const y = cy + Math.sin(theta) * r;
+      if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
 
-      const color = [255, 230 - Math.random() * 40, 170 - Math.random() * 30];
-      const alpha = 0.35 + Math.random() * 0.45;
-      const size = Math.random() < 0.85 ? 0.7 : 1.1;
-
-      octx.fillStyle = rgba(color, alpha);
+      // Pending events are brighter peach; confirmed are amber
+      const color = ev.status === 'pending' ? [250, 200, 150] : [230, 180, 110];
+      octx.fillStyle = rgba(color, 0.75);
       octx.beginPath();
-      octx.arc(x, y, size, 0, Math.PI * 2);
+      octx.arc(x, y, 1.6, 0, Math.PI * 2);
+      octx.fill();
+      // Soft halo
+      const halo = octx.createRadialGradient(x, y, 0, x, y, 10);
+      halo.addColorStop(0.0, rgba(color, 0.3));
+      halo.addColorStop(1.0, 'rgba(0,0,0,0)');
+      octx.fillStyle = halo;
+      octx.beginPath();
+      octx.arc(x, y, 10, 0, Math.PI * 2);
       octx.fill();
     }
 
-    /* ─── LAYER 8: Archived nodes (dim stars, slightly brighter than dust) ── */
+    /* ─── DATA LAYER F: Archived nodes — dim stars along arms ─────────
+     * Your archived knowledge. Dim but visible. Positioned along arms
+     * to give the spiral structure visible bulk.
+     */
     const archived = (NX.allNodes || []).filter(n => n.archived || n.status === 'archived');
-    const archCount = Math.min(1200, archived.length || 800);
+    const archCount = Math.min(1500, archived.length);
 
     for (let i = 0; i < archCount; i++) {
-      const arm = i % ARM_COUNT;
-      const t = 0.25 + Math.pow(Math.random(), 0.55) * 0.75;
+      const node = archived[i];
+      const arm = (node.community_id != null ? node.community_id : i) % ARM_COUNT;
+      // Archived = older, push outward
+      const t = 0.3 + Math.pow(Math.random(), 0.55) * 0.7;
       const r = innerR + t * (outerR - innerR);
       const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
       const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B;
@@ -629,8 +672,47 @@
 
       const radialNorm = finalR / outerR;
       const color = mix(AMBER, AMBER_DIM, radialNorm * 0.6);
-      const alpha = 0.25 + Math.random() * 0.25;
-      const size = 0.9 + Math.random() * 0.5;
+      const alpha = 0.22 + Math.random() * 0.22;
+      const size = 0.8 + Math.random() * 0.4;
+
+      octx.fillStyle = rgba(color, alpha);
+      octx.beginPath();
+      octx.arc(x, y, size, 0, Math.PI * 2);
+      octx.fill();
+    }
+
+    /* ─── LAYER G: Structural stars — dust along arms (non-data) ──────
+     * A minimal count of structural stars along the arms to keep the
+     * spiral shape readable even when data layers are thin. These don't
+     * represent data — they're the "scaffolding" that makes the galaxy
+     * look like a galaxy. Scaled down if we have lots of real data.
+     */
+    const dataTotal = DL.pending.length + DL.tickets.length + DL.cards.length
+                    + DL.recentLogs.length + DL.contractorEvents.length + archived.length;
+    const structuralCount = Math.max(600, 3500 - dataTotal);
+
+    for (let i = 0; i < structuralCount; i++) {
+      const arm = i % ARM_COUNT;
+      const t = Math.pow(Math.random(), 0.42);
+      const r = innerR + t * (outerR - innerR) * 1.15;
+      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
+      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B;
+      const thetaJitter = gauss(ARM_WIDTH * 1.2);
+      const finalR = r + gauss(r * 0.08);
+      const finalT = theta + thetaJitter;
+
+      const x = cx + Math.cos(finalT) * finalR;
+      const y = cy + Math.sin(finalT) * finalR;
+      if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
+
+      const radialNorm = finalR / outerR;
+      const color = radialNorm < 0.3
+        ? mix([255, 230, 170], AMBER, radialNorm / 0.3)
+        : mix(AMBER, AMBER_DIM, Math.min(1, (radialNorm - 0.3) / 0.7));
+
+      const falloff = Math.exp(-radialNorm * 1.5);
+      const alpha = 0.15 + Math.random() * 0.3 * falloff;
+      const size = Math.random() < 0.85 ? 0.5 : 0.9;
 
       octx.fillStyle = rgba(color, alpha);
       octx.beginPath();
@@ -1910,6 +1992,108 @@
     state.ingestionActive = state.pendingCount > 0;
   }
 
+  /* ─── DATA LAYER REFRESH — pull real data from Supabase ──────────────── *
+   * Every light in the sky represents something real:
+   *   raw_emails (unprocessed)  → inter-arm pending stars
+   *   tickets (open)            → H-II bright puffs clustered by location
+   *   contractor_events         → pulsing signals along arms
+   *   daily_logs (last 24h)     → activity haze clouds
+   *   kanban_cards (not done)   → nebular clusters by column
+   *
+   * Called once at init, then every 30s. If it fails silently, the galaxy
+   * falls back to rendering just the ambient lighting + node stars.
+   * ──────────────────────────────────────────────────────────────────── */
+  async function refreshDataLayers() {
+    if (!NX.sb) return;
+    if (state.dataLayers.fetching) return;
+    state.dataLayers.fetching = true;
+    const t0 = performance.now();
+
+    try {
+      // Pending queue — count + sample (we don't need every row, just enough to paint)
+      const pendingQuery = NX.sb.from('raw_emails')
+        .select('id, created_at, processed', { count: 'exact' })
+        .eq('processed', false)
+        .order('created_at', { ascending: false })
+        .limit(2000);
+
+      // Open tickets — full rows, we need location + priority + age
+      const ticketsQuery = NX.sb.from('tickets')
+        .select('id, title, location, status, priority, created_at')
+        .eq('status', 'open')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      // Contractor events — pending/confirmed, future or recent
+      const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const eventsQuery = NX.sb.from('contractor_events')
+        .select('id, contractor_name, location, event_date, status, description')
+        .in('status', ['pending', 'confirmed'])
+        .gte('event_date', since)
+        .limit(100);
+
+      // Recent daily logs — last 24h, high volume, drives activity haze density
+      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const logsQuery = NX.sb.from('daily_logs')
+        .select('id, entry, created_at')
+        .gte('created_at', yesterday)
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      // Kanban cards — not archived, any column
+      const cardsQuery = NX.sb.from('kanban_cards')
+        .select('id, title, column_name, priority, created_at')
+        .neq('column_name', 'done')
+        .limit(100);
+
+      const [pending, tickets, events, logs, cards] = await Promise.all([
+        pendingQuery.catch(e => ({ data: [], count: 0, error: e })),
+        ticketsQuery.catch(e => ({ data: [], error: e })),
+        eventsQuery.catch(e => ({ data: [], error: e })),
+        logsQuery.catch(e => ({ data: [], error: e })),
+        cardsQuery.catch(e => ({ data: [], error: e }))
+      ]);
+
+      state.dataLayers.pending = Array.isArray(pending.data) ? pending.data : [];
+      state.dataLayers.tickets = Array.isArray(tickets.data) ? tickets.data : [];
+      state.dataLayers.contractorEvents = Array.isArray(events.data) ? events.data : [];
+      state.dataLayers.recentLogs = Array.isArray(logs.data) ? logs.data : [];
+      state.dataLayers.cards = Array.isArray(cards.data) ? cards.data : [];
+
+      // Also capture the FULL pending count if it came back (the sampled query is capped at 2000)
+      if (typeof pending.count === 'number') {
+        state.pendingCount = pending.count;
+        NX.pendingCount = pending.count;
+      }
+      state.dataLayers.openTickets = state.dataLayers.tickets.length;
+
+      // Index open tickets by location for aggregate glow
+      const byLoc = {};
+      for (const t of state.dataLayers.tickets) {
+        const loc = (t.location || 'Unknown').trim();
+        byLoc[loc] = (byLoc[loc] || 0) + (t.priority === 'urgent' ? 3 : t.priority === 'high' ? 2 : 1);
+      }
+      state.dataLayers.openTicketsByLocation = byLoc;
+
+      state.dataLayers.lastFetched = Date.now();
+      const dtMs = Math.round(performance.now() - t0);
+      console.log('[galaxy] data refreshed:',
+        state.dataLayers.pending.length, 'pending /',
+        state.dataLayers.tickets.length, 'tickets /',
+        state.dataLayers.contractorEvents.length, 'events /',
+        state.dataLayers.recentLogs.length, 'logs /',
+        state.dataLayers.cards.length, 'cards -',
+        dtMs + 'ms');
+
+      // Rebuild the baked canvas with fresh data
+      buildDistantField();
+    } catch (e) {
+      console.warn('[galaxy] data refresh failed:', e);
+    } finally {
+      state.dataLayers.fetching = false;
+    }
+  }
+
   /* ─── INIT ─────────────────────────────────────────────────────────────── */
   async function init() {
     resize();
@@ -1929,8 +2113,12 @@
     console.log('[galaxy] built', state.particles.length, 'particles');
     setupCanvasEvents();
     updateSystemState();
+    // Pull real data from DB for the distant field layers
+    refreshDataLayers();
     // Update system state periodically
     setInterval(updateSystemState, 5000);
+    // Refresh data layers every 30s so the galaxy reflects new tickets/events/logs
+    setInterval(refreshDataLayers, 30000);
     // Start the render loop
     startLoop();
     // Call chat/list initializers if they exist (preserves old contract)
