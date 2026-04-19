@@ -125,7 +125,7 @@
   const OUTER_R_FRAC   = 0.55;      // arms reach further toward edges
   const ARM_WIDTH      = 0.28;      // fatter arms — more dispersion for depth
 
-  const BASE_OMEGA     = 0.006;     // slower — majestic clock feel
+  const BASE_OMEGA     = -0.006;    // reversed direction — galaxy spins opposite
   const DIFFERENTIAL   = 0.6;       // stronger inner-faster effect
 
   const DISTANT_COUNT  = 3500;      // more background fog density
@@ -685,19 +685,19 @@
     const ang = Math.random() * Math.PI * 2;
     let speed, life, size, color;
     if (band === 'bass') {
-      speed = 25 + Math.random() * 35;    // was 60-140
-      life  = 3.5 + Math.random() * 1.2;
-      size  = 2.8;
+      speed = 12 + Math.random() * 18;    // halved again
+      life  = 4.5 + Math.random() * 1.5;  // longer, slower drift
+      size  = 1.4;                         // halved
       color = [255, 210, 140];
     } else if (band === 'mid') {
-      speed = 50 + Math.random() * 60;    // was 120-260
-      life  = 2.8 + Math.random() * 1.0;
-      size  = 1.8;
+      speed = 22 + Math.random() * 28;    // halved again
+      life  = 3.5 + Math.random() * 1.2;
+      size  = 0.9;                         // halved
       color = AMBER;
     } else {
-      speed = 90 + Math.random() * 100;   // was 200-420
-      life  = 1.5 + Math.random() * 0.6;
-      size  = 1.2;
+      speed = 45 + Math.random() * 50;    // halved again
+      life  = 2.0 + Math.random() * 0.8;
+      size  = 0.7;                         // smaller
       color = AMBER_BRIGHT;
     }
     state.sparkles.push({
@@ -941,32 +941,32 @@
     }
 
     if (state.hole.progress > 0.003) {
-      const progR = r * 2.0;  // progress arc sits between ring and haze
+      const progR = r * 1.6;  // inside the haze, close to the disc
       const startA = -Math.PI / 2;  // 12 o'clock
       const endA = startA + state.hole.progress * Math.PI * 2;
       ctx.save();
       // Wide soft glow for the arc
-      ctx.lineWidth = Math.max(2, r * 0.16);
+      ctx.lineWidth = Math.max(2, r * 0.14);
       ctx.strokeStyle = rgba(AMBER_BRIGHT, 0.22);
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.arc(screenX, screenY, progR, startA, endA);
       ctx.stroke();
       // Sharp inner arc
-      ctx.lineWidth = Math.max(1.2, r * 0.08);
-      ctx.strokeStyle = rgba([255, 240, 200], 0.75);
+      ctx.lineWidth = Math.max(1.2, r * 0.07);
+      ctx.strokeStyle = rgba([255, 240, 200], 0.8);
       ctx.beginPath();
       ctx.arc(screenX, screenY, progR, startA, endA);
       ctx.stroke();
       // Leading-edge bright dot
       const tipX = screenX + Math.cos(endA) * progR;
       const tipY = screenY + Math.sin(endA) * progR;
-      const tipGrd = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, r * 0.35);
+      const tipGrd = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, r * 0.28);
       tipGrd.addColorStop(0.0, rgba([255, 245, 210], 0.95));
       tipGrd.addColorStop(1.0, rgba(AMBER_BRIGHT, 0));
       ctx.fillStyle = tipGrd;
       ctx.beginPath();
-      ctx.arc(tipX, tipY, r * 0.35, 0, Math.PI * 2);
+      ctx.arc(tipX, tipY, r * 0.28, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -1007,7 +1007,7 @@
   // Double-tap → restart from zero.
 
   const FADE_IN_SEC  = 3.5;
-  const FADE_OUT_SEC = 3.0;
+  const FADE_OUT_SEC = 5.0;
   const TARGET_VOLUME = 0.9;
 
   async function initAudioCtx() {
@@ -1261,12 +1261,16 @@
       try { canvas.releasePointerCapture(e.pointerId); } catch(_) {}
       if (touchMoved) return;
 
+      // Debounce — Android WebView can fire pointerup twice (touch + synthetic mouse).
+      // Ignore any tap within 180ms of the last handled one.
+      const n = now();
+      if (state._lastTapT && n - state._lastTapT < 0.18) return;
+      state._lastTapT = n;
+
       // Tap — hole or node or empty
       if (isHoleTap(p.x, p.y)) {
-        // Double-tap detection on the hole — restarts song from zero
-        const n = now();
-        if (state._lastHoleTap && n - state._lastHoleTap < 0.35) {
-          // Double-tap → restart
+        // Intentional double-tap (within 180-500ms) = restart song
+        if (state._lastHoleTap && n - state._lastHoleTap < 0.5) {
           state._lastHoleTap = 0;
           playSong(true);
           return;
