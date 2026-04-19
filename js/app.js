@@ -672,7 +672,7 @@ td.check{background:#F0EDE6 !important}
     if (document.querySelector(`script[src="${src}"]`)) { if (cb) cb(); return; }
     const s = document.createElement('script'); s.src = src;
     s.onload = () => { if (cb) cb(); };
-    s.onerror = () => console.error('Failed:', src);
+    s.onerror = () => { console.error('Failed to load:', src, '— continuing chain'); if (cb) cb(); };
     document.body.appendChild(s);
   },
 
