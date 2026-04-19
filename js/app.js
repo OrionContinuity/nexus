@@ -434,11 +434,13 @@ const NX = {
       this.loadGlossary();
       this.loadAliases();
       this.loadCriticalFacts();
-      this.loadScript('js/galaxy.js', () => {
+      this.loadScript('js/brain-canvas.js', () => {
         this.loadScript('js/brain-list.js', () => {
           this.loadScript('js/brain-events.js', () => {
-            this.loadScript('js/brain-chat.js', () => {
-              NX.brain.init();
+            this.loadScript('js/ai-writer.js', () => {
+              this.loadScript('js/brain-chat.js', () => {
+                NX.brain.init();
+              });
             });
           });
         });
@@ -648,6 +650,18 @@ td.check{background:#F0EDE6 !important}
     else {
       this.loadScript(file, () => {
         this.loaded[view] = true;
+        // For equipment, also load phase 2 + 3 extensions after base loads
+        if (view === 'equipment') {
+          this.loadScript('js/equipment-ai.js', () => {
+            this.loadScript('js/equipment-p3.js', () => {
+              this.loadScript('js/equipment-ux.js', () => {
+                this.loadScript('js/equipment-ai-creator.js', () => {
+                  this.loadScript('js/equipment-full-editor.js', () => {});
+                });
+              });
+            });
+          });
+        }
         const mod = this.modules[view]; if (mod && mod.init) mod.init();
         if(this.i18n)setTimeout(()=>this.i18n.applyUI(),200);
       });
@@ -678,10 +692,6 @@ td.check{background:#F0EDE6 !important}
 
     document.getElementById('adminBtn').addEventListener('click', () => {
       modal.classList.add('open'); modal.style.display = 'flex';
-
-      // ─── Notifications section — renders inside the admin modal if not already there ───
-      this.renderNotificationsSection(modal);
-
       if (this.isAdmin) {
         keySection.style.display = 'block';
         // Pre-fill hints
@@ -709,17 +719,36 @@ td.check{background:#F0EDE6 !important}
         // Show chat log for admin
         document.getElementById('adminChatLog').style.display='block';
         document.getElementById('adminBackupSection').style.display='block';
+        document.getElementById('adminAiActivity').style.display='block';
         this.loadChatLog();
+        this.refreshAiWritesStatus();
       } else {
         keySection.style.display = 'none';
         document.getElementById('adminChatLog').style.display='none';
         document.getElementById('adminBackupSection').style.display='none';
+        const aia=document.getElementById('adminAiActivity');
+        if(aia) aia.style.display='none';
       }
     });
 
     // Save keys → Supabase config table
     document.getElementById('exportBtn')?.addEventListener('click',()=>this.exportAll());
     document.getElementById('exportNodesBtn')?.addEventListener('click',()=>this.exportNodes());
+
+    // AI Activity — open panel + kill-switch toggle
+    document.getElementById('aiActivityOpen')?.addEventListener('click',()=>{
+      if(NX.aiWriter){ NX.aiWriter.openActivityPanel(); document.getElementById('adminModal')?.classList.remove('open'); }
+      else alert('AI Writer not loaded');
+    });
+    document.getElementById('aiWritesToggle')?.addEventListener('click',async()=>{
+      try{
+        const {data}=await this.sb.from('nexus_config').select('ai_writes_enabled').eq('id',1).single();
+        const newValue=!(data?.ai_writes_enabled);
+        await this.sb.from('nexus_config').update({ai_writes_enabled:newValue}).eq('id',1);
+        this.toast(`AI writes ${newValue?'ENABLED':'DISABLED'}`, newValue?'success':'info');
+        this.refreshAiWritesStatus();
+      }catch(e){ this.toast('Toggle failed: '+e.message,'error'); }
+    });
     const impDrop=document.getElementById('importDropzone');
     const impFile=document.getElementById('importFileInput');
     if(impDrop){
@@ -861,58 +890,6 @@ td.check{background:#F0EDE6 !important}
       btn.disabled = false; btn.textContent = '+ Add';
       this.loadUserList();
     });
-  },
-
-  // ─── Notifications section in admin modal ───
-  async renderNotificationsSection(modal) {
-    if (!modal) modal = document.getElementById('adminModal');
-    if (!modal) return;
-    let section = modal.querySelector('#adminNotifySection');
-    if (!section) {
-      section = document.createElement('div');
-      section.id = 'adminNotifySection';
-      section.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:rgba(212,164,78,0.06);border:1px solid rgba(212,164,78,0.2)';
-      // Insert near the top of the modal body, after the user info
-      const userInfo = modal.querySelector('#adminUserInfo');
-      if (userInfo?.parentElement) {
-        userInfo.parentElement.insertBefore(section, userInfo.nextSibling);
-      } else {
-        modal.querySelector('.admin-modal-body, .modal-body')?.prepend(section) || modal.appendChild(section);
-      }
-    }
-    // Render current state
-    const status = NX.getPushStatus ? await NX.getPushStatus() : 'unsupported';
-    const label = {
-      unsupported: ['Notifications not supported in this browser', '—', '', true],
-      blocked:     ['Notifications blocked by browser', 'Unblock in browser settings', '#d45858', true],
-      disabled:    ['Notifications off', 'Turn on', '#5bba5f', false],
-      enabled:     ['Notifications on ✓', 'Turn off', '#666', false],
-    }[status];
-    section.innerHTML = `
-      <div style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:6px">
-        🔔 Push Notifications
-      </div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
-        ${label[0]}
-      </div>
-      ${label[3] ? '' : `
-        <button id="adminPushToggleBtn" style="padding:8px 14px;border-radius:8px;border:none;background:${label[2]};color:white;font-size:12px;cursor:pointer">
-          ${label[1]}
-        </button>
-      `}
-    `;
-    const btn = section.querySelector('#adminPushToggleBtn');
-    if (btn) {
-      btn.addEventListener('click', async () => {
-        if (status === 'disabled') {
-          await NX.setupPush();
-        } else if (status === 'enabled') {
-          await NX.disablePush();
-        }
-        // Re-render to update button
-        setTimeout(() => NX.renderNotificationsSection(modal), 300);
-      });
-    }
   },
 
   async loadUserList() {
@@ -1257,6 +1234,19 @@ td.check{background:#F0EDE6 !important}
     } catch (e) { list.innerHTML = '<div style="color:var(--red);font-size:11px;padding:8px">Error loading chat log.</div>'; }
   },
 
+  // ─── AI Writes status indicator in admin ───
+  async refreshAiWritesStatus() {
+    const el = document.getElementById('aiWritesStatus');
+    if (!el) return;
+    try {
+      const { data } = await this.sb.from('nexus_config').select('ai_writes_enabled,ai_max_writes_per_conv,ai_max_writes_per_hour').eq('id', 1).single();
+      if (!data) { el.textContent = 'AI config not initialized'; return; }
+      const status = data.ai_writes_enabled ? '✓ ENABLED' : '✕ DISABLED';
+      const color = data.ai_writes_enabled ? 'var(--accent)' : 'var(--red)';
+      el.innerHTML = `<span style="color:${color};font-weight:600">${status}</span> · ${data.ai_max_writes_per_conv}/conv · ${data.ai_max_writes_per_hour}/hr`;
+    } catch (e) { el.textContent = 'Error: ' + e.message; }
+  },
+
   // ─── Toast Notifications ───
   toast(msg, type='info', duration=3000) {
     const c = document.getElementById('toastContainer');
@@ -1513,195 +1503,32 @@ td.check{background:#F0EDE6 !important}
 
 document.addEventListener('DOMContentLoaded', () => NX.init());
 
-// Register service worker for offline support + push notifications
+// Register service worker for offline support
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
-    NX._swRegistration = reg;
-
-    // Detect if we're running inside the Capacitor APK wrapper.
-    // In that case we use native FCM (via @capacitor/push-notifications) instead of
-    // browser web push (VAPID), because Capacitor's WebView doesn't support web push.
-    const isCapacitor = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-    const nativePush = isCapacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications;
-
-    // ─── Push notification setup ───
-    // Defined unconditionally so login flow can call it later when currentUser exists
-    if ('PushManager' in window || nativePush) {
-      NX.setupPush = async function() {
-        if (!NX.currentUser) {
-          NX.toast && NX.toast('Sign in first', 'info');
-          return false;
-        }
-
-        // ═══ NATIVE PATH (Capacitor APK) ═══════════════════════════════════
-        // Uses @capacitor/push-notifications → FCM. No VAPID needed.
-        // The APK must have google-services.json configured at build time.
-        if (nativePush) {
-          try {
-            const perm = await nativePush.requestPermissions();
-            if (perm.receive !== 'granted') {
-              NX.toast && NX.toast('Notifications blocked', 'info');
-              return false;
-            }
-
-            // Clean up any old listeners before adding new ones (re-subscribe case)
-            try { await nativePush.removeAllListeners(); } catch (e) {}
-
-            // Register with FCM — this triggers the 'registration' event below
-            await nativePush.register();
-
-            // Wait for the token via the registration event (up to 10s)
-            const token = await new Promise((resolve, reject) => {
-              const timer = setTimeout(() => reject(new Error('FCM token timeout')), 10000);
-              nativePush.addListener('registration', t => {
-                clearTimeout(timer);
-                resolve(t.value || t); // Capacitor returns {value: '...'} object
-              });
-              nativePush.addListener('registrationError', err => {
-                clearTimeout(timer);
-                reject(new Error(err.error || 'FCM registration failed'));
-              });
-            });
-
-            // Save FCM token to nexus_users.push_token
-            await NX.sb.from('nexus_users')
-              .update({ push_token: token })
-              .eq('id', NX.currentUser.id);
-
-            // Listener: handle notifications received while app is open
-            nativePush.addListener('pushNotificationReceived', notif => {
-              console.log('[Push] Received (foreground):', notif);
-              // Optional: show an in-app toast since native banner may not show while app is foregrounded
-              if (NX.toast) NX.toast(notif.title || 'New notification', 'info', 5000);
-            });
-
-            // Listener: handle notification tap (navigate to deep link)
-            nativePush.addListener('pushNotificationActionPerformed', action => {
-              const data = action.notification?.data || {};
-              if (data.url) {
-                // Strip the origin if present and navigate in-app
-                const path = data.url.replace(/^https?:\/\/[^\/]+/, '');
-                window.location.hash = path.startsWith('#') ? path : ('#' + path);
-              }
-            });
-
-            NX.toast && NX.toast('Notifications enabled ✓', 'success');
-            return true;
-          } catch (e) {
-            console.warn('[Push] Native setup failed:', e);
-            NX.toast && NX.toast('Push setup failed: ' + e.message, 'error');
-            return false;
-          }
-        }
-
-        // ═══ WEB PATH (browser / PWA) ══════════════════════════════════════
-        // Uses VAPID web push via service worker.
-        const vapidPublicKey = NX.config?.vapid_public_key
-                           || NX.config?.vapidPublicKey
-                           || window.NEXUS_VAPID_PUBLIC_KEY;
-        if (!vapidPublicKey) {
-          console.warn('[Push] No VAPID public key configured');
-          NX.toast && NX.toast('Push not configured yet', 'error');
-          return false;
-        }
-
+    // Push notification setup
+    if ('PushManager' in window && NX.currentUser) {
+      NX.setupPush = async function(vapidPublicKey) {
         try {
           const permission = await Notification.requestPermission();
-          if (permission !== 'granted') {
-            NX.toast && NX.toast('Notifications blocked', 'info');
-            return false;
-          }
-
-          // Check for existing subscription first — don't re-subscribe if valid
-          let sub = await reg.pushManager.getSubscription();
-          if (!sub) {
-            sub = await reg.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
-            });
-          }
-
-          // Upsert by endpoint — same user on different devices each get their own row
+          if (permission !== 'granted') return;
+          const sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: vapidPublicKey
+          });
+          // Save subscription to Supabase
           await NX.sb.from('push_subscriptions').upsert({
             user_id: NX.currentUser.id,
             user_name: NX.currentUser.name,
-            subscription: sub.toJSON(),
-            user_agent: navigator.userAgent,
-            last_seen_at: new Date().toISOString()
-          }, { onConflict: 'subscription->>endpoint' });
-
-          NX.toast && NX.toast('Notifications enabled ✓', 'success');
-          return true;
+            subscription: sub.toJSON()
+          }, { onConflict: 'user_id' });
+          if (NX.toast) NX.toast('Notifications enabled ✓', 'success');
         } catch (e) {
-          console.warn('[Push] Setup failed:', e);
-          NX.toast && NX.toast('Push setup failed: ' + e.message, 'error');
-          return false;
-        }
-      };
-
-      // Check current notification status (for UI to show the button state)
-      NX.getPushStatus = async function() {
-        if (nativePush) {
-          try {
-            const perm = await nativePush.checkPermissions();
-            if (perm.receive === 'denied') return 'blocked';
-            if (perm.receive === 'granted') {
-              // Granted but only "enabled" if we also have a stored token
-              if (NX.currentUser) {
-                const { data } = await NX.sb.from('nexus_users')
-                  .select('push_token').eq('id', NX.currentUser.id).single();
-                return data?.push_token ? 'enabled' : 'disabled';
-              }
-              return 'disabled';
-            }
-            return 'disabled';
-          } catch (e) { return 'disabled'; }
-        }
-        if (!('Notification' in window)) return 'unsupported';
-        if (Notification.permission === 'denied') return 'blocked';
-        const sub = await reg.pushManager.getSubscription();
-        return sub ? 'enabled' : 'disabled';
-      };
-
-      // Unsubscribe (for the "Turn off" button)
-      NX.disablePush = async function() {
-        try {
-          if (nativePush) {
-            try { await nativePush.removeAllListeners(); } catch (e) {}
-            try { await nativePush.unregister(); } catch (e) {}
-            if (NX.currentUser) {
-              await NX.sb.from('nexus_users')
-                .update({ push_token: null })
-                .eq('id', NX.currentUser.id);
-            }
-            NX.toast && NX.toast('Notifications disabled', 'info');
-            return;
-          }
-          const sub = await reg.pushManager.getSubscription();
-          if (sub) {
-            const endpoint = sub.endpoint;
-            await sub.unsubscribe();
-            await NX.sb.from('push_subscriptions')
-              .delete()
-              .eq('subscription->>endpoint', endpoint);
-          }
-          NX.toast && NX.toast('Notifications disabled', 'info');
-        } catch (e) {
-          console.warn('[Push] Disable failed:', e);
+          console.warn('Push setup failed:', e);
         }
       };
     }
   }).catch(() => {});
-}
-
-// Convert a URL-safe base64 VAPID key to the Uint8Array the browser expects
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
-  return outputArray;
 }
 
 // ═══ OFFLINE QUEUE — stores actions when offline, replays when back ═══
