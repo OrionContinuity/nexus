@@ -85,11 +85,10 @@
     bass: 0, mid: 0, high: 0,
     bassMax: 0.1, midMax: 0.1, highMax: 0.1, // running maxes for normalization
     lastHighPeak: 0,
+    lastSpawnT: 0,
     songPlaying: false,
-    songEndsAt: 0,
-
-    // Shockwave (one big pulse on song start)
-    shockwave: null,       // {startT, radius, intensity} or null
+    fadeState: 'idle',           // 'idle' | 'in' | 'playing' | 'out'
+    fadeStartT: 0,
 
     // Ambient system activity
     ingestionActive: false,
@@ -496,36 +495,11 @@
     const zoom = state.cam.zoom;
     const camX = state.cam.x, camY = state.cam.y;
 
-    // Decay audio-reactive glows
-    const audioDecay = Math.exp(-dt * 4);
-
-    // Running max audio bands — decay gracefully
-    if (state.songPlaying) {
-      state.bassMax = Math.max(state.bassMax * 0.996, state.bass, 0.05);
-      state.midMax  = Math.max(state.midMax  * 0.996, state.mid,  0.05);
-      state.highMax = Math.max(state.highMax * 0.996, state.high, 0.05);
-    }
-    const bassN = state.songPlaying ? Math.min(1, state.bass / state.bassMax) : 0;
-    const midN  = state.songPlaying ? Math.min(1, state.mid  / state.midMax)  : 0;
-    const highN = state.songPlaying ? Math.min(1, state.high / state.highMax) : 0;
+    // Decay audio-reactive glows (particles deposited via collision)
+    const audioDecay = Math.exp(-dt * 2.5);   // slower decay = afterglow feel
 
     const hasSearchHits = state.searchHits && state.searchHits.size > 0;
     const hasActivated = state.activatedNodes && state.activatedNodes.size > 0;
-
-    // Shockwave check
-    let shock = null;
-    if (state.shockwave) {
-      const sElapsed = state.t - state.shockwave.startT;
-      if (sElapsed < 4.0) {
-        shock = {
-          radius: sElapsed * (Math.min(W, H) * 0.7),
-          thickness: 80,
-          intensity: Math.max(0, 1 - sElapsed / 4.0)
-        };
-      } else {
-        state.shockwave = null;
-      }
-    }
 
     ctx.save();
     ctx.translate(cx + camX, cy + camY);
@@ -533,7 +507,7 @@
     ctx.translate(-cx, -cy);
 
     const P = state.particles;
-    const haloList = [];  // collect halo-worthy stars for second pass (prevents stacking)
+    const haloList = [];
 
     // ─── PASS 1: Draw star cores ────────────────────────────────────────
     for (let i = 0; i < P.length; i++) {
@@ -545,25 +519,20 @@
 
       if (p.x < -20 || p.x > W+20 || p.y < -20 || p.y > H+20) continue;
 
-      // Twinkle — subtle
+      // Twinkle — subtle breathing
       const twinkle = 0.92 + Math.sin(state.t * p.twinkleSpeed + p.twinklePhase) * 0.08;
       let alpha = p.brightness * twinkle;
       let color = p.color;
       let size = p.size;
-      let isSpecial = false;  // gets a halo
+      let isSpecial = false;
 
-      // Audio reactivity
-      if (state.songPlaying) {
-        let bandN = 0;
-        if (p.voice === 'bass') bandN = bassN;
-        else if (p.voice === 'mid') bandN = midN;
-        else bandN = highN;
-        p.audioGlow = Math.max(p.audioGlow * audioDecay, bandN);
-        if (p.audioGlow > 0.1) {
-          alpha = Math.min(1.0, alpha + p.audioGlow * 0.35);
-          color = mix(p.color, AMBER_BRIGHT, p.audioGlow * 0.5);
-          if (p.audioGlow > 0.5) isSpecial = true;
-        }
+      // Audio glow (set by particle collisions — decays over time)
+      p.audioGlow *= audioDecay;
+      if (p.audioGlow > 0.05) {
+        alpha = Math.min(1.0, alpha + p.audioGlow * 0.5);
+        color = mix(p.color, AMBER_BRIGHT, Math.min(1, p.audioGlow * 0.7));
+        size = p.size * (1 + p.audioGlow * 0.4);
+        if (p.audioGlow > 0.3) isSpecial = true;
       }
 
       // Activated (chat context)
@@ -580,51 +549,36 @@
       if (hasSearchHits && state.searchHits.has(p.id)) {
         alpha = 0.95;
         color = AMBER_BRIGHT;
+        size = p.size * 1.3;
         isSpecial = true;
       } else if (hasSearchHits) {
         alpha *= 0.3;
-      }
-
-      // Shockwave — only light up when wavefront is near
-      if (shock) {
-        const dx = p.x - cx, dy = p.y - cy;
-        const d = Math.sqrt(dx*dx + dy*dy);
-        if (Math.abs(d - shock.radius) < shock.thickness) {
-          const wavePos = 1 - Math.abs(d - shock.radius) / shock.thickness;
-          alpha = Math.min(1.0, alpha + wavePos * shock.intensity * 0.6);
-          color = mix(color, AMBER_BRIGHT, wavePos * shock.intensity * 0.8);
-          if (wavePos > 0.5) isSpecial = true;
-        }
       }
 
       // Active/hover
       if (state.activeNode?.id === p.id || state.hoverNode?.id === p.id) {
         alpha = 1.0;
         color = AMBER_BRIGHT;
+        size = p.size * 1.4;
         isSpecial = true;
       }
 
-      // Clamp size — NEVER let a star render bigger than STAR_SIZE_MAX * 1.4
-      // This is the critical fix against blobs
-      const drawSize = Math.min(STAR_SIZE_MAX * 1.4, size);
+      const drawSize = Math.min(STAR_SIZE_MAX * 1.6, size);
 
-      // Draw star core
       ctx.fillStyle = rgba(color, alpha);
       ctx.beginPath();
       ctx.arc(p.x, p.y, drawSize, 0, Math.PI * 2);
       ctx.fill();
 
-      // Queue for halo pass if special
       if (isSpecial || alpha > 0.7) {
         haloList.push({ x: p.x, y: p.y, size: drawSize, color, alpha });
       }
 
-      // Store screen position for hit testing
       p.screenX = (p.x - cx) * zoom + cx + camX;
       p.screenY = (p.y - cy) * zoom + cy + camY;
     }
 
-    // ─── PASS 2: Halos (additive blend, capped size) ────────────────────
+    // ─── PASS 2: Halos (additive) ───────────────────────────────────────
     ctx.globalCompositeOperation = 'screen';
     for (const h of haloList) {
       const haloR = Math.min(STAR_SIZE_MAX * HALO_RATIO, h.size * HALO_RATIO);
@@ -719,32 +673,86 @@
     ctx.restore();
   }
 
-  /* ─── SPARKLES — spawn on high-frequency audio transients ──────────────── */
-  function spawnSparkle() {
+  /* ─── PARTICLES — emitted from the black hole, travel outward, light stars on contact ─── */
+  // This is the ONLY lighting mechanism for nodes during song playback.
+  // Particles carry different character per band:
+  //   bass — large slow warm, big light-up radius, lifts heavy stars
+  //   mid  — medium soft amber, the main flow — dense and gentle
+  //   high — small bright white-gold sparkles, fast, short-lived
+  function spawnParticle(band) {
     if (state.sparkles.length >= SPARKLE_MAX) return;
     const cx = state.W / 2, cy = state.H / 2;
     const ang = Math.random() * Math.PI * 2;
-    const speed = 80 + Math.random() * 180;
+    let speed, life, size, color;
+    if (band === 'bass') {
+      speed = 60 + Math.random() * 80;
+      life  = 2.2 + Math.random() * 0.8;
+      size  = 2.8;
+      color = [255, 210, 140];
+    } else if (band === 'mid') {
+      speed = 120 + Math.random() * 140;
+      life  = 1.8 + Math.random() * 0.6;
+      size  = 1.8;
+      color = AMBER;
+    } else {
+      speed = 200 + Math.random() * 220;
+      life  = 0.9 + Math.random() * 0.4;
+      size  = 1.2;
+      color = AMBER_BRIGHT;
+    }
     state.sparkles.push({
-      x: cx + Math.cos(ang) * (state.hole.r + 5),
-      y: cy + Math.sin(ang) * (state.hole.r + 5),
+      x: cx + Math.cos(ang) * (state.hole.r + 3),
+      y: cy + Math.sin(ang) * (state.hole.r + 3),
       vx: Math.cos(ang) * speed,
       vy: Math.sin(ang) * speed,
       bornT: state.t,
-      life: 0.8 + Math.random() * 0.4
+      life,
+      size,
+      color,
+      band,
+      hitCount: 0  // how many stars this particle has lit (caps hit damage)
     });
   }
 
   function updateSparkles(dt) {
+    // Collision detection: for each particle, check if it's near any active star
+    // Spatial query would be faster, but 80 particles * 800 stars = 64k checks per frame
+    // which is fine on mobile. If this ever gets slow, we bucket by grid cell.
+    const P = state.particles;
+    const HIT_R = 14;           // screen-space-ish distance for "contact"
+    const HIT_R_SQ = HIT_R * HIT_R;
+
     for (let i = state.sparkles.length - 1; i >= 0; i--) {
       const s = state.sparkles[i];
       const age = state.t - s.bornT;
       if (age >= s.life) { state.sparkles.splice(i, 1); continue; }
       s.x += s.vx * dt;
       s.y += s.vy * dt;
-      s.vx *= Math.pow(0.5, dt);   // gentle drag
-      s.vy *= Math.pow(0.5, dt);
+      // Gentle drag — each band decays differently
+      const drag = s.band === 'bass' ? 0.6 : s.band === 'mid' ? 0.75 : 0.5;
+      s.vx *= Math.pow(drag, dt);
+      s.vy *= Math.pow(drag, dt);
       s.t = age / s.life;
+
+      // COLLISION: does this particle touch an active star?
+      if (s.hitCount < 2) {
+        for (let j = 0; j < P.length; j++) {
+          const p = P[j];
+          // Only check stars whose orbit radius is near the particle's distance from center
+          const dx = p.x - s.x, dy = p.y - s.y;
+          const d2 = dx*dx + dy*dy;
+          if (d2 < HIT_R_SQ) {
+            // Contact — star lights up (delegated to audioGlow field)
+            // Different bands deposit different brightness
+            const deposit = s.band === 'bass' ? 1.0 : s.band === 'mid' ? 0.7 : 1.2;
+            p.audioGlow = Math.min(1.0, p.audioGlow + deposit);
+            s.hitCount++;
+            // Fade this particle faster after a hit (it "gave its energy")
+            s.life = Math.min(s.life, age + 0.3);
+            if (s.hitCount >= 2) break;
+          }
+        }
+      }
     }
   }
 
@@ -754,18 +762,110 @@
     ctx.translate(cx + state.cam.x, cy + state.cam.y);
     ctx.scale(state.cam.zoom, state.cam.zoom);
     ctx.translate(-cx, -cy);
+    ctx.globalCompositeOperation = 'screen';  // additive glow
+
     for (const s of state.sparkles) {
       const fade = 1 - s.t;
-      ctx.fillStyle = rgba(AMBER_BRIGHT, fade * 0.35);
+      // Soft outer glow
+      const grd = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.size * 3);
+      grd.addColorStop(0.0, rgba(s.color, fade * 0.5));
+      grd.addColorStop(1.0, rgba(s.color, 0));
+      ctx.fillStyle = grd;
       ctx.beginPath();
-      ctx.arc(s.x, s.y, 3 * fade, 0, Math.PI * 2);
+      ctx.arc(s.x, s.y, s.size * 3, 0, Math.PI * 2);
       ctx.fill();
+      // Bright core
       ctx.fillStyle = rgba([255, 245, 220], fade * 0.9);
       ctx.beginPath();
-      ctx.arc(s.x, s.y, 1.3 * fade, 0, Math.PI * 2);
+      ctx.arc(s.x, s.y, s.size * 0.6, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.globalCompositeOperation = 'source-over';
     ctx.restore();
+  }
+
+  /* ─── SEARCH CONNECTIONS — graceful lit strings between related hits ─── */
+  // Draws curved amber lines between search-hit nodes that have real link relationships.
+  // Falls back to spokes-from-NEXUS when a hit has no link-partners among the other hits.
+  function drawSearchConnections() {
+    if (!state.searchHits || state.searchHits.size < 1) return;
+
+    const cx = state.W / 2, cy = state.H / 2;
+    const zoom = state.cam.zoom;
+    const camX = state.cam.x, camY = state.cam.y;
+
+    // Build a map of hit id → particle (with live position)
+    const hitParticles = new Map();
+    state.particles.forEach(p => {
+      if (state.searchHits.has(p.id)) hitParticles.set(p.id, p);
+    });
+    if (hitParticles.size === 0) return;
+
+    ctx.save();
+    ctx.translate(cx + camX, cy + camY);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-cx, -cy);
+    ctx.globalCompositeOperation = 'screen';
+
+    // Animated dash phase for the "flowing" effect
+    const dashPhase = (state.t * 40) % 40;
+    ctx.setLineDash([8, 6]);
+    ctx.lineDashOffset = -dashPhase;
+
+    // Opacity pulse — connections gently breathe at ~2s cycle
+    const breath = 0.7 + Math.sin(state.t * 1.8) * 0.3;
+
+    hitParticles.forEach((p, pid) => {
+      const node = p.node;
+      if (!node) return;
+      const partners = (node.links || []).filter(lid => hitParticles.has(lid) && lid > pid);
+      // Only draw each edge once: require partner.id > p.id
+      if (partners.length === 0) {
+        // Fallback: spoke from this hit to the NEXUS black hole
+        drawCurvedString(p.x, p.y, cx, cy, 0.5 * breath);
+      } else {
+        partners.forEach(lid => {
+          const other = hitParticles.get(lid);
+          if (!other) return;
+          drawCurvedString(p.x, p.y, other.x, other.y, 0.75 * breath);
+        });
+      }
+    });
+
+    ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.restore();
+  }
+
+  // Bezier string between two points — curves via a midpoint perpendicular offset
+  function drawCurvedString(x1, y1, x2, y2, intensity) {
+    const midX = (x1 + x2) / 2;
+    const midY = (y1 + y2) / 2;
+    const dx = x2 - x1, dy = y2 - y1;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    // Curve magnitude: 15% of distance, perpendicular
+    const curveMag = dist * 0.15;
+    // Perpendicular vector
+    const px = -dy / dist, py = dx / dist;
+    const cx2 = midX + px * curveMag;
+    const cy2 = midY + py * curveMag;
+
+    // Outer soft stroke — creates the "glow" around the line
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = rgba(AMBER, intensity * 0.12);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.quadraticCurveTo(cx2, cy2, x2, y2);
+    ctx.stroke();
+
+    // Inner bright stroke — the actual line
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = rgba(AMBER_BRIGHT, intensity * 0.65);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.quadraticCurveTo(cx2, cy2, x2, y2);
+    ctx.stroke();
   }
 
   /* ─── NEXUS BLACK HOLE ─────────────────────────────────────────────────── */
@@ -876,71 +976,138 @@
 
 
   /* ─── AUDIO PIPELINE ───────────────────────────────────────────────────── */
-  async function startSong() {
+  // Gradual fade-in over ~2 seconds on first tap.
+  // Tap while playing → fade out over ~1.5s, stop particle emission, existing particles finish their flight.
+  // Double-tap → restart from zero.
+
+  const FADE_IN_SEC  = 2.0;
+  const FADE_OUT_SEC = 1.5;
+  const TARGET_VOLUME = 0.9;
+
+  async function initAudioCtx() {
+    if (state.audio) return;
+    state.audio = new Audio();
+    state.audio.src = 'audio/nexus-theme.mp3';
+    state.audio.crossOrigin = 'anonymous';
+    state.audio.preload = 'auto';
+    state.audio.volume = 0;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) { console.warn('[Galaxy] No AudioContext'); return; }
+    state.audioCtx = new Ctx();
+    const source = state.audioCtx.createMediaElementSource(state.audio);
+    state.analyser = state.audioCtx.createAnalyser();
+    state.analyser.fftSize = 256;
+    state.analyser.smoothingTimeConstant = 0.7;
+    source.connect(state.analyser);
+    state.analyser.connect(state.audioCtx.destination);
+    state.audioData = new Uint8Array(state.analyser.frequencyBinCount);
+
+    state.audio.addEventListener('ended', () => {
+      state.songPlaying = false;
+      state.fadeState = 'idle';
+      state.audio.volume = 0;
+    });
+  }
+
+  async function playSong(fromStart) {
     try {
-      if (!state.audio) {
-        state.audio = new Audio();
-        // Try app-local first; fall back to GitHub-hosted theme
-        state.audio.src = 'audio/nexus-theme.mp3';
-        state.audio.crossOrigin = 'anonymous';
-        state.audio.preload = 'auto';
-      }
-      if (!state.audioCtx) {
-        const Ctx = window.AudioContext || window.webkitAudioContext;
-        if (!Ctx) { console.warn('[Galaxy] No AudioContext'); return; }
-        state.audioCtx = new Ctx();
-        const source = state.audioCtx.createMediaElementSource(state.audio);
-        state.analyser = state.audioCtx.createAnalyser();
-        state.analyser.fftSize = 256;
-        state.analyser.smoothingTimeConstant = 0.7;
-        source.connect(state.analyser);
-        state.analyser.connect(state.audioCtx.destination);
-        state.audioData = new Uint8Array(state.analyser.frequencyBinCount);
-      }
+      await initAudioCtx();
+      if (!state.audioCtx) return;
       if (state.audioCtx.state === 'suspended') await state.audioCtx.resume();
 
-      // Restart from the beginning
-      state.audio.currentTime = 0;
+      if (fromStart) state.audio.currentTime = 0;
+
+      state.audio.volume = 0;
       await state.audio.play();
 
       state.songPlaying = true;
-      state.songEndsAt = state.t + (state.audio.duration || 75);
-
-      // Fire the opening shockwave
-      state.shockwave = { startT: state.t };
-
-      // Listen for natural end
-      state.audio.onended = () => {
-        state.songPlaying = false;
-        state.shockwave = null;
-      };
+      state.fadeState = 'in';
+      state.fadeStartT = state.t;
     } catch (e) {
-      console.warn('[Galaxy] Song start failed:', e);
-      // Shockwave still fires even without audio — tap feedback
-      state.shockwave = { startT: state.t };
+      console.warn('[Galaxy] Song play failed:', e);
+    }
+  }
+
+  function pauseSong() {
+    // Begin fade-out. Audio element keeps playing until fade completes, then pauses.
+    if (!state.songPlaying) return;
+    state.fadeState = 'out';
+    state.fadeStartT = state.t;
+  }
+
+  function updateAudioFade() {
+    if (!state.audio) return;
+    if (state.fadeState === 'in') {
+      const elapsed = state.t - state.fadeStartT;
+      const prog = Math.min(1, elapsed / FADE_IN_SEC);
+      // Smooth ease-in curve
+      state.audio.volume = TARGET_VOLUME * (1 - Math.cos(prog * Math.PI)) * 0.5;
+      if (prog >= 1) state.fadeState = 'playing';
+    } else if (state.fadeState === 'out') {
+      const elapsed = state.t - state.fadeStartT;
+      const prog = Math.min(1, elapsed / FADE_OUT_SEC);
+      state.audio.volume = TARGET_VOLUME * (1 - (1 - Math.cos((1 - prog) * Math.PI)) * 0.5);
+      if (prog >= 1) {
+        state.audio.pause();
+        state.audio.volume = 0;
+        state.songPlaying = false;
+        state.fadeState = 'idle';
+      }
     }
   }
 
   function sampleAudio() {
-    if (!state.songPlaying || !state.analyser) { state.bass = state.mid = state.high = 0; return; }
+    // Only read analyser if audio is actually playing (volume > 0 equivalent)
+    if (!state.songPlaying || !state.analyser) {
+      state.bass = state.mid = state.high = 0;
+      return;
+    }
     state.analyser.getByteFrequencyData(state.audioData);
-    // 128 bins. Freq = bin * (sampleRate/2) / 128. @44.1kHz: each bin ~172Hz
-    // Bass  = bins 1..4   (~170-690Hz  — we'll treat this as low-end presence)
-    // Mid   = bins 5..40  (~860-6900Hz — where melody lives)
-    // High  = bins 40..127(~6900+Hz    — sparkle band)
-    let b=0, m=0, h=0;
-    for (let i = 1; i <= 4;  i++) b += state.audioData[i];
-    for (let i = 5; i <= 40; i++) m += state.audioData[i];
-    for (let i = 40; i < 128; i++) h += state.audioData[i];
+    let b = 0, m = 0, h = 0;
+    for (let i = 1;  i <= 4;   i++) b += state.audioData[i];
+    for (let i = 5;  i <= 40;  i++) m += state.audioData[i];
+    for (let i = 40; i < 128;  i++) h += state.audioData[i];
     state.bass = b / 4 / 255;
     state.mid  = m / 36 / 255;
     state.high = h / 88 / 255;
 
-    // Detect high-frequency transient → spawn sparkle
+    // Gate particle spawning by fade state — during fade-out, don't spawn new particles,
+    // but existing ones finish their flight. This is what makes pause feel meaningful.
+    const emitting = (state.fadeState === 'in' || state.fadeState === 'playing');
+    if (!emitting) return;
+
+    // Fade-in ramps emission proportionally
+    const emitScale = state.fadeState === 'in'
+      ? Math.min(1, (state.t - state.fadeStartT) / FADE_IN_SEC)
+      : 1.0;
+
+    // Update running maxes
+    state.bassMax = Math.max(state.bassMax * 0.996, state.bass, 0.05);
+    state.midMax  = Math.max(state.midMax  * 0.996, state.mid,  0.05);
+    state.highMax = Math.max(state.highMax * 0.996, state.high, 0.05);
+
+    // Normalize
+    const bassN = Math.min(1, state.bass / state.bassMax);
+    const midN  = Math.min(1, state.mid  / state.midMax);
     const highN = Math.min(1, state.high / state.highMax);
-    if (highN > 0.6 && state.t - state.lastHighPeak > 0.08) {
-      const bursts = Math.floor(1 + highN * 3);
-      for (let i = 0; i < bursts; i++) spawnSparkle();
+
+    // Spawn particles per band — different character each
+    const chance = (state.t - state.lastSpawnT) * 60;  // per-frame chance scaler
+    state.lastSpawnT = state.t;
+
+    // BASS — heavy slow particles (if bass present in song)
+    if (bassN > 0.55 && Math.random() < bassN * 0.8 * emitScale) {
+      spawnParticle('bass');
+    }
+    // MID — medium soft particles (main flow for mids-dominant songs)
+    if (midN > 0.25 && Math.random() < midN * 1.2 * emitScale) {
+      spawnParticle('mid');
+      if (midN > 0.6) spawnParticle('mid');  // bursts on strong mids
+    }
+    // HIGH — sparkles on transients
+    if (highN > 0.5 && state.t - state.lastHighPeak > 0.05) {
+      const count = Math.floor(1 + highN * 3 * emitScale);
+      for (let i = 0; i < count; i++) spawnParticle('high');
       state.lastHighPeak = state.t;
     }
   }
@@ -967,6 +1134,7 @@
     state.cam.y    += (state.cam.targetY    - state.cam.y)    * camLerp;
 
     // Audio
+    updateAudioFade();
     sampleAudio();
 
     // Simulate
@@ -979,6 +1147,7 @@
 
     // Layer compositing
     drawDistantField(dt);
+    drawSearchConnections();   // strings underneath stars so they don't obscure
     drawActiveStars(dt);
     drawMeteors();
     drawSparkles();
@@ -1068,7 +1237,21 @@
 
       // Tap — hole or node or empty
       if (isHoleTap(p.x, p.y)) {
-        startSong();
+        // Double-tap detection on the hole — restarts song from zero
+        const n = now();
+        if (state._lastHoleTap && n - state._lastHoleTap < 0.35) {
+          // Double-tap → restart
+          state._lastHoleTap = 0;
+          playSong(true);
+          return;
+        }
+        state._lastHoleTap = n;
+        // Single-tap → toggle
+        if (state.songPlaying && state.fadeState !== 'out') {
+          pauseSong();
+        } else {
+          playSong(false);
+        }
         return;
       }
       const node = findNodeAt(p.x, p.y);
@@ -1076,10 +1259,10 @@
         state.activeNode = node.node;
         state.frozenNode = node;
         openPanel(node.node);
-        // Soft zoom onto it
-        state.cam.targetZoom = Math.min(2.2, state.cam.targetZoom * 1.4);
+        // Subtle zoom focus
+        state.cam.targetZoom = Math.min(2.2, state.cam.targetZoom * 1.25);
       } else {
-        // Tap on empty space — close panel
+        // Tap on empty space — close panel if open
         if (state.activeNode) closePanel();
       }
     });
@@ -1125,20 +1308,359 @@
     });
   }
 
-  /* ─── PANEL (opening node detail — uses existing NX.brain openPanel contract) ── */
-  function openPanel(node) {
-    // If external code (brain-chat/list) overrode this via assignment, honor it.
-    // Otherwise, fire a custom event for panels to listen to.
-    const evt = new CustomEvent('galaxy:node-open', { detail: { node } });
-    document.dispatchEvent(evt);
+  /* ─── PANEL (node detail view — full restoration from brain-canvas) ──── */
+  function findOwnerName(ownerId) {
+    if (!ownerId) return 'Shared';
+    if (NX.currentUser && NX.currentUser.id === ownerId) return NX.currentUser.name;
+    return 'User #' + ownerId;
+  }
+
+  function openPanel(n) {
+    if (!n) return;
+    const hud = document.getElementById('chatHud');
+    if (hud) hud.classList.remove('expanded');
+    state.activeNode = n;
+
+    // Header fields
+    const catEl = document.getElementById('npCat');
+    const nameEl = document.getElementById('npName');
+    const tagsEl = document.getElementById('npTags');
+    const notesEl = document.getElementById('npNotes');
+    if (catEl) catEl.textContent = (n.category || '').toUpperCase();
+    if (nameEl) nameEl.textContent = n.name || '';
+    if (tagsEl) tagsEl.textContent = '';
+    const ownerLabel = n.owner_id ? ` · ${findOwnerName(n.owner_id)}'s Brain` : '';
+
+    // Tags (clickable — search by tag)
+    if (tagsEl) {
+      (n.tags || []).forEach(t => {
+        const tag = document.createElement('span');
+        tag.className = 'np-tag-link';
+        tag.textContent = '#' + t;
+        tag.addEventListener('click', () => {
+          if (NX.searchByTag) NX.searchByTag(t);
+          closePanel();
+        });
+        tagsEl.appendChild(tag);
+      });
+      if (ownerLabel) {
+        const ow = document.createElement('span');
+        ow.className = 'np-owner-label';
+        ow.textContent = ownerLabel;
+        tagsEl.appendChild(ow);
+      }
+    }
+
+    if (notesEl) notesEl.textContent = n.notes || 'No notes.';
+
+    // ═══ BACKLINKS ═══
+    const blEl = document.getElementById('npBacklinks');
+    if (blEl) {
+      blEl.innerHTML = '';
+      const nameLow = (n.name || '').toLowerCase();
+      const backlinks = (NX.nodes || []).filter(other =>
+        other.id !== n.id && !other.is_private && (
+          (other.notes || '').toLowerCase().includes(nameLow) ||
+          (other.tags || []).some(t => t.toLowerCase().includes(nameLow)) ||
+          (other.links || []).includes(n.id)
+        ));
+      if (backlinks.length) {
+        blEl.innerHTML = '<div class="np-section-title">MENTIONED IN (' + backlinks.length + ')</div>';
+        backlinks.slice(0, 10).forEach(bl => {
+          const d = document.createElement('div');
+          d.className = 'np-link-item';
+          d.innerHTML = `<span class="np-link-cat">${bl.category}</span>${bl.name}`;
+          d.onclick = () => {
+            const fp = state.particles.find(p => p.id === bl.id);
+            if (fp) { state.frozenNode = fp; state.activeNode = bl; openPanel(bl); }
+            else { openPanel(bl); }  // open even if not in active stars
+          };
+          blEl.appendChild(d);
+        });
+      }
+    }
+
+    // ═══ TRANSCLUSION — preview linked node content ═══
+    const trEl = document.getElementById('npTransclusions');
+    if (trEl) {
+      trEl.innerHTML = '';
+      const linkedNodes = (n.links || [])
+        .map(lid => (NX.nodes || []).find(x => x.id === lid))
+        .filter(Boolean).slice(0, 5);
+      if (linkedNodes.length) {
+        trEl.innerHTML = '<div class="np-section-title">RELATED DETAILS</div>';
+        linkedNodes.forEach(ln => {
+          if (!ln.notes || ln.notes.length < 10) return;
+          const card = document.createElement('div');
+          card.className = 'np-transclude';
+          card.innerHTML = `<div class="np-transclude-head"><span class="np-link-cat">${ln.category}</span><span class="np-transclude-name">${ln.name}</span></div><div class="np-transclude-body">${(ln.notes || '').slice(0, 200)}${ln.notes.length > 200 ? '…' : ''}</div>`;
+          card.addEventListener('click', () => {
+            const fp = state.particles.find(p => p.id === ln.id);
+            if (fp) { state.frozenNode = fp; state.activeNode = ln; openPanel(ln); }
+            else openPanel(ln);
+          });
+          trEl.appendChild(card);
+        });
+      }
+    }
+
+    // ═══ SOURCES ═══
+    const se = document.getElementById('npSources');
+    if (se) {
+      se.innerHTML = '';
+      const src = n.sources || n.source_emails;
+      if (src && Array.isArray(src) && src.length) {
+        const tt = (k) => (NX.i18n ? NX.i18n.t(k) : k);
+        se.innerHTML = '<div class="np-section-title">' + tt('sources') + ' (' + src.length + ')</div>';
+        src.forEach(s => {
+          const card = document.createElement('div');
+          card.className = 'np-email-card';
+          card.innerHTML = `<div class="np-email-header"><div class="np-email-from">${s.from || 'Unknown'}</div><div class="np-email-date">${s.date || ''}</div></div><div class="np-email-subject">${s.subject || '(no subject)'}</div>`;
+          if (s.snippet || s.body) {
+            const preview = document.createElement('div');
+            preview.className = 'np-email-preview';
+            preview.textContent = (s.snippet || s.body || '').slice(0, 150);
+            card.appendChild(preview);
+          }
+          if (s.body && s.body.length > 10 && NX.isAdmin) {
+            const toggle = document.createElement('button');
+            toggle.className = 'np-email-toggle';
+            toggle.textContent = tt('showEmail');
+            const detail = document.createElement('div');
+            detail.className = 'np-email-detail';
+            detail.style.display = 'none';
+            detail.innerHTML = `<div class="np-email-detail-header"><div class="np-detail-row"><span class="np-detail-label">From</span><span class="np-detail-value">${s.from || ''}</span></div>${s.to ? `<div class="np-detail-row"><span class="np-detail-label">To</span><span class="np-detail-value">${s.to}</span></div>` : ''}<div class="np-detail-row"><span class="np-detail-label">Date</span><span class="np-detail-value">${s.date || ''}</span></div><div class="np-detail-row"><span class="np-detail-label">Subject</span><span class="np-detail-value">${s.subject || ''}</span></div></div><div class="np-email-full-body">${(s.body || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`;
+            toggle.addEventListener('click', () => {
+              const open = detail.style.display !== 'none';
+              detail.style.display = open ? 'none' : 'block';
+              toggle.textContent = open ? tt('showEmail') : tt('hideEmail');
+              toggle.classList.toggle('open', !open);
+            });
+            card.appendChild(toggle);
+            card.appendChild(detail);
+          }
+          se.appendChild(card);
+        });
+      }
+    }
+
+    // ═══ ATTACHMENTS ═══
+    const ae = document.getElementById('npAttachments');
+    if (ae) {
+      ae.innerHTML = '';
+      const att = n.attachments;
+      if (att && Array.isArray(att) && att.length) {
+        const seen = new Set();
+        const uniqueAtt = att.filter(a => {
+          const key = (a.filename || '') + (a.url || '');
+          if (seen.has(key)) return false;
+          seen.add(key); return true;
+        });
+        ae.innerHTML = '<div class="np-section-title">' + (NX.i18n ? NX.i18n.t('attachments') : 'ATTACHMENTS') + ' (' + uniqueAtt.length + ')</div>';
+        uniqueAtt.forEach(a => {
+          const fname = a.filename || 'file';
+          const ext = (fname.split('.').pop() || '').toLowerCase();
+          const isImg = ['jpg','jpeg','png','gif','webp'].includes(ext);
+          const isPdf = ext === 'pdf';
+          const icon = isPdf ? '📄' : isImg ? '🖼' : ext === 'xlsx' || ext === 'csv' ? '📊' : ext === 'docx' ? '📝' : '📎';
+
+          const card = document.createElement('div');
+          card.className = 'np-att-card';
+          card.innerHTML = `<div class="np-att-info"><span class="np-att-icon">${icon}</span><div class="np-att-details"><div class="np-att-name">${fname.length > 35 ? fname.slice(0,32) + '...' : fname}</div><div class="np-att-meta">${a.from ? a.from.split('<')[0].trim() : ''} ${a.date ? '· ' + a.date.split('T')[0] : ''}</div></div></div>`;
+
+          if (a.url) {
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'np-att-view';
+            viewBtn.textContent = 'View';
+            viewBtn.addEventListener('click', async () => {
+              viewBtn.textContent = '...';
+              try {
+                const path = a.url.split('/nexus-files/').pop();
+                if (path) {
+                  const { data: signedData, error } = await NX.sb.storage.from('nexus-files').createSignedUrl(path, 3600);
+                  if (!error && signedData?.signedUrl) { window.open(signedData.signedUrl, '_blank'); viewBtn.textContent = 'View'; return; }
+                }
+                window.open(a.url, '_blank');
+              } catch (e) { window.open(a.url, '_blank'); }
+              viewBtn.textContent = 'View';
+            });
+            card.appendChild(viewBtn);
+          }
+
+          if (isImg && a.url) {
+            const preview = document.createElement('div');
+            preview.className = 'np-att-img-wrap';
+            const img = document.createElement('img');
+            img.className = 'np-att-preview';
+            img.alt = fname;
+            img.loading = 'lazy';
+            (async () => {
+              try {
+                const path = a.url.split('/nexus-files/').pop();
+                if (path) {
+                  const { data } = await NX.sb.storage.from('nexus-files').createSignedUrl(path, 3600);
+                  if (data?.signedUrl) img.src = data.signedUrl; else img.src = a.url;
+                } else img.src = a.url;
+              } catch (e) { img.src = a.url; }
+            })();
+            img.onerror = () => { preview.remove(); };
+            img.addEventListener('click', () => window.open(img.src, '_blank'));
+            preview.appendChild(img);
+            card.appendChild(preview);
+          }
+          ae.appendChild(card);
+        });
+      }
+    }
+
+    // ═══ LINKS ═══
+    const le = document.getElementById('npLinks');
+    if (le) {
+      le.innerHTML = '';
+      if (n.links && n.links.length) {
+        le.innerHTML = '<div class="np-section-title">' + (NX.i18n ? NX.i18n.t('connectedTo') : 'CONNECTED TO') + ' (' + n.links.length + ')</div>';
+        n.links.forEach(lid => {
+          const ln = (NX.nodes || []).find(x => x.id === lid);
+          if (!ln) return;
+          const d = document.createElement('div');
+          d.className = 'np-link-item';
+          d.innerHTML = `<span class="np-link-cat">${ln.category}</span>${ln.name}`;
+          d.onclick = () => {
+            const fp = state.particles.find(p => p.id === lid);
+            if (fp) { state.frozenNode = fp; state.activeNode = ln; openPanel(ln); }
+            else openPanel(ln);
+          };
+          le.appendChild(d);
+        });
+      }
+    }
+
+    // Admin-only controls
+    const editBtnEl = document.getElementById('npEditNotes');
+    const addSection = document.querySelector('.np-add-section');
+    const npFooter = document.querySelector('.np-footer');
+    if (editBtnEl) editBtnEl.style.display = NX.isAdmin ? '' : 'none';
+    if (addSection) addSection.style.display = NX.isAdmin ? '' : 'none';
+    if (npFooter) npFooter.style.display = NX.isAdmin ? '' : 'none';
+
+    // Delete
+    const delBtn = document.getElementById('npDelete');
+    if (delBtn) {
+      delBtn.onclick = async () => {
+        if (!confirm('Delete "' + n.name + '"?')) return;
+        try {
+          const { error } = await NX.sb.from('nodes').delete().eq('id', n.id);
+          if (!error) {
+            NX.nodes = (NX.nodes || []).filter(x => x.id !== n.id);
+            state.particles = state.particles.filter(p => p.id !== n.id);
+            closePanel();
+          }
+        } catch (e) {}
+      };
+    }
+
+    // Edit notes
+    const editBtn = document.getElementById('npEditNotes');
+    if (editBtn && notesEl) {
+      editBtn.onclick = () => {
+        const current = n.notes || '';
+        const ta = document.createElement('textarea');
+        ta.className = 'np-edit-textarea';
+        ta.value = current;
+        ta.rows = 6;
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'np-edit-btn';
+        saveBtn.textContent = 'Save';
+        saveBtn.style.marginTop = '6px';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'np-edit-btn';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.style.marginTop = '6px';
+        cancelBtn.style.marginLeft = '6px';
+        notesEl.innerHTML = '';
+        const history = n.notes_history || [];
+        if (history.length) {
+          const histBtn = document.createElement('button');
+          histBtn.className = 'np-edit-btn np-hist-btn';
+          histBtn.textContent = `↺ ${history.length} versions`;
+          histBtn.style.marginTop = '6px';
+          histBtn.style.marginLeft = '6px';
+          histBtn.onclick = () => {
+            const histDiv = document.createElement('div');
+            histDiv.className = 'np-history';
+            history.slice().reverse().forEach(h => {
+              const item = document.createElement('div');
+              item.className = 'np-hist-item';
+              item.innerHTML = `<div class="np-hist-date">${h.date || 'unknown'}</div><div class="np-hist-text">${(h.text || '').slice(0,100)}</div>`;
+              item.onclick = () => { ta.value = h.text; histDiv.remove(); };
+              histDiv.appendChild(item);
+            });
+            notesEl.appendChild(histDiv);
+          };
+          notesEl.appendChild(ta); notesEl.appendChild(saveBtn); notesEl.appendChild(cancelBtn); notesEl.appendChild(histBtn);
+        } else {
+          notesEl.appendChild(ta); notesEl.appendChild(saveBtn); notesEl.appendChild(cancelBtn);
+        }
+        ta.focus();
+        saveBtn.onclick = async () => {
+          const newNotes = ta.value;
+          const hist = n.notes_history || [];
+          if (current && current.length > 5) hist.push({ text: current, date: new Date().toISOString().split('T')[0] });
+          const trimmedHist = hist.slice(-10);
+          await NX.sb.from('nodes').update({ notes: newNotes, notes_history: trimmedHist }).eq('id', n.id);
+          n.notes = newNotes;
+          n.notes_history = trimmedHist;
+          notesEl.textContent = newNotes || 'No notes.';
+        };
+        cancelBtn.onclick = () => { notesEl.textContent = current || 'No notes.'; };
+      };
+    }
+
+    // File upload
+    const fileInput = document.getElementById('npFileInput');
+    const uploadStatus = document.getElementById('npUploadStatus');
+    if (fileInput) {
+      fileInput.onchange = async () => {
+        const files = fileInput.files;
+        if (!files.length) return;
+        if (uploadStatus) uploadStatus.textContent = 'Uploading...';
+        const atts = n.attachments || [];
+        for (const file of files) {
+          try {
+            const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+            const path = `node-files/${n.id}_${Date.now()}_${safeName}`;
+            const { error: upErr } = await NX.sb.storage.from('nexus-files').upload(path, file, { contentType: file.type, upsert: true });
+            if (upErr) { if (uploadStatus) uploadStatus.textContent = 'Failed: ' + upErr.message; continue; }
+            const { data: urlData } = NX.sb.storage.from('nexus-files').getPublicUrl(path);
+            const url = urlData?.publicUrl || '';
+            atts.push({ url, filename: file.name, type: file.type, date: new Date().toISOString().split('T')[0], from: 'Manual upload' });
+            if (uploadStatus) uploadStatus.textContent = `✓ ${file.name}`;
+          } catch (e) { if (uploadStatus) uploadStatus.textContent = 'Error: ' + e.message; }
+        }
+        await NX.sb.from('nodes').update({ attachments: atts }).eq('id', n.id);
+        n.attachments = atts;
+        openPanel(n);
+        fileInput.value = '';
+        setTimeout(() => { if (uploadStatus) uploadStatus.textContent = ''; }, 3000);
+      };
+    }
+
+    // Show the panel
+    const np = document.getElementById('nodePanel');
+    if (np) np.classList.add('open');
+    document.body.classList.add('panel-open');
+    if (window.lucide) lucide.createIcons();
+
+    // Fire event for anything else listening
+    document.dispatchEvent(new CustomEvent('galaxy:node-open', { detail: { node: n } }));
   }
 
   function closePanel() {
     state.activeNode = null;
     state.frozenNode = null;
-    state.cam.targetZoom = 1;
-    state.cam.targetX = 0;
-    state.cam.targetY = 0;
+    const np = document.getElementById('nodePanel');
+    if (np) np.classList.remove('open');
+    document.body.classList.remove('panel-open');
     document.dispatchEvent(new CustomEvent('galaxy:panel-close'));
   }
 
