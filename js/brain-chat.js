@@ -777,6 +777,23 @@ When you're ready to give your final answer, just respond normally (no JSON, no 
     i.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();askAI();}});
     s.addEventListener('click',askAI);r.addEventListener('click',resetChat);
     document.querySelectorAll('.brain-ex').forEach(b=>b.addEventListener('click',()=>{i.value=b.textContent;s.disabled=false;askAI();}));
+    // Dismiss suggestions — hides welcome + examples for this session
+    const dismissBtn=document.getElementById('hudDismiss');
+    const welcomeEl=document.getElementById('brainWelcome');
+    const examplesEl=document.getElementById('brainExamples');
+    // Restore dismissed state from localStorage
+    if(localStorage.getItem('nexus_suggestions_dismissed')==='1'){
+      if(welcomeEl)welcomeEl.classList.add('hidden');
+      if(examplesEl)examplesEl.classList.add('hidden');
+    }
+    if(dismissBtn){
+      dismissBtn.addEventListener('click',e=>{
+        e.stopPropagation();
+        if(welcomeEl)welcomeEl.classList.add('hidden');
+        if(examplesEl)examplesEl.classList.add('hidden');
+        try{localStorage.setItem('nexus_suggestions_dismissed','1');}catch(_){}
+      });
+    }
     checkApiKey();buildDynamicChips();
     setupVoice();
     setupCamera();
