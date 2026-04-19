@@ -685,19 +685,19 @@
     const ang = Math.random() * Math.PI * 2;
     let speed, life, size, color;
     if (band === 'bass') {
-      speed = 12 + Math.random() * 18;    // halved again
-      life  = 4.5 + Math.random() * 1.5;  // longer, slower drift
-      size  = 1.4;                         // halved
+      speed = 8 + Math.random() * 12;     // slower still
+      life  = 8.0 + Math.random() * 2.5;  // much longer — reaches outer arms
+      size  = 1.4;
       color = [255, 210, 140];
     } else if (band === 'mid') {
-      speed = 22 + Math.random() * 28;    // halved again
-      life  = 3.5 + Math.random() * 1.2;
-      size  = 0.9;                         // halved
+      speed = 14 + Math.random() * 18;    // slower
+      life  = 6.5 + Math.random() * 2.0;
+      size  = 0.9;
       color = AMBER;
     } else {
-      speed = 45 + Math.random() * 50;    // halved again
-      life  = 2.0 + Math.random() * 0.8;
-      size  = 0.7;                         // smaller
+      speed = 28 + Math.random() * 30;    // slower
+      life  = 4.0 + Math.random() * 1.5;
+      size  = 0.7;
       color = AMBER_BRIGHT;
     }
     state.sparkles.push({
@@ -728,8 +728,8 @@
       if (age >= s.life) { state.sparkles.splice(i, 1); continue; }
       s.x += s.vx * dt;
       s.y += s.vy * dt;
-      // Gentle drag — each band decays differently
-      const drag = s.band === 'bass' ? 0.6 : s.band === 'mid' ? 0.75 : 0.5;
+      // Gentle drag — closer to 1.0 means less drag (they keep moving)
+      const drag = s.band === 'bass' ? 0.92 : s.band === 'mid' ? 0.90 : 0.85;
       s.vx *= Math.pow(drag, dt);
       s.vy *= Math.pow(drag, dt);
       s.t = age / s.life;
@@ -941,7 +941,7 @@
     }
 
     if (state.hole.progress > 0.003) {
-      const progR = r * 1.6;  // inside the haze, close to the disc
+      const progR = r * 1.35;  // on the ring — progress IS the ring
       const startA = -Math.PI / 2;  // 12 o'clock
       const endA = startA + state.hole.progress * Math.PI * 2;
       ctx.save();
@@ -953,20 +953,20 @@
       ctx.arc(screenX, screenY, progR, startA, endA);
       ctx.stroke();
       // Sharp inner arc
-      ctx.lineWidth = Math.max(1.2, r * 0.07);
-      ctx.strokeStyle = rgba([255, 240, 200], 0.8);
+      ctx.lineWidth = Math.max(1.2, r * 0.09);
+      ctx.strokeStyle = rgba([255, 240, 200], 0.85);
       ctx.beginPath();
       ctx.arc(screenX, screenY, progR, startA, endA);
       ctx.stroke();
       // Leading-edge bright dot
       const tipX = screenX + Math.cos(endA) * progR;
       const tipY = screenY + Math.sin(endA) * progR;
-      const tipGrd = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, r * 0.28);
+      const tipGrd = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, r * 0.25);
       tipGrd.addColorStop(0.0, rgba([255, 245, 210], 0.95));
       tipGrd.addColorStop(1.0, rgba(AMBER_BRIGHT, 0));
       ctx.fillStyle = tipGrd;
       ctx.beginPath();
-      ctx.arc(tipX, tipY, r * 0.28, 0, Math.PI * 2);
+      ctx.arc(tipX, tipY, r * 0.25, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -1066,13 +1066,16 @@
     if (state.fadeState === 'in') {
       const elapsed = state.t - state.fadeStartT;
       const prog = Math.min(1, elapsed / FADE_IN_SEC);
-      // Smooth ease-in curve
-      state.audio.volume = TARGET_VOLUME * (1 - Math.cos(prog * Math.PI)) * 0.5;
+      // Ease-in: volume rises from 0 to TARGET_VOLUME
+      const eased = (1 - Math.cos(prog * Math.PI)) * 0.5;  // 0 → 1
+      state.audio.volume = TARGET_VOLUME * eased;
       if (prog >= 1) state.fadeState = 'playing';
     } else if (state.fadeState === 'out') {
       const elapsed = state.t - state.fadeStartT;
       const prog = Math.min(1, elapsed / FADE_OUT_SEC);
-      state.audio.volume = TARGET_VOLUME * (1 - (1 - Math.cos((1 - prog) * Math.PI)) * 0.5);
+      // Ease-out: volume falls from TARGET_VOLUME to 0
+      const eased = (1 - Math.cos(prog * Math.PI)) * 0.5;  // 0 → 1 as progress advances
+      state.audio.volume = TARGET_VOLUME * (1 - eased);    // 1 → 0 as progress advances
       if (prog >= 1) {
         state.audio.pause();
         state.audio.volume = 0;
