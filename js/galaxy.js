@@ -136,7 +136,7 @@
   const BASE_OMEGA     = -0.004;    // slower still — minutes per rotation
   const DIFFERENTIAL   = 0.6;       // stronger inner-faster effect
 
-  const DISTANT_COUNT  = 3500;      // more background fog density
+  const DISTANT_COUNT  = 9000;      // heavy star density, inter-arm fill handles the rest
   const ACTIVE_MAX     = 3000;      // every active knowledge node clickable (you have ~2751)
   const METEOR_MAX     = 10;        // slightly fewer, more impactful
   const SPARKLE_MAX    = 120;       // more particles — like old brain-canvas density
@@ -356,49 +356,71 @@
     const innerR = minDim * INNER_R_FRAC;
     const outerR = minDim * OUTER_R_FRAC;
 
-    /* ─── LAYER 1: Core fog (gaussian haze) ─────────────────────────── */
-    // Radial gradient from bright-core to transparent outer edge.
-    // Approximates the unresolved-stars glow of a real galaxy bulge.
-    // Use additive compositing so overlapping gradients build up color.
+    /* ─── LAYER 0: Outer halo — diffuse glow beyond the disc ────────── */
+    // Real galaxies have a faint halo of old stars extending well beyond the disc.
+    // Big soft radial gradient.
     octx.globalCompositeOperation = 'screen';
+    const haloGrd = octx.createRadialGradient(cx, cy, outerR * 0.5, cx, cy, outerR * 1.8);
+    haloGrd.addColorStop(0.0, 'rgba(120, 100, 70, 0.06)');
+    haloGrd.addColorStop(0.5, 'rgba(90, 75, 55, 0.025)');
+    haloGrd.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+    octx.fillStyle = haloGrd;
+    octx.fillRect(0, 0, W, H);
 
-    // Bright warm-white core
-    const coreGrd = octx.createRadialGradient(cx, cy, 0, cx, cy, outerR * 0.4);
-    coreGrd.addColorStop(0.0, 'rgba(255, 230, 170, 0.22)');  // hot core
-    coreGrd.addColorStop(0.3, 'rgba(220, 180, 120, 0.12)');  // warm mid
-    coreGrd.addColorStop(0.7, 'rgba(160, 130, 80, 0.04)');   // fading amber
-    coreGrd.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+    /* ─── LAYER 1: Bright bulge — dense warm core ───────────────────── */
+    // Multi-stop gradient from hot white center → warm amber → fade.
+    // This is what makes the galaxy look ALIVE at the center.
+    const coreGrd = octx.createRadialGradient(cx, cy, 0, cx, cy, outerR * 0.45);
+    coreGrd.addColorStop(0.00, 'rgba(255, 240, 200, 0.55)');  // hot white center
+    coreGrd.addColorStop(0.08, 'rgba(255, 225, 170, 0.42)');
+    coreGrd.addColorStop(0.20, 'rgba(240, 195, 140, 0.28)');
+    coreGrd.addColorStop(0.40, 'rgba(210, 165, 100, 0.15)');
+    coreGrd.addColorStop(0.70, 'rgba(160, 125, 75, 0.05)');
+    coreGrd.addColorStop(1.00, 'rgba(0, 0, 0, 0)');
     octx.fillStyle = coreGrd;
     octx.fillRect(0, 0, W, H);
 
-    // Subtle "bar" — elongated glow along horizontal axis (barred spiral signature)
+    // Secondary inner glow — tighter and brighter, gives the core that dense luminous feel
+    const innerGlow = octx.createRadialGradient(cx, cy, 0, cx, cy, outerR * 0.18);
+    innerGlow.addColorStop(0.0, 'rgba(255, 250, 230, 0.5)');
+    innerGlow.addColorStop(0.5, 'rgba(255, 230, 180, 0.25)');
+    innerGlow.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+    octx.fillStyle = innerGlow;
+    octx.fillRect(0, 0, W, H);
+
+    // Barred spiral signature — elongated glow along the major axis
     octx.save();
     octx.translate(cx, cy);
-    octx.scale(1.6, 0.55);  // elongate horizontally, flatten vertically
-    const barGrd = octx.createRadialGradient(0, 0, 0, 0, 0, outerR * 0.25);
-    barGrd.addColorStop(0.0, 'rgba(240, 200, 140, 0.18)');
-    barGrd.addColorStop(0.6, 'rgba(180, 140, 90, 0.05)');
+    octx.scale(1.8, 0.5);
+    const barGrd = octx.createRadialGradient(0, 0, 0, 0, 0, outerR * 0.3);
+    barGrd.addColorStop(0.0, 'rgba(255, 220, 160, 0.28)');
+    barGrd.addColorStop(0.5, 'rgba(200, 160, 100, 0.10)');
     barGrd.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
     octx.fillStyle = barGrd;
     octx.fillRect(-outerR, -outerR, outerR * 2, outerR * 2);
     octx.restore();
 
-    /* ─── LAYER 2: Arm haze — soft amber mist along each arm ────────── */
-    // Draw 40 large soft blobs along each arm trajectory
+    /* ─── LAYER 2: Arm nebular haze — big soft blobs along arms ─────── */
+    // More blobs, bigger, more varied — these are the "clouds" that make it beautiful
     for (let arm = 0; arm < ARM_COUNT; arm++) {
       const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-      for (let i = 0; i < 40; i++) {
-        const t = i / 40;  // 0..1 along arm
+      // Main arm haze — larger count, varied sizes
+      for (let i = 0; i < 70; i++) {
+        const t = i / 70;
         const r = innerR + t * (outerR - innerR);
-        const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B;
-        const x = cx + Math.cos(theta) * r;
-        const y = cy + Math.sin(theta) * r;
+        const thetaJitter = gauss(0.04);
+        const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + thetaJitter;
+        // Offset perpendicular to arm for scatter
+        const perpOffset = gauss(r * 0.05);
+        const x = cx + Math.cos(theta) * r + Math.cos(theta + Math.PI/2) * perpOffset;
+        const y = cy + Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset;
 
-        // Larger blob at inner part of arm, smaller at tips
-        const blobR = 35 + (1 - t) * 40;
-        const intensity = 0.05 + (1 - t) * 0.08;
+        // Larger, more organic blob sizes — varied for natural look
+        const blobR = 45 + Math.random() * 70 + (1 - t) * 30;
+        const intensity = 0.04 + (1 - t) * 0.06 + Math.random() * 0.03;
         const blobGrd = octx.createRadialGradient(x, y, 0, x, y, blobR);
-        blobGrd.addColorStop(0.0, `rgba(210, 170, 100, ${intensity})`);
+        blobGrd.addColorStop(0.0, `rgba(220, 180, 110, ${intensity})`);
+        blobGrd.addColorStop(0.5, `rgba(180, 140, 85, ${intensity * 0.4})`);
         blobGrd.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
         octx.fillStyle = blobGrd;
         octx.beginPath();
@@ -407,15 +429,105 @@
       }
     }
 
+    /* ─── LAYER 3: H-II regions (nebulae) — brighter warm puffs ─────── */
+    // ~18 bright nebular puffs, scattered along mid-arm regions.
+    // Color varies within the warm palette: gold, amber, peach, warm-pink (but muted).
+    const NEBULA_TINTS = [
+      [255, 200, 130],   // gold
+      [240, 170, 110],   // amber-peach
+      [230, 150, 120],   // muted warm rose (stays warm)
+      [250, 220, 160],   // pale gold
+      [220, 180, 100],   // deep amber
+    ];
+    for (let i = 0; i < 18; i++) {
+      const arm = i % ARM_COUNT;
+      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
+      // Bias toward mid arm (0.3 - 0.85) where nebulae concentrate
+      const t = 0.3 + Math.random() * 0.55;
+      const r = innerR + t * (outerR - innerR);
+      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.05);
+      const perpOffset = gauss(r * 0.04);
+      const x = cx + Math.cos(theta) * r + Math.cos(theta + Math.PI/2) * perpOffset;
+      const y = cy + Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset;
+
+      const tint = NEBULA_TINTS[Math.floor(Math.random() * NEBULA_TINTS.length)];
+      const nebR = 30 + Math.random() * 45;
+      const nebIntensity = 0.10 + Math.random() * 0.08;
+
+      // Soft outer glow
+      const outerGlow = octx.createRadialGradient(x, y, 0, x, y, nebR * 1.6);
+      outerGlow.addColorStop(0.0, `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${nebIntensity * 0.5})`);
+      outerGlow.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+      octx.fillStyle = outerGlow;
+      octx.beginPath();
+      octx.arc(x, y, nebR * 1.6, 0, Math.PI * 2);
+      octx.fill();
+
+      // Brighter inner core of the nebula
+      const innerNeb = octx.createRadialGradient(x, y, 0, x, y, nebR * 0.5);
+      innerNeb.addColorStop(0.0, `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${nebIntensity * 1.2})`);
+      innerNeb.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+      octx.fillStyle = innerNeb;
+      octx.beginPath();
+      octx.arc(x, y, nebR * 0.5, 0, Math.PI * 2);
+      octx.fill();
+    }
+
     // Switch back to normal compositing for point stars
     octx.globalCompositeOperation = 'source-over';
 
-    /* ─── LAYER 3: Point stars (dust) ────────────────────────────────── */
-    // Sprinkled along arms with Sérsic-like radial distribution
+    /* ─── LAYER 4: Dust lanes — dark streaks along inner arms ───────── */
+    // This is what gives the Milky Way that iconic "scribbled" appearance.
+    // Drawn as dark semi-transparent curves that subtract from the bright areas.
+    octx.globalCompositeOperation = 'multiply';
+    for (let arm = 0; arm < ARM_COUNT; arm++) {
+      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
+      // Offset dust lane slightly from arm centerline
+      const laneOffset = 0.08;
+      octx.beginPath();
+      const SEGS = 60;
+      for (let i = 0; i <= SEGS; i++) {
+        const t = i / SEGS;
+        const r = innerR * 0.8 + t * (outerR - innerR * 0.8);
+        const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + laneOffset;
+        const x = cx + Math.cos(theta) * r;
+        const y = cy + Math.sin(theta) * r;
+        if (i === 0) octx.moveTo(x, y);
+        else octx.lineTo(x, y);
+      }
+      // Dark brown streak — multiplied against brighter background creates the dust lane effect
+      const laneGrd = octx.createRadialGradient(cx, cy, innerR, cx, cy, outerR);
+      laneGrd.addColorStop(0.0, 'rgba(30, 20, 15, 0.75)');
+      laneGrd.addColorStop(0.5, 'rgba(25, 18, 12, 0.55)');
+      laneGrd.addColorStop(1.0, 'rgba(40, 30, 20, 0.85)');
+      octx.strokeStyle = laneGrd;
+      octx.lineWidth = 8 + Math.random() * 4;
+      octx.lineCap = 'round';
+      octx.stroke();
+
+      // Second thinner sub-lane with jitter for organic feel
+      octx.beginPath();
+      for (let i = 0; i <= SEGS; i++) {
+        const t = i / SEGS;
+        const r = innerR * 0.9 + t * (outerR - innerR * 0.9);
+        const jitter = Math.sin(i * 0.7 + arm * 2.3) * 0.02;
+        const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + laneOffset * 1.5 + jitter;
+        const x = cx + Math.cos(theta) * r;
+        const y = cy + Math.sin(theta) * r;
+        if (i === 0) octx.moveTo(x, y);
+        else octx.lineTo(x, y);
+      }
+      octx.strokeStyle = 'rgba(20, 15, 10, 0.5)';
+      octx.lineWidth = 4;
+      octx.stroke();
+    }
+    octx.globalCompositeOperation = 'source-over';
+
+    /* ─── LAYER 5: Point stars (dust along arms) — DENSE ─────────────── */
+    // Tripled density vs before. Stars concentrated along arms with Sérsic falloff.
     for (let i = 0; i < DISTANT_COUNT; i++) {
       const arm = i % ARM_COUNT;
-      // t follows power law — denser near core (Sérsic-ish)
-      const t = Math.pow(Math.random(), 0.45);
+      const t = Math.pow(Math.random(), 0.42);
       const r = innerR + t * (outerR - innerR) * 1.2;
 
       const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
@@ -429,17 +541,14 @@
       const y = cy + Math.sin(finalT) * finalR;
       if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
 
-      // Distance-from-center determines brightness + color
       const radialNorm = finalR / outerR;
-      // Core: warm white. Outer: deep amber. Interpolate.
       const color = radialNorm < 0.3
-        ? mix([255, 230, 170], AMBER, radialNorm / 0.3)           // white → amber
-        : mix(AMBER, AMBER_DIM, Math.min(1, (radialNorm - 0.3) / 0.7));  // amber → dim
+        ? mix([255, 230, 170], AMBER, radialNorm / 0.3)
+        : mix(AMBER, AMBER_DIM, Math.min(1, (radialNorm - 0.3) / 0.7));
 
-      // Brightness also falls off radially (Sérsic-like)
       const falloff = Math.exp(-radialNorm * 1.5);
-      const alpha = 0.15 + Math.random() * 0.35 * falloff;
-      const size = Math.random() < 0.82 ? 0.6 : 1.0;
+      const alpha = 0.18 + Math.random() * 0.42 * falloff;
+      const size = Math.random() < 0.82 ? 0.6 : Math.random() < 0.97 ? 1.0 : 1.4;
 
       octx.fillStyle = rgba(color, alpha);
       octx.beginPath();
@@ -447,13 +556,66 @@
       octx.fill();
     }
 
-    /* ─── LAYER 4: Archived nodes (dim stars, slightly brighter than dust) ── */
+    /* ─── LAYER 6: Inter-arm sprinkle — stars BETWEEN the arms ───────── */
+    // Real galaxies have lots of stars between arms, not just on them.
+    // Uniform angular distribution with radial falloff.
+    const INTER_ARM = Math.floor(DISTANT_COUNT * 0.45);
+    for (let i = 0; i < INTER_ARM; i++) {
+      // Uniform angle — ignores arm structure
+      const theta = Math.random() * Math.PI * 2;
+      // Radial distribution with bulge bias
+      const t = Math.pow(Math.random(), 0.8);
+      const r = innerR * 0.5 + t * (outerR * 1.1 - innerR * 0.5);
+
+      const x = cx + Math.cos(theta) * r;
+      const y = cy + Math.sin(theta) * r;
+      if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
+
+      const radialNorm = r / outerR;
+      const color = radialNorm < 0.25
+        ? mix([255, 235, 180], AMBER, radialNorm / 0.25)
+        : mix(AMBER, AMBER_DIM, Math.min(1, (radialNorm - 0.25) / 0.85));
+      // Dimmer than arm stars — these are the "between" stars
+      const falloff = Math.exp(-radialNorm * 1.3);
+      const alpha = 0.08 + Math.random() * 0.22 * falloff;
+      const size = Math.random() < 0.92 ? 0.5 : 0.8;
+
+      octx.fillStyle = rgba(color, alpha);
+      octx.beginPath();
+      octx.arc(x, y, size, 0, Math.PI * 2);
+      octx.fill();
+    }
+
+    /* ─── LAYER 7: Bulge sparkle — dense bright points in the core ──── */
+    // Fills the empty area near the black hole with sparse bright specks
+    // to sell the "dense concentrated core" look.
+    const BULGE_STARS = 450;
+    for (let i = 0; i < BULGE_STARS; i++) {
+      // Concentrate tightly near center
+      const t = Math.pow(Math.random(), 1.6);
+      const r = innerR * 0.3 + t * innerR * 1.6;
+      const theta = Math.random() * Math.PI * 2;
+      // Slight flattening of bulge
+      const x = cx + Math.cos(theta) * r;
+      const y = cy + Math.sin(theta) * r * 0.85;
+
+      const color = [255, 230 - Math.random() * 40, 170 - Math.random() * 30];
+      const alpha = 0.35 + Math.random() * 0.45;
+      const size = Math.random() < 0.85 ? 0.7 : 1.1;
+
+      octx.fillStyle = rgba(color, alpha);
+      octx.beginPath();
+      octx.arc(x, y, size, 0, Math.PI * 2);
+      octx.fill();
+    }
+
+    /* ─── LAYER 8: Archived nodes (dim stars, slightly brighter than dust) ── */
     const archived = (NX.allNodes || []).filter(n => n.archived || n.status === 'archived');
     const archCount = Math.min(1200, archived.length || 800);
 
     for (let i = 0; i < archCount; i++) {
       const arm = i % ARM_COUNT;
-      const t = 0.25 + Math.pow(Math.random(), 0.55) * 0.75;  // bias outward
+      const t = 0.25 + Math.pow(Math.random(), 0.55) * 0.75;
       const r = innerR + t * (outerR - innerR);
       const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
       const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B;
