@@ -119,22 +119,29 @@
   ];
 
   /* ─── TUNING CONSTANTS ─────────────────────────────────────────────────── */
-  const ARM_COUNT      = 3;         // logarithmic spiral arms
-  const SPIRAL_B       = 0.22;      // tightness of the spiral (lower = looser coil)
-  const INNER_R_FRAC   = 0.08;      // inner radius as fraction of min(W,H)
-  const OUTER_R_FRAC   = 0.48;      // outer radius (before zoom)
-  const ARM_WIDTH      = 0.18;      // radian stdev of perpendicular jitter
+  // Barred spiral (like Milky Way): 2 main arms + central bar feel
+  const ARM_COUNT      = 2;         // two dominant arms (barred spiral)
+  const SPIRAL_B       = 0.32;      // looser winding — arms spread more
+  const INNER_R_FRAC   = 0.14;      // pushed outward — core is negative space for the fog/bar
+  const OUTER_R_FRAC   = 0.55;      // arms reach further toward edges
+  const ARM_WIDTH      = 0.28;      // fatter arms — more dispersion for depth
 
-  const BASE_OMEGA     = 0.015;     // radians/sec at inner edge
-  const DIFFERENTIAL   = 0.5;       // rotation speed falloff exponent
+  const BASE_OMEGA     = 0.012;     // slower, more majestic
+  const DIFFERENTIAL   = 0.6;       // stronger inner-faster effect
 
-  const DISTANT_COUNT  = 2500;      // baked far-field stars
+  const DISTANT_COUNT  = 3500;      // more background fog density
   const ACTIVE_MAX     = 800;       // cap on live-drawn active stars
-  const METEOR_MAX     = 12;        // max concurrent meteors
+  const METEOR_MAX     = 10;        // slightly fewer, more impactful
   const SPARKLE_MAX    = 80;        // max concurrent sparkle particles
 
+  // Star size scaling — controls overall brightness/density feel
+  const STAR_SIZE_MIN  = 0.6;       // dimmest active star
+  const STAR_SIZE_MAX  = 2.8;       // brightest active star (was effectively 4+halo=blob)
+  const HALO_RATIO     = 1.8;       // halo radius = size * this (was 2.6, too blobby)
+  const HALO_ALPHA     = 0.18;      // halo opacity multiplier (was 0.25)
+
   // Per-node tap target radius (in screen pixels)
-  const TAP_SLOP       = 12;
+  const TAP_SLOP       = 14;
 
   /* ─── UTILITIES ────────────────────────────────────────────────────────── */
   function rgba(rgb, a) {
@@ -216,6 +223,9 @@
 
     const active = nodes.slice(0, ACTIVE_MAX);
     const particles = [];
+    const minDim = Math.min(state.W, state.H);
+    const innerR = minDim * INNER_R_FRAC;
+    const outerR = minDim * OUTER_R_FRAC;
 
     for (let i = 0; i < active.length; i++) {
       const node = active[i];
@@ -223,27 +233,42 @@
       const arm = community % ARM_COUNT;
 
       // Radial position — higher access_count → closer to center
+      // But use Sérsic-ish bias so most nodes end up in the middle band, not piled at edge
       const importance = Math.min(1, (node.access_count || 0) / 20);
-      const t = 1 - importance * 0.6 + gauss(0.15);  // inner + scatter
-      const tClamped = Math.max(0.05, Math.min(0.95, t));
+      let t = Math.pow(Math.random(), 0.7) * (1 - importance * 0.5);
+      t = Math.max(0.08, Math.min(0.95, t));
 
-      const place = placeOnArm(arm, tClamped, node.id || i);
+      const place = placeOnArm(arm, t, node.id || i);
 
       // Voice assignment — determines audio-reactive band
-      // Uses node id hash for deterministic distribution: ~40% bass, 40% mid, 20% high
       const vHash = hash01(node.id + ':voice');
       const voice = vHash < 0.4 ? 'bass' : vHash < 0.8 ? 'mid' : 'high';
 
-      // Size + base brightness
-      const size = 1.5 + importance * 2.5;
-      const brightness = 0.45 + importance * 0.5;
+      // Radial norm (0=core, 1=edge) for depth effects
+      const radialNorm = (place.baseR - innerR) / (outerR - innerR);
+      const radialClamped = Math.max(0, Math.min(1, radialNorm));
 
-      // Tint by community
-      const tintIdx = Math.abs(community) % COMMUNITY_TINTS.length;
-      const color = COMMUNITY_TINTS[tintIdx];
+      // Size: importance + inner-boost. Clamped tight to avoid blobs.
+      const sizeRaw = STAR_SIZE_MIN + importance * (STAR_SIZE_MAX - STAR_SIZE_MIN);
+      const sizeDepthBoost = 1 + (1 - radialClamped) * 0.4;  // bigger near center
+      const size = Math.min(STAR_SIZE_MAX, sizeRaw * sizeDepthBoost);
+
+      // Brightness — core stars brighter (Sérsic), outer stars dimmer
+      const falloff = Math.exp(-radialClamped * 1.2);
+      const brightness = 0.35 + importance * 0.35 + falloff * 0.25;
+
+      // Color — warm white near core, amber in arms, deeper amber at edge
+      let color;
+      if (radialClamped < 0.25) {
+        color = mix([255, 230, 170], AMBER, radialClamped / 0.25);
+      } else {
+        const tintIdx = Math.abs(community) % COMMUNITY_TINTS.length;
+        const communityTint = COMMUNITY_TINTS[tintIdx];
+        color = mix(communityTint, AMBER_DIM, Math.max(0, (radialClamped - 0.6) * 1.0));
+      }
 
       // Orbital omega — differential (inner faster)
-      const omega = BASE_OMEGA * Math.pow(tClamped, -DIFFERENTIAL);
+      const omega = BASE_OMEGA * Math.pow(t, -DIFFERENTIAL);
 
       // Twinkle phase — each node breathes on its own cycle
       const twinklePhase = hash01(node.id + ':twinkle') * Math.PI * 2;
@@ -251,26 +276,25 @@
 
       particles.push({
         id: node.id,
-        node,                 // public — external code reads p.node
+        node,
         arm,
         baseR: place.baseR,
         baseTheta: place.baseTheta,
+        radialNorm: radialClamped,
         omega,
         size,
-        brightness,
+        brightness: Math.min(0.95, brightness),
         color,
         voice,
         twinklePhase, twinkleSpeed,
-        // Live-computed each frame (for public access)
         x: 0, y: 0,
         screenX: 0, screenY: 0,
-        // Audio response
         audioGlow: 0
       });
     }
 
     state.particles = particles;
-    buildCommCenters();  // Keep the community centers the old code exposed
+    buildCommCenters();
   }
 
   /* ─── COMMUNITY CENTERS (for external API compatibility) ──────────────── */
@@ -302,8 +326,13 @@
 
 
   /* ─── DISTANT FIELD (baked once, rotated live) ────────────────────────── */
-  // All the stars you never draw individually each frame. Archived nodes + dust.
-  // Baked to an offscreen canvas so we just rotate + blit — 1ms regardless of count.
+  // Two-layer bake:
+  //   (1) Core fog — gaussian haze from center, Sérsic-style falloff. Makes the
+  //       galaxy look "full of light" instead of empty-with-spots.
+  //   (2) Star points — 3500 tiny stars placed along the arms.
+  //   (3) Archived data nodes — real items, slightly brighter than dust.
+  //
+  // All baked to one offscreen canvas, rotated + blitted each frame.
   function buildDistantField() {
     const W = state.W, H = state.H;
     if (W < 10 || H < 10) return;
@@ -317,17 +346,75 @@
 
     const cx = W / 2, cy = H / 2;
     const minDim = Math.min(W, H);
+    const innerR = minDim * INNER_R_FRAC;
+    const outerR = minDim * OUTER_R_FRAC;
 
-    // Tier 1 — pure dust: 1500 points filling the spiral arms
-    const DUST_COUNT = 1500;
-    for (let i = 0; i < DUST_COUNT; i++) {
-      const arm = i % ARM_COUNT;
-      const t = Math.pow(Math.random(), 0.7);  // bias toward inner (denser core)
-      const r = minDim * INNER_R_FRAC + t * minDim * (OUTER_R_FRAC - INNER_R_FRAC) * 1.15;
+    /* ─── LAYER 1: Core fog (gaussian haze) ─────────────────────────── */
+    // Radial gradient from bright-core to transparent outer edge.
+    // Approximates the unresolved-stars glow of a real galaxy bulge.
+    // Use additive compositing so overlapping gradients build up color.
+    octx.globalCompositeOperation = 'screen';
+
+    // Bright warm-white core
+    const coreGrd = octx.createRadialGradient(cx, cy, 0, cx, cy, outerR * 0.4);
+    coreGrd.addColorStop(0.0, 'rgba(255, 230, 170, 0.22)');  // hot core
+    coreGrd.addColorStop(0.3, 'rgba(220, 180, 120, 0.12)');  // warm mid
+    coreGrd.addColorStop(0.7, 'rgba(160, 130, 80, 0.04)');   // fading amber
+    coreGrd.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+    octx.fillStyle = coreGrd;
+    octx.fillRect(0, 0, W, H);
+
+    // Subtle "bar" — elongated glow along horizontal axis (barred spiral signature)
+    octx.save();
+    octx.translate(cx, cy);
+    octx.scale(1.6, 0.55);  // elongate horizontally, flatten vertically
+    const barGrd = octx.createRadialGradient(0, 0, 0, 0, 0, outerR * 0.25);
+    barGrd.addColorStop(0.0, 'rgba(240, 200, 140, 0.18)');
+    barGrd.addColorStop(0.6, 'rgba(180, 140, 90, 0.05)');
+    barGrd.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+    octx.fillStyle = barGrd;
+    octx.fillRect(-outerR, -outerR, outerR * 2, outerR * 2);
+    octx.restore();
+
+    /* ─── LAYER 2: Arm haze — soft amber mist along each arm ────────── */
+    // Draw 40 large soft blobs along each arm trajectory
+    for (let arm = 0; arm < ARM_COUNT; arm++) {
       const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-      const theta = baseAngle + Math.log(Math.max(r / (minDim * INNER_R_FRAC), 1.01)) / SPIRAL_B;
-      const thetaJitter = gauss(ARM_WIDTH * 1.5);
-      const radialJitter = gauss(r * 0.06);
+      for (let i = 0; i < 40; i++) {
+        const t = i / 40;  // 0..1 along arm
+        const r = innerR + t * (outerR - innerR);
+        const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B;
+        const x = cx + Math.cos(theta) * r;
+        const y = cy + Math.sin(theta) * r;
+
+        // Larger blob at inner part of arm, smaller at tips
+        const blobR = 35 + (1 - t) * 40;
+        const intensity = 0.05 + (1 - t) * 0.08;
+        const blobGrd = octx.createRadialGradient(x, y, 0, x, y, blobR);
+        blobGrd.addColorStop(0.0, `rgba(210, 170, 100, ${intensity})`);
+        blobGrd.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+        octx.fillStyle = blobGrd;
+        octx.beginPath();
+        octx.arc(x, y, blobR, 0, Math.PI * 2);
+        octx.fill();
+      }
+    }
+
+    // Switch back to normal compositing for point stars
+    octx.globalCompositeOperation = 'source-over';
+
+    /* ─── LAYER 3: Point stars (dust) ────────────────────────────────── */
+    // Sprinkled along arms with Sérsic-like radial distribution
+    for (let i = 0; i < DISTANT_COUNT; i++) {
+      const arm = i % ARM_COUNT;
+      // t follows power law — denser near core (Sérsic-ish)
+      const t = Math.pow(Math.random(), 0.45);
+      const r = innerR + t * (outerR - innerR) * 1.2;
+
+      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
+      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B;
+      const thetaJitter = gauss(ARM_WIDTH * 1.3);
+      const radialJitter = gauss(r * 0.08);
       const finalR = r + radialJitter;
       const finalT = theta + thetaJitter;
 
@@ -335,40 +422,48 @@
       const y = cy + Math.sin(finalT) * finalR;
       if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
 
-      // Dust is very dim amber
-      const alpha = 0.08 + Math.random() * 0.15;
-      const size = Math.random() < 0.85 ? 0.7 : 1.2;
-      octx.fillStyle = rgba(AMBER_DIM, alpha);
+      // Distance-from-center determines brightness + color
+      const radialNorm = finalR / outerR;
+      // Core: warm white. Outer: deep amber. Interpolate.
+      const color = radialNorm < 0.3
+        ? mix([255, 230, 170], AMBER, radialNorm / 0.3)           // white → amber
+        : mix(AMBER, AMBER_DIM, Math.min(1, (radialNorm - 0.3) / 0.7));  // amber → dim
+
+      // Brightness also falls off radially (Sérsic-like)
+      const falloff = Math.exp(-radialNorm * 1.5);
+      const alpha = 0.15 + Math.random() * 0.35 * falloff;
+      const size = Math.random() < 0.82 ? 0.6 : 1.0;
+
+      octx.fillStyle = rgba(color, alpha);
       octx.beginPath();
       octx.arc(x, y, size, 0, Math.PI * 2);
       octx.fill();
     }
 
-    // Tier 2 — archived nodes: up to 1000 dimmer points, slightly brighter than dust
-    // If NX.allNodes exists and has archived items, use them. Otherwise synthesize.
+    /* ─── LAYER 4: Archived nodes (dim stars, slightly brighter than dust) ── */
     const archived = (NX.allNodes || []).filter(n => n.archived || n.status === 'archived');
-    const archToUse = archived.slice(0, 1000);
-    const archCount = Math.max(1000, archToUse.length);
+    const archCount = Math.min(1200, archived.length || 800);
 
     for (let i = 0; i < archCount; i++) {
       const arm = i % ARM_COUNT;
-      const t = 0.3 + Math.pow(Math.random(), 0.5) * 0.7;  // mostly outer regions
-      const r = minDim * INNER_R_FRAC + t * minDim * (OUTER_R_FRAC - INNER_R_FRAC);
+      const t = 0.25 + Math.pow(Math.random(), 0.55) * 0.75;  // bias outward
+      const r = innerR + t * (outerR - innerR);
       const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-      const theta = baseAngle + Math.log(Math.max(r / (minDim * INNER_R_FRAC), 1.01)) / SPIRAL_B;
+      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B;
       const thetaJitter = gauss(ARM_WIDTH);
-      const finalR = r + gauss(r * 0.05);
+      const finalR = r + gauss(r * 0.06);
       const finalT = theta + thetaJitter;
 
       const x = cx + Math.cos(finalT) * finalR;
       const y = cy + Math.sin(finalT) * finalR;
       if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
 
-      const alpha = 0.18 + Math.random() * 0.2;
-      const size = 0.9 + Math.random() * 0.6;
-      // Archived: tinted amber, slightly brighter than dust
-      const archColor = mix(AMBER_DIM, AMBER, 0.3);
-      octx.fillStyle = rgba(archColor, alpha);
+      const radialNorm = finalR / outerR;
+      const color = mix(AMBER, AMBER_DIM, radialNorm * 0.6);
+      const alpha = 0.25 + Math.random() * 0.25;
+      const size = 0.9 + Math.random() * 0.5;
+
+      octx.fillStyle = rgba(color, alpha);
       octx.beginPath();
       octx.arc(x, y, size, 0, Math.PI * 2);
       octx.fill();
@@ -404,7 +499,7 @@
     // Decay audio-reactive glows
     const audioDecay = Math.exp(-dt * 4);
 
-    // Running max audio bands normalize — decay over time
+    // Running max audio bands — decay gracefully
     if (state.songPlaying) {
       state.bassMax = Math.max(state.bassMax * 0.996, state.bass, 0.05);
       state.midMax  = Math.max(state.midMax  * 0.996, state.mid,  0.05);
@@ -414,7 +509,6 @@
     const midN  = state.songPlaying ? Math.min(1, state.mid  / state.midMax)  : 0;
     const highN = state.songPlaying ? Math.min(1, state.high / state.highMax) : 0;
 
-    // Are we in search mode or does chat have context?
     const hasSearchHits = state.searchHits && state.searchHits.size > 0;
     const hasActivated = state.activatedNodes && state.activatedNodes.size > 0;
 
@@ -424,7 +518,7 @@
       const sElapsed = state.t - state.shockwave.startT;
       if (sElapsed < 4.0) {
         shock = {
-          radius: sElapsed * (Math.min(W, H) * 0.7),  // expands outward over 4s
+          radius: sElapsed * (Math.min(W, H) * 0.7),
           thickness: 80,
           intensity: Math.max(0, 1 - sElapsed / 4.0)
         };
@@ -439,92 +533,107 @@
     ctx.translate(-cx, -cy);
 
     const P = state.particles;
+    const haloList = [];  // collect halo-worthy stars for second pass (prevents stacking)
+
+    // ─── PASS 1: Draw star cores ────────────────────────────────────────
     for (let i = 0; i < P.length; i++) {
       const p = P[i];
-      // Live orbital position — the heart of the whole thing
+      // Live orbital position
       const theta = p.baseTheta + p.omega * state.t;
       p.x = cx + Math.cos(theta) * p.baseR;
       p.y = cy + Math.sin(theta) * p.baseR;
 
-      // Cull off-screen (in world coords this is simple)
       if (p.x < -20 || p.x > W+20 || p.y < -20 || p.y > H+20) continue;
 
-      // Twinkle — subtle breathing per node
+      // Twinkle — subtle
       const twinkle = 0.92 + Math.sin(state.t * p.twinkleSpeed + p.twinklePhase) * 0.08;
-
-      // Base brightness
       let alpha = p.brightness * twinkle;
       let color = p.color;
       let size = p.size;
+      let isSpecial = false;  // gets a halo
 
-      // Audio reactivity (during song)
+      // Audio reactivity
       if (state.songPlaying) {
         let bandN = 0;
         if (p.voice === 'bass') bandN = bassN;
         else if (p.voice === 'mid') bandN = midN;
         else bandN = highN;
         p.audioGlow = Math.max(p.audioGlow * audioDecay, bandN);
-        alpha = Math.min(1.4, alpha + p.audioGlow * 0.5);
-        // Bright-push color toward AMBER_BRIGHT when audio-hot
-        color = mix(p.color, AMBER_BRIGHT, p.audioGlow * 0.6);
+        if (p.audioGlow > 0.1) {
+          alpha = Math.min(1.0, alpha + p.audioGlow * 0.35);
+          color = mix(p.color, AMBER_BRIGHT, p.audioGlow * 0.5);
+          if (p.audioGlow > 0.5) isSpecial = true;
+        }
       }
 
-      // Activated (chat context) — pulsing bright
+      // Activated (chat context)
       if (hasActivated && state.activatedNodes.has(p.id)) {
         const pulse = 0.7 + Math.sin(state.t * 3) * 0.3;
-        alpha = Math.min(1.4, alpha + 0.5 * pulse);
-        color = mix(color, AMBER_BRIGHT, 0.6);
-        size = p.size * 1.6;
+        alpha = Math.min(1.0, alpha + 0.35 * pulse);
+        color = mix(color, AMBER_BRIGHT, 0.55);
+        isSpecial = true;
       } else if (hasActivated) {
-        alpha *= 0.35;  // dim the rest when there's a context
+        alpha *= 0.35;
       }
 
-      // Search hits — flash bright, outline
+      // Search hits
       if (hasSearchHits && state.searchHits.has(p.id)) {
-        alpha = 1.3;
+        alpha = 0.95;
         color = AMBER_BRIGHT;
-        size = p.size * 2;
+        isSpecial = true;
       } else if (hasSearchHits) {
         alpha *= 0.3;
       }
 
-      // Shockwave lights up nodes as wavefront crosses them
+      // Shockwave — only light up when wavefront is near
       if (shock) {
         const dx = p.x - cx, dy = p.y - cy;
         const d = Math.sqrt(dx*dx + dy*dy);
         if (Math.abs(d - shock.radius) < shock.thickness) {
           const wavePos = 1 - Math.abs(d - shock.radius) / shock.thickness;
-          alpha = Math.min(1.5, alpha + wavePos * shock.intensity * 0.8);
-          color = mix(color, AMBER_BRIGHT, wavePos * shock.intensity);
-          size = p.size * (1 + wavePos * shock.intensity);
+          alpha = Math.min(1.0, alpha + wavePos * shock.intensity * 0.6);
+          color = mix(color, AMBER_BRIGHT, wavePos * shock.intensity * 0.8);
+          if (wavePos > 0.5) isSpecial = true;
         }
       }
 
-      // Active/hover state
+      // Active/hover
       if (state.activeNode?.id === p.id || state.hoverNode?.id === p.id) {
-        alpha = 1.4;
-        size = p.size * 1.8;
+        alpha = 1.0;
         color = AMBER_BRIGHT;
+        isSpecial = true;
       }
 
-      // Draw with a soft halo for brighter stars
-      if (alpha > 0.6) {
-        // Halo
-        ctx.fillStyle = rgba(color, alpha * 0.25);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, size * 2.6, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      // Clamp size — NEVER let a star render bigger than STAR_SIZE_MAX * 1.4
+      // This is the critical fix against blobs
+      const drawSize = Math.min(STAR_SIZE_MAX * 1.4, size);
 
+      // Draw star core
       ctx.fillStyle = rgba(color, alpha);
       ctx.beginPath();
-      ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, drawSize, 0, Math.PI * 2);
       ctx.fill();
+
+      // Queue for halo pass if special
+      if (isSpecial || alpha > 0.7) {
+        haloList.push({ x: p.x, y: p.y, size: drawSize, color, alpha });
+      }
 
       // Store screen position for hit testing
       p.screenX = (p.x - cx) * zoom + cx + camX;
       p.screenY = (p.y - cy) * zoom + cy + camY;
     }
+
+    // ─── PASS 2: Halos (additive blend, capped size) ────────────────────
+    ctx.globalCompositeOperation = 'screen';
+    for (const h of haloList) {
+      const haloR = Math.min(STAR_SIZE_MAX * HALO_RATIO, h.size * HALO_RATIO);
+      ctx.fillStyle = rgba(h.color, h.alpha * HALO_ALPHA);
+      ctx.beginPath();
+      ctx.arc(h.x, h.y, haloR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
 
     ctx.restore();
   }
@@ -660,73 +769,102 @@
   }
 
   /* ─── NEXUS BLACK HOLE ─────────────────────────────────────────────────── */
+  // Redesigned: no dashed ring. Reads as an astronomical object:
+  //   1. Outer haze — soft amber gradient, largest
+  //   2. Accretion glow — thicker warm ring, bright inner edge (photon sphere)
+  //   3. Dark event horizon disc
+  //   4. Faint NEXUS watermark (least visible element)
   function drawBlackHole(dt) {
     const cx = state.W / 2, cy = state.H / 2;
-    // Ring animation
-    state.hole.ringAngle += dt * 0.25;
-    // Audio response on ring brightness + disc scale
-    let ringBrightness = 0.55;
+    state.hole.ringAngle += dt * 0.12;  // slower, more majestic
+
+    // Audio response on disc scale + haze brightness
+    let hazeStrength = 0.35;
     let discScale = 1.0;
     if (state.songPlaying) {
       const bassN = Math.min(1, state.bass / state.bassMax);
-      ringBrightness = 0.55 + bassN * 0.45;
-      discScale = 1.0 + bassN * 0.12;
+      hazeStrength = 0.35 + bassN * 0.45;
+      discScale = 1.0 + bassN * 0.10;
     }
-    // Idle pulse — subtle 6-second breath
-    const idlePulse = 0.5 + Math.sin(state.t / 6 * Math.PI * 2) * 0.5;  // 0..1
-    ringBrightness = Math.max(ringBrightness, 0.4 + idlePulse * 0.15);
+    if (state.ingestionActive) {
+      hazeStrength = Math.max(hazeStrength, 0.45);
+    }
+    // Gentle idle pulse — 8 second breath
+    const idlePulse = 0.5 + Math.sin(state.t / 8 * Math.PI * 2) * 0.5;
+    hazeStrength = Math.max(hazeStrength, 0.3 + idlePulse * 0.1);
 
     const screenX = cx + state.cam.x;
     const screenY = cy + state.cam.y;
     const r = state.hole.r * state.cam.zoom * discScale;
 
-    // Outer halo — when song playing or search active, brighter
-    let haloStrength = 0.12;
-    if (state.songPlaying) haloStrength = 0.3;
-    if (state.ingestionActive) haloStrength = Math.max(haloStrength, 0.22);
-
-    const grd = ctx.createRadialGradient(screenX, screenY, r, screenX, screenY, r * 3.5);
-    grd.addColorStop(0, rgba(AMBER, haloStrength));
-    grd.addColorStop(1, rgba(AMBER, 0));
-    ctx.fillStyle = grd;
+    // ─── Layer 1: Outer haze (largest, softest) ──────────────────────
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const hazeR = r * 5.5;
+    const hazeGrd = ctx.createRadialGradient(screenX, screenY, r * 0.8, screenX, screenY, hazeR);
+    hazeGrd.addColorStop(0.0, rgba([240, 200, 130], hazeStrength * 0.55));
+    hazeGrd.addColorStop(0.3, rgba(AMBER, hazeStrength * 0.3));
+    hazeGrd.addColorStop(1.0, 'rgba(0,0,0,0)');
+    ctx.fillStyle = hazeGrd;
     ctx.beginPath();
-    ctx.arc(screenX, screenY, r * 3.5, 0, Math.PI * 2);
+    ctx.arc(screenX, screenY, hazeR, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
 
-    // Accretion ring — segmented, rotating
-    const ringR = r * 1.25;
-    ctx.lineWidth = Math.max(1, r * 0.06);
-    const segments = 24;
+    // ─── Layer 2: Accretion ring (bright warm, rotating brightness) ──
+    // Instead of drawing a dashed segmented ring, use two soft stroke passes
+    // for a continuous glowing ring with brightness variation along its circumference.
+    ctx.save();
+    const ringR = r * 1.4;
+    // Wider, dimmer outer stroke
+    ctx.lineWidth = r * 0.35;
+    ctx.strokeStyle = rgba([255, 210, 140], 0.18 + hazeStrength * 0.15);
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, ringR, 0, Math.PI * 2);
+    ctx.stroke();
+    // Sharper inner stroke — photon-sphere bright edge
+    ctx.lineWidth = Math.max(1.2, r * 0.08);
+    ctx.strokeStyle = rgba([255, 240, 200], 0.5 + hazeStrength * 0.4);
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, r * 1.18, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Rotating brightness modulation along the ring — uses a second arc drawn in segments
+    // with varying alpha (gives the "material orbiting" look without being a dashed ring)
+    const segments = 48;
     for (let s = 0; s < segments; s++) {
       const a0 = state.hole.ringAngle + s * (Math.PI * 2 / segments);
-      const a1 = a0 + (Math.PI * 2 / segments) * 0.75;
-      // Gradient-ish: alternate opacity
-      const segAlpha = ringBrightness * (0.5 + 0.5 * Math.sin(a0 * 2 + state.t));
-      ctx.strokeStyle = rgba(AMBER_BRIGHT, segAlpha);
+      const a1 = a0 + (Math.PI * 2 / segments);
+      const brightnessMod = Math.max(0, Math.sin(a0 * 2.3 + state.t * 0.4));
+      if (brightnessMod < 0.2) continue;
+      ctx.lineWidth = Math.max(1, r * 0.1);
+      ctx.strokeStyle = rgba(AMBER_BRIGHT, brightnessMod * 0.35 * (0.5 + hazeStrength));
       ctx.beginPath();
       ctx.arc(screenX, screenY, ringR, a0, a1);
       ctx.stroke();
     }
+    ctx.restore();
 
-    // Dark disc
-    ctx.fillStyle = '#02020a';
+    // ─── Layer 3: Event horizon (dark disc) ──────────────────────────
+    ctx.fillStyle = '#020208';
     ctx.beginPath();
     ctx.arc(screenX, screenY, r, 0, Math.PI * 2);
     ctx.fill();
-    // Subtle inner rim
-    ctx.strokeStyle = rgba(AMBER, 0.3);
-    ctx.lineWidth = 1;
+
+    // Inner edge glint — suggests light bending around the horizon
+    ctx.strokeStyle = rgba([255, 220, 150], 0.25 + hazeStrength * 0.15);
+    ctx.lineWidth = 0.8;
     ctx.beginPath();
-    ctx.arc(screenX, screenY, r * 0.95, 0, Math.PI * 2);
+    ctx.arc(screenX, screenY, r * 0.98, 0, Math.PI * 2);
     ctx.stroke();
 
-    // "NEXUS" etched on the disc
+    // ─── Layer 4: NEXUS watermark (least visible element) ────────────
     ctx.save();
-    ctx.fillStyle = rgba(AMBER, 0.55);
-    ctx.font = `${Math.max(9, r * 0.28)}px -apple-system, "SF Pro Display", system-ui, sans-serif`;
+    ctx.fillStyle = rgba(AMBER, 0.35);
+    ctx.font = `300 ${Math.max(8, r * 0.22)}px -apple-system, "SF Pro Display", system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.letterSpacing = '2px';
+    try { ctx.letterSpacing = '3px'; } catch(_) {}
     ctx.fillText('NEXUS', screenX, screenY);
     ctx.restore();
 
