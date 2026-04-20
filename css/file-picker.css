@@ -1,0 +1,325 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEXUS File Picker + Button States v1
+   
+   Two separate concerns in one file since they're both about making
+   mobile UX readable and obvious:
+   
+     1. FILE PICKER POPUP — bottom sheet with 3 big buttons
+     2. BUTTON STATE REDESIGN — mic/voice/send with clear visual states
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── FILE PICKER POPUP ────────────────────────────────────────────────── */
+
+.nx-fp-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 6000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  animation: nxFpFade 0.18s ease-out;
+}
+@keyframes nxFpFade { from { opacity: 0; } to { opacity: 1; } }
+
+.nx-fp-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.nx-fp-card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  background: rgba(18, 15, 22, 0.98);
+  border: 1px solid rgba(200, 164, 78, 0.35);
+  border-radius: 20px 20px 0 0;
+  padding: 16px 14px max(16px, env(safe-area-inset-bottom));
+  margin: 0 auto;
+  animation: nxFpSlideUp 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
+}
+@keyframes nxFpSlideUp {
+  from { transform: translateY(20px); }
+  to { transform: translateY(0); }
+}
+@media (min-width: 600px) {
+  .nx-fp-popup { align-items: center; }
+  .nx-fp-card { border-radius: 20px; }
+}
+
+.nx-fp-title {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent, #c8a44e);
+  margin-bottom: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.nx-fp-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.nx-fp-btn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 18px;
+  background: rgba(20, 18, 26, 0.8);
+  border: 1.5px solid rgba(200, 164, 78, 0.25);
+  border-radius: 14px;
+  color: var(--text, #e6dccc);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease-out;
+  -webkit-tap-highlight-color: transparent;
+}
+.nx-fp-btn:active {
+  background: rgba(200, 164, 78, 0.15);
+  border-color: var(--accent, #c8a44e);
+  transform: scale(0.98);
+}
+.nx-fp-btn:hover {
+  border-color: rgba(200, 164, 78, 0.5);
+}
+
+.nx-fp-icon {
+  font-size: 32px;
+  line-height: 1;
+  flex-shrink: 0;
+  width: 44px;
+  text-align: center;
+}
+
+.nx-fp-name {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent, #c8a44e);
+}
+
+.nx-fp-sub {
+  font-size: 11px;
+  color: var(--muted, #8a826f);
+  display: block;
+  margin-top: 2px;
+  font-weight: 400;
+}
+
+/* Label stack inside the row */
+.nx-fp-btn .nx-fp-name + .nx-fp-sub {
+  display: none;
+}
+.nx-fp-btn {
+  flex-wrap: wrap;
+}
+.nx-fp-btn .nx-fp-icon {
+  grid-row: span 2;
+}
+/* Simpler: flex-direction column for the text part */
+.nx-fp-btn {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 14px;
+  row-gap: 0;
+}
+.nx-fp-btn .nx-fp-icon {
+  grid-row: 1 / span 2;
+  grid-column: 1;
+  align-self: center;
+}
+.nx-fp-btn .nx-fp-name {
+  grid-row: 1;
+  grid-column: 2;
+}
+.nx-fp-btn .nx-fp-sub {
+  grid-row: 2;
+  grid-column: 2;
+  display: block;
+  margin-top: 1px;
+}
+
+.nx-fp-cancel {
+  width: 100%;
+  padding: 13px;
+  background: transparent;
+  border: 1px solid rgba(200, 164, 78, 0.22);
+  border-radius: 12px;
+  color: var(--muted, #8a826f);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.nx-fp-cancel:active {
+  background: rgba(200, 164, 78, 0.08);
+  color: var(--text, #e6dccc);
+}
+
+/* Light theme */
+[data-theme="light"] .nx-fp-card {
+  background: rgba(250, 248, 245, 0.98);
+}
+[data-theme="light"] .nx-fp-btn {
+  background: white;
+  border-color: rgba(200, 164, 78, 0.3);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CHAT HUD BUTTON STATES — FULL REDESIGN
+   
+   Before: subtle border-color changes that were impossible to read on mobile.
+   After: clear solid fills when active, red pulsing ring when recording,
+   amber glow when voice toggle is on, disabled state for send button.
+   
+   Each button now has THREE clear visual states:
+     • default  — dark circle, muted icon color
+     • active   — solid amber fill, dark icon (or red for recording)  
+     • disabled — faded, no interaction
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Base — overrides the subtle default in nexus.css */
+.hud-tool-btn,
+.btn-mic,
+.btn-voice,
+.btn-mic-float,
+.btn-voice-float {
+  position: relative;
+  border: 1.5px solid rgba(200, 164, 78, 0.3) !important;
+  background: rgba(20, 18, 26, 0.85) !important;
+  color: var(--muted, #8a826f) !important;
+  transition: all 0.18s ease-out !important;
+}
+
+/* Press feedback on ALL buttons — scale down for tactile feel */
+.hud-tool-btn:active,
+.btn-mic:active,
+.btn-voice:active,
+.btn-send:active:not(:disabled),
+.btn-mic-float:active,
+.btn-voice-float:active {
+  transform: scale(0.9);
+}
+
+/* ─── MIC — RECORDING STATE ─────────────────────────────────────────────── */
+/* When actively recording, the mic button becomes a solid red circle with
+   a pulsing ring around it — impossible to miss. */
+.btn-mic.recording,
+.btn-mic-float.recording {
+  background: #e74c3c !important;
+  border-color: #e74c3c !important;
+  color: white !important;
+  box-shadow:
+    0 0 0 4px rgba(231, 76, 60, 0.25),
+    0 0 20px rgba(231, 76, 60, 0.45) !important;
+  animation: nxMicPulse 1.1s ease-in-out infinite !important;
+}
+@keyframes nxMicPulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 4px rgba(231, 76, 60, 0.25),
+      0 0 20px rgba(231, 76, 60, 0.45);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow:
+      0 0 0 10px rgba(231, 76, 60, 0.08),
+      0 0 28px rgba(231, 76, 60, 0.65);
+    transform: scale(1.05);
+  }
+}
+
+/* ─── VOICE TOGGLE — ON STATE ───────────────────────────────────────────── */
+/* When TTS playback is enabled, voice button shows solid amber fill
+   with subtle glow so user knows responses will be spoken. */
+.btn-voice.on,
+.btn-voice-float.on {
+  background: var(--accent, #c8a44e) !important;
+  border-color: var(--accent, #c8a44e) !important;
+  color: #1a1408 !important;
+  box-shadow:
+    0 0 0 3px rgba(200, 164, 78, 0.2),
+    0 2px 12px rgba(200, 164, 78, 0.35) !important;
+}
+
+/* ─── CAMERA BUTTON — subtle hover/active to signal interactivity ───────── */
+.hud-tool-btn:hover {
+  border-color: var(--accent, #c8a44e) !important;
+  color: var(--accent, #c8a44e) !important;
+}
+
+/* ─── SEND BUTTON — ENABLED vs DISABLED ─────────────────────────────────── */
+/* Send button is ALWAYS amber (it's the primary action) but clearly
+   disabled when input is empty. */
+.btn-send {
+  background: var(--accent, #c8a44e) !important;
+  color: #1a1408 !important;
+  border: none !important;
+  transition: all 0.18s !important;
+}
+.btn-send:not(:disabled) {
+  box-shadow: 0 2px 10px rgba(200, 164, 78, 0.35) !important;
+}
+.btn-send:disabled {
+  opacity: 0.3 !important;
+  box-shadow: none !important;
+  cursor: default !important;
+}
+
+/* ─── LABELED PILLS UNDER BUTTONS (tooltips visible always on focus) ────── */
+/* Optional tiny label that appears on active state so meaning is obvious */
+.btn-voice.on::after {
+  content: '🔊 ON';
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--accent, #c8a44e);
+  background: rgba(20, 18, 26, 0.95);
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: nxFpFade 0.2s;
+}
+.btn-mic.recording::after,
+.btn-mic-float.recording::after {
+  content: 'REC';
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  color: #e74c3c;
+  background: rgba(20, 18, 26, 0.95);
+  padding: 2px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Light theme adjustments */
+[data-theme="light"] .hud-tool-btn,
+[data-theme="light"] .btn-mic,
+[data-theme="light"] .btn-voice {
+  background: rgba(255, 255, 255, 0.9) !important;
+}
