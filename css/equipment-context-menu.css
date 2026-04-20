@@ -581,3 +581,291 @@
 [data-theme="light"] .eq-print-everything-btn {
   background: linear-gradient(135deg, rgba(200, 164, 78, 0.15), rgba(200, 164, 78, 0.05));
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TIMELINE DETAIL MODAL
+   
+   Opens when a user taps any timeline card. Shows full work description +
+   photos/PDF/signature from the linked pm_log (if contractor submitted via QR).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Clickable timeline card — subtle hover lift to signal interactivity */
+.eq-timeline-clickable {
+  cursor: pointer;
+  transition: transform .12s, border-color .12s, box-shadow .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-timeline-clickable:active {
+  transform: scale(.99);
+}
+.eq-timeline-clickable:hover {
+  border-color: rgba(200, 164, 78, 0.35) !important;
+}
+
+.eq-tl-detail-modal {
+  position: fixed; inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: ctxFadeIn .2s ease-out;
+}
+.eq-tl-detail-bg {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.eq-tl-detail-card {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  max-height: 92vh;
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(18, 15, 22, 0.97);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(200, 164, 78, 0.3);
+  border-radius: 18px 18px 0 0;
+  animation: ctxSlideUp .25s cubic-bezier(.22, 1, .36, 1);
+  overflow: hidden;
+}
+@media (min-width: 600px) {
+  .eq-tl-detail-modal { align-items: center; }
+  .eq-tl-detail-card { border-radius: 18px; max-height: 85vh; }
+}
+.eq-tl-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(200, 164, 78, 0.12);
+  flex-shrink: 0;
+}
+.eq-tl-detail-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent, #c8a44e);
+}
+.eq-tl-detail-close {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--muted, #8a826f);
+  font-size: 18px;
+  cursor: pointer;
+}
+.eq-tl-detail-close:active {
+  background: rgba(200, 164, 78, 0.15);
+}
+.eq-tl-detail-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
+  -webkit-overflow-scrolling: touch;
+}
+.eq-tl-detail-error {
+  padding: 40px 20px;
+  text-align: center;
+  color: #e07070;
+  font-size: 13px;
+}
+
+/* Hero: event type pill + date */
+.eq-tl-detail-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid rgba(200, 164, 78, 0.1);
+}
+.eq-tl-detail-type {
+  padding: 4px 12px;
+  background: rgba(200, 164, 78, 0.2);
+  color: var(--accent, #c8a44e);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.eq-tl-detail-date {
+  font-size: 13.5px;
+  color: var(--text, #e6dccc);
+  font-weight: 500;
+}
+.eq-tl-detail-source {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted, #8a826f);
+  background: rgba(100, 180, 130, 0.15);
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+}
+
+/* Sections */
+.eq-tl-detail-section {
+  margin-bottom: 16px;
+}
+.eq-tl-detail-section-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted, #8a826f);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.eq-tl-detail-text {
+  font-size: 13px;
+  color: var(--text, #e6dccc);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  border-left: 3px solid rgba(200, 164, 78, 0.35);
+  word-break: break-word;
+}
+
+/* Contractor block */
+.eq-tl-detail-contractor {
+  padding: 12px 14px;
+  background: rgba(200, 164, 78, 0.08);
+  border-radius: 10px;
+}
+.eq-tl-detail-contractor-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text, #e6dccc);
+  margin-bottom: 8px;
+}
+.eq-tl-detail-contact-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  margin-right: 6px;
+  margin-top: 4px;
+  background: rgba(200, 164, 78, 0.15);
+  border: 1px solid rgba(200, 164, 78, 0.3);
+  border-radius: 8px;
+  color: var(--accent, #c8a44e);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background .12s;
+}
+.eq-tl-detail-contact-btn:active {
+  background: rgba(200, 164, 78, 0.3);
+  transform: scale(.96);
+}
+
+/* Stats grid (cost, next service, downtime) */
+.eq-tl-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 8px;
+}
+.eq-tl-detail-stat {
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  text-align: center;
+}
+.eq-tl-detail-stat-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted, #8a826f);
+  margin-bottom: 3px;
+}
+.eq-tl-detail-stat-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent, #c8a44e);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Photos grid */
+.eq-tl-detail-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 6px;
+}
+.eq-tl-detail-photo-link {
+  display: block;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(200, 164, 78, 0.2);
+  transition: transform .12s, border-color .12s;
+}
+.eq-tl-detail-photo-link:active {
+  transform: scale(.96);
+  border-color: var(--accent, #c8a44e);
+}
+.eq-tl-detail-photo {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+/* PDF button */
+.eq-tl-detail-pdf-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, rgba(200, 164, 78, 0.2), rgba(200, 164, 78, 0.1));
+  border: 1px solid rgba(200, 164, 78, 0.4);
+  border-radius: 12px;
+  color: var(--accent, #c8a44e);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 700;
+  transition: all .15s;
+}
+.eq-tl-detail-pdf-btn:active {
+  background: rgba(200, 164, 78, 0.3);
+  transform: scale(.98);
+}
+
+/* Signature — shown on white background since the canvas strokes are dark */
+.eq-tl-detail-signature {
+  display: block;
+  padding: 10px;
+  background: white;
+  border-radius: 8px;
+  max-width: 100%;
+  max-height: 140px;
+  object-fit: contain;
+}
+
+/* Metadata footer */
+.eq-tl-detail-metadata {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(200, 164, 78, 0.1);
+  font-size: 10.5px;
+  color: var(--muted, #8a826f);
+  line-height: 1.6;
+}
+.eq-tl-detail-metadata div { margin-top: 2px; }
+
+/* Light theme */
+[data-theme="light"] .eq-tl-detail-card {
+  background: rgba(250, 248, 245, 0.98);
+}
+[data-theme="light"] .eq-tl-detail-text {
+  background: rgba(0, 0, 0, 0.04);
+}
+[data-theme="light"] .eq-tl-detail-stat {
+  background: rgba(0, 0, 0, 0.04);
+}
