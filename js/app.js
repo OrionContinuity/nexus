@@ -657,12 +657,18 @@ td.check{background:#F0EDE6 !important}
               this.loadScript('js/equipment-ux.js', () => {
                 this.loadScript('js/equipment-ai-creator.js', () => {
                   this.loadScript('js/equipment-full-editor.js', () => {
-                    this.loadScript('js/equipment-fixes.js', () => {});
+                    this.loadScript('js/equipment-fixes.js', () => {
+                      this.loadScript('js/equipment-context-menu.js', () => {});
+                    });
                   });
                 });
               });
             });
           });
+        }
+        // Log view also needs the context menu (Deleted tab + search)
+        if (view === 'log') {
+          this.loadScript('js/equipment-context-menu.js', () => {});
         }
         const mod = this.modules[view]; if (mod && mod.init) mod.init();
         if(this.i18n)setTimeout(()=>this.i18n.applyUI(),200);
