@@ -452,6 +452,9 @@ const NX = {
     NX.timeClock.setupNavWidget();
     // Ticket badge
     this.checkTicketBadge();
+    // PM pending logs badge — initial + every 60s while app is open
+    setTimeout(() => this.refreshPmPendingCount(), 2000);
+    setInterval(() => this.refreshPmPendingCount(), 60000);
     // Start real-time watchers
     this.startNodeWatcher();
     this.loadAgenda();
@@ -660,7 +663,9 @@ td.check{background:#F0EDE6 !important}
                     this.loadScript('js/equipment-fixes.js', () => {
                       this.loadScript('js/equipment-cleanup.js', () => {
                         this.loadScript('js/equipment-context-menu.js', () => {
-                          this.loadScript('js/equipment-brain-sync.js', () => {});
+                          this.loadScript('js/equipment-brain-sync.js', () => {
+                            this.loadScript('js/equipment-badge-choice.js', () => {});
+                          });
                         });
                       });
                     });
@@ -704,6 +709,8 @@ td.check{background:#F0EDE6 !important}
 
     document.getElementById('adminBtn').addEventListener('click', () => {
       modal.classList.add('open'); modal.style.display = 'flex';
+      // Refresh PM pending count badge whenever admin opens
+      this.refreshPmPendingCount();
       if (this.isAdmin) {
         keySection.style.display = 'block';
         // Pre-fill hints
@@ -848,6 +855,18 @@ td.check{background:#F0EDE6 !important}
 
     // Drive sync
     document.getElementById('driveConnectBtn').addEventListener('click', () => this.driveConnect());
+    
+    // PM Logs Review — opens contractor submission queue
+    const pmReviewBtn = document.getElementById('adminReviewPmLogs');
+    if (pmReviewBtn) {
+      pmReviewBtn.addEventListener('click', () => {
+        if (window.NX?.pmLogger?.reviewPendingLogs) {
+          NX.pmLogger.reviewPendingLogs();
+        } else {
+          alert('PM logger not loaded yet — try again in a moment');
+        }
+      });
+    }
     document.getElementById('driveBackupBtn').addEventListener('click', async () => {
       const s = document.getElementById('driveStatus');
       try { s.textContent = 'Backing up...'; s.style.color = 'var(--muted)';
@@ -972,6 +991,28 @@ td.check{background:#F0EDE6 !important}
       headers: { 'Authorization': 'Bearer ' + token }
     });
     return await fileR.json();
+  },
+
+  // Refresh the "pending PM logs" count badge in admin panel
+  async refreshPmPendingCount() {
+    const badge = document.getElementById('adminPmPendingCount');
+    if (!badge || !this.sb) return;
+    try {
+      const { count, error } = await this.sb
+        .from('pm_logs')
+        .select('id', { count: 'exact', head: true })
+        .eq('review_status', 'pending')
+        .eq('is_deleted', false);
+      if (error) { badge.style.display = 'none'; return; }
+      if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    } catch (_) {
+      badge.style.display = 'none';
+    }
   },
 
   driveConnect() {
