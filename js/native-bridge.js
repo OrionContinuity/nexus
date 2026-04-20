@@ -8,7 +8,28 @@
   
   // ═══ RECEIPT / DOCUMENT SCANNER ═══
   // Camera → photo → on-device OCR → extract vendor, amount, date → create node
+  // Routes through NX.filePicker so user chooses camera / library / files
   NX.scanReceipt = async function() {
+    // Use universal file picker — shows 3-option popup
+    if (!NX.filePicker) {
+      console.warn('[scanReceipt] file picker not loaded, falling back');
+      return legacyScanReceipt();
+    }
+    
+    const files = await NX.filePicker.pick({
+      accept: 'image/*,application/pdf',
+      multiple: false,
+      title: 'Scan document'
+    });
+    if (!files || !files.length) return null;
+    
+    const file = files[0];
+    const base64 = await fileToBase64(file);
+    return await ocrViaClaudeVision(base64, file.type);
+  };
+  
+  // Legacy fallback if picker not loaded (shouldn't happen)
+  async function legacyScanReceipt() {
     // Try native Capacitor camera first
     if (isNative && window.Capacitor?.Plugins?.Camera) {
       try {
@@ -25,16 +46,12 @@
         }
       } catch (e) {
         console.warn('Native camera failed:', e.message);
-        // Fall through to web fallback
       }
     }
-
-    // Web fallback — file input
     return new Promise((resolve) => {
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = 'image/*';
-      input.capture = 'environment';
       input.onchange = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return resolve(null);
@@ -44,7 +61,7 @@
       };
       input.click();
     });
-  };
+  }
 
   // Parse receipt text via Claude API
   async function ocrViaClaudeVision(base64, mimeType) {
@@ -449,29 +466,42 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
 
       let base64, mimeType = 'image/jpeg';
 
-      if (window.Capacitor?.Plugins?.Camera) {
-        try {
-          const Camera = window.Capacitor.Plugins.Camera;
-          const photo = await Camera.getPhoto({
-            quality: 90, resultType: 'base64', source: 'CAMERA',
-            width: 2000, correctOrientation: true,
-          });
-          if (photo.base64String) { base64 = photo.base64String; mimeType = 'image/' + (photo.format || 'jpeg'); }
-        } catch (e) { if (e.message?.includes('cancelled')) { NX.toast('Scan cancelled', 'warn'); return null; } }
-      }
-
-      if (!base64) {
-        base64 = await new Promise((resolve) => {
-          const input = document.createElement('input');
-          input.type = 'file'; input.accept = 'image/*'; input.capture = 'environment';
-          input.onchange = async (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return resolve(null);
-            resolve(await fileToBase64(file));
-          };
-          input.click();
+      // Use universal file picker — shows 3-option popup
+      if (NX.filePicker) {
+        const files = await NX.filePicker.pick({
+          accept: 'image/*',
+          multiple: false,
+          title: `Scan page ${pageNum + 1} of 2`
         });
-        if (!base64) { NX.toast('Scan cancelled', 'warn'); return null; }
+        if (!files || !files.length) { NX.toast('Scan cancelled', 'warn'); return null; }
+        const file = files[0];
+        base64 = await fileToBase64(file);
+        mimeType = file.type || 'image/jpeg';
+      } else {
+        // Fallback if picker not loaded
+        if (window.Capacitor?.Plugins?.Camera) {
+          try {
+            const Camera = window.Capacitor.Plugins.Camera;
+            const photo = await Camera.getPhoto({
+              quality: 90, resultType: 'base64', source: 'CAMERA',
+              width: 2000, correctOrientation: true,
+            });
+            if (photo.base64String) { base64 = photo.base64String; mimeType = 'image/' + (photo.format || 'jpeg'); }
+          } catch (e) { if (e.message?.includes('cancelled')) { NX.toast('Scan cancelled', 'warn'); return null; } }
+        }
+        if (!base64) {
+          base64 = await new Promise((resolve) => {
+            const input = document.createElement('input');
+            input.type = 'file'; input.accept = 'image/*';
+            input.onchange = async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return resolve(null);
+              resolve(await fileToBase64(file));
+            };
+            input.click();
+          });
+          if (!base64) { NX.toast('Scan cancelled', 'warn'); return null; }
+        }
       }
 
       NX.toast('🔍 Leyendo página ' + (pageNum + 1) + '...', 'info', 8000);
