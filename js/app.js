@@ -658,7 +658,11 @@ td.check{background:#F0EDE6 !important}
                 this.loadScript('js/equipment-ai-creator.js', () => {
                   this.loadScript('js/equipment-full-editor.js', () => {
                     this.loadScript('js/equipment-fixes.js', () => {
-                      this.loadScript('js/equipment-context-menu.js', () => {});
+                      this.loadScript('js/equipment-cleanup.js', () => {
+                        this.loadScript('js/equipment-context-menu.js', () => {
+                          this.loadScript('js/equipment-brain-sync.js', () => {});
+                        });
+                      });
                     });
                   });
                 });
