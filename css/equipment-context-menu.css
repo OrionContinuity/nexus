@@ -1,0 +1,506 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEXUS Context Menu System — Styles
+   
+   Companion to equipment-context-menu.js. Dark amber NEXUS aesthetic.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── ⋯ TRIGGER BUTTON ────────────────────────────────────────────────── */
+
+.ctx-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(20, 18, 26, 0.7);
+  border: 1px solid rgba(200, 164, 78, 0.18);
+  border-radius: 50%;
+  color: var(--accent, #c8a44e);
+  cursor: pointer;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition: all .15s;
+  padding: 0;
+}
+.ctx-menu-trigger:active {
+  background: rgba(200, 164, 78, 0.25);
+  transform: scale(.92);
+}
+.ctx-menu-trigger-dots {
+  font-size: 18px;
+  letter-spacing: 1px;
+  line-height: 1;
+  margin-top: -4px; /* visual centering of the dots */
+}
+
+/* On equipment grid cards — top-right corner overlay */
+.ctx-menu-trigger-on-card {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-color: rgba(255, 255, 255, 0.15);
+  width: 32px;
+  height: 32px;
+}
+
+/* On part rows / inline contexts — smaller */
+.ctx-menu-trigger-inline {
+  width: 32px;
+  height: 32px;
+  margin-left: 4px;
+}
+.ctx-menu-trigger-inline .ctx-menu-trigger-dots {
+  font-size: 16px;
+  margin-top: -2px;
+}
+
+/* ─── ⋯ POPUP MENU ────────────────────────────────────────────────────── */
+
+.ctx-menu {
+  position: fixed;
+  min-width: 220px;
+  max-width: 280px;
+  background: rgba(18, 15, 22, 0.97);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(200, 164, 78, 0.3);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  z-index: 3000;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  opacity: 0;
+  transform: translateY(-4px) scale(.96);
+  transition: opacity .15s, transform .15s;
+  pointer-events: none;
+}
+.ctx-menu.open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.ctx-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  padding: 11px 14px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text, #e6dccc);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  width: 100%;
+  transition: background .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ctx-menu-item:active {
+  background: rgba(200, 164, 78, 0.18);
+}
+.ctx-menu-item.danger {
+  color: #e07070;
+  border-top: 1px solid rgba(200, 164, 78, 0.12);
+  margin-top: 4px;
+  padding-top: 13px;
+}
+.ctx-menu-item.danger:active {
+  background: rgba(224, 112, 112, 0.18);
+}
+.ctx-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  font-size: 14px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.ctx-menu-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── DELETE CONFIRMATION MODAL ───────────────────────────────────────── */
+
+.ctx-confirm-modal {
+  position: fixed; inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: ctxFadeIn .2s ease-out;
+}
+@keyframes ctxFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.ctx-confirm-bg {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.ctx-confirm-card {
+  position: relative;
+  width: 100%;
+  max-width: 380px;
+  background: rgba(18, 15, 22, 0.97);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(224, 112, 112, 0.35);
+  border-radius: 18px;
+  padding: 24px 22px 18px;
+  text-align: center;
+  animation: ctxScaleIn .25s cubic-bezier(.22, 1, .36, 1);
+}
+@keyframes ctxScaleIn {
+  from { transform: scale(.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.ctx-confirm-icon {
+  font-size: 36px;
+  margin-bottom: 10px;
+  line-height: 1;
+}
+.ctx-confirm-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text, #e6dccc);
+  margin-bottom: 6px;
+}
+.ctx-confirm-name {
+  font-size: 14px;
+  color: var(--accent, #c8a44e);
+  font-weight: 600;
+  padding: 6px 12px;
+  background: rgba(200, 164, 78, 0.1);
+  border-radius: 8px;
+  margin: 0 auto 14px;
+  max-width: 100%;
+  word-break: break-word;
+}
+.ctx-confirm-msg {
+  font-size: 12.5px;
+  color: var(--muted, #8a826f);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.ctx-confirm-msg strong {
+  color: var(--accent, #c8a44e);
+  font-weight: 600;
+}
+.ctx-confirm-reason-wrap {
+  text-align: left;
+  margin-bottom: 18px;
+}
+.ctx-confirm-reason-label {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted, #8a826f);
+  margin-bottom: 6px;
+}
+.ctx-confirm-reason {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(200, 164, 78, 0.25);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text, #e6dccc);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+.ctx-confirm-reason:focus { border-color: var(--accent, #c8a44e); }
+.ctx-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+.ctx-confirm-cancel,
+.ctx-confirm-delete {
+  flex: 1;
+  padding: 12px;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ctx-confirm-cancel {
+  background: transparent;
+  border: 1px solid rgba(200, 164, 78, 0.25);
+  color: var(--muted, #8a826f);
+}
+.ctx-confirm-cancel:active { background: rgba(200, 164, 78, 0.08); }
+.ctx-confirm-delete {
+  background: linear-gradient(135deg, #e07070, #c85959);
+  border: none;
+  color: white;
+}
+.ctx-confirm-delete:active { transform: scale(.97); }
+.ctx-confirm-delete:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+/* ─── AUDIT LOG MODAL ─────────────────────────────────────────────────── */
+
+.ctx-audit-modal {
+  position: fixed; inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: ctxFadeIn .2s ease-out;
+}
+.ctx-audit-bg {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.ctx-audit-card {
+  position: relative;
+  width: 100%;
+  max-width: 540px;
+  height: 88vh;
+  height: 88dvh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(18, 15, 22, 0.97);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(200, 164, 78, 0.3);
+  border-radius: 18px 18px 0 0;
+  animation: ctxSlideUp .25s cubic-bezier(.22, 1, .36, 1);
+}
+@keyframes ctxSlideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@media (min-width: 600px) {
+  .ctx-audit-modal { align-items: center; }
+  .ctx-audit-card { border-radius: 18px; height: 80vh; height: 80dvh; }
+}
+.ctx-audit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid rgba(200, 164, 78, 0.12);
+  flex-shrink: 0;
+}
+.ctx-audit-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent, #c8a44e);
+}
+.ctx-audit-close {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--muted, #8a826f);
+  font-size: 18px;
+  cursor: pointer;
+}
+.ctx-audit-close:active { background: rgba(200, 164, 78, 0.15); }
+.ctx-audit-subject {
+  padding: 10px 20px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text, #e6dccc);
+  background: rgba(200, 164, 78, 0.05);
+  border-bottom: 1px solid rgba(200, 164, 78, 0.08);
+  flex-shrink: 0;
+  word-break: break-word;
+}
+.ctx-audit-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px 20px;
+  -webkit-overflow-scrolling: touch;
+}
+.ctx-audit-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--muted, #8a826f);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.ctx-audit-event {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  background: rgba(20, 18, 26, 0.6);
+  border: 1px solid rgba(200, 164, 78, 0.1);
+  border-radius: 12px;
+  border-left: 3px solid rgba(200, 164, 78, 0.3);
+}
+.ctx-audit-event.create  { border-left-color: #5cb377; }
+.ctx-audit-event.delete  { border-left-color: #e07070; }
+.ctx-audit-event.dispatch { border-left-color: #6db2e0; }
+.ctx-audit-event.service { border-left-color: var(--accent, #c8a44e); }
+.ctx-audit-event.ai      { border-left-color: #b878d4; }
+.ctx-audit-event.ticket  { border-left-color: #e0a050; }
+.ctx-audit-event.log     { border-left-color: rgba(200, 164, 78, 0.4); opacity: 0.85; }
+
+.ctx-audit-event-icon {
+  font-size: 18px;
+  line-height: 1.2;
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+}
+.ctx-audit-event-body { flex: 1; min-width: 0; }
+.ctx-audit-event-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #e6dccc);
+  margin-bottom: 3px;
+}
+.ctx-audit-event-detail {
+  font-size: 12px;
+  color: var(--text, #e6dccc);
+  opacity: 0.85;
+  line-height: 1.4;
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+.ctx-audit-event-meta {
+  font-size: 10.5px;
+  color: var(--muted, #8a826f);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* ─── LOG → DELETED ITEMS ─────────────────────────────────────────────── */
+
+.feed-chip.ctx-deleted-chip {
+  border-color: rgba(224, 112, 112, 0.3);
+}
+.feed-chip.ctx-deleted-chip.active {
+  background: rgba(224, 112, 112, 0.18);
+  color: #e07070;
+  border-color: rgba(224, 112, 112, 0.5);
+}
+
+.ctx-feed-search-wrap {
+  padding: 10px 14px 4px;
+}
+.ctx-feed-search {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(200, 164, 78, 0.2);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: var(--text, #e6dccc);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+}
+.ctx-feed-search:focus { border-color: var(--accent, #c8a44e); }
+.ctx-feed-search::placeholder { color: var(--muted, #8a826f); }
+
+.ctx-deleted-loading,
+.ctx-deleted-empty,
+.ctx-deleted-error {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--muted, #8a826f);
+  font-size: 13px;
+  font-style: italic;
+}
+.ctx-deleted-error { color: #e07070; }
+
+.ctx-deleted-row {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin: 0 14px 8px;
+  background: rgba(20, 18, 26, 0.6);
+  border: 1px solid rgba(224, 112, 112, 0.18);
+  border-left: 3px solid #e07070;
+  border-radius: 12px;
+}
+.ctx-deleted-icon {
+  font-size: 22px;
+  line-height: 1;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.ctx-deleted-body { flex: 1; min-width: 0; }
+.ctx-deleted-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text, #e6dccc);
+  word-break: break-word;
+}
+.ctx-deleted-meta {
+  font-size: 11px;
+  color: var(--muted, #8a826f);
+  margin-top: 2px;
+}
+.ctx-deleted-type {
+  display: inline-block;
+  padding: 1px 7px;
+  background: rgba(224, 112, 112, 0.18);
+  color: #e07070;
+  border-radius: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+  margin-right: 4px;
+}
+.ctx-deleted-when {
+  font-size: 10.5px;
+  color: var(--muted, #8a826f);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.ctx-deleted-restore-btn {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  background: rgba(92, 179, 119, 0.15);
+  border: 1px solid rgba(92, 179, 119, 0.4);
+  border-radius: 8px;
+  color: #5cb377;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ctx-deleted-restore-btn:active {
+  background: rgba(92, 179, 119, 0.3);
+  transform: scale(.95);
+}
+
+/* ─── Light-theme overrides ───────────────────────────────────────────── */
+[data-theme="light"] .ctx-menu,
+[data-theme="light"] .ctx-confirm-card,
+[data-theme="light"] .ctx-audit-card { background: rgba(250, 248, 245, 0.97); }
+[data-theme="light"] .ctx-menu-trigger { background: rgba(255, 255, 255, 0.85); }
+[data-theme="light"] .ctx-menu-trigger-on-card {
+  background: rgba(0, 0, 0, 0.55);
+  color: white;
+}
