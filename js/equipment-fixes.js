@@ -174,23 +174,47 @@
     bar.innerHTML = '';
     bar.classList.add('eq-actionbar-clean');
 
-    // Slot 1: PRIMARY — Print Label (or first primary button found)
-    if (primary.length) {
-      const printBtn = document.createElement('button');
-      printBtn.className = 'eq-actionbar-btn eq-actionbar-primary';
-      printBtn.innerHTML = '<span class="eq-ab-icon">🏷</span><span class="eq-ab-label">Print</span>';
-      printBtn.addEventListener('click', () => primary[0].el.click());
-      bar.appendChild(printBtn);
-    }
+    // Slot 1: PRINT — smart per-tab HTML print. Falls back to Avery sheet
+    // if no specific tab logic applies. Click triggers ctxMenu.printActiveTab.
+    const printBtn = document.createElement('button');
+    printBtn.className = 'eq-actionbar-btn eq-actionbar-primary';
+    printBtn.innerHTML = '<span class="eq-ab-icon">🖨</span><span class="eq-ab-label">Print</span>';
+    printBtn.title = 'Print the current tab as a clean HTML report';
+    printBtn.addEventListener('click', () => {
+      if (NX.ctxMenu?.printActiveTab && equipId) {
+        NX.ctxMenu.printActiveTab(equipId);
+      } else if (primary.length) {
+        // Fallback to whatever the original Print Label button was
+        primary[0].el.click();
+      }
+    });
+    bar.appendChild(printBtn);
 
-    // Slot 2: PRIMARY — Dispatch (always shown, even if no equipId — it'll prompt)
+    // Slot 2: ZEBRA badge — quick path to thermal printer when one is connected.
+    // Calls equipment-ux.js's quickPrint, which is now patched to silently
+    // fall back to HTML print if no Zebra is detected (no toast spam).
+    const zebraBtn = document.createElement('button');
+    zebraBtn.className = 'eq-actionbar-btn eq-actionbar-zebra';
+    zebraBtn.innerHTML = '<span class="eq-ab-icon">🏷</span><span class="eq-ab-label">Zebra</span>';
+    zebraBtn.title = 'Print thermal label on Zebra printer (falls back to HTML if unavailable)';
+    zebraBtn.addEventListener('click', () => {
+      if (equipId && NX.modules?.equipment?.quickPrint) {
+        NX.modules.equipment.quickPrint(equipId);
+      } else if (equipId && NX.ctxMenu?.printSingleLabel) {
+        NX.ctxMenu.printSingleLabel(equipId);
+      }
+    });
+    bar.appendChild(zebraBtn);
+
+    // Slot 3: DISPATCH — always shown
     const dispatchBtn = document.createElement('button');
     dispatchBtn.className = 'eq-actionbar-btn eq-actionbar-dispatch';
     dispatchBtn.innerHTML = '<span class="eq-ab-icon">📞</span><span class="eq-ab-label">Dispatch</span>';
     dispatchBtn.addEventListener('click', () => openDispatchModal(equipId));
     bar.appendChild(dispatchBtn);
 
-    // Slot 3: OVERFLOW — More menu containing all secondary actions
+    // Slot 4: OVERFLOW — More menu containing all secondary actions
+    // (Will be replaced by ⋯ trigger from equipment-context-menu.js)
     if (secondary.length) {
       const moreWrap = document.createElement('div');
       moreWrap.className = 'eq-actionbar-more-wrap';
