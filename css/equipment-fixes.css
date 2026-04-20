@@ -932,3 +932,162 @@
 [data-theme="light"] .eq-vendor-card,
 [data-theme="light"] .eq-extract-card,
 [data-theme="light"] .eq-actionbar-menu { background: rgba(250, 248, 245, 0.97); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COLLAPSIBLE PART ACCORDION (v2 parts design)
+   
+   Each .eq-part is turned into an accordion by equipment-fixes.js:
+     • .eq-part-acc-header (button) — always visible, entire row is tap target
+     • .eq-part-acc-body — max-height animated (0 ↔ scrollHeight)
+   
+   Design principles (from NN/G + Mobbin + LogRocket research):
+     • Caret icon rotates 180° on expand (not +/- which reads as "add")
+     • Entire header is the hit target, not just the icon
+     • Collapsed state shows enough info to skip opening (name + price)
+     • 250ms ease-in-out animation — smooth but fast
+     • No page-level scrolling during expand (keeps user oriented)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Override the base .eq-part so it becomes a flex-column accordion container.
+   Remove any padding that fought with our header button's own padding. */
+.eq-part.eq-part-accordion {
+  display: block !important;
+  padding: 0 !important;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid rgba(200, 164, 78, 0.18);
+  background: rgba(20, 18, 26, 0.55);
+  border-radius: 14px;
+  margin-bottom: 10px;
+  transition: border-color .15s, background .15s;
+}
+.eq-part.eq-part-accordion[data-expanded="1"] {
+  background: rgba(20, 18, 26, 0.75);
+  border-color: rgba(200, 164, 78, 0.35);
+}
+
+/* The whole header is a button — entire click surface */
+.eq-part-acc-header {
+  display: block;
+  width: 100%;
+  padding: 13px 46px 12px 14px;  /* right padding reserves space for ⋯ */
+  background: transparent;
+  border: none;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--text, #e6dccc);
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-part-acc-header:active {
+  background: rgba(200, 164, 78, 0.05);
+}
+
+/* Top row: name + preferred price + caret */
+.eq-part-acc-head-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.eq-part-acc-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text, #e6dccc);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eq-part-acc-price {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent, #c8a44e);
+  font-family: 'JetBrains Mono', monospace;
+  flex-shrink: 0;
+}
+.eq-part-acc-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  color: var(--muted, #8a826f);
+  transition: transform .22s ease-out, color .15s;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.eq-part-accordion[data-expanded="1"] .eq-part-acc-caret {
+  transform: rotate(180deg);
+  color: var(--accent, #c8a44e);
+}
+
+/* Meta row below name: chips with OEM, assembly, qty, vendor count */
+.eq-part-acc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  margin-top: 5px;
+}
+.eq-part-acc-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(200, 164, 78, 0.08);
+  color: var(--muted, #8a826f);
+  border-radius: 4px;
+  font-size: 10.5px;
+  letter-spacing: 0.2px;
+}
+.eq-part-acc-chip.mono {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--accent, #c8a44e);
+  background: rgba(200, 164, 78, 0.12);
+}
+.eq-part-acc-vcount {
+  background: rgba(100, 180, 220, 0.12);
+  color: #7ab8d6;
+}
+
+/* Body: collapsible panel with max-height animation */
+.eq-part-acc-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height .25s cubic-bezier(.22, 1, .36, 1);
+}
+.eq-part-acc-body-inner {
+  padding: 0 14px 14px;
+  border-top: 1px solid rgba(200, 164, 78, 0.1);
+  padding-top: 12px;
+  margin-top: 2px;
+}
+
+/* Pull ⋯ trigger visually above and override positioning to fit the header */
+.eq-part-accordion .ctx-menu-trigger-on-part {
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+}
+
+/* Tweak the existing vendor header inside the new collapsible body */
+.eq-part-acc-body .eq-part-vendors-header {
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+.eq-part-acc-body .eq-part-vendors-list {
+  margin-bottom: 0;
+}
+
+/* Legacy .eq-part-vendors (old outer container) — hidden when accordion exists */
+.eq-part-accordion > .eq-part-vendors {
+  display: none !important;
+}
+
+/* Light theme adjustments */
+[data-theme="light"] .eq-part.eq-part-accordion {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(200, 164, 78, 0.25);
+}
+[data-theme="light"] .eq-part.eq-part-accordion[data-expanded="1"] {
+  background: rgba(255, 255, 255, 0.9);
+}
