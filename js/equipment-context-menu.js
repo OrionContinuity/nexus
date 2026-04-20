@@ -45,9 +45,86 @@
     installContextMenuOnEquipmentCards();
     installContextMenuOnEquipmentDetail();
     installContextMenuOnParts();
+    installPrintEverythingOnOverview();
     patchSoftDelete();
     patchLogDeletedTab();
     console.log('[ctx-menu] all hooks installed');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════════
+     PRINT EVERYTHING button on Overview tab — prominent call-to-action
+     Lives at the top-right of the Overview panel so it's the first thing
+     you see when you need a full equipment report.
+     ═════════════════════════════════════════════════════════════════════════ */
+
+  function installPrintEverythingOnOverview() {
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of m.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          const panels = node.matches?.('[data-panel="overview"]')
+            ? [node]
+            : Array.from(node.querySelectorAll?.('[data-panel="overview"]') || []);
+          panels.forEach(addPrintEverythingButton);
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function addPrintEverythingButton(overviewPanel) {
+    if (overviewPanel.dataset.printEverythingAdded === '1') return;
+    overviewPanel.dataset.printEverythingAdded = '1';
+
+    // Get equipment ID — walk up to modal with data-eq-id, or parse from an onclick
+    const modal = overviewPanel.closest('.eq-modal, .eq-detail');
+    let equipId = modal?.dataset?.eqId || overviewPanel.dataset.eqId;
+    if (!equipId) {
+      // Scan for any onclick inside the panel that carries an ID
+      const anyBtn = overviewPanel.querySelector('button[onclick*="equipment"]');
+      const m = anyBtn?.getAttribute('onclick')?.match(/['"]([\w-]+)['"]/);
+      if (m) equipId = m[1];
+    }
+    // Fallback: ask surrounding modal's action bar
+    if (!equipId) {
+      const bar = modal?.querySelector('.eq-actionbar-clean, .eq-detail-actions');
+      if (bar) {
+        const b = bar.querySelector('button[onclick]');
+        const m = b?.getAttribute('onclick')?.match(/['"]([\w-]+)['"]/);
+        if (m) equipId = m[1];
+      }
+    }
+
+    // Build the button. Prepend to the panel so it sits at the top.
+    const wrap = document.createElement('div');
+    wrap.className = 'eq-print-everything-wrap';
+    wrap.innerHTML = `
+      <button class="eq-print-everything-btn" id="eqPrintEverythingBtn">
+        <span class="eq-pe-icon">📑</span>
+        <span class="eq-pe-body">
+          <span class="eq-pe-title">Print EVERYTHING</span>
+          <span class="eq-pe-sub">Complete dossier — specs, parts, timeline, all</span>
+        </span>
+        <span class="eq-pe-arrow">→</span>
+      </button>
+    `;
+    overviewPanel.insertBefore(wrap, overviewPanel.firstChild);
+
+    wrap.querySelector('#eqPrintEverythingBtn').addEventListener('click', () => {
+      // Try again to resolve the equipId if we didn't find it at render time
+      let id = equipId;
+      if (!id) {
+        const bar = document.querySelector('.eq-actionbar-clean');
+        const b = bar?.querySelector('button[onclick]');
+        const m = b?.getAttribute('onclick')?.match(/['"]([\w-]+)['"]/);
+        if (m) id = m[1];
+      }
+      if (id && typeof printEverything === 'function') {
+        printEverything(id);
+      } else {
+        toast('Could not identify equipment', 'error');
+      }
+    });
   }
 
   /* ═════════════════════════════════════════════════════════════════════════
@@ -154,6 +231,7 @@
   function buildEquipmentMenu(equipId, equipName) {
     return [
       { icon: '✎', label: 'Edit', action: () => NX.modules.equipment?.edit?.(equipId) },
+      { icon: '📑', label: 'Print EVERYTHING', action: () => printEverything(equipId) },
       { icon: '🖨', label: 'Print this Tab', action: () => printActiveTab(equipId) },
       { icon: '🏷', label: 'Print Single Label', action: () => printSingleLabel(equipId) },
       { icon: '📄', label: 'Print Avery Sheet (10×)', action: () => printAverySheet(equipId) },
@@ -1225,6 +1303,574 @@
   }
 
   /* ═════════════════════════════════════════════════════════════════════════
+     PRINT EVERYTHING — complete equipment dossier
+     
+     Pulls data from every related table and produces one comprehensive
+     HTML document: identity/specs, family relationships, full parts list
+     with vendors, complete service timeline, all dispatches, all PM logs
+     (approved), notes, warranty, manual link, contractor info.
+     ═════════════════════════════════════════════════════════════════════════ */
+
+  async function printEverything(equipId) {
+    const eq = await loadEquipment(equipId);
+    if (!eq) { toast('Could not load equipment', 'error'); return; }
+    
+    // Show loading indicator
+    toast('Building complete dossier…', 'info', 3000);
+    
+    // Parallel fetch everything
+    const [
+      { data: parts },
+      { data: maint },
+      { data: dispatches },
+      { data: pmLogs },
+      { data: familyChildren },
+      { data: familyParent }
+    ] = await Promise.all([
+      NX.sb.from('equipment_parts').select('*').eq('equipment_id', equipId).eq('is_deleted', false).order('assembly_path').order('part_name'),
+      NX.sb.from('equipment_maintenance').select('*').eq('equipment_id', equipId).order('event_date', { ascending: false }),
+      NX.sb.from('dispatch_events').select('*').eq('equipment_id', equipId).order('dispatched_at', { ascending: false }),
+      NX.sb.from('pm_logs').select('*').eq('equipment_id', equipId).eq('review_status', 'approved').eq('is_deleted', false).order('service_date', { ascending: false }),
+      NX.sb.from('equipment').select('id, name, location, model').eq('parent_equipment_id', equipId).eq('is_deleted', false),
+      eq.parent_equipment_id ? NX.sb.from('equipment').select('id, name, location, model').eq('id', eq.parent_equipment_id).single() : Promise.resolve({ data: null })
+    ]);
+    
+    const html = buildCompleteDossierHTML(eq, {
+      parts: parts || [],
+      maintenance: maint || [],
+      dispatches: dispatches || [],
+      pmLogs: pmLogs || [],
+      children: familyChildren || [],
+      parent: familyParent || null
+    });
+    openPrintWindow(html, `${eq.name} — Complete Dossier`);
+  }
+
+  function buildCompleteDossierHTML(eq, d) {
+    const fmt = (iso) => iso ? new Date(iso).toLocaleDateString() : '—';
+    const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString() : '—';
+    const fmtDateTime = (iso) => iso ? new Date(iso).toLocaleString() : '—';
+    
+    // Merge maintenance + dispatches + approved PM logs into one timeline
+    const timeline = [
+      ...d.maintenance.map(m => ({ 
+        date: m.event_date || m.created_at, 
+        type: 'service',
+        label: (m.event_type || 'SERVICE').toUpperCase(),
+        detail: m.description || m.notes || '',
+        who: m.performed_by || '',
+        cost: m.cost
+      })),
+      ...d.dispatches.map(x => ({ 
+        date: x.dispatched_at, 
+        type: 'dispatch',
+        label: 'DISPATCH',
+        detail: `Called ${x.contractor_name || 'contractor'}${x.issue_description ? ' — ' + x.issue_description : ''}${x.resolution_notes ? ' · Resolution: ' + x.resolution_notes : ''}`,
+        who: x.dispatched_by,
+        cost: null
+      })),
+      ...d.pmLogs.map(p => ({ 
+        date: p.service_date, 
+        type: 'pmlog',
+        label: (p.service_type || 'PM').toUpperCase() + ' (QR SUBMISSION)',
+        detail: p.work_performed + (p.parts_replaced ? '\nParts: ' + p.parts_replaced : ''),
+        who: p.contractor_name + (p.contractor_company ? ' · ' + p.contractor_company : ''),
+        cost: p.cost_amount
+      }))
+    ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    
+    // Totals
+    const totalMaintCost = timeline.reduce((sum, e) => sum + (parseFloat(e.cost) || 0), 0);
+    
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${esc(eq.name)} — Complete Dossier</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+         padding: 0.5in 0.6in; background: white; color: #1a1408; line-height: 1.45; font-size: 10.5pt; }
+  @page { size: letter portrait; margin: 0.4in; }
+  
+  /* Cover header */
+  .dos-cover {
+    padding-bottom: 14pt;
+    border-bottom: 3pt solid #c8a44e;
+    margin-bottom: 20pt;
+  }
+  .dos-cover-meta {
+    font-size: 9pt;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.6pt;
+    margin-bottom: 4pt;
+  }
+  .dos-title {
+    font-size: 26pt;
+    font-weight: 800;
+    color: #1a1408;
+    line-height: 1.1;
+    margin-bottom: 4pt;
+  }
+  .dos-subtitle {
+    font-size: 13pt;
+    color: #666;
+    margin-bottom: 8pt;
+  }
+  .dos-status-pill {
+    display: inline-block;
+    padding: 3pt 10pt;
+    border-radius: 100pt;
+    font-size: 9pt;
+    text-transform: uppercase;
+    letter-spacing: 0.6pt;
+    font-weight: 600;
+    background: #fff8e8;
+    color: #b89342;
+    border: 1pt solid #c8a44e;
+  }
+  .dos-status-pill.operational { background: #e8f5e9; color: #2e7d32; border-color: #4caf50; }
+  .dos-status-pill.needs_service { background: #fff3e0; color: #e65100; border-color: #ff9800; }
+  .dos-status-pill.down { background: #ffebee; color: #c62828; border-color: #f44336; }
+  
+  /* Section */
+  .dos-section {
+    margin-bottom: 22pt;
+    page-break-inside: avoid;
+  }
+  .dos-section-title {
+    font-size: 11pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8pt;
+    color: #c8a44e;
+    margin-bottom: 10pt;
+    padding-bottom: 4pt;
+    border-bottom: 1pt solid #e8e2d4;
+  }
+  
+  /* Grid of specs */
+  .dos-specs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    background: #faf8f5;
+    border-radius: 6pt;
+    overflow: hidden;
+  }
+  .dos-spec {
+    padding: 8pt 12pt;
+    border-bottom: 1pt solid #eee;
+    border-right: 1pt solid #eee;
+  }
+  .dos-spec:nth-child(even) { border-right: none; }
+  .dos-spec-label {
+    font-size: 8pt;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.4pt;
+    margin-bottom: 2pt;
+  }
+  .dos-spec-value {
+    font-size: 11pt;
+    color: #1a1408;
+    font-weight: 500;
+    word-break: break-word;
+  }
+  .dos-spec-value.mono { font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 10pt; }
+  
+  /* Notes block */
+  .dos-notes {
+    padding: 12pt 14pt;
+    background: #fff8e8;
+    border-left: 3pt solid #c8a44e;
+    border-radius: 4pt;
+    white-space: pre-wrap;
+    font-size: 10.5pt;
+    line-height: 1.5;
+  }
+  
+  /* Family */
+  .dos-family-item {
+    padding: 6pt 10pt;
+    background: #faf8f5;
+    border-radius: 4pt;
+    margin-bottom: 4pt;
+    font-size: 10pt;
+  }
+  .dos-family-label {
+    font-size: 8pt;
+    text-transform: uppercase;
+    color: #888;
+    letter-spacing: 0.4pt;
+    margin-right: 6pt;
+  }
+  
+  /* Parts table */
+  .dos-parts-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9.5pt;
+  }
+  .dos-parts-table th {
+    background: #1a1408;
+    color: #c8a44e;
+    padding: 7pt 8pt;
+    text-align: left;
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5pt;
+  }
+  .dos-parts-table td {
+    padding: 7pt 8pt;
+    border-bottom: 1pt solid #eee;
+    vertical-align: top;
+  }
+  .dos-parts-table tr:nth-child(even) td { background: #faf8f5; }
+  .dos-parts-table strong { color: #1a1408; }
+  .dos-parts-vendors {
+    font-size: 8.5pt;
+    color: #666;
+    line-height: 1.4;
+  }
+  .dos-parts-vendor-row {
+    display: block;
+    margin-top: 1pt;
+  }
+  .dos-parts-vendor-preferred {
+    font-weight: 600;
+    color: #b89342;
+  }
+  .mono { font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 9pt; }
+  
+  /* Timeline */
+  .dos-timeline-entry {
+    display: flex;
+    gap: 12pt;
+    padding: 10pt 12pt;
+    background: #faf8f5;
+    border-left: 3pt solid #c8a44e;
+    border-radius: 4pt;
+    margin-bottom: 6pt;
+    page-break-inside: avoid;
+  }
+  .dos-timeline-entry.service { border-left-color: #c8a44e; }
+  .dos-timeline-entry.dispatch { border-left-color: #6db2e0; }
+  .dos-timeline-entry.pmlog { border-left-color: #5cb377; background: #f0f8f2; }
+  .dos-tl-date {
+    font-size: 9pt;
+    color: #888;
+    font-weight: 600;
+    flex-shrink: 0;
+    width: 70pt;
+  }
+  .dos-tl-body { flex: 1; min-width: 0; }
+  .dos-tl-label {
+    font-size: 8pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5pt;
+    color: #c8a44e;
+    margin-bottom: 3pt;
+  }
+  .dos-tl-detail {
+    font-size: 10pt;
+    color: #1a1408;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    margin-bottom: 3pt;
+  }
+  .dos-tl-footer {
+    font-size: 8.5pt;
+    color: #888;
+  }
+  
+  /* Contractors */
+  .dos-contractor {
+    display: flex;
+    gap: 14pt;
+    padding: 10pt 12pt;
+    background: #faf8f5;
+    border-radius: 6pt;
+    margin-bottom: 6pt;
+  }
+  .dos-contractor-label {
+    font-size: 8pt;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.4pt;
+    width: 60pt;
+    flex-shrink: 0;
+  }
+  .dos-contractor-info {
+    flex: 1;
+    font-size: 10pt;
+    color: #1a1408;
+  }
+  
+  /* Empty state */
+  .dos-empty {
+    padding: 18pt;
+    text-align: center;
+    color: #888;
+    font-style: italic;
+    background: #faf8f5;
+    border-radius: 6pt;
+    font-size: 10pt;
+  }
+  
+  /* Totals footer */
+  .dos-totals {
+    margin-top: 10pt;
+    padding: 10pt 14pt;
+    background: #1a1408;
+    color: #c8a44e;
+    border-radius: 6pt;
+    display: flex;
+    justify-content: space-between;
+    font-size: 11pt;
+    font-weight: 600;
+  }
+  
+  /* Report footer */
+  .dos-footer {
+    margin-top: 30pt;
+    padding-top: 12pt;
+    border-top: 1pt solid #e8e2d4;
+    font-size: 8pt;
+    color: #999;
+    text-align: center;
+    letter-spacing: 0.4pt;
+  }
+  
+  /* Print toolbar */
+  .print-toolbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    background: #1a1a1a;
+    color: white;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    z-index: 100;
+  }
+  .print-toolbar h1 { font-size: 14px; font-weight: 600; color: #c8a44e; }
+  .print-toolbar button {
+    background: #c8a44e;
+    color: #1a1408;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  body { padding-top: 70px; }
+  @media print {
+    .print-toolbar { display: none; }
+    body { padding-top: 0.4in; }
+  }
+</style>
+</head>
+<body>
+  <div class="print-toolbar">
+    <h1>NEXUS — ${esc(eq.name)} Complete Dossier</h1>
+    <button onclick="window.print()">Print →</button>
+  </div>
+  
+  <!-- COVER -->
+  <div class="dos-cover">
+    <div class="dos-cover-meta">Equipment Dossier · Generated ${new Date().toLocaleString()}</div>
+    <div class="dos-title">${esc(eq.name)}</div>
+    <div class="dos-subtitle">${esc(eq.location || '')}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
+    <div class="dos-status-pill ${esc(eq.status || '')}">${esc(eq.status || 'unknown')}</div>
+  </div>
+  
+  <!-- IDENTITY + SPECS -->
+  <div class="dos-section">
+    <div class="dos-section-title">⚙ Identity & Specifications</div>
+    <div class="dos-specs">
+      <div class="dos-spec">
+        <div class="dos-spec-label">Manufacturer</div>
+        <div class="dos-spec-value">${esc(eq.manufacturer || '—')}</div>
+      </div>
+      <div class="dos-spec">
+        <div class="dos-spec-label">Model</div>
+        <div class="dos-spec-value mono">${esc(eq.model || '—')}</div>
+      </div>
+      <div class="dos-spec">
+        <div class="dos-spec-label">Serial Number</div>
+        <div class="dos-spec-value mono">${esc(eq.serial_number || '—')}</div>
+      </div>
+      <div class="dos-spec">
+        <div class="dos-spec-label">Category</div>
+        <div class="dos-spec-value">${esc(eq.category || '—')}</div>
+      </div>
+      <div class="dos-spec">
+        <div class="dos-spec-label">Install Date</div>
+        <div class="dos-spec-value">${fmtDate(eq.install_date)}</div>
+      </div>
+      <div class="dos-spec">
+        <div class="dos-spec-label">Warranty Until</div>
+        <div class="dos-spec-value">${fmtDate(eq.warranty_until)}</div>
+      </div>
+      <div class="dos-spec">
+        <div class="dos-spec-label">Purchase Price</div>
+        <div class="dos-spec-value">${eq.purchase_price ? '$' + parseFloat(eq.purchase_price).toFixed(2) : '—'}</div>
+      </div>
+      <div class="dos-spec">
+        <div class="dos-spec-label">Health Score</div>
+        <div class="dos-spec-value">${eq.health_score != null ? eq.health_score + '%' : '—'}</div>
+      </div>
+      <div class="dos-spec">
+        <div class="dos-spec-label">Next PM Due</div>
+        <div class="dos-spec-value">${fmtDate(eq.next_pm_date)}</div>
+      </div>
+      <div class="dos-spec">
+        <div class="dos-spec-label">QR Code / ID</div>
+        <div class="dos-spec-value mono">${esc(eq.qr_code || eq.id)}</div>
+      </div>
+    </div>
+    ${eq.manual_url ? `
+      <div style="margin-top:10pt;padding:8pt 12pt;background:#fff8e8;border-radius:4pt;font-size:9pt;">
+        📄 <strong>Manual:</strong> <span class="mono">${esc(eq.manual_url)}</span>
+      </div>
+    ` : ''}
+  </div>
+  
+  <!-- NOTES -->
+  ${eq.notes ? `
+    <div class="dos-section">
+      <div class="dos-section-title">📝 Notes</div>
+      <div class="dos-notes">${esc(eq.notes)}</div>
+    </div>
+  ` : ''}
+  
+  <!-- CONTRACTORS -->
+  ${(eq.service_contractor_name || eq.backup_contractor_name) ? `
+    <div class="dos-section">
+      <div class="dos-section-title">📞 Service Contractors</div>
+      ${eq.service_contractor_name ? `
+        <div class="dos-contractor">
+          <div class="dos-contractor-label">Primary</div>
+          <div class="dos-contractor-info">
+            <strong>${esc(eq.service_contractor_name)}</strong>
+            ${eq.service_contractor_phone ? ' · ' + esc(eq.service_contractor_phone) : ''}
+          </div>
+        </div>
+      ` : ''}
+      ${eq.backup_contractor_name ? `
+        <div class="dos-contractor">
+          <div class="dos-contractor-label">Backup</div>
+          <div class="dos-contractor-info">
+            <strong>${esc(eq.backup_contractor_name)}</strong>
+            ${eq.backup_contractor_phone ? ' · ' + esc(eq.backup_contractor_phone) : ''}
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  ` : ''}
+  
+  <!-- FAMILY -->
+  ${(d.parent || d.children.length) ? `
+    <div class="dos-section">
+      <div class="dos-section-title">👥 Equipment Family</div>
+      ${d.parent ? `
+        <div class="dos-family-item">
+          <span class="dos-family-label">Parent:</span>
+          <strong>${esc(d.parent.name)}</strong>
+          ${d.parent.location ? ' · ' + esc(d.parent.location) : ''}
+          ${d.parent.model ? ' · ' + esc(d.parent.model) : ''}
+        </div>
+      ` : ''}
+      ${d.children.length ? `
+        <div class="dos-family-item">
+          <span class="dos-family-label">Children (${d.children.length}):</span>
+          <br>
+          ${d.children.map(c => `<div style="margin-top:3pt;margin-left:12pt;">• <strong>${esc(c.name)}</strong>${c.location ? ' · ' + esc(c.location) : ''}${c.model ? ' · ' + esc(c.model) : ''}</div>`).join('')}
+        </div>
+      ` : ''}
+    </div>
+  ` : ''}
+  
+  <!-- BILL OF MATERIALS -->
+  <div class="dos-section">
+    <div class="dos-section-title">🔩 Bill of Materials (${d.parts.length} part${d.parts.length === 1 ? '' : 's'})</div>
+    ${d.parts.length ? `
+      <table class="dos-parts-table">
+        <thead>
+          <tr>
+            <th style="width:30%">Part</th>
+            <th style="width:15%">OEM #</th>
+            <th style="width:20%">Assembly</th>
+            <th style="width:6%">Qty</th>
+            <th style="width:29%">Vendors</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${d.parts.map(p => {
+            const vendors = Array.isArray(p.vendors) ? p.vendors : [];
+            const vendorHtml = vendors.length ? vendors.map(v => `
+              <span class="dos-parts-vendor-row ${v.is_preferred ? 'dos-parts-vendor-preferred' : ''}">
+                ${v.is_preferred ? '★ ' : ''}${esc(v.name)}${v.price ? ' · $' + parseFloat(v.price).toFixed(2) : ''}${v.in_stock === true ? ' · in stock' : v.in_stock === false ? ' · out' : ''}
+              </span>
+            `).join('') : (p.supplier ? `<span>${esc(p.supplier)}${p.last_price ? ' · $' + parseFloat(p.last_price).toFixed(2) : ''}</span>` : '<span style="color:#aaa;">—</span>');
+            
+            return `
+              <tr>
+                <td><strong>${esc(p.part_name)}</strong></td>
+                <td class="mono">${esc(p.oem_part_number || '—')}</td>
+                <td>${esc(p.assembly_path || '—')}</td>
+                <td>${esc(p.quantity || 1)}</td>
+                <td class="dos-parts-vendors">${vendorHtml}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    ` : '<div class="dos-empty">No parts cataloged.</div>'}
+  </div>
+  
+  <!-- COMPLETE SERVICE TIMELINE -->
+  <div class="dos-section">
+    <div class="dos-section-title">📅 Complete Service Timeline (${timeline.length} event${timeline.length === 1 ? '' : 's'})</div>
+    ${timeline.length ? timeline.map(e => `
+      <div class="dos-timeline-entry ${e.type}">
+        <div class="dos-tl-date">${fmtDate(e.date)}</div>
+        <div class="dos-tl-body">
+          <div class="dos-tl-label">${esc(e.label)}</div>
+          <div class="dos-tl-detail">${esc(e.detail)}</div>
+          <div class="dos-tl-footer">
+            ${e.who ? esc(e.who) : ''}${e.cost ? ' · $' + parseFloat(e.cost).toFixed(2) : ''}
+          </div>
+        </div>
+      </div>
+    `).join('') : '<div class="dos-empty">No service history yet.</div>'}
+    ${totalMaintCost > 0 ? `
+      <div class="dos-totals">
+        <span>Lifetime Maintenance Cost</span>
+        <span>$${totalMaintCost.toFixed(2)}</span>
+      </div>
+    ` : ''}
+  </div>
+  
+  <!-- FOOTER -->
+  <div class="dos-footer">
+    Generated by NEXUS · Orion Continuity · ${new Date().toISOString()}
+    <br>
+    Equipment ID: ${esc(eq.id)}
+    ${eq.equipment_node_id ? ' · Brain Node: ' + esc(eq.equipment_node_id) : ''}
+  </div>
+  
+  <script>setTimeout(() => window.print(), 500);</script>
+</body>
+</html>`;
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════════
      SHOPPING LIST — pulls all parts with vendors and exports as printable list
      ═════════════════════════════════════════════════════════════════════════ */
 
@@ -1470,7 +2116,7 @@
     openContextMenu, closeOpenMenu,
     softDeleteWithConfirm, restoreItem,
     openItemAuditLog,
-    printSingleLabel, printAverySheet, printActiveTab,
+    printSingleLabel, printAverySheet, printActiveTab, printEverything,
     exportShoppingList, openFamilyManager
   };
 
