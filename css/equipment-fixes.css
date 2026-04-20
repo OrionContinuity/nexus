@@ -6,16 +6,47 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ─── 1. CLEAN ACTION BAR ──────────────────────────────────────────────── */
+
+/* CRITICAL: Override the equipment.css mobile rule that uses 100vh.
+   On Android Chrome, 100vh is calculated against the LARGEST viewport
+   (when address bar is hidden). When the address bar IS visible, the
+   modal extends below the viewport and the action bar gets clipped.
+   100dvh dynamically tracks the actual visible viewport. */
+@media (max-width: 600px) {
+  .eq-detail {
+    max-height: 100vh !important;        /* fallback */
+    max-height: 100dvh !important;       /* modern Chrome/Safari/Firefox */
+    height: 100vh !important;            /* fallback */
+    height: 100dvh !important;
+  }
+  /* Ensure body scrolls, not the modal as a whole */
+  .eq-detail-body {
+    flex: 1 1 auto !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 .eq-actionbar-clean {
   display: flex !important;
   gap: 8px !important;
   padding: 12px 14px !important;
-  background: rgba(12, 10, 16, 0.85) !important;
+  /* Safe-area-aware bottom padding for Android gesture bar / iPhone home indicator */
+  padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
+  background: rgba(12, 10, 16, 0.92) !important;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-top: 1px solid rgba(200, 164, 78, 0.15) !important;
   align-items: center;
   justify-content: stretch;
+  /* Pin to the bottom of the modal so it stays visible even if body content
+     overflows. flex-shrink:0 prevents it from being compressed. */
+  flex-shrink: 0 !important;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  /* Subtle shadow above so it visually separates from scrolling content */
+  box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.35);
 }
 .eq-actionbar-btn {
   flex: 1 1 0;
