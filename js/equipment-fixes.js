@@ -174,13 +174,11 @@
     bar.innerHTML = '';
     bar.classList.add('eq-actionbar-clean');
 
-    // Slot 1: DISPATCH — always shown (was slot 3)
-    // NOTE: Print + Zebra buttons removed per user feedback — the QR tab
-    // already provides a clean print trio (Print on Zebra / Paper Sticker /
-    // Copy Link). Leaving them in the bottom bar was redundant.
+    // Slot 1: CALL — calls the designated service contractor for this equipment
+    // (renamed from "Dispatch" — shorter, clearer, pairs better with phone icon)
     const dispatchBtn = document.createElement('button');
     dispatchBtn.className = 'eq-actionbar-btn eq-actionbar-dispatch';
-    dispatchBtn.innerHTML = '<span class="eq-ab-icon">📞</span><span class="eq-ab-label">Dispatch</span>';
+    dispatchBtn.innerHTML = '<span class="eq-ab-icon">📞</span><span class="eq-ab-label">Call</span>';
     dispatchBtn.addEventListener('click', () => openDispatchModal(equipId));
     bar.appendChild(dispatchBtn);
 
@@ -305,7 +303,7 @@
       <div class="eq-dispatch-bg"></div>
       <div class="eq-dispatch-card">
         <div class="eq-dispatch-header">
-          <div class="eq-dispatch-title">📞 Dispatch Service</div>
+          <div class="eq-dispatch-title">📞 Call Service Contractor</div>
           <button class="eq-dispatch-close">✕</button>
         </div>
         <div class="eq-dispatch-eq">
@@ -728,7 +726,7 @@
     }
     if (!part) return;
 
-    // Build the vendors list — start with the legacy single-vendor data if vendors[] is empty
+    // Migrate legacy single-vendor data to vendors[] array if empty
     let vendors = Array.isArray(part.vendors) ? part.vendors.slice() : [];
     if (!vendors.length && (part.supplier || part.supplier_url || part.last_price)) {
       vendors = [{
@@ -739,23 +737,128 @@
         in_stock: null,
         notes: null,
         last_checked_at: null,
-        is_preferred: true  // legacy single vendor is the preferred one
+        is_preferred: true
       }];
     }
 
-    const container = document.createElement('div');
-    container.className = 'eq-part-vendors';
-    container.innerHTML = `
-      <div class="eq-part-vendors-header">
-        <span class="eq-part-vendors-label">Vendors (${vendors.length})</span>
-        <button class="eq-part-add-vendor-btn" data-part-id="${partId}">+ Vendor</button>
+    // ─── Rebuild the whole part card as a collapsible accordion ─────────────
+    //
+    // Collapsed header (always visible, entire row is tap target):
+    //   [Part Name]                    [preferred price]   [▾]
+    //   OEM: xxx · Assembly path · N vendors
+    //
+    // Expanded body (hidden by default, 250ms animation):
+    //   VENDORS (N)                                [+ Vendor]
+    //   ★ [vendor cards...]
+    //
+    // The ⋯ menu stays in the top-right corner as before (positioned
+    // absolutely by context-menu.js) but becomes the only overlay item.
+
+    // Preserve the existing ⋯ trigger added by the context menu module
+    const existingCtxTrigger = partEl.querySelector('.ctx-menu-trigger-on-part');
+
+    // Extract the edit/delete buttons that were hidden by the context menu
+    // (we need their onclick handlers but not their visual)
+    const oldEditBtn = partEl.querySelector('button[onclick*="editPart"]');
+    const oldDeleteBtn = partEl.querySelector('button[onclick*="deletePart"]');
+
+    // Compute the preferred vendor for the collapsed-state display
+    const preferred = vendors.find(v => v.is_preferred) || vendors[0];
+    const preferredPrice = preferred?.price 
+      ? `$${parseFloat(preferred.price).toFixed(2)}` 
+      : '';
+    const preferredName = preferred?.name || '';
+
+    // Rebuild the part card's internal content
+    partEl.classList.add('eq-part-accordion');
+    partEl.dataset.partId = partId;
+    partEl.dataset.expanded = '0';
+    
+    // Remove existing main content but keep the ctx-menu-trigger and absolutely-positioned elements
+    Array.from(partEl.children).forEach(child => {
+      if (child === existingCtxTrigger) return;
+      if (child.classList.contains('eq-part-vendors')) { child.remove(); return; }
+      // Replace everything else
+      child.remove();
+    });
+
+    // Build the new header + body structure
+    const header = document.createElement('button');
+    header.type = 'button';
+    header.className = 'eq-part-acc-header';
+    header.setAttribute('aria-expanded', 'false');
+    header.setAttribute('aria-controls', `eqPartBody-${partId}`);
+    header.innerHTML = `
+      <div class="eq-part-acc-head-top">
+        <span class="eq-part-acc-name">${esc(part.part_name)}</span>
+        ${preferredPrice ? `<span class="eq-part-acc-price">${preferredPrice}</span>` : ''}
+        <span class="eq-part-acc-caret" aria-hidden="true">▾</span>
       </div>
-      <div class="eq-part-vendors-list" id="eqVendList-${partId}">
-        ${renderVendorsList(vendors, partId)}
+      <div class="eq-part-acc-meta">
+        ${part.oem_part_number ? `<span class="eq-part-acc-chip mono">OEM: ${esc(part.oem_part_number)}</span>` : ''}
+        ${part.assembly_path ? `<span class="eq-part-acc-chip">${esc(part.assembly_path)}</span>` : ''}
+        ${part.quantity > 1 ? `<span class="eq-part-acc-chip">Qty ${part.quantity}</span>` : ''}
+        <span class="eq-part-acc-chip eq-part-acc-vcount">${vendors.length} vendor${vendors.length === 1 ? '' : 's'}</span>
       </div>
     `;
-    partEl.appendChild(container);
-    wireVendorActions(container, part, vendors);
+
+    const body = document.createElement('div');
+    body.className = 'eq-part-acc-body';
+    body.id = `eqPartBody-${partId}`;
+    body.innerHTML = `
+      <div class="eq-part-acc-body-inner">
+        <div class="eq-part-vendors-header">
+          <span class="eq-part-vendors-label">Vendors</span>
+          <button type="button" class="eq-part-add-vendor-btn" data-part-id="${partId}">+ Vendor</button>
+        </div>
+        <div class="eq-part-vendors-list" id="eqVendList-${partId}">
+          ${renderVendorsList(vendors, partId)}
+        </div>
+      </div>
+    `;
+
+    partEl.appendChild(header);
+    partEl.appendChild(body);
+    // Re-append ctx trigger last so it stays on top visually
+    if (existingCtxTrigger) partEl.appendChild(existingCtxTrigger);
+
+    // ─── Toggle logic ──────────────────────────────────────────────────────
+    // Tapping anywhere on the header expands/collapses. Uses max-height for
+    // smooth CSS animation (measured dynamically after render).
+    header.addEventListener('click', (e) => {
+      // Don't interfere with the ⋯ trigger
+      if (e.target.closest('.ctx-menu-trigger-on-part')) return;
+      toggleAccordion(partEl, header, body);
+    });
+
+    // Store vendors + part on the element so the action wiring has access
+    partEl._eqPart = part;
+    partEl._eqVendors = vendors;
+    wireVendorActions(body, part, vendors);
+  }
+
+  function toggleAccordion(partEl, header, body) {
+    const expanded = partEl.dataset.expanded === '1';
+    if (expanded) {
+      // Collapse: set explicit current height, then transition to 0
+      body.style.maxHeight = body.scrollHeight + 'px';
+      // Force reflow so the browser registers the current height
+      body.offsetHeight;
+      body.style.maxHeight = '0px';
+      partEl.dataset.expanded = '0';
+      header.setAttribute('aria-expanded', 'false');
+    } else {
+      // Expand: measure content height, animate to it, then clear to allow
+      // content to grow naturally (e.g. when adding vendors)
+      const targetHeight = body.scrollHeight;
+      body.style.maxHeight = targetHeight + 'px';
+      partEl.dataset.expanded = '1';
+      header.setAttribute('aria-expanded', 'true');
+      // Clear the explicit height after animation so dynamic content works
+      setTimeout(() => {
+        if (partEl.dataset.expanded === '1') body.style.maxHeight = 'none';
+      }, 260);
+    }
   }
 
   function renderVendorsList(vendors, partId) {
@@ -847,8 +950,41 @@
   function rerenderVendorList(container, partId, vendors) {
     const list = container.querySelector(`#eqVendList-${partId}`);
     if (list) list.innerHTML = renderVendorsList(vendors, partId);
-    const label = container.querySelector('.eq-part-vendors-label');
-    if (label) label.textContent = `Vendors (${vendors.length})`;
+    
+    // Also update the collapsed-state display in the header:
+    //   • vendor count chip in meta row
+    //   • preferred vendor price on the header top
+    const partEl = document.querySelector(`.eq-part-accordion[data-part-id="${partId}"]`);
+    if (partEl) {
+      const countChip = partEl.querySelector('.eq-part-acc-vcount');
+      if (countChip) countChip.textContent = `${vendors.length} vendor${vendors.length === 1 ? '' : 's'}`;
+      
+      const preferred = vendors.find(v => v.is_preferred) || vendors[0];
+      const priceEl = partEl.querySelector('.eq-part-acc-price');
+      const newPrice = preferred?.price ? `$${parseFloat(preferred.price).toFixed(2)}` : '';
+      if (priceEl) {
+        priceEl.textContent = newPrice;
+        priceEl.style.display = newPrice ? '' : 'none';
+      } else if (newPrice) {
+        // Add a price element that didn't exist
+        const caret = partEl.querySelector('.eq-part-acc-caret');
+        if (caret) {
+          const priceSpan = document.createElement('span');
+          priceSpan.className = 'eq-part-acc-price';
+          priceSpan.textContent = newPrice;
+          caret.before(priceSpan);
+        }
+      }
+      
+      // Re-stash vendors so next action has current data
+      partEl._eqVendors = vendors;
+      
+      // If expanded, re-measure height so it doesn't clip
+      if (partEl.dataset.expanded === '1') {
+        const body = partEl.querySelector('.eq-part-acc-body');
+        if (body) body.style.maxHeight = 'none';
+      }
+    }
   }
 
   async function saveVendors(partId, vendors) {
