@@ -656,7 +656,9 @@ td.check{background:#F0EDE6 !important}
             this.loadScript('js/equipment-p3.js', () => {
               this.loadScript('js/equipment-ux.js', () => {
                 this.loadScript('js/equipment-ai-creator.js', () => {
-                  this.loadScript('js/equipment-full-editor.js', () => {});
+                  this.loadScript('js/equipment-full-editor.js', () => {
+                    this.loadScript('js/equipment-fixes.js', () => {});
+                  });
                 });
               });
             });
