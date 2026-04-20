@@ -58,6 +58,26 @@
   margin-top: -2px;
 }
 
+/* On part cards — top-right corner overlay (replaces inline trigger) */
+.ctx-menu-trigger-on-part {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  width: 30px;
+  height: 30px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.ctx-menu-trigger-on-part .ctx-menu-trigger-dots {
+  font-size: 15px;
+  margin-top: -3px;
+}
+/* Push the part name down so it doesn't collide with the absolute ⋯ */
+.eq-part .eq-part-main { padding-right: 38px; }
+
 /* ─── ⋯ POPUP MENU ────────────────────────────────────────────────────── */
 
 .ctx-menu {
