@@ -3,19 +3,17 @@
              cache-first for HTML shell + fonts.
    Version bumped = full re-cache on next load.
 */
-const CACHE_NAME = 'nexus-v3';
+const CACHE_NAME = 'nexus-v2';
 
 // App shell — everything needed to run offline
 const APP_SHELL = [
   './',
   './index.html',
   './css/nexus.css',
-  './css/galaxy.css',
-  './css/equipment.css',
   './js/app.js',
   './js/admin.js',
-  './js/galaxy.js',
-  './js/ai-writer.js',
+  './js/galaxy.js',           // replaced brain-canvas.js
+  './js/ai-writer.js',        // new
   './js/brain-chat.js',
   './js/brain-events.js',
   './js/brain-list.js',
