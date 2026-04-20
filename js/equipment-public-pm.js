@@ -727,7 +727,8 @@
             description: log.work_performed + (log.parts_replaced ? '\n\nParts: ' + log.parts_replaced : ''),
             performed_by: log.contractor_name + (log.contractor_company ? ' (' + log.contractor_company + ')' : ''),
             cost: log.cost_amount,
-            notes: `Submitted via QR scan. Phone: ${log.contractor_phone || 'n/a'}.`
+            notes: `Submitted via QR scan. Phone: ${log.contractor_phone || 'n/a'}.`,
+            pm_log_id: log.id  // Link so Timeline detail modal can pull photos/PDF/signature
           });
           // Re-sync brain
           if (NX.eqBrainSync?.syncOne) NX.eqBrainSync.syncOne(log.equipment_id);
