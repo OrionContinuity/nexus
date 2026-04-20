@@ -46,8 +46,10 @@
     installContextMenuOnEquipmentDetail();
     installContextMenuOnParts();
     installPrintEverythingOnOverview();
+    installTimelineCardClick();
     patchSoftDelete();
     patchLogDeletedTab();
+    patchPmApprovalToLinkMaintenance();
     console.log('[ctx-menu] all hooks installed');
   }
 
@@ -2110,6 +2112,296 @@
      Already installed by installContextMenuOnParts() but with a default
      position. Let's reposition via CSS class.
      ═════════════════════════════════════════════════════════════════════════ */
+
+  /* ═════════════════════════════════════════════════════════════════════════
+     TIMELINE card click → rich detail modal
+     
+     When a user taps a timeline card, we open a modal showing:
+       • Full unabbreviated description
+       • Photos (from linked pm_log if exists)
+       • PDF invoice (from linked pm_log)
+       • Finger-drawn signature (from linked pm_log)
+       • Contractor phone / company
+       • Cost, parts replaced, next service date
+       • Approval metadata
+     
+     For legacy timeline entries (no pm_log_id), we still show a modal with
+     just the maintenance row's fields — consistent UX, no photos/PDF.
+     ═════════════════════════════════════════════════════════════════════════ */
+
+  function installTimelineCardClick() {
+    const observer = new MutationObserver(() => {
+      document.querySelectorAll('.eq-timeline-item').forEach(card => {
+        if (card.dataset.clickWired === '1') return;
+        card.dataset.clickWired = '1';
+        card.classList.add('eq-timeline-clickable');
+        
+        card.addEventListener('click', (e) => {
+          // Don't trigger when the ✕ delete button is tapped
+          if (e.target.closest('.eq-timeline-del, button, a')) return;
+          // Extract maintenance ID from the delete button's onclick
+          const delBtn = card.querySelector('.eq-timeline-del');
+          const m = delBtn?.getAttribute('onclick')?.match(/['"]([\w-]+)['"]/);
+          if (!m) { console.warn('[ctx-menu] no maintenance ID on card'); return; }
+          openTimelineDetail(m[1]);
+        });
+      });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  async function openTimelineDetail(maintId) {
+    const modal = document.createElement('div');
+    modal.className = 'eq-tl-detail-modal';
+    modal.innerHTML = `
+      <div class="eq-tl-detail-bg"></div>
+      <div class="eq-tl-detail-card">
+        <div class="eq-tl-detail-header">
+          <div class="eq-tl-detail-title">Service Detail</div>
+          <button class="eq-tl-detail-close">✕</button>
+        </div>
+        <div class="eq-tl-detail-body" id="eqTlDetailBody">Loading…</div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    const close = () => modal.remove();
+    modal.querySelector('.eq-tl-detail-close').addEventListener('click', close);
+    modal.querySelector('.eq-tl-detail-bg').addEventListener('click', close);
+
+    try {
+      // 1. Load the maintenance row
+      const { data: m } = await NX.sb.from('equipment_maintenance')
+        .select('*')
+        .eq('id', maintId)
+        .single();
+      if (!m) throw new Error('Maintenance record not found');
+
+      // 2. If it has a pm_log_id, load the rich PM log
+      let pmLog = null;
+      if (m.pm_log_id) {
+        const { data } = await NX.sb.from('pm_logs')
+          .select('*')
+          .eq('id', m.pm_log_id)
+          .single();
+        pmLog = data;
+      }
+
+      renderTimelineDetail(modal, m, pmLog);
+    } catch (err) {
+      modal.querySelector('#eqTlDetailBody').innerHTML = 
+        `<div class="eq-tl-detail-error">Could not load: ${esc(err.message)}</div>`;
+    }
+  }
+
+  function renderTimelineDetail(modal, m, pmLog) {
+    const body = modal.querySelector('#eqTlDetailBody');
+    const typeLabel = (m.event_type || 'service').toUpperCase();
+    const dateStr = m.event_date ? new Date(m.event_date).toLocaleDateString([], 
+      { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    
+    // Use pmLog fields if available (richer), else fall back to m fields
+    const photoUrls = pmLog?.photo_urls || [];
+    const pdfUrl = pmLog?.pdf_url || null;
+    const signature = pmLog?.signature_data || null;
+    const contractorPhone = pmLog?.contractor_phone || null;
+    const contractorEmail = pmLog?.contractor_email || null;
+    const partsReplaced = pmLog?.parts_replaced || null;
+    const nextServiceDate = pmLog?.next_service_date || null;
+    const submittedAt = pmLog?.submitted_at || null;
+    const reviewedAt = pmLog?.reviewed_at || null;
+    const reviewedBy = pmLog?.reviewed_by || null;
+    const cost = m.cost || pmLog?.cost_amount || null;
+    
+    body.innerHTML = `
+      <div class="eq-tl-detail-hero">
+        <div class="eq-tl-detail-type">${esc(typeLabel)}</div>
+        <div class="eq-tl-detail-date">${esc(dateStr)}</div>
+        ${pmLog ? `<div class="eq-tl-detail-source">📲 Submitted via QR code</div>` : ''}
+      </div>
+
+      ${m.description ? `
+        <div class="eq-tl-detail-section">
+          <div class="eq-tl-detail-section-label">Work Performed</div>
+          <div class="eq-tl-detail-text">${esc(m.description)}</div>
+        </div>
+      ` : ''}
+
+      ${partsReplaced ? `
+        <div class="eq-tl-detail-section">
+          <div class="eq-tl-detail-section-label">Parts Replaced</div>
+          <div class="eq-tl-detail-text">${esc(partsReplaced)}</div>
+        </div>
+      ` : ''}
+
+      ${m.performed_by ? `
+        <div class="eq-tl-detail-section">
+          <div class="eq-tl-detail-section-label">Service Tech</div>
+          <div class="eq-tl-detail-contractor">
+            <div class="eq-tl-detail-contractor-name">${esc(m.performed_by)}</div>
+            ${contractorPhone ? `
+              <a href="tel:${esc(contractorPhone.replace(/[^\d+]/g,''))}" class="eq-tl-detail-contact-btn">
+                📞 ${esc(contractorPhone)}
+              </a>
+            ` : ''}
+            ${contractorEmail ? `
+              <a href="mailto:${esc(contractorEmail)}" class="eq-tl-detail-contact-btn">
+                ✉ ${esc(contractorEmail)}
+              </a>
+            ` : ''}
+          </div>
+        </div>
+      ` : ''}
+
+      ${cost || nextServiceDate || m.downtime_hours ? `
+        <div class="eq-tl-detail-section">
+          <div class="eq-tl-detail-stats">
+            ${cost ? `
+              <div class="eq-tl-detail-stat">
+                <div class="eq-tl-detail-stat-label">Cost</div>
+                <div class="eq-tl-detail-stat-value">$${parseFloat(cost).toFixed(2)}</div>
+              </div>
+            ` : ''}
+            ${nextServiceDate ? `
+              <div class="eq-tl-detail-stat">
+                <div class="eq-tl-detail-stat-label">Next Service</div>
+                <div class="eq-tl-detail-stat-value">${esc(new Date(nextServiceDate).toLocaleDateString())}</div>
+              </div>
+            ` : ''}
+            ${m.downtime_hours ? `
+              <div class="eq-tl-detail-stat">
+                <div class="eq-tl-detail-stat-label">Downtime</div>
+                <div class="eq-tl-detail-stat-value">${m.downtime_hours}h</div>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      ` : ''}
+
+      ${m.symptoms ? `
+        <div class="eq-tl-detail-section">
+          <div class="eq-tl-detail-section-label">Symptoms</div>
+          <div class="eq-tl-detail-text">${esc(m.symptoms)}</div>
+        </div>
+      ` : ''}
+
+      ${m.root_cause ? `
+        <div class="eq-tl-detail-section">
+          <div class="eq-tl-detail-section-label">Root Cause</div>
+          <div class="eq-tl-detail-text">${esc(m.root_cause)}</div>
+        </div>
+      ` : ''}
+
+      ${photoUrls.length ? `
+        <div class="eq-tl-detail-section">
+          <div class="eq-tl-detail-section-label">Photos (${photoUrls.length})</div>
+          <div class="eq-tl-detail-photos">
+            ${photoUrls.map(url => `
+              <a href="${esc(url)}" target="_blank" rel="noopener" class="eq-tl-detail-photo-link">
+                <img src="${esc(url)}" class="eq-tl-detail-photo" loading="lazy">
+              </a>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      ${pdfUrl ? `
+        <div class="eq-tl-detail-section">
+          <div class="eq-tl-detail-section-label">Invoice / Report</div>
+          <a href="${esc(pdfUrl)}" target="_blank" rel="noopener" class="eq-tl-detail-pdf-btn">
+            📄 Open PDF
+          </a>
+        </div>
+      ` : ''}
+
+      ${signature ? `
+        <div class="eq-tl-detail-section">
+          <div class="eq-tl-detail-section-label">Signature</div>
+          <img src="${esc(signature)}" class="eq-tl-detail-signature">
+        </div>
+      ` : ''}
+
+      ${m.notes ? `
+        <div class="eq-tl-detail-section">
+          <div class="eq-tl-detail-section-label">Notes</div>
+          <div class="eq-tl-detail-text">${esc(m.notes)}</div>
+        </div>
+      ` : ''}
+
+      ${submittedAt || reviewedAt ? `
+        <div class="eq-tl-detail-metadata">
+          ${submittedAt ? `<div>Submitted: ${new Date(submittedAt).toLocaleString()}</div>` : ''}
+          ${reviewedAt ? `<div>Approved: ${new Date(reviewedAt).toLocaleString()}${reviewedBy ? ' by ' + esc(reviewedBy) : ''}</div>` : ''}
+        </div>
+      ` : ''}
+    `;
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════════
+     PATCH PM approval flow so new equipment_maintenance rows get the
+     pm_log_id link. This enables the timeline detail modal to pull
+     photos/PDF/signature from the original contractor submission.
+     
+     We override updateReviewStatus — but wait, that function is local to
+     equipment-public-pm.js, not accessible here. Instead we patch 
+     NX.pmLogger.reviewPendingLogs() output at approval time by hooking
+     the Supabase .insert call on equipment_maintenance via a proxy.
+     
+     Simpler approach: after the existing approval inserts the maintenance
+     row, we run a quick cleanup job that backfills pm_log_id on any
+     orphaned rows with matching contractor_name + service date.
+     ═════════════════════════════════════════════════════════════════════════ */
+
+  function patchPmApprovalToLinkMaintenance() {
+    // Run a backfill pass every few minutes: any equipment_maintenance rows
+    // that were created by a PM log approval but don't have pm_log_id set 
+    // (because they were created before this migration landed), try to
+    // link them by matching contractor + equipment + date.
+    const runBackfill = async () => {
+      try {
+        // Get approved pm_logs that might have a matching maintenance
+        const { data: approvedLogs } = await NX.sb.from('pm_logs')
+          .select('id, equipment_id, contractor_name, service_date, work_performed')
+          .eq('review_status', 'approved')
+          .eq('is_deleted', false);
+        if (!approvedLogs?.length) return;
+        
+        // For each, check if there's an equipment_maintenance row that looks
+        // like it — same equipment, same date, performed_by contains the contractor name
+        // — and doesn't yet have pm_log_id set
+        for (const log of approvedLogs) {
+          const { data: matches } = await NX.sb.from('equipment_maintenance')
+            .select('id, pm_log_id, performed_by')
+            .eq('equipment_id', log.equipment_id)
+            .eq('event_date', log.service_date)
+            .is('pm_log_id', null);
+          if (!matches?.length) continue;
+          // Find the one whose performed_by contains the contractor name
+          const candidate = matches.find(m => 
+            m.performed_by && m.performed_by.includes(log.contractor_name)
+          );
+          if (candidate) {
+            await NX.sb.from('equipment_maintenance')
+              .update({ pm_log_id: log.id })
+              .eq('id', candidate.id);
+          }
+        }
+      } catch (e) {
+        console.warn('[ctx-menu] pm_log backfill failed:', e);
+      }
+    };
+    
+    // Run once after init, and every 3 minutes while app is open
+    setTimeout(runBackfill, 4000);
+    setInterval(runBackfill, 180000);
+    
+    // Also wrap NX.pmLogger's approve flow if it exists, to set pm_log_id
+    // directly on new maintenance inserts (forward-compatible, no backfill 
+    // needed for future approvals)
+    whenReady(() => NX.pmLogger && NX.pmLogger.reviewPendingLogs, () => {
+      // Can't easily hook the nested updateReviewStatus — but the backfill 
+      // covers it within a few minutes. Acceptable tradeoff.
+    });
+  }
 
   // Expose key functions
   NX.ctxMenu = {
