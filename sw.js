@@ -1,8 +1,9 @@
-/* NEXUS Service Worker — Cache Everything
-   Strategy: Cache-first for app shell, network-first for API calls
-   Version bumped = full re-cache on next load
+/* NEXUS Service Worker — v2
+   Strategy: network-first for JS/CSS (always get latest code),
+             cache-first for HTML shell + fonts.
+   Version bumped = full re-cache on next load.
 */
-const CACHE_NAME = 'nexus-v1';
+const CACHE_NAME = 'nexus-v2';
 
 // App shell — everything needed to run offline
 const APP_SHELL = [
@@ -11,7 +12,8 @@ const APP_SHELL = [
   './css/nexus.css',
   './js/app.js',
   './js/admin.js',
-  './js/brain-canvas.js',
+  './js/galaxy.js',           // replaced brain-canvas.js
+  './js/ai-writer.js',        // new
   './js/brain-chat.js',
   './js/brain-events.js',
   './js/brain-list.js',
@@ -34,10 +36,8 @@ const CDN_CACHE = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      console.log('[SW] Caching app shell');
-      // Cache app files (don't fail install if CDN is slow)
+      console.log('[SW v2] Caching app shell');
       return cache.addAll(APP_SHELL).then(() => {
-        // Try CDN resources but don't block install
         return Promise.allSettled(
           CDN_CACHE.map(url => cache.add(url).catch(() => console.warn('[SW] CDN skip:', url)))
         );
@@ -46,16 +46,19 @@ self.addEventListener('install', event => {
   );
 });
 
-// Activate — clean old caches
+// Activate — NUKE all old caches (this is what kills stuck old versions)
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys => 
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => {
+        console.log('[SW v2] Deleting old cache:', k);
+        return caches.delete(k);
+      }))
     ).then(() => self.clients.claim())
   );
 });
 
-// Fetch — cache-first for app shell, network-first for API
+// Fetch — smart strategy depending on resource type
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
@@ -67,28 +70,42 @@ self.addEventListener('fetch', event => {
     return; // Let browser handle normally (network only)
   }
 
-  // For app shell and static assets: cache-first, update in background
-  event.respondWith(
-    caches.match(event.request).then(cached => {
-      // Return cache immediately if available
-      const fetchPromise = fetch(event.request).then(response => {
-        // Only cache successful responses
+  // ─── NETWORK-FIRST for JS / CSS / HTML ──────────────────────────
+  // Always try to fetch the latest code. Fall back to cache only if offline.
+  // This is what prevents the "old cached code" problem.
+  const isCode = /\.(js|css|html)($|\?)/.test(url.pathname) ||
+                 url.pathname === '/' ||
+                 url.pathname.endsWith('/nexus/') ||
+                 url.pathname.endsWith('/nexus');
+  if (isCode && url.origin === self.location.origin) {
+    event.respondWith(
+      fetch(event.request).then(response => {
         if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
         }
         return response;
-      }).catch(() => {
-        // Network failed — if we have cache, it was already returned
-        // If no cache either, return offline fallback
-        if (!cached) {
-          return new Response('<h1>NEXUS Offline</h1><p>No cached version available. Connect to WiFi to load.</p>', {
+      }).catch(() =>
+        caches.match(event.request).then(cached =>
+          cached || new Response('<h1>NEXUS Offline</h1><p>No cached version available. Connect to WiFi to load.</p>', {
             headers: { 'Content-Type': 'text/html' }
-          });
-        }
-      });
+          })
+        )
+      )
+    );
+    return;
+  }
 
-      // Return cached version immediately, fetch updates in background
+  // ─── CACHE-FIRST for everything else (fonts, images, CDN) ───────
+  event.respondWith(
+    caches.match(event.request).then(cached => {
+      const fetchPromise = fetch(event.request).then(response => {
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        }
+        return response;
+      }).catch(() => cached);
       return cached || fetchPromise;
     })
   );
@@ -112,12 +129,17 @@ self.addEventListener('notificationclick', event => {
   event.notification.close();
   event.waitUntil(
     clients.matchAll({ type: 'window' }).then(windowClients => {
-      // Focus existing window if open
       for (const client of windowClients) {
         if (client.url.includes('nexus') && 'focus' in client) return client.focus();
       }
-      // Otherwise open new window
       return clients.openWindow(event.notification.data?.url || '/');
     })
   );
+});
+
+// Listen for skip-waiting message (manual update trigger)
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
