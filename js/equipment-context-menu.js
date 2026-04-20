@@ -154,8 +154,12 @@
   function buildEquipmentMenu(equipId, equipName) {
     return [
       { icon: '✎', label: 'Edit', action: () => NX.modules.equipment?.edit?.(equipId) },
-      { icon: '🏷', label: 'Print Label', action: () => printSingleLabel(equipId) },
+      { icon: '🖨', label: 'Print this Tab', action: () => printActiveTab(equipId) },
+      { icon: '🏷', label: 'Print Single Label', action: () => printSingleLabel(equipId) },
       { icon: '📄', label: 'Print Avery Sheet (10×)', action: () => printAverySheet(equipId) },
+      { icon: '🛒', label: 'Shopping List', action: () => exportShoppingList(equipId) },
+      { icon: '✨', label: 'Extract Parts from Manual', action: () => triggerExtractFromManual(equipId) },
+      { icon: '👥', label: 'Set Parent / Add Child', action: () => openFamilyManager(equipId, equipName) },
       { icon: '📜', label: 'Audit Log', action: () => openItemAuditLog('equipment', equipId, equipName) },
       { icon: '🗑', label: 'Delete', danger: true, action: () => softDeleteWithConfirm('equipment', equipId, equipName) }
     ];
@@ -336,15 +340,16 @@
     if (editBtn) editBtn.style.display = 'none';
     if (deleteBtn) deleteBtn.style.display = 'none';
 
-    // Add a ⋯ trigger
+    // Add a ⋯ trigger at TOP-RIGHT corner of the part card
     const trigger = makeContextTrigger((btn) => {
       openContextMenu(btn, buildPartMenu(partId, partName, equipId));
     });
-    trigger.classList.add('ctx-menu-trigger-inline');
-
-    const actions = partEl.querySelector('.eq-part-actions');
-    if (actions) actions.appendChild(trigger);
-    else partEl.appendChild(trigger);
+    trigger.classList.add('ctx-menu-trigger-on-part');
+    
+    // Anchor the part as a positioning context, then absolute-position the
+    // trigger in its top-right.
+    partEl.style.position = 'relative';
+    partEl.appendChild(trigger);
   }
 
   /* ═════════════════════════════════════════════════════════════════════════
@@ -1031,12 +1036,442 @@
     win.document.title = title;
   }
 
+  /* ═════════════════════════════════════════════════════════════════════════
+     SMART PER-TAB PRINT — prints whatever tab is currently active
+     ═════════════════════════════════════════════════════════════════════════ */
+
+  async function printActiveTab(equipId) {
+    const eq = await loadEquipment(equipId);
+    if (!eq) { toast('Could not load equipment', 'error'); return; }
+
+    // Detect which tab is currently active inside the equipment detail modal
+    const modal = document.querySelector('.eq-modal.active') || document.querySelector('.eq-detail');
+    const activeTab = modal?.querySelector('.eq-tab.active')?.dataset?.tab 
+                   || modal?.querySelector('.eq-tab-panel.active')?.dataset?.panel
+                   || 'overview';
+
+    // Load supporting data for the active tab
+    let extra = {};
+    try {
+      if (activeTab === 'parts') {
+        const { data } = await NX.sb.from('equipment_parts')
+          .select('*').eq('equipment_id', equipId).eq('is_deleted', false).order('part_name');
+        extra.parts = data || [];
+      } else if (activeTab === 'timeline') {
+        const { data } = await NX.sb.from('equipment_maintenance')
+          .select('*').eq('equipment_id', equipId).order('event_date', { ascending: false });
+        extra.maintenance = data || [];
+        const { data: dispatches } = await NX.sb.from('dispatch_events')
+          .select('*').eq('equipment_id', equipId).order('dispatched_at', { ascending: false });
+        extra.dispatches = dispatches || [];
+      } else if (activeTab === 'manual') {
+        // Just open the PDF in a new tab — that IS the print path for PDFs
+        if (eq.manual_url) {
+          window.open(eq.manual_url, '_blank');
+          toast('Opened manual — use browser Print', 'info');
+          return;
+        }
+        toast('No manual uploaded yet', 'info');
+        return;
+      }
+    } catch (e) {
+      console.warn('[ctx-menu] tab data load:', e);
+    }
+
+    const html = buildTabPrintHTML(eq, activeTab, extra);
+    openPrintWindow(html, `${eq.name} — ${activeTab}`);
+  }
+
+  function buildTabPrintHTML(eq, tab, extra) {
+    let body = '';
+    
+    if (tab === 'overview' || tab === 'ai') {
+      body = `
+        <h1 class="rpt-title">${esc(eq.name)}</h1>
+        <div class="rpt-sub">${esc(eq.location || '')}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
+        
+        <table class="rpt-grid">
+          <tr><th>Manufacturer</th><td>${esc(eq.manufacturer || '—')}</td>
+              <th>Model</th><td>${esc(eq.model || '—')}</td></tr>
+          <tr><th>Serial #</th><td>${esc(eq.serial_number || '—')}</td>
+              <th>Category</th><td>${esc(eq.category || '—')}</td></tr>
+          <tr><th>Install Date</th><td>${esc(eq.install_date || '—')}</td>
+              <th>Warranty Until</th><td>${esc(eq.warranty_until || '—')}</td></tr>
+          <tr><th>Purchase Price</th><td>${eq.purchase_price ? '$' + eq.purchase_price : '—'}</td>
+              <th>Health Score</th><td>${eq.health_score != null ? eq.health_score + '%' : '—'}</td></tr>
+          <tr><th>Next PM</th><td>${esc(eq.next_pm_date || '—')}</td>
+              <th>Status</th><td>${esc(eq.status || '—')}</td></tr>
+          ${eq.service_contractor_name ? `
+            <tr><th>Service Contractor</th>
+                <td colspan="3">${esc(eq.service_contractor_name)}${eq.service_contractor_phone ? ' · ' + esc(eq.service_contractor_phone) : ''}</td></tr>
+          ` : ''}
+        </table>
+        
+        ${eq.notes ? `
+          <h2 class="rpt-section">Notes</h2>
+          <div class="rpt-notes">${esc(eq.notes)}</div>
+        ` : ''}
+        
+        ${eq.manual_url ? `
+          <h2 class="rpt-section">Manual</h2>
+          <div class="rpt-link">${esc(eq.manual_url)}</div>
+        ` : ''}
+      `;
+    } else if (tab === 'timeline') {
+      const maint = extra.maintenance || [];
+      const dispatches = extra.dispatches || [];
+      // Merge + sort by date
+      const events = [
+        ...maint.map(m => ({ date: m.event_date || m.created_at, type: m.event_type || 'service', detail: m.notes || '', who: m.performed_by, kind: 'maintenance' })),
+        ...dispatches.map(d => ({ date: d.dispatched_at, type: 'dispatch', detail: `Called ${d.contractor_name || 'contractor'}: ${d.issue_description || '—'}`, who: d.dispatched_by, kind: 'dispatch' }))
+      ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+      
+      body = `
+        <h1 class="rpt-title">${esc(eq.name)} — Service Timeline</h1>
+        <div class="rpt-sub">${esc(eq.location || '')}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
+        ${!events.length ? '<div class="rpt-empty">No service history yet.</div>' : `
+          <table class="rpt-table">
+            <thead><tr><th>Date</th><th>Type</th><th>Detail</th><th>By</th></tr></thead>
+            <tbody>
+              ${events.map(e => `
+                <tr class="rpt-${e.kind}">
+                  <td>${e.date ? new Date(e.date).toLocaleDateString() : ''}</td>
+                  <td>${esc(e.type)}</td>
+                  <td>${esc(e.detail)}</td>
+                  <td>${esc(e.who || '')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `}
+      `;
+    } else if (tab === 'parts') {
+      const parts = extra.parts || [];
+      body = `
+        <h1 class="rpt-title">${esc(eq.name)} — Bill of Materials</h1>
+        <div class="rpt-sub">${esc(eq.location || '')} · ${parts.length} part${parts.length === 1 ? '' : 's'}</div>
+        ${!parts.length ? '<div class="rpt-empty">No parts cataloged.</div>' : `
+          <table class="rpt-table">
+            <thead><tr><th>Part</th><th>OEM #</th><th>Assembly</th><th>Qty</th><th>Vendors</th></tr></thead>
+            <tbody>
+              ${parts.map(p => {
+                const vendors = Array.isArray(p.vendors) ? p.vendors : [];
+                const vendorStr = vendors.length 
+                  ? vendors.map(v => `${esc(v.name)}${v.price ? ' $' + parseFloat(v.price).toFixed(2) : ''}`).join('<br>')
+                  : (p.supplier ? esc(p.supplier) : '—');
+                return `
+                  <tr>
+                    <td><strong>${esc(p.part_name)}</strong></td>
+                    <td class="mono">${esc(p.oem_part_number || '—')}</td>
+                    <td>${esc(p.assembly_path || '—')}</td>
+                    <td>${esc(p.quantity || 1)}</td>
+                    <td>${vendorStr}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        `}
+      `;
+    }
+
+    return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>${esc(eq.name)} — ${tab}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+         padding: 0.6in 0.7in; background: white; color: #1a1408; line-height: 1.4; }
+  @page { size: letter portrait; margin: 0.5in; }
+  
+  .rpt-title { font-size: 22pt; font-weight: 700; color: #1a1408; margin-bottom: 4pt; }
+  .rpt-sub { font-size: 11pt; color: #666; margin-bottom: 18pt; padding-bottom: 10pt; border-bottom: 2pt solid #c8a44e; }
+  .rpt-section { font-size: 13pt; font-weight: 700; margin-top: 18pt; margin-bottom: 8pt; color: #1a1408; }
+  .rpt-notes { font-size: 11pt; padding: 10pt 14pt; background: #faf6ec; border-left: 3pt solid #c8a44e; border-radius: 4pt; white-space: pre-wrap; }
+  .rpt-link { font-size: 10pt; font-family: 'Courier New', monospace; color: #555; word-break: break-all; }
+  .rpt-empty { padding: 30pt 0; text-align: center; color: #888; font-style: italic; }
+  
+  .rpt-grid { width: 100%; border-collapse: collapse; margin-top: 8pt; }
+  .rpt-grid th, .rpt-grid td { padding: 8pt 10pt; border-bottom: 1pt solid #eee; vertical-align: top; }
+  .rpt-grid th { background: #faf6ec; text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5pt; color: #666; font-weight: 600; width: 18%; }
+  .rpt-grid td { font-size: 11pt; width: 32%; }
+  
+  .rpt-table { width: 100%; border-collapse: collapse; margin-top: 12pt; font-size: 10pt; }
+  .rpt-table th { background: #1a1408; color: #c8a44e; padding: 8pt 10pt; text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5pt; }
+  .rpt-table td { padding: 8pt 10pt; border-bottom: 1pt solid #eee; vertical-align: top; }
+  .rpt-table tr.rpt-dispatch td { background: #fff7e6; }
+  .mono { font-family: 'Courier New', monospace; }
+  
+  .print-toolbar { position: fixed; top: 0; left: 0; right: 0;
+    background: #1a1a1a; color: white; padding: 12px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3); z-index: 100; }
+  .print-toolbar h1 { font-size: 14px; font-weight: 600; color: #c8a44e; }
+  .print-toolbar button { background: #c8a44e; color: #1a1408; border: none;
+    padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  body { padding-top: 70px; }
+  @media print { .print-toolbar { display: none; } body { padding-top: 0.6in; } }
+</style>
+</head>
+<body>
+  <div class="print-toolbar">
+    <h1>NEXUS — ${esc(eq.name)} (${tab})</h1>
+    <button onclick="window.print()">Print →</button>
+  </div>
+  ${body}
+  <script>setTimeout(() => window.print(), 400);</script>
+</body>
+</html>`;
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════════
+     SHOPPING LIST — pulls all parts with vendors and exports as printable list
+     ═════════════════════════════════════════════════════════════════════════ */
+
+  async function exportShoppingList(equipId) {
+    try {
+      const eq = await loadEquipment(equipId);
+      const { data: parts } = await NX.sb.from('equipment_parts')
+        .select('*').eq('equipment_id', equipId).eq('is_deleted', false);
+      if (!parts?.length) { toast('No parts cataloged', 'info'); return; }
+      
+      // Build a printable shopping list grouped by preferred vendor
+      const byVendor = {};
+      parts.forEach(p => {
+        const vendors = Array.isArray(p.vendors) ? p.vendors : [];
+        const preferred = vendors.find(v => v.is_preferred) || vendors[0] || { name: p.supplier || 'Unassigned', url: p.supplier_url, price: p.last_price };
+        const key = preferred.name || 'Unassigned';
+        if (!byVendor[key]) byVendor[key] = [];
+        byVendor[key].push({ ...p, vendor: preferred });
+      });
+      
+      const html = buildShoppingListHTML(eq, byVendor);
+      openPrintWindow(html, 'Shopping List');
+    } catch (e) {
+      toast('Shopping list failed: ' + e.message, 'error');
+    }
+  }
+
+  function buildShoppingListHTML(eq, byVendor) {
+    const sections = Object.entries(byVendor).map(([vendor, items]) => {
+      const total = items.reduce((sum, it) => sum + (parseFloat(it.vendor.price) || 0) * (it.quantity || 1), 0);
+      return `
+        <div class="sl-vendor">
+          <h2 class="sl-vendor-name">${esc(vendor)}</h2>
+          <table class="sl-table">
+            <thead><tr><th>☐</th><th>Part</th><th>OEM #</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+            <tbody>
+              ${items.map(it => {
+                const price = parseFloat(it.vendor.price) || 0;
+                const qty = it.quantity || 1;
+                const lineTotal = price * qty;
+                return `
+                  <tr>
+                    <td class="sl-check"></td>
+                    <td><strong>${esc(it.part_name)}</strong>${it.assembly_path ? '<br><small>' + esc(it.assembly_path) + '</small>' : ''}</td>
+                    <td class="mono">${esc(it.vendor.oem_number || it.oem_part_number || '—')}</td>
+                    <td>${qty}</td>
+                    <td>${price ? '$' + price.toFixed(2) : '—'}</td>
+                    <td>${lineTotal ? '$' + lineTotal.toFixed(2) : '—'}</td>
+                  </tr>
+                `;
+              }).join('')}
+              ${total ? `<tr class="sl-total"><td colspan="5"><strong>Vendor Total</strong></td><td><strong>$${total.toFixed(2)}</strong></td></tr>` : ''}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }).join('');
+
+    return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Shopping List — ${esc(eq.name)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, sans-serif; padding: 0.6in 0.7in; color: #1a1408; }
+  @page { size: letter; margin: 0.5in; }
+  h1 { font-size: 22pt; margin-bottom: 4pt; }
+  .sl-sub { color: #666; margin-bottom: 20pt; padding-bottom: 10pt; border-bottom: 2pt solid #c8a44e; }
+  .sl-vendor { margin-bottom: 24pt; page-break-inside: avoid; }
+  .sl-vendor-name { font-size: 14pt; padding: 6pt 10pt; background: #1a1408; color: #c8a44e; border-radius: 4pt 4pt 0 0; }
+  .sl-table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+  .sl-table th { background: #faf6ec; padding: 6pt 8pt; text-align: left; font-size: 8pt; text-transform: uppercase; }
+  .sl-table td { padding: 8pt; border-bottom: 1pt solid #eee; vertical-align: top; }
+  .sl-table .sl-check { width: 24pt; text-align: center; font-size: 14pt; }
+  .sl-table .sl-total td { background: #faf6ec; border-top: 2pt solid #c8a44e; }
+  .mono { font-family: 'Courier New', monospace; }
+  small { color: #888; font-size: 8pt; }
+  .print-toolbar { position: fixed; top: 0; left: 0; right: 0; background: #1a1a1a; color: white; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
+  .print-toolbar button { background: #c8a44e; color: #1a1408; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; }
+  body { padding-top: 70px; }
+  @media print { .print-toolbar { display: none; } body { padding-top: 0.6in; } }
+</style>
+</head>
+<body>
+  <div class="print-toolbar"><h1 style="font-size:14px;color:#c8a44e">Shopping List — ${esc(eq.name)}</h1><button onclick="window.print()">Print →</button></div>
+  <h1>Shopping List</h1>
+  <div class="sl-sub">${esc(eq.name)}${eq.location ? ' · ' + esc(eq.location) : ''} · ${new Date().toLocaleDateString()}</div>
+  ${sections}
+  <script>setTimeout(() => window.print(), 400);</script>
+</body></html>`;
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════════
+     Trigger the existing extract-from-manual flow from the ⋯ menu
+     ═════════════════════════════════════════════════════════════════════════ */
+
+  function triggerExtractFromManual(equipId) {
+    // The button is removed from the Parts tab head, but the function still
+    // exists in equipment-fixes.js (or equipment-p3.js fallback). Find and call.
+    if (typeof window.runExtractWithProgress === 'function') {
+      window.runExtractWithProgress(equipId);
+      return;
+    }
+    if (NX.modules?.equipment?.extractBOMFromManual) {
+      NX.modules.equipment.extractBOMFromManual(equipId);
+      return;
+    }
+    // Last-ditch: simulate clicking the original (hidden) button if still in DOM
+    const btn = document.querySelector('button[onclick*="extractBOM"]');
+    if (btn) { btn.click(); return; }
+    toast('Extract function not available', 'error');
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════════
+     FAMILY MANAGER — Set Parent / Add Child as a focused modal
+     ═════════════════════════════════════════════════════════════════════════ */
+
+  async function openFamilyManager(equipId, equipName) {
+    const eq = await loadEquipment(equipId);
+    if (!eq) { toast('Could not load equipment', 'error'); return; }
+
+    const { data: allEq } = await NX.sb.from('equipment')
+      .select('id, name, location, manufacturer, model, parent_equipment_id')
+      .eq('is_deleted', false)
+      .neq('id', equipId)
+      .order('name');
+
+    const candidates = allEq || [];
+    const currentChildren = candidates.filter(e => e.parent_equipment_id === equipId);
+    const currentParent = candidates.find(e => e.id === eq.parent_equipment_id);
+
+    const modal = document.createElement('div');
+    modal.className = 'ctx-confirm-modal';
+    modal.innerHTML = `
+      <div class="ctx-confirm-bg"></div>
+      <div class="ctx-confirm-card" style="max-width:480px;text-align:left;padding:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <div style="font-size:15px;font-weight:600;color:var(--accent,#c8a44e);">👥 Equipment Family</div>
+          <button class="ctx-audit-close" id="famClose">✕</button>
+        </div>
+        <div style="font-size:13px;color:var(--text,#e6dccc);margin-bottom:14px;">
+          ${esc(equipName)}
+        </div>
+        <div style="font-size:11px;color:var(--muted,#8a826f);margin-bottom:12px;line-height:1.5;">
+          Use this to link related equipment — e.g., a walk-in cooler is the <strong>parent</strong>
+          of multiple condenser units (<strong>children</strong>). Helps you find sub-components fast.
+        </div>
+        
+        <div style="margin-bottom:16px;">
+          <label class="ctx-confirm-reason-label">Parent Equipment</label>
+          ${currentParent ? `
+            <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(200,164,78,0.08);border-radius:8px;margin-bottom:6px;">
+              <span style="flex:1;color:var(--text,#e6dccc);font-size:13px;">${esc(currentParent.name)}</span>
+              <button class="ctx-confirm-cancel" style="padding:5px 10px;font-size:11px;" id="famClearParent">Remove</button>
+            </div>
+          ` : ''}
+          <select class="ctx-confirm-reason" id="famParentSelect">
+            <option value="">— Choose a parent (optional) —</option>
+            ${candidates.map(c => `<option value="${esc(c.id)}" ${eq.parent_equipment_id === c.id ? 'selected' : ''}>${esc(c.name)}${c.location ? ' (' + esc(c.location) + ')' : ''}</option>`).join('')}
+          </select>
+        </div>
+        
+        <div style="margin-bottom:18px;">
+          <label class="ctx-confirm-reason-label">Children (${currentChildren.length})</label>
+          ${currentChildren.length ? `
+            <div style="max-height:160px;overflow-y:auto;margin-bottom:8px;">
+              ${currentChildren.map(c => `
+                <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(200,164,78,0.05);border-radius:6px;margin-bottom:4px;">
+                  <span style="flex:1;color:var(--text,#e6dccc);font-size:12.5px;">${esc(c.name)}</span>
+                  <button class="ctx-confirm-cancel" style="padding:4px 8px;font-size:10px;" data-unlink="${esc(c.id)}">Unlink</button>
+                </div>
+              `).join('')}
+            </div>
+          ` : '<div style="font-size:11px;color:var(--muted,#8a826f);font-style:italic;margin-bottom:8px;">No children yet.</div>'}
+          <select class="ctx-confirm-reason" id="famChildSelect">
+            <option value="">— Add a child equipment —</option>
+            ${candidates.filter(c => c.parent_equipment_id !== equipId && c.id !== eq.parent_equipment_id).map(c => 
+              `<option value="${esc(c.id)}">${esc(c.name)}${c.location ? ' (' + esc(c.location) + ')' : ''}</option>`
+            ).join('')}
+          </select>
+        </div>
+        
+        <div class="ctx-confirm-actions">
+          <button class="ctx-confirm-cancel" id="famCancel">Close</button>
+          <button class="ctx-confirm-delete" style="background:linear-gradient(135deg,#5cb377,#4ea866);" id="famSave">Save</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    
+    const close = () => modal.remove();
+    modal.querySelector('#famClose').addEventListener('click', close);
+    modal.querySelector('#famCancel').addEventListener('click', close);
+    modal.querySelector('.ctx-confirm-bg').addEventListener('click', close);
+    
+    // Clear parent
+    modal.querySelector('#famClearParent')?.addEventListener('click', async () => {
+      try {
+        await NX.sb.from('equipment').update({ parent_equipment_id: null }).eq('id', equipId);
+        toast('Parent removed', 'success');
+        close();
+      } catch (e) { toast('Failed: ' + e.message, 'error'); }
+    });
+    
+    // Unlink child
+    modal.querySelectorAll('[data-unlink]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try {
+          await NX.sb.from('equipment').update({ parent_equipment_id: null }).eq('id', btn.dataset.unlink);
+          toast('Child unlinked', 'success');
+          close();
+        } catch (e) { toast('Failed: ' + e.message, 'error'); }
+      });
+    });
+    
+    // Save
+    modal.querySelector('#famSave').addEventListener('click', async () => {
+      const newParent = modal.querySelector('#famParentSelect').value || null;
+      const newChild = modal.querySelector('#famChildSelect').value;
+      try {
+        if (newParent !== eq.parent_equipment_id) {
+          await NX.sb.from('equipment').update({ parent_equipment_id: newParent }).eq('id', equipId);
+        }
+        if (newChild) {
+          await NX.sb.from('equipment').update({ parent_equipment_id: equipId }).eq('id', newChild);
+        }
+        toast('Family updated', 'success');
+        close();
+        // Re-sync to brain
+        if (NX.eqBrainSync?.syncOne) NX.eqBrainSync.syncOne(equipId);
+      } catch (e) { 
+        toast('Save failed (you may need to add a parent_equipment_id column): ' + e.message, 'error');
+      }
+    });
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════════
+     PARTS TAB ⋯ — top-right of each part section
+     Already installed by installContextMenuOnParts() but with a default
+     position. Let's reposition via CSS class.
+     ═════════════════════════════════════════════════════════════════════════ */
+
   // Expose key functions
   NX.ctxMenu = {
     openContextMenu, closeOpenMenu,
     softDeleteWithConfirm, restoreItem,
     openItemAuditLog,
-    printSingleLabel, printAverySheet
+    printSingleLabel, printAverySheet, printActiveTab,
+    exportShoppingList, openFamilyManager
   };
 
 })();
