@@ -102,6 +102,18 @@
   background: rgba(100, 200, 130, 0.25) !important;
 }
 
+/* Zebra badge — distinct from Print so user knows it's the thermal path */
+.eq-actionbar-zebra {
+  background: rgba(120, 90, 50, 0.25) !important;
+  border-color: rgba(200, 164, 78, 0.4) !important;
+  color: var(--accent, #c8a44e) !important;
+}
+.eq-actionbar-zebra .eq-ab-icon,
+.eq-actionbar-zebra .eq-ab-label { color: var(--accent, #c8a44e) !important; }
+.eq-actionbar-zebra:active {
+  background: rgba(200, 164, 78, 0.25) !important;
+}
+
 /* ─── More menu (overflow) ────────────────────────────────────────────── */
 .eq-actionbar-more-wrap {
   flex: 1 1 0;
