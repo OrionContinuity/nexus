@@ -142,6 +142,7 @@
           <span class="pm-public-btn-icon">🚨</span>
           <span class="pm-public-btn-label">
             <span class="pm-public-btn-title">Report Issue</span>
+            <span class="pm-public-btn-sub">Something's broken or unsafe</span>
           </span>
         </button>
       </div>
@@ -154,7 +155,12 @@
       openLoggerForm(qrCode);
     });
     document.getElementById('pmReportIssueBtn').addEventListener('click', () => {
-      if (NX.modules?.equipment?.publicReportIssue) {
+      // Prefer the self-contained handler (public-scan v3) since equipment.js
+      // isn't loaded in pre-auth mode. Fall back to the in-app version if
+      // we're in the logged-in equipment detail view.
+      if (typeof window._NX_OPEN_REPORT_ISSUE === 'function') {
+        window._NX_OPEN_REPORT_ISSUE(qrCode);
+      } else if (NX.modules?.equipment?.publicReportIssue) {
         NX.modules.equipment.publicReportIssue(qrCode);
       }
     });
