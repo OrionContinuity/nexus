@@ -124,13 +124,13 @@
     const contact = window._NX_PUBLIC_SCAN_CONTACT || null;
     
     const callBtnHtml = contact ? `
-        <a class="pm-public-btn pm-public-btn-call" id="pmCallBtn" href="tel:${esc(contact.phoneHref || contact.phone)}">
+        <button class="pm-public-btn pm-public-btn-call" id="pmCallBtn" type="button">
           <span class="pm-public-btn-icon">📞</span>
           <span class="pm-public-btn-label">
             <span class="pm-public-btn-title">Call ${esc(contact.name || 'Service')}</span>
             <span class="pm-public-btn-sub">${esc(contact.phone || '')}</span>
           </span>
-        </a>
+        </button>
     ` : '';
     
     actionsEl.innerHTML = `
@@ -176,6 +176,14 @@
         NX.modules.equipment.publicReportIssue(qrCode);
       }
     });
+    
+    // Call button — opens a confirm modal that collects the issue before dialing
+    const callBtn = document.getElementById('pmCallBtn');
+    if (callBtn && contact) {
+      callBtn.addEventListener('click', () => {
+        openPublicCallConfirm(contact, qrCode);
+      });
+    }
     
     // Also re-run when public-scan signals contact data is ready, so if the
     // contact loaded AFTER this override ran, we re-render with the Call button
@@ -774,6 +782,105 @@
     } catch (e) {
       alert('Failed: ' + e.message);
     }
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════════
+     PUBLIC CALL CONFIRM MODAL
+     
+     Shown when a contractor taps "Call <Service>" on the public QR landing.
+     Collects the contractor's name (who's calling) and the issue before
+     dialing. Logs the dispatch to dispatch_events so restaurant staff can
+     see the full trail when they review.
+     ═════════════════════════════════════════════════════════════════════════ */
+  
+  function openPublicCallConfirm(contact, qrCode) {
+    const existing = document.getElementById('pmCallConfirm');
+    if (existing) existing.remove();
+    
+    const telHref = 'tel:' + (contact.phoneHref || String(contact.phone || '').replace(/[^\d+]/g, ''));
+    const modal = document.createElement('div');
+    modal.id = 'pmCallConfirm';
+    modal.className = 'eq-call-confirm pm-call-confirm';
+    modal.innerHTML = `
+      <div class="eq-call-confirm-bg"></div>
+      <div class="eq-call-confirm-card">
+        <div class="eq-call-confirm-icon">📞</div>
+        <div class="eq-call-confirm-title">Call ${esc(contact.name || 'Service')}?</div>
+        <div class="eq-call-confirm-phone">${esc(contact.phone || '')}</div>
+        <div class="eq-call-confirm-meta">Service contact on file</div>
+        
+        <div class="eq-call-confirm-issue-wrap">
+          <label class="eq-call-confirm-issue-label" for="pmCallerName">
+            Your name <span class="eq-optional-tag">(required)</span>
+          </label>
+          <input type="text" class="eq-call-confirm-issue" id="pmCallerName" placeholder="e.g., Mike from Austin Air" autocomplete="name" style="min-height:44px;resize:none">
+        </div>
+        
+        <div class="eq-call-confirm-issue-wrap">
+          <label class="eq-call-confirm-issue-label" for="pmCallIssue">
+            What's the issue? <span class="eq-optional-tag">(required)</span>
+          </label>
+          <textarea class="eq-call-confirm-issue" id="pmCallIssue" rows="2" placeholder="e.g., Compressor not cooling, freezing intermittently..."></textarea>
+        </div>
+        
+        <div class="eq-call-confirm-actions">
+          <button class="eq-btn eq-btn-secondary" type="button" id="pmCallCancel">Cancel</button>
+          <a class="eq-btn eq-call-service-btn is-disabled" id="pmCallGo" href="${esc(telHref)}" aria-disabled="true">📞 Call Now</a>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    requestAnimationFrame(() => modal.classList.add('active'));
+    
+    const close = () => { modal.classList.remove('active'); setTimeout(() => modal.remove(), 200); };
+    const nameEl = modal.querySelector('#pmCallerName');
+    const issueEl = modal.querySelector('#pmCallIssue');
+    const callBtn = modal.querySelector('#pmCallGo');
+    
+    const validate = () => {
+      const hasName = nameEl.value.trim().length >= 2;
+      const hasIssue = issueEl.value.trim().length >= 2;
+      const ok = hasName && hasIssue;
+      callBtn.classList.toggle('is-disabled', !ok);
+      callBtn.setAttribute('aria-disabled', ok ? 'false' : 'true');
+    };
+    nameEl.addEventListener('input', validate);
+    issueEl.addEventListener('input', validate);
+    setTimeout(() => nameEl.focus(), 250);
+    
+    modal.querySelector('.eq-call-confirm-bg').addEventListener('click', close);
+    modal.querySelector('#pmCallCancel').addEventListener('click', close);
+    
+    callBtn.addEventListener('click', async (e) => {
+      const callerName = nameEl.value.trim();
+      const issue = issueEl.value.trim();
+      if (!callerName || callerName.length < 2 || !issue || issue.length < 2) {
+        e.preventDefault();
+        const target = !callerName || callerName.length < 2 ? nameEl : issueEl;
+        target.focus();
+        target.style.borderColor = '#e07070';
+        setTimeout(() => { target.style.borderColor = ''; }, 1200);
+        return;
+      }
+      // Log the dispatch before the browser hands off to the dialer
+      try {
+        // Look up equipment_id from qr_code
+        const { data: eq } = await NX.sb.from('equipment').select('id,name').eq('qr_code', qrCode).maybeSingle();
+        await NX.sb.from('dispatch_events').insert({
+          equipment_id: eq?.id || null,
+          contractor_name: contact.name || 'Service',
+          contractor_phone: contact.phone || null,
+          method: 'call',
+          issue_description: issue,
+          dispatched_by: callerName + ' (public QR)',
+          outcome: 'pending',
+        });
+        await NX.sb.from('daily_logs').insert({
+          entry: `📞 [PUBLIC-DISPATCH] ${callerName} called ${contact.name || 'Service'} (${contact.phone || 'no phone'}) for "${issue}" re: ${eq?.name || qrCode}`
+        });
+      } catch (err) { console.warn('public dispatch log failed:', err); }
+      setTimeout(close, 100);
+    });
   }
 
 })();
