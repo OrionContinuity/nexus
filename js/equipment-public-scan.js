@@ -1,8 +1,23 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   NEXUS Public Scan Detector
-   Load this BEFORE other scripts. If ?equip=XXX is in URL and NOT ?login=1,
-   shows public read-only equipment view instead of the login/auth flow.
+   NEXUS Public Scan Detector v2
+   
+   When a ?equip=XXX URL is opened (QR code scan) and no login is forced,
+   show the public equipment scan view — which gives contractors three
+   options: PM Logger / Login / Report Issue.
+   
+   Fix vs v1: The v1 detector waited for NX.modules.equipment.renderPublicScanView
+   to appear in global scope — but that function is defined inside 
+   equipment-p3.js which is lazy-loaded only when the user navigates to
+   the Equipment tab AFTER logging in. So for unauthenticated QR scans,
+   that function never existed and the polling ran forever — the app
+   would fall through to the login screen.
+   
+   v2 eagerly loads the equipment scripts the public view needs:
+     • equipment.js (base module)
+     • equipment-p3.js (defines renderPublicScanView)
+     • equipment-public-pm.js is already loaded globally (PM Logger button)
    ═══════════════════════════════════════════════════════════════════════ */
+
 (function(){
   const params = new URLSearchParams(window.location.search);
   const equipParam = params.get('equip');
@@ -10,10 +25,14 @@
 
   if (!equipParam || forceLogin) return; // Normal flow
 
-  // Check if a session already exists — if so, proceed normally
+  // Check if a session already exists — if so, proceed normally.
+  // NOTE: NEXUS uses sessionStorage for session (nexus_current_user +
+  // nexus_session_token). We only skip the public view if a REAL session
+  // is active — not just localStorage junk from other apps.
   try {
-    const existingSession = localStorage.getItem('nx_session') || localStorage.getItem('sb-auth');
-    if (existingSession) {
+    const activeUser = sessionStorage.getItem('nexus_current_user');
+    const activeToken = sessionStorage.getItem('nexus_session_token');
+    if (activeUser && activeToken) {
       // Logged in — normal flow will pick up the equip param
       return;
     }
@@ -22,13 +41,126 @@
   // Mark this as a public scan so the app doesn't try to auth
   window._NX_PUBLIC_SCAN = equipParam;
 
-  // Wait for Supabase to be initialized, then render public view
-  function waitForNX() {
-    if (window.NX && window.NX.sb && window.NX.modules?.equipment?.renderPublicScanView) {
-      window.NX.modules.equipment.renderPublicScanView(equipParam);
-    } else {
-      setTimeout(waitForNX, 100);
+  // Show a loading state immediately — otherwise there's a 1-2 second
+  // period where the user sees nothing while scripts load
+  renderBootLoader(equipParam);
+
+  // Wait for Supabase to be initialized
+  waitFor(() => window.NX && window.NX.sb, () => {
+    // Now eagerly load the equipment scripts needed for the public view.
+    // These would normally only load when user taps Equipment tab AFTER
+    // logging in — but the public view runs pre-auth, so we load them now.
+    loadScript('js/equipment.js', () => {
+      loadScript('js/equipment-p3.js', () => {
+        // Wait for the function to actually be defined on NX.modules.equipment
+        waitFor(
+          () => window.NX?.modules?.equipment?.renderPublicScanView,
+          () => {
+            try {
+              window.NX.modules.equipment.renderPublicScanView(equipParam);
+            } catch (e) {
+              console.error('[public-scan] render failed:', e);
+              showErrorScreen(e);
+            }
+          },
+          3000,
+          () => showErrorScreen(new Error('Equipment module timeout'))
+        );
+      }, () => showErrorScreen(new Error('equipment-p3.js failed to load')));
+    }, () => showErrorScreen(new Error('equipment.js failed to load')));
+  }, 5000, () => showErrorScreen(new Error('NEXUS initialization timeout')));
+
+  /* ─── Helpers ───────────────────────────────────────────────────────── */
+
+  function loadScript(src, onLoad, onError) {
+    // Check if already loaded
+    if (document.querySelector(`script[src="${src}"]`)) {
+      if (onLoad) onLoad();
+      return;
     }
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => { if (onLoad) onLoad(); };
+    s.onerror = () => { if (onError) onError(); };
+    document.head.appendChild(s);
   }
-  waitForNX();
+
+  function waitFor(check, onReady, timeoutMs, onTimeout) {
+    const start = Date.now();
+    const poll = () => {
+      if (check()) return onReady();
+      if (timeoutMs && Date.now() - start > timeoutMs) {
+        if (onTimeout) onTimeout();
+        return;
+      }
+      setTimeout(poll, 80);
+    };
+    poll();
+  }
+
+  function renderBootLoader(qrCode) {
+    // Inject a minimal loading screen so users see immediate feedback
+    // while scripts load. Styled to match the public scan aesthetic.
+    const boot = document.createElement('div');
+    boot.id = 'nxPublicBoot';
+    boot.style.cssText = `
+      position: fixed; inset: 0; z-index: 9999;
+      background: #0a0a0f;
+      display: flex; align-items: center; justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #c8a44e;
+    `;
+    boot.innerHTML = `
+      <div style="text-align: center; padding: 20px;">
+        <div style="font-size: 11px; letter-spacing: 2px; opacity: 0.6; margin-bottom: 16px;">NEXUS</div>
+        <div style="
+          width: 40px; height: 40px; margin: 0 auto 20px;
+          border: 3px solid rgba(200, 164, 78, 0.2);
+          border-top-color: #c8a44e;
+          border-radius: 50%;
+          animation: nxBootSpin 0.8s linear infinite;
+        "></div>
+        <div style="font-size: 13px; opacity: 0.75; margin-bottom: 6px;">Loading equipment…</div>
+        <div style="font-size: 10px; opacity: 0.4; font-family: 'JetBrains Mono', monospace;">${qrCode}</div>
+      </div>
+      <style>
+        @keyframes nxBootSpin { to { transform: rotate(360deg); } }
+      </style>
+    `;
+    document.body.appendChild(boot);
+  }
+
+  function showErrorScreen(err) {
+    const boot = document.getElementById('nxPublicBoot');
+    if (!boot) return;
+    boot.innerHTML = `
+      <div style="text-align: center; padding: 24px; max-width: 340px;">
+        <div style="font-size: 40px; margin-bottom: 12px;">⚠</div>
+        <div style="font-size: 16px; font-weight: 600; color: #e6dccc; margin-bottom: 8px;">
+          Could not load equipment
+        </div>
+        <div style="font-size: 12px; color: #8a826f; margin-bottom: 20px; line-height: 1.5;">
+          ${err?.message || 'Unknown error'}
+        </div>
+        <button onclick="location.reload()" style="
+          padding: 10px 24px;
+          background: #c8a44e;
+          color: #1a1408;
+          border: none; border-radius: 8px;
+          font-size: 13px; font-weight: 600;
+          cursor: pointer;
+        ">Reload</button>
+        <button onclick="location.href=location.pathname" style="
+          display: block; margin: 12px auto 0;
+          padding: 8px 20px;
+          background: transparent;
+          color: #8a826f;
+          border: 1px solid #3a3a46;
+          border-radius: 8px;
+          font-size: 12px;
+          cursor: pointer;
+        ">Go to NEXUS</button>
+      </div>
+    `;
+  }
 })();
