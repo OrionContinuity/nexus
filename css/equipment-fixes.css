@@ -2009,3 +2009,157 @@ button.eq-close {
     padding: 10px 6px !important;
   }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Public Scan — Button aesthetic overhaul
+   
+   Unifies public scan buttons with the equipment action bar aesthetic:
+     - Amber gold for primary action (PM Logger)
+     - Dark neutral cards for secondary actions (Login, Call, Report)
+     - No red, no pure white against dark background
+     - Subtle borders, consistent padding
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Base button override — higher specificity wins over equipment-public-pm.css */
+.public-scan-actions .pm-public-btn,
+.pm-public-actions .pm-public-btn {
+  display: flex !important;
+  align-items: center !important;
+  gap: 14px !important;
+  padding: 16px 18px !important;
+  border-radius: 14px !important;
+  border: 1px solid !important;
+  font-family: inherit !important;
+  text-align: left !important;
+  width: 100% !important;
+  transition: all .15s !important;
+  -webkit-tap-highlight-color: transparent !important;
+  text-decoration: none !important;
+  cursor: pointer !important;
+}
+
+/* PM Logger — primary amber gold */
+.public-scan-actions .pm-public-btn-primary,
+.pm-public-actions .pm-public-btn-primary {
+  background: linear-gradient(135deg, #c8a44e, #d4b86a) !important;
+  border-color: #b89342 !important;
+  color: #1a1408 !important;
+}
+.public-scan-actions .pm-public-btn-primary .pm-public-btn-title,
+.pm-public-actions .pm-public-btn-primary .pm-public-btn-title {
+  color: #1a1408 !important;
+}
+.public-scan-actions .pm-public-btn-primary .pm-public-btn-sub,
+.pm-public-actions .pm-public-btn-primary .pm-public-btn-sub {
+  color: rgba(26, 20, 8, 0.7) !important;
+}
+
+/* Login — dark neutral card (was white, too bright for dark theme) */
+.public-scan-actions .pm-public-btn-secondary,
+.pm-public-actions .pm-public-btn-secondary {
+  background: #15151c !important;
+  border-color: #2a2a33 !important;
+  color: #e6dccc !important;
+}
+.public-scan-actions .pm-public-btn-secondary .pm-public-btn-title,
+.pm-public-actions .pm-public-btn-secondary .pm-public-btn-title {
+  color: #e6dccc !important;
+}
+.public-scan-actions .pm-public-btn-secondary .pm-public-btn-sub,
+.pm-public-actions .pm-public-btn-secondary .pm-public-btn-sub {
+  color: #8a826f !important;
+}
+
+/* Call Contractor — dark neutral, phone icon tells the story */
+.public-scan-actions .pm-public-btn-call,
+.pm-public-actions .pm-public-btn-call {
+  background: #15151c !important;
+  border-color: #2a2a33 !important;
+  color: #e6dccc !important;
+}
+.public-scan-actions .pm-public-btn-call .pm-public-btn-title,
+.pm-public-actions .pm-public-btn-call .pm-public-btn-title {
+  color: #e6dccc !important;
+}
+.public-scan-actions .pm-public-btn-call .pm-public-btn-sub,
+.pm-public-actions .pm-public-btn-call .pm-public-btn-sub {
+  color: #8a826f !important;
+  font-family: 'JetBrains Mono', ui-monospace, monospace !important;
+  letter-spacing: 0.3px !important;
+}
+
+/* Report Issue — dark neutral, NO red tint */
+.public-scan-actions .pm-public-btn-tertiary,
+.pm-public-actions .pm-public-btn-tertiary {
+  background: #15151c !important;
+  border-color: #2a2a33 !important;
+  color: #e6dccc !important;
+}
+.public-scan-actions .pm-public-btn-tertiary .pm-public-btn-title,
+.pm-public-actions .pm-public-btn-tertiary .pm-public-btn-title {
+  color: #e6dccc !important;
+}
+.public-scan-actions .pm-public-btn-tertiary .pm-public-btn-sub,
+.pm-public-actions .pm-public-btn-tertiary .pm-public-btn-sub {
+  color: #8a826f !important;
+}
+
+/* Shared press state */
+.public-scan-actions .pm-public-btn:active,
+.pm-public-actions .pm-public-btn:active {
+  transform: scale(0.98);
+  filter: brightness(1.1);
+}
+.public-scan-actions .pm-public-btn-secondary:active,
+.public-scan-actions .pm-public-btn-call:active,
+.public-scan-actions .pm-public-btn-tertiary:active,
+.pm-public-actions .pm-public-btn-secondary:active,
+.pm-public-actions .pm-public-btn-call:active,
+.pm-public-actions .pm-public-btn-tertiary:active {
+  background: #1a1a22 !important;
+  border-color: #3a3a46 !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Public Scan — iPhone scroll fix
+   
+   Problem: iPhone Safari's dynamic viewport (URL bar collapses on scroll)
+   interacts badly with `min-height: 100vh` — content below the initial
+   viewport becomes unreachable because body/html aren't scrollable.
+   
+   Fix:
+     - Use min-height: 100% instead of 100vh on the container
+     - Ensure html, body scroll natively with -webkit-overflow-scrolling
+     - Add safe-area-inset-bottom padding for iPhone notch/home indicator
+     - Use 100dvh (dynamic viewport) where supported as fallback
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+html, body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  height: auto !important;
+  min-height: 100%;
+}
+
+.public-scan-container {
+  min-height: 100vh !important;
+  min-height: 100dvh !important; /* iOS 15.4+ — respects dynamic browser chrome */
+  height: auto !important;
+  overflow: visible !important;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 20px) !important;
+}
+
+.public-scan-body {
+  overflow: visible !important;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 40px) !important;
+}
+
+/* Make sure the footer has clearance and the page has room to breathe */
+.public-scan-footer {
+  margin-top: 30px !important;
+  padding-bottom: env(safe-area-inset-bottom, 20px) !important;
+}
