@@ -44,6 +44,35 @@
   // Show a loading state immediately — otherwise there's a 1-2 second
   // period where the user sees nothing while scripts load
   renderBootLoader(equipParam);
+  
+  // NUCLEAR OPTION: If a Service Worker is controlling this page, unregister
+  // it and reload. The SW has been interfering with blob URL injection (the
+  // debug dumps proved this — blob onload fires but script body never runs).
+  //
+  // After the reload, we'll load without a SW, everything works as plain
+  // HTTP + scripts, no interference. The SW will re-register on the next
+  // visit, but by then we've already shown the 3-button public view.
+  //
+  // We use sessionStorage as a flag to prevent infinite reload loops.
+  if (navigator.serviceWorker?.controller && !sessionStorage.getItem('_nx_sw_nuked')) {
+    console.warn('[public-scan] SW detected, unregistering for clean load');
+    sessionStorage.setItem('_nx_sw_nuked', '1');
+    navigator.serviceWorker.getRegistrations().then(regs => {
+      return Promise.all(regs.map(r => r.unregister()));
+    }).then(() => {
+      // Also clear all caches so we don't serve stale stuff
+      if (window.caches) {
+        return caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))));
+      }
+    }).then(() => {
+      // Hard reload - bypass all caches
+      window.location.reload();
+    }).catch(err => {
+      console.error('[public-scan] SW unregister failed:', err);
+      // Proceed anyway
+    });
+    return; // Don't proceed with normal load — wait for reload
+  }
 
   // Wait for Supabase to be initialized. Two paths:
   //  1. app.js runs its init() and sets NX.sb — normal flow (fast)
