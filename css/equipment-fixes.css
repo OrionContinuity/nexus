@@ -1330,3 +1330,67 @@ button.eq-close {
   -webkit-tap-highlight-color: transparent;
   transition: all 0.15s ease-out !important;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Call Contractor Button — public scan action card
+   
+   Used on the public scan page when equipment has a service_phone set
+   (either directly on equipment.service_phone or extracted from the
+   preferred contractor node). Matches the neutral dark card style of
+   Login/Report Issue — just with a phone-icon accent.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pm-public-btn-call {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: #15151c;
+  border: 1px solid #2a2a33;
+  border-radius: 12px;
+  text-decoration: none;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease-out;
+  -webkit-tap-highlight-color: transparent;
+}
+.pm-public-btn-call:active {
+  background: #1a1a22;
+  border-color: #3a3a46;
+  transform: scale(0.98);
+}
+.pm-public-btn-call .pm-public-btn-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+.pm-public-btn-call .pm-public-btn-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+.pm-public-btn-call .pm-public-btn-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e6dccc;
+  line-height: 1.2;
+}
+.pm-public-btn-call .pm-public-btn-sub {
+  font-size: 12px;
+  color: #8a826f;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.3px;
+}
+
+[data-theme="light"] .pm-public-btn-call {
+  background: #ffffff;
+  border-color: #e5e5ea;
+}
+[data-theme="light"] .pm-public-btn-call .pm-public-btn-title {
+  color: #1a1a22;
+}
+[data-theme="light"] .pm-public-btn-call .pm-public-btn-sub {
+  color: #6a6a72;
+}
