@@ -74,26 +74,26 @@
   });
 
   function proceedWithScriptLoad() {
-    // Now eagerly load the equipment scripts needed for the public view.
-    // These would normally only load when user taps Equipment tab AFTER
-    // logging in — but the public view runs pre-auth, so we load them now.
+    // Now eagerly load the equipment script needed for the public view.
+    // renderPublicScanView is now inside equipment.js (consolidated — was
+    // previously in equipment-p3.js). equipment.js is lazy-loaded only
+    // when user taps Equipment tab AFTER logging in — but the public view
+    // runs pre-auth, so we load it now.
     loadScript('js/equipment.js', () => {
-      loadScript('js/equipment-p3.js', () => {
-        // Wait for the function to actually be defined on NX.modules.equipment
-        waitFor(
-          () => window.NX?.modules?.equipment?.renderPublicScanView,
-          () => {
-            try {
-              window.NX.modules.equipment.renderPublicScanView(equipParam);
-            } catch (e) {
-              console.error('[public-scan] render failed:', e);
-              showErrorScreen(e);
-            }
-          },
-          5000,
-          () => showErrorScreen(new Error('renderPublicScanView not found after equipment-p3.js loaded'))
-        );
-      }, () => showErrorScreen(new Error('equipment-p3.js failed to load')));
+      // Wait for the function to actually be defined on NX.modules.equipment
+      waitFor(
+        () => window.NX?.modules?.equipment?.renderPublicScanView,
+        () => {
+          try {
+            window.NX.modules.equipment.renderPublicScanView(equipParam);
+          } catch (e) {
+            console.error('[public-scan] render failed:', e);
+            showErrorScreen(e);
+          }
+        },
+        5000,
+        () => showErrorScreen(new Error('renderPublicScanView not found after equipment.js loaded'))
+      );
     }, () => showErrorScreen(new Error('equipment.js failed to load')));
   }
 
