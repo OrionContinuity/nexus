@@ -272,7 +272,7 @@
             
             <label class="pm-label">📷 Photos</label>
             <input type="file" id="pmPhotos" class="pm-input pm-file" 
-              accept="image/*" multiple capture="environment">
+              accept="image/*" multiple>
             <div class="pm-photo-preview" id="pmPhotoPreview"></div>
             
             <label class="pm-label">📄 Invoice / Report PDF</label>
