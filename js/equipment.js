@@ -3136,6 +3136,33 @@ async function openFullEditor(equipId) {
           <div class="eq-specs-help">
             External links — manufacturer website, manual URL, training video, etc. Clickable from the equipment detail.
           </div>
+          
+          <div class="eq-form-group eq-service-contact" style="margin-bottom:18px;padding:14px;background:var(--elevated,#15151c);border:1px solid var(--border,#2a2a33);border-radius:10px">
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              📞 Service Contact
+              <span style="font-weight:400;font-size:11px;color:var(--muted,#8a826f)">— Powers the "Call" button on QR scan</span>
+            </label>
+            <div class="eq-form-row">
+              <div class="eq-form-group" style="flex:1">
+                <label style="font-size:11px">Contact Name (optional)</label>
+                <input data-field="service_contact_name" value="${escAttr(eq.service_contact_name||'')}" placeholder="Austin Air and Ice">
+              </div>
+              <div class="eq-form-group" style="flex:1">
+                <label style="font-size:11px">Phone Number</label>
+                <input type="tel" data-field="service_phone" value="${escAttr(eq.service_phone||'')}" placeholder="(512) 555-1234">
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button type="button" class="eq-btn eq-btn-tiny eq-btn-secondary" onclick="NX.modules.equipment.lookupServicePhoneFromNode('${eq.id}')" style="flex:1">
+                🔍 Look up from preferred contractor
+              </button>
+              ${eq.service_phone ? `<a href="tel:${escAttr(eq.service_phone)}" class="eq-btn eq-btn-tiny" style="flex:0 0 auto">Test Call</a>` : ''}
+            </div>
+            <div style="font-size:11px;color:var(--muted,#8a826f);margin-top:8px;line-height:1.4">
+              Leave blank to auto-fall-back to the preferred contractor's phone.
+            </div>
+          </div>
+
           <div class="eq-form-group">
             <label>Manual Source URL</label>
             <div class="eq-url-field">
@@ -3829,6 +3856,94 @@ function buildDispatchMessage(eq, ticket, contact, userName) {
   return body;
 }
 
+/* ═════════════════════════════════════════════════════════════════════════
+   LOOKUP SERVICE PHONE FROM NODE
+   
+   Called from the Links tab in openFullEditor when user clicks "Look up
+   from preferred contractor." Reads the preferred contractor node, extracts
+   phone + name, and populates the service_contact_name and service_phone
+   form inputs.
+   
+   If no preferred contractor is set, falls back to scanning recent
+   maintenance records for the most-used contractor and grabbing theirs.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+async function lookupServicePhoneFromNode(equipId) {
+  try {
+    const { data: eq } = await NX.sb.from('equipment')
+      .select('preferred_contractor_node_id, name')
+      .eq('id', equipId).single();
+    if (!eq) throw new Error('Equipment not found');
+
+    let node = null;
+    
+    // Primary: preferred contractor
+    if (eq.preferred_contractor_node_id) {
+      const { data } = await NX.sb.from('nodes')
+        .select('id, name, notes, tags, links')
+        .eq('id', eq.preferred_contractor_node_id).single();
+      node = data;
+    }
+    
+    // Fallback: find most recent maintenance record with a performed_by,
+    // then match that string against contractor nodes
+    if (!node) {
+      const { data: maint } = await NX.sb.from('equipment_maintenance')
+        .select('performed_by')
+        .eq('equipment_id', equipId)
+        .not('performed_by', 'is', null)
+        .order('event_date', { ascending: false })
+        .limit(5);
+      
+      if (maint?.length) {
+        // Get the most common contractor name
+        const counts = {};
+        maint.forEach(m => {
+          if (m.performed_by) counts[m.performed_by] = (counts[m.performed_by] || 0) + 1;
+        });
+        const topName = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+        
+        // Search contractor nodes matching that name
+        const pool = NX.nodes || [];
+        node = pool.find(n => {
+          const cat = (n.category || '').toLowerCase();
+          if (cat !== 'contractor' && cat !== 'vendor' && cat !== 'service') return false;
+          return (n.name || '').toLowerCase().includes(topName.toLowerCase().split(/\s+/)[0]);
+        });
+      }
+    }
+    
+    if (!node) {
+      NX.toast && NX.toast('No contractor found. Set a preferred contractor first via the Dispatch sheet.', 'warning');
+      return;
+    }
+    
+    // Extract phone from node (links.phone OR regex from notes)
+    const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
+    const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+    const links = node.links || {};
+    const phone = links.phone || (phoneMatch ? phoneMatch[0].trim() : '');
+    
+    if (!phone) {
+      NX.toast && NX.toast(`Found ${node.name} but no phone on file. Add one to their node in Brain first.`, 'warning');
+      return;
+    }
+    
+    // Populate form inputs
+    const modal = document.getElementById('eqFullEditModal');
+    if (!modal) return;
+    const nameInput = modal.querySelector('[data-field="service_contact_name"]');
+    const phoneInput = modal.querySelector('[data-field="service_phone"]');
+    if (nameInput && !nameInput.value) nameInput.value = node.name || '';
+    if (phoneInput) phoneInput.value = phone;
+    
+    NX.toast && NX.toast(`✓ Filled from ${node.name}`, 'success');
+  } catch (err) {
+    console.error('[lookupServicePhoneFromNode] failed:', err);
+    NX.toast && NX.toast('Lookup failed: ' + err.message, 'error');
+  }
+}
+
 async function openDispatchSheet(equipId, ticketId) {
   const ctx = await loadEquipmentForDispatch(equipId);
   if (!ctx) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
@@ -4483,6 +4598,7 @@ NX.modules.equipment = {
   loadContractors,
   cycleDispatchOutcome,
   dispatchFromTicket,
+  lookupServicePhoneFromNode,
 };
 
 console.log('[Equipment] unified module loaded — ' + Object.keys(NX.modules.equipment).length + ' exports');
