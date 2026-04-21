@@ -666,6 +666,12 @@ td.check{background:#F0EDE6 !important}
       const err=document.getElementById('pinError');
       if(err) err.textContent='No connection to server';
     });
+    // Skip PIN screen setup if this is a public QR scan — the public scan
+    // detector will render its own UI over the page body
+    if (window._NX_PUBLIC_SCAN) {
+      console.log('[app] public scan active, skipping PIN setup');
+      return;
+    }
     await this.setupPinScreen();
   },
 
