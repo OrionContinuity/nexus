@@ -93,27 +93,72 @@
     renderShell(equipParam);
     try {
       const { data: eq, error } = await NX.sb.from('equipment')
-        .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code')
+        .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, preferred_contractor_node_id, service_phone, service_contact_name')
         .eq('qr_code', equipParam)
         .single();
       if (error || !eq) throw new Error('Equipment not found for QR: ' + equipParam);
 
-      const { data: maint } = await NX.sb.from('equipment_maintenance')
-        .select('event_type, event_date, description, performed_by')
-        .eq('equipment_id', eq.id)
-        .order('event_date', { ascending: false })
-        .limit(5);
+      // Fetch maintenance history AND (fallback) contractor info in parallel
+      const [maintRes, contractorRes] = await Promise.all([
+        NX.sb.from('equipment_maintenance')
+          .select('event_type, event_date, description, performed_by')
+          .eq('equipment_id', eq.id)
+          .order('event_date', { ascending: false })
+          .limit(5),
+        // Only fetch the contractor node if we don't have a direct service_phone
+        // (saves a query when the phone is set directly on equipment)
+        (!eq.service_phone && eq.preferred_contractor_node_id)
+          ? NX.sb.from('nodes').select('id, name, notes, tags, links').eq('id', eq.preferred_contractor_node_id).single()
+          : Promise.resolve({ data: null })
+      ]);
 
-      renderDetails(eq, maint || []);
+      // Priority order for the Call button:
+      //   1. eq.service_phone (direct, most reliable) + eq.service_contact_name
+      //   2. Fallback to preferred contractor node's phone (extracted)
+      //   3. null = no Call button
+      let contact = null;
+      if (eq.service_phone) {
+        contact = {
+          name: eq.service_contact_name || 'Service',
+          phone: eq.service_phone,
+          phoneHref: normalizePhoneForTel(eq.service_phone)
+        };
+      } else if (contractorRes?.data) {
+        contact = extractContractor(contractorRes.data);
+      }
+
+      renderDetails(eq, maintRes.data || [], contact);
       
-      // Let equipment-public-pm.js know the eq is ready; it can enhance
-      // the PM Logger button with real functionality
       window._NX_PUBLIC_SCAN_EQ = eq;
       window.dispatchEvent(new CustomEvent('nx-public-scan-ready', { detail: { eq } }));
     } catch (err) {
       console.error('[public-scan] load failed:', err);
       showError(err.message || 'Could not load equipment');
     }
+  }
+
+  // Extract contractor name + phone from a node record.
+  // Phone can live in either links.phone (structured) or be regex-extracted
+  // from notes as a fallback. Replicates equipment.js's extractContact helper.
+  function extractContractor(node) {
+    if (!node) return null;
+    const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
+    const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+    const links = node.links || {};
+    const phone = (links.phone || (phoneMatch ? phoneMatch[0].trim() : '')) || '';
+    if (!phone) return null;
+    return {
+      name: node.name || 'Contractor',
+      phone: phone,
+      phoneHref: normalizePhoneForTel(phone)
+    };
+  }
+
+  function normalizePhoneForTel(p) {
+    if (!p) return '';
+    const cleaned = p.replace(/[^\d+]/g, '');
+    if (cleaned.length === 10 && !cleaned.startsWith('+')) return '+1' + cleaned;
+    return cleaned;
   }
 
   function renderShell(qrCode) {
@@ -129,7 +174,7 @@
     `;
   }
 
-  function renderDetails(eq, maint) {
+  function renderDetails(eq, maint, contractor) {
     const statusMap = {
       operational:    { label: 'Operational',    color: '#4caf50' },
       needs_service:  { label: 'Needs Service',  color: '#ff9800' },
@@ -141,6 +186,18 @@
     const pmStr = pm ? pm.toLocaleDateString() : 'Not scheduled';
     const pmOverdue = pm && pm < new Date();
     const loginUrl = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}&login=1`;
+    
+    // Contractor call button — only shown if equipment has a preferred
+    // contractor with a valid phone number. Uses tel: href for native dialer.
+    const callBtnHtml = contractor ? `
+          <a class="pm-public-btn pm-public-btn-call" href="tel:${esc(contractor.phoneHref)}">
+            <span class="pm-public-btn-icon">📞</span>
+            <span class="pm-public-btn-label">
+              <span class="pm-public-btn-title">Call ${esc(contractor.name)}</span>
+              <span class="pm-public-btn-sub">${esc(contractor.phone)}</span>
+            </span>
+          </a>
+    ` : '';
     
     const body = document.getElementById('publicScanBody');
     if (!body) return;
@@ -190,6 +247,7 @@
               <span class="pm-public-btn-sub">Restaurant staff</span>
             </span>
           </button>
+          ${callBtnHtml}
           <button class="pm-public-btn pm-public-btn-tertiary" onclick="window._NX_OPEN_REPORT_ISSUE('${eq.qr_code}')">
             <span class="pm-public-btn-icon">🚨</span>
             <span class="pm-public-btn-label">
