@@ -76,10 +76,15 @@
   function proceedWithScriptLoad() {
     // Now eagerly load the equipment script needed for the public view.
     // renderPublicScanView is now inside equipment.js (consolidated — was
-    // previously in equipment-p3.js). equipment.js is lazy-loaded only
-    // when user taps Equipment tab AFTER logging in — but the public view
-    // runs pre-auth, so we load it now.
-    loadScript('js/equipment.js', () => {
+    // previously in equipment-p3.js).
+    //
+    // CACHE-BUST: Append a timestamp query string so we bypass both the
+    // service worker cache and GitHub Pages CDN cache. This prevents the
+    // "stale cache serving old equipment.js without renderPublicScanView"
+    // failure that happens when users scan QR codes on phones that had
+    // cached the pre-consolidation version of the file.
+    const cacheBust = '?v=' + (window._NX_BUILD || Date.now());
+    loadScript('js/equipment.js' + cacheBust, () => {
       // Wait for the function to actually be defined on NX.modules.equipment
       waitFor(
         () => window.NX?.modules?.equipment?.renderPublicScanView,
@@ -92,9 +97,17 @@
           }
         },
         5000,
-        () => showErrorScreen(new Error('renderPublicScanView not found after equipment.js loaded'))
+        () => {
+          // Diagnostic: did the module load at all?
+          const modLoaded = !!window.NX?.modules?.equipment;
+          const keyCount = modLoaded ? Object.keys(window.NX.modules.equipment).length : 0;
+          const msg = modLoaded
+            ? `Module loaded (${keyCount} exports) but renderPublicScanView missing. Stale cache? Try hard-reload.`
+            : 'equipment.js loaded but NX.modules.equipment never initialized. Check console for JS errors.';
+          showErrorScreen(new Error(msg));
+        }
       );
-    }, () => showErrorScreen(new Error('equipment.js failed to load')));
+    }, () => showErrorScreen(new Error('equipment.js failed to load (network error)')));
   }
 
   /* ─── Helpers ───────────────────────────────────────────────────────── */
