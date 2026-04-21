@@ -5076,12 +5076,14 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
       <div class="eq-call-confirm-phone">${esc(prettyPhone)}</div>
       <div class="eq-call-confirm-meta">${esc(sourceLabel)} · ${esc(equipName)}</div>
       <div class="eq-call-confirm-issue-wrap">
-        <label class="eq-call-confirm-issue-label">What's the issue? <span style="opacity:0.6">(optional)</span></label>
+        <label class="eq-call-confirm-issue-label" for="eqCallIssue">
+          What's the issue? <span class="eq-optional-tag">(required — helps log the call)</span>
+        </label>
         <textarea class="eq-call-confirm-issue" id="eqCallIssue" rows="2" placeholder="e.g., Compressor not cooling, freezing intermittently..."></textarea>
       </div>
       <div class="eq-call-confirm-actions">
         <button class="eq-btn eq-btn-secondary" id="eqCallCancel">Cancel</button>
-        <a class="eq-btn eq-call-service-btn" id="eqCallGo" href="tel:${esc(telHref)}">📞 Call Now</a>
+        <a class="eq-btn eq-call-service-btn is-disabled" id="eqCallGo" href="tel:${esc(telHref)}" aria-disabled="true">📞 Call Now</a>
       </div>
     </div>
   `;
@@ -5089,10 +5091,30 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
   requestAnimationFrame(() => modal.classList.add('active'));
   
   const close = () => { modal.classList.remove('active'); setTimeout(() => modal.remove(), 200); };
+  const issueEl = modal.querySelector('#eqCallIssue');
+  const callBtn = modal.querySelector('#eqCallGo');
+  
+  // Enable Call Now only when there's at least 2 chars in the textarea
+  issueEl.addEventListener('input', () => {
+    const hasText = issueEl.value.trim().length >= 2;
+    callBtn.classList.toggle('is-disabled', !hasText);
+    callBtn.setAttribute('aria-disabled', hasText ? 'false' : 'true');
+  });
+  // Autofocus so user can type right away on mobile
+  setTimeout(() => issueEl.focus(), 250);
+  
   modal.querySelector('.eq-call-confirm-bg').addEventListener('click', close);
   document.getElementById('eqCallCancel').addEventListener('click', close);
-  document.getElementById('eqCallGo').addEventListener('click', async () => {
-    const issue = (document.getElementById('eqCallIssue')?.value || '').trim();
+  callBtn.addEventListener('click', async (e) => {
+    const issue = issueEl.value.trim();
+    // Guard — if somehow disabled state was bypassed
+    if (!issue || issue.length < 2) {
+      e.preventDefault();
+      issueEl.focus();
+      issueEl.style.borderColor = '#e07070';
+      setTimeout(() => { issueEl.style.borderColor = ''; }, 1200);
+      return;
+    }
     // Log to dispatch_events (structured audit trail)
     try {
       await NX.sb.from('dispatch_events').insert({
@@ -5101,18 +5123,17 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
         contractor_name: contactName,
         contractor_phone: phone,
         method: 'call',
-        issue_description: issue || null,
+        issue_description: issue,
         dispatched_by: NX.currentUser?.name || null,
         outcome: 'pending',
       });
-    } catch (e) { console.warn('dispatch_events log failed:', e); }
+    } catch (err) { console.warn('dispatch_events log failed:', err); }
     // Log to daily_logs (human-readable activity stream)
     try {
-      const issueStr = issue ? ` for "${issue}"` : '';
       await NX.sb.from('daily_logs').insert({
-        entry: `📞 [DISPATCH] ${NX.currentUser?.name || 'Unknown'} called ${contactName} (${phone})${issueStr} re: ${equipName}`
+        entry: `📞 [DISPATCH] ${NX.currentUser?.name || 'Unknown'} called ${contactName} (${phone}) for "${issue}" re: ${equipName}`
       });
-    } catch (e) { console.warn('daily_logs dispatch entry failed:', e); }
+    } catch (err) { console.warn('daily_logs dispatch entry failed:', err); }
     setTimeout(close, 100);
   });
 }
