@@ -3976,6 +3976,35 @@ async function openDispatchSheet(equipId, ticketId) {
   let selectedContact = null;
   let selectedMethod = null;
   let composedMessage = '';
+  
+  // Auto-select preferred contractor if equipment has one set.
+  // Skips the contact picker entirely and jumps straight to the method stage.
+  // User can still tap "Back" to change contractor if needed.
+  if (eq.preferred_contractor_node_id) {
+    const preferred = contractors.find(c => c.id === eq.preferred_contractor_node_id);
+    if (preferred) {
+      selectedContact = preferred;
+      stage = 'method';
+    }
+  }
+  
+  // If no preferred contractor but the ticket has a recent dispatch to
+  // somebody, use them. This handles the "reopen last dispatch" case.
+  if (!selectedContact && activeTicket) {
+    try {
+      const { data: recent } = await NX.sb.from('dispatch_events')
+        .select('contractor_node_id')
+        .eq('ticket_id', activeTicket.id)
+        .not('contractor_node_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (recent?.contractor_node_id) {
+        const c = contractors.find(x => x.id === recent.contractor_node_id);
+        if (c) { selectedContact = c; stage = 'method'; }
+      }
+    } catch (e) {}
+  }
 
   const close = () => { overlay.classList.remove('active'); overlay.innerHTML = ''; };
   if (isFreshOverlay) overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
