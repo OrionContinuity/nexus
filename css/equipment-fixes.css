@@ -1091,3 +1091,242 @@
 [data-theme="light"] .eq-part.eq-part-accordion[data-expanded="1"] {
   background: rgba(255, 255, 255, 0.9);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EQUIPMENT DETAIL CLOSE BUTTON (✕) — mobile fix
+   
+   The default ✕ sits at top:12px right:12px with no background, which on
+   mobile Chrome visually collides with the browser's three-dot menu in
+   the address bar chrome. Also the tap target was tiny (4x8px padding
+   on a 20px font = ~28px tap area) which violates the 44px minimum.
+   
+   Fix:
+     • Larger 40x40 circular button with subtle background
+     • Pulled slightly further inset so it doesn't visually touch Chrome's
+       controls at the viewport edge
+     • Proper tap feedback
+     • Respects safe-area-inset-top on devices with notches
+   ═══════════════════════════════════════════════════════════════════════════ */
+.eq-close {
+  position: absolute !important;
+  top: calc(10px + env(safe-area-inset-top, 0px)) !important;
+  right: 10px !important;
+  width: 38px !important;
+  height: 38px !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  background: rgba(20, 18, 26, 0.85) !important;
+  border: 1px solid rgba(200, 164, 78, 0.25) !important;
+  color: var(--text, #e6dccc) !important;
+  font-size: 18px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.15s ease-out;
+  z-index: 2;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.eq-close:hover {
+  background: rgba(200, 164, 78, 0.15) !important;
+  border-color: rgba(200, 164, 78, 0.5) !important;
+  color: var(--accent, #c8a44e) !important;
+}
+.eq-close:active {
+  transform: scale(0.9);
+  background: rgba(200, 164, 78, 0.25) !important;
+}
+
+/* Also shift the detail head's right padding so the title/status pill
+   doesn't slide under the ✕ button */
+.eq-detail-head {
+  padding-right: 58px !important;
+}
+
+/* Light theme */
+[data-theme="light"] .eq-close {
+  background: rgba(255, 255, 255, 0.9) !important;
+  color: #1a1408 !important;
+  border-color: rgba(200, 164, 78, 0.3) !important;
+}
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEXUS Equipment Close Button Fix v1
+   
+   Problem: The X close button on equipment detail modals was positioned
+   `top: 12px; right: 12px` — which on mobile browsers overlaps with
+   Chrome's 3-dot menu in the top-right corner. Taps frequently hit the
+   browser chrome instead of the X, or vice versa.
+   
+   Additionally, the tap target was only ~30px (below mobile standard
+   44×44px per Apple HIG / Material Design), and the X had no visible
+   button affordance — just a thin glyph on transparent background.
+   
+   Fix:
+     • Move the X to the LEFT side of the header — safe from browser chrome
+     • Make it a proper 40×40px circle with background + border
+     • Keep it inside the flex flow (no more position: absolute)
+     • Add min-height 44px to the entire header so the tap zone is guaranteed
+     • Add padding-top on the modal so it clears the browser URL bar safely
+   
+   This applies to all four .eq-close instances (detail, edit, service, part).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Override the close button — take it out of absolute positioning */
+.eq-close {
+  position: static !important;
+  top: auto !important;
+  right: auto !important;
+  
+  /* Proper mobile tap target (Apple HIG: 44pt min, Material: 48dp) */
+  width: 40px !important;
+  height: 40px !important;
+  padding: 0 !important;
+  
+  /* Visual affordance — circle with subtle border */
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 50% !important;
+  background: rgba(200, 164, 78, 0.08) !important;
+  border: 1px solid rgba(200, 164, 78, 0.25) !important;
+  
+  /* Typography */
+  font-size: 18px !important;
+  line-height: 1 !important;
+  color: var(--muted, #8a826f) !important;
+  
+  /* Place it FIRST in the flex order so it sits on the LEFT */
+  order: -1 !important;
+  flex-shrink: 0 !important;
+  
+  /* Prevent the tap being eaten by the Chrome URL bar zone */
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.15s ease-out !important;
+}
+
+.eq-close:active {
+  background: rgba(200, 164, 78, 0.2) !important;
+  border-color: var(--accent, #c8a44e) !important;
+  color: var(--accent, #c8a44e) !important;
+  transform: scale(0.92) !important;
+}
+
+.eq-close:hover {
+  background: rgba(200, 164, 78, 0.15) !important;
+  color: var(--accent, #c8a44e) !important;
+}
+
+/* Ensure the header has enough padding and room — add top-safe-area
+   so the whole header clears the browser chrome zone */
+.eq-detail-head {
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px 14px !important;
+  gap: 12px !important;
+  align-items: center !important;
+  min-height: 60px !important;
+}
+
+/* Make sure the status pill doesn't get cramped against the edge */
+.eq-detail-status {
+  flex-shrink: 0 !important;
+  margin-left: auto !important;
+}
+
+/* Light theme — tweak contrast */
+[data-theme="light"] .eq-close {
+  background: rgba(200, 164, 78, 0.12) !important;
+  border-color: rgba(200, 164, 78, 0.35) !important;
+}
+[data-theme="light"] .eq-close:active {
+  background: rgba(200, 164, 78, 0.3) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEXUS Report Issue Button Restyle v1
+   
+   Problem: The Report Issue button was rendered with a red-tinted outlined
+   style that clashed with the clean amber/white aesthetic of PM Logger and
+   Login. The red background tint + red text + red border felt alarming,
+   like clicking it would delete something.
+   
+   Fix: Match the neutral card style of the Login button but with a subtle
+   amber accent on the icon so it's still visually distinct as the "report
+   a problem" action. No red backgrounds, no red borders — just a clean
+   dark card with red only on the emoji/alert glyph.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pm-public-btn-tertiary {
+  /* Override any red-tinted styling inherited from earlier versions */
+  background: #15151c !important;
+  border: 1px solid #2a2a33 !important;
+  color: #c8c0b0 !important;
+}
+
+.pm-public-btn-tertiary .pm-public-btn-title {
+  color: #e6dccc !important;
+}
+
+.pm-public-btn-tertiary .pm-public-btn-sub {
+  color: #8a826f !important;
+}
+
+.pm-public-btn-tertiary:active {
+  background: #1a1a22 !important;
+  border-color: #3a3a46 !important;
+  transform: scale(0.98);
+}
+
+/* Light theme */
+[data-theme="light"] .pm-public-btn-tertiary {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  color: #1a1a22 !important;
+}
+[data-theme="light"] .pm-public-btn-tertiary .pm-public-btn-title {
+  color: #1a1a22 !important;
+}
+[data-theme="light"] .pm-public-btn-tertiary .pm-public-btn-sub {
+  color: #6a6a72 !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEXUS Close Button Fix v2 — more aggressive
+   
+   The v1 fix moved .eq-close to the left side of the header but some
+   markup patterns are still placing it in the top-right corner where it
+   overlaps Chrome's 3-dot menu. Increase specificity + add extra rules
+   to catch all variants.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.eq-modal .eq-close,
+.eq-detail .eq-close,
+.eq-detail-head .eq-close,
+div.eq-close,
+button.eq-close {
+  position: static !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  width: 40px !important;
+  height: 40px !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 50% !important;
+  background: rgba(200, 164, 78, 0.08) !important;
+  border: 1px solid rgba(200, 164, 78, 0.25) !important;
+  font-size: 18px !important;
+  line-height: 1 !important;
+  color: #c8a44e !important;
+  order: -1 !important;
+  flex-shrink: 0 !important;
+  margin: 0 !important;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.15s ease-out !important;
+}
