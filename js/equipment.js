@@ -389,7 +389,7 @@ async function openDetail(id) {
 
       <div class="eq-detail-actions">
         <button class="eq-btn eq-btn-primary eq-zebra-action-btn" onclick="NX.modules.equipment.quickPrint('${eq.id}')">🏷️ Print Label</button>
-        <button class="eq-btn eq-dispatch-btn" onclick="NX.modules.equipment.openDispatchSheet('${eq.id}')">📞 Dispatch</button>
+        <button class="eq-btn eq-call-service-btn" onclick="NX.modules.equipment.callService('${eq.id}')">📞 Call Service</button>
         <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">✎ Edit Everything</button>
         <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.logService('${eq.id}')">+ Log Service</button>
         <div class="eq-overflow-wrap">
@@ -4407,6 +4407,65 @@ function dispatchFromTicket(equipId, ticketId) {
   return openDispatchSheet(equipId, ticketId);
 }
 
+// Direct call to service contact. Mirrors the public scan Call button logic:
+//   1. Use equipment.service_phone if set
+//   2. Fallback to preferred_contractor_node_id → nodes.links.phone
+//   3. If neither exists, prompt to set one up
+async function callService(equipId) {
+  try {
+    const { data: eq } = await NX.sb.from('equipment')
+      .select('id, name, service_phone, service_contact_name, preferred_contractor_node_id')
+      .eq('id', equipId).single();
+    if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
+    
+    let phone = eq.service_phone;
+    let name = eq.service_contact_name;
+    
+    // Fallback to contractor node
+    if (!phone && eq.preferred_contractor_node_id) {
+      const { data: node } = await NX.sb.from('nodes')
+        .select('name, notes, tags, links')
+        .eq('id', eq.preferred_contractor_node_id).single();
+      if (node) {
+        const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
+        const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+        const links = node.links || {};
+        phone = links.phone || (phoneMatch ? phoneMatch[0].trim() : '');
+        name = name || node.name;
+      }
+    }
+    
+    if (!phone) {
+      const go = confirm(`No service contact saved for ${eq.name}.\n\nOpen the editor to add one?`);
+      if (go) openFullEditor(equipId);
+      return;
+    }
+    
+    // Normalize to tel: format (E.164 if US 10-digit)
+    const cleaned = phone.replace(/[^\d+]/g, '');
+    const telHref = cleaned.length === 10 && !cleaned.startsWith('+') ? '+1' + cleaned : cleaned;
+    
+    // Log the call attempt to dispatch_events for tracking
+    try {
+      await NX.sb.from('dispatch_events').insert({
+        equipment_id: equipId,
+        contractor_node_id: eq.preferred_contractor_node_id || null,
+        contractor_name: name || 'Service',
+        contractor_phone: phone,
+        method: 'call',
+        dispatched_by: NX.currentUser?.name || null,
+        outcome: 'pending',
+      });
+    } catch (e) { console.warn('dispatch_events log failed:', e); }
+    
+    // Open native dialer
+    window.location.href = 'tel:' + telHref;
+  } catch (err) {
+    console.error('[callService] failed:', err);
+    NX.toast && NX.toast('Call failed: ' + err.message, 'error');
+  }
+}
+
 // Three-dot overflow menu in the equipment detail action bar.
 // Hides destructive actions (currently just Delete) behind a tap to prevent
 // accidental triggers. Auto-closes on outside tap.
@@ -4656,6 +4715,7 @@ NX.modules.equipment = {
   loadContractors,
   cycleDispatchOutcome,
   dispatchFromTicket,
+  callService,
   lookupServicePhoneFromNode,
   toggleOverflow,
 };
