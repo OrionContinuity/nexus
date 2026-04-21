@@ -388,14 +388,14 @@ async function openDetail(id) {
       </div>
 
       <div class="eq-detail-actions">
-        <button class="eq-btn eq-btn-primary eq-zebra-action-btn" onclick="NX.modules.equipment.quickPrint('${eq.id}')">🏷️ Print Label</button>
+        <button class="eq-btn eq-btn-primary eq-zebra-action-btn" onclick="NX.modules.equipment.quickPrint('${eq.id}')">🖨 Print</button>
         <button class="eq-btn eq-call-service-btn" onclick="NX.modules.equipment.callService('${eq.id}')">📞 Call Service</button>
-        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">✎ Edit Everything</button>
-        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.logService('${eq.id}')">+ Log Service</button>
+        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">⚙ Edit</button>
+        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.logService('${eq.id}')">📝 Log</button>
         <div class="eq-overflow-wrap">
           <button class="eq-btn eq-overflow-btn" onclick="NX.modules.equipment.toggleOverflow(event, '${eq.id}')" aria-label="More actions">⋯</button>
           <div class="eq-overflow-menu" id="eqOverflow-${eq.id}" onclick="event.stopPropagation()">
-            <button class="eq-overflow-item eq-overflow-danger" onclick="NX.modules.equipment.deleteEquipment('${eq.id}')">🗑 Delete equipment</button>
+            <button class="eq-overflow-item eq-overflow-danger" onclick="NX.modules.equipment.deleteEquipment('${eq.id}')">🗑 Delete permanently</button>
           </div>
         </div>
       </div>
@@ -4407,7 +4407,10 @@ function dispatchFromTicket(equipId, ticketId) {
   return openDispatchSheet(equipId, ticketId);
 }
 
-// Direct call to service contact. Mirrors the public scan Call button logic:
+// Direct call to service contact. Shows a themed confirm modal before
+// dialing so the user sees WHO they're about to call.
+//
+// Priority for phone lookup:
 //   1. Use equipment.service_phone if set
 //   2. Fallback to preferred_contractor_node_id → nodes.links.phone
 //   3. If neither exists, prompt to set one up
@@ -4420,6 +4423,7 @@ async function callService(equipId) {
     
     let phone = eq.service_phone;
     let name = eq.service_contact_name;
+    let source = phone ? 'direct' : null;
     
     // Fallback to contractor node
     if (!phone && eq.preferred_contractor_node_id) {
@@ -4432,38 +4436,127 @@ async function callService(equipId) {
         const links = node.links || {};
         phone = links.phone || (phoneMatch ? phoneMatch[0].trim() : '');
         name = name || node.name;
+        source = 'contractor';
       }
     }
     
     if (!phone) {
-      const go = confirm(`No service contact saved for ${eq.name}.\n\nOpen the editor to add one?`);
-      if (go) openFullEditor(equipId);
+      showNoServiceContactModal(equipId, eq.name);
       return;
     }
     
-    // Normalize to tel: format (E.164 if US 10-digit)
-    const cleaned = phone.replace(/[^\d+]/g, '');
-    const telHref = cleaned.length === 10 && !cleaned.startsWith('+') ? '+1' + cleaned : cleaned;
-    
+    showCallConfirmModal({
+      equipId,
+      equipName: eq.name,
+      contactName: name || 'Service',
+      phone,
+      contractorNodeId: eq.preferred_contractor_node_id,
+      source
+    });
+  } catch (err) {
+    console.error('[callService] failed:', err);
+    NX.toast && NX.toast('Call failed: ' + err.message, 'error');
+  }
+}
+
+// Confirmation modal before dialing
+function showCallConfirmModal({ equipId, equipName, contactName, phone, contractorNodeId, source }) {
+  // Normalize to tel: format
+  const cleaned = phone.replace(/[^\d+]/g, '');
+  const telHref = cleaned.length === 10 && !cleaned.startsWith('+') ? '+1' + cleaned : cleaned;
+  const prettyPhone = formatPhonePretty(phone);
+  const sourceLabel = source === 'direct' ? 'Service contact on file'
+                    : source === 'contractor' ? 'Preferred contractor'
+                    : 'Service contact';
+  
+  const existing = document.getElementById('eqCallConfirm');
+  if (existing) existing.remove();
+  
+  const modal = document.createElement('div');
+  modal.id = 'eqCallConfirm';
+  modal.className = 'eq-call-confirm';
+  modal.innerHTML = `
+    <div class="eq-call-confirm-bg"></div>
+    <div class="eq-call-confirm-card">
+      <div class="eq-call-confirm-icon">📞</div>
+      <div class="eq-call-confirm-title">Call ${esc(contactName)}?</div>
+      <div class="eq-call-confirm-phone">${esc(prettyPhone)}</div>
+      <div class="eq-call-confirm-meta">${esc(sourceLabel)} · ${esc(equipName)}</div>
+      <div class="eq-call-confirm-actions">
+        <button class="eq-btn eq-btn-secondary" id="eqCallCancel">Cancel</button>
+        <a class="eq-btn eq-call-service-btn" id="eqCallGo" href="tel:${esc(telHref)}">📞 Call Now</a>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  requestAnimationFrame(() => modal.classList.add('active'));
+  
+  const close = () => { modal.classList.remove('active'); setTimeout(() => modal.remove(), 200); };
+  modal.querySelector('.eq-call-confirm-bg').addEventListener('click', close);
+  document.getElementById('eqCallCancel').addEventListener('click', close);
+  document.getElementById('eqCallGo').addEventListener('click', async () => {
     // Log the call attempt to dispatch_events for tracking
     try {
       await NX.sb.from('dispatch_events').insert({
         equipment_id: equipId,
-        contractor_node_id: eq.preferred_contractor_node_id || null,
-        contractor_name: name || 'Service',
+        contractor_node_id: contractorNodeId || null,
+        contractor_name: contactName,
         contractor_phone: phone,
         method: 'call',
         dispatched_by: NX.currentUser?.name || null,
         outcome: 'pending',
       });
     } catch (e) { console.warn('dispatch_events log failed:', e); }
-    
-    // Open native dialer
-    window.location.href = 'tel:' + telHref;
-  } catch (err) {
-    console.error('[callService] failed:', err);
-    NX.toast && NX.toast('Call failed: ' + err.message, 'error');
+    // close modal after a beat so the phone app handoff feels cleaner
+    setTimeout(close, 100);
+  });
+}
+
+// Shown when no phone is on file anywhere
+function showNoServiceContactModal(equipId, equipName) {
+  const existing = document.getElementById('eqCallConfirm');
+  if (existing) existing.remove();
+  
+  const modal = document.createElement('div');
+  modal.id = 'eqCallConfirm';
+  modal.className = 'eq-call-confirm';
+  modal.innerHTML = `
+    <div class="eq-call-confirm-bg"></div>
+    <div class="eq-call-confirm-card">
+      <div class="eq-call-confirm-icon" style="filter:grayscale(0.5)">📞</div>
+      <div class="eq-call-confirm-title">No service contact</div>
+      <div class="eq-call-confirm-meta">${esc(equipName)} doesn't have a phone number on file. Add one in the editor to enable quick calling.</div>
+      <div class="eq-call-confirm-actions">
+        <button class="eq-btn eq-btn-secondary" id="eqCallCancel">Close</button>
+        <button class="eq-btn eq-btn-primary" id="eqCallEdit">⚙ Open Editor</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  requestAnimationFrame(() => modal.classList.add('active'));
+  
+  const close = () => { modal.classList.remove('active'); setTimeout(() => modal.remove(), 200); };
+  modal.querySelector('.eq-call-confirm-bg').addEventListener('click', close);
+  document.getElementById('eqCallCancel').addEventListener('click', close);
+  document.getElementById('eqCallEdit').addEventListener('click', () => {
+    close();
+    openFullEditor(equipId);
+  });
+}
+
+// Pretty-format a phone number for display
+function formatPhonePretty(p) {
+  if (!p) return '';
+  const cleaned = p.replace(/[^\d]/g, '');
+  // US 10-digit: (512) 555-1234
+  if (cleaned.length === 10) {
+    return `(${cleaned.slice(0,3)}) ${cleaned.slice(3,6)}-${cleaned.slice(6)}`;
   }
+  // US 11-digit starting with 1: 1 (512) 555-1234
+  if (cleaned.length === 11 && cleaned.startsWith('1')) {
+    return `1 (${cleaned.slice(1,4)}) ${cleaned.slice(4,7)}-${cleaned.slice(7)}`;
+  }
+  return p; // Unknown format, return as-is
 }
 
 // Three-dot overflow menu in the equipment detail action bar.
