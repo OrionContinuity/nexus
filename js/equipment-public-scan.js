@@ -74,40 +74,78 @@
   });
 
   function proceedWithScriptLoad() {
-    // Now eagerly load the equipment script needed for the public view.
-    // renderPublicScanView is now inside equipment.js (consolidated — was
-    // previously in equipment-p3.js).
+    // Bridge: equipment.js uses the bare identifier `NX` (not window.NX) at
+    // module load time. In classic scripts, `const NX` declared in app.js
+    // creates a script-scope binding — but other scripts that reference 
+    // bare `NX` DO see it. The issue is only when equipment.js loads BEFORE
+    // app.js has run at all.
     //
-    // CACHE-BUST: Append a timestamp query string so we bypass both the
-    // service worker cache and GitHub Pages CDN cache. This prevents the
-    // "stale cache serving old equipment.js without renderPublicScanView"
-    // failure that happens when users scan QR codes on phones that had
-    // cached the pre-consolidation version of the file.
+    // Two-stage bridge:
+    //   1. Inject an inline script: `var NX = window.NX;` 
+    //      `var` at top-level creates a window property, so bare `NX` works.
+    //   2. Wrap equipment.js load with error capture so any throw is visible.
+    
+    const bridge = document.createElement('script');
+    bridge.textContent = 'window.NX = window.NX || {}; if(typeof NX==="undefined"){var NX=window.NX;}';
+    document.head.appendChild(bridge);
+
+    // Capture any error thrown during equipment.js execution so we can
+    // show it to the user instead of silently failing
+    let equipmentLoadError = null;
+    const errorHandler = (e) => {
+      if (e.filename && e.filename.includes('equipment.js')) {
+        equipmentLoadError = e.error || new Error(e.message || 'Unknown error in equipment.js');
+      }
+    };
+    window.addEventListener('error', errorHandler);
+
     const cacheBust = '?v=' + (window._NX_BUILD || Date.now());
     loadScript('js/equipment.js' + cacheBust, () => {
-      // Wait for the function to actually be defined on NX.modules.equipment
-      waitFor(
-        () => window.NX?.modules?.equipment?.renderPublicScanView,
-        () => {
-          try {
-            window.NX.modules.equipment.renderPublicScanView(equipParam);
-          } catch (e) {
-            console.error('[public-scan] render failed:', e);
-            showErrorScreen(e);
-          }
-        },
-        5000,
-        () => {
-          // Diagnostic: did the module load at all?
-          const modLoaded = !!window.NX?.modules?.equipment;
-          const keyCount = modLoaded ? Object.keys(window.NX.modules.equipment).length : 0;
-          const msg = modLoaded
-            ? `Module loaded (${keyCount} exports) but renderPublicScanView missing. Stale cache? Try hard-reload.`
-            : 'equipment.js loaded but NX.modules.equipment never initialized. Check console for JS errors.';
-          showErrorScreen(new Error(msg));
+      // Give the IIFE a moment to finish
+      setTimeout(() => {
+        if (equipmentLoadError) {
+          window.removeEventListener('error', errorHandler);
+          showErrorScreen(equipmentLoadError);
+          return;
         }
-      );
-    }, () => showErrorScreen(new Error('equipment.js failed to load (network error)')));
+        
+        waitFor(
+          () => window.NX?.modules?.equipment?.renderPublicScanView,
+          () => {
+            window.removeEventListener('error', errorHandler);
+            try {
+              window.NX.modules.equipment.renderPublicScanView(equipParam);
+            } catch (e) {
+              console.error('[public-scan] render failed:', e);
+              showErrorScreen(e);
+            }
+          },
+          5000,
+          () => {
+            window.removeEventListener('error', errorHandler);
+            const nxExists = !!window.NX;
+            const modExists = !!window.NX?.modules;
+            const eqExists = !!window.NX?.modules?.equipment;
+            const keyCount = eqExists ? Object.keys(window.NX.modules.equipment).length : 0;
+            
+            let msg;
+            if (!nxExists) {
+              msg = 'window.NX is undefined — app.js never initialized';
+            } else if (!modExists) {
+              msg = 'window.NX exists but NX.modules never created — equipment.js threw before line 4396';
+            } else if (!eqExists) {
+              msg = 'NX.modules exists but NX.modules.equipment never set — equipment.js threw between lines 4396-4398';
+            } else {
+              msg = `Module has ${keyCount} exports but renderPublicScanView missing — stale cache?`;
+            }
+            showErrorScreen(new Error(msg));
+          }
+        );
+      }, 100);
+    }, () => {
+      window.removeEventListener('error', errorHandler);
+      showErrorScreen(new Error('equipment.js failed to load (network error)'));
+    });
   }
 
   /* ─── Helpers ───────────────────────────────────────────────────────── */
