@@ -112,15 +112,20 @@
           throw new Error('equipment.js does not export renderPublicScanView');
         }
         
-        // Inject as inline script with explicit NX binding at top
+        // Inject as inline script with explicit NX binding + execution
+        // markers so we can see EXACTLY how far execution gets.
         const wrapper = document.createElement('script');
         wrapper.textContent = 
           'window.NX = window.NX || {};\n' +
           'var NX = window.NX;\n' +
+          'window._NX_TRACE = "start";\n' +
           'try {\n' +
+          'window._NX_TRACE = "entering-iife";\n' +
           source + '\n' +
+          'window._NX_TRACE = "iife-completed";\n' +
           '} catch(e) {\n' +
           '  window._NX_PUBLIC_SCAN_ERROR = e;\n' +
+          '  window._NX_TRACE = "threw: " + (e.message || e);\n' +
           '  console.error("[equipment.js eval failed]", e);\n' +
           '}\n';
         
@@ -149,12 +154,13 @@
               const modExists = !!window.NX?.modules;
               const eqExists = !!window.NX?.modules?.equipment;
               const keyCount = eqExists ? Object.keys(window.NX.modules.equipment).length : 0;
+              const trace = window._NX_TRACE || '(trace missing)';
               
               let msg;
               if (!nxExists) msg = 'window.NX is undefined';
-              else if (!modExists) msg = 'Module evaluated but NX.modules never set (something swallowed the IIFE)';
-              else if (!eqExists) msg = 'NX.modules exists but equipment export missing';
-              else msg = `Module has ${keyCount} exports, no renderPublicScanView — check file version`;
+              else if (!modExists) msg = 'NX.modules never set | trace: ' + trace;
+              else if (!eqExists) msg = 'equipment export missing | trace: ' + trace;
+              else msg = `${keyCount} exports, no renderPublicScanView | trace: ${trace}`;
               
               showErrorScreen(new Error(msg));
             }
