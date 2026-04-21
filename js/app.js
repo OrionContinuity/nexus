@@ -726,20 +726,14 @@ td.check{background:#F0EDE6 !important}
         this.loaded[view] = true;
         // For equipment, also load phase 2 + 3 extensions after base loads
         if (view === 'equipment') {
+          // NOTE: equipment-p3.js, equipment-ux.js, equipment-ai-creator.js,
+          // and equipment-full-editor.js were all consolidated into equipment.js
           this.loadScript('js/equipment-ai.js', () => {
-            this.loadScript('js/equipment-p3.js', () => {
-              this.loadScript('js/equipment-ux.js', () => {
-                this.loadScript('js/equipment-ai-creator.js', () => {
-                  this.loadScript('js/equipment-full-editor.js', () => {
-                    this.loadScript('js/equipment-fixes.js', () => {
-                      this.loadScript('js/equipment-cleanup.js', () => {
-                        this.loadScript('js/equipment-context-menu.js', () => {
-                          this.loadScript('js/equipment-brain-sync.js', () => {
-                            this.loadScript('js/equipment-badge-choice.js', () => {});
-                          });
-                        });
-                      });
-                    });
+            this.loadScript('js/equipment-fixes.js', () => {
+              this.loadScript('js/equipment-cleanup.js', () => {
+                this.loadScript('js/equipment-context-menu.js', () => {
+                  this.loadScript('js/equipment-brain-sync.js', () => {
+                    this.loadScript('js/equipment-badge-choice.js', () => {});
                   });
                 });
               });
