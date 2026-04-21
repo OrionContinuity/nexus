@@ -105,11 +105,29 @@
       if (onLoad) onLoad();
       return;
     }
-    const s = document.createElement('script');
-    s.src = src;
-    s.onload = () => { if (onLoad) onLoad(); };
-    s.onerror = () => { if (onError) onError(); };
-    document.head.appendChild(s);
+    
+    let attempts = 0;
+    const maxAttempts = 2;
+    
+    function tryLoad() {
+      attempts++;
+      const s = document.createElement('script');
+      s.src = src + (attempts > 1 ? '?retry=' + attempts : '');
+      s.onload = () => { if (onLoad) onLoad(); };
+      s.onerror = () => {
+        console.warn(`[public-scan] ${src} attempt ${attempts} failed`);
+        s.remove();
+        if (attempts < maxAttempts) {
+          // Retry after short delay — mobile networks often recover
+          setTimeout(tryLoad, 600);
+        } else {
+          if (onError) onError();
+        }
+      };
+      document.head.appendChild(s);
+    }
+    
+    tryLoad();
   }
 
   function waitFor(check, onReady, timeoutMs, onTimeout) {
