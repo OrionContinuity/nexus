@@ -1397,14 +1397,13 @@ button.eq-close {
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Dispatch Sheet — bottom sheet for contractor dispatch
+   Dispatch Sheet — CORRECTED CSS matching actual JS class names
    
-   The JS creates .dispatch-overlay + .dispatch-sheet but no CSS existed for
-   either, so the overlay was invisible. Tapping Dispatch triggered it but
-   nothing appeared. This file adds the missing styles.
-   
-   Layout: bottom sheet on mobile (slides up from bottom), centered modal
-   on wider screens. Drag handle at top, content below.
+   Previous attempt styled the wrong class names. The JS actually uses:
+     .dispatch-contact-avatar, .dispatch-contact-body, .is-preferred,
+     .preferred-star, .dispatch-contact-methods, .eq-picker-empty,
+     .dispatch-add-contact, .dispatch-method-btn, .dispatch-method-row,
+     .dispatch-message, .dispatch-message-target
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .dispatch-overlay {
@@ -1416,13 +1415,9 @@ button.eq-close {
   display: none;
   align-items: flex-end;
   justify-content: center;
-  opacity: 0;
-  transition: opacity 0.2s ease;
 }
-
 .dispatch-overlay.active {
   display: flex;
-  opacity: 1;
 }
 
 .dispatch-sheet {
@@ -1435,12 +1430,12 @@ button.eq-close {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transform: translateY(100%);
-  animation: dispatchSlideUp 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
   color: #e6dccc;
+  animation: dispatchSlideUp 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 @keyframes dispatchSlideUp {
+  from { transform: translateY(100%); }
   to { transform: translateY(0); }
 }
 
@@ -1463,7 +1458,6 @@ button.eq-close {
   margin: 0 0 8px;
   font-size: 17px;
   font-weight: 600;
-  color: #e6dccc;
 }
 
 .dispatch-context {
@@ -1480,9 +1474,9 @@ button.eq-close {
   border-radius: 10px;
   color: #c8a44e;
   white-space: nowrap;
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 200px;
 }
 
 .dispatch-stage {
@@ -1492,22 +1486,7 @@ button.eq-close {
   min-height: 120px;
 }
 
-.dispatch-stage h4 {
-  margin: 0 0 10px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #8a826f;
-  font-weight: 600;
-}
-
-/* Contractor list */
-.dispatch-contact-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
+/* Contact rows — matches JS output */
 .dispatch-contact {
   display: flex;
   align-items: center;
@@ -1515,19 +1494,35 @@ button.eq-close {
   padding: 12px 14px;
   background: #1a1a22;
   border: 1px solid #2a2a33;
-  border-radius: 10px;
+  border-radius: 12px;
   cursor: pointer;
+  margin-bottom: 8px;
   transition: all 0.15s;
   -webkit-tap-highlight-color: transparent;
 }
-
-.dispatch-contact:active,
-.dispatch-contact.selected {
-  background: rgba(200, 164, 78, 0.08);
-  border-color: #c8a44e;
+.dispatch-contact:active {
+  transform: scale(0.98);
+}
+.dispatch-contact.is-preferred {
+  border-color: rgba(200, 164, 78, 0.4);
+  background: rgba(200, 164, 78, 0.05);
 }
 
-.dispatch-contact-info {
+.dispatch-contact-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #2a2a33;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #c8a44e;
+  flex-shrink: 0;
+}
+
+.dispatch-contact-body {
   flex: 1;
   min-width: 0;
 }
@@ -1537,68 +1532,116 @@ button.eq-close {
   font-weight: 600;
   color: #e6dccc;
   margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preferred-star {
+  color: #c8a44e;
+  font-size: 13px;
 }
 
 .dispatch-contact-meta {
   font-size: 11px;
   color: #8a826f;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.dispatch-contact-preferred {
-  font-size: 10px;
-  color: #c8a44e;
-  padding: 2px 6px;
-  background: rgba(200, 164, 78, 0.1);
-  border-radius: 6px;
-  font-weight: 600;
+.dispatch-contact-methods {
+  font-size: 16px;
+  color: #8a826f;
+  letter-spacing: 2px;
   flex-shrink: 0;
 }
 
-/* Method selection (call/sms/email) */
-.dispatch-methods {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+/* Empty state + add contact inline form */
+.eq-picker-empty {
+  text-align: center;
+  padding: 24px 16px;
+  color: #8a826f;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-.dispatch-method {
-  padding: 16px 12px;
+.dispatch-add-contact {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
   background: #1a1a22;
   border: 1px solid #2a2a33;
   border-radius: 10px;
-  cursor: pointer;
-  text-align: center;
-  transition: all 0.15s;
+  margin-top: 12px;
+}
+.dispatch-add-contact input {
+  background: #0a0a0f;
+  border: 1px solid #2a2a33;
+  border-radius: 8px;
+  padding: 10px 12px;
   color: #e6dccc;
-  font-family: inherit;
   font-size: 14px;
-  font-weight: 500;
-  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+}
+.dispatch-add-contact input:focus {
+  outline: none;
+  border-color: #c8a44e;
 }
 
-.dispatch-method:active,
-.dispatch-method.selected {
+/* Method selection stage */
+.dispatch-method-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.dispatch-method-btn {
+  padding: 16px 8px;
+  background: #1a1a22;
+  border: 1px solid #2a2a33;
+  border-radius: 12px;
+  cursor: pointer;
+  color: #e6dccc;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.dispatch-method-btn:active:not(:disabled) {
+  transform: scale(0.96);
   background: rgba(200, 164, 78, 0.08);
   border-color: #c8a44e;
   color: #c8a44e;
 }
-
-.dispatch-method-icon {
-  font-size: 24px;
-  display: block;
-  margin-bottom: 6px;
-}
-
-.dispatch-method:disabled {
-  opacity: 0.35;
+.dispatch-method-btn:disabled {
+  opacity: 0.3;
   cursor: not-allowed;
 }
 
 /* Compose stage */
-.dispatch-compose textarea {
+.dispatch-message {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dispatch-message-target {
+  font-size: 12px;
+  color: #8a826f;
+  padding: 8px 10px;
+  background: #0a0a0f;
+  border: 1px solid #2a2a33;
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+.dispatch-message textarea {
   width: 100%;
-  min-height: 120px;
+  min-height: 140px;
   padding: 12px;
   background: #0a0a0f;
   border: 1px solid #2a2a33;
@@ -1609,13 +1652,12 @@ button.eq-close {
   resize: vertical;
   box-sizing: border-box;
 }
-
-.dispatch-compose textarea:focus {
+.dispatch-message textarea:focus {
   outline: none;
   border-color: #c8a44e;
 }
 
-/* Action bar (bottom) */
+/* Action bar at bottom of sheet */
 .dispatch-actions {
   display: flex;
   gap: 10px;
@@ -1624,7 +1666,6 @@ button.eq-close {
   background: #15151c;
   flex-shrink: 0;
 }
-
 .dispatch-actions button {
   flex: 1;
   padding: 12px;
@@ -1636,37 +1677,25 @@ button.eq-close {
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
-  -webkit-tap-highlight-color: transparent;
 }
-
 .dispatch-actions button:active {
   transform: scale(0.98);
 }
-
-.dispatch-actions .dispatch-btn-primary {
+.dispatch-actions .eq-btn-primary,
+.dispatch-actions button.primary {
   background: #c8a44e;
   color: #1a1408;
   border-color: #c8a44e;
 }
-
-.dispatch-actions .dispatch-btn-primary:disabled {
+.dispatch-actions button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
-}
-
-.dispatch-empty {
-  text-align: center;
-  padding: 30px 16px;
-  color: #8a826f;
-  font-size: 13px;
-  line-height: 1.5;
 }
 
 /* Light theme */
 [data-theme="light"] .dispatch-sheet {
   background: #ffffff;
   color: #1a1a22;
-  border-color: #e5e5ea;
 }
 [data-theme="light"] .dispatch-head,
 [data-theme="light"] .dispatch-actions {
@@ -1674,7 +1703,8 @@ button.eq-close {
   background: #ffffff;
 }
 [data-theme="light"] .dispatch-contact,
-[data-theme="light"] .dispatch-method {
+[data-theme="light"] .dispatch-method-btn,
+[data-theme="light"] .dispatch-add-contact {
   background: #f5f5f7;
   border-color: #e5e5ea;
   color: #1a1a22;
@@ -1682,13 +1712,17 @@ button.eq-close {
 [data-theme="light"] .dispatch-contact-name {
   color: #1a1a22;
 }
-[data-theme="light"] .dispatch-compose textarea {
-  background: #f5f5f7;
+[data-theme="light"] .dispatch-contact-avatar {
+  background: #e5e5ea;
+}
+[data-theme="light"] .dispatch-message textarea,
+[data-theme="light"] .dispatch-add-contact input,
+[data-theme="light"] .dispatch-message-target {
+  background: #ffffff;
   color: #1a1a22;
   border-color: #e5e5ea;
 }
 
-/* Tablet/desktop: center the modal instead of sticking to bottom */
 @media (min-width: 720px) {
   .dispatch-overlay {
     align-items: center;
@@ -1697,4 +1731,86 @@ button.eq-close {
     max-height: 80vh;
     border-radius: 20px;
   }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Three-dot Overflow Menu — hides destructive actions (Delete) behind a tap
+   
+   Lives at the end of .eq-detail-actions. Shows just "⋯" by default, 
+   expands to a small popup above the button revealing Delete when tapped.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.eq-overflow-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.eq-overflow-btn {
+  background: transparent !important;
+  border: 1px solid #3a3a46 !important;
+  color: #8a826f !important;
+  font-size: 18px !important;
+  min-width: 44px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.eq-overflow-btn:active {
+  background: rgba(200, 164, 78, 0.08) !important;
+  transform: scale(0.95);
+}
+
+.eq-overflow-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  min-width: 200px;
+  background: #15151c;
+  border: 1px solid #2a2a33;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  z-index: 100;
+  display: none;
+  animation: eqOverflowOpen 0.15s ease-out;
+}
+.eq-overflow-menu.active {
+  display: block;
+}
+
+@keyframes eqOverflowOpen {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.eq-overflow-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #e6dccc;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.eq-overflow-item:active {
+  background: rgba(200, 164, 78, 0.08);
+}
+.eq-overflow-danger {
+  color: #f48a80 !important;
+}
+.eq-overflow-danger:active {
+  background: rgba(244, 138, 128, 0.1) !important;
+}
+
+[data-theme="light"] .eq-overflow-menu {
+  background: #ffffff;
+  border-color: #e5e5ea;
+}
+[data-theme="light"] .eq-overflow-item {
+  color: #1a1a22;
 }
