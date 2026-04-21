@@ -3,34 +3,17 @@
              cache-first for HTML shell + fonts.
    Version bumped = full re-cache on next load.
 */
-const CACHE_NAME = 'nexus-v17';
+const CACHE_NAME = 'nexus-v2';
 
 // App shell — everything needed to run offline
 const APP_SHELL = [
   './',
   './index.html',
   './css/nexus.css',
-  './css/galaxy.css',
-  './css/equipment.css',
-  './css/equipment-fixes.css',
-  './css/equipment-context-menu.css',
-  './css/equipment-public-pm.css',
-  './css/file-picker.css',
   './js/app.js',
   './js/admin.js',
-  './js/galaxy.js',
-  './js/ai-writer.js',
-  './js/equipment.js',
-  './js/equipment-ai.js',
-  './js/equipment-public-scan.js',
-  './js/equipment-fixes.js',
-  './js/equipment-cleanup.js',
-  './js/equipment-context-menu.js',
-  './js/equipment-brain-sync.js',
-  './js/equipment-badge-choice.js',
-  './js/equipment-public-pm.js',
-  './js/file-picker.js',
-  './js/i18n.js',
+  './js/galaxy.js',           // replaced brain-canvas.js
+  './js/ai-writer.js',        // new
   './js/brain-chat.js',
   './js/brain-events.js',
   './js/brain-list.js',
@@ -38,7 +21,8 @@ const APP_SHELL = [
   './js/calendar.js',
   './js/cleaning.js',
   './js/log.js',
-  './js/native-bridge.js'
+  './js/native-bridge.js',
+  './js/i18n.js'
 ];
 
 // CDN resources to cache (fonts, icons, libs)
@@ -76,16 +60,7 @@ self.addEventListener('activate', event => {
 
 // Fetch — smart strategy depending on resource type
 self.addEventListener('fetch', event => {
-  // CRITICAL: blob: and data: URLs must pass through without SW interception.
-  // The public-scan loader uses blob URLs to inject code, and if the SW tries
-  // to intercept them, the script loads as empty. Also: about:, chrome-extension:, etc.
-  const reqUrl = event.request.url;
-  if (reqUrl.startsWith('blob:') || reqUrl.startsWith('data:') || 
-      reqUrl.startsWith('chrome-extension:') || reqUrl.startsWith('about:')) {
-    return; // Let browser handle natively
-  }
-
-  const url = new URL(reqUrl);
+  const url = new URL(event.request.url);
 
   // Never cache Supabase API, Anthropic API, or ElevenLabs calls
   if (url.hostname.includes('supabase.co') ||
@@ -93,13 +68,6 @@ self.addEventListener('fetch', event => {
       url.hostname.includes('elevenlabs.io') ||
       url.hostname.includes('googleapis.com/gmail')) {
     return; // Let browser handle normally (network only)
-  }
-  
-  // Cache-bust: if URL has ?v= param, bypass cache entirely and fetch fresh.
-  // Used by the public-scan loader to guarantee latest code.
-  if (url.searchParams.has('v')) {
-    event.respondWith(fetch(event.request));
-    return;
   }
 
   // ─── NETWORK-FIRST for JS / CSS / HTML ──────────────────────────
