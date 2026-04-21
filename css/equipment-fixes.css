@@ -1394,3 +1394,307 @@ button.eq-close {
 [data-theme="light"] .pm-public-btn-call .pm-public-btn-sub {
   color: #6a6a72;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Dispatch Sheet — bottom sheet for contractor dispatch
+   
+   The JS creates .dispatch-overlay + .dispatch-sheet but no CSS existed for
+   either, so the overlay was invisible. Tapping Dispatch triggered it but
+   nothing appeared. This file adds the missing styles.
+   
+   Layout: bottom sheet on mobile (slides up from bottom), centered modal
+   on wider screens. Drag handle at top, content below.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.dispatch-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.dispatch-overlay.active {
+  display: flex;
+  opacity: 1;
+}
+
+.dispatch-sheet {
+  width: 100%;
+  max-width: 600px;
+  max-height: 85vh;
+  background: #15151c;
+  border-top: 1px solid #2a2a33;
+  border-radius: 20px 20px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateY(100%);
+  animation: dispatchSlideUp 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  color: #e6dccc;
+}
+
+@keyframes dispatchSlideUp {
+  to { transform: translateY(0); }
+}
+
+.dispatch-handle {
+  width: 40px;
+  height: 4px;
+  background: #3a3a46;
+  border-radius: 2px;
+  margin: 10px auto 6px;
+  flex-shrink: 0;
+}
+
+.dispatch-head {
+  padding: 8px 20px 14px;
+  border-bottom: 1px solid #2a2a33;
+  flex-shrink: 0;
+}
+
+.dispatch-head h3 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #e6dccc;
+}
+
+.dispatch-context {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.dispatch-context .ctx-tag {
+  font-size: 11px;
+  padding: 3px 8px;
+  background: rgba(200, 164, 78, 0.08);
+  border: 1px solid rgba(200, 164, 78, 0.2);
+  border-radius: 10px;
+  color: #c8a44e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.dispatch-stage {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 120px;
+}
+
+.dispatch-stage h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #8a826f;
+  font-weight: 600;
+}
+
+/* Contractor list */
+.dispatch-contact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dispatch-contact {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #1a1a22;
+  border: 1px solid #2a2a33;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dispatch-contact:active,
+.dispatch-contact.selected {
+  background: rgba(200, 164, 78, 0.08);
+  border-color: #c8a44e;
+}
+
+.dispatch-contact-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.dispatch-contact-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e6dccc;
+  margin-bottom: 2px;
+}
+
+.dispatch-contact-meta {
+  font-size: 11px;
+  color: #8a826f;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.dispatch-contact-preferred {
+  font-size: 10px;
+  color: #c8a44e;
+  padding: 2px 6px;
+  background: rgba(200, 164, 78, 0.1);
+  border-radius: 6px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* Method selection (call/sms/email) */
+.dispatch-methods {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.dispatch-method {
+  padding: 16px 12px;
+  background: #1a1a22;
+  border: 1px solid #2a2a33;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s;
+  color: #e6dccc;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dispatch-method:active,
+.dispatch-method.selected {
+  background: rgba(200, 164, 78, 0.08);
+  border-color: #c8a44e;
+  color: #c8a44e;
+}
+
+.dispatch-method-icon {
+  font-size: 24px;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.dispatch-method:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Compose stage */
+.dispatch-compose textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px;
+  background: #0a0a0f;
+  border: 1px solid #2a2a33;
+  border-radius: 8px;
+  color: #e6dccc;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.dispatch-compose textarea:focus {
+  outline: none;
+  border-color: #c8a44e;
+}
+
+/* Action bar (bottom) */
+.dispatch-actions {
+  display: flex;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid #2a2a33;
+  background: #15151c;
+  flex-shrink: 0;
+}
+
+.dispatch-actions button {
+  flex: 1;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #3a3a46;
+  background: transparent;
+  color: #8a826f;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dispatch-actions button:active {
+  transform: scale(0.98);
+}
+
+.dispatch-actions .dispatch-btn-primary {
+  background: #c8a44e;
+  color: #1a1408;
+  border-color: #c8a44e;
+}
+
+.dispatch-actions .dispatch-btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.dispatch-empty {
+  text-align: center;
+  padding: 30px 16px;
+  color: #8a826f;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Light theme */
+[data-theme="light"] .dispatch-sheet {
+  background: #ffffff;
+  color: #1a1a22;
+  border-color: #e5e5ea;
+}
+[data-theme="light"] .dispatch-head,
+[data-theme="light"] .dispatch-actions {
+  border-color: #e5e5ea;
+  background: #ffffff;
+}
+[data-theme="light"] .dispatch-contact,
+[data-theme="light"] .dispatch-method {
+  background: #f5f5f7;
+  border-color: #e5e5ea;
+  color: #1a1a22;
+}
+[data-theme="light"] .dispatch-contact-name {
+  color: #1a1a22;
+}
+[data-theme="light"] .dispatch-compose textarea {
+  background: #f5f5f7;
+  color: #1a1a22;
+  border-color: #e5e5ea;
+}
+
+/* Tablet/desktop: center the modal instead of sticking to bottom */
+@media (min-width: 720px) {
+  .dispatch-overlay {
+    align-items: center;
+  }
+  .dispatch-sheet {
+    max-height: 80vh;
+    border-radius: 20px;
+  }
+}
