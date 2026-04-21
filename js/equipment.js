@@ -415,8 +415,21 @@ async function openDetail(id) {
         panel.dataset.loaded = '1';
         panel.innerHTML = await renderIntelligenceTab(id);
       }
+      if (tab.dataset.tab === 'parts') {
+        const list = panel.querySelector('.eq-parts-list');
+        if (list) enhancePartsList(list);
+      }
+      if (tab.dataset.tab === 'manual') {
+        enhanceManualPanel(panel, id);
+      }
     });
   });
+
+  // If Parts panel is already open (tab state), enhance immediately
+  const partsPanelInitial = modal.querySelector('[data-panel="parts"].active .eq-parts-list');
+  if (partsPanelInitial) enhancePartsList(partsPanelInitial);
+  const manualPanelInitial = modal.querySelector('[data-panel="manual"].active');
+  if (manualPanelInitial) enhanceManualPanel(manualPanelInitial, id);
 
   // Wire QR download
   const qrImg = modal.querySelector('.eq-qr-img');
@@ -559,21 +572,18 @@ function renderParts(eq, parts) {
       <button class="eq-btn eq-btn-small eq-btn-primary" onclick="NX.modules.equipment.addPart('${eq.id}')">+ Add Part</button>
     </div>
     ${!parts.length ? '<div class="eq-empty-small">No parts cataloged yet.</div>' : `
-      <div class="eq-parts-list">
+      <div class="eq-parts-list" data-multi-vendor="1">
         ${parts.map(p => `
-          <div class="eq-part">
+          <div class="eq-part" data-part-id="${p.id}">
             <div class="eq-part-main">
               <div class="eq-part-name">${esc(p.part_name)}</div>
               <div class="eq-part-sub">
                 ${p.oem_part_number ? `OEM: ${esc(p.oem_part_number)}` : ''}
-                ${p.supplier ? ` · ${esc(p.supplier)}` : ''}
-                ${p.last_price ? ` · $${parseFloat(p.last_price).toFixed(2)}` : ''}
                 ${p.quantity > 1 ? ` · Qty: ${p.quantity}` : ''}
               </div>
               ${p.assembly_path ? `<div class="eq-part-path">${esc(p.assembly_path)}</div>` : ''}
             </div>
             <div class="eq-part-actions">
-              ${p.supplier_url ? `<a href="${p.supplier_url}" target="_blank" class="eq-btn eq-btn-tiny">Order</a>` : ''}
               <button class="eq-btn eq-btn-tiny" onclick="NX.modules.equipment.editPart('${p.id}')">✎</button>
               <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="NX.modules.equipment.deletePart('${p.id}', '${eq.id}')">✕</button>
             </div>
@@ -585,7 +595,7 @@ function renderParts(eq, parts) {
 
 function renderManual(eq) {
   return `
-    <div class="eq-manual">
+    <div class="eq-manual" data-eq-id="${eq.id}" data-manual-url="${escAttr(eq.manual_url || '')}">
       ${eq.manual_url ? `
         <iframe src="${eq.manual_url}" class="eq-manual-iframe"></iframe>
         <div class="eq-manual-actions">
@@ -1042,6 +1052,338 @@ async function deletePart(id, equipId) {
     NX.toast && NX.toast('Deleted ✓', 'success');
     openDetail(equipId);
   } catch(e) { console.error(e); }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   MULTI-VENDOR PARTS
+   
+   Each part has a `vendors` JSONB column on equipment_parts. Each vendor:
+     { name, url, oem_number, price, in_stock, notes, last_checked_at, is_preferred }
+   
+   After renderParts() inserts the .eq-parts-list into the DOM, the tab
+   switcher calls enhancePartsList() which finds each .eq-part[data-part-id]
+   row, loads its full record, and appends a vendor accordion below.
+   
+   Legacy data (parts with supplier/supplier_url/last_price but no vendors[])
+   auto-migrates to a single preferred vendor.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function enhancePartsList(list) {
+  if (!list || list.dataset.enhanced === '1') return;
+  list.dataset.enhanced = '1';
+  const rows = list.querySelectorAll('.eq-part[data-part-id]');
+  for (const partEl of rows) {
+    const partId = partEl.dataset.partId;
+    if (!partId) continue;
+    await renderVendorsUnderPart(partEl, partId);
+  }
+}
+
+async function renderVendorsUnderPart(partEl, partId) {
+  let part;
+  try {
+    const { data } = await NX.sb.from('equipment_parts').select('*').eq('id', partId).single();
+    part = data;
+  } catch (e) {
+    console.warn('[parts] could not load', partId, e);
+    return;
+  }
+  if (!part) return;
+
+  // Migrate legacy single-vendor fields to vendors[] if empty
+  let vendors = Array.isArray(part.vendors) ? part.vendors.slice() : [];
+  if (!vendors.length && (part.supplier || part.supplier_url || part.last_price)) {
+    vendors = [{
+      name: part.supplier || 'Unknown vendor',
+      url: part.supplier_url || null,
+      oem_number: part.oem_part_number || null,
+      price: part.last_price || null,
+      in_stock: null,
+      notes: null,
+      last_checked_at: null,
+      is_preferred: true
+    }];
+  }
+
+  const container = document.createElement('div');
+  container.className = 'eq-part-vendors';
+  container.innerHTML = `
+    <div class="eq-part-vendors-header">
+      <span class="eq-part-vendors-label">Vendors (${vendors.length})</span>
+      <button class="eq-part-add-vendor-btn" data-part-id="${partId}">+ Vendor</button>
+    </div>
+    <div class="eq-part-vendors-list" id="eqVendList-${partId}">
+      ${renderVendorsListHTML(vendors, partId)}
+    </div>
+  `;
+  partEl.appendChild(container);
+  wireVendorActions(container, part, vendors);
+}
+
+function renderVendorsListHTML(vendors, partId) {
+  if (!vendors.length) {
+    return '<div class="eq-part-vendors-empty">No vendors yet. Tap + Vendor to add one.</div>';
+  }
+  return vendors.map((v, idx) => `
+    <div class="eq-part-vendor" data-vendor-idx="${idx}">
+      <div class="eq-part-vendor-main">
+        <div class="eq-part-vendor-row1">
+          ${v.is_preferred ? '<span class="eq-part-vendor-star">★</span>' : ''}
+          <span class="eq-part-vendor-name">${esc(v.name || 'Unnamed')}</span>
+          ${v.price ? `<span class="eq-part-vendor-price">$${parseFloat(v.price).toFixed(2)}</span>` : ''}
+        </div>
+        <div class="eq-part-vendor-row2">
+          ${v.oem_number ? `<span class="eq-part-vendor-oem">OEM: ${esc(v.oem_number)}</span>` : ''}
+          ${v.in_stock === true ? '<span class="eq-part-vendor-stock in">In stock</span>' : ''}
+          ${v.in_stock === false ? '<span class="eq-part-vendor-stock out">Out of stock</span>' : ''}
+          ${v.last_checked_at ? `<span class="eq-part-vendor-checked">Checked ${formatVendorRelative(v.last_checked_at)}</span>` : ''}
+        </div>
+        ${v.notes ? `<div class="eq-part-vendor-notes">${esc(v.notes)}</div>` : ''}
+      </div>
+      <div class="eq-part-vendor-actions">
+        ${v.url ? `<a href="${esc(v.url)}" target="_blank" rel="noopener" class="eq-part-vendor-btn order" data-action="order" data-vendor-idx="${idx}">Order</a>` : ''}
+        ${!v.is_preferred ? `<button class="eq-part-vendor-btn star-btn" data-action="prefer" data-vendor-idx="${idx}" title="Mark preferred">☆</button>` : ''}
+        <button class="eq-part-vendor-btn edit-btn" data-action="edit" data-vendor-idx="${idx}">✎</button>
+        <button class="eq-part-vendor-btn remove-btn" data-action="remove" data-vendor-idx="${idx}">✕</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function wireVendorActions(container, part, vendors) {
+  container.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const idx = parseInt(btn.dataset.vendorIdx, 10);
+
+    if (action === 'order') {
+      // Log the order action but let the link navigate naturally
+      try {
+        await NX.sb.from('daily_logs').insert({
+          entry: `🛒 [ORDER] ${NX.currentUser?.name || 'User'} opened ${vendors[idx].name} for "${part.part_name}" ($${vendors[idx].price || '?'})`
+        });
+      } catch (_) {}
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (action === 'prefer') {
+      vendors.forEach((v, i) => v.is_preferred = (i === idx));
+      await saveVendors(part.id, vendors);
+      rerenderVendorList(container, part.id, vendors);
+    } else if (action === 'edit') {
+      openVendorEditor(vendors[idx], async (updated) => {
+        vendors[idx] = updated;
+        await saveVendors(part.id, vendors);
+        rerenderVendorList(container, part.id, vendors);
+      });
+    } else if (action === 'remove') {
+      if (!confirm(`Remove vendor "${vendors[idx].name}"?`)) return;
+      vendors.splice(idx, 1);
+      await saveVendors(part.id, vendors);
+      rerenderVendorList(container, part.id, vendors);
+    }
+  });
+
+  const addBtn = container.querySelector('.eq-part-add-vendor-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => {
+      openVendorEditor(null, async (newVendor) => {
+        if (!vendors.length) newVendor.is_preferred = true;
+        vendors.push(newVendor);
+        await saveVendors(part.id, vendors);
+        rerenderVendorList(container, part.id, vendors);
+      });
+    });
+  }
+}
+
+function rerenderVendorList(container, partId, vendors) {
+  const list = container.querySelector(`#eqVendList-${partId}`);
+  if (list) list.innerHTML = renderVendorsListHTML(vendors, partId);
+  const label = container.querySelector('.eq-part-vendors-label');
+  if (label) label.textContent = `Vendors (${vendors.length})`;
+}
+
+async function saveVendors(partId, vendors) {
+  try {
+    await NX.sb.from('equipment_parts').update({ vendors }).eq('id', partId);
+    // Keep legacy single-vendor fields in sync with the preferred vendor
+    const preferred = vendors.find(v => v.is_preferred) || vendors[0];
+    if (preferred) {
+      await NX.sb.from('equipment_parts').update({
+        supplier: preferred.name,
+        supplier_url: preferred.url,
+        oem_part_number: preferred.oem_number,
+        last_price: preferred.price
+      }).eq('id', partId);
+    }
+  } catch (e) {
+    NX.toast && NX.toast('Save vendors failed: ' + e.message, 'error');
+  }
+}
+
+function openVendorEditor(existing, onSave) {
+  const v = existing || { name: '', url: '', oem_number: '', price: '', in_stock: null, notes: '', is_preferred: false };
+  const modal = document.createElement('div');
+  modal.className = 'eq-vendor-modal';
+  modal.innerHTML = `
+    <div class="eq-vendor-bg"></div>
+    <div class="eq-vendor-card">
+      <div class="eq-vendor-header">
+        <div class="eq-vendor-title">${existing ? 'Edit Vendor' : 'Add Vendor'}</div>
+        <button class="eq-vendor-close">✕</button>
+      </div>
+      <div class="eq-vendor-body">
+        <label class="eq-vendor-label">Vendor Name</label>
+        <input type="text" id="vendName" class="eq-vendor-input" value="${escAttr(v.name)}" placeholder="Parts Town">
+        <label class="eq-vendor-label">Order URL</label>
+        <input type="url" id="vendUrl" class="eq-vendor-input" value="${escAttr(v.url || '')}" placeholder="https://...">
+        <div class="eq-vendor-row">
+          <div class="eq-vendor-half">
+            <label class="eq-vendor-label">OEM Number</label>
+            <input type="text" id="vendOem" class="eq-vendor-input" value="${escAttr(v.oem_number || '')}" placeholder="1701514">
+          </div>
+          <div class="eq-vendor-half">
+            <label class="eq-vendor-label">Price ($)</label>
+            <input type="number" step="0.01" id="vendPrice" class="eq-vendor-input" value="${v.price || ''}" placeholder="105.00">
+          </div>
+        </div>
+        <label class="eq-vendor-label">Availability</label>
+        <select id="vendStock" class="eq-vendor-input">
+          <option value="">Unknown</option>
+          <option value="true" ${v.in_stock === true ? 'selected' : ''}>In stock</option>
+          <option value="false" ${v.in_stock === false ? 'selected' : ''}>Out of stock</option>
+        </select>
+        <label class="eq-vendor-label">Notes</label>
+        <textarea id="vendNotes" class="eq-vendor-input" rows="2" placeholder="Free shipping over $100">${esc(v.notes || '')}</textarea>
+      </div>
+      <div class="eq-vendor-actions">
+        <button class="eq-vendor-cancel-btn">Cancel</button>
+        <button class="eq-vendor-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const close = () => modal.remove();
+  modal.querySelector('.eq-vendor-close').addEventListener('click', close);
+  modal.querySelector('.eq-vendor-bg').addEventListener('click', close);
+  modal.querySelector('.eq-vendor-cancel-btn').addEventListener('click', close);
+  modal.querySelector('.eq-vendor-save-btn').addEventListener('click', () => {
+    const stockVal = modal.querySelector('#vendStock').value;
+    const updated = {
+      ...v,
+      name: modal.querySelector('#vendName').value.trim(),
+      url: modal.querySelector('#vendUrl').value.trim() || null,
+      oem_number: modal.querySelector('#vendOem').value.trim() || null,
+      price: parseFloat(modal.querySelector('#vendPrice').value) || null,
+      in_stock: stockVal === 'true' ? true : stockVal === 'false' ? false : null,
+      notes: modal.querySelector('#vendNotes').value.trim() || null,
+      last_checked_at: new Date().toISOString()
+    };
+    if (!updated.name) { NX.toast && NX.toast('Vendor name required', 'info'); return; }
+    onSave(updated);
+    close();
+  });
+}
+
+function formatVendorRelative(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return days + 'd ago';
+  if (days < 30) return Math.floor(days / 7) + 'w ago';
+  if (days < 365) return Math.floor(days / 30) + 'mo ago';
+  return Math.floor(days / 365) + 'y ago';
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   MANUAL VIEWER — PDF card with first-page thumbnail
+   
+   Called by the tabs wiring when the Manual panel becomes active. Finds the
+   iframe that renderManual() rendered, replaces it with a styled card,
+   and renders page 1 of the PDF as a thumbnail using window.pdfjsLib.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function enhanceManualPanel(panel, equipId) {
+  const root = panel.querySelector('.eq-manual');
+  if (!root || root.dataset.enhanced === '1') return;
+  const iframe = root.querySelector('.eq-manual-iframe');
+  if (!iframe) return;
+  root.dataset.enhanced = '1';
+  
+  const url = iframe.src;
+  if (!url) return;
+  let fileName = url.split('/').pop().split('?')[0];
+  try { fileName = decodeURIComponent(fileName); } catch (_) {}
+
+  const card = document.createElement('div');
+  card.className = 'eq-manual-card';
+  card.innerHTML = `
+    <div class="eq-manual-card-thumb" id="eqManualThumb">
+      <div class="eq-manual-card-loading">Loading preview…</div>
+    </div>
+    <div class="eq-manual-card-info">
+      <div class="eq-manual-card-icon">📄</div>
+      <div class="eq-manual-card-meta">
+        <div class="eq-manual-card-name">${esc(fileName)}</div>
+        <div class="eq-manual-card-pages" id="eqManualPages">PDF Document</div>
+      </div>
+    </div>
+    <div class="eq-manual-card-actions">
+      <a href="${esc(url)}" target="_blank" rel="noopener" class="eq-manual-card-open-btn">Open Manual ↗</a>
+      <button class="eq-manual-card-secondary-btn" id="eqManualRemoveBtn">Remove</button>
+    </div>
+  `;
+  iframe.replaceWith(card);
+  
+  // Hide the old "Open in new tab / Remove" actions row
+  const oldActions = root.querySelector('.eq-manual-actions');
+  if (oldActions) oldActions.style.display = 'none';
+
+  // Wire remove
+  card.querySelector('#eqManualRemoveBtn').addEventListener('click', () => {
+    if (confirm('Remove the manual?')) removeManual(equipId);
+  });
+
+  // Render PDF thumbnail in background
+  renderPdfThumbnail(url, card.querySelector('#eqManualThumb'), card.querySelector('#eqManualPages'));
+}
+
+async function renderPdfThumbnail(url, thumbContainer, pagesEl) {
+  if (!window.pdfjsLib) {
+    thumbContainer.innerHTML = '<div class="eq-manual-card-thumb-fallback">📄</div>';
+    return;
+  }
+  try {
+    const loadingTask = window.pdfjsLib.getDocument(url);
+    const pdf = await loadingTask.promise;
+    if (pagesEl) pagesEl.textContent = `PDF · ${pdf.numPages} page${pdf.numPages === 1 ? '' : 's'}`;
+
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 1.0 });
+    const targetWidth = 240;
+    const scale = targetWidth / viewport.width;
+    const scaledViewport = page.getViewport({ scale });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = scaledViewport.width;
+    canvas.height = scaledViewport.height;
+    canvas.className = 'eq-manual-card-thumb-canvas';
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+
+    thumbContainer.innerHTML = '';
+    thumbContainer.appendChild(canvas);
+  } catch (err) {
+    console.warn('[manual] PDF thumbnail failed:', err);
+    thumbContainer.innerHTML = '<div class="eq-manual-card-thumb-fallback">📄</div>';
+  }
 }
 
 async function removeManual(id) {
@@ -1555,6 +1897,185 @@ async function applyPredictivePM(equipId) {
 /* ─── BOM extraction from manual ─── */
 
 async function extractBOMFromManual(equipId) {
+  // Build progress modal so user sees each step
+  const modal = document.createElement('div');
+  modal.className = 'eq-extract-modal';
+  modal.innerHTML = `
+    <div class="eq-extract-bg"></div>
+    <div class="eq-extract-card">
+      <div class="eq-extract-header">
+        <div class="eq-extract-title">✨ Extracting Parts from Manual</div>
+      </div>
+      <div class="eq-extract-body" id="eqExtractBody">
+        <div class="eq-extract-step" id="eqExtractStep">Starting…</div>
+        <div class="eq-extract-spinner"></div>
+      </div>
+      <div class="eq-extract-actions">
+        <button class="eq-extract-cancel-btn" id="eqExtractCancel">Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  let cancelled = false;
+  modal.querySelector('#eqExtractCancel').addEventListener('click', () => { cancelled = true; modal.remove(); });
+  const setStep = (t) => { const el = modal.querySelector('#eqExtractStep'); if (el) el.textContent = t; };
+  const showError = (msg) => {
+    modal.querySelector('#eqExtractBody').innerHTML = `
+      <div class="eq-extract-error">
+        <div class="eq-extract-error-icon">⚠</div>
+        <div class="eq-extract-error-msg">${esc(msg)}</div>
+      </div>`;
+    modal.querySelector('#eqExtractCancel').textContent = 'Close';
+  };
+
+  try {
+    setStep('Loading equipment details…');
+    const { data: eq, error: eqErr } = await NX.sb.from('equipment').select('*').eq('id', equipId).single();
+    if (eqErr) throw new Error('Equipment not found: ' + eqErr.message);
+    if (cancelled) return;
+
+    if (!eq.manual_url) { showError('No manual uploaded yet. Go to the Manual tab and upload a PDF first.'); return; }
+
+    const apiKey = NX.getApiKey?.() || NX.config?.api_key;
+    if (!apiKey) { showError('No Anthropic API key configured. Set it in Admin → API Keys.'); return; }
+
+    setStep('Downloading manual PDF…');
+    let pdfRes;
+    try { pdfRes = await fetch(eq.manual_url); }
+    catch (e) { showError('Could not fetch manual: ' + e.message); return; }
+    if (!pdfRes.ok) { showError(`Manual returned HTTP ${pdfRes.status}. The file may have been moved or deleted.`); return; }
+    if (cancelled) return;
+
+    setStep('Preparing PDF for analysis…');
+    const pdfBlob = await pdfRes.blob();
+    const sizeMB = (pdfBlob.size / 1048576).toFixed(2);
+    if (pdfBlob.size > 32 * 1048576) { showError(`Manual is ${sizeMB}MB. Claude PDF input is limited to ~32MB.`); return; }
+    const pdfBase64 = await blobToBase64(pdfBlob);
+    if (cancelled) return;
+
+    setStep(`Sending ${sizeMB}MB PDF to Claude (20–60 seconds)…`);
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: NX.getModel?.() || 'claude-sonnet-4-5',
+        max_tokens: 4096,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } },
+            { type: 'text', text: `You are reading a service/parts manual for commercial kitchen equipment:
+Equipment: ${eq.manufacturer || 'Unknown'} ${eq.model || ''}
+Name: ${eq.name || ''}
+
+Extract all SERVICEABLE PARTS from the parts list / exploded diagram sections.
+Focus on parts someone might need to order (compressors, fans, motors, thermostats, gaskets, filters, valves, pumps, igniters, thermocouples, heating elements, belts, bearings, seals, pilot assemblies, switches, knobs, doors, hinges, lights, drip pans, racks).
+
+Skip: screws, bolts, generic fasteners, cosmetic-only pieces.
+
+Return raw JSON array (no markdown, no preamble):
+[
+  {
+    "part_name": "Evaporator Fan Motor",
+    "oem_part_number": "2A1540-00",
+    "mfr_part_number": null,
+    "quantity": 1,
+    "assembly_path": "Refrigeration > Condenser",
+    "diagram_page": 24,
+    "notes": "Any service note mentioned"
+  }
+]
+
+If no parts are found, return [].` }
+          ]
+        }]
+      })
+    });
+    if (cancelled) return;
+
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      showError(`Claude API error (${resp.status}): ${errBody.slice(0, 300)}`);
+      return;
+    }
+    const data = await resp.json();
+    if (data.error) { showError('Claude returned error: ' + data.error.message); return; }
+
+    setStep('Parsing parts list…');
+    const answer = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+    const arrStart = answer.indexOf('['), arrEnd = answer.lastIndexOf(']');
+    if (arrStart === -1 || arrEnd <= arrStart) { showError('Claude did not return a valid parts list. Response started: ' + answer.slice(0, 200)); return; }
+    let parts;
+    try { parts = JSON.parse(answer.slice(arrStart, arrEnd + 1)); }
+    catch (e) { showError('Could not parse response as JSON: ' + e.message); return; }
+    if (!Array.isArray(parts) || !parts.length) { showError('No serviceable parts found in this manual.'); return; }
+
+    showExtractionConfirmation(modal, equipId, parts);
+  } catch (err) {
+    console.error('[extractBOM] failed:', err);
+    showError('Unexpected error: ' + err.message);
+  }
+}
+
+function showExtractionConfirmation(modal, equipId, parts) {
+  modal.querySelector('#eqExtractBody').innerHTML = `
+    <div class="eq-extract-success">
+      <div class="eq-extract-success-icon">✓</div>
+      <div class="eq-extract-success-count">Found ${parts.length} part${parts.length === 1 ? '' : 's'}</div>
+    </div>
+    <div class="eq-extract-parts-list">
+      ${parts.map((p, i) => `
+        <label class="eq-extract-part">
+          <input type="checkbox" checked data-part-idx="${i}">
+          <div class="eq-extract-part-info">
+            <div class="eq-extract-part-name">${esc(p.part_name)}</div>
+            <div class="eq-extract-part-meta">
+              ${p.oem_part_number ? `OEM: ${esc(p.oem_part_number)}` : ''}
+              ${p.assembly_path ? ` · ${esc(p.assembly_path)}` : ''}
+              ${p.quantity > 1 ? ` · Qty: ${p.quantity}` : ''}
+            </div>
+          </div>
+        </label>
+      `).join('')}
+    </div>
+  `;
+  modal.querySelector('.eq-extract-actions').innerHTML = `
+    <button class="eq-extract-cancel-btn" id="eqExtractCancel2">Cancel</button>
+    <button class="eq-extract-save-btn" id="eqExtractSave">Save Selected Parts</button>
+  `;
+  modal.querySelector('#eqExtractCancel2').addEventListener('click', () => modal.remove());
+  modal.querySelector('#eqExtractSave').addEventListener('click', async () => {
+    const selectedIdxs = Array.from(modal.querySelectorAll('input[type=checkbox]:checked')).map(cb => parseInt(cb.dataset.partIdx, 10));
+    const selectedParts = selectedIdxs.map(i => parts[i]);
+    if (!selectedParts.length) { NX.toast && NX.toast('No parts selected', 'info'); return; }
+    try {
+      const rows = selectedParts.map(p => ({
+        equipment_id: equipId,
+        part_name: p.part_name,
+        oem_part_number: p.oem_part_number || null,
+        quantity: p.quantity || 1,
+        assembly_path: p.assembly_path || null,
+        notes: p.notes || null,
+        vendors: []
+      }));
+      const { error } = await NX.sb.from('equipment_parts').insert(rows);
+      if (error) throw error;
+      NX.toast && NX.toast(`Saved ${rows.length} part${rows.length === 1 ? '' : 's'}`, 'success');
+      modal.remove();
+      openDetail(equipId);
+    } catch (e) {
+      NX.toast && NX.toast('Save failed: ' + e.message, 'error');
+    }
+  });
+}
+
+async function extractBOMFromManual_LEGACY(equipId) {
   const { data: eq } = await NX.sb.from('equipment').select('*').eq('id', equipId).single();
   if (!eq || !eq.manual_url) {
     NX.toast && NX.toast('Upload a manual first', 'info');
@@ -4554,6 +5075,10 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
       <div class="eq-call-confirm-title">Call ${esc(contactName)}?</div>
       <div class="eq-call-confirm-phone">${esc(prettyPhone)}</div>
       <div class="eq-call-confirm-meta">${esc(sourceLabel)} · ${esc(equipName)}</div>
+      <div class="eq-call-confirm-issue-wrap">
+        <label class="eq-call-confirm-issue-label">What's the issue? <span style="opacity:0.6">(optional)</span></label>
+        <textarea class="eq-call-confirm-issue" id="eqCallIssue" rows="2" placeholder="e.g., Compressor not cooling, freezing intermittently..."></textarea>
+      </div>
       <div class="eq-call-confirm-actions">
         <button class="eq-btn eq-btn-secondary" id="eqCallCancel">Cancel</button>
         <a class="eq-btn eq-call-service-btn" id="eqCallGo" href="tel:${esc(telHref)}">📞 Call Now</a>
@@ -4567,7 +5092,8 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
   modal.querySelector('.eq-call-confirm-bg').addEventListener('click', close);
   document.getElementById('eqCallCancel').addEventListener('click', close);
   document.getElementById('eqCallGo').addEventListener('click', async () => {
-    // Log the call attempt to dispatch_events for tracking
+    const issue = (document.getElementById('eqCallIssue')?.value || '').trim();
+    // Log to dispatch_events (structured audit trail)
     try {
       await NX.sb.from('dispatch_events').insert({
         equipment_id: equipId,
@@ -4575,11 +5101,18 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
         contractor_name: contactName,
         contractor_phone: phone,
         method: 'call',
+        issue_description: issue || null,
         dispatched_by: NX.currentUser?.name || null,
         outcome: 'pending',
       });
     } catch (e) { console.warn('dispatch_events log failed:', e); }
-    // close modal after a beat so the phone app handoff feels cleaner
+    // Log to daily_logs (human-readable activity stream)
+    try {
+      const issueStr = issue ? ` for "${issue}"` : '';
+      await NX.sb.from('daily_logs').insert({
+        entry: `📞 [DISPATCH] ${NX.currentUser?.name || 'Unknown'} called ${contactName} (${phone})${issueStr} re: ${equipName}`
+      });
+    } catch (e) { console.warn('daily_logs dispatch entry failed:', e); }
     setTimeout(close, 100);
   });
 }
@@ -4883,6 +5416,8 @@ NX.modules.equipment = {
   callService,
   lookupServicePhoneFromNode,
   toggleOverflow,
+  enhancePartsList,
+  enhanceManualPanel,
 };
 
 console.log('[Equipment] unified module loaded — ' + Object.keys(NX.modules.equipment).length + ' exports');
