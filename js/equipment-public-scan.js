@@ -45,8 +45,35 @@
   // period where the user sees nothing while scripts load
   renderBootLoader(equipParam);
 
-  // Wait for Supabase to be initialized
+  // Wait for Supabase to be initialized. Two paths:
+  //  1. app.js runs its init() and sets NX.sb — normal flow (fast)
+  //  2. app.js is slow to parse (long chain of blocking scripts before it)
+  //     — we fall back to creating our own Supabase client from the CDN
+  //     using the hardcoded credentials also present in app.js
+  //
+  // Timeout bumped to 15s to accommodate slow phones + slow networks.
+  // The original 5s was too tight — on a cold phone with bad wifi, the
+  // blocking scripts in <body> (PDF.js, mammoth, xlsx) can push app.js
+  // initialization past 5 seconds.
   waitFor(() => window.NX && window.NX.sb, () => {
+    proceedWithScriptLoad();
+  }, 8000, () => {
+    // Fallback: app.js hasn't initialized Supabase yet. Create our own
+    // client using the CDN global + hardcoded creds.
+    console.warn('[public-scan] app.js slow, initializing own Supabase client');
+    if (!window.supabase || !window.supabase.createClient) {
+      showErrorScreen(new Error('Supabase CDN did not load'));
+      return;
+    }
+    window.NX = window.NX || {};
+    window.NX.sb = window.supabase.createClient(
+      'https://oprsthfxqrdbwdvommpw.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcnN0aGZ4cXJkYndkdm9tbXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MDU2MzMsImV4cCI6MjA5MTE4MTYzM30.1Yy5BNXWy19Xzdt-ZdcoF0_MF6vvr1rYN5mcDsRYSWY'
+    );
+    proceedWithScriptLoad();
+  });
+
+  function proceedWithScriptLoad() {
     // Now eagerly load the equipment scripts needed for the public view.
     // These would normally only load when user taps Equipment tab AFTER
     // logging in — but the public view runs pre-auth, so we load them now.
@@ -63,12 +90,12 @@
               showErrorScreen(e);
             }
           },
-          3000,
-          () => showErrorScreen(new Error('Equipment module timeout'))
+          5000,
+          () => showErrorScreen(new Error('renderPublicScanView not found after equipment-p3.js loaded'))
         );
       }, () => showErrorScreen(new Error('equipment-p3.js failed to load')));
     }, () => showErrorScreen(new Error('equipment.js failed to load')));
-  }, 5000, () => showErrorScreen(new Error('NEXUS initialization timeout')));
+  }
 
   /* ─── Helpers ───────────────────────────────────────────────────────── */
 
