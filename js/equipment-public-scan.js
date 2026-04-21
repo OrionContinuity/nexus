@@ -107,45 +107,55 @@
           );
         }
         
-        // Verify the export is there too
         if (!source.includes('renderPublicScanView,')) {
           throw new Error('equipment.js does not export renderPublicScanView');
         }
         
-        // Build the wrapped code with explicit NX binding + error capture +
-        // execution tracing.
+        // Log what we fetched so we can confirm in console
+        console.log('[public-scan] fetched source OK:', source.length, 'bytes');
+        window._NX_DEBUG = {
+          fetched_size: source.length,
+          has_render: source.includes('function renderPublicScanView'),
+          has_export: source.includes('renderPublicScanView,'),
+          first_100: source.substring(0, 100),
+          last_100: source.substring(source.length - 100)
+        };
+        
         const wrappedCode = 
           'window.NX = window.NX || {};\n' +
           'var NX = window.NX;\n' +
           'window._NX_TRACE = "start";\n' +
+          'console.log("[wrapper] executing, NX=", typeof NX, "window.NX=", typeof window.NX);\n' +
           'try {\n' +
           'window._NX_TRACE = "entering-iife";\n' +
           source + '\n' +
           'window._NX_TRACE = "iife-completed";\n' +
+          'console.log("[wrapper] IIFE done, NX.modules=", typeof window.NX?.modules);\n' +
           '} catch(e) {\n' +
           '  window._NX_PUBLIC_SCAN_ERROR = e;\n' +
           '  window._NX_TRACE = "threw: " + (e.message || e);\n' +
           '  console.error("[equipment.js eval failed]", e);\n' +
           '}\n';
         
-        // CRITICAL: Inline <script>textContent=...</script> injection fails
-        // silently in some mobile browser contexts (especially when a Service
-        // Worker is controlling the page). Using a Blob URL instead makes the
-        // browser treat this as an external script, which loads reliably.
-        //
-        // The tradeoff: Blob URLs are async (onload fires after execution)
-        // vs inline (runs synchronously). We already use setTimeout + waitFor
-        // so this isn't a problem.
+        window._NX_DEBUG.wrapped_size = wrappedCode.length;
+        
         const blob = new Blob([wrappedCode], { type: 'application/javascript' });
         const blobUrl = URL.createObjectURL(blob);
+        window._NX_DEBUG.blob_url = blobUrl;
+        console.log('[public-scan] blob URL:', blobUrl);
         
         const wrapper = document.createElement('script');
         wrapper.src = blobUrl;
-        wrapper.onerror = () => {
+        
+        let loaded = false;
+        wrapper.onerror = (e) => {
+          window._NX_DEBUG.blob_onerror = e?.type || 'error';
           URL.revokeObjectURL(blobUrl);
-          showErrorScreen(new Error('Blob script failed to load — inline script blocked?'));
+          showDebugScreen('Blob script onerror fired');
         };
         wrapper.onload = () => {
+          loaded = true;
+          window._NX_DEBUG.blob_onload = true;
           URL.revokeObjectURL(blobUrl);
           
           if (window._NX_PUBLIC_SCAN_ERROR) {
@@ -164,25 +174,19 @@
               }
             },
             3000,
-            () => {
-              const nxExists = !!window.NX;
-              const modExists = !!window.NX?.modules;
-              const eqExists = !!window.NX?.modules?.equipment;
-              const keyCount = eqExists ? Object.keys(window.NX.modules.equipment).length : 0;
-              const trace = window._NX_TRACE || '(trace missing - blob did not execute)';
-              
-              let msg;
-              if (!nxExists) msg = 'window.NX is undefined';
-              else if (!modExists) msg = 'NX.modules never set | trace: ' + trace;
-              else if (!eqExists) msg = 'equipment export missing | trace: ' + trace;
-              else msg = `${keyCount} exports, no renderPublicScanView | trace: ${trace}`;
-              
-              showErrorScreen(new Error(msg));
-            }
+            () => showDebugScreen('Timeout waiting for renderPublicScanView')
           );
         };
         
         document.head.appendChild(wrapper);
+        window._NX_DEBUG.wrapper_appended = true;
+        
+        // Also set a hard timeout in case neither onload nor onerror fire
+        setTimeout(() => {
+          if (!loaded && !window._NX_PUBLIC_SCAN_ERROR) {
+            showDebugScreen('Neither onload nor onerror fired after 5s');
+          }
+        }, 5000);
       })
       .catch(err => {
         console.error('[public-scan] fetch/eval error:', err);
@@ -298,6 +302,80 @@
           font-size: 12px;
           cursor: pointer;
         ">Go to NEXUS</button>
+      </div>
+    `;
+  }
+  
+  function showDebugScreen(reason) {
+    const boot = document.getElementById('nxPublicBoot');
+    if (!boot) return;
+    const dbg = window._NX_DEBUG || {};
+    const state = {
+      reason,
+      trace: window._NX_TRACE || '(none)',
+      err: window._NX_PUBLIC_SCAN_ERROR?.message || '(none)',
+      window_NX: typeof window.NX,
+      NX_modules: typeof window.NX?.modules,
+      NX_modules_equipment: typeof window.NX?.modules?.equipment,
+      renderPublicScanView: typeof window.NX?.modules?.equipment?.renderPublicScanView,
+      sw_controller: !!navigator.serviceWorker?.controller,
+      sw_scope: navigator.serviceWorker?.controller?.scriptURL || '(none)',
+      ua: navigator.userAgent.substring(0, 80),
+      ...dbg
+    };
+    
+    boot.style.background = '#0a0a0f';
+    boot.style.alignItems = 'flex-start';
+    boot.style.padding = '20px';
+    boot.innerHTML = `
+      <div style="width: 100%; max-width: 500px; margin: 0 auto; color: #e6dccc;">
+        <div style="font-size: 20px; font-weight: 700; color: #c8a44e; margin-bottom: 4px;">
+          Debug Info
+        </div>
+        <div style="font-size: 13px; color: #8a826f; margin-bottom: 20px;">
+          Send this to Claude so it can fix the issue.
+        </div>
+        <pre style="
+          font-family: 'JetBrains Mono', ui-monospace, monospace;
+          font-size: 11px;
+          line-height: 1.6;
+          background: #15151c;
+          border: 1px solid #2a2a33;
+          border-radius: 8px;
+          padding: 14px;
+          white-space: pre-wrap;
+          word-break: break-all;
+          color: #c8c0b0;
+          max-height: 60vh;
+          overflow-y: auto;
+        ">${Object.entries(state).map(([k, v]) => 
+          `<span style="color:#c8a44e">${k}</span>: ${typeof v === 'string' ? v.replace(/</g, '&lt;') : JSON.stringify(v)}`
+        ).join('\n')}</pre>
+        <button onclick="
+          const txt = document.querySelector('pre').innerText;
+          navigator.clipboard?.writeText(txt).then(() => {
+            this.textContent = 'Copied ✓';
+            setTimeout(() => this.textContent = 'Copy Debug Info', 1500);
+          });
+        " style="
+          display: block; width: 100%; margin-top: 16px;
+          padding: 12px;
+          background: #c8a44e;
+          color: #1a1408;
+          border: none; border-radius: 8px;
+          font-size: 14px; font-weight: 600;
+          cursor: pointer;
+        ">Copy Debug Info</button>
+        <button onclick="location.reload()" style="
+          display: block; width: 100%; margin-top: 10px;
+          padding: 10px;
+          background: transparent;
+          color: #8a826f;
+          border: 1px solid #3a3a46;
+          border-radius: 8px;
+          font-size: 13px;
+          cursor: pointer;
+        ">Reload</button>
       </div>
     `;
   }
