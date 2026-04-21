@@ -1594,7 +1594,7 @@ button.eq-close {
 /* Method selection stage */
 .dispatch-method-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-top: 12px;
 }
