@@ -29,6 +29,7 @@
 </head>
 <body>
 <script src="js/file-picker.js"></script>
+<script src="js/pin-cache.js"></script>
 <script src="js/equipment-public-scan.js"></script>
 <script src="js/equipment-public-pm.js"></script>
 
@@ -576,6 +577,17 @@
         <span id="adminPmPendingCount" class="ticket-badge" style="display:none;background:#e07070;color:white;font-weight:700;"></span>
       </button>
       <div class="admin-key-status" style="font-size:11px;margin-top:4px;">Contractor service logs submitted via QR scan</div>
+      <!-- LOGIN PERFORMANCE (PIN hash cache for fast re-login) -->
+      <hr class="admin-divider">
+      <div class="admin-section-label">⚡ Login Performance</div>
+      <label class="admin-toggle-row" for="adminPinCacheToggle" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:rgba(200,164,78,0.05);border:1px solid rgba(200,164,78,0.15);border-radius:10px;cursor:pointer;margin-top:6px;">
+        <span style="flex:1;">
+          <span style="display:block;font-size:13px;font-weight:600;color:var(--text);">Remember PIN on this device</span>
+          <span style="display:block;font-size:10.5px;color:var(--muted);margin-top:2px;line-height:1.4;">Login becomes near-instant. PIN is hashed with PBKDF2 before storage — not recoverable.</span>
+        </span>
+        <input type="checkbox" id="adminPinCacheToggle" style="width:44px;height:26px;accent-color:var(--accent);flex-shrink:0;margin-left:10px;">
+      </label>
+      <button id="adminClearPinCache" class="admin-save-btn" style="margin-top:8px;padding:8px 14px;font-size:12px;background:transparent;color:var(--muted);border:1px solid rgba(200,164,78,0.25);">Clear PIN cache</button>
       <!-- USER MANAGEMENT (admin only) -->
       <hr class="admin-divider">
       <div class="admin-section-label" data-i18n="teamMembers">Team Members</div>
@@ -647,6 +659,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="js/i18n.js"></script>
 <script src="js/app.js"></script>
+<script src="js/time-clock-boost.js"></script>
 <script src="js/native-bridge.js"></script>
 <script>
 // Theme toggle
