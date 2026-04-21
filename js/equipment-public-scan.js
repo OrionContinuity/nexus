@@ -42,6 +42,11 @@
   // Mark so app.js skips PIN setup
   window._NX_PUBLIC_SCAN = equipParam;
 
+  // Expose the Report Issue handler as a global so the button onclick can call it
+  window._NX_OPEN_REPORT_ISSUE = function(qrCode) {
+    openReportIssueModal(qrCode);
+  };
+
   // Immediate loading UI
   renderBootLoader(equipParam);
 
@@ -171,9 +176,27 @@
             `).join('')}
           </div>` : ''}
         <div class="public-scan-actions" id="publicScanActions">
-          <button class="public-scan-btn public-scan-btn-primary" onclick="(window._NX_PUBLIC_PM_OPEN||alert)('${eq.qr_code}')">🔧 PM Logger</button>
-          <button class="public-scan-btn" onclick="window.location.href='${loginUrl}'">🔐 Sign In for Full Details</button>
-          <button class="public-scan-btn public-scan-btn-danger" onclick="(window._NX_PUBLIC_REPORT_OPEN||alert)('${eq.qr_code}')">🚨 Report Issue</button>
+          <button class="pm-public-btn pm-public-btn-primary" onclick="(window._NX_PUBLIC_PM_OPEN||(()=>alert('PM Logger not loaded')))('${eq.qr_code}')">
+            <span class="pm-public-btn-icon">🔧</span>
+            <span class="pm-public-btn-label">
+              <span class="pm-public-btn-title">PM Logger</span>
+              <span class="pm-public-btn-sub">Service contractors — no login</span>
+            </span>
+          </button>
+          <button class="pm-public-btn pm-public-btn-secondary" onclick="window.location.href='${loginUrl}'">
+            <span class="pm-public-btn-icon">🔐</span>
+            <span class="pm-public-btn-label">
+              <span class="pm-public-btn-title">Login</span>
+              <span class="pm-public-btn-sub">Restaurant staff</span>
+            </span>
+          </button>
+          <button class="pm-public-btn pm-public-btn-tertiary" onclick="window._NX_OPEN_REPORT_ISSUE('${eq.qr_code}')">
+            <span class="pm-public-btn-icon">🚨</span>
+            <span class="pm-public-btn-label">
+              <span class="pm-public-btn-title">Report Issue</span>
+              <span class="pm-public-btn-sub">Something's broken or unsafe</span>
+            </span>
+          </button>
         </div>
         <div class="public-scan-footer">Powered by NEXUS · Restaurant Operations Intelligence</div>
       </div>
@@ -248,6 +271,229 @@
         ">Go to NEXUS</button>
       </div>
     `;
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════
+     REPORT ISSUE MODAL — replicated from equipment.js publicReportIssue
+     Writes to tickets + daily_logs, same as the authenticated version.
+     ═════════════════════════════════════════════════════════════════════ */
+
+  async function openReportIssueModal(qrCode) {
+    // Inject styles once (guards against repeated opens)
+    if (!document.getElementById('nxReportModalStyles')) {
+      const style = document.createElement('style');
+      style.id = 'nxReportModalStyles';
+      style.textContent = `
+        .public-report-modal {
+          position: fixed; inset: 0; z-index: 10000;
+          display: flex; align-items: center; justify-content: center;
+          padding: 16px;
+        }
+        .public-report-bg {
+          position: absolute; inset: 0;
+          background: rgba(10, 10, 15, 0.85);
+          backdrop-filter: blur(4px);
+        }
+        .public-report {
+          position: relative;
+          width: 100%; max-width: 440px;
+          background: #15151c;
+          border: 1px solid #2a2a33;
+          border-radius: 16px;
+          padding: 24px 20px 20px;
+          color: #e6dccc;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
+        .public-report h2 {
+          margin: 0 0 18px;
+          font-size: 22px;
+          font-weight: 700;
+          color: #c8a44e;
+        }
+        .public-report-close {
+          position: absolute; top: 12px; right: 12px;
+          width: 36px; height: 36px;
+          background: rgba(200, 164, 78, 0.08);
+          border: 1px solid rgba(200, 164, 78, 0.25);
+          border-radius: 50%;
+          color: #c8a44e;
+          font-size: 16px;
+          cursor: pointer;
+          display: flex; align-items: center; justify-content: center;
+          padding: 0;
+        }
+        .public-report-close:active {
+          background: rgba(200, 164, 78, 0.2);
+          transform: scale(0.92);
+        }
+        .public-report-field {
+          margin-bottom: 14px;
+        }
+        .public-report-field label {
+          display: block;
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: #8a826f;
+          margin-bottom: 6px;
+          font-weight: 600;
+        }
+        .public-report-field input,
+        .public-report-field textarea,
+        .public-report-field select {
+          width: 100%;
+          background: #0a0a0f;
+          border: 1px solid #2a2a33;
+          border-radius: 8px;
+          padding: 11px 12px;
+          color: #e6dccc;
+          font-size: 14px;
+          font-family: inherit;
+          box-sizing: border-box;
+        }
+        .public-report-field input:focus,
+        .public-report-field textarea:focus,
+        .public-report-field select:focus {
+          outline: none;
+          border-color: #c8a44e;
+        }
+        .public-report-field textarea {
+          resize: vertical;
+          min-height: 80px;
+        }
+        .public-report-actions {
+          display: flex;
+          gap: 10px;
+          margin-top: 20px;
+        }
+        .public-report-actions .public-scan-btn {
+          flex: 1;
+          padding: 12px;
+          border-radius: 10px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          border: 1px solid #3a3a46;
+          background: transparent;
+          color: #8a826f;
+          font-family: inherit;
+        }
+        .public-report-actions .public-scan-btn-primary {
+          background: #c8a44e;
+          color: #1a1408;
+          border-color: #c8a44e;
+        }
+        .public-report-actions .public-scan-btn-primary:disabled {
+          opacity: 0.5;
+        }
+        .public-report-success {
+          text-align: center;
+          padding: 40px 24px;
+        }
+        .public-report-success p {
+          color: #8a826f;
+          font-size: 14px;
+          line-height: 1.5;
+          margin: 0 0 24px;
+        }
+        .public-report-success .public-scan-btn {
+          min-width: 120px;
+          padding: 12px 24px;
+          border-radius: 10px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          border: 1px solid #c8a44e;
+          background: #c8a44e;
+          color: #1a1408;
+          font-family: inherit;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    
+    const modal = document.createElement('div');
+    modal.className = 'public-report-modal';
+    modal.innerHTML = `
+      <div class="public-report-bg" onclick="this.parentElement.remove()"></div>
+      <div class="public-report">
+        <button class="public-report-close" onclick="this.parentElement.parentElement.remove()">✕</button>
+        <h2>Report Issue</h2>
+        <form id="publicReportForm">
+          <div class="public-report-field">
+            <label>Your Name</label>
+            <input name="reporter" required placeholder="Your name">
+          </div>
+          <div class="public-report-field">
+            <label>What's wrong?</label>
+            <textarea name="description" rows="4" required placeholder="Describe the problem..."></textarea>
+          </div>
+          <div class="public-report-field">
+            <label>Priority</label>
+            <select name="priority">
+              <option value="low">Low — Not urgent</option>
+              <option value="normal" selected>Normal</option>
+              <option value="urgent">Urgent — Not working</option>
+            </select>
+          </div>
+          <div class="public-report-actions">
+            <button type="button" class="public-scan-btn" onclick="this.closest('.public-report-modal').remove()">Cancel</button>
+            <button type="submit" class="public-scan-btn public-scan-btn-primary">Submit Report</button>
+          </div>
+        </form>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.querySelector('#publicReportForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Submitting…';
+      
+      try {
+        const { data: eq } = await NX.sb.from('equipment')
+          .select('id, name, location')
+          .eq('qr_code', qrCode)
+          .single();
+        if (!eq) throw new Error('Equipment not found');
+
+        // Insert into tickets
+        await NX.sb.from('tickets').insert({
+          title: `[Equipment] ${eq.name}: ${fd.get('description').slice(0, 60)}`,
+          notes: `Reported via QR scan by ${fd.get('reporter')}\n\nEquipment: ${eq.name}\nLocation: ${eq.location}\n\nIssue: ${fd.get('description')}`,
+          priority: fd.get('priority'),
+          location: eq.location,
+          status: 'open',
+          reported_by: fd.get('reporter') + ' (QR scan)'
+        });
+        
+        // Also log to daily_logs for visibility on the Brain dashboard
+        await NX.sb.from('daily_logs').insert({
+          entry: `🚨 QR scan report — ${eq.name} at ${eq.location}: ${fd.get('description').slice(0, 120)}`,
+          user_name: fd.get('reporter')
+        });
+
+        // Success screen
+        modal.innerHTML = `
+          <div class="public-report-bg" onclick="this.parentElement.remove()"></div>
+          <div class="public-report public-report-success">
+            <div style="font-size:48px;margin-bottom:12px;color:#4caf50">✓</div>
+            <h2>Report Sent</h2>
+            <p>Thanks! The team has been notified and will address this shortly.</p>
+            <button class="public-scan-btn public-scan-btn-primary" onclick="this.closest('.public-report-modal').remove()">Done</button>
+          </div>
+        `;
+      } catch (err) {
+        console.error('[public-scan] Report failed:', err);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit Report';
+        alert('Failed to submit report: ' + (err.message || 'unknown error'));
+      }
+    });
   }
 
   /* ═════════════════════════════════════════════════════════════════════
