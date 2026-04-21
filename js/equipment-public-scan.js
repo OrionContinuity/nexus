@@ -92,30 +92,44 @@
   async function startLoad() {
     renderShell(equipParam);
     try {
-      const { data: eq, error } = await NX.sb.from('equipment')
-        .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, preferred_contractor_node_id, service_phone, service_contact_name')
-        .eq('qr_code', equipParam)
-        .single();
+      // Try to load with new service_phone/service_contact_name columns.
+      // If the migration hasn't run yet, these will be undefined but the
+      // query still succeeds (Postgres returns the rest of the columns).
+      // In the very unlikely case the SELECT errors, fall back to basic fields.
+      let eq, error;
+      try {
+        const res = await NX.sb.from('equipment')
+          .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, preferred_contractor_node_id, service_phone, service_contact_name')
+          .eq('qr_code', equipParam)
+          .single();
+        eq = res.data; error = res.error;
+      } catch (e) {
+        console.warn('[public-scan] full select failed, trying fallback:', e);
+        const res = await NX.sb.from('equipment')
+          .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, preferred_contractor_node_id')
+          .eq('qr_code', equipParam)
+          .single();
+        eq = res.data; error = res.error;
+      }
       if (error || !eq) throw new Error('Equipment not found for QR: ' + equipParam);
+      
+      console.log('[public-scan] eq loaded:', {
+        name: eq.name,
+        has_service_phone: !!eq.service_phone,
+        has_preferred_contractor: !!eq.preferred_contractor_node_id
+      });
 
-      // Fetch maintenance history AND (fallback) contractor info in parallel
       const [maintRes, contractorRes] = await Promise.all([
         NX.sb.from('equipment_maintenance')
           .select('event_type, event_date, description, performed_by')
           .eq('equipment_id', eq.id)
           .order('event_date', { ascending: false })
           .limit(5),
-        // Only fetch the contractor node if we don't have a direct service_phone
-        // (saves a query when the phone is set directly on equipment)
         (!eq.service_phone && eq.preferred_contractor_node_id)
           ? NX.sb.from('nodes').select('id, name, notes, tags, links').eq('id', eq.preferred_contractor_node_id).single()
           : Promise.resolve({ data: null })
       ]);
 
-      // Priority order for the Call button:
-      //   1. eq.service_phone (direct, most reliable) + eq.service_contact_name
-      //   2. Fallback to preferred contractor node's phone (extracted)
-      //   3. null = no Call button
       let contact = null;
       if (eq.service_phone) {
         contact = {
@@ -123,14 +137,19 @@
           phone: eq.service_phone,
           phoneHref: normalizePhoneForTel(eq.service_phone)
         };
+        console.log('[public-scan] using direct service_phone:', contact.phone);
       } else if (contractorRes?.data) {
         contact = extractContractor(contractorRes.data);
+        console.log('[public-scan] using contractor node:', contact);
+      } else {
+        console.log('[public-scan] no contact found — Call button will not render');
       }
 
       renderDetails(eq, maintRes.data || [], contact);
       
       window._NX_PUBLIC_SCAN_EQ = eq;
-      window.dispatchEvent(new CustomEvent('nx-public-scan-ready', { detail: { eq } }));
+      window._NX_PUBLIC_SCAN_CONTACT = contact; // Shared with equipment-public-pm.js override
+      window.dispatchEvent(new CustomEvent('nx-public-scan-ready', { detail: { eq, contact } }));
     } catch (err) {
       console.error('[public-scan] load failed:', err);
       showError(err.message || 'Could not load equipment');
