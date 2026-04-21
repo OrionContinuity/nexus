@@ -180,6 +180,36 @@ const NX = {
     const error = document.getElementById('pinError');
     const userEl = document.getElementById('pinUser');
 
+    // ═══ PRELOAD: Kick off location dropdown refresh in the background
+    // while user is typing their PIN. By the time they're done typing,
+    // the data is already in localStorage for instant dropdown render.
+    if (NX.timeClock?.buildLocationDropdownFresh) {
+      // Wait 200ms before firing so we don't compete with the PIN screen
+      // render for network/CPU, but the preload still completes by the
+      // time the average user has typed 4 digits (~1-2 seconds)
+      setTimeout(() => {
+        // Direct Supabase call since the dropdown DOM doesn't exist yet
+        NX.sb?.from('time_clock')
+          .select('location')
+          .order('clock_in', { ascending: false })
+          .limit(100)
+          .then(({ data }) => {
+            if (!data) return;
+            const locs = new Set();
+            data.forEach(r => {
+              if (r.location && r.location.trim()) locs.add(r.location.trim().toLowerCase());
+            });
+            if (locs.size) {
+              try {
+                localStorage.setItem('nexus_locations_cache', JSON.stringify([...locs]));
+                console.log('[preload] cached', locs.size, 'locations');
+              } catch (e) {}
+            }
+          })
+          .catch(() => {});
+      }, 200);
+    }
+
     const updateDisplay = () => {
       circles.forEach((c, i) => c.classList.toggle('filled', i < pin.length));
     };
@@ -303,39 +333,74 @@ const NX = {
   async authenticatePin(pin, errorEl, userEl, resetFn) {
     try {
       errorEl.textContent = '';
+      
+      // ═══ FAST PATH: Check local PIN cache first ═══
+      // If this PIN was verified on this device recently, we can let the
+      // user in immediately without waiting for Supabase. Background
+      // revalidation runs in parallel to catch any changes.
+      if (NX.pinCache && NX.pinCache.verify) {
+        const cachedUser = await NX.pinCache.verify(pin);
+        if (cachedUser) {
+          console.log('[auth] cache hit — instant login');
+          this._handleAuthSuccess(cachedUser, pin, userEl);
+          // Background revalidation — if PIN was changed/revoked,
+          // next login will force the full Supabase path
+          if (NX.pinCache.revalidate) {
+            NX.pinCache.revalidate(pin, cachedUser.id).then(ok => {
+              if (ok === false) console.warn('[auth] PIN no longer valid in Supabase');
+            });
+          }
+          return;
+        }
+      }
+      
+      // ═══ SLOW PATH: Full Supabase verification ═══
       const { data, error } = await this.sb.from('nexus_users').select('*').eq('pin', pin).single();
       if (error || !data) {
         errorEl.textContent = this.i18n ? this.i18n.t('invalidPin') : 'Invalid PIN';
         errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500);
         resetFn(); return;
       }
-      this.currentUser = data;
-      // Create session token tied to this PIN + user + device
-      const token = await this._makeSessionToken(data.pin, data.id);
-      // Don't store PIN in localStorage
-      const safeUser = { ...data, pin: undefined };
-      sessionStorage.setItem('nexus_current_user', JSON.stringify(safeUser));
-      sessionStorage.setItem('nexus_session_token', token);
-      // Keep PIN only in memory for session verification
-      this._sessionPin = data.pin;
-      if (data.language && this.i18n && data.language !== this.i18n.getLang()) {
-        localStorage.setItem('nexus_lang', data.language);
+      
+      // Cache for next login on this device
+      if (NX.pinCache && NX.pinCache.store) {
+        NX.pinCache.store(pin, data).catch(e => console.warn('[auth] cache store failed:', e));
       }
-      userEl.textContent = (this.i18n ? this.i18n.t('welcome') : 'Welcome,') + ' ' + data.name;
-      userEl.classList.add('visible');
-      this._applyRole(data.role);
-      // Save PIN to biometric keychain for future fingerprint auth
-      if (NX.biometric && NX.biometric.available) {
-        NX.biometric.saveCredentials(pin);
-      }
-      // Show time clock panel — user can clock in/out before entering
-      setTimeout(() => NX.timeClock.showOnPinScreen(), 600);
+      
+      this._handleAuthSuccess(data, pin, userEl);
     } catch (e) {
       console.error('NEXUS auth:', e);
       errorEl.textContent = 'Connection failed';
       errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500);
       resetFn();
     }
+  },
+  
+  // Shared success handler for both cache-hit and cold auth paths
+  _handleAuthSuccess(user, pin, userEl) {
+    this.currentUser = user;
+    // Create session token tied to this PIN + user + device
+    this._makeSessionToken(pin, user.id).then(token => {
+      sessionStorage.setItem('nexus_session_token', token);
+    });
+    // Don't store PIN in localStorage
+    const safeUser = { ...user, pin: undefined };
+    sessionStorage.setItem('nexus_current_user', JSON.stringify(safeUser));
+    // Keep PIN only in memory for session verification
+    this._sessionPin = pin;
+    if (user.language && this.i18n && user.language !== this.i18n.getLang()) {
+      localStorage.setItem('nexus_lang', user.language);
+    }
+    userEl.textContent = (this.i18n ? this.i18n.t('welcome') : 'Welcome,') + ' ' + user.name;
+    userEl.classList.add('visible');
+    this._applyRole(user.role);
+    // Save PIN to biometric keychain for future fingerprint auth
+    if (NX.biometric && NX.biometric.available) {
+      NX.biometric.saveCredentials(pin);
+    }
+    // FIX: setTimeout dropped from 600ms to 0 — instant transition to clock
+    // screen. The original 600ms delay was pure UX friction.
+    setTimeout(() => NX.timeClock.showOnPinScreen(), 0);
   },
 
   // Private — not callable from console without underscore knowledge
@@ -1680,13 +1745,31 @@ NX.timeClock = {
       clock_in: new Date().toISOString(),
       location: location || NX.currentUser.location || ''
     };
-    const { data, error } = await NX.sb.from('time_clock').insert(entry).select().single();
-    if (!error && data) {
-      this._activeEntry = data;
-      if (NX.toast) NX.toast('Clocked in ✓', 'success');
-      NX.syslog('clock_in',`${NX.currentUser.name} at ${location||NX.currentUser.location||'?'}`);
-    }
+    
+    // ═══ OPTIMISTIC UI: Flip to "clocked in" state IMMEDIATELY ═══
+    // User sees feedback instantly instead of waiting for Supabase round-trip.
+    // If the insert fails, we revert the UI and show an error.
+    const optimisticEntry = { ...entry, id: 'pending-' + Date.now() };
+    this._activeEntry = optimisticEntry;
     this.updateUI();
+    
+    // Send to Supabase in background
+    try {
+      const { data, error } = await NX.sb.from('time_clock').insert(entry).select().single();
+      if (error) throw error;
+      if (data) {
+        // Replace optimistic entry with real one (has proper ID)
+        this._activeEntry = data;
+        if (NX.toast) NX.toast('Clocked in ✓', 'success');
+        NX.syslog('clock_in', `${NX.currentUser.name} at ${location || NX.currentUser.location || '?'}`);
+      }
+    } catch (e) {
+      // Revert optimistic state
+      console.error('[timeClock] clockIn failed:', e);
+      this._activeEntry = null;
+      this.updateUI();
+      if (NX.toast) NX.toast('Clock-in failed — check connection and retry', 'error', 5000);
+    }
   },
 
   async clockOut() {
@@ -1694,15 +1777,27 @@ NX.timeClock = {
     const now = new Date();
     const clockIn = new Date(this._activeEntry.clock_in);
     const hours = ((now - clockIn) / 3600000).toFixed(2);
-    const { error } = await NX.sb.from('time_clock')
-      .update({ clock_out: now.toISOString(), hours: parseFloat(hours) })
-      .eq('id', this._activeEntry.id);
-    if (!error) {
-      if (NX.toast) NX.toast(`Clocked out — ${hours} hrs ✓`, 'success');
-      NX.syslog('clock_out',`${NX.currentUser?.name||'?'} — ${hours}h`);
-      this._activeEntry = null;
-    }
+    
+    // ═══ OPTIMISTIC UI: Flip to "clocked out" state IMMEDIATELY ═══
+    const previousEntry = this._activeEntry;
+    this._activeEntry = null;
     this.updateUI();
+    
+    // Send to Supabase in background
+    try {
+      const { error } = await NX.sb.from('time_clock')
+        .update({ clock_out: now.toISOString(), hours: parseFloat(hours) })
+        .eq('id', previousEntry.id);
+      if (error) throw error;
+      if (NX.toast) NX.toast(`Clocked out — ${hours} hrs ✓`, 'success');
+      NX.syslog('clock_out', `${NX.currentUser?.name || '?'} — ${hours}h`);
+    } catch (e) {
+      // Revert optimistic state
+      console.error('[timeClock] clockOut failed:', e);
+      this._activeEntry = previousEntry;
+      this.updateUI();
+      if (NX.toast) NX.toast('Clock-out failed — check connection and retry', 'error', 5000);
+    }
   },
 
   getElapsed() {
@@ -1776,13 +1871,21 @@ NX.timeClock = {
     if (pinSub) pinSub.style.display = 'none';
     panel.style.display = '';
 
-    // Build location dropdown from all locations ever used
-    await this.buildLocationDropdown();
-
-    await this.checkStatus();
+    // FIX: Render dropdown from cached/default locations INSTANTLY so user
+    // sees something right away, then parallelize the 3 Supabase calls
+    // (was serial awaits, now runs all 3 at once — saves ~600ms perceived)
+    this.buildLocationDropdownInstant();
+    
+    // All three Supabase calls run in parallel — total wait = max of
+    // individual times instead of sum
+    const [statusOk, _, __] = await Promise.all([
+      this.checkStatus(),
+      this.buildLocationDropdownFresh(),  // refresh from DB in background
+      this.loadPinLog()
+    ]);
+    
     this.updateUI();
     this.startTimer();
-    this.loadPinLog();
 
     document.getElementById('tcClockIn')?.addEventListener('click', () => {
       const loc = document.getElementById('tcLocation')?.value || '';
@@ -1798,18 +1901,28 @@ NX.timeClock = {
     });
   },
 
-  async buildLocationDropdown() {
+  // FIX #3: Two-stage location dropdown
+  // Stage 1: Instant render from cached list (stale-while-revalidate)
+  // Stage 2: Background fetch from Supabase with proper limit — merges in
+  //          any new locations, updates cache
+  //
+  // Before: pulled EVERY row from time_clock table (unlimited) to build 
+  // a dropdown of 3-5 values. On 500+ historical rows that's a massive
+  // unnecessary payload.
+  buildLocationDropdownInstant() {
     const sel = document.getElementById('tcLocation');
     if (!sel) return;
-
-    // Collect all unique locations from time_clock table
+    
+    // Start with defaults + last-used + anything cached from previous sessions
     const locations = new Set(['suerte', 'este', 'toti']);
     try {
-      const { data } = await NX.sb.from('time_clock').select('location');
-      if (data) data.forEach(r => { if (r.location && r.location.trim()) locations.add(r.location.trim().toLowerCase()); });
+      const cached = JSON.parse(localStorage.getItem('nexus_locations_cache') || '[]');
+      cached.forEach(loc => { if (loc) locations.add(loc); });
     } catch (e) {}
-
-    // Sort alphabetically
+    const lastLoc = localStorage.getItem('nexus_last_location');
+    if (lastLoc) locations.add(lastLoc);
+    if (NX.currentUser?.location) locations.add(NX.currentUser.location);
+    
     const sorted = [...locations].sort();
     sel.innerHTML = '';
     sorted.forEach(loc => {
@@ -1818,16 +1931,16 @@ NX.timeClock = {
       opt.textContent = loc.charAt(0).toUpperCase() + loc.slice(1);
       sel.appendChild(opt);
     });
-    // Add "create new" option
+    // Add "create new" option at bottom
     const newOpt = document.createElement('option');
     newOpt.value = '__new__';
     newOpt.textContent = '+ New Location';
     sel.appendChild(newOpt);
-
+    
     // Default to last used
-    const lastLoc = localStorage.getItem('nexus_last_location') || NX.currentUser?.location || 'suerte';
-    if (sorted.includes(lastLoc)) sel.value = lastLoc;
-
+    const defaultLoc = lastLoc || NX.currentUser?.location || 'suerte';
+    if (sorted.includes(defaultLoc)) sel.value = defaultLoc;
+    
     // Handle "new location" selection
     sel.addEventListener('change', () => {
       if (sel.value === '__new__') {
@@ -1839,13 +1952,76 @@ NX.timeClock = {
           opt.textContent = clean.charAt(0).toUpperCase() + clean.slice(1);
           sel.insertBefore(opt, sel.querySelector('[value="__new__"]'));
           sel.value = clean;
+          // Add to cache
+          try {
+            const cached = JSON.parse(localStorage.getItem('nexus_locations_cache') || '[]');
+            if (!cached.includes(clean)) {
+              cached.push(clean);
+              localStorage.setItem('nexus_locations_cache', JSON.stringify(cached));
+            }
+          } catch (e) {}
         } else {
-          // Cancelled — revert to last used
-          const lastLoc = localStorage.getItem('nexus_last_location') || 'suerte';
-          sel.value = lastLoc;
+          // Revert
+          sel.value = defaultLoc;
         }
       }
     });
+  },
+  
+  async buildLocationDropdownFresh() {
+    const sel = document.getElementById('tcLocation');
+    if (!sel) return;
+    
+    try {
+      // FIX: Only scan recent rows (last 100) instead of the entire table.
+      // 100 rows is plenty to capture all locations that have been used
+      // recently — avoids scanning years of history to build a dropdown.
+      const { data } = await NX.sb.from('time_clock')
+        .select('location')
+        .order('clock_in', { ascending: false })
+        .limit(100);
+      
+      if (!data) return;
+      
+      const currentLocs = new Set();
+      Array.from(sel.querySelectorAll('option')).forEach(o => {
+        if (o.value && o.value !== '__new__') currentLocs.add(o.value);
+      });
+      
+      const fresh = new Set(currentLocs);
+      data.forEach(r => {
+        if (r.location && r.location.trim()) fresh.add(r.location.trim().toLowerCase());
+      });
+      
+      // Only rebuild dropdown if we found new locations
+      if (fresh.size > currentLocs.size) {
+        const currentValue = sel.value;
+        const sorted = [...fresh].sort();
+        sel.innerHTML = '';
+        sorted.forEach(loc => {
+          const opt = document.createElement('option');
+          opt.value = loc;
+          opt.textContent = loc.charAt(0).toUpperCase() + loc.slice(1);
+          sel.appendChild(opt);
+        });
+        const newOpt = document.createElement('option');
+        newOpt.value = '__new__';
+        newOpt.textContent = '+ New Location';
+        sel.appendChild(newOpt);
+        if (sorted.includes(currentValue)) sel.value = currentValue;
+      }
+      
+      // Cache the full list for next time's instant render
+      localStorage.setItem('nexus_locations_cache', JSON.stringify([...fresh]));
+    } catch (e) {
+      console.warn('[loc-dropdown] fresh fetch failed:', e);
+    }
+  },
+
+  // Legacy method kept for backward compat — now just calls the two-stage version
+  async buildLocationDropdown() {
+    this.buildLocationDropdownInstant();
+    await this.buildLocationDropdownFresh();
   },
 
   async loadPinLog() {
