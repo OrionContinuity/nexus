@@ -2227,9 +2227,18 @@ function showCreationConfirmation(parsed, context, source = 'describe') {
         return;
       }
 
-      await commitEquipment(checked, context);
+      const results = await commitEquipment(checked, context);
       modal.classList.remove('active');
-      NX.toast && NX.toast(`✓ Created ${checked.length} equipment ${checked.length > 1 ? 'pieces' : 'piece'}`, 'success', 5000);
+      
+      if (results.created > 0) {
+        NX.toast && NX.toast(`✓ Created ${results.created} equipment ${results.created > 1 ? 'pieces' : 'piece'}${results.failed ? ` (${results.failed} failed)` : ''}`, results.failed ? 'warning' : 'success', 6000);
+      }
+      if (results.failed > 0 && results.created === 0) {
+        NX.toast && NX.toast(`Failed to create equipment: ${results.errors[0] || 'unknown error'}`, 'error', 10000);
+        console.error('[AI-Create] All failures:', results.errors);
+      } else if (results.failed > 0) {
+        console.warn('[AI-Create] Partial failure:', results.errors);
+      }
 
       await loadEquipment();
       buildUI();
@@ -2243,69 +2252,132 @@ function showCreationConfirmation(parsed, context, source = 'describe') {
 }
 
 async function commitEquipment(equipList, context) {
+  const results = { created: 0, failed: 0, errors: [] };
+  
   for (const eq of equipList) {
-    const allowed = ['name','location','area','category','subcategory','manufacturer','model',
-                     'serial_number','status','install_date','warranty_until','purchase_price',
-                     'specs','photo_url','notes','pm_interval_days','next_pm_date'];
-    const clean = {};
-    for (const f of allowed) {
-      if (eq[f] != null && eq[f] !== '') clean[f] = eq[f];
-    }
-
-    let notes = eq.notes || '';
-    if (eq.visible_details?.length) notes += (notes ? '\n' : '') + 'Observed: ' + eq.visible_details.join(', ');
-    if (eq.confidence && eq.confidence !== 'high') notes += (notes ? '\n' : '') + `[AI confidence: ${eq.confidence}]`;
-    if (notes) clean.notes = notes;
-
-    const { data: created, error } = await NX.sb.from('equipment').insert(clean).select().single();
-    if (error) { console.error('Equipment insert error:', error); continue; }
-
     try {
-      const { data: eqNode } = await NX.sb.from('nodes').insert({
-        name: clean.name,
-        category: 'equipment',
-        tags: [clean.location, clean.category, clean.manufacturer].filter(Boolean),
-        notes: `${clean.manufacturer || ''} ${clean.model || ''}${clean.serial_number ? '\nSN: ' + clean.serial_number : ''}`.trim(),
-        links: [], access_count: 1, source_emails: []
-      }).select().single();
-
-      if (eqNode) {
-        await NX.sb.from('equipment').update({ node_id: eqNode.id }).eq('id', created.id);
-        for (const name of (eq.linked_contractors || [])) await linkOrCreateNode(name, 'contractors', eqNode.id);
-        for (const name of (eq.linked_people || []))      await linkOrCreateNode(name, 'people', eqNode.id);
-        for (const name of (eq.linked_parts || [])) {
-          const partNode = context.parts.find(p => p.name.toLowerCase() === name.toLowerCase());
-          if (partNode) await linkNodes(eqNode.id, partNode.id);
+      const allowed = ['name','location','area','category','subcategory','manufacturer','model',
+                       'serial_number','status','install_date','warranty_until','purchase_price',
+                       'specs','photo_url','notes','pm_interval_days','next_pm_date'];
+      const clean = {};
+      for (const f of allowed) {
+        if (eq[f] != null && eq[f] !== '') clean[f] = eq[f];
+      }
+      
+      // Sanitize date fields — Postgres rejects empty strings and bad formats
+      const dateFields = ['install_date', 'warranty_until', 'next_pm_date'];
+      for (const df of dateFields) {
+        if (clean[df] != null) {
+          const v = String(clean[df]).trim();
+          if (!v || v === 'N/A' || v === 'n/a' || v === 'null' || v === 'undefined' || v === 'unknown') {
+            delete clean[df];
+          } else {
+            // Validate it's parseable as a date
+            const d = new Date(v);
+            if (isNaN(d.getTime())) {
+              console.warn(`[AI-Create] Dropping invalid ${df}:`, v);
+              delete clean[df];
+            } else {
+              // Normalize to YYYY-MM-DD
+              clean[df] = d.toISOString().slice(0, 10);
+            }
+          }
         }
       }
-    } catch(e) { console.warn('Graph link error:', e); }
-
-    if (eq.mentioned_parts_new?.length) {
-      const partsData = eq.mentioned_parts_new.map(p => ({
-        equipment_id: created.id,
-        part_name: p.name,
-        oem_part_number: p.oem_part_number || null,
-        supplier: 'Parts Town',
-        supplier_url: `https://www.partstown.com/search?searchterm=${encodeURIComponent(p.oem_part_number || p.name)}`
-      }));
-      await NX.sb.from('equipment_parts').insert(partsData);
-    }
-
-    if (eq.mentioned_issues?.length) {
-      for (const issue of eq.mentioned_issues) {
-        await NX.sb.from('tickets').insert({
-          title: `[${clean.name}] ${issue}`,
-          notes: `Issue mentioned during AI equipment creation:\n${issue}\n\nEquipment: ${clean.name}`,
-          priority: 'normal',
-          location: clean.location,
-          status: 'open',
-          reported_by: 'AI Create'
-        });
+      
+      // Sanitize numeric fields
+      if (clean.purchase_price != null) {
+        const n = parseFloat(String(clean.purchase_price).replace(/[^\d.]/g, ''));
+        if (isNaN(n)) delete clean.purchase_price;
+        else clean.purchase_price = n;
       }
-    }
+      if (clean.pm_interval_days != null) {
+        const n = parseInt(clean.pm_interval_days, 10);
+        if (isNaN(n)) delete clean.pm_interval_days;
+        else clean.pm_interval_days = n;
+      }
+      
+      // Required: name + location + category + status. If missing, skip.
+      if (!clean.name || !clean.location) {
+        results.failed++;
+        results.errors.push(`Missing name or location on: ${JSON.stringify(eq).slice(0, 80)}`);
+        continue;
+      }
+      clean.status = clean.status || 'operational';
+      clean.category = clean.category || 'equipment';
 
-    if (NX.syslog) NX.syslog('equipment_created_ai', clean.name);
+      let notes = eq.notes || '';
+      if (eq.visible_details?.length) notes += (notes ? '\n' : '') + 'Observed: ' + eq.visible_details.join(', ');
+      if (eq.confidence && eq.confidence !== 'high') notes += (notes ? '\n' : '') + `[AI confidence: ${eq.confidence}]`;
+      if (notes) clean.notes = notes;
+
+      const { data: created, error } = await NX.sb.from('equipment').insert(clean).select().single();
+      if (error) {
+        console.error('[AI-Create] Equipment insert failed:', { clean, error });
+        results.failed++;
+        results.errors.push(`${clean.name}: ${error.message}`);
+        continue;
+      }
+      results.created++;
+
+      // Graph linking — don't let failures here abort the main create
+      try {
+        const { data: eqNode } = await NX.sb.from('nodes').insert({
+          name: clean.name,
+          category: 'equipment',
+          tags: [clean.location, clean.category, clean.manufacturer].filter(Boolean),
+          notes: `${clean.manufacturer || ''} ${clean.model || ''}${clean.serial_number ? '\nSN: ' + clean.serial_number : ''}`.trim(),
+          links: [], access_count: 1, source_emails: []
+        }).select().single();
+
+        if (eqNode) {
+          await NX.sb.from('equipment').update({ node_id: eqNode.id }).eq('id', created.id);
+          for (const name of (eq.linked_contractors || [])) await linkOrCreateNode(name, 'contractors', eqNode.id);
+          for (const name of (eq.linked_people || []))      await linkOrCreateNode(name, 'people', eqNode.id);
+          for (const name of (eq.linked_parts || [])) {
+            const partNode = context.parts.find(p => p.name.toLowerCase() === name.toLowerCase());
+            if (partNode) await linkNodes(eqNode.id, partNode.id);
+          }
+        }
+      } catch(e) { console.warn('[AI-Create] Graph link error (non-fatal):', e); }
+
+      if (eq.mentioned_parts_new?.length) {
+        try {
+          const partsData = eq.mentioned_parts_new.map(p => ({
+            equipment_id: created.id,
+            part_name: p.name,
+            oem_part_number: p.oem_part_number || null,
+            supplier: 'Parts Town',
+            supplier_url: `https://www.partstown.com/search?searchterm=${encodeURIComponent(p.oem_part_number || p.name)}`
+          }));
+          await NX.sb.from('equipment_parts').insert(partsData);
+        } catch(e) { console.warn('[AI-Create] Parts insert error (non-fatal):', e); }
+      }
+
+      if (eq.mentioned_issues?.length) {
+        try {
+          for (const issue of eq.mentioned_issues) {
+            await NX.sb.from('tickets').insert({
+              title: `[${clean.name}] ${issue}`,
+              notes: `Issue mentioned during AI equipment creation:\n${issue}\n\nEquipment: ${clean.name}`,
+              priority: 'normal',
+              location: clean.location,
+              status: 'open',
+              reported_by: 'AI Create'
+            });
+          }
+        } catch(e) { console.warn('[AI-Create] Tickets insert error (non-fatal):', e); }
+      }
+
+      if (NX.syslog) NX.syslog('equipment_created_ai', clean.name);
+    } catch (err) {
+      console.error('[AI-Create] Unexpected error on item:', err, eq);
+      results.failed++;
+      results.errors.push(`${eq.name || 'Unknown'}: ${err.message}`);
+    }
   }
+  
+  return results;
 }
 
 async function linkOrCreateNode(name, category, equipNodeId) {
