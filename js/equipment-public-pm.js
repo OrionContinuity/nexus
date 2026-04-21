@@ -120,6 +120,19 @@
   }
 
   function replacePublicActions(actionsEl, qrCode) {
+    // Pull the contact info that public-scan.js already loaded (if any)
+    const contact = window._NX_PUBLIC_SCAN_CONTACT || null;
+    
+    const callBtnHtml = contact ? `
+        <a class="pm-public-btn pm-public-btn-call" id="pmCallBtn" href="tel:${esc(contact.phoneHref || contact.phone)}">
+          <span class="pm-public-btn-icon">📞</span>
+          <span class="pm-public-btn-label">
+            <span class="pm-public-btn-title">Call ${esc(contact.name || 'Service')}</span>
+            <span class="pm-public-btn-sub">${esc(contact.phone || '')}</span>
+          </span>
+        </a>
+    ` : '';
+    
     actionsEl.innerHTML = `
       <div class="pm-public-actions">
         <button class="pm-public-btn pm-public-btn-primary" id="pmLogBtn">
@@ -138,6 +151,8 @@
           </span>
         </button>
         
+        ${callBtnHtml}
+        
         <button class="pm-public-btn pm-public-btn-tertiary" id="pmReportIssueBtn">
           <span class="pm-public-btn-icon">🚨</span>
           <span class="pm-public-btn-label">
@@ -155,15 +170,25 @@
       openLoggerForm(qrCode);
     });
     document.getElementById('pmReportIssueBtn').addEventListener('click', () => {
-      // Prefer the self-contained handler (public-scan v3) since equipment.js
-      // isn't loaded in pre-auth mode. Fall back to the in-app version if
-      // we're in the logged-in equipment detail view.
       if (typeof window._NX_OPEN_REPORT_ISSUE === 'function') {
         window._NX_OPEN_REPORT_ISSUE(qrCode);
       } else if (NX.modules?.equipment?.publicReportIssue) {
         NX.modules.equipment.publicReportIssue(qrCode);
       }
     });
+    
+    // Also re-run when public-scan signals contact data is ready, so if the
+    // contact loaded AFTER this override ran, we re-render with the Call button
+    if (!contact && !actionsEl.dataset.pmContactListener) {
+      actionsEl.dataset.pmContactListener = '1';
+      window.addEventListener('nx-public-scan-ready', (e) => {
+        if (e.detail?.contact) {
+          // Force re-render
+          delete actionsEl.dataset.pmReplaced;
+          replacePublicActions(actionsEl, qrCode);
+        }
+      }, { once: true });
+    }
   }
 
   /* ═════════════════════════════════════════════════════════════════════════
