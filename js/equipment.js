@@ -392,7 +392,12 @@ async function openDetail(id) {
         <button class="eq-btn eq-dispatch-btn" onclick="NX.modules.equipment.openDispatchSheet('${eq.id}')">📞 Dispatch</button>
         <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">✎ Edit Everything</button>
         <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.logService('${eq.id}')">+ Log Service</button>
-        <button class="eq-btn eq-btn-danger" onclick="NX.modules.equipment.deleteEquipment('${eq.id}')">🗑</button>
+        <div class="eq-overflow-wrap">
+          <button class="eq-btn eq-overflow-btn" onclick="NX.modules.equipment.toggleOverflow(event, '${eq.id}')" aria-label="More actions">⋯</button>
+          <div class="eq-overflow-menu" id="eqOverflow-${eq.id}" onclick="event.stopPropagation()">
+            <button class="eq-overflow-item eq-overflow-danger" onclick="NX.modules.equipment.deleteEquipment('${eq.id}')">🗑 Delete equipment</button>
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -4373,6 +4378,30 @@ function dispatchFromTicket(equipId, ticketId) {
   return openDispatchSheet(equipId, ticketId);
 }
 
+// Three-dot overflow menu in the equipment detail action bar.
+// Hides destructive actions (currently just Delete) behind a tap to prevent
+// accidental triggers. Auto-closes on outside tap.
+function toggleOverflow(event, equipId) {
+  event.stopPropagation();
+  const menu = document.getElementById('eqOverflow-' + equipId);
+  if (!menu) return;
+  const isOpen = menu.classList.contains('active');
+  // Close any other open overflows first
+  document.querySelectorAll('.eq-overflow-menu.active').forEach(m => m.classList.remove('active'));
+  if (!isOpen) {
+    menu.classList.add('active');
+    // Close on next outside click
+    setTimeout(() => {
+      document.addEventListener('click', function closeOverflow(e) {
+        if (!menu.contains(e.target)) {
+          menu.classList.remove('active');
+          document.removeEventListener('click', closeOverflow);
+        }
+      }, { once: true });
+    }, 0);
+  }
+}
+
 
 /* ════════════════════════════════════════════════════════════════════════════
    12. UI INJECTION — per-row/card Zebra print buttons
@@ -4599,6 +4628,7 @@ NX.modules.equipment = {
   cycleDispatchOutcome,
   dispatchFromTicket,
   lookupServicePhoneFromNode,
+  toggleOverflow,
 };
 
 console.log('[Equipment] unified module loaded — ' + Object.keys(NX.modules.equipment).length + ' exports');
