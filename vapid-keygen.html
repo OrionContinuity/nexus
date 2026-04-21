@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>NEXUS — VAPID Keygen</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    background: #0a0a0c; color: #c8c0b0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    padding: 20px; max-width: 600px; margin: 0 auto; line-height: 1.5;
+  }
+  h1 { color: #c8a44e; font-weight: 500; margin: 0 0 8px; }
+  p  { color: #8a826f; margin: 8px 0 24px; font-size: 14px; }
+  button {
+    background: #c8a44e; color: #0a0a0c; border: 0;
+    padding: 14px 24px; border-radius: 8px;
+    font-family: inherit; font-size: 15px; font-weight: 600;
+    cursor: pointer; width: 100%;
+  }
+  button:active { opacity: 0.8; }
+  button:disabled { background: #3a3a3a; color: #6a6a6a; }
+  .box {
+    background: #15151c; border: 1px solid #2a2a33;
+    border-radius: 8px; padding: 14px; margin-top: 14px;
+  }
+  .label {
+    color: #c8a44e; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 6px; font-weight: 600;
+  }
+  .val {
+    word-break: break-all; user-select: all; -webkit-user-select: all;
+    color: #e6dccc; line-height: 1.6; font-family: monospace;
+    font-size: 12px; background: #0a0a0c;
+    padding: 10px; border-radius: 4px;
+    -webkit-touch-callout: text;
+  }
+  .copy-btn {
+    background: #2a2a33; color: #c8a44e;
+    padding: 6px 12px; font-size: 12px; margin-top: 8px;
+    width: auto; display: inline-block; border-radius: 4px;
+    border: 0; font-family: inherit; cursor: pointer;
+  }
+  .warn {
+    color: #d45858; font-size: 13px; margin-top: 24px;
+    padding: 14px; background: rgba(212, 88, 88, 0.08);
+    border-left: 3px solid #d45858; border-radius: 4px;
+  }
+  .ok {
+    color: #5bba5f; font-size: 13px; margin-top: 14px;
+    padding: 12px; background: rgba(91, 186, 95, 0.08);
+    border-left: 3px solid #5bba5f; border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+<h1>🔑 NEXUS VAPID Keygen</h1>
+<p>Generates a Web Push (VAPID) keypair locally in your browser. Nothing leaves your device. Run this once, save the outputs as Supabase Edge Function secrets, then close this page.</p>
+
+<button id="genBtn" onclick="gen()">Generate keys</button>
+
+<div id="out"></div>
+
+<script>
+async function gen() {
+  const btn = document.getElementById('genBtn');
+  btn.disabled = true; btn.textContent = 'Generating…';
+
+  try {
+    // Generate ECDSA P-256 keypair (the curve VAPID requires)
+    const kp = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,             // extractable so we can export
+      ["sign", "verify"]
+    );
+    // Private key as JWK (includes d, x, y)
+    const privJwk = await crypto.subtle.exportKey("jwk", kp.privateKey);
+    // Public key as raw uncompressed point (65 bytes: 0x04 || X(32) || Y(32))
+    const pubRaw = new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey));
+
+    function b64u(bytes) {
+      let s = "";
+      for (const b of bytes) s += String.fromCharCode(b);
+      return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    }
+    const pubB64u = b64u(pubRaw);
+
+    document.getElementById('out').innerHTML = `
+      <div class="box">
+        <div class="label">VAPID_PUBLIC_KEY</div>
+        <div class="val" id="v1">${pubB64u}</div>
+        <button class="copy-btn" onclick="copyVal('v1', this)">Copy</button>
+        <p style="font-size:12px;color:#8a826f;margin-top:8px;margin-bottom:0">
+          Save as Supabase Edge Function secret <b>AND</b> in
+          <code>nexus_config.vapid_public_key</code>.
+        </p>
+      </div>
+
+      <div class="box">
+        <div class="label">VAPID_PRIVATE_JWK 🔒</div>
+        <div class="val" id="v2">${JSON.stringify(privJwk)}</div>
+        <button class="copy-btn" onclick="copyVal('v2', this)">Copy</button>
+        <p style="font-size:12px;color:#8a826f;margin-top:8px;margin-bottom:0">
+          Save as Supabase Edge Function secret only. Never share, never commit.
+        </p>
+      </div>
+
+      <div class="box">
+        <div class="label">VAPID_SUBJECT</div>
+        <div class="val" id="v3">mailto:your-email@your-domain.com</div>
+        <p style="font-size:12px;color:#8a826f;margin-top:8px;margin-bottom:0">
+          Edit before saving. Used by push services to contact you about issues.
+        </p>
+      </div>
+
+      <div class="warn">
+        ⚠ <b>Save all three values BEFORE closing this page.</b>
+        Lose VAPID_PRIVATE_JWK and you'll need to regenerate, which
+        invalidates every browser subscription you already have — every
+        user has to re-enable notifications.
+      </div>
+    `;
+    btn.style.display = 'none';
+  } catch (e) {
+    document.getElementById('out').innerHTML =
+      `<div class="warn">Generation failed: ${e.message}</div>`;
+    btn.disabled = false; btn.textContent = 'Try again';
+  }
+}
+
+async function copyVal(id, btn) {
+  const text = document.getElementById(id).textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = 'Copied ✓';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  } catch {
+    // Fallback: select the text so user can long-press copy
+    const range = document.createRange();
+    range.selectNodeContents(document.getElementById(id));
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(range);
+    btn.textContent = 'Selected — long-press copy';
+  }
+}
+</script>
+
+</body>
+</html>
