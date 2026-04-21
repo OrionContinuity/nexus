@@ -112,10 +112,9 @@
           throw new Error('equipment.js does not export renderPublicScanView');
         }
         
-        // Inject as inline script with explicit NX binding + execution
-        // markers so we can see EXACTLY how far execution gets.
-        const wrapper = document.createElement('script');
-        wrapper.textContent = 
+        // Build the wrapped code with explicit NX binding + error capture +
+        // execution tracing.
+        const wrappedCode = 
           'window.NX = window.NX || {};\n' +
           'var NX = window.NX;\n' +
           'window._NX_TRACE = "start";\n' +
@@ -129,10 +128,26 @@
           '  console.error("[equipment.js eval failed]", e);\n' +
           '}\n';
         
-        document.head.appendChild(wrapper);
+        // CRITICAL: Inline <script>textContent=...</script> injection fails
+        // silently in some mobile browser contexts (especially when a Service
+        // Worker is controlling the page). Using a Blob URL instead makes the
+        // browser treat this as an external script, which loads reliably.
+        //
+        // The tradeoff: Blob URLs are async (onload fires after execution)
+        // vs inline (runs synchronously). We already use setTimeout + waitFor
+        // so this isn't a problem.
+        const blob = new Blob([wrappedCode], { type: 'application/javascript' });
+        const blobUrl = URL.createObjectURL(blob);
         
-        // Give the IIFE a moment
-        setTimeout(() => {
+        const wrapper = document.createElement('script');
+        wrapper.src = blobUrl;
+        wrapper.onerror = () => {
+          URL.revokeObjectURL(blobUrl);
+          showErrorScreen(new Error('Blob script failed to load — inline script blocked?'));
+        };
+        wrapper.onload = () => {
+          URL.revokeObjectURL(blobUrl);
+          
           if (window._NX_PUBLIC_SCAN_ERROR) {
             showErrorScreen(window._NX_PUBLIC_SCAN_ERROR);
             return;
@@ -154,7 +169,7 @@
               const modExists = !!window.NX?.modules;
               const eqExists = !!window.NX?.modules?.equipment;
               const keyCount = eqExists ? Object.keys(window.NX.modules.equipment).length : 0;
-              const trace = window._NX_TRACE || '(trace missing)';
+              const trace = window._NX_TRACE || '(trace missing - blob did not execute)';
               
               let msg;
               if (!nxExists) msg = 'window.NX is undefined';
@@ -165,7 +180,9 @@
               showErrorScreen(new Error(msg));
             }
           );
-        }, 100);
+        };
+        
+        document.head.appendChild(wrapper);
       })
       .catch(err => {
         console.error('[public-scan] fetch/eval error:', err);
