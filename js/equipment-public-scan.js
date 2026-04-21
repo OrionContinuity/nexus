@@ -74,78 +74,97 @@
   });
 
   function proceedWithScriptLoad() {
-    // Bridge: equipment.js uses the bare identifier `NX` (not window.NX) at
-    // module load time. In classic scripts, `const NX` declared in app.js
-    // creates a script-scope binding — but other scripts that reference 
-    // bare `NX` DO see it. The issue is only when equipment.js loads BEFORE
-    // app.js has run at all.
+    // Strategy: FETCH equipment.js as text, then evaluate it inside an
+    // inline <script> block with an explicit NX binding at the top.
     //
-    // Two-stage bridge:
-    //   1. Inject an inline script: `var NX = window.NX;` 
-    //      `var` at top-level creates a window property, so bare `NX` works.
-    //   2. Wrap equipment.js load with error capture so any throw is visible.
+    // Why: Loading equipment.js via <script src="..."> relies on the
+    // browser resolving the bare `NX` identifier correctly. In our
+    // pre-auth flow, app.js may not have run (so no `const NX` at
+    // script-scope), and window.NX may not shadow properly depending on
+    // how other scripts interact.
+    //
+    // By fetching as text and injecting as inline code with `var NX = 
+    // window.NX;` at the very top, we guarantee the bare `NX` identifier
+    // resolves to our window.NX regardless of what app.js may or may not
+    // have done.
+    //
+    // CACHE-BUST with timestamp to guarantee fresh fetch from GitHub Pages.
     
-    const bridge = document.createElement('script');
-    bridge.textContent = 'window.NX = window.NX || {}; if(typeof NX==="undefined"){var NX=window.NX;}';
-    document.head.appendChild(bridge);
-
-    // Capture any error thrown during equipment.js execution so we can
-    // show it to the user instead of silently failing
-    let equipmentLoadError = null;
-    const errorHandler = (e) => {
-      if (e.filename && e.filename.includes('equipment.js')) {
-        equipmentLoadError = e.error || new Error(e.message || 'Unknown error in equipment.js');
-      }
-    };
-    window.addEventListener('error', errorHandler);
-
-    const cacheBust = '?v=' + (window._NX_BUILD || Date.now());
-    loadScript('js/equipment.js' + cacheBust, () => {
-      // Give the IIFE a moment to finish
-      setTimeout(() => {
-        if (equipmentLoadError) {
-          window.removeEventListener('error', errorHandler);
-          showErrorScreen(equipmentLoadError);
-          return;
+    const cacheBust = '?v=' + Date.now();
+    const url = 'js/equipment.js' + cacheBust;
+    
+    fetch(url, { cache: 'no-store' })
+      .then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.text();
+      })
+      .then(source => {
+        // Verify we got the consolidated version (has renderPublicScanView)
+        if (!source.includes('function renderPublicScanView')) {
+          throw new Error(
+            `Fetched equipment.js is STALE — missing renderPublicScanView. ` +
+            `Size: ${source.length} bytes. Expected ~189KB consolidated version.`
+          );
         }
         
-        waitFor(
-          () => window.NX?.modules?.equipment?.renderPublicScanView,
-          () => {
-            window.removeEventListener('error', errorHandler);
-            try {
-              window.NX.modules.equipment.renderPublicScanView(equipParam);
-            } catch (e) {
-              console.error('[public-scan] render failed:', e);
-              showErrorScreen(e);
-            }
-          },
-          5000,
-          () => {
-            window.removeEventListener('error', errorHandler);
-            const nxExists = !!window.NX;
-            const modExists = !!window.NX?.modules;
-            const eqExists = !!window.NX?.modules?.equipment;
-            const keyCount = eqExists ? Object.keys(window.NX.modules.equipment).length : 0;
-            
-            let msg;
-            if (!nxExists) {
-              msg = 'window.NX is undefined — app.js never initialized';
-            } else if (!modExists) {
-              msg = 'window.NX exists but NX.modules never created — equipment.js threw before line 4396';
-            } else if (!eqExists) {
-              msg = 'NX.modules exists but NX.modules.equipment never set — equipment.js threw between lines 4396-4398';
-            } else {
-              msg = `Module has ${keyCount} exports but renderPublicScanView missing — stale cache?`;
-            }
-            showErrorScreen(new Error(msg));
+        // Verify the export is there too
+        if (!source.includes('renderPublicScanView,')) {
+          throw new Error('equipment.js does not export renderPublicScanView');
+        }
+        
+        // Inject as inline script with explicit NX binding at top
+        const wrapper = document.createElement('script');
+        wrapper.textContent = 
+          'window.NX = window.NX || {};\n' +
+          'var NX = window.NX;\n' +
+          'try {\n' +
+          source + '\n' +
+          '} catch(e) {\n' +
+          '  window._NX_PUBLIC_SCAN_ERROR = e;\n' +
+          '  console.error("[equipment.js eval failed]", e);\n' +
+          '}\n';
+        
+        document.head.appendChild(wrapper);
+        
+        // Give the IIFE a moment
+        setTimeout(() => {
+          if (window._NX_PUBLIC_SCAN_ERROR) {
+            showErrorScreen(window._NX_PUBLIC_SCAN_ERROR);
+            return;
           }
-        );
-      }, 100);
-    }, () => {
-      window.removeEventListener('error', errorHandler);
-      showErrorScreen(new Error('equipment.js failed to load (network error)'));
-    });
+          
+          waitFor(
+            () => window.NX?.modules?.equipment?.renderPublicScanView,
+            () => {
+              try {
+                window.NX.modules.equipment.renderPublicScanView(equipParam);
+              } catch (e) {
+                console.error('[public-scan] render failed:', e);
+                showErrorScreen(e);
+              }
+            },
+            3000,
+            () => {
+              const nxExists = !!window.NX;
+              const modExists = !!window.NX?.modules;
+              const eqExists = !!window.NX?.modules?.equipment;
+              const keyCount = eqExists ? Object.keys(window.NX.modules.equipment).length : 0;
+              
+              let msg;
+              if (!nxExists) msg = 'window.NX is undefined';
+              else if (!modExists) msg = 'Module evaluated but NX.modules never set (something swallowed the IIFE)';
+              else if (!eqExists) msg = 'NX.modules exists but equipment export missing';
+              else msg = `Module has ${keyCount} exports, no renderPublicScanView — check file version`;
+              
+              showErrorScreen(new Error(msg));
+            }
+          );
+        }, 100);
+      })
+      .catch(err => {
+        console.error('[public-scan] fetch/eval error:', err);
+        showErrorScreen(err);
+      });
   }
 
   /* ─── Helpers ───────────────────────────────────────────────────────── */
