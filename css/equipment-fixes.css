@@ -1915,8 +1915,52 @@ button.eq-close {
 .eq-call-confirm-meta {
   font-size: 12px;
   color: #8a826f;
-  margin-bottom: 22px;
+  margin-bottom: 18px;
   line-height: 1.4;
+}
+
+.eq-call-confirm-issue-wrap {
+  text-align: left;
+  margin-bottom: 18px;
+}
+.eq-call-confirm-issue-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #8a826f;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.eq-call-confirm-issue-label .eq-optional-tag {
+  opacity: 0.55;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.eq-call-confirm-issue {
+  width: 100%;
+  min-height: 56px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(200, 164, 78, 0.2);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #e6dccc;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  resize: vertical;
+  outline: none;
+  transition: border-color .15s, background .15s;
+}
+.eq-call-confirm-issue::placeholder {
+  color: #6a6456;
+  opacity: 0.7;
+}
+.eq-call-confirm-issue:focus {
+  border-color: rgba(200, 164, 78, 0.5);
+  background: rgba(0, 0, 0, 0.5);
 }
 
 .eq-call-confirm-actions {
@@ -1934,6 +1978,28 @@ button.eq-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition: opacity .15s, background .15s;
+}
+
+/* Disabled Call Now state — dimmed when issue field is empty */
+.eq-call-service-btn.is-disabled,
+.eq-call-service-btn[aria-disabled="true"] {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+/* Light theme */
+[data-theme="light"] .eq-call-confirm-issue {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #1a1a22;
+}
+[data-theme="light"] .eq-call-confirm-issue::placeholder {
+  color: #a8a596;
+}
+[data-theme="light"] .eq-call-confirm-issue-label {
+  color: #6a6456;
 }
 
 /* Light theme */
