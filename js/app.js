@@ -1621,33 +1621,142 @@ td.check{background:#F0EDE6 !important}
 
 document.addEventListener('DOMContentLoaded', () => NX.init());
 
-// Register service worker for offline support
+// Register service worker for offline support + push notifications
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
-    // Push notification setup
-    if ('PushManager' in window && NX.currentUser) {
-      NX.setupPush = async function(vapidPublicKey) {
-        try {
-          const permission = await Notification.requestPermission();
-          if (permission !== 'granted') return;
-          const sub = await reg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: vapidPublicKey
-          });
-          // Save subscription to Supabase
-          await NX.sb.from('push_subscriptions').upsert({
-            user_id: NX.currentUser.id,
-            user_name: NX.currentUser.name,
-            subscription: sub.toJSON()
-          }, { onConflict: 'user_id' });
-          if (NX.toast) NX.toast('Notifications enabled ✓', 'success');
-        } catch (e) {
-          console.warn('Push setup failed:', e);
-        }
-      };
-    }
-  }).catch(() => {});
+    // Initialize push subscription system once we have a logged-in user.
+    // We poll because PIN login happens async, no event fires for it.
+    const tryInit = (attempts = 0) => {
+      if (NX.currentUser) {
+        NX.push.init(reg);
+      } else if (attempts < 60) {
+        setTimeout(() => tryInit(attempts + 1), 1000);
+      }
+    };
+    tryInit();
+  }).catch(err => console.warn('[sw] register failed:', err));
 }
+
+// ── PUSH NOTIFICATIONS ───────────────────────────────────────────────
+// Full subscription module. Exposes:
+//   NX.push.enable()  — prompt user, subscribe, save to DB
+//   NX.push.disable() — unsubscribe and remove from DB
+//   NX.push.status()  — 'granted' | 'denied' | 'default' | 'unsupported' | 'no-vapid'
+// Wire buttons like:
+//   <button onclick="NX.push.enable()">🔔 Enable Notifications</button>
+NX.push = {
+  reg: null,
+  vapidKey: null,
+
+  async init(serviceWorkerReg) {
+    this.reg = serviceWorkerReg;
+    if (!('PushManager' in window)) {
+      console.log('[push] PushManager not supported');
+      return;
+    }
+    if (!NX.currentUser) return;
+
+    // Fetch the VAPID public key from nexus_config (single source of truth)
+    try {
+      const { data: cfg } = await NX.sb
+        .from('nexus_config')
+        .select('vapid_public_key')
+        .eq('id', 1)
+        .single();
+      if (!cfg?.vapid_public_key) {
+        console.log('[push] no VAPID key in nexus_config — push disabled');
+        return;
+      }
+      this.vapidKey = cfg.vapid_public_key;
+    } catch (e) {
+      console.warn('[push] failed to load VAPID key:', e);
+      return;
+    }
+
+    // If already subscribed, refresh last_seen_at in the DB
+    try {
+      const existing = await this.reg.pushManager.getSubscription();
+      if (existing) await this._save(existing);
+    } catch (e) {
+      console.warn('[push] resubscribe check failed:', e);
+    }
+  },
+
+  status() {
+    if (!('PushManager' in window) || !this.reg) return 'unsupported';
+    if (!this.vapidKey) return 'no-vapid';
+    return Notification.permission;
+  },
+
+  async enable() {
+    const s = this.status();
+    if (s === 'unsupported') {
+      NX.toast?.('Push not supported on this browser', 'warn');
+      return false;
+    }
+    if (s === 'no-vapid') {
+      NX.toast?.('Push not configured (admin: set VAPID key)', 'error');
+      return false;
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        NX.toast?.('Notification permission denied', 'warn');
+        return false;
+      }
+      const sub = await this.reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: this._urlB64ToUint8Array(this.vapidKey),
+      });
+      await this._save(sub);
+      NX.toast?.('Notifications enabled ✓', 'success');
+      return true;
+    } catch (e) {
+      console.error('[push] enable failed:', e);
+      NX.toast?.('Notifications failed: ' + e.message, 'error');
+      return false;
+    }
+  },
+
+  async disable() {
+    if (!this.reg) return false;
+    try {
+      const sub = await this.reg.pushManager.getSubscription();
+      if (sub) await sub.unsubscribe();
+      if (NX.currentUser) {
+        await NX.sb.from('push_subscriptions')
+          .delete().eq('user_id', String(NX.currentUser.id));
+      }
+      NX.toast?.('Notifications disabled', 'info');
+      return true;
+    } catch (e) {
+      console.warn('[push] disable error:', e);
+      return false;
+    }
+  },
+
+  async _save(sub) {
+    if (!NX.currentUser) return;
+    try {
+      await NX.sb.from('push_subscriptions').upsert({
+        user_id: String(NX.currentUser.id),
+        user_name: NX.currentUser.name,
+        subscription: sub.toJSON(),
+        user_agent: navigator.userAgent.slice(0, 200),
+        last_seen_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+    } catch (e) {
+      console.warn('[push] save failed:', e);
+    }
+  },
+
+  _urlB64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const b64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(b64);
+    return Uint8Array.from(raw, c => c.charCodeAt(0));
+  },
+};
 
 // ═══ OFFLINE QUEUE — stores actions when offline, replays when back ═══
 const OfflineQueue = {
