@@ -1029,6 +1029,184 @@ body.panel-open .chat-hud{opacity:0;pointer-events:none;transform:translateY(100
 .cal-recover-btn{background:none;border:1px solid rgba(200,164,78,.25);color:var(--accent);font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer;margin-top:6px;font-family:inherit;transition:all .15s}
 .cal-recover-btn:active{background:rgba(200,164,78,.1)}
 
+/* ═══ CAL — Upcoming strip (next 7 days, below the day-detail) ═══
+   Fills the previously-empty space below the calendar grid + detail
+   panel with a compact preview of events in the coming week. */
+.cal-upcoming{margin:20px 0 32px;padding-top:20px;border-top:1px solid rgba(212,182,138,.1)}
+.cal-up-head{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:2.4px;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:14px}
+.cal-up-empty{padding:22px 18px;text-align:center;font-size:12.5px;color:var(--muted);line-height:1.5;border:1px solid rgba(212,182,138,.12);border-radius:2px;font-style:italic}
+.cal-up-list{display:flex;flex-direction:column;gap:2px}
+.cal-up-day{display:flex;gap:18px;padding:10px 0;border-bottom:1px solid rgba(212,182,138,.06);min-width:0}
+.cal-up-day:last-child{border-bottom:none}
+.cal-up-day.is-today .cal-up-date{color:var(--accent)}
+.cal-up-date{flex-shrink:0;width:92px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:1.4px;color:var(--faint);text-transform:uppercase;font-weight:500;padding-top:4px;line-height:1.3}
+.cal-up-events{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.cal-up-event{display:flex;align-items:baseline;gap:8px;font-size:12.5px;color:var(--text);line-height:1.4;min-width:0}
+.cal-up-dot{flex-shrink:0;width:6px;height:6px;border-radius:50%;display:inline-block;transform:translateY(-1px)}
+.cal-up-time{flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums;letter-spacing:.3px;min-width:54px}
+.cal-up-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere;word-break:break-word;color:var(--text);letter-spacing:.05px}
+.cal-up-more{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:1px;padding-left:14px;margin-top:2px;text-transform:uppercase}
+
+@media (max-width:400px){
+  .cal-up-day{gap:12px}
+  .cal-up-date{width:72px;font-size:10px;letter-spacing:1.1px}
+  .cal-up-time{min-width:48px;font-size:10px}
+  .cal-up-event{font-size:12px}
+}
+
+/* ═══ CAL — Contractor event notes ═══
+   Tap a contractor card → it expands, this panel appears inside.
+   Each note is authored + timestamped, sorted oldest-first so the
+   thread reads chronologically like a comment trail. */
+.cal-event-notes-hint{
+  font-size:10px;
+  color:var(--accent);
+  letter-spacing:.3px;
+  margin-left:6px;
+  opacity:.75;
+  transition:opacity .15s;
+}
+.cal-event[data-type="contractor"]:hover .cal-event-notes-hint{opacity:1}
+.cal-event.expanded .cal-event-notes-hint{opacity:1;color:var(--accent)}
+
+.cal-notes{
+  margin-top:0;
+  padding-top:10px;
+  border-top:1px solid var(--border);
+  max-height:0;
+  overflow:hidden;
+  transition:max-height .3s ease,margin-top .3s ease,padding-top .3s ease;
+}
+.cal-event.expanded .cal-notes{
+  max-height:500px;
+  margin-top:10px;
+  overflow-y:auto;
+  scrollbar-width:none;
+}
+.cal-event.expanded .cal-notes::-webkit-scrollbar{display:none}
+
+.cal-notes-head{
+  font-family:'JetBrains Mono',monospace;
+  font-size:10px;
+  letter-spacing:2px;
+  color:var(--faint);
+  text-transform:uppercase;
+  margin-bottom:10px;
+}
+.cal-notes-loading{font-size:12px;color:var(--faint);padding:6px 0;font-style:italic}
+.cal-notes-empty{font-size:12px;color:var(--faint);padding:6px 0;font-style:italic}
+.cal-notes-error{
+  font-size:12px;
+  color:#e88;
+  line-height:1.5;
+  padding:10px 12px;
+  background:rgba(212,88,88,.08);
+  border:1px solid rgba(212,88,88,.2);
+  border-radius:4px;
+}
+.cal-notes-error code{
+  font-family:'JetBrains Mono',monospace;
+  font-size:11px;
+  background:rgba(0,0,0,.2);
+  padding:1px 5px;
+  border-radius:2px;
+  color:var(--accent);
+}
+.cal-notes-list{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-bottom:12px;
+}
+.cal-note{
+  padding:8px 12px;
+  background:rgba(255,255,255,.02);
+  border-radius:4px;
+  border-left:2px solid rgba(212,164,78,.35);
+}
+.cal-note-head{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:4px;
+  font-size:10px;
+  letter-spacing:.2px;
+}
+.cal-note-author{
+  color:var(--accent);
+  font-weight:600;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  flex:1;
+  min-width:0;
+}
+.cal-note-time{
+  color:var(--faint);
+  font-family:'JetBrains Mono',monospace;
+  font-size:9.5px;
+  letter-spacing:.5px;
+  flex-shrink:0;
+}
+.cal-note-body{
+  font-size:12.5px;
+  color:var(--text);
+  line-height:1.5;
+  white-space:pre-wrap;
+  word-wrap:break-word;
+  overflow-wrap:anywhere;
+}
+.cal-notes-add{
+  display:flex;
+  gap:8px;
+  align-items:flex-end;
+}
+.cal-notes-input{
+  flex:1;
+  min-width:0;
+  padding:8px 10px;
+  background:rgba(0,0,0,.2);
+  border:1px solid var(--border);
+  border-radius:6px;
+  color:var(--text);
+  font-family:inherit;
+  font-size:12.5px;
+  line-height:1.4;
+  resize:vertical;
+  min-height:54px;
+  max-height:160px;
+  letter-spacing:.1px;
+}
+.cal-notes-input:focus{
+  outline:none;
+  border-color:var(--accent);
+  background:rgba(0,0,0,.28);
+}
+.cal-notes-input::placeholder{color:var(--faint);font-style:italic}
+.cal-notes-save{
+  padding:8px 16px;
+  background:var(--accent);
+  color:#1a1408;
+  border:none;
+  border-radius:6px;
+  font-family:inherit;
+  font-size:12px;
+  font-weight:600;
+  cursor:pointer;
+  white-space:nowrap;
+  letter-spacing:.3px;
+  transition:opacity .15s,transform .1s;
+  flex-shrink:0;
+}
+.cal-notes-save:hover{opacity:.9}
+.cal-notes-save:active{transform:scale(.97)}
+.cal-notes-save:disabled{opacity:.5;cursor:default;transform:none}
+
+@media (max-width:400px){
+  .cal-notes-add{flex-direction:column;align-items:stretch}
+  .cal-notes-save{width:100%}
+}
+
 /* ═══ TIME CLOCK — PIN screen ═══ */
 .tc-panel{margin-top:16px;text-align:center}
 .tc-status{font-size:12px;color:var(--faint);letter-spacing:1px;margin-bottom:4px}
