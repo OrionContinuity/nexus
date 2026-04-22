@@ -1,0 +1,384 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Home — Stage A
+   
+   Editorial × terminal hybrid. A newspaper-style morning front page for
+   restaurant ops. Design choices:
+   
+   - Fraunces serif for display ("Morning, Alfredo.") — warm, contemporary,
+     not stuffy. Only used for the lede. Everything else is clean sans.
+   - JetBrains Mono for timestamps, stat numbers, section rules — the
+     "terminal" layer that signals the system is alive underneath.
+   - DM Sans body at 15px with generous line-height (1.65) — reads at
+     arm's length on a phone in a loading dock.
+   - One gold accent (#d4a44e) used like a pull-quote. Never on solid
+     button fills, never more than once per screen section.
+   - Numbered priority items (01 / 02 / 03) with hairline borders — the
+     "table of contents" move. Cheap to build, instantly editorial.
+   - Stat block uses airy tabular numerals with small-cap labels below.
+     No icons, no pastels, no progress rings.
+   - Spinning mini-galaxy in the top-right date rule — the engine peek.
+     Always alive, always small, always inviting a tap.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap');
+
+/* ─── View shell ─────────────────────────────────────────────────── */
+#homeView {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+#homeView::-webkit-scrollbar { display: none; }
+
+.home-page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 22px calc(88px + env(safe-area-inset-bottom));
+  min-height: 100%;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  color: var(--text);
+  --home-hairline: rgba(212, 182, 138, 0.14);
+  --home-hairline-strong: rgba(212, 182, 138, 0.28);
+  --home-dim: var(--muted);
+}
+
+/* ─── Masthead ───────────────────────────────────────────────────── */
+.home-mast {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--home-hairline);
+}
+.home-mast-brand {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 5px;
+  color: var(--accent);
+}
+.home-mast-date {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 1.8px;
+  color: var(--faint);
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ─── Tiny spinning galaxy in the masthead ──────────────────────── */
+.home-mini-galaxy {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  cursor: pointer;
+  position: relative;
+  background:
+    radial-gradient(circle at 50% 50%,
+      rgba(212, 164, 78, 0.22) 0%,
+      rgba(212, 164, 78, 0.06) 35%,
+      transparent 70%);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.2s ease;
+}
+.home-mini-galaxy:hover { transform: scale(1.15); }
+.home-mini-galaxy:active { transform: scale(0.92); }
+.home-mini-galaxy canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 50%;
+}
+
+/* ─── Lede — the "Morning, Alfredo." editorial headline ─────────── */
+.home-lede {
+  margin: 44px 0 42px;
+  font-family: 'Fraunces', 'Times New Roman', serif;
+  font-weight: 400;
+  font-size: clamp(42px, 11vw, 64px);
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  font-variation-settings: 'opsz' 144, 'SOFT' 30;
+}
+.home-lede-comma { color: var(--home-dim); font-style: italic; }
+.home-lede-name {
+  display: block;
+  color: var(--accent);
+  font-weight: 500;
+  font-style: italic;
+  font-variation-settings: 'opsz' 144, 'SOFT' 50;
+}
+
+/* ─── Intro line ─────────────────────────────────────────────────── */
+.home-intro {
+  font-size: 15px;
+  color: var(--home-dim);
+  line-height: 1.55;
+  margin: 0 0 28px;
+  max-width: 44ch;
+}
+
+/* ─── Priority feed — numbered broadsheet items ──────────────────── */
+.home-feed { display: flex; flex-direction: column; gap: 14px; }
+
+.home-item {
+  position: relative;
+  display: block;
+  padding: 18px 18px 18px 46px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.01) 0%, transparent 100%);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.2s, transform 0.15s;
+  text-decoration: none;
+  color: inherit;
+}
+.home-item:hover { border-color: var(--home-hairline-strong); }
+.home-item:active { transform: scale(0.995); }
+
+.home-item-num {
+  position: absolute;
+  top: 18px;
+  left: 16px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: var(--faint);
+}
+
+.home-item-kicker {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.home-item-kicker::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.home-item[data-tone="overdue"] .home-item-kicker   { color: var(--red); }
+.home-item[data-tone="incoming"] .home-item-kicker  { color: var(--accent); }
+.home-item[data-tone="reported"] .home-item-kicker  { color: var(--amber); }
+.home-item[data-tone="calm"] .home-item-kicker      { color: var(--green); }
+.home-item[data-tone="fyi"] .home-item-kicker       { color: var(--muted); }
+
+.home-item-title {
+  font-size: 16.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+  margin-bottom: 6px;
+  letter-spacing: -0.01em;
+}
+.home-item-body {
+  font-size: 14px;
+  color: var(--home-dim);
+  line-height: 1.55;
+  margin-bottom: 12px;
+}
+.home-item-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--accent);
+  letter-spacing: 0.3px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.home-item-action::after {
+  content: '→';
+  font-family: 'JetBrains Mono', monospace;
+  transition: transform 0.2s;
+}
+.home-item:hover .home-item-action::after { transform: translateX(3px); }
+
+/* Calm state — when nothing urgent is happening */
+.home-feed-calm {
+  text-align: center;
+  padding: 40px 20px 48px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 2px;
+}
+.home-feed-calm-mark {
+  font-family: 'Fraunces', serif;
+  font-size: 34px;
+  color: var(--accent);
+  font-style: italic;
+  margin-bottom: 10px;
+  display: block;
+}
+.home-feed-calm-text {
+  font-size: 13px;
+  color: var(--home-dim);
+  line-height: 1.55;
+  max-width: 34ch;
+  margin: 0 auto;
+}
+
+/* ─── Section rule — fine-cut divider with label ────────────────── */
+.home-rule {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 44px 0 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 2.2px;
+  color: var(--faint);
+  text-transform: uppercase;
+}
+.home-rule::before, .home-rule::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--home-hairline);
+}
+
+/* ─── Glance — 4-column stat strip ──────────────────────────────── */
+.home-glance {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 36px;
+}
+.home-stat {
+  padding: 14px 4px 10px;
+  text-align: left;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  border-top: 1px solid var(--home-hairline);
+  transition: border-color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.home-stat:active { transform: scale(0.97); }
+.home-stat:hover { border-top-color: var(--accent); }
+.home-stat-num {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 30px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+.home-stat-num.alert { color: var(--red); }
+.home-stat-num.loading { color: var(--faint); opacity: 0.5; }
+.home-stat-label {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  color: var(--faint);
+  text-transform: uppercase;
+  margin-top: 8px;
+}
+.home-stat-sub {
+  display: block;
+  font-size: 10.5px;
+  color: var(--home-dim);
+  margin-top: 2px;
+  letter-spacing: 0.2px;
+}
+
+/* ─── Ask NEXUS bar — the chat entry point ──────────────────────── */
+.home-ask {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--home-hairline-strong);
+  border-radius: 2px;
+  background: rgba(212, 182, 138, 0.02);
+  cursor: text;
+  transition: border-color 0.2s, background 0.2s;
+}
+.home-ask:hover {
+  border-color: var(--accent);
+  background: rgba(212, 182, 138, 0.04);
+}
+.home-ask-prompt {
+  flex: 1;
+  font-size: 14.5px;
+  color: var(--faint);
+  letter-spacing: 0.1px;
+}
+.home-ask-prompt em {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 500;
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+}
+.home-ask-kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--faint);
+  padding: 4px 7px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* ─── Skeleton loading states — appear before data arrives ──────── */
+.home-skeleton {
+  height: 88px;
+  background: linear-gradient(
+    90deg,
+    rgba(212, 182, 138, 0.03) 0%,
+    rgba(212, 182, 138, 0.07) 50%,
+    rgba(212, 182, 138, 0.03) 100%
+  );
+  background-size: 200% 100%;
+  animation: homeShimmer 2.2s ease-in-out infinite;
+  border-radius: 2px;
+}
+@keyframes homeShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ─── Responsive — tighten on small phones ──────────────────────── */
+@media (max-width: 380px) {
+  .home-page { padding: 20px 18px calc(88px + env(safe-area-inset-bottom)); }
+  .home-lede { margin: 32px 0 30px; }
+  .home-glance { gap: 6px; }
+  .home-stat-num { font-size: 26px; }
+}
+/* Tablet / desktop refinement */
+@media (min-width: 720px) {
+  .home-lede { margin: 60px 0 56px; font-size: 72px; }
+  .home-item { padding: 22px 22px 22px 54px; }
+  .home-item-num { top: 22px; left: 20px; font-size: 12px; }
+}
