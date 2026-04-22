@@ -3589,7 +3589,7 @@ function renderPublicScanHTML(eq, maint) {
         <button class="public-scan-btn public-scan-btn-primary" onclick="NX.modules.equipment.publicReportIssue('${eq.qr_code}')">🔴 Report Issue</button>
         <button class="public-scan-btn" onclick="window.location.href='${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}&login=1'">Sign In for Full Details</button>
       </div>
-      <div class="public-scan-footer">Powered by NEXUS · Restaurant Operations Intelligence</div>
+      <div class="public-scan-footer">Powered by NEXUS</div>
     </div>
   `;
 }
