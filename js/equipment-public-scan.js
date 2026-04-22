@@ -735,6 +735,89 @@
       color: #1a1408;
     }
     .nx-ps-modal-btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Modal header — icon badge + title stacked next to it */
+    .nx-ps-modal-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .nx-ps-modal-header h2 { margin-bottom: 2px; }
+    .nx-ps-modal-header .nx-ps-modal-sub { margin-bottom: 0; }
+    .nx-ps-modal-header-icon {
+      width: 44px; height: 44px;
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .nx-ps-modal-header-icon.is-call {
+      background: rgba(212, 182, 138, 0.12);
+      color: var(--ps-accent);
+    }
+    .nx-ps-modal-header-icon.is-report {
+      background: rgba(212, 88, 88, 0.12);
+      color: #e88080;
+    }
+
+    /* Priority pills */
+    .nx-ps-modal-priority {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+    .nx-ps-modal-pri-btn {
+      padding: 11px 10px;
+      background: var(--ps-bg);
+      border: 1px solid var(--ps-border-strong);
+      border-radius: 10px;
+      color: var(--ps-muted);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .nx-ps-modal-pri-btn[data-pri="low"].active {
+      background: rgba(107, 155, 240, 0.14);
+      border-color: var(--ps-blue);
+      color: #9cc0ff;
+    }
+    .nx-ps-modal-pri-btn[data-pri="normal"].active {
+      background: rgba(212, 182, 138, 0.14);
+      border-color: var(--ps-accent);
+      color: var(--ps-accent);
+    }
+    .nx-ps-modal-pri-btn[data-pri="urgent"].active {
+      background: rgba(212, 88, 88, 0.14);
+      border-color: var(--ps-red);
+      color: #e88080;
+    }
+
+    /* Success state inside modal */
+    .nx-ps-modal-success {
+      text-align: center;
+      padding: 24px 8px 8px;
+    }
+    .nx-ps-modal-success-icon {
+      width: 72px; height: 72px;
+      margin: 0 auto 18px;
+      border-radius: 50%;
+      background: rgba(212, 182, 138, 0.1);
+      color: var(--ps-accent);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .nx-ps-modal-success h2 {
+      font-family: 'Outfit', 'DM Sans', sans-serif;
+      margin-bottom: 6px;
+    }
+    .nx-ps-modal-success .nx-ps-modal-sub { margin-bottom: 20px; }
+    .nx-ps-modal-success-close {
+      width: 100%;
+      padding: 14px;
+    }
   `;
 
 
@@ -1024,11 +1107,11 @@
         if (fn) fn(eq.qr_code);
         else alert('PM Logger not loaded');
       } else if (action === 'call') {
-        if (confirm(`Call ${contact.name} at ${contact.phone}?`)) {
-          window.location.href = contact.phoneHref;
-        }
+        // Require context capture before dialing — creates a ticket so
+        // staff have a record of who called the contractor and why.
+        openIssueModal(eq, { mode: 'call', contact });
       } else if (action === 'report') {
-        openReportModal(eq);
+        openIssueModal(eq, { mode: 'report' });
       } else if (action === 'login') {
         window.location.href = loginUrl;
       }
@@ -1057,93 +1140,205 @@
     }, 300);
   }
 
-  // ─── 10. REPORT ISSUE MODAL ─────────────────────────────────────────
-  function openReportModal(eq) {
+  // ─── 10. UNIFIED ISSUE MODAL — used for both "Report Issue" and "Call"
+  //
+  // We never let anyone call the contractor without leaving a paper trail.
+  // Both actions go through this modal:
+  //   mode='report' → creates ticket, shows success state, no phone action
+  //   mode='call'   → creates ticket with [CALLED CONTRACTOR], then dials
+  //
+  // Staff can see on the board EXACTLY who called the contractor, why,
+  // when, and which equipment — so no one calls behind anyone's back and
+  // no issue ever disappears into a phone tree. Same modal serves both
+  // paths so UX is consistent.
+  function openIssueModal(eq, { mode, contact } = {}) {
+    const isCall = mode === 'call';
     const commonIssues = [
       'Not cooling', 'Leaking', 'Making noise', 'Not turning on',
-      'Temperature wrong', 'Smells strange'
+      'Temperature wrong', 'Smells strange', 'Fan issue', 'Ice buildup'
     ];
     const rememberedName = localStorage.getItem('nx_reporter_name') || '';
+
+    const title       = isCall ? 'Call Contractor' : 'Report Issue';
+    const subLine     = isCall
+      ? `${esc(eq.name)} · Will create ticket then call ${esc(contact?.name || 'contractor')}`
+      : `${esc(eq.name)} · ${esc(eq.location || '')}`;
+    const sendLabel   = isCall ? `Create ticket & Call` : 'Send Report';
+    const iconHTML    = icon(isCall ? 'phone' : 'alert', 28);
 
     const bg = document.createElement('div');
     bg.className = 'nx-ps-modal-bg';
     bg.innerHTML = `
       <div class="nx-ps-modal" onclick="event.stopPropagation()">
         <div class="nx-ps-modal-grip"></div>
-        <h2>Report Issue</h2>
-        <div class="nx-ps-modal-sub">${esc(eq.name)} · ${esc(eq.location || '')}</div>
+        <div class="nx-ps-modal-header">
+          <div class="nx-ps-modal-header-icon ${isCall ? 'is-call' : 'is-report'}">${iconHTML}</div>
+          <div>
+            <h2>${title}</h2>
+            <div class="nx-ps-modal-sub">${subLine}</div>
+          </div>
+        </div>
 
-        <div class="nx-ps-modal-label">Common issues</div>
+        <div class="nx-ps-modal-label">What's happening? Pick any that apply</div>
         <div class="nx-ps-modal-chips" id="nxRepChips">
           ${commonIssues.map(i => `<button class="nx-ps-modal-chip" data-issue="${esc(i)}" type="button">${esc(i)}</button>`).join('')}
         </div>
 
         <div class="nx-ps-modal-label">Describe the problem *</div>
-        <textarea class="nx-ps-modal-textarea" id="nxRepDesc" placeholder="What's wrong? When did it start?"></textarea>
+        <textarea class="nx-ps-modal-textarea" id="nxRepDesc" placeholder="What's wrong? When did it start? Any error codes or unusual sounds?"></textarea>
+
+        <div class="nx-ps-modal-label">Priority</div>
+        <div class="nx-ps-modal-priority" id="nxRepPri">
+          <button type="button" class="nx-ps-modal-pri-btn" data-pri="low">Low</button>
+          <button type="button" class="nx-ps-modal-pri-btn active" data-pri="normal">Normal</button>
+          <button type="button" class="nx-ps-modal-pri-btn" data-pri="urgent">Urgent</button>
+        </div>
 
         <div class="nx-ps-modal-label">Your name *</div>
         <input class="nx-ps-modal-input" id="nxRepName" value="${esc(rememberedName)}" placeholder="So staff know who to follow up with">
 
         <div class="nx-ps-modal-btns">
           <button class="nx-ps-modal-btn nx-ps-modal-btn-cancel" type="button" id="nxRepCancel">Cancel</button>
-          <button class="nx-ps-modal-btn nx-ps-modal-btn-send" type="button" id="nxRepSend" disabled>Send Report</button>
+          <button class="nx-ps-modal-btn nx-ps-modal-btn-send" type="button" id="nxRepSend" disabled>${sendLabel}</button>
         </div>
       </div>
     `;
     bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
     document.body.appendChild(bg);
 
-    const desc   = bg.querySelector('#nxRepDesc');
-    const name   = bg.querySelector('#nxRepName');
-    const send   = bg.querySelector('#nxRepSend');
-    const cancel = bg.querySelector('#nxRepCancel');
-    const chips  = bg.querySelectorAll('.nx-ps-modal-chip');
+    const desc    = bg.querySelector('#nxRepDesc');
+    const nameEl  = bg.querySelector('#nxRepName');
+    const send    = bg.querySelector('#nxRepSend');
+    const cancel  = bg.querySelector('#nxRepCancel');
+    const chips   = bg.querySelectorAll('.nx-ps-modal-chip');
+    const priBtns = bg.querySelectorAll('.nx-ps-modal-pri-btn');
 
-    const validate = () => { send.disabled = !(desc.value.trim() && name.value.trim()); };
+    let priority = 'normal';
+
+    const validate = () => {
+      send.disabled = !(desc.value.trim().length >= 3 && nameEl.value.trim().length >= 2);
+    };
     desc.addEventListener('input', validate);
-    name.addEventListener('input', validate);
+    nameEl.addEventListener('input', validate);
 
+    // Chip toggles — clicking adds the phrase to the description if not there
     chips.forEach(chip => {
       chip.addEventListener('click', () => {
+        const wasActive = chip.classList.contains('active');
         chip.classList.toggle('active');
-        const selected = Array.from(chips).filter(c => c.classList.contains('active')).map(c => c.dataset.issue);
-        const base = selected.join(', ');
-        if (base && !desc.value.toLowerCase().includes(selected[selected.length-1].toLowerCase())) {
-          desc.value = desc.value ? `${desc.value}. ${base}` : base;
+        const phrase = chip.dataset.issue;
+        const lcDesc = desc.value.toLowerCase();
+        if (!wasActive && !lcDesc.includes(phrase.toLowerCase())) {
+          desc.value = desc.value
+            ? `${desc.value.replace(/[.,\s]+$/, '')}. ${phrase}`
+            : phrase;
+          // Auto-bump to urgent for serious words if not already
+          if (/leak|fire|smoke|electr/i.test(phrase) && priority !== 'urgent') {
+            priority = 'urgent';
+            priBtns.forEach(b => b.classList.toggle('active', b.dataset.pri === 'urgent'));
+          }
         }
         validate();
       });
     });
+
+    // Priority pills
+    priBtns.forEach(b => b.addEventListener('click', () => {
+      priority = b.dataset.pri;
+      priBtns.forEach(x => x.classList.toggle('active', x === b));
+    }));
+
     cancel.addEventListener('click', () => bg.remove());
 
     send.addEventListener('click', async () => {
+      const reporter = nameEl.value.trim();
+      const problem  = desc.value.trim();
       send.disabled = true;
-      send.textContent = 'Sending...';
+      send.textContent = isCall ? 'Creating ticket...' : 'Sending...';
+
       try {
-        localStorage.setItem('nx_reporter_name', name.value.trim());
+        localStorage.setItem('nx_reporter_name', reporter);
+
+        // Build ticket. Schema reference (see brain-chat.js:406, ai-writer.js:450):
+        //   title, notes, location, priority (low|normal|urgent),
+        //   status ('open'|'closed'), reported_by, photo_url, ai_troubleshoot
+        // No equipment_id column — equipment reference lives in title/notes.
+        const locStr = [eq.location, eq.area].filter(Boolean).join(' · ');
+        const titlePrefix = isCall ? '[CALL]' : '[Equipment]';
+        const ticketTitle = `${titlePrefix} ${eq.name}: ${problem.slice(0, 80)}`;
+
+        const notesParts = [
+          isCall
+            ? `Contractor called via QR scan landing page.`
+            : `Reported via QR scan landing page.`,
+          ``,
+          `Equipment: ${eq.name}`,
+          `Location: ${locStr || '—'}`,
+          eq.manufacturer ? `Manufacturer: ${eq.manufacturer}` : null,
+          eq.model ? `Model: ${eq.model}` : null,
+          eq.serial_number ? `Serial: ${eq.serial_number}` : null,
+          eq.qr_code ? `QR: ${eq.qr_code}` : null,
+          `Reporter: ${reporter}`,
+          isCall && contact ? `Calling: ${contact.name} (${contact.phone})` : null,
+          ``,
+          `Problem description:`,
+          problem,
+        ].filter(x => x !== null).join('\n');
+
         const { error } = await sb.from('tickets').insert({
-          title: `[Equipment] ${eq.name}: ${desc.value.trim().slice(0, 80)}`,
-          description: `Reported via QR scan.\n\nEquipment: ${eq.name}\nLocation: ${eq.location || ''} ${eq.area || ''}\nReporter: ${name.value.trim()}\n\n${desc.value.trim()}`,
+          title: ticketTitle,
+          notes: notesParts,
+          location: eq.location || null,
+          priority,              // 'low' | 'normal' | 'urgent' — schema-correct
           status: 'open',
-          priority: 'medium',
-          reported_by: name.value.trim(),
-          equipment_id: eq.id,
-          equipment_qr: eq.qr_code,
+          reported_by: reporter,
         });
         if (error) throw error;
-        bg.innerHTML = `
-          <div class="nx-ps-modal" style="text-align:center;">
-            <div style="font-size:56px; margin-bottom:12px;">✓</div>
-            <h2 style="color:#7ed281;">Reported</h2>
-            <div class="nx-ps-modal-sub">Staff will follow up. Thanks.</div>
-            <button class="nx-ps-modal-btn nx-ps-modal-btn-send" style="margin-top:16px;" onclick="this.closest('.nx-ps-modal-bg').remove()">Close</button>
-          </div>
-        `;
+
+        // Also drop a line into daily_logs so it shows up on the log
+        // view alongside everything else happening today. Non-fatal if fails.
+        try {
+          const logIcon = isCall ? '📞' : '🔧';
+          const logPrefix = isCall ? 'CONTRACTOR CALLED' : 'TICKET';
+          const logLoc = eq.location || 'unknown';
+          await sb.from('daily_logs').insert({
+            entry: `${logIcon} ${logPrefix} [${priority.toUpperCase()}] by ${reporter} @ ${logLoc}: ${eq.name} — ${problem.slice(0, 160)}${isCall && contact ? ` → calling ${contact.name}` : ''}`
+          });
+        } catch (logErr) {
+          console.warn('[scan] daily_logs insert failed (non-fatal):', logErr?.message);
+        }
+
+        if (isCall) {
+          // Dial the contractor. iOS/Android will handle tel: natively.
+          // Show a brief confirmation flash first so user knows the ticket
+          // landed before we kick them to the dialer.
+          bg.querySelector('.nx-ps-modal').innerHTML = `
+            <div class="nx-ps-modal-success">
+              <div class="nx-ps-modal-success-icon">${icon('phone', 40)}</div>
+              <h2>Ticket created</h2>
+              <div class="nx-ps-modal-sub">Calling ${esc(contact.name)}…</div>
+            </div>
+          `;
+          setTimeout(() => {
+            window.location.href = contact.phoneHref;
+            setTimeout(() => bg.remove(), 1200);
+          }, 700);
+        } else {
+          bg.querySelector('.nx-ps-modal').innerHTML = `
+            <div class="nx-ps-modal-success">
+              <div class="nx-ps-modal-success-icon">${icon('shield', 40)}</div>
+              <h2>Reported</h2>
+              <div class="nx-ps-modal-sub">Staff have been notified. Thanks for letting us know.</div>
+              <button class="nx-ps-modal-btn nx-ps-modal-btn-send nx-ps-modal-success-close">Close</button>
+            </div>
+          `;
+          bg.querySelector('.nx-ps-modal-success-close').addEventListener('click', () => bg.remove());
+        }
       } catch (err) {
-        console.error('[scan] Report failed:', err);
+        console.error('[scan] Ticket submit failed:', err);
         send.disabled = false;
-        send.textContent = 'Send Report';
-        alert('Failed to send: ' + err.message);
+        send.textContent = sendLabel;
+        alert('Failed to submit: ' + (err.message || 'Unknown error'));
       }
     });
   }
