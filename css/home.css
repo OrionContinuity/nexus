@@ -1,26 +1,17 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   NEXUS Home — Stage A
+   NEXUS Home — Stage C
    
-   Editorial × terminal hybrid. A newspaper-style morning front page for
-   restaurant ops. Design choices:
+   Clean editorial home dashboard. Uses the app's existing brand font
+   (Outfit + DM Sans) for continuity — no outside-feeling serif. The
+   editorial feel comes from typography hierarchy, fine hairlines, and
+   the 60/30/10 color discipline, not from a display typeface that 
+   fights the rest of NEXUS.
    
-   - Fraunces serif for display ("Morning, Alfredo.") — warm, contemporary,
-     not stuffy. Only used for the lede. Everything else is clean sans.
-   - JetBrains Mono for timestamps, stat numbers, section rules — the
-     "terminal" layer that signals the system is alive underneath.
-   - DM Sans body at 15px with generous line-height (1.65) — reads at
-     arm's length on a phone in a loading dock.
-   - One gold accent (#d4a44e) used like a pull-quote. Never on solid
-     button fills, never more than once per screen section.
-   - Numbered priority items (01 / 02 / 03) with hairline borders — the
-     "table of contents" move. Cheap to build, instantly editorial.
-   - Stat block uses airy tabular numerals with small-cap labels below.
-     No icons, no pastels, no progress rings.
-   - Spinning mini-galaxy in the top-right date rule — the engine peek.
-     Always alive, always small, always inviting a tap.
+   Display: Outfit 300 at large sizes, tight letter-spacing — reads as
+     confident and thin without looking artsy
+   Body: DM Sans 400/500 at 15px — the existing NEXUS body voice
+   Metrics & timestamps: JetBrains Mono — the "terminal" thread
    ═══════════════════════════════════════════════════════════════════════ */
-
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap');
 
 /* ─── View shell ─────────────────────────────────────────────────── */
 #homeView {
@@ -96,24 +87,25 @@
   border-radius: 50%;
 }
 
-/* ─── Lede — the "Morning, Alfredo." editorial headline ─────────── */
+/* ─── Lede — "Afternoon, Alfredo." using the NEXUS brand font ────── */
 .home-lede {
   margin: 44px 0 42px;
-  font-family: 'Fraunces', 'Times New Roman', serif;
-  font-weight: 400;
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif;
+  font-weight: 300;
   font-size: clamp(42px, 11vw, 64px);
-  line-height: 0.98;
-  letter-spacing: -0.02em;
+  line-height: 1.0;
+  letter-spacing: -0.025em;
   color: var(--text);
-  font-variation-settings: 'opsz' 144, 'SOFT' 30;
 }
-.home-lede-comma { color: var(--home-dim); font-style: italic; }
+.home-lede-comma {
+  color: var(--home-dim);
+  font-weight: 300;
+}
 .home-lede-name {
   display: block;
   color: var(--accent);
-  font-weight: 500;
-  font-style: italic;
-  font-variation-settings: 'opsz' 144, 'SOFT' 50;
+  font-weight: 400;     /* slightly heavier so the gold reads as the emphasis */
+  letter-spacing: -0.03em;
 }
 
 /* ─── Intro line ─────────────────────────────────────────────────── */
@@ -224,12 +216,13 @@
   border-radius: 2px;
 }
 .home-feed-calm-mark {
-  font-family: 'Fraunces', serif;
-  font-size: 34px;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 300;
+  font-size: 32px;
   color: var(--accent);
-  font-style: italic;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   display: block;
+  letter-spacing: -0.02em;
 }
 .home-feed-calm-text {
   font-size: 13px;
@@ -337,8 +330,8 @@
   color: var(--accent);
   font-style: normal;
   font-weight: 500;
-  font-family: 'Fraunces', serif;
-  font-style: italic;
+  font-family: inherit;
+  letter-spacing: 0.5px;
 }
 .home-ask-kbd {
   font-family: 'JetBrains Mono', monospace;
