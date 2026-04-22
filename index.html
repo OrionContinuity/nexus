@@ -7,6 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%23121214' stroke='%23c9a87c' stroke-width='2'/><circle cx='16' cy='16' r='4' fill='%23c9a87c'/></svg>">
 <link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/nexus.css">
+<link rel="stylesheet" href="css/home.css">
 <link rel="stylesheet" href="css/galaxy.css">
 <link rel="stylesheet" href="css/equipment.css">
 <link rel="stylesheet" href="css/equipment-ai.css">
@@ -114,8 +115,12 @@
 <div class="alert-banner alert-overdue" id="overdueBanner" style="display:none"></div>
 
 <main class="main" id="mainContainer">
+  <!-- HOME — editorial dashboard, the default landing view. Populated
+       by js/home.js. Must be first so it wins initial render. -->
+  <div class="view active" id="homeView" data-view="home"></div>
+
   <!-- BRAIN -->
-  <div class="view active" id="brainView" data-view="brain">
+  <div class="view" id="brainView" data-view="brain">
     <canvas id="brainCanvas"></canvas>
     <div class="brain-dim" id="brainDim"></div>
     <div class="canvas-empty" id="canvasEmpty" style="display:none">
@@ -488,18 +493,14 @@
   </div>
 </main>
 
-<!-- Bottom Navigation — mobile primary nav.
-     Order: reference-oriented on the left (Clean, Log, Equip), Home as
-     thumb-friendly center anchor, action-oriented on the right (Board, Cal).
+<!-- Bottom Navigation — 5 tabs, Home dead center at position 3 of 5.
+     Log moved to Admin → View Log (see admin modal). The full log
+     is a reference read, not a daily action, so it belongs in settings.
      NEXUS logo top-left still opens the galaxy/brain view. -->
 <nav class="bottom-nav" id="bottomNav" role="navigation">
   <button class="bnav-btn" data-view="clean" aria-label="Cleaning">
     <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M12 5l3 3-3 3M12 5l-3 3 3 3"/><path d="M5 19h14" stroke-dasharray="2 2"/></svg>
     <span data-i18n="cleaning">Clean</span>
-  </button>
-  <button class="bnav-btn" data-view="log" aria-label="Log">
-    <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>
-    <span data-i18n="log">Log</span>
   </button>
   <button class="bnav-btn" data-view="equipment" aria-label="Equipment">
     <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
@@ -742,6 +743,28 @@
     <!-- ━━━━━ TAB 3: ACTIONS ━━━━━ -->
     <!-- Moved here: PM Logs, Broadcast, Data Backup. Admin-gated via at-admin-gated. -->
     <div class="at-panel at-admin-gated" data-panel="actions" id="atActionsPanel" style="display:none">
+      <!-- OPEN OPERATIONS LOG — moved here from bottom nav in Stage N.
+           The full daily log is a reference read, not a daily action,
+           so it belongs in settings rather than cluttering the main nav. -->
+      <div class="admin-section-label">📜 Operations Log</div>
+      <button id="adminOpenLog" class="admin-save-btn" style="margin-top:6px;background:transparent;color:var(--accent);border:1px solid rgba(200,164,78,0.35);display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <span>Open full log</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.7;">daily_logs · chat · reports</span>
+      </button>
+      <div class="admin-key-status" style="font-size:11px;margin-top:4px;">Complete system log — daily entries, cleaning reports, chat history, tickets.</div>
+      <script>
+        (function(){
+          const btn = document.getElementById('adminOpenLog');
+          if (!btn) return;
+          btn.addEventListener('click', () => {
+            // Close admin modal and switch to log view
+            const modal = document.getElementById('adminModal');
+            if (modal) modal.classList.remove('active');
+            if (NX.switchTo) NX.switchTo('log');
+          });
+        })();
+      </script>
+      <hr class="admin-divider">
       <!-- PM LOGS -->
       <div class="admin-section-label">📋 Contractor PM Logs</div>
       <button id="adminReviewPmLogs" class="admin-save-btn" style="margin-top:6px;background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;display:flex;align-items:center;justify-content:space-between;gap:8px;">
@@ -1070,6 +1093,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="js/i18n.js"></script>
 <script src="js/app.js"></script>
+<script src="js/home.js"></script>
 <script src="js/native-bridge.js"></script>
 <script>
 // Theme toggle
