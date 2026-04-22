@@ -592,12 +592,15 @@
         ? mix([255, 235, 180], AMBER, radialNorm / 0.25)
         : mix(AMBER, AMBER_DIM, Math.min(1, (radialNorm - 0.25) / 0.85));
 
-      // Age-based brightness if we have the row
+      // Activity-based brightness — uses last_activity_at (bumped by any meaningful
+      // edit, trigger-maintained in Postgres), falls back to created_at on older data.
+      // Window extended to 30 days so dormant-but-once-touched nodes still glow dimly.
       let brightness = 0.25;
-      if (src && src.created_at) {
-        const ageMs = Date.now() - new Date(src.created_at).getTime();
-        const ageHrs = Math.min(168, ageMs / (1000 * 60 * 60));  // cap at 1 week
-        brightness = 0.4 - (ageHrs / 168) * 0.25;  // fresh = 0.4, week-old = 0.15
+      const activityTs = (src && (src.last_activity_at || src.created_at)) || null;
+      if (activityTs) {
+        const ageMs = Date.now() - new Date(activityTs).getTime();
+        const ageHrs = Math.min(720, Math.max(0, ageMs / (1000 * 60 * 60)));  // cap at 30 days
+        brightness = 0.45 - (ageHrs / 720) * 0.30;  // fresh = 0.45, month-old = 0.15
       }
 
       const falloff = Math.exp(-radialNorm * 1.3);
