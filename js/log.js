@@ -124,20 +124,72 @@ async function loadFeed() {
     feed.push({ type: 'chat', ts: r.created_at, id: 'ch-' + r.id, data: r });
   });
 
-  // Cleaning tasks — skip dates already covered by daily_logs cleaning reports
+  // Cleaning — if a daily_logs "Cleaning Report" exists for a date, show that summary card.
+  // Otherwise synthesize a summary card on-the-fly from cleaning_logs rows so the Log
+  // always reflects what's currently checked off in the Clean view (no manual Submit needed).
+  // Tagged [AUTO] so you can tell auto-generated from manually submitted reports.
+  const NON_DAILY_SECTIONS = ['Bi-Semanal','Mensual','Semanal','Quincenal','Trimestral','Jardín','Jardin','Garden'];
+  // Daily task totals per location, derived from js/cleaning.js DEFAULTS (excluding NON_DAILY sections).
+  // Keep in sync with cleaning.js if task lists change.
+  const DAILY_TASK_COUNTS = { suerte: 24, este: 22, toti: 17 };
+
   const reportDates = new Set(
     feed.filter(f => f.type === 'clean' && f.src === 'daily_logs')
       .map(f => { const m = (f.data.entry || '').match(/\d{4}-\d{2}-\d{2}/); return m ? m[0] : null; })
       .filter(Boolean)
   );
+
+  // Group cleaning_logs rows by date, excluding dates already covered by a submitted report
+  const rowsByDate = {};
   (cleanRes.data || []).forEach(r => {
-    if (r.done) {
-      const d = r.log_date || '';
-      if (!reportDates.has(d)) {
-        const ts = r.completed_at || (r.log_date + 'T12:00:00Z');
-        feed.push({ type: 'clean', ts, id: 'cl-' + (r.id || r.log_date + r.section + r.task_index), data: r, src: 'cleaning_logs' });
-      }
+    const d = r.log_date;
+    if (!d || reportDates.has(d)) return;
+    if (!rowsByDate[d]) rowsByDate[d] = [];
+    rowsByDate[d].push(r);
+  });
+
+  // For each "unreported" date, synthesize a Cleaning Report card
+  Object.entries(rowsByDate).forEach(([date, rows]) => {
+    // Group by location, tracking per-section done/touched counts
+    const byLoc = {};
+    rows.forEach(r => {
+      const loc = r.location || 'unknown';
+      const section = r.section || '';
+      if (!byLoc[loc]) byLoc[loc] = { done: 0, sections: {} };
+      const isDaily = !NON_DAILY_SECTIONS.some(nd => section.toLowerCase().includes(nd.toLowerCase()));
+      if (isDaily && r.done) byLoc[loc].done++;
+      if (!byLoc[loc].sections[section]) byLoc[loc].sections[section] = { done: 0, touched: 0 };
+      byLoc[loc].sections[section].touched++;
+      if (r.done) byLoc[loc].sections[section].done++;
+    });
+
+    // Skip dates with no activity at all
+    const hasActivity = Object.values(byLoc).some(v => v.done > 0);
+    if (!hasActivity) return;
+
+    // Build entry string in the same format as a submitted Cleaning Report so the
+    // existing parser in parseCleanPcts() + buildCleanReportCard() render it correctly.
+    const parts = [];
+    for (const [loc, data] of Object.entries(byLoc)) {
+      const total = DAILY_TASK_COUNTS[loc] || 0;
+      const pct = total ? Math.min(100, Math.round(data.done / total * 100)) : 0;
+      const locName = loc.charAt(0).toUpperCase() + loc.slice(1);
+      const sectionLines = Object.entries(data.sections)
+        .map(([sec, info]) => `${sec} (${info.done}/${info.touched})`)
+        .join('\n');
+      parts.push(`Cleaning Report — ${locName} — ${date}\nDaily: ${pct}% (${data.done}/${total})\n---\n${sectionLines}`);
     }
+    const combined = `[AUTO] Cleaning Report — ${date}\n===\n${parts.join('\n===\n')}`;
+
+    // Timestamp at end of the day so it sorts into the correct day bucket
+    const ts = date + 'T23:59:59';
+    feed.push({
+      type: 'clean',
+      ts,
+      id: 'synth-' + date,
+      data: { id: null, entry: combined, created_at: ts, __synthetic: true },
+      src: 'daily_logs',
+    });
   });
 
   feed.sort((a, b) => new Date(b.ts) - new Date(a.ts));
@@ -350,15 +402,21 @@ function buildCleanReportCard(r) {
 
   const editBtn = d.querySelector('.feed-edit-btn');
   if (editBtn) {
-    editBtn.addEventListener('click', e => {
-      e.stopPropagation();
-      if (dateMatch) NX.editingReport = { logId: r.id, date: dateMatch[0] };
-      document.querySelector('.nav-tab[data-view="clean"]')?.click();
-      document.querySelector('.bnav-btn[data-view="clean"]')?.click();
-    });
+    if (!r.id) {
+      // Synthesized card (auto-generated from cleaning_logs) — no DB row to edit.
+      // User can navigate to Clean view manually and tap Submit to persist.
+      editBtn.remove();
+    } else {
+      editBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        if (dateMatch) NX.editingReport = { logId: r.id, date: dateMatch[0] };
+        document.querySelector('.nav-tab[data-view="clean"]')?.click();
+        document.querySelector('.bnav-btn[data-view="clean"]')?.click();
+      });
+    }
   }
 
-  addDeleteBtn(d, r.id, 'daily_logs');
+  if (r.id) addDeleteBtn(d, r.id, 'daily_logs');
   return d;
 }
 
