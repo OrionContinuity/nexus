@@ -37,9 +37,11 @@
     if (activeUser && activeToken) return;
   } catch(e) {}
 
-  const SUPABASE_URL = 'https://oprsthfxqrdbwdvommpw.supabase.co';
-  // Anon key — public, safe to expose (RLS protects writes)
-  const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcnN0aGZ4cXJkYndkdm9tbXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDkzNDYzNTQsImV4cCI6MjAyNDkyMjM1NH0.ZKu5SH1pWPRlpTrybiT7DRzvCaIA4-Ml_qFV4n2DxPo';
+  const SUPABASE_URL = window.NEXUS_CONFIG?.SUPABASE_URL  || 'https://oprsthfxqrdbwdvommpw.supabase.co';
+  // Prefers window.NEXUS_CONFIG.SUPABASE_ANON (from js/config.js).
+  // Falls back to the hardcoded value so the file still works if
+  // config.js was forgotten. Publishable keys are safe to commit.
+  const SUPABASE_ANON = window.NEXUS_CONFIG?.SUPABASE_ANON || 'sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9';
 
   // ─── Utilities ──────────────────────────────────────────────────────
   function esc(s) {
