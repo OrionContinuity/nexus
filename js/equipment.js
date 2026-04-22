@@ -93,9 +93,19 @@ async function init() {
   if (equipParam) {
     const eq = equipment.find(e => e.qr_code === equipParam);
     if (eq) {
+      // v4: toast confirmation so the user sees the app is navigating to the
+      // scanned item — silent navigation previously left people wondering if
+      // the tap "did anything."
+      NX.toast && NX.toast(`📲 Opening ${eq.name}…`, 'info', 2200);
       document.querySelector('.nav-tab[data-view="equipment"]')?.click();
       document.querySelector('.bnav-btn[data-view="equipment"]')?.click();
       setTimeout(() => openDetail(eq.id), 300);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('equip');
+      window.history.replaceState({}, '', url);
+    } else {
+      // v4: equipment with that QR code not found — surface rather than silently ignoring
+      NX.toast && NX.toast(`QR code ${equipParam} not recognized`, 'warn', 4000);
       const url = new URL(window.location.href);
       url.searchParams.delete('equip');
       window.history.replaceState({}, '', url);
