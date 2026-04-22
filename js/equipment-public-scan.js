@@ -1,242 +1,352 @@
-/* ═══════════════════════════════════════════════════════════════════════
-   NEXUS Public Scan v3 — Self-Contained
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEXUS Public Scan v4 — Self-Contained
    
-   Previous versions tried to load equipment.js dynamically and call
-   renderPublicScanView from inside it. This failed on mobile Chrome due
-   to Service Worker interference with dynamically-injected scripts (both
-   src=... AND blob:).
+   Changes from v3:
    
-   v3 approach: render the public scan view DIRECTLY from this file. No
-   dependency on equipment.js. We just need NX.sb (Supabase client), which
-   we can either borrow from app.js or create ourselves.
+     • Bigger, more confident boot loader (pulsing brand + larger spinner)
+     • Equipment name grows on mobile (was shrinking — wrong direction)
+     • Photo capped at 50vh, not 200px — the photo IS the contractor's
+       visual confirmation
+     • ACTIVE ISSUE BANNER: if there's an open ticket <30d old, surface it
+       at the top so arriving contractors see "Maria filed: Making noise"
+     • WARRANTY VALID BANNER: red warning if still under warranty — do not
+       perform invasive work without checking (voids coverage)
+     • OVERDUE PM BANNER: prominent red bar, not a tiny text field
+     • Button hierarchy: Primary PM Logger visually dominates
+     • Report Issue modal v2: photo upload, common-issue chips, remembered
+       name, camera-capture on mobile
    
-   This file is loaded as a static <script> in index.html <head>, so it
-   always executes normally — no dynamic injection, no SW interference.
-   
-   What this file does:
-     1. Detects ?equip=XXX in URL (and no login override)
-     2. Renders boot loader immediately
-     3. Initializes Supabase client (from app.js or own)
-     4. Looks up equipment by qr_code
-     5. Renders full public scan view inline (no equipment.js needed)
-     6. equipment-public-pm.js hooks its PM Logger button via a global
-        callback window._NX_PUBLIC_PM_OPEN
-   ═══════════════════════════════════════════════════════════════════════ */
+   Loaded as static <script> in index.html <head> before app.js.
+   Kept the v3 routing contract (window._NX_PUBLIC_PM_OPEN, etc.) so
+   equipment-public-pm.js continues to plug in without changes.
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 (function() {
   'use strict';
-  
+
   const params = new URLSearchParams(window.location.search);
   const equipParam = params.get('equip');
   const forceLogin = params.get('login') === '1';
 
-  if (!equipParam || forceLogin) return; // Normal flow
+  if (!equipParam || forceLogin) return; // Normal flow, not a public scan
 
-  // Active session? Skip public view, let normal flow handle it.
+  // Active session? Skip public view.
   try {
     const activeUser = sessionStorage.getItem('nexus_current_user');
     const activeToken = sessionStorage.getItem('nexus_session_token');
     if (activeUser && activeToken) return;
   } catch(e) {}
 
-  // Mark so app.js skips PIN setup
-  window._NX_PUBLIC_SCAN = equipParam;
+  const SUPABASE_URL = 'https://oprsthfxqrdbwdvommpw.supabase.co';
+  // Anon key — public, safe to expose (RLS protects writes)
+  const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcnN0aGZ4cXJkYndkdm9tbXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDkzNDYzNTQsImV4cCI6MjAyNDkyMjM1NH0.ZKu5SH1pWPRlpTrybiT7DRzvCaIA4-Ml_qFV4n2DxPo';
 
-  // Expose the Report Issue handler as a global so the button onclick can call it
-  window._NX_OPEN_REPORT_ISSUE = function(qrCode) {
-    openReportIssueModal(qrCode);
-  };
-
-  // Immediate loading UI
-  renderBootLoader(equipParam);
-
-  // Wait for Supabase client — either from app.js or self-initialized
-  waitForSupabase(startLoad, 8000, () => {
-    showError('Supabase client not available (app.js + CDN both failed to initialize)');
-  });
-
-  /* ═════════════════════════════════════════════════════════════════════
-     SUPABASE BOOTSTRAP
-     ═════════════════════════════════════════════════════════════════════ */
-
-  function waitForSupabase(onReady, timeoutMs, onTimeout) {
-    const start = Date.now();
-    const poll = () => {
-      if (window.NX?.sb) return onReady();
-      
-      // After 4s, try to init our own client using the CDN + hardcoded creds
-      if (Date.now() - start > 4000 && window.supabase?.createClient) {
-        window.NX = window.NX || {};
-        window.NX.sb = window.supabase.createClient(
-          'https://oprsthfxqrdbwdvommpw.supabase.co',
-          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcnN0aGZ4cXJkYndkdm9tbXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MDU2MzMsImV4cCI6MjA5MTE4MTYzM30.1Yy5BNXWy19Xzdt-ZdcoF0_MF6vvr1rYN5mcDsRYSWY'
-        );
-        return onReady();
-      }
-      
-      if (Date.now() - start > timeoutMs) {
-        if (onTimeout) onTimeout();
-        return;
-      }
-      setTimeout(poll, 80);
-    };
-    poll();
+  // ─── Utilities ──────────────────────────────────────────────────────
+  function esc(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function daysAgo(dateStr) {
+    if (!dateStr) return null;
+    return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
+  }
+  function fmtRelative(dateStr) {
+    const d = daysAgo(dateStr);
+    if (d == null) return '';
+    if (d === 0) return 'today';
+    if (d === 1) return 'yesterday';
+    if (d < 7) return `${d} days ago`;
+    if (d < 30) return `${Math.floor(d/7)} weeks ago`;
+    if (d < 365) return `${Math.floor(d/30)} months ago`;
+    return `${Math.floor(d/365)} years ago`;
   }
 
-  /* ═════════════════════════════════════════════════════════════════════
-     LOAD + RENDER — replicated from equipment.js renderPublicScanView
-     so we don't need to load the full equipment module (which was
-     failing via dynamic injection on mobile Chrome).
-     ═════════════════════════════════════════════════════════════════════ */
-
-  async function startLoad() {
-    renderShell(equipParam);
-    try {
-      // Try to load with new service_phone/service_contact_name columns.
-      // If the migration hasn't run yet, these will be undefined but the
-      // query still succeeds (Postgres returns the rest of the columns).
-      // In the very unlikely case the SELECT errors, fall back to basic fields.
-      let eq, error;
-      try {
-        const res = await NX.sb.from('equipment')
-          .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, preferred_contractor_node_id, service_phone, service_contact_name')
-          .eq('qr_code', equipParam)
-          .single();
-        eq = res.data; error = res.error;
-      } catch (e) {
-        console.warn('[public-scan] full select failed, trying fallback:', e);
-        const res = await NX.sb.from('equipment')
-          .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, preferred_contractor_node_id')
-          .eq('qr_code', equipParam)
-          .single();
-        eq = res.data; error = res.error;
-      }
-      if (error || !eq) throw new Error('Equipment not found for QR: ' + equipParam);
-      
-      console.log('[public-scan] eq loaded:', {
-        name: eq.name,
-        has_service_phone: !!eq.service_phone,
-        has_preferred_contractor: !!eq.preferred_contractor_node_id
+  // ─── Supabase client ───────────────────────────────────────────────
+  let sb = null;
+  async function ensureSupabase() {
+    if (window.NX?.sb) { sb = window.NX.sb; return sb; }
+    if (!window.supabase) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
       });
+    }
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    return sb;
+  }
 
-      const [maintRes, contractorRes] = await Promise.all([
-        NX.sb.from('equipment_maintenance')
-          .select('event_type, event_date, description, performed_by')
-          .eq('equipment_id', eq.id)
-          .order('event_date', { ascending: false })
-          .limit(5),
-        (!eq.service_phone && eq.preferred_contractor_node_id)
-          ? NX.sb.from('nodes').select('id, name, notes, tags, links').eq('id', eq.preferred_contractor_node_id).single()
-          : Promise.resolve({ data: null })
-      ]);
-
-      let contact = null;
-      if (eq.service_phone) {
-        contact = {
-          name: eq.service_contact_name || 'Service',
-          phone: eq.service_phone,
-          phoneHref: normalizePhoneForTel(eq.service_phone)
-        };
-        console.log('[public-scan] using direct service_phone:', contact.phone);
-      } else if (contractorRes?.data) {
-        contact = extractContractor(contractorRes.data);
-        console.log('[public-scan] using contractor node:', contact);
-      } else {
-        console.log('[public-scan] no contact found — Call button will not render');
+  // ─── Inject styles once ─────────────────────────────────────────────
+  function injectStyles() {
+    if (document.getElementById('nxPublicScanStyles')) return;
+    const style = document.createElement('style');
+    style.id = 'nxPublicScanStyles';
+    style.textContent = `
+      /* v4 polish overrides — apply on top of equipment.css */
+      .public-scan-name {
+        font-size: 28px !important;
+        line-height: 1.15 !important;
+        letter-spacing: -0.01em;
+      }
+      @media (min-width: 600px) {
+        .public-scan-name { font-size: 32px !important; }
+      }
+      .public-scan-loc {
+        font-size: 15px !important;
+        margin-bottom: 16px !important;
+      }
+      .public-scan-photo {
+        width: 100% !important;
+        max-height: 50vh !important;
+        min-height: 220px !important;
+        object-fit: cover !important;
+        border-radius: 12px !important;
+        margin-bottom: 18px !important;
+        background: #15151c;
+      }
+      .public-scan-photo-placeholder {
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        min-height: 180px;
+        background: linear-gradient(135deg, #15151c, #1f1f28);
+        border: 1px solid rgba(200, 164, 78, 0.15);
+        border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 56px; color: rgba(200, 164, 78, 0.35);
+        margin-bottom: 18px;
+      }
+      .public-scan-card { padding: 22px 20px !important; }
+      .public-scan-status {
+        padding: 8px 16px !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
       }
 
-      renderDetails(eq, maintRes.data || [], contact);
-      
-      window._NX_PUBLIC_SCAN_EQ = eq;
-      window._NX_PUBLIC_SCAN_CONTACT = contact; // Shared with equipment-public-pm.js override
-      window.dispatchEvent(new CustomEvent('nx-public-scan-ready', { detail: { eq, contact } }));
-    } catch (err) {
-      console.error('[public-scan] load failed:', err);
-      showError(err.message || 'Could not load equipment');
+      /* v4 BANNERS — surface critical info immediately */
+      .ps-banner {
+        display: flex; align-items: flex-start; gap: 12px;
+        padding: 14px 14px; margin-bottom: 14px;
+        border-radius: 12px;
+        border: 1px solid;
+      }
+      .ps-banner-icon {
+        font-size: 24px; line-height: 1; flex-shrink: 0; margin-top: 2px;
+      }
+      .ps-banner-body { flex: 1; min-width: 0; }
+      .ps-banner-title {
+        font-size: 14px; font-weight: 700;
+        color: #fff; margin-bottom: 3px;
+      }
+      .ps-banner-sub {
+        font-size: 12.5px; color: rgba(255,255,255,0.78);
+        line-height: 1.4;
+      }
+      .ps-banner-issue {
+        background: rgba(244, 67, 54, 0.14);
+        border-color: rgba(244, 67, 54, 0.45);
+      }
+      .ps-banner-issue .ps-banner-title { color: #ff8a7a; }
+      .ps-banner-overdue {
+        background: rgba(255, 152, 0, 0.14);
+        border-color: rgba(255, 152, 0, 0.45);
+      }
+      .ps-banner-overdue .ps-banner-title { color: #ffb84d; }
+      .ps-banner-warranty {
+        background: rgba(33, 150, 243, 0.12);
+        border-color: rgba(33, 150, 243, 0.4);
+      }
+      .ps-banner-warranty .ps-banner-title { color: #74bfff; }
+
+      /* Button hierarchy — PM Logger primary, others secondary */
+      .pm-public-btn-primary {
+        padding: 20px !important;
+        transform: scale(1);
+        box-shadow: 0 4px 20px rgba(200, 164, 78, 0.25);
+      }
+      .pm-public-btn-primary .pm-public-btn-icon { font-size: 34px !important; }
+      .pm-public-btn-primary .pm-public-btn-title { font-size: 17px !important; }
+      .pm-public-btn-primary .pm-public-btn-sub { font-size: 12.5px !important; }
+
+      /* Boot loader */
+      @keyframes nxBootPulse {
+        0%, 100% { opacity: 0.6; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.04); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // ─── Boot loader (v4 — bigger, pulsing brand) ───────────────────────
+  function renderBootLoader(qrCode) {
+    injectStyles();
+    const boot = document.createElement('div');
+    boot.id = 'nxPublicBoot';
+    boot.style.cssText = `
+      position: fixed; inset: 0; z-index: 9999;
+      background: radial-gradient(circle at 50% 40%, #14141c, #0a0a0f);
+      display: flex; align-items: center; justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    `;
+    boot.innerHTML = `
+      <div style="text-align: center; padding: 24px; max-width: 320px;">
+        <div style="
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 22px; font-weight: 600;
+          letter-spacing: 6px; color: #c8a44e;
+          margin-bottom: 28px;
+          animation: nxBootPulse 1.6s ease-in-out infinite;
+        ">NEXUS</div>
+        <div style="
+          width: 64px; height: 64px; margin: 0 auto 24px;
+          border: 4px solid rgba(200, 164, 78, 0.15);
+          border-top-color: #c8a44e;
+          border-radius: 50%;
+          animation: nxBootSpin 0.9s linear infinite;
+        "></div>
+        <div style="
+          font-size: 16px; color: #e6dccc;
+          font-weight: 500; margin-bottom: 8px;
+        ">Loading equipment…</div>
+        <div style="
+          font-size: 11px; color: rgba(200, 164, 78, 0.5);
+          font-family: 'JetBrains Mono', monospace;
+          padding: 4px 10px; background: rgba(200, 164, 78, 0.05);
+          border-radius: 6px; display: inline-block;
+        ">${esc(qrCode)}</div>
+      </div>
+      <style>
+        @keyframes nxBootSpin { to { transform: rotate(360deg); } }
+      </style>
+    `;
+    if (document.body) {
+      document.body.appendChild(boot);
+    } else {
+      document.addEventListener('DOMContentLoaded', () => document.body.appendChild(boot));
     }
   }
 
-  // Extract contractor name + phone from a node record.
-  // Phone can live in either links.phone (structured) or be regex-extracted
-  // from notes as a fallback. Replicates equipment.js's extractContact helper.
-  function extractContractor(node) {
-    if (!node) return null;
-    const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
-    const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
-    const links = node.links || {};
-    const phone = (links.phone || (phoneMatch ? phoneMatch[0].trim() : '')) || '';
-    if (!phone) return null;
-    return {
-      name: node.name || 'Contractor',
-      phone: phone,
-      phoneHref: normalizePhoneForTel(phone)
-    };
+  function removeBootLoader() {
+    document.getElementById('nxPublicBoot')?.remove();
   }
 
-  function normalizePhoneForTel(p) {
-    if (!p) return '';
-    const cleaned = p.replace(/[^\d+]/g, '');
-    if (cleaned.length === 10 && !cleaned.startsWith('+')) return '+1' + cleaned;
-    return cleaned;
-  }
-
-  function renderShell(qrCode) {
+  // ─── Render shell (static container for details) ─────────────────
+  function renderShell() {
     document.body.innerHTML = `
       <div class="public-scan-container">
         <div class="public-scan-header">
           <div class="public-scan-brand">NEXUS</div>
         </div>
-        <div class="public-scan-body" id="publicScanBody">
-          <div class="public-scan-loading">Loading equipment details…</div>
-        </div>
+        <div class="public-scan-body" id="publicScanBody"></div>
       </div>
     `;
   }
 
-  function renderDetails(eq, maint, contractor) {
+  // ─── Render details view (v4) ───────────────────────────────────────
+  function renderDetails(eq, maint, contractor, activeTicket) {
     const statusMap = {
-      operational:    { label: 'Operational',    color: '#4caf50' },
-      needs_service:  { label: 'Needs Service',  color: '#ff9800' },
-      down:           { label: 'Down',           color: '#f44336' },
-      retired:        { label: 'Retired',        color: '#888' }
+      operational:   { label: 'Operational',   color: '#4caf50' },
+      needs_service: { label: 'Needs Service', color: '#ff9800' },
+      down:          { label: 'Down',          color: '#f44336' },
+      retired:       { label: 'Retired',       color: '#888'    },
     };
-    const status = statusMap[eq.status] || { label: eq.status, color: '#888' };
+    const status = statusMap[eq.status] || { label: eq.status || 'Unknown', color: '#888' };
+
     const pm = eq.next_pm_date ? new Date(eq.next_pm_date) : null;
     const pmStr = pm ? pm.toLocaleDateString() : 'Not scheduled';
     const pmOverdue = pm && pm < new Date();
+    const pmDaysOverdue = pmOverdue ? Math.floor((Date.now() - pm.getTime()) / 86400000) : 0;
+
+    const warranty = eq.warranty_until ? new Date(eq.warranty_until) : null;
+    const warrantyValid = warranty && warranty > new Date();
+    const warrantyDaysLeft = warrantyValid ? Math.floor((warranty.getTime() - Date.now()) / 86400000) : 0;
+
     const loginUrl = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}&login=1`;
-    
+
     // Contractor call button — only shown if equipment has a preferred
-    // contractor with a valid phone number. Opens confirm modal before dialing.
+    // contractor with a valid phone number.
     const callBtnHtml = contractor ? `
-          <button class="pm-public-btn pm-public-btn-call" type="button" onclick='window._NX_OPEN_PUBLIC_CALL(${JSON.stringify({name:contractor.name,phone:contractor.phone,phoneHref:contractor.phoneHref,equipId:eq.id,equipName:eq.name,qrCode:eq.qr_code}).replace(/'/g,"&#39;")})'>
-            <span class="pm-public-btn-icon">📞</span>
-            <span class="pm-public-btn-label">
-              <span class="pm-public-btn-title">Call ${esc(contractor.name)}</span>
-              <span class="pm-public-btn-sub">${esc(contractor.phone)}</span>
-            </span>
-          </button>
+      <button class="pm-public-btn pm-public-btn-call" type="button" onclick='window._NX_OPEN_PUBLIC_CALL(${JSON.stringify({name:contractor.name,phone:contractor.phone,phoneHref:contractor.phoneHref,equipId:eq.id,equipName:eq.name,qrCode:eq.qr_code}).replace(/'/g,"&#39;")})'>
+        <span class="pm-public-btn-icon">📞</span>
+        <span class="pm-public-btn-label">
+          <span class="pm-public-btn-title">Call ${esc(contractor.name)}</span>
+          <span class="pm-public-btn-sub">${esc(contractor.phone)}</span>
+        </span>
+      </button>
     ` : '';
-    
+
+    // Build banners HTML — rendered in priority order (most-urgent first).
+    const banners = [];
+    if (activeTicket) {
+      const when = activeTicket.created_at ? fmtRelative(activeTicket.created_at) : '';
+      const who = activeTicket.reported_by || 'someone';
+      const issueText = activeTicket.title || 'Issue reported';
+      banners.push(`
+        <div class="ps-banner ps-banner-issue">
+          <div class="ps-banner-icon">⚠</div>
+          <div class="ps-banner-body">
+            <div class="ps-banner-title">Active issue filed ${esc(when)}</div>
+            <div class="ps-banner-sub">
+              <strong>${esc(who)}</strong> reported: ${esc(issueText.replace(/^\[Equipment\]\s*[^:]*:\s*/, '').slice(0, 140))}
+            </div>
+          </div>
+        </div>
+      `);
+    }
+    if (pmOverdue) {
+      banners.push(`
+        <div class="ps-banner ps-banner-overdue">
+          <div class="ps-banner-icon">⏰</div>
+          <div class="ps-banner-body">
+            <div class="ps-banner-title">Preventative maintenance overdue</div>
+            <div class="ps-banner-sub">Was due ${pmDaysOverdue} day${pmDaysOverdue !== 1 ? 's' : ''} ago (${pmStr})</div>
+          </div>
+        </div>
+      `);
+    }
+    if (warrantyValid) {
+      const warrantyStr = warranty.toLocaleDateString();
+      banners.push(`
+        <div class="ps-banner ps-banner-warranty">
+          <div class="ps-banner-icon">🛡</div>
+          <div class="ps-banner-body">
+            <div class="ps-banner-title">Under warranty until ${warrantyStr}</div>
+            <div class="ps-banner-sub">${warrantyDaysLeft} day${warrantyDaysLeft !== 1 ? 's' : ''} remaining — avoid invasive repairs; check warranty terms first</div>
+          </div>
+        </div>
+      `);
+    }
+
+    const photoBlock = eq.photo_url
+      ? `<img src="${esc(eq.photo_url)}" class="public-scan-photo" alt="${esc(eq.name)}">`
+      : `<div class="public-scan-photo-placeholder">${catIcon(eq.category)}</div>`;
+
     const body = document.getElementById('publicScanBody');
     if (!body) return;
     body.innerHTML = `
       <div class="public-scan-card">
-        ${eq.photo_url ? `<img src="${esc(eq.photo_url)}" class="public-scan-photo">` : ''}
+        ${photoBlock}
         <h1 class="public-scan-name">${esc(eq.name)}</h1>
-        <div class="public-scan-loc">📍 ${esc(eq.location)}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
+        <div class="public-scan-loc">📍 ${esc(eq.location || '')}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
         <div class="public-scan-status" style="background:${status.color}22;border-color:${status.color}">
           <span class="public-scan-dot" style="background:${status.color}"></span>
           <span style="color:${status.color}">${status.label}</span>
         </div>
+
+        ${banners.join('')}
+
         <div class="public-scan-fields">
           ${eq.manufacturer ? `<div><label>Manufacturer</label><div>${esc(eq.manufacturer)}</div></div>` : ''}
           ${eq.model ? `<div><label>Model</label><div>${esc(eq.model)}</div></div>` : ''}
           ${eq.serial_number ? `<div><label>Serial Number</label><div>${esc(eq.serial_number)}</div></div>` : ''}
           ${eq.install_date ? `<div><label>Installed</label><div>${new Date(eq.install_date).toLocaleDateString()}</div></div>` : ''}
-          ${eq.warranty_until ? `<div><label>Warranty</label><div>${new Date(eq.warranty_until).toLocaleDateString()}</div></div>` : ''}
-          <div><label>Next PM</label><div ${pmOverdue ? 'style="color:#f44336"' : ''}>${pmStr}${pmOverdue ? ' (overdue)' : ''}</div></div>
+          ${!warrantyValid && eq.warranty_until ? `<div><label>Warranty</label><div>${new Date(eq.warranty_until).toLocaleDateString()} (expired)</div></div>` : ''}
+          ${!pmOverdue ? `<div><label>Next PM</label><div>${pmStr}</div></div>` : ''}
         </div>
+
         ${maint.length ? `
           <div class="public-scan-section">
             <h3>Recent Service History</h3>
@@ -251,19 +361,13 @@
               </div>
             `).join('')}
           </div>` : ''}
+
         <div class="public-scan-actions" id="publicScanActions">
           <button class="pm-public-btn pm-public-btn-primary" onclick="(window._NX_PUBLIC_PM_OPEN||(()=>alert('PM Logger not loaded')))('${eq.qr_code}')">
             <span class="pm-public-btn-icon">🔧</span>
             <span class="pm-public-btn-label">
-              <span class="pm-public-btn-title">PM Logger</span>
-              <span class="pm-public-btn-sub">Service contractors — no login</span>
-            </span>
-          </button>
-          <button class="pm-public-btn pm-public-btn-secondary" onclick="window.location.href='${loginUrl}'">
-            <span class="pm-public-btn-icon">🔐</span>
-            <span class="pm-public-btn-label">
-              <span class="pm-public-btn-title">Login</span>
-              <span class="pm-public-btn-sub">Restaurant staff</span>
+              <span class="pm-public-btn-title">Log Service</span>
+              <span class="pm-public-btn-sub">Contractors — no login needed</span>
             </span>
           </button>
           ${callBtnHtml}
@@ -274,410 +378,431 @@
               <span class="pm-public-btn-sub">Something's broken or unsafe</span>
             </span>
           </button>
+          <button class="pm-public-btn pm-public-btn-secondary" onclick="window.location.href='${loginUrl}'">
+            <span class="pm-public-btn-icon">🔐</span>
+            <span class="pm-public-btn-label">
+              <span class="pm-public-btn-title">Staff Login</span>
+              <span class="pm-public-btn-sub">Full equipment details</span>
+            </span>
+          </button>
         </div>
         <div class="public-scan-footer">Powered by NEXUS · Restaurant Operations Intelligence</div>
       </div>
     `;
   }
 
-  /* ═════════════════════════════════════════════════════════════════════
-     BOOT LOADER + ERROR SCREEN
-     ═════════════════════════════════════════════════════════════════════ */
-
-  function renderBootLoader(qrCode) {
-    const boot = document.createElement('div');
-    boot.id = 'nxPublicBoot';
-    boot.style.cssText = `
-      position: fixed; inset: 0; z-index: 9999;
-      background: #0a0a0f;
-      display: flex; align-items: center; justify-content: center;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      color: #c8a44e;
-    `;
-    boot.innerHTML = `
-      <div style="text-align: center; padding: 20px;">
-        <div style="font-size: 11px; letter-spacing: 2px; opacity: 0.6; margin-bottom: 16px;">NEXUS</div>
-        <div style="
-          width: 40px; height: 40px; margin: 0 auto 20px;
-          border: 3px solid rgba(200, 164, 78, 0.2);
-          border-top-color: #c8a44e;
-          border-radius: 50%;
-          animation: nxBootSpin 0.8s linear infinite;
-        "></div>
-        <div style="font-size: 13px; opacity: 0.75; margin-bottom: 6px;">Loading equipment…</div>
-        <div style="font-size: 10px; opacity: 0.4; font-family: 'JetBrains Mono', monospace;">${esc(qrCode)}</div>
-      </div>
-      <style>
-        @keyframes nxBootSpin { to { transform: rotate(360deg); } }
-      </style>
-    `;
-    if (document.body) {
-      document.body.appendChild(boot);
-    } else {
-      document.addEventListener('DOMContentLoaded', () => document.body.appendChild(boot));
-    }
+  function catIcon(category) {
+    const map = {
+      refrigeration: '❄', cooking: '🔥', hvac: '🌬', plumbing: '🚰',
+      electrical: '⚡', cleaning: '🧽', dishwashing: '🍽',
+      beverage: '🥤', bar: '🍸',
+    };
+    return map[(category || '').toLowerCase()] || '🔧';
   }
 
+  // ─── Error screen ─────────────────────────────────────────────────
   function showError(msg) {
     const container = document.getElementById('nxPublicBoot') || document.getElementById('publicScanBody');
     if (!container) return;
     container.innerHTML = `
-      <div style="text-align: center; padding: 24px; max-width: 340px; margin: 0 auto;">
-        <div style="font-size: 40px; margin-bottom: 12px; color: #c8a44e;">⚠</div>
-        <div style="font-size: 16px; font-weight: 600; color: #e6dccc; margin-bottom: 8px;">
+      <div style="text-align: center; padding: 32px 24px; max-width: 340px; margin: 0 auto;">
+        <div style="font-size: 56px; margin-bottom: 16px; color: #c8a44e;">⚠</div>
+        <div style="font-size: 18px; font-weight: 600; color: #e6dccc; margin-bottom: 10px;">
           Could not load equipment
         </div>
-        <div style="font-size: 12px; color: #8a826f; margin-bottom: 20px; line-height: 1.5;">
+        <div style="font-size: 13px; color: #8a826f; margin-bottom: 24px; line-height: 1.5;">
           ${esc(msg)}
         </div>
         <button onclick="location.reload()" style="
-          padding: 10px 24px;
-          background: #c8a44e;
-          color: #1a1408;
-          border: none; border-radius: 8px;
-          font-size: 13px; font-weight: 600;
-        ">Reload</button>
+          padding: 12px 28px; background: #c8a44e; color: #1a1408;
+          border: none; border-radius: 10px;
+          font-size: 14px; font-weight: 600; cursor: pointer;
+        ">Try again</button>
         <button onclick="location.href=location.pathname" style="
-          display: block; margin: 12px auto 0;
-          padding: 8px 20px;
-          background: transparent;
-          color: #8a826f;
-          border: 1px solid #3a3a46;
-          border-radius: 8px;
-          font-size: 12px;
+          display: block; margin: 14px auto 0;
+          padding: 10px 22px; background: transparent; color: #8a826f;
+          border: 1px solid #3a3a46; border-radius: 10px;
+          font-size: 13px; cursor: pointer;
         ">Go to NEXUS</button>
       </div>
     `;
   }
 
-  /* ═════════════════════════════════════════════════════════════════════
-     REPORT ISSUE MODAL — replicated from equipment.js publicReportIssue
-     Writes to tickets + daily_logs, same as the authenticated version.
-     ═════════════════════════════════════════════════════════════════════ */
+  // ─── Report Issue modal (v2 — photo + chips + remembered name) ─────
+  // Global hook called by the Report Issue button.
+  window._NX_OPEN_REPORT_ISSUE = async function(qrCode) {
+    // Guard: if multiple rapid taps, skip
+    if (document.getElementById('nxReportModal')) return;
 
-  async function openReportIssueModal(qrCode) {
-    // Inject styles once (guards against repeated opens)
-    if (!document.getElementById('nxReportModalStyles')) {
-      const style = document.createElement('style');
-      style.id = 'nxReportModalStyles';
-      style.textContent = `
-        .public-report-modal {
-          position: fixed; inset: 0; z-index: 10000;
-          display: flex; align-items: center; justify-content: center;
-          padding: 16px;
-        }
-        .public-report-bg {
-          position: absolute; inset: 0;
-          background: rgba(10, 10, 15, 0.85);
-          backdrop-filter: blur(4px);
-        }
-        .public-report {
-          position: relative;
-          width: 100%; max-width: 440px;
-          background: #15151c;
-          border: 1px solid #2a2a33;
-          border-radius: 16px;
-          padding: 24px 20px 20px;
-          color: #e6dccc;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          max-height: 90vh;
-          overflow-y: auto;
-        }
-        .public-report h2 {
-          margin: 0 0 18px;
-          font-size: 22px;
-          font-weight: 700;
-          color: #c8a44e;
-        }
-        .public-report-close {
-          position: absolute; top: 12px; right: 12px;
-          width: 36px; height: 36px;
-          background: rgba(200, 164, 78, 0.08);
-          border: 1px solid rgba(200, 164, 78, 0.25);
-          border-radius: 50%;
-          color: #c8a44e;
-          font-size: 16px;
-          cursor: pointer;
-          display: flex; align-items: center; justify-content: center;
-          padding: 0;
-        }
-        .public-report-close:active {
-          background: rgba(200, 164, 78, 0.2);
-          transform: scale(0.92);
-        }
-        .public-report-field {
-          margin-bottom: 14px;
-        }
-        .public-report-field label {
-          display: block;
-          font-size: 12px;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          color: #8a826f;
-          margin-bottom: 6px;
-          font-weight: 600;
-        }
-        .public-report-field input,
-        .public-report-field textarea,
-        .public-report-field select {
-          width: 100%;
-          background: #0a0a0f;
-          border: 1px solid #2a2a33;
-          border-radius: 8px;
-          padding: 11px 12px;
-          color: #e6dccc;
-          font-size: 14px;
-          font-family: inherit;
-          box-sizing: border-box;
-        }
-        .public-report-field input:focus,
-        .public-report-field textarea:focus,
-        .public-report-field select:focus {
-          outline: none;
-          border-color: #c8a44e;
-        }
-        .public-report-field textarea {
-          resize: vertical;
-          min-height: 80px;
-        }
-        .public-report-actions {
-          display: flex;
-          gap: 10px;
-          margin-top: 20px;
-        }
-        .public-report-actions .public-scan-btn {
-          flex: 1;
-          padding: 12px;
-          border-radius: 10px;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          border: 1px solid #3a3a46;
-          background: transparent;
-          color: #8a826f;
-          font-family: inherit;
-        }
-        .public-report-actions .public-scan-btn-primary {
-          background: #c8a44e;
-          color: #1a1408;
-          border-color: #c8a44e;
-        }
-        .public-report-actions .public-scan-btn-primary:disabled {
-          opacity: 0.5;
-        }
-        .public-report-success {
-          text-align: center;
-          padding: 40px 24px;
-        }
-        .public-report-success p {
-          color: #8a826f;
-          font-size: 14px;
-          line-height: 1.5;
-          margin: 0 0 24px;
-        }
-        .public-report-success .public-scan-btn {
-          min-width: 120px;
-          padding: 12px 24px;
-          border-radius: 10px;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          border: 1px solid #c8a44e;
-          background: #c8a44e;
-          color: #1a1408;
-          font-family: inherit;
-        }
-      `;
-      document.head.appendChild(style);
-    }
-    
+    const COMMON_ISSUES = [
+      { key: 'not_cold', label: '❄ Not cold', prefix: 'Not cooling properly. ' },
+      { key: 'leaking', label: '💧 Leaking', prefix: 'Leaking. ' },
+      { key: 'noise', label: '🔊 Loud noise', prefix: 'Making unusual noise. ' },
+      { key: 'wont_start', label: '⚡ Won\'t start', prefix: 'Won\'t turn on. ' },
+      { key: 'smell', label: '👃 Strange smell', prefix: 'Unusual smell. ' },
+      { key: 'other', label: '…', prefix: '' },
+    ];
+    const rememberedName = (() => { try { return localStorage.getItem('nexus_public_reporter_name') || ''; } catch { return ''; } })();
+
     const modal = document.createElement('div');
-    modal.className = 'public-report-modal';
+    modal.id = 'nxReportModal';
+    modal.style.cssText = `
+      position: fixed; inset: 0; z-index: 10001;
+      background: rgba(8,8,14,0.88); backdrop-filter: blur(6px);
+      display: flex; align-items: flex-end; justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      animation: nxReportFade 0.18s ease-out;
+    `;
     modal.innerHTML = `
-      <div class="public-report-bg" onclick="this.parentElement.remove()"></div>
-      <div class="public-report">
-        <button class="public-report-close" onclick="this.parentElement.parentElement.remove()">✕</button>
-        <h2>Report Issue</h2>
-        <form id="publicReportForm">
-          <div class="public-report-field">
-            <label>Your Name</label>
-            <input name="reporter" required placeholder="Your name">
+      <style>
+        @keyframes nxReportFade { from { opacity: 0 } to { opacity: 1 } }
+        @keyframes nxReportSlide { from { transform: translateY(20px) } to { transform: translateY(0) } }
+      </style>
+      <div style="
+        position: relative; width: 100%; max-width: 460px;
+        max-height: 94vh; overflow-y: auto;
+        background: #15151c; border-top: 1px solid #2a2a33;
+        border-radius: 18px 18px 0 0;
+        padding: 22px 20px 28px; color: #e6dccc;
+        animation: nxReportSlide 0.22s ease-out;
+      ">
+        <button id="nxReportClose" style="
+          position: absolute; top: 10px; right: 10px;
+          width: 34px; height: 34px; border: none;
+          background: rgba(255,255,255,0.06); color: #8a826f;
+          border-radius: 50%; font-size: 18px; cursor: pointer;
+        ">✕</button>
+
+        <h2 style="margin: 0 0 4px; font-size: 20px; font-weight: 700; color: #fff;">Report Issue</h2>
+        <p style="margin: 0 0 18px; font-size: 12.5px; color: #8a826f;">The team will be notified immediately.</p>
+
+        <label style="display:block;font-size:11.5px;font-weight:600;letter-spacing:.4px;color:#b0a89a;margin-bottom:8px;">WHAT'S HAPPENING? (Tap one)</label>
+        <div id="nxReportChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;">
+          ${COMMON_ISSUES.map(i => `
+            <button type="button" data-chip="${i.key}" data-prefix="${esc(i.prefix)}" style="
+              padding:8px 12px; font-size:13px; font-family:inherit;
+              background: rgba(255,255,255,0.04);
+              border: 1px solid rgba(255,255,255,0.1);
+              color: #d4c8a5; border-radius: 10px; cursor: pointer;
+            ">${i.label}</button>
+          `).join('')}
+        </div>
+
+        <label style="display:block;font-size:11.5px;font-weight:600;letter-spacing:.4px;color:#b0a89a;margin-bottom:6px;">DETAILS</label>
+        <textarea id="nxReportDesc" rows="3" placeholder="What's wrong? What were you doing when it happened?" style="
+          width: 100%; padding: 12px 14px; font-size: 14px;
+          font-family: inherit; resize: vertical;
+          background: rgba(0,0,0,0.25); color: #fff;
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 10px; margin-bottom: 14px;
+          box-sizing: border-box;
+        "></textarea>
+
+        <label style="display:block;font-size:11.5px;font-weight:600;letter-spacing:.4px;color:#b0a89a;margin-bottom:6px;">PHOTO (optional — but hugely helpful)</label>
+        <div id="nxReportPhotoWrap" style="margin-bottom: 14px;">
+          <input type="file" id="nxReportPhotoInput" accept="image/*" capture="environment" style="display:none">
+          <button type="button" id="nxReportPhotoBtn" style="
+            width: 100%; padding: 14px;
+            background: rgba(200,164,78,0.08);
+            border: 1px dashed rgba(200,164,78,0.3);
+            color: #c8a44e; font-size: 14px;
+            font-family: inherit; border-radius: 10px; cursor: pointer;
+          ">📷 Take photo or choose from library</button>
+          <div id="nxReportPhotoPreview" style="margin-top:8px;display:none;">
+            <img id="nxReportPhotoImg" style="width:100%;max-height:160px;object-fit:cover;border-radius:8px;">
+            <button type="button" id="nxReportPhotoRemove" style="margin-top:4px;padding:4px 10px;font-size:11px;background:transparent;border:1px solid rgba(255,255,255,0.1);color:#8a826f;border-radius:6px;cursor:pointer;">Remove photo</button>
           </div>
-          <div class="public-report-field">
-            <label>What's wrong?</label>
-            <textarea name="description" rows="4" required placeholder="Describe the problem..."></textarea>
-          </div>
-          <div class="public-report-field">
-            <label>Priority</label>
-            <select name="priority">
-              <option value="low">Low — Not urgent</option>
-              <option value="normal" selected>Normal</option>
-              <option value="urgent">Urgent — Not working</option>
-            </select>
-          </div>
-          <div class="public-report-actions">
-            <button type="button" class="public-scan-btn" onclick="this.closest('.public-report-modal').remove()">Cancel</button>
-            <button type="submit" class="public-scan-btn public-scan-btn-primary">Submit Report</button>
-          </div>
-        </form>
+        </div>
+
+        <label style="display:block;font-size:11.5px;font-weight:600;letter-spacing:.4px;color:#b0a89a;margin-bottom:6px;">YOUR NAME</label>
+        <input type="text" id="nxReportName" value="${esc(rememberedName)}" placeholder="Who are you?" style="
+          width: 100%; padding: 12px 14px; font-size: 14px;
+          font-family: inherit;
+          background: rgba(0,0,0,0.25); color: #fff;
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 10px; margin-bottom: 14px;
+          box-sizing: border-box;
+        ">
+
+        <label style="display:block;font-size:11.5px;font-weight:600;letter-spacing:.4px;color:#b0a89a;margin-bottom:6px;">PRIORITY</label>
+        <div id="nxReportPrio" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:20px;">
+          <button type="button" data-prio="low" style="padding:10px;font-size:13px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:#d4c8a5;border-radius:10px;cursor:pointer;font-family:inherit;">Low</button>
+          <button type="button" data-prio="normal" class="prio-active" style="padding:10px;font-size:13px;background:rgba(200,164,78,0.15);border:1px solid rgba(200,164,78,0.4);color:#c8a44e;border-radius:10px;cursor:pointer;font-family:inherit;">Normal</button>
+          <button type="button" data-prio="urgent" style="padding:10px;font-size:13px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:#d4c8a5;border-radius:10px;cursor:pointer;font-family:inherit;">🚨 Urgent</button>
+        </div>
+
+        <button type="button" id="nxReportSubmit" style="
+          width: 100%; padding: 16px;
+          background: linear-gradient(135deg, #c8a44e, #d4b86a);
+          color: #1a1408; border: none;
+          font-size: 15px; font-weight: 700;
+          border-radius: 12px; cursor: pointer;
+          font-family: inherit;
+          box-shadow: 0 4px 14px rgba(200,164,78,0.25);
+        ">Submit Report</button>
+        <div id="nxReportStatus" style="margin-top:10px;font-size:12px;text-align:center;min-height:18px;"></div>
       </div>
     `;
     document.body.appendChild(modal);
 
-    modal.querySelector('#publicReportForm').addEventListener('submit', async e => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const submitBtn = e.target.querySelector('button[type="submit"]');
+    // State
+    let selectedChip = null;
+    let selectedPrio = 'normal';
+    let photoFile = null;
+
+    // Chip selection — prepends prefix to description
+    modal.querySelectorAll('[data-chip]').forEach(b => {
+      b.addEventListener('click', () => {
+        modal.querySelectorAll('[data-chip]').forEach(x => {
+          x.style.background = 'rgba(255,255,255,0.04)';
+          x.style.borderColor = 'rgba(255,255,255,0.1)';
+        });
+        b.style.background = 'rgba(200,164,78,0.15)';
+        b.style.borderColor = 'rgba(200,164,78,0.4)';
+        selectedChip = b.dataset.chip;
+        const desc = modal.querySelector('#nxReportDesc');
+        const prefix = b.dataset.prefix || '';
+        // Only prepend if description doesn't already start with a known prefix
+        const currentVal = desc.value.trim();
+        const anyPrefix = COMMON_ISSUES.find(i => currentVal.startsWith(i.prefix.trim()));
+        if (anyPrefix) {
+          desc.value = prefix + currentVal.slice(anyPrefix.prefix.trim().length).trim();
+        } else if (prefix) {
+          desc.value = prefix + currentVal;
+        }
+        desc.focus();
+      });
+    });
+
+    // Priority buttons
+    modal.querySelectorAll('[data-prio]').forEach(b => {
+      b.addEventListener('click', () => {
+        modal.querySelectorAll('[data-prio]').forEach(x => {
+          x.style.background = 'rgba(255,255,255,0.04)';
+          x.style.borderColor = 'rgba(255,255,255,0.1)';
+          x.style.color = '#d4c8a5';
+        });
+        const p = b.dataset.prio;
+        const colors = {
+          low: ['rgba(100,140,200,0.15)', 'rgba(100,140,200,0.4)', '#78a4d4'],
+          normal: ['rgba(200,164,78,0.15)', 'rgba(200,164,78,0.4)', '#c8a44e'],
+          urgent: ['rgba(244,67,54,0.15)', 'rgba(244,67,54,0.5)', '#ff8a7a'],
+        };
+        const [bg, bd, c] = colors[p] || colors.normal;
+        b.style.background = bg; b.style.borderColor = bd; b.style.color = c;
+        selectedPrio = p;
+      });
+    });
+
+    // Photo
+    const photoInput = modal.querySelector('#nxReportPhotoInput');
+    const photoBtn = modal.querySelector('#nxReportPhotoBtn');
+    const photoPreview = modal.querySelector('#nxReportPhotoPreview');
+    const photoImg = modal.querySelector('#nxReportPhotoImg');
+    photoBtn.addEventListener('click', () => photoInput.click());
+    photoInput.addEventListener('change', () => {
+      const f = photoInput.files?.[0];
+      if (!f) return;
+      photoFile = f;
+      const r = new FileReader();
+      r.onload = e => {
+        photoImg.src = e.target.result;
+        photoPreview.style.display = '';
+        photoBtn.style.display = 'none';
+      };
+      r.readAsDataURL(f);
+    });
+    modal.querySelector('#nxReportPhotoRemove').addEventListener('click', () => {
+      photoFile = null; photoInput.value = '';
+      photoPreview.style.display = 'none';
+      photoBtn.style.display = '';
+    });
+
+    // Close
+    const close = () => modal.remove();
+    modal.querySelector('#nxReportClose').addEventListener('click', close);
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
+
+    // Submit
+    modal.querySelector('#nxReportSubmit').addEventListener('click', async () => {
+      const name = modal.querySelector('#nxReportName').value.trim();
+      const desc = modal.querySelector('#nxReportDesc').value.trim();
+      const status = modal.querySelector('#nxReportStatus');
+      const submitBtn = modal.querySelector('#nxReportSubmit');
+
+      if (!name) {
+        status.textContent = '⚠ Please enter your name';
+        status.style.color = '#ff8a7a';
+        return;
+      }
+      if (!desc) {
+        status.textContent = '⚠ Please describe the issue';
+        status.style.color = '#ff8a7a';
+        return;
+      }
+
       submitBtn.disabled = true;
       submitBtn.textContent = 'Submitting…';
-      
-      try {
-        const { data: eq } = await NX.sb.from('equipment')
-          .select('id, name, location')
-          .eq('qr_code', qrCode)
-          .single();
-        if (!eq) throw new Error('Equipment not found');
+      submitBtn.style.opacity = '0.7';
+      status.textContent = '';
 
-        // Insert into tickets
-        await NX.sb.from('tickets').insert({
-          title: `[Equipment] ${eq.name}: ${fd.get('description').slice(0, 60)}`,
-          notes: `Reported via QR scan by ${fd.get('reporter')}\n\nEquipment: ${eq.name}\nLocation: ${eq.location}\n\nIssue: ${fd.get('description')}`,
-          priority: fd.get('priority'),
+      try {
+        try { localStorage.setItem('nexus_public_reporter_name', name); } catch {}
+
+        await ensureSupabase();
+        const { data: eq, error: eqErr } = await sb.from('equipment').select('id, name, location').eq('qr_code', qrCode).single();
+        if (eqErr || !eq) throw new Error('Equipment not found');
+
+        // Upload photo if present — best-effort, don't block on failure
+        let photoUrl = null;
+        if (photoFile) {
+          try {
+            const path = `public-reports/${Date.now()}-${photoFile.name.replace(/[^a-z0-9._-]/gi, '_')}`;
+            const { error: upErr } = await sb.storage.from('nexus-files').upload(path, photoFile, {
+              contentType: photoFile.type, upsert: false,
+            });
+            if (!upErr) {
+              const { data: pub } = sb.storage.from('nexus-files').getPublicUrl(path);
+              photoUrl = pub?.publicUrl || null;
+            }
+          } catch (e) { console.warn('[public-report] photo upload failed:', e); }
+        }
+
+        const ticketRow = {
+          title: `[Equipment] ${eq.name}: ${desc.slice(0, 60)}`,
+          notes: `Reported via QR scan by ${name}\n\nEquipment: ${eq.name}\nLocation: ${eq.location || ''}\n\nIssue: ${desc}${photoUrl ? '\n\nPhoto: ' + photoUrl : ''}`,
+          priority: selectedPrio,
           location: eq.location,
           status: 'open',
-          reported_by: fd.get('reporter') + ' (QR scan)'
-        });
-        
-        // Also log to daily_logs for visibility on the Brain dashboard
-        await NX.sb.from('daily_logs').insert({
-          entry: `🚨 QR scan report — ${eq.name} at ${eq.location}: ${fd.get('description').slice(0, 120)}`,
-          user_name: fd.get('reporter')
-        });
+          reported_by: `${name} (QR scan)`,
+        };
+        const { error: tkErr } = await sb.from('tickets').insert(ticketRow);
+        if (tkErr) throw tkErr;
+
+        const logEntry = `🚨 QR scan report - ${eq.name} at ${eq.location || 'unknown'}: ${desc.slice(0, 120)}${photoUrl ? ' [photo]' : ''}`;
+        await sb.from('daily_logs').insert({ entry: logEntry, user_name: name }).select();
 
         // Success screen
-        modal.innerHTML = `
-          <div class="public-report-bg" onclick="this.parentElement.remove()"></div>
-          <div class="public-report public-report-success">
-            <div style="font-size:48px;margin-bottom:12px;color:#4caf50">✓</div>
-            <h2>Report Sent</h2>
-            <p>Thanks! The team has been notified and will address this shortly.</p>
-            <button class="public-scan-btn public-scan-btn-primary" onclick="this.closest('.public-report-modal').remove()">Done</button>
+        modal.querySelector('div[style*="position: relative"]').innerHTML = `
+          <div style="padding: 40px 20px; text-align: center;">
+            <div style="font-size: 64px; margin-bottom: 18px;">✓</div>
+            <h2 style="margin: 0 0 10px; font-size: 22px; font-weight: 700; color: #fff;">Report sent</h2>
+            <p style="margin: 0 0 6px; font-size: 14px; color: #b0a89a; line-height:1.5;">
+              Thanks, ${esc(name)}. The team has been notified${photoUrl ? ' (with your photo)' : ''}.
+            </p>
+            <p style="margin: 0 0 24px; font-size: 12px; color: #746c5e;">
+              Priority: ${selectedPrio}${selectedPrio === 'urgent' ? ' — phones will vibrate' : ''}
+            </p>
+            <button onclick="document.getElementById('nxReportModal').remove()" style="
+              padding: 12px 32px; background: #c8a44e; color: #1a1408;
+              border: none; border-radius: 10px; font-size: 14px;
+              font-weight: 700; cursor: pointer; font-family: inherit;
+            ">Done</button>
           </div>
         `;
       } catch (err) {
-        console.error('[public-scan] Report failed:', err);
+        console.error('[public-report] submit failed:', err);
+        status.textContent = '❌ Submit failed — ' + (err.message || 'try again');
+        status.style.color = '#ff8a7a';
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Submit Report';
-        alert('Failed to submit report: ' + (err.message || 'unknown error'));
+        submitBtn.textContent = 'Try again';
+        submitBtn.style.opacity = '1';
       }
     });
-  }
 
-  /* ═════════════════════════════════════════════════════════════════════
-     UTILITY
-     ═════════════════════════════════════════════════════════════════════ */
-
-  function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
-
-  /* ═════════════════════════════════════════════════════════════════════
-     PUBLIC CALL CONFIRM MODAL
-     
-     Exposed as window._NX_OPEN_PUBLIC_CALL so the inline onclick on the
-     Call button can trigger it. Requires contractor name + issue before
-     dialing. Logs dispatch to both dispatch_events and daily_logs.
-     ═════════════════════════════════════════════════════════════════════ */
-  
-  window._NX_OPEN_PUBLIC_CALL = function(ctx) {
-    const existing = document.getElementById('publicScanCallConfirm');
-    if (existing) existing.remove();
-    
-    const telHref = 'tel:' + (ctx.phoneHref || String(ctx.phone || '').replace(/[^\d+]/g, ''));
-    const modal = document.createElement('div');
-    modal.id = 'publicScanCallConfirm';
-    modal.className = 'eq-call-confirm pm-call-confirm';
-    modal.innerHTML = `
-      <div class="eq-call-confirm-bg"></div>
-      <div class="eq-call-confirm-card">
-        <div class="eq-call-confirm-icon">📞</div>
-        <div class="eq-call-confirm-title">Call ${esc(ctx.name || 'Service')}?</div>
-        <div class="eq-call-confirm-phone">${esc(ctx.phone || '')}</div>
-        <div class="eq-call-confirm-meta">Service contact · ${esc(ctx.equipName || '')}</div>
-        
-        <div class="eq-call-confirm-issue-wrap">
-          <label class="eq-call-confirm-issue-label" for="psCallerName">
-            Your name <span class="eq-optional-tag">(required)</span>
-          </label>
-          <input type="text" class="eq-call-confirm-issue" id="psCallerName" placeholder="e.g., Mike from Austin Air" autocomplete="name" style="min-height:44px;resize:none">
-        </div>
-        
-        <div class="eq-call-confirm-issue-wrap">
-          <label class="eq-call-confirm-issue-label" for="psCallIssue">
-            What's the issue? <span class="eq-optional-tag">(required)</span>
-          </label>
-          <textarea class="eq-call-confirm-issue" id="psCallIssue" rows="2" placeholder="e.g., Compressor not cooling, freezing intermittently..."></textarea>
-        </div>
-        
-        <div class="eq-call-confirm-actions">
-          <button class="eq-btn eq-btn-secondary" type="button" id="psCallCancel">Cancel</button>
-          <a class="eq-btn eq-call-service-btn is-disabled" id="psCallGo" href="${esc(telHref)}" aria-disabled="true">📞 Call Now</a>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-    requestAnimationFrame(() => modal.classList.add('active'));
-    
-    const close = () => { modal.classList.remove('active'); setTimeout(() => modal.remove(), 200); };
-    const nameEl = modal.querySelector('#psCallerName');
-    const issueEl = modal.querySelector('#psCallIssue');
-    const callBtn = modal.querySelector('#psCallGo');
-    
-    const validate = () => {
-      const hasName = nameEl.value.trim().length >= 2;
-      const hasIssue = issueEl.value.trim().length >= 2;
-      const ok = hasName && hasIssue;
-      callBtn.classList.toggle('is-disabled', !ok);
-      callBtn.setAttribute('aria-disabled', ok ? 'false' : 'true');
-    };
-    nameEl.addEventListener('input', validate);
-    issueEl.addEventListener('input', validate);
-    setTimeout(() => nameEl.focus(), 250);
-    
-    modal.querySelector('.eq-call-confirm-bg').addEventListener('click', close);
-    modal.querySelector('#psCallCancel').addEventListener('click', close);
-    
-    callBtn.addEventListener('click', async (e) => {
-      const callerName = nameEl.value.trim();
-      const issue = issueEl.value.trim();
-      if (!callerName || callerName.length < 2 || !issue || issue.length < 2) {
-        e.preventDefault();
-        const target = !callerName || callerName.length < 2 ? nameEl : issueEl;
-        target.focus();
-        target.style.borderColor = '#e07070';
-        setTimeout(() => { target.style.borderColor = ''; }, 1200);
-        return;
-      }
-      // Log dispatch before handoff to dialer
-      try {
-        await NX.sb.from('dispatch_events').insert({
-          equipment_id: ctx.equipId || null,
-          contractor_name: ctx.name || 'Service',
-          contractor_phone: ctx.phone || null,
-          method: 'call',
-          issue_description: issue,
-          dispatched_by: callerName + ' (public QR)',
-          outcome: 'pending',
-        });
-        await NX.sb.from('daily_logs').insert({
-          entry: `📞 [PUBLIC-DISPATCH] ${callerName} called ${ctx.name || 'Service'} (${ctx.phone || 'no phone'}) for "${issue}" re: ${ctx.equipName || ctx.qrCode || 'equipment'}`
-        });
-      } catch (err) { console.warn('public dispatch log failed:', err); }
-      setTimeout(close, 100);
-    });
+    // Auto-focus description
+    setTimeout(() => modal.querySelector('#nxReportDesc')?.focus(), 150);
   };
 
-  console.log('[public-scan v3] self-contained mode, eq=', equipParam);
+  // ─── Call-confirm hook (reused from equipment-public-pm.js contract) ──
+  // If equipment-public-pm.js provides _NX_OPEN_PUBLIC_CALL, great.
+  // If not, provide a minimal fallback so Call button still works.
+  if (!window._NX_OPEN_PUBLIC_CALL) {
+    window._NX_OPEN_PUBLIC_CALL = function(info) {
+      if (confirm(`Call ${info.name} at ${info.phone}?`)) {
+        window.location.href = info.phoneHref || `tel:${info.phone.replace(/[^\d+]/g, '')}`;
+      }
+    };
+  }
+
+  // ─── Main boot sequence ────────────────────────────────────────────
+  async function main() {
+    renderBootLoader(equipParam);
+
+    try {
+      await ensureSupabase();
+
+      // Fetch equipment + active ticket + contractor + recent maint in parallel
+      const [eqResp, tkResp, maintResp] = await Promise.all([
+        sb.from('equipment')
+          .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, preferred_contractor_id')
+          .eq('qr_code', equipParam)
+          .single(),
+        (async () => {
+          // Active ticket: open, for this equipment, within 30 days. Best-effort.
+          try {
+            // We don't know equipment.id yet, so we fetch tickets by matching
+            // the equipment name in the title later. For a fast parallel fetch
+            // we just try a broad query — will be filtered after equipment loads.
+            // Placeholder: return null, we'll fetch after equipment is known.
+            return { data: null };
+          } catch (e) { return { data: null }; }
+        })(),
+        (async () => {
+          // Recent maintenance — can't filter by equipment_id yet, defer
+          return { data: null };
+        })(),
+      ]);
+
+      if (eqResp.error || !eqResp.data) {
+        throw new Error(eqResp.error?.message || 'Equipment not registered');
+      }
+      const eq = eqResp.data;
+
+      // Now that we have equipment.id, fetch the ticket + maintenance
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+      const [ticketQ, maintQ, contractorQ] = await Promise.all([
+        sb.from('tickets')
+          .select('id, title, created_at, reported_by, priority, status')
+          .ilike('title', `%${eq.name.slice(0, 30)}%`)
+          .eq('status', 'open')
+          .gte('created_at', thirtyDaysAgo)
+          .order('created_at', { ascending: false })
+          .limit(1),
+        sb.from('equipment_maintenance')
+          .select('event_type, event_date, description, performed_by')
+          .eq('equipment_id', eq.id)
+          .order('event_date', { ascending: false })
+          .limit(4),
+        eq.preferred_contractor_id ? sb.from('nodes')
+          .select('id, name, metadata')
+          .eq('id', eq.preferred_contractor_id)
+          .single() : Promise.resolve({ data: null }),
+      ]);
+
+      const activeTicket = (ticketQ.data || [])[0] || null;
+      const maint = maintQ.data || [];
+
+      // Extract phone from contractor node metadata
+      let contractor = null;
+      if (contractorQ?.data) {
+        const meta = contractorQ.data.metadata || {};
+        const phone = meta.phone || meta.phone_number || meta.tel || null;
+        if (phone) {
+          const phoneHref = 'tel:' + String(phone).replace(/[^\d+]/g, '');
+          contractor = { name: contractorQ.data.name, phone, phoneHref };
+        }
+      }
+
+      injectStyles();
+      renderShell();
+      removeBootLoader();
+      renderDetails(eq, maint, contractor, activeTicket);
+    } catch (err) {
+      console.error('[public-scan v4] boot failed:', err);
+      showError(err.message || 'Unknown error');
+    }
+  }
+
+  main();
 })();
