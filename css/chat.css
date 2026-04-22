@@ -1,23 +1,14 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   NEXUS Chat — Stage B
+   NEXUS Chat — Stage C
    
    Full-screen chat view that takes over when user taps "Ask NEXUS" on the
    home dashboard. Replaces the old bottom-drawer chat-hud.
    
-   Design language extends home.css:
-   - Fraunces serif for the "NEXUS" wordmark in the header (8px increment
-     larger than the home masthead) — same display type creates continuity
-   - DM Sans for message bodies, 15px, line-height 1.65 — a hair more
-     generous than home because messages are the primary content here
-   - JetBrains Mono for sender labels ("YOU" / "NEXUS") rendered as 
-     tight-tracked small caps, confident but never shouty
-   - No bubbles, no avatar circles, no "Last seen 6:47" — this is a
-     transcript, not a messaging app
-   - Hairline rules between date groups, same 14% gold opacity we use on
-     the home screen — visual continuity throughout
-   - Input bar echoes the home "Ask NEXUS" bar — same hairline box,
-     same sit-at-bottom placement — so the transition from home→chat
-     feels like a shared element expanding, not a modal popping open
+   Design: uses the existing NEXUS brand fonts throughout — Outfit for
+   display, DM Sans for body, JetBrains Mono for sender labels and
+   metadata. No outside serif. The editorial feel comes from typography
+   hierarchy, hairline rules, and generous vertical rhythm — not from
+   a typeface that would clash with the rest of the app.
    ═══════════════════════════════════════════════════════════════════════ */
 
 /* ─── View shell — full-screen takeover ──────────────────────────── */
@@ -288,13 +279,32 @@ body.chatview-open .chat-hud { display: none !important; }
   letter-spacing: 0.2px;
 }
 
-/* ─── Empty state — prompt chips ─────────────────────────────────── */
+/* ─── Empty state — warm and dense, not a lonely void ──────────── */
 .cv-empty {
+  position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
   min-height: 100%;
-  padding-bottom: 24px;
+  padding-top: 12px;
+}
+/* Ambient gradient at top — subtle texture so the screen doesn't start
+   in pure void. Gold glow fades down. */
+.cv-empty-ambient {
+  position: absolute;
+  top: -28px;
+  left: -40px;
+  right: -40px;
+  height: 220px;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 70% 30%, rgba(212, 164, 78, 0.08) 0%, transparent 55%),
+    radial-gradient(ellipse at 20% 0%, rgba(212, 164, 78, 0.04) 0%, transparent 50%);
+  z-index: 0;
+}
+.cv-empty-inner {
+  position: relative;
+  z-index: 1;
+  padding-bottom: 16px;
 }
 .cv-empty-eyebrow {
   font-family: 'JetBrains Mono', monospace;
@@ -302,57 +312,165 @@ body.chatview-open .chat-hud { display: none !important; }
   letter-spacing: 2px;
   color: var(--faint);
   text-transform: uppercase;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 .cv-empty-h {
-  font-family: 'Fraunces', 'Times New Roman', serif;
-  font-variation-settings: 'opsz' 144, 'SOFT' 40;
-  font-weight: 400;
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif;
+  font-weight: 300;
   font-size: clamp(32px, 8vw, 44px);
-  line-height: 1.05;
+  line-height: 1.08;
   color: var(--text);
-  letter-spacing: -0.015em;
-  margin-bottom: 24px;
+  letter-spacing: -0.025em;
+  margin-bottom: 16px;
 }
 .cv-empty-h em {
   color: var(--accent);
-  font-style: italic;
-  font-weight: 500;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: -0.03em;
 }
+/* Situation line — one-sentence "what's happening right now" */
+.cv-empty-situation {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+  margin-bottom: 32px;
+  max-width: 44ch;
+  letter-spacing: 0.05px;
+}
+.cv-empty-situation strong {
+  color: var(--accent);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.cv-empty-section-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 2px;
+  color: var(--faint);
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  margin-top: 24px;
+}
+.cv-empty-section-label:first-of-type { margin-top: 0; }
+
+/* Prompts — 2-column grid on phones (single-col on very small, 2 on normal) */
 .cv-empty-prompts {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-bottom: 28px;
 }
+@media (min-width: 480px) {
+  .cv-empty-prompts {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 .cv-prompt {
   text-align: left;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-radius: 2px;
   border: 1px solid rgba(212, 182, 138, 0.14);
-  background: transparent;
+  background: rgba(212, 182, 138, 0.015);
   color: var(--muted);
   font-family: inherit;
-  font-size: 14px;
-  line-height: 1.45;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  transition: border-color 0.15s, color 0.15s, background 0.15s, transform 0.1s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 62px;
 }
 .cv-prompt:hover {
-  border-color: var(--accent);
+  border-color: rgba(212, 182, 138, 0.35);
+  background: rgba(212, 182, 138, 0.04);
   color: var(--text);
-  background: rgba(212, 182, 138, 0.02);
 }
+.cv-prompt:active { transform: scale(0.98); }
 .cv-prompt-kicker {
   font-family: 'JetBrains Mono', monospace;
   font-size: 9px;
-  letter-spacing: 1.8px;
+  letter-spacing: 1.6px;
+  color: var(--accent);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.cv-prompt-text {
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--text);
+  font-weight: 400;
+  letter-spacing: 0.05px;
+}
+
+/* Skeleton placeholder while prompts populate */
+.cv-prompt-skeleton {
+  min-height: 62px;
+  background: linear-gradient(
+    90deg,
+    rgba(212, 182, 138, 0.02) 0%,
+    rgba(212, 182, 138, 0.06) 50%,
+    rgba(212, 182, 138, 0.02) 100%
+  );
+  background-size: 200% 100%;
+  animation: cvShimmer 2.2s ease-in-out infinite;
+}
+@keyframes cvShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Recents rail — last 3 conversations, compact */
+.cv-empty-recents-wrap {
+  margin-top: 8px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(212, 182, 138, 0.1);
+}
+.cv-empty-recents {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cv-recent {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 4px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.12s;
+  border-bottom: 1px solid rgba(212, 182, 138, 0.06);
+}
+.cv-recent:last-child { border-bottom: none; }
+.cv-recent:hover  { color: var(--text); }
+.cv-recent:active { transform: translateX(2px); }
+.cv-recent-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 1px;
   color: var(--faint);
   text-transform: uppercase;
-  margin-bottom: 4px;
-  display: block;
+  min-width: 60px;
+  flex-shrink: 0;
 }
+.cv-recent-title {
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+  letter-spacing: 0.1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-recent:hover .cv-recent-title { color: var(--text); }
 
 /* ─── Input bar — pinned bottom, hairline frame ─────────────────── */
 .cv-input-wrap {
@@ -420,9 +538,9 @@ body.chatview-open .chat-hud { display: none !important; }
 }
 .cv-input::placeholder {
   color: var(--faint);
-  font-family: 'Fraunces', 'DM Sans', serif;
-  font-style: italic;
+  font-family: inherit;
   font-size: 15px;
+  letter-spacing: 0.1px;
 }
 .cv-send {
   width: 36px;
@@ -667,10 +785,9 @@ body.chatview-open .chat-hud { display: none !important; }
   margin: -6px auto 14px;
 }
 .cv-persona-h {
-  font-family: 'Fraunces', serif;
-  font-weight: 400;
-  font-variation-settings: 'opsz' 144;
-  font-size: 22px;
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-weight: 500;
+  font-size: 20px;
   color: var(--text);
   margin: 0 0 4px;
   letter-spacing: -0.01em;
