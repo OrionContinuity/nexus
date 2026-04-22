@@ -42,9 +42,18 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 
 // ─── Types ────────────────────────────────────────────────────────────
 interface Alert {
-  alert_type: "pattern_due" | "pm_due" | "warranty_expiring" | "dispatch_stale" | "broadcast";
+  alert_type:
+    | "pattern_due"
+    | "pm_due"
+    | "warranty_expiring"
+    | "dispatch_stale"
+    | "card_overdue"
+    | "card_stuck_parts"
+    | "card_stuck_progress"
+    | "card_unverified"
+    | "broadcast";
   entity_id: string;
-  entity_kind: "pattern" | "equipment" | "dispatch" | "broadcast";
+  entity_kind: "pattern" | "equipment" | "dispatch" | "card" | "broadcast";
   title: string;
   body: string;
   data: Record<string, unknown>;
@@ -117,6 +126,7 @@ serve(async (req: Request): Promise<Response> => {
         ...await gatherPMAlerts(sb, today, in7),
         ...await gatherWarrantyAlerts(sb, today, in30),
         ...await gatherStaleDispatchAlerts(sb),
+        ...await gatherCardAlerts(sb),
       ];
 
       result.checked = alerts.length;
@@ -419,6 +429,145 @@ async function gatherStaleDispatchAlerts(sb: SupabaseClient): Promise<Alert[]> {
       priority: "normal",
     } as Alert;
   });
+}
+
+// ─── Board card follow-ups ────────────────────────────────────────────
+//   Catches cards that are:
+//     • overdue (due_date before today)
+//     • stuck in a "waiting on parts" column >7 days
+//     • stuck in an "in progress" column >48h
+//     • marked "resolved" but not yet verified closed, >24h
+//   Fires at most 1 alert per card per day (dedupe_key includes date).
+//
+//   Requires the v4 schema migration:
+//     • kanban_cards.last_status_change_at
+//     • kanban_cards.status (populated by moveCard in board.js)
+//   If the columns don't exist, the query returns no rows and no alerts
+//   are emitted — degrades gracefully.
+async function gatherCardAlerts(sb: SupabaseClient): Promise<Alert[]> {
+  const alerts: Alert[] = [];
+  const now = Date.now();
+  const todayStr = new Date(now).toISOString().slice(0, 10);
+  const twoDaysAgo = new Date(now - 2 * 86400000).toISOString();
+  const sevenDaysAgo = new Date(now - 7 * 86400000).toISOString();
+  const dayAgo = new Date(now - 86400000).toISOString();
+
+  let cards: any[] = [];
+  try {
+    const { data } = await sb.from("kanban_cards")
+      .select("id, title, priority, status, equipment_id, due_date, last_status_change_at, location, archived")
+      .eq("archived", false)
+      .limit(200);
+    cards = (data || []).filter(c => !["closed", "done"].includes(String(c.status || "").toLowerCase()));
+  } catch {
+    // Table or columns missing — no alerts emitted
+    return [];
+  }
+
+  if (cards.length === 0) return [];
+
+  for (const c of cards) {
+    const status = String(c.status || "").toLowerCase();
+    const lastChange = c.last_status_change_at ? new Date(c.last_status_change_at).getTime() : null;
+
+    // 1. OVERDUE — due_date in past
+    if (c.due_date && c.due_date < todayStr) {
+      const daysOverdue = Math.floor((now - new Date(c.due_date).getTime()) / 86400000);
+      alerts.push({
+        alert_type: "card_overdue",
+        entity_id: String(c.id),
+        entity_kind: "card",
+        title: `📅 Overdue: ${truncateTitle(c.title)}`,
+        body:
+          `${daysOverdue} day${daysOverdue !== 1 ? "s" : ""} past due` +
+          (c.location ? ` · ${cap(String(c.location))}` : "") +
+          (c.priority === "urgent" ? " · 🚨 URGENT" : ""),
+        data: {
+          view: "board",
+          card_id: c.id,
+          alert_type: "card_overdue",
+          equipment_id: c.equipment_id || null,
+        },
+        priority: c.priority === "urgent" ? "high" : "normal",
+      });
+      continue; // one alert per card per day
+    }
+
+    // 2. STUCK IN "WAITING ON PARTS" > 7 days
+    if (
+      (status.includes("wait") || status.includes("parts")) &&
+      lastChange && c.last_status_change_at < sevenDaysAgo
+    ) {
+      const days = Math.floor((now - lastChange) / 86400000);
+      alerts.push({
+        alert_type: "card_stuck_parts",
+        entity_id: String(c.id),
+        entity_kind: "card",
+        title: `⏳ Waiting on parts ${days}d: ${truncateTitle(c.title, 45)}`,
+        body: `No movement since ${new Date(lastChange).toLocaleDateString("en-US", { month: "short", day: "numeric" })}. Check supplier or chase up.`,
+        data: {
+          view: "board",
+          card_id: c.id,
+          alert_type: "card_stuck_parts",
+          equipment_id: c.equipment_id || null,
+        },
+        priority: "normal",
+      });
+      continue;
+    }
+
+    // 3. STUCK IN "IN PROGRESS" > 48h
+    if (
+      status.includes("progress") &&
+      lastChange && c.last_status_change_at < twoDaysAgo
+    ) {
+      const hours = Math.floor((now - lastChange) / 3600000);
+      const days = Math.floor(hours / 24);
+      alerts.push({
+        alert_type: "card_stuck_progress",
+        entity_id: String(c.id),
+        entity_kind: "card",
+        title: `🔧 Still in progress: ${truncateTitle(c.title, 45)}`,
+        body: `No status change in ${days} day${days !== 1 ? "s" : ""} (${hours}h). Ask for an update?`,
+        data: {
+          view: "board",
+          card_id: c.id,
+          alert_type: "card_stuck_progress",
+          equipment_id: c.equipment_id || null,
+        },
+        priority: "normal",
+      });
+      continue;
+    }
+
+    // 4. RESOLVED but unverified > 24h
+    if (
+      status.includes("resolved") &&
+      lastChange && c.last_status_change_at < dayAgo
+    ) {
+      alerts.push({
+        alert_type: "card_unverified",
+        entity_id: String(c.id),
+        entity_kind: "card",
+        title: `✅ Needs verification: ${truncateTitle(c.title, 50)}`,
+        body: `Marked resolved but not yet verified closed. Quick look?`,
+        data: {
+          view: "board",
+          card_id: c.id,
+          alert_type: "card_unverified",
+          equipment_id: c.equipment_id || null,
+        },
+        priority: "normal",
+      });
+    }
+  }
+
+  return alerts;
+}
+
+function truncateTitle(t: string | null | undefined, max = 60): string {
+  const s = String(t || "(untitled)").trim();
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
 async function dedupeAlerts(sb: SupabaseClient, alerts: Alert[], today: string): Promise<Alert[]> {
