@@ -95,6 +95,13 @@
             <div class="home-skeleton"></div>
           </div>
 
+          <div class="home-rule">On the books</div>
+          <div class="home-cal" id="homeCal">
+            <div class="home-skeleton home-skeleton-cal"></div>
+            <div class="home-skeleton home-skeleton-cal"></div>
+          </div>
+          <button class="home-cal-viewall" id="homeCalView">View full calendar →</button>
+
           <div class="home-rule">At a glance</div>
           <div class="home-glance" id="homeGlance">
             ${['tickets','overdue','services','nodes'].map(k => `
@@ -117,6 +124,7 @@
     async refresh() {
       await Promise.all([
         this.loadFeed(),
+        this.loadCalendar(),
         this.loadGlance(),
       ]);
     },
@@ -172,6 +180,120 @@
         feedEl.innerHTML = `
           <div class="home-feed-calm">
             <div class="home-feed-calm-text">Couldn't load priorities right now. Try again in a moment.</div>
+          </div>
+        `;
+      }
+    },
+
+    /* ═════════════ ON THE BOOKS — contractor calendar ════════════
+       Pulls contractor_events for ~2 weeks back and ~2 weeks forward,
+       grouped by day. Email ingestion populates this table, so the
+       home screen stays fresh without any manual upkeep.
+       
+       Density policy: up to 3 past days (only those with events),
+       today (always, even if empty — confirms "nothing today"),
+       and up to 6 future days with events. Roughly one screenful
+       of calendar context on a phone.                                */
+    async loadCalendar() {
+      const calEl = document.getElementById('homeCal');
+      const viewBtn = document.getElementById('homeCalView');
+      if (!calEl || !NX.sb) return;
+
+      // Wire the "View full calendar →" link once, regardless of data
+      if (viewBtn && !viewBtn._wired) {
+        viewBtn.addEventListener('click', () => NX.switchTo?.('cal'));
+        viewBtn._wired = true;
+      }
+
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const pastBound = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+        const futureBound = new Date(Date.now() + 28 * 86400000).toISOString().slice(0, 10);
+
+        const { data: events, error } = await NX.sb.from('contractor_events')
+          .select('id, contractor_name, event_date, event_time, description, location, status')
+          .gte('event_date', pastBound)
+          .lte('event_date', futureBound)
+          .neq('status', 'cancelled')
+          .order('event_date', { ascending: true })
+          .order('event_time', { ascending: true })
+          .limit(60);
+
+        if (error) throw error;
+
+        // Bucket events into a day-keyed map
+        const byDate = new Map();
+        (events || []).forEach(e => {
+          if (!byDate.has(e.event_date)) byDate.set(e.event_date, []);
+          byDate.get(e.event_date).push(e);
+        });
+
+        // Build the day list with past/today/future logic
+        const days = [];
+        const pastDates   = [...byDate.keys()].filter(d => d <  today).sort();
+        const futureDates = [...byDate.keys()].filter(d => d >  today).sort();
+
+        // Last 3 past days with events, oldest first so they read chronologically
+        pastDates.slice(-3).forEach(d => days.push({ date: d, items: byDate.get(d), relative: 'past' }));
+        // Today — always included so users see "no visits today" when relevant
+        days.push({ date: today, items: byDate.get(today) || [], relative: 'today' });
+        // Next 6 future days with events
+        futureDates.slice(0, 6).forEach(d => days.push({ date: d, items: byDate.get(d), relative: 'future' }));
+
+        // Degenerate case: only today with no items and no past/future context
+        const hasAnyEvents = (events || []).length > 0;
+        if (!hasAnyEvents) {
+          calEl.innerHTML = `
+            <div class="home-cal-empty-all">
+              Nothing on the contractor calendar for the next few weeks. <br>
+              Email ingestion will add visits as they're confirmed.
+            </div>
+          `;
+          return;
+        }
+
+        calEl.innerHTML = days.map(day => {
+          const isToday  = day.relative === 'today';
+          const isPast   = day.relative === 'past';
+          const dateLabel = formatCalDate(day.date, isToday);
+
+          const itemsHtml = day.items.length === 0
+            ? `<div class="home-cal-empty">No visits scheduled.</div>`
+            : day.items.map(e => {
+                const timeStr = e.event_time ? formatTime12(e.event_time) : 'all day';
+                const titleBits = [e.contractor_name, e.location && titleCase(e.location)].filter(Boolean);
+                const title = titleBits.join(' · ') || 'Scheduled visit';
+                return `
+                  <button class="home-cal-item" data-event-id="${esc(e.id)}" type="button">
+                    <span class="home-cal-time">${esc(timeStr)}</span>
+                    <span class="home-cal-body">
+                      <span class="home-cal-title">${esc(title)}</span>
+                      ${e.description ? `<span class="home-cal-desc">${esc(e.description).slice(0, 80)}</span>` : ''}
+                    </span>
+                  </button>
+                `;
+              }).join('');
+
+          return `
+            <div class="home-cal-day ${isToday ? 'is-today' : ''} ${isPast ? 'is-past' : ''}">
+              <div class="home-cal-date">
+                ${isToday ? '<span class="home-cal-today-dot"></span>' : ''}
+                <span>${esc(dateLabel)}</span>
+              </div>
+              <div class="home-cal-items">${itemsHtml}</div>
+            </div>
+          `;
+        }).join('');
+
+        // Wire item taps to the calendar view (full detail lives there)
+        calEl.querySelectorAll('.home-cal-item').forEach(btn => {
+          btn.addEventListener('click', () => NX.switchTo?.('cal'));
+        });
+      } catch (err) {
+        console.warn('[home] calendar load failed:', err.message);
+        calEl.innerHTML = `
+          <div class="home-cal-empty-all">
+            Couldn't load the calendar right now. Tap "View full calendar" to try there.
           </div>
         `;
       }
@@ -561,6 +683,36 @@
     if (rowDay.getTime() === tomorrow.getTime()) return `Tomorrow at ${timeStrFormatted}`;
     const weekday = d.toLocaleDateString([], { weekday: 'long' });
     return `${weekday} at ${timeStrFormatted}`;
+  }
+
+  // Format a calendar-row date label: "TODAY · APR 22", "TOMORROW · APR 23",
+  // "YESTERDAY · APR 21", or "THU · APR 24". The + 'T12:00:00' suffix
+  // sidesteps timezone-at-midnight bugs that otherwise shift dates.
+  function formatCalDate(isoDate, isToday) {
+    if (!isoDate) return '';
+    const d = new Date(isoDate + 'T12:00:00');
+    const weekdays = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+    const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    const suffix = `${months[d.getMonth()]} ${d.getDate()}`;
+    if (isToday) return `TODAY · ${suffix}`;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const thisDay = new Date(d); thisDay.setHours(0,0,0,0);
+    const diff = Math.round((thisDay.getTime() - today.getTime()) / 86400000);
+    if (diff === 1)  return `TOMORROW · ${suffix}`;
+    if (diff === -1) return `YESTERDAY · ${suffix}`;
+    return `${weekdays[d.getDay()]} · ${suffix}`;
+  }
+
+  // Convert "HH:MM" or "HH:MM:SS" 24h time to "2:00 PM" style.
+  function formatTime12(time24) {
+    if (!time24) return '';
+    const parts = String(time24).split(':');
+    const h = parseInt(parts[0], 10);
+    const m = (parts[1] || '00').slice(0, 2);
+    if (!Number.isFinite(h)) return '';
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return `${h12}:${m} ${ampm}`;
   }
 
   /* ═════════════════════════════════════════════════════════════════
