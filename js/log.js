@@ -94,7 +94,7 @@ async function loadFeed() {
   (logsRes.data || []).forEach(r => {
     const entry = r.entry || '';
     const isClean = entry.startsWith('Cleaning Report') || entry.startsWith('[AUTO');
-    const isSys = entry.startsWith('[SYS]') || entry.startsWith('⚙') || entry.startsWith('📬') || entry.startsWith('🚨') || entry.startsWith('📷');
+    const isSys = entry.startsWith('[SYS]') || entry.startsWith('⚙') || entry.startsWith('📬') || entry.startsWith('🚨') || entry.startsWith('📷') || entry.startsWith('📞');
     const type = isClean ? 'clean' : isSys ? 'system' : 'log';
     feed.push({ type, ts: r.created_at, id: 'dl-' + r.id, data: r, src: 'daily_logs' });
   });
@@ -464,37 +464,73 @@ function buildCleanTaskCard(r) {
     r.completed_at || r.log_date);
 }
 
-/* ═══ SYSTEM EVENT CARD ═══ */
+/* ═══ SYSTEM EVENT CARD ═══
+   Parses [SYS] entries in either format:
+     New: "[SYS] 🧠 node_created: HVAC Unit"     (icon embedded, preferred)
+     Old: "[SYS] node_created: HVAC Unit"        (icon inferred from event)
+   Also recognizes legacy dispatch entries starting with 📞.
+*/
 function buildSystemCard(r) {
   const entry = r.entry || '';
   let clean = entry.replace(/^\[SYS\]\s*/, '');
-  const parts = clean.match(/^(\w+?):\s*(.+)$/);
+
   let icon = '⚙';
   let label = clean;
-  if (parts) {
-    const event = parts[1];
-    label = parts[2];
-    if (event.includes('login')) icon = '🔑';
-    else if (event.includes('clock')) icon = '⏱';
-    else if (event.includes('card')) icon = '📋';
-    else if (event.includes('clean')) icon = '🧹';
-    else if (event.includes('chat')) icon = '💬';
-    else if (event.includes('batch')) icon = '📥';
-    else if (event.includes('notify') || event.includes('capture')) icon = '📱';
-    else if (event.includes('privacy')) icon = '🔒';
-    else if (event.includes('node')) icon = '🧠';
-    else if (event.includes('gmail') || event.includes('email')) icon = '✉';
+  let event = '';
+
+  // Prefer icon embedded at the start of the entry (new format).
+  // Match one leading symbol/emoji token (non-whitespace, non-alphanumeric)
+  // followed by a space and an event-name.
+  const newFmt = clean.match(/^([^\s\w]+?)\s+(\w[\w_]*)\s*:\s*(.*)$/);
+  if (newFmt) {
+    icon = newFmt[1];
+    event = newFmt[2];
+    label = newFmt[3];
+  } else {
+    // Fallback: old format "event_name: detail"
+    const oldFmt = clean.match(/^(\w[\w_]*)\s*:\s*(.+)$/);
+    if (oldFmt) {
+      event = oldFmt[1];
+      label = oldFmt[2];
+      // Pick an icon from keyword matching
+      if      (event.includes('login') || event.includes('logout')) icon = '🔑';
+      else if (event.includes('clock')) icon = '⏱';
+      else if (event.includes('card'))  icon = '📋';
+      else if (event.includes('ticket')) icon = '🎫';
+      else if (event.includes('clean')) icon = '🧹';
+      else if (event.includes('chat'))  icon = '💬';
+      else if (event.includes('batch')) icon = '📥';
+      else if (event.includes('notify') || event.includes('capture')) icon = '📱';
+      else if (event.includes('privacy')) icon = '🔒';
+      else if (event.includes('node'))  icon = '🧠';
+      else if (event.includes('gmail') || event.includes('email')) icon = '✉';
+      else if (event.includes('equipment')) icon = '🔧';
+      else if (event.includes('maintenance')) icon = '🛠';
+      else if (event.includes('call') || event.includes('dispatch')) icon = '📞';
+      else if (event.includes('push') || event.includes('subscribed')) icon = '🔔';
+      else if (event.includes('broadcast')) icon = '📣';
+      else if (event.includes('pattern')) icon = '🔮';
+    }
   }
-  if (entry.startsWith('⚙')) { icon = '⚙'; label = entry.slice(2).trim(); }
-  if (entry.startsWith('📬')) { icon = '📬'; label = entry.slice(2).trim(); }
-  if (entry.startsWith('🚨')) { icon = '🚨'; label = entry.slice(2).trim(); }
-  if (entry.startsWith('📷')) { icon = '📷'; label = entry.slice(2).trim(); }
+
+  // Non-[SYS] legacy prefixes that we still classify as system events
+  if (entry.startsWith('⚙')) { icon = '⚙'; label = entry.slice(2).trim(); event = ''; }
+  if (entry.startsWith('📬')) { icon = '📬'; label = entry.slice(2).trim(); event = ''; }
+  if (entry.startsWith('🚨')) { icon = '🚨'; label = entry.slice(2).trim(); event = ''; }
+  if (entry.startsWith('📷')) { icon = '📷'; label = entry.slice(2).trim(); event = ''; }
+  if (entry.startsWith('📞')) { icon = '📞'; label = entry.replace(/^📞\s*(\[DISPATCH\]\s*)?/, '').trim(); event = 'call_made'; }
+
+  // Pretty event label — strip underscores for display
+  const prettyEvent = event ? event.replace(/_/g, ' ') : '';
+  const eventBadge = prettyEvent
+    ? '<span class="feed-sys-event" style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;opacity:.55;margin-right:6px;">' + escHTML(prettyEvent) + '</span>'
+    : '';
 
   const el = baseCard('system',
-    '<div class="feed-text"><span class="feed-sys-icon">' + icon + '</span> ' + escHTML(label) + '</div>' +
+    '<div class="feed-text"><span class="feed-sys-icon">' + icon + '</span> ' + eventBadge + escHTML(label) + '</div>' +
     (r.user_name && r.user_name !== 'NEXUS' ? '<div class="feed-who">' + escHTML(r.user_name) + '</div>' : ''),
     r.created_at);
-  addDeleteBtn(el, r.id, 'daily_logs');
+  if (r.id) addDeleteBtn(el, r.id, 'daily_logs');
   return el;
 }
 
