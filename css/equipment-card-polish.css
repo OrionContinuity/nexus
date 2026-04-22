@@ -1,0 +1,98 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Equipment Card Polish v4
+   
+   Target: the in-app equipment LIST (the grid of cards you see after
+   tapping the Equipment nav tab). The original sizing was too cramped
+   on mobile:
+   
+     .eq-card-title : 13px  →  15px
+     .eq-card-sub   : 11px  →  12.5px
+     .eq-card-meta  : 11px  →  12px
+     .eq-card-pm    : 10px  →  11px
+     .eq-card body padding: 10/12px → 12/14px
+   
+   Also slightly relaxes the grid so cards aren't so tight on small
+   phones, and gives the title line-height room to breathe.
+   
+   This file loads AFTER equipment.css (see index.html <head>), so it
+   overrides cleanly without !important where possible. !important is
+   only used for grid-template-columns because equipment.css uses a
+   media query that would otherwise win.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ─── Card body typography ─────────────────────────────────────────── */
+.eq-card-body {
+  padding: 12px 14px;
+}
+.eq-card-title {
+  font-size: 15px;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+.eq-card-sub {
+  font-size: 12.5px;
+  margin-top: 3px;
+}
+.eq-card-meta {
+  font-size: 12px;
+  margin-top: 8px;
+}
+.eq-card-pm {
+  font-size: 11px;
+  margin-top: 5px;
+  letter-spacing: 0.4px;
+}
+
+/* ─── Photo placeholder — bigger icon now that the card is larger ─── */
+.eq-card-photo-placeholder {
+  font-size: 56px;
+}
+
+/* ─── Status dot — slightly bigger so it's more visible ────────────── */
+.eq-card-status {
+  width: 14px;
+  height: 14px;
+  top: 9px;
+  right: 9px;
+}
+
+/* ─── Hover is for desktop only — skip the transform on mobile to ───
+       avoid the "phantom jump" when tapping (which triggers :hover on
+       iOS before the click fires). The transform still works on
+       actual hover (mice) via the @media (hover: hover) check. */
+@media (hover: none) {
+  .eq-card:hover { transform: none; }
+}
+
+/* ─── Tighten grid on small phones so 2-up fits without overflow ─── */
+@media (max-width: 420px) {
+  .eq-list-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)) !important;
+    gap: 10px;
+  }
+  .eq-card-title { font-size: 14px; }
+  .eq-card-sub { font-size: 12px; }
+}
+
+/* ─── Larger screens — more generous spacing ─── */
+@media (min-width: 600px) {
+  .eq-list-grid {
+    gap: 14px;
+  }
+  .eq-card-title { font-size: 16px; }
+  .eq-card-sub { font-size: 13px; }
+}
+
+/* ─── Loading state — when equipment list is fetching, show the
+       empty state more clearly instead of a blank grey rectangle ─── */
+#eqList:empty::before {
+  content: "Loading equipment…";
+  display: block;
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--muted, #8a826f);
+  font-size: 14px;
+  font-style: italic;
+  letter-spacing: 0.3px;
+}
