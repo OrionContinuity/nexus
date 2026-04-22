@@ -694,7 +694,7 @@ td.check{background:#F0EDE6 !important}
       nexusBtn.classList.remove('active');
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       // Sync body class for view-aware CSS (e.g. chat HUD only shows on brain)
-      document.body.classList.remove('view-home','view-brain','view-clean','view-log','view-board','view-cal','view-equipment','view-ingest');
+      document.body.classList.remove('view-brain','view-clean','view-log','view-board','view-cal','view-equipment','view-ingest');
       document.body.classList.add('view-' + view);
       // Set active on correct buttons
       if (view === 'brain') { nexusBtn.classList.add('active'); }
@@ -711,31 +711,16 @@ td.check{background:#F0EDE6 !important}
     tabs.forEach(tab => tab.addEventListener('click', () => switchTo(tab.dataset.view)));
     // Bind bottom nav buttons
     bnavBtns.forEach(btn => btn.addEventListener('click', () => switchTo(btn.dataset.view)));
-    // Default: land on home view (editorial dashboard), NOT the galaxy.
-    // NEXUS logo (top-left) still opens the galaxy when tapped.
+    // Default active state
+    nexusBtn.classList.add('active');
     nexusBtn.addEventListener('click', () => switchTo('brain'));
-    const defaultHomeBtn = document.querySelector('.bnav-btn[data-view="home"]');
-    if (defaultHomeBtn) defaultHomeBtn.classList.add('active');
-    document.body.classList.add('view-home');
-    // Lazy-load home module now so it's ready
-    if (!this.loaded.home) {
-      this.loadScript('js/home.js', () => { this.loaded.home = true; NX.modules.home?.init?.(); });
-    } else {
-      NX.modules.home?.show?.();
-    }
-
-    // Expose a programmatic navigator for children (home module uses it)
-    NX.switchTo = (view) => switchTo(view);
+    // Initialize body class for default view (brain)
+    document.body.classList.add('view-brain');
   },
 
   activateModule(view) {
-    const moduleMap = { home: 'js/home.js', clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js' };
+    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js' };
     if (view === 'brain') { if (NX.brain && NX.brain.show) NX.brain.show(); return; }
-    if (view === 'home') {
-      if (this.loaded.home) { NX.modules.home?.show?.(); return; }
-      this.loadScript('js/home.js', () => { this.loaded.home = true; NX.modules.home?.init?.(); });
-      return;
-    }
     const file = moduleMap[view]; if (!file) return;
     if (this.loaded[view]) { const mod = this.modules[view]; if (mod && mod.show) mod.show(); }
     else {
@@ -793,13 +778,24 @@ td.check{background:#F0EDE6 !important}
       modal.classList.add('open'); modal.style.display = 'flex';
       // Refresh PM pending count badge whenever admin opens
       this.refreshPmPendingCount();
-      // v4: reset to Overview tab on each open (Overview is the home)
+      // v4: reset to Overview tab on each open (Overview is the home).
+      // Use the inline helper that correctly toggles display — the old
+      // code only toggled classes, leaving panels stuck at inline
+      // display:none even when active.
       try {
-        document.querySelectorAll('#adminTabBar .at-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'overview'));
-        document.querySelectorAll('.at-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === 'overview'));
+        if (window.showAdminPanel) {
+          window.showAdminPanel('overview');
+        } else {
+          document.querySelectorAll('#adminTabBar .at-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'overview'));
+          document.querySelectorAll('.at-panel').forEach(p => {
+            const isOverview = p.dataset.panel === 'overview';
+            p.classList.toggle('active', isOverview);
+            p.style.display = isOverview ? 'block' : 'none';
+          });
+        }
         // Eager-load Overview stats so there's no "Loading…" flash
         window.loadOverviewStats?.();
-      } catch(e) { /* non-critical */ }
+      } catch(e) { console.warn('[admin] panel init failed:', e); }
       if (this.isAdmin) {
         keySection.style.display = 'block';
         // Pre-fill hints
