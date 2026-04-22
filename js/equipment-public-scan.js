@@ -1295,6 +1295,51 @@
         });
         if (error) throw error;
 
+        // ─── Bridge: also create a kanban_card on the Board ──────
+        // The tickets table feeds Log view; the Board reads from
+        // kanban_cards. Without this bridge, QR-reported issues
+        // never surface on the Board, which is where they need to
+        // be triaged. Non-fatal if this fails — the ticket in
+        // daily_logs/tickets is still the source of truth.
+        try {
+          // Find the first board and its intake list (fuzzy match
+          // on "Reported"/"Triage"/"To Do"; fall back to first list)
+          const { data: boards } = await sb.from('boards')
+            .select('id').eq('archived', false).order('position').limit(1);
+          const boardId = boards && boards.length ? boards[0].id : null;
+          if (boardId) {
+            const { data: lists } = await sb.from('board_lists')
+              .select('*').eq('board_id', boardId).order('position');
+            const intake = (lists || []).find(l =>
+              /reported|triage|to ?do|intake|new/i.test(l.name)
+            ) || (lists || [])[0];
+            if (intake) {
+              // Map priority carefully — QR uses 'urgent'/'normal'/'low',
+              // board expects 'urgent'/'high'/'normal'/'low'. Bump
+              // calls-for-contractor to 'high' since those almost
+              // always need same-day attention.
+              const cardPriority = isCall ? 'high' : (priority === 'urgent' ? 'urgent' : priority);
+              await sb.from('kanban_cards').insert({
+                title: `${eq.name}: ${problem.slice(0, 80)}`,
+                description: notesParts,
+                priority: cardPriority,
+                location: eq.location || null,
+                equipment_id: eq.id,
+                reported_by: reporter,
+                board_id: boardId,
+                list_id: intake.id,
+                column_name: intake.name,
+                position: 0,                // put at top of intake list
+                checklist: [], comments: [], labels: [], photo_urls: [],
+                archived: false,
+                status: 'open',
+              });
+            }
+          }
+        } catch (cardErr) {
+          console.warn('[scan] board card insert failed (non-fatal):', cardErr?.message);
+        }
+
         // Also drop a line into daily_logs so it shows up on the log
         // view alongside everything else happening today. Non-fatal if fails.
         try {
