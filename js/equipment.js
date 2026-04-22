@@ -766,7 +766,7 @@ function openEditModal(id) {
         const { data: created, error } = await NX.sb.from('equipment').insert(data).select().single();
         if (error) throw error;
         NX.toast && NX.toast('Equipment created ✓', 'success');
-        if (NX.syslog) NX.syslog('equipment_created', created.name);
+        // equipment_created syslog → now handled by Postgres trigger on equipment INSERT
       }
       closeEdit();
       await loadEquipment();
@@ -792,7 +792,7 @@ async function deleteEquipment(id) {
     const { error } = await NX.sb.from('equipment').delete().eq('id', id);
     if (error) throw error;
     NX.toast && NX.toast('Deleted ✓', 'success');
-    if (NX.syslog) NX.syslog('equipment_deleted', eq.name);
+    // equipment_deleted syslog → now handled by Postgres trigger on equipment DELETE
     closeDetail();
     await loadEquipment();
     renderList();
@@ -911,7 +911,7 @@ function logService(equipId) {
       try { await NX.sb.rpc('recompute_health_score', { eq_id: equipId }); } catch(e){}
 
       NX.toast && NX.toast('Service logged ✓', 'success');
-      if (NX.syslog) NX.syslog('equipment_service', `${eq.name}: ${data.description.slice(0, 60)}`);
+      // equipment_service syslog → now handled by Postgres trigger on equipment_maintenance INSERT
 
       closeService();
       await loadEquipment();
@@ -1586,7 +1586,7 @@ function openPrepopulatedAddModal(data, dataPlateUrl) {
       const { data: created, error } = await NX.sb.from('equipment').insert(payload).select().single();
       if (error) throw error;
       NX.toast && NX.toast('Equipment created ✓', 'success');
-      if (NX.syslog) NX.syslog('equipment_scanned_created', created.name);
+      // equipment_scanned_created syslog → covered by Postgres trigger on equipment INSERT
       modal.classList.remove('active');
       await loadEquipment();
       openDetail(created.id);
@@ -2890,7 +2890,7 @@ async function commitEquipment(equipList, context) {
         } catch(e) { console.warn('[AI-Create] Tickets insert error (non-fatal):', e); }
       }
 
-      if (NX.syslog) NX.syslog('equipment_created_ai', clean.name);
+      // equipment_created_ai syslog → covered by Postgres trigger on equipment INSERT
     } catch (err) {
       console.error('[AI-Create] Unexpected error on item:', err, eq);
       results.failed++;
@@ -3906,7 +3906,7 @@ async function openFullEditor(equipId) {
       await Promise.all(customOps);
 
       NX.toast && NX.toast('All changes saved ✓', 'success');
-      if (NX.syslog) NX.syslog('equipment_edited', updates.name || 'equipment');
+      // equipment_edited syslog → covered by Postgres trigger on equipment UPDATE
       closeFullEdit();
       await loadEquipment();
       openDetail(equipId);
@@ -5115,7 +5115,9 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
       setTimeout(() => { issueEl.style.borderColor = ''; }, 1200);
       return;
     }
-    // Log to dispatch_events (structured audit trail)
+    // Log to dispatch_events (structured audit trail).
+    // The Postgres trigger on dispatch_events INSERT writes a rich "[SYS] 📞 call_made"
+    // entry to daily_logs automatically — no direct daily_logs insert needed.
     try {
       await NX.sb.from('dispatch_events').insert({
         equipment_id: equipId,
@@ -5128,12 +5130,6 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
         outcome: 'pending',
       });
     } catch (err) { console.warn('dispatch_events log failed:', err); }
-    // Log to daily_logs (human-readable activity stream)
-    try {
-      await NX.sb.from('daily_logs').insert({
-        entry: `📞 [DISPATCH] ${NX.currentUser?.name || 'Unknown'} called ${contactName} (${phone}) for "${issue}" re: ${equipName}`
-      });
-    } catch (err) { console.warn('daily_logs dispatch entry failed:', err); }
     setTimeout(close, 100);
   });
 }
