@@ -130,6 +130,10 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
     }
 
     if(lang==='es')persona+='\n\nRespond ONLY in Spanish.';
+    // Chat-view persona sheet tone override — set when user picks a tone
+    // in the chat Tone & voice sheet. Empty string for default tone.
+    const toneSuffix = window._NX_PERSONA_SUFFIX || '';
+    if (toneSuffix) persona += toneSuffix;
     return persona;
   }
 
@@ -879,7 +883,15 @@ Keep it casual and warm. No markdown formatting.`;
     }
   }
 
-  function resetChat(){stopSpeaking();chatHistory=[];chatActive=false;document.getElementById('chatMessages').innerHTML='';document.getElementById('brainWelcome').style.display='';document.getElementById('brainExamples').style.display='';document.getElementById('brainDim').classList.remove('active');document.getElementById('resetBtn').style.display='none';document.getElementById('chatHud').classList.remove('expanded');NX.brain.state.activatedNodes=new Set();NX.brain.wakePhysics();}
+  function resetChat(){stopSpeaking();chatHistory=[];chatActive=false;
+    const _cm = document.getElementById('chatMessages'); if (_cm) _cm.innerHTML = '';
+    const _bw = document.getElementById('brainWelcome');  if (_bw) _bw.style.display = '';
+    const _be = document.getElementById('brainExamples'); if (_be) _be.style.display = '';
+    const _bd = document.getElementById('brainDim');      if (_bd) _bd.classList.remove('active');
+    const _rb = document.getElementById('resetBtn');      if (_rb) _rb.style.display = 'none';
+    const _hud = document.getElementById('chatHud');      if (_hud) _hud.classList.remove('expanded');
+    NX.brain.state.activatedNodes=new Set();NX.brain.wakePhysics();
+  }
 
   async function getCtx(q){
     await NX.loadNodes();
@@ -1157,12 +1169,13 @@ Keep it casual and warm. No markdown formatting.`;
     const i=document.getElementById('chatInput'),q=i?.value?.trim();if(!q)return;
     i.value='';const sb=document.getElementById('chatSend');if(sb)sb.disabled=true;
     try{
-    document.getElementById('brainWelcome').style.display='none';
-    document.getElementById('brainExamples').style.display='none';
-    document.getElementById('brainDim').classList.add('active');
-    document.getElementById('chatHud').classList.add('expanded');
-    document.getElementById('chatHud').classList.remove('collapsed');
-    document.getElementById('resetBtn').style.display='';
+    // These elements live in the legacy chat-hud; null-safe so chatview
+    // (which doesn't render them) doesn't throw when askAI fires.
+    const _bw = document.getElementById('brainWelcome');   if (_bw) _bw.style.display = 'none';
+    const _be = document.getElementById('brainExamples');  if (_be) _be.style.display = 'none';
+    const _bd = document.getElementById('brainDim');       if (_bd) _bd.classList.add('active');
+    const _hud = document.getElementById('chatHud');       if (_hud) { _hud.classList.add('expanded'); _hud.classList.remove('collapsed'); }
+    const _rb = document.getElementById('resetBtn');       if (_rb) _rb.style.display = '';
     chatActive=true;addB(q,'user');chatHistory.push({role:'user',content:q});
     if(NX.syslog)NX.syslog('chat_ask',q.slice(0,80));
     showTyping();
@@ -1473,4 +1486,28 @@ Return ONLY JSON.`,
 
   NX.brain.initChat=setupChat;
   NX.brain.stopSpeaking=stopSpeaking;
+
+  // ─── Chat-view integration (Stage B) ──────────────────────────────
+  // The new full-screen chat view (chat-view.js) fires custom events
+  // rather than manipulating DOM directly. This keeps it decoupled.
+  NX.brain.askAI = askAI;
+  window.addEventListener('nx-chat-ask', (e) => {
+    const q = e?.detail?.q;
+    if (!q) return;
+    const input = document.getElementById('chatInput');
+    if (input) { input.value = q; input.dispatchEvent(new Event('input')); }
+    askAI();
+  });
+  window.addEventListener('nx-voice-toggle', (e) => {
+    // keep brain-chat's voiceOn module var in sync with chatview toggle
+    voiceOn = !!e?.detail?.on;
+    const vb = document.getElementById('voiceBtn');
+    if (vb) vb.classList.toggle('on', voiceOn);
+  });
+  window.addEventListener('nx-voice-idx-change', (e) => {
+    const idx = Number(e?.detail?.idx);
+    if (!Number.isFinite(idx)) return;
+    cvi = idx % VOICES.length;
+    localStorage.setItem('nexus_voice_idx', String(cvi));
+  });
 })();
