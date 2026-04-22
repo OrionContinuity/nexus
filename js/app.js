@@ -1624,11 +1624,12 @@ document.addEventListener('DOMContentLoaded', () => NX.init());
 // Register service worker for offline support + push notifications
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
-    // Initialize push subscription system once we have a logged-in user.
+    // Initialize push subscription + deep-link handlers once we have a logged-in user.
     // We poll because PIN login happens async, no event fires for it.
     const tryInit = (attempts = 0) => {
       if (NX.currentUser) {
         NX.push.init(reg);
+        NX.deepLink.init();
       } else if (attempts < 60) {
         setTimeout(() => tryInit(attempts + 1), 1000);
       }
@@ -1755,6 +1756,102 @@ NX.push = {
     const b64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
     const raw = atob(b64);
     return Uint8Array.from(raw, c => c.charCodeAt(0));
+  },
+};
+
+// ── NOTIFICATION DEEP LINKS ──────────────────────────────────────────
+// When a push notification arrives:
+//   * If app is already open: service worker posts 'nexus-notification-click'
+//     message here and we navigate to the right view + entity.
+//   * If app is NOT open: SW opens a new window with ?view=X&id=Y&alert=Z,
+//     and we handle those params on startup, then clean the URL.
+//
+// Alert types map to views:
+//   pm_due / warranty_expiring / dispatch_stale → equipment + openDetail(id)
+//   pattern_due  → log view
+//   broadcast    → brain view
+NX.deepLink = {
+  // Main handler — called from both URL params and SW postMessage.
+  async handle({ view, id, alertType }) {
+    if (!view) return;
+    console.log('[deepLink] handling', { view, id, alertType });
+
+    // Switch to the requested view. Brain has a special button;
+    // other views use the .nav-tab or .bnav-btn with matching data-view.
+    if (view === 'brain') {
+      document.getElementById('navNexus')?.click();
+    } else {
+      const btn = document.querySelector(`.nav-tab[data-view="${view}"]`)
+               || document.querySelector(`.bnav-btn[data-view="${view}"]`);
+      if (btn) btn.click();
+    }
+
+    // If an entity ID was provided, open it after the view has activated.
+    if (!id) return;
+
+    if (view === 'equipment') {
+      // Wait for the equipment module to finish loading (first-click init)
+      const ready = await this._waitFor(
+        () => NX.modules?.equipment?.openDetail, 10000
+      );
+      if (ready) {
+        // Small delay so the view is visually active before the modal opens
+        setTimeout(() => {
+          try { NX.modules.equipment.openDetail(id); }
+          catch (e) { console.warn('[deepLink] openDetail failed:', e); }
+        }, 400);
+      } else {
+        console.warn('[deepLink] equipment module did not load in time');
+      }
+    }
+    // log / brain views: switching to the view is enough for now
+  },
+
+  // Poll for a condition every 100ms until true or timeout
+  async _waitFor(pred, maxMs = 10000) {
+    const start = Date.now();
+    while (!pred() && Date.now() - start < maxMs) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return pred();
+  },
+
+  // Read ?view=X&id=Y&alert=Z from the URL on startup, then clean the URL
+  _readStartupParams() {
+    const url = new URL(window.location.href);
+    const view = url.searchParams.get('view');
+    const id = url.searchParams.get('id');
+    const alertType = url.searchParams.get('alert');
+    if (!view) return;
+
+    this.handle({ view, id, alertType });
+
+    url.searchParams.delete('view');
+    url.searchParams.delete('id');
+    url.searchParams.delete('alert');
+    window.history.replaceState({}, '', url);
+  },
+
+  // Service worker → app messaging (notification clicked while app is open)
+  _listenSW() {
+    if (!navigator.serviceWorker) return;
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (msg?.type === 'nexus-notification-click') {
+        this.handle({
+          view: msg.view,
+          id: msg.entityId,
+          alertType: msg.alertType,
+        });
+      }
+    });
+  },
+
+  // Called once after login
+  init() {
+    this._listenSW();
+    // Give NX modules a moment to finish their own init before we try to route
+    setTimeout(() => this._readStartupParams(), 2000);
   },
 };
 
