@@ -316,13 +316,21 @@
       const ask = document.getElementById('homeAsk');
       if (!ask) return;
       ask.addEventListener('click', () => {
-        // Stage A: route to brain view, expand chat HUD, focus input.
-        // Stage B will replace this with a dedicated full-screen chat.
-        NX.switchTo?.('brain');
-        setTimeout(() => {
-          document.getElementById('chatHud')?.classList.add('expanded');
-          document.getElementById('chatInput')?.focus();
-        }, 250);
+        // Stage B: open the dedicated full-screen chat view. If it hasn't
+        // loaded yet, lazy-load it and open once ready. Fallback to legacy
+        // chat-hud if chat-view.js fails to load.
+        if (NX.chatview) { NX.chatview.open(); return; }
+        const s = document.createElement('script');
+        s.src = 'js/chat-view.js';
+        s.onload = () => NX.chatview?.open();
+        s.onerror = () => {
+          NX.switchTo?.('brain');
+          setTimeout(() => {
+            document.getElementById('chatHud')?.classList.add('expanded');
+            document.getElementById('chatInput')?.focus();
+          }, 250);
+        };
+        document.head.appendChild(s);
       });
       // Keyboard: "/" anywhere on the home page focuses the ask bar
       const onKey = (e) => {
