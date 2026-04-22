@@ -310,7 +310,7 @@
 
 .home-cal-date {
   flex-shrink: 0;
-  width: 96px;              /* fixed — not min-width, so it can't grow */
+  width: 96px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   font-weight: 500;
@@ -319,9 +319,20 @@
   text-transform: uppercase;
   padding-top: 6px;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: 6px;
+  align-content: flex-start;
+  gap: 3px 6px;
   line-height: 1.3;
+}
+.home-cal-date-label { /* hook for future; inherits parent */ }
+.home-cal-date-rel {
+  width: 100%;
+  color: var(--accent);
+  opacity: 0.7;
+  font-size: 9px;
+  letter-spacing: 1.3px;
+  font-weight: 500;
 }
 .home-cal-today-dot {
   width: 5px;
@@ -350,7 +361,7 @@
 .home-cal-item {
   display: flex;
   gap: 12px;
-  padding: 8px 0;
+  padding: 8px 0 8px 10px;        /* left pad leaves room for accent bar */
   background: transparent;
   border: none;
   border-bottom: 1px solid rgba(212, 182, 138, 0.06);
@@ -359,13 +370,49 @@
   -webkit-tap-highlight-color: transparent;
   font-family: inherit;
   color: inherit;
-  transition: transform 0.1s;
+  transition: transform 0.1s, background 0.15s;
   width: 100%;
   min-width: 0;
+  position: relative;              /* for accent bar positioning */
 }
 .home-cal-item:last-child { border-bottom: none; }
 .home-cal-item:active { transform: scale(0.99); }
-.home-cal-item:hover .home-cal-title { color: var(--accent); }
+.home-cal-item:hover .home-cal-title-text { color: var(--accent); }
+
+/* Left accent bar — a colored sliver that signals status at a glance.
+   2px wide, spans the row height minus a bit of breathing room. */
+.home-cal-accent {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+}
+
+/* "NEXT UP" kicker — small gold label above the first upcoming event.
+   Gives the strip forward momentum when today is empty. */
+.home-cal-nextup {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 1.8px;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  padding: 2px 6px;
+  background: rgba(212, 164, 78, 0.12);
+  border-radius: 2px;
+  align-self: flex-start;
+}
+.home-cal-item.is-nextup {
+  background: linear-gradient(90deg, rgba(212, 164, 78, 0.04) 0%, transparent 50%);
+}
+.home-cal-item.is-nextup .home-cal-accent {
+  width: 3px;
+  box-shadow: 0 0 8px rgba(212, 164, 78, 0.4);
+}
 
 .home-cal-time {
   flex-shrink: 0;
@@ -391,8 +438,15 @@
   color: var(--text);
   line-height: 1.4;
   letter-spacing: 0.05px;
-  transition: color 0.15s;
-  /* Multi-line clamp WITH wrapping so long contractor names break
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.home-cal-title-text {
+  flex: 1;
+  min-width: 0;
+  /* Multi-line clamp with wrapping so long contractor names break
      cleanly instead of pushing the container width. */
   overflow: hidden;
   text-overflow: ellipsis;
@@ -401,6 +455,15 @@
   -webkit-box-orient: vertical;
   overflow-wrap: anywhere;
   word-break: break-word;
+  transition: color 0.15s;
+}
+.home-cal-status {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--accent);
+  opacity: 0.85;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 .home-cal-desc {
   font-size: 11.5px;
