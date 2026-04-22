@@ -369,6 +369,9 @@ async function openDetail(id) {
         </div>
       </div>
 
+      <!-- Open cards from the Board, populated async after render -->
+      <div id="eqOpenCards-${eq.id}" class="eq-open-cards" style="display:none"></div>
+
       <div class="eq-detail-tabs">
         <button class="eq-tab active" data-tab="overview">Overview</button>
         <button class="eq-tab" data-tab="timeline">Timeline (${maintenance.length})</button>
@@ -390,6 +393,7 @@ async function openDetail(id) {
       <div class="eq-detail-actions">
         <button class="eq-btn eq-btn-primary eq-zebra-action-btn" onclick="NX.modules.equipment.quickPrint('${eq.id}')">🖨 Print</button>
         <button class="eq-btn eq-call-service-btn" onclick="NX.modules.equipment.callService('${eq.id}')">📞 Call Service</button>
+        <button class="eq-btn" onclick="NX.modules.equipment.reportIssue('${eq.id}')">🎫 Report Issue</button>
         <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">⚙ Edit</button>
         <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.logService('${eq.id}')">📝 Log</button>
         <div class="eq-overflow-wrap">
@@ -402,6 +406,9 @@ async function openDetail(id) {
     </div>
   `;
   modal.classList.add('active');
+
+  // Load open cards linked to this equipment (async — doesn't block initial render)
+  loadOpenCardsForEquipment(eq);
 
   // Wire tabs — lazy-render the Intelligence panel on first click
   modal.querySelectorAll('.eq-tab').forEach(tab => {
@@ -453,6 +460,118 @@ function createDetailModal() {
   m.className = 'eq-modal';
   document.body.appendChild(m);
   return m;
+}
+
+/* ─── Board integration: Open Cards strip + Report Issue ────────────
+   These connect the equipment detail modal to the Board module:
+     • loadOpenCardsForEquipment — fills the "Open cards" strip after render
+     • reportIssue — prompts for an issue, creates a prefilled board card
+*/
+function ensureBoardStyles() {
+  if (document.getElementById('eq-board-bridge-styles')) return;
+  const s = document.createElement('style');
+  s.id = 'eq-board-bridge-styles';
+  s.textContent = `
+    .eq-open-cards{background:rgba(200,164,78,0.05);border-top:1px solid rgba(200,164,78,0.12);border-bottom:1px solid rgba(200,164,78,0.12);padding:8px 14px;margin:0;display:flex;flex-direction:column;gap:6px}
+    .eq-open-cards-head{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:#c8a44e;display:flex;align-items:center;gap:6px}
+    .eq-open-card{background:rgba(20,18,14,0.6);border:1px solid rgba(255,255,255,0.06);border-left:3px solid var(--c,#a49c94);border-radius:6px;padding:7px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px}
+    .eq-open-card:active{background:rgba(20,18,14,0.85)}
+    .eq-open-card-title{flex:1;color:var(--text,#d4c8a5);font-weight:500}
+    .eq-open-card-meta{font-size:10px;color:var(--text-dim,#a49c94)}
+    .eq-open-card-overdue{color:#e88;font-weight:600;font-size:10px}
+  `;
+  document.head.appendChild(s);
+}
+
+async function loadOpenCardsForEquipment(eq) {
+  ensureBoardStyles();
+  const container = document.getElementById(`eqOpenCards-${eq.id}`);
+  if (!container) return;
+
+  // Fetch via the board module's API if present, otherwise query directly
+  let openCards = [];
+  try {
+    if (NX.modules?.board?.getOpenCardsForEquipment) {
+      openCards = await NX.modules.board.getOpenCardsForEquipment(eq.id);
+    } else {
+      const { data } = await NX.sb.from('kanban_cards')
+        .select('id, title, priority, status, due_date, created_at')
+        .eq('equipment_id', eq.id)
+        .eq('archived', false)
+        .order('created_at', { ascending: false });
+      openCards = (data || []).filter(c => !['closed', 'done'].includes((c.status || '').toLowerCase()));
+    }
+  } catch (e) {
+    console.warn('[equipment] open cards load failed:', e);
+    return;
+  }
+
+  if (!openCards.length) {
+    container.style.display = 'none';
+    return;
+  }
+
+  const PRI_COLOR = { urgent:'#d45858', high:'#e8a830', normal:'#a49c94', low:'#5b9bd5' };
+  const today = new Date(new Date().toDateString()).getTime();
+
+  container.innerHTML = `
+    <div class="eq-open-cards-head">
+      🎫 ${openCards.length} open card${openCards.length !== 1 ? 's' : ''} on the board
+    </div>
+    ${openCards.slice(0, 4).map(c => {
+      const overdue = c.due_date && new Date(c.due_date).getTime() < today;
+      const color = PRI_COLOR[c.priority] || PRI_COLOR.normal;
+      return `<div class="eq-open-card" data-card="${c.id}" style="--c:${color}">
+        <div class="eq-open-card-title">${esc(c.title || '(untitled)')}</div>
+        ${overdue ? '<span class="eq-open-card-overdue">OVERDUE</span>' : ''}
+        <span class="eq-open-card-meta">${esc((c.status || '').replace(/_/g, ' '))}</span>
+      </div>`;
+    }).join('')}
+    ${openCards.length > 4 ? `<div style="font-size:10px;color:var(--text-dim,#a49c94);text-align:center">+ ${openCards.length - 4} more</div>` : ''}
+  `;
+  container.style.display = '';
+
+  container.querySelectorAll('.eq-open-card').forEach(el => {
+    el.addEventListener('click', () => {
+      // Jump to Board view, then scroll-focus or open the card
+      closeDetail();
+      document.querySelector('.nav-tab[data-view="board"]')?.click();
+      document.querySelector('.bnav-btn[data-view="board"]')?.click();
+      // Reload board and open the card
+      setTimeout(async () => {
+        if (NX.modules?.board?.reload) await NX.modules.board.reload();
+      }, 300);
+    });
+  });
+}
+
+async function reportIssue(equipId) {
+  const issue = prompt('What\'s the issue?\n\n(A card will be created on the Board with this equipment linked.)');
+  if (!issue || !issue.trim()) return;
+  try {
+    const { data: eq } = await NX.sb.from('equipment')
+      .select('id, name, location').eq('id', equipId).single();
+    if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
+    if (NX.modules?.board?.createFromEquipment) {
+      await NX.modules.board.createFromEquipment(eq, issue.trim());
+    } else {
+      // Fallback — direct insert if board module not loaded yet
+      await NX.sb.from('kanban_cards').insert({
+        title: `${issue.trim()} — ${eq.name}`,
+        description: issue.trim(),
+        priority: 'high',
+        location: eq.location || null,
+        equipment_id: eq.id,
+        reported_by: NX.currentUser?.name || null,
+        checklist: [], comments: [], labels: [], photo_urls: [],
+        archived: false,
+      });
+      NX.toast && NX.toast('Card created on Board', 'success');
+    }
+  } catch (e) {
+    console.error('[equipment] reportIssue:', e);
+    NX.toast && NX.toast('Could not create card', 'error');
+  }
 }
 
 /* ═══ OVERVIEW TAB (merges base + full-editor enhancements) ═══ */
@@ -5355,6 +5474,7 @@ NX.modules.equipment = {
   loadEquipment,
   buildUI,
   getFiltered,
+  reportIssue,       // Creates a board card prefilled with this equipment
 
   // Add/edit modal (simple form)
   closeEdit,
