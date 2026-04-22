@@ -6,6 +6,15 @@
     const inp=document.getElementById('brainSearch'),res=document.getElementById('searchResults');
     let debounce=null;
 
+    // Show the help panel whenever the input gets focus AND is empty.
+    // Gives users a launch pad: total counts, category breakdown, top
+    // recently-used nodes, and a couple of example queries. This was
+    // previously just an empty void that said "Search nodes..." and
+    // nothing else.
+    inp.addEventListener('focus', () => {
+      if (!inp.value.trim()) showSearchHelp();
+    });
+
     inp.addEventListener('input',()=>{
       clearTimeout(debounce);
       debounce=setTimeout(()=>{
@@ -14,7 +23,8 @@
         NX.brain.state.searchHits=new Set();
         res.innerHTML='';
 
-        if(!q){res.classList.remove('open');if(listViewOpen)renderList();return;}
+        // Empty query → show the help panel instead of a blank results box
+        if(!q){showSearchHelp();if(listViewOpen)renderList();return;}
 
         const matches=NX.nodes.filter(n=>!n.is_private).map(n=>{
           let score=0;
@@ -72,6 +82,100 @@
     const idx=text.toLowerCase().indexOf(q);
     if(idx===-1)return text;
     return text.slice(0,idx)+'<mark>'+text.slice(idx,idx+q.length)+'</mark>'+text.slice(idx+q.length);
+  }
+
+  // ─── Empty-state help panel ─────────────────────────────────────
+  // Shown when the search input is focused but empty. Gives users
+  // an immediate read on the graph (size, categories, what's active
+  // or recent) plus a couple of example queries. Everything is
+  // tappable — the top/recent nodes act like shortcuts.
+  function showSearchHelp(){
+    const res = document.getElementById('searchResults');
+    if(!res || !NX.nodes) return;
+
+    const nodes = NX.nodes.filter(n => !n.is_private);
+    const total = nodes.length;
+    if (total === 0) {
+      res.classList.remove('open');
+      res.innerHTML = '';
+      return;
+    }
+
+    // Category breakdown — how many distinct buckets does this graph have?
+    const catSet = new Set(nodes.map(n => n.category).filter(Boolean));
+    const catCount = catSet.size;
+
+    // Top 3 most-accessed — NX.nodes typically have an access_count field
+    const topUsed = [...nodes]
+      .filter(n => (n.access_count || 0) > 0)
+      .sort((a, b) => (b.access_count || 0) - (a.access_count || 0))
+      .slice(0, 3);
+
+    // 3 most recent — order by created_at or a similar field; fall back
+    // to array end (which is usually newest after fresh load)
+    const recents = [...nodes]
+      .filter(n => n.created_at || n.last_accessed_at)
+      .sort((a, b) => {
+        const ta = new Date(a.last_accessed_at || a.created_at).getTime();
+        const tb = new Date(b.last_accessed_at || b.created_at).getTime();
+        return tb - ta;
+      })
+      .slice(0, 3);
+
+    const fmtItem = n => `
+      <div class="sr-help-item" data-node-id="${n.id}">
+        <span class="sr-help-dot"></span>
+        <span class="sr-help-name">${esc(n.name || 'Unnamed')}</span>
+        <span class="sr-help-cat">${esc((n.category || '').slice(0, 14))}</span>
+      </div>`;
+
+    res.innerHTML = `
+      <div class="sr-help-head">
+        <span class="sr-help-stat">
+          <span class="sr-help-stat-v">${total}</span> node${total === 1 ? '' : 's'}
+          · <span class="sr-help-stat-v">${catCount}</span> categor${catCount === 1 ? 'y' : 'ies'}
+        </span>
+        <span class="sr-help-hint">type to search</span>
+      </div>
+      ${topUsed.length ? `
+        <div class="sr-help-section">Most accessed</div>
+        ${topUsed.map(fmtItem).join('')}
+      ` : ''}
+      ${recents.length ? `
+        <div class="sr-help-section">Recently touched</div>
+        ${recents.map(fmtItem).join('')}
+      ` : ''}
+      <div class="sr-help-tips">
+        Try <code>Austin Air</code>, <code>ice machine</code>, or any tag —
+        search matches names, tags, and notes.
+      </div>
+    `;
+    res.classList.add('open');
+
+    // Wire taps — same behaviour as regular search hits
+    res.querySelectorAll('.sr-help-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.nodeId;
+        const n = NX.nodes.find(x => x.id == id);
+        if (!n) return;
+        res.classList.remove('open');
+        res.innerHTML = '';
+        const inp = document.getElementById('brainSearch');
+        if (inp) inp.value = '';
+        const particle = NX.brain?.state?.particles?.find(p => p.id === n.id);
+        if (particle && NX.brain) {
+          NX.brain.state.frozenNode = particle;
+          NX.brain.state.activeNode = n;
+          NX.brain.openPanel(n);
+        }
+      });
+    });
+  }
+
+  // Small escape helper — brain-list.js didn't have one
+  function esc(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
   NX.searchByTag=function(tag){
