@@ -166,9 +166,27 @@ async function loadTickets(firstDay, lastDay) {
       .select('*')
       .gte('created_at', firstDay + 'T00:00:00')
       .lte('created_at', lastDay + 'T23:59:59');
+    // Build a name→id map from already-loaded equipment so we can link
+    // tickets whose titles start with "[Equipment] Name: ..." — these
+    // were created by the public QR-scan flow and reference equipment
+    // by name rather than FK. Match lowercase-insensitively.
+    const eqIndex = new Map();
+    (NX.equipment || []).forEach(eq => {
+      if (eq?.name) eqIndex.set(eq.name.toLowerCase().trim(), eq.id);
+    });
+
     (data || []).forEach(e => {
       const d = (e.created_at || '').split('T')[0]; if (!d) return;
       const time = (e.created_at || '').split('T')[1]?.slice(0, 5) || '';
+
+      // Extract equipment name if title has "[Equipment] <Name>: ..." shape
+      let equipmentId = null;
+      const m = /^\[(?:Equipment|CALL)\]\s*([^:]+?)\s*:/.exec(e.title || '');
+      if (m) {
+        const candidate = m[1].toLowerCase().trim();
+        if (eqIndex.has(candidate)) equipmentId = eqIndex.get(candidate);
+      }
+
       push(d, {
         type: 'ticket',
         title: e.title || 'Issue',
@@ -178,6 +196,8 @@ async function loadTickets(firstDay, lastDay) {
         detail: e.description || e.title || '',
         status: e.status || 'open',
         id: e.id,
+        equipmentId,      // if present, navigateToEvent opens equipment detail
+        ticketId: e.id,   // always preserved so future code can open ticket UI
       });
     });
   } catch(e) { /* silent */ }
@@ -398,7 +418,77 @@ function render() {
     }
 
     renderLegend();
+    renderUpcoming();
   } catch(e) { console.error('Cal render error:', e); }
+}
+
+// Upcoming: compact list of the next 7 days below the month grid.
+// Fills the dead space below the day-detail panel and gives a quick
+// preview of what's coming regardless of which day is selected.
+function renderUpcoming() {
+  let upEl = document.getElementById('calUpcoming');
+  if (!upEl) {
+    const wrap = document.querySelector('.cal-wrap');
+    if (!wrap) return;
+    upEl = document.createElement('div');
+    upEl.id = 'calUpcoming';
+    upEl.className = 'cal-upcoming';
+    wrap.appendChild(upEl);
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = today.toISOString().slice(0, 10);
+  const in7 = new Date(today.getTime() + 7 * 86400000).toISOString().slice(0, 10);
+
+  // Collect events within today..today+7 from the already-loaded state.
+  // events is a date→[evt] map built by load*() pushers.
+  const days = [];
+  for (let i = 0; i < 8; i++) {
+    const d = new Date(today.getTime() + i * 86400000);
+    const ds = d.toISOString().slice(0, 10);
+    const evts = events[ds] || [];
+    if (evts.length) days.push({ date: ds, events: evts });
+    if (days.length >= 5) break; // cap — keep it short and scannable
+  }
+
+  if (!days.length) {
+    upEl.innerHTML = `
+      <div class="cal-up-head">Next 7 days</div>
+      <div class="cal-up-empty">Nothing scheduled this week.</div>
+    `;
+    return;
+  }
+
+  upEl.innerHTML = `
+    <div class="cal-up-head">Next 7 days</div>
+    <div class="cal-up-list">
+      ${days.map(day => {
+        const d = new Date(day.date + 'T12:00:00');
+        const wd = ['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getDay()];
+        const mo = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][d.getMonth()];
+        const isToday = day.date === todayStr;
+        const label = isToday ? `TODAY` : `${wd} · ${mo} ${d.getDate()}`;
+        const top = day.events.slice(0, 3);
+        const more = day.events.length - top.length;
+
+        return `
+          <div class="cal-up-day ${isToday ? 'is-today' : ''}">
+            <div class="cal-up-date">${label}</div>
+            <div class="cal-up-events">
+              ${top.map(e => {
+                const dot = `<span class="cal-up-dot" style="background:${e.color || '#888'}"></span>`;
+                const time = e.time ? `<span class="cal-up-time">${esc(e.time)}</span>` : '';
+                const title = esc((e.title || '').slice(0, 64));
+                return `<div class="cal-up-event">${dot}${time}<span class="cal-up-title">${title}</span></div>`;
+              }).join('')}
+              ${more > 0 ? `<div class="cal-up-more">+ ${more} more</div>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
 }
 
 // Legend: compact row under the title listing the event types that appear
@@ -461,10 +551,18 @@ function showDetail(dateStr, dayEvents) {
       if (e.priority === 'urgent') statusBadge = '<span class="cal-event-status cal-status-open" style="color:#e88;border-color:rgba(212,88,88,.4)">🚨 URGENT</span>' + statusBadge;
 
       const recoverBtn = e.recoverable ? '<button class="cal-recover-btn" data-log-id="' + e.logId + '">↩ Restore</button>' : '';
-      const tapHint = (e.equipmentId || e.cardId) ? '<span style="font-size:10px;color:var(--text-faint,#746c5e);margin-left:6px">tap to open</span>' : '';
+      // Tap hint differs by event type:
+      //   equipment/card-linked → "tap to open" (routes to that view)
+      //   contractor → "💬 notes" (expands in-place with the notes UI)
+      let tapHint = '';
+      if (e.equipmentId || e.cardId) {
+        tapHint = '<span style="font-size:10px;color:var(--text-faint,#746c5e);margin-left:6px">tap to open</span>';
+      } else if (e.type === 'contractor') {
+        tapHint = '<span class="cal-event-notes-hint">💬 notes</span>';
+      }
       const isFaded = e.recoverable || e.tentative;
 
-      return '<div class="cal-event ' + (isFaded ? 'cal-event-faded' : '') + '" data-type="' + e.type + '" data-idx="' + i + '">' +
+      return '<div class="cal-event ' + (isFaded ? 'cal-event-faded' : '') + '" data-type="' + e.type + '" data-idx="' + i + '"' + (e.id ? ' data-event-id="' + esc(String(e.id)) + '"' : '') + '>' +
         '<div class="cal-event-accent" style="background:' + e.color + '"></div>' +
         '<div class="cal-event-body">' +
           '<div class="cal-event-header">' +
@@ -479,11 +577,31 @@ function showDetail(dateStr, dayEvents) {
       '</div>';
     }).join('');
 
-  // Wire event clicks — navigate to the right view
+  // Wire event clicks — contractor events expand inline with notes,
+  // everything else navigates to its native view.
   detail.querySelectorAll('.cal-event').forEach((card, i) => {
     card.addEventListener('click', ev => {
+      // Don't toggle when clicking interactive children
       if (ev.target.closest('.cal-recover-btn')) return;
+      if (ev.target.closest('.cal-notes-input')) return;
+      if (ev.target.closest('.cal-notes-save')) return;
+      if (ev.target.closest('.cal-note')) return;
+
       const e = dayEvents[parseInt(card.dataset.idx)];
+      if (!e) return;
+
+      // Contractor events → toggle notes panel in-place
+      if (e.type === 'contractor' && e.id != null) {
+        if (card.classList.contains('expanded')) {
+          card.classList.remove('expanded');
+        } else {
+          card.classList.add('expanded');
+          loadNotesInto(card, e);
+        }
+        return;
+      }
+
+      // Everything else → go to the native view
       navigateToEvent(e);
     });
   });
@@ -510,7 +628,6 @@ function navigateToEvent(e) {
   // Equipment-linked event → open equipment detail
   if (e.equipmentId) {
     if (NX.modules?.equipment?.openDetail) {
-      // Make sure the equipment view is active
       document.querySelector('.nav-tab[data-view="equipment"]')?.click();
       document.querySelector('.bnav-btn[data-view="equipment"]')?.click();
       setTimeout(() => NX.modules.equipment.openDetail(e.equipmentId), 300);
@@ -518,7 +635,135 @@ function navigateToEvent(e) {
     return;
   }
 
+  // Ticket without equipment link → open the Log view where all tickets live
+  if (e.type === 'ticket' && e.ticketId) {
+    document.querySelector('.nav-tab[data-view="log"]')?.click();
+    document.querySelector('.bnav-btn[data-view="log"]')?.click();
+    return;
+  }
+
   // Everything else — no navigation; the detail panel already shows the info
+}
+
+// ─── Contractor event notes ──────────────────────────────────────────
+// Loads notes for one contractor event into a .cal-notes panel inside
+// the event card. Called when the user taps a contractor card (which
+// expands it). Renders error UI if the table doesn't exist — so the
+// feature degrades gracefully before the migration has been run.
+async function loadNotesInto(card, event) {
+  const body = card.querySelector('.cal-event-body');
+  if (!body) return;
+  let notesEl = card.querySelector('.cal-notes');
+  if (!notesEl) {
+    notesEl = document.createElement('div');
+    notesEl.className = 'cal-notes';
+    body.appendChild(notesEl);
+  }
+  notesEl.innerHTML = '<div class="cal-notes-loading">Loading notes…</div>';
+
+  try {
+    const { data, error } = await NX.sb.from('contractor_event_notes')
+      .select('id, author_name, author_role, body, created_at')
+      .eq('event_id', String(event.id))
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    renderNotes(card, notesEl, data || [], event);
+  } catch (err) {
+    const msg = (err && err.message) || '';
+    const isMissingTable = /relation|does not exist|contractor_event_notes/i.test(msg);
+    notesEl.innerHTML = `
+      <div class="cal-notes-head">Notes</div>
+      <div class="cal-notes-error">
+        ${isMissingTable
+          ? 'This feature needs a one-time database setup. Ask your admin to run the <code>migration_contractor_notes.sql</code> migration in the Supabase SQL editor, then try again.'
+          : 'Couldn\'t load notes right now. ' + esc(msg || '')}
+      </div>
+    `;
+  }
+}
+
+// Renders the notes list + add-note form inside the given notesEl.
+// Saves optimistically: disable the button, insert, reload list.
+function renderNotes(card, notesEl, notes, event) {
+  const notesHtml = notes.length === 0
+    ? '<div class="cal-notes-empty">No notes yet. Be the first.</div>'
+    : notes.map(n => `
+        <div class="cal-note" data-note-id="${esc(String(n.id))}">
+          <div class="cal-note-head">
+            <span class="cal-note-author">${esc(n.author_name || 'Unknown')}${n.author_role ? ' · ' + esc(n.author_role) : ''}</span>
+            <span class="cal-note-time">${esc(fmtNoteTime(n.created_at))}</span>
+          </div>
+          <div class="cal-note-body">${esc(n.body || '')}</div>
+        </div>
+      `).join('');
+
+  notesEl.innerHTML = `
+    <div class="cal-notes-head">Notes · ${notes.length}</div>
+    <div class="cal-notes-list">${notesHtml}</div>
+    <div class="cal-notes-add">
+      <textarea class="cal-notes-input" placeholder="Add a note about this visit…" rows="2" maxlength="1000"></textarea>
+      <button class="cal-notes-save" type="button">Add</button>
+    </div>
+  `;
+
+  const textarea = notesEl.querySelector('.cal-notes-input');
+  const saveBtn  = notesEl.querySelector('.cal-notes-save');
+
+  // Don't let clicks on the textarea bubble up to the card's toggle handler
+  ['click','mousedown','touchstart'].forEach(evt => {
+    textarea.addEventListener(evt, e => e.stopPropagation());
+    saveBtn.addEventListener(evt, e => e.stopPropagation());
+  });
+
+  const saveNote = async () => {
+    const body = textarea.value.trim();
+    if (!body) return;
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+    try {
+      const user = NX.currentUser;
+      const { error } = await NX.sb.from('contractor_event_notes').insert({
+        event_id:    String(event.id),
+        author_name: (user && user.name) || 'Unknown',
+        author_role: (user && user.role) || null,
+        body:        body.slice(0, 1000),
+      });
+      if (error) throw error;
+      textarea.value = '';
+      await loadNotesInto(card, event);
+      if (NX.syslog) NX.syslog('note_added', `contractor event ${String(event.id).slice(0,8)}`);
+    } catch (err) {
+      NX.toast && NX.toast('Could not save note: ' + (err.message || 'unknown error'), 'error');
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Add';
+    }
+  };
+
+  saveBtn.addEventListener('click', saveNote);
+  // Cmd/Ctrl + Enter to save from inside the textarea
+  textarea.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      saveNote();
+    }
+  });
+}
+
+// Relative time for notes: "just now", "3h ago", "Apr 20 · 2:14 PM"
+function fmtNoteTime(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+    if (mins < 1)   return 'just now';
+    if (mins < 60)  return mins + 'm ago';
+    if (mins < 1440) return Math.floor(mins / 60) + 'h ago';
+    const days = Math.floor(mins / 1440);
+    if (days < 7)   return days + 'd ago';
+    const mm = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return mm[d.getMonth()] + ' ' + d.getDate() + ' · ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch (e) { return ''; }
 }
 
 // ─── Quick-add card from calendar ────────────────────────────────────
