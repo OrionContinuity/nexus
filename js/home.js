@@ -1,545 +1,389 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   NEXUS Home — Stage A
+   NEXUS Home — Stage C
    
-   The first thing you see at 6am. Editorial/terminal hybrid dashboard.
-   Renders a priority feed of things actually needing attention, followed
-   by 4 at-a-glance metric counts, then the Ask NEXUS entry point.
+   Clean editorial home dashboard. Uses the app's existing brand font
+   (Outfit + DM Sans) for continuity — no outside-feeling serif. The
+   editorial feel comes from typography hierarchy, fine hairlines, and
+   the 60/30/10 color discipline, not from a display typeface that 
+   fights the rest of NEXUS.
    
-   Design: no feed item is invented — every line has a real row behind
-   it. If nothing's wrong, we show a calm "quiet this morning" state
-   rather than padding with fake urgency.
-   
-   Priority feed sources (in order of importance):
-     1. OVERDUE — equipment where next_pm_date < now
-     2. REPORTED — tickets opened in the last 18h
-     3. INCOMING — contractor_events happening in the next 48h
-     4. FYI — recent knowledge nodes added by teammates (calm signal)
-   
-   We cap at 3 items. More than that becomes noise, not priority.
-   
-   Extends NX.modules so app.js can call show()/init() via its existing
-   module router. Stays self-contained otherwise.
+   Display: Outfit 300 at large sizes, tight letter-spacing — reads as
+     confident and thin without looking artsy
+   Body: DM Sans 400/500 at 15px — the existing NEXUS body voice
+   Metrics & timestamps: JetBrains Mono — the "terminal" thread
    ═══════════════════════════════════════════════════════════════════════ */
-(() => {
-  'use strict';
 
-  const TONE_LABELS = {
-    overdue:  'OVERDUE',
-    reported: 'REPORTED',
-    incoming: 'INCOMING',
-    calm:     'QUIET',
-    fyi:      'FYI',
-  };
+/* ─── View shell ─────────────────────────────────────────────────── */
+#homeView {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+#homeView::-webkit-scrollbar { display: none; }
 
-  const home = {
-    _loaded: false,
-    _feedItems: [],
+.home-page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 22px calc(88px + env(safe-area-inset-bottom));
+  min-height: 100%;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  color: var(--text);
+  --home-hairline: rgba(212, 182, 138, 0.14);
+  --home-hairline-strong: rgba(212, 182, 138, 0.28);
+  --home-dim: var(--muted);
+}
 
-    async init() {
-      // Called once by app.js module loader. Render immediately with
-      // skeletons, then populate from real data.
-      this.render();
-      this.wireGalaxy();
-      this.wireAsk();
-      await this.refresh();
-      this._loaded = true;
-    },
+/* ─── Masthead ───────────────────────────────────────────────────── */
+.home-mast {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--home-hairline);
+}
+.home-mast-brand {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 5px;
+  color: var(--accent);
+}
+.home-mast-date {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 1.8px;
+  color: var(--faint);
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 
-    async show() {
-      // Called every time the home tab becomes active. Re-fetch.
-      if (!this._loaded) return this.init();
-      await this.refresh();
-    },
+/* ─── Tiny spinning galaxy in the masthead ──────────────────────── */
+.home-mini-galaxy {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  cursor: pointer;
+  position: relative;
+  background:
+    radial-gradient(circle at 50% 50%,
+      rgba(212, 164, 78, 0.22) 0%,
+      rgba(212, 164, 78, 0.06) 35%,
+      transparent 70%);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.2s ease;
+}
+.home-mini-galaxy:hover { transform: scale(1.15); }
+.home-mini-galaxy:active { transform: scale(0.92); }
+.home-mini-galaxy canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 50%;
+}
 
-    render() {
-      const el = document.getElementById('homeView');
-      if (!el) return;
-      const now = new Date();
-      const hour = now.getHours();
-      const greeting = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
-      const firstName = (NX.currentUser?.name || '').split(' ')[0] || 'there';
+/* ─── Lede — "Afternoon, Alfredo." using the NEXUS brand font ────── */
+/* Sized to read as a confident header, not a cover-story headline.
+   Margin above is tight because the masthead already defines the top. */
+.home-lede {
+  margin: 28px 0 14px;
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif;
+  font-weight: 300;
+  font-size: clamp(34px, 8.5vw, 48px);
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  color: var(--text);
+  /* One-line by default — "Morning, Alfredo." on a single line reads
+     tighter and leaves room below for the situation paragraph. */
+}
+.home-lede-comma {
+  color: var(--home-dim);
+  font-weight: 300;
+}
+.home-lede-name {
+  color: var(--accent);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+}
 
-      // Date line: "WEDNESDAY · APRIL 22 · 6:47 AM"
-      const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
-      const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-      const dateLine = [
-        days[now.getDay()],
-        `${months[now.getMonth()]} ${now.getDate()}`,
-        now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toUpperCase()
-      ].join(' · ');
+/* ─── Intro / situation line ────────────────────────────────────── */
+/* Reads a summary of what's happening across the restaurants right
+   now — live data, not meta-commentary about the feed below. Gold
+   <strong> elements highlight the subjects of interest. */
+.home-intro {
+  font-size: 15px;
+  color: var(--home-dim);
+  line-height: 1.55;
+  margin: 0 0 36px;
+  max-width: 48ch;
+  letter-spacing: 0.05px;
+}
+.home-intro strong {
+  color: var(--accent);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
 
-      el.innerHTML = `
-        <div class="home-page">
-          <div class="home-mast">
-            <div class="home-mast-brand">NEXUS</div>
-            <div class="home-mast-date">
-              <span>${esc(dateLine)}</span>
-              <span class="home-mini-galaxy" id="homeMiniGalaxy" title="Open the galaxy view">
-                <canvas id="homeMiniGalaxyCanvas" width="44" height="44"></canvas>
-              </span>
-            </div>
-          </div>
+/* ─── Priority feed — numbered broadsheet items ──────────────────── */
+.home-feed { display: flex; flex-direction: column; gap: 14px; }
 
-          <h1 class="home-lede">
-            ${esc(greeting)}<span class="home-lede-comma">,</span>
-            <span class="home-lede-name">${esc(firstName)}.</span>
-          </h1>
+.home-item {
+  position: relative;
+  display: block;
+  padding: 18px 18px 18px 46px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.01) 0%, transparent 100%);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.2s, transform 0.15s;
+  text-decoration: none;
+  color: inherit;
+}
+.home-item:hover { border-color: var(--home-hairline-strong); }
+.home-item:active { transform: scale(0.995); }
 
-          <p class="home-intro" id="homeIntro">
-            Checking what's happening across the restaurants…
-          </p>
+.home-item-num {
+  position: absolute;
+  top: 18px;
+  left: 16px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: var(--faint);
+}
 
-          <div class="home-feed" id="homeFeed">
-            <div class="home-skeleton"></div>
-            <div class="home-skeleton"></div>
-            <div class="home-skeleton"></div>
-          </div>
+.home-item-kicker {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.home-item-kicker::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.home-item[data-tone="overdue"] .home-item-kicker   { color: var(--red); }
+.home-item[data-tone="incoming"] .home-item-kicker  { color: var(--accent); }
+.home-item[data-tone="reported"] .home-item-kicker  { color: var(--amber); }
+.home-item[data-tone="calm"] .home-item-kicker      { color: var(--green); }
+.home-item[data-tone="fyi"] .home-item-kicker       { color: var(--muted); }
 
-          <div class="home-rule">At a glance</div>
-          <div class="home-glance" id="homeGlance">
-            ${['tickets','overdue','services','nodes'].map(k => `
-              <button class="home-stat" data-stat="${k}">
-                <span class="home-stat-num loading">—</span>
-                <span class="home-stat-label">${labelFor(k)}</span>
-              </button>
-            `).join('')}
-          </div>
+.home-item-title {
+  font-size: 16.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+  margin-bottom: 6px;
+  letter-spacing: -0.01em;
+}
+.home-item-body {
+  font-size: 14px;
+  color: var(--home-dim);
+  line-height: 1.55;
+  margin-bottom: 12px;
+}
+.home-item-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--accent);
+  letter-spacing: 0.3px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.home-item-action::after {
+  content: '→';
+  font-family: 'JetBrains Mono', monospace;
+  transition: transform 0.2s;
+}
+.home-item:hover .home-item-action::after { transform: translateX(3px); }
 
-          <div class="home-rule">Ask</div>
-          <div class="home-ask" id="homeAsk">
-            <span class="home-ask-prompt">Ask <em>NEXUS</em> anything…</span>
-            <span class="home-ask-kbd">⏎</span>
-          </div>
-        </div>
-      `;
-    },
+/* Calm state — when nothing urgent is happening */
+.home-feed-calm {
+  text-align: center;
+  padding: 40px 20px 48px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 2px;
+}
+.home-feed-calm-mark {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 300;
+  font-size: 32px;
+  color: var(--accent);
+  margin-bottom: 12px;
+  display: block;
+  letter-spacing: -0.02em;
+}
+.home-feed-calm-text {
+  font-size: 13px;
+  color: var(--home-dim);
+  line-height: 1.55;
+  max-width: 34ch;
+  margin: 0 auto;
+}
 
-    async refresh() {
-      await Promise.all([
-        this.loadFeed(),
-        this.loadGlance(),
-      ]);
-    },
+/* ─── Section rule — fine-cut divider with label ────────────────── */
+.home-rule {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 44px 0 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 2.2px;
+  color: var(--faint);
+  text-transform: uppercase;
+}
+.home-rule::before, .home-rule::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--home-hairline);
+}
 
-    /* ═════════════ PRIORITY FEED ═════════════════════════════════ */
-    async loadFeed() {
-      const feedEl = document.getElementById('homeFeed');
-      const introEl = document.getElementById('homeIntro');
-      if (!feedEl) return;
+/* ─── Glance — 4-column stat strip ──────────────────────────────── */
+.home-glance {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 36px;
+}
+.home-stat {
+  padding: 14px 4px 10px;
+  text-align: left;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  border-top: 1px solid var(--home-hairline);
+  transition: border-color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.home-stat:active { transform: scale(0.97); }
+.home-stat:hover { border-top-color: var(--accent); }
+.home-stat-num {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 30px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+.home-stat-num.alert { color: var(--red); }
+.home-stat-num.loading { color: var(--faint); opacity: 0.5; }
+.home-stat-label {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  color: var(--faint);
+  text-transform: uppercase;
+  margin-top: 8px;
+}
+.home-stat-sub {
+  display: block;
+  font-size: 10.5px;
+  color: var(--home-dim);
+  margin-top: 2px;
+  letter-spacing: 0.2px;
+}
 
-      try {
-        const items = await collectPriorityItems();
-        this._feedItems = items;
+/* ─── Ask NEXUS bar — the chat entry point ──────────────────────── */
+.home-ask {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--home-hairline-strong);
+  border-radius: 2px;
+  background: rgba(212, 182, 138, 0.02);
+  cursor: text;
+  transition: border-color 0.2s, background 0.2s;
+}
+.home-ask:hover {
+  border-color: var(--accent);
+  background: rgba(212, 182, 138, 0.04);
+}
+.home-ask-prompt {
+  flex: 1;
+  font-size: 14.5px;
+  color: var(--faint);
+  letter-spacing: 0.1px;
+}
+.home-ask-prompt em {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 500;
+  font-family: inherit;
+  letter-spacing: 0.5px;
+}
+.home-ask-kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--faint);
+  padding: 4px 7px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.2);
+}
 
-        if (!items.length) {
-          feedEl.innerHTML = `
-            <div class="home-feed-calm">
-              <span class="home-feed-calm-mark">◇</span>
-              <div class="home-feed-calm-text">
-                Nothing urgent this morning. All equipment current, no overnight tickets, contractors on schedule.
-              </div>
-            </div>
-          `;
-          if (introEl) introEl.textContent = 'The restaurants are in a calm state.';
-          return;
-        }
+/* ─── Skeleton loading states — appear before data arrives ──────── */
+.home-skeleton {
+  height: 88px;
+  background: linear-gradient(
+    90deg,
+    rgba(212, 182, 138, 0.03) 0%,
+    rgba(212, 182, 138, 0.07) 50%,
+    rgba(212, 182, 138, 0.03) 100%
+  );
+  background-size: 200% 100%;
+  animation: homeShimmer 2.2s ease-in-out infinite;
+  border-radius: 2px;
+}
+@keyframes homeShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 
-        if (introEl) {
-          const n = items.length;
-          introEl.textContent = n === 1
-            ? 'One thing worth your attention.'
-            : `${numWord(n)} things worth your attention.`;
-        }
-
-        feedEl.innerHTML = items.map((item, idx) => `
-          <button class="home-item" data-tone="${item.tone}" data-action-key="${item.actionKey || ''}">
-            <span class="home-item-num">${String(idx + 1).padStart(2, '0')}</span>
-            <div class="home-item-kicker">${TONE_LABELS[item.tone] || 'NOTE'}</div>
-            <div class="home-item-title">${esc(item.title)}</div>
-            <div class="home-item-body">${esc(item.body)}</div>
-            ${item.actionLabel ? `<span class="home-item-action">${esc(item.actionLabel)}</span>` : ''}
-          </button>
-        `).join('');
-
-        // Wire item clicks
-        feedEl.querySelectorAll('.home-item').forEach((el, idx) => {
-          el.addEventListener('click', () => {
-            const item = this._feedItems[idx];
-            if (item?.onClick) item.onClick();
-          });
-        });
-      } catch (err) {
-        console.error('[home] feed load failed:', err);
-        feedEl.innerHTML = `
-          <div class="home-feed-calm">
-            <div class="home-feed-calm-text">Couldn't load priorities right now. Try again in a moment.</div>
-          </div>
-        `;
-      }
-    },
-
-    /* ═════════════ AT-A-GLANCE STATS ═════════════════════════════ */
-    async loadGlance() {
-      if (!NX.sb) return;
-      const today = new Date();
-      const weekAgo = new Date(today.getTime() - 7 * 86400000).toISOString();
-      const nowIso = today.toISOString();
-
-      // Fire all in parallel, let any individual failure degrade gracefully
-      const [ticketsRes, overdueRes, servicesRes, nodesRes] = await Promise.allSettled([
-        NX.sb.from('tickets').select('*', { count: 'exact', head: true }).eq('status', 'open'),
-        NX.sb.from('equipment').select('*', { count: 'exact', head: true }).lt('next_pm_date', nowIso.slice(0, 10)),
-        NX.sb.from('equipment_maintenance').select('*', { count: 'exact', head: true }).gte('event_date', weekAgo.slice(0, 10)),
-        NX.sb.from('nodes').select('*', { count: 'exact', head: true }).gte('created_at', weekAgo),
-      ]);
-
-      const counts = {
-        tickets:  numOrDash(ticketsRes),
-        overdue:  numOrDash(overdueRes),
-        services: numOrDash(servicesRes),
-        nodes:    numOrDash(nodesRes),
-      };
-
-      Object.keys(counts).forEach(k => {
-        const btn = document.querySelector(`.home-stat[data-stat="${k}"]`);
-        if (!btn) return;
-        const num = btn.querySelector('.home-stat-num');
-        num.textContent = counts[k];
-        num.classList.remove('loading');
-        if (k === 'overdue' && typeof counts[k] === 'number' && counts[k] > 0) {
-          num.classList.add('alert');
-        }
-      });
-
-      // Wire stat taps to relevant views — with filter intents where useful
-      const statRoutes = {
-        tickets: () => {
-          NX.ticketsFilterIntent = { status: 'open' };
-          NX.switchTo?.('log');
-        },
-        overdue: () => {
-          // Pre-activate the overdue-PM filter in the equipment module.
-          // equipment.js reads this on show() and clears it after applying.
-          NX.equipmentFilterIntent = { pm: 'overdue' };
-          NX.switchTo?.('equipment');
-        },
-        services: () => NX.switchTo?.('cal'),
-        nodes: () => NX.switchTo?.('brain'),
-      };
-      document.querySelectorAll('.home-stat').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const k = btn.dataset.stat;
-          statRoutes[k]?.();
-        });
-      });
-    },
-
-    /* ═════════════ THE SPINNING MINI GALAXY ══════════════════════ */
-    // A fidget-worthy micro-galaxy, ~22px, always alive. It's pure canvas,
-    // ~60 FPS but visually slow so it reads as confident, not jittery.
-    // Tap it → switch to the full brain view so the user "opens the hood".
-    wireGalaxy() {
-      const canvas = document.getElementById('homeMiniGalaxyCanvas');
-      const wrap = document.getElementById('homeMiniGalaxy');
-      if (!canvas || !wrap) return;
-
-      const dpr = window.devicePixelRatio || 1;
-      const size = 22;
-      canvas.width = size * dpr;
-      canvas.height = size * dpr;
-      canvas.style.width = size + 'px';
-      canvas.style.height = size + 'px';
-      const ctx = canvas.getContext('2d');
-      ctx.scale(dpr, dpr);
-
-      const cx = size / 2;
-      const cy = size / 2;
-
-      // 10 nodes at varied radii. Small prime offsets so they never quite
-      // line up — gives it that organic "system running" quality.
-      const nodes = Array.from({ length: 10 }, (_, i) => ({
-        r: 2.2 + (i % 4) * 1.6 + Math.random() * 0.8,
-        theta: (i * 36 * Math.PI / 180) + Math.random() * 0.6,
-        speed: 0.0005 + (i % 3) * 0.00025,   // rad/ms, very slow
-        size: 0.8 + Math.random() * 0.6,
-        alpha: 0.35 + Math.random() * 0.45,
-      }));
-
-      // One "central" node, slightly brighter
-      const core = { size: 1.3, alpha: 0.85 };
-
-      let running = true;
-      let lastT = performance.now();
-
-      function frame(t) {
-        if (!running) return;
-        const dt = t - lastT;
-        lastT = t;
-
-        ctx.clearRect(0, 0, size, size);
-
-        // Very faint radial glow
-        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, size / 2);
-        grad.addColorStop(0, 'rgba(212, 164, 78, 0.12)');
-        grad.addColorStop(0.7, 'rgba(212, 164, 78, 0.02)');
-        grad.addColorStop(1, 'rgba(212, 164, 78, 0)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, size, size);
-
-        // Orbiting nodes
-        for (const n of nodes) {
-          n.theta += n.speed * dt;
-          const x = cx + Math.cos(n.theta) * n.r;
-          const y = cy + Math.sin(n.theta) * n.r;
-          ctx.fillStyle = `rgba(237, 233, 224, ${n.alpha.toFixed(2)})`;
-          ctx.beginPath();
-          ctx.arc(x, y, n.size, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        // Core — warm gold
-        ctx.fillStyle = `rgba(212, 164, 78, ${core.alpha})`;
-        ctx.beginPath();
-        ctx.arc(cx, cy, core.size, 0, Math.PI * 2);
-        ctx.fill();
-
-        requestAnimationFrame(frame);
-      }
-      requestAnimationFrame(frame);
-
-      // Pause when tab hidden to save battery
-      document.addEventListener('visibilitychange', () => {
-        running = !document.hidden;
-        if (running) { lastT = performance.now(); requestAnimationFrame(frame); }
-      });
-
-      wrap.addEventListener('click', () => {
-        // Open the full galaxy view
-        NX.switchTo?.('brain');
-      });
-    },
-
-    /* ═════════════ ASK NEXUS ENTRY POINT ═════════════════════════ */
-    wireAsk() {
-      const ask = document.getElementById('homeAsk');
-      if (!ask) return;
-      ask.addEventListener('click', () => {
-        // Stage B: open the dedicated full-screen chat view. If it hasn't
-        // loaded yet, lazy-load it and open once ready. Fallback to legacy
-        // chat-hud if chat-view.js fails to load.
-        if (NX.chatview) { NX.chatview.open(); return; }
-        const s = document.createElement('script');
-        s.src = 'js/chat-view.js';
-        s.onload = () => NX.chatview?.open();
-        s.onerror = () => {
-          NX.switchTo?.('brain');
-          setTimeout(() => {
-            document.getElementById('chatHud')?.classList.add('expanded');
-            document.getElementById('chatInput')?.focus();
-          }, 250);
-        };
-        document.head.appendChild(s);
-      });
-      // Keyboard: "/" anywhere on the home page focuses the ask bar
-      const onKey = (e) => {
-        if (e.key === '/' && document.body.classList.contains('view-home')) {
-          const tgt = e.target;
-          if (tgt?.tagName === 'INPUT' || tgt?.tagName === 'TEXTAREA') return;
-          e.preventDefault();
-          ask.click();
-        }
-      };
-      document.addEventListener('keydown', onKey);
-    },
-  };
-
-  /* ═════════════════════════════════════════════════════════════════
-     HELPERS
-     ═════════════════════════════════════════════════════════════════ */
-  function esc(s) {
-    if (s == null) return '';
-    return String(s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  function numWord(n) {
-    const words = ['zero','one','two','three','four','five','six','seven','eight','nine','ten'];
-    return n < words.length ? words[n] : String(n);
-  }
-
-  function labelFor(k) {
-    return ({
-      tickets: 'Open tickets',
-      overdue: 'Overdue PMs',
-      services: 'Services this wk',
-      nodes: 'Nodes · 7d',
-    })[k] || k.toUpperCase();
-  }
-
-  function numOrDash(settled) {
-    if (settled?.status !== 'fulfilled') return '—';
-    const c = settled.value?.count;
-    return typeof c === 'number' ? c : '—';
-  }
-
-  function daysAgo(isoOrDate) {
-    const d = isoOrDate instanceof Date ? isoOrDate : new Date(isoOrDate);
-    return Math.floor((Date.now() - d.getTime()) / 86400000);
-  }
-
-  function hoursAgo(iso) {
-    return Math.floor((Date.now() - new Date(iso).getTime()) / 3600000);
-  }
-
-  /* ═════════════════════════════════════════════════════════════════
-     PRIORITY COLLECTION — each returns 0..N candidate items.
-     Final list is capped at 3 by severity weight.
-     ═════════════════════════════════════════════════════════════════ */
-  async function collectPriorityItems() {
-    if (!NX.sb) return [];
-    const candidates = [];
-
-    // ─── OVERDUE PMs
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      const { data: overdueList } = await NX.sb.from('equipment')
-        .select('id, name, location, area, next_pm_date, service_contact_name')
-        .lt('next_pm_date', today)
-        .order('next_pm_date', { ascending: true })
-        .limit(3);
-      if (overdueList?.length) {
-        // Most overdue item gets the top spot
-        const worst = overdueList[0];
-        const days = daysAgo(worst.next_pm_date);
-        const others = overdueList.length - 1;
-        const body = others > 0
-          ? `Preventative maintenance overdue ${days} day${days === 1 ? '' : 's'}. ${others} other unit${others === 1 ? '' : 's'} also past due.`
-          : `Preventative maintenance overdue ${days} day${days === 1 ? '' : 's'}.${worst.service_contact_name ? ` Usually serviced by ${worst.service_contact_name}.` : ''}`;
-        candidates.push({
-          tone: 'overdue',
-          severity: 100 + days, // older = more severe
-          title: `${worst.name}${worst.location ? ' · ' + titleCase(worst.location) : ''}`,
-          body,
-          actionLabel: 'View equipment',
-          onClick: () => NX.switchTo?.('equipment'),
-        });
-      }
-    } catch (e) { console.warn('[home] overdue fetch failed:', e.message); }
-
-    // ─── REPORTED — tickets in the last 18h
-    try {
-      const sinceIso = new Date(Date.now() - 18 * 3600000).toISOString();
-      const { data: tickets } = await NX.sb.from('tickets')
-        .select('id, title, reported_by, location, priority, created_at')
-        .eq('status', 'open')
-        .gte('created_at', sinceIso)
-        .order('created_at', { ascending: false })
-        .limit(5);
-      if (tickets?.length) {
-        const top = tickets[0];
-        const nOthers = tickets.length - 1;
-        const urgentCount = tickets.filter(t => t.priority === 'urgent').length;
-        const hrs = hoursAgo(top.created_at);
-
-        let title, body;
-        if (tickets.length === 1) {
-          title = stripTicketPrefix(top.title) || 'New ticket';
-          body = `Opened ${hrs === 0 ? 'just now' : hrs + 'h ago'} by ${top.reported_by || 'unknown'}${top.location ? ' at ' + titleCase(top.location) : ''}.${top.priority === 'urgent' ? ' Marked urgent.' : ''}`;
-        } else {
-          title = `${tickets.length} new tickets overnight`;
-          const locs = [...new Set(tickets.map(t => t.location).filter(Boolean))];
-          body = `${urgentCount > 0 ? `${urgentCount} urgent. ` : ''}Reported across ${locs.length ? locs.map(titleCase).join(', ') : 'the restaurants'}. Most recent: ${stripTicketPrefix(top.title).slice(0, 80)}.`;
-        }
-
-        candidates.push({
-          tone: 'reported',
-          severity: 80 + (urgentCount * 10) + tickets.length,
-          title,
-          body,
-          actionLabel: 'See all tickets',
-          onClick: () => NX.switchTo?.('log'),
-        });
-      }
-    } catch (e) { console.warn('[home] tickets fetch failed:', e.message); }
-
-    // ─── INCOMING — contractor events in next 48h
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      const twoDays = new Date(Date.now() + 48 * 3600000).toISOString().slice(0, 10);
-      const { data: events } = await NX.sb.from('contractor_events')
-        .select('id, contractor_name, event_date, event_time, description, location, status')
-        .gte('event_date', today)
-        .lte('event_date', twoDays)
-        .neq('status', 'cancelled')
-        .order('event_date', { ascending: true })
-        .order('event_time', { ascending: true })
-        .limit(5);
-      if (events?.length) {
-        const ev = events[0];
-        const when = formatEventWhen(ev.event_date, ev.event_time);
-        const others = events.length - 1;
-        const body = others > 0
-          ? `${when}${ev.location ? ' at ' + titleCase(ev.location) : ''}${ev.description ? ' for ' + ev.description : ''}. ${others} other visit${others === 1 ? '' : 's'} coming up.`
-          : `${when}${ev.location ? ' at ' + titleCase(ev.location) : ''}${ev.description ? ' for ' + ev.description : '.'}`;
-        candidates.push({
-          tone: 'incoming',
-          severity: 40,
-          title: ev.contractor_name || 'Contractor visit',
-          body,
-          actionLabel: 'View calendar',
-          onClick: () => NX.switchTo?.('cal'),
-        });
-      }
-    } catch (e) { console.warn('[home] events fetch failed:', e.message); }
-
-    // Sort by severity, take top 3
-    candidates.sort((a, b) => (b.severity || 0) - (a.severity || 0));
-    return candidates.slice(0, 3);
-  }
-
-  function stripTicketPrefix(title) {
-    if (!title) return '';
-    return title.replace(/^\[(Equipment|CALL|Ticket)\]\s*/i, '').replace(/^[^:]+:\s*/, (m) => {
-      // Keep the actual issue description, drop "Hot Expo Low Boy: " prefix
-      return '';
-    }) || title;
-  }
-
-  function titleCase(s) {
-    if (!s) return '';
-    return s.split(/[\s_-]+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-  }
-
-  function formatEventWhen(dateStr, timeStr) {
-    if (!dateStr) return 'Upcoming';
-    const d = new Date(dateStr + 'T' + (timeStr || '09:00') + ':00');
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
-    const rowDay = new Date(d); rowDay.setHours(0, 0, 0, 0);
-    const timeStrFormatted = timeStr
-      ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-      : 'all day';
-    if (rowDay.getTime() === today.getTime())    return `Today at ${timeStrFormatted}`;
-    if (rowDay.getTime() === tomorrow.getTime()) return `Tomorrow at ${timeStrFormatted}`;
-    const weekday = d.toLocaleDateString([], { weekday: 'long' });
-    return `${weekday} at ${timeStrFormatted}`;
-  }
-
-  /* ═════════════════════════════════════════════════════════════════
-     REGISTER WITH APP
-     ═════════════════════════════════════════════════════════════════ */
-  NX.modules = NX.modules || {};
-  NX.modules.home = home;
-  NX.home = home;
-
-  // Expose a small helper for the spinning galaxy + stat buttons to use
-  if (!NX.switchTo) {
-    NX.switchTo = (view) => {
-      const btn = document.querySelector(`.bnav-btn[data-view="${view}"]`)
-                || document.querySelector(`.nav-tab[data-view="${view}"]`)
-                || (view === 'brain' ? document.getElementById('navNexus') : null);
-      btn?.click();
-    };
-  }
-})();
+/* ─── Responsive — tighten on small phones ──────────────────────── */
+@media (max-width: 380px) {
+  .home-page { padding: 20px 18px calc(88px + env(safe-area-inset-bottom)); }
+  .home-lede { margin: 32px 0 30px; }
+  .home-glance { gap: 6px; }
+  .home-stat-num { font-size: 26px; }
+}
+/* Tablet / desktop refinement */
+@media (min-width: 720px) {
+  .home-lede { margin: 60px 0 56px; font-size: 72px; }
+  .home-item { padding: 22px 22px 22px 54px; }
+  .home-item-num { top: 22px; left: 20px; font-size: 12px; }
+}
