@@ -1117,16 +1117,26 @@ Be specific. If it's equipment, include the make/model. If it's a document, extr
 
         PushNotifications.addListener('pushNotificationReceived', (notification) => {
           console.log('[Push] Received:', notification);
-          // Show as in-app toast
+          // Show as in-app toast (native delivers while app in foreground)
           NX.toast(notification.title + ': ' + (notification.body || '').slice(0, 80), 'info', 5000);
         });
 
         PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-          console.log('[Push] Action:', action);
-          // Deep link handling — open specific view based on notification data
+          console.log('[Push] Tapped:', action);
+          // Hand off to NX.deepLink (same handler as web). FCM data values are
+          // always strings, which is fine for the deep-link handler.
           const data = action.notification?.data || {};
-          if (data.view) {
-            // Switch to the requested view
+          if (NX.deepLink && data.view) {
+            // Equipment alerts use equipment_id; patterns use pattern_id;
+            // dispatch uses dispatch_id. First one present wins.
+            const id = data.equipment_id || data.pattern_id || data.dispatch_id || '';
+            NX.deepLink.handle({
+              view: data.view,
+              id: id,
+              alertType: data.alert_type,
+            });
+          } else if (data.view) {
+            // Fallback if deepLink isn't loaded yet: just switch view
             const tab = document.querySelector(`.bnav-btn[data-view="${data.view}"]`);
             if (tab) tab.click();
           }
