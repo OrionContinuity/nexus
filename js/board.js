@@ -1042,12 +1042,17 @@ async function openCardDetail(card){
     archiveBtn.addEventListener('click', async () => {
       if(!confirm('Archive this card?')) return;
       try {
-        const { error, count } = await NX.sb.from('kanban_cards')
-          .update({ archived: true }, { count: 'exact' })
-          .eq('id', card.id);
+        // Use .select() to get the updated row back — this works across
+        // all supabase-js versions without the { count: 'exact' } option
+        // (which caused PostgREST to reject the body as "has no fields"
+        // on some client versions).
+        const { data, error } = await NX.sb.from('kanban_cards')
+          .update({ archived: true })
+          .eq('id', card.id)
+          .select('id');
         if (error) throw error;
-        if (count === 0) {
-          NX.toast && NX.toast('Archive saved nothing — check your database permissions', 'error');
+        if (!data || data.length === 0) {
+          NX.toast && NX.toast('Archive did nothing — likely RLS policy blocking UPDATE', 'error');
           console.warn('[board] archive affected 0 rows for card', card.id);
           return;
         }
@@ -1065,12 +1070,13 @@ async function openCardDetail(card){
   if (restoreBtn) {
     restoreBtn.addEventListener('click', async () => {
       try {
-        const { error, count } = await NX.sb.from('kanban_cards')
-          .update({ archived: false }, { count: 'exact' })
-          .eq('id', card.id);
+        const { data, error } = await NX.sb.from('kanban_cards')
+          .update({ archived: false })
+          .eq('id', card.id)
+          .select('id');
         if (error) throw error;
-        if (count === 0) {
-          NX.toast && NX.toast('Restore saved nothing — check your database permissions', 'error');
+        if (!data || data.length === 0) {
+          NX.toast && NX.toast('Restore did nothing — likely RLS policy blocking UPDATE', 'error');
           return;
         }
         bg.remove();
@@ -1782,18 +1788,20 @@ async function openTriageModal(){
 
     try {
       if (action === 'archive') {
-        const { error, count } = await NX.sb.from('kanban_cards')
-          .update({ archived: true }, { count: 'exact' })
-          .eq('id', c.id);
+        const { data, error } = await NX.sb.from('kanban_cards')
+          .update({ archived: true })
+          .eq('id', c.id)
+          .select('id');
         if (error) throw error;
-        if (count === 0) throw new Error('Update saved 0 rows — possibly an RLS or permissions issue');
+        if (!data || data.length === 0) throw new Error('Update saved 0 rows — RLS blocking UPDATE');
         archivedCount++;
       } else if (action === 'close') {
-        const { error, count } = await NX.sb.from('kanban_cards')
-          .update({ status: 'closed' }, { count: 'exact' })
-          .eq('id', c.id);
+        const { data, error } = await NX.sb.from('kanban_cards')
+          .update({ status: 'closed' })
+          .eq('id', c.id)
+          .select('id');
         if (error) throw error;
-        if (count === 0) throw new Error('Update saved 0 rows — possibly an RLS or permissions issue');
+        if (!data || data.length === 0) throw new Error('Update saved 0 rows — RLS blocking UPDATE');
         closedCount++;
       } else if (action === 'skip') {
         skippedCount++;
@@ -1838,18 +1846,21 @@ async function openTriageModal(){
     let totalUpdated = 0;
     let firstErr = null;
     try {
-      // Supabase caps batch updates; chunk into groups of 200
+      // Supabase caps batch updates; chunk into groups of 200.
+      // Chain .select() so we get the updated rows back — reliable
+      // across supabase-js versions and confirms actual row count.
       for (let i = 0; i < ids.length; i += 200) {
         const chunk = ids.slice(i, i + 200);
-        const { error, count } = await NX.sb.from('kanban_cards')
-          .update({ archived: true }, { count: 'exact' })
-          .in('id', chunk);
+        const { data, error } = await NX.sb.from('kanban_cards')
+          .update({ archived: true })
+          .in('id', chunk)
+          .select('id');
         if (error) { firstErr = error; break; }
-        totalUpdated += (count || 0);
+        totalUpdated += (data || []).length;
       }
       if (firstErr) throw firstErr;
       if (totalUpdated === 0) {
-        throw new Error('Zero rows updated — likely an RLS or permissions issue');
+        throw new Error('Zero rows updated — likely RLS blocking UPDATE');
       }
       archivedCount += totalUpdated;
       idx = allOpen.length;
