@@ -253,10 +253,17 @@
           return;
         }
 
+        // Track whether we've marked the "Next up" event yet — the
+        // first future event gets a highlight treatment so the strip
+        // has forward momentum even when today is empty.
+        let nextUpMarked = false;
+
         calEl.innerHTML = days.map(day => {
           const isToday  = day.relative === 'today';
           const isPast   = day.relative === 'past';
+          const isFuture = day.relative === 'future';
           const dateLabel = formatCalDate(day.date, isToday);
+          const relLabel  = isFuture ? relativeDayLabel(day.date) : '';
 
           const itemsHtml = day.items.length === 0
             ? `<div class="home-cal-empty">No visits scheduled.</div>`
@@ -264,11 +271,20 @@
                 const timeStr = e.event_time ? formatTime12(e.event_time) : 'all day';
                 const titleBits = [e.contractor_name, e.location && titleCase(e.location)].filter(Boolean);
                 const title = titleBits.join(' · ') || 'Scheduled visit';
+                const status = eventStatus(e, isPast);
+                const accent = statusColor(status);
+                const isNextUp = isFuture && !nextUpMarked;
+                if (isNextUp) nextUpMarked = true;
                 return `
-                  <button class="home-cal-item" data-event-id="${esc(e.id)}" type="button">
+                  <button class="home-cal-item ${isNextUp ? 'is-nextup' : ''}" data-event-id="${esc(e.id)}" type="button">
+                    <span class="home-cal-accent" style="background:${accent}"></span>
                     <span class="home-cal-time">${esc(timeStr)}</span>
                     <span class="home-cal-body">
-                      <span class="home-cal-title">${esc(title)}</span>
+                      ${isNextUp ? '<span class="home-cal-nextup">Next up</span>' : ''}
+                      <span class="home-cal-title">
+                        <span class="home-cal-title-text">${esc(title)}</span>
+                        ${status.icon ? `<span class="home-cal-status" title="${esc(status.label)}">${status.icon}</span>` : ''}
+                      </span>
                       ${e.description ? `<span class="home-cal-desc">${esc(e.description).slice(0, 80)}</span>` : ''}
                     </span>
                   </button>
@@ -276,10 +292,11 @@
               }).join('');
 
           return `
-            <div class="home-cal-day ${isToday ? 'is-today' : ''} ${isPast ? 'is-past' : ''}">
+            <div class="home-cal-day ${isToday ? 'is-today' : ''} ${isPast ? 'is-past' : ''} ${isFuture ? 'is-future' : ''}">
               <div class="home-cal-date">
                 ${isToday ? '<span class="home-cal-today-dot"></span>' : ''}
-                <span>${esc(dateLabel)}</span>
+                <span class="home-cal-date-label">${esc(dateLabel)}</span>
+                ${relLabel ? `<span class="home-cal-date-rel">${esc(relLabel)}</span>` : ''}
               </div>
               <div class="home-cal-items">${itemsHtml}</div>
             </div>
@@ -714,6 +731,48 @@
     const ampm = h >= 12 ? 'PM' : 'AM';
     const h12 = h % 12 || 12;
     return `${h12}:${m} ${ampm}`;
+  }
+
+  // Relative-time label for future days: "IN 3 DAYS", "NEXT WEEK", etc.
+  // Appears under the date label so the strip reads with a forward
+  // rhythm instead of static dates. Returns '' for today/tomorrow
+  // because formatCalDate already covers those relative cases.
+  function relativeDayLabel(isoDate) {
+    if (!isoDate) return '';
+    const d = new Date(isoDate + 'T12:00:00');
+    const today = new Date(); today.setHours(0,0,0,0);
+    const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
+    if (diff <= 1)  return '';
+    if (diff <= 7)  return `IN ${diff} DAYS`;
+    if (diff <= 14) return 'NEXT WEEK';
+    return '';
+  }
+
+  // Event status derived from the status column + past/future context.
+  // Returns { key, label, icon }. Past events without status get marked
+  // as completed (best guess — if it was in the past and not cancelled,
+  // it probably happened). Falls back reasonably for unknown states.
+  function eventStatus(e, isPast) {
+    const s = (e.status || '').toLowerCase();
+    if (s === 'completed' || (isPast && !s)) return { key: 'completed', label: 'Completed', icon: '✓' };
+    if (s === 'confirmed')                   return { key: 'confirmed', label: 'Confirmed', icon: '●' };
+    if (s === 'pending')                     return { key: 'pending',   label: 'Pending',   icon: '⏱' };
+    if (isPast)                              return { key: 'past',      label: 'Past',      icon: '' };
+    return { key: 'scheduled', label: 'Scheduled', icon: '' };
+  }
+
+  // Accent bar color by status. Gold stays the star player (confirmed/
+  // scheduled), muted green signals completed, dim gold for pending,
+  // very muted for unknown past events. All inline-compatible.
+  function statusColor(status) {
+    const key = status?.key || 'scheduled';
+    return ({
+      completed: '#6b9b6b',
+      confirmed: 'rgba(212, 164, 78, 0.9)',
+      pending:   'rgba(212, 164, 78, 0.45)',
+      scheduled: 'rgba(212, 164, 78, 0.55)',
+      past:      'rgba(212, 182, 138, 0.2)',
+    })[key] || 'rgba(212, 164, 78, 0.55)';
   }
 
   /* ═════════════════════════════════════════════════════════════════
