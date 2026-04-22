@@ -39,7 +39,7 @@
 
   const SUPABASE_URL = 'https://oprsthfxqrdbwdvommpw.supabase.co';
   // Anon key — public, safe to expose (RLS protects writes)
-  const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcnN0aGZ4cXJkYndkdm9tbXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MDU2MzMsImV4cCI6MjA5MTE4MTYzM30.1Yy5BNXWy19Xzdt-ZdcoF0_MF6vvr1rYN5mcDsRYSWY';
+  const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcnN0aGZ4cXJkYndkdm9tbXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDkzNDYzNTQsImV4cCI6MjAyNDkyMjM1NH0.ZKu5SH1pWPRlpTrybiT7DRzvCaIA4-Ml_qFV4n2DxPo';
 
   // ─── Utilities ──────────────────────────────────────────────────────
   function esc(s) {
