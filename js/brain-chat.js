@@ -1510,4 +1510,27 @@ Return ONLY JSON.`,
     cvi = idx % VOICES.length;
     localStorage.setItem('nexus_voice_idx', String(cvi));
   });
+
+  // ─── Canonical voice list ────────────────────────────────────────
+  // The order of VOICES above is what speak() actually uses via
+  // getVoiceIdx(). Exposing it here means the admin dropdown AND the
+  // chat-view persona sheet can rebuild from a single source of truth
+  // — picking "Charlotte" anywhere in the UI plays Charlotte, not
+  // whatever voice happened to be at that index in a stale hard-coded
+  // HTML list. Short descriptions included for UI polish.
+  NX.VOICES = VOICES.map(v => {
+    const descMap = {
+      Charlotte: 'Smart & smooth',   Bella: 'Warm & witty',
+      Freya: 'Breathy & warm',       Grace: 'Southern elegance',
+      Rachel: 'Calm & collected',    Emily: 'Friendly & clear',
+      Gigi: 'Animated & engaging',   Antoni: 'Warm & professional',
+      Daniel: 'British dry wit',     Liam: 'Casual & quick',
+      Josh: 'Deep & young',          Harry: 'Grounded British',
+      James: 'Authoritative deep',   Adam: 'Sharp & confident',
+      Sam: 'Deep & calm',            Dorothy: 'Warm storyteller',
+      Arnold: 'Bold & direct',       Bill: 'Natural & relaxed',
+      Domi: 'Strong & clear',        Fin: 'Precise Irish',
+    };
+    return { ...v, desc: descMap[v.name] || '' };
+  });
 })();
