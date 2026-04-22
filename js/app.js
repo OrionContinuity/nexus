@@ -5,9 +5,11 @@
    ═══════════════════════════════════════════ */
 
 const NX = {
-  // Supabase (public, non-secret)
-  SUPA_URL: 'https://oprsthfxqrdbwdvommpw.supabase.co',
-  SUPA_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcnN0aGZ4cXJkYndkdm9tbXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MDU2MzMsImV4cCI6MjA5MTE4MTYzM30.1Yy5BNXWy19Xzdt-ZdcoF0_MF6vvr1rYN5mcDsRYSWY',
+  // Supabase (public, non-secret). Values come from window.NEXUS_CONFIG
+  // (js/config.js loaded before app.js). Fallbacks below keep the app
+  // working even if config.js is missing.
+  SUPA_URL: window.NEXUS_CONFIG?.SUPABASE_URL  || 'https://oprsthfxqrdbwdvommpw.supabase.co',
+  SUPA_KEY: window.NEXUS_CONFIG?.SUPABASE_ANON || 'sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9',
   GOOGLE_CLIENT_ID: '48632479959-j2beg9hsq6sb4dddtkr846kl6gnu8lqu.apps.googleusercontent.com',
 
   // Runtime state
@@ -776,6 +778,13 @@ td.check{background:#F0EDE6 !important}
       modal.classList.add('open'); modal.style.display = 'flex';
       // Refresh PM pending count badge whenever admin opens
       this.refreshPmPendingCount();
+      // v4: reset to Overview tab on each open (Overview is the home)
+      try {
+        document.querySelectorAll('#adminTabBar .at-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'overview'));
+        document.querySelectorAll('.at-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === 'overview'));
+        // Eager-load Overview stats so there's no "Loading…" flash
+        window.loadOverviewStats?.();
+      } catch(e) { /* non-critical */ }
       if (this.isAdmin) {
         keySection.style.display = 'block';
         // Pre-fill hints
@@ -893,9 +902,6 @@ td.check{background:#F0EDE6 !important}
 
     // Logout
     document.getElementById('adminLogout').addEventListener('click', () => {
-      if (this.syslog && this.currentUser) {
-        this.syslog('logout', `${this.currentUser.name} (${this.currentUser.role})`);
-      }
       this._clearSession();
       location.reload();
     });
@@ -1419,61 +1425,29 @@ td.check{background:#F0EDE6 !important}
   },
 
   // ─── Expanded System Logging ───
-  // Auto-logs every system event to daily_logs with an icon prefix so the
-  // Log view can render each type distinctly. Most DB mutations (nodes,
-  // equipment, tickets, kanban_cards, dispatch_events, etc.) are now also
-  // logged by Postgres triggers — keep the JS calls below for events that
-  // aren't a single row change (login, batches, broadcasts, aggregates).
+  // Auto-logs every system event to daily_logs
   async syslog(event,detail){
     const ICONS={
-      // Auth / session
       login:'🔑',logout:'🔑',
-      // Time clock
       clock_in:'⏱',clock_out:'⏱',
-      // Kanban / tickets (mostly trigger-handled; keep for legacy)
-      card_created:'📋',card_moved:'📋',card_closed:'📋',card_deleted:'📋',card_edited:'📋',
-      ticket_opened:'🎫',ticket_closed:'🎫',ticket_updated:'🎫',ticket_deleted:'🎫',
-      // Cleaning
+      card_created:'📋',card_moved:'📋',card_closed:'📋',card_deleted:'📋',
       clean_checked:'🧹',clean_unchecked:'🧹',clean_report:'🧹',
-      // AI / brain
-      chat_ask:'💬',chat_answered:'💭',
-      ai_action:'🤖',ai_decision:'🤖',
-      node_created:'🧠',node_updated:'🧠',node_deleted:'🧠',
-      // Email / ingestion
-      batch_complete:'📥',email_processed:'✉',gmail_refresh:'✉',
-      // Captures
+      chat_ask:'💬',
+      batch_complete:'📥',
       notify_captured:'📱',sms_captured:'📱',
-      // Privacy
       privacy_delete:'🔒',privacy_keep:'🔒',privacy_private:'🔒',privacy_edit:'🔒',
-      // Documents
-      doc_scanned:'📷',manual_uploaded:'📖',bom_extracted:'⚙',
-      // Import
+      node_created:'🧠',node_updated:'🧠',node_deleted:'🧠',
+      email_processed:'✉',gmail_refresh:'✉',
+      doc_scanned:'📷',
       whatsapp_import:'📱',sms_import:'📱',contact_import:'👤',
-      // Reports
       digest_generated:'📊',
-      // Backup
       backup_exported:'⬇',backup_imported:'⬆',
-      // Relationships
       link_built:'🔗',
-      // Equipment (mostly trigger-handled)
-      equipment_created:'🔧',equipment_edited:'🔧',equipment_deleted:'🔧',
-      equipment_service:'🛠',equipment_scanned:'📷',
-      zebra_print:'🖨',
-      // Calls / dispatch (mostly trigger-handled)
-      call_made:'📞',dispatch_created:'📞',dispatch_pending:'📞',dispatch_completed:'✅',dispatch_cancelled:'❌',
-      // Push
-      push_enabled:'🔔',push_disabled:'🔕',push_subscribed:'🔔',push_unsubscribed:'🔕',
-      broadcast_sent:'📣',
-      // Patterns
-      pattern_detected:'🔮',
-      // Theme / UX
       theme_change:'🎨',
-      // Errors
       error:'❌'
     };
     const icon=ICONS[event]||'⚡';
-    // Icon included in entry so log.js renders the right symbol
-    const entry=`[SYS] ${icon} ${event}: ${(detail||'').slice(0,200)}`;
+    const entry=`[SYS] ${event}: ${(detail||'').slice(0,200)}`;
     try{
       await this.sb.from('daily_logs').insert({
         entry,user_name:this.currentUser?.name||'NEXUS'
@@ -1656,239 +1630,33 @@ td.check{background:#F0EDE6 !important}
 
 document.addEventListener('DOMContentLoaded', () => NX.init());
 
-// Register service worker for offline support + push notifications
+// Register service worker for offline support
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
-    // Initialize push subscription + deep-link handlers once we have a logged-in user.
-    // We poll because PIN login happens async, no event fires for it.
-    const tryInit = (attempts = 0) => {
-      if (NX.currentUser) {
-        NX.push.init(reg);
-        NX.deepLink.init();
-      } else if (attempts < 60) {
-        setTimeout(() => tryInit(attempts + 1), 1000);
-      }
-    };
-    tryInit();
-  }).catch(err => console.warn('[sw] register failed:', err));
+    // Push notification setup
+    if ('PushManager' in window && NX.currentUser) {
+      NX.setupPush = async function(vapidPublicKey) {
+        try {
+          const permission = await Notification.requestPermission();
+          if (permission !== 'granted') return;
+          const sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: vapidPublicKey
+          });
+          // Save subscription to Supabase
+          await NX.sb.from('push_subscriptions').upsert({
+            user_id: NX.currentUser.id,
+            user_name: NX.currentUser.name,
+            subscription: sub.toJSON()
+          }, { onConflict: 'user_id' });
+          if (NX.toast) NX.toast('Notifications enabled ✓', 'success');
+        } catch (e) {
+          console.warn('Push setup failed:', e);
+        }
+      };
+    }
+  }).catch(() => {});
 }
-
-// ── PUSH NOTIFICATIONS ───────────────────────────────────────────────
-// Full subscription module. Exposes:
-//   NX.push.enable()  — prompt user, subscribe, save to DB
-//   NX.push.disable() — unsubscribe and remove from DB
-//   NX.push.status()  — 'granted' | 'denied' | 'default' | 'unsupported' | 'no-vapid'
-// Wire buttons like:
-//   <button onclick="NX.push.enable()">🔔 Enable Notifications</button>
-NX.push = {
-  reg: null,
-  vapidKey: null,
-
-  async init(serviceWorkerReg) {
-    this.reg = serviceWorkerReg;
-    if (!('PushManager' in window)) {
-      console.log('[push] PushManager not supported');
-      return;
-    }
-    if (!NX.currentUser) return;
-
-    // Fetch the VAPID public key from nexus_config (single source of truth)
-    try {
-      const { data: cfg } = await NX.sb
-        .from('nexus_config')
-        .select('vapid_public_key')
-        .eq('id', 1)
-        .single();
-      if (!cfg?.vapid_public_key) {
-        console.log('[push] no VAPID key in nexus_config — push disabled');
-        return;
-      }
-      this.vapidKey = cfg.vapid_public_key;
-    } catch (e) {
-      console.warn('[push] failed to load VAPID key:', e);
-      return;
-    }
-
-    // If already subscribed, refresh last_seen_at in the DB
-    try {
-      const existing = await this.reg.pushManager.getSubscription();
-      if (existing) await this._save(existing);
-    } catch (e) {
-      console.warn('[push] resubscribe check failed:', e);
-    }
-  },
-
-  status() {
-    if (!('PushManager' in window) || !this.reg) return 'unsupported';
-    if (!this.vapidKey) return 'no-vapid';
-    return Notification.permission;
-  },
-
-  async enable() {
-    const s = this.status();
-    if (s === 'unsupported') {
-      NX.toast?.('Push not supported on this browser', 'warn');
-      return false;
-    }
-    if (s === 'no-vapid') {
-      NX.toast?.('Push not configured (admin: set VAPID key)', 'error');
-      return false;
-    }
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
-        NX.toast?.('Notification permission denied', 'warn');
-        return false;
-      }
-      const sub = await this.reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: this._urlB64ToUint8Array(this.vapidKey),
-      });
-      await this._save(sub);
-      NX.toast?.('Notifications enabled ✓', 'success');
-      return true;
-    } catch (e) {
-      console.error('[push] enable failed:', e);
-      NX.toast?.('Notifications failed: ' + e.message, 'error');
-      return false;
-    }
-  },
-
-  async disable() {
-    if (!this.reg) return false;
-    try {
-      const sub = await this.reg.pushManager.getSubscription();
-      if (sub) await sub.unsubscribe();
-      if (NX.currentUser) {
-        await NX.sb.from('push_subscriptions')
-          .delete().eq('user_id', String(NX.currentUser.id));
-      }
-      NX.toast?.('Notifications disabled', 'info');
-      return true;
-    } catch (e) {
-      console.warn('[push] disable error:', e);
-      return false;
-    }
-  },
-
-  async _save(sub) {
-    if (!NX.currentUser) return;
-    try {
-      await NX.sb.from('push_subscriptions').upsert({
-        user_id: String(NX.currentUser.id),
-        user_name: NX.currentUser.name,
-        subscription: sub.toJSON(),
-        user_agent: navigator.userAgent.slice(0, 200),
-        last_seen_at: new Date().toISOString(),
-      }, { onConflict: 'user_id' });
-    } catch (e) {
-      console.warn('[push] save failed:', e);
-    }
-  },
-
-  _urlB64ToUint8Array(base64String) {
-    const padding = '='.repeat((4 - base64String.length % 4) % 4);
-    const b64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-    const raw = atob(b64);
-    return Uint8Array.from(raw, c => c.charCodeAt(0));
-  },
-};
-
-// ── NOTIFICATION DEEP LINKS ──────────────────────────────────────────
-// When a push notification arrives:
-//   * If app is already open: service worker posts 'nexus-notification-click'
-//     message here and we navigate to the right view + entity.
-//   * If app is NOT open: SW opens a new window with ?view=X&id=Y&alert=Z,
-//     and we handle those params on startup, then clean the URL.
-//
-// Alert types map to views:
-//   pm_due / warranty_expiring / dispatch_stale → equipment + openDetail(id)
-//   pattern_due  → log view
-//   broadcast    → brain view
-NX.deepLink = {
-  // Main handler — called from both URL params and SW postMessage.
-  async handle({ view, id, alertType }) {
-    if (!view) return;
-    console.log('[deepLink] handling', { view, id, alertType });
-
-    // Switch to the requested view. Brain has a special button;
-    // other views use the .nav-tab or .bnav-btn with matching data-view.
-    if (view === 'brain') {
-      document.getElementById('navNexus')?.click();
-    } else {
-      const btn = document.querySelector(`.nav-tab[data-view="${view}"]`)
-               || document.querySelector(`.bnav-btn[data-view="${view}"]`);
-      if (btn) btn.click();
-    }
-
-    // If an entity ID was provided, open it after the view has activated.
-    if (!id) return;
-
-    if (view === 'equipment') {
-      // Wait for the equipment module to finish loading (first-click init)
-      const ready = await this._waitFor(
-        () => NX.modules?.equipment?.openDetail, 10000
-      );
-      if (ready) {
-        // Small delay so the view is visually active before the modal opens
-        setTimeout(() => {
-          try { NX.modules.equipment.openDetail(id); }
-          catch (e) { console.warn('[deepLink] openDetail failed:', e); }
-        }, 400);
-      } else {
-        console.warn('[deepLink] equipment module did not load in time');
-      }
-    }
-    // log / brain views: switching to the view is enough for now
-  },
-
-  // Poll for a condition every 100ms until true or timeout
-  async _waitFor(pred, maxMs = 10000) {
-    const start = Date.now();
-    while (!pred() && Date.now() - start < maxMs) {
-      await new Promise(r => setTimeout(r, 100));
-    }
-    return pred();
-  },
-
-  // Read ?view=X&id=Y&alert=Z from the URL on startup, then clean the URL
-  _readStartupParams() {
-    const url = new URL(window.location.href);
-    const view = url.searchParams.get('view');
-    const id = url.searchParams.get('id');
-    const alertType = url.searchParams.get('alert');
-    if (!view) return;
-
-    this.handle({ view, id, alertType });
-
-    url.searchParams.delete('view');
-    url.searchParams.delete('id');
-    url.searchParams.delete('alert');
-    window.history.replaceState({}, '', url);
-  },
-
-  // Service worker → app messaging (notification clicked while app is open)
-  _listenSW() {
-    if (!navigator.serviceWorker) return;
-    navigator.serviceWorker.addEventListener('message', (event) => {
-      const msg = event.data;
-      if (msg?.type === 'nexus-notification-click') {
-        this.handle({
-          view: msg.view,
-          id: msg.entityId,
-          alertType: msg.alertType,
-        });
-      }
-    });
-  },
-
-  // Called once after login
-  init() {
-    this._listenSW();
-    // Give NX modules a moment to finish their own init before we try to route
-    setTimeout(() => this._readStartupParams(), 2000);
-  },
-};
 
 // ═══ OFFLINE QUEUE — stores actions when offline, replays when back ═══
 const OfflineQueue = {
