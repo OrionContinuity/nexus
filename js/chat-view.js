@@ -1,0 +1,748 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Chat View — Stage B
+   
+   Full-screen chat that takes over when user taps "Ask NEXUS" from the
+   home dashboard (or hits `/` as a keyboard shortcut).
+   
+   IMPORTANT — architectural decision:
+     This module does NOT reimplement the chat AI logic. It's purely UI.
+     All AI intelligence (RAG, tool use, persona, ReAct loop) stays in
+     brain-chat.js. We reuse it by:
+       - Mounting our new input with id="chatInput" + send with id="chatSend"
+       - Mounting our transcript container with id="chatMessages"
+       - Letting the existing addB() function find these IDs and render
+         messages into them (addB queries by getElementById).
+     
+     When the chat view closes, we pop our IDs off those elements and let
+     the legacy HUD reclaim them if needed. The legacy chat-hud is hidden
+     via body.chatview-open class while our view is active.
+   
+   This "ID handoff" pattern means:
+     ✓ Zero duplication of askAI/tool logic
+     ✓ Voice/camera/mic buttons still work (they bind to element IDs)
+     ✓ Chat history persistence (chat_history + session_id) continues
+     ✓ Persona + confidence + all ReAct reasoning preserved
+     
+     But we get the new look: transcript turns instead of bubbles,
+     proper typography, conversation history, persona sheet.
+   ═══════════════════════════════════════════════════════════════════════ */
+(() => {
+  'use strict';
+
+  const TONE_PRESETS = {
+    default: {
+      label: 'Default',
+      desc: 'Calm, warm, a little dry',
+      suffix: '',
+    },
+    concise: {
+      label: 'Concise',
+      desc: 'Tight. One sentence answers',
+      suffix:
+        '\n\nTONE OVERRIDE: Be extremely concise. Answer in ONE sentence unless the question genuinely requires more. No preamble. Get straight to the point.',
+    },
+    warm: {
+      label: 'Warm',
+      desc: 'Conversational, friendlier',
+      suffix:
+        '\n\nTONE OVERRIDE: Warmer and a bit more conversational. Still concise but allow a touch of personality. Never more than 3 sentences.',
+    },
+    technical: {
+      label: 'Technical',
+      desc: 'Precise, specs & numbers first',
+      suffix:
+        '\n\nTONE OVERRIDE: Technical and precise. Lead with facts, specs, part numbers, dates. No hedging. If you don\'t know, say so briefly.',
+    },
+  };
+
+  // Same list as brain-chat.js setupVoice (kept in sync)
+  const VOICES = [
+    { id: 'XB0fDUnXU5powFXDhCwa', name: 'Charlotte' },
+    { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella' },
+    { id: 'jsCqWAovK2LkecY7zXl4', name: 'Freya' },
+    { id: 'oWAxZDx7w5VEj9dCyTzz', name: 'Grace' },
+    { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel' },
+    { id: 'LcfcDJNUP1GQjkzn1xUU', name: 'Emily' },
+    { id: 'ErXwobaYiN019PkySvjV', name: 'Antoni' },
+    { id: 'onwK4e9ZLuTAKqWW03F9', name: 'Daniel' },
+    { id: 'TX3LPaxmHKxFdv7VOQHJ', name: 'Liam' },
+    { id: 'pNInz6obpgDQGcFmaJgB', name: 'Adam' },
+  ];
+
+  const ICONS = {
+    back:       '<path d="M19 12H5"/><path d="m12 19-7-7 7-7"/>',
+    menu:       '<line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/>',
+    plus:       '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    send:       '<path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4z"/>',
+    camera:     '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+    mic:        '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
+    volume:     '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>',
+    volumeOff:  '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>',
+    newChat:    '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
+  };
+  const svg = (p, size = 18) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}">${p}</svg>`;
+
+  /* ═════════════════════════════════════════════════════════════════
+     STATE
+     ═════════════════════════════════════════════════════════════════ */
+  const state = {
+    isOpen: false,
+    currentSessionId: null,
+    tone: localStorage.getItem('nx_chat_tone') || 'default',
+    voiceIdx: parseInt(localStorage.getItem('nexus_voice_idx') || '0') || 0,
+    voiceOn: localStorage.getItem('nx_voice_on') !== '0',
+    sessions: [],
+    plusOpen: false,
+    recording: false,
+  };
+
+  let built = false;
+  let rootEl, transcriptEl, inputEl, sendEl, drawerEl, personaSheetEl;
+
+  /* ═════════════════════════════════════════════════════════════════
+     PUBLIC API (what home.js + anywhere else calls)
+     ═════════════════════════════════════════════════════════════════ */
+  const chatview = {
+    open(opts = {}) {
+      if (!built) build();
+      // Claim the chat IDs — brain-chat.js binds to these.
+      claimIds();
+      document.body.classList.add('chatview-open');
+      rootEl.classList.add('open');
+      state.isOpen = true;
+      // Load most recent session into the transcript
+      if (!state.currentSessionId) {
+        state.currentSessionId = getActiveSessionId();
+      }
+      this.renderTranscript();
+      // Fetch session list in background for the drawer
+      loadSessions();
+      // Autofocus input unless user came via a specific flow
+      if (!opts.noFocus) {
+        setTimeout(() => inputEl?.focus(), 320);
+      }
+    },
+
+    close() {
+      if (!state.isOpen) return;
+      rootEl.classList.remove('open');
+      document.body.classList.remove('chatview-open');
+      closePlusMenu();
+      state.isOpen = false;
+      // Release IDs back so legacy HUD can reclaim them if user goes to brain view
+      releaseIds();
+    },
+
+    toggle() { state.isOpen ? this.close() : this.open(); },
+
+    renderTranscript() {
+      if (!transcriptEl) return;
+      // Brain-chat.js renders via addB() into #chatMessages. We host that
+      // container inside .cv-transcript-inner. On open, re-hydrate from
+      // chat_history for this session so conversations persist.
+      const holder = transcriptEl.querySelector('#chatMessages');
+      if (!holder) return;
+      holder.innerHTML = '';
+      hydrateSession(state.currentSessionId).then(turns => {
+        if (!turns.length) {
+          renderEmptyState(holder);
+        } else {
+          renderTurns(holder, turns);
+        }
+        scrollToBottom();
+      });
+    },
+
+    setPersona(toneKey) {
+      state.tone = toneKey;
+      localStorage.setItem('nx_chat_tone', toneKey);
+      // Expose so brain-chat.js can read when building persona
+      window._NX_PERSONA_SUFFIX = TONE_PRESETS[toneKey]?.suffix || '';
+    },
+  };
+
+  // Make persona suffix available immediately (even before chat is opened)
+  window._NX_PERSONA_SUFFIX = TONE_PRESETS[state.tone]?.suffix || '';
+
+  NX.chatview = chatview;
+
+  /* ═════════════════════════════════════════════════════════════════
+     BUILD — mount DOM lazily on first open
+     ═════════════════════════════════════════════════════════════════ */
+  function build() {
+    rootEl = document.createElement('div');
+    rootEl.className = 'chatview';
+    rootEl.innerHTML = `
+      <div class="cv-top">
+        <button class="cv-back" id="cvBack" aria-label="Back">${svg(ICONS.back)}</button>
+        <div class="cv-brand" id="cvBrand" title="Tone & voice settings">
+          <span class="cv-brand-galaxy" id="cvBrandGalaxy">
+            <canvas width="36" height="36"></canvas>
+          </span>
+          <span class="cv-brand-mark">NEXUS</span>
+        </div>
+        <button class="cv-icon-btn" id="cvMenu" aria-label="Conversations">${svg(ICONS.menu)}</button>
+      </div>
+
+      <div class="cv-transcript" id="cvTranscript">
+        <div class="cv-transcript-inner">
+          <div id="chatMessages"></div>
+        </div>
+      </div>
+
+      <div class="cv-input-wrap">
+        <div class="cv-input-wrap-inner">
+          <button class="cv-plus" id="cvPlus" aria-label="More" type="button">${svg(ICONS.plus)}</button>
+          <div class="cv-plus-menu" id="cvPlusMenu" role="menu"></div>
+          <textarea class="cv-input" id="chatInput" rows="1"
+            placeholder="Ask anything…" aria-label="Message"
+            autocomplete="off" data-lpignore="true" data-form-type="other"></textarea>
+          <button class="cv-send" id="chatSend" disabled aria-label="Send" type="button">${svg(ICONS.send, 16)}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(rootEl);
+
+    // Drawer (conversations)
+    const scrim = document.createElement('div');
+    scrim.className = 'cv-drawer-scrim';
+    scrim.id = 'cvDrawerScrim';
+    document.body.appendChild(scrim);
+
+    drawerEl = document.createElement('aside');
+    drawerEl.className = 'cv-drawer';
+    drawerEl.id = 'cvDrawer';
+    drawerEl.innerHTML = `
+      <div class="cv-drawer-header">
+        <div class="cv-drawer-title">Conversations</div>
+        <button class="cv-icon-btn" id="cvDrawerClose" aria-label="Close">${svg(ICONS.back, 18)}</button>
+      </div>
+      <button class="cv-drawer-new" id="cvDrawerNew">
+        ${svg(ICONS.newChat, 14)} New conversation
+      </button>
+      <div class="cv-drawer-list" id="cvDrawerList"></div>
+    `;
+    document.body.appendChild(drawerEl);
+
+    // Persona sheet
+    const psScrim = document.createElement('div');
+    psScrim.className = 'cv-persona-scrim';
+    psScrim.id = 'cvPersonaScrim';
+    document.body.appendChild(psScrim);
+
+    personaSheetEl = document.createElement('div');
+    personaSheetEl.className = 'cv-persona-sheet';
+    personaSheetEl.id = 'cvPersonaSheet';
+    document.body.appendChild(personaSheetEl);
+
+    // Cache refs
+    transcriptEl = rootEl.querySelector('#cvTranscript');
+    inputEl = rootEl.querySelector('#chatInput');
+    sendEl = rootEl.querySelector('#chatSend');
+
+    wireTopBar();
+    wireInput();
+    wirePlusMenu();
+    wireDrawer(scrim);
+    wirePersonaSheet(psScrim);
+    wireBrandGalaxy();
+    wireKeyboardShortcuts();
+
+    built = true;
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     ID CLAIM/RELEASE
+     ═════════════════════════════════════════════════════════════════ */
+  function claimIds() {
+    // Find the legacy HUD's inputs — if they still hold these IDs,
+    // rename them so ours win getElementById(). This lets brain-chat.js
+    // addB() write into OUR transcript and voice/camera buttons keep
+    // working because they bind by ID at setup time (already bound).
+    const legacyInput = document.querySelector('.hud-input #chatInput');
+    const legacySend = document.querySelector('.hud-input #chatSend');
+    const legacyMessages = document.querySelector('.chat-hud #chatMessages');
+    if (legacyInput && legacyInput !== inputEl) legacyInput.id = 'legacyChatInput';
+    if (legacySend && legacySend !== sendEl) legacySend.id = 'legacyChatSend';
+    if (legacyMessages) legacyMessages.id = 'legacyChatMessages';
+  }
+
+  function releaseIds() {
+    const legacyInput = document.getElementById('legacyChatInput');
+    const legacySend = document.getElementById('legacyChatSend');
+    const legacyMessages = document.getElementById('legacyChatMessages');
+    if (legacyInput) legacyInput.id = 'chatInput';
+    if (legacySend) legacySend.id = 'chatSend';
+    if (legacyMessages) legacyMessages.id = 'chatMessages';
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     WIRING
+     ═════════════════════════════════════════════════════════════════ */
+  function wireTopBar() {
+    rootEl.querySelector('#cvBack').addEventListener('click', () => chatview.close());
+    rootEl.querySelector('#cvMenu').addEventListener('click', () => openDrawer());
+    rootEl.querySelector('#cvBrand').addEventListener('click', () => openPersonaSheet());
+  }
+
+  function wireInput() {
+    // Auto-grow textarea
+    inputEl.addEventListener('input', () => {
+      inputEl.style.height = 'auto';
+      inputEl.style.height = Math.min(140, inputEl.scrollHeight) + 'px';
+      sendEl.disabled = !inputEl.value.trim();
+    });
+    inputEl.addEventListener('keydown', (e) => {
+      // Enter sends, Shift+Enter newlines
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        triggerSend();
+      }
+    });
+    sendEl.addEventListener('click', triggerSend);
+  }
+
+  function triggerSend() {
+    // brain-chat's askAI reads #chatInput.value, clears it, and pushes
+    // the user turn into #chatMessages itself. After our ID claim, our
+    // input owns #chatInput, so we just need to dispatch — don't clear
+    // the input first or askAI sees an empty string.
+    const q = inputEl.value.trim();
+    if (!q) return;
+    window.dispatchEvent(new CustomEvent('nx-chat-ask', { detail: { q } }));
+    // askAI will clear the value + disable send itself — we just collapse
+    // the autogrow height so visual state matches
+    setTimeout(() => {
+      inputEl.style.height = 'auto';
+    }, 40);
+  }
+
+  function wirePlusMenu() {
+    const plus = rootEl.querySelector('#cvPlus');
+    const menu = rootEl.querySelector('#cvPlusMenu');
+    renderPlusMenu(menu);
+    plus.addEventListener('click', (e) => {
+      e.stopPropagation();
+      state.plusOpen ? closePlusMenu() : openPlusMenu();
+    });
+    // Click outside to close
+    document.addEventListener('click', (e) => {
+      if (!state.plusOpen) return;
+      if (!menu.contains(e.target) && !plus.contains(e.target)) closePlusMenu();
+    });
+  }
+
+  function renderPlusMenu(menu) {
+    const items = [
+      { key: 'camera', label: 'Scan document', icon: ICONS.camera },
+      { key: 'mic',    label: 'Voice input',   icon: ICONS.mic },
+      { key: 'voice',  label: 'Voice replies', icon: state.voiceOn ? ICONS.volume : ICONS.volumeOff, toggle: true },
+    ];
+    menu.innerHTML = items.map(it => `
+      <button class="cv-plus-item ${it.toggle && it.key === 'voice' && state.voiceOn ? 'active' : ''}" data-key="${it.key}" type="button" role="menuitem">
+        ${svg(it.icon, 16)}
+        <span>${it.label}</span>
+        ${it.toggle ? '<span class="cv-plus-item-dot"></span>' : ''}
+      </button>
+    `).join('');
+    menu.querySelectorAll('.cv-plus-item').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handlePlusAction(btn.dataset.key);
+      });
+    });
+  }
+
+  function openPlusMenu() {
+    const menu = rootEl.querySelector('#cvPlusMenu');
+    const plus = rootEl.querySelector('#cvPlus');
+    renderPlusMenu(menu); // re-render to pick up voiceOn state
+    menu.classList.add('is-open');
+    plus.classList.add('is-open');
+    state.plusOpen = true;
+  }
+
+  function closePlusMenu() {
+    const menu = rootEl.querySelector('#cvPlusMenu');
+    const plus = rootEl.querySelector('#cvPlus');
+    menu?.classList.remove('is-open');
+    plus?.classList.remove('is-open');
+    state.plusOpen = false;
+  }
+
+  function handlePlusAction(key) {
+    closePlusMenu();
+    if (key === 'camera') {
+      // Re-trigger the legacy camera button logic which brain-chat owns
+      document.getElementById('camBtn')?.click() ||
+        window.dispatchEvent(new Event('nx-cam-tap'));
+    } else if (key === 'mic') {
+      document.getElementById('micBtn')?.click() ||
+        window.dispatchEvent(new Event('nx-mic-tap'));
+    } else if (key === 'voice') {
+      state.voiceOn = !state.voiceOn;
+      localStorage.setItem('nx_voice_on', state.voiceOn ? '1' : '0');
+      // Signal brain-chat so its internal voiceOn stays in sync
+      window.dispatchEvent(new CustomEvent('nx-voice-toggle', { detail: { on: state.voiceOn } }));
+    }
+  }
+
+  function wireDrawer(scrim) {
+    drawerEl.querySelector('#cvDrawerClose').addEventListener('click', closeDrawer);
+    drawerEl.querySelector('#cvDrawerNew').addEventListener('click', startNewConversation);
+    scrim.addEventListener('click', closeDrawer);
+  }
+
+  function openDrawer() {
+    drawerEl.classList.add('is-open');
+    document.getElementById('cvDrawerScrim').classList.add('is-open');
+    renderSessionsList();
+  }
+  function closeDrawer() {
+    drawerEl.classList.remove('is-open');
+    document.getElementById('cvDrawerScrim').classList.remove('is-open');
+  }
+
+  function startNewConversation() {
+    const newId = crypto.randomUUID ? crypto.randomUUID() : 's_' + Date.now();
+    localStorage.setItem('nexus_session_id', newId);
+    state.currentSessionId = newId;
+    closeDrawer();
+    chatview.renderTranscript();
+    inputEl?.focus();
+  }
+
+  function wirePersonaSheet(scrim) {
+    renderPersonaSheet();
+    scrim.addEventListener('click', closePersonaSheet);
+  }
+
+  function renderPersonaSheet() {
+    const current = state.tone;
+    const currentVoice = state.voiceIdx;
+    const toneHTML = Object.entries(TONE_PRESETS).map(([k, v]) => `
+      <button class="cv-persona-opt ${k === current ? 'is-active' : ''}" data-tone="${k}" type="button">
+        <span class="cv-persona-opt-label">${esc(v.label)}</span>
+        <span class="cv-persona-opt-desc">${esc(v.desc)}</span>
+      </button>
+    `).join('');
+
+    const voiceHTML = VOICES.map((v, idx) => `
+      <button class="cv-persona-voice ${idx === currentVoice ? 'is-active' : ''}" data-voice-idx="${idx}" type="button">${esc(v.name)}</button>
+    `).join('');
+
+    personaSheetEl.innerHTML = `
+      <div class="cv-persona-grip"></div>
+      <h3 class="cv-persona-h">Tone & voice</h3>
+      <div class="cv-persona-sub">How should NEXUS talk to you?</div>
+
+      <div class="cv-persona-section-title">Text tone</div>
+      <div class="cv-persona-grid">${toneHTML}</div>
+
+      <div class="cv-persona-section-title">Voice (when spoken)</div>
+      <div class="cv-persona-voices">${voiceHTML}</div>
+
+      <button class="cv-persona-close" id="cvPersonaClose" type="button">Done</button>
+    `;
+
+    personaSheetEl.querySelectorAll('.cv-persona-opt').forEach(btn => {
+      btn.addEventListener('click', () => {
+        chatview.setPersona(btn.dataset.tone);
+        renderPersonaSheet();
+      });
+    });
+    personaSheetEl.querySelectorAll('.cv-persona-voice').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.voiceIdx = parseInt(btn.dataset.voiceIdx, 10);
+        localStorage.setItem('nexus_voice_idx', String(state.voiceIdx));
+        // Signal brain-chat so its voice picker stays in sync
+        window.dispatchEvent(new CustomEvent('nx-voice-idx-change', { detail: { idx: state.voiceIdx } }));
+        renderPersonaSheet();
+      });
+    });
+    personaSheetEl.querySelector('#cvPersonaClose').addEventListener('click', closePersonaSheet);
+  }
+
+  function openPersonaSheet() {
+    renderPersonaSheet();
+    personaSheetEl.classList.add('is-open');
+    document.getElementById('cvPersonaScrim').classList.add('is-open');
+  }
+  function closePersonaSheet() {
+    personaSheetEl.classList.remove('is-open');
+    document.getElementById('cvPersonaScrim').classList.remove('is-open');
+  }
+
+  function wireBrandGalaxy() {
+    const canvas = rootEl.querySelector('#cvBrandGalaxy canvas');
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const size = 18;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const cx = size / 2, cy = size / 2;
+    const nodes = Array.from({ length: 8 }, (_, i) => ({
+      r: 2 + (i % 3) * 1.5 + Math.random() * 0.6,
+      theta: i * Math.PI / 4,
+      speed: 0.0005 + (i % 3) * 0.0002,
+      size: 0.7 + Math.random() * 0.5,
+      alpha: 0.35 + Math.random() * 0.45,
+    }));
+    let lastT = performance.now();
+    (function frame(t) {
+      const dt = t - lastT; lastT = t;
+      ctx.clearRect(0, 0, size, size);
+      for (const n of nodes) {
+        n.theta += n.speed * dt;
+        const x = cx + Math.cos(n.theta) * n.r;
+        const y = cy + Math.sin(n.theta) * n.r;
+        ctx.fillStyle = `rgba(237, 233, 224, ${n.alpha})`;
+        ctx.beginPath();
+        ctx.arc(x, y, n.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(212, 164, 78, 0.85)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+      requestAnimationFrame(frame);
+    })(performance.now());
+  }
+
+  function wireKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+      // Escape closes chat view
+      if (e.key === 'Escape' && state.isOpen) {
+        // Let dropdowns close first
+        if (state.plusOpen) { closePlusMenu(); return; }
+        if (document.getElementById('cvDrawerScrim')?.classList.contains('is-open')) {
+          closeDrawer(); return;
+        }
+        if (document.getElementById('cvPersonaScrim')?.classList.contains('is-open')) {
+          closePersonaSheet(); return;
+        }
+        chatview.close();
+      }
+    });
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     TRANSCRIPT RENDERING
+     ═════════════════════════════════════════════════════════════════ */
+  function renderEmptyState(holder) {
+    const prompts = buildPromptChips();
+    const firstName = (NX.currentUser?.name || '').split(' ')[0] || 'there';
+    const hour = new Date().getHours();
+    const salutation = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
+    holder.innerHTML = `
+      <div class="cv-empty">
+        <div class="cv-empty-eyebrow">Just ask</div>
+        <h2 class="cv-empty-h">
+          <em>${esc(salutation)}</em>, ${esc(firstName)}.<br>
+          What do you need?
+        </h2>
+        <div class="cv-empty-prompts">
+          ${prompts.map(p => `
+            <button class="cv-prompt" data-prompt="${esc(p.text)}" type="button">
+              <span class="cv-prompt-kicker">${esc(p.kicker)}</span>
+              ${esc(p.text)}
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    holder.querySelectorAll('.cv-prompt').forEach(btn => {
+      btn.addEventListener('click', () => {
+        inputEl.value = btn.dataset.prompt;
+        inputEl.dispatchEvent(new Event('input'));
+        triggerSend();
+      });
+    });
+  }
+
+  function buildPromptChips() {
+    // Mix of always-useful starters + top-access nodes
+    const base = [
+      { kicker: 'Overview',  text: 'What happened overnight?' },
+      { kicker: 'Operations', text: 'What needs my attention today?' },
+      { kicker: 'Contractors', text: 'Who\'s visiting this week?' },
+    ];
+    try {
+      const top = (NX.nodes || [])
+        .filter(n => !n.is_private)
+        .sort((a, b) => (b.access_count || 0) - (a.access_count || 0))
+        .slice(0, 2);
+      top.forEach(n => {
+        if (n.category === 'contractors') base.push({ kicker: 'Contractor', text: `Who is ${n.name}?` });
+        else if (n.category === 'equipment') base.push({ kicker: 'Equipment', text: `${n.name} — status & history` });
+      });
+    } catch (e) {}
+    return base.slice(0, 5);
+  }
+
+  function renderTurns(holder, turns) {
+    // Render past turns using the SAME .chat-bubble markup that brain-chat's
+    // addB() uses. The chatview's CSS remaps those bubbles to transcript
+    // style, so historical turns and new live turns render identically.
+    const byDay = groupByDay(turns);
+    let html = '';
+    byDay.forEach(([day, dayTurns]) => {
+      html += `<div class="cv-day">${esc(day)}</div>`;
+      dayTurns.forEach(t => {
+        const cls = t.role === 'user' ? 'chat-user' : 'chat-ai';
+        const time = t.ts ? formatTime(t.ts) : '';
+        html += `
+          <div class="chat-bubble ${cls}">${escMultiline(t.content || '')}${time ? `<span class="chat-time">${esc(time)}</span>` : ''}</div>
+        `;
+      });
+    });
+    holder.innerHTML = html;
+  }
+
+  function groupByDay(turns) {
+    const groups = new Map();
+    const fmt = (d) => {
+      const today = new Date(); today.setHours(0,0,0,0);
+      const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+      const dt = new Date(d); dt.setHours(0,0,0,0);
+      if (dt.getTime() === today.getTime())    return 'Today';
+      if (dt.getTime() === yesterday.getTime()) return 'Yesterday';
+      return dt.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+    };
+    turns.forEach(t => {
+      const k = t.ts ? fmt(t.ts) : 'Earlier';
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(t);
+    });
+    return [...groups.entries()];
+  }
+
+  function scrollToBottom() {
+    setTimeout(() => {
+      if (transcriptEl) transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    }, 30);
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     SESSION DATA (chat_history table)
+     ═════════════════════════════════════════════════════════════════ */
+  function getActiveSessionId() {
+    return localStorage.getItem('nexus_session_id');
+  }
+
+  async function hydrateSession(sessionId) {
+    if (!sessionId || !NX.sb) return [];
+    try {
+      const { data, error } = await NX.sb
+        .from('chat_history')
+        .select('question, answer, created_at')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: true })
+        .limit(200);
+      if (error || !data) return [];
+      // Each row has q + a. Expand into two turn objects each.
+      const turns = [];
+      data.forEach(r => {
+        if (r.question) turns.push({ role: 'user', content: r.question, ts: r.created_at });
+        if (r.answer)   turns.push({ role: 'assistant', content: r.answer, ts: r.created_at });
+      });
+      return turns;
+    } catch (err) {
+      console.warn('[chat] hydrate failed:', err.message);
+      return [];
+    }
+  }
+
+  async function loadSessions() {
+    if (!NX.sb) return;
+    try {
+      // Group chat_history by session_id, most recent first
+      const since = new Date(Date.now() - 60 * 86400000).toISOString();
+      const { data, error } = await NX.sb
+        .from('chat_history')
+        .select('session_id, question, answer, created_at, user_name')
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(400);
+      if (error || !data) return;
+
+      const byId = new Map();
+      data.forEach(r => {
+        if (!r.session_id) return;
+        if (!byId.has(r.session_id)) {
+          byId.set(r.session_id, {
+            id: r.session_id,
+            title: '',
+            last: r.created_at,
+            count: 0,
+          });
+        }
+        const s = byId.get(r.session_id);
+        s.count++;
+        // Use the FIRST question as the title (earliest row of this session)
+        if (r.question) s.title = r.question;
+      });
+      state.sessions = [...byId.values()].sort((a, b) => new Date(b.last) - new Date(a.last)).slice(0, 40);
+      if (drawerEl?.classList.contains('is-open')) renderSessionsList();
+    } catch (err) {
+      console.warn('[chat] loadSessions failed:', err.message);
+    }
+  }
+
+  function renderSessionsList() {
+    const list = drawerEl.querySelector('#cvDrawerList');
+    if (!list) return;
+    if (!state.sessions.length) {
+      list.innerHTML = `<div class="cv-drawer-empty">No conversations yet. Start one with the input below.</div>`;
+      return;
+    }
+    list.innerHTML = state.sessions.map(s => `
+      <button class="cv-drawer-item ${s.id === state.currentSessionId ? 'is-active' : ''}" data-sess="${esc(s.id)}" type="button">
+        <div class="cv-drawer-item-title">${esc(truncate(s.title || 'Untitled', 80))}</div>
+        <div class="cv-drawer-item-meta">${esc(formatRelDate(s.last))} · ${s.count} msg${s.count === 1 ? '' : 's'}</div>
+      </button>
+    `).join('');
+    list.querySelectorAll('.cv-drawer-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.sess;
+        localStorage.setItem('nexus_session_id', id);
+        state.currentSessionId = id;
+        closeDrawer();
+        chatview.renderTranscript();
+      });
+    });
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     HELPERS
+     ═════════════════════════════════════════════════════════════════ */
+  function esc(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function escMultiline(s) {
+    // preserve line breaks visually; the container has white-space:pre-wrap
+    return esc(s);
+  }
+  function truncate(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+  function formatTime(iso) {
+    try { return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
+    catch (e) { return ''; }
+  }
+  function formatRelDate(iso) {
+    try {
+      const d = new Date(iso);
+      const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+      if (mins < 60)   return mins + 'm ago';
+      if (mins < 1440) return Math.floor(mins / 60) + 'h ago';
+      const days = Math.floor(mins / 1440);
+      if (days < 7)    return days + 'd ago';
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    } catch (e) { return ''; }
+  }
+})();
