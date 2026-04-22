@@ -2106,7 +2106,7 @@ ${chats.slice(0,8).map(c=>`${c.user_name}: "${(c.question||'').slice(0,60)}"`).j
     const resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:800,messages:[{role:'user',content:`You are NEXUS, the ops brain for Suerte, Este, and Bar Toti restaurants (Austin TX). Generate a weekly operations digest from this data. Be direct, insightful, and actionable. Flag concerns. Praise wins. Suggest what to focus on next week. Format with headers but keep it concise — this goes on a phone screen.\n\n${data}`}]})
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:800,messages:[{role:'user',content:`You are NEXUS, a personal intelligence system for Suerte, Este, and Bar Toti restaurants (Austin TX). Generate a weekly operations digest from this data. Be direct, insightful, and actionable. Flag concerns. Praise wins. Suggest what to focus on next week. Format with headers but keep it concise — this goes on a phone screen.\n\n${data}`}]})
     });
     const result=await resp.json();
     const digest=result.content?.[0]?.text;
