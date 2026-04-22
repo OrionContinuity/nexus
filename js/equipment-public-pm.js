@@ -56,6 +56,10 @@
       openMassMode,
       reviewPendingLogs 
     };
+    // Expose the public contract that equipment-public-scan.js calls when
+    // the "Log Service" button is tapped. Without this, the scan page
+    // shows "PM Logger not loaded" because the fallback alert fires.
+    window._NX_PUBLIC_PM_OPEN = openLoggerForm;
   }
 
   /* ═════════════════════════════════════════════════════════════════════════
