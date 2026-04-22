@@ -932,126 +932,160 @@
   // Timeout wrapper: every Supabase call gets at most 4s before we give
   // up and return null. Prevents the whole overview from hanging when a
   // single table or view is slow/missing.
-  function withTimeout(promise, ms = 4000) {
+  function withTimeout(promise, ms = 3500) {
     return Promise.race([
       promise,
       new Promise((resolve) => setTimeout(() => resolve({ __timeout: true }), ms))
     ]);
   }
 
+  // ─── Sync painters — run WITHOUT Supabase so they never hang ─────
+  // These render as soon as the modal opens. Supabase-dependent data
+  // overlays these as queries return (or stays as default if they fail).
+  function paintIntegrationsSync() {
+    const el = document.getElementById('atIntegrations');
+    if (!el) return;
+    const anthropic = localStorage.getItem('nexus_api_key') || window.NX?.config?.anthropic_key;
+    const eleven    = localStorage.getItem('nexus_eleven_key') || window.NX?.config?.eleven_key;
+    const trelloKey = localStorage.getItem('nexus_trello_key') || window.NX?.config?.trello_key;
+    const trelloTok = localStorage.getItem('nexus_trello_token') || window.NX?.config?.trello_token;
+    const drive     = localStorage.getItem('driveStatus') === 'connected';
+    const rows = [
+      { ok: !!anthropic, label: 'Claude AI' },
+      { ok: !!eleven, label: 'ElevenLabs' },
+      { ok: !!(trelloKey && trelloTok), label: 'Trello' },
+      { ok: drive, label: 'Google Drive' },
+    ];
+    el.innerHTML = rows.map(r =>
+      `<span class="at-int-chip ${r.ok ? 'ok' : 'off'}">${r.ok ? '✓' : '○'} ${r.label}</span>`
+    ).join('');
+  }
+  function paintAttentionDefault() {
+    const el = document.getElementById('atAttention');
+    if (!el) return;
+    const anthropic = localStorage.getItem('nexus_api_key') || window.NX?.config?.anthropic_key;
+    if (!anthropic) {
+      el.innerHTML = '<div class="at-attn-item danger">🔑 Claude API key not configured</div>';
+    } else {
+      el.innerHTML = '<div class="at-attn-item ok">✅ Nothing urgent — everything running smoothly.</div>';
+    }
+  }
+  function paintActivityDefault() {
+    const el = document.getElementById('atRecentActivity');
+    if (el) el.innerHTML = '<div class="at-activity-empty">No recent system events</div>';
+  }
+
+  // Expose so app.js can call paintOverviewDefaults on modal open before
+  // any network happens. Also called as first step of loadOverviewStats.
+  window.paintOverviewDefaults = function() {
+    paintIntegrationsSync();
+    paintAttentionDefault();
+    paintActivityDefault();
+  };
+
+  // ─── Independent stat queries ────────────────────────────────────
+  // Each runs on its own. No Promise.all. If one hangs or throws,
+  // others still complete and populate their target.
+  async function runStatQuery(targetId, fn, opts = {}) {
+    const el = document.getElementById(targetId);
+    if (!el) return null;
+    try {
+      const r = await withTimeout(fn());
+      if (!r || r.__timeout) return null;
+      const count = r.count ?? (r.data?.length ?? 0);
+      el.textContent = count == null ? '—' : String(count);
+      if (opts.onResult) opts.onResult(count);
+      return count;
+    } catch (e) { return null; }
+  }
+
   async function loadOverviewStats() {
-    // Throttle: don't re-load within 8s
-    if (Date.now() - _lastOverviewLoad < 8000) return;
+    if (Date.now() - _lastOverviewLoad < 6000) return;
     _lastOverviewLoad = Date.now();
 
-    const setText = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = String(val ?? '—'); };
+    // ALWAYS paint defaults synchronously — so the three big sections
+    // never sit on "Loading…" even if Supabase is unreachable.
+    window.paintOverviewDefaults();
+
     const sb = window.NX?.sb;
     if (!sb) return;
 
-    // Each query wrapped in both a timeout AND a try/catch so any single
-    // failure (missing table, RLS block, network hang) degrades gracefully.
-    const safeCount = async (fn) => {
-      try {
-        const r = await withTimeout(fn());
-        if (!r || r.__timeout) return null;
-        return r.count ?? (r.data?.length ?? 0);
-      } catch(e) { return null; }
-    };
-    const safeData = async (fn) => {
-      try {
-        const r = await withTimeout(fn());
-        if (!r || r.__timeout) return [];
-        return r.data || [];
-      } catch(e) { return []; }
-    };
+    // Fire every stat query independently. Each updates its tile on its own.
+    const state = { overdueCount: 0, pmPending: 0 };
 
-    const [pushCount, userCount, nodeCount, equipCount, openCards, overdueCount, pmPending, recentSys, users] = await Promise.all([
-      safeCount(() => sb.from('push_subscriptions').select('*', { count: 'exact', head: true })),
-      safeCount(() => sb.from('nexus_users').select('*', { count: 'exact', head: true })),
-      safeCount(() => sb.from('nodes').select('*', { count: 'exact', head: true })),
-      safeCount(() => sb.from('equipment').select('*', { count: 'exact', head: true })),
-      safeCount(() => sb.from('kanban_cards').select('*', { count: 'exact', head: true }).eq('archived', false)),
-      safeCount(async () => {
-        // Try the v4 view first; fall back to raw query if not deployed
+    // Tile queries — counts displayed in the top grid
+    runStatQuery('atPushCount',      () => sb.from('push_subscriptions').select('*', { count: 'exact', head: true }));
+    runStatQuery('atUserCount',      () => sb.from('nexus_users').select('*', { count: 'exact', head: true }));
+    runStatQuery('atNodeCount',      () => sb.from('nodes').select('*', { count: 'exact', head: true }));
+    runStatQuery('atEquipmentCount', () => sb.from('equipment').select('*', { count: 'exact', head: true }));
+    runStatQuery('atOpenCardsCount', () => sb.from('kanban_cards').select('*', { count: 'exact', head: true }).eq('archived', false));
+
+    // Overdue — paints into a tile that's hidden when 0
+    const overdueTask = (async () => {
+      try {
+        let r;
         try {
-          const v = await sb.from('open_cards_with_equipment').select('*', { count: 'exact', head: true }).eq('is_overdue', true);
-          if (v && !v.error) return v;
-        } catch(e) { /* view may not exist — use fallback */ }
-        const today = new Date().toISOString().slice(0,10);
-        return sb.from('kanban_cards').select('*', { count: 'exact', head: true })
-          .eq('archived', false).lt('due_date', today).not('due_date', 'is', null);
-      }),
-      safeCount(() => sb.from('pm_logs').select('*', { count: 'exact', head: true }).eq('review_status', 'pending').eq('is_deleted', false)),
-      safeData(() => sb.from('daily_logs').select('id,entry,created_at').like('entry', '[SYS]%').order('created_at', { ascending: false }).limit(8)),
-      safeData(() => sb.from('nexus_users').select('role')),
-    ]);
+          r = await withTimeout(sb.from('open_cards_with_equipment').select('*', { count: 'exact', head: true }).eq('is_overdue', true));
+        } catch(e) { r = null; }
+        if (!r || r.__timeout || r.error) {
+          const today = new Date().toISOString().slice(0,10);
+          r = await withTimeout(sb.from('kanban_cards').select('*', { count: 'exact', head: true }).eq('archived', false).lt('due_date', today).not('due_date', 'is', null));
+        }
+        if (!r || r.__timeout) return;
+        const count = r.count ?? 0;
+        state.overdueCount = count;
+        const card = document.getElementById('atOverdueCard');
+        if (card) {
+          if (count > 0) { card.style.display = ''; const num = document.getElementById('atOverdueCount'); if (num) num.textContent = String(count); }
+          else { card.style.display = 'none'; }
+        }
+        refreshAttention();
+      } catch(e) {}
+    })();
 
-    setText('atPushCount', pushCount ?? '—');
-    setText('atUserCount', userCount ?? '—');
-    setText('atNodeCount', nodeCount ?? '—');
-    setText('atEquipmentCount', equipCount ?? '—');
-    setText('atOpenCardsCount', openCards ?? '—');
+    // PM pending — feeds the attention block
+    const pmTask = (async () => {
+      try {
+        const r = await withTimeout(sb.from('pm_logs').select('*', { count: 'exact', head: true }).eq('review_status', 'pending').eq('is_deleted', false));
+        if (!r || r.__timeout) return;
+        state.pmPending = r.count ?? 0;
+        refreshAttention();
+      } catch(e) {}
+    })();
 
-    // Overdue stat card shown only when > 0
-    const overdueCardEl = document.getElementById('atOverdueCard');
-    if (overdueCardEl) {
-      if (overdueCount && overdueCount > 0) {
-        overdueCardEl.style.display = '';
-        setText('atOverdueCount', overdueCount);
-      } else {
-        overdueCardEl.style.display = 'none';
-      }
-    }
-
-    // Integrations chips
-    const integrations = document.getElementById('atIntegrations');
-    if (integrations) {
-      const anthropic = localStorage.getItem('nexus_api_key') || window.NX?.config?.anthropic_key;
-      const eleven = localStorage.getItem('nexus_eleven_key') || window.NX?.config?.eleven_key;
-      const trelloKey = localStorage.getItem('nexus_trello_key') || window.NX?.config?.trello_key;
-      const trelloTok = localStorage.getItem('nexus_trello_token') || window.NX?.config?.trello_token;
-      const drive = localStorage.getItem('driveStatus') === 'connected';
-      const rows = [
-        { ok: !!anthropic, label: 'Claude AI' },
-        { ok: !!eleven, label: 'ElevenLabs' },
-        { ok: !!(trelloKey && trelloTok), label: 'Trello' },
-        { ok: drive, label: 'Google Drive' },
-      ];
-      integrations.innerHTML = rows.map(r =>
-        `<span class="at-int-chip ${r.ok ? 'ok' : 'off'}">${r.ok ? '✓' : '○'} ${r.label}</span>`
-      ).join('');
-    }
-
-    // Needs attention
-    const attn = document.getElementById('atAttention');
-    if (attn) {
-      const items = [];
-      const pmN = pmPending || 0;
-      const odN = overdueCount || 0;
-      if (pmN > 0) items.push({ cls: '', txt: `⚠️ ${pmN} contractor PM log${pmN > 1 ? 's' : ''} pending review` });
-      if (odN >= 50) items.push({ cls: 'danger', txt: `🚨 ${odN} cards overdue — run Board Clean Up` });
-      else if (odN > 0) items.push({ cls: '', txt: `📅 ${odN} card${odN > 1 ? 's' : ''} overdue` });
-      const anthropic = localStorage.getItem('nexus_api_key') || window.NX?.config?.anthropic_key;
-      if (!anthropic) items.push({ cls: 'danger', txt: '🔑 Claude API key not configured' });
-
-      attn.innerHTML = items.length
-        ? items.map(i => `<div class="at-attn-item ${i.cls}">${i.txt}</div>`).join('')
-        : '<div class="at-attn-item ok">✅ Nothing urgent — everything running smoothly.</div>';
-    }
-
-    // Recent system activity
-    const act = document.getElementById('atRecentActivity');
-    if (act) {
-      if (recentSys && recentSys.length) {
-        act.innerHTML = recentSys.slice(0, 8).map(e => {
+    // Activity — independent and has its own rendering
+    (async () => {
+      try {
+        const r = await withTimeout(sb.from('daily_logs').select('id,entry,created_at').like('entry', '[SYS]%').order('created_at', { ascending: false }).limit(8));
+        if (!r || r.__timeout) return;
+        const data = r.data || [];
+        const el = document.getElementById('atRecentActivity');
+        if (!el) return;
+        if (!data.length) { el.innerHTML = '<div class="at-activity-empty">No recent system events</div>'; return; }
+        el.innerHTML = data.slice(0, 8).map(e => {
           const d = new Date(e.created_at);
           const time = d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
           const entry = (e.entry || '').replace(/^\[SYS\]\s*/, '');
           return `<div class="at-activity-row"><span class="at-activity-time">${time}</span><span class="at-activity-msg">${entry.replace(/</g,'&lt;').slice(0, 100)}</span></div>`;
         }).join('');
-      } else {
-        act.innerHTML = '<div class="at-activity-empty">No recent system events</div>';
-      }
+      } catch(e) {}
+    })();
+
+    // Attention refresh — redraws when any of its inputs change
+    function refreshAttention() {
+      const el = document.getElementById('atAttention');
+      if (!el) return;
+      const items = [];
+      const pmN = state.pmPending || 0;
+      const odN = state.overdueCount || 0;
+      if (pmN > 0) items.push({ cls: '', txt: `⚠️ ${pmN} contractor PM log${pmN > 1 ? 's' : ''} pending review` });
+      if (odN >= 50) items.push({ cls: 'danger', txt: `🚨 ${odN} cards overdue — run Board Clean Up` });
+      else if (odN > 0) items.push({ cls: '', txt: `📅 ${odN} card${odN > 1 ? 's' : ''} overdue` });
+      const anthropic = localStorage.getItem('nexus_api_key') || window.NX?.config?.anthropic_key;
+      if (!anthropic) items.push({ cls: 'danger', txt: '🔑 Claude API key not configured' });
+      el.innerHTML = items.length
+        ? items.map(i => `<div class="at-attn-item ${i.cls}">${i.txt}</div>`).join('')
+        : '<div class="at-attn-item ok">✅ Nothing urgent — everything running smoothly.</div>';
     }
   }
 
