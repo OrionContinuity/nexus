@@ -809,6 +809,11 @@ td.check{background:#F0EDE6 !important}
           });
         }
         // Eager-load Overview stats so there's no "Loading…" flash
+        // Eager paint of default content (integrations, attention, activity)
+        // so the three sections never sit on "Loading…" — even if Supabase
+        // is slow or the network is dead. loadOverviewStats overlays live
+        // data on top as queries complete.
+        window.paintOverviewDefaults?.();
         window.loadOverviewStats?.();
       } catch(e) { console.warn('[admin] panel init failed:', e); }
       if (this.isAdmin) {
