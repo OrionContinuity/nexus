@@ -71,7 +71,7 @@ const ZEBRA_BP_URL = 'http://localhost:9100';
 
 // Module state
 let equipment = [];
-let activeFilter = { location: 'all', status: 'all', category: 'all' };
+let activeFilter = { location: 'all', status: 'all', category: 'all', pm: 'all' };
 let viewMode = 'list';          // 'list' | 'grid'
 let currentEquipId = null;
 let searchQuery = '';
@@ -137,6 +137,14 @@ function buildUI() {
   const view = document.getElementById('equipmentView');
   if (!view) return;
 
+  // Apply pending filter intent from elsewhere (e.g., home dashboard
+  // PM-Due stat tap). Cleared after apply so it doesn't stick between
+  // view switches.
+  if (NX.equipmentFilterIntent) {
+    Object.assign(activeFilter, NX.equipmentFilterIntent);
+    NX.equipmentFilterIntent = null;
+  }
+
   view.innerHTML = `
     <div class="eq-header">
       <div class="eq-title-row">
@@ -172,6 +180,12 @@ function buildUI() {
             const label = s === 'all' ? 'All' : STATUSES.find(x=>x.key===s).label;
             return `<button class="eq-chip ${activeFilter.status===s?'active':''}" data-filter="status" data-value="${s}">${label}</button>`;
           }).join('')}
+        </div>
+        <div class="eq-filter-group">
+          <span class="eq-filter-label">PM:</span>
+          <button class="eq-chip ${activeFilter.pm==='all'?'active':''}" data-filter="pm" data-value="all">All</button>
+          <button class="eq-chip ${activeFilter.pm==='overdue'?'active':''}" data-filter="pm" data-value="overdue">Overdue</button>
+          <button class="eq-chip ${activeFilter.pm==='soon'?'active':''}" data-filter="pm" data-value="soon">Due ≤14d</button>
         </div>
       </div>
 
@@ -228,10 +242,20 @@ function renderStats() {
 }
 
 function getFiltered() {
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
+  const in14d = new Date(now.getTime() + 14 * 86400000).toISOString().slice(0, 10);
   return equipment.filter(e => {
     if (activeFilter.location !== 'all' && e.location !== activeFilter.location) return false;
     if (activeFilter.status !== 'all' && e.status !== activeFilter.status) return false;
     if (activeFilter.category !== 'all' && e.category !== activeFilter.category) return false;
+    if (activeFilter.pm === 'overdue') {
+      if (!e.next_pm_date) return false;
+      if (e.next_pm_date >= todayIso) return false; // not overdue
+    } else if (activeFilter.pm === 'soon') {
+      if (!e.next_pm_date) return false;
+      if (e.next_pm_date > in14d) return false;     // too far out
+    }
     if (searchQuery) {
       const hay = [e.name, e.model, e.serial_number, e.manufacturer, e.area, e.notes].join(' ').toLowerCase();
       if (!hay.includes(searchQuery)) return false;
@@ -3589,7 +3613,7 @@ function renderPublicScanHTML(eq, maint) {
         <button class="public-scan-btn public-scan-btn-primary" onclick="NX.modules.equipment.publicReportIssue('${eq.qr_code}')">🔴 Report Issue</button>
         <button class="public-scan-btn" onclick="window.location.href='${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}&login=1'">Sign In for Full Details</button>
       </div>
-      <div class="public-scan-footer">Powered by NEXUS</div>
+      <div class="public-scan-footer">Powered by NEXUS · Restaurant Operations Intelligence</div>
     </div>
   `;
 }
