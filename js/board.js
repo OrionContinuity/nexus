@@ -1,351 +1,1144 @@
-/* NEXUS Board v3 — Trello-level project management
-   Multiple boards, custom lists, card details, checklists, labels, comments, drag, archive
-*/
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEXUS Board v4 — Restaurant Operations Board
+
+   Trello-level project management, adapted for physical restaurant ops.
+   Every card can link to:
+     • equipment (what's broken)
+     • location (which restaurant)
+     • priority (urgent/high/normal/low — with colored bar)
+     • photos (snap-and-attach from phone)
+     • dispatch event (which contractor call was made)
+
+   Mobile-first: tap-to-move via column picker (drag is fragile on touch).
+   Desktop still supports drag-and-drop as a secondary affordance.
+
+   Exports (used by other modules):
+     NX.modules.board.init() / .show()
+     NX.modules.board.createFromEquipment(equipment, issue) — used by equipment.js
+     NX.modules.board.getOpenCardsForEquipment(id) — used by equipment.js
+   ═══════════════════════════════════════════════════════════════════════════ */
 (function(){
-let boards=[],activeBoard=null,lists=[],cards=[],dragCard=null,dragOverList=null;
 
-const LABEL_COLORS=['#d45858','#e8a830','#5bba5f','#5b9bd5','#a88fd8','#d4a44e','#6b9bf0','#a49c94'];
+// ─────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────
+const PRIORITIES = {
+  urgent: { label: 'Urgent', color: '#d45858', rank: 4 },
+  high:   { label: 'High',   color: '#e8a830', rank: 3 },
+  normal: { label: 'Normal', color: '',        rank: 2 },
+  low:    { label: 'Low',    color: '#5b9bd5', rank: 1 },
+};
 
+const LOCATIONS = [
+  { key: 'suerte', label: 'Suerte', color: '#c8a44e' },
+  { key: 'este',   label: 'Este',   color: '#a88fd8' },
+  { key: 'toti',   label: 'Toti',   color: '#5bba5f' },
+];
+
+const LABEL_COLORS = ['#d45858','#e8a830','#5bba5f','#5b9bd5','#a88fd8','#d4a44e','#6b9bf0','#a49c94'];
+
+// Default list structure when a brand-new board is created
+const DEFAULT_LISTS = [
+  { name: 'Reported',          position: 0 },
+  { name: 'Triaged',           position: 1 },
+  { name: 'Dispatched',        position: 2 },
+  { name: 'In Progress',       position: 3 },
+  { name: 'Waiting on Parts',  position: 4 },
+  { name: 'Resolved',          position: 5 },
+  { name: 'Closed',            position: 6 },
+];
+
+// ─────────────────────────────────────────────────────────────────────────
+// STYLES (injected once into <head>)
+// ─────────────────────────────────────────────────────────────────────────
+const STYLES = `
+  #boardWrap{padding:0 8px 80px;font-family:inherit}
+  .b-summary{display:flex;gap:10px;padding:12px 12px 8px;font-size:12px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:8px}
+  .b-summary-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:12px;background:rgba(255,255,255,0.04);color:var(--text,#d4c8a5)}
+  .b-summary-chip.alert{background:rgba(212,88,88,0.15);color:#e88;border:1px solid rgba(212,88,88,0.3)}
+  .b-summary-chip.ok{background:rgba(91,186,95,0.10);color:#8fd492}
+  .b-summary-chip.tap{cursor:pointer;user-select:none}
+  .b-summary-chip.tap:active{transform:scale(0.97)}
+  .b-summary-stats-btn{margin-left:auto;background:transparent;border:1px solid rgba(255,255,255,0.15);color:var(--text,#d4c8a5);padding:5px 12px;border-radius:12px;font-size:11px;cursor:pointer}
+
+  .board-header{display:flex;align-items:center;gap:4px;overflow-x:auto;padding:4px 0 12px;scrollbar-width:none}
+  .board-header::-webkit-scrollbar{display:none}
+  .board-tab{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--text,#d4c8a5);padding:6px 12px;border-radius:14px;font-size:12px;cursor:pointer;white-space:nowrap;border-left-width:3px}
+  .board-tab.active{background:rgba(200,164,78,0.12);border-color:#c8a44e}
+  .board-add-tab{font-weight:bold;padding:6px 10px}
+
+  .b-filters{display:flex;gap:6px;padding:0 4px 8px;overflow-x:auto;scrollbar-width:none}
+  .b-filters::-webkit-scrollbar{display:none}
+  .b-filter{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:var(--text-dim,#a49c94);padding:4px 10px;border-radius:10px;font-size:11px;cursor:pointer;white-space:nowrap}
+  .b-filter.active{background:rgba(200,164,78,0.15);color:#c8a44e;border-color:#c8a44e}
+
+  .b-lists{display:flex;gap:10px;overflow-x:auto;padding-bottom:20px;scrollbar-width:thin}
+  .b-list{flex:0 0 280px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;padding:10px;display:flex;flex-direction:column;max-height:calc(100vh - 260px)}
+  .b-list-head{display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:2px 2px 6px;border-bottom:1px solid rgba(255,255,255,0.05)}
+  .b-list-name{font-weight:600;font-size:13px;flex:1;color:var(--text,#d4c8a5)}
+  .b-list-count{font-size:11px;color:var(--text-dim,#a49c94);background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:8px}
+  .b-list-cards{flex:1;overflow-y:auto;min-height:30px;margin:0 -2px;padding:0 2px;scrollbar-width:thin}
+  .b-list-cards.drag-over{background:rgba(200,164,78,0.05);border-radius:6px}
+  .b-list-add{background:transparent;border:1px dashed rgba(255,255,255,0.15);color:var(--text-dim,#a49c94);padding:8px;border-radius:6px;cursor:pointer;margin-top:6px;width:100%;font-size:12px}
+  .b-list-add:active{background:rgba(255,255,255,0.03)}
+
+  .b-card{position:relative;background:rgba(20,18,14,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 12px 10px 14px;margin-bottom:8px;cursor:pointer;overflow:hidden}
+  .b-card:active{transform:scale(0.99)}
+  .b-card-pri-bar{position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--pri-color,transparent)}
+  .b-card-title{font-size:13px;font-weight:500;color:var(--text,#d4c8a5);margin-bottom:6px;line-height:1.35}
+  .b-card-labels{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+  .b-card-label{font-size:10px;padding:2px 7px;border-radius:8px;color:#1a1408;font-weight:600}
+  .b-card-photo-thumb{width:100%;max-height:120px;object-fit:cover;border-radius:4px;margin-bottom:6px;background:rgba(255,255,255,0.03)}
+  .b-card-badges{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:4px}
+  .b-card-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,0.05);color:var(--text-dim,#a49c94)}
+  .b-card-badge.pri-urgent{background:rgba(212,88,88,0.15);color:#e88;font-weight:600}
+  .b-card-badge.pri-high{background:rgba(232,168,48,0.15);color:#e8a830}
+  .b-card-badge.loc{font-weight:500}
+  .b-card-badge.eq{background:rgba(200,164,78,0.10);color:#c8a44e}
+  .b-card-badge.overdue{background:rgba(212,88,88,0.20);color:#e88;font-weight:600}
+  .b-card-meta{display:flex;gap:8px;font-size:10px;color:var(--text-faint,#746c5e);margin-top:4px;align-items:center;flex-wrap:wrap}
+  .b-card-move-btn{position:absolute;top:6px;right:6px;background:rgba(255,255,255,0.06);border:0;color:var(--text-dim,#a49c94);padding:3px 8px;border-radius:10px;font-size:10px;cursor:pointer;opacity:0;transition:opacity .15s}
+  .b-card:hover .b-card-move-btn,.b-card.show-move .b-card-move-btn{opacity:1}
+  @media(hover:none){.b-card-move-btn{opacity:1}}
+
+  /* Detail modal */
+  .b-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px 10px;overflow-y:auto;animation:bfade .15s ease}
+  @keyframes bfade{from{opacity:0}to{opacity:1}}
+  .b-modal{background:#1a1408;border:1px solid rgba(200,164,78,0.2);border-radius:12px;width:100%;max-width:600px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.6)}
+  .b-modal-head{display:flex;align-items:flex-start;gap:8px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.02)}
+  .b-modal-title{flex:1;background:transparent;border:0;color:var(--text,#d4c8a5);font-size:15px;font-weight:600;outline:none;font-family:inherit}
+  .b-modal-close{background:transparent;border:0;color:var(--text-dim,#a49c94);font-size:18px;cursor:pointer;padding:4px 8px}
+  .b-modal-body{padding:14px 16px;max-height:70vh;overflow-y:auto}
+  .b-section{margin-bottom:16px}
+  .b-section-label{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-faint,#746c5e);margin-bottom:4px}
+  .b-field{width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);color:var(--text,#d4c8a5);padding:8px 10px;border-radius:6px;font-size:13px;font-family:inherit;box-sizing:border-box}
+  .b-field:focus{outline:none;border-color:rgba(200,164,78,0.4)}
+  textarea.b-field{resize:vertical;min-height:60px}
+  select.b-field{cursor:pointer}
+  .b-field-row{display:flex;gap:8px}
+  .b-field-row > *{flex:1;min-width:0}
+
+  .b-eq-embed{background:rgba(200,164,78,0.06);border:1px solid rgba(200,164,78,0.2);border-radius:8px;padding:10px;display:flex;align-items:center;gap:10px;cursor:pointer}
+  .b-eq-embed:active{background:rgba(200,164,78,0.10)}
+  .b-eq-embed-icon{font-size:20px}
+  .b-eq-embed-body{flex:1;min-width:0}
+  .b-eq-embed-name{font-weight:600;font-size:13px;color:#c8a44e;margin-bottom:2px}
+  .b-eq-embed-meta{font-size:11px;color:var(--text-dim,#a49c94)}
+  .b-eq-embed-chev{color:var(--text-faint,#746c5e)}
+
+  .b-photos{display:flex;gap:6px;flex-wrap:wrap}
+  .b-photo{width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;background:rgba(255,255,255,0.04)}
+  .b-photo-add{width:80px;height:80px;border:1px dashed rgba(255,255,255,0.2);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim,#a49c94);font-size:20px;cursor:pointer;background:transparent}
+
+  .b-check{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;color:var(--text,#d4c8a5)}
+  .b-check input[type=checkbox]{accent-color:#c8a44e;width:16px;height:16px;cursor:pointer}
+  .b-check.done span{text-decoration:line-through;color:var(--text-faint,#746c5e)}
+  .b-check-add{display:flex;gap:6px;margin-top:6px}
+  .b-check-add input{flex:1;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);color:var(--text,#d4c8a5);padding:5px 8px;border-radius:4px;font-size:12px}
+  .b-check-add button{background:rgba(200,164,78,0.15);border:1px solid rgba(200,164,78,0.3);color:#c8a44e;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px}
+
+  .b-comment{padding:6px 8px;background:rgba(255,255,255,0.02);border-radius:4px;margin-bottom:4px;font-size:12px}
+  .b-comment-by{color:#c8a44e;font-weight:600;margin-right:6px}
+  .b-comment-time{color:var(--text-faint,#746c5e);font-size:10px}
+
+  .b-actions{display:flex;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);margin-top:10px}
+  .b-btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--text,#d4c8a5);padding:7px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit}
+  .b-btn:active{background:rgba(255,255,255,0.08)}
+  .b-btn-primary{background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;border-color:#c8a44e}
+  .b-btn-danger{background:rgba(212,88,88,0.1);color:#e88;border-color:rgba(212,88,88,0.3)}
+
+  /* Move picker */
+  .b-move-modal{max-width:360px}
+  .b-move-list{display:flex;flex-direction:column;gap:6px;padding:14px}
+  .b-move-item{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:var(--text,#d4c8a5);padding:12px 14px;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;display:flex;align-items:center;gap:8px}
+  .b-move-item.current{opacity:0.45;cursor:default}
+  .b-move-item:not(.current):active{background:rgba(200,164,78,0.1);border-color:#c8a44e}
+
+  /* Stats modal */
+  .b-stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
+  .b-stat{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:12px}
+  .b-stat-num{font-size:22px;font-weight:700;color:var(--text,#d4c8a5);margin-bottom:2px}
+  .b-stat-num.alert{color:#e88}
+  .b-stat-num.ok{color:#8fd492}
+  .b-stat-label{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-faint,#746c5e)}
+`;
+
+// ─────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────
+let boards = [], activeBoard = null, lists = [], cards = [], stats = null;
+let equipmentCache = [];     // for the equipment picker in the card modal
+let filters = { priority:null, location:null, equipment:null };
+let dragCard = null, dragOverListId = null;
+
+// ─────────────────────────────────────────────────────────────────────────
+// UTILITIES
+// ─────────────────────────────────────────────────────────────────────────
+function esc(s){ if(s==null)return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function injectStyles(){
+  if(document.getElementById('nexus-board-v4-styles'))return;
+  const s=document.createElement('style');
+  s.id='nexus-board-v4-styles';
+  s.textContent=STYLES;
+  document.head.appendChild(s);
+}
+
+function priorityInfo(key){ return PRIORITIES[key] || PRIORITIES.normal; }
+function locationInfo(key){ return LOCATIONS.find(l => l.key === key) || null; }
+
+function timeAgo(ts){
+  if(!ts)return '';
+  const diff = Date.now() - new Date(ts).getTime();
+  if(diff < 60000) return 'now';
+  if(diff < 3600000) return Math.floor(diff/60000)+'m';
+  if(diff < 86400000) return Math.floor(diff/3600000)+'h';
+  if(diff < 30*86400000) return Math.floor(diff/86400000)+'d';
+  return Math.floor(diff/(30*86400000))+'mo';
+}
+
+function isOverdue(card){
+  return card.due_date && new Date(card.due_date) < new Date(new Date().toDateString());
+}
+
+// Sanitize for tel: / href injection
+function safeAttr(s){ return String(s||'').replace(/[<>"'`\n]/g,''); }
+
+// ─────────────────────────────────────────────────────────────────────────
+// DATA LOADING
+// ─────────────────────────────────────────────────────────────────────────
 async function loadBoards(){
   try{
-    const{data}=await NX.sb.from('boards').select('*').eq('archived',false).order('position');
-    boards=data||[];
+    const { data } = await NX.sb.from('boards').select('*').eq('archived', false).order('position');
+    boards = data || [];
     if(!boards.length){
-      // Create default board
-      const{data:nb}=await NX.sb.from('boards').insert({name:'Operations',color:'#c8a44e',position:0}).select().single();
-      if(nb){boards=[nb];
-        await NX.sb.from('board_lists').insert([
-          {board_id:nb.id,name:'To Do',position:0},
-          {board_id:nb.id,name:'In Progress',position:1},
-          {board_id:nb.id,name:'Done',position:2}
-        ]);
+      // Create default "Operations" board with the restaurant-ops column structure
+      const { data: nb } = await NX.sb.from('boards')
+        .insert({ name: 'Operations', color: '#c8a44e', position: 0 })
+        .select().single();
+      if(nb){
+        boards = [nb];
+        await NX.sb.from('board_lists').insert(
+          DEFAULT_LISTS.map(l => ({ ...l, board_id: nb.id }))
+        );
       }
     }
-    if(!activeBoard&&boards.length)activeBoard=boards[0];
-  }catch(e){console.error('Board load:',e);}
+    if(!activeBoard && boards.length) activeBoard = boards[0];
+  }catch(e){ console.error('[board] loadBoards:', e); }
 }
 
 async function loadLists(){
-  if(!activeBoard)return;
+  if(!activeBoard) return;
   try{
-    const{data}=await NX.sb.from('board_lists').select('*').eq('board_id',activeBoard.id).order('position');
-    lists=data||[];
-  }catch(e){lists=[];}
+    const { data } = await NX.sb.from('board_lists')
+      .select('*').eq('board_id', activeBoard.id).order('position');
+    lists = data || [];
+  }catch(e){ console.error('[board] loadLists:', e); lists = []; }
 }
 
 async function loadCards(){
-  if(!activeBoard)return;
+  if(!activeBoard) return;
   try{
-    const{data}=await NX.sb.from('kanban_cards').select('*').eq('board_id',activeBoard.id).eq('archived',false).order('position');
-    cards=data||[];
-  }catch(e){cards=[];}
+    const { data } = await NX.sb.from('kanban_cards')
+      .select('*')
+      .eq('board_id', activeBoard.id)
+      .eq('archived', false)
+      .order('position');
+    cards = data || [];
+  }catch(e){ console.error('[board] loadCards:', e); cards = []; }
 }
 
+async function loadStats(){
+  try{
+    const { data } = await NX.sb.from('board_stats').select('*').single();
+    stats = data || null;
+  }catch(e){ /* view may not exist until SQL migration run */ stats = null; }
+}
+
+async function loadEquipmentCache(){
+  if(equipmentCache.length) return equipmentCache;
+  try{
+    const { data } = await NX.sb.from('equipment')
+      .select('id, name, location')
+      .order('name').limit(500);
+    equipmentCache = data || [];
+  }catch(e){ equipmentCache = []; }
+  return equipmentCache;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// FILTERING
+// ─────────────────────────────────────────────────────────────────────────
+function applyFilters(cardList){
+  return cardList.filter(c => {
+    if(filters.priority && c.priority !== filters.priority) return false;
+    if(filters.location && c.location !== filters.location) return false;
+    if(filters.equipment && c.equipment_id !== filters.equipment) return false;
+    return true;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// RENDER — top-level
+// ─────────────────────────────────────────────────────────────────────────
 function render(){
-  const wrap=document.getElementById('boardWrap');
-  if(!wrap)return;
-  wrap.innerHTML='';
+  injectStyles();
+  const wrap = document.getElementById('boardWrap');
+  if(!wrap) return;
+  wrap.innerHTML = '';
+  wrap.appendChild(renderSummaryStrip());
+  wrap.appendChild(renderBoardHeader());
+  wrap.appendChild(renderFilterBar());
+  wrap.appendChild(renderLists());
+}
 
-  // Board selector
-  const header=document.createElement('div');header.className='board-header';
-  header.innerHTML=`<div class="board-selector">${boards.map(b=>
-    `<button class="board-tab${b.id===activeBoard?.id?' active':''}" data-bid="${b.id}" style="border-color:${b.color}">${b.name}</button>`
-  ).join('')}<button class="board-tab board-add-tab" id="addBoardBtn">+</button></div>`;
-  wrap.appendChild(header);
+function renderSummaryStrip(){
+  const strip = document.createElement('div');
+  strip.className = 'b-summary';
 
-  // Bind board tabs
-  header.querySelectorAll('.board-tab[data-bid]').forEach(btn=>{
-    btn.addEventListener('click',async()=>{
-      activeBoard=boards.find(b=>b.id==btn.dataset.bid);
-      await loadLists();await loadCards();render();
+  const open = cards.length;
+  const overdue = cards.filter(isOverdue).length;
+  const urgent = cards.filter(c => c.priority === 'urgent').length;
+
+  let html = '';
+  html += `<span class="b-summary-chip ${open>0?'':'ok'}"><strong>${open}</strong> open</span>`;
+  if(overdue > 0) html += `<span class="b-summary-chip alert"><strong>${overdue}</strong> overdue</span>`;
+  if(urgent > 0) html += `<span class="b-summary-chip alert">🚨 <strong>${urgent}</strong> urgent</span>`;
+  if(stats && stats.avg_close_days_30d != null){
+    html += `<span class="b-summary-chip">avg close <strong>${Number(stats.avg_close_days_30d).toFixed(1)}d</strong></span>`;
+  }
+  if(stats && stats.closed_last_7d){
+    html += `<span class="b-summary-chip ok">${stats.closed_last_7d} closed this week</span>`;
+  }
+  html += `<button class="b-summary-stats-btn" id="bStatsBtn">📊 Stats</button>`;
+  strip.innerHTML = html;
+  strip.querySelector('#bStatsBtn').addEventListener('click', openStatsModal);
+  return strip;
+}
+
+function renderBoardHeader(){
+  const header = document.createElement('div');
+  header.className = 'board-header';
+  header.innerHTML = boards.map(b => {
+    const active = b.id === activeBoard?.id ? ' active' : '';
+    return `<button class="board-tab${active}" data-bid="${b.id}" style="border-left-color:${b.color||'#c8a44e'}">${esc(b.name)}</button>`;
+  }).join('') + '<button class="board-tab board-add-tab" id="bAddBoard">+</button>';
+
+  header.querySelectorAll('.board-tab[data-bid]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      activeBoard = boards.find(b => b.id == btn.dataset.bid);
+      await loadLists(); await loadCards();
+      render();
     });
   });
-  header.querySelector('#addBoardBtn')?.addEventListener('click',()=>promptNewBoard());
+  header.querySelector('#bAddBoard').addEventListener('click', promptNewBoard);
+  return header;
+}
 
-  // Lists container
-  const listsWrap=document.createElement('div');listsWrap.className='board-lists';
-
-  lists.forEach(list=>{
-    const listEl=document.createElement('div');listEl.className='board-list';listEl.dataset.listId=list.id;
-
-    // List header
-    const lh=document.createElement('div');lh.className='board-list-header';
-    const listCards=cards.filter(c=>c.list_id===list.id);
-    lh.innerHTML=`<span class="board-list-name">${list.name}</span><span class="board-list-count">${listCards.length}</span>`;
-    listEl.appendChild(lh);
-
-    // Cards
-    const cardsWrap=document.createElement('div');cardsWrap.className='board-list-cards';
-    cardsWrap.dataset.listId=list.id;
-
-    listCards.sort((a,b)=>(a.position||0)-(b.position||0)).forEach(card=>{
-      const cardEl=createCardEl(card);
-      cardsWrap.appendChild(cardEl);
+function renderFilterBar(){
+  const bar = document.createElement('div');
+  bar.className = 'b-filters';
+  const mk = (key, val, label, color) => {
+    const active = filters[key] === val ? ' active' : '';
+    const style = color ? `style="border-color:${color}"` : '';
+    return `<button class="b-filter${active}" data-key="${key}" data-val="${val||''}" ${style}>${label}</button>`;
+  };
+  let html = '';
+  html += mk('priority', null, 'All', null);
+  html += mk('priority', 'urgent', '🚨 Urgent', '#d45858');
+  html += mk('priority', 'high',   '⚠ High',   '#e8a830');
+  html += mk('priority', 'low',    'Low',      '#5b9bd5');
+  html += `<span style="width:8px"></span>`;
+  LOCATIONS.forEach(l => {
+    html += mk('location', l.key, l.label, l.color);
+  });
+  bar.innerHTML = html;
+  bar.querySelectorAll('.b-filter').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const k = btn.dataset.key, v = btn.dataset.val || null;
+      filters[k] = (filters[k] === v) ? null : v;
+      render();
     });
+  });
+  return bar;
+}
 
-    // Drop zone
-    cardsWrap.addEventListener('dragover',e=>{e.preventDefault();cardsWrap.classList.add('drag-over');dragOverList=list.id;});
-    cardsWrap.addEventListener('dragleave',()=>cardsWrap.classList.remove('drag-over'));
-    cardsWrap.addEventListener('drop',async e=>{
-      e.preventDefault();cardsWrap.classList.remove('drag-over');
-      if(dragCard&&dragCard.list_id!==list.id){
-        await NX.sb.from('kanban_cards').update({list_id:list.id,column_name:list.name.toLowerCase().replace(/\s+/g,'_')}).eq('id',dragCard.id);
-        dragCard.list_id=list.id;render();
+function renderLists(){
+  const wrapper = document.createElement('div');
+  wrapper.className = 'b-lists';
+
+  const visibleCards = applyFilters(cards);
+
+  lists.forEach(list => {
+    const listEl = document.createElement('div');
+    listEl.className = 'b-list';
+
+    const listCards = visibleCards
+      .filter(c => c.list_id === list.id)
+      .sort((a,b) => (a.position||0) - (b.position||0));
+
+    const head = document.createElement('div');
+    head.className = 'b-list-head';
+    head.innerHTML = `<div class="b-list-name">${esc(list.name)}</div>
+      <div class="b-list-count">${listCards.length}</div>`;
+    listEl.appendChild(head);
+
+    const cardsWrap = document.createElement('div');
+    cardsWrap.className = 'b-list-cards';
+    cardsWrap.dataset.listId = list.id;
+
+    // Desktop drag support (mobile uses Move button)
+    cardsWrap.addEventListener('dragover', e => {
+      e.preventDefault();
+      cardsWrap.classList.add('drag-over');
+      dragOverListId = list.id;
+    });
+    cardsWrap.addEventListener('dragleave', () => cardsWrap.classList.remove('drag-over'));
+    cardsWrap.addEventListener('drop', async e => {
+      e.preventDefault();
+      cardsWrap.classList.remove('drag-over');
+      if(dragCard && dragCard.list_id !== list.id){
+        await moveCard(dragCard, list);
       }
+      dragCard = null;
     });
 
-    // Touch drag support
-    cardsWrap.addEventListener('touchmove',e=>{e.preventDefault();},{passive:false});
-
+    listCards.forEach(c => cardsWrap.appendChild(createCardEl(c)));
     listEl.appendChild(cardsWrap);
 
-    // Add card button
-    const addBtn=document.createElement('button');addBtn.className='board-list-add';
-    addBtn.textContent='+ Add card';
-    addBtn.addEventListener('click',()=>promptNewCard(list.id));
+    const addBtn = document.createElement('button');
+    addBtn.className = 'b-list-add';
+    addBtn.textContent = '+ Add card';
+    addBtn.addEventListener('click', () => promptNewCard(list.id));
     listEl.appendChild(addBtn);
 
-    listsWrap.appendChild(listEl);
+    wrapper.appendChild(listEl);
   });
 
   // Add list button
-  const addListEl=document.createElement('div');addListEl.className='board-list board-list-new';
-  addListEl.innerHTML='<button class="board-list-add-new">+ Add list</button>';
-  addListEl.querySelector('button').addEventListener('click',()=>promptNewList());
-  listsWrap.appendChild(addListEl);
+  const addListEl = document.createElement('div');
+  addListEl.className = 'b-list';
+  addListEl.style.background = 'transparent';
+  addListEl.style.border = '1px dashed rgba(255,255,255,0.1)';
+  addListEl.innerHTML = `<button class="b-list-add" style="margin:0">+ Add list</button>`;
+  addListEl.querySelector('button').addEventListener('click', promptNewList);
+  wrapper.appendChild(addListEl);
 
-  wrap.appendChild(listsWrap);
+  return wrapper;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// RENDER — single card
+// ─────────────────────────────────────────────────────────────────────────
 function createCardEl(card){
-  const el=document.createElement('div');el.className='board-card';
-  el.draggable=true;el.dataset.cardId=card.id;
+  const el = document.createElement('div');
+  el.className = 'b-card';
+  el.draggable = true;
+  el.dataset.cardId = card.id;
+
+  const pri = priorityInfo(card.priority);
+  const loc = locationInfo(card.location);
+  const overdue = isOverdue(card);
+
+  // Priority bar (left edge)
+  const priBarColor = pri.color || 'transparent';
+  let html = `<div class="b-card-pri-bar" style="background:${priBarColor}"></div>`;
+
+  // Move button (visible on mobile always, on desktop on hover)
+  html += `<button class="b-card-move-btn" data-move="${card.id}">→ Move</button>`;
 
   // Labels
-  const labels=card.labels||[];
-  let labelHtml='';
-  if(labels.length){labelHtml='<div class="card-labels">'+labels.map(l=>`<span class="card-label" style="background:${l.color||'#a49c94'}">${l.name||''}</span>`).join('')+'</div>';}
-
-  // Checklist progress
-  const checklist=card.checklist||[];
-  let checkHtml='';
-  if(checklist.length){
-    const done=checklist.filter(c=>c.done).length;
-    checkHtml=`<span class="card-check-count">☑ ${done}/${checklist.length}</span>`;
+  if((card.labels||[]).length){
+    html += `<div class="b-card-labels">${
+      card.labels.map(l => `<span class="b-card-label" style="background:${l.color||'#a49c94'}">${esc(l.name||'')}</span>`).join('')
+    }</div>`;
   }
 
-  // Due date
-  let dueHtml='';
-  if(card.due_date){
-    const isOverdue=card.due_date<new Date().toISOString().split('T')[0];
-    dueHtml=`<span class="card-due${isOverdue?' overdue':''}">${card.due_date}</span>`;
+  // Title
+  html += `<div class="b-card-title">${esc(card.title||'')}</div>`;
+
+  // Photo thumb (first one)
+  if((card.photo_urls||[]).length){
+    html += `<img class="b-card-photo-thumb" src="${esc(card.photo_urls[0])}" loading="lazy">`;
   }
 
-  // Assignee
-  const assignee=card.assignee?`<span class="card-assignee">${card.assignee}</span>`:'';
+  // Badges row
+  const badges = [];
+  if(card.priority === 'urgent') badges.push(`<span class="b-card-badge pri-urgent">🚨 URGENT</span>`);
+  else if(card.priority === 'high') badges.push(`<span class="b-card-badge pri-high">⚠ HIGH</span>`);
+  if(loc) badges.push(`<span class="b-card-badge loc" style="color:${loc.color}">📍 ${esc(loc.label)}</span>`);
+  if(card.equipment_id) badges.push(`<span class="b-card-badge eq">🔧 Equipment</span>`);
+  if(overdue) badges.push(`<span class="b-card-badge overdue">📅 OVERDUE</span>`);
+  if(badges.length) html += `<div class="b-card-badges">${badges.join('')}</div>`;
 
-  // Comments count
-  const comments=card.comments||[];
-  const commentHtml=comments.length?`<span class="card-comment-count">💬 ${comments.length}</span>`:'';
+  // Meta row: checklist progress, comments, due, assignee
+  const meta = [];
+  const cl = card.checklist || [];
+  if(cl.length){
+    const done = cl.filter(c=>c.done).length;
+    meta.push(`☐ ${done}/${cl.length}`);
+  }
+  const cm = card.comments || [];
+  if(cm.length) meta.push(`💬 ${cm.length}`);
+  if(card.due_date && !overdue){
+    const d = new Date(card.due_date);
+    meta.push(`📅 ${d.toLocaleDateString([], {month:'short', day:'numeric'})}`);
+  }
+  if(card.assignee) meta.push(`👤 ${esc(card.assignee)}`);
+  if(card.cost_estimate) meta.push(`$${Number(card.cost_estimate).toFixed(0)} est`);
+  if(meta.length) html += `<div class="b-card-meta">${meta.join(' · ')}</div>`;
 
-  el.innerHTML=`${labelHtml}<div class="card-title">${card.title||'Untitled'}</div><div class="card-meta">${checkHtml}${dueHtml}${assignee}${commentHtml}</div>`;
+  el.innerHTML = html;
 
-  // Click to open detail
-  el.addEventListener('click',e=>{if(!el.classList.contains('dragging'))openCardDetail(card);});
+  // Tap card → detail
+  el.addEventListener('click', e => {
+    if(e.target.dataset.move) return; // handled below
+    openCardDetail(card);
+  });
 
-  // Drag
-  el.addEventListener('dragstart',e=>{dragCard=card;el.classList.add('dragging');e.dataTransfer.effectAllowed='move';});
-  el.addEventListener('dragend',()=>{el.classList.remove('dragging');dragCard=null;});
+  // Move button
+  el.querySelector('.b-card-move-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    openMovePicker(card);
+  });
 
-  // Touch drag
-  let touchStartY=0,touchClone=null;
-  el.addEventListener('touchstart',e=>{
-    touchStartY=e.touches[0].clientY;
-    dragCard=card;
-  },{passive:true});
-  el.addEventListener('touchend',e=>{
-    if(touchClone){touchClone.remove();touchClone=null;}
-    if(dragOverList&&dragCard&&dragCard.list_id!==dragOverList){
-      NX.sb.from('kanban_cards').update({list_id:dragOverList,column_name:''}).eq('id',dragCard.id).then(()=>{
-        dragCard.list_id=dragOverList;render();
-      });
-    }
-    dragCard=null;dragOverList=null;
-  },{passive:true});
+  // Desktop drag
+  el.addEventListener('dragstart', e => {
+    dragCard = card;
+    el.style.opacity = '0.5';
+  });
+  el.addEventListener('dragend', () => {
+    el.style.opacity = '1';
+  });
 
   return el;
 }
 
-function openCardDetail(card){
-  const modal=document.createElement('div');modal.className='card-detail-overlay';
-  const labels=card.labels||[];
-  const checklist=card.checklist||[];
-  const comments=card.comments||[];
-
-  modal.innerHTML=`<div class="card-detail">
-    <div class="card-detail-header">
-      <input class="card-detail-title" value="${(card.title||'').replace(/"/g,'&quot;')}" placeholder="Card title">
-      <button class="card-detail-close">✕</button>
+// ─────────────────────────────────────────────────────────────────────────
+// MOVE PICKER — mobile-friendly
+// ─────────────────────────────────────────────────────────────────────────
+function openMovePicker(card){
+  const bg = document.createElement('div');
+  bg.className = 'b-modal-bg';
+  bg.innerHTML = `<div class="b-modal b-move-modal">
+    <div class="b-modal-head"><div style="flex:1;font-size:13px;font-weight:600">Move to…</div>
+      <button class="b-modal-close">✕</button></div>
+    <div class="b-move-list">
+      ${lists.map(l => {
+        const isCurrent = l.id === card.list_id;
+        return `<button class="b-move-item${isCurrent?' current':''}" data-list="${l.id}">
+          ${isCurrent?'✓ ':''}${esc(l.name)}
+        </button>`;
+      }).join('')}
     </div>
-    <div class="card-detail-body">
-      <div class="card-detail-section">
-        <div class="card-detail-label">Description</div>
-        <textarea class="card-detail-desc" placeholder="Add details...">${card.description||''}</textarea>
+  </div>`;
+  const close = ()=>{ bg.remove(); };
+  bg.addEventListener('click', e => { if(e.target===bg) close(); });
+  bg.querySelector('.b-modal-close').addEventListener('click', close);
+  bg.querySelectorAll('.b-move-item').forEach(btn => {
+    if(btn.classList.contains('current')) return;
+    btn.addEventListener('click', async () => {
+      const targetList = lists.find(l => l.id == btn.dataset.list);
+      if(targetList){
+        await moveCard(card, targetList);
+        close();
+      }
+    });
+  });
+  document.body.appendChild(bg);
+}
+
+async function moveCard(card, targetList){
+  try{
+    // Map list name to a status enum for downstream triggers/queries
+    const statusMap = {
+      'closed':'closed', 'done':'closed',
+      'resolved':'resolved',
+      'waiting on parts':'waiting_parts',
+      'in progress':'in_progress',
+      'dispatched':'dispatched',
+      'triaged':'triaged',
+      'reported':'reported',
+    };
+    const status = statusMap[targetList.name.toLowerCase()] || targetList.name.toLowerCase().replace(/\s+/g,'_');
+    await NX.sb.from('kanban_cards').update({
+      list_id: targetList.id,
+      column_name: targetList.name.toLowerCase().replace(/\s+/g,'_'),
+      status,
+    }).eq('id', card.id);
+    card.list_id = targetList.id;
+    card.status = status;
+    await loadCards(); render();
+  }catch(e){
+    console.error('[board] moveCard:', e);
+    NX.toast && NX.toast('Failed to move card', 'error');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// CARD DETAIL MODAL
+// ─────────────────────────────────────────────────────────────────────────
+async function openCardDetail(card){
+  // Refresh equipment cache in background for the picker
+  loadEquipmentCache();
+
+  const bg = document.createElement('div');
+  bg.className = 'b-modal-bg';
+  bg.innerHTML = `<div class="b-modal">
+    <div class="b-modal-head">
+      <input class="b-modal-title" id="bTitle" value="${esc(card.title||'')}" placeholder="Card title">
+      <button class="b-modal-close">✕</button>
+    </div>
+    <div class="b-modal-body">
+
+      <div class="b-section">
+        <div class="b-section-label">Description</div>
+        <textarea class="b-field" id="bDesc" placeholder="Details, steps to reproduce, what was tried…" rows="3">${esc(card.description||'')}</textarea>
       </div>
-      <div class="card-detail-section">
-        <div class="card-detail-label">Labels</div>
-        <div class="card-detail-labels" id="cdLabels">${labels.map((l,i)=>`<span class="card-label" style="background:${l.color}">${l.name} <button class="label-remove" data-idx="${i}">✕</button></span>`).join('')}<button class="label-add-btn" id="cdAddLabel">+ Label</button></div>
+
+      <div class="b-section">
+        <div class="b-section-label">Priority · Location</div>
+        <div class="b-field-row">
+          <select class="b-field" id="bPri">
+            ${Object.entries(PRIORITIES).map(([k,v]) =>
+              `<option value="${k}"${card.priority===k?' selected':''}>${v.label}</option>`
+            ).join('')}
+          </select>
+          <select class="b-field" id="bLoc">
+            <option value="">— no location —</option>
+            ${LOCATIONS.map(l =>
+              `<option value="${l.key}"${card.location===l.key?' selected':''}>${l.label}</option>`
+            ).join('')}
+          </select>
+        </div>
       </div>
-      <div class="card-detail-section">
-        <div class="card-detail-label">Checklist</div>
-        <div class="card-detail-checklist" id="cdChecklist">${checklist.map((c,i)=>`<div class="check-item"><input type="checkbox" ${c.done?'checked':''} data-idx="${i}"><span${c.done?' class="check-done"':''}>${c.text}</span></div>`).join('')}</div>
-        <div class="check-add"><input placeholder="Add item..." id="cdCheckInput"><button id="cdCheckAdd">+</button></div>
+
+      <div class="b-section" id="bEqSection">
+        <div class="b-section-label">Linked Equipment</div>
+        <div id="bEqEmbed"><!-- populated async --></div>
       </div>
-      <div class="card-detail-section">
-        <div class="card-detail-label">Assignee</div>
-        <input class="card-detail-assignee" value="${card.assignee||''}" placeholder="Who's responsible?" id="cdAssignee">
+
+      <div class="b-section">
+        <div class="b-section-label">Photos</div>
+        <div class="b-photos" id="bPhotos">
+          ${(card.photo_urls||[]).map((u,i) =>
+            `<img class="b-photo" src="${esc(u)}" data-idx="${i}">`
+          ).join('')}
+          <button class="b-photo-add" id="bPhotoAdd">+</button>
+        </div>
+        <input type="file" id="bPhotoInput" accept="image/*" capture="environment" style="display:none">
       </div>
-      <div class="card-detail-section">
-        <div class="card-detail-label">Due Date</div>
-        <input type="date" class="card-detail-due" value="${card.due_date||''}" id="cdDue">
+
+      <div class="b-section">
+        <div class="b-section-label">Checklist</div>
+        <div id="bChecklist">
+          ${(card.checklist||[]).map((c,i) =>
+            `<div class="b-check${c.done?' done':''}"><input type="checkbox" data-idx="${i}"${c.done?' checked':''}><span>${esc(c.text||'')}</span></div>`
+          ).join('')}
+        </div>
+        <div class="b-check-add">
+          <input id="bCheckInput" placeholder="Add a step…">
+          <button id="bCheckAdd">+</button>
+        </div>
       </div>
-      <div class="card-detail-section">
-        <div class="card-detail-label">Comments (${comments.length})</div>
-        <div class="card-detail-comments" id="cdComments">${comments.map(c=>`<div class="comment-item"><span class="comment-by">${c.by||'?'}</span><span class="comment-time">${c.at?new Date(c.at).toLocaleDateString():''}</span><div class="comment-text">${c.text}</div></div>`).join('')}</div>
-        <div class="comment-add"><input placeholder="Write a comment..." id="cdCommentInput"><button id="cdCommentAdd">Post</button></div>
+
+      <div class="b-section">
+        <div class="b-section-label">Assignment · Due</div>
+        <div class="b-field-row">
+          <input class="b-field" id="bAssignee" value="${esc(card.assignee||'')}" placeholder="Assignee">
+          <input type="date" class="b-field" id="bDue" value="${esc(card.due_date||'')}">
+        </div>
       </div>
-      <div class="card-detail-actions">
-        <button class="card-archive-btn" id="cdArchive">Archive Card</button>
+
+      <div class="b-section">
+        <div class="b-section-label">Parts Needed · Cost</div>
+        <input class="b-field" id="bParts" value="${esc(card.parts_needed||'')}" placeholder="e.g. compressor seal, gasket" style="margin-bottom:6px">
+        <div class="b-field-row">
+          <input class="b-field" id="bCostEst" type="number" step="0.01" value="${esc(card.cost_estimate||'')}" placeholder="Est $">
+          <input class="b-field" id="bCostAct" type="number" step="0.01" value="${esc(card.cost_actual||'')}" placeholder="Actual $">
+        </div>
+      </div>
+
+      <div class="b-section">
+        <div class="b-section-label">Comments (${(card.comments||[]).length})</div>
+        <div id="bComments">
+          ${(card.comments||[]).map(c =>
+            `<div class="b-comment"><span class="b-comment-by">${esc(c.by||'?')}</span><span class="b-comment-time">${c.at?new Date(c.at).toLocaleDateString():''}</span><div>${esc(c.text||'')}</div></div>`
+          ).join('')}
+        </div>
+        <div class="b-check-add" style="margin-top:8px">
+          <input id="bCommentInput" placeholder="Add a comment…">
+          <button id="bCommentAdd">Post</button>
+        </div>
+      </div>
+
+      <div class="b-actions">
+        <button class="b-btn b-btn-primary" id="bSave">Save</button>
+        ${card.equipment_id ? `<button class="b-btn" id="bCall">📞 Call Service</button>` : ''}
+        <button class="b-btn" id="bMoveBtn">→ Move</button>
+        <button class="b-btn b-btn-danger" id="bArchive">Archive</button>
       </div>
     </div>
   </div>`;
 
-  document.body.appendChild(modal);
+  document.body.appendChild(bg);
 
-  // Close
-  modal.querySelector('.card-detail-close').onclick=()=>saveAndClose(card,modal);
-  modal.addEventListener('click',e=>{if(e.target===modal)saveAndClose(card,modal);});
+  // Close handlers
+  const close = ()=>bg.remove();
+  bg.addEventListener('click', e => { if(e.target===bg) saveCard(card, bg, true); });
+  bg.querySelector('.b-modal-close').addEventListener('click', ()=>saveCard(card, bg, true));
 
-  // Checklist checkboxes
-  modal.querySelectorAll('.check-item input[type=checkbox]').forEach(cb=>{
-    cb.addEventListener('change',()=>{
-      const idx=parseInt(cb.dataset.idx);
-      checklist[idx].done=cb.checked;
-      cb.nextElementSibling.classList.toggle('check-done',cb.checked);
+  // Equipment embed (async — fetches the equipment row)
+  renderEquipmentEmbed(card, bg.querySelector('#bEqEmbed'));
+
+  // Photo: on click, enlarge
+  bg.querySelectorAll('.b-photo').forEach(img => {
+    img.addEventListener('click', () => {
+      const fs = document.createElement('div');
+      fs.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer';
+      fs.innerHTML = `<img src="${img.src}" style="max-width:100%;max-height:100%;object-fit:contain">`;
+      fs.addEventListener('click', ()=>fs.remove());
+      document.body.appendChild(fs);
     });
   });
 
-  // Add checklist item
-  modal.querySelector('#cdCheckAdd').onclick=()=>{
-    const inp=modal.querySelector('#cdCheckInput');
-    const text=inp.value.trim();if(!text)return;
-    checklist.push({text,done:false});
-    const cl=modal.querySelector('#cdChecklist');
-    const idx=checklist.length-1;
-    cl.innerHTML+=`<div class="check-item"><input type="checkbox" data-idx="${idx}"><span>${text}</span></div>`;
-    inp.value='';
-    // Re-bind checkboxes
-    cl.querySelectorAll('input[type=checkbox]').forEach(cb=>{
-      cb.onchange=()=>{checklist[parseInt(cb.dataset.idx)].done=cb.checked;cb.nextElementSibling.classList.toggle('check-done',cb.checked);};
+  // Photo add
+  bg.querySelector('#bPhotoAdd').addEventListener('click', () => {
+    bg.querySelector('#bPhotoInput').click();
+  });
+  bg.querySelector('#bPhotoInput').addEventListener('change', async e => {
+    const file = e.target.files && e.target.files[0];
+    if(!file) return;
+    const url = await uploadPhoto(file, card.id);
+    if(url){
+      card.photo_urls = [...(card.photo_urls||[]), url];
+      // Re-open with fresh data
+      await saveCard(card, bg, false);
+      bg.remove();
+      openCardDetail(card);
+    }
+  });
+
+  // Checklist check toggles
+  bg.querySelectorAll('#bChecklist input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const i = +cb.dataset.idx;
+      if(!card.checklist) card.checklist = [];
+      card.checklist[i].done = cb.checked;
+      cb.parentElement.classList.toggle('done', cb.checked);
     });
-  };
-  modal.querySelector('#cdCheckInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();modal.querySelector('#cdCheckAdd').click();}});
-
-  // Add comment
-  modal.querySelector('#cdCommentAdd').onclick=()=>{
-    const inp=modal.querySelector('#cdCommentInput');
-    const text=inp.value.trim();if(!text)return;
-    const comment={text,by:NX.currentUser?.name||'?',at:new Date().toISOString()};
-    comments.push(comment);
-    modal.querySelector('#cdComments').innerHTML+=`<div class="comment-item"><span class="comment-by">${comment.by}</span><span class="comment-time">${new Date().toLocaleDateString()}</span><div class="comment-text">${text}</div></div>`;
-    inp.value='';
-  };
-  modal.querySelector('#cdCommentInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();modal.querySelector('#cdCommentAdd').click();}});
-
-  // Add label
-  modal.querySelector('#cdAddLabel').onclick=()=>{
-    const name=prompt('Label name:');if(!name)return;
-    const color=LABEL_COLORS[labels.length%LABEL_COLORS.length];
-    labels.push({name,color});
-    const container=modal.querySelector('#cdLabels');
-    const btn=container.querySelector('.label-add-btn');
-    const span=document.createElement('span');span.className='card-label';span.style.background=color;
-    span.innerHTML=`${name} <button class="label-remove" data-idx="${labels.length-1}">✕</button>`;
-    container.insertBefore(span,btn);
-  };
-
-  // Archive
-  modal.querySelector('#cdArchive').onclick=async()=>{
-    if(!confirm('Archive this card?'))return;
-    await NX.sb.from('kanban_cards').update({archived:true}).eq('id',card.id);
-    modal.remove();await loadCards();render();
-    NX.toast('Card archived','info');
-  };
-}
-
-async function saveAndClose(card,modal){
-  const title=modal.querySelector('.card-detail-title').value.trim();
-  const desc=modal.querySelector('.card-detail-desc').value.trim();
-  const assignee=modal.querySelector('#cdAssignee').value.trim();
-  const dueDate=modal.querySelector('#cdDue').value||null;
-  const checklist=card.checklist||[];
-  const comments=card.comments||[];
-  const labels=card.labels||[];
-
-  await NX.sb.from('kanban_cards').update({
-    title:title||card.title,
-    description:desc,
-    assignee:assignee||null,
-    due_date:dueDate,
-    checklist,comments,labels,
-  }).eq('id',card.id);
-
-  modal.remove();
-  await loadCards();render();
-}
-
-async function promptNewCard(listId){
-  const title=prompt('Card title:');if(!title)return;
-  await NX.sb.from('kanban_cards').insert({
-    title,board_id:activeBoard.id,list_id:listId,
-    column_name:'',position:cards.filter(c=>c.list_id===listId).length,
-    checklist:[],comments:[],labels:[],archived:false
   });
-  await loadCards();render();
-  NX.toast('Card created','success');
-}
-
-async function promptNewList(){
-  const name=prompt('List name:');if(!name)return;
-  await NX.sb.from('board_lists').insert({
-    board_id:activeBoard.id,name,position:lists.length
+  // Checklist add
+  const addCheck = () => {
+    const inp = bg.querySelector('#bCheckInput');
+    const t = inp.value.trim(); if(!t) return;
+    if(!card.checklist) card.checklist = [];
+    card.checklist.push({ text:t, done:false });
+    const cl = bg.querySelector('#bChecklist');
+    const i = card.checklist.length - 1;
+    cl.insertAdjacentHTML('beforeend',
+      `<div class="b-check"><input type="checkbox" data-idx="${i}"><span>${esc(t)}</span></div>`);
+    cl.lastElementChild.querySelector('input').addEventListener('change', e => {
+      card.checklist[i].done = e.target.checked;
+      e.target.parentElement.classList.toggle('done', e.target.checked);
+    });
+    inp.value = '';
+  };
+  bg.querySelector('#bCheckAdd').addEventListener('click', addCheck);
+  bg.querySelector('#bCheckInput').addEventListener('keydown', e => {
+    if(e.key==='Enter'){ e.preventDefault(); addCheck(); }
   });
-  await loadLists();render();
-}
 
-async function promptNewBoard(){
-  const name=prompt('Board name:');if(!name)return;
-  const color=LABEL_COLORS[boards.length%LABEL_COLORS.length];
-  const{data}=await NX.sb.from('boards').insert({name,color,position:boards.length}).select().single();
-  if(data){
-    boards.push(data);activeBoard=data;
-    await NX.sb.from('board_lists').insert([
-      {board_id:data.id,name:'To Do',position:0},
-      {board_id:data.id,name:'In Progress',position:1},
-      {board_id:data.id,name:'Done',position:2}
-    ]);
-    await loadLists();await loadCards();render();
-    NX.toast('Board created','success');
+  // Comment add
+  const addComment = () => {
+    const inp = bg.querySelector('#bCommentInput');
+    const t = inp.value.trim(); if(!t) return;
+    if(!card.comments) card.comments = [];
+    const c = { text:t, by: NX.currentUser?.name || '?', at: new Date().toISOString() };
+    card.comments.push(c);
+    bg.querySelector('#bComments').insertAdjacentHTML('beforeend',
+      `<div class="b-comment"><span class="b-comment-by">${esc(c.by)}</span><span class="b-comment-time">${new Date().toLocaleDateString()}</span><div>${esc(c.text)}</div></div>`);
+    inp.value = '';
+  };
+  bg.querySelector('#bCommentAdd').addEventListener('click', addComment);
+  bg.querySelector('#bCommentInput').addEventListener('keydown', e => {
+    if(e.key==='Enter'){ e.preventDefault(); addComment(); }
+  });
+
+  // Actions
+  bg.querySelector('#bSave').addEventListener('click', () => saveCard(card, bg, true));
+  bg.querySelector('#bMoveBtn').addEventListener('click', () => {
+    saveCard(card, bg, false).then(() => {
+      bg.remove();
+      openMovePicker(card);
+    });
+  });
+  bg.querySelector('#bArchive').addEventListener('click', async () => {
+    if(!confirm('Archive this card?')) return;
+    await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', card.id);
+    bg.remove();
+    await loadCards(); render();
+    NX.toast && NX.toast('Card archived', 'info');
+  });
+  const callBtn = bg.querySelector('#bCall');
+  if(callBtn){
+    callBtn.addEventListener('click', async () => {
+      await saveCard(card, bg, false);
+      bg.remove();
+      // Delegate to equipment module's call flow
+      if(card.equipment_id && NX.modules?.equipment?.callService){
+        NX.modules.equipment.callService(card.equipment_id);
+        // After dispatch, the card should move to "Dispatched". The equipment call flow
+        // inserts into dispatch_events; we'll watch for the new row and link it.
+        setTimeout(() => moveCardToStatusColumn(card.id, 'Dispatched'), 2500);
+      }
+    });
   }
 }
 
+// Auto-move card to a column by name (fuzzy match)
+async function moveCardToStatusColumn(cardId, nameContains){
+  if(!lists.length) await loadLists();
+  const target = lists.find(l => l.name.toLowerCase().includes(nameContains.toLowerCase()));
+  if(!target) return;
+  const card = cards.find(c => c.id == cardId);
+  if(!card) return;
+  await moveCard(card, target);
+}
+
+async function renderEquipmentEmbed(card, container){
+  if(!container) return;
+  if(!card.equipment_id){
+    container.innerHTML = `
+      <select class="b-field" id="bEqPicker">
+        <option value="">— Link equipment —</option>
+      </select>`;
+    const pick = container.querySelector('#bEqPicker');
+    await loadEquipmentCache();
+    equipmentCache.forEach(eq => {
+      const o = document.createElement('option');
+      o.value = eq.id;
+      o.textContent = eq.name + (eq.location ? ` (${eq.location})` : '');
+      pick.appendChild(o);
+    });
+    pick.addEventListener('change', () => {
+      card.equipment_id = pick.value || null;
+      // Auto-fill location from equipment
+      if(card.equipment_id){
+        const eq = equipmentCache.find(e => e.id === card.equipment_id);
+        if(eq && eq.location && !card.location){
+          card.location = eq.location;
+          const locSel = document.querySelector('#bLoc');
+          if(locSel) locSel.value = eq.location;
+        }
+        renderEquipmentEmbed(card, container);
+      }
+    });
+    return;
+  }
+  // We have equipment_id — fetch full equipment + render embed
+  try{
+    const { data: eq } = await NX.sb.from('equipment')
+      .select('id, name, location, category, manufacturer, model, health_score')
+      .eq('id', card.equipment_id).single();
+    if(!eq){
+      container.innerHTML = '<div style="font-size:11px;color:var(--text-faint,#746c5e)">Equipment not found</div>';
+      return;
+    }
+    const meta = [eq.category, eq.manufacturer, eq.model].filter(Boolean).join(' · ');
+    const health = (eq.health_score != null)
+      ? `<span style="color:${eq.health_score>=70?'#8fd492':eq.health_score>=40?'#e8a830':'#e88'}">${eq.health_score}%</span>`
+      : '—';
+    container.innerHTML = `
+      <div class="b-eq-embed" id="bEqGo">
+        <div class="b-eq-embed-icon">🔧</div>
+        <div class="b-eq-embed-body">
+          <div class="b-eq-embed-name">${esc(eq.name)}</div>
+          <div class="b-eq-embed-meta">${esc(meta)}${meta?' · ':''}Health ${health}</div>
+        </div>
+        <div class="b-eq-embed-chev">›</div>
+      </div>
+      <button class="b-btn" id="bEqUnlink" style="margin-top:6px;font-size:11px">Unlink equipment</button>`;
+    container.querySelector('#bEqGo').addEventListener('click', () => {
+      if(NX.modules?.equipment?.openDetail){
+        NX.modules.equipment.openDetail(eq.id);
+        // close this modal
+        const modal = container.closest('.b-modal-bg');
+        if(modal) modal.remove();
+      }
+    });
+    container.querySelector('#bEqUnlink').addEventListener('click', () => {
+      card.equipment_id = null;
+      renderEquipmentEmbed(card, container);
+    });
+  }catch(e){
+    console.error('[board] equipment embed:', e);
+    container.innerHTML = '<div style="font-size:11px;color:var(--text-faint,#746c5e)">Could not load equipment</div>';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SAVE
+// ─────────────────────────────────────────────────────────────────────────
+async function saveCard(card, modal, closeAfter){
+  try{
+    const title = modal.querySelector('#bTitle').value.trim() || card.title || '(untitled)';
+    const description = modal.querySelector('#bDesc').value.trim();
+    const priority = modal.querySelector('#bPri').value;
+    const location = modal.querySelector('#bLoc').value || null;
+    const assignee = modal.querySelector('#bAssignee').value.trim() || null;
+    const due_date = modal.querySelector('#bDue').value || null;
+    const parts_needed = modal.querySelector('#bParts').value.trim() || null;
+    const costEstRaw = modal.querySelector('#bCostEst').value;
+    const costActRaw = modal.querySelector('#bCostAct').value;
+    const cost_estimate = costEstRaw ? Number(costEstRaw) : null;
+    const cost_actual = costActRaw ? Number(costActRaw) : null;
+
+    const patch = {
+      title, description, priority, location,
+      assignee, due_date,
+      parts_needed, cost_estimate, cost_actual,
+      equipment_id: card.equipment_id || null,
+      checklist: card.checklist || [],
+      comments: card.comments || [],
+      labels: card.labels || [],
+      photo_urls: card.photo_urls || [],
+    };
+
+    await NX.sb.from('kanban_cards').update(patch).eq('id', card.id);
+    if(closeAfter){
+      modal.remove();
+      await loadCards(); render();
+    }
+  }catch(e){
+    console.error('[board] saveCard:', e);
+    NX.toast && NX.toast('Save failed', 'error');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// PHOTO UPLOAD
+// ─────────────────────────────────────────────────────────────────────────
+async function uploadPhoto(file, cardId){
+  try{
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    const path = `cards/${cardId}/${Date.now()}.${ext}`;
+    const { error } = await NX.sb.storage.from('nexus-files').upload(path, file, {
+      contentType: file.type || 'image/jpeg',
+      upsert: false,
+    });
+    if(error) throw error;
+    const { data } = NX.sb.storage.from('nexus-files').getPublicUrl(path);
+    return data?.publicUrl || null;
+  }catch(e){
+    console.error('[board] uploadPhoto:', e);
+    NX.toast && NX.toast('Photo upload failed', 'error');
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// CREATE CARD / LIST / BOARD
+// ─────────────────────────────────────────────────────────────────────────
+async function promptNewCard(listId, prefill){
+  const title = prefill?.title || prompt('Card title:');
+  if(!title) return;
+  try{
+    const { data: created } = await NX.sb.from('kanban_cards').insert({
+      title,
+      description: prefill?.description || null,
+      board_id: activeBoard.id,
+      list_id: listId,
+      column_name: '',
+      position: cards.filter(c=>c.list_id===listId).length,
+      priority: prefill?.priority || 'normal',
+      location: prefill?.location || null,
+      equipment_id: prefill?.equipment_id || null,
+      reported_by: NX.currentUser?.name || null,
+      checklist: [], comments: [], labels: [],
+      photo_urls: [],
+      archived: false,
+    }).select().single();
+    await loadCards(); render();
+    NX.toast && NX.toast('Card created', 'success');
+    // If created with prefill, open it immediately
+    if(prefill && created) openCardDetail(created);
+  }catch(e){
+    console.error('[board] promptNewCard:', e);
+    NX.toast && NX.toast('Could not create card', 'error');
+  }
+}
+
+async function promptNewList(){
+  const name = prompt('List name:');
+  if(!name) return;
+  try{
+    await NX.sb.from('board_lists').insert({
+      board_id: activeBoard.id, name, position: lists.length
+    });
+    await loadLists(); render();
+  }catch(e){ console.error('[board] promptNewList:', e); }
+}
+
+async function promptNewBoard(){
+  const name = prompt('Board name:');
+  if(!name) return;
+  try{
+    const { data: nb } = await NX.sb.from('boards').insert({
+      name, color: '#c8a44e', position: boards.length
+    }).select().single();
+    if(nb){
+      await NX.sb.from('board_lists').insert(
+        DEFAULT_LISTS.map(l => ({ ...l, board_id: nb.id }))
+      );
+      boards.push(nb);
+      activeBoard = nb;
+      await loadLists(); await loadCards();
+      render();
+    }
+  }catch(e){ console.error('[board] promptNewBoard:', e); }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// STATS MODAL
+// ─────────────────────────────────────────────────────────────────────────
+async function openStatsModal(){
+  await loadStats();
+
+  // Also compute inline stats from what's loaded
+  const open = cards.length;
+  const overdue = cards.filter(isOverdue).length;
+  const urgent = cards.filter(c => c.priority === 'urgent').length;
+  const waitingParts = cards.filter(c => (c.status||'').toLowerCase().includes('wait')).length;
+  const byLocation = LOCATIONS.map(l => ({
+    ...l,
+    count: cards.filter(c => c.location === l.key).length,
+  }));
+
+  const avgClose = stats?.avg_close_days_30d != null
+    ? Number(stats.avg_close_days_30d).toFixed(1) + 'd' : '—';
+  const closed7 = stats?.closed_last_7d ?? '—';
+  const closed30 = stats?.closed_last_30d ?? '—';
+  const spend30 = stats?.spend_30d ? '$' + Number(stats.spend_30d).toFixed(0) : '—';
+  const spend365 = stats?.spend_365d ? '$' + Number(stats.spend_365d).toFixed(0) : '—';
+
+  const bg = document.createElement('div');
+  bg.className = 'b-modal-bg';
+  bg.innerHTML = `<div class="b-modal">
+    <div class="b-modal-head">
+      <div style="flex:1;font-size:14px;font-weight:600">📊 Board Stats</div>
+      <button class="b-modal-close">✕</button>
+    </div>
+    <div class="b-modal-body">
+
+      <div class="b-stats-grid">
+        <div class="b-stat"><div class="b-stat-num">${open}</div><div class="b-stat-label">Open</div></div>
+        <div class="b-stat"><div class="b-stat-num ${overdue>0?'alert':''}">${overdue}</div><div class="b-stat-label">Overdue</div></div>
+        <div class="b-stat"><div class="b-stat-num ${urgent>0?'alert':''}">${urgent}</div><div class="b-stat-label">Urgent open</div></div>
+        <div class="b-stat"><div class="b-stat-num">${waitingParts}</div><div class="b-stat-label">Waiting parts</div></div>
+        <div class="b-stat"><div class="b-stat-num ok">${closed7}</div><div class="b-stat-label">Closed 7d</div></div>
+        <div class="b-stat"><div class="b-stat-num ok">${closed30}</div><div class="b-stat-label">Closed 30d</div></div>
+        <div class="b-stat"><div class="b-stat-num">${avgClose}</div><div class="b-stat-label">Avg close 30d</div></div>
+        <div class="b-stat"><div class="b-stat-num">${spend30}</div><div class="b-stat-label">Spend 30d</div></div>
+      </div>
+
+      <div class="b-section">
+        <div class="b-section-label">Open by location</div>
+        <div class="b-stats-grid">
+          ${byLocation.map(l =>
+            `<div class="b-stat"><div class="b-stat-num" style="color:${l.color}">${l.count}</div><div class="b-stat-label">${l.label}</div></div>`
+          ).join('')}
+        </div>
+      </div>
+
+      <div class="b-section">
+        <div class="b-section-label">Yearly spend</div>
+        <div class="b-stat"><div class="b-stat-num">${spend365}</div><div class="b-stat-label">Last 365 days</div></div>
+      </div>
+
+    </div>
+  </div>`;
+  const close = () => bg.remove();
+  bg.addEventListener('click', e => { if(e.target===bg) close(); });
+  bg.querySelector('.b-modal-close').addEventListener('click', close);
+  document.body.appendChild(bg);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────────────────
 async function init(){
-  await loadBoards();await loadLists();await loadCards();render();
+  await loadBoards();
+  await loadLists();
+  await loadCards();
+  loadStats();
+  render();
 }
 
 async function show(){
-  await loadBoards();await loadLists();await loadCards();render();
+  // Called whenever user taps the Board tab
+  await loadCards();
+  loadStats();
+  render();
 }
 
-NX.modules.board={init,show};
+// ─────────────────────────────────────────────────────────────────────────
+// PUBLIC API — used by equipment.js integration
+// ─────────────────────────────────────────────────────────────────────────
+async function createFromEquipment(equipment, prefilledIssue){
+  // Make sure the board system is initialized
+  if(!boards.length) await loadBoards();
+  if(!activeBoard) return;
+  if(!lists.length) await loadLists();
+
+  // Find the first list that looks like "Reported" (or just first list)
+  const targetList = lists.find(l => l.name.toLowerCase().includes('report'))
+                  || lists.find(l => l.name.toLowerCase().includes('todo'))
+                  || lists[0];
+  if(!targetList) return;
+
+  // Switch to the Board view
+  document.querySelector('.nav-tab[data-view="board"]')?.click();
+  document.querySelector('.bnav-btn[data-view="board"]')?.click();
+
+  await promptNewCard(targetList.id, {
+    title: prefilledIssue
+      ? `${prefilledIssue} — ${equipment.name}`
+      : `Issue: ${equipment.name}`,
+    description: prefilledIssue || '',
+    priority: 'high',
+    location: equipment.location || null,
+    equipment_id: equipment.id,
+  });
+}
+
+async function getOpenCardsForEquipment(equipmentId){
+  try{
+    const { data } = await NX.sb.from('kanban_cards')
+      .select('id, title, priority, status, list_id, due_date, created_at')
+      .eq('equipment_id', equipmentId)
+      .eq('archived', false)
+      .order('created_at', { ascending: false });
+    return data || [];
+  }catch(e){
+    console.error('[board] getOpenCardsForEquipment:', e);
+    return [];
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// EXPORT
+// ─────────────────────────────────────────────────────────────────────────
+if(!NX.modules) NX.modules = {};
+NX.modules.board = {
+  init,
+  show,
+  createFromEquipment,
+  getOpenCardsForEquipment,
+  // also expose loadCards so equipment-integration refreshes correctly
+  reload: async () => { await loadCards(); render(); },
+};
+
+console.log('[board] v4 loaded — ' + Object.keys(NX.modules.board).length + ' exports');
+
 })();
