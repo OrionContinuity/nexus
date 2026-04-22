@@ -893,6 +893,9 @@ td.check{background:#F0EDE6 !important}
 
     // Logout
     document.getElementById('adminLogout').addEventListener('click', () => {
+      if (this.syslog && this.currentUser) {
+        this.syslog('logout', `${this.currentUser.name} (${this.currentUser.role})`);
+      }
       this._clearSession();
       location.reload();
     });
@@ -1416,29 +1419,61 @@ td.check{background:#F0EDE6 !important}
   },
 
   // ─── Expanded System Logging ───
-  // Auto-logs every system event to daily_logs
+  // Auto-logs every system event to daily_logs with an icon prefix so the
+  // Log view can render each type distinctly. Most DB mutations (nodes,
+  // equipment, tickets, kanban_cards, dispatch_events, etc.) are now also
+  // logged by Postgres triggers — keep the JS calls below for events that
+  // aren't a single row change (login, batches, broadcasts, aggregates).
   async syslog(event,detail){
     const ICONS={
+      // Auth / session
       login:'🔑',logout:'🔑',
+      // Time clock
       clock_in:'⏱',clock_out:'⏱',
-      card_created:'📋',card_moved:'📋',card_closed:'📋',card_deleted:'📋',
+      // Kanban / tickets (mostly trigger-handled; keep for legacy)
+      card_created:'📋',card_moved:'📋',card_closed:'📋',card_deleted:'📋',card_edited:'📋',
+      ticket_opened:'🎫',ticket_closed:'🎫',ticket_updated:'🎫',ticket_deleted:'🎫',
+      // Cleaning
       clean_checked:'🧹',clean_unchecked:'🧹',clean_report:'🧹',
-      chat_ask:'💬',
-      batch_complete:'📥',
-      notify_captured:'📱',sms_captured:'📱',
-      privacy_delete:'🔒',privacy_keep:'🔒',privacy_private:'🔒',privacy_edit:'🔒',
+      // AI / brain
+      chat_ask:'💬',chat_answered:'💭',
+      ai_action:'🤖',ai_decision:'🤖',
       node_created:'🧠',node_updated:'🧠',node_deleted:'🧠',
-      email_processed:'✉',gmail_refresh:'✉',
-      doc_scanned:'📷',
+      // Email / ingestion
+      batch_complete:'📥',email_processed:'✉',gmail_refresh:'✉',
+      // Captures
+      notify_captured:'📱',sms_captured:'📱',
+      // Privacy
+      privacy_delete:'🔒',privacy_keep:'🔒',privacy_private:'🔒',privacy_edit:'🔒',
+      // Documents
+      doc_scanned:'📷',manual_uploaded:'📖',bom_extracted:'⚙',
+      // Import
       whatsapp_import:'📱',sms_import:'📱',contact_import:'👤',
+      // Reports
       digest_generated:'📊',
+      // Backup
       backup_exported:'⬇',backup_imported:'⬆',
+      // Relationships
       link_built:'🔗',
+      // Equipment (mostly trigger-handled)
+      equipment_created:'🔧',equipment_edited:'🔧',equipment_deleted:'🔧',
+      equipment_service:'🛠',equipment_scanned:'📷',
+      zebra_print:'🖨',
+      // Calls / dispatch (mostly trigger-handled)
+      call_made:'📞',dispatch_created:'📞',dispatch_pending:'📞',dispatch_completed:'✅',dispatch_cancelled:'❌',
+      // Push
+      push_enabled:'🔔',push_disabled:'🔕',push_subscribed:'🔔',push_unsubscribed:'🔕',
+      broadcast_sent:'📣',
+      // Patterns
+      pattern_detected:'🔮',
+      // Theme / UX
       theme_change:'🎨',
+      // Errors
       error:'❌'
     };
     const icon=ICONS[event]||'⚡';
-    const entry=`[SYS] ${event}: ${(detail||'').slice(0,200)}`;
+    // Icon included in entry so log.js renders the right symbol
+    const entry=`[SYS] ${icon} ${event}: ${(detail||'').slice(0,200)}`;
     try{
       await this.sb.from('daily_logs').insert({
         entry,user_name:this.currentUser?.name||'NEXUS'
