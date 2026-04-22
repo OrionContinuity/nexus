@@ -37,6 +37,13 @@
     if (activeUser && activeToken) return;
   } catch(e) {}
 
+  // Tell app.js this is a public scan so it skips PIN screen setup on
+  // DOMContentLoaded. app.js line 673 reads this flag and bails early from
+  // NX.init(). Also consumed by equipment-public-pm.js for context.
+  // Without this, NX.init() attaches phantom click handlers to pin-key
+  // buttons that get wiped when renderShell() runs.
+  window._NX_PUBLIC_SCAN = equipParam;
+
   const SUPABASE_URL = window.NEXUS_CONFIG?.SUPABASE_URL  || 'https://oprsthfxqrdbwdvommpw.supabase.co';
   // Prefers window.NEXUS_CONFIG.SUPABASE_ANON (from js/config.js).
   // Falls back to the hardcoded value so the file still works if
@@ -47,6 +54,15 @@
   function esc(s) {
     if (s == null) return '';
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Format phone for a tel: href. Strips formatting chars, prepends +1 for
+  // bare 10-digit US numbers so the dialer pre-fills the country code.
+  function normalizePhoneForTel(p) {
+    if (!p) return '';
+    const cleaned = String(p).replace(/[^\d+]/g, '');
+    if (cleaned.length === 10 && !cleaned.startsWith('+')) return 'tel:+1' + cleaned;
+    return 'tel:' + cleaned;
   }
   function daysAgo(dateStr) {
     if (!dateStr) return null;
@@ -82,15 +98,11 @@
     return sb;
   }
 
-  // ─── Mark document as public-scan mode ──────────────────────────────
-  // Just adds a class; equipment-fixes.css line 2205 already has the
-  // correct scroll rules (overflow-x:hidden; overflow-y:auto on html,body).
-  // Don't touch body/html overflow here — setting overflow:visible on both
-  // html AND body kills viewport scrolling (neither becomes scroll container).
-  function markPublicScan() {
-    document.documentElement.classList.add('nx-public-scan');
-    document.body.classList.add('nx-public-scan');
-  }
+  // Add hook class to html + body on load so future CSS can target
+  // .nx-public-scan if needed. This touches ZERO scroll-related properties.
+  // equipment-fixes.css line 2205 already handles html/body scroll correctly.
+  document.documentElement.classList.add('nx-public-scan');
+  if (document.body) document.body.classList.add('nx-public-scan');
 
   // ─── Inject styles once ─────────────────────────────────────────────
   function injectStyles() {
@@ -195,7 +207,6 @@
   // ─── Boot loader (v4 — bigger, pulsing brand) ───────────────────────
   function renderBootLoader(qrCode) {
     injectStyles();
-    markPublicScan();
     const boot = document.createElement('div');
     boot.id = 'nxPublicBoot';
     boot.style.cssText = `
@@ -248,8 +259,6 @@
 
   // ─── Render shell (static container for details) ─────────────────
   function renderShell() {
-    markPublicScan();
-
     document.body.innerHTML = `
       <div class="public-scan-container">
         <div class="public-scan-header">
@@ -258,13 +267,9 @@
         <div class="public-scan-body" id="publicScanBody"></div>
       </div>
     `;
-
-    // Re-apply classes (body.innerHTML doesn't nuke classList but be safe)
-    markPublicScan();
-    // app.js DOMContentLoaded handler may fire AFTER this and stomp on
-    // body styles — reassert after a tick to win the race.
-    setTimeout(markPublicScan, 50);
-    setTimeout(markPublicScan, 500);
+    // body.innerHTML nuked the old <body> class list along with pin-screen etc.
+    // Re-add the hook class in case anything else wants to target it.
+    document.body.classList.add('nx-public-scan');
   }
 
   // ─── Render details view (v4) ───────────────────────────────────────
@@ -757,10 +762,26 @@
       // Fetch equipment with the right schema — service_phone and
       // service_contact_name live directly on the row; preferred_contractor_node_id
       // (NOTE: suffix is _node_id, not _id) is the fallback FK to the nodes table.
-      const { data: eq, error: eqErr } = await sb.from('equipment')
-        .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_phone, service_contact_name, preferred_contractor_node_id')
-        .eq('qr_code', equipParam)
-        .single();
+      //
+      // Try the full SELECT first. If the migration for service_phone / 
+      // service_contact_name hasn't run on this project yet, Postgres errors
+      // with "column does not exist" — catch that and retry without those 
+      // columns so we degrade gracefully.
+      let eq, eqErr;
+      try {
+        const res = await sb.from('equipment')
+          .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_phone, service_contact_name, preferred_contractor_node_id')
+          .eq('qr_code', equipParam)
+          .single();
+        eq = res.data; eqErr = res.error;
+      } catch (e) {
+        console.warn('[public-scan] full select failed, trying fallback schema:', e?.message);
+        const res = await sb.from('equipment')
+          .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, preferred_contractor_node_id')
+          .eq('qr_code', equipParam)
+          .single();
+        eq = res.data; eqErr = res.error;
+      }
 
       if (eqErr || !eq) {
         throw new Error(eqErr?.message || 'Equipment not registered');
@@ -799,7 +820,7 @@
         contractor = {
           name: eq.service_contact_name || 'Service',
           phone: eq.service_phone,
-          phoneHref: 'tel:' + String(eq.service_phone).replace(/[^\d+]/g, ''),
+          phoneHref: normalizePhoneForTel(eq.service_phone),
         };
       } else if (contractorQ?.data) {
         const node = contractorQ.data;
@@ -815,10 +836,18 @@
           contractor = {
             name: node.name || 'Service',
             phone,
-            phoneHref: 'tel:' + phone.replace(/[^\d+]/g, ''),
+            phoneHref: normalizePhoneForTel(phone),
           };
         }
       }
+
+      // Publish context for equipment-public-pm.js. It reads these to enrich
+      // the PM Logger modal with equipment + contact info without re-querying.
+      window._NX_PUBLIC_SCAN_EQ = eq;
+      window._NX_PUBLIC_SCAN_CONTACT = contractor;
+      window.dispatchEvent(new CustomEvent('nx-public-scan-ready', {
+        detail: { eq, contact: contractor }
+      }));
 
       injectStyles();
       renderShell();
