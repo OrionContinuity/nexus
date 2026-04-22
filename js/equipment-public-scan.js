@@ -181,335 +181,562 @@
     return Math.floor(days / 365) + ' years ago';
   }
 
-  const CATEGORY_ICONS = {
-    refrigeration: '❄', cooking: '🔥', hvac: '🌬', plumbing: '🚰',
-    electrical: '⚡', cleaning: '🧽', dishwashing: '🍽',
-    beverage: '🥤', bar: '🍸',
+  // ─── Lucide-style inline SVGs ───────────────────────────────────────
+  // Using inline SVGs (not data-lucide) so icons render instantly, no
+  // need to wait for the lucide library to finish its async load.
+  // Stroke-based, monoline — matches the NEXUS visual language.
+  const ICON = (path, size = 20) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
+
+  // Paths extracted from lucide-static (MIT licensed).
+  const ICONS = {
+    // category
+    refrigeration: '<path d="M12 2v20"/><path d="m4.93 10.93 14.14 2.14"/><path d="m4.93 13.07 14.14-2.14"/><path d="M12 2 9 5"/><path d="m12 2 3 3"/><path d="M12 22l-3-3"/><path d="m12 22 3-3"/>',
+    cooking:       '<path d="M8 21h8"/><path d="M12 21v-4"/><path d="M7 8h10l-1 9H8z"/><path d="M7 8V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2"/>',
+    hvac:          '<path d="M12 12v9"/><path d="M12 3v3"/><path d="m4.93 4.93 2.12 2.12"/><path d="m16.95 16.95 2.12 2.12"/><path d="M3 12h3"/><path d="M18 12h3"/><path d="m4.93 19.07 2.12-2.12"/><path d="m16.95 7.05 2.12-2.12"/><circle cx="12" cy="12" r="3"/>',
+    plumbing:      '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7Z"/>',
+    electrical:    '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
+    cleaning:      '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>',
+    dishwashing:   '<path d="M15 11h.01"/><path d="M11 15h.01"/><path d="M16 16h.01"/><path d="m2 16 20 6-6-20A20 20 0 0 0 2 16"/><path d="M5.71 17.11a17.04 17.04 0 0 1 11.4-11.4"/>',
+    beverage:      '<path d="M8 2h8"/><path d="M9 2v2.789a4 4 0 0 1-.672 2.219l-.656.984A4 4 0 0 0 7 10.212V20a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-9.789a4 4 0 0 0-.672-2.219l-.656-.984A4 4 0 0 1 15 4.788V2"/>',
+    bar:           '<path d="M8 22h8"/><path d="M12 11v11"/><path d="m19 3-7 8-7-8Z"/>',
+    _default:      '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+
+    // banners / status
+    warning:  '<path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>',
+    clock:    '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    shield:   '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+    dot:      '<circle cx="12" cy="12" r="5" fill="currentColor"/>',
+
+    // location
+    mapPin:   '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+
+    // action buttons
+    wrench:   '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+    phone:    '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+    alert:    '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+    lock:     '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    chevronRight: '<path d="m9 18 6-6-6-6"/>',
+    refresh:  '<path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v6h-6"/>',
   };
-  const catIcon = c => CATEGORY_ICONS[(c || '').toLowerCase()] || '🔧';
+
+  function icon(name, size) {
+    return ICON(ICONS[name] || ICONS._default, size);
+  }
+  function categoryIconSvg(category, size) {
+    const key = (category || '').toLowerCase();
+    return ICON(ICONS[key] || ICONS._default, size);
+  }
 
   // ─── 5. COMPLETE INLINE STYLESHEET (all scan UI styles) ─────────────
   // Fully self-contained — no dependencies on equipment.css or any other file.
+  // ─── 5. COMPLETE INLINE STYLESHEET — NEXUS brand-aligned ────────────
+  // Design tokens mirror nexus.css :root variables so this fits the
+  // existing visual language. 60/30/10 rule: surfaces 60%, text 30%,
+  // gold accent 10%. Semantic colors are used sparingly and desaturated.
   const UI_CSS = `
+    :root {
+      --ps-bg: #111116;
+      --ps-surface: #1b1b24;
+      --ps-elevated: #24242e;
+      --ps-text: #ede9e0;
+      --ps-muted: #a49c94;
+      --ps-faint: #857f75;
+      --ps-accent: #d4a44e;
+      --ps-border: rgba(212, 182, 138, 0.08);
+      --ps-border-strong: rgba(212, 182, 138, 0.18);
+      --ps-glow: rgba(212, 164, 78, 0.18);
+      --ps-green: #5bba5f;
+      --ps-amber: #e8a830;
+      --ps-red: #d45858;
+      --ps-blue: #6b9bf0;
+    }
+
+    /* Page shell */
     .nx-ps-page {
-      background: linear-gradient(180deg, #0d0d12 0%, #111118 100%);
-      color: #e8e8ea;
+      background: var(--ps-bg);
+      color: var(--ps-text);
       font-family: 'DM Sans', 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
       min-height: 100vh;
       min-height: 100dvh;
-      padding: 0 0 calc(env(safe-area-inset-bottom, 0px) + 40px);
+      padding: 0 0 calc(env(safe-area-inset-bottom, 0px) + 48px);
+      font-feature-settings: 'ss01', 'cv11';
+      -webkit-font-smoothing: antialiased;
     }
+    /* Header — minimalist, just brand wordmark */
     .nx-ps-header {
-      padding: 20px;
+      padding: 22px 20px 18px;
       text-align: center;
-      border-bottom: 1px solid rgba(200, 164, 78, 0.15);
+      border-bottom: 1px solid var(--ps-border);
     }
     .nx-ps-brand {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 20px;
-      font-weight: 600;
-      color: #c8a44e;
-      letter-spacing: 3px;
+      font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--ps-accent);
+      letter-spacing: 6px;
     }
     .nx-ps-body {
-      padding: 20px 16px;
+      padding: 24px 16px;
       max-width: 600px;
       margin: 0 auto;
     }
-    .nx-ps-card {
-      background: #1a1a22;
-      border: 1px solid rgba(200, 164, 78, 0.15);
-      border-radius: 14px;
-      padding: 22px 20px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    }
-    /* Photo / category placeholder */
+
+    /* Photo / category icon hero */
     .nx-ps-photo {
       width: 100%;
-      max-height: 50vh;
-      min-height: 220px;
+      aspect-ratio: 16 / 10;
+      max-height: 44vh;
       object-fit: cover;
-      border-radius: 12px;
-      margin-bottom: 18px;
-      background: #15151c;
+      border-radius: 14px;
+      margin-bottom: 20px;
+      background: var(--ps-surface);
       display: block;
+      border: 1px solid var(--ps-border);
     }
     .nx-ps-photo-placeholder {
       width: 100%;
-      aspect-ratio: 4 / 3;
-      min-height: 180px;
-      background: linear-gradient(135deg, #15151c, #1f1f28);
-      border: 1px solid rgba(200, 164, 78, 0.15);
-      border-radius: 12px;
+      aspect-ratio: 16 / 10;
+      max-height: 44vh;
+      background:
+        radial-gradient(circle at 50% 45%, rgba(212, 164, 78, 0.06) 0%, transparent 60%),
+        linear-gradient(180deg, var(--ps-surface) 0%, var(--ps-bg) 100%);
+      border: 1px solid var(--ps-border);
+      border-radius: 14px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 56px;
-      color: rgba(200, 164, 78, 0.35);
-      margin-bottom: 18px;
+      margin-bottom: 20px;
     }
+    .nx-ps-photo-placeholder svg {
+      width: 72px;
+      height: 72px;
+      color: var(--ps-accent);
+      opacity: 0.45;
+      stroke-width: 1.25;
+    }
+
     /* Name + location */
     .nx-ps-name {
-      font-size: 28px;
-      font-weight: 700;
-      margin: 0 0 6px;
-      line-height: 1.15;
-      color: #fff;
+      font-family: 'Outfit', 'DM Sans', sans-serif;
+      font-size: 26px;
+      font-weight: 600;
+      margin: 0 0 4px;
+      line-height: 1.18;
+      color: var(--ps-text);
       letter-spacing: -0.01em;
     }
     .nx-ps-loc {
-      font-size: 15px;
-      color: #b9b4a8;
+      font-size: 13px;
+      color: var(--ps-muted);
       margin: 0 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      letter-spacing: 0.1px;
     }
-    /* Status pill */
+    .nx-ps-loc svg { width: 13px; height: 13px; stroke-width: 2; opacity: 0.7; }
+
+    /* Status pill — use NEXUS accent tints, not raw green/red */
     .nx-ps-status {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 8px 16px;
+      padding: 7px 13px;
       border-radius: 999px;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 600;
-      margin-bottom: 20px;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      margin-bottom: 22px;
       border: 1px solid;
+      background: rgba(212, 182, 138, 0.04);
     }
     .nx-ps-status-dot {
-      width: 8px; height: 8px; border-radius: 50%;
+      width: 6px; height: 6px; border-radius: 50%;
       display: inline-block;
+      box-shadow: 0 0 8px currentColor;
     }
-    /* Banners */
+
+    /* Banners — tonal surface cards, accent-tinted left border */
     .nx-ps-banner {
       display: flex; align-items: flex-start; gap: 12px;
-      padding: 14px;
-      border-radius: 12px;
-      margin-bottom: 14px;
-      border: 1px solid;
+      padding: 13px 14px 13px 13px;
+      background: var(--ps-surface);
+      border: 1px solid var(--ps-border);
+      border-left-width: 3px;
+      border-radius: 10px;
+      margin-bottom: 10px;
     }
-    .nx-ps-banner-icon { font-size: 24px; flex-shrink: 0; margin-top: 2px; }
-    .nx-ps-banner-title { font-size: 14px; font-weight: 700; margin-bottom: 3px; color: #fff; }
-    .nx-ps-banner-sub { font-size: 13px; color: rgba(255,255,255,0.78); line-height: 1.4; }
-    .nx-ps-banner-issue   { background: rgba(244, 67, 54, 0.14); border-color: rgba(244, 67, 54, 0.45); }
-    .nx-ps-banner-issue   .nx-ps-banner-title { color: #ff8a7a; }
-    .nx-ps-banner-overdue { background: rgba(255, 152, 0, 0.14); border-color: rgba(255, 152, 0, 0.45); }
-    .nx-ps-banner-overdue .nx-ps-banner-title { color: #ffb84d; }
-    .nx-ps-banner-warranty{ background: rgba(33, 150, 243, 0.12); border-color: rgba(33, 150, 243, 0.4); }
-    .nx-ps-banner-warranty.nx-ps-banner-title { color: #74bfff; }
-    /* Specs grid */
+    .nx-ps-banner-icon {
+      width: 20px; height: 20px;
+      flex-shrink: 0;
+      margin-top: 1px;
+      stroke-width: 2;
+    }
+    .nx-ps-banner-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 2px;
+      color: var(--ps-text);
+      letter-spacing: 0.1px;
+    }
+    .nx-ps-banner-sub {
+      font-size: 12.5px;
+      color: var(--ps-muted);
+      line-height: 1.45;
+    }
+    .nx-ps-banner-issue    { border-left-color: var(--ps-red); }
+    .nx-ps-banner-issue    .nx-ps-banner-icon { color: var(--ps-red); }
+    .nx-ps-banner-overdue  { border-left-color: var(--ps-amber); }
+    .nx-ps-banner-overdue  .nx-ps-banner-icon { color: var(--ps-amber); }
+    .nx-ps-banner-warranty { border-left-color: var(--ps-blue); }
+    .nx-ps-banner-warranty .nx-ps-banner-icon { color: var(--ps-blue); }
+
+    /* Specs — clean key-value grid */
     .nx-ps-specs {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 18px 20px;
-      margin: 20px 0 10px;
-      padding: 18px 0;
-      border-top: 1px solid rgba(200, 164, 78, 0.12);
+      gap: 18px 24px;
+      margin: 22px 0 6px;
+      padding: 20px 0 4px;
+      border-top: 1px solid var(--ps-border);
     }
     .nx-ps-spec-label {
-      font-size: 11px;
-      letter-spacing: 1.2px;
+      font-size: 10px;
+      letter-spacing: 1.4px;
       text-transform: uppercase;
-      color: #6b675c;
-      margin-bottom: 4px;
+      color: var(--ps-faint);
+      margin-bottom: 5px;
       font-weight: 600;
     }
-    .nx-ps-spec-val { font-size: 15px; color: #e8e8ea; }
+    .nx-ps-spec-val {
+      font-size: 14.5px;
+      color: var(--ps-text);
+      font-weight: 500;
+      letter-spacing: 0.1px;
+    }
+    .nx-ps-spec-val.dim { color: var(--ps-muted); font-weight: 400; }
+
     /* Service history */
     .nx-ps-section-title {
-      font-size: 12px;
-      letter-spacing: 1.5px;
+      font-size: 10px;
+      letter-spacing: 1.6px;
       text-transform: uppercase;
-      color: #8a826f;
+      color: var(--ps-faint);
       font-weight: 600;
-      margin: 24px 0 12px;
+      margin: 26px 0 10px;
+      padding-top: 16px;
+      border-top: 1px solid var(--ps-border);
     }
     .nx-ps-history-row {
       display: grid;
-      grid-template-columns: 80px 1fr;
+      grid-template-columns: 70px 1fr;
       gap: 12px;
-      padding: 12px 0;
-      border-bottom: 1px solid rgba(200, 164, 78, 0.08);
+      padding: 11px 0;
+      border-bottom: 1px solid var(--ps-border);
     }
     .nx-ps-history-row:last-child { border-bottom: none; }
-    .nx-ps-history-date { font-size: 13px; color: #8a826f; }
-    .nx-ps-history-type { font-size: 12px; font-weight: 700; color: #c8a44e; margin-bottom: 4px; letter-spacing: 1px; }
-    .nx-ps-history-desc { font-size: 14px; color: #e8e8ea; line-height: 1.4; margin-bottom: 4px; }
-    .nx-ps-history-by { font-size: 12px; color: #6b675c; }
-    /* Action buttons */
+    .nx-ps-history-date {
+      font-size: 12px;
+      color: var(--ps-faint);
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: 'tnum';
+    }
+    .nx-ps-history-type {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--ps-accent);
+      margin-bottom: 3px;
+      letter-spacing: 1.2px;
+    }
+    .nx-ps-history-desc {
+      font-size: 13.5px;
+      color: var(--ps-text);
+      line-height: 1.45;
+      margin-bottom: 3px;
+    }
+    .nx-ps-history-by {
+      font-size: 11.5px;
+      color: var(--ps-muted);
+    }
+
+    /* Actions — single hero CTA, others tonal */
     .nx-ps-actions {
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      margin-top: 24px;
+      gap: 8px;
+      margin-top: 28px;
     }
+
+    /* All buttons share: icon + two-line label layout */
     .nx-ps-btn {
       display: flex;
       align-items: center;
       gap: 14px;
       width: 100%;
-      padding: 16px 18px;
+      padding: 15px 16px;
       border-radius: 12px;
-      border: 1px solid;
-      background: transparent;
-      color: inherit;
+      border: 1px solid var(--ps-border);
+      background: var(--ps-surface);
+      color: var(--ps-text);
       font-family: inherit;
       cursor: pointer;
       text-align: left;
       -webkit-tap-highlight-color: transparent;
-      transition: transform 0.1s, background 0.15s;
+      transition: transform 0.08s ease, background 0.15s ease, border-color 0.15s ease;
     }
-    .nx-ps-btn:active { transform: scale(0.98); }
-    .nx-ps-btn-icon { font-size: 28px; flex-shrink: 0; }
+    .nx-ps-btn:active { transform: scale(0.985); }
+    .nx-ps-btn-icon-wrap {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      background: rgba(212, 182, 138, 0.06);
+    }
+    .nx-ps-btn-icon-wrap svg {
+      width: 18px; height: 18px;
+      stroke-width: 1.8;
+    }
     .nx-ps-btn-label { flex: 1; min-width: 0; }
-    .nx-ps-btn-title { font-size: 16px; font-weight: 700; margin-bottom: 2px; }
-    .nx-ps-btn-sub   { font-size: 12px; opacity: 0.7; }
-    /* Primary */
+    .nx-ps-btn-title {
+      font-size: 14.5px;
+      font-weight: 600;
+      color: var(--ps-text);
+      letter-spacing: 0.1px;
+      margin-bottom: 1px;
+    }
+    .nx-ps-btn-sub {
+      font-size: 12px;
+      color: var(--ps-muted);
+      letter-spacing: 0.1px;
+    }
+    .nx-ps-btn-arrow {
+      color: var(--ps-faint);
+      flex-shrink: 0;
+      stroke-width: 2;
+    }
+    .nx-ps-btn-arrow svg { width: 16px; height: 16px; }
+
+    /* Primary — the only place we go full gold */
     .nx-ps-btn-primary {
-      background: linear-gradient(135deg, #c8a44e 0%, #b08e3f 100%);
-      border-color: #c8a44e;
-      color: #1a1408;
-      padding: 20px;
-      box-shadow: 0 4px 20px rgba(200, 164, 78, 0.25);
+      background: linear-gradient(135deg, #d4a44e 0%, #b88a38 100%);
+      border-color: transparent;
+      box-shadow: 0 6px 20px -4px rgba(212, 164, 78, 0.4),
+                  0 1px 0 0 rgba(255, 230, 180, 0.18) inset;
+      padding: 17px 18px;
     }
-    .nx-ps-btn-primary .nx-ps-btn-icon { font-size: 32px; }
-    .nx-ps-btn-primary .nx-ps-btn-title { font-size: 18px; }
-    .nx-ps-btn-primary .nx-ps-btn-sub   { opacity: 0.75; color: #3a2a10; }
-    /* Call */
-    .nx-ps-btn-call {
-      background: rgba(76, 175, 80, 0.12);
-      border-color: rgba(76, 175, 80, 0.45);
-      color: #7ed281;
+    .nx-ps-btn-primary .nx-ps-btn-icon-wrap {
+      background: rgba(26, 20, 8, 0.16);
     }
-    .nx-ps-btn-call .nx-ps-btn-title { color: #a5e6a8; }
-    /* Issue */
-    .nx-ps-btn-issue {
-      background: rgba(244, 67, 54, 0.10);
-      border-color: rgba(244, 67, 54, 0.35);
-      color: #ff8a7a;
-    }
-    .nx-ps-btn-issue .nx-ps-btn-title { color: #ff8a7a; }
-    /* Login tertiary */
-    .nx-ps-btn-login {
-      background: transparent;
-      border-color: rgba(200, 164, 78, 0.25);
-      color: #8a826f;
-    }
-    .nx-ps-btn-login .nx-ps-btn-title { color: #c8a44e; }
+    .nx-ps-btn-primary .nx-ps-btn-icon-wrap svg { color: #2a1f08; }
+    .nx-ps-btn-primary .nx-ps-btn-title { color: #1a1408; font-size: 15px; font-weight: 700; }
+    .nx-ps-btn-primary .nx-ps-btn-sub   { color: rgba(26, 20, 8, 0.68); }
+    .nx-ps-btn-primary .nx-ps-btn-arrow { color: rgba(26, 20, 8, 0.55); }
+
+    /* Secondary (call) — accent tint */
+    .nx-ps-btn-call .nx-ps-btn-icon-wrap { background: rgba(212, 182, 138, 0.1); }
+    .nx-ps-btn-call .nx-ps-btn-icon-wrap svg { color: var(--ps-accent); }
+
+    /* Issue — subtle red tint, not aggressive */
+    .nx-ps-btn-issue .nx-ps-btn-icon-wrap { background: rgba(212, 88, 88, 0.1); }
+    .nx-ps-btn-issue .nx-ps-btn-icon-wrap svg { color: #e88080; }
+
+    /* Login — neutral */
+    .nx-ps-btn-login { background: transparent; }
+    .nx-ps-btn-login .nx-ps-btn-icon-wrap { background: rgba(212, 182, 138, 0.05); }
+    .nx-ps-btn-login .nx-ps-btn-icon-wrap svg { color: var(--ps-muted); }
+    .nx-ps-btn-login .nx-ps-btn-title { color: var(--ps-muted); }
+
     /* Footer */
     .nx-ps-footer {
       text-align: center;
-      margin-top: 32px;
-      padding-top: 16px;
-      font-size: 11px;
-      color: #545046;
-      letter-spacing: 1px;
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid var(--ps-border);
+      font-size: 10px;
+      color: var(--ps-faint);
+      letter-spacing: 2px;
+      text-transform: uppercase;
     }
-    /* Error / boot screens */
+    .nx-ps-footer-brand { color: var(--ps-accent); font-weight: 500; }
+
+    /* Error + boot screens */
     .nx-ps-error, .nx-ps-boot {
       text-align: center;
       padding: 80px 24px 40px;
       max-width: 340px;
       margin: 0 auto;
     }
-    .nx-ps-error-icon { font-size: 56px; color: #c8a44e; margin-bottom: 16px; }
-    .nx-ps-error-title { font-size: 18px; font-weight: 600; color: #e6dccc; margin-bottom: 10px; }
-    .nx-ps-error-msg { font-size: 13px; color: #8a826f; margin-bottom: 24px; line-height: 1.5; }
+    .nx-ps-error-icon {
+      width: 48px; height: 48px;
+      margin: 0 auto 20px;
+      color: var(--ps-accent);
+      opacity: 0.8;
+    }
+    .nx-ps-error-title {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--ps-text);
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+    .nx-ps-error-msg {
+      font-size: 13px;
+      color: var(--ps-muted);
+      margin-bottom: 28px;
+      line-height: 1.5;
+    }
     .nx-ps-error-btn {
-      padding: 12px 28px;
-      background: #c8a44e;
+      padding: 13px 28px;
+      background: var(--ps-accent);
       color: #1a1408;
       border: none;
       border-radius: 10px;
       font-weight: 700;
-      font-size: 14px;
+      font-size: 13.5px;
+      letter-spacing: 0.3px;
       cursor: pointer;
       font-family: inherit;
     }
     .nx-ps-boot-brand {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 22px;
-      font-weight: 600;
-      letter-spacing: 6px;
-      color: #c8a44e;
-      margin-bottom: 28px;
-      animation: nxPsPulse 1.6s ease-in-out infinite;
+      font-size: 16px;
+      font-weight: 500;
+      letter-spacing: 8px;
+      color: var(--ps-accent);
+      margin-bottom: 32px;
+      animation: nxPsPulse 1.8s ease-in-out infinite;
     }
     .nx-ps-boot-spinner {
-      width: 60px; height: 60px; margin: 0 auto 20px;
-      border: 4px solid rgba(200, 164, 78, 0.15);
-      border-top-color: #c8a44e;
+      width: 46px; height: 46px; margin: 0 auto 20px;
+      border: 2.5px solid var(--ps-border-strong);
+      border-top-color: var(--ps-accent);
       border-radius: 50%;
-      animation: nxPsSpin 0.9s linear infinite;
+      animation: nxPsSpin 0.85s linear infinite;
     }
-    .nx-ps-boot-label { font-size: 15px; color: #e6dccc; }
+    .nx-ps-boot-label {
+      font-size: 13px;
+      color: var(--ps-muted);
+      letter-spacing: 0.2px;
+    }
     @keyframes nxPsSpin { to { transform: rotate(360deg); } }
-    @keyframes nxPsPulse { 0%, 100% { opacity: 0.6; transform: scale(1); } 50% { opacity: 1; transform: scale(1.04); } }
+    @keyframes nxPsPulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
 
-    /* Issue report modal */
+    /* Report Issue modal — bottom sheet on mobile */
     .nx-ps-modal-bg {
       position: fixed; inset: 0;
-      background: rgba(0,0,0,0.7);
+      background: rgba(0, 0, 0, 0.72);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
       z-index: 9998;
-      display: flex; align-items: flex-end; justify-content: center;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      animation: nxPsFadeIn 0.2s ease;
     }
+    @keyframes nxPsFadeIn { from { opacity: 0; } to { opacity: 1; } }
     .nx-ps-modal {
-      background: #1a1a22;
-      border: 1px solid rgba(200, 164, 78, 0.2);
-      border-radius: 20px 20px 0 0;
-      padding: 24px 20px calc(env(safe-area-inset-bottom, 0px) + 24px);
+      background: var(--ps-surface);
+      border-top: 1px solid var(--ps-border-strong);
+      border-radius: 18px 18px 0 0;
+      padding: 22px 20px calc(env(safe-area-inset-bottom, 0px) + 22px);
       width: 100%;
       max-width: 600px;
-      max-height: 90vh;
+      max-height: 92vh;
       overflow-y: auto;
-      animation: nxPsSlideUp 0.25s ease-out;
+      animation: nxPsSlideUp 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
     }
     @keyframes nxPsSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-    .nx-ps-modal h2 { font-size: 20px; margin: 0 0 4px; color: #fff; }
-    .nx-ps-modal-sub { font-size: 13px; color: #8a826f; margin-bottom: 20px; }
-    .nx-ps-modal-label { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: #8a826f; font-weight: 600; margin-bottom: 8px; }
+    .nx-ps-modal-grip {
+      width: 36px; height: 4px;
+      background: var(--ps-border-strong);
+      border-radius: 3px;
+      margin: -6px auto 14px;
+    }
+    .nx-ps-modal h2 {
+      font-family: 'Outfit', 'DM Sans', sans-serif;
+      font-size: 20px;
+      font-weight: 600;
+      margin: 0 0 4px;
+      color: var(--ps-text);
+      letter-spacing: -0.01em;
+    }
+    .nx-ps-modal-sub {
+      font-size: 13px;
+      color: var(--ps-muted);
+      margin-bottom: 22px;
+    }
+    .nx-ps-modal-label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--ps-faint);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
     .nx-ps-modal-input, .nx-ps-modal-textarea {
       width: 100%;
       padding: 12px 14px;
-      background: #0d0d12;
-      border: 1px solid rgba(200, 164, 78, 0.2);
+      background: var(--ps-bg);
+      border: 1px solid var(--ps-border-strong);
       border-radius: 10px;
-      color: #e8e8ea;
+      color: var(--ps-text);
       font-family: inherit;
       font-size: 14px;
       box-sizing: border-box;
-      margin-bottom: 16px;
+      margin-bottom: 18px;
+      transition: border-color 0.15s;
     }
-    .nx-ps-modal-textarea { min-height: 100px; resize: vertical; }
-    .nx-ps-modal-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .nx-ps-modal-input:focus, .nx-ps-modal-textarea:focus {
+      outline: none;
+      border-color: var(--ps-accent);
+    }
+    .nx-ps-modal-textarea { min-height: 96px; resize: vertical; }
+    .nx-ps-modal-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 18px; }
     .nx-ps-modal-chip {
-      padding: 8px 12px;
-      background: rgba(200, 164, 78, 0.08);
-      border: 1px solid rgba(200, 164, 78, 0.2);
+      padding: 7px 12px;
+      background: var(--ps-bg);
+      border: 1px solid var(--ps-border-strong);
       border-radius: 8px;
-      color: #c8a44e;
-      font-size: 13px;
+      color: var(--ps-muted);
+      font-size: 12.5px;
       cursor: pointer;
       font-family: inherit;
+      transition: all 0.12s;
     }
     .nx-ps-modal-chip.active {
-      background: #c8a44e;
+      background: var(--ps-accent);
+      border-color: var(--ps-accent);
       color: #1a1408;
       font-weight: 700;
     }
-    .nx-ps-modal-btns { display: flex; gap: 10px; margin-top: 8px; }
+    .nx-ps-modal-btns { display: flex; gap: 10px; margin-top: 6px; }
     .nx-ps-modal-btn {
       flex: 1;
       padding: 14px;
       border-radius: 10px;
       border: 1px solid;
       font-family: inherit;
-      font-weight: 700;
-      font-size: 14px;
+      font-weight: 600;
+      font-size: 13.5px;
+      letter-spacing: 0.2px;
       cursor: pointer;
     }
-    .nx-ps-modal-btn-cancel { background: transparent; border-color: rgba(200, 164, 78, 0.2); color: #8a826f; }
-    .nx-ps-modal-btn-send { background: #c8a44e; border-color: #c8a44e; color: #1a1408; }
-    .nx-ps-modal-btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
+    .nx-ps-modal-btn-cancel {
+      background: transparent;
+      border-color: var(--ps-border-strong);
+      color: var(--ps-muted);
+    }
+    .nx-ps-modal-btn-send {
+      background: var(--ps-accent);
+      border-color: var(--ps-accent);
+      color: #1a1408;
+    }
+    .nx-ps-modal-btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
   `;
+
 
   // ─── 6. BOOT LOADER ─────────────────────────────────────────────────
   function renderBoot() {
@@ -636,10 +863,10 @@
   // ─── 9. RENDER SCAN PAGE ────────────────────────────────────────────
   function renderScan({ eq, activeTicket, maint, contact }) {
     const statusMap = {
-      operational:   { label: 'Operational',   color: '#4caf50' },
-      needs_service: { label: 'Needs Service', color: '#ff9800' },
-      down:          { label: 'Down',          color: '#f44336' },
-      retired:       { label: 'Retired',       color: '#888'    },
+      operational:   { label: 'Operational',   color: '#5bba5f' },
+      needs_service: { label: 'Needs Service', color: '#e8a830' },
+      down:          { label: 'Down',          color: '#d45858' },
+      retired:       { label: 'Retired',       color: '#857f75' },
     };
     const status = statusMap[eq.status] || { label: eq.status || 'Unknown', color: '#888' };
 
@@ -665,7 +892,7 @@
         .replace(/^\[Equipment\]\s*[^:]*:\s*/, '').slice(0, 140);
       banners.push(`
         <div class="nx-ps-banner nx-ps-banner-issue">
-          <div class="nx-ps-banner-icon">⚠</div>
+          <div class="nx-ps-banner-icon">${icon('warning')}</div>
           <div>
             <div class="nx-ps-banner-title">Active issue filed ${esc(relDate(activeTicket.created_at))}</div>
             <div class="nx-ps-banner-sub"><strong>${esc(who)}</strong> reported: ${esc(issueText)}</div>
@@ -676,7 +903,7 @@
     if (pmOverdue) {
       banners.push(`
         <div class="nx-ps-banner nx-ps-banner-overdue">
-          <div class="nx-ps-banner-icon">⏰</div>
+          <div class="nx-ps-banner-icon">${icon('clock')}</div>
           <div>
             <div class="nx-ps-banner-title">Preventative maintenance overdue</div>
             <div class="nx-ps-banner-sub">Was due ${pmDaysOverdue} day${pmDaysOverdue !== 1 ? 's' : ''} ago (${pmStr})</div>
@@ -687,7 +914,7 @@
     if (warrantyValid) {
       banners.push(`
         <div class="nx-ps-banner nx-ps-banner-warranty">
-          <div class="nx-ps-banner-icon">🛡</div>
+          <div class="nx-ps-banner-icon">${icon('shield')}</div>
           <div>
             <div class="nx-ps-banner-title">Under warranty until ${warranty.toLocaleDateString()}</div>
             <div class="nx-ps-banner-sub">${warrantyDaysLeft} day${warrantyDaysLeft !== 1 ? 's' : ''} remaining — avoid invasive repairs; check warranty first</div>
@@ -698,7 +925,7 @@
 
     const photoHTML = eq.photo_url
       ? `<img class="nx-ps-photo" src="${esc(eq.photo_url)}" alt="${esc(eq.name)}">`
-      : `<div class="nx-ps-photo-placeholder">${catIcon(eq.category)}</div>`;
+      : `<div class="nx-ps-photo-placeholder">${categoryIconSvg(eq.category, 72)}</div>`;
 
     const historyHTML = maint.length ? `
       <div class="nx-ps-section-title">Recent Service History</div>
@@ -716,11 +943,12 @@
 
     const callBtnHTML = contact ? `
       <button class="nx-ps-btn nx-ps-btn-call" data-action="call">
-        <div class="nx-ps-btn-icon">📞</div>
+        <div class="nx-ps-btn-icon-wrap">${icon('phone')}</div>
         <div class="nx-ps-btn-label">
           <div class="nx-ps-btn-title">Call ${esc(contact.name)}</div>
           <div class="nx-ps-btn-sub">${esc(contact.phone)}</div>
         </div>
+        <div class="nx-ps-btn-arrow">${icon('chevronRight', 16)}</div>
       </button>
     ` : '';
 
@@ -731,8 +959,8 @@
           <div class="nx-ps-card">
             ${photoHTML}
             <h1 class="nx-ps-name">${esc(eq.name)}</h1>
-            <div class="nx-ps-loc">📍 ${esc(eq.location || '')}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
-            <div class="nx-ps-status" style="color:${status.color}; border-color:${status.color}40; background:${status.color}14;">
+            <div class="nx-ps-loc">${icon('mapPin', 13)} ${esc(eq.location || '')}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
+            <div class="nx-ps-status" style="color:${status.color}; border-color:${status.color}40;">
               <span class="nx-ps-status-dot" style="background:${status.color};"></span>
               ${esc(status.label)}
             </div>
@@ -742,35 +970,38 @@
               <div><div class="nx-ps-spec-label">Model</div><div class="nx-ps-spec-val">${esc(eq.model || '—')}</div></div>
               <div><div class="nx-ps-spec-label">Serial Number</div><div class="nx-ps-spec-val">${esc(eq.serial_number || '—')}</div></div>
               <div><div class="nx-ps-spec-label">Installed</div><div class="nx-ps-spec-val">${installStr}</div></div>
-              <div><div class="nx-ps-spec-label">Warranty</div><div class="nx-ps-spec-val">${warrantyStr}</div></div>
-              <div><div class="nx-ps-spec-label">Next PM</div><div class="nx-ps-spec-val">${pmStr}</div></div>
+              <div><div class="nx-ps-spec-label">Warranty</div><div class="nx-ps-spec-val ${warrantyValid ? '' : 'dim'}">${warrantyStr}</div></div>
+              <div><div class="nx-ps-spec-label">Next PM</div><div class="nx-ps-spec-val ${pmOverdue ? '' : 'dim'}">${pmStr}</div></div>
             </div>
             ${historyHTML}
             <div class="nx-ps-actions">
               <button class="nx-ps-btn nx-ps-btn-primary" data-action="log-service">
-                <div class="nx-ps-btn-icon">🔧</div>
+                <div class="nx-ps-btn-icon-wrap">${icon('wrench')}</div>
                 <div class="nx-ps-btn-label">
                   <div class="nx-ps-btn-title">Log Service</div>
                   <div class="nx-ps-btn-sub">Contractors — no login needed</div>
                 </div>
+                <div class="nx-ps-btn-arrow">${icon('chevronRight', 16)}</div>
               </button>
               ${callBtnHTML}
               <button class="nx-ps-btn nx-ps-btn-issue" data-action="report">
-                <div class="nx-ps-btn-icon">🚨</div>
+                <div class="nx-ps-btn-icon-wrap">${icon('alert')}</div>
                 <div class="nx-ps-btn-label">
                   <div class="nx-ps-btn-title">Report Issue</div>
                   <div class="nx-ps-btn-sub">Something's broken or unsafe</div>
                 </div>
+                <div class="nx-ps-btn-arrow">${icon('chevronRight', 16)}</div>
               </button>
               <button class="nx-ps-btn nx-ps-btn-login" data-action="login">
-                <div class="nx-ps-btn-icon">🔐</div>
+                <div class="nx-ps-btn-icon-wrap">${icon('lock')}</div>
                 <div class="nx-ps-btn-label">
                   <div class="nx-ps-btn-title">Staff Login</div>
                   <div class="nx-ps-btn-sub">Full equipment details</div>
                 </div>
+                <div class="nx-ps-btn-arrow">${icon('chevronRight', 16)}</div>
               </button>
             </div>
-            <div class="nx-ps-footer">Powered by NEXUS · Restaurant Operations Intelligence</div>
+            <div class="nx-ps-footer">Powered by <span class="nx-ps-footer-brand">NEXUS</span></div>
           </div>
         </div>
       </div>
@@ -838,6 +1069,7 @@
     bg.className = 'nx-ps-modal-bg';
     bg.innerHTML = `
       <div class="nx-ps-modal" onclick="event.stopPropagation()">
+        <div class="nx-ps-modal-grip"></div>
         <h2>Report Issue</h2>
         <div class="nx-ps-modal-sub">${esc(eq.name)} · ${esc(eq.location || '')}</div>
 
@@ -925,7 +1157,7 @@
     wrap.innerHTML = `
       <div class="nx-ps-header"><div class="nx-ps-brand">NEXUS</div></div>
       <div class="nx-ps-error">
-        <div class="nx-ps-error-icon">⚠</div>
+        <div class="nx-ps-error-icon">${icon('warning', 48)}</div>
         <div class="nx-ps-error-title">Could not load equipment</div>
         <div class="nx-ps-error-msg">${esc(msg)}</div>
         <button class="nx-ps-error-btn" onclick="location.reload()">Try again</button>
