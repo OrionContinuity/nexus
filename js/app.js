@@ -495,6 +495,22 @@ const NX = {
       document.querySelector('[data-view="board"]').style.display = 'none';
     }
 
+    // ─── GALAXY ACCESS (admin-only) ────────────────────────────────
+    // The brain/galaxy view surfaces raw email content, contractor
+    // pricing, personal notes, and other sensitive data. Keep it
+    // behind an admin gate so staff and managers can't stumble into
+    // information they shouldn't see.
+    //
+    // We use a body class instead of querying elements because the
+    // mini-galaxy on Home is rendered lazily by home.js after this
+    // point — a direct element query would no-op. CSS handles both
+    // the main NEXUS logo AND the mini-galaxy the moment they mount.
+    if (!this.isAdmin) {
+      document.body.classList.add('no-galaxy-access');
+    } else {
+      document.body.classList.remove('no-galaxy-access');
+    }
+
     // Continue with normal init
     this.loadNodes().then(() => {
       // Load AI context systems
