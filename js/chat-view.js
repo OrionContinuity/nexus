@@ -55,19 +55,24 @@
     },
   };
 
-  // Same list as brain-chat.js setupVoice (kept in sync)
-  const VOICES = [
-    { id: 'XB0fDUnXU5powFXDhCwa', name: 'Charlotte' },
-    { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella' },
-    { id: 'jsCqWAovK2LkecY7zXl4', name: 'Freya' },
-    { id: 'oWAxZDx7w5VEj9dCyTzz', name: 'Grace' },
-    { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel' },
-    { id: 'LcfcDJNUP1GQjkzn1xUU', name: 'Emily' },
-    { id: 'ErXwobaYiN019PkySvjV', name: 'Antoni' },
-    { id: 'onwK4e9ZLuTAKqWW03F9', name: 'Daniel' },
-    { id: 'TX3LPaxmHKxFdv7VOQHJ', name: 'Liam' },
-    { id: 'pNInz6obpgDQGcFmaJgB', name: 'Adam' },
+  // Single source of truth is brain-chat.js → NX.VOICES (20 voices).
+  // This getter reads dynamically so if brain-chat hasn't finished
+  // registering yet on first render, we still get the latest list on
+  // re-render (which happens on persona-sheet open). Fallback is a
+  // minimal 4-voice list that matches brain-chat ordering, so even
+  // if the main list fails to load, picking voice idx 0 still plays
+  // Charlotte (not a silently-wrong voice).
+  const VOICES_FALLBACK = [
+    { id: 'XB0fDUnXU5powFXDhCwa', name: 'Charlotte', desc: 'Smart & smooth' },
+    { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella',     desc: 'Warm & witty'  },
+    { id: 'jsCqWAovK2LkecY7zXl4', name: 'Freya',     desc: 'Breathy & warm' },
+    { id: 'oWAxZDx7w5VEj9dCyTzz', name: 'Grace',     desc: 'Southern elegance' },
   ];
+  function getVoices() {
+    return (window.NX && Array.isArray(NX.VOICES) && NX.VOICES.length)
+      ? NX.VOICES
+      : VOICES_FALLBACK;
+  }
 
   const ICONS = {
     back:       '<path d="M19 12H5"/><path d="m12 19-7-7 7-7"/>',
@@ -421,6 +426,7 @@
   function renderPersonaSheet() {
     const current = state.tone;
     const currentVoice = state.voiceIdx;
+    const voices = getVoices();                    // canonical NX.VOICES
     const toneHTML = Object.entries(TONE_PRESETS).map(([k, v]) => `
       <button class="cv-persona-opt ${k === current ? 'is-active' : ''}" data-tone="${k}" type="button">
         <span class="cv-persona-opt-label">${esc(v.label)}</span>
@@ -428,9 +434,16 @@
       </button>
     `).join('');
 
-    const voiceHTML = VOICES.map((v, idx) => `
-      <button class="cv-persona-voice ${idx === currentVoice ? 'is-active' : ''}" data-voice-idx="${idx}" type="button">${esc(v.name)}</button>
+    // Clamp voiceIdx to current list length in case stored idx came
+    // from a stale / larger list. Keeps UI highlighting consistent.
+    const safeVoiceIdx = (currentVoice % voices.length + voices.length) % voices.length;
+    const voiceHTML = voices.map((v, idx) => `
+      <button class="cv-persona-voice ${idx === safeVoiceIdx ? 'is-active' : ''}" data-voice-idx="${idx}" type="button" title="${esc(v.desc || '')}">
+        <span class="cv-persona-voice-name">${esc(v.name)}</span>
+        ${v.desc ? `<span class="cv-persona-voice-desc">${esc(v.desc)}</span>` : ''}
+      </button>
     `).join('');
+    const activeVoiceName = voices[safeVoiceIdx]?.name || '—';
 
     personaSheetEl.innerHTML = `
       <div class="cv-persona-grip"></div>
@@ -440,7 +453,7 @@
       <div class="cv-persona-section-title">Text tone</div>
       <div class="cv-persona-grid">${toneHTML}</div>
 
-      <div class="cv-persona-section-title">Voice (when spoken)</div>
+      <div class="cv-persona-section-title">Voice — currently <strong>${esc(activeVoiceName)}</strong></div>
       <div class="cv-persona-voices">${voiceHTML}</div>
 
       <button class="cv-persona-close" id="cvPersonaClose" type="button">Done</button>
@@ -458,6 +471,9 @@
         localStorage.setItem('nexus_voice_idx', String(state.voiceIdx));
         // Signal brain-chat so its voice picker stays in sync
         window.dispatchEvent(new CustomEvent('nx-voice-idx-change', { detail: { idx: state.voiceIdx } }));
+        // Also sync the admin panel's select element if it's rendered
+        const adminVoice = document.getElementById('adminVoice');
+        if (adminVoice) adminVoice.value = String(state.voiceIdx);
         renderPersonaSheet();
       });
     });
