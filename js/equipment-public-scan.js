@@ -82,48 +82,14 @@
     return sb;
   }
 
-  // ─── Force scroll — nexus.css has body{overflow:hidden} for its SPA.
-  //     Multiple approaches belt-and-braces:
-  //       1. Add a class to html+body so CSS selectors have higher specificity
-  //       2. Inject CSS with !important targeting that class
-  //       3. Also set inline styles via setProperty (respects !important)
-  //       4. Reassert after a tick in case app.js's DOMContentLoaded handler
-  //          tries to stamp body styles.
-  function forceScrollOn() {
+  // ─── Mark document as public-scan mode ──────────────────────────────
+  // Just adds a class; equipment-fixes.css line 2205 already has the
+  // correct scroll rules (overflow-x:hidden; overflow-y:auto on html,body).
+  // Don't touch body/html overflow here — setting overflow:visible on both
+  // html AND body kills viewport scrolling (neither becomes scroll container).
+  function markPublicScan() {
     document.documentElement.classList.add('nx-public-scan');
     document.body.classList.add('nx-public-scan');
-
-    const styleId = 'nxPublicScanScrollFix';
-    if (!document.getElementById(styleId)) {
-      const st = document.createElement('style');
-      st.id = styleId;
-      // High-specificity selector + !important beats nexus.css's bare "body {}"
-      st.textContent = `
-        html.nx-public-scan,
-        body.nx-public-scan,
-        html.nx-public-scan body.nx-public-scan {
-          overflow: visible !important;
-          overflow-x: hidden !important;
-          overflow-y: auto !important;
-          height: auto !important;
-          min-height: 100vh !important;
-          min-height: 100dvh !important;
-          -webkit-overflow-scrolling: touch !important;
-          position: static !important;
-        }
-      `;
-      document.head.appendChild(st);
-    }
-
-    // Also set inline styles with setProperty (honors !important)
-    const setImp = (el, prop, val) => el.style.setProperty(prop, val, 'important');
-    [document.documentElement, document.body].forEach(el => {
-      setImp(el, 'overflow', 'visible');
-      setImp(el, 'overflow-y', 'auto');
-      setImp(el, 'overflow-x', 'hidden');
-      setImp(el, 'height', 'auto');
-      setImp(el, 'min-height', '100vh');
-    });
   }
 
   // ─── Inject styles once ─────────────────────────────────────────────
@@ -229,7 +195,7 @@
   // ─── Boot loader (v4 — bigger, pulsing brand) ───────────────────────
   function renderBootLoader(qrCode) {
     injectStyles();
-    forceScrollOn();
+    markPublicScan();
     const boot = document.createElement('div');
     boot.id = 'nxPublicBoot';
     boot.style.cssText = `
@@ -282,7 +248,7 @@
 
   // ─── Render shell (static container for details) ─────────────────
   function renderShell() {
-    forceScrollOn();
+    markPublicScan();
 
     document.body.innerHTML = `
       <div class="public-scan-container">
@@ -294,11 +260,11 @@
     `;
 
     // Re-apply classes (body.innerHTML doesn't nuke classList but be safe)
-    forceScrollOn();
+    markPublicScan();
     // app.js DOMContentLoaded handler may fire AFTER this and stomp on
     // body styles — reassert after a tick to win the race.
-    setTimeout(forceScrollOn, 50);
-    setTimeout(forceScrollOn, 500);
+    setTimeout(markPublicScan, 50);
+    setTimeout(markPublicScan, 500);
   }
 
   // ─── Render details view (v4) ───────────────────────────────────────
