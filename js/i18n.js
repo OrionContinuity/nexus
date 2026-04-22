@@ -29,7 +29,7 @@ en:{
   // ── BRAIN ──
   searchNodes:'Search nodes...',
   askNexus:'Ask NEXUS...',
-  nexusWelcome:"I'm <b>NEXUS</b> — your ops brain. Ask me anything.",
+  nexusWelcome:"I'm <b>NEXUS</b>. Ask me anything.",
   noNodes:'No knowledge nodes yet',
   getStarted:'Get started:',
   tipIngest:'Open <b>Ingest</b> → connect Gmail or drop email files',
@@ -182,7 +182,7 @@ es:{
   // ── BRAIN ──
   searchNodes:'Buscar nodos...',
   askNexus:'Pregunta a NEXUS...',
-  nexusWelcome:"Soy <b>NEXUS</b> — tu cerebro de operaciones. Pregúntame lo que sea.",
+  nexusWelcome:"Soy <b>NEXUS</b>. Pregúntame lo que sea.",
   noNodes:'No hay nodos de conocimiento',
   getStarted:'Comienza:',
   tipIngest:'Abre <b>Ingesta</b> → conecta Gmail o arrastra archivos',
