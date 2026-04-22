@@ -512,11 +512,111 @@
 
 </div><!-- /appWrap -->
 
-<!-- ADMIN MODAL -->
+<!-- ADMIN MODAL — v4 tabbed restructure -->
+<style>
+/* Admin tab bar */
+.admin-tab-bar { display:flex; gap:2px; margin:10px -2px 12px; background:rgba(0,0,0,0.18); border-radius:10px; padding:3px; overflow-x:auto; }
+.at-tab { flex:1; min-width:70px; padding:9px 8px; background:transparent; border:none; color:var(--text-dim,#a49c94); font-size:10.5px; font-weight:500; font-family:inherit; border-radius:7px; cursor:pointer; white-space:nowrap; transition:all 0.15s; letter-spacing:0.3px; }
+.at-tab.active { background:rgba(200,164,78,0.15); color:var(--accent,#c8a44e); font-weight:600; }
+.at-tab:active { transform:scale(0.96); }
+.at-panel { display:none; animation:atFadeIn 0.18s ease-out; }
+.at-panel.active { display:block; }
+@keyframes atFadeIn { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
+
+/* Overview stats grid */
+.at-stats-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:4px 0 14px; }
+.at-stat-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px 6px; text-align:center; transition:border-color 0.15s; }
+.at-stat-card .at-stat-icon { font-size:16px; margin-bottom:2px; line-height:1; }
+.at-stat-card .at-stat-num { font-size:18px; font-weight:700; color:var(--text,#d4c8a5); font-family:'JetBrains Mono',monospace; line-height:1.2; }
+.at-stat-card .at-stat-label { font-size:8.5px; color:var(--text-dim,#a49c94); text-transform:uppercase; letter-spacing:0.5px; margin-top:3px; }
+.at-stat-card.alert { background:rgba(212,88,88,0.1); border-color:rgba(212,88,88,0.3); }
+.at-stat-card.alert .at-stat-num { color:#e88; }
+
+/* Overview integrations chips */
+.at-integrations { display:flex; flex-wrap:wrap; gap:5px; margin:6px 0 14px; }
+.at-int-chip { font-size:10.5px; padding:4px 9px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); }
+.at-int-chip.ok { border-color:rgba(91,186,95,0.3); color:#8fd492; background:rgba(91,186,95,0.08); }
+.at-int-chip.off { border-color:rgba(212,88,88,0.3); color:#d88; background:rgba(212,88,88,0.08); }
+
+/* Overview section headers + attention + activity */
+.at-section-title { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:1.2px; color:var(--text-dim,#a49c94); margin:14px 0 6px; padding-bottom:5px; border-bottom:1px solid rgba(255,255,255,0.05); }
+.at-attention { margin-bottom:14px; }
+.at-attn-item { font-size:11.5px; padding:8px 12px; margin-bottom:4px; border-radius:8px; background:rgba(232,168,48,0.1); border:1px solid rgba(232,168,48,0.2); color:var(--text,#d4c8a5); }
+.at-attn-item.ok { background:rgba(91,186,95,0.08); border-color:rgba(91,186,95,0.2); color:#8fd492; }
+.at-attn-item.danger { background:rgba(212,88,88,0.1); border-color:rgba(212,88,88,0.25); color:#e88; }
+.at-activity { max-height:180px; overflow-y:auto; border-radius:8px; background:rgba(0,0,0,0.18); padding:2px 0; }
+.at-activity-row { display:flex; gap:8px; padding:6px 10px; font-size:10.5px; border-bottom:1px solid rgba(255,255,255,0.03); }
+.at-activity-row:last-child { border-bottom:none; }
+.at-activity-time { color:var(--text-faint,#746c5e); font-family:'JetBrains Mono',monospace; font-size:9.5px; white-space:nowrap; flex-shrink:0; }
+.at-activity-msg { color:var(--text,#d4c8a5); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.at-activity-empty { font-size:11px; padding:14px 10px; text-align:center; color:var(--text-faint,#746c5e); }
+</style>
+
 <div class="admin-overlay" id="adminModal">
   <div class="admin-box">
     <h2 class="admin-title" data-i18n="admin">ADMIN</h2>
     <div id="adminUserInfo" class="admin-user-info"></div>
+
+    <!-- TAB BAR (admin-gated via inline sync script below) -->
+    <div class="admin-tab-bar at-admin-gated" id="adminTabBar" style="display:none">
+      <button class="at-tab active" data-tab="overview">📊 Overview</button>
+      <button class="at-tab" data-tab="configure">⚙️ Configure</button>
+      <button class="at-tab" data-tab="actions">🛠 Actions</button>
+      <button class="at-tab" data-tab="logs">📜 Logs</button>
+    </div>
+
+    <!-- ━━━━━ TAB 1: OVERVIEW ━━━━━ -->
+    <div class="at-panel active at-admin-gated" data-panel="overview" id="atOverviewPanel" style="display:none">
+      <div class="at-stats-grid">
+        <div class="at-stat-card">
+          <div class="at-stat-icon">🔔</div>
+          <div class="at-stat-num" id="atPushCount">—</div>
+          <div class="at-stat-label">Push</div>
+        </div>
+        <div class="at-stat-card">
+          <div class="at-stat-icon">👥</div>
+          <div class="at-stat-num" id="atUserCount">—</div>
+          <div class="at-stat-label">Team</div>
+        </div>
+        <div class="at-stat-card">
+          <div class="at-stat-icon">🧠</div>
+          <div class="at-stat-num" id="atNodeCount">—</div>
+          <div class="at-stat-label">Brain</div>
+        </div>
+        <div class="at-stat-card">
+          <div class="at-stat-icon">🔧</div>
+          <div class="at-stat-num" id="atEquipmentCount">—</div>
+          <div class="at-stat-label">Equipment</div>
+        </div>
+        <div class="at-stat-card">
+          <div class="at-stat-icon">🎫</div>
+          <div class="at-stat-num" id="atOpenCardsCount">—</div>
+          <div class="at-stat-label">Open Cards</div>
+        </div>
+        <div class="at-stat-card alert" id="atOverdueCard" style="display:none">
+          <div class="at-stat-icon">🚨</div>
+          <div class="at-stat-num" id="atOverdueCount">—</div>
+          <div class="at-stat-label">Overdue</div>
+        </div>
+      </div>
+
+      <div class="at-section-title">Integrations</div>
+      <div class="at-integrations" id="atIntegrations"><span class="at-int-chip">Loading…</span></div>
+
+      <div class="at-section-title">Needs attention</div>
+      <div class="at-attention" id="atAttention"><div class="at-attn-item">Loading…</div></div>
+
+      <div class="at-section-title">Recent system activity</div>
+      <div class="at-activity" id="atRecentActivity"><div class="at-activity-empty">Loading…</div></div>
+
+      <button id="atRefreshOverview" class="admin-save-btn" style="margin-top:10px;padding:8px 14px;font-size:11px;background:transparent;color:var(--muted);border:1px solid rgba(200,164,78,0.25);">↻ Refresh</button>
+    </div>
+
+    <!-- ━━━━━ TAB 2: CONFIGURE ━━━━━ -->
+    <!-- adminKeySection kept as-is for compatibility with app.js (show/hide by role).
+         Contents: API keys, AI model, voice, integrations, Drive sync, login perf,
+         push, team. PM Logs + Broadcast moved to Actions panel. -->
+    <div class="at-panel at-admin-gated" data-panel="configure" id="atConfigurePanel" style="display:none">
     <div id="adminKeySection" style="display:none">
       <div class="admin-section-label" data-i18n="apiKeys">API Keys</div>
       <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminApiKey" placeholder="Anthropic API Key" class="admin-field">
@@ -568,14 +668,6 @@
         <button id="driveRestoreBtn" class="admin-drive-btn" data-i18n="restore">Restore ↓</button>
       </div>
       <div id="driveStatus" class="admin-key-status" style="font-size:11px"></div>
-      <!-- PM LOGS REVIEW (contractor submissions awaiting approval) -->
-      <hr class="admin-divider">
-      <div class="admin-section-label">📋 Contractor PM Logs</div>
-      <button id="adminReviewPmLogs" class="admin-save-btn" style="margin-top:6px;background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;display:flex;align-items:center;justify-content:space-between;gap:8px;">
-        <span>Review Pending Submissions</span>
-        <span id="adminPmPendingCount" class="ticket-badge" style="display:none;background:#e07070;color:white;font-weight:700;"></span>
-      </button>
-      <div class="admin-key-status" style="font-size:11px;margin-top:4px;">Contractor service logs submitted via QR scan</div>
       <!-- LOGIN PERFORMANCE (PIN hash cache for fast re-login) -->
       <hr class="admin-divider">
       <div class="admin-section-label">⚡ Login Performance</div>
@@ -587,7 +679,7 @@
         <input type="checkbox" id="adminPinCacheToggle" style="width:44px;height:26px;accent-color:var(--accent);flex-shrink:0;margin-left:10px;">
       </label>
       <button id="adminClearPinCache" class="admin-save-btn" style="margin-top:8px;padding:8px 14px;font-size:12px;background:transparent;color:var(--muted);border:1px solid rgba(200,164,78,0.25);">Clear PIN cache</button>
-      <!-- PUSH NOTIFICATIONS (subscribe this device to alerts) -->
+      <!-- PUSH NOTIFICATIONS (per-device config) -->
       <hr class="admin-divider">
       <div class="admin-section-label">🔔 Push Notifications</div>
       <div id="adminPushStatus" class="admin-key-status" style="font-size:11px;margin:6px 0 8px;">Checking…</div>
@@ -609,12 +701,47 @@
           };
           el.textContent = labels[s] || s;
         };
-        // Refresh status when admin panel opens or page loads
         setTimeout(() => window.NX_refreshPushStatus?.(), 2000);
         setInterval(() => window.NX_refreshPushStatus?.(), 5000);
       </script>
-      <!-- BROADCAST ANNOUNCEMENT (manager/admin — sends a push to subscribers) -->
+      <!-- USER MANAGEMENT (admin only) -->
       <hr class="admin-divider">
+      <div class="admin-section-label" data-i18n="teamMembers">Team Members</div>
+      <div id="adminUserList" class="admin-user-list"></div>
+      <div class="admin-add-user">
+        <input autocomplete="off" data-lpignore="true" data-form-type="other" id="newUserName" placeholder="Name" class="admin-field-sm">
+        <input autocomplete="off" data-lpignore="true" data-form-type="other" id="newUserPin" placeholder="PIN" class="admin-field-sm" maxlength="6">
+        <select id="newUserRole" class="admin-field-sm">
+          <option value="staff">Staff</option>
+          <option value="manager">Manager</option>
+          <option value="admin">Admin</option>
+        </select>
+        <select id="newUserLoc" class="admin-field-sm">
+          <option value="suerte">Suerte</option>
+          <option value="este">Este</option>
+          <option value="toti">Toti</option>
+        </select>
+        <select id="newUserLang" class="admin-field-sm">
+          <option value="en">English</option>
+          <option value="es">Español</option>
+        </select>
+        <button id="addUserBtn" class="admin-save-btn" style="margin-top:0;padding:8px 14px">+ Add</button>
+      </div>
+    </div>
+    </div>
+
+    <!-- ━━━━━ TAB 3: ACTIONS ━━━━━ -->
+    <!-- Moved here: PM Logs, Broadcast, Data Backup. Admin-gated via at-admin-gated. -->
+    <div class="at-panel at-admin-gated" data-panel="actions" id="atActionsPanel" style="display:none">
+      <!-- PM LOGS -->
+      <div class="admin-section-label">📋 Contractor PM Logs</div>
+      <button id="adminReviewPmLogs" class="admin-save-btn" style="margin-top:6px;background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <span>Review Pending Submissions</span>
+        <span id="adminPmPendingCount" class="ticket-badge" style="display:none;background:#e07070;color:white;font-weight:700;"></span>
+      </button>
+      <div class="admin-key-status" style="font-size:11px;margin-top:4px;">Contractor service logs submitted via QR scan</div>
+      <hr class="admin-divider">
+      <!-- BROADCAST ANNOUNCEMENT -->
       <div class="admin-section-label">📣 Broadcast Announcement</div>
       <div class="admin-key-status" style="font-size:11px;margin:6px 0 8px;">Sends an immediate push notification to subscribed devices.</div>
       <input id="adminBroadcastTitle" type="text" placeholder="Title (e.g. Manager meeting at 4 PM)" maxlength="60" class="admin-field-sm" style="width:100%;margin-top:6px;" autocomplete="off" data-lpignore="true" data-form-type="other">
@@ -661,7 +788,6 @@
               const errs = data?.errors ?? 0;
               statusEl.innerHTML = `✅ Sent. ${webSent} web + ${nativeSent} native delivered${errs ? `, ${errs} failed` : ''}.`;
               statusEl.style.color = '#5bba5f';
-              // Clear inputs on success
               document.getElementById('adminBroadcastTitle').value = '';
               document.getElementById('adminBroadcastBody').value = '';
               if (NX.toast) NX.toast('Announcement sent ✓', 'success');
@@ -677,70 +803,206 @@
           });
         })();
       </script>
-      <!-- USER MANAGEMENT (admin only) -->
       <hr class="admin-divider">
-      <div class="admin-section-label" data-i18n="teamMembers">Team Members</div>
-      <div id="adminUserList" class="admin-user-list"></div>
-      <div class="admin-add-user">
-        <input autocomplete="off" data-lpignore="true" data-form-type="other" id="newUserName" placeholder="Name" class="admin-field-sm">
-        <input autocomplete="off" data-lpignore="true" data-form-type="other" id="newUserPin" placeholder="PIN" class="admin-field-sm" maxlength="6">
-        <select id="newUserRole" class="admin-field-sm">
-          <option value="staff">Staff</option>
-          <option value="manager">Manager</option>
-          <option value="admin">Admin</option>
-        </select>
-        <select id="newUserLoc" class="admin-field-sm">
-          <option value="suerte">Suerte</option>
-          <option value="este">Este</option>
-          <option value="toti">Toti</option>
-        </select>
-        <select id="newUserLang" class="admin-field-sm">
-          <option value="en">English</option>
-          <option value="es">Español</option>
-        </select>
-        <button id="addUserBtn" class="admin-save-btn" style="margin-top:0;padding:8px 14px">+ Add</button>
+      <!-- DATA BACKUP (existing adminBackupSection — kept for compatibility) -->
+      <div id="adminBackupSection" style="display:none">
+        <div class="admin-section-label">💾 Data Backup</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <button id="exportBtn" class="admin-save-btn" style="flex:1;margin-top:0">⬇ Export All Data</button>
+          <button id="exportNodesBtn" class="admin-cancel" style="flex:1;padding:8px">⬇ Nodes Only</button>
+        </div>
+        <div class="ig-dropzone" id="importDropzone" style="margin-bottom:8px">
+          <i data-lucide="upload" class="ig-lucide"></i>
+          <span class="ig-drop-text">Drop backup .json to restore or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="importFileInput" accept=".json" hidden>browse</label></span>
+        </div>
+        <div id="importStatus" class="ig-feedback"></div>
       </div>
-    </div>
-    <!-- CHAT LOG — Admin only -->
-    <!-- BACKUP/RESTORE -->
-    <div id="adminBackupSection" style="display:none">
-      <div class="admin-section-label">Data Backup</div>
-      <div style="display:flex;gap:8px;margin-bottom:8px">
-        <button id="exportBtn" class="admin-save-btn" style="flex:1;margin-top:0">⬇ Export All Data</button>
-        <button id="exportNodesBtn" class="admin-cancel" style="flex:1;padding:8px">⬇ Nodes Only</button>
-      </div>
-      <div class="ig-dropzone" id="importDropzone" style="margin-bottom:8px">
-        <i data-lucide="upload" class="ig-lucide"></i>
-        <span class="ig-drop-text">Drop backup .json to restore or <label class="ig-drop-link"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="importFileInput" accept=".json" hidden>browse</label></span>
-      </div>
-      <div id="importStatus" class="ig-feedback"></div>
     </div>
 
-    <div id="adminChatLog" style="display:none">
-      <div class="admin-section-label" style="display:flex;justify-content:space-between;align-items:center">
-        Chat History
-        <div style="display:flex;gap:6px">
-          <button id="chatLogRefresh" class="admin-cancel" style="padding:4px 10px;font-size:10px">Refresh</button>
-          <button id="chatLogClear" class="admin-cancel" style="padding:4px 10px;font-size:10px;color:var(--red)">Clear All</button>
+    <!-- ━━━━━ TAB 4: LOGS ━━━━━ -->
+    <div class="at-panel at-admin-gated" data-panel="logs" id="atLogsPanel" style="display:none">
+      <!-- AI ACTIVITY — audit log for AI writes (kept inline, moved here) -->
+      <div id="adminAiActivity" style="display:none">
+        <div class="admin-section-label">⚡ AI Activity</div>
+        <button id="aiActivityOpen" class="admin-save-btn" style="width:100%;margin-top:0">View AI Action Log</button>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="aiWritesToggle" class="admin-cancel" style="flex:1;padding:8px;font-size:11px">Toggle AI Writes</button>
         </div>
+        <div id="aiWritesStatus" style="font-size:11px;color:var(--muted);margin-top:6px;text-align:center"></div>
       </div>
-      <div id="chatLogList" class="admin-chat-log"></div>
-    </div>
-    <!-- AI ACTIVITY — audit log for AI writes -->
-    <div id="adminAiActivity" style="display:none;margin-top:12px">
-      <div class="admin-section-label">AI Activity</div>
-      <button id="aiActivityOpen" class="admin-save-btn" style="width:100%;margin-top:0">⚡ View AI Action Log</button>
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button id="aiWritesToggle" class="admin-cancel" style="flex:1;padding:8px;font-size:11px">Toggle AI Writes</button>
+
+      <!-- CHAT LOG (kept inline, moved here) -->
+      <div id="adminChatLog" style="display:none;margin-top:12px">
+        <div class="admin-section-label" style="display:flex;justify-content:space-between;align-items:center">
+          Chat History
+          <div style="display:flex;gap:6px">
+            <button id="chatLogRefresh" class="admin-cancel" style="padding:4px 10px;font-size:10px">Refresh</button>
+            <button id="chatLogClear" class="admin-cancel" style="padding:4px 10px;font-size:10px;color:var(--red)">Clear All</button>
+          </div>
+        </div>
+        <div id="chatLogList" class="admin-chat-log"></div>
       </div>
-      <div id="aiWritesStatus" style="font-size:11px;color:var(--muted);margin-top:6px;text-align:center"></div>
     </div>
+
     <div class="admin-actions">
       <button id="adminLogout" class="admin-cancel" data-i18n="logOut">Log Out</button>
       <button id="adminCancel" class="admin-cancel" data-i18n="close">Close</button>
     </div>
   </div>
 </div>
+
+<script>
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ADMIN MODAL — tab switching + role-gated visibility + overview stats
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(function() {
+  // ─── Tab switching ────────────────────────────────────────────────
+  document.querySelectorAll('#adminTabBar .at-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const name = tab.dataset.tab;
+      document.querySelectorAll('#adminTabBar .at-tab').forEach(t => t.classList.toggle('active', t === tab));
+      document.querySelectorAll('.at-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === name));
+      if (name === 'overview') loadOverviewStats();
+    });
+  });
+
+  // ─── Role-gated visibility ────────────────────────────────────────
+  // Watches adminBackupSection (which app.js toggles for admin role)
+  // and mirrors its visibility across all .at-admin-gated elements.
+  let _lastAdminVisible = null;
+  function syncAdminGating() {
+    const backupSec = document.getElementById('adminBackupSection');
+    if (!backupSec) return;
+    const visible = backupSec.style.display !== 'none';
+    if (visible === _lastAdminVisible) return;
+    _lastAdminVisible = visible;
+    document.querySelectorAll('.at-admin-gated').forEach(el => {
+      el.style.display = visible ? '' : 'none';
+    });
+    // Re-assert the active panel after toggling visibility
+    if (visible) {
+      const activeTab = document.querySelector('#adminTabBar .at-tab.active');
+      const activeName = activeTab?.dataset.tab || 'overview';
+      document.querySelectorAll('.at-panel').forEach(p => {
+        if (p.dataset.panel === activeName) p.style.display = '';
+        else p.style.display = 'none';
+      });
+      // Trigger stats load on first show
+      loadOverviewStats();
+    }
+  }
+  setInterval(syncAdminGating, 500);
+  setTimeout(syncAdminGating, 300);
+
+  // ─── Overview stats loader ────────────────────────────────────────
+  let _lastOverviewLoad = 0;
+  async function loadOverviewStats() {
+    // Throttle: don't re-load within 8s
+    if (Date.now() - _lastOverviewLoad < 8000) return;
+    _lastOverviewLoad = Date.now();
+
+    const setText = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = String(val ?? '—'); };
+    const sb = window.NX?.sb;
+    if (!sb) return;
+
+    // Stats row — all parallel, each wrapped in try/catch so one failure doesn't break the rest
+    const safeCount = async (fn) => { try { const r = await fn(); return r.count ?? (r.data?.length ?? 0); } catch(e) { return null; } };
+
+    const [pushCount, userCount, nodeCount, equipCount, openCards, overdueCount, pmPending, recentSys, users] = await Promise.all([
+      safeCount(() => sb.from('push_subscriptions').select('*', { count: 'exact', head: true })),
+      safeCount(() => sb.from('nexus_users').select('*', { count: 'exact', head: true })),
+      safeCount(() => sb.from('nodes').select('*', { count: 'exact', head: true })),
+      safeCount(() => sb.from('equipment').select('*', { count: 'exact', head: true })),
+      safeCount(() => sb.from('kanban_cards').select('*', { count: 'exact', head: true }).eq('archived', false)),
+      safeCount(async () => {
+        // Try the v4 view first; fall back to raw query if not deployed
+        const v = await sb.from('open_cards_with_equipment').select('*', { count: 'exact', head: true }).eq('is_overdue', true);
+        if (!v.error) return v;
+        const today = new Date().toISOString().slice(0,10);
+        return sb.from('kanban_cards').select('*', { count: 'exact', head: true })
+          .eq('archived', false).lt('due_date', today).not('due_date', 'is', null);
+      }),
+      safeCount(() => sb.from('contractor_pm_logs').select('*', { count: 'exact', head: true }).eq('status', 'pending')),
+      (async () => { try { const { data } = await sb.from('daily_logs').select('id,entry,created_at').like('entry', '[SYS]%').order('created_at', { ascending: false }).limit(8); return data || []; } catch(e) { return []; } })(),
+      (async () => { try { const { data } = await sb.from('nexus_users').select('role'); return data || []; } catch(e) { return []; } })(),
+    ]);
+
+    setText('atPushCount', pushCount ?? '—');
+    setText('atUserCount', userCount ?? '—');
+    setText('atNodeCount', nodeCount ?? '—');
+    setText('atEquipmentCount', equipCount ?? '—');
+    setText('atOpenCardsCount', openCards ?? '—');
+
+    // Overdue stat card shown only when > 0
+    const overdueCardEl = document.getElementById('atOverdueCard');
+    if (overdueCardEl) {
+      if (overdueCount && overdueCount > 0) {
+        overdueCardEl.style.display = '';
+        setText('atOverdueCount', overdueCount);
+      } else {
+        overdueCardEl.style.display = 'none';
+      }
+    }
+
+    // Integrations chips
+    const integrations = document.getElementById('atIntegrations');
+    if (integrations) {
+      const anthropic = localStorage.getItem('nexus_api_key') || window.NX?.config?.anthropic_key;
+      const eleven = localStorage.getItem('nexus_eleven_key') || window.NX?.config?.eleven_key;
+      const trelloKey = localStorage.getItem('nexus_trello_key') || window.NX?.config?.trello_key;
+      const trelloTok = localStorage.getItem('nexus_trello_token') || window.NX?.config?.trello_token;
+      const drive = localStorage.getItem('driveStatus') === 'connected';
+      const rows = [
+        { ok: !!anthropic, label: 'Claude AI' },
+        { ok: !!eleven, label: 'ElevenLabs' },
+        { ok: !!(trelloKey && trelloTok), label: 'Trello' },
+        { ok: drive, label: 'Google Drive' },
+      ];
+      integrations.innerHTML = rows.map(r =>
+        `<span class="at-int-chip ${r.ok ? 'ok' : 'off'}">${r.ok ? '✓' : '○'} ${r.label}</span>`
+      ).join('');
+    }
+
+    // Needs attention
+    const attn = document.getElementById('atAttention');
+    if (attn) {
+      const items = [];
+      const pmN = pmPending || 0;
+      const odN = overdueCount || 0;
+      if (pmN > 0) items.push({ cls: '', txt: `⚠️ ${pmN} contractor PM log${pmN > 1 ? 's' : ''} pending review` });
+      if (odN >= 50) items.push({ cls: 'danger', txt: `🚨 ${odN} cards overdue — run Board Clean Up` });
+      else if (odN > 0) items.push({ cls: '', txt: `📅 ${odN} card${odN > 1 ? 's' : ''} overdue` });
+      const anthropic = localStorage.getItem('nexus_api_key') || window.NX?.config?.anthropic_key;
+      if (!anthropic) items.push({ cls: 'danger', txt: '🔑 Claude API key not configured' });
+
+      attn.innerHTML = items.length
+        ? items.map(i => `<div class="at-attn-item ${i.cls}">${i.txt}</div>`).join('')
+        : '<div class="at-attn-item ok">✅ Nothing urgent — everything running smoothly.</div>';
+    }
+
+    // Recent system activity
+    const act = document.getElementById('atRecentActivity');
+    if (act) {
+      if (recentSys && recentSys.length) {
+        act.innerHTML = recentSys.slice(0, 8).map(e => {
+          const d = new Date(e.created_at);
+          const time = d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+          const entry = (e.entry || '').replace(/^\[SYS\]\s*/, '');
+          return `<div class="at-activity-row"><span class="at-activity-time">${time}</span><span class="at-activity-msg">${entry.replace(/</g,'&lt;').slice(0, 100)}</span></div>`;
+        }).join('');
+      } else {
+        act.innerHTML = '<div class="at-activity-empty">No recent system events</div>';
+      }
+    }
+  }
+
+  // Manual refresh button
+  document.getElementById('atRefreshOverview')?.addEventListener('click', () => {
+    _lastOverviewLoad = 0;
+    loadOverviewStats();
+  });
+})();
+</script>
 <div class="toast-container" id="toastContainer"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>if(window.pdfjsLib)pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
