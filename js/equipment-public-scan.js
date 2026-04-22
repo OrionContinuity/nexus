@@ -82,23 +82,56 @@
     return sb;
   }
 
+  // ─── Force scroll — nexus.css has body{overflow:hidden} for its SPA.
+  //     Multiple approaches belt-and-braces:
+  //       1. Add a class to html+body so CSS selectors have higher specificity
+  //       2. Inject CSS with !important targeting that class
+  //       3. Also set inline styles via setProperty (respects !important)
+  //       4. Reassert after a tick in case app.js's DOMContentLoaded handler
+  //          tries to stamp body styles.
+  function forceScrollOn() {
+    document.documentElement.classList.add('nx-public-scan');
+    document.body.classList.add('nx-public-scan');
+
+    const styleId = 'nxPublicScanScrollFix';
+    if (!document.getElementById(styleId)) {
+      const st = document.createElement('style');
+      st.id = styleId;
+      // High-specificity selector + !important beats nexus.css's bare "body {}"
+      st.textContent = `
+        html.nx-public-scan,
+        body.nx-public-scan,
+        html.nx-public-scan body.nx-public-scan {
+          overflow: visible !important;
+          overflow-x: hidden !important;
+          overflow-y: auto !important;
+          height: auto !important;
+          min-height: 100vh !important;
+          min-height: 100dvh !important;
+          -webkit-overflow-scrolling: touch !important;
+          position: static !important;
+        }
+      `;
+      document.head.appendChild(st);
+    }
+
+    // Also set inline styles with setProperty (honors !important)
+    const setImp = (el, prop, val) => el.style.setProperty(prop, val, 'important');
+    [document.documentElement, document.body].forEach(el => {
+      setImp(el, 'overflow', 'visible');
+      setImp(el, 'overflow-y', 'auto');
+      setImp(el, 'overflow-x', 'hidden');
+      setImp(el, 'height', 'auto');
+      setImp(el, 'min-height', '100vh');
+    });
+  }
+
   // ─── Inject styles once ─────────────────────────────────────────────
   function injectStyles() {
     if (document.getElementById('nxPublicScanStyles')) return;
     const style = document.createElement('style');
     style.id = 'nxPublicScanStyles';
     style.textContent = `
-      /* v4 — nexus.css has body{overflow:hidden} for the main SPA.
-         That locks scrolling when the public scan hijacks the body.
-         Force scroll back on for this path only. */
-      html, body {
-        overflow: visible !important;
-        overflow-y: auto !important;
-        height: auto !important;
-        min-height: 100vh;
-        min-height: 100dvh;
-      }
-
       /* v4 polish overrides — apply on top of equipment.css */
       .public-scan-name {
         font-size: 28px !important;
@@ -196,6 +229,7 @@
   // ─── Boot loader (v4 — bigger, pulsing brand) ───────────────────────
   function renderBootLoader(qrCode) {
     injectStyles();
+    forceScrollOn();
     const boot = document.createElement('div');
     boot.id = 'nxPublicBoot';
     boot.style.cssText = `
@@ -248,11 +282,7 @@
 
   // ─── Render shell (static container for details) ─────────────────
   function renderShell() {
-    // Force body to scroll — belt-and-braces alongside the CSS override.
-    // Main app's nexus.css sets body{overflow:hidden} for its SPA layout;
-    // public scan is a standalone page and needs normal scroll.
-    document.documentElement.style.cssText += ';overflow:visible !important;overflow-y:auto !important;height:auto !important;';
-    document.body.style.cssText += ';overflow:visible !important;overflow-y:auto !important;height:auto !important;';
+    forceScrollOn();
 
     document.body.innerHTML = `
       <div class="public-scan-container">
@@ -262,6 +292,13 @@
         <div class="public-scan-body" id="publicScanBody"></div>
       </div>
     `;
+
+    // Re-apply classes (body.innerHTML doesn't nuke classList but be safe)
+    forceScrollOn();
+    // app.js DOMContentLoaded handler may fire AFTER this and stomp on
+    // body styles — reassert after a tick to win the race.
+    setTimeout(forceScrollOn, 50);
+    setTimeout(forceScrollOn, 500);
   }
 
   // ─── Render details view (v4) ───────────────────────────────────────
