@@ -1645,3 +1645,176 @@ button,a,input,select,textarea,.feed-item,.board-card,.cal-cell,.cal-event,.clea
 .feed-head{display:flex;align-items:center;gap:8px}
 [data-theme="light"] .feed-ack{background:rgba(76,175,80,.1)}
 [data-theme="light"] .feed-del{background:rgba(212,88,88,.08)}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BRAIN VIEW DECLUTTER
+   User wanted the galaxy view to breathe. Hide the chrome that piled
+   up over time — filter pills, view-toggles, events toggle, agenda
+   overlay, and the inline chat-hud. Chat lives in its own full-screen
+   view now (accessed from Home → Ask). Galaxy + enhanced search =
+   the two things you actually need in this view.                     
+   ═══════════════════════════════════════════════════════════════════ */
+body.view-brain .brain-bar,
+body.view-brain .bv-owner,
+body.view-brain .events-toggle,
+body.view-brain .agenda-overlay,
+body.view-brain #chatHud {
+  display: none !important;
+}
+
+/* ─── Brain search — bigger, more prominent, with a help affordance ─ */
+body.view-brain .hud-top {
+  top: 14px;
+  padding: 0 14px;
+}
+body.view-brain .brain-search {
+  flex: 1;
+}
+body.view-brain .brain-search input {
+  min-height: 48px;
+  padding: 12px 16px;
+  font-size: 14px;
+  letter-spacing: 0.15px;
+  background: rgba(16, 16, 20, 0.88);
+  border: 1px solid rgba(212, 164, 78, 0.2);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: border-color 0.15s, box-shadow 0.2s;
+}
+body.view-brain .brain-search input:focus {
+  border-color: rgba(212, 164, 78, 0.45);
+  box-shadow: 0 0 0 3px rgba(212, 164, 78, 0.08);
+  outline: none;
+}
+body.view-brain .list-toggle {
+  min-height: 48px;
+  min-width: 48px;
+  padding: 0;
+  background: rgba(16, 16, 20, 0.88);
+  border: 1px solid rgba(212, 164, 78, 0.2);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* ─── Search-results panel — enhanced empty state showing stats ──── */
+.sr-help-head {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(212, 164, 78, 0.1);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sr-help-stat {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.8px;
+  color: var(--accent);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.sr-help-stat-v {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  margin-right: 2px;
+  font-weight: 600;
+}
+.sr-help-hint {
+  font-size: 10px;
+  color: var(--faint);
+  letter-spacing: 0.3px;
+  font-style: italic;
+}
+.sr-help-section {
+  padding: 10px 16px 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 1.8px;
+  color: var(--faint);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.sr-help-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(212, 164, 78, 0.04);
+  transition: background 0.1s;
+}
+.sr-help-item:hover {
+  background: rgba(212, 164, 78, 0.05);
+}
+.sr-help-item:last-child {
+  border-bottom: none;
+}
+.sr-help-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(212, 164, 78, 0.5);
+  flex-shrink: 0;
+}
+.sr-help-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sr-help-cat {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 1px;
+  color: var(--faint);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.sr-help-tips {
+  padding: 12px 16px 14px;
+  border-top: 1px solid rgba(212, 164, 78, 0.08);
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.sr-help-tips code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--accent);
+  background: rgba(212, 164, 78, 0.1);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CHAT-VIEW PERSONA SHEET — voice option styling
+   Shows the description under each voice name so users see "Charlotte
+   — Smart & smooth" instead of just "Charlotte". Paired with the
+   renderPersonaSheet() update in chat-view.js.
+   ═══════════════════════════════════════════════════════════════════ */
+.cv-persona-voice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  min-height: 44px;
+}
+.cv-persona-voice-name {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+}
+.cv-persona-voice-desc {
+  font-size: 10.5px;
+  color: var(--faint);
+  letter-spacing: 0.1px;
+  line-height: 1.2;
+}
+.cv-persona-voice.is-active .cv-persona-voice-name,
+.cv-persona-voice.is-active .cv-persona-voice-desc {
+  color: var(--accent);
+}
