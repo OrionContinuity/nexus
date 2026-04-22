@@ -613,6 +613,69 @@
         setTimeout(() => window.NX_refreshPushStatus?.(), 2000);
         setInterval(() => window.NX_refreshPushStatus?.(), 5000);
       </script>
+      <!-- BROADCAST ANNOUNCEMENT (manager/admin — sends a push to subscribers) -->
+      <hr class="admin-divider">
+      <div class="admin-section-label">📣 Broadcast Announcement</div>
+      <div class="admin-key-status" style="font-size:11px;margin:6px 0 8px;">Sends an immediate push notification to subscribed devices.</div>
+      <input id="adminBroadcastTitle" type="text" placeholder="Title (e.g. Manager meeting at 4 PM)" maxlength="60" class="admin-field-sm" style="width:100%;margin-top:6px;" autocomplete="off" data-lpignore="true" data-form-type="other">
+      <textarea id="adminBroadcastBody" placeholder="Message (e.g. Bar Toti — please be on time)" maxlength="200" rows="2" class="admin-field-sm" style="width:100%;margin-top:8px;resize:vertical;font-family:inherit;" autocomplete="off" data-lpignore="true" data-form-type="other"></textarea>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <select id="adminBroadcastAudience" class="admin-field-sm" style="flex:1;">
+          <option value="all">👥 Everyone</option>
+          <option value="managers">👔 Managers + Admins</option>
+          <option value="staff">🧹 Staff only</option>
+        </select>
+        <select id="adminBroadcastPriority" class="admin-field-sm" style="flex:1;">
+          <option value="normal">Normal</option>
+          <option value="high">🔔 High (vibrates)</option>
+        </select>
+      </div>
+      <button id="adminBroadcastSend" class="admin-save-btn" style="margin-top:10px;background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;">Send announcement</button>
+      <div id="adminBroadcastStatus" class="admin-key-status" style="font-size:11px;margin-top:6px;min-height:14px;"></div>
+      <script>
+        (function() {
+          const sendBtn = document.getElementById('adminBroadcastSend');
+          const statusEl = document.getElementById('adminBroadcastStatus');
+          if (!sendBtn) return;
+          sendBtn.addEventListener('click', async () => {
+            const title = document.getElementById('adminBroadcastTitle').value.trim();
+            const body = document.getElementById('adminBroadcastBody').value.trim();
+            const audience = document.getElementById('adminBroadcastAudience').value;
+            const priority = document.getElementById('adminBroadcastPriority').value;
+            if (!title || !body) {
+              statusEl.textContent = '⚠️ Title and message required.';
+              statusEl.style.color = '#d45858';
+              return;
+            }
+            if (!confirm(`Send "${title}" to ${audience}?\n\nEveryone with notifications enabled will get a push within 30 seconds.`)) return;
+            sendBtn.disabled = true;
+            sendBtn.textContent = 'Sending…';
+            statusEl.textContent = '';
+            try {
+              const { data, error } = await NX.sb.functions.invoke('predictive-notify', {
+                body: { broadcast: { title, body, audience, priority } },
+              });
+              if (error) throw error;
+              const webSent = data?.web_sent ?? 0;
+              const nativeSent = data?.native_sent ?? 0;
+              const errs = data?.errors ?? 0;
+              statusEl.innerHTML = `✅ Sent. ${webSent} web + ${nativeSent} native delivered${errs ? `, ${errs} failed` : ''}.`;
+              statusEl.style.color = '#5bba5f';
+              // Clear inputs on success
+              document.getElementById('adminBroadcastTitle').value = '';
+              document.getElementById('adminBroadcastBody').value = '';
+              if (NX.toast) NX.toast('Announcement sent ✓', 'success');
+            } catch (e) {
+              statusEl.textContent = '❌ Failed: ' + (e.message || 'unknown error');
+              statusEl.style.color = '#d45858';
+              console.error('[broadcast] send failed:', e);
+            } finally {
+              sendBtn.disabled = false;
+              sendBtn.textContent = 'Send announcement';
+            }
+          });
+        })();
+      </script>
       <!-- USER MANAGEMENT (admin only) -->
       <hr class="admin-divider">
       <div class="admin-section-label" data-i18n="teamMembers">Team Members</div>
