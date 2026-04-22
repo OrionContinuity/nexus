@@ -534,29 +534,133 @@
   /* ═════════════════════════════════════════════════════════════════
      TRANSCRIPT RENDERING
      ═════════════════════════════════════════════════════════════════ */
-  function renderEmptyState(holder) {
-    const prompts = buildPromptChips();
+  async function renderEmptyState(holder) {
     const firstName = (NX.currentUser?.name || '').split(' ')[0] || 'there';
     const hour = new Date().getHours();
     const salutation = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
+
+    // Paint immediately with a placeholder, then enrich with live data.
+    // That way the empty state renders instantly and fills in detail
+    // after Supabase responses arrive — no perceived lag.
     holder.innerHTML = `
       <div class="cv-empty">
-        <div class="cv-empty-eyebrow">Just ask</div>
-        <h2 class="cv-empty-h">
-          <em>${esc(salutation)}</em>, ${esc(firstName)}.<br>
-          What do you need?
-        </h2>
-        <div class="cv-empty-prompts">
-          ${prompts.map(p => `
-            <button class="cv-prompt" data-prompt="${esc(p.text)}" type="button">
-              <span class="cv-prompt-kicker">${esc(p.kicker)}</span>
-              ${esc(p.text)}
-            </button>
-          `).join('')}
+        <div class="cv-empty-ambient"></div>
+        <div class="cv-empty-inner">
+          <div class="cv-empty-eyebrow">Just ask</div>
+          <h2 class="cv-empty-h">
+            <em>${esc(salutation)}</em>, ${esc(firstName)}.<br>
+            What do you need?
+          </h2>
+          <div class="cv-empty-situation" id="cvEmptySituation">
+            Checking what's happening across the restaurants…
+          </div>
+
+          <div class="cv-empty-section-label">Ask about</div>
+          <div class="cv-empty-prompts" id="cvEmptyPrompts">
+            ${renderPromptSkeletons()}
+          </div>
+
+          <div class="cv-empty-recents-wrap" id="cvEmptyRecentsWrap" style="display:none;">
+            <div class="cv-empty-section-label">Pick up where you left off</div>
+            <div class="cv-empty-recents" id="cvEmptyRecents"></div>
+          </div>
         </div>
       </div>
     `;
-    holder.querySelectorAll('.cv-prompt').forEach(btn => {
+
+    // Paint real content in parallel — never block on any single fetch
+    Promise.allSettled([
+      paintSituation(),
+      paintPrompts(),
+      paintRecents(),
+    ]);
+  }
+
+  function renderPromptSkeletons() {
+    // 6 skeleton placeholders so the grid doesn't pop in empty
+    return Array(6).fill(0).map(() => `
+      <div class="cv-prompt cv-prompt-skeleton" aria-hidden="true"></div>
+    `).join('');
+  }
+
+  // ─── Situation line — "2 overdue · 3 tickets overnight · 1 visit today"
+  async function paintSituation() {
+    const el = document.getElementById('cvEmptySituation');
+    if (!el || !NX.sb) return;
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const twoDays = new Date(Date.now() + 48 * 3600000).toISOString().slice(0, 10);
+      const sinceOvernight = new Date(Date.now() - 18 * 3600000).toISOString();
+
+      const [overdueRes, ticketsRes, eventsRes] = await Promise.allSettled([
+        NX.sb.from('equipment').select('*', { count: 'exact', head: true }).lt('next_pm_date', today),
+        NX.sb.from('tickets').select('*', { count: 'exact', head: true }).eq('status', 'open').gte('created_at', sinceOvernight),
+        NX.sb.from('contractor_events').select('*', { count: 'exact', head: true }).gte('event_date', today).lte('event_date', twoDays).neq('status', 'cancelled'),
+      ]);
+
+      const nOverdue = overdueRes.status === 'fulfilled' ? (overdueRes.value.count || 0) : 0;
+      const nTickets = ticketsRes.status === 'fulfilled' ? (ticketsRes.value.count || 0) : 0;
+      const nEvents  = eventsRes.status === 'fulfilled' ? (eventsRes.value.count || 0) : 0;
+
+      const parts = [];
+      if (nOverdue) parts.push(`<strong>${nOverdue}</strong> overdue PM${nOverdue === 1 ? '' : 's'}`);
+      if (nTickets) parts.push(`<strong>${nTickets}</strong> ticket${nTickets === 1 ? '' : 's'} overnight`);
+      if (nEvents)  parts.push(`<strong>${nEvents}</strong> contractor visit${nEvents === 1 ? '' : 's'} coming up`);
+
+      if (!parts.length) {
+        el.innerHTML = 'All quiet across the restaurants. Nothing urgent on the board.';
+      } else {
+        // Join with the serial comma — reads like a news wire line
+        const joined =
+          parts.length === 1 ? parts[0] :
+          parts.length === 2 ? parts.join(' and ') :
+          parts.slice(0, -1).join(', ') + ', and ' + parts[parts.length - 1];
+        el.innerHTML = joined + '.';
+      }
+    } catch (err) {
+      console.warn('[chat] situation paint failed:', err.message);
+      el.textContent = 'Everything I know is here whenever you need it.';
+    }
+  }
+
+  // ─── Prompts grid — mix evergreen starters + context-aware suggestions
+  async function paintPrompts() {
+    const gridEl = document.getElementById('cvEmptyPrompts');
+    if (!gridEl) return;
+
+    const prompts = [
+      { kicker: 'Today',        text: "What happened overnight?" },
+      { kicker: 'Operations',   text: "What needs my attention today?" },
+      { kicker: 'Equipment',    text: "What's overdue for maintenance?" },
+      { kicker: 'Contractors',  text: "Who's visiting this week?" },
+      { kicker: 'Finance',      text: "How much have we spent on repairs this month?" },
+      { kicker: 'Intel',        text: "Summarize this week across all three restaurants" },
+    ];
+
+    // Fold in 2 dynamic prompts from most-used nodes if we have any
+    try {
+      const top = (NX.nodes || [])
+        .filter(n => !n.is_private)
+        .sort((a, b) => (b.access_count || 0) - (a.access_count || 0))
+        .slice(0, 2);
+      top.forEach(n => {
+        if (n.category === 'contractors')    prompts.push({ kicker: 'Contractor', text: `Tell me about ${n.name}` });
+        else if (n.category === 'equipment') prompts.push({ kicker: 'Equipment',  text: `${n.name} — status & history` });
+        else if (n.category === 'procedure') prompts.push({ kicker: 'Procedure',  text: `Walk me through ${n.name}` });
+      });
+    } catch (e) {}
+
+    // Cap at 8 — two columns of four looks balanced
+    const capped = prompts.slice(0, 8);
+
+    gridEl.innerHTML = capped.map(p => `
+      <button class="cv-prompt" data-prompt="${esc(p.text)}" type="button">
+        <span class="cv-prompt-kicker">${esc(p.kicker)}</span>
+        <span class="cv-prompt-text">${esc(p.text)}</span>
+      </button>
+    `).join('');
+
+    gridEl.querySelectorAll('.cv-prompt').forEach(btn => {
       btn.addEventListener('click', () => {
         inputEl.value = btn.dataset.prompt;
         inputEl.dispatchEvent(new Event('input'));
@@ -565,24 +669,43 @@
     });
   }
 
-  function buildPromptChips() {
-    // Mix of always-useful starters + top-access nodes
-    const base = [
-      { kicker: 'Overview',  text: 'What happened overnight?' },
-      { kicker: 'Operations', text: 'What needs my attention today?' },
-      { kicker: 'Contractors', text: 'Who\'s visiting this week?' },
-    ];
-    try {
-      const top = (NX.nodes || [])
-        .filter(n => !n.is_private)
-        .sort((a, b) => (b.access_count || 0) - (a.access_count || 0))
-        .slice(0, 2);
-      top.forEach(n => {
-        if (n.category === 'contractors') base.push({ kicker: 'Contractor', text: `Who is ${n.name}?` });
-        else if (n.category === 'equipment') base.push({ kicker: 'Equipment', text: `${n.name} — status & history` });
+  // ─── Recents rail — last 3 conversations, tappable
+  async function paintRecents() {
+    const wrap = document.getElementById('cvEmptyRecentsWrap');
+    const list = document.getElementById('cvEmptyRecents');
+    if (!wrap || !list || !NX.sb) return;
+
+    if (!state.sessions.length) {
+      // loadSessions() may not have completed — try it directly, fail silent
+      try { await loadSessions(); } catch (e) {}
+    }
+
+    // Exclude the currently-active session from recents (you're looking at it)
+    const recents = state.sessions
+      .filter(s => s.id !== state.currentSessionId && s.title)
+      .slice(0, 3);
+
+    if (!recents.length) {
+      wrap.style.display = 'none';
+      return;
+    }
+
+    wrap.style.display = '';
+    list.innerHTML = recents.map(s => `
+      <button class="cv-recent" data-sess="${esc(s.id)}" type="button">
+        <span class="cv-recent-time">${esc(formatRelDate(s.last))}</span>
+        <span class="cv-recent-title">${esc(truncate(s.title, 60))}</span>
+      </button>
+    `).join('');
+
+    list.querySelectorAll('.cv-recent').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.sess;
+        localStorage.setItem('nexus_session_id', id);
+        state.currentSessionId = id;
+        chatview.renderTranscript();
       });
-    } catch (e) {}
-    return base.slice(0, 5);
+    });
   }
 
   function renderTurns(holder, turns) {
