@@ -37,9 +37,11 @@
     if (activeUser && activeToken) return;
   } catch(e) {}
 
-  const SUPABASE_URL = 'https://oprsthfxqrdbwdvommpw.supabase.co';
-  // Anon key — public, safe to expose (RLS protects writes)
-  const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wcnN0aGZ4cXJkYndkdm9tbXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDkzNDYzNTQsImV4cCI6MjAyNDkyMjM1NH0.ZKu5SH1pWPRlpTrybiT7DRzvCaIA4-Ml_qFV4n2DxPo';
+  const SUPABASE_URL = window.NEXUS_CONFIG?.SUPABASE_URL  || 'https://oprsthfxqrdbwdvommpw.supabase.co';
+  // Prefers window.NEXUS_CONFIG.SUPABASE_ANON (from js/config.js).
+  // Falls back to the hardcoded value so the file still works if
+  // config.js was forgotten. Publishable keys are safe to commit.
+  const SUPABASE_ANON = window.NEXUS_CONFIG?.SUPABASE_ANON || 'sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9';
 
   // ─── Utilities ──────────────────────────────────────────────────────
   function esc(s) {
@@ -86,6 +88,17 @@
     const style = document.createElement('style');
     style.id = 'nxPublicScanStyles';
     style.textContent = `
+      /* v4 — nexus.css has body{overflow:hidden} for the main SPA.
+         That locks scrolling when the public scan hijacks the body.
+         Force scroll back on for this path only. */
+      html, body {
+        overflow: visible !important;
+        overflow-y: auto !important;
+        height: auto !important;
+        min-height: 100vh;
+        min-height: 100dvh;
+      }
+
       /* v4 polish overrides — apply on top of equipment.css */
       .public-scan-name {
         font-size: 28px !important;
@@ -235,6 +248,12 @@
 
   // ─── Render shell (static container for details) ─────────────────
   function renderShell() {
+    // Force body to scroll — belt-and-braces alongside the CSS override.
+    // Main app's nexus.css sets body{overflow:hidden} for its SPA layout;
+    // public scan is a standalone page and needs normal scroll.
+    document.documentElement.style.cssText += ';overflow:visible !important;overflow-y:auto !important;height:auto !important;';
+    document.body.style.cssText += ';overflow:visible !important;overflow-y:auto !important;height:auto !important;';
+
     document.body.innerHTML = `
       <div class="public-scan-container">
         <div class="public-scan-header">
@@ -732,34 +751,19 @@
     try {
       await ensureSupabase();
 
-      // Fetch equipment + active ticket + contractor + recent maint in parallel
-      const [eqResp, tkResp, maintResp] = await Promise.all([
-        sb.from('equipment')
-          .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, preferred_contractor_id')
-          .eq('qr_code', equipParam)
-          .single(),
-        (async () => {
-          // Active ticket: open, for this equipment, within 30 days. Best-effort.
-          try {
-            // We don't know equipment.id yet, so we fetch tickets by matching
-            // the equipment name in the title later. For a fast parallel fetch
-            // we just try a broad query — will be filtered after equipment loads.
-            // Placeholder: return null, we'll fetch after equipment is known.
-            return { data: null };
-          } catch (e) { return { data: null }; }
-        })(),
-        (async () => {
-          // Recent maintenance — can't filter by equipment_id yet, defer
-          return { data: null };
-        })(),
-      ]);
+      // Fetch equipment with the right schema — service_phone and
+      // service_contact_name live directly on the row; preferred_contractor_node_id
+      // (NOTE: suffix is _node_id, not _id) is the fallback FK to the nodes table.
+      const { data: eq, error: eqErr } = await sb.from('equipment')
+        .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_phone, service_contact_name, preferred_contractor_node_id')
+        .eq('qr_code', equipParam)
+        .single();
 
-      if (eqResp.error || !eqResp.data) {
-        throw new Error(eqResp.error?.message || 'Equipment not registered');
+      if (eqErr || !eq) {
+        throw new Error(eqErr?.message || 'Equipment not registered');
       }
-      const eq = eqResp.data;
 
-      // Now that we have equipment.id, fetch the ticket + maintenance
+      // Now that we have equipment.id, fetch the ticket + maintenance + contractor
       const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
       const [ticketQ, maintQ, contractorQ] = await Promise.all([
         sb.from('tickets')
@@ -774,23 +778,42 @@
           .eq('equipment_id', eq.id)
           .order('event_date', { ascending: false })
           .limit(4),
-        eq.preferred_contractor_id ? sb.from('nodes')
-          .select('id, name, metadata')
-          .eq('id', eq.preferred_contractor_id)
-          .single() : Promise.resolve({ data: null }),
+        // Only look up a contractor node if no direct service_phone is set —
+        // direct phone on equipment always wins.
+        (!eq.service_phone && eq.preferred_contractor_node_id)
+          ? sb.from('nodes').select('id, name, notes, tags, links').eq('id', eq.preferred_contractor_node_id).single()
+          : Promise.resolve({ data: null }),
       ]);
 
       const activeTicket = (ticketQ.data || [])[0] || null;
       const maint = maintQ.data || [];
 
-      // Extract phone from contractor node metadata
+      // Build the contractor object. Preference order:
+      //   1. equipment.service_phone (direct field) — use as-is
+      //   2. preferred_contractor_node_id → node.links.phone or regex scan
       let contractor = null;
-      if (contractorQ?.data) {
-        const meta = contractorQ.data.metadata || {};
-        const phone = meta.phone || meta.phone_number || meta.tel || null;
+      if (eq.service_phone) {
+        contractor = {
+          name: eq.service_contact_name || 'Service',
+          phone: eq.service_phone,
+          phoneHref: 'tel:' + String(eq.service_phone).replace(/[^\d+]/g, ''),
+        };
+      } else if (contractorQ?.data) {
+        const node = contractorQ.data;
+        const links = node.links || {};
+        let phone = links.phone || '';
+        if (!phone) {
+          // Fallback: regex-scan notes + name + tags for a phone number
+          const text = (node.notes || '') + ' ' + JSON.stringify(node.tags || []) + ' ' + (node.name || '');
+          const m = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+          if (m) phone = m[0].trim();
+        }
         if (phone) {
-          const phoneHref = 'tel:' + String(phone).replace(/[^\d+]/g, '');
-          contractor = { name: contractorQ.data.name, phone, phoneHref };
+          contractor = {
+            name: node.name || 'Service',
+            phone,
+            phoneHref: 'tel:' + phone.replace(/[^\d+]/g, ''),
+          };
         }
       }
 
