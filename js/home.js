@@ -391,6 +391,13 @@
     // A fidget-worthy micro-galaxy, ~22px, always alive. It's pure canvas,
     // ~60 FPS but visually slow so it reads as confident, not jittery.
     // Tap it → switch to the full brain view so the user "opens the hood".
+    //
+    // NEW: pulse mechanic. When a node is activated anywhere in the app,
+    // the galaxy briefly brightens and a soft gold halo radiates from
+    // the core. Listens to the `galaxy:node-open` custom event that
+    // galaxy.js already fires, and also exposes NX.homeGalaxyPulse()
+    // so any other flow (chat answer, ingestion complete, etc.) can
+    // trigger a shine without coupling to the galaxy module.
     wireGalaxy() {
       const canvas = document.getElementById('homeMiniGalaxyCanvas');
       const wrap = document.getElementById('homeMiniGalaxy');
@@ -424,41 +431,92 @@
       let running = true;
       let lastT = performance.now();
 
+      // Pulse state. pulseT0 is the timestamp the pulse started; 0 means
+      // no pulse. We read `now - pulseT0` each frame to shape the curve.
+      // PULSE_MS controls how long the visible shine lasts.
+      let pulseT0 = 0;
+      const PULSE_MS = 1100;
+
+      function pulseCurve(t) {
+        // t is 0..1. Fast attack, slow decay. Peaks ~0.25.
+        if (t < 0 || t > 1) return 0;
+        if (t < 0.2) return t / 0.2;                 // attack 0→1 over 220ms
+        return Math.pow(1 - (t - 0.2) / 0.8, 2);     // decay 1→0 over 880ms, quadratic
+      }
+
       function frame(t) {
         if (!running) return;
         const dt = t - lastT;
         lastT = t;
 
+        // Compute pulse intensity for this frame (0 = no pulse, 1 = full)
+        const pulseIntensity = pulseT0
+          ? pulseCurve((t - pulseT0) / PULSE_MS)
+          : 0;
+
         ctx.clearRect(0, 0, size, size);
 
-        // Very faint radial glow
+        // Very faint radial glow. Boosted during pulse for a warm wash.
+        const baseGlow = 0.12 + pulseIntensity * 0.30;
+        const edgeGlow = 0.02 + pulseIntensity * 0.10;
         const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, size / 2);
-        grad.addColorStop(0, 'rgba(212, 164, 78, 0.12)');
-        grad.addColorStop(0.7, 'rgba(212, 164, 78, 0.02)');
+        grad.addColorStop(0, `rgba(212, 164, 78, ${baseGlow.toFixed(3)})`);
+        grad.addColorStop(0.7, `rgba(212, 164, 78, ${edgeGlow.toFixed(3)})`);
         grad.addColorStop(1, 'rgba(212, 164, 78, 0)');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, size, size);
 
-        // Orbiting nodes
+        // During pulse, draw an expanding halo ring — the "shine" visual
+        if (pulseIntensity > 0) {
+          const haloR = 2 + pulseIntensity * 7;
+          const haloA = pulseIntensity * 0.45;
+          ctx.strokeStyle = `rgba(212, 164, 78, ${haloA.toFixed(3)})`;
+          ctx.lineWidth = 0.6 + pulseIntensity * 0.5;
+          ctx.beginPath();
+          ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        // Orbiting nodes — brightened during pulse
+        const pulseBoost = 1 + pulseIntensity * 0.6;
         for (const n of nodes) {
           n.theta += n.speed * dt;
           const x = cx + Math.cos(n.theta) * n.r;
           const y = cy + Math.sin(n.theta) * n.r;
-          ctx.fillStyle = `rgba(237, 233, 224, ${n.alpha.toFixed(2)})`;
+          const a = Math.min(1, n.alpha * pulseBoost);
+          ctx.fillStyle = `rgba(237, 233, 224, ${a.toFixed(2)})`;
           ctx.beginPath();
-          ctx.arc(x, y, n.size, 0, Math.PI * 2);
+          ctx.arc(x, y, n.size * (1 + pulseIntensity * 0.2), 0, Math.PI * 2);
           ctx.fill();
         }
 
-        // Core — warm gold
-        ctx.fillStyle = `rgba(212, 164, 78, ${core.alpha})`;
+        // Core — warm gold, brightens + grows subtly on pulse
+        const coreA = Math.min(1, core.alpha * (1 + pulseIntensity * 0.4));
+        const coreS = core.size * (1 + pulseIntensity * 0.5);
+        ctx.fillStyle = `rgba(212, 164, 78, ${coreA})`;
         ctx.beginPath();
-        ctx.arc(cx, cy, core.size, 0, Math.PI * 2);
+        ctx.arc(cx, cy, coreS, 0, Math.PI * 2);
         ctx.fill();
+
+        // End pulse window
+        if (pulseT0 && (t - pulseT0) > PULSE_MS) pulseT0 = 0;
 
         requestAnimationFrame(frame);
       }
       requestAnimationFrame(frame);
+
+      // Public API — any module can call NX.homeGalaxyPulse() to trigger
+      // the shine. Passive for modules that don't know/care about home.
+      NX.homeGalaxyPulse = () => {
+        pulseT0 = performance.now();
+        if (!running) { running = true; lastT = performance.now(); requestAnimationFrame(frame); }
+      };
+
+      // Listen for node-open events from the full galaxy view.
+      // galaxy.js fires 'galaxy:node-open' whenever a node panel opens.
+      document.addEventListener('galaxy:node-open', () => {
+        NX.homeGalaxyPulse();
+      });
 
       // Pause when tab hidden to save battery
       document.addEventListener('visibilitychange', () => {
