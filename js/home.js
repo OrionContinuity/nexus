@@ -59,8 +59,9 @@
       const greeting = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
       const firstName = (NX.currentUser?.name || '').split(' ')[0] || 'there';
 
-      // Date line: "WEDNESDAY · APRIL 22 · 6:47 AM"
-      const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+      // Date line: "WED · APR 22 · 6:47 AM" — short enough to fit
+      // alongside the NEXUS wordmark + mini-galaxy on any phone.
+      const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
       const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
       const dateLine = [
         days[now.getDay()],
