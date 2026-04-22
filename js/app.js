@@ -694,7 +694,7 @@ td.check{background:#F0EDE6 !important}
       nexusBtn.classList.remove('active');
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       // Sync body class for view-aware CSS (e.g. chat HUD only shows on brain)
-      document.body.classList.remove('view-brain','view-clean','view-log','view-board','view-cal','view-equipment','view-ingest');
+      document.body.classList.remove('view-home','view-brain','view-clean','view-log','view-board','view-cal','view-equipment','view-ingest');
       document.body.classList.add('view-' + view);
       // Set active on correct buttons
       if (view === 'brain') { nexusBtn.classList.add('active'); }
@@ -711,16 +711,31 @@ td.check{background:#F0EDE6 !important}
     tabs.forEach(tab => tab.addEventListener('click', () => switchTo(tab.dataset.view)));
     // Bind bottom nav buttons
     bnavBtns.forEach(btn => btn.addEventListener('click', () => switchTo(btn.dataset.view)));
-    // Default active state
-    nexusBtn.classList.add('active');
+    // Default: land on home view (editorial dashboard), NOT the galaxy.
+    // NEXUS logo (top-left) still opens the galaxy when tapped.
     nexusBtn.addEventListener('click', () => switchTo('brain'));
-    // Initialize body class for default view (brain)
-    document.body.classList.add('view-brain');
+    const defaultHomeBtn = document.querySelector('.bnav-btn[data-view="home"]');
+    if (defaultHomeBtn) defaultHomeBtn.classList.add('active');
+    document.body.classList.add('view-home');
+    // Lazy-load home module now so it's ready
+    if (!this.loaded.home) {
+      this.loadScript('js/home.js', () => { this.loaded.home = true; NX.modules.home?.init?.(); });
+    } else {
+      NX.modules.home?.show?.();
+    }
+
+    // Expose a programmatic navigator for children (home module uses it)
+    NX.switchTo = (view) => switchTo(view);
   },
 
   activateModule(view) {
-    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js' };
+    const moduleMap = { home: 'js/home.js', clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js' };
     if (view === 'brain') { if (NX.brain && NX.brain.show) NX.brain.show(); return; }
+    if (view === 'home') {
+      if (this.loaded.home) { NX.modules.home?.show?.(); return; }
+      this.loadScript('js/home.js', () => { this.loaded.home = true; NX.modules.home?.init?.(); });
+      return;
+    }
     const file = moduleMap[view]; if (!file) return;
     if (this.loaded[view]) { const mod = this.modules[view]; if (mod && mod.show) mod.show(); }
     else {
