@@ -121,13 +121,54 @@ serve(async (req: Request): Promise<Response> => {
       const in7 = addDays(today, 7);
       const in30 = addDays(today, 30);
 
-      alerts = [
-        ...await gatherPatternAlerts(sb, today, in3),
-        ...await gatherPMAlerts(sb, today, in7),
-        ...await gatherWarrantyAlerts(sb, today, in30),
-        ...await gatherStaleDispatchAlerts(sb),
-        ...await gatherCardAlerts(sb),
-      ];
+      const cardAlerts = await gatherCardAlerts(sb);
+
+      // Never emit more than 3 individual card alerts per day — prevents
+      // push-spam if the backlog is huge. If there's more, collapse the
+      // extras into a single summary alert.
+      const CARD_CAP = 3;
+      if (cardAlerts.length > CARD_CAP) {
+        const overdue = cardAlerts.filter(a => a.alert_type === "card_overdue").length;
+        const stuck = cardAlerts.length - overdue;
+        const top = cardAlerts
+          .sort((a, b) => {
+            // Urgent-priority first, then alert-type rank
+            if (a.priority !== b.priority) return a.priority === "high" ? -1 : 1;
+            const rank: Record<string, number> = {
+              card_overdue: 0, card_stuck_parts: 1,
+              card_stuck_progress: 2, card_unverified: 3,
+            };
+            return (rank[a.alert_type] ?? 99) - (rank[b.alert_type] ?? 99);
+          })
+          .slice(0, CARD_CAP);
+        const bits: string[] = [];
+        if (overdue > 0) bits.push(`${overdue} overdue`);
+        if (stuck > 0) bits.push(`${stuck} stuck`);
+        top.push({
+          alert_type: "card_overdue",
+          entity_id: "summary-" + today,
+          entity_kind: "card",
+          title: `📋 ${cardAlerts.length} cards need attention`,
+          body: bits.join(" · ") + ". Tap to review on the board.",
+          data: { view: "board", alert_type: "card_summary" },
+          priority: "normal",
+        } as Alert);
+        alerts = [
+          ...await gatherPatternAlerts(sb, today, in3),
+          ...await gatherPMAlerts(sb, today, in7),
+          ...await gatherWarrantyAlerts(sb, today, in30),
+          ...await gatherStaleDispatchAlerts(sb),
+          ...top,
+        ];
+      } else {
+        alerts = [
+          ...await gatherPatternAlerts(sb, today, in3),
+          ...await gatherPMAlerts(sb, today, in7),
+          ...await gatherWarrantyAlerts(sb, today, in30),
+          ...await gatherStaleDispatchAlerts(sb),
+          ...cardAlerts,
+        ];
+      }
 
       result.checked = alerts.length;
 
