@@ -809,11 +809,6 @@ td.check{background:#F0EDE6 !important}
           });
         }
         // Eager-load Overview stats so there's no "Loading…" flash
-        // Eager paint of default content (integrations, attention, activity)
-        // so the three sections never sit on "Loading…" — even if Supabase
-        // is slow or the network is dead. loadOverviewStats overlays live
-        // data on top as queries complete.
-        window.paintOverviewDefaults?.();
         window.loadOverviewStats?.();
       } catch(e) { console.warn('[admin] panel init failed:', e); }
       if (this.isAdmin) {
@@ -828,6 +823,31 @@ td.check{background:#F0EDE6 !important}
         const tt = this.getTrelloToken();
         document.getElementById('adminTrelloToken').placeholder = tt ? 'Token set (••••' + tt.slice(-4) + ')' : 'Trello Token';
         document.getElementById('adminModel').value = this.getModel();
+
+        // ─── Rebuild the voice dropdown from NX.VOICES ─────────────
+        // The HTML had a stale, hand-written <option> list whose order
+        // didn't match brain-chat.js's VOICES array. That's why picking
+        // "Charlotte" in admin actually played Grace. Rebuilding here
+        // against the canonical list makes every voice name line up
+        // with what speak() actually plays. Preserves saved selection.
+        (function rebuildVoiceDropdown() {
+          const sel = document.getElementById('adminVoice');
+          if (!sel) return;
+          const list = (window.NX && Array.isArray(NX.VOICES) && NX.VOICES.length)
+            ? NX.VOICES : null;
+          if (!list) return;   // brain-chat not loaded yet — leave static list
+          const prev = sel.value;
+          sel.innerHTML = list.map((v, i) =>
+            `<option value="${i}">${v.name}${v.desc ? ' — ' + v.desc : ''}</option>`
+          ).join('');
+          // Restore previous selection if still valid; otherwise use saved config
+          const savedIdx = (this.config && this.config.voice_idx != null)
+            ? this.config.voice_idx
+            : parseInt(localStorage.getItem('nexus_voice_idx') || '0', 10);
+          const safe = Math.max(0, Math.min(list.length - 1, parseInt(prev || savedIdx, 10) || 0));
+          sel.value = String(safe);
+        }).call(this);
+
         document.getElementById('adminVoice').value = (this.config && this.config.voice_idx != null) ? this.config.voice_idx : (localStorage.getItem('nexus_voice_idx') || '0');
         // Voice saves immediately on change
         document.getElementById('adminVoice').addEventListener('change', async (e) => {
@@ -835,10 +855,25 @@ td.check{background:#F0EDE6 !important}
           localStorage.setItem('nexus_voice_idx', idx);
           if (this.config) this.config.voice_idx = idx;
           try { await this.sb.from('nexus_config').update({ voice_idx: idx }).eq('id', 1); } catch(e) {}
-          const voiceNames = ['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
+          // Use NX.VOICES for the confirmation label so name matches what plays
+          const list = (window.NX && Array.isArray(NX.VOICES) && NX.VOICES.length) ? NX.VOICES : null;
+          const name = list ? (list[idx]?.name || 'Voice ' + idx) : ('Voice ' + idx);
           const vs = document.getElementById('voiceTestStatus');
-          if (vs) { vs.textContent = `✓ ${voiceNames[idx]} selected & saved`; vs.style.color = '#5bba5f'; }
+          if (vs) { vs.textContent = `✓ ${name} selected & saved`; vs.style.color = '#5bba5f'; }
+          // Broadcast so chatview persona sheet + brain-chat stay in sync
+          window.dispatchEvent(new CustomEvent('nx-voice-idx-change', { detail: { idx } }));
         });
+        // Listen for voice changes from elsewhere (chatview persona sheet)
+        // so the admin dropdown updates live if admin is open when user
+        // switches voices from the chat UI.
+        if (!this._voiceSyncWired) {
+          this._voiceSyncWired = true;
+          window.addEventListener('nx-voice-idx-change', (e) => {
+            const idx = Number(e?.detail?.idx);
+            const sel = document.getElementById('adminVoice');
+            if (sel && Number.isFinite(idx)) sel.value = String(idx);
+          });
+        }
         this.loadUserList();
         // Show chat log for admin
         document.getElementById('adminChatLog').style.display='block';
@@ -937,23 +972,25 @@ td.check{background:#F0EDE6 !important}
       location.reload();
     });
 
-    // Test voice button
+    // Test voice button — uses NX.VOICES (canonical) so the voice that
+    // plays matches the voice name shown in the dropdown.
     document.getElementById('testVoiceBtn').addEventListener('click', async () => {
       const voiceIdx = parseInt(document.getElementById('adminVoice').value) || 0;
-      const voiceNames = ['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
-      const voiceIds = ['pNInz6obpgDQGcFmaJgB','EXAVITQu4vr4xnSDxMaL','onwK4e9ZLuTAKqWW03F9','XB0fDUnXU5powFXDhCwa','TX3LPaxmHKxFdv7VOQHJ','LcfcDJNUP1GQjkzn1xUU','yoZ06aMxZJJ28mfd3POQ','ThT5KcBeYPX3keUQqHPh','VR6AewLTigWG4xSOukaG','pqHfZKP75CvOlQylNhV4','ErXwobaYiN019PkySvjV','AZnzlk1XvdvUeBnXmlld','D38z5RcWu1voky8WS1ja','jsCqWAovK2LkecY7zXl4','jBpfuIE2acCO8z3wKNLl','oWAxZDx7w5VEj9dCyTzz','SOYHLrjzK2X1ezoPC6cr','ZQe5CZNOzWyzPSCn5a3c','TxGEqnHWrfWFTfGW9XjX','21m00Tcm4TlvDq8ikWAM'];
+      const list = (window.NX && Array.isArray(NX.VOICES) && NX.VOICES.length) ? NX.VOICES : [];
+      const v = list[voiceIdx];
       const status = document.getElementById('voiceTestStatus');
       const ek = this.getElevenLabsKey();
       if (!ek) { status.textContent = 'Add ElevenLabs key first'; status.style.color = '#d45858'; return; }
-      status.textContent = `Playing ${voiceNames[voiceIdx]}...`; status.style.color = 'var(--accent)';
+      if (!v)  { status.textContent = 'Voice list unavailable'; status.style.color = '#d45858'; return; }
+      status.textContent = `Playing ${v.name}...`; status.style.color = 'var(--accent)';
       try {
-        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceIds[voiceIdx]}`, {
+        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${v.id}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'xi-api-key': ek },
-          body: JSON.stringify({ text: `Hi, I'm ${voiceNames[voiceIdx]}. I'll be your NEXUS voice.`, model_id: 'eleven_turbo_v2', voice_settings: { stability: .45, similarity_boost: .78, style: .35, use_speaker_boost: true } })
+          body: JSON.stringify({ text: `Hi, I'm ${v.name}. I'll be your NEXUS voice.`, model_id: 'eleven_turbo_v2', voice_settings: { stability: .45, similarity_boost: .78, style: .35, use_speaker_boost: true } })
         });
         if (r.ok) {
           const bl = await r.blob(), u = URL.createObjectURL(bl), a = new Audio(u);
-          a.play(); a.onended = () => { URL.revokeObjectURL(u); status.textContent = `✓ ${voiceNames[voiceIdx]} ready`; status.style.color = '#5bba5f'; };
+          a.play(); a.onended = () => { URL.revokeObjectURL(u); status.textContent = `✓ ${v.name} ready`; status.style.color = '#5bba5f'; };
         } else { status.textContent = 'Voice test failed'; status.style.color = '#d45858'; }
       } catch (e) { status.textContent = 'Error: ' + e.message; status.style.color = '#d45858'; }
     });
