@@ -1993,3 +1993,17 @@ body.view-brain .list-toggle {
   opacity: 0.75;
   margin-left: 4px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   STAGE O — ADMIN-ONLY GALAXY ACCESS
+   The brain/galaxy view exposes raw email content, contractor pricing,
+   personal notes — sensitive data. Non-admin users (staff, managers)
+   should not have a path to it. We hide both the top-left NEXUS logo
+   button (primary galaxy entry) AND the mini-galaxy on Home (secondary
+   entry). Applied via body class from app.js so it covers elements
+   that mount lazily after login.                                       
+   ═══════════════════════════════════════════════════════════════════ */
+body.no-galaxy-access #navNexus,
+body.no-galaxy-access #homeMiniGalaxy {
+  display: none !important;
+}
