@@ -263,6 +263,170 @@
   background: var(--home-hairline);
 }
 
+/* ─── On the books — calendar strip (past/today/future) ────────── */
+/* Timeline-style list with date on the left, events on the right.
+   Past days get reduced opacity so they recede without disappearing.
+   Today gets a pulsing gold dot so it reads as "now" at a glance.
+   Density cap handled in JS — max ~10 rows. */
+.home-cal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.home-cal-day {
+  display: flex;
+  gap: 20px;
+  padding: 2px 0;
+}
+.home-cal-day.is-past {
+  opacity: 0.48;
+}
+.home-cal-day.is-today .home-cal-date {
+  color: var(--accent);
+}
+
+.home-cal-date {
+  flex-shrink: 0;
+  min-width: 104px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.6px;
+  color: var(--faint);
+  text-transform: uppercase;
+  padding-top: 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+.home-cal-today-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+  margin-top: 7px;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(212, 164, 78, 0.6);
+  animation: homeCalPulse 2.2s ease-in-out infinite;
+}
+@keyframes homeCalPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(212, 164, 78, 0.6); }
+  50%      { box-shadow: 0 0 14px rgba(212, 164, 78, 0.9); }
+}
+
+.home-cal-items {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;     /* allows text-overflow in children */
+}
+.home-cal-item {
+  display: flex;
+  gap: 14px;
+  padding: 8px 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212, 182, 138, 0.06);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+  color: inherit;
+  transition: transform 0.1s;
+  width: 100%;
+}
+.home-cal-item:last-child { border-bottom: none; }
+.home-cal-item:active { transform: scale(0.99); }
+.home-cal-item:hover .home-cal-title { color: var(--accent); }
+
+.home-cal-time {
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  min-width: 76px;
+  padding-top: 1px;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+.home-cal-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.home-cal-title {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.4;
+  letter-spacing: 0.05px;
+  transition: color 0.15s;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.home-cal-desc {
+  font-size: 12px;
+  color: var(--home-dim);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-cal-empty {
+  font-size: 12.5px;
+  color: var(--faint);
+  padding: 4px 0;
+  letter-spacing: 0.1px;
+  font-style: italic;
+}
+.home-cal-empty-all {
+  padding: 22px 18px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--home-dim);
+  line-height: 1.6;
+  border: 1px solid var(--home-hairline);
+  border-radius: 2px;
+}
+
+.home-cal-viewall {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  margin: 0 0 36px;
+  padding: 10px 0 0;
+  color: var(--accent);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-align: right;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
+}
+.home-cal-viewall:hover { opacity: 0.7; }
+
+/* Cal-specific skeleton — wider than a stat card, shorter than a feed item */
+.home-skeleton-cal { height: 44px; }
+
+/* Small phones — stack date label above its events */
+@media (max-width: 400px) {
+  .home-cal-day       { flex-direction: column; gap: 4px; }
+  .home-cal-date      { min-width: unset; padding-top: 0; }
+  .home-cal-time      { min-width: 64px; font-size: 11px; }
+  .home-cal-title     { font-size: 13.5px; }
+}
+
 /* ─── Glance — 4-column stat strip ──────────────────────────────── */
 .home-glance {
   display: grid;
