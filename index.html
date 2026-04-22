@@ -665,6 +665,7 @@
               document.getElementById('adminBroadcastTitle').value = '';
               document.getElementById('adminBroadcastBody').value = '';
               if (NX.toast) NX.toast('Announcement sent ✓', 'success');
+              if (NX.syslog) NX.syslog('broadcast_sent', `"${title}" → ${audience} (${webSent + nativeSent} delivered)`);
             } catch (e) {
               statusEl.textContent = '❌ Failed: ' + (e.message || 'unknown error');
               statusEl.style.color = '#d45858';
