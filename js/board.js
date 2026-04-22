@@ -53,13 +53,14 @@ const DEFAULT_LISTS = [
 // ─────────────────────────────────────────────────────────────────────────
 const STYLES = `
   #boardWrap{padding:0 8px 80px;font-family:inherit}
-  .b-summary{display:flex;gap:10px;padding:12px 12px 8px;font-size:12px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:8px}
-  .b-summary-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:12px;background:rgba(255,255,255,0.04);color:var(--text,#d4c8a5)}
+  .b-summary{display:flex;gap:6px;padding:10px 12px 6px;font-size:11px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:8px}
+  .b-summary-chip{display:inline-flex;align-items:center;gap:3px;padding:4px 8px;border-radius:10px;background:rgba(255,255,255,0.04);color:var(--text,#d4c8a5);font-size:11px;line-height:1.3}
   .b-summary-chip.alert{background:rgba(212,88,88,0.15);color:#e88;border:1px solid rgba(212,88,88,0.3)}
   .b-summary-chip.ok{background:rgba(91,186,95,0.10);color:#8fd492}
   .b-summary-chip.tap{cursor:pointer;user-select:none}
   .b-summary-chip.tap:active{transform:scale(0.97)}
-  .b-summary-stats-btn{margin-left:auto;background:transparent;border:1px solid rgba(255,255,255,0.15);color:var(--text,#d4c8a5);padding:5px 12px;border-radius:12px;font-size:11px;cursor:pointer}
+  .b-summary-stats-btn{background:transparent;border:1px solid rgba(255,255,255,0.15);color:var(--text,#d4c8a5);padding:4px 9px;border-radius:10px;font-size:11px;cursor:pointer;white-space:nowrap;font-family:inherit}
+  .b-summary-stats-btn:active{transform:scale(0.97)}
 
   .board-header{display:flex;align-items:center;gap:4px;overflow-x:auto;padding:4px 0 12px;scrollbar-width:none}
   .board-header::-webkit-scrollbar{display:none}
@@ -199,9 +200,15 @@ const STYLES = `
   }
 
   /* ─── Snooze chip — toggles the "show only snoozed" filter ─── */
-  .b-snooze-chip{background:rgba(147,112,219,0.12);border-color:rgba(147,112,219,0.28);color:#b89ae0;cursor:pointer;border:1px solid rgba(147,112,219,0.28);font-family:inherit;font-size:12px;padding:4px 9px;border-radius:12px}
+  .b-snooze-chip{background:rgba(147,112,219,0.12);border-color:rgba(147,112,219,0.28);color:#b89ae0;cursor:pointer;border:1px solid rgba(147,112,219,0.28);font-family:inherit;font-size:11px;padding:4px 8px;border-radius:10px}
   .b-snooze-chip.active{background:rgba(147,112,219,0.22);border-color:rgba(147,112,219,0.5);color:#d8c4f0}
   .b-snooze-chip strong{font-weight:600}
+
+  /* ─── Archive toggle + archive-mode banner ─── */
+  .b-archive-toggle{background:rgba(160,140,120,0.1);border-color:rgba(160,140,120,0.3);color:#a89580}
+  .b-archive-toggle.active{background:rgba(160,140,120,0.22);border-color:rgba(160,140,120,0.5);color:#d4c1a5}
+  .b-archived-mode{background:rgba(160,140,120,0.15);border:1px solid rgba(160,140,120,0.35);color:#d4c1a5;font-weight:500}
+  .b-archived-mode strong{color:#e8d8b0}
 
   /* ─── Snooze banner — shown at top of modal if card is snoozed ─── */
   .b-snooze-banner{display:flex;align-items:center;gap:12px;padding:10px 14px;margin:0 -16px 14px;background:rgba(147,112,219,0.1);border-top:1px solid rgba(147,112,219,0.2);border-bottom:1px solid rgba(147,112,219,0.2);font-size:12.5px;color:#b89ae0;line-height:1.4}
@@ -315,13 +322,21 @@ async function loadLists(){
 async function loadCards(){
   if(!activeBoard) return;
   try{
-    const { data } = await NX.sb.from('kanban_cards')
+    // When the user has toggled the "Archived" chip, switch the query
+    // to fetch archived cards instead. Otherwise default to open.
+    const wantArchived = !!filters.showArchived;
+    const { data, error } = await NX.sb.from('kanban_cards')
       .select('*')
       .eq('board_id', activeBoard.id)
-      .eq('archived', false)
+      .eq('archived', wantArchived)
       .order('position');
+    if (error) throw error;
     cards = data || [];
-  }catch(e){ console.error('[board] loadCards:', e); cards = []; }
+  }catch(e){
+    console.error('[board] loadCards:', e);
+    cards = [];
+    NX.toast && NX.toast('Card load failed: ' + (e.message || 'unknown'), 'error');
+  }
 }
 
 async function loadStats(){
@@ -404,37 +419,58 @@ function renderSummaryStrip(){
     return (nowMs - new Date(ref).getTime()) / 86400000 > 7;
   }).length;
 
+  const inArchived = !!filters.showArchived;
+
   let html = '';
-  html += `<span class="b-summary-chip ${open>0?'':'ok'}"><strong>${open}</strong> open</span>`;
-  if(overdue > 0) html += `<span class="b-summary-chip alert"><strong>${overdue}</strong> overdue</span>`;
-  if(urgent > 0) html += `<span class="b-summary-chip alert">🚨 <strong>${urgent}</strong> urgent</span>`;
-  if(stats && stats.avg_close_days_30d != null){
-    html += `<span class="b-summary-chip">avg close <strong>${Number(stats.avg_close_days_30d).toFixed(1)}d</strong></span>`;
+  if (inArchived) {
+    // Dedicated mode banner — very visible so users know they're
+    // looking at archived cards, not their active board
+    html += `<span class="b-summary-chip b-archived-mode">📦 Archived cards — <strong>${open}</strong> shown</span>`;
+  } else {
+    html += `<span class="b-summary-chip ${open>0?'':'ok'}"><strong>${open}</strong> open</span>`;
+    if(overdue > 0) html += `<span class="b-summary-chip alert"><strong>${overdue}</strong> overdue</span>`;
+    if(urgent > 0) html += `<span class="b-summary-chip alert">🚨 <strong>${urgent}</strong> urgent</span>`;
+    if(stats && stats.avg_close_days_30d != null){
+      html += `<span class="b-summary-chip">avg close <strong>${Number(stats.avg_close_days_30d).toFixed(1)}d</strong></span>`;
+    }
+    if(stats && stats.closed_last_7d){
+      html += `<span class="b-summary-chip ok">${stats.closed_last_7d} closed</span>`;
+    }
+    // Snoozed chip
+    if (snoozedCount > 0) {
+      const active = filters.showSnoozed ? ' active' : '';
+      html += `<button class="b-summary-chip b-snooze-chip${active}" id="bSnoozeChip">💤 <strong>${snoozedCount}</strong> snoozed</button>`;
+    }
+    // Clean Up always visible
+    const cleanLabel = stuck > 0 ? `🧹 ${stuck} stuck` : `🧹 Clean`;
+    const cleanUrgency = stuck > 10 ? 'alert' : (stuck > 0 ? 'warn' : '');
+    html += `<button class="b-summary-stats-btn b-cleanup ${cleanUrgency}" id="bCleanUpBtn">${cleanLabel}</button>`;
+    html += `<button class="b-summary-stats-btn" id="bStatsBtn">📊</button>`;
   }
-  if(stats && stats.closed_last_7d){
-    html += `<span class="b-summary-chip ok">${stats.closed_last_7d} closed this week</span>`;
-  }
-  // Snoozed chip — toggles `filters.showSnoozed`. Active state gets
-  // a subtle violet tint so the user knows they've switched views.
-  if (snoozedCount > 0) {
-    const active = filters.showSnoozed ? ' active' : '';
-    html += `<button class="b-summary-chip b-snooze-chip${active}" id="bSnoozeChip">💤 <strong>${snoozedCount}</strong> snoozed</button>`;
-  }
-  // Clean Up always visible with a live badge.
-  const cleanLabel = stuck > 0 ? `🧹 ${stuck} stuck` : `🧹 Clean Up`;
-  const cleanUrgency = stuck > 10 ? 'alert' : (stuck > 0 ? 'warn' : '');
-  html += `<button class="b-summary-stats-btn b-cleanup ${cleanUrgency}" id="bCleanUpBtn">${cleanLabel}</button>`;
-  html += `<button class="b-summary-stats-btn" id="bStatsBtn">📊 Stats</button>`;
+  // Archive toggle — always visible so the user always knows how to
+  // get back to/out of the archived view. Label changes with state.
+  const archLabel = inArchived ? '← Back to open' : '📦 Archived';
+  html += `<button class="b-summary-stats-btn b-archive-toggle ${inArchived ? 'active' : ''}" id="bArchToggle">${archLabel}</button>`;
+
   strip.innerHTML = html;
-  strip.querySelector('#bStatsBtn').addEventListener('click', openStatsModal);
-  strip.querySelector('#bCleanUpBtn').addEventListener('click', openTriageModal);
-  const snoozeChip = strip.querySelector('#bSnoozeChip');
-  if (snoozeChip) {
-    snoozeChip.addEventListener('click', () => {
-      filters.showSnoozed = !filters.showSnoozed;
-      render();
-    });
+  if (!inArchived) {
+    strip.querySelector('#bStatsBtn').addEventListener('click', openStatsModal);
+    strip.querySelector('#bCleanUpBtn').addEventListener('click', openTriageModal);
+    const snoozeChip = strip.querySelector('#bSnoozeChip');
+    if (snoozeChip) {
+      snoozeChip.addEventListener('click', () => {
+        filters.showSnoozed = !filters.showSnoozed;
+        render();
+      });
+    }
   }
+  strip.querySelector('#bArchToggle').addEventListener('click', async () => {
+    filters.showArchived = !filters.showArchived;
+    // Clear other filters when entering archived mode for clarity
+    if (filters.showArchived) { filters.showSnoozed = false; }
+    await loadCards();
+    render();
+  });
   return strip;
 }
 
@@ -896,10 +932,12 @@ async function openCardDetail(card){
 
       <div class="b-actions">
         <button class="b-btn b-btn-primary" id="bSave">Save</button>
-        <button class="b-btn b-btn-snooze" id="bSnooze">💤 Snooze</button>
+        ${!card.archived ? `<button class="b-btn b-btn-snooze" id="bSnooze">💤 Snooze</button>` : ''}
         ${card.equipment_id ? `<button class="b-btn" id="bCall">📞 Call Service</button>` : ''}
-        <button class="b-btn" id="bMoveBtn">→ Move</button>
-        <button class="b-btn b-btn-danger" id="bArchive">Archive</button>
+        ${!card.archived ? `<button class="b-btn" id="bMoveBtn">→ Move</button>` : ''}
+        ${card.archived
+          ? `<button class="b-btn b-btn-primary" id="bRestore">↩ Restore</button>`
+          : `<button class="b-btn b-btn-danger" id="bArchive">Archive</button>`}
       </div>
     </div>
   </div>`;
@@ -990,26 +1028,68 @@ async function openCardDetail(card){
 
   // Actions
   bg.querySelector('#bSave').addEventListener('click', () => saveCard(card, bg, true));
-  bg.querySelector('#bMoveBtn').addEventListener('click', () => {
-    saveCard(card, bg, false).then(() => {
-      bg.remove();
-      openMovePicker(card);
+  const moveBtn = bg.querySelector('#bMoveBtn');
+  if (moveBtn) {
+    moveBtn.addEventListener('click', () => {
+      saveCard(card, bg, false).then(() => {
+        bg.remove();
+        openMovePicker(card);
+      });
     });
-  });
-  bg.querySelector('#bArchive').addEventListener('click', async () => {
-    if(!confirm('Archive this card?')) return;
-    await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', card.id);
-    bg.remove();
-    await loadCards(); render();
-    NX.toast && NX.toast('Card archived', 'info');
-  });
+  }
+  const archiveBtn = bg.querySelector('#bArchive');
+  if (archiveBtn) {
+    archiveBtn.addEventListener('click', async () => {
+      if(!confirm('Archive this card?')) return;
+      try {
+        const { error, count } = await NX.sb.from('kanban_cards')
+          .update({ archived: true }, { count: 'exact' })
+          .eq('id', card.id);
+        if (error) throw error;
+        if (count === 0) {
+          NX.toast && NX.toast('Archive saved nothing — check your database permissions', 'error');
+          console.warn('[board] archive affected 0 rows for card', card.id);
+          return;
+        }
+        bg.remove();
+        await loadCards(); render();
+        NX.toast && NX.toast('Card archived', 'info');
+      } catch (e) {
+        console.error('[board] archive failed:', e);
+        NX.toast && NX.toast('Archive failed: ' + (e.message || 'unknown'), 'error');
+      }
+    });
+  }
+  // Restore — appears when viewing an archived card
+  const restoreBtn = bg.querySelector('#bRestore');
+  if (restoreBtn) {
+    restoreBtn.addEventListener('click', async () => {
+      try {
+        const { error, count } = await NX.sb.from('kanban_cards')
+          .update({ archived: false }, { count: 'exact' })
+          .eq('id', card.id);
+        if (error) throw error;
+        if (count === 0) {
+          NX.toast && NX.toast('Restore saved nothing — check your database permissions', 'error');
+          return;
+        }
+        bg.remove();
+        await loadCards(); render();
+        NX.toast && NX.toast('Card restored to board', 'success');
+      } catch (e) {
+        console.error('[board] restore failed:', e);
+        NX.toast && NX.toast('Restore failed: ' + (e.message || 'unknown'), 'error');
+      }
+    });
+  }
 
   // Snooze — opens a picker with preset options + custom date.
-  // Keeps the current card modal open until the user commits to a
-  // time, then saves and closes.
-  bg.querySelector('#bSnooze').addEventListener('click', () => {
-    openSnoozePicker(card, bg);
-  });
+  const snoozeBtn = bg.querySelector('#bSnooze');
+  if (snoozeBtn) {
+    snoozeBtn.addEventListener('click', () => {
+      openSnoozePicker(card, bg);
+    });
+  }
 
   // Unsnooze — banner button, only exists when card is currently snoozed
   const unsnoozeBtn = bg.querySelector('#bUnsnooze');
@@ -1224,7 +1304,7 @@ async function renderRelatedCards(card, container, section){
       <div class="b-related-group">
         <div class="b-related-head">
           <span class="b-related-dot" style="background:${loc?.color || '#c8a44e'}"></span>
-          ${sameLoc.length} other ${sameLoc.length === 1 ? 'card' : 'cards'} at ${esc(loc?.label || card.location)}
+          ${sameLoc.length} open at ${esc(loc?.label || card.location)}
         </div>
         <div class="b-related-list">${sameLoc.slice(0, 5).map(c => renderCardRow(c)).join('')}</div>
       </div>
@@ -1235,7 +1315,7 @@ async function renderRelatedCards(card, container, section){
       <div class="b-related-group">
         <div class="b-related-head">
           <span class="b-related-dot" style="background:#c8a44e"></span>
-          ${sameEqOpen.length} other open ${sameEqOpen.length === 1 ? 'card' : 'cards'} for this equipment
+          Open tickets for this equipment
         </div>
         <div class="b-related-list">${sameEqOpen.slice(0, 5).map(c => renderCardRow(c)).join('')}</div>
       </div>
@@ -1246,7 +1326,7 @@ async function renderRelatedCards(card, container, section){
       <div class="b-related-group">
         <div class="b-related-head">
           <span class="b-related-dot" style="background:#7aa885"></span>
-          ${sameEqRecent.length} recent closed ${sameEqRecent.length === 1 ? 'ticket' : 'tickets'} for this equipment
+          Recent closed tickets for this equipment
         </div>
         <div class="b-related-list">${sameEqRecent.map(c => renderCardRow(c, { showDate: true, closedTag: true })).join('')}</div>
       </div>
@@ -1702,17 +1782,25 @@ async function openTriageModal(){
 
     try {
       if (action === 'archive') {
-        await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', c.id);
+        const { error, count } = await NX.sb.from('kanban_cards')
+          .update({ archived: true }, { count: 'exact' })
+          .eq('id', c.id);
+        if (error) throw error;
+        if (count === 0) throw new Error('Update saved 0 rows — possibly an RLS or permissions issue');
         archivedCount++;
       } else if (action === 'close') {
-        await NX.sb.from('kanban_cards').update({ status: 'closed' }).eq('id', c.id);
+        const { error, count } = await NX.sb.from('kanban_cards')
+          .update({ status: 'closed' }, { count: 'exact' })
+          .eq('id', c.id);
+        if (error) throw error;
+        if (count === 0) throw new Error('Update saved 0 rows — possibly an RLS or permissions issue');
         closedCount++;
       } else if (action === 'skip') {
         skippedCount++;
       }
     } catch (e) {
       console.error('[triage] action failed:', e);
-      NX.toast && NX.toast('Action failed', 'error');
+      NX.toast && NX.toast('Action failed: ' + (e.message || 'unknown'), 'error');
       return;
     }
 
@@ -1745,20 +1833,31 @@ async function openTriageModal(){
 
   bg.querySelector('#bTArchiveAll').addEventListener('click', async () => {
     const remaining = allOpen.length - idx;
-    if (!confirm(`Archive ALL ${remaining} remaining cards?\n\nThis bulk-archives everything you haven't triaged yet. The cards aren't deleted — you can find them later by filtering "archived" in the database.\n\nProceed?`)) return;
+    if (!confirm(`Archive ALL ${remaining} remaining cards?\n\nThis bulk-archives everything you haven't triaged yet. The cards aren't deleted — you can find them later by tapping the "Archived" chip on the board.\n\nProceed?`)) return;
     const ids = allOpen.slice(idx).map(c => c.id);
+    let totalUpdated = 0;
+    let firstErr = null;
     try {
       // Supabase caps batch updates; chunk into groups of 200
       for (let i = 0; i < ids.length; i += 200) {
         const chunk = ids.slice(i, i + 200);
-        await NX.sb.from('kanban_cards').update({ archived: true }).in('id', chunk);
+        const { error, count } = await NX.sb.from('kanban_cards')
+          .update({ archived: true }, { count: 'exact' })
+          .in('id', chunk);
+        if (error) { firstErr = error; break; }
+        totalUpdated += (count || 0);
       }
-      archivedCount += remaining;
+      if (firstErr) throw firstErr;
+      if (totalUpdated === 0) {
+        throw new Error('Zero rows updated — likely an RLS or permissions issue');
+      }
+      archivedCount += totalUpdated;
       idx = allOpen.length;
       renderCurrent();
+      NX.toast && NX.toast(`✓ ${totalUpdated} archived`, 'success');
     } catch (e) {
       console.error('[triage] archive all:', e);
-      NX.toast && NX.toast('Bulk archive failed — some cards may be archived', 'error');
+      NX.toast && NX.toast('Bulk archive failed: ' + (e.message || 'unknown'), 'error');
     }
   });
 
