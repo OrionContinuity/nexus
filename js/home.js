@@ -211,10 +211,18 @@
         }
       });
 
-      // Wire stat taps to relevant views
+      // Wire stat taps to relevant views — with filter intents where useful
       const statRoutes = {
-        tickets: () => NX.switchTo?.('log'),
-        overdue: () => NX.switchTo?.('equipment'),
+        tickets: () => {
+          NX.ticketsFilterIntent = { status: 'open' };
+          NX.switchTo?.('log');
+        },
+        overdue: () => {
+          // Pre-activate the overdue-PM filter in the equipment module.
+          // equipment.js reads this on show() and clears it after applying.
+          NX.equipmentFilterIntent = { pm: 'overdue' };
+          NX.switchTo?.('equipment');
+        },
         services: () => NX.switchTo?.('cal'),
         nodes: () => NX.switchTo?.('brain'),
       };
