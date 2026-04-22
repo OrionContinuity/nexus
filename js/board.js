@@ -251,7 +251,7 @@ const STYLES = `
 // ─────────────────────────────────────────────────────────────────────────
 let boards = [], activeBoard = null, lists = [], cards = [], stats = null;
 let equipmentCache = [];     // for the equipment picker in the card modal
-let filters = { priority:null, location:null, equipment:null };
+let filters = { priority:null, location:null, equipment:null, viewMode:'open', showSnoozed:false };
 let dragCard = null, dragOverListId = null;
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -322,14 +322,26 @@ async function loadLists(){
 async function loadCards(){
   if(!activeBoard) return;
   try{
-    // When the user has toggled the "Archived" chip, switch the query
-    // to fetch archived cards instead. Otherwise default to open.
-    const wantArchived = !!filters.showArchived;
-    const { data, error } = await NX.sb.from('kanban_cards')
+    // 3-way view mode: 'open' (default) / 'closed' / 'archived'.
+    // 'open'     — archived=false AND status != closed/done
+    // 'closed'   — archived=false AND status = closed/done
+    // 'archived' — archived=true
+    const mode = filters.viewMode || 'open';
+    let query = NX.sb.from('kanban_cards')
       .select('*')
       .eq('board_id', activeBoard.id)
-      .eq('archived', wantArchived)
       .order('position');
+
+    if (mode === 'archived') {
+      query = query.eq('archived', true);
+    } else if (mode === 'closed') {
+      query = query.eq('archived', false).in('status', ['closed', 'done']);
+    } else {
+      // open: exclude closed/done (nullable status is fine — treated as open)
+      query = query.eq('archived', false).not('status', 'in', '(closed,done)');
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
     cards = data || [];
   }catch(e){
@@ -344,6 +356,32 @@ async function loadStats(){
     const { data } = await NX.sb.from('board_stats').select('*').single();
     stats = data || null;
   }catch(e){ /* view may not exist until SQL migration run */ stats = null; }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// VIEW MODE COUNTS
+// Counts for the Open/Closed/Archived segmented control. Head-only
+// queries — no row data fetched, just the row count. Keeps the
+// control honest without double-loading.
+// ─────────────────────────────────────────────────────────────────────────
+let viewCounts = { open: 0, closed: 0, archived: 0 };
+async function loadViewCounts(){
+  if(!activeBoard) return;
+  try {
+    const base = NX.sb.from('kanban_cards').select('id', { count: 'exact', head: true }).eq('board_id', activeBoard.id);
+    const [openRes, closedRes, archivedRes] = await Promise.all([
+      base.eq('archived', false).not('status', 'in', '(closed,done)'),
+      NX.sb.from('kanban_cards').select('id', { count: 'exact', head: true }).eq('board_id', activeBoard.id).eq('archived', false).in('status', ['closed', 'done']),
+      NX.sb.from('kanban_cards').select('id', { count: 'exact', head: true }).eq('board_id', activeBoard.id).eq('archived', true),
+    ]);
+    viewCounts = {
+      open:     openRes.count ?? 0,
+      closed:   closedRes.count ?? 0,
+      archived: archivedRes.count ?? 0,
+    };
+  } catch (e) {
+    console.warn('[board] loadViewCounts:', e?.message);
+  }
 }
 
 async function loadEquipmentCache(){
@@ -394,68 +432,87 @@ function render(){
 }
 
 function renderSummaryStrip(){
+  const wrapper = document.createElement('div');
+  wrapper.className = 'b-summary-wrap';
+
+  // ─── View mode selector — 3-way segmented (Open · Closed · Archived)
+  // This replaces the old "Archived" toggle chip. Three mutually
+  // exclusive modes: Open (what you work on), Closed (finished, keep
+  // for records), Archived (noise, removed from sight).
+  const mode = filters.viewMode || 'open';
+  const modeBar = document.createElement('div');
+  modeBar.className = 'b-view-mode';
+  const MODES = [
+    { key: 'open',     label: 'Open',     count: viewCounts.open },
+    { key: 'closed',   label: 'Closed',   count: viewCounts.closed },
+    { key: 'archived', label: 'Archived', count: viewCounts.archived },
+  ];
+  modeBar.innerHTML = MODES.map(m => `
+    <button class="b-view-mode-btn ${m.key === mode ? 'active' : ''}" data-mode="${m.key}" type="button">
+      ${m.label}<span class="b-view-mode-count">${m.count}</span>
+    </button>
+  `).join('');
+  modeBar.querySelectorAll('.b-view-mode-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      filters.viewMode = btn.dataset.mode;
+      // Clear the snoozed filter when switching modes — it's
+      // only meaningful for Open view.
+      if (filters.viewMode !== 'open') filters.showSnoozed = false;
+      await loadCards();
+      render();
+    });
+  });
+  wrapper.appendChild(modeBar);
+
+  // ─── Stats strip (counts, alerts, actions) ─────────────────────
   const strip = document.createElement('div');
   strip.className = 'b-summary';
 
-  // Snoozed count — these cards are hidden from the main board until
-  // their snooze_until passes. Show a chip to let users toggle them
-  // into view. The count uses the raw cards array (pre-filter).
   const nowMs = Date.now();
   const snoozedCount = cards.filter(c =>
     c.snooze_until && new Date(c.snooze_until).getTime() > nowMs
   ).length;
 
-  // For the other counts we want the user's active view (filtered)
-  // so "open", "stuck", etc. reflect what they're actually looking at.
   const visible = applyFilters(cards);
   const open = visible.length;
   const overdue = visible.filter(isOverdue).length;
   const urgent = visible.filter(c => c.priority === 'urgent').length;
 
-  // Stuck = open cards whose last status change was >7 days ago.
   const stuck = visible.filter(c => {
     const ref = c.last_status_change_at || c.last_moved_at || c.updated_at || c.created_at;
     if (!ref) return false;
     return (nowMs - new Date(ref).getTime()) / 86400000 > 7;
   }).length;
 
-  const inArchived = !!filters.showArchived;
-
   let html = '';
-  if (inArchived) {
-    // Dedicated mode banner — very visible so users know they're
-    // looking at archived cards, not their active board
-    html += `<span class="b-summary-chip b-archived-mode">📦 Archived cards — <strong>${open}</strong> shown</span>`;
-  } else {
-    html += `<span class="b-summary-chip ${open>0?'':'ok'}"><strong>${open}</strong> open</span>`;
-    if(overdue > 0) html += `<span class="b-summary-chip alert"><strong>${overdue}</strong> overdue</span>`;
-    if(urgent > 0) html += `<span class="b-summary-chip alert">🚨 <strong>${urgent}</strong> urgent</span>`;
-    if(stats && stats.avg_close_days_30d != null){
+  if (mode === 'open') {
+    if (overdue > 0) html += `<span class="b-summary-chip alert"><strong>${overdue}</strong> overdue</span>`;
+    if (urgent > 0)  html += `<span class="b-summary-chip alert">🚨 <strong>${urgent}</strong> urgent</span>`;
+    if (stats && stats.avg_close_days_30d != null) {
       html += `<span class="b-summary-chip">avg close <strong>${Number(stats.avg_close_days_30d).toFixed(1)}d</strong></span>`;
     }
-    if(stats && stats.closed_last_7d){
-      html += `<span class="b-summary-chip ok">${stats.closed_last_7d} closed</span>`;
+    if (stats && stats.closed_last_7d) {
+      html += `<span class="b-summary-chip ok">${stats.closed_last_7d} closed this week</span>`;
     }
-    // Snoozed chip
     if (snoozedCount > 0) {
       const active = filters.showSnoozed ? ' active' : '';
       html += `<button class="b-summary-chip b-snooze-chip${active}" id="bSnoozeChip">💤 <strong>${snoozedCount}</strong> snoozed</button>`;
     }
-    // Clean Up always visible
     const cleanLabel = stuck > 0 ? `🧹 ${stuck} stuck` : `🧹 Clean`;
     const cleanUrgency = stuck > 10 ? 'alert' : (stuck > 0 ? 'warn' : '');
     html += `<button class="b-summary-stats-btn b-cleanup ${cleanUrgency}" id="bCleanUpBtn">${cleanLabel}</button>`;
     html += `<button class="b-summary-stats-btn" id="bStatsBtn">📊</button>`;
+  } else if (mode === 'closed') {
+    html += `<span class="b-summary-chip ok">Showing ${open} closed ${open === 1 ? 'ticket' : 'tickets'}</span>`;
+    html += `<span class="b-summary-chip">These are done. Tap any to reopen or restore.</span>`;
+  } else {
+    html += `<span class="b-summary-chip">Showing ${open} archived ${open === 1 ? 'card' : 'cards'}</span>`;
+    html += `<span class="b-summary-chip">Tap any to restore to the board.</span>`;
   }
-  // Archive toggle — always visible so the user always knows how to
-  // get back to/out of the archived view. Label changes with state.
-  const archLabel = inArchived ? '← Back to open' : '📦 Archived';
-  html += `<button class="b-summary-stats-btn b-archive-toggle ${inArchived ? 'active' : ''}" id="bArchToggle">${archLabel}</button>`;
 
   strip.innerHTML = html;
-  if (!inArchived) {
-    strip.querySelector('#bStatsBtn').addEventListener('click', openStatsModal);
-    strip.querySelector('#bCleanUpBtn').addEventListener('click', openTriageModal);
+
+  if (mode === 'open') {
     const snoozeChip = strip.querySelector('#bSnoozeChip');
     if (snoozeChip) {
       snoozeChip.addEventListener('click', () => {
@@ -463,15 +520,12 @@ function renderSummaryStrip(){
         render();
       });
     }
+    strip.querySelector('#bCleanUpBtn').addEventListener('click', openTriageModal);
+    strip.querySelector('#bStatsBtn').addEventListener('click', openStatsModal);
   }
-  strip.querySelector('#bArchToggle').addEventListener('click', async () => {
-    filters.showArchived = !filters.showArchived;
-    // Clear other filters when entering archived mode for clarity
-    if (filters.showArchived) { filters.showSnoozed = false; }
-    await loadCards();
-    render();
-  });
-  return strip;
+
+  wrapper.appendChild(strip);
+  return wrapper;
 }
 
 function renderBoardHeader(){
@@ -811,7 +865,7 @@ async function moveCard(card, targetList){
     }).eq('id', card.id);
     card.list_id = targetList.id;
     card.status = status;
-    await loadCards(); render();
+    await loadCards(); loadViewCounts(); render();
   }catch(e){
     console.error('[board] moveCard:', e);
     NX.toast && NX.toast('Failed to move card', 'error');
@@ -1057,7 +1111,7 @@ async function openCardDetail(card){
           return;
         }
         bg.remove();
-        await loadCards(); render();
+        await loadCards(); loadViewCounts(); render();
         NX.toast && NX.toast('Card archived', 'info');
       } catch (e) {
         console.error('[board] archive failed:', e);
@@ -1080,7 +1134,7 @@ async function openCardDetail(card){
           return;
         }
         bg.remove();
-        await loadCards(); render();
+        await loadCards(); loadViewCounts(); render();
         NX.toast && NX.toast('Card restored to board', 'success');
       } catch (e) {
         console.error('[board] restore failed:', e);
@@ -1106,7 +1160,7 @@ async function openCardDetail(card){
         card.snooze_until = null;
         NX.toast && NX.toast('Card woken — back on the board', 'success');
         bg.remove();
-        await loadCards(); render();
+        await loadCards(); loadViewCounts(); render();
       } catch (e) {
         console.error('[board] unsnooze:', e);
         NX.toast && NX.toast('Could not wake card', 'error');
@@ -1229,7 +1283,7 @@ async function commitSnooze(card, untilIso, parentBg){
     const label = d.toLocaleString([], { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
     NX.toast && NX.toast(`💤 Snoozed until ${label}`, 'success');
     if (parentBg) parentBg.remove();
-    await loadCards(); render();
+    await loadCards(); loadViewCounts(); render();
   } catch (e) {
     console.error('[board] snooze:', e);
     // Likely missing column — tell the user what to do
@@ -1474,7 +1528,7 @@ async function saveCard(card, modal, closeAfter){
     await NX.sb.from('kanban_cards').update(patch).eq('id', card.id);
     if(closeAfter){
       modal.remove();
-      await loadCards(); render();
+      await loadCards(); loadViewCounts(); render();
     }
   }catch(e){
     console.error('[board] saveCard:', e);
@@ -1525,7 +1579,7 @@ async function promptNewCard(listId, prefill){
       photo_urls: [],
       archived: false,
     }).select().single();
-    await loadCards(); render();
+    await loadCards(); loadViewCounts(); render();
     NX.toast && NX.toast('Card created', 'success');
     // If created with prefill, open it immediately
     if(prefill && created) openCardDetail(created);
@@ -1882,6 +1936,7 @@ async function init(){
   await loadLists();
   await loadCards();
   loadStats();
+  loadViewCounts();
   render();
 }
 
@@ -1889,6 +1944,7 @@ async function show(){
   // Called whenever user taps the Board tab
   await loadCards();
   loadStats();
+  loadViewCounts();
   render();
 }
 
@@ -1946,7 +2002,7 @@ NX.modules.board = {
   createFromEquipment,
   getOpenCardsForEquipment,
   // also expose loadCards so equipment-integration refreshes correctly
-  reload: async () => { await loadCards(); render(); },
+  reload: async () => { await loadCards(); loadViewCounts(); render(); },
 };
 
 console.log('[board] v4 loaded — ' + Object.keys(NX.modules.board).length + ' exports');
