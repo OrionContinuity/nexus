@@ -310,9 +310,15 @@ function renderSummaryStrip(){
   if(stats && stats.closed_last_7d){
     html += `<span class="b-summary-chip ok">${stats.closed_last_7d} closed this week</span>`;
   }
+  // Clean Up button only appears when there's meaningful backlog
+  if(open > 30){
+    html += `<button class="b-summary-stats-btn" id="bCleanUpBtn" style="background:rgba(212,88,88,0.15);border-color:rgba(212,88,88,0.3);color:#e88">🧹 Clean Up</button>`;
+  }
   html += `<button class="b-summary-stats-btn" id="bStatsBtn">📊 Stats</button>`;
   strip.innerHTML = html;
   strip.querySelector('#bStatsBtn').addEventListener('click', openStatsModal);
+  const cleanBtn = strip.querySelector('#bCleanUpBtn');
+  if(cleanBtn) cleanBtn.addEventListener('click', openTriageModal);
   return strip;
 }
 
@@ -1067,6 +1073,207 @@ async function openStatsModal(){
 // ─────────────────────────────────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
+// TRIAGE MODAL — bulk clean-up walkthrough
+// One card at a time, oldest-stuck first, three-button decide.
+// ─────────────────────────────────────────────────────────────────────────
+async function openTriageModal(){
+  // Load ALL open cards across all boards, sorted by oldest last_status_change_at
+  // (cards stuck for longest → shown first)
+  let allOpen = [];
+  try {
+    const { data } = await NX.sb.from('kanban_cards')
+      .select('*')
+      .eq('archived', false)
+      .not('status', 'in', '(closed,done)')
+      .order('last_status_change_at', { ascending: true, nullsFirst: true })
+      .order('created_at', { ascending: true })
+      .limit(2000);
+    allOpen = data || [];
+  } catch(e) {
+    console.error('[board] triage load:', e);
+    NX.toast && NX.toast('Could not load cards', 'error');
+    return;
+  }
+
+  if (!allOpen.length) {
+    NX.toast && NX.toast('Nothing to clean up — you are caught up ✨', 'success');
+    return;
+  }
+
+  let idx = 0;
+  const total = allOpen.length;
+  let archivedCount = 0, closedCount = 0, skippedCount = 0;
+  let lastAction = null; // { card, prevState } for undo
+
+  const bg = document.createElement('div');
+  bg.className = 'b-modal-bg';
+  bg.innerHTML = `<div class="b-modal" id="bTriageModal">
+    <div class="b-modal-head">
+      <div style="flex:1">
+        <div style="font-size:14px;font-weight:600">🧹 Clean Up</div>
+        <div id="bTriageProgress" style="font-size:11px;color:var(--text-dim,#a49c94);margin-top:2px"></div>
+      </div>
+      <button class="b-modal-close">✕ Done</button>
+    </div>
+    <div class="b-modal-body" id="bTriageBody"></div>
+    <div style="padding:10px 16px;border-top:1px solid rgba(255,255,255,0.05);display:flex;gap:8px;flex-wrap:wrap;background:rgba(255,255,255,0.02)">
+      <button class="b-btn b-btn-danger" id="bTArchive" style="flex:1;min-width:100px">📦 Archive</button>
+      <button class="b-btn" id="bTClose" style="flex:1;min-width:100px;background:rgba(91,186,95,0.12);color:#8fd492;border-color:rgba(91,186,95,0.3)">✓ Close</button>
+      <button class="b-btn" id="bTSkip" style="flex:1;min-width:100px">⏭ Skip</button>
+    </div>
+    <div style="padding:6px 16px 14px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="b-btn" id="bTUndo" style="font-size:11px;flex:1" disabled>↶ Undo last</button>
+      <button class="b-btn b-btn-danger" id="bTArchiveAll" style="font-size:11px;flex:1">Archive ALL remaining</button>
+    </div>
+  </div>`;
+
+  document.body.appendChild(bg);
+
+  const progressEl = bg.querySelector('#bTriageProgress');
+  const bodyEl = bg.querySelector('#bTriageBody');
+  const undoBtn = bg.querySelector('#bTUndo');
+
+  const finish = () => {
+    bg.remove();
+    loadCards().then(() => {
+      render();
+      const msg = [];
+      if (archivedCount) msg.push(`${archivedCount} archived`);
+      if (closedCount) msg.push(`${closedCount} closed`);
+      if (skippedCount) msg.push(`${skippedCount} skipped`);
+      NX.toast && NX.toast(msg.length ? `✓ ${msg.join(' · ')}` : 'All done', 'success');
+    });
+  };
+
+  const renderCurrent = () => {
+    if (idx >= allOpen.length) {
+      bodyEl.innerHTML = `<div style="padding:40px 20px;text-align:center">
+        <div style="font-size:48px;margin-bottom:10px">✨</div>
+        <div style="font-size:16px;color:#c8a44e;margin-bottom:8px;font-weight:600">All done!</div>
+        <div style="font-size:13px;color:var(--text-dim,#a49c94)">
+          ${archivedCount} archived · ${closedCount} closed · ${skippedCount} skipped
+        </div>
+      </div>`;
+      return;
+    }
+    const c = allOpen[idx];
+    const pri = priorityInfo(c.priority);
+    const loc = locationInfo(c.location);
+    const created = c.created_at ? new Date(c.created_at) : null;
+    const lastChange = c.last_status_change_at ? new Date(c.last_status_change_at) : null;
+    const ageDays = created ? Math.floor((Date.now() - created.getTime())/86400000) : null;
+    const stuckDays = lastChange ? Math.floor((Date.now() - lastChange.getTime())/86400000) : null;
+    const overdue = isOverdue(c);
+
+    progressEl.textContent = `Card ${idx + 1} of ${total}`;
+
+    const badges = [];
+    if (c.priority === 'urgent') badges.push('<span class="b-card-badge pri-urgent">🚨 URGENT</span>');
+    else if (c.priority === 'high') badges.push('<span class="b-card-badge pri-high">⚠ HIGH</span>');
+    if (loc) badges.push(`<span class="b-card-badge loc" style="color:${loc.color}">📍 ${esc(loc.label)}</span>`);
+    if (c.equipment_id) badges.push('<span class="b-card-badge eq">🔧 Equipment</span>');
+    if (overdue) badges.push('<span class="b-card-badge overdue">📅 OVERDUE</span>');
+    if (stuckDays != null && stuckDays > 30) badges.push(`<span class="b-card-badge overdue">⏳ Stuck ${stuckDays}d</span>`);
+
+    const photoHtml = (c.photo_urls||[]).length
+      ? `<img src="${esc(c.photo_urls[0])}" style="width:100%;max-height:180px;object-fit:cover;border-radius:6px;margin-bottom:8px">`
+      : '';
+
+    bodyEl.innerHTML = `
+      <div style="position:relative;padding-left:8px;border-left:4px solid ${pri.color||'transparent'};margin-bottom:12px">
+        <div style="font-size:15px;font-weight:600;color:var(--text,#d4c8a5);line-height:1.3;margin-bottom:8px">${esc(c.title||'(untitled)')}</div>
+        ${badges.length ? `<div class="b-card-badges">${badges.join('')}</div>` : ''}
+      </div>
+      ${photoHtml}
+      ${c.description ? `<div style="font-size:13px;color:var(--text,#d4c8a5);margin-bottom:10px;line-height:1.4;white-space:pre-wrap">${esc(c.description)}</div>` : ''}
+      <div style="font-size:11px;color:var(--text-dim,#a49c94);line-height:1.6">
+        ${created ? `Created ${ageDays}d ago (${created.toLocaleDateString()})<br>` : ''}
+        ${lastChange ? `Last status change ${stuckDays}d ago<br>` : ''}
+        ${c.status ? `Status: <strong>${esc((c.status||'').replace(/_/g,' '))}</strong><br>` : ''}
+        ${c.assignee ? `Assigned: ${esc(c.assignee)}<br>` : ''}
+        ${c.reported_by ? `Reported by: ${esc(c.reported_by)}<br>` : ''}
+        ${c.due_date ? `Due: ${esc(c.due_date)}<br>` : ''}
+      </div>
+      ${(c.checklist && c.checklist.length) ? `<div style="margin-top:10px;font-size:11px;color:var(--text-dim,#a49c94)">Checklist: ${c.checklist.filter(x=>x.done).length}/${c.checklist.length} done</div>` : ''}
+      ${(c.comments && c.comments.length) ? `<div style="margin-top:4px;font-size:11px;color:var(--text-dim,#a49c94)">💬 ${c.comments.length} comment${c.comments.length!==1?'s':''}</div>` : ''}
+    `;
+
+    undoBtn.disabled = !lastAction;
+  };
+
+  const doAction = async (action) => {
+    if (idx >= allOpen.length) return;
+    const c = allOpen[idx];
+    lastAction = { card: c, action, prevArchived: c.archived, prevStatus: c.status };
+
+    try {
+      if (action === 'archive') {
+        await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', c.id);
+        archivedCount++;
+      } else if (action === 'close') {
+        await NX.sb.from('kanban_cards').update({ status: 'closed' }).eq('id', c.id);
+        closedCount++;
+      } else if (action === 'skip') {
+        skippedCount++;
+      }
+    } catch (e) {
+      console.error('[triage] action failed:', e);
+      NX.toast && NX.toast('Action failed', 'error');
+      return;
+    }
+
+    idx++;
+    renderCurrent();
+  };
+
+  bg.querySelector('#bTArchive').addEventListener('click', () => doAction('archive'));
+  bg.querySelector('#bTClose').addEventListener('click', () => doAction('close'));
+  bg.querySelector('#bTSkip').addEventListener('click', () => doAction('skip'));
+
+  undoBtn.addEventListener('click', async () => {
+    if (!lastAction) return;
+    const { card, action, prevArchived, prevStatus } = lastAction;
+    try {
+      if (action === 'archive') {
+        await NX.sb.from('kanban_cards').update({ archived: prevArchived }).eq('id', card.id);
+        archivedCount--;
+      } else if (action === 'close') {
+        await NX.sb.from('kanban_cards').update({ status: prevStatus }).eq('id', card.id);
+        closedCount--;
+      } else if (action === 'skip') {
+        skippedCount--;
+      }
+      idx--;
+      lastAction = null;
+      renderCurrent();
+    } catch (e) { console.error('[triage] undo:', e); }
+  });
+
+  bg.querySelector('#bTArchiveAll').addEventListener('click', async () => {
+    const remaining = allOpen.length - idx;
+    if (!confirm(`Archive ALL ${remaining} remaining cards?\n\nThis bulk-archives everything you haven't triaged yet. The cards aren't deleted — you can find them later by filtering "archived" in the database.\n\nProceed?`)) return;
+    const ids = allOpen.slice(idx).map(c => c.id);
+    try {
+      // Supabase caps batch updates; chunk into groups of 200
+      for (let i = 0; i < ids.length; i += 200) {
+        const chunk = ids.slice(i, i + 200);
+        await NX.sb.from('kanban_cards').update({ archived: true }).in('id', chunk);
+      }
+      archivedCount += remaining;
+      idx = allOpen.length;
+      renderCurrent();
+    } catch (e) {
+      console.error('[triage] archive all:', e);
+      NX.toast && NX.toast('Bulk archive failed — some cards may be archived', 'error');
+    }
+  });
+
+  bg.querySelector('.b-modal-close').addEventListener('click', finish);
+
+  renderCurrent();
+}
+
 async function init(){
   await loadBoards();
   await loadLists();
