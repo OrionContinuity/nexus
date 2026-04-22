@@ -388,16 +388,46 @@
     },
 
     /* ═════════════ THE SPINNING MINI GALAXY ══════════════════════ */
-    // A fidget-worthy micro-galaxy, ~22px, always alive. It's pure canvas,
-    // ~60 FPS but visually slow so it reads as confident, not jittery.
-    // Tap it → switch to the full brain view so the user "opens the hood".
+    // This is the essence of NEXUS distilled into 22 pixels. A real
+    // mini of the big galaxy, not a generic particle demo. Built with
+    // a few specific decisions that add up to "alive":
     //
-    // NEW: pulse mechanic. When a node is activated anywhere in the app,
-    // the galaxy briefly brightens and a soft gold halo radiates from
-    // the core. Listens to the `galaxy:node-open` custom event that
-    // galaxy.js already fires, and also exposes NX.homeGalaxyPulse()
-    // so any other flow (chat answer, ingestion complete, etc.) can
-    // trigger a shine without coupling to the galaxy module.
+    //   1. LOG-SPIRAL ARMS. Two arms, offset by π. Particles cluster
+    //      along arm phase. Radius grows exponentially with arm length
+    //      (classic astronomy formula r = a·e^(b·θ)). Gives the sweeping
+    //      look instead of dots on rings.
+    //
+    //   2. DIFFERENTIAL ROTATION. Inner particles orbit faster than
+    //      outer (approximation of Kepler). Arms slowly wind up over
+    //      time, never repeating the same silhouette. ω ∝ 1/√r.
+    //
+    //   3. PERSPECTIVE TILT. Y-axis squashed 0.72 for a ~25° viewing
+    //      angle, matching the big galaxy's orientation. Free depth.
+    //
+    //   4. ACCRETION DISK. Thin bright elliptical ring at r=3 around
+    //      the core — the event horizon glow from the big version.
+    //
+    //   5. COLOR PALETTE. Warm cream (arm tracers), pale gold
+    //      (featured particles), and dim sepia background stars.
+    //      Core is hot gold. Variety reads as "galaxy", not "dots".
+    //
+    //   6. TWINKLE. Each particle has its own phase/rate, alpha
+    //      breathes ±3%. Subtle enough you don't notice it consciously
+    //      but the result feels alive, not looped.
+    //
+    //   7. MOTION TRAIL. Frame doesn't clear — it dims by 12% and
+    //      composites over. Creates a silky continuous-rotation
+    //      feel instead of choppy 60 discrete frames.
+    //
+    //   8. PULSE RESPONSE. When a node activates anywhere in the app,
+    //      the galaxy brightens, the accretion disk flares, and a
+    //      gold shockwave ripples outward through the arms. Tied to
+    //      the `galaxy:node-open` event from galaxy.js. Also exposed
+    //      as NX.homeGalaxyPulse() for any module to trigger.
+    //
+    //   9. ADMIN-GATED CLICK. Everyone sees the animation. Only
+    //      admins can tap it to open the full galaxy view (non-admins
+    //      get a no-op — the mini stays purely ornamental for them).
     wireGalaxy() {
       const canvas = document.getElementById('homeMiniGalaxyCanvas');
       const wrap = document.getElementById('homeMiniGalaxy');
@@ -414,34 +444,84 @@
 
       const cx = size / 2;
       const cy = size / 2;
+      const TILT_Y = 0.72;             // Y-axis squash = tilted perspective
 
-      // 10 nodes at varied radii. Small prime offsets so they never quite
-      // line up — gives it that organic "system running" quality.
-      const nodes = Array.from({ length: 10 }, (_, i) => ({
-        r: 2.2 + (i % 4) * 1.6 + Math.random() * 0.8,
-        theta: (i * 36 * Math.PI / 180) + Math.random() * 0.6,
-        speed: 0.0005 + (i % 3) * 0.00025,   // rad/ms, very slow
-        size: 0.8 + Math.random() * 0.6,
-        alpha: 0.35 + Math.random() * 0.45,
-      }));
+      // Arm geometry: log spiral r = A · e^(B·θ)
+      // B = cot(pitch); small pitch = tight arms. 15° pitch works at 22px.
+      // A tuned so that at θ=0, r starts ~1.5, and at arm_length=1.0
+      // the particle reaches the outer edge (~9).
+      const PITCH_DEG = 14;
+      const B = 1 / Math.tan(PITCH_DEG * Math.PI / 180);
+      // Arms drift slightly over time — the whole pattern rotates
+      // like a real galaxy (~1 revolution per minute).
+      const GALAXY_OMEGA = 0.00010;    // rad/ms. Slow enough to feel confident.
 
-      // One "central" node, slightly brighter
-      const core = { size: 1.3, alpha: 0.85 };
+      // Particle pool. Two kinds:
+      //   arm particles  — bright, trace the spiral arms (12 per arm)
+      //   field particles — dim background stars, uniformly distributed (14)
+      const arms = [];
+      for (let armId = 0; armId < 2; armId++) {
+        const armPhase = armId * Math.PI;   // two arms, π apart
+        for (let i = 0; i < 12; i++) {
+          const t = 0.05 + (i / 12) * 0.95;  // position along arm (0..1)
+          arms.push({
+            arm: armPhase,
+            t,                                // position along arm
+            size: 0.55 + Math.random() * 0.8,
+            alphaBase: 0.40 + Math.random() * 0.45,
+            // Small tangential offset so arms look thick not linear
+            tanOff: (Math.random() - 0.5) * 0.5,
+            radialOff: (Math.random() - 0.5) * 0.25,
+            // Twinkle: frequency 0.6–1.3 Hz, amplitude ±3%
+            twinkleRate: 0.0006 + Math.random() * 0.0007,
+            twinklePhase: Math.random() * Math.PI * 2,
+            // Color bias: 0 = warm cream, 1 = pale gold
+            hue: Math.random() > 0.65 ? 1 : 0,
+          });
+        }
+      }
+      const field = [];
+      for (let i = 0; i < 14; i++) {
+        // Random position in disk, but radius-biased so density is
+        // higher toward the center (1 - sqrt(u) gives 1/r falloff)
+        const u = Math.random();
+        const r = 2 + (1 - Math.sqrt(u)) * 7 + Math.random() * 2;
+        const theta = Math.random() * Math.PI * 2;
+        field.push({
+          r, theta,
+          size: 0.35 + Math.random() * 0.4,
+          alphaBase: 0.10 + Math.random() * 0.20,
+          twinkleRate: 0.0005 + Math.random() * 0.0006,
+          twinklePhase: Math.random() * Math.PI * 2,
+        });
+      }
 
       let running = true;
       let lastT = performance.now();
-
-      // Pulse state. pulseT0 is the timestamp the pulse started; 0 means
-      // no pulse. We read `now - pulseT0` each frame to shape the curve.
-      // PULSE_MS controls how long the visible shine lasts.
       let pulseT0 = 0;
-      const PULSE_MS = 1100;
+      const PULSE_MS = 1200;
 
       function pulseCurve(t) {
-        // t is 0..1. Fast attack, slow decay. Peaks ~0.25.
         if (t < 0 || t > 1) return 0;
-        if (t < 0.2) return t / 0.2;                 // attack 0→1 over 220ms
-        return Math.pow(1 - (t - 0.2) / 0.8, 2);     // decay 1→0 over 880ms, quadratic
+        if (t < 0.2) return t / 0.2;                      // attack
+        return Math.pow(1 - (t - 0.2) / 0.8, 2);          // quadratic decay
+      }
+
+      // Map [t along arm 0..1] → (r, θ) on log spiral.
+      // r = 1.5 * e^(B * (t * scale)). Scale tuned so t=1 → r ≈ 8.5.
+      // θ = base + t * ARM_SWEEP (how much the arm wraps around).
+      const ARM_SWEEP = 1.6 * Math.PI;  // arms spiral through 288° each
+      function armPoint(armBase, t) {
+        const theta = armBase + t * ARM_SWEEP;
+        const r = 1.5 * Math.exp(B * (t * ARM_SWEEP * 0.068));
+        return { r, theta };
+      }
+
+      // Drawing a point with elliptical tilt — Y squashed.
+      function projectDraw(r, theta, drawFn) {
+        const x = cx + r * Math.cos(theta);
+        const y = cy + r * Math.sin(theta) * TILT_Y;
+        drawFn(x, y);
       }
 
       function frame(t) {
@@ -449,53 +529,119 @@
         const dt = t - lastT;
         lastT = t;
 
-        // Compute pulse intensity for this frame (0 = no pulse, 1 = full)
         const pulseIntensity = pulseT0
           ? pulseCurve((t - pulseT0) / PULSE_MS)
           : 0;
 
-        ctx.clearRect(0, 0, size, size);
-
-        // Very faint radial glow. Boosted during pulse for a warm wash.
-        const baseGlow = 0.12 + pulseIntensity * 0.30;
-        const edgeGlow = 0.02 + pulseIntensity * 0.10;
-        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, size / 2);
-        grad.addColorStop(0, `rgba(212, 164, 78, ${baseGlow.toFixed(3)})`);
-        grad.addColorStop(0.7, `rgba(212, 164, 78, ${edgeGlow.toFixed(3)})`);
-        grad.addColorStop(1, 'rgba(212, 164, 78, 0)');
-        ctx.fillStyle = grad;
+        // Composite fade — don't clear, dim. 12% per frame ≈ short trail.
+        // Higher alpha = shorter trail. Tuned for silk-smooth rotation.
+        ctx.fillStyle = 'rgba(9, 8, 12, 0.22)';
         ctx.fillRect(0, 0, size, size);
 
-        // During pulse, draw an expanding halo ring — the "shine" visual
+        // Soft radial wash underneath everything — warm light leaking
+        // from the core. Intensifies during pulse.
+        const washAlpha = 0.08 + pulseIntensity * 0.22;
+        const wash = ctx.createRadialGradient(cx, cy, 0, cx, cy, size / 1.8);
+        wash.addColorStop(0, `rgba(212, 164, 78, ${washAlpha.toFixed(3)})`);
+        wash.addColorStop(0.6, `rgba(212, 164, 78, ${(washAlpha * 0.25).toFixed(3)})`);
+        wash.addColorStop(1, 'rgba(212, 164, 78, 0)');
+        ctx.fillStyle = wash;
+        ctx.fillRect(0, 0, size, size);
+
+        // Galaxy-level rotation angle (advances steadily)
+        const galaxyTheta = t * GALAXY_OMEGA;
+
+        // ─── Field stars (dim background) ───────────────────────────
+        // Slow differential rotation. These don't move along arms,
+        // just rotate at their radius.
+        for (const s of field) {
+          const omega = 0.00018 / Math.sqrt(Math.max(0.5, s.r));
+          s.theta += omega * dt;
+          const twinkle = 1 + 0.04 * Math.sin(t * s.twinkleRate + s.twinklePhase);
+          const a = Math.min(1, s.alphaBase * twinkle * (1 + pulseIntensity * 0.5));
+          projectDraw(s.r, s.theta, (x, y) => {
+            ctx.fillStyle = `rgba(220, 208, 182, ${a.toFixed(3)})`;
+            ctx.beginPath();
+            ctx.arc(x, y, s.size, 0, Math.PI * 2);
+            ctx.fill();
+          });
+        }
+
+        // ─── Arm particles (the sweeping spiral) ────────────────────
+        // Each particle flows along its arm. Its t-position advances,
+        // and when it reaches the outer edge it respawns at the core.
+        // Combined with galaxy-level rotation, this draws the spiral.
+        for (const p of arms) {
+          // Flow along the arm — inner particles flow faster.
+          const flowSpeed = 0.00009 * (1.4 - p.t * 0.7);
+          p.t += flowSpeed * dt;
+          if (p.t > 1.05) p.t = 0.05;   // respawn at core when consumed
+
+          // Base spiral position
+          const { r: rBase, theta: thBase } = armPoint(p.arm + galaxyTheta, p.t);
+          // Add per-particle offsets (arm thickness, tangential spread)
+          const r = rBase + p.radialOff * (1 + p.t);
+          const theta = thBase + (p.tanOff * 0.15) / Math.max(0.5, r);
+
+          const twinkle = 1 + 0.04 * Math.sin(t * p.twinkleRate + p.twinklePhase);
+          const pulseBoost = 1 + pulseIntensity * 0.55;
+          const a = Math.min(1, p.alphaBase * twinkle * pulseBoost);
+          const s = p.size * (1 + pulseIntensity * 0.15);
+
+          // Cream for the bulk of arm particles, pale gold for
+          // featured ones (hue=1). Core-proximity nudge adds warmth.
+          const coreNearness = Math.max(0, 1 - p.t * 1.8);
+          const warmPull = p.hue === 1 ? 0.7 : 0.25 * coreNearness;
+          const rCh = Math.round(237 - warmPull * 15);
+          const gCh = Math.round(228 - warmPull * 45);
+          const bCh = Math.round(205 - warmPull * 95);
+
+          projectDraw(r, theta, (x, y) => {
+            ctx.fillStyle = `rgba(${rCh}, ${gCh}, ${bCh}, ${a.toFixed(3)})`;
+            ctx.beginPath();
+            ctx.arc(x, y, s, 0, Math.PI * 2);
+            ctx.fill();
+          });
+        }
+
+        // ─── Accretion disk — thin bright elliptical ring at core ───
+        // Tilted (elliptical because of TILT_Y), pulses with beat.
+        const diskR = 3.2;
+        const diskAlpha = 0.35 + pulseIntensity * 0.45;
+        const diskWidth = 0.7 + pulseIntensity * 0.8;
+        ctx.strokeStyle = `rgba(234, 184, 102, ${diskAlpha.toFixed(3)})`;
+        ctx.lineWidth = diskWidth;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, diskR, diskR * TILT_Y, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // ─── Shockwave on pulse — a second ring expanding outward ───
         if (pulseIntensity > 0) {
-          const haloR = 2 + pulseIntensity * 7;
-          const haloA = pulseIntensity * 0.45;
-          ctx.strokeStyle = `rgba(212, 164, 78, ${haloA.toFixed(3)})`;
-          ctx.lineWidth = 0.6 + pulseIntensity * 0.5;
+          const shockR = 3 + pulseIntensity * 7;
+          const shockA = pulseIntensity * 0.35;
+          ctx.strokeStyle = `rgba(212, 164, 78, ${shockA.toFixed(3)})`;
+          ctx.lineWidth = 0.5;
           ctx.beginPath();
-          ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+          ctx.ellipse(cx, cy, shockR, shockR * TILT_Y, 0, 0, Math.PI * 2);
           ctx.stroke();
         }
 
-        // Orbiting nodes — brightened during pulse
-        const pulseBoost = 1 + pulseIntensity * 0.6;
-        for (const n of nodes) {
-          n.theta += n.speed * dt;
-          const x = cx + Math.cos(n.theta) * n.r;
-          const y = cy + Math.sin(n.theta) * n.r;
-          const a = Math.min(1, n.alpha * pulseBoost);
-          ctx.fillStyle = `rgba(237, 233, 224, ${a.toFixed(2)})`;
-          ctx.beginPath();
-          ctx.arc(x, y, n.size * (1 + pulseIntensity * 0.2), 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        // Core — warm gold, brightens + grows subtly on pulse
-        const coreA = Math.min(1, core.alpha * (1 + pulseIntensity * 0.4));
-        const coreS = core.size * (1 + pulseIntensity * 0.5);
-        ctx.fillStyle = `rgba(212, 164, 78, ${coreA})`;
+        // ─── Core — hot gold, pulses ────────────────────────────────
+        const coreAlpha = Math.min(1, 0.92 + pulseIntensity * 0.08);
+        const coreSize = 1.5 + pulseIntensity * 0.7;
+        const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreSize * 1.8);
+        coreGrad.addColorStop(0, `rgba(255, 215, 140, ${coreAlpha})`);
+        coreGrad.addColorStop(0.5, `rgba(212, 164, 78, ${coreAlpha * 0.6})`);
+        coreGrad.addColorStop(1, 'rgba(212, 164, 78, 0)');
+        ctx.fillStyle = coreGrad;
         ctx.beginPath();
-        ctx.arc(cx, cy, coreS, 0, Math.PI * 2);
+        ctx.arc(cx, cy, coreSize * 1.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Bright core pixel
+        ctx.fillStyle = `rgba(255, 230, 180, ${coreAlpha})`;
+        ctx.beginPath();
+        ctx.arc(cx, cy, coreSize * 0.4, 0, Math.PI * 2);
         ctx.fill();
 
         // End pulse window
@@ -505,8 +651,9 @@
       }
       requestAnimationFrame(frame);
 
-      // Public API — any module can call NX.homeGalaxyPulse() to trigger
-      // the shine. Passive for modules that don't know/care about home.
+      // Public API — any module can call NX.homeGalaxyPulse() to
+      // trigger the shine/shockwave. Passive for modules that don't
+      // know/care about Home.
       NX.homeGalaxyPulse = () => {
         pulseT0 = performance.now();
         if (!running) { running = true; lastT = performance.now(); requestAnimationFrame(frame); }
@@ -525,7 +672,11 @@
       });
 
       wrap.addEventListener('click', () => {
-        // Open the full galaxy view
+        // Non-admins see the animation but can't navigate into the
+        // full brain view — the mini stays purely ornamental for
+        // them. Check body class at click-time so role changes during
+        // the session are respected.
+        if (document.body.classList.contains('no-galaxy-access')) return;
         NX.switchTo?.('brain');
       });
     },
