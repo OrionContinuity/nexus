@@ -1995,15 +1995,25 @@ body.view-brain .list-toggle {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   STAGE O — ADMIN-ONLY GALAXY ACCESS
+   STAGE O/P — ADMIN-ONLY GALAXY ACCESS
    The brain/galaxy view exposes raw email content, contractor pricing,
    personal notes — sensitive data. Non-admin users (staff, managers)
-   should not have a path to it. We hide both the top-left NEXUS logo
-   button (primary galaxy entry) AND the mini-galaxy on Home (secondary
-   entry). Applied via body class from app.js so it covers elements
-   that mount lazily after login.                                       
+   can't be given a working path into that view.
+   
+   STAGE P clarification:
+   - Top-left NEXUS logo (nav button) — HIDDEN for non-admins. It's a
+     nav button; a visible-but-dead nav button is just confusing.
+   - Mini-galaxy on Home — STAYS VISIBLE for non-admins. It's the
+     ornamental heart of the brand, the "essence" indicator. Everyone
+     should see NEXUS breathing on their screen. Click is disabled so
+     they can't navigate to the full view, but the animation plays on.
+     The cursor stays default so there's no affordance suggesting a tap.
    ═══════════════════════════════════════════════════════════════════ */
-body.no-galaxy-access #navNexus,
-body.no-galaxy-access #homeMiniGalaxy {
+body.no-galaxy-access #navNexus {
   display: none !important;
+}
+body.no-galaxy-access #homeMiniGalaxy {
+  cursor: default !important;
+  /* pointer-events stays auto so hover state still works visually.
+     The click handler itself short-circuits in home.js for non-admins. */
 }
