@@ -26,7 +26,7 @@
   /* Semantic colors — muted for light mode comfort */
   --green:#2E8540;--blue:#3568B8;--purple:#6D28D9;--red:#B83030;--amber:#A07010;
 }
-html{font-size:14px;scrollbar-width:none}
+html{font-size:15.5px;scrollbar-width:none}
 html::-webkit-scrollbar{display:none}
 body{font-family:'DM Sans','Outfit','Libre Franklin',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow:hidden;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;scrollbar-width:none;transition:background .3s,color .3s}
 body::-webkit-scrollbar{display:none}
@@ -131,7 +131,7 @@ body.view-brain .main{padding-bottom:calc(56px + env(safe-area-inset-bottom))}
 /* ═══ BOTTOM NAV — primary mobile navigation ═══ */
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:50;display:flex;align-items:stretch;justify-content:space-around;background:var(--surface);border-top:1px solid var(--border);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding-bottom:env(safe-area-inset-bottom);height:auto;min-height:56px}
 .bnav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px 4px;background:none;border:none;color:var(--faint);cursor:pointer;transition:color .2s;-webkit-tap-highlight-color:transparent;position:relative;font-family:inherit;min-width:0}
-.bnav-btn span{font-size:10px;letter-spacing:.4px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.bnav-btn span{font-size:11px;letter-spacing:.4px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .bnav-icon{width:22px;height:22px;stroke-width:1.6;flex-shrink:0}
 .bnav-btn.active{color:var(--accent)}
 .bnav-btn.active::after{content:'';position:absolute;top:0;left:25%;right:25%;height:2px;background:var(--accent);border-radius:0 0 2px 2px}
