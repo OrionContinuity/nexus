@@ -199,7 +199,9 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
           btn.disabled=true;btn.textContent+=' ✓';
           try{
             if(action.type==='ticket'){
-              await NX.sb.from('tickets').insert({title:action.title,notes:action.detail,status:'open',priority:action.urgency==='high'?'urgent':'normal',reported_by:NX.currentUser?.name||'AI'});
+              const ticketData={title:action.title,notes:action.detail,status:'open',priority:action.urgency==='high'?'urgent':'normal',reported_by:NX.currentUser?.name||'AI'};
+              await NX.sb.from('tickets').insert(ticketData);
+              if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
               chainLog.push({type:'ticket',title:action.title,result:'created'});
             }else if(action.type==='card'){
               await NX.sb.from('kanban_cards').insert({title:action.title,column_name:'todo',priority:action.urgency});
@@ -407,16 +409,19 @@ After the troubleshoot steps, ask the person to add more details and optionally 
       const submitBtn=form.querySelector('#ticketSubmitBtn');
       submitBtn.disabled=true;submitBtn.textContent=lang==='es'?'Enviando...':'Submitting...';
       try{
-        const{error}=await NX.sb.from('tickets').insert({
+        const ticketData={
           title:notes.slice(0,100),notes,location:userLoc,
           reported_by:userName,status:'open',priority,
           photo_url:photoUrl,ai_troubleshoot:troubleshoot
-        });
+        };
+        const{error}=await NX.sb.from('tickets').insert(ticketData);
         if(!error){
           submitBtn.textContent='✓';
           form.querySelector('#ticketStatus').textContent=lang==='es'?'✓ Ticket creado':'✓ Ticket submitted';
           form.querySelector('#ticketStatus').style.color='#39ff14';
           addB(lang==='es'?`✓ Ticket registrado: "${notes.slice(0,60)}"`:`✓ Ticket logged: "${notes.slice(0,60)}"`,'ai');
+          // Fire push to managers — fire and forget
+          if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
           // Also log to daily log
           await NX.sb.from('daily_logs').insert({entry:`🔧 TICKET [${priority.toUpperCase()}] by ${userName} @ ${userLoc}: ${notes.slice(0,200)}${photoUrl?' [photo attached]':''}`});
           updateTicketBadge();
@@ -1302,6 +1307,8 @@ Keep it casual and warm. No markdown formatting.`;
         handleCompoundAction(q,cleanAns);
       }
       try{await NX.sb.from('chat_history').insert({question:q,answer:cleanAns,session_id:SESSION_ID,user_name:(NX.currentUser?NX.currentUser.name:'Unknown')});}catch(e){}
+      // Stage R: pulse the mini-galaxy — the brain just did work
+      if (NX.homeGalaxyPulse) NX.homeGalaxyPulse();
       // ═══ SELF-OPTIMIZATION — track chat quality ═══
       trackChatQuality(q,cleanAns,confidence);
     }catch(e){clearInterval(searchDots);th.textContent='Error: '+(e.message||'Unknown');th.classList.remove('chat-thinking');}
@@ -1509,28 +1516,5 @@ Return ONLY JSON.`,
     if (!Number.isFinite(idx)) return;
     cvi = idx % VOICES.length;
     localStorage.setItem('nexus_voice_idx', String(cvi));
-  });
-
-  // ─── Canonical voice list ────────────────────────────────────────
-  // The order of VOICES above is what speak() actually uses via
-  // getVoiceIdx(). Exposing it here means the admin dropdown AND the
-  // chat-view persona sheet can rebuild from a single source of truth
-  // — picking "Charlotte" anywhere in the UI plays Charlotte, not
-  // whatever voice happened to be at that index in a stale hard-coded
-  // HTML list. Short descriptions included for UI polish.
-  NX.VOICES = VOICES.map(v => {
-    const descMap = {
-      Charlotte: 'Smart & smooth',   Bella: 'Warm & witty',
-      Freya: 'Breathy & warm',       Grace: 'Southern elegance',
-      Rachel: 'Calm & collected',    Emily: 'Friendly & clear',
-      Gigi: 'Animated & engaging',   Antoni: 'Warm & professional',
-      Daniel: 'British dry wit',     Liam: 'Casual & quick',
-      Josh: 'Deep & young',          Harry: 'Grounded British',
-      James: 'Authoritative deep',   Adam: 'Sharp & confident',
-      Sam: 'Deep & calm',            Dorothy: 'Warm storyteller',
-      Arnold: 'Bold & direct',       Bill: 'Natural & relaxed',
-      Domi: 'Strong & clear',        Fin: 'Precise Irish',
-    };
-    return { ...v, desc: descMap[v.name] || '' };
   });
 })();
