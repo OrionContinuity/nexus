@@ -5484,6 +5484,71 @@ function injectRowPrintButtons() {
   });
 }
 
+/* ═══ CROSS-SYSTEM CLOSE-OUT ═══════════════════════════════════════════
+   When equipment goes back to Operational, cards still open about it
+   are likely resolved. Show a compact modal offering to mark them Done
+   in one tap — so the user isn't left manually chasing every linked
+   ticket across Equip → Board → Calendar. Cards still LIVE in the Done
+   column (audit history); they just stop cluttering active workflows.
+   ═══════════════════════════════════════════════════════════════════════ */
+function offerCardCloseOut(cards, eq) {
+  // Remove any existing offer modal
+  document.querySelector('.eq-closeout-modal')?.remove();
+
+  const bg = document.createElement('div');
+  bg.className = 'eq-closeout-bg';
+
+  const modal = document.createElement('div');
+  modal.className = 'eq-closeout-modal';
+  const cardCount = cards.length;
+  modal.innerHTML = `
+    <div class="eq-closeout-head">
+      <div class="eq-closeout-icon">✓</div>
+      <div>
+        <h3 class="eq-closeout-title">${esc(eq?.name || 'Equipment')} is back up</h3>
+        <p class="eq-closeout-sub">${cardCount} open card${cardCount === 1 ? ' is' : 's are'} linked to this equipment. Close ${cardCount === 1 ? 'it' : 'them'} out?</p>
+      </div>
+    </div>
+    <ul class="eq-closeout-cards">
+      ${cards.slice(0, 5).map(c => `<li>• ${esc(c.title || 'Untitled card')} <span class="eq-closeout-col">${esc((c.column_name || 'to_do').replace(/_/g, ' '))}</span></li>`).join('')}
+      ${cards.length > 5 ? `<li class="eq-closeout-more">+ ${cards.length - 5} more</li>` : ''}
+    </ul>
+    <p class="eq-closeout-note">Cards will move to Done on the Board — still searchable, but out of your active views and off the calendar.</p>
+    <div class="eq-closeout-actions">
+      <button class="eq-closeout-btn eq-closeout-btn-secondary" data-action="skip">Keep open</button>
+      <button class="eq-closeout-btn eq-closeout-btn-primary" data-action="move">
+        ✓ Move ${cardCount === 1 ? 'card' : 'all ' + cardCount} to Done
+      </button>
+    </div>
+  `;
+
+  document.body.append(bg, modal);
+
+  const close = () => {
+    bg.remove();
+    modal.remove();
+  };
+
+  bg.addEventListener('click', close);
+  modal.querySelector('[data-action="skip"]').addEventListener('click', close);
+  modal.querySelector('[data-action="move"]').addEventListener('click', async () => {
+    try {
+      const ids = cards.map(c => c.id);
+      const { error } = await NX.sb.from('kanban_cards')
+        .update({ column_name: 'done', status: 'closed' })
+        .in('id', ids);
+      if (error) throw error;
+      NX.toast && NX.toast(`${ids.length} card${ids.length === 1 ? '' : 's'} moved to Done ✓`, 'success');
+      // Fire a home pulse so the galaxy/home reacts visually
+      if (NX.homeGalaxyPulse) try { NX.homeGalaxyPulse(); } catch (_) {}
+      close();
+    } catch (err) {
+      console.error('[closeout] move failed:', err);
+      NX.toast && NX.toast('Move failed: ' + err.message, 'error');
+    }
+  });
+}
+
 /* ═══ QUICK STATUS MENU ════════════════════════════════════════════════
    Tap a row's status button → popup shows all 4 status options with
    color dots. Tap one → writes to DB + reloads list. Admin-only writes
@@ -5541,6 +5606,23 @@ function openQuickStatusMenu(equipmentId, anchorBtn) {
           try { await NX.eqBrainSync.syncOne(equipmentId); } catch (_) {}
         }
         buildUI();  // re-render list
+
+        // ── CROSS-SYSTEM CLOSE-OUT ────────────────────────────────────
+        // If equipment is back to Operational, any open card linked to
+        // it is likely resolved. Offer to move them to Done so the user
+        // doesn't have to manually close every related card.
+        if (newKey === 'operational') {
+          try {
+            const { data: linkedCards } = await NX.sb.from('kanban_cards')
+              .select('id, title, column_name, list_id')
+              .eq('equipment_id', equipmentId)
+              .neq('column_name', 'done')
+              .or('archived.is.null,archived.eq.false');
+            if (linkedCards && linkedCards.length) {
+              offerCardCloseOut(linkedCards, eq);
+            }
+          } catch (_) { /* non-blocking */ }
+        }
       } catch (err) {
         console.error('[status] update failed:', err);
         NX.toast && NX.toast('Update failed: ' + err.message, 'error');
