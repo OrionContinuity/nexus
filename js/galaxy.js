@@ -391,6 +391,13 @@
      */
 
     // Outer halo — diffuse glow beyond the disc
+    // NOTE: the halo/core/inner-glow layers use 'screen' blend for additive
+    // luminosity. WRAP them in save/restore so the screen mode does NOT leak
+    // into the bar + data layers below. Without this wrapper, the bar (which
+    // is horizontally scaled 1.8x) plus every ticket/card/nebula draw would
+    // stack additively on top of the already-bright core and clip to white —
+    // producing the two big pixelated "wing" shapes on the left and right.
+    octx.save();
     octx.globalCompositeOperation = 'screen';
     const haloGrd = octx.createRadialGradient(cx, cy, outerR * 0.5, cx, cy, outerR * 1.8);
     haloGrd.addColorStop(0.0, 'rgba(120, 100, 70, 0.06)');
@@ -417,6 +424,7 @@
     innerGlow.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
     octx.fillStyle = innerGlow;
     octx.fillRect(0, 0, W, H);
+    octx.restore();  // end ambient screen — bar + data layers draw in source-over
 
     // Barred spiral signature
     octx.save();
