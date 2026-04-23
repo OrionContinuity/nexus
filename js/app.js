@@ -1743,6 +1743,25 @@ td.check{background:#F0EDE6 !important}
 
 document.addEventListener('DOMContentLoaded', () => NX.init());
 
+// ─── PIN SCREEN DATE TICKER ──────────────────────────────────────────
+// Editorial masthead date line on the login screen. Ticks every minute
+// so time stays accurate if the screen is left idle.
+(function pinDateTicker() {
+  function update() {
+    const el = document.getElementById('pinDate');
+    if (!el) return;
+    const now = new Date();
+    const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+    const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    const time = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toUpperCase();
+    el.textContent = `${days[now.getDay()]} · ${months[now.getMonth()]} ${now.getDate()} · ${time}`;
+  }
+  document.addEventListener('DOMContentLoaded', () => {
+    update();
+    setInterval(update, 30000);
+  });
+})();
+
 // Register service worker for offline support
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
