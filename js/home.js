@@ -955,6 +955,42 @@
       }
     } catch (e) { console.warn('[home] events fetch failed:', e.message); }
 
+    // ─── REVIEW — pending public PM logs (admin-only) ────────────────
+    // Contractors submit service logs via the QR form which land in
+    // pm_logs with review_status='pending'. These are invisible until
+    // an admin approves them. Surface the count here so the review
+    // flow is one tap away instead of buried behind a hidden modal.
+    if (NX.currentUser?.role === 'admin') {
+      try {
+        const { count } = await NX.sb.from('pm_logs')
+          .select('id', { count: 'exact', head: true })
+          .eq('review_status', 'pending');
+        if (count && count > 0) {
+          candidates.push({
+            tone: 'reported',
+            severity: 60,   // high-priority; sits above INCOMING (40), below OVERDUE (70)
+            title: `${count} service log${count === 1 ? '' : 's'} awaiting review`,
+            body: count === 1
+              ? 'A contractor submitted a service log via the QR form. Approve it to add to the equipment timeline.'
+              : `${count} contractors submitted service logs via the QR form. Approve or reject each to move them into the equipment timeline.`,
+            actionLabel: count === 1 ? 'Review log' : 'Review logs',
+            onClick: () => {
+              if (NX.pmLogger?.reviewPendingLogs) {
+                NX.pmLogger.reviewPendingLogs();
+              } else {
+                // Lazy load — equipment-public-pm.js may not be loaded yet
+                const s = document.createElement('script');
+                s.src = 'js/equipment-public-pm.js';
+                s.onload = () => NX.pmLogger?.reviewPendingLogs?.();
+                s.onerror = () => alert('Review module failed to load.');
+                document.head.appendChild(s);
+              }
+            },
+          });
+        }
+      } catch (e) { console.warn('[home] pm_logs review count failed:', e.message); }
+    }
+
     // Sort by severity, take top 3
     candidates.sort((a, b) => (b.severity || 0) - (a.severity || 0));
     return candidates.slice(0, 3);
