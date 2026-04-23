@@ -198,6 +198,11 @@ function timeAgo(ts){
 }
 
 function isOverdue(card){
+  // Cards in the 'done' column are considered closed — they should
+  // never read as overdue regardless of their due_date. A ticket
+  // marked done yesterday with a due_date last week is resolved, not
+  // overdue.
+  if ((card.column_name || '').toLowerCase() === 'done') return false;
   return card.due_date && new Date(card.due_date) < new Date(new Date().toDateString());
 }
 
