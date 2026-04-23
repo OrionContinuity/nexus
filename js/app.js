@@ -726,16 +726,34 @@ td.check{background:#F0EDE6 !important}
     tabs.forEach(tab => tab.addEventListener('click', () => switchTo(tab.dataset.view)));
     // Bind bottom nav buttons
     bnavBtns.forEach(btn => btn.addEventListener('click', () => switchTo(btn.dataset.view)));
-    // Default active state
-    nexusBtn.classList.add('active');
+    // Wire NEXUS wordmark → go to brain
     nexusBtn.addEventListener('click', () => switchTo('brain'));
-    // Initialize body class for default view (brain)
-    document.body.classList.add('view-brain');
+    // ─── DEFAULT LANDING VIEW: Home ──────────────────────────────────
+    // The first thing after login is the Home dashboard (mini-galaxy,
+    // clock-in card, priority feed). The brain/galaxy full view is
+    // behind the NEXUS wordmark for people who want to dive in.
+    // index.html already marks #homeView as .view.active — we just
+    // need to sync the nav state + activate the module.
+    const homeBtn = document.querySelector('.bnav-btn[data-view="home"]');
+    if (homeBtn) homeBtn.classList.add('active');
+    document.body.classList.add('view-home');
+    this.activateModule('home');
   },
 
   activateModule(view) {
     const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js' };
     if (view === 'brain') { if (NX.brain && NX.brain.show) NX.brain.show(); return; }
+    // Home is special: home.js is loaded up-front in index.html (before app.js),
+    // so no lazy-load needed. Just call show() / init() on NX.home.
+    if (view === 'home') {
+      if (NX.home) {
+        if (this.loaded.home) { if (NX.home.show) NX.home.show(); }
+        else { this.loaded.home = true; if (NX.home.init) NX.home.init(); else if (NX.home.show) NX.home.show(); }
+      } else {
+        console.error('[home] NX.home not loaded — check index.html has <script src="js/home.js"> before app.js');
+      }
+      return;
+    }
     const file = moduleMap[view]; if (!file) return;
     if (this.loaded[view]) { const mod = this.modules[view]; if (mod && mod.show) mod.show(); }
     else {
