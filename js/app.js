@@ -760,11 +760,39 @@ td.check{background:#F0EDE6 !important}
     // Home is special: home.js is loaded up-front in index.html (before app.js),
     // so no lazy-load needed. Just call show() / init() on NX.home.
     if (view === 'home') {
+      // DIAGNOSTIC: write the state directly to homeView so we see it
+      // even when console isn't accessible.
+      const homeEl = document.getElementById('homeView');
+      const diag = [];
+      diag.push('homeView exists: ' + !!homeEl);
+      diag.push('has .active class: ' + (homeEl?.classList.contains('active') || false));
+      diag.push('NX.home loaded: ' + (typeof NX.home !== 'undefined'));
+      diag.push('NX.home.init type: ' + (typeof NX.home?.init));
+      diag.push('NX.home.show type: ' + (typeof NX.home?.show));
+      diag.push('this.loaded.home: ' + this.loaded.home);
+
       if (NX.home) {
-        if (this.loaded.home) { if (NX.home.show) NX.home.show(); }
-        else { this.loaded.home = true; if (NX.home.init) NX.home.init(); else if (NX.home.show) NX.home.show(); }
-      } else {
-        console.error('[home] NX.home not loaded — check index.html has <script src="js/home.js"> before app.js');
+        try {
+          if (this.loaded.home) { if (NX.home.show) NX.home.show(); }
+          else { this.loaded.home = true; if (NX.home.init) NX.home.init(); else if (NX.home.show) NX.home.show(); }
+        } catch (e) {
+          if (homeEl) {
+            homeEl.innerHTML = `<div style="padding:24px;color:#fd4;font-family:monospace;font-size:12px">
+              <div style="color:#d4a44e;font-weight:600;margin-bottom:12px">⚠ activateModule('home') crashed</div>
+              <div>${(e.message||e).toString()}</div>
+              <pre style="background:#111;padding:12px;border-radius:6px;margin-top:12px;white-space:pre-wrap">${(e.stack||'').replace(/</g,'&lt;')}</pre>
+              <div style="margin-top:12px;color:#888">${diag.join('\\n')}</div>
+            </div>`;
+          }
+          console.error('[activateModule home] crash:', e);
+        }
+      } else if (homeEl) {
+        homeEl.innerHTML = `<div style="padding:24px;color:#fd4;font-family:monospace;font-size:12px">
+          <div style="color:#d4a44e;font-weight:600;margin-bottom:12px">⚠ NX.home is not loaded</div>
+          <div style="margin-bottom:8px">home.js didn't execute, or its IIFE failed.</div>
+          <div>Check index.html has &lt;script src="js/home.js"&gt; BEFORE &lt;script src="js/app.js"&gt;.</div>
+          <div style="margin-top:12px;color:#888">${diag.join('\\n')}</div>
+        </div>`;
       }
       return;
     }
