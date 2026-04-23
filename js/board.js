@@ -37,6 +37,21 @@ const LOCATIONS = [
 
 const LABEL_COLORS = ['#d45858','#e8a830','#5bba5f','#5b9bd5','#a88fd8','#d4a44e','#6b9bf0','#a49c94'];
 
+// Card categories — tap-to-toggle chips in the card detail modal. Each
+// category is persisted as an entry in card.labels (jsonb). The first
+// category's color takes precedence on the calendar dot + board card bar.
+// Feel free to rename / recolor these; `key` is the stable identifier.
+const CATEGORIES = [
+  { key: 'equipment',  name: 'Equipment',  color: '#5b9bd5' },
+  { key: 'labor',      name: 'Labor',      color: '#c8a44e' },
+  { key: 'order',      name: 'Order',      color: '#5bba5f' },
+  { key: 'safety',     name: 'Safety',     color: '#d45858' },
+  { key: 'inspection', name: 'Inspection', color: '#a88fd8' },
+  { key: 'admin',      name: 'Admin',      color: '#e8a830' },
+  { key: 'cleaning',   name: 'Cleaning',   color: '#7eb87a' },
+  { key: 'other',      name: 'Other',      color: '#a49c94' },
+];
+
 // Default list structure when a brand-new board is created
 const DEFAULT_LISTS = [
   { name: 'Reported',          position: 0 },
@@ -106,7 +121,15 @@ const STYLES = `
   @keyframes bfade{from{opacity:0}to{opacity:1}}
   .b-modal{background:#1a1408;border:1px solid rgba(200,164,78,0.2);border-radius:12px;width:100%;max-width:600px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.6)}
   .b-modal-head{display:flex;align-items:flex-start;gap:8px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.02)}
-  .b-modal-title{flex:1;background:transparent;border:0;color:var(--text,#d4c8a5);font-size:15px;font-weight:600;outline:none;font-family:inherit}
+  .b-modal-title{flex:1;background:transparent;border:0;border-bottom:1px dashed rgba(200,164,78,0.25);color:var(--text,#d4c8a5);font-size:15px;font-weight:600;outline:none;font-family:inherit;padding:2px 4px;transition:border-color .15s,background .15s;cursor:text}
+  .b-modal-title:hover{background:rgba(200,164,78,0.04);border-bottom-color:rgba(200,164,78,0.45)}
+  .b-modal-title:focus{background:rgba(200,164,78,0.06);border-bottom-color:#c8a44e;border-bottom-style:solid}
+
+  /* Category chips — tap-to-toggle pills inside the card modal */
+  .b-cat-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .b-cat-chip{background:transparent;border:1px solid var(--c,#a49c94);color:var(--c,#a49c94);padding:5px 11px;border-radius:999px;font-size:11px;font-weight:500;font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .1s,background .15s;letter-spacing:0.2px}
+  .b-cat-chip:active{transform:scale(0.94)}
+  .b-cat-chip.selected{background:var(--c,#a49c94);color:#0a0a0c;font-weight:600;box-shadow:0 0 0 3px rgba(255,255,255,0.03),0 0 10px color-mix(in srgb,var(--c) 35%,transparent)}
   .b-modal-close{background:transparent;border:0;color:var(--text-dim,#a49c94);font-size:18px;cursor:pointer;padding:4px 8px}
   .b-modal-body{padding:14px 16px;max-height:70vh;overflow-y:auto}
   .b-section{margin-bottom:16px}
@@ -666,6 +689,16 @@ async function openCardDetail(card){
         </div>
       </div>
 
+      <div class="b-section">
+        <div class="b-section-label">Category</div>
+        <div class="b-cat-chips" id="bCats">
+          ${CATEGORIES.map(c => {
+            const selected = (card.labels||[]).some(l => l.key === c.key);
+            return `<button type="button" class="b-cat-chip${selected?' selected':''}" data-key="${c.key}" style="--c:${c.color}">${c.name}</button>`;
+          }).join('')}
+        </div>
+      </div>
+
       <div class="b-section" id="bEqSection">
         <div class="b-section-label">Linked Equipment</div>
         <div id="bEqEmbed"><!-- populated async --></div>
@@ -758,6 +791,25 @@ async function openCardDetail(card){
   // Photo add
   bg.querySelector('#bPhotoAdd').addEventListener('click', () => {
     bg.querySelector('#bPhotoInput').click();
+  });
+
+  // Category chips — toggle tap, mutate card.labels in place. Saved
+  // by the existing save path (patch already includes card.labels).
+  bg.querySelectorAll('.b-cat-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const key = chip.dataset.key;
+      const cat = CATEGORIES.find(c => c.key === key);
+      if (!cat) return;
+      card.labels = Array.isArray(card.labels) ? card.labels : [];
+      const idx = card.labels.findIndex(l => l && l.key === key);
+      if (idx >= 0) {
+        card.labels.splice(idx, 1);
+        chip.classList.remove('selected');
+      } else {
+        card.labels.push({ key: cat.key, name: cat.name, color: cat.color });
+        chip.classList.add('selected');
+      }
+    });
   });
   bg.querySelector('#bPhotoInput').addEventListener('change', async e => {
     const file = e.target.files && e.target.files[0];
