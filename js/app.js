@@ -728,6 +728,10 @@ td.check{background:#F0EDE6 !important}
     bnavBtns.forEach(btn => btn.addEventListener('click', () => switchTo(btn.dataset.view)));
     // Wire NEXUS wordmark → go to brain
     nexusBtn.addEventListener('click', () => switchTo('brain'));
+    // Expose switchTo globally — home.js stat tiles (tickets, overdue,
+    // services, nodes) and other modules use NX.switchTo(view) to
+    // navigate. Without this, every stat-tile tap is a silent no-op.
+    NX.switchTo = switchTo;
     // ─── DEFAULT LANDING VIEW: Home ──────────────────────────────────
     // The first thing after login is the Home dashboard (mini-galaxy,
     // clock-in card, priority feed). The brain/galaxy full view is
