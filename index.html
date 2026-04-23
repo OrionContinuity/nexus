@@ -34,9 +34,12 @@
 <!-- PIN LOGIN SCREEN -->
 <div class="pin-screen" id="pinScreen">
   <div class="pin-box">
-    <div class="pin-dot"></div>
-    <h1 class="pin-title">NEXUS</h1>
-    <p class="pin-sub" data-i18n="enterPin">Enter your PIN</p>
+    <div class="pin-mast">
+      <div class="pin-dot"></div>
+      <h1 class="pin-title">N<span>E</span>X<span>U</span>S</h1>
+      <div class="pin-hairline"></div>
+      <div class="pin-date" id="pinDate">—</div>
+    </div>
     <div class="pin-display" id="pinDisplay">
       <span class="pin-circle"></span><span class="pin-circle"></span>
       <span class="pin-circle"></span><span class="pin-circle"></span>
@@ -55,6 +58,7 @@
       <button class="pin-key" data-val="0">0</button>
       <button class="pin-key pin-key-del" id="pinDel">⌫</button>
     </div>
+    <p class="pin-sub" data-i18n="enterPin">Enter your PIN</p>
     <div class="pin-error" id="pinError"></div>
     <div class="pin-user" id="pinUser"></div>
     <!-- TIME CLOCK — shows after PIN verified -->
@@ -78,6 +82,7 @@
     </div>
     <div class="pin-lang-row">
       <button class="pin-lang-btn" data-lang="en">English</button>
+      <span class="pin-lang-dot">·</span>
       <button class="pin-lang-btn" data-lang="es">Español</button>
     </div>
   </div>
