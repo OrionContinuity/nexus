@@ -352,500 +352,86 @@
   //   (1) Core fog — gaussian haze from center, Sérsic-style falloff. Makes the
   //       galaxy look "full of light" instead of empty-with-spots.
   //   (2) Star points — 3500 tiny stars placed along the arms.
-  //   (3) Archived data nodes — real items, slightly brighter than dust.
-  //
-  // All baked to one offscreen canvas, rotated + blitted each frame.
+  // ═══════════════════════════════════════════════════════════════════════
+  // REBUILD: the entire offscreen-canvas "distant field" pipeline is gone.
+  // That baked canvas + its rotated per-frame drawImage was the source of the
+  // "wings" — symmetric stair-stepped / horizontally-striated artifacts that
+  // survived three diagnosis rounds. Replaced with clean per-frame drawing
+  // (see drawDistantField below). buildDistantField is kept as a no-op so
+  // resize() and init() don't crash.
+  // ═══════════════════════════════════════════════════════════════════════
   function buildDistantField() {
-    const W = state.W, H = state.H;
-    if (W < 10 || H < 10) return;
-
-    const off = document.createElement('canvas');
-    off.width = W * state.dpr;
-    off.height = H * state.dpr;
-    const octx = off.getContext('2d');
-    octx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
-    octx.clearRect(0, 0, W, H);
-
-    const cx = W / 2, cy = H / 2;
-    const minDim = Math.min(W, H);
-    const innerR = minDim * INNER_R_FRAC;
-    const outerR = minDim * OUTER_R_FRAC;
-    const DL = state.dataLayers;
-
-    /* ─── LOCATION → ARM mapping ──────────────────────────────────────
-     * Each restaurant gets its own arm so you can visually tell which
-     * location has the most activity at a glance.
-     */
-    const LOCATION_ARMS = { 'Suerte': 0, 'Este': 1, 'Bar Toti': 2 };
-    function locToArm(loc) {
-      if (!loc) return Math.floor(Math.random() * ARM_COUNT);
-      const trimmed = String(loc).trim();
-      if (LOCATION_ARMS[trimmed] !== undefined) return LOCATION_ARMS[trimmed];
-      // Fallback — hash to arm for stable placement
-      return Math.abs(hash01(trimmed) * 1000 | 0) % ARM_COUNT;
-    }
-
-    /* ─── AMBIENT LIGHTING LAYERS — pure decoration (no data meaning) ──
-     * These are gradient fills that give the galaxy its luminous
-     * structure. No particles — just light.
-     */
-
-    // Outer halo — diffuse glow beyond the disc
-    // NOTE: the halo/core/inner-glow layers use 'screen' blend for additive
-    // luminosity. WRAP them in save/restore so the screen mode does NOT leak
-    // into the bar + data layers below. Without this wrapper, the bar (which
-    // is horizontally scaled 1.8x) plus every ticket/card/nebula draw would
-    // stack additively on top of the already-bright core and clip to white —
-    // producing the two big pixelated "wing" shapes on the left and right.
-    octx.save();
-    octx.globalCompositeOperation = 'screen';
-    const haloGrd = octx.createRadialGradient(cx, cy, outerR * 0.5, cx, cy, outerR * 1.8);
-    haloGrd.addColorStop(0.0, 'rgba(120, 100, 70, 0.06)');
-    haloGrd.addColorStop(0.5, 'rgba(90, 75, 55, 0.025)');
-    haloGrd.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
-    octx.fillStyle = haloGrd;
-    octx.fillRect(0, 0, W, H);
-
-    // Bright bulge — multi-stop warm gradient
-    const coreGrd = octx.createRadialGradient(cx, cy, 0, cx, cy, outerR * 0.45);
-    coreGrd.addColorStop(0.00, 'rgba(255, 240, 200, 0.55)');
-    coreGrd.addColorStop(0.08, 'rgba(255, 225, 170, 0.42)');
-    coreGrd.addColorStop(0.20, 'rgba(240, 195, 140, 0.28)');
-    coreGrd.addColorStop(0.40, 'rgba(210, 165, 100, 0.15)');
-    coreGrd.addColorStop(0.70, 'rgba(160, 125, 75, 0.05)');
-    coreGrd.addColorStop(1.00, 'rgba(0, 0, 0, 0)');
-    octx.fillStyle = coreGrd;
-    octx.fillRect(0, 0, W, H);
-
-    // Tight inner glow
-    const innerGlow = octx.createRadialGradient(cx, cy, 0, cx, cy, outerR * 0.18);
-    innerGlow.addColorStop(0.0, 'rgba(255, 250, 230, 0.5)');
-    innerGlow.addColorStop(0.5, 'rgba(255, 230, 180, 0.25)');
-    innerGlow.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
-    octx.fillStyle = innerGlow;
-    octx.fillRect(0, 0, W, H);
-    octx.restore();  // end ambient screen — bar + data layers draw in source-over
-
-    // Barred spiral signature
-    octx.save();
-    octx.translate(cx, cy);
-    octx.scale(1.8, 0.5);
-    const barGrd = octx.createRadialGradient(0, 0, 0, 0, 0, outerR * 0.3);
-    barGrd.addColorStop(0.0, 'rgba(255, 220, 160, 0.28)');
-    barGrd.addColorStop(0.5, 'rgba(200, 160, 100, 0.10)');
-    barGrd.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
-    octx.fillStyle = barGrd;
-    octx.fillRect(-outerR, -outerR, outerR * 2, outerR * 2);
-    octx.restore();
-
-    /* ─── DUST LANES — dark filaments along arm inner edges ──────────
-     * Real spiral galaxies (M51, M101, NGC 1300) have prominent dust
-     * lanes that trace just interior to the bright stellar arms.
-     * They block starlight from behind, creating dramatic 3D depth
-     * that separates foreground from background.
-     *
-     * Technique: sample points along each spiral arm (offset slightly
-     * INWARD from arm center via negative theta shift), draw tangent-
-     * oriented elongated dark gradients using `multiply` blend mode
-     * so they only darken where bulge/bar brightness exists. Multiply
-     * on transparent pixels stays transparent — no muddy spill.
-     */
-    octx.save();
-    octx.globalCompositeOperation = 'multiply';
-    const DUST_SEGMENTS = 52;
-    const DUST_OFFSET = -0.085;  // radians — interior offset from arm peak
-    for (let arm = 0; arm < ARM_COUNT; arm++) {
-      const armPhase = (2 * Math.PI / ARM_COUNT) * arm;
-      for (let s = 2; s < DUST_SEGMENTS; s++) {
-        const tNorm = s / DUST_SEGMENTS;
-        // Radius along arm, starts past the bulge, extends toward outer edge
-        const r = (INNER_R_FRAC + 0.04 + tNorm * (OUTER_R_FRAC - INNER_R_FRAC - 0.04)) * outerR;
-        // Log spiral — arm theta
-        const theta = armPhase + SPIRAL_B * Math.log(r / (INNER_R_FRAC * outerR)) + DUST_OFFSET;
-        const x = cx + Math.cos(theta) * r;
-        const y = cy + Math.sin(theta) * r * TILT_Y;
-        // Dust segment size — bigger in mid-arm, shrinks near core + at tips
-        const midness = 1 - Math.abs(tNorm - 0.45) * 1.8;
-        const dustR = outerR * 0.07 * Math.max(0.3, midness);
-        // Alpha — stronger in inner/mid arm (more dust there in real galaxies)
-        const dustAlpha = 0.55 * Math.max(0.15, midness) * (1 - tNorm * 0.4);
-        // Tangent direction along arm — elongate in this direction
-        const tangent = theta + Math.PI / 2;
-        octx.save();
-        octx.translate(x, y);
-        octx.rotate(tangent);
-        octx.scale(2.6, 1.0);  // elongate tangent to arm
-        const dustGrd = octx.createRadialGradient(0, 0, 0, 0, 0, dustR);
-        // Near-black with subtle cool tint — dust absorbs, slightly reddens
-        dustGrd.addColorStop(0.0, `rgba(14, 10, 20, ${dustAlpha.toFixed(3)})`);
-        dustGrd.addColorStop(0.55, `rgba(22, 16, 28, ${(dustAlpha * 0.55).toFixed(3)})`);
-        dustGrd.addColorStop(1.0, 'rgba(255, 255, 255, 1)');  // multiply white = no change
-        octx.fillStyle = dustGrd;
-        octx.fillRect(-dustR * 1.2, -dustR * 1.2, dustR * 2.4, dustR * 2.4);
-        octx.restore();
-      }
-    }
-    octx.restore();  // restores blend mode to previous (screen)
-
-    /* ─── DATA LAYER A: Recent activity haze (daily_logs last 24h) ────
-     * Every entry in daily_logs becomes a soft amber glow at its
-     * location's arm + random radius. Clusters form where activity
-     * is concentrated.
-     *
-     * Meaning: bright haze = active ops happening RIGHT NOW.
-     */
-    if (DL.recentLogs.length > 0) {
-      for (const log of DL.recentLogs) {
-        // Parse location from entry text if present (entries often start with [LOC])
-        const match = /\[(Suerte|Este|Bar Toti|CLEAN|TICKET|SYSTEM)\]/i.exec(log.entry || '');
-        const locToken = match ? match[1] : null;
-        const arm = locToArm(locToken);
-        const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-
-        // Age in hours (0 = just now, 24 = oldest we fetched)
-        const ageMs = Date.now() - new Date(log.created_at).getTime();
-        const ageHrs = Math.max(0, Math.min(24, ageMs / (1000 * 60 * 60)));
-        const freshness = 1 - (ageHrs / 24);  // 1 = fresh, 0 = day-old
-
-        // Radial placement: recent ops cluster mid-arm
-        const t = 0.25 + Math.random() * 0.55;
-        const r = innerR + t * (outerR - innerR);
-        const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.08);
-        const perpOffset = gauss(r * 0.04);
-        const x = cx + Math.cos(theta) * r + Math.cos(theta + Math.PI/2) * perpOffset;
-        const y = cy + (Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset) * TILT_Y;
-
-        const blobR = 25 + Math.random() * 25;
-        const intensity = 0.04 + freshness * 0.08;
-        const blobGrd = octx.createRadialGradient(x, y, 0, x, y, blobR);
-        blobGrd.addColorStop(0.0, `rgba(220, 180, 110, ${intensity})`);
-        blobGrd.addColorStop(0.6, `rgba(180, 140, 85, ${intensity * 0.4})`);
-        blobGrd.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
-        octx.fillStyle = blobGrd;
-        octx.beginPath();
-        octx.arc(x, y, blobR, 0, Math.PI * 2);
-        octx.fill();
-      }
-    }
-
-    /* ─── DATA LAYER B: Open tickets → H-II bright nebulae ─────────────
-     * Each open ticket is a concentrated bright puff. Color + size vary
-     * with priority. Position on the arm corresponding to ticket.location.
-     *
-     * Meaning: visible bright clouds = places that need attention.
-     * More tickets at Suerte → Suerte's arm glows brighter.
-     */
-    const TICKET_TINTS = {
-      urgent: [255, 180, 130],    // hot peach
-      high:   [250, 200, 140],    // bright gold
-      normal: [230, 180, 110],    // amber
-      low:    [200, 160, 90]      // muted amber
-    };
-    const TICKET_SIZE = { urgent: 70, high: 55, normal: 40, low: 28 };
-    const TICKET_INTENSITY = { urgent: 0.18, high: 0.14, normal: 0.10, low: 0.07 };
-
-    for (const ticket of DL.tickets) {
-      const arm = locToArm(ticket.location);
-      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-      const priority = (ticket.priority || 'normal').toLowerCase();
-      const tint = TICKET_TINTS[priority] || TICKET_TINTS.normal;
-      const nebR = TICKET_SIZE[priority] || TICKET_SIZE.normal;
-      const intensity = TICKET_INTENSITY[priority] || TICKET_INTENSITY.normal;
-
-      // Age → older tickets drift outward (unresolved debt moves to the outskirts)
-      const ageMs = Date.now() - new Date(ticket.created_at).getTime();
-      const ageDays = ageMs / (1000 * 60 * 60 * 24);
-      const t = Math.min(0.85, 0.35 + ageDays * 0.04 + Math.random() * 0.15);
-      const r = innerR + t * (outerR - innerR);
-      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.06);
-      const perpOffset = gauss(r * 0.035);
-      const x = cx + Math.cos(theta) * r + Math.cos(theta + Math.PI/2) * perpOffset;
-      const y = cy + (Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset) * TILT_Y;
-
-      // Outer soft glow
-      const outerGlow = octx.createRadialGradient(x, y, 0, x, y, nebR * 1.6);
-      outerGlow.addColorStop(0.0, `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${intensity * 0.55})`);
-      outerGlow.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
-      octx.fillStyle = outerGlow;
-      octx.beginPath();
-      octx.arc(x, y, nebR * 1.6, 0, Math.PI * 2);
-      octx.fill();
-
-      // Brighter inner core
-      const innerNeb = octx.createRadialGradient(x, y, 0, x, y, nebR * 0.5);
-      innerNeb.addColorStop(0.0, `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${intensity * 1.3})`);
-      innerNeb.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
-      octx.fillStyle = innerNeb;
-      octx.beginPath();
-      octx.arc(x, y, nebR * 0.5, 0, Math.PI * 2);
-      octx.fill();
-    }
-
-    /* ─── DATA LAYER C: Kanban cards → nebular clusters by column ─────
-     * Cards in "todo" → mid-arm haze. Cards in "doing" → inner, closer
-     * to the black hole (actively being processed).
-     */
-    const CARD_COLOR = {
-      todo:  [200, 170, 110],
-      doing: [240, 200, 130],
-      other: [180, 155, 100]
-    };
-    for (const card of DL.cards) {
-      const col = (card.column_name || '').toLowerCase();
-      const tint = CARD_COLOR[col] || CARD_COLOR.other;
-      // Cards don't have a location field reliably, so distribute across arms by hash
-      const arm = Math.abs(hash01(String(card.id)) * 1000 | 0) % ARM_COUNT;
-      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-      // "doing" cards closer to center, "todo" mid, others further out
-      const tTarget = col === 'doing' ? 0.25 : col === 'todo' ? 0.55 : 0.75;
-      const t = Math.max(0.1, Math.min(0.9, tTarget + gauss(0.08)));
-      const r = innerR + t * (outerR - innerR);
-      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.06);
-      const perpOffset = gauss(r * 0.03);
-      const x = cx + Math.cos(theta) * r + Math.cos(theta + Math.PI/2) * perpOffset;
-      const y = cy + (Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset) * TILT_Y;
-
-      const blobR = 18 + Math.random() * 18;
-      const intensity = 0.08;
-      const blobGrd = octx.createRadialGradient(x, y, 0, x, y, blobR);
-      blobGrd.addColorStop(0.0, `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${intensity})`);
-      blobGrd.addColorStop(0.6, `rgba(${tint[0]}, ${tint[1]}, ${tint[2]}, ${intensity * 0.3})`);
-      blobGrd.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
-      octx.fillStyle = blobGrd;
-      octx.beginPath();
-      octx.arc(x, y, blobR, 0, Math.PI * 2);
-      octx.fill();
-    }
-
-    // Switch back to normal compositing for point stars
-    octx.globalCompositeOperation = 'source-over';
-
-    /* ─── DATA LAYER D: Pending queue (raw_emails) → inter-arm stars ──
-     * Every unprocessed email is a dim amber speck scattered between
-     * the arms. High pending count = visually dense noise throughout
-     * the galaxy — reads as "system has a lot of backlog."
-     *
-     * If we have the sample, use it. Otherwise synthesize count-driven
-     * stars at random angles.
-     */
-    const pendingList = DL.pending || [];
-    const pendingTotal = typeof state.pendingCount === 'number' ? state.pendingCount : pendingList.length;
-    // Render up to 3000 pending stars for visual density, even if we have more in DB
-    const pendingToRender = Math.min(3000, pendingTotal);
-
-    for (let i = 0; i < pendingToRender; i++) {
-      // Use sample row if available (for age data); otherwise synthesize
-      const src = pendingList[i % Math.max(1, pendingList.length)] || null;
-
-      // Uniform angle — between-arm distribution
-      const theta = Math.random() * Math.PI * 2;
-      // Radial — slight bulge bias, extends outward
-      const t = Math.pow(Math.random(), 0.75);
-      const r = innerR * 0.5 + t * (outerR * 1.15 - innerR * 0.5);
-
-      const x = cx + Math.cos(theta) * r;
-      const y = cy + Math.sin(theta) * r * TILT_Y;
-      if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
-
-      const radialNorm = r / outerR;
-      const color = radialNorm < 0.25
-        ? mix([255, 235, 180], AMBER, radialNorm / 0.25)
-        : mix(AMBER, AMBER_DIM, Math.min(1, (radialNorm - 0.25) / 0.85));
-
-      // Activity-based brightness — uses last_activity_at (bumped by any meaningful
-      // edit, trigger-maintained in Postgres), falls back to created_at on older data.
-      // Window extended to 30 days so dormant-but-once-touched nodes still glow dimly.
-      let brightness = 0.25;
-      const activityTs = (src && (src.last_activity_at || src.created_at)) || null;
-      if (activityTs) {
-        const ageMs = Date.now() - new Date(activityTs).getTime();
-        const ageHrs = Math.min(720, Math.max(0, ageMs / (1000 * 60 * 60)));  // cap at 30 days
-        brightness = 0.45 - (ageHrs / 720) * 0.30;  // fresh = 0.45, month-old = 0.15
-      }
-
-      const falloff = Math.exp(-radialNorm * 1.3);
-      const alpha = 0.08 + brightness * 0.22 * falloff;
-      const size = Math.random() < 0.92 ? 0.5 : 0.8;
-
-      octx.fillStyle = rgba(color, alpha);
-      octx.beginPath();
-      octx.arc(x, y, size, 0, Math.PI * 2);
-      octx.fill();
-    }
-
-    /* ─── DATA LAYER E: Contractor events → pulsing signals ───────────
-     * Small bright specks at event location's arm. These are "about to
-     * happen" items — inherently pulsing in the live layer (not here).
-     * Here we just lay down the base markers as brighter-than-pending.
-     */
-    for (const ev of DL.contractorEvents) {
-      const arm = locToArm(ev.location);
-      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-
-      // Events drift outward with time (upcoming = inner, far-future = outer)
-      const eventDate = new Date(ev.event_date).getTime();
-      const daysUntil = (eventDate - Date.now()) / (1000 * 60 * 60 * 24);
-      // Upcoming (near 0) = inner, further = outer
-      const tTarget = 0.35 + Math.max(0, Math.min(0.45, daysUntil / 30));
-      const t = tTarget + gauss(0.04);
-      const r = innerR + Math.max(0.15, Math.min(0.95, t)) * (outerR - innerR);
-      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.05);
-      const x = cx + Math.cos(theta) * r;
-      const y = cy + Math.sin(theta) * r * TILT_Y;
-      if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
-
-      // Pending events are brighter peach; confirmed are amber
-      const color = ev.status === 'pending' ? [250, 200, 150] : [230, 180, 110];
-      octx.fillStyle = rgba(color, 0.75);
-      octx.beginPath();
-      octx.arc(x, y, 1.6, 0, Math.PI * 2);
-      octx.fill();
-      // Soft halo
-      const halo = octx.createRadialGradient(x, y, 0, x, y, 10);
-      halo.addColorStop(0.0, rgba(color, 0.3));
-      halo.addColorStop(1.0, 'rgba(0,0,0,0)');
-      octx.fillStyle = halo;
-      octx.beginPath();
-      octx.arc(x, y, 10, 0, Math.PI * 2);
-      octx.fill();
-    }
-
-    /* ─── DATA LAYER F: Archived nodes — dim stars along arms ─────────
-     * Your archived knowledge. Dim but visible. Positioned along arms
-     * to give the spiral structure visible bulk.
-     */
-    const archived = (NX.allNodes || []).filter(n => n.archived || n.status === 'archived');
-    const archCount = Math.min(1500, archived.length);
-
-    for (let i = 0; i < archCount; i++) {
-      const node = archived[i];
-      const arm = (node.community_id != null ? node.community_id : i) % ARM_COUNT;
-      // Archived = older, push outward
-      const t = 0.3 + Math.pow(Math.random(), 0.55) * 0.7;
-      const r = innerR + t * (outerR - innerR);
-      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B;
-      const thetaJitter = gauss(ARM_WIDTH);
-      const finalR = r + gauss(r * 0.06);
-      const finalT = theta + thetaJitter;
-
-      const x = cx + Math.cos(finalT) * finalR;
-      const y = cy + Math.sin(finalT) * finalR * TILT_Y;
-      if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
-
-      const radialNorm = finalR / outerR;
-      const color = mix(AMBER, AMBER_DIM, radialNorm * 0.6);
-      const alpha = 0.22 + Math.random() * 0.22;
-      const size = 0.8 + Math.random() * 0.4;
-
-      octx.fillStyle = rgba(color, alpha);
-      octx.beginPath();
-      octx.arc(x, y, size, 0, Math.PI * 2);
-      octx.fill();
-    }
-
-    /* ─── DATA LAYER F2: Pending PM logs — amber rings near equipment ──
-     * Service submissions awaiting admin review. Each pending PM gets
-     * a small bright amber ring positioned near its equipment node
-     * (or scattered in the bulge if the equipment isn't mapped to a
-     * community). Reads as "something needs your attention" without
-     * crowding the scene.
-     */
-    const pendingPms = DL.pendingPmLogs || [];
-    for (const pm of pendingPms) {
-      // Try to find the equipment's community for angular placement
-      const equipNode = (NX.nodes || []).find(n => n.category === 'equipment' && n.id === `eq:${pm.equipment_id}`);
-      const commId = equipNode?.community_id;
-      const arm = (commId != null ? commId : Math.abs((pm.id || '').length)) % ARM_COUNT;
-      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-      // Mid-bulge/inner-arm placement so pending items feel "active"
-      const t = 0.15 + Math.random() * 0.25;
-      const r = innerR + t * (outerR - innerR);
-      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.08);
-      const x = cx + Math.cos(theta) * r;
-      const y = cy + Math.sin(theta) * r * TILT_Y;
-      // Bright amber ring
-      const ringR = 4.5;
-      octx.strokeStyle = 'rgba(232, 168, 48, 0.55)';
-      octx.lineWidth = 1.1;
-      octx.beginPath();
-      octx.arc(x, y, ringR, 0, Math.PI * 2);
-      octx.stroke();
-      // Inner soft glow
-      const g = octx.createRadialGradient(x, y, 0, x, y, ringR * 1.4);
-      g.addColorStop(0, 'rgba(255, 220, 160, 0.28)');
-      g.addColorStop(0.5, 'rgba(232, 168, 48, 0.14)');
-      g.addColorStop(1, 'rgba(232, 168, 48, 0)');
-      octx.fillStyle = g;
-      octx.beginPath();
-      octx.arc(x, y, ringR * 1.4, 0, Math.PI * 2);
-      octx.fill();
-    }
-
-    /* ─── LAYER G: Structural stars — dust along arms (non-data) ──────
-     * A minimal count of structural stars along the arms to keep the
-     * spiral shape readable even when data layers are thin. These don't
-     * represent data — they're the "scaffolding" that makes the galaxy
-     * look like a galaxy. Scaled down if we have lots of real data.
-     */
-    const dataTotal = DL.pending.length + DL.tickets.length + DL.cards.length
-                    + DL.recentLogs.length + DL.contractorEvents.length + archived.length;
-    // Scaffolding density — was 3500 which saturated to white at the two 180°
-    // symmetric inner-arm clusters ("wings"). Reduced to 1200 baseline to let
-    // individual stars breathe. Still scales down when real data is plentiful.
-    const structuralCount = Math.max(400, 1200 - Math.floor(dataTotal * 0.5));
-
-    for (let i = 0; i < structuralCount; i++) {
-      const arm = i % ARM_COUNT;
-      // Radial distribution: was pow(random, 0.42) — extreme inner bias,
-      // packed stars onto the arm's inner tip and saturated. 0.75 is a gentler
-      // bias that still fills the center but spreads stars outward.
-      const t = Math.pow(Math.random(), 0.75);
-      const r = innerR + t * (outerR - innerR) * 1.15;
-      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
-      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B;
-      const thetaJitter = gauss(ARM_WIDTH * 1.2);
-      const finalR = r + gauss(r * 0.08);
-      const finalT = theta + thetaJitter;
-
-      const x = cx + Math.cos(finalT) * finalR;
-      const y = cy + Math.sin(finalT) * finalR * TILT_Y;
-      if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
-
-      const radialNorm = finalR / outerR;
-      const color = radialNorm < 0.3
-        ? mix([255, 230, 170], AMBER, radialNorm / 0.3)
-        : mix(AMBER, AMBER_DIM, Math.min(1, (radialNorm - 0.3) / 0.7));
-
-      const falloff = Math.exp(-radialNorm * 1.5);
-      // Alpha: was 0.15 + rand*0.3*falloff (up to 0.45 inner). Lower ceiling
-      // prevents source-over overlap from compositing to near-white.
-      const alpha = 0.10 + Math.random() * 0.20 * falloff;
-      const size = Math.random() < 0.85 ? 0.5 : 0.9;
-
-      octx.fillStyle = rgba(color, alpha);
-      octx.beginPath();
-      octx.arc(x, y, size, 0, Math.PI * 2);
-      octx.fill();
-    }
-
-    state.distantCanvas = off;
+    state.distantCanvas = null;  // ensure drawDistantField takes the early-return path
   }
 
-  /* ─── DRAW: distant field, rotated ─────────────────────────────────────── */
+  // Legacy bake code removed. Ambient lighting + archived-node backdrop +
+  // structural scaffolding stars are now drawn live in drawDistantField.
+  // Anything the old bake used to render — halo, core, inner glow, bar,
+  // dust lanes, nebulae from tickets/cards/logs — is either dropped or
+  // moved to drawActiveStars / drawBlackHole where it naturally belongs.
+  function _deadCodeRemoved_buildDistantField_original() { return; }
+
+
+  /* ─── DRAW: ambient background (per-frame, no offscreen canvas) ──────────
+   * Clean replacement for the old baked+rotated distant-field pipeline.
+   * Just two layers, drawn live every frame in source-over mode:
+   *   1. Radial amber glow from center — gives the galaxy its luminous core
+   *   2. Sparse static starfield — depth, no rotation, no wings risk
+   * No transforms, no blend mode tricks, no offscreen canvas. Whatever the
+   * browser draws is exactly what you see — no rotated-raster artifacts.
+   */
+  let _starfield = null;  // generated once on resize, re-used across frames
+
+  function _genStarfield(W, H) {
+    // Deterministic sparse star pattern — same every resize so it doesn't
+    // shuffle around and distract. Seeded RNG using hash01 for stability.
+    const stars = [];
+    const count = Math.floor((W * H) / 9000);  // density: ~1 star per 9000 px²
+    for (let i = 0; i < count; i++) {
+      const r = hash01('s' + i + ':r');
+      stars.push({
+        x: hash01('s' + i + ':x') * W,
+        y: hash01('s' + i + ':y') * H,
+        size: r < 0.85 ? 0.5 : (r < 0.97 ? 0.9 : 1.3),
+        alpha: 0.15 + hash01('s' + i + ':a') * 0.35,
+      });
+    }
+    return stars;
+  }
+
   function drawDistantField(dt) {
-    if (!state.distantCanvas) return;
-    state.distantAngle += dt * BASE_OMEGA * 0.5;  // slower than active stars
     const W = state.W, H = state.H;
     const cx = W / 2, cy = H / 2;
-    ctx.save();
-    // Apply camera first
-    ctx.translate(cx + state.cam.x, cy + state.cam.y);
-    ctx.scale(state.cam.zoom, state.cam.zoom);
-    ctx.rotate(state.distantAngle);
-    ctx.translate(-cx, -cy);
-    ctx.drawImage(state.distantCanvas, 0, 0, W, H);
-    ctx.restore();
+
+    // ─── LAYER 1: Soft amber core glow ────────────────────────────────
+    // Single radial gradient, fills the whole canvas, source-over.
+    // Accounts for camera pan so the glow stays anchored to the galactic
+    // center as you drag.
+    const glowX = cx + state.cam.x;
+    const glowY = cy + state.cam.y;
+    const glowR = Math.max(W, H) * 0.55 * state.cam.zoom;
+    const glow = ctx.createRadialGradient(glowX, glowY, 0, glowX, glowY, glowR);
+    glow.addColorStop(0.00, 'rgba(210, 170, 110, 0.18)');
+    glow.addColorStop(0.25, 'rgba(180, 140, 85, 0.09)');
+    glow.addColorStop(0.60, 'rgba(120, 95, 60, 0.03)');
+    glow.addColorStop(1.00, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+
+    // ─── LAYER 2: Sparse static starfield ─────────────────────────────
+    // Lazy-generate on first draw or after resize. Drawn without camera
+    // transform on purpose — these are fixed "background" stars that
+    // don't parallax, which reads as distant-universe depth.
+    if (!_starfield || _starfield._W !== W || _starfield._H !== H) {
+      _starfield = _genStarfield(W, H);
+      _starfield._W = W; _starfield._H = H;
+    }
+    for (const s of _starfield) {
+      ctx.fillStyle = 'rgba(230, 200, 150, ' + s.alpha.toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
 
