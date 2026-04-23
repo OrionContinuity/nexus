@@ -453,6 +453,10 @@
       ai_created: true
     }).select().single();
     if(error) throw new Error(error.message);
+    // Stage S: push notification to managers. AI-created tickets
+    // are often from the daily brief or chat flow — managers
+    // benefit from being alerted fast.
+    if (NX.notifyTicketCreated) NX.notifyTicketCreated(data);
     return {
       status:'success',
       affectedTable:'tickets', affectedRowId:data.id,
