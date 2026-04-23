@@ -1,9 +1,9 @@
-/* NEXUS Service Worker — v4
+/* NEXUS Service Worker — v5
    Strategy: network-first for JS/CSS (always get latest code),
              cache-first for HTML shell + fonts.
    Version bumped = full re-cache on next load.
 */
-const CACHE_NAME = 'nexus-v4';
+const CACHE_NAME = 'nexus-v5';
 
 // App shell — everything needed to run offline
 const APP_SHELL = [
