@@ -206,10 +206,11 @@ async function loadTickets(firstDay, lastDay) {
 async function loadBoardCards(firstDay, lastDay) {
   try {
     const { data } = await NX.sb.from('kanban_cards')
-      .select('id, title, due_date, priority, status, location, equipment_id, archived')
+      .select('id, title, due_date, priority, status, column_name, location, equipment_id, archived')
       .not('due_date', 'is', null)
       .gte('due_date', firstDay).lte('due_date', lastDay)
-      .eq('archived', false);
+      .eq('archived', false)
+      .neq('column_name', 'done');
     (data || []).forEach(c => {
       if (!c.due_date) return;
       // Priority-driven color so urgent cards jump out on the calendar
