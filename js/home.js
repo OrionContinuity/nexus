@@ -53,16 +53,7 @@
 
     render() {
       const el = document.getElementById('homeView');
-      if (!el) {
-        // Safety net for diagnosis: if homeView div is missing, write
-        // directly to body so the user sees WHY home didn't render.
-        const err = document.createElement('div');
-        err.style.cssText = 'position:fixed;top:80px;left:20px;right:20px;background:#331;color:#fd4;padding:16px;border:1px solid #d4a44e;font-family:monospace;font-size:12px;z-index:99999;border-radius:6px';
-        err.innerHTML = '⚠ NX.home.render(): #homeView div not found in DOM.<br>Check index.html has: &lt;div class="view active" id="homeView" data-view="home"&gt;&lt;/div&gt; inside &lt;main id="mainContainer"&gt;.';
-        document.body.appendChild(err);
-        return;
-      }
-      try {
+      if (!el) return;
       const now = new Date();
       const hour = now.getHours();
       const greeting = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
@@ -129,21 +120,6 @@
           </div>
         </div>
       `;
-      } catch (e) {
-        // On-screen diagnostic — we can't see the console on mobile,
-        // so we show the error inside homeView itself.
-        console.error('[home.render] failed:', e);
-        el.innerHTML = `
-          <div style="padding:24px;color:#fd4;font-family:monospace;font-size:12px;line-height:1.5">
-            <div style="color:#d4a44e;font-weight:600;font-size:14px;margin-bottom:12px">⚠ home.render() crashed</div>
-            <div style="margin-bottom:8px"><b>Error:</b> ${(e.message || e).toString().replace(/</g,'&lt;')}</div>
-            <div style="margin-bottom:8px"><b>Stack:</b></div>
-            <pre style="background:#111;padding:12px;border-radius:6px;overflow-x:auto;font-size:11px;white-space:pre-wrap">${(e.stack || '(no stack)').replace(/</g,'&lt;')}</pre>
-            <div style="margin-top:12px;color:#888">NX.currentUser: ${NX.currentUser ? '✓ ' + NX.currentUser.name : '✗ null'}</div>
-            <div style="color:#888">NX.sb: ${NX.sb ? '✓ loaded' : '✗ null'}</div>
-          </div>
-        `;
-      }
     },
 
     async refresh() {
