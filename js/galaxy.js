@@ -141,9 +141,11 @@
   // Barred spiral (like Milky Way): 2 main arms + central bar feel
   const ARM_COUNT      = 2;         // two dominant arms (barred spiral)
   const SPIRAL_B       = 0.32;      // looser winding — arms spread more
-  const INNER_R_FRAC   = 0.14;      // pushed outward — core is negative space for the fog/bar
-  const OUTER_R_FRAC   = 0.55;      // arms reach further toward edges
-  const ARM_WIDTH      = 0.28;      // fatter arms — more dispersion for depth
+  const INNER_R_FRAC   = 0.12;      // Stage Q: tighter — more core presence
+  const OUTER_R_FRAC   = 0.78;      // Stage Q: arms reach deep — fills viewport (was 0.55, too much dead space at bottom)
+  const ARM_WIDTH      = 0.34;      // Stage Q: thicker arms (was 0.28) — more dispersion for depth
+  const EDGE_FADE_FRAC = 0.15;      // Stage Q: outer 15% smoothly fades alpha — arms trail off, no hard circular cutoff
+  const TILT_Y         = 0.88;      // Stage Q: ~8° Y-axis tilt — disc feels like a plane, not a circle
 
   const BASE_OMEGA     = -0.004;    // slower still — minutes per rotation
   const DIFFERENTIAL   = 0.6;       // stronger inner-faster effect
@@ -453,7 +455,7 @@
         const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.08);
         const perpOffset = gauss(r * 0.04);
         const x = cx + Math.cos(theta) * r + Math.cos(theta + Math.PI/2) * perpOffset;
-        const y = cy + Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset;
+        const y = cy + (Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset) * TILT_Y;
 
         const blobR = 25 + Math.random() * 25;
         const intensity = 0.04 + freshness * 0.08;
@@ -500,7 +502,7 @@
       const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.06);
       const perpOffset = gauss(r * 0.035);
       const x = cx + Math.cos(theta) * r + Math.cos(theta + Math.PI/2) * perpOffset;
-      const y = cy + Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset;
+      const y = cy + (Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset) * TILT_Y;
 
       // Outer soft glow
       const outerGlow = octx.createRadialGradient(x, y, 0, x, y, nebR * 1.6);
@@ -543,7 +545,7 @@
       const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.06);
       const perpOffset = gauss(r * 0.03);
       const x = cx + Math.cos(theta) * r + Math.cos(theta + Math.PI/2) * perpOffset;
-      const y = cy + Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset;
+      const y = cy + (Math.sin(theta) * r + Math.sin(theta + Math.PI/2) * perpOffset) * TILT_Y;
 
       const blobR = 18 + Math.random() * 18;
       const intensity = 0.08;
@@ -584,7 +586,7 @@
       const r = innerR * 0.5 + t * (outerR * 1.15 - innerR * 0.5);
 
       const x = cx + Math.cos(theta) * r;
-      const y = cy + Math.sin(theta) * r;
+      const y = cy + Math.sin(theta) * r * TILT_Y;
       if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
 
       const radialNorm = r / outerR;
@@ -631,7 +633,7 @@
       const r = innerR + Math.max(0.15, Math.min(0.95, t)) * (outerR - innerR);
       const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.05);
       const x = cx + Math.cos(theta) * r;
-      const y = cy + Math.sin(theta) * r;
+      const y = cy + Math.sin(theta) * r * TILT_Y;
       if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
 
       // Pending events are brighter peach; confirmed are amber
@@ -670,7 +672,7 @@
       const finalT = theta + thetaJitter;
 
       const x = cx + Math.cos(finalT) * finalR;
-      const y = cy + Math.sin(finalT) * finalR;
+      const y = cy + Math.sin(finalT) * finalR * TILT_Y;
       if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
 
       const radialNorm = finalR / outerR;
@@ -705,7 +707,7 @@
       const finalT = theta + thetaJitter;
 
       const x = cx + Math.cos(finalT) * finalR;
-      const y = cy + Math.sin(finalT) * finalR;
+      const y = cy + Math.sin(finalT) * finalR * TILT_Y;
       if (x < -5 || x > W+5 || y < -5 || y > H+5) continue;
 
       const radialNorm = finalR / outerR;
@@ -856,11 +858,14 @@
     const cx = W / 2, cy = H / 2;
     const edge = Math.max(W, H) * 0.7;
     const ang = Math.random() * Math.PI * 2;
+    // Stage R: apply TILT_Y so meteors fly along the tilted disk plane,
+    // same plane as the particles. Without this, meteors would appear
+    // to float above/below the disk, breaking the illusion of depth.
     const startX = cx + Math.cos(ang) * edge;
-    const startY = cy + Math.sin(ang) * edge;
+    const startY = cy + Math.sin(ang) * edge * TILT_Y;
     // Curve the path — use a mid-control point perpendicular to the direct line
     const midX = (startX + cx) / 2 + (Math.random() - 0.5) * edge * 0.3;
-    const midY = (startY + cy) / 2 + (Math.random() - 0.5) * edge * 0.3;
+    const midY = (startY + cy) / 2 + (Math.random() - 0.5) * edge * 0.3 * TILT_Y;
     state.meteors.push({
       startX, startY, midX, midY, endX: cx, endY: cy,
       bornT: state.t,
@@ -1150,12 +1155,21 @@
     const baseGlow = 0.12 + state.hole.hazeAmount * 0.5;
     let hazeStrength = baseGlow + breathAmp * idlePulse;
 
+    // Stage R: AMBIENT BREATHING — always on, independent of song state.
+    // A slow 10-second cycle that gives the core a subtle living pulse
+    // even at rest. 6% amplitude on haze, 2% on disc scale.
+    // Without this, the idle galaxy can look frozen. With it, the core
+    // feels alive in a way that doesn't demand attention but rewards it.
+    const ambientBreath = 0.5 + Math.sin(state.t / 10 * Math.PI * 2) * 0.5;
+    hazeStrength += 0.06 * ambientBreath;
+    const ambientDiscScale = 1 + 0.02 * ambientBreath;
+
     // Bass bump during playback
-    let discScale = 1.0;
+    let discScale = ambientDiscScale;
     if (state.songPlaying) {
       const bassN = Math.min(1, state.bass / state.bassMax);
       hazeStrength += bassN * 0.25 * state.hole.hazeAmount;
-      discScale = 1.0 + bassN * 0.08 * state.hole.hazeAmount;
+      discScale *= 1.0 + bassN * 0.08 * state.hole.hazeAmount;
     }
 
     const screenX = cx + state.cam.x;
