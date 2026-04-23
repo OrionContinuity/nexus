@@ -3031,14 +3031,19 @@ async function commitEquipment(equipList, context) {
       if (eq.mentioned_issues?.length) {
         try {
           for (const issue of eq.mentioned_issues) {
-            await NX.sb.from('tickets').insert({
+            const ticketData = {
               title: `[${clean.name}] ${issue}`,
               notes: `Issue mentioned during AI equipment creation:\n${issue}\n\nEquipment: ${clean.name}`,
               priority: 'normal',
               location: clean.location,
               status: 'open',
               reported_by: 'AI Create'
-            });
+            };
+            await NX.sb.from('tickets').insert(ticketData);
+            // Stage S: push notification. AI-discovered issues are
+            // surfacing problems nobody specifically reported, so
+            // managers should know about them.
+            if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
           }
         } catch(e) { console.warn('[AI-Create] Tickets insert error (non-fatal):', e); }
       }
@@ -3659,14 +3664,18 @@ function publicReportIssue(qrCode) {
     if (!eq) return;
 
     try {
-      await NX.sb.from('tickets').insert({
+      const ticketData = {
         title: `[Equipment] ${eq.name}: ${fd.get('description').slice(0, 60)}`,
         notes: `Reported via QR scan by ${fd.get('reporter')}\n\nEquipment: ${eq.name}\nLocation: ${eq.location}\n\nIssue: ${fd.get('description')}`,
         priority: fd.get('priority'),
         location: eq.location,
         status: 'open',
         reported_by: fd.get('reporter') + ' (QR scan)'
-      });
+      };
+      await NX.sb.from('tickets').insert(ticketData);
+      // Stage S: push notification to managers — QR reports are
+      // often from staff in the field and managers need them fast
+      if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
       await NX.sb.from('daily_logs').insert({
         entry: `🚨 QR scan report - ${eq.name} at ${eq.location}: ${fd.get('description').slice(0, 120)}`,
         user_name: fd.get('reporter')
