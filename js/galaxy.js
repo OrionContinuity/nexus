@@ -112,6 +112,7 @@
       contractorEvents: [],  // pending/confirmed events → soft pulsing signals
       recentLogs: [],        // last 24h daily_logs → activity haze clouds
       cards: [],              // kanban_cards not done → nebular clusters by column
+      pendingPmLogs: [],      // pm_logs awaiting review → amber pulsing dots near equipment
       lastFetched: 0,        // timestamp of last DB query
       fetching: false        // prevent overlapping queries
     }
@@ -732,6 +733,44 @@
       octx.fillStyle = rgba(color, alpha);
       octx.beginPath();
       octx.arc(x, y, size, 0, Math.PI * 2);
+      octx.fill();
+    }
+
+    /* ─── DATA LAYER F2: Pending PM logs — amber rings near equipment ──
+     * Service submissions awaiting admin review. Each pending PM gets
+     * a small bright amber ring positioned near its equipment node
+     * (or scattered in the bulge if the equipment isn't mapped to a
+     * community). Reads as "something needs your attention" without
+     * crowding the scene.
+     */
+    const pendingPms = DL.pendingPmLogs || [];
+    for (const pm of pendingPms) {
+      // Try to find the equipment's community for angular placement
+      const equipNode = (NX.nodes || []).find(n => n.category === 'equipment' && n.id === `eq:${pm.equipment_id}`);
+      const commId = equipNode?.community_id;
+      const arm = (commId != null ? commId : Math.abs((pm.id || '').length)) % ARM_COUNT;
+      const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
+      // Mid-bulge/inner-arm placement so pending items feel "active"
+      const t = 0.15 + Math.random() * 0.25;
+      const r = innerR + t * (outerR - innerR);
+      const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B + gauss(0.08);
+      const x = cx + Math.cos(theta) * r;
+      const y = cy + Math.sin(theta) * r * TILT_Y;
+      // Bright amber ring
+      const ringR = 4.5;
+      octx.strokeStyle = 'rgba(232, 168, 48, 0.55)';
+      octx.lineWidth = 1.1;
+      octx.beginPath();
+      octx.arc(x, y, ringR, 0, Math.PI * 2);
+      octx.stroke();
+      // Inner soft glow
+      const g = octx.createRadialGradient(x, y, 0, x, y, ringR * 1.4);
+      g.addColorStop(0, 'rgba(255, 220, 160, 0.28)');
+      g.addColorStop(0.5, 'rgba(232, 168, 48, 0.14)');
+      g.addColorStop(1, 'rgba(232, 168, 48, 0)');
+      octx.fillStyle = g;
+      octx.beginPath();
+      octx.arc(x, y, ringR * 1.4, 0, Math.PI * 2);
       octx.fill();
     }
 
@@ -2201,12 +2240,19 @@
         .neq('column_name', 'done')
         .limit(100);
 
-      const [pending, tickets, events, logs, cards] = await Promise.all([
+      // Pending PM logs — service submissions awaiting admin review
+      const pmLogsQuery = NX.sb.from('pm_logs')
+        .select('id, equipment_id, service_type, contractor_name, submitted_at')
+        .eq('review_status', 'pending')
+        .limit(50);
+
+      const [pending, tickets, events, logs, cards, pmLogs] = await Promise.all([
         pendingQuery.catch(e => ({ data: [], count: 0, error: e })),
         ticketsQuery.catch(e => ({ data: [], error: e })),
         eventsQuery.catch(e => ({ data: [], error: e })),
         logsQuery.catch(e => ({ data: [], error: e })),
-        cardsQuery.catch(e => ({ data: [], error: e }))
+        cardsQuery.catch(e => ({ data: [], error: e })),
+        pmLogsQuery.catch(e => ({ data: [], error: e })),
       ]);
 
       state.dataLayers.pending = Array.isArray(pending.data) ? pending.data : [];
@@ -2214,6 +2260,7 @@
       state.dataLayers.contractorEvents = Array.isArray(events.data) ? events.data : [];
       state.dataLayers.recentLogs = Array.isArray(logs.data) ? logs.data : [];
       state.dataLayers.cards = Array.isArray(cards.data) ? cards.data : [];
+      state.dataLayers.pendingPmLogs = Array.isArray(pmLogs.data) ? pmLogs.data : [];
 
       // Also capture the FULL pending count if it came back (the sampled query is capped at 2000)
       if (typeof pending.count === 'number') {
