@@ -707,6 +707,14 @@
       NX.homeGalaxyPulse = () => {
         pulseT0 = performance.now();
         if (!running) { running = true; lastT = performance.now(); requestAnimationFrame(frame); }
+        // Trigger the CSS "active" state — bright aura + shine sweep.
+        // Remove + force reflow + re-add so the animation restarts cleanly
+        // even if called repeatedly in quick succession.
+        wrap.classList.remove('is-active');
+        void wrap.offsetWidth;  // force reflow
+        wrap.classList.add('is-active');
+        clearTimeout(wrap._activeT);
+        wrap._activeT = setTimeout(() => wrap.classList.remove('is-active'), 1100);
       };
 
       // Listen for node-open events from the full galaxy view.
