@@ -584,6 +584,16 @@
       const { error } = await NX.sb.from('pm_logs').insert(rows);
       if (error) throw error;
 
+      // Sync each affected equipment's brain node so the AI is aware
+      // a service submission exists even before admin approval. The
+      // sync reads pm_logs to include "N pending review" in the
+      // equipment node's notes — searchable via search_nodes tool.
+      if (NX.eqBrainSync?.syncOne) {
+        for (const eqId of equipIds) {
+          try { NX.eqBrainSync.syncOne(eqId); } catch (_) {}
+        }
+      }
+
       // Show success screen
       showSuccessScreen(modal, eq, equipIds.length, data);
 
