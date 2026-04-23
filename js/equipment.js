@@ -596,31 +596,105 @@ async function loadOpenCardsForEquipment(eq) {
 }
 
 async function reportIssue(equipId) {
-  const issue = prompt('What\'s the issue?\n\n(A card will be created on the Board with this equipment linked.)');
-  if (!issue || !issue.trim()) return;
+  // Was an ugly native prompt(). Now a proper modal that reuses the same
+  // eq-call-confirm-* CSS as the public QR "Call Service" flow, so it
+  // matches the rest of the app visually and supports multi-line input,
+  // priority selection, and validation.
   try {
     const { data: eq } = await NX.sb.from('equipment')
       .select('id, name, location').eq('id', equipId).single();
     if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
-    if (NX.modules?.board?.createFromEquipment) {
-      await NX.modules.board.createFromEquipment(eq, issue.trim());
-    } else {
-      // Fallback — direct insert if board module not loaded yet
-      await NX.sb.from('kanban_cards').insert({
-        title: `${issue.trim()} — ${eq.name}`,
-        description: issue.trim(),
-        priority: 'high',
-        location: eq.location || null,
-        equipment_id: eq.id,
-        reported_by: NX.currentUser?.name || null,
-        checklist: [], comments: [], labels: [], photo_urls: [],
-        archived: false,
-      });
-      NX.toast && NX.toast('Card created on Board', 'success');
-    }
+
+    const modal = document.createElement('div');
+    modal.className = 'eq-call-confirm';
+    modal.innerHTML = `
+      <div class="eq-call-confirm-bg"></div>
+      <div class="eq-call-confirm-card">
+        <div class="eq-call-confirm-icon">📋</div>
+        <div class="eq-call-confirm-title">Report an issue</div>
+        <div class="eq-call-confirm-phone">${esc(eq.name || 'Equipment')}</div>
+        <div class="eq-call-confirm-meta">${esc(eq.location || '')}${eq.location ? ' · ' : ''}a card will be created on the Board with this equipment linked</div>
+
+        <div class="eq-call-confirm-issue-wrap">
+          <label class="eq-call-confirm-issue-label" for="riIssue">
+            What's the issue? <span class="eq-optional-tag">(required)</span>
+          </label>
+          <textarea class="eq-call-confirm-issue" id="riIssue" rows="3" placeholder="e.g., Compressor not cooling, freezing intermittently…" autofocus></textarea>
+        </div>
+
+        <div class="eq-call-confirm-issue-wrap">
+          <label class="eq-call-confirm-issue-label" for="riPriority">Priority</label>
+          <select class="eq-call-confirm-issue" id="riPriority" style="min-height:44px">
+            <option value="normal">Normal</option>
+            <option value="high" selected>High</option>
+            <option value="urgent">Urgent</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+
+        <div class="eq-call-confirm-actions">
+          <button class="eq-btn eq-btn-secondary" type="button" id="riCancel">Cancel</button>
+          <button class="eq-btn eq-call-service-btn is-disabled" type="button" id="riSubmit" aria-disabled="true">📋 Create Card</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    requestAnimationFrame(() => modal.classList.add('active'));
+
+    const close = () => { modal.classList.remove('active'); setTimeout(() => modal.remove(), 200); };
+    const issueEl = modal.querySelector('#riIssue');
+    const priEl = modal.querySelector('#riPriority');
+    const submit = modal.querySelector('#riSubmit');
+
+    const validate = () => {
+      const ok = issueEl.value.trim().length >= 2;
+      submit.classList.toggle('is-disabled', !ok);
+      submit.setAttribute('aria-disabled', ok ? 'false' : 'true');
+    };
+    issueEl.addEventListener('input', validate);
+    setTimeout(() => issueEl.focus(), 250);
+
+    modal.querySelector('.eq-call-confirm-bg').addEventListener('click', close);
+    modal.querySelector('#riCancel').addEventListener('click', close);
+
+    submit.addEventListener('click', async () => {
+      const issue = issueEl.value.trim();
+      if (!issue || issue.length < 2) {
+        issueEl.focus();
+        issueEl.style.borderColor = '#e07070';
+        setTimeout(() => { issueEl.style.borderColor = ''; }, 1200);
+        return;
+      }
+      const priority = priEl.value || 'high';
+      submit.textContent = 'Creating…';
+      submit.classList.add('is-disabled');
+      try {
+        if (NX.modules?.board?.createFromEquipment) {
+          await NX.modules.board.createFromEquipment(eq, issue, { priority });
+        } else {
+          await NX.sb.from('kanban_cards').insert({
+            title: `${issue} — ${eq.name}`,
+            description: issue,
+            priority,
+            location: eq.location || null,
+            equipment_id: eq.id,
+            reported_by: NX.currentUser?.name || null,
+            checklist: [], comments: [], labels: [], photo_urls: [],
+            archived: false,
+          });
+        }
+        NX.toast && NX.toast('Card created on Board', 'success');
+        close();
+      } catch (err) {
+        console.error('[equipment] reportIssue:', err);
+        NX.toast && NX.toast('Could not create card', 'error');
+        submit.textContent = '📋 Create Card';
+        submit.classList.remove('is-disabled');
+      }
+    });
   } catch (e) {
     console.error('[equipment] reportIssue:', e);
-    NX.toast && NX.toast('Could not create card', 'error');
+    NX.toast && NX.toast('Could not open report form', 'error');
   }
 }
 
@@ -1231,6 +1305,7 @@ function openPartModal(part, equipId) {
           </div>
           <div class="eq-form-actions">
             <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closePart()">Cancel</button>
+            ${part ? '' : '<button type="button" class="eq-btn" id="eqPartSaveAdd">Save &amp; Add Another</button>'}
             <button type="submit" class="eq-btn eq-btn-primary">${part ? 'Save' : 'Add Part'}</button>
           </div>
         </form>
@@ -1239,9 +1314,11 @@ function openPartModal(part, equipId) {
   `;
   modal.classList.add('active');
 
-  document.getElementById('eqPartForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
+  // Shared save helper — writes the part, refreshes ONLY the Parts panel
+  // (in place, without closing the equipment detail or jumping to Overview),
+  // then either closes the modal or resets the form for another entry.
+  async function doSave(form, { closeAfter }) {
+    const fd = new FormData(form);
     const data = { equipment_id: equipId };
     for (const [k, v] of fd.entries()) {
       if (v !== '' && v != null) {
@@ -1257,13 +1334,58 @@ function openPartModal(part, equipId) {
         await NX.sb.from('equipment_parts').insert(data);
       }
       NX.toast && NX.toast('Saved ✓', 'success');
-      closePart();
-      openDetail(equipId);
+      // Refresh the parts panel in place — do NOT re-open the detail, which
+      // would snap the user back to the Overview tab.
+      await refreshPartsTab(equipId);
+      if (closeAfter) {
+        closePart();
+      } else {
+        // Reset form for another entry — keep equipment_id implicit, clear
+        // user-filled fields, focus the first field so they can just type.
+        form.reset();
+        const first = form.querySelector('input[name="part_name"]');
+        if (first) first.focus();
+      }
     } catch (err) {
       console.error(err);
       NX.toast && NX.toast('Save failed: ' + err.message, 'error');
     }
+  }
+
+  const form = document.getElementById('eqPartForm');
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    doSave(form, { closeAfter: true });
   });
+  const saveAdd = document.getElementById('eqPartSaveAdd');
+  if (saveAdd) {
+    saveAdd.addEventListener('click', () => doSave(form, { closeAfter: false }));
+  }
+}
+
+// Refresh only the Parts panel of the equipment detail modal in-place.
+// Called after add/edit/delete of a part so the list updates without
+// tearing down the whole equipment modal (which would lose the active
+// tab and scroll position).
+async function refreshPartsTab(equipId) {
+  try {
+    const eqModal = document.getElementById('eqModal');
+    if (!eqModal) return;
+    const panel = eqModal.querySelector('[data-panel="parts"]');
+    if (!panel) return;
+    const [{ data: eq }, { data: parts }] = await Promise.all([
+      NX.sb.from('equipment').select('*').eq('id', equipId).single(),
+      NX.sb.from('equipment_parts').select('*').eq('equipment_id', equipId)
+        .or('is_deleted.is.null,is_deleted.eq.false')
+        .order('part_name'),
+    ]);
+    if (!eq) return;
+    panel.innerHTML = renderParts(eq, parts || []);
+    const list = panel.querySelector('.eq-parts-list');
+    if (list) enhancePartsList(list);
+  } catch (e) {
+    console.warn('[equipment] refreshPartsTab:', e);
+  }
 }
 
 function closePart() {
@@ -1276,7 +1398,9 @@ async function deletePart(id, equipId) {
   try {
     await NX.sb.from('equipment_parts').delete().eq('id', id);
     NX.toast && NX.toast('Deleted ✓', 'success');
-    openDetail(equipId);
+    // In-place refresh so the user stays on the Parts tab (was openDetail,
+    // which re-rendered the whole modal and snapped back to Overview).
+    await refreshPartsTab(equipId);
   } catch(e) { console.error(e); }
 }
 
