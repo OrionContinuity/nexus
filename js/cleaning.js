@@ -461,6 +461,9 @@ async function submitDailyReport(){
       confirm_el.style.display='block';
       if(NX.toast)NX.toast('Cleaning report submitted \u2713','success');
       if(NX.syslog)NX.syslog('clean_report','Cleaning report submitted for '+reportDate);
+      // Stage R: pulse the mini-galaxy — daily cleaning is the heartbeat
+      // of the operation; the brain acknowledges.
+      if (NX.homeGalaxyPulse) NX.homeGalaxyPulse();
     }else{btn.textContent='Error \u2014 try again';confirm_el.style.display='none';console.error('Submit error:',error);}
   }
   setTimeout(()=>{btn.disabled=false;btn.textContent='Submit Daily Report';},3000);
