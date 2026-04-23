@@ -790,11 +790,17 @@
      */
     const dataTotal = DL.pending.length + DL.tickets.length + DL.cards.length
                     + DL.recentLogs.length + DL.contractorEvents.length + archived.length;
-    const structuralCount = Math.max(600, 3500 - dataTotal);
+    // Scaffolding density — was 3500 which saturated to white at the two 180°
+    // symmetric inner-arm clusters ("wings"). Reduced to 1200 baseline to let
+    // individual stars breathe. Still scales down when real data is plentiful.
+    const structuralCount = Math.max(400, 1200 - Math.floor(dataTotal * 0.5));
 
     for (let i = 0; i < structuralCount; i++) {
       const arm = i % ARM_COUNT;
-      const t = Math.pow(Math.random(), 0.42);
+      // Radial distribution: was pow(random, 0.42) — extreme inner bias,
+      // packed stars onto the arm's inner tip and saturated. 0.75 is a gentler
+      // bias that still fills the center but spreads stars outward.
+      const t = Math.pow(Math.random(), 0.75);
       const r = innerR + t * (outerR - innerR) * 1.15;
       const baseAngle = arm * (2 * Math.PI / ARM_COUNT);
       const theta = baseAngle + Math.log(Math.max(r / innerR, 1.01)) / SPIRAL_B;
@@ -812,7 +818,9 @@
         : mix(AMBER, AMBER_DIM, Math.min(1, (radialNorm - 0.3) / 0.7));
 
       const falloff = Math.exp(-radialNorm * 1.5);
-      const alpha = 0.15 + Math.random() * 0.3 * falloff;
+      // Alpha: was 0.15 + rand*0.3*falloff (up to 0.45 inner). Lower ceiling
+      // prevents source-over overlap from compositing to near-white.
+      const alpha = 0.10 + Math.random() * 0.20 * falloff;
       const size = Math.random() < 0.85 ? 0.5 : 0.9;
 
       octx.fillStyle = rgba(color, alpha);
