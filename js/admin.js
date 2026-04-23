@@ -302,6 +302,7 @@ async function init(){
   if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
   updateProcStatus();
   updateQueueStatus();
+  startServerHeartbeat();
   log('Ingest ready','success');
   }catch(e){console.error('INGEST INIT ERROR:',e);log('Init error: '+e.message,'error');}
 }
@@ -827,6 +828,114 @@ async function updateQueueStatus(){
     // Show contextual guidance
     showGuide(count||0,nodeCount,emailCount);
   }catch(e){}
+}
+
+// ── SERVER PIPELINE HEARTBEAT ─────────────────────────────────
+// Reads nexus_config.config fields written by process-emails every cron
+// run, renders them as a live status line. Polls every 10s while tab is
+// visible. Stops polling when backgrounded (Page Visibility API) so we
+// don't hammer Supabase with queries from a phone in someone's pocket.
+let hbInterval=null;
+function relativeTime(iso){
+  if(!iso)return'never';
+  const ms=Date.now()-new Date(iso).getTime();
+  if(ms<0)return'just now';
+  const s=Math.floor(ms/1000);
+  if(s<5)return'just now';
+  if(s<60)return`${s}s ago`;
+  const m=Math.floor(s/60);
+  if(m<60)return`${m} min ago`;
+  const h=Math.floor(m/60);
+  if(h<24)return`${h}h ago`;
+  return`${Math.floor(h/24)}d ago`;
+}
+async function updateServerHeartbeat(){
+  const dot=document.getElementById('hbDot');
+  const timeEl=document.getElementById('hbTime');
+  const detailEl=document.getElementById('hbDetail');
+  if(!dot||!timeEl||!detailEl)return;
+  try{
+    const{data,error}=await NX.sb.from('nexus_config').select('config').eq('id',1).single();
+    if(error)throw error;
+    const cfg=(data&&data.config)||{};
+    const lastRun=cfg.last_process_run_at;
+    const lastPull=cfg.last_gmail_pull_at;
+    const lastPush=cfg.gmail_last_push_at;  // Gmail Push webhook heartbeat
+    const status=cfg.last_process_status;
+    const pushStatus=cfg.gmail_last_push_status;
+    const err=cfg.last_process_error;
+    const watchExp=cfg.gmail_watch_expiration;
+    // Never run — neither polling nor push has stamped anything
+    if(!lastRun&&!lastPull&&!lastPush){
+      dot.className='ig-hb-dot is-unknown';
+      timeEl.textContent='never run';
+      detailEl.textContent='No heartbeat yet. Deploy process-emails + set up pg_cron, or set up Gmail Push (see GMAIL_PUSH_SETUP.md).';
+      return;
+    }
+    // Use the most recent of push/pull/process as the freshness signal
+    const newest=[lastRun,lastPull,lastPush].filter(Boolean).sort().pop();
+    const ageMs=Date.now()-new Date(newest).getTime();
+    const ageMin=ageMs/60000;
+    if(status==='error'||pushStatus==='no_credentials'){
+      dot.className='ig-hb-dot is-error';
+    }else if(ageMin<3){
+      dot.className='ig-hb-dot is-healthy';
+    }else if(ageMin<10){
+      dot.className='ig-hb-dot is-stale';
+    }else{
+      dot.className='ig-hb-dot is-dead';
+    }
+    // Prefer push timestamp in label if push is active & fresher than polling
+    const pushIsFresher=lastPush&&(!lastRun||lastPush>lastRun);
+    timeEl.textContent=pushIsFresher?`push ${relativeTime(lastPush)}`:`ran ${relativeTime(newest)}`;
+    // Build detail line — include only non-zero counters to keep it clean
+    const parts=[];
+    const pushCount=Number(cfg.gmail_last_push_count)||0;
+    const pulls=Number(cfg.last_gmail_pull_count)||0;
+    const proc=Number(cfg.last_process_count)||0;
+    const created=Number(cfg.last_process_created)||0;
+    const merged=Number(cfg.last_process_merged)||0;
+    const urgent=Number(cfg.last_process_urgent)||0;
+    if(lastPush)parts.push(`⚡ push ${pushIsFresher?'live':'on'}`);
+    if(pushCount>0)parts.push(`${pushCount} via push`);
+    if(pulls>0)parts.push(`📬 ${pulls} pulled`);
+    if(proc>0)parts.push(`⚙ ${proc} processed`);
+    if(created>0)parts.push(`✨ ${created} new`);
+    if(merged>0)parts.push(`🔗 ${merged} merged`);
+    if(urgent>0)parts.push(`🚨 ${urgent} urgent`);
+    if(status==='error'&&err)parts.push(`❌ ${String(err).slice(0,90)}`);
+    if(status==='idle'&&!parts.length)parts.push('idle — no emails to process');
+    // Watch expiration warning — if watch is expiring within 48h, flag it
+    if(watchExp){
+      const expMs=new Date(watchExp).getTime()-Date.now();
+      const expH=expMs/3600000;
+      if(expH<0)parts.push('⚠ watch expired — run gmail-watch');
+      else if(expH<48)parts.push(`⏰ watch expires in ${Math.round(expH)}h`);
+    }
+    if(!parts.length)parts.push('waiting for next run…');
+    detailEl.textContent=parts.join(' · ');
+  }catch(e){
+    dot.className='ig-hb-dot is-error';
+    timeEl.textContent='check failed';
+    detailEl.textContent=(e&&e.message)||'Could not read nexus_config';
+  }
+}
+function startServerHeartbeat(){
+  if(hbInterval)return;
+  updateServerHeartbeat();
+  hbInterval=setInterval(()=>{
+    // Skip the DB round trip if the tab isn't visible — user can't see it
+    if(typeof document==='undefined'||document.visibilityState==='visible'){
+      updateServerHeartbeat();
+    }
+  },10000);
+  // Refresh immediately when user comes back from background
+  if(typeof document!=='undefined'&&!document._nxHbVisBound){
+    document.addEventListener('visibilitychange',()=>{
+      if(document.visibilityState==='visible')updateServerHeartbeat();
+    });
+    document._nxHbVisBound=true;
+  }
 }
 
 function showGuide(pending,nodes,archived){
@@ -2667,6 +2776,7 @@ NX.modules.ingest={init,show:()=>{
     const bgt=document.getElementById('bgProcessToggle');if(bgt)bgt.checked=localStorage.getItem('nexus_bg_process')!=='off';
     updateProcStatus();
     updateQueueStatus();
+    updateServerHeartbeat();
   }catch(e){console.error('Ingest show error:',e);}
 }};
 })();
