@@ -619,6 +619,9 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     {name:'get_recent_events',description:'Get contractor events from the last N days.',params:{days:'number'}},
     {name:'get_community',description:'Get the community summary and members for a node.',params:{node_name:'string'}},
     {name:'reverse_lookup',description:'Find all nodes that link TO a given node (who references it?).',params:{node_name:'string'}},
+    {name:'get_pending_pm_logs',description:'Check for service logs submitted via QR scan that are awaiting admin review. Use when asked about pending reviews, unreviewed service submissions, or new PM entries.',params:{}},
+    {name:'list_equipment_by_status',description:'List equipment filtered by operational status. Use when asked what is down, what needs service, what is retired. Status options: operational, needs_service, down, retired.',params:{status:'string',location:'string (optional)'}},
+    {name:'get_upcoming_deadlines',description:'Unified view of everything due in the next N days — kanban cards with due dates, contractor events, equipment warranty expirations, and upcoming PMs. Use when asked about upcoming schedule, deadlines, next week, what is coming up.',params:{days:'number'}},
   ];
 
   // Execute a graph tool call against real data
@@ -689,6 +692,59 @@ After the troubleshoot steps, ask the person to add more details and optionally 
           const referrers=NX.nodes.filter(n=>n.links&&n.links.includes(target.id));
           if(!referrers.length)return'No nodes link to "'+target.name+'"';
           return`${referrers.length} node(s) reference ${target.name}:\n`+referrers.map(r=>`- ${r.name} (${r.category})`).join('\n');
+        }
+        case 'get_pending_pm_logs':{
+          // Service logs submitted via QR scan that await admin review.
+          // These live in pm_logs with review_status='pending'.
+          const{data,error}=await NX.sb.from('pm_logs')
+            .select('id,contractor_name,contractor_company,service_date,service_type,work_performed,equipment_id,submitted_at,flagged_spam')
+            .eq('review_status','pending')
+            .order('submitted_at',{ascending:false})
+            .limit(10);
+          if(error)return'Could not load pending PM logs: '+error.message;
+          if(!data||!data.length)return'No pending service logs awaiting review.';
+          // Join each log to its equipment name for context
+          const eqIds=[...new Set(data.map(l=>l.equipment_id).filter(Boolean))];
+          const{data:eqs}=await NX.sb.from('equipment').select('id,name,location').in('id',eqIds);
+          const eqMap=Object.fromEntries((eqs||[]).map(e=>[e.id,e]));
+          const lines=data.map(l=>{
+            const eq=eqMap[l.equipment_id];
+            const eqStr=eq?`${eq.name} at ${eq.location}`:'unknown equipment';
+            const spam=l.flagged_spam?' [SPAM FLAGGED]':'';
+            return`- ${l.service_type||'service'} on ${eqStr} by ${l.contractor_name||'anonymous'}${l.contractor_company?' ('+l.contractor_company+')':''} on ${l.service_date}${spam}: ${(l.work_performed||'').slice(0,80)}`;
+          });
+          return`${data.length} pending service log${data.length===1?'':'s'} awaiting admin review:\n`+lines.join('\n');
+        }
+        case 'list_equipment_by_status':{
+          const status=(params.status||'').toLowerCase();
+          const validStatuses=['operational','needs_service','down','retired'];
+          if(!validStatuses.includes(status))return'Invalid status. Use: operational, needs_service, down, or retired.';
+          let q=NX.sb.from('equipment').select('id,name,location,status,category,next_pm_date').eq('status',status);
+          if(params.location)q=q.ilike('location','%'+params.location+'%');
+          const{data,error}=await q.limit(30);
+          if(error)return'Could not list equipment: '+error.message;
+          if(!data||!data.length)return`No equipment with status "${status}".`;
+          return`${data.length} equipment with status "${status}":\n`+data.map(e=>`- ${e.name} (${e.category||'—'}) at ${e.location||'—'}${e.next_pm_date?', next PM '+e.next_pm_date:''}`).join('\n');
+        }
+        case 'get_upcoming_deadlines':{
+          // Unified look at everything due soon. Pulls 4 sources.
+          const days=Math.max(1,Math.min(90,parseInt(params.days,10)||7));
+          const todayIso=new Date().toISOString().slice(0,10);
+          const futureIso=new Date(Date.now()+days*86400000).toISOString().slice(0,10);
+          const[cards,events,warranties,pms]=await Promise.all([
+            NX.sb.from('kanban_cards').select('title,due_date,priority,location,column_name').not('due_date','is',null).gte('due_date',todayIso).lte('due_date',futureIso).or('archived.is.null,archived.eq.false').neq('column_name','done').limit(20),
+            NX.sb.from('contractor_events').select('contractor_name,event_date,event_time,description,location').gte('event_date',todayIso).lte('event_date',futureIso).neq('status','cancelled').order('event_date').limit(10),
+            NX.sb.from('equipment').select('name,warranty_until,location').not('warranty_until','is',null).gte('warranty_until',todayIso).lte('warranty_until',futureIso).limit(10),
+            NX.sb.from('equipment').select('name,next_pm_date,location').not('next_pm_date','is',null).gte('next_pm_date',todayIso).lte('next_pm_date',futureIso).limit(10),
+          ]);
+          const items=[];
+          (cards.data||[]).forEach(c=>items.push({d:c.due_date,t:`Card: ${c.title}${c.priority&&c.priority!=='normal'?' ['+c.priority.toUpperCase()+']':''} at ${c.location||'—'}`}));
+          (events.data||[]).forEach(e=>items.push({d:e.event_date,t:`Visit: ${e.contractor_name||'Contractor'}${e.location?' at '+e.location:''}${e.description?' — '+e.description:''}`}));
+          (warranties.data||[]).forEach(w=>items.push({d:w.warranty_until,t:`Warranty expires: ${w.name} (${w.location||'—'})`}));
+          (pms.data||[]).forEach(p=>items.push({d:p.next_pm_date,t:`PM due: ${p.name} (${p.location||'—'})`}));
+          if(!items.length)return`Nothing scheduled for the next ${days} days.`;
+          items.sort((a,b)=>(a.d||'').localeCompare(b.d||''));
+          return`${items.length} item(s) upcoming in next ${days} days:\n`+items.map(i=>`- ${i.d}: ${i.t}`).join('\n');
         }
         default:return'Unknown tool: '+toolName;
       }
