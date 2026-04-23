@@ -206,18 +206,24 @@ async function loadTickets(firstDay, lastDay) {
 async function loadBoardCards(firstDay, lastDay) {
   try {
     const { data } = await NX.sb.from('kanban_cards')
-      .select('id, title, due_date, priority, status, column_name, location, equipment_id, archived')
+      .select('id, title, due_date, priority, status, column_name, location, equipment_id, archived, labels')
       .not('due_date', 'is', null)
       .gte('due_date', firstDay).lte('due_date', lastDay)
       .eq('archived', false)
       .neq('column_name', 'done');
     (data || []).forEach(c => {
       if (!c.due_date) return;
-      // Priority-driven color so urgent cards jump out on the calendar
-      const color = c.priority === 'urgent' ? COLORS.card_urgent
-                  : c.priority === 'high'   ? COLORS.card_high
-                  : COLORS.card;
+      // Color priority: user-picked category (first label) > priority default.
+      // Lets you visually sort the calendar by what KIND of work it is,
+      // not just how urgent it is.
+      const firstLabel = Array.isArray(c.labels) && c.labels.find(l => l && l.color);
+      const color = firstLabel && firstLabel.color
+        ? firstLabel.color
+        : c.priority === 'urgent' ? COLORS.card_urgent
+        : c.priority === 'high'   ? COLORS.card_high
+        : COLORS.card;
       const metaBits = [];
+      if (firstLabel && firstLabel.name) metaBits.push(firstLabel.name);
       if (c.priority && c.priority !== 'normal') metaBits.push(c.priority.toUpperCase());
       if (c.location) metaBits.push(c.location);
       if (c.equipment_id) metaBits.push('🔧 linked');
