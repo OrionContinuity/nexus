@@ -1014,42 +1014,47 @@
     ctx.arc(screenX, screenY, r * 0.98, 0, Math.PI * 2);
     ctx.stroke();
 
-    // ─── Layer 4.5: Accretion disk — tilted bright ring around hole ──
-    // Sits just outside the event horizon, oriented in the galactic
-    // disc plane (so it's an ellipse, not a circle). Breathes gently
-    // with time; brightens with haze. This is what makes the center
-    // feel energetically alive rather than a static logo.
+    // ─── Layer 4.5: Accretion disk — subtle circular glow around hole ──
+    // Was a tilted ellipse (accR * TILT_Y) meant to suggest the disc seen
+    // from an angle — but read as an ugly oblong halo with two bulges on
+    // the sides. Now: clean concentric circles, thinner outer halo, and
+    // hot-spots distributed rotationally instead of locked to the
+    // horizontal axis. Still breathes gently; brightens with haze.
     ctx.save();
     const accR = r * 1.22;
     const breathPhase = Math.sin(now() * 1.4) * 0.5 + 0.5;  // 0..1
     const accAlphaBase = 0.38 + state.hole.hazeAmount * 0.35;
     const accAlpha = accAlphaBase * (0.82 + breathPhase * 0.18);
-    // Outer soft halo ring
-    ctx.strokeStyle = rgba([255, 210, 140], accAlpha * 0.55);
-    ctx.lineWidth = r * 0.18;
+    // Outer soft halo ring — thinner than before (0.10 vs 0.18) so it
+    // reads as a glow, not a band
+    ctx.strokeStyle = rgba([255, 210, 140], accAlpha * 0.45);
+    ctx.lineWidth = r * 0.10;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.ellipse(screenX, screenY, accR, accR * TILT_Y, 0, 0, Math.PI * 2);
+    ctx.arc(screenX, screenY, accR, 0, Math.PI * 2);
     ctx.stroke();
-    // Inner sharp ring — bright edge
+    // Inner sharp ring — bright edge (circular, was ellipse)
     ctx.strokeStyle = rgba([255, 240, 200], accAlpha);
     ctx.lineWidth = r * 0.06;
     ctx.beginPath();
-    ctx.ellipse(screenX, screenY, accR, accR * TILT_Y, 0, 0, Math.PI * 2);
+    ctx.arc(screenX, screenY, accR, 0, Math.PI * 2);
     ctx.stroke();
-    // Hot spots — two bright points on the ring (front + back of the disc)
-    // These mimic Doppler-beamed accretion streams
-    const hsAngles = [0, Math.PI];  // one on each side (lateral)
-    for (const hsAng of hsAngles) {
+    // Hot spots — 3 rotating bright points around the ring (was 2 fixed
+    // at 0° and 180°, which read as "bulging sides"). Rotating at the
+    // same speed as the Layer-2 ringAngle so they feel like orbiting
+    // material, not decoration.
+    const hsCount = 3;
+    for (let i = 0; i < hsCount; i++) {
+      const hsAng = state.hole.ringAngle * 0.7 + (i * Math.PI * 2 / hsCount);
       const hsX = screenX + Math.cos(hsAng) * accR;
-      const hsY = screenY + Math.sin(hsAng) * accR * TILT_Y;
-      const hsGrd = ctx.createRadialGradient(hsX, hsY, 0, hsX, hsY, r * 0.28);
-      hsGrd.addColorStop(0, rgba([255, 248, 220], accAlpha * 0.95));
-      hsGrd.addColorStop(0.4, rgba([255, 210, 140], accAlpha * 0.45));
+      const hsY = screenY + Math.sin(hsAng) * accR;
+      const hsGrd = ctx.createRadialGradient(hsX, hsY, 0, hsX, hsY, r * 0.22);
+      hsGrd.addColorStop(0, rgba([255, 248, 220], accAlpha * 0.75));
+      hsGrd.addColorStop(0.4, rgba([255, 210, 140], accAlpha * 0.30));
       hsGrd.addColorStop(1, rgba([255, 210, 140], 0));
       ctx.fillStyle = hsGrd;
       ctx.beginPath();
-      ctx.arc(hsX, hsY, r * 0.28, 0, Math.PI * 2);
+      ctx.arc(hsX, hsY, r * 0.22, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
