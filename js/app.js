@@ -547,6 +547,49 @@ const NX = {
     // PM pending logs badge — initial + every 60s while app is open
     setTimeout(() => this.refreshPmPendingCount(), 2000);
     setInterval(() => this.refreshPmPendingCount(), 60000);
+
+    // ─── POST-LOGIN: ?equip=XXX redirect ────────────────────────────
+    // If the user arrived at the PIN screen because they tapped
+    // "Login" from the public PM page (URL contains ?equip=XXX),
+    // shoot them directly to that equipment's detail view instead
+    // of dumping them on Home. Makes the scan → login → detail flow
+    // feel continuous rather than three separate destinations.
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const equipQr = urlParams.get('equip');
+      if (equipQr) {
+        // Clean the URL so a later refresh doesn't re-trigger this jump
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, '', cleanUrl);
+        // Defer so the equipment module is fully loaded before we try
+        // to open the detail; switchTo('equipment') lazy-loads it.
+        setTimeout(async () => {
+          if (!this.switchTo) return;
+          this.switchTo('equipment');
+          // Wait briefly for equipment.js modules to register
+          const waitForMod = (tries = 20) => {
+            if (NX.modules?.equipment?.openDetailByQr) {
+              NX.modules.equipment.openDetailByQr(equipQr);
+            } else if (NX.modules?.equipment?.openDetail) {
+              // Fallback: look up by qr_code then open by id
+              NX.sb.from('equipment')
+                .select('id')
+                .eq('qr_code', equipQr)
+                .maybeSingle()
+                .then(({ data }) => {
+                  if (data?.id) NX.modules.equipment.openDetail(data.id);
+                });
+            } else if (tries > 0) {
+              setTimeout(() => waitForMod(tries - 1), 150);
+            }
+          };
+          waitForMod();
+        }, 300);
+      }
+    } catch (e) {
+      console.warn('[app] post-login equip redirect failed:', e);
+    }
+
     // Start real-time watchers
     this.startNodeWatcher();
     this.loadAgenda();
