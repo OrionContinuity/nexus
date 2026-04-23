@@ -53,14 +53,13 @@ const DEFAULT_LISTS = [
 // ─────────────────────────────────────────────────────────────────────────
 const STYLES = `
   #boardWrap{padding:0 8px 80px;font-family:inherit}
-  .b-summary{display:flex;gap:6px;padding:10px 12px 6px;font-size:11px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:8px}
-  .b-summary-chip{display:inline-flex;align-items:center;gap:3px;padding:4px 8px;border-radius:10px;background:rgba(255,255,255,0.04);color:var(--text,#d4c8a5);font-size:11px;line-height:1.3}
+  .b-summary{display:flex;gap:10px;padding:12px 12px 8px;font-size:12px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:8px}
+  .b-summary-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:12px;background:rgba(255,255,255,0.04);color:var(--text,#d4c8a5)}
   .b-summary-chip.alert{background:rgba(212,88,88,0.15);color:#e88;border:1px solid rgba(212,88,88,0.3)}
   .b-summary-chip.ok{background:rgba(91,186,95,0.10);color:#8fd492}
   .b-summary-chip.tap{cursor:pointer;user-select:none}
   .b-summary-chip.tap:active{transform:scale(0.97)}
-  .b-summary-stats-btn{background:transparent;border:1px solid rgba(255,255,255,0.15);color:var(--text,#d4c8a5);padding:4px 9px;border-radius:10px;font-size:11px;cursor:pointer;white-space:nowrap;font-family:inherit}
-  .b-summary-stats-btn:active{transform:scale(0.97)}
+  .b-summary-stats-btn{margin-left:auto;background:transparent;border:1px solid rgba(255,255,255,0.15);color:var(--text,#d4c8a5);padding:5px 12px;border-radius:12px;font-size:11px;cursor:pointer}
 
   .board-header{display:flex;align-items:center;gap:4px;overflow-x:auto;padding:4px 0 12px;scrollbar-width:none}
   .board-header::-webkit-scrollbar{display:none}
@@ -162,88 +161,6 @@ const STYLES = `
   .b-stat-num.alert{color:#e88}
   .b-stat-num.ok{color:#8fd492}
   .b-stat-label{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-faint,#746c5e)}
-
-  /* ─── Swimlanes — group cards by location inside each column ── */
-  /* Each column partitions its cards into location-keyed groups.
-     A small colored dot + name header delimits each lane. Dividers
-     stay subtle so the column still reads as one vertical stack. */
-  .b-swimlane{margin:0 -2px 10px;padding:0 2px;position:relative}
-  .b-swimlane:last-child{margin-bottom:4px}
-  .b-swim-head{display:flex;align-items:center;gap:6px;padding:2px 2px 5px;margin-bottom:5px;border-bottom:1px solid rgba(255,255,255,0.04)}
-  .b-swim-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;box-shadow:0 0 6px currentColor}
-  .b-swim-name{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--text-dim,#a49c94);font-weight:500}
-  .b-swim-count{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--text-faint,#746c5e);font-variant-numeric:tabular-nums;padding:0 4px}
-  .b-swim-body{display:flex;flex-direction:column;gap:0}
-  .b-swim-body .b-card{margin-bottom:6px}
-  .b-swim-other .b-swim-head{opacity:0.65}
-
-  /* ─── Stuck-card indicator — top-right corner pill ─── */
-  /* Discreet by default, warmer as days pile up. Paired with a
-     subtle card-edge tint so stuck cards feel distinct even at
-     low visual weight. */
-  .b-card-stuck{position:absolute;top:6px;right:8px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.4px;padding:2px 6px;border-radius:10px;font-weight:500;z-index:1;font-variant-numeric:tabular-nums;background:rgba(232,168,48,0.14);color:#e8a830;border:1px solid rgba(232,168,48,0.25)}
-  .b-card.is-stuck{box-shadow:inset 0 0 0 1px rgba(232,168,48,0.12)}
-  .b-card.stuck-red .b-card-stuck{background:rgba(212,88,88,0.15);color:#e88;border-color:rgba(212,88,88,0.3)}
-  .b-card.stuck-red{box-shadow:inset 0 0 0 1px rgba(212,88,88,0.18)}
-
-  /* ─── Clean Up button — urgency tiers ─── */
-  /* Default state: subtle gold. Warn (1-10 stuck): amber. Alert
-     (11+): red with soft pulse. This turns the button from a
-     punitive "you are messy" button into an ambient status
-     indicator that earns its place even on clean boards. */
-  .b-summary-stats-btn.b-cleanup{background:rgba(212,164,78,0.1);border-color:rgba(212,164,78,0.25);color:#c8a44e}
-  .b-summary-stats-btn.b-cleanup.warn{background:rgba(232,168,48,0.14);border-color:rgba(232,168,48,0.32);color:#e8a830}
-  .b-summary-stats-btn.b-cleanup.alert{background:rgba(212,88,88,0.16);border-color:rgba(212,88,88,0.35);color:#e88;animation:bCleanPulse 2.5s ease-in-out infinite}
-  @keyframes bCleanPulse{
-    0%,100%{box-shadow:0 0 0 0 rgba(212,88,88,0)}
-    50%{box-shadow:0 0 0 3px rgba(212,88,88,0.12)}
-  }
-
-  /* ─── Snooze chip — toggles the "show only snoozed" filter ─── */
-  .b-snooze-chip{background:rgba(147,112,219,0.12);border-color:rgba(147,112,219,0.28);color:#b89ae0;cursor:pointer;border:1px solid rgba(147,112,219,0.28);font-family:inherit;font-size:11px;padding:4px 8px;border-radius:10px}
-  .b-snooze-chip.active{background:rgba(147,112,219,0.22);border-color:rgba(147,112,219,0.5);color:#d8c4f0}
-  .b-snooze-chip strong{font-weight:600}
-
-  /* ─── Archive toggle + archive-mode banner ─── */
-  .b-archive-toggle{background:rgba(160,140,120,0.1);border-color:rgba(160,140,120,0.3);color:#a89580}
-  .b-archive-toggle.active{background:rgba(160,140,120,0.22);border-color:rgba(160,140,120,0.5);color:#d4c1a5}
-  .b-archived-mode{background:rgba(160,140,120,0.15);border:1px solid rgba(160,140,120,0.35);color:#d4c1a5;font-weight:500}
-  .b-archived-mode strong{color:#e8d8b0}
-
-  /* ─── Snooze banner — shown at top of modal if card is snoozed ─── */
-  .b-snooze-banner{display:flex;align-items:center;gap:12px;padding:10px 14px;margin:0 -16px 14px;background:rgba(147,112,219,0.1);border-top:1px solid rgba(147,112,219,0.2);border-bottom:1px solid rgba(147,112,219,0.2);font-size:12.5px;color:#b89ae0;line-height:1.4}
-  .b-snooze-banner strong{color:#d8c4f0;font-weight:600}
-  .b-snooze-cancel{margin-left:auto;background:rgba(147,112,219,0.2);border:1px solid rgba(147,112,219,0.35);color:#d8c4f0;font-size:11px;padding:4px 10px;border-radius:4px;cursor:pointer;font-family:inherit;flex-shrink:0;white-space:nowrap}
-  .b-snooze-cancel:active{background:rgba(147,112,219,0.35)}
-
-  /* ─── Snooze button in actions bar ─── */
-  .b-btn-snooze{background:rgba(147,112,219,0.12);border-color:rgba(147,112,219,0.3);color:#b89ae0}
-  .b-btn-snooze:active{background:rgba(147,112,219,0.2)}
-
-  /* ─── Snooze picker modal ─── */
-  .b-snooze-picker{max-width:420px}
-  .b-snooze-opts{display:flex;flex-direction:column;gap:6px;margin-bottom:18px}
-  .b-snooze-opt{display:flex;justify-content:space-between;align-items:baseline;padding:12px 14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;cursor:pointer;font-family:inherit;text-align:left;transition:all .15s}
-  .b-snooze-opt:hover,.b-snooze-opt:active{background:rgba(147,112,219,0.08);border-color:rgba(147,112,219,0.3)}
-  .b-snooze-opt-label{font-size:13.5px;color:var(--text,#d4c8a5);font-weight:500}
-  .b-snooze-opt-when{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--text-dim,#a49c94);letter-spacing:0.3px}
-  .b-snooze-custom{padding-top:12px;border-top:1px solid rgba(255,255,255,0.06)}
-  .b-snooze-custom-label{display:block;font-size:10.5px;letter-spacing:1.4px;color:var(--text-faint,#746c5e);text-transform:uppercase;margin-bottom:6px;font-family:'JetBrains Mono',monospace}
-  .b-snooze-custom-row{display:flex;gap:6px}
-  .b-snooze-custom-row .b-field{flex:1}
-
-  /* ─── Related cards section in card detail ─── */
-  .b-related-group{margin-bottom:14px}
-  .b-related-group:last-child{margin-bottom:0}
-  .b-related-head{display:flex;align-items:center;gap:7px;margin-bottom:6px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.4px;color:var(--text-dim,#a49c94);text-transform:uppercase;font-weight:500}
-  .b-related-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
-  .b-related-list{display:flex;flex-direction:column;gap:4px}
-  .b-related-card{display:flex;flex-direction:column;gap:3px;padding:8px 10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:6px;cursor:pointer;font-family:inherit;text-align:left;transition:all .15s;min-width:0}
-  .b-related-card:hover,.b-related-card:active{background:rgba(200,164,78,0.06);border-color:rgba(200,164,78,0.25)}
-  .b-related-title{font-size:12.5px;color:var(--text,#d4c8a5);line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .b-related-meta{display:flex;align-items:center;gap:8px;font-size:10px;font-family:'JetBrains Mono',monospace;letter-spacing:0.3px;color:var(--text-faint,#746c5e)}
-  .b-related-age{color:var(--text-faint,#746c5e)}
-  .b-related-closed{background:rgba(91,186,95,0.1);color:#8fd492;padding:1px 6px;border-radius:3px;font-size:9px;letter-spacing:0.5px;text-transform:uppercase}
 `;
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -251,7 +168,7 @@ const STYLES = `
 // ─────────────────────────────────────────────────────────────────────────
 let boards = [], activeBoard = null, lists = [], cards = [], stats = null;
 let equipmentCache = [];     // for the equipment picker in the card modal
-let filters = { priority:null, location:null, equipment:null, viewMode:'open', showSnoozed:false };
+let filters = { priority:null, location:null, equipment:null };
 let dragCard = null, dragOverListId = null;
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -322,33 +239,13 @@ async function loadLists(){
 async function loadCards(){
   if(!activeBoard) return;
   try{
-    // 3-way view mode: 'open' (default) / 'closed' / 'archived'.
-    // 'open'     — archived=false AND status != closed/done
-    // 'closed'   — archived=false AND status = closed/done
-    // 'archived' — archived=true
-    const mode = filters.viewMode || 'open';
-    let query = NX.sb.from('kanban_cards')
+    const { data } = await NX.sb.from('kanban_cards')
       .select('*')
       .eq('board_id', activeBoard.id)
+      .eq('archived', false)
       .order('position');
-
-    if (mode === 'archived') {
-      query = query.eq('archived', true);
-    } else if (mode === 'closed') {
-      query = query.eq('archived', false).in('status', ['closed', 'done']);
-    } else {
-      // open: exclude closed/done (nullable status is fine — treated as open)
-      query = query.eq('archived', false).not('status', 'in', '(closed,done)');
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
     cards = data || [];
-  }catch(e){
-    console.error('[board] loadCards:', e);
-    cards = [];
-    NX.toast && NX.toast('Card load failed: ' + (e.message || 'unknown'), 'error');
-  }
+  }catch(e){ console.error('[board] loadCards:', e); cards = []; }
 }
 
 async function loadStats(){
@@ -356,32 +253,6 @@ async function loadStats(){
     const { data } = await NX.sb.from('board_stats').select('*').single();
     stats = data || null;
   }catch(e){ /* view may not exist until SQL migration run */ stats = null; }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// VIEW MODE COUNTS
-// Counts for the Open/Closed/Archived segmented control. Head-only
-// queries — no row data fetched, just the row count. Keeps the
-// control honest without double-loading.
-// ─────────────────────────────────────────────────────────────────────────
-let viewCounts = { open: 0, closed: 0, archived: 0 };
-async function loadViewCounts(){
-  if(!activeBoard) return;
-  try {
-    const base = NX.sb.from('kanban_cards').select('id', { count: 'exact', head: true }).eq('board_id', activeBoard.id);
-    const [openRes, closedRes, archivedRes] = await Promise.all([
-      base.eq('archived', false).not('status', 'in', '(closed,done)'),
-      NX.sb.from('kanban_cards').select('id', { count: 'exact', head: true }).eq('board_id', activeBoard.id).eq('archived', false).in('status', ['closed', 'done']),
-      NX.sb.from('kanban_cards').select('id', { count: 'exact', head: true }).eq('board_id', activeBoard.id).eq('archived', true),
-    ]);
-    viewCounts = {
-      open:     openRes.count ?? 0,
-      closed:   closedRes.count ?? 0,
-      archived: archivedRes.count ?? 0,
-    };
-  } catch (e) {
-    console.warn('[board] loadViewCounts:', e?.message);
-  }
 }
 
 async function loadEquipmentCache(){
@@ -399,17 +270,7 @@ async function loadEquipmentCache(){
 // FILTERING
 // ─────────────────────────────────────────────────────────────────────────
 function applyFilters(cardList){
-  const now = Date.now();
   return cardList.filter(c => {
-    // Snooze logic runs first: a card with snooze_until > now is
-    // hidden unless the user has explicitly toggled the "show snoozed"
-    // filter. When that's on, we flip — show ONLY snoozed cards.
-    const snoozed = c.snooze_until && new Date(c.snooze_until).getTime() > now;
-    if (filters.showSnoozed) {
-      if (!snoozed) return false;
-    } else {
-      if (snoozed) return false;
-    }
     if(filters.priority && c.priority !== filters.priority) return false;
     if(filters.location && c.location !== filters.location) return false;
     if(filters.equipment && c.equipment_id !== filters.equipment) return false;
@@ -432,100 +293,33 @@ function render(){
 }
 
 function renderSummaryStrip(){
-  const wrapper = document.createElement('div');
-  wrapper.className = 'b-summary-wrap';
-
-  // ─── View mode selector — 3-way segmented (Open · Closed · Archived)
-  // This replaces the old "Archived" toggle chip. Three mutually
-  // exclusive modes: Open (what you work on), Closed (finished, keep
-  // for records), Archived (noise, removed from sight).
-  const mode = filters.viewMode || 'open';
-  const modeBar = document.createElement('div');
-  modeBar.className = 'b-view-mode';
-  const MODES = [
-    { key: 'open',     label: 'Open',     count: viewCounts.open },
-    { key: 'closed',   label: 'Closed',   count: viewCounts.closed },
-    { key: 'archived', label: 'Archived', count: viewCounts.archived },
-  ];
-  modeBar.innerHTML = MODES.map(m => `
-    <button class="b-view-mode-btn ${m.key === mode ? 'active' : ''}" data-mode="${m.key}" type="button">
-      ${m.label}<span class="b-view-mode-count">${m.count}</span>
-    </button>
-  `).join('');
-  modeBar.querySelectorAll('.b-view-mode-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      filters.viewMode = btn.dataset.mode;
-      // Clear the snoozed filter when switching modes — it's
-      // only meaningful for Open view.
-      if (filters.viewMode !== 'open') filters.showSnoozed = false;
-      await loadCards();
-      render();
-    });
-  });
-  wrapper.appendChild(modeBar);
-
-  // ─── Stats strip (counts, alerts, actions) ─────────────────────
   const strip = document.createElement('div');
   strip.className = 'b-summary';
 
-  const nowMs = Date.now();
-  const snoozedCount = cards.filter(c =>
-    c.snooze_until && new Date(c.snooze_until).getTime() > nowMs
-  ).length;
-
-  const visible = applyFilters(cards);
-  const open = visible.length;
-  const overdue = visible.filter(isOverdue).length;
-  const urgent = visible.filter(c => c.priority === 'urgent').length;
-
-  const stuck = visible.filter(c => {
-    const ref = c.last_status_change_at || c.last_moved_at || c.updated_at || c.created_at;
-    if (!ref) return false;
-    return (nowMs - new Date(ref).getTime()) / 86400000 > 7;
-  }).length;
+  const open = cards.length;
+  const overdue = cards.filter(isOverdue).length;
+  const urgent = cards.filter(c => c.priority === 'urgent').length;
 
   let html = '';
-  if (mode === 'open') {
-    if (overdue > 0) html += `<span class="b-summary-chip alert"><strong>${overdue}</strong> overdue</span>`;
-    if (urgent > 0)  html += `<span class="b-summary-chip alert">🚨 <strong>${urgent}</strong> urgent</span>`;
-    if (stats && stats.avg_close_days_30d != null) {
-      html += `<span class="b-summary-chip">avg close <strong>${Number(stats.avg_close_days_30d).toFixed(1)}d</strong></span>`;
-    }
-    if (stats && stats.closed_last_7d) {
-      html += `<span class="b-summary-chip ok">${stats.closed_last_7d} closed this week</span>`;
-    }
-    if (snoozedCount > 0) {
-      const active = filters.showSnoozed ? ' active' : '';
-      html += `<button class="b-summary-chip b-snooze-chip${active}" id="bSnoozeChip">💤 <strong>${snoozedCount}</strong> snoozed</button>`;
-    }
-    const cleanLabel = stuck > 0 ? `🧹 ${stuck} stuck` : `🧹 Clean`;
-    const cleanUrgency = stuck > 10 ? 'alert' : (stuck > 0 ? 'warn' : '');
-    html += `<button class="b-summary-stats-btn b-cleanup ${cleanUrgency}" id="bCleanUpBtn">${cleanLabel}</button>`;
-    html += `<button class="b-summary-stats-btn" id="bStatsBtn">📊</button>`;
-  } else if (mode === 'closed') {
-    html += `<span class="b-summary-chip ok">Showing ${open} closed ${open === 1 ? 'ticket' : 'tickets'}</span>`;
-    html += `<span class="b-summary-chip">These are done. Tap any to reopen or restore.</span>`;
-  } else {
-    html += `<span class="b-summary-chip">Showing ${open} archived ${open === 1 ? 'card' : 'cards'}</span>`;
-    html += `<span class="b-summary-chip">Tap any to restore to the board.</span>`;
+  html += `<span class="b-summary-chip ${open>0?'':'ok'}"><strong>${open}</strong> open</span>`;
+  if(overdue > 0) html += `<span class="b-summary-chip alert"><strong>${overdue}</strong> overdue</span>`;
+  if(urgent > 0) html += `<span class="b-summary-chip alert">🚨 <strong>${urgent}</strong> urgent</span>`;
+  if(stats && stats.avg_close_days_30d != null){
+    html += `<span class="b-summary-chip">avg close <strong>${Number(stats.avg_close_days_30d).toFixed(1)}d</strong></span>`;
   }
-
+  if(stats && stats.closed_last_7d){
+    html += `<span class="b-summary-chip ok">${stats.closed_last_7d} closed this week</span>`;
+  }
+  // Clean Up button only appears when there's meaningful backlog
+  if(open > 30){
+    html += `<button class="b-summary-stats-btn" id="bCleanUpBtn" style="background:rgba(212,88,88,0.15);border-color:rgba(212,88,88,0.3);color:#e88">🧹 Clean Up</button>`;
+  }
+  html += `<button class="b-summary-stats-btn" id="bStatsBtn">📊 Stats</button>`;
   strip.innerHTML = html;
-
-  if (mode === 'open') {
-    const snoozeChip = strip.querySelector('#bSnoozeChip');
-    if (snoozeChip) {
-      snoozeChip.addEventListener('click', () => {
-        filters.showSnoozed = !filters.showSnoozed;
-        render();
-      });
-    }
-    strip.querySelector('#bCleanUpBtn').addEventListener('click', openTriageModal);
-    strip.querySelector('#bStatsBtn').addEventListener('click', openStatsModal);
-  }
-
-  wrapper.appendChild(strip);
-  return wrapper;
+  strip.querySelector('#bStatsBtn').addEventListener('click', openStatsModal);
+  const cleanBtn = strip.querySelector('#bCleanUpBtn');
+  if(cleanBtn) cleanBtn.addEventListener('click', openTriageModal);
+  return strip;
 }
 
 function renderBoardHeader(){
@@ -581,10 +375,6 @@ function renderLists(){
 
   const visibleCards = applyFilters(cards);
 
-  // If the user has filtered by location, swimlanes collapse to just
-  // that location — no point showing empty Suerte/Este/Toti headers.
-  const activeLoc = filters.location;
-
   lists.forEach(list => {
     const listEl = document.createElement('div');
     listEl.className = 'b-list';
@@ -619,67 +409,7 @@ function renderLists(){
       dragCard = null;
     });
 
-    // ─── SWIMLANES ──────────────────────────────────────────────
-    // Group this column's cards by location so a multi-venue board
-    // stops being a wall of sameness. Each location gets a small
-    // header with its accent color + card count. Cards with no
-    // location fall into an "Other" swimlane so nothing hides.
-    if (listCards.length === 0) {
-      // empty column — show nothing (the + Add card button handles the hint)
-    } else if (activeLoc) {
-      // User filtered by location → swimlanes redundant, flat list is cleaner
-      listCards.forEach(c => cardsWrap.appendChild(createCardEl(c)));
-    } else {
-      // Bucket cards by location, preserving original order within each
-      const byLoc = new Map();
-      LOCATIONS.forEach(l => byLoc.set(l.key, []));
-      byLoc.set('__other__', []);
-      listCards.forEach(c => {
-        const bucket = byLoc.has(c.location) ? c.location : '__other__';
-        byLoc.get(bucket).push(c);
-      });
-
-      // Render only swimlanes that actually contain cards
-      LOCATIONS.forEach(loc => {
-        const bucket = byLoc.get(loc.key);
-        if (!bucket.length) return;
-        const lane = document.createElement('div');
-        lane.className = 'b-swimlane';
-        lane.style.setProperty('--lane-color', loc.color);
-        lane.innerHTML = `
-          <div class="b-swim-head">
-            <span class="b-swim-dot" style="background:${loc.color}"></span>
-            <span class="b-swim-name">${esc(loc.label)}</span>
-            <span class="b-swim-count">${bucket.length}</span>
-          </div>
-        `;
-        const laneBody = document.createElement('div');
-        laneBody.className = 'b-swim-body';
-        bucket.forEach(c => laneBody.appendChild(createCardEl(c)));
-        lane.appendChild(laneBody);
-        cardsWrap.appendChild(lane);
-      });
-
-      // "Other" bucket for cards with null/unknown location
-      const other = byLoc.get('__other__');
-      if (other.length) {
-        const lane = document.createElement('div');
-        lane.className = 'b-swimlane b-swim-other';
-        lane.innerHTML = `
-          <div class="b-swim-head">
-            <span class="b-swim-dot" style="background:#746c5e"></span>
-            <span class="b-swim-name">No location</span>
-            <span class="b-swim-count">${other.length}</span>
-          </div>
-        `;
-        const laneBody = document.createElement('div');
-        laneBody.className = 'b-swim-body';
-        other.forEach(c => laneBody.appendChild(createCardEl(c)));
-        lane.appendChild(laneBody);
-        cardsWrap.appendChild(lane);
-      }
-    }
-
+    listCards.forEach(c => cardsWrap.appendChild(createCardEl(c)));
     listEl.appendChild(cardsWrap);
 
     const addBtn = document.createElement('button');
@@ -716,30 +446,9 @@ function createCardEl(card){
   const loc = locationInfo(card.location);
   const overdue = isOverdue(card);
 
-  // Stuck detection — how long since this card's status last changed?
-  // If >7 days, show a discreet corner pill. Color ramps warmer as
-  // the card rots: amber at 7-14 days, red at 14+. This is the single
-  // most actionable signal on a restaurant ops board — it transforms
-  // the column view from a wall of sameness into a triage surface.
-  const stuckRef = card.last_status_change_at || card.last_moved_at || card.updated_at || card.created_at;
-  let stuckDays = null;
-  if (stuckRef) {
-    stuckDays = Math.floor((Date.now() - new Date(stuckRef).getTime()) / 86400000);
-  }
-  const isStuck = stuckDays != null && stuckDays > 7;
-  const stuckClass = stuckDays > 14 ? 'stuck-red' : (isStuck ? 'stuck-amber' : '');
-  if (isStuck) {
-    el.classList.add('is-stuck', stuckClass);
-  }
-
   // Priority bar (left edge)
   const priBarColor = pri.color || 'transparent';
   let html = `<div class="b-card-pri-bar" style="background:${priBarColor}"></div>`;
-
-  // Stuck pill — top-right corner, small, ignorable until it's red
-  if (isStuck) {
-    html += `<span class="b-card-stuck" title="Last status change ${stuckDays}d ago">⏳ ${stuckDays}d</span>`;
-  }
 
   // Move button (visible on mobile always, on desktop on hover)
   html += `<button class="b-card-move-btn" data-move="${card.id}">→ Move</button>`;
@@ -865,7 +574,7 @@ async function moveCard(card, targetList){
     }).eq('id', card.id);
     card.list_id = targetList.id;
     card.status = status;
-    await loadCards(); loadViewCounts(); render();
+    await loadCards(); render();
   }catch(e){
     console.error('[board] moveCard:', e);
     NX.toast && NX.toast('Failed to move card', 'error');
@@ -887,12 +596,6 @@ async function openCardDetail(card){
       <button class="b-modal-close">✕</button>
     </div>
     <div class="b-modal-body">
-      ${card.snooze_until && new Date(card.snooze_until).getTime() > Date.now() ? `
-        <div class="b-snooze-banner">
-          <span>💤 Snoozed until <strong>${new Date(card.snooze_until).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})}</strong></span>
-          <button class="b-snooze-cancel" id="bUnsnooze">Wake now</button>
-        </div>
-      ` : ''}
 
       <div class="b-section">
         <div class="b-section-label">Description</div>
@@ -975,23 +678,11 @@ async function openCardDetail(card){
         </div>
       </div>
 
-      <!-- Related cards — async-populated. Shows other open cards at
-           the same location, other open cards for the same equipment,
-           and recent closed/archived tickets for the same equipment.
-           Makes the card feel situated instead of alone. -->
-      <div class="b-section" id="bRelatedSection" style="display:none">
-        <div class="b-section-label">Related</div>
-        <div id="bRelatedBody"></div>
-      </div>
-
       <div class="b-actions">
         <button class="b-btn b-btn-primary" id="bSave">Save</button>
-        ${!card.archived ? `<button class="b-btn b-btn-snooze" id="bSnooze">💤 Snooze</button>` : ''}
         ${card.equipment_id ? `<button class="b-btn" id="bCall">📞 Call Service</button>` : ''}
-        ${!card.archived ? `<button class="b-btn" id="bMoveBtn">→ Move</button>` : ''}
-        ${card.archived
-          ? `<button class="b-btn b-btn-primary" id="bRestore">↩ Restore</button>`
-          : `<button class="b-btn b-btn-danger" id="bArchive">Archive</button>`}
+        <button class="b-btn" id="bMoveBtn">→ Move</button>
+        <button class="b-btn b-btn-danger" id="bArchive">Archive</button>
       </div>
     </div>
   </div>`;
@@ -1082,96 +773,21 @@ async function openCardDetail(card){
 
   // Actions
   bg.querySelector('#bSave').addEventListener('click', () => saveCard(card, bg, true));
-  const moveBtn = bg.querySelector('#bMoveBtn');
-  if (moveBtn) {
-    moveBtn.addEventListener('click', () => {
-      saveCard(card, bg, false).then(() => {
-        bg.remove();
-        openMovePicker(card);
-      });
+  bg.querySelector('#bMoveBtn').addEventListener('click', () => {
+    saveCard(card, bg, false).then(() => {
+      bg.remove();
+      openMovePicker(card);
     });
-  }
-  const archiveBtn = bg.querySelector('#bArchive');
-  if (archiveBtn) {
-    archiveBtn.addEventListener('click', async () => {
-      if(!confirm('Archive this card?')) return;
-      try {
-        // Use .select() to get the updated row back — this works across
-        // all supabase-js versions without the { count: 'exact' } option
-        // (which caused PostgREST to reject the body as "has no fields"
-        // on some client versions).
-        const { data, error } = await NX.sb.from('kanban_cards')
-          .update({ archived: true })
-          .eq('id', card.id)
-          .select('id');
-        if (error) throw error;
-        if (!data || data.length === 0) {
-          NX.toast && NX.toast('Archive did nothing — likely RLS policy blocking UPDATE', 'error');
-          console.warn('[board] archive affected 0 rows for card', card.id);
-          return;
-        }
-        bg.remove();
-        await loadCards(); loadViewCounts(); render();
-        NX.toast && NX.toast('Card archived', 'info');
-      } catch (e) {
-        console.error('[board] archive failed:', e);
-        NX.toast && NX.toast('Archive failed: ' + (e.message || 'unknown'), 'error');
-      }
-    });
-  }
-  // Restore — appears when viewing an archived card
-  const restoreBtn = bg.querySelector('#bRestore');
-  if (restoreBtn) {
-    restoreBtn.addEventListener('click', async () => {
-      try {
-        const { data, error } = await NX.sb.from('kanban_cards')
-          .update({ archived: false })
-          .eq('id', card.id)
-          .select('id');
-        if (error) throw error;
-        if (!data || data.length === 0) {
-          NX.toast && NX.toast('Restore did nothing — likely RLS policy blocking UPDATE', 'error');
-          return;
-        }
-        bg.remove();
-        await loadCards(); loadViewCounts(); render();
-        NX.toast && NX.toast('Card restored to board', 'success');
-      } catch (e) {
-        console.error('[board] restore failed:', e);
-        NX.toast && NX.toast('Restore failed: ' + (e.message || 'unknown'), 'error');
-      }
-    });
-  }
-
-  // Snooze — opens a picker with preset options + custom date.
-  const snoozeBtn = bg.querySelector('#bSnooze');
-  if (snoozeBtn) {
-    snoozeBtn.addEventListener('click', () => {
-      openSnoozePicker(card, bg);
-    });
-  }
-
-  // Unsnooze — banner button, only exists when card is currently snoozed
-  const unsnoozeBtn = bg.querySelector('#bUnsnooze');
-  if (unsnoozeBtn) {
-    unsnoozeBtn.addEventListener('click', async () => {
-      try {
-        await NX.sb.from('kanban_cards').update({ snooze_until: null }).eq('id', card.id);
-        card.snooze_until = null;
-        NX.toast && NX.toast('Card woken — back on the board', 'success');
-        bg.remove();
-        await loadCards(); loadViewCounts(); render();
-      } catch (e) {
-        console.error('[board] unsnooze:', e);
-        NX.toast && NX.toast('Could not wake card', 'error');
-      }
-    });
-  }
-
-  // Related cards — async load (same-location open, same-equipment
-  // open, same-equipment recent closed). No-op if nothing related.
-  renderRelatedCards(card, bg.querySelector('#bRelatedBody'), bg.querySelector('#bRelatedSection'));
-
+  });
+  bg.querySelector('#bArchive').addEventListener('click', async () => {
+    if(!confirm('Archive this card?')) return;
+    await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', card.id);
+    bg.remove();
+    await loadCards(); render();
+    NX.toast && NX.toast('Card archived', 'info');
+    // Stage R: pulse the mini-galaxy — ops state just shifted
+    if (NX.homeGalaxyPulse) NX.homeGalaxyPulse();
+  });
   const callBtn = bg.querySelector('#bCall');
   if(callBtn){
     callBtn.addEventListener('click', async () => {
@@ -1186,234 +802,6 @@ async function openCardDetail(card){
       }
     });
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// SNOOZE — picker + commit
-// ─────────────────────────────────────────────────────────────────────────
-function openSnoozePicker(card, parentBg){
-  // Offer four quick-tap presets + a custom datetime input. All
-  // presets land at 9am in the user's local time on the target day,
-  // which is when someone actually wants to see a snoozed card
-  // again (not 3am midnight, which is when pure "tomorrow" would
-  // resolve to).
-  const now = new Date();
-  const at9 = (d) => { const x = new Date(d); x.setHours(9, 0, 0, 0); return x; };
-
-  const tomorrow = at9(new Date(now.getTime() + 86400000));
-  const in3days  = at9(new Date(now.getTime() + 3 * 86400000));
-  // Next Monday at 9am (skip this-week Monday if already past it)
-  const nextMon = at9(new Date(now.getTime()));
-  nextMon.setDate(nextMon.getDate() + ((8 - nextMon.getDay()) % 7 || 7));
-  const in2weeks = at9(new Date(now.getTime() + 14 * 86400000));
-
-  const fmt = (d) => d.toLocaleString([], { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
-
-  const pickerBg = document.createElement('div');
-  pickerBg.className = 'b-modal-bg b-snooze-picker-bg';
-  pickerBg.innerHTML = `<div class="b-modal b-snooze-picker">
-    <div class="b-modal-head">
-      <div style="flex:1;font-size:14px;font-weight:600">💤 Snooze this card</div>
-      <button class="b-modal-close" id="bSnoozeCancel">✕</button>
-    </div>
-    <div class="b-modal-body" style="padding:14px 16px">
-      <div style="font-size:12px;color:var(--text-dim,#a49c94);margin-bottom:12px;line-height:1.5">
-        Hide this card from the board until the time below. It'll re-appear automatically.
-      </div>
-      <div class="b-snooze-opts">
-        <button class="b-snooze-opt" data-until="${tomorrow.toISOString()}">
-          <span class="b-snooze-opt-label">Tomorrow morning</span>
-          <span class="b-snooze-opt-when">${fmt(tomorrow)}</span>
-        </button>
-        <button class="b-snooze-opt" data-until="${in3days.toISOString()}">
-          <span class="b-snooze-opt-label">In 3 days</span>
-          <span class="b-snooze-opt-when">${fmt(in3days)}</span>
-        </button>
-        <button class="b-snooze-opt" data-until="${nextMon.toISOString()}">
-          <span class="b-snooze-opt-label">Next Monday</span>
-          <span class="b-snooze-opt-when">${fmt(nextMon)}</span>
-        </button>
-        <button class="b-snooze-opt" data-until="${in2weeks.toISOString()}">
-          <span class="b-snooze-opt-label">In 2 weeks</span>
-          <span class="b-snooze-opt-when">${fmt(in2weeks)}</span>
-        </button>
-      </div>
-      <div class="b-snooze-custom">
-        <label class="b-snooze-custom-label">Or pick a date</label>
-        <div class="b-snooze-custom-row">
-          <input type="datetime-local" id="bSnoozeCustom" class="b-field">
-          <button class="b-btn b-btn-primary" id="bSnoozeCustomBtn">Snooze</button>
-        </div>
-      </div>
-    </div>
-  </div>`;
-  document.body.appendChild(pickerBg);
-
-  const cleanup = () => pickerBg.remove();
-  pickerBg.querySelector('#bSnoozeCancel').addEventListener('click', cleanup);
-  pickerBg.addEventListener('click', e => { if (e.target === pickerBg) cleanup(); });
-
-  pickerBg.querySelectorAll('.b-snooze-opt').forEach(btn => {
-    btn.addEventListener('click', () => {
-      cleanup();
-      commitSnooze(card, btn.dataset.until, parentBg);
-    });
-  });
-  pickerBg.querySelector('#bSnoozeCustomBtn').addEventListener('click', () => {
-    const val = pickerBg.querySelector('#bSnoozeCustom').value;
-    if (!val) { NX.toast && NX.toast('Pick a date first', 'info'); return; }
-    const d = new Date(val);
-    if (d.getTime() <= Date.now()) {
-      NX.toast && NX.toast('Snooze time must be in the future', 'error');
-      return;
-    }
-    cleanup();
-    commitSnooze(card, d.toISOString(), parentBg);
-  });
-}
-
-async function commitSnooze(card, untilIso, parentBg){
-  try {
-    // Save any in-flight edits first (in case the user typed into
-    // the description, updated priority, etc. before hitting Snooze)
-    await saveCard(card, parentBg, false);
-    await NX.sb.from('kanban_cards').update({ snooze_until: untilIso }).eq('id', card.id);
-    card.snooze_until = untilIso;
-    const d = new Date(untilIso);
-    const label = d.toLocaleString([], { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
-    NX.toast && NX.toast(`💤 Snoozed until ${label}`, 'success');
-    if (parentBg) parentBg.remove();
-    await loadCards(); loadViewCounts(); render();
-  } catch (e) {
-    console.error('[board] snooze:', e);
-    // Likely missing column — tell the user what to do
-    const missing = /snooze_until|column|does not exist/i.test(e.message || '');
-    NX.toast && NX.toast(
-      missing ? 'Snooze needs the SQL migration — see migration_board_snooze.sql' : 'Could not snooze card',
-      'error'
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// RELATED CARDS — shown in card detail modal
-// ─────────────────────────────────────────────────────────────────────────
-async function renderRelatedCards(card, container, section){
-  if (!container || !section) return;
-
-  // Three buckets of "related":
-  //   1. Other OPEN cards at the same location (currently on the board)
-  //   2. Other OPEN cards for the same equipment (if linked)
-  //   3. RECENT CLOSED/ARCHIVED tickets for the same equipment (last 180d)
-  //
-  // Bucket 1 & 2 come from the in-memory cards array (no extra DB
-  // call). Bucket 3 needs a Supabase query since closed cards aren't
-  // in the main view.
-  const sameLoc = card.location
-    ? cards.filter(c => c.id !== card.id && c.location === card.location)
-    : [];
-  const sameEqOpen = card.equipment_id
-    ? cards.filter(c => c.id !== card.id && c.equipment_id === card.equipment_id)
-    : [];
-
-  let sameEqRecent = [];
-  if (card.equipment_id) {
-    try {
-      const cutoff = new Date(Date.now() - 180 * 86400000).toISOString();
-      const { data, error } = await NX.sb.from('kanban_cards')
-        .select('id, title, status, archived, created_at, closed_at, updated_at, priority')
-        .eq('equipment_id', card.equipment_id)
-        .neq('id', card.id)
-        .or('archived.eq.true,status.eq.closed,status.eq.done')
-        .gte('updated_at', cutoff)
-        .order('updated_at', { ascending: false })
-        .limit(5);
-      if (!error) sameEqRecent = data || [];
-    } catch(e) { /* non-fatal */ }
-  }
-
-  // Hide section entirely if nothing to show
-  if (!sameLoc.length && !sameEqOpen.length && !sameEqRecent.length) {
-    section.style.display = 'none';
-    return;
-  }
-  section.style.display = '';
-
-  const loc = locationInfo(card.location);
-  const renderCardRow = (c, opts = {}) => {
-    const cLoc = locationInfo(c.location);
-    const pri = (c.priority === 'urgent') ? '🚨 ' : (c.priority === 'high' ? '⚠ ' : '');
-    const age = opts.showDate && c.updated_at
-      ? new Date(c.updated_at).toLocaleDateString([], { month: 'short', day: 'numeric' })
-      : '';
-    return `
-      <button class="b-related-card" data-card-id="${c.id}" type="button">
-        <span class="b-related-title">${pri}${esc(c.title || '')}</span>
-        <span class="b-related-meta">
-          ${cLoc ? `<span style="color:${cLoc.color}">${esc(cLoc.label)}</span>` : ''}
-          ${age ? `<span class="b-related-age">${esc(age)}</span>` : ''}
-          ${opts.closedTag ? `<span class="b-related-closed">closed</span>` : ''}
-        </span>
-      </button>
-    `;
-  };
-
-  let html = '';
-  if (sameLoc.length) {
-    html += `
-      <div class="b-related-group">
-        <div class="b-related-head">
-          <span class="b-related-dot" style="background:${loc?.color || '#c8a44e'}"></span>
-          ${sameLoc.length} open at ${esc(loc?.label || card.location)}
-        </div>
-        <div class="b-related-list">${sameLoc.slice(0, 5).map(c => renderCardRow(c)).join('')}</div>
-      </div>
-    `;
-  }
-  if (sameEqOpen.length) {
-    html += `
-      <div class="b-related-group">
-        <div class="b-related-head">
-          <span class="b-related-dot" style="background:#c8a44e"></span>
-          Open tickets for this equipment
-        </div>
-        <div class="b-related-list">${sameEqOpen.slice(0, 5).map(c => renderCardRow(c)).join('')}</div>
-      </div>
-    `;
-  }
-  if (sameEqRecent.length) {
-    html += `
-      <div class="b-related-group">
-        <div class="b-related-head">
-          <span class="b-related-dot" style="background:#7aa885"></span>
-          Recent closed tickets for this equipment
-        </div>
-        <div class="b-related-list">${sameEqRecent.map(c => renderCardRow(c, { showDate: true, closedTag: true })).join('')}</div>
-      </div>
-    `;
-  }
-  container.innerHTML = html;
-
-  // Wire taps — open that card's detail
-  container.querySelectorAll('.b-related-card').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.cardId;
-      // Try in-memory first (fast)
-      let target = cards.find(c => String(c.id) === String(id));
-      // Closed/archived cards come from DB only
-      if (!target) {
-        try {
-          const { data } = await NX.sb.from('kanban_cards').select('*').eq('id', id).single();
-          target = data;
-        } catch(e) { /* ignore */ }
-      }
-      if (!target) { NX.toast && NX.toast('Card not found', 'error'); return; }
-      // Close current modal, open the related one
-      const currentModal = btn.closest('.b-modal-bg');
-      if (currentModal) currentModal.remove();
-      openCardDetail(target);
-    });
-  });
 }
 
 // Auto-move card to a column by name (fuzzy match)
@@ -1528,7 +916,7 @@ async function saveCard(card, modal, closeAfter){
     await NX.sb.from('kanban_cards').update(patch).eq('id', card.id);
     if(closeAfter){
       modal.remove();
-      await loadCards(); loadViewCounts(); render();
+      await loadCards(); render();
     }
   }catch(e){
     console.error('[board] saveCard:', e);
@@ -1579,7 +967,7 @@ async function promptNewCard(listId, prefill){
       photo_urls: [],
       archived: false,
     }).select().single();
-    await loadCards(); loadViewCounts(); render();
+    await loadCards(); render();
     NX.toast && NX.toast('Card created', 'success');
     // If created with prefill, open it immediately
     if(prefill && created) openCardDetail(created);
@@ -1692,37 +1080,21 @@ async function openStatsModal(){
 // One card at a time, oldest-stuck first, three-button decide.
 // ─────────────────────────────────────────────────────────────────────────
 async function openTriageModal(){
-  // Load ALL open cards across all boards, ordered by "most stale first"
-  // so the cards that have been sitting longest bubble to the top of
-  // the triage queue. Falls back gracefully through multiple sort
-  // columns so older DB copies without last_status_change_at still work.
+  // Load ALL open cards across all boards, sorted by oldest last_status_change_at
+  // (cards stuck for longest → shown first)
   let allOpen = [];
-  let loadErr = null;
-
-  // Ordered list of columns to try sorting by — first success wins.
-  // The earlier columns are more meaningful (actual status movement);
-  // later ones are proxies that any Supabase table will have.
-  const sortCandidates = ['last_status_change_at', 'last_moved_at', 'updated_at', 'created_at'];
-  for (const col of sortCandidates) {
-    try {
-      const { data, error } = await NX.sb.from('kanban_cards')
-        .select('*')
-        .eq('archived', false)
-        .not('status', 'in', '(closed,done)')
-        .order(col, { ascending: true, nullsFirst: true })
-        .limit(2000);
-      if (error) { loadErr = error; continue; }       // try next sort column
-      allOpen = data || [];
-      loadErr = null;
-      break;
-    } catch (e) {
-      loadErr = e;
-    }
-  }
-
-  if (loadErr) {
-    console.error('[board] triage load:', loadErr);
-    NX.toast && NX.toast('Could not load cards: ' + (loadErr.message || 'query failed'), 'error');
+  try {
+    const { data } = await NX.sb.from('kanban_cards')
+      .select('*')
+      .eq('archived', false)
+      .not('status', 'in', '(closed,done)')
+      .order('last_status_change_at', { ascending: true, nullsFirst: true })
+      .order('created_at', { ascending: true })
+      .limit(2000);
+    allOpen = data || [];
+  } catch(e) {
+    console.error('[board] triage load:', e);
+    NX.toast && NX.toast('Could not load cards', 'error');
     return;
   }
 
@@ -1766,15 +1138,12 @@ async function openTriageModal(){
 
   const finish = () => {
     bg.remove();
-    // Reload cards AND stats so the summary strip reflects reality.
-    // Previously only cards were reloaded, leaving "N open" stuck
-    // at the pre-triage number until next page load.
-    Promise.all([loadCards(), loadStats()]).then(() => {
+    loadCards().then(() => {
       render();
       const msg = [];
       if (archivedCount) msg.push(`${archivedCount} archived`);
-      if (closedCount)   msg.push(`${closedCount} closed`);
-      if (skippedCount)  msg.push(`${skippedCount} skipped`);
+      if (closedCount) msg.push(`${closedCount} closed`);
+      if (skippedCount) msg.push(`${skippedCount} skipped`);
       NX.toast && NX.toast(msg.length ? `✓ ${msg.join(' · ')}` : 'All done', 'success');
     });
   };
@@ -1842,27 +1211,17 @@ async function openTriageModal(){
 
     try {
       if (action === 'archive') {
-        const { data, error } = await NX.sb.from('kanban_cards')
-          .update({ archived: true })
-          .eq('id', c.id)
-          .select('id');
-        if (error) throw error;
-        if (!data || data.length === 0) throw new Error('Update saved 0 rows — RLS blocking UPDATE');
+        await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', c.id);
         archivedCount++;
       } else if (action === 'close') {
-        const { data, error } = await NX.sb.from('kanban_cards')
-          .update({ status: 'closed' })
-          .eq('id', c.id)
-          .select('id');
-        if (error) throw error;
-        if (!data || data.length === 0) throw new Error('Update saved 0 rows — RLS blocking UPDATE');
+        await NX.sb.from('kanban_cards').update({ status: 'closed' }).eq('id', c.id);
         closedCount++;
       } else if (action === 'skip') {
         skippedCount++;
       }
     } catch (e) {
       console.error('[triage] action failed:', e);
-      NX.toast && NX.toast('Action failed: ' + (e.message || 'unknown'), 'error');
+      NX.toast && NX.toast('Action failed', 'error');
       return;
     }
 
@@ -1880,14 +1239,14 @@ async function openTriageModal(){
     try {
       if (action === 'archive') {
         await NX.sb.from('kanban_cards').update({ archived: prevArchived }).eq('id', card.id);
-        archivedCount = Math.max(0, archivedCount - 1);
+        archivedCount--;
       } else if (action === 'close') {
         await NX.sb.from('kanban_cards').update({ status: prevStatus }).eq('id', card.id);
-        closedCount = Math.max(0, closedCount - 1);
+        closedCount--;
       } else if (action === 'skip') {
-        skippedCount = Math.max(0, skippedCount - 1);
+        skippedCount--;
       }
-      idx = Math.max(0, idx - 1);
+      idx--;
       lastAction = null;
       renderCurrent();
     } catch (e) { console.error('[triage] undo:', e); }
@@ -1895,34 +1254,20 @@ async function openTriageModal(){
 
   bg.querySelector('#bTArchiveAll').addEventListener('click', async () => {
     const remaining = allOpen.length - idx;
-    if (!confirm(`Archive ALL ${remaining} remaining cards?\n\nThis bulk-archives everything you haven't triaged yet. The cards aren't deleted — you can find them later by tapping the "Archived" chip on the board.\n\nProceed?`)) return;
+    if (!confirm(`Archive ALL ${remaining} remaining cards?\n\nThis bulk-archives everything you haven't triaged yet. The cards aren't deleted — you can find them later by filtering "archived" in the database.\n\nProceed?`)) return;
     const ids = allOpen.slice(idx).map(c => c.id);
-    let totalUpdated = 0;
-    let firstErr = null;
     try {
-      // Supabase caps batch updates; chunk into groups of 200.
-      // Chain .select() so we get the updated rows back — reliable
-      // across supabase-js versions and confirms actual row count.
+      // Supabase caps batch updates; chunk into groups of 200
       for (let i = 0; i < ids.length; i += 200) {
         const chunk = ids.slice(i, i + 200);
-        const { data, error } = await NX.sb.from('kanban_cards')
-          .update({ archived: true })
-          .in('id', chunk)
-          .select('id');
-        if (error) { firstErr = error; break; }
-        totalUpdated += (data || []).length;
+        await NX.sb.from('kanban_cards').update({ archived: true }).in('id', chunk);
       }
-      if (firstErr) throw firstErr;
-      if (totalUpdated === 0) {
-        throw new Error('Zero rows updated — likely RLS blocking UPDATE');
-      }
-      archivedCount += totalUpdated;
+      archivedCount += remaining;
       idx = allOpen.length;
       renderCurrent();
-      NX.toast && NX.toast(`✓ ${totalUpdated} archived`, 'success');
     } catch (e) {
       console.error('[triage] archive all:', e);
-      NX.toast && NX.toast('Bulk archive failed: ' + (e.message || 'unknown'), 'error');
+      NX.toast && NX.toast('Bulk archive failed — some cards may be archived', 'error');
     }
   });
 
@@ -1936,7 +1281,6 @@ async function init(){
   await loadLists();
   await loadCards();
   loadStats();
-  loadViewCounts();
   render();
 }
 
@@ -1944,7 +1288,6 @@ async function show(){
   // Called whenever user taps the Board tab
   await loadCards();
   loadStats();
-  loadViewCounts();
   render();
 }
 
@@ -2002,7 +1345,7 @@ NX.modules.board = {
   createFromEquipment,
   getOpenCardsForEquipment,
   // also expose loadCards so equipment-integration refreshes correctly
-  reload: async () => { await loadCards(); loadViewCounts(); render(); },
+  reload: async () => { await loadCards(); render(); },
 };
 
 console.log('[board] v4 loaded — ' + Object.keys(NX.modules.board).length + ' exports');
