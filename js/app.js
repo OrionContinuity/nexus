@@ -412,6 +412,16 @@ const NX = {
     this.isAdmin = role === 'admin';
     this.isManager = role === 'manager' || role === 'admin';
     this.isStaff = true;
+    // Stage O: CSS gate for non-admins — mini-galaxy on Home stays
+    // visible (as an ornament/identity piece), but the NEXUS wordmark
+    // top-left and tapping the mini-galaxy are disabled via this class.
+    // CSS target: body.no-galaxy-access #navNexus { display: none }
+    //            body.no-galaxy-access #homeMiniGalaxy { pointer-events: none }
+    if (this.isAdmin) {
+      document.body.classList.remove('no-galaxy-access');
+    } else {
+      document.body.classList.add('no-galaxy-access');
+    }
   },
 
   async _loadConfigAndStart() {
