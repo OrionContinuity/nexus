@@ -5448,28 +5448,110 @@ function injectRowPrintButtons() {
   const list = document.getElementById('eqList');
   if (!list) return;
 
+  // NOTE: Despite the legacy function name, this now injects a
+  // "quick status change" button on each row — admins can flip
+  // equipment status (Operational / Needs Service / Down / Retired)
+  // without opening the detail view. The old label-print icon was
+  // moved to the full editor's Print section (still accessible via
+  // Edit → Print on Zebra or Paper Sticker).
   list.querySelectorAll('.eq-row[data-eq-id]').forEach(row => {
     if (row.classList.contains('eq-row-head')) return;
-    if (row.querySelector('.eq-row-print')) return;
+    if (row.querySelector('.eq-row-status-btn')) return;
     const id = row.dataset.eqId;
     const btn = document.createElement('button');
-    btn.className = 'eq-row-print';
-    btn.innerHTML = '🏷️';
-    btn.title = 'Print label';
-    btn.addEventListener('click', e => { e.stopPropagation(); quickPrint(id); });
+    btn.className = 'eq-row-status-btn';
+    btn.innerHTML = '⟳';
+    btn.title = 'Change status';
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      openQuickStatusMenu(id, btn);
+    });
     row.appendChild(btn);
   });
 
   list.querySelectorAll('.eq-card[data-eq-id]').forEach(card => {
-    if (card.querySelector('.eq-card-print')) return;
+    if (card.querySelector('.eq-card-status-btn')) return;
     const id = card.dataset.eqId;
     const btn = document.createElement('button');
-    btn.className = 'eq-card-print';
-    btn.innerHTML = '🏷️';
-    btn.title = 'Print label';
-    btn.addEventListener('click', e => { e.stopPropagation(); quickPrint(id); });
+    btn.className = 'eq-card-status-btn';
+    btn.innerHTML = '⟳';
+    btn.title = 'Change status';
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      openQuickStatusMenu(id, btn);
+    });
     card.querySelector('.eq-card-top')?.appendChild(btn);
   });
+}
+
+/* ═══ QUICK STATUS MENU ════════════════════════════════════════════════
+   Tap a row's status button → popup shows all 4 status options with
+   color dots. Tap one → writes to DB + reloads list. Admin-only writes
+   — for non-admin users, show a toast explaining the restriction.
+   Small, mobile-first, dismisses on outside tap. */
+function openQuickStatusMenu(equipmentId, anchorBtn) {
+  // Remove any existing menu
+  document.querySelector('.eq-status-menu')?.remove();
+
+  const isAdmin = NX.currentUser?.role === 'admin';
+  if (!isAdmin) {
+    NX.toast && NX.toast('Admins only. Report an issue via the detail page instead.', 'info', 3500);
+    return;
+  }
+
+  const eq = equipment.find(e => e.id === equipmentId);
+  const currentKey = eq?.status || 'operational';
+
+  const menu = document.createElement('div');
+  menu.className = 'eq-status-menu';
+  menu.innerHTML = `
+    <div class="eq-status-menu-head">Change status</div>
+    ${STATUSES.map(s => `
+      <button class="eq-status-menu-item ${s.key === currentKey ? 'is-current' : ''}" data-key="${s.key}">
+        <span class="eq-status-menu-dot" style="background:${s.color}"></span>
+        <span>${s.label}</span>
+        ${s.key === currentKey ? '<span class="eq-status-menu-check">✓</span>' : ''}
+      </button>
+    `).join('')}
+  `;
+  document.body.appendChild(menu);
+
+  // Position next to anchor button
+  const rect = anchorBtn.getBoundingClientRect();
+  const menuH = 200;
+  const top = (rect.bottom + menuH > window.innerHeight) ? rect.top - menuH - 6 : rect.bottom + 6;
+  menu.style.top = Math.max(10, top) + 'px';
+  menu.style.right = (window.innerWidth - rect.right) + 'px';
+
+  menu.querySelectorAll('.eq-status-menu-item').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const newKey = btn.dataset.key;
+      menu.remove();
+      if (newKey === currentKey) return;
+      try {
+        const { error } = await NX.sb.from('equipment')
+          .update({ status: newKey })
+          .eq('id', equipmentId);
+        if (error) throw error;
+        NX.toast && NX.toast(`Status → ${STATUSES.find(s => s.key === newKey)?.label || newKey}`, 'success');
+        if (eq) eq.status = newKey;  // optimistic local update
+        buildUI();  // re-render list
+      } catch (err) {
+        console.error('[status] update failed:', err);
+        NX.toast && NX.toast('Update failed: ' + err.message, 'error');
+      }
+    });
+  });
+
+  // Dismiss on outside tap (delay one tick so the opening tap doesn't close it)
+  setTimeout(() => {
+    document.addEventListener('click', function dismiss(e) {
+      if (!menu.contains(e.target)) {
+        menu.remove();
+        document.removeEventListener('click', dismiss);
+      }
+    });
+  }, 0);
 }
 
 
