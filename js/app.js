@@ -495,22 +495,6 @@ const NX = {
       document.querySelector('[data-view="board"]').style.display = 'none';
     }
 
-    // ─── GALAXY ACCESS (admin-only) ────────────────────────────────
-    // The brain/galaxy view surfaces raw email content, contractor
-    // pricing, personal notes, and other sensitive data. Keep it
-    // behind an admin gate so staff and managers can't stumble into
-    // information they shouldn't see.
-    //
-    // We use a body class instead of querying elements because the
-    // mini-galaxy on Home is rendered lazily by home.js after this
-    // point — a direct element query would no-op. CSS handles both
-    // the main NEXUS logo AND the mini-galaxy the moment they mount.
-    if (!this.isAdmin) {
-      document.body.classList.add('no-galaxy-access');
-    } else {
-      document.body.classList.remove('no-galaxy-access');
-    }
-
     // Continue with normal init
     this.loadNodes().then(() => {
       // Load AI context systems
@@ -531,6 +515,21 @@ const NX = {
     });
     this.setupNav();
     this.setupAdmin();
+
+    // ─── PUSH NOTIFICATIONS — Stage T ───────────────────────────────
+    // Register FCM push now that the user is logged in. This triggers
+    // the native permission dialog (on APK only — on PWA it's a no-op).
+    // Deferred 1s so the login animation completes first, and so any
+    // token that arrives has a valid NX.currentUser to attach to.
+    setTimeout(() => {
+      if (NX.pushNotify && NX.pushNotify.register) {
+        NX.pushNotify.register().then(() => {
+          // If this is a re-login on the same device, re-upload any
+          // cached token so future pushes route to this user
+          NX.pushNotify._flushPendingToken?.();
+        });
+      }
+    }, 1000);
     // Time clock nav widget
     NX.timeClock.setupNavWidget();
     // Ticket badge
@@ -710,7 +709,7 @@ td.check{background:#F0EDE6 !important}
       nexusBtn.classList.remove('active');
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       // Sync body class for view-aware CSS (e.g. chat HUD only shows on brain)
-      document.body.classList.remove('view-home','view-brain','view-clean','view-log','view-board','view-cal','view-equipment','view-ingest');
+      document.body.classList.remove('view-brain','view-clean','view-log','view-board','view-cal','view-equipment','view-ingest');
       document.body.classList.add('view-' + view);
       // Set active on correct buttons
       if (view === 'brain') { nexusBtn.classList.add('active'); }
@@ -727,31 +726,16 @@ td.check{background:#F0EDE6 !important}
     tabs.forEach(tab => tab.addEventListener('click', () => switchTo(tab.dataset.view)));
     // Bind bottom nav buttons
     bnavBtns.forEach(btn => btn.addEventListener('click', () => switchTo(btn.dataset.view)));
-    // Default: land on home view (editorial dashboard), NOT the galaxy.
-    // NEXUS logo (top-left) still opens the galaxy when tapped.
+    // Default active state
+    nexusBtn.classList.add('active');
     nexusBtn.addEventListener('click', () => switchTo('brain'));
-    const defaultHomeBtn = document.querySelector('.bnav-btn[data-view="home"]');
-    if (defaultHomeBtn) defaultHomeBtn.classList.add('active');
-    document.body.classList.add('view-home');
-    // Lazy-load home module now so it's ready
-    if (!this.loaded.home) {
-      this.loadScript('js/home.js', () => { this.loaded.home = true; NX.modules.home?.init?.(); });
-    } else {
-      NX.modules.home?.show?.();
-    }
-
-    // Expose a programmatic navigator for children (home module uses it)
-    NX.switchTo = (view) => switchTo(view);
+    // Initialize body class for default view (brain)
+    document.body.classList.add('view-brain');
   },
 
   activateModule(view) {
-    const moduleMap = { home: 'js/home.js', clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js' };
+    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js' };
     if (view === 'brain') { if (NX.brain && NX.brain.show) NX.brain.show(); return; }
-    if (view === 'home') {
-      if (this.loaded.home) { NX.modules.home?.show?.(); return; }
-      this.loadScript('js/home.js', () => { this.loaded.home = true; NX.modules.home?.init?.(); });
-      return;
-    }
     const file = moduleMap[view]; if (!file) return;
     if (this.loaded[view]) { const mod = this.modules[view]; if (mod && mod.show) mod.show(); }
     else {
@@ -839,31 +823,6 @@ td.check{background:#F0EDE6 !important}
         const tt = this.getTrelloToken();
         document.getElementById('adminTrelloToken').placeholder = tt ? 'Token set (••••' + tt.slice(-4) + ')' : 'Trello Token';
         document.getElementById('adminModel').value = this.getModel();
-
-        // ─── Rebuild the voice dropdown from NX.VOICES ─────────────
-        // The HTML had a stale, hand-written <option> list whose order
-        // didn't match brain-chat.js's VOICES array. That's why picking
-        // "Charlotte" in admin actually played Grace. Rebuilding here
-        // against the canonical list makes every voice name line up
-        // with what speak() actually plays. Preserves saved selection.
-        (function rebuildVoiceDropdown() {
-          const sel = document.getElementById('adminVoice');
-          if (!sel) return;
-          const list = (window.NX && Array.isArray(NX.VOICES) && NX.VOICES.length)
-            ? NX.VOICES : null;
-          if (!list) return;   // brain-chat not loaded yet — leave static list
-          const prev = sel.value;
-          sel.innerHTML = list.map((v, i) =>
-            `<option value="${i}">${v.name}${v.desc ? ' — ' + v.desc : ''}</option>`
-          ).join('');
-          // Restore previous selection if still valid; otherwise use saved config
-          const savedIdx = (this.config && this.config.voice_idx != null)
-            ? this.config.voice_idx
-            : parseInt(localStorage.getItem('nexus_voice_idx') || '0', 10);
-          const safe = Math.max(0, Math.min(list.length - 1, parseInt(prev || savedIdx, 10) || 0));
-          sel.value = String(safe);
-        }).call(this);
-
         document.getElementById('adminVoice').value = (this.config && this.config.voice_idx != null) ? this.config.voice_idx : (localStorage.getItem('nexus_voice_idx') || '0');
         // Voice saves immediately on change
         document.getElementById('adminVoice').addEventListener('change', async (e) => {
@@ -871,25 +830,10 @@ td.check{background:#F0EDE6 !important}
           localStorage.setItem('nexus_voice_idx', idx);
           if (this.config) this.config.voice_idx = idx;
           try { await this.sb.from('nexus_config').update({ voice_idx: idx }).eq('id', 1); } catch(e) {}
-          // Use NX.VOICES for the confirmation label so name matches what plays
-          const list = (window.NX && Array.isArray(NX.VOICES) && NX.VOICES.length) ? NX.VOICES : null;
-          const name = list ? (list[idx]?.name || 'Voice ' + idx) : ('Voice ' + idx);
+          const voiceNames = ['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
           const vs = document.getElementById('voiceTestStatus');
-          if (vs) { vs.textContent = `✓ ${name} selected & saved`; vs.style.color = '#5bba5f'; }
-          // Broadcast so chatview persona sheet + brain-chat stay in sync
-          window.dispatchEvent(new CustomEvent('nx-voice-idx-change', { detail: { idx } }));
+          if (vs) { vs.textContent = `✓ ${voiceNames[idx]} selected & saved`; vs.style.color = '#5bba5f'; }
         });
-        // Listen for voice changes from elsewhere (chatview persona sheet)
-        // so the admin dropdown updates live if admin is open when user
-        // switches voices from the chat UI.
-        if (!this._voiceSyncWired) {
-          this._voiceSyncWired = true;
-          window.addEventListener('nx-voice-idx-change', (e) => {
-            const idx = Number(e?.detail?.idx);
-            const sel = document.getElementById('adminVoice');
-            if (sel && Number.isFinite(idx)) sel.value = String(idx);
-          });
-        }
         this.loadUserList();
         // Show chat log for admin
         document.getElementById('adminChatLog').style.display='block';
@@ -988,25 +932,23 @@ td.check{background:#F0EDE6 !important}
       location.reload();
     });
 
-    // Test voice button — uses NX.VOICES (canonical) so the voice that
-    // plays matches the voice name shown in the dropdown.
+    // Test voice button
     document.getElementById('testVoiceBtn').addEventListener('click', async () => {
       const voiceIdx = parseInt(document.getElementById('adminVoice').value) || 0;
-      const list = (window.NX && Array.isArray(NX.VOICES) && NX.VOICES.length) ? NX.VOICES : [];
-      const v = list[voiceIdx];
+      const voiceNames = ['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
+      const voiceIds = ['pNInz6obpgDQGcFmaJgB','EXAVITQu4vr4xnSDxMaL','onwK4e9ZLuTAKqWW03F9','XB0fDUnXU5powFXDhCwa','TX3LPaxmHKxFdv7VOQHJ','LcfcDJNUP1GQjkzn1xUU','yoZ06aMxZJJ28mfd3POQ','ThT5KcBeYPX3keUQqHPh','VR6AewLTigWG4xSOukaG','pqHfZKP75CvOlQylNhV4','ErXwobaYiN019PkySvjV','AZnzlk1XvdvUeBnXmlld','D38z5RcWu1voky8WS1ja','jsCqWAovK2LkecY7zXl4','jBpfuIE2acCO8z3wKNLl','oWAxZDx7w5VEj9dCyTzz','SOYHLrjzK2X1ezoPC6cr','ZQe5CZNOzWyzPSCn5a3c','TxGEqnHWrfWFTfGW9XjX','21m00Tcm4TlvDq8ikWAM'];
       const status = document.getElementById('voiceTestStatus');
       const ek = this.getElevenLabsKey();
       if (!ek) { status.textContent = 'Add ElevenLabs key first'; status.style.color = '#d45858'; return; }
-      if (!v)  { status.textContent = 'Voice list unavailable'; status.style.color = '#d45858'; return; }
-      status.textContent = `Playing ${v.name}...`; status.style.color = 'var(--accent)';
+      status.textContent = `Playing ${voiceNames[voiceIdx]}...`; status.style.color = 'var(--accent)';
       try {
-        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${v.id}`, {
+        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceIds[voiceIdx]}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'xi-api-key': ek },
-          body: JSON.stringify({ text: `Hi, I'm ${v.name}. I'll be your NEXUS voice.`, model_id: 'eleven_turbo_v2', voice_settings: { stability: .45, similarity_boost: .78, style: .35, use_speaker_boost: true } })
+          body: JSON.stringify({ text: `Hi, I'm ${voiceNames[voiceIdx]}. I'll be your NEXUS voice.`, model_id: 'eleven_turbo_v2', voice_settings: { stability: .45, similarity_boost: .78, style: .35, use_speaker_boost: true } })
         });
         if (r.ok) {
           const bl = await r.blob(), u = URL.createObjectURL(bl), a = new Audio(u);
-          a.play(); a.onended = () => { URL.revokeObjectURL(u); status.textContent = `✓ ${v.name} ready`; status.style.color = '#5bba5f'; };
+          a.play(); a.onended = () => { URL.revokeObjectURL(u); status.textContent = `✓ ${voiceNames[voiceIdx]} ready`; status.style.color = '#5bba5f'; };
         } else { status.textContent = 'Voice test failed'; status.style.color = '#d45858'; }
       } catch (e) { status.textContent = 'Error: ' + e.message; status.style.color = '#d45858'; }
     });
@@ -1709,6 +1651,61 @@ td.check{background:#F0EDE6 !important}
       if (data.error) return '';
       return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
     } catch (e) { return ''; }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  TICKET NOTIFICATIONS — Stage S
+  //  Called from every ticket insert site. Fires a push notification
+  //  to managers + admins via the predictive-notify edge function
+  //  (same endpoint the admin Broadcast feature uses).
+  //
+  //  Fire-and-forget by design: we don't await, we don't propagate
+  //  errors. Ticket creation must never be blocked or rolled back
+  //  by a failed push.
+  //
+  //  Format:
+  //    Title: "🚨 New ticket · SUERTE" (icon varies by priority, location if known)
+  //    Body:  "Hoshizaki KM-901MAJ: Ice not making — by Alfredo"
+  //
+  //  Audience routing:
+  //    urgent + high → push priority 'high' (vibrates on device)
+  //    normal + low  → push priority 'normal'
+  //    everyone      → audience 'managers' (covers managers + admins)
+  //    tap target    → opens Board view
+  // ═══════════════════════════════════════════════════════════════════
+  notifyTicketCreated(ticket) {
+    if (!this.sb || !ticket) return;
+    // Respect a future config toggle. If you ever want to disable
+    // ticket push globally, set nexus_config.ticket_notifications=false.
+    if (this.config && this.config.ticket_notifications === false) return;
+    try {
+      const priority = (ticket.priority || 'normal').toLowerCase();
+      const locLabel = ticket.location ? ` · ${String(ticket.location).toUpperCase()}` : '';
+      const icon = priority === 'urgent' ? '🚨'
+                 : priority === 'high'   ? '⚠️'
+                 : '🎫';
+      const title = `${icon} New ticket${locLabel}`;
+      let body = String(ticket.title || 'Untitled ticket').slice(0, 120);
+      if (ticket.reported_by) body += ` — by ${ticket.reported_by}`;
+      const pushPriority = (priority === 'urgent' || priority === 'high') ? 'high' : 'normal';
+      // Fire and forget — errors logged but never thrown
+      this.sb.functions.invoke('predictive-notify', {
+        body: {
+          broadcast: {
+            title,
+            body: body.slice(0, 180),
+            audience: 'managers',   // managers + admins; staff don't need push (usually the reporter)
+            priority: pushPriority,
+            view: 'board',          // tap → opens Board view
+          }
+        }
+      }).then(({ error }) => {
+        if (error) console.warn('[notify] ticket push error:', error.message || error);
+        else if (this.syslog) this.syslog('notify_ticket', `${priority}: ${String(ticket.title || '').slice(0, 60)}`);
+      }).catch(e => console.warn('[notify] ticket:', e?.message));
+    } catch (e) {
+      console.warn('[notify] notifyTicketCreated failed:', e?.message);
+    }
   }
 };
 
