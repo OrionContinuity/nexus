@@ -2022,13 +2022,10 @@ if(r.cards) {
   let inserted = 0, rejected = 0;
   for (const x of r.cards) {
     if (!x.title) continue;
-    // Confidence gate (if missing, assume LLM didn't self-check — reject)
     const conf = typeof x.ops_confidence === 'number' ? x.ops_confidence : 0;
     if (conf < 0.75) { rejected++; continue; }
-    // Evidence gate (must have a real quote, not empty/placeholder)
     const evidence = (x.evidence || '').trim();
     if (evidence.length < 15) { rejected++; continue; }
-    // Build audit trail — so future review can see WHY this card was created
     const auditTrail = `Source quote: "${evidence}"\n\n(auto-ingested from email, confidence ${conf.toFixed(2)})`;
     try {
       await NX.sb.from('kanban_cards').insert({
