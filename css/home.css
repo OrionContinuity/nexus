@@ -233,12 +233,31 @@
 }
 .home-item:hover .home-item-action::after { transform: translateX(3px); }
 
-/* Calm state — when nothing urgent is happening */
+/* Calm state — when nothing urgent is happening.
+   Tappable so the user can jump to the equipment list directly
+   (most common "next thing to do" when nothing is burning). */
 .home-feed-calm {
+  display: block;
+  width: 100%;
   text-align: center;
   padding: 40px 20px 48px;
   border: 1px solid var(--home-hairline);
   border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.home-feed-calm:hover {
+  border-color: rgba(212, 164, 78, 0.35);
+  background: rgba(212, 164, 78, 0.03);
+}
+.home-feed-calm:active {
+  background: rgba(212, 164, 78, 0.07);
+  border-color: var(--accent);
+  transform: scale(0.995);
 }
 .home-feed-calm-mark {
   font-family: 'Outfit', sans-serif;
@@ -255,6 +274,24 @@
   line-height: 1.55;
   max-width: 34ch;
   margin: 0 auto;
+}
+.home-feed-calm-cta {
+  display: inline-block;
+  margin-top: 18px;
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid rgba(212, 164, 78, 0.25);
+  border-radius: 999px;
+  background: rgba(212, 164, 78, 0.04);
+  transition: all 0.15s ease;
+}
+.home-feed-calm:hover .home-feed-calm-cta {
+  border-color: rgba(212, 164, 78, 0.5);
+  background: rgba(212, 164, 78, 0.08);
 }
 
 /* ─── Section rule — fine-cut divider with label ────────────────── */
