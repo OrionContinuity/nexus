@@ -142,13 +142,23 @@
 
         if (!items.length) {
           feedEl.innerHTML = `
-            <div class="home-feed-calm">
+            <button class="home-feed-calm" type="button" data-action="review-equipment">
               <span class="home-feed-calm-mark">◇</span>
               <div class="home-feed-calm-text">
                 Nothing urgent this morning. All equipment current, no overnight tickets, contractors on schedule.
               </div>
-            </div>
+              <span class="home-feed-calm-cta">Review equipment →</span>
+            </button>
           `;
+          // Wire the calm-card tap → jump to Equipment view. Bypasses
+          // any intermediate screens; the user explicitly asked for a
+          // direct route from the "nothing urgent" card to the list.
+          const calmBtn = feedEl.querySelector('.home-feed-calm');
+          if (calmBtn) {
+            calmBtn.addEventListener('click', () => {
+              if (NX.switchTo) NX.switchTo('equipment');
+            });
+          }
           if (introEl) {
             introEl.innerHTML = 'All equipment is current and nothing new came in overnight. <strong>The restaurants are calm.</strong>';
           }
