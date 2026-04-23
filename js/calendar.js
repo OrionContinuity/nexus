@@ -260,9 +260,13 @@ async function loadEquipmentWarranties(firstDay, lastDay) {
       .not('warranty_until', 'is', null)
       .gte('warranty_until', firstDay).lte('warranty_until', lastDay);
     (data || []).forEach(eq => {
+      // Include location in the title when present so two identical
+      // equipment names at different restaurants don't look like
+      // duplicate rows. "Kold Draft Ice Machine (Suerte) — warranty…"
+      const locSuffix = eq.location ? ` (${eq.location})` : '';
       push(eq.warranty_until, {
         type: 'warranty',
-        title: eq.name + ' — warranty expires',
+        title: eq.name + locSuffix + ' — warranty expires',
         color: COLORS.warranty,
         detail: [eq.location, eq.manufacturer, eq.model].filter(Boolean).join(' · '),
         equipmentId: eq.id,
