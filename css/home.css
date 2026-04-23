@@ -26,7 +26,8 @@
 .home-page {
   max-width: 640px;
   margin: 0 auto;
-  padding: 24px 22px calc(88px + env(safe-area-inset-bottom));
+  /* Bottom padding clears fixed ask bar (~54px) + gap (10px) + bnav (56px) + safe area */
+  padding: 24px 22px calc(140px + env(safe-area-inset-bottom));
   min-height: 100%;
   font-family: 'DM Sans', system-ui, sans-serif;
   color: var(--text);
@@ -76,17 +77,17 @@
 
 /* ─── Tiny spinning galaxy in the masthead ──────────────────────── */
 .home-mini-galaxy {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   flex-shrink: 0;
   cursor: pointer;
   position: relative;
   background:
     radial-gradient(circle at 50% 50%,
-      rgba(212, 164, 78, 0.22) 0%,
-      rgba(212, 164, 78, 0.06) 35%,
-      transparent 70%);
+      rgba(212, 164, 78, 0.18) 0%,
+      rgba(212, 164, 78, 0.05) 40%,
+      transparent 72%);
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.2s ease;
 }
@@ -577,22 +578,41 @@
   letter-spacing: 0.2px;
 }
 
-/* ─── Ask NEXUS bar — the chat entry point ──────────────────────── */
+/* ─── Ask NEXUS bar — permanent sticky entry point ──────────────────
+   Fixed above the bottom navigation, always visible while scrolling Home.
+   Glass backdrop so scrolling content is hinted-at underneath. Width
+   matches .home-page content (centered, max 600px on wider screens). */
 .home-ask {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 28px);
+  max-width: 600px;
+  bottom: calc(56px + env(safe-area-inset-bottom) + 10px);
+  z-index: 40;
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 8px;
-  padding: 16px 18px;
-  border: 1px solid var(--home-hairline-strong);
-  border-radius: 2px;
-  background: rgba(212, 182, 138, 0.02);
+  padding: 14px 16px;
+  border: 1px solid rgba(212, 182, 138, 0.28);
+  border-radius: 12px;
+  background: rgba(14, 13, 18, 0.88);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.5),
+    0 2px 6px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(212, 182, 138, 0.06);
   cursor: text;
-  transition: border-color 0.2s, background 0.2s;
+  transition: border-color 0.2s, background 0.2s, transform 0.2s;
 }
-.home-ask:hover {
+.home-ask:hover,
+.home-ask:active {
   border-color: var(--accent);
-  background: rgba(212, 182, 138, 0.04);
+  background: rgba(22, 19, 26, 0.92);
+}
+.home-ask:active {
+  transform: translateX(-50%) scale(0.99);
 }
 .home-ask-prompt {
   flex: 1;
