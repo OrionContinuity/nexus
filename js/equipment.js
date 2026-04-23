@@ -5535,6 +5535,11 @@ function openQuickStatusMenu(equipmentId, anchorBtn) {
         if (error) throw error;
         NX.toast && NX.toast(`Status → ${STATUSES.find(s => s.key === newKey)?.label || newKey}`, 'success');
         if (eq) eq.status = newKey;  // optimistic local update
+        // Sync to brain so the galaxy/AI reflects the new status
+        // without waiting for next full refresh.
+        if (NX.eqBrainSync?.syncOne) {
+          try { await NX.eqBrainSync.syncOne(equipmentId); } catch (_) {}
+        }
         buildUI();  // re-render list
       } catch (err) {
         console.error('[status] update failed:', err);
