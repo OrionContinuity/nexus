@@ -1285,59 +1285,43 @@
           problem,
         ].filter(x => x !== null).join('\n');
 
-        const { error } = await sb.from('tickets').insert({
+        const ticketData = {
           title: ticketTitle,
           notes: notesParts,
           location: eq.location || null,
           priority,              // 'low' | 'normal' | 'urgent' — schema-correct
           status: 'open',
           reported_by: reporter,
-        });
+        };
+        const { error } = await sb.from('tickets').insert(ticketData);
         if (error) throw error;
 
-        // ─── Bridge: also create a kanban_card on the Board ──────
-        // The tickets table feeds Log view; the Board reads from
-        // kanban_cards. Without this bridge, QR-reported issues
-        // never surface on the Board, which is where they need to
-        // be triaged. Non-fatal if this fails — the ticket in
-        // daily_logs/tickets is still the source of truth.
-        try {
-          // Find the first board and its intake list (fuzzy match
-          // on "Reported"/"Triage"/"To Do"; fall back to first list)
-          const { data: boards } = await sb.from('boards')
-            .select('id').eq('archived', false).order('position').limit(1);
-          const boardId = boards && boards.length ? boards[0].id : null;
-          if (boardId) {
-            const { data: lists } = await sb.from('board_lists')
-              .select('*').eq('board_id', boardId).order('position');
-            const intake = (lists || []).find(l =>
-              /reported|triage|to ?do|intake|new/i.test(l.name)
-            ) || (lists || [])[0];
-            if (intake) {
-              // Map priority carefully — QR uses 'urgent'/'normal'/'low',
-              // board expects 'urgent'/'high'/'normal'/'low'. Bump
-              // calls-for-contractor to 'high' since those almost
-              // always need same-day attention.
-              const cardPriority = isCall ? 'high' : (priority === 'urgent' ? 'urgent' : priority);
-              await sb.from('kanban_cards').insert({
-                title: `${eq.name}: ${problem.slice(0, 80)}`,
-                description: notesParts,
-                priority: cardPriority,
-                location: eq.location || null,
-                equipment_id: eq.id,
-                reported_by: reporter,
-                board_id: boardId,
-                list_id: intake.id,
-                column_name: intake.name,
-                position: 0,                // put at top of intake list
-                checklist: [], comments: [], labels: [], photo_urls: [],
-                archived: false,
-                status: 'open',
-              });
-            }
-          }
-        } catch (cardErr) {
-          console.warn('[scan] board card insert failed (non-fatal):', cardErr?.message);
+        // Stage S: push notification to managers + admins. Fire and
+        // forget — a failed push must not block the ticket flow.
+        // NX may not be available in public-scan context (kiosk mode)
+        // so check for it. When it IS available, push.
+        if (typeof NX !== 'undefined' && NX && NX.notifyTicketCreated) {
+          NX.notifyTicketCreated(ticketData);
+        } else {
+          // Public scan context has its own `sb` client — call the
+          // edge function directly with the same broadcast shape so
+          // QR reports STILL notify managers even without NX loaded.
+          try {
+            const priority_label = (priority || 'normal').toLowerCase();
+            const icon = priority_label === 'urgent' ? '🚨' : priority_label === 'high' ? '⚠️' : '🎫';
+            const locLabel = eq.location ? ` · ${eq.location.toUpperCase()}` : '';
+            sb.functions.invoke('predictive-notify', {
+              body: {
+                broadcast: {
+                  title: `${icon} New ticket${locLabel}`,
+                  body: `${eq.name}: ${problem.slice(0, 100)} — by ${reporter}`.slice(0, 180),
+                  audience: 'managers',
+                  priority: (priority_label === 'urgent' || priority_label === 'high') ? 'high' : 'normal',
+                  view: 'board',
+                }
+              }
+            }).catch(e => console.warn('[scan] push fail (non-fatal):', e?.message));
+          } catch (e) { /* non-fatal */ }
         }
 
         // Also drop a line into daily_logs so it shows up on the log
