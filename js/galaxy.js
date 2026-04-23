@@ -429,6 +429,55 @@
     octx.fillRect(-outerR, -outerR, outerR * 2, outerR * 2);
     octx.restore();
 
+    /* ─── DUST LANES — dark filaments along arm inner edges ──────────
+     * Real spiral galaxies (M51, M101, NGC 1300) have prominent dust
+     * lanes that trace just interior to the bright stellar arms.
+     * They block starlight from behind, creating dramatic 3D depth
+     * that separates foreground from background.
+     *
+     * Technique: sample points along each spiral arm (offset slightly
+     * INWARD from arm center via negative theta shift), draw tangent-
+     * oriented elongated dark gradients using `multiply` blend mode
+     * so they only darken where bulge/bar brightness exists. Multiply
+     * on transparent pixels stays transparent — no muddy spill.
+     */
+    octx.save();
+    octx.globalCompositeOperation = 'multiply';
+    const DUST_SEGMENTS = 52;
+    const DUST_OFFSET = -0.085;  // radians — interior offset from arm peak
+    for (let arm = 0; arm < ARM_COUNT; arm++) {
+      const armPhase = (2 * Math.PI / ARM_COUNT) * arm;
+      for (let s = 2; s < DUST_SEGMENTS; s++) {
+        const tNorm = s / DUST_SEGMENTS;
+        // Radius along arm, starts past the bulge, extends toward outer edge
+        const r = (INNER_R_FRAC + 0.04 + tNorm * (OUTER_R_FRAC - INNER_R_FRAC - 0.04)) * outerR;
+        // Log spiral — arm theta
+        const theta = armPhase + SPIRAL_B * Math.log(r / (INNER_R_FRAC * outerR)) + DUST_OFFSET;
+        const x = cx + Math.cos(theta) * r;
+        const y = cy + Math.sin(theta) * r * TILT_Y;
+        // Dust segment size — bigger in mid-arm, shrinks near core + at tips
+        const midness = 1 - Math.abs(tNorm - 0.45) * 1.8;
+        const dustR = outerR * 0.07 * Math.max(0.3, midness);
+        // Alpha — stronger in inner/mid arm (more dust there in real galaxies)
+        const dustAlpha = 0.55 * Math.max(0.15, midness) * (1 - tNorm * 0.4);
+        // Tangent direction along arm — elongate in this direction
+        const tangent = theta + Math.PI / 2;
+        octx.save();
+        octx.translate(x, y);
+        octx.rotate(tangent);
+        octx.scale(2.6, 1.0);  // elongate tangent to arm
+        const dustGrd = octx.createRadialGradient(0, 0, 0, 0, 0, dustR);
+        // Near-black with subtle cool tint — dust absorbs, slightly reddens
+        dustGrd.addColorStop(0.0, `rgba(14, 10, 20, ${dustAlpha.toFixed(3)})`);
+        dustGrd.addColorStop(0.55, `rgba(22, 16, 28, ${(dustAlpha * 0.55).toFixed(3)})`);
+        dustGrd.addColorStop(1.0, 'rgba(255, 255, 255, 1)');  // multiply white = no change
+        octx.fillStyle = dustGrd;
+        octx.fillRect(-dustR * 1.2, -dustR * 1.2, dustR * 2.4, dustR * 2.4);
+        octx.restore();
+      }
+    }
+    octx.restore();  // restores blend mode to previous (screen)
+
     /* ─── DATA LAYER A: Recent activity haze (daily_logs last 24h) ────
      * Every entry in daily_logs becomes a soft amber glow at its
      * location's arm + random radius. Clusters form where activity
@@ -752,6 +801,16 @@
     const zoom = state.cam.zoom;
     const camX = state.cam.x, camY = state.cam.y;
 
+    // Precomputed radii for the color-temperature outer-arm shift below.
+    // Real galaxies (M31, NGC 1300) have blue-biased young stars in outer
+    // arms and redder stars in the bulge/bar. We mimic this gradient by
+    // pulling particle colors toward teal-cyan the farther they are from
+    // the core.
+    const minDim = Math.min(W, H);
+    const INNER_R_PX = minDim * INNER_R_FRAC;
+    const OUTER_R_PX = minDim * OUTER_R_FRAC;
+    const COOL_STAR  = [150, 190, 225];  // outer-arm tint
+
     // Decay audio-reactive glows (particles deposited via collision)
     const audioDecay = Math.exp(-dt * 2.5);   // slower decay = afterglow feel
 
@@ -782,6 +841,17 @@
       let color = p.color;
       let size = p.size;
       let isSpecial = false;
+
+      // ─── OUTER-ARM COLOR TEMPERATURE SHIFT ─────────────────────────
+      // Particles past ~35% of the disc get progressively cooler. Mimics
+      // the blue young-star population in outer spiral arms. At the very
+      // outer edge particles are ~40% blue-tinted; inner particles keep
+      // their original amber/warm color unchanged.
+      const outerness = (p.baseR - INNER_R_PX * 2.2) / (OUTER_R_PX - INNER_R_PX * 2.2);
+      if (outerness > 0.35) {
+        const coolStrength = Math.min(0.4, (outerness - 0.35) * 0.55);
+        color = mix(color, COOL_STAR, coolStrength);
+      }
 
       // Audio glow (set by particle collisions — decays over time)
       p.audioGlow *= audioDecay;
@@ -844,6 +914,42 @@
       ctx.arc(h.x, h.y, haloR, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    // ─── PASS 3: Diffraction spikes on the brightest stars ────────────
+    // Classic astrophotography starburst — a horizontal + vertical
+    // gradient line radiating from each bright star. Only halos in the
+    // top brightness tier get spikes (size ≥ 70% of max), so this stays
+    // a rare, precious accent rather than everywhere-noise.
+    // Still inside the `screen` blend scope so spikes add light additively.
+    const SPIKE_SIZE_MIN = STAR_SIZE_MAX * 0.70;
+    for (const h of haloList) {
+      if (h.size < SPIKE_SIZE_MIN) continue;
+      // Spike length scales with star size; alpha with star alpha
+      const spikeLen = h.size * 5.2;
+      const spikeA = Math.min(0.55, h.alpha * 0.45);
+      const spikeRGB = h.color;
+
+      // Horizontal spike — linear gradient fading to center peak
+      const gH = ctx.createLinearGradient(h.x - spikeLen, h.y, h.x + spikeLen, h.y);
+      gH.addColorStop(0.00, rgba(spikeRGB, 0));
+      gH.addColorStop(0.40, rgba(spikeRGB, spikeA * 0.30));
+      gH.addColorStop(0.50, rgba(spikeRGB, spikeA));
+      gH.addColorStop(0.60, rgba(spikeRGB, spikeA * 0.30));
+      gH.addColorStop(1.00, rgba(spikeRGB, 0));
+      ctx.fillStyle = gH;
+      ctx.fillRect(h.x - spikeLen, h.y - 0.45, spikeLen * 2, 0.9);
+
+      // Vertical spike
+      const gV = ctx.createLinearGradient(h.x, h.y - spikeLen, h.x, h.y + spikeLen);
+      gV.addColorStop(0.00, rgba(spikeRGB, 0));
+      gV.addColorStop(0.40, rgba(spikeRGB, spikeA * 0.30));
+      gV.addColorStop(0.50, rgba(spikeRGB, spikeA));
+      gV.addColorStop(0.60, rgba(spikeRGB, spikeA * 0.30));
+      gV.addColorStop(1.00, rgba(spikeRGB, 0));
+      ctx.fillStyle = gV;
+      ctx.fillRect(h.x - 0.45, h.y - spikeLen, 0.9, spikeLen * 2);
+    }
+
     ctx.globalCompositeOperation = 'source-over';
 
     ctx.restore();
@@ -1274,6 +1380,46 @@
     ctx.beginPath();
     ctx.arc(screenX, screenY, r * 0.98, 0, Math.PI * 2);
     ctx.stroke();
+
+    // ─── Layer 4.5: Accretion disk — tilted bright ring around hole ──
+    // Sits just outside the event horizon, oriented in the galactic
+    // disc plane (so it's an ellipse, not a circle). Breathes gently
+    // with time; brightens with haze. This is what makes the center
+    // feel energetically alive rather than a static logo.
+    ctx.save();
+    const accR = r * 1.22;
+    const breathPhase = Math.sin(now() * 1.4) * 0.5 + 0.5;  // 0..1
+    const accAlphaBase = 0.38 + state.hole.hazeAmount * 0.35;
+    const accAlpha = accAlphaBase * (0.82 + breathPhase * 0.18);
+    // Outer soft halo ring
+    ctx.strokeStyle = rgba([255, 210, 140], accAlpha * 0.55);
+    ctx.lineWidth = r * 0.18;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.ellipse(screenX, screenY, accR, accR * TILT_Y, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // Inner sharp ring — bright edge
+    ctx.strokeStyle = rgba([255, 240, 200], accAlpha);
+    ctx.lineWidth = r * 0.06;
+    ctx.beginPath();
+    ctx.ellipse(screenX, screenY, accR, accR * TILT_Y, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // Hot spots — two bright points on the ring (front + back of the disc)
+    // These mimic Doppler-beamed accretion streams
+    const hsAngles = [0, Math.PI];  // one on each side (lateral)
+    for (const hsAng of hsAngles) {
+      const hsX = screenX + Math.cos(hsAng) * accR;
+      const hsY = screenY + Math.sin(hsAng) * accR * TILT_Y;
+      const hsGrd = ctx.createRadialGradient(hsX, hsY, 0, hsX, hsY, r * 0.28);
+      hsGrd.addColorStop(0, rgba([255, 248, 220], accAlpha * 0.95));
+      hsGrd.addColorStop(0.4, rgba([255, 210, 140], accAlpha * 0.45));
+      hsGrd.addColorStop(1, rgba([255, 210, 140], 0));
+      ctx.fillStyle = hsGrd;
+      ctx.beginPath();
+      ctx.arc(hsX, hsY, r * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
 
     // ─── Layer 5: NEXUS label — always bright ───────────────────────
     ctx.save();
