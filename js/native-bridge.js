@@ -1089,46 +1089,71 @@ Be specific. If it's equipment, include the make/model. If it's a document, extr
   };
 
   // ═══ PUSH NOTIFICATIONS (Firebase Cloud Messaging) ═══
+  //
+  // Stage T: robust registration with three properties:
+  //   1. Only called when the user is logged in (permission prompt
+  //      happens in context, not as a cold open).
+  //   2. Idempotent — safe to call multiple times. Second call is
+  //      a no-op if already registered.
+  //   3. If the FCM token arrives BEFORE the user row is known
+  //      (race on slow networks), it's cached and uploaded later.
+  //
+  // Flow:
+  //   A. User logs in → app.js._loadConfigAndStart() → calls NX.pushNotify.register()
+  //   B. register() asks for permission, calls Capacitor's register()
+  //   C. Capacitor fires 'registration' listener with FCM token
+  //   D. If NX.currentUser known → upload immediately to nexus_users.push_token
+  //      Else → stash in NX.pushNotify.pendingToken → upload on next login
+  //   E. register() resolves true on success
   NX.pushNotify = {
     token: null,
+    pendingToken: null,        // token received before user row known
+    registered: false,         // prevents double-register
+
     async register() {
-      if (!isNative) return;
+      if (!isNative) return false;
+      if (this.registered) {
+        // Already registered — if we have a pending token waiting for
+        // the user, upload it now.
+        await this._flushPendingToken();
+        return true;
+      }
       try {
         const { PushNotifications } = await import('@capacitor/push-notifications');
         const perm = await PushNotifications.requestPermissions();
         if (perm.receive !== 'granted') {
-          console.warn('[Push] Permission denied');
-          return;
+          console.warn('[Push] Permission denied by user');
+          return false;
         }
         await PushNotifications.register();
 
         PushNotifications.addListener('registration', async (token) => {
           NX.pushNotify.token = token.value;
-          console.log('[Push] Token:', token.value);
-          // Store token in Supabase for server-side push
-          if (NX.sb && NX.currentUser) {
-            try {
-              await NX.sb.from('nexus_users').update({
-                push_token: token.value
-              }).eq('id', NX.currentUser.id);
-            } catch (e) {}
-          }
+          console.log('[Push] Got FCM token');
+          await NX.pushNotify._uploadToken(token.value);
+        });
+
+        PushNotifications.addListener('registrationError', (err) => {
+          console.warn('[Push] Registration error:', err?.error || err);
         });
 
         PushNotifications.addListener('pushNotificationReceived', (notification) => {
-          console.log('[Push] Received:', notification);
-          // Show as in-app toast (native delivers while app in foreground)
-          NX.toast(notification.title + ': ' + (notification.body || '').slice(0, 80), 'info', 5000);
+          console.log('[Push] Received (foreground):', notification);
+          // Show as in-app toast — the system tray notification
+          // doesn't appear while app is in foreground on Android
+          NX.toast(
+            (notification.title || 'Notification') + ': ' + (notification.body || '').slice(0, 80),
+            'info',
+            5000
+          );
+          // Pulse the mini-galaxy — the brain noticed
+          if (NX.homeGalaxyPulse) NX.homeGalaxyPulse();
         });
 
         PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
           console.log('[Push] Tapped:', action);
-          // Hand off to NX.deepLink (same handler as web). FCM data values are
-          // always strings, which is fine for the deep-link handler.
           const data = action.notification?.data || {};
           if (NX.deepLink && data.view) {
-            // Equipment alerts use equipment_id; patterns use pattern_id;
-            // dispatch uses dispatch_id. First one present wins.
             const id = data.equipment_id || data.pattern_id || data.dispatch_id || '';
             NX.deepLink.handle({
               view: data.view,
@@ -1136,17 +1161,67 @@ Be specific. If it's equipment, include the make/model. If it's a document, extr
               alertType: data.alert_type,
             });
           } else if (data.view) {
-            // Fallback if deepLink isn't loaded yet: just switch view
+            // Fallback if deepLink isn't loaded: just switch view
             const tab = document.querySelector(`.bnav-btn[data-view="${data.view}"]`);
             if (tab) tab.click();
           }
         });
 
-        console.log('[Push] Notifications registered');
+        this.registered = true;
+        console.log('[Push] Registered — awaiting FCM token');
+        return true;
       } catch (e) {
         console.warn('[Push] Setup failed:', e.message);
+        return false;
       }
-    }
+    },
+
+    // Upload a token to the current user's row. If no user known,
+    // stash for later.
+    async _uploadToken(token) {
+      if (!token) return;
+      if (!NX.sb || !NX.currentUser) {
+        // User not logged in yet — stash and upload on login
+        this.pendingToken = token;
+        console.log('[Push] Token cached, pending user login');
+        return;
+      }
+      try {
+        const { error } = await NX.sb.from('nexus_users')
+          .update({ push_token: token })
+          .eq('id', NX.currentUser.id);
+        if (error) throw error;
+        this.pendingToken = null;
+        console.log('[Push] Token uploaded for', NX.currentUser.name);
+      } catch (e) {
+        console.warn('[Push] Token upload failed:', e?.message);
+        // Keep it pending for retry
+        this.pendingToken = token;
+      }
+    },
+
+    // Called after login. If there's a token cached from an earlier
+    // session (or if registration fired before user load), upload it.
+    async _flushPendingToken() {
+      if (this.pendingToken && NX.sb && NX.currentUser) {
+        await this._uploadToken(this.pendingToken);
+      } else if (this.token && NX.sb && NX.currentUser) {
+        // Even if not "pending", re-upload on every login so switching
+        // users on one device routes future pushes to the right row.
+        await this._uploadToken(this.token);
+      }
+    },
+
+    // Call on logout — clear this device's token from the previous
+    // user's row so they stop receiving pushes meant for others.
+    async clearOnLogout() {
+      if (!NX.sb || !NX.currentUser) return;
+      try {
+        await NX.sb.from('nexus_users')
+          .update({ push_token: null })
+          .eq('id', NX.currentUser.id);
+      } catch (e) { /* non-fatal */ }
+    },
   };
 
   // ═══ BIOMETRIC AUTH ═══
@@ -1218,8 +1293,11 @@ Be specific. If it's equipment, include the make/model. If it's a document, extr
     NX.startSmsListener();
     NX.startNotificationListener();
     
-    // Register push notifications
-    NX.pushNotify.register();
+    // Stage T: push notifications now register AFTER login
+    // (from app.js._loadConfigAndStart) so the permission prompt
+    // appears in context — not as a cold open before the user even
+    // sees what the app does.
+    // NX.pushNotify.register();
     
     // Check biometric availability
     NX.biometric.check();
