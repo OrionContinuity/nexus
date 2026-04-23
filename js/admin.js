@@ -777,6 +777,11 @@ async function processNextBatch(){
 
     await NX.loadNodes();if(NX.brain)NX.brain.init();
     updateQueueStatus();
+    // Stage R: pulse the mini-galaxy if we actually created something.
+    // Ingestion is where the brain literally grows — galaxy should shine.
+    if ((nodesCreated || pdfCount || imgCount || docCount) && NX.homeGalaxyPulse) {
+      NX.homeGalaxyPulse();
+    }
   }catch(e){
     log(`⚙ Error at ${stage}: ${e.message}`,'error');
     setProcLive('',`Error: ${stage}`);
@@ -1835,6 +1840,35 @@ RULES:
 CATEGORIES (use exactly one):
 equipment | contractors | vendors | procedure | projects | people | systems | parts | location
 
+CARDS — BE VERY STRICT. The board is for restaurant operations only.
+
+ONLY create a card if the email contains a CONCRETE action item for RESTAURANT OPERATIONS:
+  ✓ Equipment repair, maintenance, service scheduling
+  ✓ Contractor coordination (PM visits, emergency calls, follow-up)
+  ✓ Vendor orders, quotes to review, invoices to approve
+  ✓ Health inspection items, food safety issues
+  ✓ Staff scheduling changes, shift swaps, payroll items
+  ✓ Supply deliveries, inventory actions
+  ✓ Cleaning issues requiring action
+  ✓ Permits, licenses, compliance deadlines
+
+NEVER create a card for:
+  ✗ Personal correspondence (family, friends, childcare, social plans)
+  ✗ Financial notifications unrelated to the restaurants (bank alerts, credit card alerts, Cash App)
+  ✗ Newsletters, marketing emails, promotional offers, unsubscribe links
+  ✗ Software service updates, subscription renewals unrelated to restaurant ops
+  ✗ General "we should..." or "someone should..." statements without a concrete action, actor, or deadline
+  ✗ Information-only emails that don't require a response
+  ✗ Anything you're not CERTAIN is a restaurant operations action item
+
+For EVERY card you output, you MUST include:
+- "ops_confidence" (0.0–1.0) — your confidence this is a real restaurant ops task
+- "evidence" — a direct quote (15+ words) from the email that proves the action item exists
+
+If ops_confidence < 0.75, DO NOT INCLUDE THE CARD. If you cannot quote a specific line proving the action, DO NOT INCLUDE THE CARD.
+
+When in doubt, omit. An empty cards array is the correct answer for most emails.
+
 RESPOND ONLY WITH RAW JSON — no markdown, no backticks, no explanation:
 {
   "nodes": [
@@ -1848,7 +1882,12 @@ RESPOND ONLY WITH RAW JSON — no markdown, no backticks, no explanation:
     }
   ],
   "cards": [
-    {"title": "Action item if any", "column_name": "todo"}
+    {
+      "title": "Specific action (verb + object + context, e.g. 'Schedule Hoshizaki PM for week of March 10')",
+      "column_name": "todo",
+      "ops_confidence": 0.85,
+      "evidence": "direct quote from email proving this action item exists, 15+ words"
+    }
   ],
   "contractor_events": [
     {"contractor_name": "Full name", "event_date": "YYYY-MM-DD", "event_time": "HH:MM AM/PM or null", "location": "suerte|este|toti or null", "description": "what they are doing"}
@@ -1882,8 +1921,14 @@ async function aiProcess(text){
   try{const a=await NX.askClaude(`Extract knowledge for restaurant ops (Suerte, Este, Bar Toti — Austin TX). Create nodes for every distinct entity.
 DO NOT create nodes that already exist — check the list below.
 Categories: equipment, contractors, vendors, procedure, projects, people, systems, parts, location
+
+CARDS — STRICT. Only create a card for CONCRETE restaurant operations actions:
+  ✓ Equipment repair/maintenance, contractor scheduling, vendor orders, health inspections, staff changes, supply deliveries, permits/compliance.
+  ✗ NEVER create cards for personal items, newsletters, financial alerts unrelated to the restaurants, generic "we should..." statements, or anything not certain.
+Every card MUST have ops_confidence >= 0.75 AND evidence (a direct 15+ word quote). If you can't prove the action with a quote, OMIT THE CARD.
+
 RESPOND ONLY RAW JSON:
-{"nodes":[{"name":"...","category":"...","tags":["..."],"notes":"..."}],"cards":[{"title":"...","column_name":"todo"}]}${existing}`,[{role:'user',content:text.slice(0,14000)}],4096);
+{"nodes":[{"name":"...","category":"...","tags":["..."],"notes":"..."}],"cards":[{"title":"Specific action","column_name":"todo","ops_confidence":0.85,"evidence":"direct quote from source 15+ words"}]}${existing}`,[{role:'user',content:text.slice(0,14000)}],4096);
   let j=a.replace(/```json\s*/gi,'').replace(/```\s*/g,'');const s=j.indexOf('{'),e=j.lastIndexOf('}');if(s===-1||e<=s)return null;j=j.slice(s,e+1);
   try{const p=JSON.parse(j);return(p.nodes&&Array.isArray(p.nodes))?p:null;}catch(e){log('JSON: '+e.message,'error');return null;}}catch(e){log('AI: '+e.message,'error');return null;}}
 
@@ -1964,7 +2009,45 @@ for(const n of r.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2)continu
   const{error}=await NX.sb.from('nodes').insert(row);
   if(error){er++;if(er<=3)log(`Insert "${nm}": ${error.message}`,'error');if(NX.toast)NX.toast(`Failed: ${nm}`,'error');}
   else{existingMap[nm.toLowerCase()]={id:0,name:nm,notes:newNotes,tags:newTags,source_emails:newSources,attachments:newAtts};createdNames.push(nm);c++;}}
-if(r.cards)for(const x of r.cards){if(!x.title)continue;await NX.sb.from('kanban_cards').insert({title:(x.title||'').slice(0,200),column_name:x.column_name||'todo'});}
+// ═══════════════════════════════════════════════════════════════════════
+// CARD INSERTION GATE — Layer 2 of the card-flood defense
+// Even with a tightened prompt, we don't trust the LLM blindly. Every
+// card must pass:
+//   1. ops_confidence >= 0.75 (the LLM's own confidence self-check)
+//   2. evidence present and substantial (>= 15 chars of source quote)
+// Cards that pass get an audit trail in the description so future
+// review can trace back why each card was created.
+// ═══════════════════════════════════════════════════════════════════════
+if(r.cards) {
+  let inserted = 0, rejected = 0;
+  for (const x of r.cards) {
+    if (!x.title) continue;
+    // Confidence gate (if missing, assume LLM didn't self-check — reject)
+    const conf = typeof x.ops_confidence === 'number' ? x.ops_confidence : 0;
+    if (conf < 0.75) { rejected++; continue; }
+    // Evidence gate (must have a real quote, not empty/placeholder)
+    const evidence = (x.evidence || '').trim();
+    if (evidence.length < 15) { rejected++; continue; }
+    // Build audit trail — so future review can see WHY this card was created
+    const auditTrail = `Source quote: "${evidence}"\n\n(auto-ingested from email, confidence ${conf.toFixed(2)})`;
+    try {
+      await NX.sb.from('kanban_cards').insert({
+        title: (x.title||'').slice(0, 200),
+        description: auditTrail.slice(0, 2000),
+        column_name: x.column_name || 'todo',
+        status: 'open',
+        archived: false,
+      });
+      inserted++;
+    } catch (e) {
+      console.warn('[ingest] card insert failed:', e?.message);
+      rejected++;
+    }
+  }
+  if (inserted > 0 || rejected > 0) {
+    log(`  📋 Cards: ${inserted} created, ${rejected} rejected (low confidence or weak evidence)`, inserted > 0 ? 'success' : 'info');
+  }
+}
 // Save contractor events
 if(r.contractor_events){
   let evtCount=0;
