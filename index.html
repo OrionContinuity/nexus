@@ -739,6 +739,38 @@
     <!-- ━━━━━ TAB 3: ACTIONS ━━━━━ -->
     <!-- Moved here: PM Logs, Broadcast, Data Backup. Admin-gated via at-admin-gated. -->
     <div class="at-panel at-admin-gated" data-panel="actions" id="atActionsPanel" style="display:none">
+      <!-- OPERATIONS LOG — primary navigation shortcut (Log moved out of bnav in Stage N) -->
+      <div class="admin-section-label">📜 Operations Log</div>
+      <button id="adminOpenLog" class="admin-save-btn" style="margin-top:6px;background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;">
+        Open Activity Log
+      </button>
+      <div class="admin-key-status" style="font-size:11px;margin-top:4px;">Unified feed: tickets, clock-ins, dispatches, cleaning logs</div>
+      <script>
+        (function() {
+          const btn = document.getElementById('adminOpenLog');
+          if (!btn) return;
+          btn.addEventListener('click', () => {
+            // Close the admin modal, then switch to log view.
+            const modal = document.getElementById('adminModal');
+            if (modal) modal.classList.remove('open');
+            document.body.classList.remove('admin-modal-open');
+            // Use NX.switchTo if exposed by app.js (Stage T fix), else fall
+            // back to clicking the (now-hidden) log tab directly.
+            if (typeof NX !== 'undefined' && NX.switchTo) {
+              NX.switchTo('log');
+            } else {
+              // Legacy fallback — manually activate logView
+              document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+              document.getElementById('logView')?.classList.add('active');
+              document.body.classList.remove('view-brain','view-clean','view-log','view-board','view-cal','view-equipment','view-ingest','view-home');
+              document.body.classList.add('view-log');
+              if (NX.modules?.log?.show) NX.modules.log.show();
+              else if (NX.modules?.log?.init) NX.modules.log.init();
+            }
+          });
+        })();
+      </script>
+      <hr class="admin-divider">
       <!-- PM LOGS -->
       <div class="admin-section-label">📋 Contractor PM Logs</div>
       <button id="adminReviewPmLogs" class="admin-save-btn" style="margin-top:6px;background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;display:flex;align-items:center;justify-content:space-between;gap:8px;">
