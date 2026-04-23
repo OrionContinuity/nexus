@@ -76,7 +76,7 @@
             <div class="home-mast-date">
               <span>${esc(dateLine)}</span>
               <span class="home-mini-galaxy" id="homeMiniGalaxy" title="Open the galaxy view">
-                <canvas id="homeMiniGalaxyCanvas" width="48" height="48"></canvas>
+                <canvas id="homeMiniGalaxyCanvas" width="44" height="44"></canvas>
               </span>
             </div>
           </div>
@@ -113,6 +113,7 @@
             `).join('')}
           </div>
 
+          <div class="home-rule">Ask</div>
           <div class="home-ask" id="homeAsk">
             <span class="home-ask-prompt">Ask <em>NEXUS</em> anything…</span>
             <span class="home-ask-kbd">⏎</span>
@@ -210,22 +211,56 @@
         const pastBound = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
         const futureBound = new Date(Date.now() + 28 * 86400000).toISOString().slice(0, 10);
 
-        const { data: events, error } = await NX.sb.from('contractor_events')
-          .select('id, contractor_name, event_date, event_time, description, location, status')
-          .gte('event_date', pastBound)
-          .lte('event_date', futureBound)
-          .neq('status', 'cancelled')
-          .order('event_date', { ascending: true })
-          .order('event_time', { ascending: true })
-          .limit(60);
+        // Home's "On the books" pulls from TWO sources so it matches
+        // what Calendar view shows:
+        //   1. contractor_events — scheduled contractor visits
+        //   2. kanban_cards with due_date — board tasks with deadlines
+        // Both are merged into one day-keyed map below.
+        const [eventsResp, cardsResp] = await Promise.all([
+          NX.sb.from('contractor_events')
+            .select('id, contractor_name, event_date, event_time, description, location, status')
+            .gte('event_date', pastBound)
+            .lte('event_date', futureBound)
+            .neq('status', 'cancelled')
+            .order('event_date', { ascending: true })
+            .order('event_time', { ascending: true })
+            .limit(60),
+          NX.sb.from('kanban_cards')
+            .select('id, title, due_date, priority, status, location, archived')
+            .not('due_date', 'is', null)
+            .gte('due_date', pastBound)
+            .lte('due_date', futureBound)
+            .or('archived.is.null,archived.eq.false')
+            .order('due_date', { ascending: true })
+            .limit(60),
+        ]);
 
-        if (error) throw error;
+        if (eventsResp.error) throw eventsResp.error;
+        const events = eventsResp.data || [];
+        const cards  = cardsResp.data  || [];
 
-        // Bucket events into a day-keyed map
+        // Bucket events + cards into a day-keyed map. Both types share
+        // the same row schema downstream — normalize cards to the same
+        // shape (contractor_name + event_time etc.) so rendering is
+        // uniform. A `_kind` field lets status coloring distinguish them.
         const byDate = new Map();
-        (events || []).forEach(e => {
-          if (!byDate.has(e.event_date)) byDate.set(e.event_date, []);
-          byDate.get(e.event_date).push(e);
+        const pushItem = (date, item) => {
+          if (!byDate.has(date)) byDate.set(date, []);
+          byDate.get(date).push(item);
+        };
+        events.forEach(e => pushItem(e.event_date, { ...e, _kind: 'event' }));
+        cards.forEach(c => {
+          pushItem(c.due_date, {
+            _kind: 'card',
+            id: c.id,
+            contractor_name: c.title || 'Task',
+            event_date: c.due_date,
+            event_time: null,            // cards are "all day"
+            description: '',
+            location: c.location,
+            status: c.status || 'pending',
+            _priority: c.priority,
+          });
         });
 
         // Build the day list with past/today/future logic
@@ -240,13 +275,13 @@
         // Next 6 future days with events
         futureDates.slice(0, 6).forEach(d => days.push({ date: d, items: byDate.get(d), relative: 'future' }));
 
-        // Degenerate case: only today with no items and no past/future context
-        const hasAnyEvents = (events || []).length > 0;
+        // Degenerate case: no contractor events AND no card due dates
+        const hasAnyEvents = events.length > 0 || cards.length > 0;
         if (!hasAnyEvents) {
           calEl.innerHTML = `
             <div class="home-cal-empty-all">
-              Nothing on the contractor calendar for the next few weeks. <br>
-              Email ingestion will add visits as they're confirmed.
+              Nothing scheduled for the next few weeks. <br>
+              Add events in Calendar or cards with due dates on the Board.
             </div>
           `;
           return;
@@ -265,9 +300,10 @@
           const relLabel  = isFuture ? relativeDayLabel(day.date) : '';
 
           const itemsHtml = day.items.length === 0
-            ? `<div class="home-cal-empty">No visits scheduled.</div>`
+            ? `<div class="home-cal-empty">Nothing scheduled.</div>`
             : day.items.map(e => {
-                const timeStr = e.event_time ? formatTime12(e.event_time) : 'all day';
+                const isCard = e._kind === 'card';
+                const timeStr = e.event_time ? formatTime12(e.event_time) : (isCard ? 'due' : 'all day');
                 const titleBits = [e.contractor_name, e.location && titleCase(e.location)].filter(Boolean);
                 const title = titleBits.join(' · ') || 'Scheduled visit';
                 const status = eventStatus(e, isPast);
@@ -275,7 +311,7 @@
                 const isNextUp = isFuture && !nextUpMarked;
                 if (isNextUp) nextUpMarked = true;
                 return `
-                  <button class="home-cal-item ${isNextUp ? 'is-nextup' : ''}" data-event-id="${esc(e.id)}" type="button">
+                  <button class="home-cal-item ${isNextUp ? 'is-nextup' : ''}" data-event-id="${esc(e.id)}" data-kind="${isCard ? 'card' : 'event'}" type="button">
                     <span class="home-cal-accent" style="background:${accent}"></span>
                     <span class="home-cal-time">${esc(timeStr)}</span>
                     <span class="home-cal-body">
@@ -302,9 +338,13 @@
           `;
         }).join('');
 
-        // Wire item taps to the calendar view (full detail lives there)
+        // Wire item taps: cards → Board, events → Calendar (both places
+        // have richer detail than we can show in this compact strip).
         calEl.querySelectorAll('.home-cal-item').forEach(btn => {
-          btn.addEventListener('click', () => NX.switchTo?.('cal'));
+          btn.addEventListener('click', () => {
+            const kind = btn.dataset.kind;
+            NX.switchTo?.(kind === 'card' ? 'board' : 'cal');
+          });
         });
       } catch (err) {
         console.warn('[home] calendar load failed:', err.message);
@@ -432,11 +472,8 @@
       const wrap = document.getElementById('homeMiniGalaxy');
       if (!canvas || !wrap) return;
 
-      // ─── SIZING ──────────────────────────────────────────────────────
-      // 24px canvas (up from 22px). Tiny enough to feel jewel-like in
-      // the masthead, large enough that particles don't pixel-snap.
       const dpr = window.devicePixelRatio || 1;
-      const size = 24;
+      const size = 22;
       canvas.width = size * dpr;
       canvas.height = size * dpr;
       canvas.style.width = size + 'px';
@@ -446,54 +483,54 @@
 
       const cx = size / 2;
       const cy = size / 2;
-      const TILT_Y = 0.72;
+      const TILT_Y = 0.72;             // Y-axis squash = tilted perspective
 
-      // ─── SPIRAL GEOMETRY ─────────────────────────────────────────────
-      // Log spiral: r = A · e^(B·θ). B = cot(pitch).
-      // At 14° pitch, arms wrap tightly without feeling wound-up.
+      // Arm geometry: log spiral r = A · e^(B·θ)
+      // B = cot(pitch); small pitch = tight arms. 15° pitch works at 22px.
+      // A tuned so that at θ=0, r starts ~1.5, and at arm_length=1.0
+      // the particle reaches the outer edge (~9).
       const PITCH_DEG = 14;
       const B = 1 / Math.tan(PITCH_DEG * Math.PI / 180);
-      const ARM_SWEEP = 1.6 * Math.PI;
+      // Arms drift slightly over time — the whole pattern rotates
+      // like a real galaxy (~1 revolution per minute).
+      const GALAXY_OMEGA = 0.00010;    // rad/ms. Slow enough to feel confident.
 
-      // Rotation: slower than before — 0.000065 rad/ms means one full
-      // rotation every ~96 seconds. Reads as "gently turning" not "spinning".
-      const GALAXY_OMEGA = 0.000065;
-
-      // ─── PARTICLE POOL ───────────────────────────────────────────────
-      // Fewer, bigger, softer. At 24px, density matters more than count.
-      // 8 per arm × 2 arms = 16 arm particles (was 24). 4 field stars (was 14).
-      // Each particle is rendered as a radial gradient halo, not a hard
-      // dot — at this size, soft edges read way better than sharp ones.
+      // Particle pool. Two kinds:
+      //   arm particles  — bright, trace the spiral arms (12 per arm)
+      //   field particles — dim background stars, uniformly distributed (14)
       const arms = [];
       for (let armId = 0; armId < 2; armId++) {
-        const armPhase = armId * Math.PI;
-        for (let i = 0; i < 8; i++) {
-          const t = 0.1 + (i / 8) * 0.9;
+        const armPhase = armId * Math.PI;   // two arms, π apart
+        for (let i = 0; i < 12; i++) {
+          const t = 0.05 + (i / 12) * 0.95;  // position along arm (0..1)
           arms.push({
             arm: armPhase,
-            t,
-            size: 0.9 + Math.random() * 0.7,            // bigger (was 0.55–1.35)
-            alphaBase: 0.55 + Math.random() * 0.35,
-            tanOff: (Math.random() - 0.5) * 0.4,
-            radialOff: (Math.random() - 0.5) * 0.2,
-            twinkleRate: 0.0005 + Math.random() * 0.0006,
+            t,                                // position along arm
+            size: 0.55 + Math.random() * 0.8,
+            alphaBase: 0.40 + Math.random() * 0.45,
+            // Small tangential offset so arms look thick not linear
+            tanOff: (Math.random() - 0.5) * 0.5,
+            radialOff: (Math.random() - 0.5) * 0.25,
+            // Twinkle: frequency 0.6–1.3 Hz, amplitude ±3%
+            twinkleRate: 0.0006 + Math.random() * 0.0007,
             twinklePhase: Math.random() * Math.PI * 2,
-            hue: Math.random() > 0.7 ? 1 : 0,           // fewer gold, mostly cream
+            // Color bias: 0 = warm cream, 1 = pale gold
+            hue: Math.random() > 0.65 ? 1 : 0,
           });
         }
       }
       const field = [];
-      for (let i = 0; i < 4; i++) {
-        // Field stars placed outside the central region, in the disk
-        // plane. They add depth without crowding.
+      for (let i = 0; i < 14; i++) {
+        // Random position in disk, but radius-biased so density is
+        // higher toward the center (1 - sqrt(u) gives 1/r falloff)
         const u = Math.random();
-        const r = 4 + (1 - Math.sqrt(u)) * 5;
+        const r = 2 + (1 - Math.sqrt(u)) * 7 + Math.random() * 2;
         const theta = Math.random() * Math.PI * 2;
         field.push({
           r, theta,
-          size: 0.5 + Math.random() * 0.3,
-          alphaBase: 0.22 + Math.random() * 0.18,
-          twinkleRate: 0.0004 + Math.random() * 0.0005,
+          size: 0.35 + Math.random() * 0.4,
+          alphaBase: 0.10 + Math.random() * 0.20,
+          twinkleRate: 0.0005 + Math.random() * 0.0006,
           twinklePhase: Math.random() * Math.PI * 2,
         });
       }
@@ -505,34 +542,25 @@
 
       function pulseCurve(t) {
         if (t < 0 || t > 1) return 0;
-        if (t < 0.2) return t / 0.2;
-        return Math.pow(1 - (t - 0.2) / 0.8, 2);
+        if (t < 0.2) return t / 0.2;                      // attack
+        return Math.pow(1 - (t - 0.2) / 0.8, 2);          // quadratic decay
       }
 
+      // Map [t along arm 0..1] → (r, θ) on log spiral.
+      // r = 1.5 * e^(B * (t * scale)). Scale tuned so t=1 → r ≈ 8.5.
+      // θ = base + t * ARM_SWEEP (how much the arm wraps around).
+      const ARM_SWEEP = 1.6 * Math.PI;  // arms spiral through 288° each
       function armPoint(armBase, t) {
         const theta = armBase + t * ARM_SWEEP;
-        const r = 1.4 * Math.exp(B * (t * ARM_SWEEP * 0.076));
+        const r = 1.5 * Math.exp(B * (t * ARM_SWEEP * 0.068));
         return { r, theta };
       }
 
+      // Drawing a point with elliptical tilt — Y squashed.
       function projectDraw(r, theta, drawFn) {
         const x = cx + r * Math.cos(theta);
         const y = cy + r * Math.sin(theta) * TILT_Y;
         drawFn(x, y);
-      }
-
-      // Soft particle: radial gradient centered at (x, y) with halo.
-      // This is the key quality improvement — no more 1px dots.
-      function softDot(x, y, radius, color, alpha) {
-        const haloR = radius * 2.8;
-        const g = ctx.createRadialGradient(x, y, 0, x, y, haloR);
-        g.addColorStop(0,   `rgba(${color}, ${(alpha * 0.95).toFixed(3)})`);
-        g.addColorStop(0.35, `rgba(${color}, ${(alpha * 0.55).toFixed(3)})`);
-        g.addColorStop(1,   `rgba(${color}, 0)`);
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(x, y, haloR, 0, Math.PI * 2);
-        ctx.fill();
       }
 
       function frame(t) {
@@ -540,104 +568,124 @@
         const dt = t - lastT;
         lastT = t;
 
-        const pulseIntensity = pulseT0 ? pulseCurve((t - pulseT0) / PULSE_MS) : 0;
+        const pulseIntensity = pulseT0
+          ? pulseCurve((t - pulseT0) / PULSE_MS)
+          : 0;
 
-        // ─── CLEAN CLEAR ─────────────────────────────────────────────
-        // No composite fade — that created visual residue at this size.
-        // Clearing each frame with the surface background gives crisp motion.
-        ctx.clearRect(0, 0, size, size);
+        // Composite fade — don't clear, dim. 12% per frame ≈ short trail.
+        // Higher alpha = shorter trail. Tuned for silk-smooth rotation.
+        ctx.fillStyle = 'rgba(9, 8, 12, 0.22)';
+        ctx.fillRect(0, 0, size, size);
 
-        // ─── AMBIENT WASH ────────────────────────────────────────────
-        // Warm gold radial haze across the whole canvas. Present always,
-        // intensifies on pulse. This is what makes the galaxy feel warm
-        // instead of clinical.
-        const washAlpha = 0.12 + pulseIntensity * 0.25;
-        const wash = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.7);
+        // Soft radial wash underneath everything — warm light leaking
+        // from the core. Intensifies during pulse.
+        const washAlpha = 0.08 + pulseIntensity * 0.22;
+        const wash = ctx.createRadialGradient(cx, cy, 0, cx, cy, size / 1.8);
         wash.addColorStop(0, `rgba(212, 164, 78, ${washAlpha.toFixed(3)})`);
-        wash.addColorStop(0.5, `rgba(212, 164, 78, ${(washAlpha * 0.35).toFixed(3)})`);
+        wash.addColorStop(0.6, `rgba(212, 164, 78, ${(washAlpha * 0.25).toFixed(3)})`);
         wash.addColorStop(1, 'rgba(212, 164, 78, 0)');
         ctx.fillStyle = wash;
         ctx.fillRect(0, 0, size, size);
 
+        // Galaxy-level rotation angle (advances steadily)
         const galaxyTheta = t * GALAXY_OMEGA;
 
-        // ─── FIELD STARS ─────────────────────────────────────────────
-        // Slow differential rotation — outer stars turn slowly, inner ones
-        // faster. Physical correctness adds subtle realism.
+        // ─── Field stars (dim background) ───────────────────────────
+        // Slow differential rotation. These don't move along arms,
+        // just rotate at their radius.
         for (const s of field) {
-          const omega = 0.00014 / Math.sqrt(Math.max(0.5, s.r));
+          const omega = 0.00018 / Math.sqrt(Math.max(0.5, s.r));
           s.theta += omega * dt;
-          const twinkle = 1 + 0.08 * Math.sin(t * s.twinkleRate + s.twinklePhase);
-          const a = Math.min(1, s.alphaBase * twinkle * (1 + pulseIntensity * 0.6));
-          projectDraw(s.r, s.theta, (x, y) => softDot(x, y, s.size, '220, 208, 182', a));
+          const twinkle = 1 + 0.04 * Math.sin(t * s.twinkleRate + s.twinklePhase);
+          const a = Math.min(1, s.alphaBase * twinkle * (1 + pulseIntensity * 0.5));
+          projectDraw(s.r, s.theta, (x, y) => {
+            ctx.fillStyle = `rgba(220, 208, 182, ${a.toFixed(3)})`;
+            ctx.beginPath();
+            ctx.arc(x, y, s.size, 0, Math.PI * 2);
+            ctx.fill();
+          });
         }
 
-        // ─── ARM PARTICLES ───────────────────────────────────────────
-        // Inner particles flow faster (Keplerian). When one reaches the
-        // outer edge, it respawns at the core — gives a continuous feed.
+        // ─── Arm particles (the sweeping spiral) ────────────────────
+        // Each particle flows along its arm. Its t-position advances,
+        // and when it reaches the outer edge it respawns at the core.
+        // Combined with galaxy-level rotation, this draws the spiral.
         for (const p of arms) {
-          const flowSpeed = 0.00006 * (1.4 - p.t * 0.7);
+          // Flow along the arm — inner particles flow faster.
+          const flowSpeed = 0.00009 * (1.4 - p.t * 0.7);
           p.t += flowSpeed * dt;
-          if (p.t > 1.05) p.t = 0.08;
+          if (p.t > 1.05) p.t = 0.05;   // respawn at core when consumed
 
+          // Base spiral position
           const { r: rBase, theta: thBase } = armPoint(p.arm + galaxyTheta, p.t);
+          // Add per-particle offsets (arm thickness, tangential spread)
           const r = rBase + p.radialOff * (1 + p.t);
-          const theta = thBase + (p.tanOff * 0.12) / Math.max(0.5, r);
+          const theta = thBase + (p.tanOff * 0.15) / Math.max(0.5, r);
 
-          const twinkle = 1 + 0.06 * Math.sin(t * p.twinkleRate + p.twinklePhase);
-          const pulseBoost = 1 + pulseIntensity * 0.6;
+          const twinkle = 1 + 0.04 * Math.sin(t * p.twinkleRate + p.twinklePhase);
+          const pulseBoost = 1 + pulseIntensity * 0.55;
           const a = Math.min(1, p.alphaBase * twinkle * pulseBoost);
-          const s = p.size * (1 + pulseIntensity * 0.2);
+          const s = p.size * (1 + pulseIntensity * 0.15);
 
-          // Cream default, warm gold for hue=1 particles, extra warmth
-          // near core.
-          const coreNearness = Math.max(0, 1 - p.t * 1.6);
-          const warmPull = p.hue === 1 ? 0.75 : 0.25 * coreNearness;
-          const rCh = Math.round(240 - warmPull * 18);
-          const gCh = Math.round(228 - warmPull * 48);
-          const bCh = Math.round(200 - warmPull * 100);
-          const color = `${rCh}, ${gCh}, ${bCh}`;
+          // Cream for the bulk of arm particles, pale gold for
+          // featured ones (hue=1). Core-proximity nudge adds warmth.
+          const coreNearness = Math.max(0, 1 - p.t * 1.8);
+          const warmPull = p.hue === 1 ? 0.7 : 0.25 * coreNearness;
+          const rCh = Math.round(237 - warmPull * 15);
+          const gCh = Math.round(228 - warmPull * 45);
+          const bCh = Math.round(205 - warmPull * 95);
 
-          projectDraw(r, theta, (x, y) => softDot(x, y, s, color, a));
+          projectDraw(r, theta, (x, y) => {
+            ctx.fillStyle = `rgba(${rCh}, ${gCh}, ${bCh}, ${a.toFixed(3)})`;
+            ctx.beginPath();
+            ctx.arc(x, y, s, 0, Math.PI * 2);
+            ctx.fill();
+          });
         }
 
-        // ─── ACCRETION DISK ──────────────────────────────────────────
-        // Thin elliptical ring at r=3.3. Always present, brightens on pulse.
-        const diskR = 3.3;
-        const diskAlpha = 0.32 + pulseIntensity * 0.45;
-        const diskWidth = 0.6 + pulseIntensity * 0.7;
+        // ─── Accretion disk — thin bright elliptical ring at core ───
+        // Tilted (elliptical because of TILT_Y), pulses with beat.
+        const diskR = 3.2;
+        const diskAlpha = 0.35 + pulseIntensity * 0.45;
+        const diskWidth = 0.7 + pulseIntensity * 0.8;
         ctx.strokeStyle = `rgba(234, 184, 102, ${diskAlpha.toFixed(3)})`;
         ctx.lineWidth = diskWidth;
         ctx.beginPath();
         ctx.ellipse(cx, cy, diskR, diskR * TILT_Y, 0, 0, Math.PI * 2);
         ctx.stroke();
 
-        // ─── SHOCKWAVE ON PULSE ──────────────────────────────────────
+        // ─── Shockwave on pulse — a second ring expanding outward ───
         if (pulseIntensity > 0) {
-          const shockR = 3.3 + pulseIntensity * 8;
-          const shockA = pulseIntensity * 0.3;
+          const shockR = 3 + pulseIntensity * 7;
+          const shockA = pulseIntensity * 0.35;
           ctx.strokeStyle = `rgba(212, 164, 78, ${shockA.toFixed(3)})`;
-          ctx.lineWidth = 0.4;
+          ctx.lineWidth = 0.5;
           ctx.beginPath();
           ctx.ellipse(cx, cy, shockR, shockR * TILT_Y, 0, 0, Math.PI * 2);
           ctx.stroke();
         }
 
-        // ─── CORE ────────────────────────────────────────────────────
-        // Single soft gradient — no harsh center pixel. The gradient
-        // itself is the brightness; overlapping with the wash gives depth.
-        const coreSize = 1.6 + pulseIntensity * 0.7;
-        const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreSize * 2.4);
-        coreGrad.addColorStop(0,   `rgba(255, 228, 168, ${(0.95 + pulseIntensity * 0.05).toFixed(3)})`);
-        coreGrad.addColorStop(0.3, `rgba(238, 190, 120, ${(0.65 + pulseIntensity * 0.3).toFixed(3)})`);
-        coreGrad.addColorStop(0.7, `rgba(212, 164, 78, ${(0.25 + pulseIntensity * 0.2).toFixed(3)})`);
-        coreGrad.addColorStop(1,   'rgba(212, 164, 78, 0)');
+        // ─── Core — hot gold, pulses ────────────────────────────────
+        const coreAlpha = Math.min(1, 0.92 + pulseIntensity * 0.08);
+        const coreSize = 1.5 + pulseIntensity * 0.7;
+        const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreSize * 1.8);
+        coreGrad.addColorStop(0, `rgba(255, 215, 140, ${coreAlpha})`);
+        coreGrad.addColorStop(0.5, `rgba(212, 164, 78, ${coreAlpha * 0.6})`);
+        coreGrad.addColorStop(1, 'rgba(212, 164, 78, 0)');
         ctx.fillStyle = coreGrad;
         ctx.beginPath();
-        ctx.arc(cx, cy, coreSize * 2.4, 0, Math.PI * 2);
+        ctx.arc(cx, cy, coreSize * 1.8, 0, Math.PI * 2);
         ctx.fill();
 
+        // Bright core pixel
+        ctx.fillStyle = `rgba(255, 230, 180, ${coreAlpha})`;
+        ctx.beginPath();
+        ctx.arc(cx, cy, coreSize * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // End pulse window
         if (pulseT0 && (t - pulseT0) > PULSE_MS) pulseT0 = 0;
+
         requestAnimationFrame(frame);
       }
       requestAnimationFrame(frame);
@@ -840,32 +888,67 @@
       }
     } catch (e) { console.warn('[home] tickets fetch failed:', e.message); }
 
-    // ─── INCOMING — contractor events in next 48h
+    // ─── INCOMING — contractor events + card deadlines in next 48h
     try {
       const today = new Date().toISOString().slice(0, 10);
       const twoDays = new Date(Date.now() + 48 * 3600000).toISOString().slice(0, 10);
-      const { data: events } = await NX.sb.from('contractor_events')
-        .select('id, contractor_name, event_date, event_time, description, location, status')
-        .gte('event_date', today)
-        .lte('event_date', twoDays)
-        .neq('status', 'cancelled')
-        .order('event_date', { ascending: true })
-        .order('event_time', { ascending: true })
-        .limit(5);
-      if (events?.length) {
-        const ev = events[0];
-        const when = formatEventWhen(ev.event_date, ev.event_time);
-        const others = events.length - 1;
-        const body = others > 0
-          ? `${when}${ev.location ? ' at ' + titleCase(ev.location) : ''}${ev.description ? ' for ' + ev.description : ''}. ${others} other visit${others === 1 ? '' : 's'} coming up.`
-          : `${when}${ev.location ? ' at ' + titleCase(ev.location) : ''}${ev.description ? ' for ' + ev.description : '.'}`;
+      const [eventsResp, cardsResp] = await Promise.all([
+        NX.sb.from('contractor_events')
+          .select('id, contractor_name, event_date, event_time, description, location, status')
+          .gte('event_date', today)
+          .lte('event_date', twoDays)
+          .neq('status', 'cancelled')
+          .order('event_date', { ascending: true })
+          .order('event_time', { ascending: true })
+          .limit(5),
+        NX.sb.from('kanban_cards')
+          .select('id, title, due_date, priority, status, location, archived')
+          .not('due_date', 'is', null)
+          .gte('due_date', today)
+          .lte('due_date', twoDays)
+          .or('archived.is.null,archived.eq.false')
+          .order('due_date', { ascending: true })
+          .limit(5),
+      ]);
+      // Normalize both into {when, title, location} shape and merge
+      const merged = [];
+      (eventsResp.data || []).forEach(ev => {
+        merged.push({
+          kind: 'event',
+          when: formatEventWhen(ev.event_date, ev.event_time),
+          title: ev.contractor_name || 'Contractor visit',
+          location: ev.location,
+          description: ev.description,
+          date: ev.event_date,
+        });
+      });
+      (cardsResp.data || []).forEach(c => {
+        merged.push({
+          kind: 'card',
+          when: formatEventWhen(c.due_date, null),
+          title: c.title || 'Task',
+          location: c.location,
+          description: '',
+          date: c.due_date,
+        });
+      });
+      // Sort by date so the soonest item is first
+      merged.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      if (merged.length) {
+        const first = merged[0];
+        const others = merged.length - 1;
+        const otherLabel = others > 0
+          ? `. ${others} other ${others === 1 ? 'item' : 'items'} coming up.`
+          : (first.description ? '' : '.');
+        const locPart = first.location ? ' at ' + titleCase(first.location) : '';
+        const descPart = first.description ? ' for ' + first.description : '';
         candidates.push({
           tone: 'incoming',
           severity: 40,
-          title: ev.contractor_name || 'Contractor visit',
-          body,
-          actionLabel: 'View calendar',
-          onClick: () => NX.switchTo?.('cal'),
+          title: first.title,
+          body: `${first.when}${locPart}${descPart}${otherLabel}`,
+          actionLabel: first.kind === 'card' ? 'View board' : 'View calendar',
+          onClick: () => NX.switchTo?.(first.kind === 'card' ? 'board' : 'cal'),
         });
       }
     } catch (e) { console.warn('[home] events fetch failed:', e.message); }
