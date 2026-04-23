@@ -898,7 +898,7 @@
       ctx.fill();
 
       if (isSpecial || alpha > 0.7) {
-        haloList.push({ x: p.x, y: p.y, size: drawSize, color, alpha });
+        haloList.push({ x: p.x, y: p.y, size: drawSize, color, alpha, isSpecial });
       }
 
       p.screenX = (p.x - cx) * zoom + cx + camX;
@@ -915,39 +915,42 @@
       ctx.fill();
     }
 
-    // ─── PASS 3: Diffraction spikes on the brightest stars ────────────
+    // ─── PASS 3: Diffraction spikes on SPECIAL stars only ─────────────
     // Classic astrophotography starburst — a horizontal + vertical
-    // gradient line radiating from each bright star. Only halos in the
-    // top brightness tier get spikes (size ≥ 70% of max), so this stays
-    // a rare, precious accent rather than everywhere-noise.
+    // gradient line radiating from a star. Reserved for particles the
+    // user has actually engaged with (active node, search hit, audio-
+    // triggered), NOT every bright particle — otherwise the screen
+    // blend mode saturates and creates huge white blobs.
+    // Divide length by zoom so spikes stay a fixed screen-pixel size
+    // regardless of how zoomed in the camera is.
     // Still inside the `screen` blend scope so spikes add light additively.
-    const SPIKE_SIZE_MIN = STAR_SIZE_MAX * 0.70;
+    const spikeZoomComp = 1 / Math.max(0.5, zoom);
     for (const h of haloList) {
-      if (h.size < SPIKE_SIZE_MIN) continue;
-      // Spike length scales with star size; alpha with star alpha
-      const spikeLen = h.size * 5.2;
-      const spikeA = Math.min(0.55, h.alpha * 0.45);
+      if (!h.isSpecial) continue;   // only meaningful nodes get the spike treatment
+      // Spike length stays visually consistent regardless of zoom
+      const spikeLen = h.size * 3.5 * spikeZoomComp;
+      const spikeA = Math.min(0.35, h.alpha * 0.32);
       const spikeRGB = h.color;
 
-      // Horizontal spike — linear gradient fading to center peak
+      // Horizontal spike
       const gH = ctx.createLinearGradient(h.x - spikeLen, h.y, h.x + spikeLen, h.y);
       gH.addColorStop(0.00, rgba(spikeRGB, 0));
-      gH.addColorStop(0.40, rgba(spikeRGB, spikeA * 0.30));
+      gH.addColorStop(0.42, rgba(spikeRGB, spikeA * 0.25));
       gH.addColorStop(0.50, rgba(spikeRGB, spikeA));
-      gH.addColorStop(0.60, rgba(spikeRGB, spikeA * 0.30));
+      gH.addColorStop(0.58, rgba(spikeRGB, spikeA * 0.25));
       gH.addColorStop(1.00, rgba(spikeRGB, 0));
       ctx.fillStyle = gH;
-      ctx.fillRect(h.x - spikeLen, h.y - 0.45, spikeLen * 2, 0.9);
+      ctx.fillRect(h.x - spikeLen, h.y - 0.4 * spikeZoomComp, spikeLen * 2, 0.8 * spikeZoomComp);
 
       // Vertical spike
       const gV = ctx.createLinearGradient(h.x, h.y - spikeLen, h.x, h.y + spikeLen);
       gV.addColorStop(0.00, rgba(spikeRGB, 0));
-      gV.addColorStop(0.40, rgba(spikeRGB, spikeA * 0.30));
+      gV.addColorStop(0.42, rgba(spikeRGB, spikeA * 0.25));
       gV.addColorStop(0.50, rgba(spikeRGB, spikeA));
-      gV.addColorStop(0.60, rgba(spikeRGB, spikeA * 0.30));
+      gV.addColorStop(0.58, rgba(spikeRGB, spikeA * 0.25));
       gV.addColorStop(1.00, rgba(spikeRGB, 0));
       ctx.fillStyle = gV;
-      ctx.fillRect(h.x - 0.45, h.y - spikeLen, 0.9, spikeLen * 2);
+      ctx.fillRect(h.x - 0.4 * spikeZoomComp, h.y - spikeLen, 0.8 * spikeZoomComp, spikeLen * 2);
     }
 
     ctx.globalCompositeOperation = 'source-over';
