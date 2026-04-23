@@ -431,11 +431,21 @@ async function openDetail(id) {
       </div>
 
       <div class="eq-detail-actions">
-        <button class="eq-btn eq-btn-primary eq-zebra-action-btn" onclick="NX.modules.equipment.quickPrint('${eq.id}')">🖨 Print</button>
-        <button class="eq-btn eq-call-service-btn" onclick="NX.modules.equipment.callService('${eq.id}')">📞 Call Service</button>
-        <button class="eq-btn" onclick="NX.modules.equipment.reportIssue('${eq.id}')">🎫 Report Issue</button>
-        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">⚙ Edit</button>
-        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.logService('${eq.id}')">📝 Log</button>
+        <button class="eq-btn eq-btn-primary eq-zebra-action-btn" onclick="NX.modules.equipment.quickPrint('${eq.id}')">
+          <span class="eq-action-icon">🖨</span><span>Print</span>
+        </button>
+        <button class="eq-btn eq-call-service-btn" onclick="NX.modules.equipment.callService('${eq.id}')">
+          <span class="eq-action-icon">📞</span><span>Call</span>
+        </button>
+        <button class="eq-btn" onclick="NX.modules.equipment.reportIssue('${eq.id}')">
+          <span class="eq-action-icon">🎫</span><span>Report</span>
+        </button>
+        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">
+          <span class="eq-action-icon">⚙</span><span>Edit</span>
+        </button>
+        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.logService('${eq.id}')">
+          <span class="eq-action-icon">📝</span><span>Log</span>
+        </button>
         <div class="eq-overflow-wrap">
           <button class="eq-btn eq-overflow-btn" onclick="NX.modules.equipment.toggleOverflow(event, '${eq.id}')" aria-label="More actions">⋯</button>
           <div class="eq-overflow-menu" id="eqOverflow-${eq.id}" onclick="event.stopPropagation()">
