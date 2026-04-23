@@ -372,17 +372,23 @@ async function openDetail(id) {
   if (!eq) return;
   currentEquipId = id;
 
-  // Parallel load: parts, maintenance, attachments, custom fields
-  const [partsRes, maintRes, attachRes, customRes] = await Promise.all([
+  // Parallel load: parts, maintenance, attachments, custom fields,
+  // plus pending pm_logs (QR-submitted service logs awaiting admin
+  // review). We fold pending logs into the timeline so they're
+  // discoverable — admin can approve/reject inline instead of
+  // hunting for a hidden review dashboard.
+  const [partsRes, maintRes, attachRes, customRes, pendingRes] = await Promise.all([
     NX.sb.from('equipment_parts').select('*').eq('equipment_id', id).order('assembly_path'),
     NX.sb.from('equipment_maintenance').select('*').eq('equipment_id', id).order('event_date', { ascending: false }),
     NX.sb.from('equipment_attachments').select('*').eq('equipment_id', id).order('created_at', { ascending: false }),
     NX.sb.from('equipment_custom_fields').select('*').eq('equipment_id', id).order('created_at'),
+    NX.sb.from('pm_logs').select('*').eq('equipment_id', id).eq('review_status', 'pending').order('submitted_at', { ascending: false }),
   ]);
-  const parts       = partsRes.data  || [];
-  const maintenance = maintRes.data  || [];
-  const attachments = attachRes.data || [];
-  const customFields = customRes.data || [];
+  const parts        = partsRes.data   || [];
+  const maintenance  = maintRes.data   || [];
+  const attachments  = attachRes.data  || [];
+  const customFields = customRes.data  || [];
+  const pendingLogs  = pendingRes.data || [];
 
   const modal = document.getElementById('eqModal') || createDetailModal();
   modal.innerHTML = `
@@ -408,7 +414,7 @@ async function openDetail(id) {
 
       <div class="eq-detail-tabs">
         <button class="eq-tab active" data-tab="overview">Overview</button>
-        <button class="eq-tab" data-tab="timeline">Timeline (${maintenance.length})</button>
+        <button class="eq-tab" data-tab="timeline">Timeline (${maintenance.length}${pendingLogs.length ? ` <span class="eq-tab-pending-dot" title="${pendingLogs.length} pending review">+${pendingLogs.length}</span>` : ''})</button>
         <button class="eq-tab" data-tab="parts">Parts (${parts.length})</button>
         <button class="eq-tab" data-tab="manual">Manual</button>
         <button class="eq-tab" data-tab="intel">🧠 AI</button>
@@ -417,7 +423,7 @@ async function openDetail(id) {
 
       <div class="eq-detail-body">
         <div class="eq-tab-panel active" data-panel="overview">${renderOverview(eq, attachments, customFields)}</div>
-        <div class="eq-tab-panel" data-panel="timeline">${renderTimeline(eq, maintenance)}</div>
+        <div class="eq-tab-panel" data-panel="timeline">${renderTimeline(eq, maintenance, pendingLogs)}</div>
         <div class="eq-tab-panel" data-panel="parts">${renderParts(eq, parts)}</div>
         <div class="eq-tab-panel" data-panel="manual">${renderManual(eq)}</div>
         <div class="eq-tab-panel" data-panel="intel"><div class="eq-empty-small">Loading intelligence…</div></div>
@@ -644,9 +650,11 @@ function renderOverview(eq, attachments, customFields) {
 
     ${eq.notes ? `<div class="eq-notes"><h4>Notes</h4><p>${esc(eq.notes)}</p></div>` : ''}
 
-    ${attachments.length ? `
-      <div class="eq-overview-section">
-        <h4>📎 Attachments (${attachments.length})</h4>
+    <div class="eq-overview-section">
+      <div class="eq-overview-head">
+        <h4>📎 Attachments${attachments.length ? ` (${attachments.length})` : ''}</h4>
+      </div>
+      ${attachments.length ? `
         <div class="eq-overview-attachments">
           ${attachments.map(a => `
             <a ${a.file_url || a.external_url ? `href="${a.file_url || a.external_url}" target="_blank"` : ''}
@@ -655,7 +663,14 @@ function renderOverview(eq, attachments, customFields) {
             </a>
           `).join('')}
         </div>
-      </div>` : ''}
+      ` : '<div class="eq-empty-small">No attachments yet. Add receipts, invoices, warranty cards, installation photos, or anything else.</div>'}
+      <div class="eq-attach-add-row">
+        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'photo', 'detail')">📸 Photo</button>
+        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'file', 'detail')">📄 File</button>
+        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'link', 'detail')">🔗 Link</button>
+        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'note', 'detail')">📝 Note</button>
+      </div>
+    </div>
 
     ${customFields.length ? `
       <div class="eq-overview-section">
@@ -691,28 +706,76 @@ function renderOverview(eq, attachments, customFields) {
   `;
 }
 
-function renderTimeline(eq, maint) {
-  if (!maint.length) {
+function renderTimeline(eq, maint, pending) {
+  pending = pending || [];
+  const isAdmin = NX.currentUser?.role === 'admin';
+  const totalItems = maint.length + pending.length;
+
+  if (!totalItems) {
     return `<div class="eq-empty-small">No service history yet.<br>
       <button class="eq-btn eq-btn-primary eq-mt" onclick="NX.modules.equipment.logService('${eq.id}')">+ Log First Service</button></div>`;
   }
+
+  // Combine pending + approved into one chronological list.
+  // Pending entries appear at the top with a distinct "pending review"
+  // treatment; approved entries below in their original order.
+  const pendingHtml = pending.map(p => {
+    const photos = Array.isArray(p.photo_urls) ? p.photo_urls : [];
+    return `
+      <div class="eq-timeline-item eq-timeline-pending" data-pending-id="${p.id}">
+        <div class="eq-timeline-date">
+          ${new Date(p.service_date).toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'})}
+          <div class="eq-timeline-pending-badge">⏳ PENDING REVIEW</div>
+        </div>
+        <div class="eq-timeline-body">
+          <div class="eq-timeline-type eq-type-${p.service_type || 'pm'}">${(p.service_type || 'service').toUpperCase()}</div>
+          <div class="eq-timeline-desc">${esc(p.work_performed || '')}</div>
+          <div class="eq-timeline-who">👤 ${esc(p.contractor_name || 'Anonymous')}${p.contractor_company ? ' · ' + esc(p.contractor_company) : ''}</div>
+          ${p.contractor_phone ? `<div class="eq-timeline-detail"><b>Phone:</b> ${esc(p.contractor_phone)}</div>` : ''}
+          ${p.cost_amount ? `<div class="eq-timeline-cost">💰 $${parseFloat(p.cost_amount).toLocaleString()}</div>` : ''}
+          ${p.parts_replaced ? `<div class="eq-timeline-detail"><b>Parts:</b> ${esc(p.parts_replaced)}</div>` : ''}
+          ${p.next_service_date ? `<div class="eq-timeline-detail"><b>Next service:</b> ${esc(p.next_service_date)}</div>` : ''}
+          ${photos.length ? `
+            <div class="eq-timeline-photos">
+              ${photos.map(u => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" class="eq-timeline-photo"></a>`).join('')}
+            </div>
+          ` : ''}
+          ${p.pdf_url ? `<div class="eq-timeline-detail"><a href="${esc(p.pdf_url)}" target="_blank">📄 View PDF invoice</a></div>` : ''}
+          ${p.signature_data ? `<img src="${esc(p.signature_data)}" class="eq-timeline-signature">` : ''}
+          ${p.flagged_spam ? '<div class="eq-timeline-spam-flag">⚠ Honeypot tripped — likely spam</div>' : ''}
+          <div class="eq-timeline-submitted-at">Submitted ${new Date(p.submitted_at || p.created_at).toLocaleString()}</div>
+          ${isAdmin ? `
+            <div class="eq-timeline-review-actions">
+              <button class="eq-btn eq-btn-approve" onclick="NX.modules.equipment.approvePmLog('${p.id}', '${eq.id}')">✓ Approve</button>
+              <button class="eq-btn eq-btn-reject"  onclick="NX.modules.equipment.rejectPmLog('${p.id}', '${eq.id}')">✕ Reject</button>
+              ${p.flagged_spam ? '' : `<button class="eq-btn eq-btn-spam" onclick="NX.modules.equipment.markPmSpam('${p.id}', '${eq.id}')">🚫 Spam</button>`}
+            </div>
+          ` : '<div class="eq-timeline-review-hint">Awaiting admin review.</div>'}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const approvedHtml = maint.map(m => `
+    <div class="eq-timeline-item">
+      <div class="eq-timeline-date">${new Date(m.event_date).toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'})}</div>
+      <div class="eq-timeline-body">
+        <div class="eq-timeline-type eq-type-${m.event_type}">${(m.event_type || 'service').toUpperCase()}</div>
+        <div class="eq-timeline-desc">${esc(m.description)}</div>
+        ${m.performed_by ? `<div class="eq-timeline-who">👤 ${esc(m.performed_by)}</div>` : ''}
+        ${m.cost ? `<div class="eq-timeline-cost">💰 $${parseFloat(m.cost).toLocaleString()}</div>` : ''}
+        ${m.downtime_hours ? `<div class="eq-timeline-dt">⏱ ${m.downtime_hours}h downtime</div>` : ''}
+        ${m.symptoms ? `<div class="eq-timeline-detail"><b>Symptoms:</b> ${esc(m.symptoms)}</div>` : ''}
+        ${m.root_cause ? `<div class="eq-timeline-detail"><b>Root cause:</b> ${esc(m.root_cause)}</div>` : ''}
+      </div>
+      <button class="eq-timeline-del" onclick="NX.modules.equipment.deleteMaintenance('${m.id}', '${eq.id}')" title="Delete">✕</button>
+    </div>
+  `).join('');
+
   return `
     <div class="eq-timeline">
-      ${maint.map(m => `
-        <div class="eq-timeline-item">
-          <div class="eq-timeline-date">${new Date(m.event_date).toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'})}</div>
-          <div class="eq-timeline-body">
-            <div class="eq-timeline-type eq-type-${m.event_type}">${(m.event_type || 'service').toUpperCase()}</div>
-            <div class="eq-timeline-desc">${esc(m.description)}</div>
-            ${m.performed_by ? `<div class="eq-timeline-who">👤 ${esc(m.performed_by)}</div>` : ''}
-            ${m.cost ? `<div class="eq-timeline-cost">💰 $${parseFloat(m.cost).toLocaleString()}</div>` : ''}
-            ${m.downtime_hours ? `<div class="eq-timeline-dt">⏱ ${m.downtime_hours}h downtime</div>` : ''}
-            ${m.symptoms ? `<div class="eq-timeline-detail"><b>Symptoms:</b> ${esc(m.symptoms)}</div>` : ''}
-            ${m.root_cause ? `<div class="eq-timeline-detail"><b>Root cause:</b> ${esc(m.root_cause)}</div>` : ''}
-          </div>
-          <button class="eq-timeline-del" onclick="NX.modules.equipment.deleteMaintenance('${m.id}', '${eq.id}')" title="Delete">✕</button>
-        </div>
-      `).join('')}
+      ${pendingHtml}
+      ${approvedHtml}
     </div>`;
 }
 
@@ -4120,7 +4183,15 @@ function renderAttachment(a) {
   `;
 }
 
-async function addAttachment(equipId, type) {
+async function addAttachment(equipId, type, returnTo) {
+  // returnTo: 'detail' reloads the equipment detail view after adding
+  //           'fullEditor' (default) reloads the full 6-tab editor
+  // Overview-tab buttons pass 'detail' so users stay where they are.
+  const reopen = () => {
+    if (returnTo === 'detail') openDetail(equipId);
+    else openFullEditor(equipId);
+  };
+
   if (type === 'link') {
     const title = prompt('Link title:');
     if (!title) return;
@@ -4132,7 +4203,7 @@ async function addAttachment(equipId, type) {
       uploaded_by: NX.currentUser?.name || 'user'
     });
     NX.toast && NX.toast('Link added ✓', 'success');
-    openFullEditor(equipId);
+    reopen();
     return;
   }
 
@@ -4147,7 +4218,7 @@ async function addAttachment(equipId, type) {
       uploaded_by: NX.currentUser?.name || 'user'
     });
     NX.toast && NX.toast('Note added ✓', 'success');
-    openFullEditor(equipId);
+    reopen();
     return;
   }
 
@@ -4187,7 +4258,7 @@ async function addAttachment(equipId, type) {
         uploaded_by: NX.currentUser?.name || 'user'
       });
       NX.toast && NX.toast('Uploaded ✓', 'success');
-      openFullEditor(equipId);
+      reopen();
     } catch (err) {
       console.error('[Attach] Upload error:', err);
       NX.toast && NX.toast('Upload failed: ' + err.message, 'error');
@@ -5499,6 +5570,110 @@ function timeAgo(iso) {
 
 
 /* ════════════════════════════════════════════════════════════════════════════
+   PM LOG INLINE REVIEW — approve/reject/spam from the Timeline tab
+   ════════════════════════════════════════════════════════════════════════════
+   Contractor submits a PM via the public QR form → row lands in pm_logs with
+   review_status='pending'. The Timeline tab surfaces pending logs for admins
+   with inline action buttons so they never have to hunt for a hidden review
+   dashboard.
+
+   Approve path: updates pm_logs.review_status, inserts a matching row into
+   equipment_maintenance (so the approved service appears as a "real" timeline
+   event), and triggers the brain sync so the node reflects the new service
+   history. Mirrors the existing updateReviewStatus() logic in
+   equipment-public-pm.js — single-sourced here so the timeline flow uses the
+   same code path as the standalone review dashboard.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function approvePmLog(logId, equipmentId) {
+  if (!confirm('Approve this service log? It will be added to the equipment timeline.')) return;
+  try {
+    // 1. Update the pm_log review status
+    const reviewer = NX.currentUser?.name || 'Admin';
+    const { error: upErr } = await NX.sb.from('pm_logs').update({
+      review_status: 'approved',
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: reviewer,
+    }).eq('id', logId);
+    if (upErr) throw upErr;
+
+    // 2. Fetch the full row to promote it
+    const { data: log, error: getErr } = await NX.sb.from('pm_logs').select('*').eq('id', logId).single();
+    if (getErr) throw getErr;
+
+    // 3. Insert matching equipment_maintenance row
+    const maintDesc = log.work_performed
+      + (log.parts_replaced ? '\n\nParts: ' + log.parts_replaced : '');
+    const performer = log.contractor_name
+      + (log.contractor_company ? ' (' + log.contractor_company + ')' : '');
+    const { error: insErr } = await NX.sb.from('equipment_maintenance').insert({
+      equipment_id: log.equipment_id,
+      event_date: log.service_date,
+      event_type: log.service_type || 'pm',
+      description: maintDesc,
+      performed_by: performer,
+      cost: log.cost_amount,
+      notes: `Submitted via QR scan${log.contractor_phone ? '. Phone: ' + log.contractor_phone : ''}.`,
+      pm_log_id: log.id,
+    });
+    if (insErr) throw insErr;
+
+    // 4. If this PM has a next_service_date, update equipment's next_pm_date
+    if (log.next_service_date) {
+      await NX.sb.from('equipment')
+        .update({ next_pm_date: log.next_service_date })
+        .eq('id', log.equipment_id);
+    }
+
+    // 5. Re-sync the equipment node in the knowledge graph (best effort)
+    if (NX.eqBrainSync?.syncOne) {
+      try { await NX.eqBrainSync.syncOne(log.equipment_id); } catch (_) {}
+    }
+
+    NX.toast?.('Service log approved ✓', 'success');
+    // 6. Reload the equipment detail to reflect the change
+    await openDetail(equipmentId);
+  } catch (err) {
+    console.error('[approvePmLog] failed:', err);
+    alert('Failed to approve: ' + err.message);
+  }
+}
+
+async function rejectPmLog(logId, equipmentId) {
+  if (!confirm('Reject this service log? It will be hidden from the timeline.')) return;
+  try {
+    const { error } = await NX.sb.from('pm_logs').update({
+      review_status: 'rejected',
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: NX.currentUser?.name || 'Admin',
+    }).eq('id', logId);
+    if (error) throw error;
+    NX.toast?.('Log rejected', 'info');
+    await openDetail(equipmentId);
+  } catch (err) {
+    console.error('[rejectPmLog] failed:', err);
+    alert('Failed to reject: ' + err.message);
+  }
+}
+
+async function markPmSpam(logId, equipmentId) {
+  if (!confirm('Mark this log as spam? It will be hidden and the submitter flagged.')) return;
+  try {
+    const { error } = await NX.sb.from('pm_logs').update({
+      review_status: 'spam',
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: NX.currentUser?.name || 'Admin',
+    }).eq('id', logId);
+    if (error) throw error;
+    NX.toast?.('Marked as spam', 'info');
+    await openDetail(equipmentId);
+  } catch (err) {
+    console.error('[markPmSpam] failed:', err);
+    alert('Failed: ' + err.message);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
    14. EXPORT — single flat namespace, no more Object.assign ceremony
    ════════════════════════════════════════════════════════════════════════════ */
 
@@ -5527,6 +5702,9 @@ NX.modules.equipment = {
   logService,
   closeService,
   deleteMaintenance,
+  approvePmLog,
+  rejectPmLog,
+  markPmSpam,
   addPart,
   editPart,
   deletePart,
