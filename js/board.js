@@ -571,18 +571,60 @@ async function moveCard(card, targetList){
       'triaged':'triaged',
       'reported':'reported',
     };
+    const targetColName = targetList.name.toLowerCase().replace(/\s+/g,'_');
+    const wasNotDone = (card.column_name || '').toLowerCase() !== 'done';
+    const movingToDone = targetColName === 'done';
     const status = statusMap[targetList.name.toLowerCase()] || targetList.name.toLowerCase().replace(/\s+/g,'_');
     await NX.sb.from('kanban_cards').update({
       list_id: targetList.id,
-      column_name: targetList.name.toLowerCase().replace(/\s+/g,'_'),
+      column_name: targetColName,
       status,
     }).eq('id', card.id);
     card.list_id = targetList.id;
     card.status = status;
+    card.column_name = targetColName;
     await loadCards(); render();
+
+    // ── CROSS-SYSTEM CLOSE-OUT ────────────────────────────────────
+    // If this card just moved to Done and is linked to equipment
+    // that isn't currently Operational, offer to mark the equipment
+    // repaired. One confirm, one update, one toast — saves switching
+    // to the Equip tab to manually flip the status.
+    if (movingToDone && wasNotDone && card.equipment_id) {
+      offerEquipmentRepaired(card);
+    }
   }catch(e){
     console.error('[board] moveCard:', e);
     NX.toast && NX.toast('Failed to move card', 'error');
+  }
+}
+
+/* Offer to mark the equipment linked to this card as Operational.
+   Only fires when equipment is currently NOT operational (otherwise
+   nothing to change). Silent if equipment row isn't found. */
+async function offerEquipmentRepaired(card) {
+  try {
+    const { data: eq } = await NX.sb.from('equipment')
+      .select('id, name, status')
+      .eq('id', card.equipment_id)
+      .maybeSingle();
+    if (!eq) return;
+    if (eq.status === 'operational') return;  // already good, nothing to offer
+
+    if (!confirm(`Mark "${eq.name}" as Operational?\n\nThis card is about that equipment. If it's resolved, the equipment should reflect that too.`)) return;
+
+    const { error } = await NX.sb.from('equipment')
+      .update({ status: 'operational' })
+      .eq('id', eq.id);
+    if (error) throw error;
+    NX.toast && NX.toast(`${eq.name} → Operational ✓`, 'success');
+    // Fire brain sync so the AI + galaxy reflect the change
+    if (NX.eqBrainSync?.syncOne) {
+      try { await NX.eqBrainSync.syncOne(eq.id); } catch (_) {}
+    }
+    if (NX.homeGalaxyPulse) try { NX.homeGalaxyPulse(); } catch (_) {}
+  } catch (err) {
+    console.error('[offerEquipmentRepaired]', err);
   }
 }
 
