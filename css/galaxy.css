@@ -1,151 +1,671 @@
-/* ═══════════════════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Home — Stage C
+   
+   Clean editorial home dashboard. Uses the app's existing brand font
+   (Outfit + DM Sans) for continuity — no outside-feeling serif. The
+   editorial feel comes from typography hierarchy, fine hairlines, and
+   the 60/30/10 color discipline, not from a display typeface that 
+   fights the rest of NEXUS.
+   
+   Display: Outfit 300 at large sizes, tight letter-spacing — reads as
+     confident and thin without looking artsy
+   Body: DM Sans 400/500 at 15px — the existing NEXUS body voice
+   Metrics & timestamps: JetBrains Mono — the "terminal" thread
+   ═══════════════════════════════════════════════════════════════════════ */
 
-   NEXUS GALAXY — styles for the galaxy canvas + its interaction surfaces
+/* ─── View shell ─────────────────────────────────────────────────── */
+#homeView {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+#homeView::-webkit-scrollbar { display: none; }
 
-   Replaces: galaxy-soul.css (deleted)
+.home-page {
+  max-width: 640px;
+  margin: 0 auto;
+  /* Bottom padding clears fixed ask bar (~54px) + gap (10px) + bnav (56px) + safe area */
+  padding: 24px 22px calc(140px + env(safe-area-inset-bottom));
+  min-height: 100%;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  color: var(--text);
+  --home-hairline: rgba(212, 182, 138, 0.14);
+  --home-hairline-strong: rgba(212, 182, 138, 0.28);
+  --home-dim: var(--muted);
+  /* Final guard — nothing inside home is ever allowed to scroll the
+     page horizontally. Any errant wide child gets clipped instead. */
+  overflow-x: hidden;
+  max-width: min(640px, 100vw);
+}
 
-   The galaxy is rendered entirely in canvas. This file handles:
-     — the canvas container sizing
-     — the node-open detail panel (slides from bottom)
-     — the system activity indicator
+/* ─── Masthead ───────────────────────────────────────────────────── */
+.home-mast {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--home-hairline);
+  min-width: 0;
+}
+.home-mast-brand {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 5px;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.home-mast-date {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 1.8px;
+  color: var(--faint);
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 
-   ═══════════════════════════════════════════════════════════════════════════════ */
-
-/* The canvas itself — fills its container, no scrollbars */
-#brainCanvas {
-  display: block;
+/* ─── Tiny spinning galaxy in the masthead ──────────────────────── */
+.home-mini-galaxy {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  cursor: pointer;
+  position: relative;
+  background:
+    radial-gradient(circle at 50% 50%,
+      rgba(212, 164, 78, 0.18) 0%,
+      rgba(212, 164, 78, 0.05) 40%,
+      transparent 72%);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.2s ease;
+}
+.home-mini-galaxy:hover { transform: scale(1.15); }
+.home-mini-galaxy:active { transform: scale(0.92); }
+.home-mini-galaxy canvas {
   width: 100%;
   height: 100%;
-  background: #04040c;
-  touch-action: none;           /* We handle pan/zoom manually */
-  -webkit-user-select: none;
-  user-select: none;
-  cursor: grab;
-}
-#brainCanvas:active { cursor: grabbing; }
-
-
-/* ─── Node detail panel (slides in from bottom when a star is tapped) ─── */
-/* This is an opt-in panel — fires on the 'galaxy:node-open' CustomEvent.
-   If brain-list.js or brain-chat.js wants to handle it, they can.
-   Otherwise this is a sensible default. */
-.galaxy-panel {
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
-  max-height: 60vh;
-  background: rgba(9, 9, 24, 0.96);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-top: 1px solid rgba(200, 164, 78, 0.25);
-  padding: 18px 20px 32px;
-  transform: translateY(100%);
-  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-  z-index: 100;
-  overflow-y: auto;
-  color: rgba(255, 255, 255, 0.88);
-  font-family: -apple-system, "SF Pro Display", system-ui, sans-serif;
-}
-.galaxy-panel.open { transform: translateY(0); }
-
-.galaxy-panel-handle {
-  width: 36px;
-  height: 3px;
-  border-radius: 2px;
-  background: rgba(200, 164, 78, 0.3);
-  margin: 0 auto 16px;
+  display: block;
+  border-radius: 50%;
 }
 
-.galaxy-panel-title {
-  font-size: 17px;
+/* ─── Lede — "Afternoon, Alfredo." using the NEXUS brand font ────── */
+/* Sized to read as a confident header, not a cover-story headline.
+   Margin above is tight because the masthead already defines the top. */
+.home-lede {
+  margin: 28px 0 14px;
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif;
+  font-weight: 300;
+  font-size: clamp(34px, 8.5vw, 48px);
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  color: var(--text);
+  /* One-line by default — "Morning, Alfredo." on a single line reads
+     tighter and leaves room below for the situation paragraph. */
+}
+.home-lede-comma {
+  color: var(--home-dim);
+  font-weight: 300;
+}
+.home-lede-name {
+  color: var(--accent);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+}
+
+/* ─── Intro / situation line ────────────────────────────────────── */
+/* Reads a summary of what's happening across the restaurants right
+   now — live data, not meta-commentary about the feed below. Gold
+   <strong> elements highlight the subjects of interest. */
+.home-intro {
+  font-size: 15px;
+  color: var(--home-dim);
+  line-height: 1.55;
+  margin: 0 0 36px;
+  max-width: 48ch;
+  letter-spacing: 0.05px;
+}
+.home-intro strong {
+  color: var(--accent);
   font-weight: 500;
-  letter-spacing: 0.3px;
-  margin-bottom: 4px;
-  color: #c8a44e;
+  font-variant-numeric: tabular-nums;
 }
 
-.galaxy-panel-sub {
+/* ─── Priority feed — numbered broadsheet items ──────────────────── */
+.home-feed { display: flex; flex-direction: column; gap: 14px; }
+
+.home-item {
+  position: relative;
+  display: block;
+  padding: 18px 18px 18px 46px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.01) 0%, transparent 100%);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.2s, transform 0.15s;
+  text-decoration: none;
+  color: inherit;
+}
+.home-item:hover { border-color: var(--home-hairline-strong); }
+.home-item:active { transform: scale(0.995); }
+
+.home-item-num {
+  position: absolute;
+  top: 18px;
+  left: 16px;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: var(--faint);
+}
+
+.home-item-kicker {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
   letter-spacing: 2px;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.4);
-  margin-bottom: 14px;
-}
-
-.galaxy-panel-body {
-  font-size: 14px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.75);
-}
-
-
-/* ─── System activity indicator (top-right corner) ─── */
-/* Small status chip showing ingestion state + pending count */
-.galaxy-status {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  padding: 6px 12px;
-  border-radius: 99px;
-  background: rgba(9, 9, 24, 0.7);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(200, 164, 78, 0.18);
-  font-size: 10px;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  color: rgba(200, 164, 78, 0.7);
+  margin-bottom: 6px;
   display: flex;
   align-items: center;
   gap: 8px;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.6s;
-  z-index: 20;
 }
-.galaxy-status.visible { opacity: 1; }
-
-.galaxy-status-dot {
-  width: 6px;
-  height: 6px;
+.home-item-kicker::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
-  background: #c8a44e;
-  box-shadow: 0 0 6px rgba(200, 164, 78, 0.6);
-  animation: galaxy-pulse 3s ease-in-out infinite;
+  background: currentColor;
 }
-@keyframes galaxy-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.85); }
+.home-item[data-tone="overdue"] .home-item-kicker   { color: var(--red); }
+.home-item[data-tone="incoming"] .home-item-kicker  { color: var(--accent); }
+.home-item[data-tone="reported"] .home-item-kicker  { color: var(--amber); }
+.home-item[data-tone="calm"] .home-item-kicker      { color: var(--green); }
+.home-item[data-tone="fyi"] .home-item-kicker       { color: var(--muted); }
+
+.home-item-title {
+  font-size: 16.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+  margin-bottom: 6px;
+  letter-spacing: -0.01em;
+}
+.home-item-body {
+  font-size: 14px;
+  color: var(--home-dim);
+  line-height: 1.55;
+  margin-bottom: 12px;
+}
+.home-item-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--accent);
+  letter-spacing: 0.3px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.home-item-action::after {
+  content: '→';
+  font-family: 'JetBrains Mono', monospace;
+  transition: transform 0.2s;
+}
+.home-item:hover .home-item-action::after { transform: translateX(3px); }
+
+/* Calm state — when nothing urgent is happening */
+.home-feed-calm {
+  text-align: center;
+  padding: 40px 20px 48px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 2px;
+}
+.home-feed-calm-mark {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 300;
+  font-size: 32px;
+  color: var(--accent);
+  margin-bottom: 12px;
+  display: block;
+  letter-spacing: -0.02em;
+}
+.home-feed-calm-text {
+  font-size: 13px;
+  color: var(--home-dim);
+  line-height: 1.55;
+  max-width: 34ch;
+  margin: 0 auto;
 }
 
-
-/* ─── Hint on first load ─── */
-/* One-time overlay: "Tap NEXUS to play" fades in over the black hole the first
-   time the user sees the galaxy, then fades out after 4s or on first tap. */
-.galaxy-hint {
-  position: absolute;
-  left: 50%;
-  top: calc(50% + 75px);
-  transform: translateX(-50%);
-  font-family: "SF Mono", "Menlo", monospace;
-  font-size: 10px;
-  letter-spacing: 3px;
+/* ─── Section rule — fine-cut divider with label ────────────────── */
+.home-rule {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 44px 0 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 2.2px;
+  color: var(--faint);
   text-transform: uppercase;
-  color: rgba(200, 164, 78, 0.5);
-  opacity: 0;
-  animation: galaxy-hint-fade 8s ease-in-out forwards;
-  animation-delay: 1.2s;
-  pointer-events: none;
-  white-space: nowrap;
-  z-index: 15;
 }
-@keyframes galaxy-hint-fade {
-  0%   { opacity: 0; }
-  15%  { opacity: 0.6; }
-  75%  { opacity: 0.6; }
-  100% { opacity: 0; }
+.home-rule::before, .home-rule::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--home-hairline);
 }
 
+/* ─── On the books — calendar strip (past/today/future) ────────── */
+/* Timeline-style list with date on the left, events on the right.
+   Past days get reduced opacity so they recede without disappearing.
+   Today gets a pulsing gold dot so it reads as "now" at a glance.
+   Density cap handled in JS — max ~10 rows.
+   
+   Layout containment notes:
+   - overflow: hidden on the outer container prevents any child from
+     pushing the whole page wider than the viewport.
+   - min-width: 0 is set on every flex child that needs to shrink
+     past its natural content width (flex defaults to min-width: auto
+     which stops shrinking at content size, causing overflow). */
+.home-cal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 14px;
+  overflow: hidden;         /* belt-and-suspenders clip */
+  max-width: 100%;
+}
+.home-cal-day {
+  display: flex;
+  gap: 16px;
+  padding: 2px 0;
+  min-width: 0;             /* allow inner flex children to shrink */
+}
+.home-cal-day.is-past {
+  opacity: 0.48;
+}
+.home-cal-day.is-today .home-cal-date {
+  color: var(--accent);
+}
 
-/* Hide the old scrubber bar from galaxy-soul if it got left behind in HTML */
-.galaxy-scrubber,
-.gs-scrubber,
-.galaxy-soul-overlay { display: none !important; }
+.home-cal-date {
+  flex-shrink: 0;
+  width: 96px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.4px;
+  color: var(--faint);
+  text-transform: uppercase;
+  padding-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
+  gap: 3px 6px;
+  line-height: 1.3;
+}
+.home-cal-date-label { /* hook for future; inherits parent */ }
+.home-cal-date-rel {
+  width: 100%;
+  color: var(--accent);
+  opacity: 0.7;
+  font-size: 9px;
+  letter-spacing: 1.3px;
+  font-weight: 500;
+}
+.home-cal-today-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+  margin-top: 7px;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(212, 164, 78, 0.6);
+  animation: homeCalPulse 2.2s ease-in-out infinite;
+}
+@keyframes homeCalPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(212, 164, 78, 0.6); }
+  50%      { box-shadow: 0 0 14px rgba(212, 164, 78, 0.9); }
+}
+
+.home-cal-items {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;             /* critical — lets title/desc truncate */
+  overflow: hidden;
+}
+.home-cal-item {
+  display: flex;
+  gap: 12px;
+  padding: 8px 0 8px 10px;        /* left pad leaves room for accent bar */
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(212, 182, 138, 0.06);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+  color: inherit;
+  transition: transform 0.1s, background 0.15s;
+  width: 100%;
+  min-width: 0;
+  position: relative;              /* for accent bar positioning */
+}
+.home-cal-item:last-child { border-bottom: none; }
+.home-cal-item:active { transform: scale(0.99); }
+.home-cal-item:hover .home-cal-title-text { color: var(--accent); }
+
+/* Left accent bar — a colored sliver that signals status at a glance.
+   2px wide, spans the row height minus a bit of breathing room. */
+.home-cal-accent {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+}
+
+/* "NEXT UP" kicker — small gold label above the first upcoming event.
+   Gives the strip forward momentum when today is empty. */
+.home-cal-nextup {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 1.8px;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  padding: 2px 6px;
+  background: rgba(212, 164, 78, 0.12);
+  border-radius: 2px;
+  align-self: flex-start;
+}
+.home-cal-item.is-nextup {
+  background: linear-gradient(90deg, rgba(212, 164, 78, 0.04) 0%, transparent 50%);
+}
+.home-cal-item.is-nextup .home-cal-accent {
+  width: 3px;
+  box-shadow: 0 0 8px rgba(212, 164, 78, 0.4);
+}
+
+.home-cal-time {
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  width: 64px;              /* fixed width so time doesn't grow */
+  padding-top: 1px;
+  letter-spacing: 0.3px;
+  font-weight: 500;
+}
+.home-cal-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;             /* critical */
+  overflow: hidden;
+}
+.home-cal-title {
+  font-size: 13.5px;
+  color: var(--text);
+  line-height: 1.4;
+  letter-spacing: 0.05px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.home-cal-title-text {
+  flex: 1;
+  min-width: 0;
+  /* Multi-line clamp with wrapping so long contractor names break
+     cleanly instead of pushing the container width. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  transition: color 0.15s;
+}
+.home-cal-status {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--accent);
+  opacity: 0.85;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.home-cal-desc {
+  font-size: 11.5px;
+  color: var(--home-dim);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;      /* single line, truncates on overflow */
+  max-width: 100%;
+}
+.home-cal-empty {
+  font-size: 12.5px;
+  color: var(--faint);
+  padding: 4px 0;
+  letter-spacing: 0.1px;
+  font-style: italic;
+}
+.home-cal-empty-all {
+  padding: 22px 18px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--home-dim);
+  line-height: 1.6;
+  border: 1px solid var(--home-hairline);
+  border-radius: 2px;
+}
+
+.home-cal-viewall {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  margin: 0 0 36px;
+  padding: 10px 0 0;
+  color: var(--accent);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-align: right;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
+}
+.home-cal-viewall:hover { opacity: 0.7; }
+
+/* Cal-specific skeleton — wider than a stat card, shorter than a feed item */
+.home-skeleton-cal { height: 44px; }
+
+/* Small phones — stack date label above its events to reclaim width.
+   Breakpoint raised to 440px so most phones get the stacked layout,
+   which reads better on narrow viewports anyway. */
+@media (max-width: 440px) {
+  .home-cal-day   { flex-direction: column; gap: 6px; }
+  .home-cal-date  { width: auto; padding-top: 0; font-size: 9.5px; }
+  .home-cal-item  { gap: 10px; }
+  .home-cal-time  { width: 58px; font-size: 11px; }
+  .home-cal-title { font-size: 13px; }
+  .home-cal-desc  { font-size: 11px; }
+}
+
+/* ─── Glance — 4-column stat strip ──────────────────────────────── */
+.home-glance {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 36px;
+}
+.home-stat {
+  padding: 14px 4px 10px;
+  text-align: left;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  border-top: 1px solid var(--home-hairline);
+  transition: border-color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.home-stat:active { transform: scale(0.97); }
+.home-stat:hover { border-top-color: var(--accent); }
+.home-stat-num {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 30px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+.home-stat-num.alert { color: var(--red); }
+.home-stat-num.loading { color: var(--faint); opacity: 0.5; }
+.home-stat-label {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  color: var(--faint);
+  text-transform: uppercase;
+  margin-top: 8px;
+}
+.home-stat-sub {
+  display: block;
+  font-size: 10.5px;
+  color: var(--home-dim);
+  margin-top: 2px;
+  letter-spacing: 0.2px;
+}
+
+/* ─── Ask NEXUS bar — permanent sticky entry point ──────────────────
+   Fixed above the bottom navigation, always visible while scrolling Home.
+   Glass backdrop so scrolling content is hinted-at underneath. Width
+   matches .home-page content (centered, max 600px on wider screens). */
+.home-ask {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 28px);
+  max-width: 600px;
+  bottom: calc(56px + env(safe-area-inset-bottom) + 10px);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(212, 182, 138, 0.28);
+  border-radius: 12px;
+  background: rgba(14, 13, 18, 0.88);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.5),
+    0 2px 6px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(212, 182, 138, 0.06);
+  cursor: text;
+  transition: border-color 0.2s, background 0.2s, transform 0.2s;
+}
+.home-ask:hover,
+.home-ask:active {
+  border-color: var(--accent);
+  background: rgba(22, 19, 26, 0.92);
+}
+.home-ask:active {
+  transform: translateX(-50%) scale(0.99);
+}
+.home-ask-prompt {
+  flex: 1;
+  font-size: 14.5px;
+  color: var(--faint);
+  letter-spacing: 0.1px;
+}
+.home-ask-prompt em {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 500;
+  font-family: inherit;
+  letter-spacing: 0.5px;
+}
+.home-ask-kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--faint);
+  padding: 4px 7px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* ─── Skeleton loading states — appear before data arrives ──────── */
+.home-skeleton {
+  height: 88px;
+  background: linear-gradient(
+    90deg,
+    rgba(212, 182, 138, 0.03) 0%,
+    rgba(212, 182, 138, 0.07) 50%,
+    rgba(212, 182, 138, 0.03) 100%
+  );
+  background-size: 200% 100%;
+  animation: homeShimmer 2.2s ease-in-out infinite;
+  border-radius: 2px;
+}
+@keyframes homeShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ─── Responsive — tighten on small phones ──────────────────────── */
+@media (max-width: 380px) {
+  .home-page { padding: 20px 18px calc(88px + env(safe-area-inset-bottom)); }
+  .home-lede { margin: 32px 0 30px; }
+  .home-glance { gap: 6px; }
+  .home-stat-num { font-size: 26px; }
+}
+/* Tablet / desktop refinement */
+@media (min-width: 720px) {
+  .home-lede { margin: 60px 0 56px; font-size: 72px; }
+  .home-item { padding: 22px 22px 22px 54px; }
+  .home-item-num { top: 22px; left: 20px; font-size: 12px; }
+}
