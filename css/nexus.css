@@ -57,29 +57,261 @@ body::-webkit-scrollbar{display:none}
 .bv-owner{font-size:8px;color:var(--accent);position:absolute;top:74px;left:0;right:0;text-align:center;z-index:10;letter-spacing:2px;opacity:.4}
 
 /* ═══ PIN SCREEN ═══ */
-.pin-screen{position:fixed;inset:0;z-index:300;background:var(--bg);display:flex;align-items:center;justify-content:center;transition:opacity .5s,transform .5s}
-.pin-screen.hidden{opacity:0;transform:scale(1.05);pointer-events:none}
-.pin-box{text-align:center;width:100%;max-width:300px;padding:24px}
-.pin-dot{width:14px;height:14px;border-radius:50%;background:var(--accent);box-shadow:0 0 20px var(--glow);margin:0 auto 20px;animation:pulse 2.5s infinite}
-.pin-title{font-family:'JetBrains Mono',monospace;font-size:28px;letter-spacing:6px;color:var(--accent);margin-bottom:8px}
-.pin-sub{font-size:13px;color:var(--muted);margin-bottom:24px}
-.pin-display{display:flex;gap:16px;justify-content:center;margin-bottom:28px}
-.pin-circle{width:16px;height:16px;border-radius:50%;border:2px solid var(--faint);transition:all .15s}
-.pin-circle.filled{background:var(--accent);border-color:var(--accent);box-shadow:0 0 8px var(--glow)}
-.pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:240px;margin:0 auto}
-.pin-key{width:72px;height:56px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:22px;font-family:'JetBrains Mono',monospace;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;-webkit-tap-highlight-color:transparent}
-.pin-key:active{background:var(--accent);color:var(--bg);transform:scale(.95)}
-.pin-key-empty{visibility:hidden}
-.pin-key-del{font-size:18px;color:var(--faint)}
-.pin-error{color:#d45858;font-size:12px;margin-top:16px;min-height:18px;letter-spacing:1px}
-.pin-error.shake{animation:shake .4s ease}
-.pin-user{color:#5bba5f;font-size:14px;margin-top:12px;min-height:20px;opacity:0;transition:opacity .4s}
-.pin-user.visible{opacity:1}
-.pin-lang-row{display:flex;gap:8px;justify-content:center;margin-top:20px}
-.pin-lang-btn{padding:8px 18px;border-radius:var(--rp);border:1px solid var(--border);background:none;color:var(--faint);font-size:12px;cursor:pointer;font-family:inherit;transition:all .2s}
-.pin-lang-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(212,182,138,.08)}
-.pin-bio-btn{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px;border-radius:12px;border:1.5px solid rgba(212,164,78,.2);background:rgba(212,164,78,.04);color:var(--accent);cursor:pointer;font-family:inherit;font-size:11px;letter-spacing:.5px;margin-top:8px;transition:all .15s}
-.pin-bio-btn:active{background:rgba(212,164,78,.12);transform:scale(.97)}
+/* ═══════════════════════════════════════════════════════════════════════
+   PIN SCREEN — editorial × terminal login.
+   Masthead wordmark (Outfit 300, letter-spaced) sits above a hairline,
+   followed by a JetBrains Mono date line. PIN dots and keypad below.
+   Connects to Home's visual language: breathing amber, gold hairlines.
+   ═══════════════════════════════════════════════════════════════════════ */
+.pin-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background:
+    radial-gradient(ellipse 700px 500px at 50% 38%,
+      rgba(212, 164, 78, 0.06) 0%,
+      rgba(212, 164, 78, 0.02) 40%,
+      transparent 80%),
+    var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity .5s, transform .5s;
+}
+.pin-screen.hidden { opacity: 0; transform: scale(1.05); pointer-events: none; }
+
+.pin-box {
+  text-align: center;
+  width: 100%;
+  max-width: 320px;
+  padding: 28px 24px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ─── MASTHEAD — breathing dot, wordmark, hairline, date ─────────── */
+.pin-mast {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 34px;
+}
+.pin-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow:
+    0 0 14px rgba(212, 164, 78, 0.55),
+    0 0 4px rgba(255, 220, 160, 0.8);
+  margin: 0 0 18px;
+  animation: pinDotBreath 4.2s ease-in-out infinite;
+}
+@keyframes pinDotBreath {
+  0%,   100% { opacity: 0.65; transform: scale(0.92); box-shadow: 0 0 8px  rgba(212, 164, 78, 0.35), 0 0 2px rgba(255, 220, 160, 0.6); }
+  50%        { opacity: 1;    transform: scale(1.08); box-shadow: 0 0 18px rgba(212, 164, 78, 0.75), 0 0 5px rgba(255, 220, 160, 1.0); }
+}
+.pin-title {
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-weight: 300;
+  font-size: 32px;
+  letter-spacing: 10px;
+  color: var(--accent);
+  margin: 0 0 16px;
+  padding-left: 10px; /* compensate for letter-spacing on last char */
+  line-height: 1;
+  -webkit-font-smoothing: antialiased;
+}
+.pin-title span {
+  /* Alternating letters slightly dimmer — gives subtle rhythm */
+  color: rgba(212, 164, 78, 0.78);
+}
+.pin-hairline {
+  width: 48px;
+  height: 1px;
+  background: linear-gradient(to right,
+    transparent 0%,
+    rgba(212, 164, 78, 0.45) 50%,
+    transparent 100%);
+  margin-bottom: 14px;
+}
+.pin-date {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 2.2px;
+  color: var(--faint);
+  text-transform: uppercase;
+}
+
+/* ─── PIN DOTS ───────────────────────────────────────────────────── */
+.pin-display {
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  margin-bottom: 32px;
+}
+.pin-circle {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.3px solid rgba(212, 164, 78, 0.28);
+  background: rgba(212, 164, 78, 0.03);
+  transition: all .2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.pin-circle.filled {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow:
+    0 0 10px rgba(212, 164, 78, 0.55),
+    0 0 2px rgba(255, 220, 160, 0.9);
+  transform: scale(1.15);
+}
+
+/* ─── KEYPAD ─────────────────────────────────────────────────────── */
+.pin-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  width: 100%;
+  max-width: 260px;
+  margin: 0 auto;
+}
+.pin-key {
+  height: 56px;
+  border-radius: 14px;
+  border: 1px solid rgba(212, 164, 78, 0.12);
+  background: rgba(212, 164, 78, 0.025);
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 300;
+  font-family: 'Outfit', system-ui, sans-serif;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s cubic-bezier(0.4, 0, 0.2, 1);
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+  overflow: hidden;
+}
+.pin-key::before {
+  /* A radial gold glow that appears on press — warm feedback */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center,
+    rgba(212, 164, 78, 0.18) 0%,
+    transparent 70%);
+  opacity: 0;
+  transition: opacity .2s;
+}
+.pin-key:active {
+  background: rgba(212, 164, 78, 0.12);
+  border-color: rgba(212, 164, 78, 0.45);
+  color: var(--accent);
+  transform: scale(.94);
+}
+.pin-key:active::before { opacity: 1; }
+.pin-key-empty {
+  visibility: hidden;
+  pointer-events: none;
+}
+.pin-key-del {
+  font-size: 18px;
+  color: var(--faint);
+  font-family: system-ui, sans-serif;
+}
+.pin-key-del:active { color: var(--accent); }
+
+/* ─── SUBTITLE + ERROR + USER ────────────────────────────────────── */
+.pin-sub {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 11px;
+  letter-spacing: 2.5px;
+  color: var(--faint);
+  text-transform: uppercase;
+  margin: 24px 0 0;
+  opacity: 0.6;
+}
+.pin-error {
+  color: #e07070;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-top: 14px;
+  min-height: 14px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.pin-error.shake { animation: shake .4s ease; }
+.pin-user {
+  color: #7bc57b;
+  font-size: 13px;
+  margin-top: 12px;
+  min-height: 18px;
+  opacity: 0;
+  transition: opacity .4s;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  letter-spacing: 0.5px;
+}
+.pin-user.visible { opacity: 1; }
+
+/* ─── LANGUAGE TOGGLE ────────────────────────────────────────────── */
+.pin-lang-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 28px;
+}
+.pin-lang-dot {
+  color: rgba(212, 164, 78, 0.3);
+  font-size: 10px;
+}
+.pin-lang-btn {
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  color: var(--faint);
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  transition: color .2s;
+  opacity: 0.65;
+}
+.pin-lang-btn:active,
+.pin-lang-btn.active {
+  color: var(--accent);
+  opacity: 1;
+}
+
+/* ─── BIOMETRIC BUTTON (if present) ──────────────────────────────── */
+.pin-bio-btn {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(212, 164, 78, 0.22);
+  background: rgba(212, 164, 78, 0.04);
+  color: var(--accent);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 1px;
+  margin-top: 8px;
+  transition: all .15s;
+}
+.pin-bio-btn:active {
+  background: rgba(212, 164, 78, 0.12);
+  transform: scale(.97);
+}
 .pin-bio-btn svg{opacity:.7}
 .pin-lang-btn:hover{border-color:var(--accent);color:var(--accent)}
 
