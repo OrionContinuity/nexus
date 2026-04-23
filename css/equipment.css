@@ -314,6 +314,166 @@
   padding: 6px 8px; background: var(--surface); border-radius: 4px;
 }
 .eq-timeline-detail b { color: var(--text); }
+
+/* ─── Pending PM review entry — distinct treatment so admins see
+       at a glance that this log hasn't been approved yet.          ─── */
+.eq-timeline-pending {
+  border-left-color: #e8a830;
+  background: linear-gradient(
+    to right,
+    rgba(232, 168, 48, 0.08),
+    rgba(35, 34, 40, 0.95) 70%
+  );
+  border: 1px solid rgba(232, 168, 48, 0.22);
+  border-left-width: 3px;
+}
+.eq-timeline-pending-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  color: #e8a830;
+  background: rgba(232, 168, 48, 0.14);
+  border: 1px solid rgba(232, 168, 48, 0.3);
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.eq-timeline-submitted-at {
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--faint);
+  font-style: italic;
+}
+.eq-timeline-photos {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.eq-timeline-photo {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.eq-timeline-photo:hover { transform: scale(1.05); }
+.eq-timeline-signature {
+  max-width: 180px;
+  max-height: 70px;
+  background: #fff;
+  border-radius: 4px;
+  margin-top: 8px;
+  display: block;
+}
+.eq-timeline-spam-flag {
+  margin-top: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--red);
+  background: rgba(200, 70, 70, 0.12);
+  border-radius: 4px;
+}
+.eq-timeline-review-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.eq-timeline-review-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--faint);
+  font-style: italic;
+}
+.eq-btn-approve,
+.eq-btn-reject,
+.eq-btn-spam {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-btn-approve {
+  background: rgba(91, 186, 95, 0.14);
+  color: #7bc57b;
+  border-color: rgba(91, 186, 95, 0.3);
+}
+.eq-btn-approve:active {
+  background: rgba(91, 186, 95, 0.24);
+  transform: scale(0.97);
+}
+.eq-btn-reject {
+  background: rgba(150, 150, 160, 0.1);
+  color: var(--muted);
+  border-color: rgba(150, 150, 160, 0.25);
+}
+.eq-btn-reject:active {
+  background: rgba(150, 150, 160, 0.18);
+  transform: scale(0.97);
+}
+.eq-btn-spam {
+  background: rgba(200, 70, 70, 0.1);
+  color: #e07070;
+  border-color: rgba(200, 70, 70, 0.25);
+}
+.eq-btn-spam:active {
+  background: rgba(200, 70, 70, 0.18);
+  transform: scale(0.97);
+}
+
+/* Pending count badge in the Timeline tab label */
+.eq-tab-pending-dot {
+  display: inline-block;
+  margin-left: 2px;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #e8a830;
+  background: rgba(232, 168, 48, 0.2);
+  border-radius: 8px;
+  vertical-align: middle;
+}
+
+/* ─── Inline attachment add buttons (Overview tab) ────────────────
+   Direct "+" affordance right in the Overview's attachments section
+   so users don't have to navigate to Edit → Attachments tab to add
+   more. Chip-style buttons, compact, tappable.                      */
+.eq-attach-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.eq-attach-add-btn {
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  border-radius: 20px;
+  border: 1px solid rgba(212, 164, 78, 0.25);
+  background: rgba(212, 164, 78, 0.06);
+  color: var(--accent);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-attach-add-btn:active {
+  background: rgba(212, 164, 78, 0.16);
+  border-color: rgba(212, 164, 78, 0.5);
+  transform: scale(0.96);
+}
 .eq-timeline-del {
   position: absolute; top: 8px; right: 8px;
   background: none; border: none; color: var(--faint);
