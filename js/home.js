@@ -226,11 +226,12 @@
             .order('event_time', { ascending: true })
             .limit(60),
           NX.sb.from('kanban_cards')
-            .select('id, title, due_date, priority, status, location, archived')
+            .select('id, title, due_date, priority, status, column_name, location, archived')
             .not('due_date', 'is', null)
             .gte('due_date', pastBound)
             .lte('due_date', futureBound)
             .or('archived.is.null,archived.eq.false')
+            .neq('column_name', 'done')
             .order('due_date', { ascending: true })
             .limit(60),
         ]);
@@ -902,11 +903,12 @@
           .order('event_time', { ascending: true })
           .limit(5),
         NX.sb.from('kanban_cards')
-          .select('id, title, due_date, priority, status, location, archived')
+          .select('id, title, due_date, priority, status, column_name, location, archived')
           .not('due_date', 'is', null)
           .gte('due_date', today)
           .lte('due_date', twoDays)
           .or('archived.is.null,archived.eq.false')
+          .neq('column_name', 'done')
           .order('due_date', { ascending: true })
           .limit(5),
       ]);
