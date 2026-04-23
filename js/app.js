@@ -770,6 +770,63 @@ td.check{background:#F0EDE6 !important}
       diag.push('NX.home.init type: ' + (typeof NX.home?.init));
       diag.push('NX.home.show type: ' + (typeof NX.home?.show));
       diag.push('this.loaded.home: ' + this.loaded.home);
+      diag.push('SW controlled: ' + !!navigator.serviceWorker?.controller);
+
+      // Actually fetch home.js to see if the file is even served
+      if (!NX.home && homeEl) {
+        const url = new URL('js/home.js', location.href).href;
+        homeEl.innerHTML = `<div style="padding:24px;color:#fd4;font-family:monospace;font-size:12px">
+          <div style="color:#d4a44e;font-weight:600;margin-bottom:12px">⚠ NX.home is not loaded — investigating...</div>
+          <div style="margin-bottom:12px">Fetching ${url} to see if the file exists on the server...</div>
+          <div id="fetchResult" style="margin-top:12px;padding:12px;background:#111;border-radius:6px">checking…</div>
+          <div style="margin-top:16px;color:#888;white-space:pre-wrap">${diag.join('\n')}</div>
+          <div style="margin-top:20px;padding:12px;background:#2a1a10;border:1px solid #663;border-radius:6px">
+            <div style="color:#fd4;font-weight:600;margin-bottom:8px">🔧 Nuke the service worker cache</div>
+            <button id="nukeSWBtn" style="background:#d4a44e;color:#111;border:none;padding:10px 16px;border-radius:6px;font-weight:600;cursor:pointer">Clear cache + reload</button>
+            <div style="margin-top:8px;font-size:11px;color:#888">If home.js IS on the server (200 below), the SW is serving a cached 404. Tap this to clear.</div>
+          </div>
+        </div>`;
+
+        // Parallel fetch — bypass SW cache with { cache: 'reload' } hint
+        fetch(url, { cache: 'reload' })
+          .then(r => {
+            const div = document.getElementById('fetchResult');
+            if (!div) return;
+            if (r.ok) {
+              div.innerHTML = `<span style="color:#5bba5f">✓ Server returned ${r.status} for js/home.js (${r.headers.get('content-length') || '?'} bytes)</span><br><br>File is present on the server. The service worker is likely serving a stale version. Tap "Clear cache + reload" below.`;
+            } else {
+              div.innerHTML = `<span style="color:#e07070">✗ Server returned ${r.status} for js/home.js</span><br><br>File is NOT on the deployed site. Push js/home.js to your GitHub repo (it's in your local zip at 44KB but not live).`;
+            }
+          })
+          .catch(e => {
+            const div = document.getElementById('fetchResult');
+            if (div) div.innerHTML = `<span style="color:#e07070">✗ Fetch failed: ${e.message}</span>`;
+          });
+
+        // Wire the nuke button
+        setTimeout(() => {
+          const nukeBtn = document.getElementById('nukeSWBtn');
+          if (nukeBtn) nukeBtn.addEventListener('click', async () => {
+            nukeBtn.disabled = true;
+            nukeBtn.textContent = 'Clearing...';
+            try {
+              if ('serviceWorker' in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(regs.map(r => r.unregister()));
+              }
+              if ('caches' in window) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map(k => caches.delete(k)));
+              }
+              nukeBtn.textContent = 'Reloading...';
+              setTimeout(() => location.reload(), 300);
+            } catch (e) {
+              nukeBtn.textContent = 'Error: ' + e.message;
+            }
+          });
+        }, 100);
+        return;
+      }
 
       if (NX.home) {
         try {
@@ -781,18 +838,10 @@ td.check{background:#F0EDE6 !important}
               <div style="color:#d4a44e;font-weight:600;margin-bottom:12px">⚠ activateModule('home') crashed</div>
               <div>${(e.message||e).toString()}</div>
               <pre style="background:#111;padding:12px;border-radius:6px;margin-top:12px;white-space:pre-wrap">${(e.stack||'').replace(/</g,'&lt;')}</pre>
-              <div style="margin-top:12px;color:#888">${diag.join('\\n')}</div>
             </div>`;
           }
           console.error('[activateModule home] crash:', e);
         }
-      } else if (homeEl) {
-        homeEl.innerHTML = `<div style="padding:24px;color:#fd4;font-family:monospace;font-size:12px">
-          <div style="color:#d4a44e;font-weight:600;margin-bottom:12px">⚠ NX.home is not loaded</div>
-          <div style="margin-bottom:8px">home.js didn't execute, or its IIFE failed.</div>
-          <div>Check index.html has &lt;script src="js/home.js"&gt; BEFORE &lt;script src="js/app.js"&gt;.</div>
-          <div style="margin-top:12px;color:#888">${diag.join('\\n')}</div>
-        </div>`;
       }
       return;
     }
