@@ -76,7 +76,7 @@
             <div class="home-mast-date">
               <span>${esc(dateLine)}</span>
               <span class="home-mini-galaxy" id="homeMiniGalaxy" title="Open the galaxy view">
-                <canvas id="homeMiniGalaxyCanvas" width="44" height="44"></canvas>
+                <canvas id="homeMiniGalaxyCanvas" width="48" height="48"></canvas>
               </span>
             </div>
           </div>
@@ -113,7 +113,6 @@
             `).join('')}
           </div>
 
-          <div class="home-rule">Ask</div>
           <div class="home-ask" id="homeAsk">
             <span class="home-ask-prompt">Ask <em>NEXUS</em> anything…</span>
             <span class="home-ask-kbd">⏎</span>
@@ -433,8 +432,11 @@
       const wrap = document.getElementById('homeMiniGalaxy');
       if (!canvas || !wrap) return;
 
+      // ─── SIZING ──────────────────────────────────────────────────────
+      // 24px canvas (up from 22px). Tiny enough to feel jewel-like in
+      // the masthead, large enough that particles don't pixel-snap.
       const dpr = window.devicePixelRatio || 1;
-      const size = 22;
+      const size = 24;
       canvas.width = size * dpr;
       canvas.height = size * dpr;
       canvas.style.width = size + 'px';
@@ -444,54 +446,54 @@
 
       const cx = size / 2;
       const cy = size / 2;
-      const TILT_Y = 0.72;             // Y-axis squash = tilted perspective
+      const TILT_Y = 0.72;
 
-      // Arm geometry: log spiral r = A · e^(B·θ)
-      // B = cot(pitch); small pitch = tight arms. 15° pitch works at 22px.
-      // A tuned so that at θ=0, r starts ~1.5, and at arm_length=1.0
-      // the particle reaches the outer edge (~9).
+      // ─── SPIRAL GEOMETRY ─────────────────────────────────────────────
+      // Log spiral: r = A · e^(B·θ). B = cot(pitch).
+      // At 14° pitch, arms wrap tightly without feeling wound-up.
       const PITCH_DEG = 14;
       const B = 1 / Math.tan(PITCH_DEG * Math.PI / 180);
-      // Arms drift slightly over time — the whole pattern rotates
-      // like a real galaxy (~1 revolution per minute).
-      const GALAXY_OMEGA = 0.00010;    // rad/ms. Slow enough to feel confident.
+      const ARM_SWEEP = 1.6 * Math.PI;
 
-      // Particle pool. Two kinds:
-      //   arm particles  — bright, trace the spiral arms (12 per arm)
-      //   field particles — dim background stars, uniformly distributed (14)
+      // Rotation: slower than before — 0.000065 rad/ms means one full
+      // rotation every ~96 seconds. Reads as "gently turning" not "spinning".
+      const GALAXY_OMEGA = 0.000065;
+
+      // ─── PARTICLE POOL ───────────────────────────────────────────────
+      // Fewer, bigger, softer. At 24px, density matters more than count.
+      // 8 per arm × 2 arms = 16 arm particles (was 24). 4 field stars (was 14).
+      // Each particle is rendered as a radial gradient halo, not a hard
+      // dot — at this size, soft edges read way better than sharp ones.
       const arms = [];
       for (let armId = 0; armId < 2; armId++) {
-        const armPhase = armId * Math.PI;   // two arms, π apart
-        for (let i = 0; i < 12; i++) {
-          const t = 0.05 + (i / 12) * 0.95;  // position along arm (0..1)
+        const armPhase = armId * Math.PI;
+        for (let i = 0; i < 8; i++) {
+          const t = 0.1 + (i / 8) * 0.9;
           arms.push({
             arm: armPhase,
-            t,                                // position along arm
-            size: 0.55 + Math.random() * 0.8,
-            alphaBase: 0.40 + Math.random() * 0.45,
-            // Small tangential offset so arms look thick not linear
-            tanOff: (Math.random() - 0.5) * 0.5,
-            radialOff: (Math.random() - 0.5) * 0.25,
-            // Twinkle: frequency 0.6–1.3 Hz, amplitude ±3%
-            twinkleRate: 0.0006 + Math.random() * 0.0007,
+            t,
+            size: 0.9 + Math.random() * 0.7,            // bigger (was 0.55–1.35)
+            alphaBase: 0.55 + Math.random() * 0.35,
+            tanOff: (Math.random() - 0.5) * 0.4,
+            radialOff: (Math.random() - 0.5) * 0.2,
+            twinkleRate: 0.0005 + Math.random() * 0.0006,
             twinklePhase: Math.random() * Math.PI * 2,
-            // Color bias: 0 = warm cream, 1 = pale gold
-            hue: Math.random() > 0.65 ? 1 : 0,
+            hue: Math.random() > 0.7 ? 1 : 0,           // fewer gold, mostly cream
           });
         }
       }
       const field = [];
-      for (let i = 0; i < 14; i++) {
-        // Random position in disk, but radius-biased so density is
-        // higher toward the center (1 - sqrt(u) gives 1/r falloff)
+      for (let i = 0; i < 4; i++) {
+        // Field stars placed outside the central region, in the disk
+        // plane. They add depth without crowding.
         const u = Math.random();
-        const r = 2 + (1 - Math.sqrt(u)) * 7 + Math.random() * 2;
+        const r = 4 + (1 - Math.sqrt(u)) * 5;
         const theta = Math.random() * Math.PI * 2;
         field.push({
           r, theta,
-          size: 0.35 + Math.random() * 0.4,
-          alphaBase: 0.10 + Math.random() * 0.20,
-          twinkleRate: 0.0005 + Math.random() * 0.0006,
+          size: 0.5 + Math.random() * 0.3,
+          alphaBase: 0.22 + Math.random() * 0.18,
+          twinkleRate: 0.0004 + Math.random() * 0.0005,
           twinklePhase: Math.random() * Math.PI * 2,
         });
       }
@@ -503,25 +505,34 @@
 
       function pulseCurve(t) {
         if (t < 0 || t > 1) return 0;
-        if (t < 0.2) return t / 0.2;                      // attack
-        return Math.pow(1 - (t - 0.2) / 0.8, 2);          // quadratic decay
+        if (t < 0.2) return t / 0.2;
+        return Math.pow(1 - (t - 0.2) / 0.8, 2);
       }
 
-      // Map [t along arm 0..1] → (r, θ) on log spiral.
-      // r = 1.5 * e^(B * (t * scale)). Scale tuned so t=1 → r ≈ 8.5.
-      // θ = base + t * ARM_SWEEP (how much the arm wraps around).
-      const ARM_SWEEP = 1.6 * Math.PI;  // arms spiral through 288° each
       function armPoint(armBase, t) {
         const theta = armBase + t * ARM_SWEEP;
-        const r = 1.5 * Math.exp(B * (t * ARM_SWEEP * 0.068));
+        const r = 1.4 * Math.exp(B * (t * ARM_SWEEP * 0.076));
         return { r, theta };
       }
 
-      // Drawing a point with elliptical tilt — Y squashed.
       function projectDraw(r, theta, drawFn) {
         const x = cx + r * Math.cos(theta);
         const y = cy + r * Math.sin(theta) * TILT_Y;
         drawFn(x, y);
+      }
+
+      // Soft particle: radial gradient centered at (x, y) with halo.
+      // This is the key quality improvement — no more 1px dots.
+      function softDot(x, y, radius, color, alpha) {
+        const haloR = radius * 2.8;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, haloR);
+        g.addColorStop(0,   `rgba(${color}, ${(alpha * 0.95).toFixed(3)})`);
+        g.addColorStop(0.35, `rgba(${color}, ${(alpha * 0.55).toFixed(3)})`);
+        g.addColorStop(1,   `rgba(${color}, 0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(x, y, haloR, 0, Math.PI * 2);
+        ctx.fill();
       }
 
       function frame(t) {
@@ -529,124 +540,104 @@
         const dt = t - lastT;
         lastT = t;
 
-        const pulseIntensity = pulseT0
-          ? pulseCurve((t - pulseT0) / PULSE_MS)
-          : 0;
+        const pulseIntensity = pulseT0 ? pulseCurve((t - pulseT0) / PULSE_MS) : 0;
 
-        // Composite fade — don't clear, dim. 12% per frame ≈ short trail.
-        // Higher alpha = shorter trail. Tuned for silk-smooth rotation.
-        ctx.fillStyle = 'rgba(9, 8, 12, 0.22)';
-        ctx.fillRect(0, 0, size, size);
+        // ─── CLEAN CLEAR ─────────────────────────────────────────────
+        // No composite fade — that created visual residue at this size.
+        // Clearing each frame with the surface background gives crisp motion.
+        ctx.clearRect(0, 0, size, size);
 
-        // Soft radial wash underneath everything — warm light leaking
-        // from the core. Intensifies during pulse.
-        const washAlpha = 0.08 + pulseIntensity * 0.22;
-        const wash = ctx.createRadialGradient(cx, cy, 0, cx, cy, size / 1.8);
+        // ─── AMBIENT WASH ────────────────────────────────────────────
+        // Warm gold radial haze across the whole canvas. Present always,
+        // intensifies on pulse. This is what makes the galaxy feel warm
+        // instead of clinical.
+        const washAlpha = 0.12 + pulseIntensity * 0.25;
+        const wash = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.7);
         wash.addColorStop(0, `rgba(212, 164, 78, ${washAlpha.toFixed(3)})`);
-        wash.addColorStop(0.6, `rgba(212, 164, 78, ${(washAlpha * 0.25).toFixed(3)})`);
+        wash.addColorStop(0.5, `rgba(212, 164, 78, ${(washAlpha * 0.35).toFixed(3)})`);
         wash.addColorStop(1, 'rgba(212, 164, 78, 0)');
         ctx.fillStyle = wash;
         ctx.fillRect(0, 0, size, size);
 
-        // Galaxy-level rotation angle (advances steadily)
         const galaxyTheta = t * GALAXY_OMEGA;
 
-        // ─── Field stars (dim background) ───────────────────────────
-        // Slow differential rotation. These don't move along arms,
-        // just rotate at their radius.
+        // ─── FIELD STARS ─────────────────────────────────────────────
+        // Slow differential rotation — outer stars turn slowly, inner ones
+        // faster. Physical correctness adds subtle realism.
         for (const s of field) {
-          const omega = 0.00018 / Math.sqrt(Math.max(0.5, s.r));
+          const omega = 0.00014 / Math.sqrt(Math.max(0.5, s.r));
           s.theta += omega * dt;
-          const twinkle = 1 + 0.04 * Math.sin(t * s.twinkleRate + s.twinklePhase);
-          const a = Math.min(1, s.alphaBase * twinkle * (1 + pulseIntensity * 0.5));
-          projectDraw(s.r, s.theta, (x, y) => {
-            ctx.fillStyle = `rgba(220, 208, 182, ${a.toFixed(3)})`;
-            ctx.beginPath();
-            ctx.arc(x, y, s.size, 0, Math.PI * 2);
-            ctx.fill();
-          });
+          const twinkle = 1 + 0.08 * Math.sin(t * s.twinkleRate + s.twinklePhase);
+          const a = Math.min(1, s.alphaBase * twinkle * (1 + pulseIntensity * 0.6));
+          projectDraw(s.r, s.theta, (x, y) => softDot(x, y, s.size, '220, 208, 182', a));
         }
 
-        // ─── Arm particles (the sweeping spiral) ────────────────────
-        // Each particle flows along its arm. Its t-position advances,
-        // and when it reaches the outer edge it respawns at the core.
-        // Combined with galaxy-level rotation, this draws the spiral.
+        // ─── ARM PARTICLES ───────────────────────────────────────────
+        // Inner particles flow faster (Keplerian). When one reaches the
+        // outer edge, it respawns at the core — gives a continuous feed.
         for (const p of arms) {
-          // Flow along the arm — inner particles flow faster.
-          const flowSpeed = 0.00009 * (1.4 - p.t * 0.7);
+          const flowSpeed = 0.00006 * (1.4 - p.t * 0.7);
           p.t += flowSpeed * dt;
-          if (p.t > 1.05) p.t = 0.05;   // respawn at core when consumed
+          if (p.t > 1.05) p.t = 0.08;
 
-          // Base spiral position
           const { r: rBase, theta: thBase } = armPoint(p.arm + galaxyTheta, p.t);
-          // Add per-particle offsets (arm thickness, tangential spread)
           const r = rBase + p.radialOff * (1 + p.t);
-          const theta = thBase + (p.tanOff * 0.15) / Math.max(0.5, r);
+          const theta = thBase + (p.tanOff * 0.12) / Math.max(0.5, r);
 
-          const twinkle = 1 + 0.04 * Math.sin(t * p.twinkleRate + p.twinklePhase);
-          const pulseBoost = 1 + pulseIntensity * 0.55;
+          const twinkle = 1 + 0.06 * Math.sin(t * p.twinkleRate + p.twinklePhase);
+          const pulseBoost = 1 + pulseIntensity * 0.6;
           const a = Math.min(1, p.alphaBase * twinkle * pulseBoost);
-          const s = p.size * (1 + pulseIntensity * 0.15);
+          const s = p.size * (1 + pulseIntensity * 0.2);
 
-          // Cream for the bulk of arm particles, pale gold for
-          // featured ones (hue=1). Core-proximity nudge adds warmth.
-          const coreNearness = Math.max(0, 1 - p.t * 1.8);
-          const warmPull = p.hue === 1 ? 0.7 : 0.25 * coreNearness;
-          const rCh = Math.round(237 - warmPull * 15);
-          const gCh = Math.round(228 - warmPull * 45);
-          const bCh = Math.round(205 - warmPull * 95);
+          // Cream default, warm gold for hue=1 particles, extra warmth
+          // near core.
+          const coreNearness = Math.max(0, 1 - p.t * 1.6);
+          const warmPull = p.hue === 1 ? 0.75 : 0.25 * coreNearness;
+          const rCh = Math.round(240 - warmPull * 18);
+          const gCh = Math.round(228 - warmPull * 48);
+          const bCh = Math.round(200 - warmPull * 100);
+          const color = `${rCh}, ${gCh}, ${bCh}`;
 
-          projectDraw(r, theta, (x, y) => {
-            ctx.fillStyle = `rgba(${rCh}, ${gCh}, ${bCh}, ${a.toFixed(3)})`;
-            ctx.beginPath();
-            ctx.arc(x, y, s, 0, Math.PI * 2);
-            ctx.fill();
-          });
+          projectDraw(r, theta, (x, y) => softDot(x, y, s, color, a));
         }
 
-        // ─── Accretion disk — thin bright elliptical ring at core ───
-        // Tilted (elliptical because of TILT_Y), pulses with beat.
-        const diskR = 3.2;
-        const diskAlpha = 0.35 + pulseIntensity * 0.45;
-        const diskWidth = 0.7 + pulseIntensity * 0.8;
+        // ─── ACCRETION DISK ──────────────────────────────────────────
+        // Thin elliptical ring at r=3.3. Always present, brightens on pulse.
+        const diskR = 3.3;
+        const diskAlpha = 0.32 + pulseIntensity * 0.45;
+        const diskWidth = 0.6 + pulseIntensity * 0.7;
         ctx.strokeStyle = `rgba(234, 184, 102, ${diskAlpha.toFixed(3)})`;
         ctx.lineWidth = diskWidth;
         ctx.beginPath();
         ctx.ellipse(cx, cy, diskR, diskR * TILT_Y, 0, 0, Math.PI * 2);
         ctx.stroke();
 
-        // ─── Shockwave on pulse — a second ring expanding outward ───
+        // ─── SHOCKWAVE ON PULSE ──────────────────────────────────────
         if (pulseIntensity > 0) {
-          const shockR = 3 + pulseIntensity * 7;
-          const shockA = pulseIntensity * 0.35;
+          const shockR = 3.3 + pulseIntensity * 8;
+          const shockA = pulseIntensity * 0.3;
           ctx.strokeStyle = `rgba(212, 164, 78, ${shockA.toFixed(3)})`;
-          ctx.lineWidth = 0.5;
+          ctx.lineWidth = 0.4;
           ctx.beginPath();
           ctx.ellipse(cx, cy, shockR, shockR * TILT_Y, 0, 0, Math.PI * 2);
           ctx.stroke();
         }
 
-        // ─── Core — hot gold, pulses ────────────────────────────────
-        const coreAlpha = Math.min(1, 0.92 + pulseIntensity * 0.08);
-        const coreSize = 1.5 + pulseIntensity * 0.7;
-        const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreSize * 1.8);
-        coreGrad.addColorStop(0, `rgba(255, 215, 140, ${coreAlpha})`);
-        coreGrad.addColorStop(0.5, `rgba(212, 164, 78, ${coreAlpha * 0.6})`);
-        coreGrad.addColorStop(1, 'rgba(212, 164, 78, 0)');
+        // ─── CORE ────────────────────────────────────────────────────
+        // Single soft gradient — no harsh center pixel. The gradient
+        // itself is the brightness; overlapping with the wash gives depth.
+        const coreSize = 1.6 + pulseIntensity * 0.7;
+        const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreSize * 2.4);
+        coreGrad.addColorStop(0,   `rgba(255, 228, 168, ${(0.95 + pulseIntensity * 0.05).toFixed(3)})`);
+        coreGrad.addColorStop(0.3, `rgba(238, 190, 120, ${(0.65 + pulseIntensity * 0.3).toFixed(3)})`);
+        coreGrad.addColorStop(0.7, `rgba(212, 164, 78, ${(0.25 + pulseIntensity * 0.2).toFixed(3)})`);
+        coreGrad.addColorStop(1,   'rgba(212, 164, 78, 0)');
         ctx.fillStyle = coreGrad;
         ctx.beginPath();
-        ctx.arc(cx, cy, coreSize * 1.8, 0, Math.PI * 2);
+        ctx.arc(cx, cy, coreSize * 2.4, 0, Math.PI * 2);
         ctx.fill();
 
-        // Bright core pixel
-        ctx.fillStyle = `rgba(255, 230, 180, ${coreAlpha})`;
-        ctx.beginPath();
-        ctx.arc(cx, cy, coreSize * 0.4, 0, Math.PI * 2);
-        ctx.fill();
-
-        // End pulse window
         if (pulseT0 && (t - pulseT0) > PULSE_MS) pulseT0 = 0;
-
         requestAnimationFrame(frame);
       }
       requestAnimationFrame(frame);
