@@ -1825,19 +1825,17 @@ button.eq-close {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .eq-call-service-btn {
-  background: #c8a44e !important;
-  color: #1a1408 !important;
-  border: 1px solid #c8a44e !important;
-  font-weight: 600 !important;
+  /* Stage Z: uniform treatment applied via .eq-detail-actions scope.
+     See the "Equipment Detail Action Bar — unified NEXUS treatment"
+     block below. Keeping this selector as a no-op so any legacy
+     markup that expects it to exist doesn't break. */
 }
 .eq-call-service-btn:active {
   transform: scale(0.96);
-  background: #b8934a !important;
 }
 
 [data-theme="light"] .eq-call-service-btn {
-  background: #c8a44e !important;
-  color: #1a1408 !important;
+  /* Inherit from .eq-detail-actions scope */
 }
 
 
@@ -2019,61 +2017,114 @@ button.eq-close {
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Equipment Detail Action Bar — mobile polish
-   
-   With the new short labels (Print / Call Service / Edit / Log) the action
-   bar fits on one row on phones. This CSS ensures consistent sizing and
-   tap targets.
+   Equipment Detail Action Bar — unified NEXUS treatment (Stage Z)
+
+   Five equal buttons with subtle amber surface, lucide icons above their
+   labels, friendly readable sizing. No single button takes over visually;
+   the user picks by reading, not by visual priority. Horizontal scroll
+   only engages on very narrow phones.
+
+   Replaces the previous mix of yellow-filled "Call Service" + outline
+   rest — the old variant had three different button treatments fighting
+   for attention and "Log" got cut off below 380px.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .eq-detail-actions {
-  padding: 12px 14px !important;
+  padding: 12px 12px calc(12px + env(safe-area-inset-bottom)) !important;
   gap: 6px !important;
   justify-content: stretch !important;
   align-items: stretch;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
+.eq-detail-actions::-webkit-scrollbar { display: none; }
 
 .eq-detail-actions .eq-btn {
-  flex: 1 1 auto;
-  padding: 10px 8px !important;
-  font-size: 13px !important;
-  font-weight: 600;
-  min-height: 44px;
+  flex: 1 1 0 !important;
+  min-width: 62px;
+  padding: 10px 6px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.2px;
+  min-height: 56px;
   white-space: nowrap;
-  display: inline-flex;
+  display: flex !important;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  border-radius: 10px !important;
+  gap: 3px;
+  border-radius: 12px !important;
+  background: rgba(212, 164, 78, 0.06) !important;
+  color: var(--text) !important;
+  border: 1px solid rgba(212, 164, 78, 0.22) !important;
+  cursor: pointer;
+  font-family: inherit !important;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-detail-actions .eq-btn:active {
+  background: rgba(212, 164, 78, 0.18) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+  transform: scale(0.97);
 }
 
-/* Call Service stays prominent — slightly larger flex */
+/* Icon glyph sits above its label; larger than the text */
+.eq-action-icon {
+  font-size: 18px;
+  line-height: 1;
+  margin-bottom: 2px;
+  filter: grayscale(0.1);
+}
+
+/* Call Service — identical styling to its siblings.
+   (The previous yellow-fill was visually dominant and made the bar
+    look unbalanced. If you want to draw attention to it, the amber
+    border on press is enough.) */
 .eq-detail-actions .eq-call-service-btn {
-  flex: 1.5 1 auto;
-  background: #c8a44e !important;
-  color: #1a1408 !important;
-  border: 1px solid #c8a44e !important;
+  flex: 1 1 0 !important;
+  background: rgba(212, 164, 78, 0.06) !important;
+  color: var(--text) !important;
+  border: 1px solid rgba(212, 164, 78, 0.22) !important;
+  font-weight: 500 !important;
 }
 .eq-detail-actions .eq-call-service-btn:active {
-  transform: scale(0.96);
-  background: #b8934a !important;
+  background: rgba(212, 164, 78, 0.18) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+  transform: scale(0.97);
 }
 
-/* Overflow wrapper needs to be a proper flex item */
+/* Overflow "⋯" stays square and visually secondary */
 .eq-detail-actions .eq-overflow-wrap {
-  flex: 0 0 auto;
+  flex: 0 0 auto !important;
 }
 .eq-detail-actions .eq-overflow-btn {
-  min-width: 44px;
-  padding: 10px 8px !important;
+  width: 50px !important;
+  min-width: 50px !important;
+  padding: 10px 0 !important;
+  font-size: 22px !important;
+  line-height: 1 !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
 }
 
-/* Very narrow screens — allow 2 rows if needed */
-@media (max-width: 380px) {
-  .eq-detail-actions .eq-btn {
-    font-size: 12px !important;
-    padding: 10px 6px !important;
+/* Very narrow screens — slightly tighter but still readable */
+@media (max-width: 360px) {
+  .eq-detail-actions {
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom)) !important;
+    gap: 4px !important;
   }
+  .eq-detail-actions .eq-btn {
+    font-size: 11px !important;
+    padding: 8px 4px !important;
+    min-width: 56px;
+  }
+  .eq-action-icon { font-size: 16px; }
 }
 
 
