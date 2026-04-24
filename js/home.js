@@ -43,12 +43,88 @@
       this.wireAsk();
       await this.refresh();
       this._loaded = true;
+      // Subscribe to the data sources that feed the Home priority feed.
+      // We don't differentiate events — any change to tickets, cards,
+      // contractor events, or equipment triggers a debounced refresh.
+      // Aggregation views like Home don't need granular diffing; they
+      // just need to know "something changed, recompute."
+      this.subscribeRealtime();
+      this.bindVisibility();
     },
 
     async show() {
-      // Called every time the home tab becomes active. Re-fetch.
+      // Called every time the home tab becomes active.
+      // Stale-while-revalidate — if we have cached data from <15s ago
+      // and our subscription is alive, render instantly and skip the
+      // fetch. The realtime layer has already kept us current.
       if (!this._loaded) return this.init();
+      const isWarm = this._rtConnected && this._lastRefresh && (Date.now() - this._lastRefresh) < 15000;
+      if (isWarm) {
+        // Instant — already rendered, nothing to do
+        return;
+      }
       await this.refresh();
+      // If tab was hidden long enough that we unsubscribed, resub now
+      if (!this._rtChannel) this.subscribeRealtime();
+    },
+
+    // ── REALTIME AGGREGATION ───────────────────────────────────────
+    // Subscribe once to the 5 tables that feed Home's priority feed.
+    // Any INSERT/UPDATE fires our debounced refresh — the view self-
+    // updates without the user tapping anything. The 3-second debounce
+    // is deliberately generous: Home is an editorial summary, not a
+    // live dashboard. Multiple rapid events collapse into one refresh.
+    subscribeRealtime() {
+      if (this._rtChannel || !NX.sb?.channel) return;
+      try {
+        this._rtChannel = NX.sb.channel('home-feed')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' },          () => this.scheduleRefresh())
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'kanban_cards' },     () => this.scheduleRefresh())
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'contractor_events' },() => this.scheduleRefresh())
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'equipment' },        () => this.scheduleRefresh())
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_logs' },       () => this.scheduleRefresh())
+          .subscribe((status) => {
+            this._rtConnected = (status === 'SUBSCRIBED');
+          });
+      } catch (e) {
+        console.warn('[home] realtime subscribe failed:', e);
+      }
+    },
+
+    unsubscribeRealtime() {
+      if (!this._rtChannel) return;
+      try { NX.sb.removeChannel(this._rtChannel); } catch (_) {}
+      this._rtChannel = null;
+      this._rtConnected = false;
+    },
+
+    // Debounce: 3s window where additional events don't queue extra
+    // refreshes. A bulk import that fires 50 events over 2 seconds
+    // triggers exactly one refresh — not 50.
+    scheduleRefresh() {
+      if (this._refreshTimer) return;
+      this._refreshTimer = setTimeout(async () => {
+        this._refreshTimer = null;
+        try { await this.refresh(); } catch (e) { console.warn('[home] bg refresh:', e); }
+      }, 3000);
+    },
+
+    bindVisibility() {
+      if (this._visBound) return;
+      this._visBound = true;
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+          this.unsubscribeRealtime();
+        } else {
+          // Re-subscribe if Home is the active view when we return
+          const homeActive = document.querySelector('.view[data-view="home"]')?.classList.contains('active');
+          if (homeActive) {
+            this.subscribeRealtime();
+            // May have missed events while hidden — pull fresh once
+            this.refresh();
+          }
+        }
+      });
     },
 
     render() {
@@ -128,6 +204,7 @@
         this.loadCalendar(),
         this.loadGlance(),
       ]);
+      this._lastRefresh = Date.now();
     },
 
     /* ═════════════ PRIORITY FEED ═════════════════════════════════ */
@@ -707,14 +784,6 @@
       NX.homeGalaxyPulse = () => {
         pulseT0 = performance.now();
         if (!running) { running = true; lastT = performance.now(); requestAnimationFrame(frame); }
-        // Trigger the CSS "active" state — bright aura + shine sweep.
-        // Remove + force reflow + re-add so the animation restarts cleanly
-        // even if called repeatedly in quick succession.
-        wrap.classList.remove('is-active');
-        void wrap.offsetWidth;  // force reflow
-        wrap.classList.add('is-active');
-        clearTimeout(wrap._activeT);
-        wrap._activeT = setTimeout(() => wrap.classList.remove('is-active'), 1100);
       };
 
       // Listen for node-open events from the full galaxy view.
