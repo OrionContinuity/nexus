@@ -292,10 +292,7 @@ async function init(){
   // Gmail connection detection — three-tier:
   //   1. Fresh client token in localStorage? Use it.
   //   2. Server has gmail_refresh_token? We're connected, auto-refresh.
-  //   3. Nothing. Show disconnected.
-  // Previously we only checked localStorage, which caused false
-  // "Not connected" states after clearing site data, logging in from
-  // a different device, or when the cached access token expired.
+  //   3. Nothing. Show disconnected explicitly.
   const saved=localStorage.getItem('nexus_gmail_token');
   let gmailRestored=false;
   if(saved){
@@ -310,11 +307,13 @@ async function init(){
     try{
       const{data:cfg}=await NX.sb.from('nexus_config').select('config').eq('id',1).single();
       if(cfg?.config?.gmail_refresh_token){
-        await autoRefreshGmail();
+        const ok=await autoRefreshGmail();
+        if(!ok)showGmailDisconnected();
+      }else{
+        showGmailDisconnected();
       }
     }catch(e){
-      // If DB check fails, fall back to the old refresh attempt
-      await autoRefreshGmail();
+      showGmailDisconnected();
     }
   }
   // Restore chip states
@@ -388,16 +387,41 @@ async function autoRefreshGmail(){
       localStorage.setItem('nexus_gmail_token',JSON.stringify({token:resp.data.access_token,expiry:Date.now()+(resp.data.expires_in||3500)*1000}));
       showGmailConnected(true);
       log('Gmail auto-refreshed ✓','success');
+      return true;
     }
-  }catch(e){}
+    // No access token came back — the call succeeded but the server
+    // couldn't refresh. Treat as disconnected rather than leaving the
+    // UI stuck on "Checking…" indefinitely.
+    showGmailDisconnected();
+    return false;
+  }catch(e){
+    // Fetch/edge-function error — also explicit disconnected state so
+    // the "Checking…" badge doesn't sit there lying to the user.
+    showGmailDisconnected();
+    return false;
+  }
 }
+
 function showGmailConnected(permanent){
   const st=document.getElementById('gmailStatusText');
-  if(st){st.textContent=permanent?'✓ Permanent':'✓ Connected';st.style.color='#4ade80';}
+  if(st){st.textContent=permanent?'✓ Working — auto-syncs new mail':'✓ Connected';st.style.color='#4ade80';}
   const cb=document.getElementById('gmailConnectBtn');
-  if(cb)cb.textContent=permanent?'Reconnect':'Reconnect';
+  if(cb)cb.textContent='Reconnect if needed';
+  const connectRow=document.getElementById('gmailStatus');
+  if(connectRow)connectRow.style.display='none';
   const sc=document.getElementById('gmailSyncControls');
   if(sc)sc.style.display='block';
+}
+
+function showGmailDisconnected(){
+  const st=document.getElementById('gmailStatusText');
+  if(st){st.textContent='Not connected';st.style.color='';}
+  const connectRow=document.getElementById('gmailStatus');
+  if(connectRow)connectRow.style.display='';
+  const sc=document.getElementById('gmailSyncControls');
+  if(sc)sc.style.display='none';
+  const cb=document.getElementById('gmailConnectBtn');
+  if(cb)cb.textContent='Connect Gmail';
 }
 
 // ═══ GMAIL SYNC — OPTIMIZED ═══
@@ -861,29 +885,37 @@ async function updateQueueStatus(){
 // visible. Stops polling when backgrounded (Page Visibility API) so we
 // don't hammer Supabase with queries from a phone in someone's pocket.
 let hbInterval=null;
+// Human-readable date formatter. "just now" / "2 min ago" / "1 hour ago"
+// Feel free to bump thresholds if they start lying (e.g. 59 seconds
+// saying "1 min ago" is fine; 90 seconds saying "1 min ago" is not).
 function relativeTime(iso){
   if(!iso)return'never';
   const ms=Date.now()-new Date(iso).getTime();
   if(ms<0)return'just now';
   const s=Math.floor(ms/1000);
-  if(s<5)return'just now';
-  if(s<60)return`${s}s ago`;
+  if(s<15)return'just now';
+  if(s<60)return`${s} seconds ago`;
   const m=Math.floor(s/60);
-  if(m<60)return`${m} min ago`;
+  if(m===1)return'1 minute ago';
+  if(m<60)return`${m} minutes ago`;
   const h=Math.floor(m/60);
-  if(h<24)return`${h}h ago`;
-  return`${Math.floor(h/24)}d ago`;
+  if(h===1)return'1 hour ago';
+  if(h<24)return`${h} hours ago`;
+  const d=Math.floor(h/24);
+  if(d===1)return'yesterday';
+  return`${d} days ago`;
 }
+
+// Server status — plain English, answers "is this working?"
+// Four states: healthy / stale / broken / unknown.
+// Copy is written for a restaurant owner, not a sysadmin.
 async function updateServerHeartbeat(){
+  const card=document.getElementById('igStatus');
   const dot=document.getElementById('hbDot');
-  const mode=document.getElementById('hbMode');
-  const timeEl=document.getElementById('hbTime');
-  const push=document.getElementById('hbPushCount');
-  const proc=document.getElementById('hbProcCount');
-  const created=document.getElementById('hbCreatedCount');
-  const footer=document.getElementById('hbFooter');
-  const card=document.getElementById('igPipeline');
-  if(!dot||!mode||!footer)return;
+  const line=document.getElementById('hbLine');
+  const sub=document.getElementById('hbSub');
+  const action=document.getElementById('hbAction');
+  if(!card||!dot||!line||!sub)return;
   try{
     const{data,error}=await NX.sb.from('nexus_config').select('config').eq('id',1).single();
     if(error)throw error;
@@ -891,84 +923,140 @@ async function updateServerHeartbeat(){
     const lastRun=cfg.last_process_run_at;
     const lastPull=cfg.last_gmail_pull_at;
     const lastPush=cfg.gmail_last_push_at;
-    const status=cfg.last_process_status;
     const pushStatus=cfg.gmail_last_push_status;
     const err=cfg.last_process_error;
-    const watchExp=cfg.gmail_watch_expiration;
-    const pushCount=Number(cfg.gmail_last_push_count)||0;
-    const procCount=Number(cfg.last_process_count)||0;
-    const createdCount=Number(cfg.last_process_created)||0;
-    // Never run — neither polling nor push has stamped anything
-    if(!lastRun&&!lastPull&&!lastPush){
-      dot.className='ig-pipe-dot is-unknown';
-      card&&card.classList.remove('is-healthy');
-      mode.textContent='Idle';
-      timeEl.textContent='not started';
-      push.textContent='—';proc.textContent='—';created.textContent='—';
-      footer.textContent='No activity yet. Once the server cron fires or an email arrives, stats will appear here.';
+    const procStatus=cfg.last_process_status;
+    const newest=[lastRun,lastPull,lastPush].filter(Boolean).sort().pop();
+
+    card.className='ig-status';
+    action.style.display='none';
+    action.innerHTML='';
+
+    // Never run — new setup, or no activity tracked yet
+    if(!newest){
+      dot.className='ig-status-dot';
+      line.textContent='Waiting for first sync';
+      sub.textContent='Once an email arrives or you connect Gmail, activity will show here.';
       return;
     }
-    const newest=[lastRun,lastPull,lastPush].filter(Boolean).sort().pop();
     const ageMs=Date.now()-new Date(newest).getTime();
     const ageMin=ageMs/60000;
-    const healthy=ageMin<3&&status!=='error'&&pushStatus!=='no_credentials';
-    if(status==='error'||pushStatus==='no_credentials'){
-      dot.className='ig-pipe-dot is-error';card&&card.classList.remove('is-healthy');
-    }else if(healthy){
-      dot.className='ig-pipe-dot is-healthy';card&&card.classList.add('is-healthy');
-    }else if(ageMin<10){
-      dot.className='ig-pipe-dot is-stale';card&&card.classList.remove('is-healthy');
-    }else{
-      dot.className='ig-pipe-dot is-dead';card&&card.classList.remove('is-healthy');
+
+    // Credentials broken — biggest "you need to do something" state
+    if(pushStatus==='no_credentials'){
+      card.classList.add('is-error');
+      dot.className='ig-status-dot is-error';
+      line.textContent='Gmail disconnected';
+      sub.textContent='NEXUS can\'t read new email until you reconnect Gmail below.';
+      return;
     }
-    // Mode label — prefer push if it's the freshest signal
-    const pushIsFresher=lastPush&&(!lastRun||lastPush>lastRun);
-    if(pushIsFresher)mode.textContent='Push · Live';
-    else if(lastPush)mode.textContent='Push + Poll';
-    else if(lastPull)mode.textContent='Polling';
-    else mode.textContent='Processing';
-    timeEl.textContent=pushIsFresher?`${relativeTime(lastPush)}`:`${relativeTime(newest)}`;
-    push.textContent=pushCount;
-    proc.textContent=procCount;
-    created.textContent=createdCount;
-    // Footer — healthy state short, problem states more verbose
-    const parts=[];
-    if(status==='error'&&err){parts.push(`❌ ${String(err).slice(0,120)}`);}
-    else if(pushStatus==='no_credentials'){parts.push('❌ Gmail credentials missing — reconnect below');}
-    else if(healthy){
-      const bits=['Processing automatically'];
-      if(lastPush&&pushIsFresher)bits.push('real-time push active');
-      parts.push(bits.join(' · '));
-    }else if(ageMin>=10){parts.push('⚠ Pipeline stale — check Supabase cron or push subscription');}
-    else{parts.push('Running — last activity '+relativeTime(newest));}
-    // Watch expiration warning
-    if(watchExp){
-      const expMs=new Date(watchExp).getTime()-Date.now();
-      const expH=expMs/3600000;
-      if(expH<0)parts.push('⚠ Gmail watch expired — will renew at 3am UTC');
-      else if(expH<48)parts.push(`⏰ Watch renews in ${Math.round(expH)}h`);
+    // Processing errored
+    if(procStatus==='error'&&err){
+      card.classList.add('is-error');
+      dot.className='ig-status-dot is-error';
+      line.textContent='Something went wrong reading emails';
+      sub.textContent=String(err).slice(0,140);
+      return;
     }
-    footer.textContent=parts.join(' · ');
+    // Healthy — last activity in the last 3 minutes
+    if(ageMin<3){
+      card.classList.add('is-healthy');
+      dot.className='ig-status-dot is-healthy';
+      line.textContent='Auto-sync is working';
+      // Prefer push timestamp language if push is the freshest signal
+      const pushIsFresher=lastPush&&(!lastRun||lastPush>lastRun);
+      if(pushIsFresher) sub.textContent=`Last email arrived ${relativeTime(lastPush)}.`;
+      else sub.textContent=`Last checked ${relativeTime(newest)}.`;
+      return;
+    }
+    // Stale — 3-10 minutes. Probably fine but flag it.
+    if(ageMin<10){
+      card.classList.add('is-stale');
+      dot.className='ig-status-dot is-stale';
+      line.textContent='Sync is a little slow';
+      sub.textContent=`Last activity ${relativeTime(newest)}. Should catch up shortly.`;
+      return;
+    }
+    // Dead — 10+ minutes with no activity. Actionable.
+    card.classList.add('is-error');
+    dot.className='ig-status-dot is-error';
+    line.textContent='Auto-sync hasn\'t run in a while';
+    sub.textContent=`Last activity ${relativeTime(newest)}. If this is unusual, tap below to try again.`;
+    action.style.display='block';
+    action.innerHTML='<button id="hbRetryBtn">Try to sync now</button>';
+    const btn=action.querySelector('#hbRetryBtn');
+    if(btn)btn.addEventListener('click',async()=>{
+      btn.textContent='Syncing…';
+      btn.disabled=true;
+      try{
+        await NX.sb.functions.invoke('process-emails',{body:{}});
+        setTimeout(updateServerHeartbeat,1500);
+      }catch(e){
+        btn.textContent='Failed — try again';
+        btn.disabled=false;
+      }
+    });
   }catch(e){
-    dot.className='ig-pipe-dot is-error';card&&card.classList.remove('is-healthy');
-    mode.textContent='Error';
-    timeEl.textContent='check failed';
-    footer.textContent=(e&&e.message)||'Could not read nexus_config';
+    card.className='ig-status is-error';
+    dot.className='ig-status-dot is-error';
+    line.textContent='Status check failed';
+    sub.textContent=(e&&e.message)||'Could not connect to server';
   }
+}
+
+// "Since this morning" counters. Queries tickets/kanban_cards/nodes
+// for rows created today (local midnight onwards). Fast, cached, and
+// written in humane language. Called by the 10s poller.
+async function updateTodayStats(){
+  const em=document.getElementById('todayEmails');
+  const tk=document.getElementById('todayTickets');
+  const kn=document.getElementById('todayKnowledge');
+  const rawQ=document.getElementById('igRawQueue');
+  const rawK=document.getElementById('igRawKnowledge');
+  const rawA=document.getElementById('igRawArchived');
+  if(!em&&!rawQ)return;
+  const midnight=new Date();midnight.setHours(0,0,0,0);
+  const midnightIso=midnight.toISOString();
+  try{
+    const[emailsToday,ticketsToday,nodesToday,queueCount,knowTotal,archivedTotal]=await Promise.all([
+      NX.sb.from('raw_emails').select('*',{count:'exact',head:true}).gte('ingested_at',midnightIso),
+      NX.sb.from('kanban_cards').select('*',{count:'exact',head:true}).gte('created_at',midnightIso),
+      NX.sb.from('nodes').select('*',{count:'exact',head:true}).gte('created_at',midnightIso),
+      NX.sb.from('raw_emails').select('*',{count:'exact',head:true}).eq('processed',false),
+      NX.sb.from('nodes').select('*',{count:'exact',head:true}),
+      NX.sb.from('raw_emails').select('*',{count:'exact',head:true}),
+    ]);
+    if(em)em.textContent=emailsToday.count??0;
+    if(tk)tk.textContent=ticketsToday.count??0;
+    if(kn)kn.textContent=nodesToday.count??0;
+    // Raw stats for Advanced panel
+    if(rawQ)rawQ.textContent=(queueCount.count??0).toLocaleString();
+    if(rawK)rawK.textContent=(knowTotal.count??0).toLocaleString();
+    if(rawA)rawA.textContent=(archivedTotal.count??0).toLocaleString();
+    // Update the legacy hidden-stat nodes other code may read
+    const q=document.getElementById('queueStatus');if(q)q.textContent=queueCount.count??0;
+    const n=document.getElementById('igNodeCount');if(n)n.textContent=knowTotal.count??0;
+    const ec=document.getElementById('igEmailCount');if(ec)ec.textContent=archivedTotal.count??0;
+  }catch(e){/* leave last values */}
 }
 function startServerHeartbeat(){
   if(hbInterval)return;
   updateServerHeartbeat();
+  updateTodayStats();
   hbInterval=setInterval(()=>{
     // Skip the DB round trip if the tab isn't visible — user can't see it
     if(typeof document==='undefined'||document.visibilityState==='visible'){
       updateServerHeartbeat();
+      updateTodayStats();
     }
   },10000);
   // Refresh immediately when user comes back from background
   if(typeof document!=='undefined'&&!document._nxHbVisBound){
     document.addEventListener('visibilitychange',()=>{
-      if(document.visibilityState==='visible')updateServerHeartbeat();
+      if(document.visibilityState==='visible'){
+        updateServerHeartbeat();
+        updateTodayStats();
+      }
     });
     document._nxHbVisBound=true;
   }
@@ -2789,6 +2877,7 @@ NX.modules.ingest={init,show:()=>{
     updateProcStatus();
     updateQueueStatus();
     updateServerHeartbeat();
+    updateTodayStats();
   }catch(e){console.error('Ingest show error:',e);}
 }};
 })();
