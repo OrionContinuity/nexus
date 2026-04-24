@@ -289,17 +289,42 @@ async function init(){
   // ── STARTUP ──
   loadGoogleAuth();
   await loadProcessedIds();
-  // Restore Gmail token — or auto-refresh from stored refresh token
+  // Gmail connection detection — three-tier:
+  //   1. Fresh client token in localStorage? Use it.
+  //   2. Server has gmail_refresh_token? We're connected, auto-refresh.
+  //   3. Nothing. Show disconnected.
+  // Previously we only checked localStorage, which caused false
+  // "Not connected" states after clearing site data, logging in from
+  // a different device, or when the cached access token expired.
   const saved=localStorage.getItem('nexus_gmail_token');
+  let gmailRestored=false;
   if(saved){
-    try{const p=JSON.parse(saved);if(p.expiry>Date.now()){gmailToken=p.token;showGmailConnected(true);}else{localStorage.removeItem('nexus_gmail_token');await autoRefreshGmail();}}catch(e){await autoRefreshGmail();}
-  }else{
-    await autoRefreshGmail();
+    try{
+      const p=JSON.parse(saved);
+      if(p.expiry>Date.now()){gmailToken=p.token;showGmailConnected(true);gmailRestored=true;}
+      else localStorage.removeItem('nexus_gmail_token');
+    }catch(e){}
+  }
+  if(!gmailRestored){
+    // Check server for a stored refresh token — source of truth
+    try{
+      const{data:cfg}=await NX.sb.from('nexus_config').select('config').eq('id',1).single();
+      if(cfg?.config?.gmail_refresh_token){
+        await autoRefreshGmail();
+      }
+    }catch(e){
+      // If DB check fails, fall back to the old refresh attempt
+      await autoRefreshGmail();
+    }
   }
   // Restore chip states
   restoreChipStates();
-  // Start processor if enabled
-  if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
+  // Background processor is now OPT-IN. Server handles processing via
+  // pg_cron every minute, so the client-side processor is redundant for
+  // most users. Previously auto-started unless explicitly disabled —
+  // that ran a JS interval forever on any open tab. Now requires an
+  // explicit toggle-on in the Advanced section.
+  if(localStorage.getItem('nexus_bg_process')==='on')startBackgroundProcessor();
   updateProcStatus();
   updateQueueStatus();
   startServerHeartbeat();
@@ -851,73 +876,84 @@ function relativeTime(iso){
 }
 async function updateServerHeartbeat(){
   const dot=document.getElementById('hbDot');
+  const mode=document.getElementById('hbMode');
   const timeEl=document.getElementById('hbTime');
-  const detailEl=document.getElementById('hbDetail');
-  if(!dot||!timeEl||!detailEl)return;
+  const push=document.getElementById('hbPushCount');
+  const proc=document.getElementById('hbProcCount');
+  const created=document.getElementById('hbCreatedCount');
+  const footer=document.getElementById('hbFooter');
+  const card=document.getElementById('igPipeline');
+  if(!dot||!mode||!footer)return;
   try{
     const{data,error}=await NX.sb.from('nexus_config').select('config').eq('id',1).single();
     if(error)throw error;
     const cfg=(data&&data.config)||{};
     const lastRun=cfg.last_process_run_at;
     const lastPull=cfg.last_gmail_pull_at;
-    const lastPush=cfg.gmail_last_push_at;  // Gmail Push webhook heartbeat
+    const lastPush=cfg.gmail_last_push_at;
     const status=cfg.last_process_status;
     const pushStatus=cfg.gmail_last_push_status;
     const err=cfg.last_process_error;
     const watchExp=cfg.gmail_watch_expiration;
+    const pushCount=Number(cfg.gmail_last_push_count)||0;
+    const procCount=Number(cfg.last_process_count)||0;
+    const createdCount=Number(cfg.last_process_created)||0;
     // Never run — neither polling nor push has stamped anything
     if(!lastRun&&!lastPull&&!lastPush){
-      dot.className='ig-hb-dot is-unknown';
-      timeEl.textContent='never run';
-      detailEl.textContent='No heartbeat yet. Deploy process-emails + set up pg_cron, or set up Gmail Push (see GMAIL_PUSH_SETUP.md).';
+      dot.className='ig-pipe-dot is-unknown';
+      card&&card.classList.remove('is-healthy');
+      mode.textContent='Idle';
+      timeEl.textContent='not started';
+      push.textContent='—';proc.textContent='—';created.textContent='—';
+      footer.textContent='No activity yet. Once the server cron fires or an email arrives, stats will appear here.';
       return;
     }
-    // Use the most recent of push/pull/process as the freshness signal
     const newest=[lastRun,lastPull,lastPush].filter(Boolean).sort().pop();
     const ageMs=Date.now()-new Date(newest).getTime();
     const ageMin=ageMs/60000;
+    const healthy=ageMin<3&&status!=='error'&&pushStatus!=='no_credentials';
     if(status==='error'||pushStatus==='no_credentials'){
-      dot.className='ig-hb-dot is-error';
-    }else if(ageMin<3){
-      dot.className='ig-hb-dot is-healthy';
+      dot.className='ig-pipe-dot is-error';card&&card.classList.remove('is-healthy');
+    }else if(healthy){
+      dot.className='ig-pipe-dot is-healthy';card&&card.classList.add('is-healthy');
     }else if(ageMin<10){
-      dot.className='ig-hb-dot is-stale';
+      dot.className='ig-pipe-dot is-stale';card&&card.classList.remove('is-healthy');
     }else{
-      dot.className='ig-hb-dot is-dead';
+      dot.className='ig-pipe-dot is-dead';card&&card.classList.remove('is-healthy');
     }
-    // Prefer push timestamp in label if push is active & fresher than polling
+    // Mode label — prefer push if it's the freshest signal
     const pushIsFresher=lastPush&&(!lastRun||lastPush>lastRun);
-    timeEl.textContent=pushIsFresher?`push ${relativeTime(lastPush)}`:`ran ${relativeTime(newest)}`;
-    // Build detail line — include only non-zero counters to keep it clean
+    if(pushIsFresher)mode.textContent='Push · Live';
+    else if(lastPush)mode.textContent='Push + Poll';
+    else if(lastPull)mode.textContent='Polling';
+    else mode.textContent='Processing';
+    timeEl.textContent=pushIsFresher?`${relativeTime(lastPush)}`:`${relativeTime(newest)}`;
+    push.textContent=pushCount;
+    proc.textContent=procCount;
+    created.textContent=createdCount;
+    // Footer — healthy state short, problem states more verbose
     const parts=[];
-    const pushCount=Number(cfg.gmail_last_push_count)||0;
-    const pulls=Number(cfg.last_gmail_pull_count)||0;
-    const proc=Number(cfg.last_process_count)||0;
-    const created=Number(cfg.last_process_created)||0;
-    const merged=Number(cfg.last_process_merged)||0;
-    const urgent=Number(cfg.last_process_urgent)||0;
-    if(lastPush)parts.push(`⚡ push ${pushIsFresher?'live':'on'}`);
-    if(pushCount>0)parts.push(`${pushCount} via push`);
-    if(pulls>0)parts.push(`📬 ${pulls} pulled`);
-    if(proc>0)parts.push(`⚙ ${proc} processed`);
-    if(created>0)parts.push(`✨ ${created} new`);
-    if(merged>0)parts.push(`🔗 ${merged} merged`);
-    if(urgent>0)parts.push(`🚨 ${urgent} urgent`);
-    if(status==='error'&&err)parts.push(`❌ ${String(err).slice(0,90)}`);
-    if(status==='idle'&&!parts.length)parts.push('idle — no emails to process');
-    // Watch expiration warning — if watch is expiring within 48h, flag it
+    if(status==='error'&&err){parts.push(`❌ ${String(err).slice(0,120)}`);}
+    else if(pushStatus==='no_credentials'){parts.push('❌ Gmail credentials missing — reconnect below');}
+    else if(healthy){
+      const bits=['Processing automatically'];
+      if(lastPush&&pushIsFresher)bits.push('real-time push active');
+      parts.push(bits.join(' · '));
+    }else if(ageMin>=10){parts.push('⚠ Pipeline stale — check Supabase cron or push subscription');}
+    else{parts.push('Running — last activity '+relativeTime(newest));}
+    // Watch expiration warning
     if(watchExp){
       const expMs=new Date(watchExp).getTime()-Date.now();
       const expH=expMs/3600000;
-      if(expH<0)parts.push('⚠ watch expired — run gmail-watch');
-      else if(expH<48)parts.push(`⏰ watch expires in ${Math.round(expH)}h`);
+      if(expH<0)parts.push('⚠ Gmail watch expired — will renew at 3am UTC');
+      else if(expH<48)parts.push(`⏰ Watch renews in ${Math.round(expH)}h`);
     }
-    if(!parts.length)parts.push('waiting for next run…');
-    detailEl.textContent=parts.join(' · ');
+    footer.textContent=parts.join(' · ');
   }catch(e){
-    dot.className='ig-hb-dot is-error';
+    dot.className='ig-pipe-dot is-error';card&&card.classList.remove('is-healthy');
+    mode.textContent='Error';
     timeEl.textContent='check failed';
-    detailEl.textContent=(e&&e.message)||'Could not read nexus_config';
+    footer.textContent=(e&&e.message)||'Could not read nexus_config';
   }
 }
 function startServerHeartbeat(){
@@ -940,59 +976,35 @@ function startServerHeartbeat(){
 
 function showGuide(pending,nodes,archived){
   const el=document.getElementById('igGuide');if(!el)return;
-  const batch=getBatchSize();
-  const sec=parseInt(localStorage.getItem('nexus_bg_interval')||'300');
-  const procOn=localStorage.getItem('nexus_bg_process')!=='off';
-
-  if(pending>0){
-    const estMin=Math.ceil(pending/batch)*(sec/60);
-    const estStr=estMin<60?`~${Math.round(estMin)} min`:`~${(estMin/60).toFixed(1)} hours`;
-    el.style.display='';
-    if(!procOn){
-      el.innerHTML=`<div class="ig-guide-icon">⏸</div>
-        <div class="ig-guide-body">
-          <div class="ig-guide-title">${pending} items queued — processor is OFF</div>
-          <div class="ig-guide-steps">
-            <div class="ig-guide-step">1. Open <b>Processor</b> section below</div>
-            <div class="ig-guide-step">2. Toggle <b>Auto</b> to ON</div>
-            <div class="ig-guide-step">3. AI will start extracting knowledge automatically</div>
-          </div>
-        </div>`;
-    }else{
-      el.innerHTML=`<div class="ig-guide-icon">⚙</div>
-        <div class="ig-guide-body">
-          <div class="ig-guide-title">Processing ${pending} items — ETA ${estStr}</div>
-          <div class="ig-guide-steps">
-            <div class="ig-guide-step">AI is reading ${batch} items every ${sec<60?sec+'s':Math.round(sec/60)+'m'} and extracting knowledge into your Brain.</div>
-            <div class="ig-guide-step"><b>Speed it up?</b> Open Processor → set Batch to <b>10-20</b> and Every to <b>1m</b>.</div>
-            <div class="ig-guide-step">You can close this tab — it runs in the background. Check the <b>Brain</b> tab to see new nodes appear.</div>
-          </div>
-        </div>`;
-    }
-  }else if(nodes<5&&archived===0){
+  // Server now handles processing via pg_cron (every minute). Messages
+  // here shouldn't scare the user with ETAs based on client-side batch
+  // settings — the server rate is fixed and automatic. Only show guide
+  // for onboarding (first-time user) or genuine "done" celebrations.
+  if(nodes<5&&archived===0){
     el.style.display='';
     el.innerHTML=`<div class="ig-guide-icon">👋</div>
       <div class="ig-guide-body">
         <div class="ig-guide-title">Get started — feed your Brain</div>
         <div class="ig-guide-steps">
-          <div class="ig-guide-step"><b>Gmail:</b> Connect below → Sync emails → AI extracts vendors, equipment, contacts</div>
-          <div class="ig-guide-step"><b>WhatsApp/SMS:</b> Open the 📱 section → pick a .txt or .xml export → choose contacts</div>
-          <div class="ig-guide-step"><b>Documents:</b> Drop PDFs, Word, Excel into the drop zone</div>
-          <div class="ig-guide-step"><b>Paste:</b> Copy-paste any notes, transcripts, or vendor info</div>
+          <div class="ig-guide-step"><b>Gmail:</b> Connect below → server auto-syncs new emails in real time</div>
+          <div class="ig-guide-step"><b>WhatsApp/SMS:</b> Open the 📱 section → pick a .txt or .xml export</div>
+          <div class="ig-guide-step"><b>Files:</b> Drop PDFs, Word, Excel into the upload zone</div>
+          <div class="ig-guide-step"><b>Paste:</b> Any notes, transcripts, or vendor info</div>
         </div>
       </div>`;
   }else if(pending===0&&nodes>0){
     el.style.display='';
     el.innerHTML=`<div class="ig-guide-icon">✅</div>
       <div class="ig-guide-body">
-        <div class="ig-guide-title">Queue empty — ${nodes} nodes in Brain</div>
+        <div class="ig-guide-title">Queue clear — ${nodes} nodes in Brain</div>
         <div class="ig-guide-steps">
           <div class="ig-guide-step">Open the <b>Brain</b> tab to explore your knowledge galaxy.</div>
-          <div class="ig-guide-step">Use <b>Tools</b> → <b>Build Links</b> to connect related nodes.</div>
-          <div class="ig-guide-step">Import more data anytime — duplicates are skipped automatically.</div>
+          <div class="ig-guide-step">Import more anytime — duplicates are skipped automatically.</div>
         </div>
       </div>`;
   }else{
+    // Pipeline status card already shows processing state — no need to
+    // double-display "ETA ~118 hours" stress messaging. Stay quiet.
     el.style.display='none';
   }
 }
@@ -1105,7 +1117,7 @@ async function processEmailFiles(files){
   status.textContent=`✓ ${archived} emails queued`;
   updateQueueStatus();
   // Start processor if not already running
-  if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
+  if(localStorage.getItem('nexus_bg_process')==='on')startBackgroundProcessor();
 }
 
 // ═══ BACKUP EXPORT — full database dump ═══
@@ -1708,7 +1720,7 @@ async function importFilteredMessages(byContact,source,filename){
   if(NX.syslog)NX.syslog('whatsapp_import',`${totalArchived} messages imported${skipped?' ('+skipped+' skipped)':''}`);
   NX.syslog&&NX.syslog(`${source}_import`,`${totalMsgs} msgs from ${contactNames.join(', ')} — ${skipped} dupes skipped`);
   updateQueueStatus();
-  if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
+  if(localStorage.getItem('nexus_bg_process')==='on')startBackgroundProcessor();
 }
 
 
@@ -1925,7 +1937,7 @@ async function reIngestArchived(){
       log(`♻ <b>${count} emails</b> reset to unprocessed. Background AI will re-process them (3 every 5 min).`,'success');
       log(`Estimated time: ~${Math.ceil((count||0)/3)*5} minutes`);
       updateQueueStatus();
-      if(localStorage.getItem('nexus_bg_process')!=='off')startBackgroundProcessor();
+      if(localStorage.getItem('nexus_bg_process')==='on')startBackgroundProcessor();
     }
   }catch(e){log('Error: '+e.message,'error');}
   btn.disabled=false;btn.textContent='♻ Re-ingest Archive';
@@ -2773,7 +2785,7 @@ NX.modules.ingest={init,show:()=>{
   try{
     restoreChipStates();
     const alt=document.getElementById('autoLinkToggle');if(alt)alt.checked=localStorage.getItem('nexus_auto_link')!=='off';
-    const bgt=document.getElementById('bgProcessToggle');if(bgt)bgt.checked=localStorage.getItem('nexus_bg_process')!=='off';
+    const bgt=document.getElementById('bgProcessToggle');if(bgt)bgt.checked=localStorage.getItem('nexus_bg_process')==='on';
     updateProcStatus();
     updateQueueStatus();
     updateServerHeartbeat();
