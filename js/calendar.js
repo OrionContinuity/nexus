@@ -206,24 +206,18 @@ async function loadTickets(firstDay, lastDay) {
 async function loadBoardCards(firstDay, lastDay) {
   try {
     const { data } = await NX.sb.from('kanban_cards')
-      .select('id, title, due_date, priority, status, column_name, location, equipment_id, archived, labels')
+      .select('id, title, due_date, priority, status, column_name, location, equipment_id, archived')
       .not('due_date', 'is', null)
       .gte('due_date', firstDay).lte('due_date', lastDay)
       .eq('archived', false)
       .neq('column_name', 'done');
     (data || []).forEach(c => {
       if (!c.due_date) return;
-      // Color priority: user-picked category (first label) > priority default.
-      // Lets you visually sort the calendar by what KIND of work it is,
-      // not just how urgent it is.
-      const firstLabel = Array.isArray(c.labels) && c.labels.find(l => l && l.color);
-      const color = firstLabel && firstLabel.color
-        ? firstLabel.color
-        : c.priority === 'urgent' ? COLORS.card_urgent
-        : c.priority === 'high'   ? COLORS.card_high
-        : COLORS.card;
+      // Priority-driven color so urgent cards jump out on the calendar
+      const color = c.priority === 'urgent' ? COLORS.card_urgent
+                  : c.priority === 'high'   ? COLORS.card_high
+                  : COLORS.card;
       const metaBits = [];
-      if (firstLabel && firstLabel.name) metaBits.push(firstLabel.name);
       if (c.priority && c.priority !== 'normal') metaBits.push(c.priority.toUpperCase());
       if (c.location) metaBits.push(c.location);
       if (c.equipment_id) metaBits.push('🔧 linked');
@@ -825,32 +819,112 @@ async function init() {
     document.getElementById('calPrev')?.addEventListener('click', async () => {
       currentDate.setMonth(currentDate.getMonth() - 1);
       await loadEvents(); render();
+      // Month boundaries moved — reset the cache stamp since events
+      // cover a different range now.
+      _lastFetchAt = Date.now();
     });
     document.getElementById('calNext')?.addEventListener('click', async () => {
       currentDate.setMonth(currentDate.getMonth() + 1);
       await loadEvents(); render();
+      _lastFetchAt = Date.now();
     });
     document.getElementById('calToday')?.addEventListener('click', async () => {
       currentDate = new Date();
       await loadEvents(); render();
+      _lastFetchAt = Date.now();
     });
     render();
     await loadEvents();
     render();
+    _lastFetchAt = Date.now();
+    subscribeRealtime();
+    bindVisibility();
   } catch(e) {
     console.error('Cal init error:', e);
     render();
   }
 }
 
+// ── REALTIME + STALE-WHILE-REVALIDATE ─────────────────────────────
+// Calendar pulls from 9 tables per month. Rather than diff each one
+// (expensive, fragile), we subscribe to INSERT/UPDATE on the few that
+// actually change during a shift — tickets, kanban_cards, contractor
+// events, daily_logs — and debounce a full reload. 5-second window so
+// a bulk operation doesn't cause 9 re-fetches in rapid succession.
+let _rtChannel = null;
+let _rtConnected = false;
+let _lastFetchAt = 0;
+let _refreshTimer = null;
+let _visBound = false;
+
+function subscribeRealtime() {
+  if (_rtChannel || !NX.sb?.channel) return;
+  try {
+    _rtChannel = NX.sb.channel('calendar-events')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contractor_events' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kanban_cards' },      scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' },           scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_logs' },        scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dispatch_events' },   scheduleRefresh)
+      .subscribe((status) => {
+        _rtConnected = (status === 'SUBSCRIBED');
+      });
+  } catch (e) {
+    console.warn('[calendar] realtime subscribe failed:', e);
+  }
+}
+
+function unsubscribeRealtime() {
+  if (!_rtChannel) return;
+  try { NX.sb.removeChannel(_rtChannel); } catch (_) {}
+  _rtChannel = null;
+  _rtConnected = false;
+}
+
+function scheduleRefresh() {
+  if (_refreshTimer) return;
+  _refreshTimer = setTimeout(async () => {
+    _refreshTimer = null;
+    try {
+      await loadEvents();
+      render();
+      _lastFetchAt = Date.now();
+    } catch (e) { console.warn('[calendar] bg refresh:', e); }
+  }, 5000);
+}
+
+function bindVisibility() {
+  if (_visBound) return;
+  _visBound = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      unsubscribeRealtime();
+    } else {
+      const calActive = document.querySelector('.view[data-view="cal"]')?.classList.contains('active');
+      if (calActive) {
+        subscribeRealtime();
+        // Pull once in case events fired while we were away
+        loadEvents().then(() => { render(); _lastFetchAt = Date.now(); });
+      }
+    }
+  });
+}
+
 async function show() {
+  // Stale-while-revalidate — if subscription is live and data is <15s
+  // old, render instantly from memory. Realtime has kept us current.
+  // Otherwise pull fresh.
+  const isWarm = _rtChannel && _rtConnected && (Date.now() - _lastFetchAt) < 15000;
+  if (isWarm) { render(); return; }
   try { await loadEvents(); } catch(e) { /* silent */ }
   render();
+  _lastFetchAt = Date.now();
+  if (!_rtChannel) subscribeRealtime();
 }
 
 if (!NX.modules) NX.modules = {};
 NX.modules.cal = { init, show };
 
-console.log('[calendar] v4 loaded — 9 event sources');
+console.log('[calendar] v5 loaded — realtime aggregation');
 
 })();
