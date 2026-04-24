@@ -37,21 +37,6 @@ const LOCATIONS = [
 
 const LABEL_COLORS = ['#d45858','#e8a830','#5bba5f','#5b9bd5','#a88fd8','#d4a44e','#6b9bf0','#a49c94'];
 
-// Card categories — tap-to-toggle chips in the card detail modal. Each
-// category is persisted as an entry in card.labels (jsonb). The first
-// category's color takes precedence on the calendar dot + board card bar.
-// Feel free to rename / recolor these; `key` is the stable identifier.
-const CATEGORIES = [
-  { key: 'equipment',  name: 'Equipment',  color: '#5b9bd5' },
-  { key: 'labor',      name: 'Labor',      color: '#c8a44e' },
-  { key: 'order',      name: 'Order',      color: '#5bba5f' },
-  { key: 'safety',     name: 'Safety',     color: '#d45858' },
-  { key: 'inspection', name: 'Inspection', color: '#a88fd8' },
-  { key: 'admin',      name: 'Admin',      color: '#e8a830' },
-  { key: 'cleaning',   name: 'Cleaning',   color: '#7eb87a' },
-  { key: 'other',      name: 'Other',      color: '#a49c94' },
-];
-
 // Default list structure when a brand-new board is created
 const DEFAULT_LISTS = [
   { name: 'Reported',          position: 0 },
@@ -97,13 +82,33 @@ const STYLES = `
   .b-list-add{background:transparent;border:1px dashed rgba(255,255,255,0.15);color:var(--text-dim,#a49c94);padding:8px;border-radius:6px;cursor:pointer;margin-top:6px;width:100%;font-size:12px}
   .b-list-add:active{background:rgba(255,255,255,0.03)}
 
-  .b-card{position:relative;background:rgba(20,18,14,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 12px 10px 14px;margin-bottom:8px;cursor:pointer;overflow:hidden}
-  .b-card:active{transform:scale(0.99)}
-  .b-card-pri-bar{position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--pri-color,transparent)}
+  /* Terminal list collapse — Done/Closed/Resolved/Complete/Archived default
+     to a single-line summary. Tap the header to expand. Saves screen real
+     estate on mobile by hiding completed work. */
+  .b-list.is-terminal{background:rgba(20,18,14,0.4);opacity:.85}
+  .b-list.is-terminal .b-list-head{color:var(--text-dim,#a49c94)}
+  .b-list-collapse-icon{display:inline-block;margin-right:6px;color:var(--text-dim,#a49c94);font-size:10px;transition:transform .15s;user-select:none}
+  .b-list.is-collapsed{min-height:auto}
+  .b-list.is-collapsed .b-list-cards,
+  .b-list.is-collapsed .b-list-add{display:none}
+
+  /* ═══════════════════════════════════════════════════════════════════
+     CARD — Trello-style
+     cover (image, bleeds to edges) → strip (label color bar) → body
+     ═══════════════════════════════════════════════════════════════════ */
+  .b-card{position:relative;background:rgba(20,18,14,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:10px;margin-bottom:8px;cursor:pointer;overflow:hidden;transition:transform .15s,box-shadow .15s,border-color .15s}
+  .b-card:active{transform:scale(0.98)}
+  .b-card:hover{border-color:rgba(200,164,78,0.2);box-shadow:0 4px 14px rgba(0,0,0,0.3)}
+  /* Cover — bleed image at top, like Trello */
+  .b-card-cover{width:100%;height:140px;overflow:hidden;background:rgba(255,255,255,0.02);position:relative}
+  .b-card-cover img{width:100%;height:100%;object-fit:cover;display:block}
+  /* Category color strip — instant visual grouping by label */
+  .b-card-strip{height:3px;width:100%;background:transparent;flex-shrink:0}
+  /* Body padding separate from cover so cover bleeds edge-to-edge */
+  .b-card-body{padding:10px 12px 10px 12px;position:relative}
   .b-card-title{font-size:13px;font-weight:500;color:var(--text,#d4c8a5);margin-bottom:6px;line-height:1.35}
   .b-card-labels{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
   .b-card-label{font-size:10px;padding:2px 7px;border-radius:8px;color:#1a1408;font-weight:600}
-  .b-card-photo-thumb{width:100%;max-height:120px;object-fit:cover;border-radius:4px;margin-bottom:6px;background:rgba(255,255,255,0.03)}
   .b-card-badges{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:4px}
   .b-card-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,0.05);color:var(--text-dim,#a49c94)}
   .b-card-badge.pri-urgent{background:rgba(212,88,88,0.15);color:#e88;font-weight:600}
@@ -112,7 +117,21 @@ const STYLES = `
   .b-card-badge.eq{background:rgba(200,164,78,0.10);color:#c8a44e}
   .b-card-badge.overdue{background:rgba(212,88,88,0.20);color:#e88;font-weight:600}
   .b-card-meta{display:flex;gap:8px;font-size:10px;color:var(--text-faint,#746c5e);margin-top:4px;align-items:center;flex-wrap:wrap}
-  .b-card-move-btn{position:absolute;top:6px;right:6px;background:rgba(255,255,255,0.06);border:0;color:var(--text-dim,#a49c94);padding:3px 8px;border-radius:10px;font-size:10px;cursor:pointer;opacity:0;transition:opacity .15s}
+  /* Meta sub-variants — age + due date urgency coloring */
+  .b-card-meta-due-soon{color:#e88;font-weight:600}
+  .b-card-meta-due-warn{color:#e8a830;font-weight:500}
+  .b-card-meta-age{color:#746c5e}
+  .b-card-meta-age-warn{color:#e8a830;font-weight:500}
+  .b-card-meta-age-old{color:#e88;font-weight:600}
+  .b-card-meta-progress{color:#e8a830}
+  .b-card-meta-done{color:#5bba5f}
+  .b-card-meta-assignee{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(200,164,78,0.2);color:#c8a44e;font-size:9px;font-weight:700;margin-right:-2px}
+  /* Done card — fade + strike title. Cards stay visible in their terminal
+     list but read as archived-in-place rather than active work. */
+  .b-card.is-done{opacity:.55}
+  .b-card.is-done .b-card-title{text-decoration:line-through;color:var(--text-dim,#a49c94)}
+  .b-card.is-done .b-card-cover img{filter:grayscale(.6)}
+  .b-card-move-btn{position:absolute;top:6px;right:6px;background:rgba(255,255,255,0.06);border:0;color:var(--text-dim,#a49c94);padding:3px 8px;border-radius:10px;font-size:10px;cursor:pointer;opacity:0;transition:opacity .15s;z-index:2}
   .b-card:hover .b-card-move-btn,.b-card.show-move .b-card-move-btn{opacity:1}
   @media(hover:none){.b-card-move-btn{opacity:1}}
 
@@ -121,15 +140,7 @@ const STYLES = `
   @keyframes bfade{from{opacity:0}to{opacity:1}}
   .b-modal{background:#1a1408;border:1px solid rgba(200,164,78,0.2);border-radius:12px;width:100%;max-width:600px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.6)}
   .b-modal-head{display:flex;align-items:flex-start;gap:8px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.02)}
-  .b-modal-title{flex:1;background:transparent;border:0;border-bottom:1px dashed rgba(200,164,78,0.25);color:var(--text,#d4c8a5);font-size:15px;font-weight:600;outline:none;font-family:inherit;padding:2px 4px;transition:border-color .15s,background .15s;cursor:text}
-  .b-modal-title:hover{background:rgba(200,164,78,0.04);border-bottom-color:rgba(200,164,78,0.45)}
-  .b-modal-title:focus{background:rgba(200,164,78,0.06);border-bottom-color:#c8a44e;border-bottom-style:solid}
-
-  /* Category chips — tap-to-toggle pills inside the card modal */
-  .b-cat-chips{display:flex;flex-wrap:wrap;gap:6px}
-  .b-cat-chip{background:transparent;border:1px solid var(--c,#a49c94);color:var(--c,#a49c94);padding:5px 11px;border-radius:999px;font-size:11px;font-weight:500;font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .1s,background .15s;letter-spacing:0.2px}
-  .b-cat-chip:active{transform:scale(0.94)}
-  .b-cat-chip.selected{background:var(--c,#a49c94);color:#0a0a0c;font-weight:600;box-shadow:0 0 0 3px rgba(255,255,255,0.03),0 0 10px color-mix(in srgb,var(--c) 35%,transparent)}
+  .b-modal-title{flex:1;background:transparent;border:0;color:var(--text,#d4c8a5);font-size:15px;font-weight:600;outline:none;font-family:inherit}
   .b-modal-close{background:transparent;border:0;color:var(--text-dim,#a49c94);font-size:18px;cursor:pointer;padding:4px 8px}
   .b-modal-body{padding:14px 16px;max-height:70vh;overflow-y:auto}
   .b-section{margin-bottom:16px}
@@ -220,12 +231,24 @@ function timeAgo(ts){
   return Math.floor(diff/(30*86400000))+'mo';
 }
 
+// A card is "done" if its current list is a terminal state. Matches any
+// reasonable naming: Done, Closed, Resolved, Complete, Completed, Archive.
+// Terminal cards shouldn't count in open/urgent/overdue summaries, and
+// they should read visually as archived-in-place rather than active work.
+function isDone(card){
+  const cname = (card.column_name || '').toLowerCase();
+  if(cname) return /^(done|closed|resolved|complete|completed|archived?)$/.test(cname);
+  // Fallback — look up the card's list and check its name
+  const list = lists.find(l => l.id === card.list_id);
+  if(!list) return false;
+  const n = (list.name || '').toLowerCase();
+  return /(done|closed|resolved|complete|archived?)/.test(n);
+}
+
 function isOverdue(card){
-  // Cards in the 'done' column are considered closed — they should
-  // never read as overdue regardless of their due_date. A ticket
-  // marked done yesterday with a due_date last week is resolved, not
-  // overdue.
-  if ((card.column_name || '').toLowerCase() === 'done') return false;
+  // Terminal-state cards are never overdue regardless of due_date. A ticket
+  // marked done yesterday with a due_date last week is resolved, not overdue.
+  if (isDone(card)) return false;
   return card.due_date && new Date(card.due_date) < new Date(new Date().toDateString());
 }
 
@@ -324,9 +347,24 @@ function renderSummaryStrip(){
   const strip = document.createElement('div');
   strip.className = 'b-summary';
 
-  const open = cards.length;
-  const overdue = cards.filter(isOverdue).length;
-  const urgent = cards.filter(c => c.priority === 'urgent').length;
+  // Open = cards not in a terminal list. Previously this counted EVERY
+  // non-archived card, so moving a ticket to Done still showed it in
+  // "3 open" — confusing. Now: done cards don't count toward active
+  // workload, they're still visible in their column but grayed out.
+  const openCards = cards.filter(c => !isDone(c));
+  const doneCards = cards.filter(c => isDone(c));
+  const open = openCards.length;
+  const overdue = openCards.filter(isOverdue).length;
+  const urgent = openCards.filter(c => c.priority === 'urgent').length;
+
+  // Cards closed in the last 7 days — derive from updated_at on done cards
+  // if the board_stats view isn't around. Gives same "closed this week"
+  // feedback without depending on that SQL view existing.
+  const weekAgo = Date.now() - 7*24*60*60*1000;
+  const closedThisWeek = doneCards.filter(c => {
+    const ts = c.updated_at || c.created_at;
+    return ts && new Date(ts).getTime() >= weekAgo;
+  }).length;
 
   let html = '';
   html += `<span class="b-summary-chip ${open>0?'':'ok'}"><strong>${open}</strong> open</span>`;
@@ -335,8 +373,8 @@ function renderSummaryStrip(){
   if(stats && stats.avg_close_days_30d != null){
     html += `<span class="b-summary-chip">avg close <strong>${Number(stats.avg_close_days_30d).toFixed(1)}d</strong></span>`;
   }
-  if(stats && stats.closed_last_7d){
-    html += `<span class="b-summary-chip ok">${stats.closed_last_7d} closed this week</span>`;
+  if(closedThisWeek > 0){
+    html += `<span class="b-summary-chip ok">✓ ${closedThisWeek} done this week</span>`;
   }
   // Clean Up button only appears when there's meaningful backlog
   if(open > 30){
@@ -411,10 +449,39 @@ function renderLists(){
       .filter(c => c.list_id === list.id)
       .sort((a,b) => (a.position||0) - (b.position||0));
 
+    // Terminal lists (Done/Closed/Resolved/Complete/Archived) collapse to
+    // a single summary line by default — matches Trello's "show done"
+    // pattern. User taps the header to expand. Persists per-board.
+    const listNameLC = (list.name || '').toLowerCase();
+    const isTerminal = /(done|closed|resolved|complete|archived?)/.test(listNameLC);
+    const collapseKey = `nx_board_collapse_${activeBoard?.id || 0}_${list.id}`;
+    const userCollapsed = localStorage.getItem(collapseKey);
+    // Default: terminal lists start collapsed, non-terminal start expanded
+    const collapsed = userCollapsed !== null
+      ? userCollapsed === '1'
+      : isTerminal;
+    if(collapsed) listEl.classList.add('is-collapsed');
+    if(isTerminal) listEl.classList.add('is-terminal');
+
     const head = document.createElement('div');
     head.className = 'b-list-head';
-    head.innerHTML = `<div class="b-list-name">${esc(list.name)}</div>
+    const collapseIcon = isTerminal ? `<span class="b-list-collapse-icon">${collapsed ? '▸' : '▾'}</span>` : '';
+    head.innerHTML = `${collapseIcon}<div class="b-list-name">${esc(list.name)}</div>
       <div class="b-list-count">${listCards.length}</div>`;
+    // Click header on terminal list → toggle collapse
+    if(isTerminal){
+      head.style.cursor = 'pointer';
+      head.addEventListener('click', (e) => {
+        // Don't trigger on count badge tap etc. — only on the list-head itself
+        if(e.target.closest('button')) return;
+        const nowCollapsed = !listEl.classList.contains('is-collapsed');
+        listEl.classList.toggle('is-collapsed', nowCollapsed);
+        localStorage.setItem(collapseKey, nowCollapsed ? '1' : '0');
+        // Update chevron
+        const ci = head.querySelector('.b-list-collapse-icon');
+        if(ci) ci.textContent = nowCollapsed ? '▸' : '▾';
+      });
+    }
     listEl.appendChild(head);
 
     const cardsWrap = document.createElement('div');
@@ -462,26 +529,42 @@ function renderLists(){
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// RENDER — single card
+// RENDER — single card (Trello-style)
 // ─────────────────────────────────────────────────────────────────────────
 function createCardEl(card){
   const el = document.createElement('div');
   el.className = 'b-card';
+  if(isDone(card)) el.classList.add('is-done');
   el.draggable = true;
   el.dataset.cardId = card.id;
 
   const pri = priorityInfo(card.priority);
   const loc = locationInfo(card.location);
   const overdue = isOverdue(card);
+  const done = isDone(card);
 
-  // Priority bar (left edge)
-  const priBarColor = pri.color || 'transparent';
-  let html = `<div class="b-card-pri-bar" style="background:${priBarColor}"></div>`;
+  // Cover image — Trello-style bleed at top of card. First photo in
+  // photo_urls wins. On done cards we still show it but dimmed.
+  const cover = (card.photo_urls || [])[0];
+  let html = '';
+  if(cover){
+    html += `<div class="b-card-cover"><img src="${esc(cover)}" loading="lazy" alt=""></div>`;
+  }
+
+  // Category color strip — a 4px bar at the top of the card body,
+  // colored by the first label. Gives instant visual grouping across
+  // columns the way Trello uses label strips.
+  const firstLabel = (card.labels || [])[0];
+  const stripColor = firstLabel?.color || pri.color || 'transparent';
+  html += `<div class="b-card-strip" style="background:${stripColor}"></div>`;
+
+  // Body (padded content — separate from cover so cover bleeds to edges)
+  html += '<div class="b-card-body">';
 
   // Move button (visible on mobile always, on desktop on hover)
   html += `<button class="b-card-move-btn" data-move="${card.id}">→ Move</button>`;
 
-  // Labels
+  // Labels (small chips, more Trello-ish — already exists, just more compact)
   if((card.labels||[]).length){
     html += `<div class="b-card-labels">${
       card.labels.map(l => `<span class="b-card-label" style="background:${l.color||'#a49c94'}">${esc(l.name||'')}</span>`).join('')
@@ -491,12 +574,7 @@ function createCardEl(card){
   // Title
   html += `<div class="b-card-title">${esc(card.title||'')}</div>`;
 
-  // Photo thumb (first one)
-  if((card.photo_urls||[]).length){
-    html += `<img class="b-card-photo-thumb" src="${esc(card.photo_urls[0])}" loading="lazy">`;
-  }
-
-  // Badges row
+  // Badges row — priority, location, equipment, overdue
   const badges = [];
   if(card.priority === 'urgent') badges.push(`<span class="b-card-badge pri-urgent">🚨 URGENT</span>`);
   else if(card.priority === 'high') badges.push(`<span class="b-card-badge pri-high">⚠ HIGH</span>`);
@@ -505,22 +583,41 @@ function createCardEl(card){
   if(overdue) badges.push(`<span class="b-card-badge overdue">📅 OVERDUE</span>`);
   if(badges.length) html += `<div class="b-card-badges">${badges.join('')}</div>`;
 
-  // Meta row: checklist progress, comments, due, assignee
+  // Meta row: checklist progress, comments, due, assignee, age
   const meta = [];
   const cl = card.checklist || [];
   if(cl.length){
-    const done = cl.filter(c=>c.done).length;
-    meta.push(`☐ ${done}/${cl.length}`);
+    const doneChecks = cl.filter(c=>c.done).length;
+    const pct = doneChecks/cl.length;
+    const cls = pct===1 ? 'b-card-meta-done' : (pct>=0.5 ? 'b-card-meta-progress' : '');
+    meta.push(`<span class="${cls}">☐ ${doneChecks}/${cl.length}</span>`);
   }
   const cm = card.comments || [];
   if(cm.length) meta.push(`💬 ${cm.length}`);
   if(card.due_date && !overdue){
-    const d = new Date(card.due_date);
-    meta.push(`📅 ${d.toLocaleDateString([], {month:'short', day:'numeric'})}`);
+    // Urgency color by proximity: today=red, tomorrow=amber, this week=neutral
+    const dueD = new Date(card.due_date);
+    const daysOut = Math.ceil((dueD - Date.now())/86400000);
+    const dueCls = daysOut <= 0 ? 'b-card-meta-due-soon'
+                 : daysOut === 1 ? 'b-card-meta-due-warn'
+                 : '';
+    const dueLbl = daysOut === 0 ? 'today'
+                 : daysOut === 1 ? 'tomorrow'
+                 : dueD.toLocaleDateString([], {month:'short', day:'numeric'});
+    meta.push(`<span class="${dueCls}">📅 ${dueLbl}</span>`);
   }
-  if(card.assignee) meta.push(`👤 ${esc(card.assignee)}`);
+  if(card.assignee) meta.push(`<span class="b-card-meta-assignee">${initials(card.assignee)}</span> ${esc(card.assignee)}`);
   if(card.cost_estimate) meta.push(`$${Number(card.cost_estimate).toFixed(0)} est`);
+  // Age indicator — only for open cards. Silent under 3d, amber at 7d, red at 14d.
+  if(!done && card.created_at){
+    const ageDays = Math.floor((Date.now() - new Date(card.created_at).getTime())/86400000);
+    if(ageDays >= 14) meta.push(`<span class="b-card-meta-age-old">⏱ ${ageDays}d old</span>`);
+    else if(ageDays >= 7) meta.push(`<span class="b-card-meta-age-warn">⏱ ${ageDays}d old</span>`);
+    else if(ageDays >= 3) meta.push(`<span class="b-card-meta-age">${ageDays}d</span>`);
+  }
   if(meta.length) html += `<div class="b-card-meta">${meta.join(' · ')}</div>`;
+
+  html += '</div>'; // close b-card-body
 
   el.innerHTML = html;
 
@@ -546,6 +643,12 @@ function createCardEl(card){
   });
 
   return el;
+}
+
+// Produce initials from a name like "Ana Maria" → "AM". Used for the
+// inline assignee chip in card meta. Safe for emojis and unicode.
+function initials(name){
+  return String(name||'').trim().split(/\s+/).slice(0,2).map(p => p[0]||'').join('').toUpperCase() || '•';
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -689,16 +792,6 @@ async function openCardDetail(card){
         </div>
       </div>
 
-      <div class="b-section">
-        <div class="b-section-label">Category</div>
-        <div class="b-cat-chips" id="bCats">
-          ${CATEGORIES.map(c => {
-            const selected = (card.labels||[]).some(l => l.key === c.key);
-            return `<button type="button" class="b-cat-chip${selected?' selected':''}" data-key="${c.key}" style="--c:${c.color}">${c.name}</button>`;
-          }).join('')}
-        </div>
-      </div>
-
       <div class="b-section" id="bEqSection">
         <div class="b-section-label">Linked Equipment</div>
         <div id="bEqEmbed"><!-- populated async --></div>
@@ -791,25 +884,6 @@ async function openCardDetail(card){
   // Photo add
   bg.querySelector('#bPhotoAdd').addEventListener('click', () => {
     bg.querySelector('#bPhotoInput').click();
-  });
-
-  // Category chips — toggle tap, mutate card.labels in place. Saved
-  // by the existing save path (patch already includes card.labels).
-  bg.querySelectorAll('.b-cat-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const key = chip.dataset.key;
-      const cat = CATEGORIES.find(c => c.key === key);
-      if (!cat) return;
-      card.labels = Array.isArray(card.labels) ? card.labels : [];
-      const idx = card.labels.findIndex(l => l && l.key === key);
-      if (idx >= 0) {
-        card.labels.splice(idx, 1);
-        chip.classList.remove('selected');
-      } else {
-        card.labels.push({ key: cat.key, name: cat.name, color: cat.color });
-        chip.classList.add('selected');
-      }
-    });
   });
   bg.querySelector('#bPhotoInput').addEventListener('change', async e => {
     const file = e.target.files && e.target.files[0];
