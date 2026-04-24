@@ -136,6 +136,46 @@ body.view-brain .main{padding-bottom:calc(56px + env(safe-area-inset-bottom))}
 .bnav-btn.active{color:var(--accent)}
 .bnav-btn.active::after{content:'';position:absolute;top:0;left:25%;right:25%;height:2px;background:var(--accent);border-radius:0 0 2px 2px}
 .bnav-btn:active{transform:scale(.92);transition:transform .1s}
+
+/* ── PIPELINE STATUS HERO CARD ────────────────────────────────
+   The thing that answers "is my stuff flowing in?" at a glance.
+   Replaces the old tiny status bar. Big dot, counts, footer. */
+.ig-pipeline{background:linear-gradient(135deg,rgba(212,164,78,.04),rgba(212,164,78,.01));border:1px solid rgba(212,164,78,.18);border-radius:14px;padding:14px 16px;margin:4px 0 14px;position:relative;overflow:hidden}
+.ig-pipeline::before{content:"";position:absolute;top:-1px;left:-1px;right:-1px;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;transition:opacity .4s}
+.ig-pipeline.is-healthy::before{opacity:.5;animation:pipeSweep 3s linear infinite}
+@keyframes pipeSweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.ig-pipe-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.ig-pipe-title-row{display:flex;align-items:center;gap:9px}
+.ig-pipe-dot{width:10px;height:10px;border-radius:50%;background:var(--faint);transition:background .3s,box-shadow .3s;flex-shrink:0}
+.ig-pipe-dot.is-healthy{background:var(--green);box-shadow:0 0 12px rgba(91,186,95,.7);animation:pipePulse 2s ease-in-out infinite}
+.ig-pipe-dot.is-stale{background:var(--amber);box-shadow:0 0 8px rgba(232,168,48,.4)}
+.ig-pipe-dot.is-dead,.ig-pipe-dot.is-error{background:var(--red);box-shadow:0 0 8px rgba(212,88,88,.5)}
+.ig-pipe-dot.is-unknown{background:var(--faint)}
+@keyframes pipePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.9)}}
+.ig-pipe-title{font-family:'Outfit','DM Sans',sans-serif;font-size:15px;font-weight:600;color:var(--text);letter-spacing:-.01em}
+.ig-pipe-mode{font-size:10px;letter-spacing:1.2px;color:var(--accent);font-weight:600;text-transform:uppercase;padding:2px 8px;background:rgba(212,164,78,.1);border-radius:6px}
+.ig-pipe-time{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ig-pipe-body{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px}
+.ig-pipe-stat{display:flex;flex-direction:column;align-items:center;padding:8px 4px;background:rgba(0,0,0,.18);border-radius:8px}
+.ig-pipe-stat-val{font-family:'Outfit',sans-serif;font-size:19px;font-weight:700;color:var(--text);line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.ig-pipe-stat-lbl{font-size:9.5px;letter-spacing:1.2px;color:var(--faint);font-weight:600;text-transform:uppercase;margin-top:4px}
+.ig-pipe-footer{font-size:11.5px;color:var(--muted);line-height:1.45;padding-top:2px}
+
+/* ── ADVANCED NOTE ──────────────────────────────────────────── */
+.ig-advanced-note{background:rgba(107,155,240,.06);border-left:3px solid var(--blue);border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:12.5px;color:var(--muted);line-height:1.5}
+.ig-advanced-note strong{color:var(--text);font-weight:600}
+
+/* ── HINT (shown in Gmail section when push is active) ─────── */
+.ig-hint{background:rgba(91,186,95,.06);border:1px solid rgba(91,186,95,.18);border-radius:8px;padding:9px 11px;margin-bottom:10px;font-size:12px;color:var(--text);line-height:1.5}
+
+/* ── MANUAL SYNC DETAILS (collapsed by default under Gmail) ── */
+.ig-manual-sync{margin-top:4px}
+.ig-manual-sync summary{cursor:pointer;padding:8px 0;font-size:12px;color:var(--muted);list-style:none;user-select:none;display:flex;align-items:center;gap:6px}
+.ig-manual-sync summary::-webkit-details-marker{display:none}
+.ig-manual-sync summary::before{content:"▸";color:var(--faint);transition:transform .2s}
+.ig-manual-sync[open] summary::before{transform:rotate(90deg)}
+.ig-manual-sync[open] summary{color:var(--text)}
+
 /* Hide top nav tabs on mobile — bottom nav replaces them */
 .nav-tabs{display:none}
 /* Desktop: show top tabs, hide bottom nav */
@@ -143,6 +183,11 @@ body.view-brain .main{padding-bottom:calc(56px + env(safe-area-inset-bottom))}
   .nav-tabs{display:flex}
   .bottom-nav{display:none}
   .main{padding-bottom:0}
+  /* Ingest already lives in the top nav on desktop — hide the duplicate
+     in the utility tray so the hamburger shows only app-level utilities
+     (Clock, Theme, Settings). On mobile the top nav is hidden, so the
+     tray Ingest remains the only entry point. */
+  #utilIngest{display:none!important}
 }
 
 /* ═══ BRAIN ═══ */
