@@ -204,7 +204,9 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
               if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
               chainLog.push({type:'ticket',title:action.title,result:'created'});
             }else if(action.type==='card'){
-              await NX.sb.from('kanban_cards').insert({title:action.title,column_name:'todo',priority:action.urgency});
+              const cardRow={title:action.title,column_name:'todo',priority:action.urgency,reported_by:NX.currentUser?.name||null};
+              await NX.sb.from('kanban_cards').insert(cardRow);
+              if (NX.notifyCardCreated) NX.notifyCardCreated(cardRow);
               chainLog.push({type:'card',title:action.title,result:'created'});
             }else if(action.type==='log'){
               await NX.sb.from('daily_logs').insert({entry:action.title+' — '+action.detail});
@@ -217,7 +219,9 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
                 await NX.sb.from('contractor_events').insert({contractor_name:contractor.name,event_date:tomorrow,description:action.title,status:'pending'});
                 chainLog.push({type:'schedule',title:contractor.name,result:'event created'});
               }else{
-                await NX.sb.from('kanban_cards').insert({title:'Schedule: '+action.title,column_name:'todo'});
+                const schedCard={title:'Schedule: '+action.title,column_name:'todo',reported_by:NX.currentUser?.name||null};
+                await NX.sb.from('kanban_cards').insert(schedCard);
+                if (NX.notifyCardCreated) NX.notifyCardCreated(schedCard);
                 chainLog.push({type:'card',title:'Schedule: '+action.title,result:'card created (no contractor found)'});
               }
             }
@@ -245,7 +249,12 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
   }
   async function handleTask(task){
     if(task.type==='log'){const{error}=await NX.sb.from('daily_logs').insert({entry:task.content});return error?'Failed to log.':`Logged: "${task.content}"`;}
-    if(task.type==='card'){const{error}=await NX.sb.from('kanban_cards').insert({title:task.content,column_name:'todo'});return error?'Failed.':`Card created: "${task.content}"`;}
+    if(task.type==='card'){
+      const cardRow={title:task.content,column_name:'todo',reported_by:NX.currentUser?.name||null};
+      const{error}=await NX.sb.from('kanban_cards').insert(cardRow);
+      if (!error && NX.notifyCardCreated) NX.notifyCardCreated(cardRow);
+      return error?'Failed.':`Card created: "${task.content}"`;
+    }
     if(task.type==='digest'){addB('📊 Generating weekly digest...','ai');if(NX.modules.admin){const el=document.getElementById('ingestLog');if(el)el.innerHTML='';document.getElementById('digestBtn')?.click();}else{addB('Switch to Ingest tab and tap 📊 Weekly Digest','ai');}return null;}
     if(task.type==='reminders'){addB('🧠 Scanning for unresolved items...','ai');if(NX.modules.admin){const el=document.getElementById('ingestLog');if(el)el.innerHTML='';document.getElementById('remindersBtn')?.click();}else{addB('Switch to Ingest tab and tap 🧠 Smart Reminders','ai');}return null;}
     return null;
@@ -1385,6 +1394,14 @@ Keep it casual and warm. No markdown formatting.`;
     }
     const c=document.getElementById('chatMessages');c.appendChild(el);
     requestAnimationFrame(()=>{c.scrollTop=c.scrollHeight;});
+    // Offer inline translation on completed AI bubbles. Skip typing/
+    // thinking indicators (they're transient) and skip user messages
+    // (user wrote them — no need). The button appears as a small 🌐
+    // at the end of the text; one tap translates to the user's
+    // preferred language with a "show original" toggle.
+    if(type.includes('ai') && !type.includes('thinking') && window.NX?.tr){
+      try{ NX.tr.inline(el); }catch(_){}
+    }
     return el;
   }
 
