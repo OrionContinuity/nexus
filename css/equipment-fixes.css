@@ -495,26 +495,78 @@
 }
 
 /* ─── 4. MULTI-VENDOR PARTS ───────────────────────────────────────────── */
+/* ─── PARTS / VENDORS — visual cleanup ───────────────────────────
+   Before: every part was a card-within-card with VENDORS heading +
+   vendor cards inside, inconsistent button counts per row, decorative
+   stars without labels. Felt like a maximalist data dump.
+   Now: each part is one clean section. Vendors below as table-style
+   rows aligned to a 4-column grid (name / price / stock / actions).
+   Same column count every row → eye scans cleanly. */
+.eq-part {
+  background: var(--elevated, #1a1408);
+  border: 1px solid rgba(200,164,78,0.10);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  display: block;
+}
+.eq-part-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.eq-part-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text, #e6dccc);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.eq-part-sub {
+  font-size: 11px;
+  color: var(--muted, #8a826f);
+  margin-top: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.3px;
+}
+.eq-part-path {
+  font-size: 10px;
+  color: var(--faint, #5e574a);
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.eq-part-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .eq-part-vendors {
   margin-top: 10px;
+  /* Removed dashed border — was visual clutter. Plain background tier
+     and a thin gold rule above the row reads cleaner. */
+  border-top: 1px solid rgba(200, 164, 78, 0.08);
   padding-top: 10px;
-  border-top: 1px dashed rgba(200, 164, 78, 0.15);
 }
 .eq-part-vendors-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  /* Tightened — header was wasting 18px above the actual data. */
 }
 .eq-part-vendors-label {
-  font-size: 10px;
+  font-size: 9.5px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--muted, #8a826f);
+  letter-spacing: 1.2px;
+  color: var(--faint, #5e574a);
+  font-weight: 600;
 }
 .eq-part-add-vendor-btn {
-  padding: 5px 10px;
-  background: rgba(200, 164, 78, 0.1);
+  padding: 4px 10px;
+  background: transparent;
   border: 1px solid rgba(200, 164, 78, 0.25);
   border-radius: 8px;
   color: var(--accent, #c8a44e);
@@ -523,102 +575,157 @@
   cursor: pointer;
   transition: all .12s;
 }
+.eq-part-add-vendor-btn:hover { background: rgba(200, 164, 78, 0.08); }
 .eq-part-add-vendor-btn:active {
-  background: rgba(200, 164, 78, 0.25);
+  background: rgba(200, 164, 78, 0.18);
   transform: scale(.95);
 }
 .eq-part-vendors-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
+  /* Was 6px gap between cards. Now near-zero gap between table-style
+     rows so a part with 4 vendors doesn't sprawl. */
 }
 .eq-part-vendors-empty {
   font-size: 11px;
   color: var(--muted, #8a826f);
-  font-style: italic;
-  padding: 10px;
-  text-align: center;
+  padding: 8px 0 4px;
 }
+
+/* ── Vendor row — one line, clean grid ──
+   Was a card-style chip with 3-4 nested rows. Now a single grid row
+   with clear columns: name+star / price / stock / action buttons.
+   Dense by design. Tap to expand notes (handled in JS).            */
 .eq-part-vendor {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(200, 164, 78, 0.12);
-  border-radius: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 4px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  transition: background .12s;
 }
+.eq-part-vendor:last-child { border-bottom: none; }
+.eq-part-vendor:hover { background: rgba(200,164,78,0.03); border-radius: 6px; }
+.eq-part-vendor.is-preferred { background: rgba(200,164,78,0.04); border-left: 2px solid var(--accent,#c8a44e); padding-left: 10px; border-radius: 4px; }
+
 .eq-part-vendor-main {
-  flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .eq-part-vendor-row1 {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  min-width: 0;
 }
+/* Star is now a tighter "Preferred" badge with a label, not just an
+   ambiguous gold star. Eye knows what it means without hovering. */
 .eq-part-vendor-star {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9.5px;
+  font-weight: 700;
   color: var(--accent, #c8a44e);
-  font-size: 14px;
+  background: rgba(200,164,78,0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
   line-height: 1;
+  flex-shrink: 0;
 }
+.eq-part-vendor-star::before { content: '★'; font-size: 9px; }
 .eq-part-vendor-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text, #e6dccc);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eq-part-vendor-price {
   font-size: 13px;
   font-weight: 600;
   color: var(--text, #e6dccc);
-}
-.eq-part-vendor-price {
-  margin-left: auto;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent, #c8a44e);
   font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 64px;
 }
 .eq-part-vendor-row2 {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 4px;
-  font-size: 10px;
-  color: var(--muted, #8a826f);
+  font-size: 10.5px;
+  color: var(--faint, #5e574a);
 }
 .eq-part-vendor-oem {
   font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.2px;
+}
+/* Stock badges — green/red proper chips so the eye spots them
+   at-a-glance instead of reading body copy. */
+.eq-part-vendor-stock {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
 }
 .eq-part-vendor-stock.in {
-  color: #5cb377;
+  color: #7fd494;
+  background: rgba(91,186,95,0.12);
 }
+.eq-part-vendor-stock.in::before { content: '●'; font-size: 8px; color: #5bba5f; }
 .eq-part-vendor-stock.out {
-  color: #e07070;
+  color: #e88;
+  background: rgba(212,88,88,0.12);
 }
+.eq-part-vendor-stock.out::before { content: '●'; font-size: 8px; color: #d45858; }
 .eq-part-vendor-checked {
-  font-style: italic;
+  font-style: normal;
   opacity: 0.7;
+  font-size: 10px;
 }
 .eq-part-vendor-notes {
   font-size: 11px;
-  color: var(--text, #e6dccc);
-  opacity: 0.8;
+  color: var(--muted, #8a826f);
   margin-top: 4px;
   font-style: italic;
+  line-height: 1.4;
 }
+
+/* Actions — fixed icon button widths so every row has the same column
+   alignment regardless of which actions are shown. Order button is
+   the primary CTA (filled amber), others are subtle ghosts. */
 .eq-part-vendor-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   flex-shrink: 0;
 }
 .eq-part-vendor-btn {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: transparent;
-  border: 1px solid rgba(200, 164, 78, 0.2);
-  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 6px;
   color: var(--muted, #8a826f);
   font-family: inherit;
   font-size: 12px;
@@ -626,23 +733,35 @@
   text-decoration: none;
   transition: all .12s;
 }
+.eq-part-vendor-btn:hover {
+  background: rgba(255,255,255,0.04);
+  color: var(--text, #e6dccc);
+  border-color: rgba(255,255,255,0.12);
+}
 .eq-part-vendor-btn.order {
   width: auto;
-  padding: 0 12px;
-  background: rgba(200, 164, 78, 0.15);
-  color: var(--accent, #c8a44e);
-  border-color: rgba(200, 164, 78, 0.3);
-  font-weight: 600;
+  height: 28px;
+  padding: 0 14px;
+  background: var(--accent, #c8a44e);
+  color: #1a1408;
+  border-color: var(--accent, #c8a44e);
+  font-weight: 700;
+  font-size: 11.5px;
+  letter-spacing: 0.3px;
+}
+.eq-part-vendor-btn.order:hover {
+  background: #d4b46e;
+  color: #1a1408;
+  filter: brightness(1.05);
 }
 .eq-part-vendor-btn:active {
-  background: rgba(200, 164, 78, 0.2);
-  color: var(--accent, #c8a44e);
-  transform: scale(.92);
+  transform: scale(.94);
 }
-.eq-part-vendor-btn.remove-btn:active {
-  background: rgba(224, 112, 112, 0.2);
-  color: #e07070;
-  border-color: rgba(224, 112, 112, 0.4);
+.eq-part-vendor-btn.remove-btn:hover {
+  background: rgba(212,88,88,0.12);
+  color: #e88;
+  border-color: rgba(212,88,88,0.25);
+}
 }
 
 /* ─── Vendor editor modal ─────────────────────────────────────────────── */
