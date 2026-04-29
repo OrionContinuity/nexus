@@ -138,6 +138,54 @@ body.view-brain .main{padding-bottom:calc(56px + env(safe-area-inset-bottom))}
 .bnav-btn:active{transform:scale(.92);transition:transform .1s}
 
 /* ═══════════════════════════════════════════════════════════════════
+   TRANSLATION FAB + PICKER
+   A floating 🌐 button bottom-left above the nav. One tap opens a
+   language picker. Whole-screen translation in ~2 seconds, cached
+   forever so subsequent navigation to the same content is instant.
+   ═══════════════════════════════════════════════════════════════════ */
+.nx-tr-fab{position:fixed;left:14px;bottom:74px;z-index:90;display:flex;align-items:center;gap:6px;padding:9px 14px 9px 12px;background:rgba(20,18,14,0.92);border:1px solid rgba(200,164,78,0.4);border-radius:22px;color:var(--text,#d4c8a5);cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;box-shadow:0 4px 14px rgba(0,0,0,0.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:transform .15s,border-color .2s}
+.nx-tr-fab:active{transform:scale(0.94)}
+.nx-tr-fab:hover{border-color:rgba(200,164,78,0.7)}
+.nx-tr-fab-icon{font-size:15px;line-height:1}
+.nx-tr-fab-lang{color:#c8a44e;font-variant-numeric:tabular-nums}
+
+/* Picker modal — bottom sheet on mobile, centered card on tablet+ */
+.nx-tr-picker-bg{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,0.6);display:flex;align-items:flex-end;justify-content:center;padding:0;animation:nxTrFadeIn .2s ease}
+@keyframes nxTrFadeIn{from{opacity:0}to{opacity:1}}
+.nx-tr-picker{background:#1a1408;border:1px solid rgba(200,164,78,0.25);border-radius:14px 14px 0 0;width:100%;max-width:520px;padding:18px 18px 28px;animation:nxTrSlideUp .25s cubic-bezier(0.2,0.8,0.2,1)}
+@media(min-width:640px){.nx-tr-picker-bg{align-items:center;padding:20px}.nx-tr-picker{border-radius:14px}}
+@keyframes nxTrSlideUp{from{transform:translateY(40px);opacity:0}to{transform:translateY(0);opacity:1}}
+.nx-tr-picker-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.nx-tr-picker-title{font-family:'Outfit',sans-serif;font-size:15px;font-weight:600;color:var(--text,#d4c8a5);letter-spacing:-.01em}
+.nx-tr-picker-close{background:transparent;border:0;color:var(--muted,#a49c94);font-size:18px;cursor:pointer;padding:4px 8px;font-family:inherit}
+.nx-tr-picker-primary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.nx-tr-lang-btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:16px;background:rgba(255,255,255,0.03);border:1.5px solid rgba(255,255,255,0.08);border-radius:12px;color:var(--text,#d4c8a5);cursor:pointer;font-family:inherit;font-size:15px;font-weight:600;transition:all .15s}
+.nx-tr-lang-btn:active{transform:scale(0.97)}
+.nx-tr-lang-btn.active{background:rgba(200,164,78,0.1);border-color:rgba(200,164,78,0.5);color:#c8a44e}
+.nx-tr-lang-check{color:#c8a44e;font-size:14px}
+.nx-tr-picker-more{margin-top:4px}
+.nx-tr-picker-more summary{cursor:pointer;padding:10px 2px;color:var(--muted,#a49c94);font-size:12.5px;list-style:none;user-select:none;display:flex;align-items:center;gap:6px}
+.nx-tr-picker-more summary::-webkit-details-marker{display:none}
+.nx-tr-picker-more summary::before{content:"▸";font-size:10px;transition:transform .2s;color:var(--faint,#746c5e)}
+.nx-tr-picker-more[open] summary::before{transform:rotate(90deg)}
+.nx-tr-picker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin-top:10px}
+.nx-tr-lang-chip{padding:10px 8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;color:var(--text,#d4c8a5);cursor:pointer;font-family:inherit;font-size:12.5px;transition:all .12s}
+.nx-tr-lang-chip:active{transform:scale(0.96)}
+.nx-tr-lang-chip.active{background:rgba(200,164,78,0.12);border-color:rgba(200,164,78,0.45);color:#c8a44e;font-weight:600}
+.nx-tr-picker-note{margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05);font-size:11.5px;color:var(--faint,#746c5e);line-height:1.45}
+
+/* Progress toast — bottom-center, shows translation progress */
+.nx-tr-toast{position:fixed;left:50%;transform:translateX(-50%);bottom:86px;z-index:1500;min-width:220px;max-width:calc(100vw - 40px);padding:10px 14px;background:rgba(20,18,14,0.96);border:1px solid rgba(200,164,78,0.3);border-radius:10px;color:var(--text,#d4c8a5);font-size:12.5px;font-family:inherit;box-shadow:0 6px 20px rgba(0,0,0,0.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;flex-direction:column;gap:8px;animation:nxTrToastIn .2s ease}
+.nx-tr-toast.is-leaving{animation:nxTrToastOut .3s ease forwards}
+.nx-tr-toast.is-done{border-color:rgba(91,186,95,0.4)}
+.nx-tr-toast.is-fail{border-color:rgba(212,88,88,0.4)}
+@keyframes nxTrToastIn{from{transform:translate(-50%,12px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
+@keyframes nxTrToastOut{to{transform:translate(-50%,12px);opacity:0}}
+.nx-tr-toast-text{display:block}
+.nx-tr-toast-bar{display:block;height:3px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden}
+.nx-tr-toast-bar-fill{display:block;height:100%;background:#c8a44e;border-radius:2px;transition:width .2s ease;width:5%}
+
+/* ═══════════════════════════════════════════════════════════════════
    INGEST — plain-English redesign
    Built for a 50-year-old restaurant owner, not a dashboard enthusiast.
    One-sentence status, one-sentence details, no jargon.
