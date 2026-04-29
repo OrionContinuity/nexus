@@ -239,6 +239,13 @@
     }
   }
 
+  // Initialize NX.tr with only the functions defined IN this IIFE.
+  // The second IIFE below adds batch, translatePage, revertPage,
+  // setTarget, mountFab, openPicker after they're defined. Previous
+  // version referenced those names HERE — but they hadn't been
+  // declared yet, so this whole assignment threw a ReferenceError
+  // and NX.tr never existed. That's why the FAB never appeared and
+  // every NX.tr.translatePage call silently failed.
   NX.tr = {
     text,
     inline,
@@ -246,12 +253,6 @@
     userLang,
     supported: SUPPORTED,
     names: LANG_NAMES,
-    batch,
-    translatePage,
-    revertPage,
-    setTarget,
-    mountFab,
-    openPicker,
   };
 
   console.log('[NX.tr] ready — default target: ' + userLang());
