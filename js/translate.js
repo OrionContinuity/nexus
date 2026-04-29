@@ -430,6 +430,7 @@
   // Apply a user's language choice: persist, update i18n if present,
   // then either translate the visible DOM or revert.
   async function setTarget(lang, opts) {
+    alert('[DEBUG] setTarget called with: ' + lang);
     opts = opts || {};
     const prev = localStorage.getItem('nexus_lang');
     localStorage.setItem('nexus_lang', lang);
@@ -448,11 +449,14 @@
     // Otherwise translate the page progressively with a toast
     const toast = showProgressToast(`Translating to ${LANG_NAMES[lang] || lang}…`);
     try {
+      alert('[DEBUG] About to call translatePage');
       await translatePage(lang, {
         onProgress: (pct) => toast.setProgress(pct),
       });
+      alert('[DEBUG] translatePage completed OK');
       toast.done(`✓ ${LANG_NAMES[lang] || lang}`);
     } catch (e) {
+      alert('[DEBUG] translatePage THREW: ' + (e?.message || String(e)));
       console.warn('[NX.tr] setTarget failed:', e);
       toast.fail('Translation failed');
     }
