@@ -287,14 +287,16 @@ function renderList() {
   if (viewMode === 'grid') {
     list.innerHTML = filtered.map(e => buildGridCard(e)).join('');
   } else {
+    const allOperational = filtered.length > 0 && filtered.every(e =>
+      (e.status || 'operational').toLowerCase() === 'operational');
     list.innerHTML = `
-      <div class="eq-table">
+      <div class="eq-table${allOperational ? ' eq-table-uniform' : ''}">
         <div class="eq-row eq-row-head">
           <div class="eq-col eq-col-name">Equipment</div>
           <div class="eq-col eq-col-loc">Location</div>
           <div class="eq-col eq-col-status">Status</div>
           <div class="eq-col eq-col-pm">Next PM</div>
-          <div class="eq-col eq-col-services">Services</div>
+          <div class="eq-col eq-col-services">Svcs</div>
         </div>
         ${filtered.map(e => buildListRow(e)).join('')}
       </div>`;
@@ -314,22 +316,33 @@ function buildListRow(e) {
   const pmOverdue = pm && pm < new Date();
   const pmSoon = pm && pm < new Date(Date.now() + 14*86400000);
   const pmStr = pm ? pm.toLocaleDateString([], { month:'short', day:'numeric' }) : '—';
+  // Model number is what techs and parts orderers actually search for.
+  // Brand is context. Showing model first/bigger and brand subdued reads
+  // faster and reduces eye work when scanning a long list. Falls back
+  // gracefully if either field is missing.
+  const sub = e.model
+    ? `${esc(e.model)}${e.manufacturer ? ` · ${esc(e.manufacturer)}` : ''}`
+    : esc(e.manufacturer || '');
+  // Empty-PM gets a class so CSS can mute the dash to near-invisible.
+  // A bright '—' fights for attention with the real dates we want users
+  // to scan to.
+  const pmCls = pmOverdue ? 'eq-overdue' : pmSoon ? 'eq-soon' : (!pm ? 'eq-pm-empty' : '');
 
   return `
     <div class="eq-row" data-eq-id="${e.id}">
       <div class="eq-col eq-col-name">
         <span class="eq-cat-icon">${catIcon(e.category)}</span>
-        <div>
+        <div style="min-width:0">
           <div class="eq-name">${esc(e.name)}</div>
-          <div class="eq-sub">${esc(e.manufacturer || '')} ${esc(e.model || '')}</div>
+          <div class="eq-sub">${sub}</div>
         </div>
       </div>
       <div class="eq-col eq-col-loc">${esc(e.location)}${e.area ? ' · ' + esc(e.area) : ''}</div>
       <div class="eq-col eq-col-status">
-        <span class="eq-status-dot" style="background:${statusColor(e.status)}"></span>
+        <span class="eq-status-dot" style="background:${statusColor(e.status)};color:${statusColor(e.status)}"></span>
         ${statusLabel(e.status)}
       </div>
-      <div class="eq-col eq-col-pm ${pmOverdue?'eq-overdue':pmSoon?'eq-soon':''}">${pmStr}</div>
+      <div class="eq-col eq-col-pm ${pmCls}">${pmStr}</div>
       <div class="eq-col eq-col-services">${e.services_this_year || 0}</div>
     </div>`;
 }
@@ -1360,26 +1373,26 @@ function renderVendorsListHTML(vendors, partId) {
     return '<div class="eq-part-vendors-empty">No vendors yet. Tap + Vendor to add one.</div>';
   }
   return vendors.map((v, idx) => `
-    <div class="eq-part-vendor" data-vendor-idx="${idx}">
+    <div class="eq-part-vendor${v.is_preferred ? ' is-preferred' : ''}" data-vendor-idx="${idx}">
       <div class="eq-part-vendor-main">
         <div class="eq-part-vendor-row1">
-          ${v.is_preferred ? '<span class="eq-part-vendor-star">★</span>' : ''}
+          ${v.is_preferred ? '<span class="eq-part-vendor-star">PREFERRED</span>' : ''}
           <span class="eq-part-vendor-name">${esc(v.name || 'Unnamed')}</span>
-          ${v.price ? `<span class="eq-part-vendor-price">$${parseFloat(v.price).toFixed(2)}</span>` : ''}
         </div>
         <div class="eq-part-vendor-row2">
-          ${v.oem_number ? `<span class="eq-part-vendor-oem">OEM: ${esc(v.oem_number)}</span>` : ''}
+          ${v.oem_number ? `<span class="eq-part-vendor-oem">${esc(v.oem_number)}</span>` : ''}
           ${v.in_stock === true ? '<span class="eq-part-vendor-stock in">In stock</span>' : ''}
-          ${v.in_stock === false ? '<span class="eq-part-vendor-stock out">Out of stock</span>' : ''}
-          ${v.last_checked_at ? `<span class="eq-part-vendor-checked">Checked ${formatVendorRelative(v.last_checked_at)}</span>` : ''}
+          ${v.in_stock === false ? '<span class="eq-part-vendor-stock out">Out</span>' : ''}
+          ${v.last_checked_at ? `<span class="eq-part-vendor-checked">${formatVendorRelative(v.last_checked_at)}</span>` : ''}
         </div>
         ${v.notes ? `<div class="eq-part-vendor-notes">${esc(v.notes)}</div>` : ''}
       </div>
+      <div class="eq-part-vendor-price">${v.price ? `$${parseFloat(v.price).toFixed(2)}` : ''}</div>
       <div class="eq-part-vendor-actions">
         ${v.url ? `<a href="${esc(v.url)}" target="_blank" rel="noopener" class="eq-part-vendor-btn order" data-action="order" data-vendor-idx="${idx}">Order</a>` : ''}
         ${!v.is_preferred ? `<button class="eq-part-vendor-btn star-btn" data-action="prefer" data-vendor-idx="${idx}" title="Mark preferred">☆</button>` : ''}
-        <button class="eq-part-vendor-btn edit-btn" data-action="edit" data-vendor-idx="${idx}">✎</button>
-        <button class="eq-part-vendor-btn remove-btn" data-action="remove" data-vendor-idx="${idx}">✕</button>
+        <button class="eq-part-vendor-btn edit-btn" data-action="edit" data-vendor-idx="${idx}" title="Edit">✎</button>
+        <button class="eq-part-vendor-btn remove-btn" data-action="remove" data-vendor-idx="${idx}" title="Remove">✕</button>
       </div>
     </div>
   `).join('');
