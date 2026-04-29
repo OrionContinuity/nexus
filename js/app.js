@@ -470,7 +470,6 @@ const NX = {
     document.getElementById('pinScreen').classList.add('hidden');
     document.getElementById('appWrap').style.display = '';
     this.syslog&&this.syslog('login',`${this.currentUser.name} (${this.currentUser.role}) logged in`);
-    alert('[DEBUG-APP] Reached after pinScreen hide, before lucide block');
     if (window.lucide) { lucide.createIcons(); if(this.i18n)this.i18n.applyUI(); }
     else { 
       // Wait for Lucide then apply
@@ -480,22 +479,24 @@ const NX = {
       setTimeout(()=>clearInterval(waitLucide),5000);
     }
 
-    alert('[DEBUG-APP] About to check NX.tr.mountFab\nwindow.NX exists: ' + !!window.NX + '\nwindow.NX.tr exists: ' + !!window.NX?.tr + '\ntypeof mountFab: ' + (typeof window.NX?.tr?.mountFab));
     // Mount the floating 🌐 translation button. Stays visible on every
     // view until logout. If the user's saved language is non-English,
     // NX.tr.mountFab() also kicks off a one-shot page translation ~800ms
     // after mount so what they see on first arrival is already in their
     // language rather than flashing English then translating.
-    if (window.NX?.tr?.mountFab) {
+    // Capture references locally so we don't lose them between checks
+    const mfRef = window.NX && window.NX.tr && window.NX.tr.mountFab;
+    alert('[DEBUG-APP] About to check mountFab\nmfRef type: ' + (typeof mfRef) + '\nis function? ' + (typeof mfRef === 'function'));
+    if (typeof mfRef === 'function') {
       try { 
-        NX.tr.mountFab(); 
+        mfRef.call(window.NX.tr); 
         alert('[DEBUG-APP] mountFab() called successfully. FAB element in DOM? ' + !!document.getElementById('nxTrFab'));
       } catch(e) { 
-        alert('[DEBUG-APP] mountFab THREW.\nname: ' + e.name + '\nmessage: ' + e.message + '\nstack (first 400ch):\n' + String(e.stack || '').slice(0, 400));
+        alert('[DEBUG-APP] mountFab THREW.\nname: ' + e.name + '\nmessage: ' + e.message + '\nstack (first 600ch):\n' + String(e.stack || '').slice(0, 600));
         console.warn('[tr] fab mount:', e); 
       }
     } else {
-      alert('[DEBUG-APP] FAB MOUNT SKIPPED — NX.tr.mountFab not available');
+      alert('[DEBUG-APP] FAB MOUNT SKIPPED — mfRef not a function. typeof window.NX: ' + typeof window.NX + ' typeof window.NX?.tr: ' + typeof window.NX?.tr);
     }
 
     // ── PUSH: auto-enable for managers/admins on first login ────────
