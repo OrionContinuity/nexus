@@ -484,19 +484,17 @@ const NX = {
     // NX.tr.mountFab() also kicks off a one-shot page translation ~800ms
     // after mount so what they see on first arrival is already in their
     // language rather than flashing English then translating.
-    // Capture references locally so we don't lose them between checks
+    //
+    // NOTE: We capture the function reference into a local variable BEFORE
+    // calling it. Direct `NX.tr.mountFab()` was throwing "Cannot read
+    // properties of undefined (reading 'mountFab')" on some mobile Chrome
+    // builds — likely a strict-mode or optional-chaining edge case after
+    // an alert dismissal in the call stack. Capturing the ref locally and
+    // invoking via .call() with explicit `this` is bulletproof.
     const mfRef = window.NX && window.NX.tr && window.NX.tr.mountFab;
-    alert('[DEBUG-APP] About to check mountFab\nmfRef type: ' + (typeof mfRef) + '\nis function? ' + (typeof mfRef === 'function'));
     if (typeof mfRef === 'function') {
-      try { 
-        mfRef.call(window.NX.tr); 
-        alert('[DEBUG-APP] mountFab() called successfully. FAB element in DOM? ' + !!document.getElementById('nxTrFab'));
-      } catch(e) { 
-        alert('[DEBUG-APP] mountFab THREW.\nname: ' + e.name + '\nmessage: ' + e.message + '\nstack (first 600ch):\n' + String(e.stack || '').slice(0, 600));
-        console.warn('[tr] fab mount:', e); 
-      }
-    } else {
-      alert('[DEBUG-APP] FAB MOUNT SKIPPED — mfRef not a function. typeof window.NX: ' + typeof window.NX + ' typeof window.NX?.tr: ' + typeof window.NX?.tr);
+      try { mfRef.call(window.NX.tr); }
+      catch(e) { console.warn('[tr] fab mount:', e); }
     }
 
     // ── PUSH: auto-enable for managers/admins on first login ────────
@@ -889,12 +887,19 @@ td.check{background:#F0EDE6 !important}
     // Cached strings return instantly; first-time content takes ~1-2s for the
     // batched API call. Done here rather than in each module's show() so
     // translation is centralized and automatic for every view.
-    if (window.NX?.tr?.translatePage) {
+    // Same defensive ref-capture pattern used for mountFab: avoids the
+    // "Cannot read properties of undefined" trap on some mobile Chromes.
+    const tpRef = window.NX && window.NX.tr && window.NX.tr.translatePage;
+    if (typeof tpRef === 'function') {
       const savedLang = localStorage.getItem('nexus_lang');
-      if (savedLang && savedLang !== 'en' && NX.tr.supported.includes(savedLang)) {
+      const supportedRef = window.NX.tr.supported;
+      if (savedLang && savedLang !== 'en' && supportedRef && supportedRef.includes(savedLang)) {
         setTimeout(() => {
           const activeView = document.querySelector('.view.active') || document.getElementById(view + 'View');
-          if (activeView) NX.tr.translatePage(savedLang, { root: activeView }).catch(() => {});
+          if (activeView) {
+            try { tpRef.call(window.NX.tr, savedLang, { root: activeView }).catch(() => {}); }
+            catch(_) {}
+          }
         }, 400);
       }
     }
