@@ -481,16 +481,15 @@ const NX = {
 
     // Mount the floating 🌐 translation button. Stays visible on every
     // view until logout. If the user's saved language is non-English,
-    // NX.tr.mountFab() also kicks off a one-shot page translation ~800ms
-    // after mount so what they see on first arrival is already in their
-    // language rather than flashing English then translating.
+    // mountFab() also kicks off a one-shot page translation ~800ms after
+    // mount so what users see on first arrival is already in their lang.
     //
-    // NOTE: We capture the function reference into a local variable BEFORE
-    // calling it. Direct `NX.tr.mountFab()` was throwing "Cannot read
-    // properties of undefined (reading 'mountFab')" on some mobile Chrome
-    // builds — likely a strict-mode or optional-chaining edge case after
-    // an alert dismissal in the call stack. Capturing the ref locally and
-    // invoking via .call() with explicit `this` is bulletproof.
+    // Reference-capture pattern: directly invoking `NX.tr.mountFab()`
+    // throws "Cannot read properties of undefined (reading 'mountFab')"
+    // on some mobile Chrome builds — possibly a strict-mode + optional-
+    // chaining edge case after an alert dismissal in the call stack.
+    // Capture the function ref locally and invoke via .call() with an
+    // explicit `this` to be bulletproof.
     const mfRef = window.NX && window.NX.tr && window.NX.tr.mountFab;
     if (typeof mfRef === 'function') {
       try { mfRef.call(window.NX.tr); }
@@ -840,7 +839,34 @@ td.check{background:#F0EDE6 !important}
 
   activateModule(view) {
     const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js' };
-    if (view === 'brain') { if (NX.brain && NX.brain.show) NX.brain.show(); return; }
+
+    // ── Local helper: re-translate the currently visible view if user
+    // has a non-English language pinned. Called at the END of every
+    // activation path (including home/brain which return early below).
+    // Multiple delays (400ms + 1500ms) cover both fast-render and slow
+    // async renders (e.g., Home loading priority feed via Supabase).
+    const retranslate = () => {
+      const tpRef = window.NX && window.NX.tr && window.NX.tr.translatePage;
+      const supRef = window.NX && window.NX.tr && window.NX.tr.supported;
+      if (typeof tpRef !== 'function' || !supRef) return;
+      const savedLang = localStorage.getItem('nexus_lang');
+      if (!savedLang || savedLang === 'en' || !supRef.includes(savedLang)) return;
+      const fire = () => {
+        const activeView = document.querySelector('.view.active') || document.getElementById(view + 'View') || document.body;
+        try { tpRef.call(window.NX.tr, savedLang, { root: activeView }).catch(() => {}); }
+        catch(_) {}
+      };
+      // First pass — catches initial render
+      setTimeout(fire, 400);
+      // Second pass — catches async-loaded content (priority feed, etc.)
+      setTimeout(fire, 1500);
+    };
+
+    if (view === 'brain') { 
+      if (NX.brain && NX.brain.show) NX.brain.show(); 
+      retranslate();
+      return; 
+    }
     // Home is special: home.js is loaded up-front in index.html (before app.js),
     // so no lazy-load needed. Just call show() / init() on NX.home.
     if (view === 'home') {
@@ -850,6 +876,7 @@ td.check{background:#F0EDE6 !important}
       } else {
         console.error('[home] NX.home not loaded — check index.html has <script src="js/home.js"> before app.js');
       }
+      retranslate();
       return;
     }
     const file = moduleMap[view]; if (!file) return;
@@ -882,27 +909,7 @@ td.check{background:#F0EDE6 !important}
       });
     }
 
-    // If user has a non-English target language set via the FAB, retranslate
-    // the newly-active view after a short delay (lets modules finish render).
-    // Cached strings return instantly; first-time content takes ~1-2s for the
-    // batched API call. Done here rather than in each module's show() so
-    // translation is centralized and automatic for every view.
-    // Same defensive ref-capture pattern used for mountFab: avoids the
-    // "Cannot read properties of undefined" trap on some mobile Chromes.
-    const tpRef = window.NX && window.NX.tr && window.NX.tr.translatePage;
-    if (typeof tpRef === 'function') {
-      const savedLang = localStorage.getItem('nexus_lang');
-      const supportedRef = window.NX.tr.supported;
-      if (savedLang && savedLang !== 'en' && supportedRef && supportedRef.includes(savedLang)) {
-        setTimeout(() => {
-          const activeView = document.querySelector('.view.active') || document.getElementById(view + 'View');
-          if (activeView) {
-            try { tpRef.call(window.NX.tr, savedLang, { root: activeView }).catch(() => {}); }
-            catch(_) {}
-          }
-        }, 400);
-      }
-    }
+    retranslate();
   },
 
   loadScript(src, cb) {
