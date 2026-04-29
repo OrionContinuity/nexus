@@ -52,7 +52,13 @@ const DEFAULT_LISTS = [
 // STYLES (injected once into <head>)
 // ─────────────────────────────────────────────────────────────────────────
 const STYLES = `
-  #boardWrap{padding:0 8px 80px;font-family:inherit}
+  /* boardWrap is now a flex column filling the active view area, so the
+     b-lists row inside can flex:1 down to the bottom of the viewport.
+     Previously the wrap was content-sized — columns floated in upper-left.
+     min-height:0 is critical for the inner overflow to work in flex. */
+  #boardWrap{padding:0 8px 80px;font-family:inherit;display:flex;flex-direction:column;min-height:calc(100vh - 120px)}
+  /* Active view container should also be a flex column on desktop */
+  .view#boardView.active{display:flex;flex-direction:column}
   .b-summary{display:flex;gap:10px;padding:12px 12px 8px;font-size:12px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:8px}
   .b-summary-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:12px;background:rgba(255,255,255,0.04);color:var(--text,#d4c8a5)}
   .b-summary-chip.alert{background:rgba(212,88,88,0.15);color:#e88;border:1px solid rgba(212,88,88,0.3)}
@@ -87,15 +93,27 @@ const STYLES = `
   .b-filter{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:var(--text-dim,#a49c94);padding:4px 10px;border-radius:10px;font-size:11px;cursor:pointer;white-space:nowrap}
   .b-filter.active{background:rgba(200,164,78,0.15);color:#c8a44e;border-color:#c8a44e}
 
-  .b-lists{display:flex;gap:10px;overflow-x:auto;padding-bottom:20px;scrollbar-width:thin}
-  .b-list{flex:0 0 280px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;padding:10px;display:flex;flex-direction:column;max-height:calc(100vh - 260px)}
+  .b-lists{display:flex;gap:10px;overflow-x:auto;padding-bottom:20px;scrollbar-width:thin;flex:1;min-height:0;align-items:stretch}
+  /* Columns now fill the available vertical space rather than collapsing
+     to their content height. min-height ensures empty columns don't
+     vanish; flex:1 makes the column body grow to use whatever's left
+     after summary + filter strips. The earlier max-height calc was
+     leaving a giant void below short columns on desktop. */
+  .b-list{flex:0 0 300px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;padding:10px;display:flex;flex-direction:column;min-height:240px;max-height:calc(100vh - 200px)}
+  /* Wider on desktop where there's room */
+  @media(min-width:900px){
+    .b-list{flex:0 0 320px}
+  }
   .b-list-head{display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:2px 2px 6px;border-bottom:1px solid rgba(255,255,255,0.05)}
   .b-list-name{font-weight:600;font-size:13px;flex:1;color:var(--text,#d4c8a5)}
   .b-list-count{font-size:11px;color:var(--text-dim,#a49c94);background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:8px}
   .b-list-cards{flex:1;overflow-y:auto;min-height:30px;margin:0 -2px;padding:0 2px;scrollbar-width:thin}
   .b-list-cards.drag-over{background:rgba(200,164,78,0.05);border-radius:6px}
-  .b-list-add{background:transparent;border:1px dashed rgba(255,255,255,0.15);color:var(--text-dim,#a49c94);padding:8px;border-radius:6px;cursor:pointer;margin-top:6px;width:100%;font-size:12px}
-  .b-list-add:active{background:rgba(255,255,255,0.03)}
+  /* Add card button — was a wispy dashed rectangle. Now a calm solid
+     affordance that stands out as "press here" without screaming. */
+  .b-list-add{background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.06);color:var(--text-dim,#a49c94);padding:10px;border-radius:8px;cursor:pointer;margin-top:6px;width:100%;font-size:12.5px;font-family:inherit;transition:all .15s}
+  .b-list-add:hover{background:rgba(200,164,78,0.06);border-color:rgba(200,164,78,0.25);color:var(--accent,#c8a44e)}
+  .b-list-add:active{transform:scale(0.99)}
 
   /* Terminal list collapse — Done/Closed/Resolved/Complete/Archived default
      to a single-line summary. Tap the header to expand. Saves screen real
@@ -764,9 +782,11 @@ function createCardEl(card){
 
   // Category color strip — a 4px bar at the top of the card body,
   // colored by the first label. Gives instant visual grouping across
-  // columns the way Trello uses label strips.
+  // columns the way Trello uses label strips. If there's no label and
+  // no priority color, fall back to a faint neutral so the strip never
+  // vanishes entirely (vanishing strips made cards look broken).
   const firstLabel = (card.labels || [])[0];
-  const stripColor = firstLabel?.color || pri.color || 'transparent';
+  const stripColor = firstLabel?.color || pri.color || 'rgba(200,164,78,0.18)';
   html += `<div class="b-card-strip" style="background:${stripColor}"></div>`;
 
   // Body (padded content — separate from cover so cover bleeds to edges)
