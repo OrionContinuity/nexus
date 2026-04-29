@@ -778,26 +778,118 @@
       <hr class="admin-divider">
       <div class="admin-section-label">🔔 Push Notifications</div>
       <div id="adminPushStatus" class="admin-key-status" style="font-size:11px;margin:6px 0 8px;">Checking…</div>
-      <button onclick="NX.push.enable().then(() => NX_refreshPushStatus())" class="admin-save-btn" style="margin-top:6px;background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;">Enable on this device</button>
-      <button onclick="NX.push.disable().then(() => NX_refreshPushStatus())" class="admin-save-btn" style="margin-top:8px;padding:8px 14px;font-size:12px;background:transparent;color:var(--muted);border:1px solid rgba(200,164,78,0.25);">Disable on this device</button>
-      <div class="admin-key-status" style="font-size:11px;margin-top:6px;">PM, warranty, and contractor predictions will ping you here.</div>
+      <div id="adminPushActions" style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
+        <!-- Populated by NX_refreshPushStatus() — buttons vary by state -->
+      </div>
+      <div id="adminPushHint" class="admin-key-status" style="font-size:11px;margin-top:6px;color:var(--muted)"></div>
       <script>
-        // Inline status refresher — lightweight, no admin.js dependency
-        window.NX_refreshPushStatus = function() {
-          const el = document.getElementById('adminPushStatus');
-          if (!el || !window.NX?.push) return;
-          const s = NX.push.status();
-          const labels = {
-            granted: '✅ Enabled on this device',
-            denied: '🚫 Blocked (change in browser settings)',
-            default: '⚪ Not enabled yet',
-            unsupported: '❌ Not supported on this browser',
-            'no-vapid': '⚠️ Server not configured (admin)',
-          };
-          el.textContent = labels[s] || s;
+        // Push notification status + controls, inline (no admin.js dependency).
+        // Renders one of five states: enabled/disabled/denied/ios-install/unsupported.
+        // Uses the NX.getPushStatus + ensurePush + disablePush + sendTestPush
+        // functions defined in app.js at SW registration time.
+        window.NX_refreshPushStatus = async function() {
+          const statusEl = document.getElementById('adminPushStatus');
+          const actionsEl = document.getElementById('adminPushActions');
+          const hintEl = document.getElementById('adminPushHint');
+          if (!statusEl || !actionsEl || !hintEl) return;
+          if (!window.NX || !NX.getPushStatus) {
+            statusEl.textContent = 'Loading…';
+            return;
+          }
+          try {
+            const s = await NX.getPushStatus();
+            if (!s.supported) {
+              if (s.iosNeedsInstall) {
+                statusEl.innerHTML = '📱 iPhone — install to home screen first';
+                statusEl.style.color = '#e8a830';
+                actionsEl.innerHTML = '';
+                hintEl.innerHTML = 'Tap the <b>Share</b> button in Safari → <b>Add to Home Screen</b> → open NEXUS from the home screen icon → come back here.';
+              } else {
+                statusEl.textContent = '❌ Not supported on this browser';
+                statusEl.style.color = '#e88';
+                actionsEl.innerHTML = '';
+                hintEl.textContent = 'Try Chrome, Firefox, or Edge.';
+              }
+              return;
+            }
+            if (s.permission === 'denied') {
+              statusEl.textContent = '🚫 Blocked in browser settings';
+              statusEl.style.color = '#e88';
+              actionsEl.innerHTML = '';
+              hintEl.textContent = 'Tap the padlock icon in your address bar, find Notifications, and change it to Allow.';
+              return;
+            }
+            if (s.subscribed && s.permission === 'granted') {
+              statusEl.textContent = '✅ Enabled on this device';
+              statusEl.style.color = '#5bba5f';
+              actionsEl.innerHTML = `
+                <button id="adminPushTest" class="admin-save-btn" style="background:transparent;color:var(--accent);border:1px solid rgba(200,164,78,0.35)">Send test notification</button>
+                <button id="adminPushOff" class="admin-save-btn" style="background:transparent;color:var(--muted);border:1px solid rgba(200,164,78,0.2);font-size:12px;padding:8px 14px">Disable on this device</button>
+              `;
+              hintEl.textContent = 'Urgent tickets and card reports will ping you here.';
+              hintEl.style.color = 'var(--muted)';
+              const testBtn = document.getElementById('adminPushTest');
+              const offBtn = document.getElementById('adminPushOff');
+              if (testBtn) testBtn.onclick = async () => {
+                testBtn.textContent = 'Sending…'; testBtn.disabled = true;
+                const r = await NX.sendTestPush();
+                if (r?.ok) {
+                  testBtn.textContent = 'Sent ✓ Watch for it';
+                  setTimeout(() => { testBtn.textContent = 'Send test notification'; testBtn.disabled = false; }, 4000);
+                } else {
+                  testBtn.textContent = 'Failed — try again';
+                  testBtn.disabled = false;
+                }
+              };
+              if (offBtn) offBtn.onclick = async () => {
+                if (!confirm('Stop receiving notifications on this device?')) return;
+                offBtn.textContent = 'Disabling…'; offBtn.disabled = true;
+                const r = await NX.disablePush();
+                if (r?.ok) NX_refreshPushStatus();
+                else { offBtn.textContent = 'Failed'; setTimeout(() => { offBtn.textContent = 'Disable on this device'; offBtn.disabled = false; }, 2000); }
+              };
+              return;
+            }
+            // Default — not subscribed yet
+            statusEl.textContent = '⚪ Not enabled on this device';
+            statusEl.style.color = 'var(--muted)';
+            actionsEl.innerHTML = `
+              <button id="adminPushOn" class="admin-save-btn" style="background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408">🔔 Enable on this device</button>
+            `;
+            hintEl.textContent = 'Get buzzed when a ticket or card is reported.';
+            hintEl.style.color = 'var(--muted)';
+            const onBtn = document.getElementById('adminPushOn');
+            if (onBtn) onBtn.onclick = async () => {
+              onBtn.textContent = 'Asking browser…'; onBtn.disabled = true;
+              const r = await NX.ensurePush({ force: true });
+              if (r?.ok) NX_refreshPushStatus();
+              else {
+                onBtn.disabled = false;
+                if (r?.reason === 'no_vapid_key') {
+                  onBtn.textContent = 'Server not configured';
+                  hintEl.textContent = 'Admin: run PUSH_SETUP.sql to add vapid_public_key to nexus_config.';
+                  hintEl.style.color = '#e8a830';
+                } else if (r?.reason === 'permission_denied') {
+                  onBtn.textContent = 'Blocked — see browser settings';
+                } else {
+                  onBtn.textContent = '🔔 Enable on this device';
+                }
+              }
+            };
+          } catch (e) {
+            statusEl.textContent = 'Status check failed';
+            statusEl.style.color = '#e88';
+            console.warn('[push status]', e);
+          }
         };
-        setTimeout(() => window.NX_refreshPushStatus?.(), 2000);
-        setInterval(() => window.NX_refreshPushStatus?.(), 5000);
+        // Initial check + periodic refresh. Delay the first call long enough
+        // for app.js to finish registering the service worker and defining
+        // NX.getPushStatus. Was 2s — bumped to 3s because the SW registration
+        // promise can take a beat on cold load.
+        setTimeout(() => window.NX_refreshPushStatus?.(), 3000);
+        setInterval(() => {
+          if (document.visibilityState === 'visible') window.NX_refreshPushStatus?.();
+        }, 30000);
       </script>
       <!-- USER MANAGEMENT (admin only) -->
       <hr class="admin-divider">
@@ -1187,6 +1279,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="js/i18n.js"></script>
+<script src="js/translate.js"></script>
 <script src="js/app.js"></script>
 <script src="js/home.js"></script>
 <script src="js/native-bridge.js"></script>
