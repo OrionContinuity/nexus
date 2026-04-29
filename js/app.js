@@ -491,7 +491,7 @@ const NX = {
         NX.tr.mountFab(); 
         alert('[DEBUG-APP] mountFab() called successfully. FAB element in DOM? ' + !!document.getElementById('nxTrFab'));
       } catch(e) { 
-        alert('[DEBUG-APP] mountFab THREW: ' + e.message);
+        alert('[DEBUG-APP] mountFab THREW.\nname: ' + e.name + '\nmessage: ' + e.message + '\nstack (first 400ch):\n' + String(e.stack || '').slice(0, 400));
         console.warn('[tr] fab mount:', e); 
       }
     } else {
