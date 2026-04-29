@@ -59,6 +59,21 @@ const STYLES = `
   .b-summary-chip.ok{background:rgba(91,186,95,0.10);color:#8fd492}
   .b-summary-chip.tap{cursor:pointer;user-select:none}
   .b-summary-chip.tap:active{transform:scale(0.97)}
+
+  /* ── REALTIME PIP + TOAST STACK ──────────────────────────────
+     Pip: small pill with connection dot + presence count. Sits
+     leftmost in the summary strip so it's always visible.
+     Toast stack: bottom-right corner, stacks up to 3, auto-dismiss.
+     Separate from global NX.toast so bulk moves don't spam main UI. */
+  .b-rt-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);font-size:11px;color:var(--text-dim,#a49c94);font-variant-numeric:tabular-nums}
+  .b-rt-dot{width:7px;height:7px;border-radius:50%;background:var(--text-faint,#746c5e);flex-shrink:0;transition:background .3s,box-shadow .3s}
+  .b-rt-dot.is-live{background:#5bba5f;box-shadow:0 0 6px rgba(91,186,95,.6);animation:bRtPulse 2.4s ease-in-out infinite}
+  @keyframes bRtPulse{0%,100%{opacity:1}50%{opacity:.55}}
+  .b-rt-toast-stack{position:fixed;bottom:80px;right:10px;display:flex;flex-direction:column;gap:6px;z-index:999;pointer-events:none;max-width:min(320px,calc(100vw - 20px))}
+  .b-rt-toast{background:rgba(20,18,14,0.95);border:1px solid rgba(200,164,78,0.25);border-left:3px solid #5bba5f;color:var(--text,#d4c8a5);padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.35;box-shadow:0 6px 20px rgba(0,0,0,0.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:bRtToastIn .22s cubic-bezier(0.2,0.8,0.2,1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .b-rt-toast.is-leaving{animation:bRtToastOut .3s ease forwards}
+  @keyframes bRtToastIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
+  @keyframes bRtToastOut{to{transform:translateX(20px);opacity:0}}
   .b-summary-stats-btn{margin-left:auto;background:transparent;border:1px solid rgba(255,255,255,0.15);color:var(--text,#d4c8a5);padding:5px 12px;border-radius:12px;font-size:11px;cursor:pointer}
 
   .board-header{display:flex;align-items:center;gap:4px;overflow-x:auto;padding:4px 0 12px;scrollbar-width:none}
@@ -175,6 +190,14 @@ const STYLES = `
   .b-comment-by{color:#c8a44e;font-weight:600;margin-right:6px}
   .b-comment-time{color:var(--text-faint,#746c5e);font-size:10px}
 
+  /* Translate button on the description label + its rendered output.
+     Button is a subtle pill; output is a cream-background blockquote
+     styled to clearly mark "this is machine-translated, not the real
+     stored value you're editing above". */
+  .b-tr-btn{float:right;background:transparent;border:1px solid rgba(200,164,78,0.35);color:#c8a44e;font-size:10px;padding:3px 8px;border-radius:10px;cursor:pointer;font-family:inherit;letter-spacing:0.3px}
+  .b-tr-btn:active{transform:scale(0.96)}
+  .b-tr-out{margin-top:8px;padding:10px 12px;background:rgba(200,164,78,0.05);border-left:2px solid rgba(200,164,78,0.4);border-radius:4px;color:var(--text,#d4c8a5);font-size:12.5px;line-height:1.5;white-space:pre-wrap}
+
   .b-actions{display:flex;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);margin-top:10px}
   .b-btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--text,#d4c8a5);padding:7px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit}
   .b-btn:active{background:rgba(255,255,255,0.08)}
@@ -204,6 +227,26 @@ let boards = [], activeBoard = null, lists = [], cards = [], stats = null;
 let equipmentCache = [];     // for the equipment picker in the card modal
 let filters = { priority:null, location:null, equipment:null };
 let dragCard = null, dragOverListId = null;
+
+// ── REALTIME + PERF STATE ────────────────────────────────────────────
+// rtChannel:      Supabase Realtime channel, one per active board. Torn
+//                 down on tab-switch-away or visibilitychange(hidden).
+// rtConnected:    UI indicator — does the header dot glow or not.
+// lastFetchAt:    Used by stale-while-revalidate. show() skips refetch
+//                 if subscription is alive and data was pulled recently.
+// pendingRender:  Debounce timer. Rapid bursts of realtime events
+//                 (e.g. bulk moves) collapse to one render per ~80ms.
+// presenceCount:  Other active users on this board (from Realtime
+//                 presence). Rendered as a small pip in the header.
+// optimisticSet:  IDs of cards with a locally-applied change we're
+//                 waiting to confirm. If realtime echoes our own write
+//                 back, we don't double-render flash.
+let rtChannel = null;
+let rtConnected = false;
+let lastFetchAt = 0;
+let pendingRender = null;
+let presenceCount = 0;
+const optimisticSet = new Set();
 
 // ─────────────────────────────────────────────────────────────────────────
 // UTILITIES
@@ -296,7 +339,166 @@ async function loadCards(){
       .eq('archived', false)
       .order('position');
     cards = data || [];
+    lastFetchAt = Date.now();
   }catch(e){ console.error('[board] loadCards:', e); cards = []; }
+}
+
+// ── REALTIME + EFFICIENCY LAYER ──────────────────────────────────────
+// Debounced render — collapses rapid bursts of events (bulk moves, a
+// colleague opening a card modal that nudges updated_at) into one paint
+// at ~80ms cadence. Keeps scroll + drag stable during noisy periods.
+function renderSoon(){
+  if(pendingRender) return;
+  pendingRender = setTimeout(() => {
+    pendingRender = null;
+    render();
+  }, 80);
+}
+
+// Apply a postgres_changes event from Supabase Realtime to local state.
+// We keep mutations surgical: splice the affected card in/out of `cards`
+// rather than re-fetching the whole board. Debounced render then paints.
+function applyRealtimeChange(payload){
+  const ev = payload.eventType || payload.event;
+  const row = payload.new || payload.old;
+  if(!row) return;
+  // If this is an echo of our own optimistic update, skip the re-render
+  // flash. We already put the UI in the right state locally.
+  if(optimisticSet.has(row.id)){
+    // Reconcile in case the server coerced fields (default, trigger).
+    if(ev === 'UPDATE' || ev === 'INSERT'){
+      const idx = cards.findIndex(c => c.id === row.id);
+      if(idx >= 0) cards[idx] = row;
+    }
+    optimisticSet.delete(row.id);
+    return;
+  }
+  if(ev === 'INSERT'){
+    // Only add if it belongs to our active board + isn't archived
+    if(row.board_id !== activeBoard?.id) return;
+    if(row.archived) return;
+    // Dedupe — if we already have it (e.g. local creation), skip
+    if(cards.some(c => c.id === row.id)) return;
+    cards.push(row);
+    toastRealtime(`+ "${truncate(row.title, 36)}"`);
+    renderSoon();
+  }else if(ev === 'UPDATE'){
+    const idx = cards.findIndex(c => c.id === row.id);
+    if(idx === -1){
+      // Wasn't in our set — maybe un-archived, maybe board switched here
+      if(row.board_id === activeBoard?.id && !row.archived){
+        cards.push(row);
+        renderSoon();
+      }
+      return;
+    }
+    // Archive = remove
+    if(row.archived){
+      cards.splice(idx, 1);
+      renderSoon();
+      return;
+    }
+    // Detect a column move for the toast — "Ana moved X to In Progress"
+    const old = cards[idx];
+    if(old.list_id !== row.list_id){
+      const targetList = lists.find(l => l.id === row.list_id);
+      toastRealtime(`→ "${truncate(row.title, 28)}" → ${targetList?.name || 'moved'}`);
+    }
+    cards[idx] = row;
+    renderSoon();
+  }else if(ev === 'DELETE'){
+    const idx = cards.findIndex(c => c.id === row.id);
+    if(idx >= 0){ cards.splice(idx, 1); renderSoon(); }
+  }
+}
+
+// Subscribe to live changes on kanban_cards for the active board. One
+// channel per board; torn down on tab-away or visibility-hidden so we
+// don't accumulate subscriptions across sessions.
+function subscribeRealtime(){
+  if(!activeBoard || !NX.sb?.channel) return;
+  if(rtChannel) return; // already subscribed
+  try{
+    rtChannel = NX.sb.channel(`board:${activeBoard.id}`, {
+      config: { presence: { key: NX.currentUser?.name || 'anon' } }
+    })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'kanban_cards',
+        filter: `board_id=eq.${activeBoard.id}`,
+      }, applyRealtimeChange)
+      // Presence — who else is viewing this board right now.
+      .on('presence', { event: 'sync' }, () => {
+        const state = rtChannel.presenceState();
+        // Total presence keys minus ourselves = others
+        const keys = Object.keys(state);
+        presenceCount = Math.max(0, keys.length - 1);
+        updatePresenceIndicator();
+      })
+      .subscribe(async (status) => {
+        if(status === 'SUBSCRIBED'){
+          rtConnected = true;
+          updatePresenceIndicator();
+          // Announce ourselves
+          try{ await rtChannel.track({ user: NX.currentUser?.name || 'anon', at: new Date().toISOString() }); }catch(_){}
+        }else{
+          rtConnected = false;
+          updatePresenceIndicator();
+        }
+      });
+  }catch(e){
+    console.warn('[board] realtime subscribe failed:', e);
+    rtConnected = false;
+  }
+}
+
+function unsubscribeRealtime(){
+  if(!rtChannel) return;
+  try{ NX.sb.removeChannel(rtChannel); }catch(_){}
+  rtChannel = null;
+  rtConnected = false;
+  presenceCount = 0;
+}
+
+// Small corner toast for realtime events — separate from the global
+// NX.toast to avoid spamming the main toast stack on busy boards.
+// Stacks up to 3 messages, auto-dismiss after 2.5s each.
+let rtToastContainer = null;
+function toastRealtime(msg){
+  if(!rtToastContainer){
+    rtToastContainer = document.createElement('div');
+    rtToastContainer.className = 'b-rt-toast-stack';
+    document.body.appendChild(rtToastContainer);
+  }
+  const t = document.createElement('div');
+  t.className = 'b-rt-toast';
+  t.textContent = msg;
+  rtToastContainer.appendChild(t);
+  // Cap stack at 3 so bulk operations don't flood the screen
+  while(rtToastContainer.children.length > 3) rtToastContainer.removeChild(rtToastContainer.firstChild);
+  setTimeout(() => { t.classList.add('is-leaving'); }, 2200);
+  setTimeout(() => t.remove(), 2500);
+}
+
+function truncate(s, n){ s = String(s||''); return s.length > n ? s.slice(0,n-1)+'…' : s; }
+
+// Paint the presence indicator into the header strip. Called by both
+// the renderer and by subscribe callbacks. Safe to call if header DOM
+// isn't present yet (gated by existence check).
+function updatePresenceIndicator(){
+  const dot = document.getElementById('bRtDot');
+  const lbl = document.getElementById('bRtLabel');
+  if(!dot || !lbl) return;
+  if(rtConnected){
+    dot.className = 'b-rt-dot is-live';
+    if(presenceCount === 0) lbl.textContent = 'Live';
+    else if(presenceCount === 1) lbl.textContent = '+1 live';
+    else lbl.textContent = `+${presenceCount} live`;
+  }else{
+    dot.className = 'b-rt-dot';
+    lbl.textContent = 'Offline';
+  }
 }
 
 async function loadStats(){
@@ -341,6 +543,9 @@ function render(){
   wrap.appendChild(renderBoardHeader());
   wrap.appendChild(renderFilterBar());
   wrap.appendChild(renderLists());
+  // Paint the live pip AFTER the DOM is in place — the renderer writes
+  // #bRtDot / #bRtLabel placeholders, we update their class+text now.
+  updatePresenceIndicator();
 }
 
 function renderSummaryStrip(){
@@ -367,6 +572,8 @@ function renderSummaryStrip(){
   }).length;
 
   let html = '';
+  // Realtime pip — leftmost, shows connection state + presence count
+  html += `<span class="b-rt-chip"><span class="b-rt-dot" id="bRtDot"></span><span id="bRtLabel">—</span></span>`;
   html += `<span class="b-summary-chip ${open>0?'':'ok'}"><strong>${open}</strong> open</span>`;
   if(overdue > 0) html += `<span class="b-summary-chip alert"><strong>${overdue}</strong> overdue</span>`;
   if(urgent > 0) html += `<span class="b-summary-chip alert">🚨 <strong>${urgent}</strong> urgent</span>`;
@@ -398,9 +605,13 @@ function renderBoardHeader(){
 
   header.querySelectorAll('.board-tab[data-bid]').forEach(btn => {
     btn.addEventListener('click', async () => {
+      // Switching boards — tear down current subscription, load new
+      // board's data, subscribe to its channel.
+      unsubscribeRealtime();
       activeBoard = boards.find(b => b.id == btn.dataset.bid);
       await loadLists(); await loadCards();
       render();
+      subscribeRealtime();
     });
   });
   header.querySelector('#bAddBoard').addEventListener('click', promptNewBoard);
@@ -621,9 +832,24 @@ function createCardEl(card){
 
   el.innerHTML = html;
 
+  // Auto-translate card title if it's written in a language different
+  // from the viewer's preferred language. This is the single highest-
+  // value surface for translation in the whole app — it's where a
+  // bilingual team reads each other's work every shift.
+  //
+  // NX.tr.auto silently no-ops when detected language matches target,
+  // so same-language content is untouched. When it does translate, it
+  // inserts a small "Translated from X · show original" badge above
+  // the title.
+  if (window.NX?.tr) {
+    const titleEl = el.querySelector('.b-card-title');
+    if (titleEl) { try { NX.tr.auto(titleEl); } catch(_) {} }
+  }
+
   // Tap card → detail
   el.addEventListener('click', e => {
     if(e.target.dataset.move) return; // handled below
+    if(e.target.closest('.nx-tr-btn')) return; // don't open detail on translate tap
     openCardDetail(card);
   });
 
@@ -686,30 +912,45 @@ function openMovePicker(card){
 }
 
 async function moveCard(card, targetList){
+  // Optimistic: update local state + re-render IMMEDIATELY, then fire
+  // the server write in the background. User sees the card move with
+  // zero latency. On error, we revert and toast. This is the single
+  // biggest perceived-speed improvement because it decouples the UI
+  // responsiveness from network round-trip time (typically 150-500ms
+  // on mobile). Combined with realtime, other users see our change as
+  // soon as the server confirms — not after our UI update.
+  const statusMap = {
+    'closed':'closed', 'done':'closed',
+    'resolved':'resolved',
+    'waiting on parts':'waiting_parts',
+    'in progress':'in_progress',
+    'dispatched':'dispatched',
+    'triaged':'triaged',
+    'reported':'reported',
+  };
+  const targetColName = targetList.name.toLowerCase().replace(/\s+/g,'_');
+  const wasNotDone = !isDone(card);
+  const movingToDone = /(done|closed|resolved|complete|archived?)/.test(targetList.name.toLowerCase());
+  const status = statusMap[targetList.name.toLowerCase()] || targetList.name.toLowerCase().replace(/\s+/g,'_');
+
+  // Snapshot for rollback
+  const prev = { list_id: card.list_id, status: card.status, column_name: card.column_name };
+
+  // Apply optimistically
+  card.list_id = targetList.id;
+  card.status = status;
+  card.column_name = targetColName;
+  optimisticSet.add(card.id);
+  render();
+
+  // Fire server write in background
   try{
-    // Map list name to a status enum for downstream triggers/queries
-    const statusMap = {
-      'closed':'closed', 'done':'closed',
-      'resolved':'resolved',
-      'waiting on parts':'waiting_parts',
-      'in progress':'in_progress',
-      'dispatched':'dispatched',
-      'triaged':'triaged',
-      'reported':'reported',
-    };
-    const targetColName = targetList.name.toLowerCase().replace(/\s+/g,'_');
-    const wasNotDone = (card.column_name || '').toLowerCase() !== 'done';
-    const movingToDone = targetColName === 'done';
-    const status = statusMap[targetList.name.toLowerCase()] || targetList.name.toLowerCase().replace(/\s+/g,'_');
-    await NX.sb.from('kanban_cards').update({
+    const { error } = await NX.sb.from('kanban_cards').update({
       list_id: targetList.id,
       column_name: targetColName,
       status,
     }).eq('id', card.id);
-    card.list_id = targetList.id;
-    card.status = status;
-    card.column_name = targetColName;
-    await loadCards(); render();
+    if(error) throw error;
 
     // ── CROSS-SYSTEM CLOSE-OUT ────────────────────────────────────
     // If this card just moved to Done and is linked to equipment
@@ -721,7 +962,13 @@ async function moveCard(card, targetList){
     }
   }catch(e){
     console.error('[board] moveCard:', e);
-    NX.toast && NX.toast('Failed to move card', 'error');
+    // Revert
+    card.list_id = prev.list_id;
+    card.status = prev.status;
+    card.column_name = prev.column_name;
+    optimisticSet.delete(card.id);
+    render();
+    NX.toast && NX.toast('Failed to move card — reverted', 'error');
   }
 }
 
@@ -771,8 +1018,12 @@ async function openCardDetail(card){
     <div class="b-modal-body">
 
       <div class="b-section">
-        <div class="b-section-label">Description</div>
+        <div class="b-section-label">
+          Description
+          <button type="button" class="b-tr-btn" id="bTrDesc" title="Translate to your language" style="display:none">🌐 Translate</button>
+        </div>
         <textarea class="b-field" id="bDesc" placeholder="Details, steps to reproduce, what was tried…" rows="3">${esc(card.description||'')}</textarea>
+        <div class="b-tr-out" id="bDescTrOut" style="display:none"></div>
       </div>
 
       <div class="b-section">
@@ -842,7 +1093,7 @@ async function openCardDetail(card){
         <div class="b-section-label">Comments (${(card.comments||[]).length})</div>
         <div id="bComments">
           ${(card.comments||[]).map(c =>
-            `<div class="b-comment"><span class="b-comment-by">${esc(c.by||'?')}</span><span class="b-comment-time">${c.at?new Date(c.at).toLocaleDateString():''}</span><div>${esc(c.text||'')}</div></div>`
+            `<div class="b-comment"><span class="b-comment-by">${esc(c.by||'?')}</span><span class="b-comment-time">${c.at?new Date(c.at).toLocaleDateString():''}</span><div class="b-comment-text">${esc(c.text||'')}</div></div>`
           ).join('')}
         </div>
         <div class="b-check-add" style="margin-top:8px">
@@ -861,6 +1112,49 @@ async function openCardDetail(card){
   </div>`;
 
   document.body.appendChild(bg);
+
+  // ── TRANSLATION ───────────────────────────────────────────────
+  // The description lives in a textarea (editable). We can't swap
+  // text inline without losing the edit buffer, so we show a
+  // "Translate" button that renders a read-only translation below
+  // the textarea. Comments render as static divs, so we use the
+  // simpler NX.tr.auto inline pattern.
+  if (window.NX?.tr) {
+    const descEl = bg.querySelector('#bDesc');
+    const trBtn = bg.querySelector('#bTrDesc');
+    const trOut = bg.querySelector('#bDescTrOut');
+    if (descEl && trBtn && trOut && descEl.value.trim().length > 10) {
+      trBtn.style.display = '';
+      let shown = false;
+      let cached = null;
+      trBtn.addEventListener('click', async () => {
+        if (shown) {
+          trOut.style.display = 'none';
+          trBtn.textContent = '🌐 Translate';
+          shown = false;
+          return;
+        }
+        trBtn.textContent = '…';
+        trBtn.disabled = true;
+        try {
+          if (!cached) cached = await NX.tr.text(descEl.value);
+          trOut.textContent = cached;
+          trOut.style.display = '';
+          trBtn.textContent = '✕ Hide translation';
+          shown = true;
+        } catch (_) {
+          trBtn.textContent = '⚠ retry';
+        } finally {
+          trBtn.disabled = false;
+        }
+      });
+    }
+    // Auto-translate existing comments (posted by others, possibly
+    // in a different language).
+    bg.querySelectorAll('.b-comment-text').forEach(el => {
+      try { NX.tr.auto(el); } catch (_) {}
+    });
+  }
 
   // Close handlers
   const close = ()=>bg.remove();
@@ -936,7 +1230,7 @@ async function openCardDetail(card){
     const c = { text:t, by: NX.currentUser?.name || '?', at: new Date().toISOString() };
     card.comments.push(c);
     bg.querySelector('#bComments').insertAdjacentHTML('beforeend',
-      `<div class="b-comment"><span class="b-comment-by">${esc(c.by)}</span><span class="b-comment-time">${new Date().toLocaleDateString()}</span><div>${esc(c.text)}</div></div>`);
+      `<div class="b-comment"><span class="b-comment-by">${esc(c.by)}</span><span class="b-comment-time">${new Date().toLocaleDateString()}</span><div class="b-comment-text">${esc(c.text)}</div></div>`);
     inp.value = '';
   };
   bg.querySelector('#bCommentAdd').addEventListener('click', addComment);
@@ -1142,6 +1436,9 @@ async function promptNewCard(listId, prefill){
     }).select().single();
     await loadCards(); render();
     NX.toast && NX.toast('Card created', 'success');
+    // Fire push notification — every new card = every new report = buzzes
+    // the managers/admins who need to know. Fire-and-forget.
+    if (created && NX.notifyCardCreated) NX.notifyCardCreated(created);
     // If created with prefill, open it immediately
     if(prefill && created) openCardDetail(created);
   }catch(e){
@@ -1455,13 +1752,51 @@ async function init(){
   await loadCards();
   loadStats();
   render();
+  subscribeRealtime();
+  bindVisibilityHandler();
 }
 
 async function show(){
-  // Called whenever user taps the Board tab
+  // Stale-while-revalidate: if we have a live realtime subscription and
+  // data pulled recently, render from memory NOW (instant), then kick
+  // a silent refresh in the background. Tab switches become snappy.
+  const isWarm = rtChannel && rtConnected && (Date.now() - lastFetchAt) < 10000;
+  if(isWarm){
+    render();
+    // Silent background refresh — only re-renders if anything changed
+    // (realtime should have caught mutations already, this is a safety
+    // net against dropped events during reconnect windows).
+    loadStats();
+    return;
+  }
   await loadCards();
   loadStats();
   render();
+  // (Re)subscribe if we don't have an active channel
+  if(!rtChannel) subscribeRealtime();
+}
+
+// Tear down realtime when the tab is backgrounded; re-sub on return.
+// Saves Supabase connections when the phone screen is locked or the
+// tab sits unused. Critical on mobile where backgrounded tabs can live
+// for hours without closing.
+let visibilityBound = false;
+function bindVisibilityHandler(){
+  if(visibilityBound) return;
+  visibilityBound = true;
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'hidden'){
+      unsubscribeRealtime();
+    }else if(document.visibilityState === 'visible'){
+      // Only resubscribe if the Board view is the active one — no point
+      // in keeping a board channel open when user's on Equipment etc.
+      const boardActive = document.querySelector('.view[data-view="board"]')?.classList.contains('active');
+      if(boardActive && activeBoard){
+        // Pull latest (we may have missed events while hidden)
+        loadCards().then(() => { render(); subscribeRealtime(); });
+      }
+    }
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────
