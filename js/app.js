@@ -506,7 +506,11 @@ const NX = {
 
     // Apply role visibility
     if (this.isAdmin || this.isManager) {
-      document.getElementById('ingestTab').style.display = '';
+      // Note: we no longer reveal the top-nav Ingest tab. It clutters
+      // the main navigation with a power-user destination most people
+      // never touch. Instead, Ingest lives in the utility tray (the ☰
+      // menu top-right) — discoverable when needed, out of the way
+      // otherwise. The top-nav button stays display:none from HTML.
       const utilIngest = document.getElementById('utilIngest');
       if (utilIngest) {
         utilIngest.style.display = '';
@@ -516,8 +520,6 @@ const NX = {
           document.querySelectorAll('.bnav-btn').forEach(b => b.classList.remove('active'));
           document.getElementById('navNexus').classList.remove('active');
           document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-          const tab = document.querySelector('.nav-tab[data-view="ingest"]');
-          if (tab) tab.classList.add('active');
           document.getElementById('ingestView').classList.add('active');
           this.activateModule('ingest');
           // Close tray
@@ -818,6 +820,11 @@ td.check{background:#F0EDE6 !important}
     // need to sync the nav state + activate the module.
     const homeBtn = document.querySelector('.bnav-btn[data-view="home"]');
     if (homeBtn) homeBtn.classList.add('active');
+    // Also activate the top-nav Home tab so the initial state is in
+    // sync. Without this, the user lands on Home but the top nav has
+    // nothing highlighted, which reads as "you're nowhere."
+    const homeTopTab = document.querySelector('.nav-tab[data-view="home"]');
+    if (homeTopTab) homeTopTab.classList.add('active');
     document.body.classList.add('view-home');
     this.activateModule('home');
   },
