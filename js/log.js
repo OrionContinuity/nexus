@@ -249,6 +249,18 @@ function renderFeed() {
     items.forEach(item => { const el = buildCard(item); if (el) sec.appendChild(el); });
     if (sec.children.length > 1) list.appendChild(sec);
   }
+
+  // Auto-translate feed entry text. .feed-text holds the log/ticket/
+  // chat content; if a user writes a log in Spanish and an English-
+  // preferring manager views it, the entry translates silently with a
+  // "Translated from Spanish · show original" badge above it. Calls
+  // are memoized client + server, so opening the same day repeatedly
+  // is zero additional cost.
+  if (window.NX?.tr) {
+    list.querySelectorAll('.feed-text').forEach(el => {
+      try { NX.tr.auto(el); } catch (_) {}
+    });
+  }
 }
 
 /* ═══ CARD ROUTER ═══ */
