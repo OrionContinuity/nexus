@@ -236,6 +236,20 @@ body.view-brain .main{padding-bottom:calc(56px + env(safe-area-inset-bottom))}
 .ig-card.collapsed .ig-card-chevron{transform:rotate(-90deg)}
 .ig-card-body{padding:4px 16px 16px;border-top:1px solid var(--border)}
 .ig-card.collapsed .ig-card-body{display:none}
+/* When a card opens, smooth in rather than instant pop. Cap maximum
+   height so a card with deep nested controls (Advanced) doesn't push
+   the rest of the page off-screen on desktop — internal scroll
+   instead. The screen used to "take over" when Advanced was tapped
+   because its expanded height was 600px+ in one instant jump. */
+.ig-card:not(.collapsed) .ig-card-body{
+  animation: igCardOpen .25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+@keyframes igCardOpen{
+  from{opacity:0;transform:translateY(-4px)}
+  to{opacity:1;transform:translateY(0)}
+}
 
 /* NOTES — inline info/success callouts inside cards */
 .ig-note{background:rgba(107,155,240,.05);border-left:3px solid var(--blue);border-radius:6px;padding:10px 12px;font-size:12.5px;color:var(--muted);line-height:1.5}
