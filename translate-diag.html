@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NEXUS Translate Diag</title>
+<style>
+  body{background:#0a0a0a;color:#d4c8a5;font-family:monospace;font-size:14px;padding:14px;line-height:1.6}
+  h1{color:#c8a44e;font-size:16px;margin:0 0 12px}
+  .ok{color:#4ade80}.bad{color:#ef4444}.warn{color:#fbbf24}
+  pre{background:#141414;padding:10px;border-radius:6px;white-space:pre-wrap;word-break:break-all;border:1px solid #2a2a2a}
+  button{background:#c8a44e;color:#0a0a0a;border:0;padding:10px 16px;border-radius:6px;font-weight:600;font-size:14px;margin:6px 0;cursor:pointer}
+</style>
+</head>
+<body>
+<h1>🔍 NEXUS Translate Diagnostic</h1>
+<p>This loads your live <code>translate.js</code> and tells you exactly what's there.</p>
+<button onclick="runDiag()">Run Diagnostic</button>
+<pre id="out">Tap the button above.</pre>
+
+<script>
+async function runDiag() {
+  const out = document.getElementById('out');
+  const log = (msg, cls) => out.innerHTML += `<span class="${cls||''}">${msg}</span>\n`;
+  out.innerHTML = '';
+
+  // Step 1: Fetch the deployed file
+  log('━━━ STEP 1: Fetching translate.js ━━━', 'warn');
+  let code;
+  try {
+    const r = await fetch('https://orioncontinuity.github.io/nexus/js/translate.js?_=' + Date.now());
+    code = await r.text();
+    log(`✓ HTTP ${r.status}, ${code.length} bytes`, 'ok');
+  } catch(e) {
+    log('✗ Fetch failed: ' + e.message, 'bad'); return;
+  }
+
+  // Step 2: Look for the bug signature
+  log('\n━━━ STEP 2: Bug signature check ━━━', 'warn');
+  const m = code.match(/NX\.tr\s*=\s*\{([^}]+)\}/);
+  if (!m) { log('✗ Could not find NX.tr = {} block', 'bad'); return; }
+  const block = m[1];
+  const buggy = /\bbatch,\s*\n\s*translatePage,/.test(block);
+  log(buggy ? '✗ BUGGY VERSION DEPLOYED (forward refs present)' : '✓ FIXED VERSION DEPLOYED', buggy?'bad':'ok');
+  log('First IIFE NX.tr block:', 'warn');
+  log(block.trim().split('\n').slice(0,15).join('\n'));
+
+  // Step 3: Actually run the file
+  log('\n━━━ STEP 3: Loading translate.js into this page ━━━', 'warn');
+  window.NX = window.NX || {};
+  try {
+    eval(code);
+    log('✓ No syntax/runtime error during load', 'ok');
+  } catch(e) {
+    log('✗ CRASH on load: ' + e.message, 'bad');
+    log('  (this is what happens in NEXUS too)', 'warn');
+    return;
+  }
+
+  // Step 4: Inspect NX.tr
+  log('\n━━━ STEP 4: NX.tr inspection ━━━', 'warn');
+  log('typeof NX.tr: ' + typeof NX.tr, NX.tr ? 'ok':'bad');
+  if (!NX.tr) { log('NX.tr never got initialized', 'bad'); return; }
+  const keys = Object.keys(NX.tr);
+  log('Keys (' + keys.length + '): ' + keys.join(', '));
+  ['mountFab','translatePage','openPicker','batch','setTarget'].forEach(k => {
+    const t = typeof NX.tr[k];
+    log('  NX.tr.' + k + ': ' + t, t==='function'?'ok':'bad');
+  });
+
+  // Step 5: Try to mount the FAB
+  log('\n━━━ STEP 5: Calling mountFab() ━━━', 'warn');
+  if (typeof NX.tr.mountFab !== 'function') {
+    log('✗ Cannot — mountFab is not a function', 'bad');
+    return;
+  }
+  try {
+    NX.tr.mountFab();
+    const fab = document.getElementById('nxTrFab');
+    log(fab ? '✓ FAB element created and in DOM' : '✗ mountFab ran but no #nxTrFab element', fab?'ok':'bad');
+    if (fab) log('  FAB visible? ' + (fab.offsetParent !== null), 'warn');
+  } catch(e) {
+    log('✗ mountFab threw: ' + e.message, 'bad');
+  }
+
+  // Step 6: Try translatePage
+  log('\n━━━ STEP 6: Calling translatePage("es") ━━━', 'warn');
+  try {
+    const result = await NX.tr.translatePage('es', { timeout: 5000 });
+    log('✓ translatePage returned: ' + JSON.stringify(result).slice(0,200), 'ok');
+  } catch(e) {
+    log('✗ translatePage error: ' + e.message, 'bad');
+  }
+
+  log('\n━━━ DONE ━━━', 'warn');
+}
+</script>
+</body>
+</html>
