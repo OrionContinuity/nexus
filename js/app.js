@@ -479,6 +479,31 @@ const NX = {
       setTimeout(()=>clearInterval(waitLucide),5000);
     }
 
+    // Mount the floating 🌐 translation button. Stays visible on every
+    // view until logout. If the user's saved language is non-English,
+    // NX.tr.mountFab() also kicks off a one-shot page translation ~800ms
+    // after mount so what they see on first arrival is already in their
+    // language rather than flashing English then translating.
+    if (window.NX?.tr?.mountFab) {
+      try { NX.tr.mountFab(); } catch(e) { console.warn('[tr] fab mount:', e); }
+    }
+
+    // ── PUSH: auto-enable for managers/admins on first login ────────
+    // Staff typically don't need push — they're usually the REPORTER
+    // of the ticket that would buzz their own phone. Managers + admins
+    // DO need push: they need to hear about urgent issues they didn't
+    // report themselves. ensurePush() is idempotent and silent if the
+    // user previously declined, so no nagging on every login.
+    if ((this.isAdmin || this.isManager) && NX.ensurePush) {
+      setTimeout(() => {
+        NX.ensurePush().then(result => {
+          if (result?.ok && !result.already) {
+            this.syslog && this.syslog('push_enabled', this.currentUser.name);
+          }
+        }).catch(() => {});
+      }, 1200);
+    }
+
     // Apply role visibility
     if (this.isAdmin || this.isManager) {
       document.getElementById('ingestTab').style.display = '';
@@ -839,6 +864,21 @@ td.check{background:#F0EDE6 !important}
         const mod = this.modules[view]; if (mod && mod.init) mod.init();
         if(this.i18n)setTimeout(()=>this.i18n.applyUI(),200);
       });
+    }
+
+    // If user has a non-English target language set via the FAB, retranslate
+    // the newly-active view after a short delay (lets modules finish render).
+    // Cached strings return instantly; first-time content takes ~1-2s for the
+    // batched API call. Done here rather than in each module's show() so
+    // translation is centralized and automatic for every view.
+    if (window.NX?.tr?.translatePage) {
+      const savedLang = localStorage.getItem('nexus_lang');
+      if (savedLang && savedLang !== 'en' && NX.tr.supported.includes(savedLang)) {
+        setTimeout(() => {
+          const activeView = document.querySelector('.view.active') || document.getElementById(view + 'View');
+          if (activeView) NX.tr.translatePage(savedLang, { root: activeView }).catch(() => {});
+        }, 400);
+      }
     }
   },
 
@@ -1781,6 +1821,56 @@ td.check{background:#F0EDE6 !important}
     } catch (e) {
       console.warn('[notify] notifyTicketCreated failed:', e?.message);
     }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  KANBAN CARD NOTIFICATIONS — Stage T
+  //  Every board card is a report. Every report should buzz someone.
+  //  This is the companion to notifyTicketCreated for cards created
+  //  via Board UI, Brain chat, "Report issue" from equipment, etc.
+  //
+  //  Why two functions not one:
+  //    - Tickets have a different data shape (notes vs description,
+  //      reported_by from public scan flow, etc.) and go into the
+  //      tickets table. Cards are on kanban_cards. Different inserts,
+  //      different triggers, different timing.
+  //    - The copy differs: tickets say "New ticket", cards say
+  //      "New card" — so a notified manager knows which view to land
+  //      in. Board cards get view: 'board', tickets get view: 'log'.
+  //
+  //  Audience: managers + admins (same as tickets). The reporter
+  //  usually IS a staff member; pushing them their own card is noise.
+  // ═══════════════════════════════════════════════════════════════════
+  notifyCardCreated(card) {
+    if (!this.sb || !card) return;
+    if (this.config && this.config.card_notifications === false) return;
+    try {
+      const priority = String(card.priority || 'normal').toLowerCase();
+      const locLabel = card.location ? ` · ${String(card.location).toUpperCase()}` : '';
+      const icon = priority === 'urgent' ? '🚨'
+                 : priority === 'high'   ? '⚠️'
+                 : '📋';
+      const title = `${icon} New card${locLabel}`;
+      let body = String(card.title || 'Untitled card').slice(0, 120);
+      if (card.reported_by) body += ` — by ${card.reported_by}`;
+      const pushPriority = (priority === 'urgent' || priority === 'high') ? 'high' : 'normal';
+      this.sb.functions.invoke('predictive-notify', {
+        body: {
+          broadcast: {
+            title,
+            body: body.slice(0, 180),
+            audience: 'managers',
+            priority: pushPriority,
+            view: 'board',
+          }
+        }
+      }).then(({ error }) => {
+        if (error) console.warn('[notify] card push error:', error.message || error);
+        else if (this.syslog) this.syslog('notify_card', `${priority}: ${String(card.title || '').slice(0, 60)}`);
+      }).catch(e => console.warn('[notify] card:', e?.message));
+    } catch (e) {
+      console.warn('[notify] notifyCardCreated failed:', e?.message);
+    }
   }
 };
 
@@ -1808,27 +1898,155 @@ document.addEventListener('DOMContentLoaded', () => NX.init());
 // Register service worker for offline support
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
-    // Push notification setup
-    if ('PushManager' in window && NX.currentUser) {
+    // ═══ PUSH NOTIFICATION SUBSCRIPTION ═══════════════════════════
+    // Three-part system that finally wires push end-to-end:
+    //
+    //   1. NX.setupPush(vapidKey) — requests browser permission,
+    //      subscribes, persists to Supabase push_subscriptions.
+    //
+    //   2. NX.ensurePush() — idempotent wrapper called post-login.
+    //      Fetches VAPID public key from nexus_config, checks current
+    //      permission + subscription state, asks only if needed.
+    //      Silent if the user already said no (no nagging every login).
+    //
+    //   3. NX.getPushStatus() — returns { permission, subscribed,
+    //      canPrompt, supported } for UI status indicators (used by
+    //      the Ingest page + admin panel).
+    //
+    // iOS PWA quirk: Apple only delivers push to installed PWAs
+    // (added to home screen). If we detect iOS Safari running in
+    // a browser tab, we skip silently rather than fail confusingly.
+    if ('PushManager' in window && 'Notification' in window) {
       NX.setupPush = async function(vapidPublicKey) {
         try {
+          if (!vapidPublicKey) throw new Error('missing VAPID public key');
           const permission = await Notification.requestPermission();
-          if (permission !== 'granted') return;
+          if (permission !== 'granted') {
+            return { ok: false, reason: 'permission_' + permission };
+          }
           const sub = await reg.pushManager.subscribe({
             userVisibleOnly: true,
-            applicationServerKey: vapidPublicKey
+            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
           });
-          // Save subscription to Supabase
-          await NX.sb.from('push_subscriptions').upsert({
-            user_id: NX.currentUser.id,
-            user_name: NX.currentUser.name,
-            subscription: sub.toJSON()
-          }, { onConflict: 'user_id' });
-          if (NX.toast) NX.toast('Notifications enabled ✓', 'success');
+          const row = {
+            user_id: NX.currentUser?.id,
+            user_name: NX.currentUser?.name,
+            subscription: sub.toJSON(),
+            user_agent: navigator.userAgent.slice(0, 200),
+            updated_at: new Date().toISOString(),
+          };
+          const { error } = await NX.sb.from('push_subscriptions')
+            .upsert(row, { onConflict: 'user_id' });
+          if (error) throw error;
+          NX.toast && NX.toast('Notifications enabled ✓', 'success');
+          return { ok: true };
         } catch (e) {
-          console.warn('Push setup failed:', e);
+          console.warn('[push] setup failed:', e?.message || e);
+          return { ok: false, reason: 'error', error: e?.message };
         }
       };
+
+      NX.getPushStatus = async function() {
+        const supported = 'PushManager' in window && 'Notification' in window;
+        if (!supported) return { supported: false };
+        const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+          || window.navigator.standalone === true;
+        if (isIOS && !isStandalone) return { supported: false, iosNeedsInstall: true };
+        const permission = Notification.permission;
+        let subscribed = false;
+        try {
+          const s = await reg.pushManager.getSubscription();
+          subscribed = !!s;
+        } catch (_) {}
+        return {
+          supported: true,
+          permission,
+          subscribed,
+          canPrompt: permission === 'default',
+        };
+      };
+
+      NX.ensurePush = async function(opts) {
+        opts = opts || {};
+        const status = await NX.getPushStatus();
+        if (!status.supported) return status;
+        if (status.subscribed && status.permission === 'granted') {
+          return { ok: true, already: true };
+        }
+        if (status.permission === 'denied') {
+          return { ok: false, reason: 'permission_denied' };
+        }
+        const asked = localStorage.getItem('nexus_push_asked');
+        if (asked && !opts.force && status.permission === 'default') {
+          return { ok: false, reason: 'user_declined_previously' };
+        }
+        try {
+          const { data: cfg } = await NX.sb.from('nexus_config')
+            .select('config').eq('id', 1).single();
+          const vapid = cfg?.config?.vapid_public_key;
+          if (!vapid) {
+            console.warn('[push] no VAPID key in nexus_config.config.vapid_public_key');
+            return { ok: false, reason: 'no_vapid_key' };
+          }
+          localStorage.setItem('nexus_push_asked', '1');
+          return await NX.setupPush(vapid);
+        } catch (e) {
+          return { ok: false, reason: 'config_fetch_failed', error: e?.message };
+        }
+      };
+
+      NX.disablePush = async function() {
+        try {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub) await sub.unsubscribe();
+          if (NX.currentUser?.id) {
+            await NX.sb.from('push_subscriptions')
+              .delete().eq('user_id', NX.currentUser.id);
+          }
+          NX.toast && NX.toast('Notifications disabled', 'info');
+          return { ok: true };
+        } catch (e) {
+          console.warn('[push] disable failed:', e);
+          return { ok: false, error: e?.message };
+        }
+      };
+
+      // Fire a test push to confirm end-to-end delivery. Calls the
+      // broadcast endpoint with audience=<this user's id>, so only
+      // the caller's device buzzes. Surfaced in the Ingest page as
+      // a "Send test notification" button.
+      NX.sendTestPush = async function() {
+        if (!NX.currentUser?.id) return { ok: false, reason: 'no_user' };
+        try {
+          const { error } = await NX.sb.functions.invoke('predictive-notify', {
+            body: {
+              broadcast: {
+                title: '🔔 Test notification',
+                body: 'If you see this, push is working for ' + (NX.currentUser.name || 'you') + '.',
+                audience: String(NX.currentUser.id),
+                priority: 'normal',
+                view: 'home',
+              },
+            },
+          });
+          if (error) throw error;
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, error: e?.message };
+        }
+      };
+
+      // VAPID public keys are base64url-encoded; PushManager.subscribe
+      // needs a Uint8Array. Standard MDN helper.
+      function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const raw = atob(base64);
+        const output = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; ++i) output[i] = raw.charCodeAt(i);
+        return output;
+      }
     }
   }).catch(() => {});
 }
