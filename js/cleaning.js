@@ -359,6 +359,23 @@ function renderExtras(list){
     const del=document.createElement('button');del.className='clean-item-del';del.textContent='✕';
     del.addEventListener('click',(e)=>{e.stopPropagation();const ext=getExtrasToday();ext.splice(i,1);saveExtrasToday(ext);render();});
     it.appendChild(del);body.appendChild(it);
+
+    // Auto-translate the primary text when the extra is free-form.
+    // Built-in tasks ship with both Spanish + English filled in, but
+    // user-added "Custom" extras often have only one language. If the
+    // secondary line is empty or matches the primary (same language
+    // typed twice), attach NX.tr.auto so the reader sees a translation
+    // inline. quickDetect handles the "it's already in my language"
+    // case silently — no badge, no noise.
+    if (window.NX?.tr) {
+      const primaryEl = it.querySelector('.ci-primary');
+      const secondaryEl = it.querySelector('.ci-secondary');
+      const sameOrEmpty = !secondaryEl?.textContent.trim()
+        || secondaryEl.textContent.trim() === primaryEl.textContent.trim();
+      if (primaryEl && sameOrEmpty) {
+        try { NX.tr.auto(primaryEl); } catch(_) {}
+      }
+    }
   });
 
   const addRow=document.createElement('div');addRow.style.cssText='display:flex;gap:6px;padding:8px 0;flex-wrap:wrap;';
