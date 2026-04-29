@@ -148,7 +148,7 @@ body.view-brain .main{padding-bottom:calc(56px + env(safe-area-inset-bottom))}
    language picker. Whole-screen translation in ~2 seconds, cached
    forever so subsequent navigation to the same content is instant.
    ═══════════════════════════════════════════════════════════════════ */
-.nx-tr-fab{position:fixed;left:14px;bottom:74px;z-index:90;display:flex;align-items:center;gap:6px;padding:9px 14px 9px 12px;background:rgba(20,18,14,0.92);border:1px solid rgba(200,164,78,0.4);border-radius:22px;color:var(--text,#d4c8a5);cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;box-shadow:0 4px 14px rgba(0,0,0,0.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:transform .15s,border-color .2s}
+.nx-tr-fab{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom, 0px) + 76px);z-index:101;display:flex;align-items:center;gap:6px;padding:9px 14px 9px 12px;background:rgba(20,18,14,0.92);border:1px solid rgba(200,164,78,0.4);border-radius:22px;color:var(--text,#d4c8a5);cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;box-shadow:0 4px 14px rgba(0,0,0,0.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:transform .15s,border-color .2s}
 .nx-tr-fab:active{transform:scale(0.94)}
 .nx-tr-fab:hover{border-color:rgba(200,164,78,0.7)}
 .nx-tr-fab-icon{font-size:15px;line-height:1}
