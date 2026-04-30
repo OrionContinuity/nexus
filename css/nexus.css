@@ -148,11 +148,15 @@ body.view-brain .main{padding-bottom:calc(56px + env(safe-area-inset-bottom))}
    language picker. Whole-screen translation in ~2 seconds, cached
    forever so subsequent navigation to the same content is instant.
    ═══════════════════════════════════════════════════════════════════ */
-.nx-tr-fab{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom, 0px) + 76px);z-index:101;display:flex;align-items:center;gap:6px;padding:9px 14px 9px 12px;background:rgba(20,18,14,0.92);border:1px solid rgba(200,164,78,0.4);border-radius:22px;color:var(--text,#d4c8a5);cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;box-shadow:0 4px 14px rgba(0,0,0,0.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:transform .15s,border-color .2s}
-.nx-tr-fab:active{transform:scale(0.94)}
-.nx-tr-fab:hover{border-color:rgba(200,164,78,0.7)}
-.nx-tr-fab-icon{font-size:15px;line-height:1}
-.nx-tr-fab-lang{color:#c8a44e;font-variant-numeric:tabular-nums}
+.nx-tr-chip{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;margin:0 6px;background:rgba(20,18,14,0.65);border:1px solid rgba(200,164,78,0.35);border-radius:14px;color:var(--text,#d4c8a5);cursor:pointer;font-family:inherit;font-size:11px;font-weight:600;letter-spacing:.5px;line-height:1;transition:transform .12s ease,border-color .2s;flex:0 0 auto;align-self:center;-webkit-tap-highlight-color:transparent}
+.nx-tr-chip:active{transform:scale(0.94)}
+.nx-tr-chip:hover{border-color:rgba(200,164,78,0.7)}
+.nx-tr-chip-icon{font-size:13px;line-height:1}
+.nx-tr-chip-lang{color:#c8a44e;font-variant-numeric:tabular-nums}
+.admin-lang-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:6px 0}
+.admin-lang-chip{padding:7px 8px;background:rgba(20,18,14,0.5);border:1px solid rgba(200,164,78,0.2);border-radius:8px;color:var(--text,#d4c8a5);cursor:pointer;font-family:inherit;font-size:11px;text-align:center;transition:border-color .15s,background .15s;-webkit-tap-highlight-color:transparent}
+.admin-lang-chip:hover{border-color:rgba(200,164,78,0.5)}
+.admin-lang-chip.active{background:rgba(200,164,78,0.18);border-color:rgba(200,164,78,0.7);color:#c8a44e}
 
 /* Picker modal — bottom sheet on mobile, centered card on tablet+ */
 .nx-tr-picker-bg{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,0.6);display:flex;align-items:flex-end;justify-content:center;padding:0;animation:nxTrFadeIn .2s ease}
