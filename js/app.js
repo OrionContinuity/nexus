@@ -450,8 +450,13 @@ const NX = {
       else { console.log('NEXUS: No config row found'); }
     } catch (e) { console.error('Config load exception:', e); }
 
-    // ONE-TIME MIGRATION: if Supabase config is empty but localStorage has keys, push them up
-    if ((!this.config || !this.config.anthropic_key) && localStorage.getItem('nexus_api_key')) {
+    // ONE-TIME MIGRATION: DISABLED in security lockdown.
+    // Previously pushed local API keys up to nexus_config. After the
+    // edge-function refactor, no API keys live in nexus_config — they
+    // live ONLY in Supabase Edge Function secrets. Re-enabling this
+    // block would leak any saved keys to the publicly-readable
+    // nexus_config row.
+    if (false /* migration disabled */) {
       console.log('NEXUS: Migrating keys from localStorage to Supabase...');
       const updates = {};
       const lk = localStorage.getItem('nexus_api_key'); if (lk) updates.anthropic_key = lk;
@@ -1773,39 +1778,30 @@ td.check{background:#F0EDE6 !important}
     }catch(e){}
   },
   async askClaude(system, messages, maxTokens = 600, useSearch = false) {
-    const key = this.getApiKey();
-    if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
-    const body = { model: this.getModel(), max_tokens: maxTokens, system, messages };
+    // Routes through the /chat edge function so the Anthropic key never
+    // touches the browser. Edge function reads ANTHROPIC_API_KEY from
+    // Supabase Edge Function secrets — the only place the key now lives.
+    const body = { system, messages, model: this.getModel(), max_tokens: maxTokens };
     if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify(body)
-    });
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error.message || 'API error');
-    return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
+    if (this.currentUser?.name) body.user_name = this.currentUser.name;
+    const { data, error } = await this.sb.functions.invoke('chat', { body });
+    if (error) throw new Error(error.message || 'AI request failed');
+    if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || 'API error'));
+    return data?.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
   },
 
   async askClaudeVision(prompt, base64Data, mimeType) {
-    const key = this.getApiKey();
-    if (!key) return '';
+    // Routes through the /chat edge function. See askClaude above.
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: this.getModel(),
-          max_tokens: 1500,
-          messages: [{ role: 'user', content: [
-            { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Data } },
-            { type: 'text', text: prompt }
-          ]}]
-        })
-      });
-      const data = await resp.json();
-      if (data.error) return '';
-      return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
+      const messages = [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Data } },
+        { type: 'text', text: prompt }
+      ]}];
+      const body = { messages, model: this.getModel(), max_tokens: 1500 };
+      if (this.currentUser?.name) body.user_name = this.currentUser.name;
+      const { data, error } = await this.sb.functions.invoke('chat', { body });
+      if (error || data?.error) return '';
+      return data?.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
     } catch (e) { return ''; }
   },
 
