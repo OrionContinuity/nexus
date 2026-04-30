@@ -2185,7 +2185,7 @@ async function extractBOMFromManual(equipId) {
 
     if (!eq.manual_url) { showError('No manual uploaded yet. Go to the Manual tab and upload a PDF first.'); return; }
 
-    const apiKey = NX.getApiKey?.() || NX.config?.api_key;
+    const apiKey = 'edge';  // edge function holds the real key
     if (!apiKey) { showError('No Anthropic API key configured. Set it in Admin → API Keys.'); return; }
 
     setStep('Downloading manual PDF…');
@@ -2203,17 +2203,11 @@ async function extractBOMFromManual(equipId) {
     if (cancelled) return;
 
     setStep(`Sending ${sizeMB}MB PDF to Claude (20–60 seconds)…`);
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
+    const { data, error: invokeErr } = await NX.sb.functions.invoke('chat', {
+      body: {
         model: NX.getModel?.() || 'claude-sonnet-4-5',
         max_tokens: 4096,
+        user_name: NX.currentUser?.name,
         messages: [{
           role: 'user',
           content: [
@@ -2243,17 +2237,12 @@ Return raw JSON array (no markdown, no preamble):
 If no parts are found, return [].` }
           ]
         }]
-      })
+      }
     });
     if (cancelled) return;
 
-    if (!resp.ok) {
-      const errBody = await resp.text();
-      showError(`Claude API error (${resp.status}): ${errBody.slice(0, 300)}`);
-      return;
-    }
-    const data = await resp.json();
-    if (data.error) { showError('Claude returned error: ' + data.error.message); return; }
+    if (invokeErr) { showError('Claude API error: ' + (invokeErr.message || 'invoke failed')); return; }
+    if (data?.error) { showError('Claude returned error: ' + (typeof data.error === 'string' ? data.error : data.error.message)); return; }
 
     setStep('Parsing parts list…');
     const answer = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
@@ -2338,20 +2327,11 @@ async function extractBOMFromManual_LEGACY(equipId) {
     const pdfBlob = await pdfRes.blob();
     const pdfBase64 = await blobToBase64(pdfBlob);
 
-    const key = NX.getApiKey();
-    if (!key) throw new Error('No API key configured');
-
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
+    const { data, error: invokeErr } = await NX.sb.functions.invoke('chat', {
+      body: {
         model: NX.getModel(),
         max_tokens: 4000,
+        user_name: NX.currentUser?.name,
         messages: [{
           role: 'user',
           content: [
@@ -2380,11 +2360,11 @@ Return raw JSON array (no markdown):
 If no parts are found, return []. Extract only what's explicitly listed.` }
           ]
         }]
-      })
+      }
     });
 
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error.message);
+    if (invokeErr) throw new Error(invokeErr.message || 'AI request failed');
+    if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : data.error.message);
     const answer = data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
 
     const arrStart = answer.indexOf('[');
