@@ -357,7 +357,18 @@ const NX = {
       }
       
       // ═══ SLOW PATH: Full Supabase verification ═══
-      const { data, error } = await this.sb.from('nexus_users').select('*').eq('pin', pin).single();
+      // Uses security-definer RPC verify_pin() so the pin column is never
+      // sent to the client. Falls back to direct table read if the RPC
+      // isn't deployed yet (safe rollback while migrating).
+      let data, error;
+      const rpc = await this.sb.rpc('verify_pin', { p_pin: pin });
+      if (rpc.error && /function .* does not exist/i.test(rpc.error.message || '')) {
+        // Fallback: RPC not yet deployed — use legacy direct read
+        const fb = await this.sb.from('nexus_users').select('*').eq('pin', pin).single();
+        data = fb.data; error = fb.error;
+      } else {
+        data = rpc.data; error = rpc.error;
+      }
       if (error || !data) {
         errorEl.textContent = this.i18n ? this.i18n.t('invalidPin') : 'Invalid PIN';
         errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500);
