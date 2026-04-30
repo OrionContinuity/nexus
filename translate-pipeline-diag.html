@@ -35,7 +35,7 @@
 
 <script>
 const SUPABASE_URL = 'https://oprsthfxqrdbwdvommpw.supabase.co';
-const SUPABASE_ANON_KEY = '';  // will fetch from config.js
+const SUPABASE_ANON_KEY = 'sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9';
 const out = document.getElementById('out');
 
 function log(msg, cls) {
@@ -46,13 +46,7 @@ function log(msg, cls) {
 function clearOut() { out.innerHTML = ''; }
 
 async function getAnonKey() {
-  // Pull anon key from the live NEXUS config.js
-  try {
-    const r = await fetch('https://orioncontinuity.github.io/nexus/js/config.js?_=' + Date.now());
-    const code = await r.text();
-    const m = code.match(/['"](eyJ[A-Za-z0-9_\-\.]+)['"]/);
-    return m ? m[1] : null;
-  } catch(e) { return null; }
+  return SUPABASE_ANON_KEY;
 }
 
 async function runFull() {
