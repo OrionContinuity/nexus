@@ -753,6 +753,17 @@
       <div class="admin-section-label" data-i18n="integrations">Integrations</div>
       <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminTrelloKey" placeholder="Trello API Key" class="admin-field">
       <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminTrelloToken" placeholder="Trello Token" class="admin-field">
+      <hr class="admin-divider">
+      <div class="admin-section-label">Languages</div>
+      <div class="admin-help" style="font-size:11px;color:#857f75;margin:-2px 0 8px">
+        Choose 1–4 primary languages. They appear on the PIN screen and the
+        translate menu. New users default to the language you pick below.
+      </div>
+      <div id="adminLangGrid" class="admin-lang-grid"></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+        <label for="adminDefaultLang" style="font-size:12px;color:#a89e87">Default for new users:</label>
+        <select id="adminDefaultLang" class="admin-field" style="flex:1;margin:0"></select>
+      </div>
       <button id="adminSaveKeys" class="admin-save-btn" data-i18n="saveKeys">Save Keys</button>
       <div id="adminKeyStatus" class="admin-key-status"></div>
       <hr class="admin-divider">
