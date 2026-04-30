@@ -84,7 +84,7 @@ async function loadFeed() {
     safeQuery(() => NX.sb.from('tickets').select('*').order('created_at', { ascending: false }).limit(50)),
     safeQuery(() => NX.sb.from('kanban_cards').select('*').order('created_at', { ascending: false }).limit(50)),
     safeQuery(() => NX.sb.from('time_clock').select('*').gte('clock_in', since).order('clock_in', { ascending: false }).limit(100)),
-    safeQuery(() => NX.sb.from('chat_history').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(50)),
+    safeQuery(() => NX.sb.rpc('get_chat_history_admin', { p_since: since, p_limit: 50 })),
     safeQuery(() => NX.sb.from('cleaning_logs').select('*').gte('log_date', sinceDate).order('log_date', { ascending: false }).limit(100)),
   ]);
 
