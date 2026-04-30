@@ -719,7 +719,7 @@ async function processNextBatch(){
               pt+=pageText+'\n';
               if(pageText.length<50)lowPages.push(p);
             }
-            if(lowPages.length>0&&shouldExtractImages()&&NX.askClaudeVision&&NX.getApiKey()){
+            if(lowPages.length>0&&shouldExtractImages()&&NX.askClaudeVision){
               for(const pn of lowPages.slice(0,4)){
                 try{
                   setStage('extract',`OCR page ${pn}: ${att.filename}`);
@@ -1454,7 +1454,7 @@ async function extractPdfText(file){
     }
 
     // Pass 2: Render low-text pages as images → Claude Vision OCR
-    if(lowTextPages.length>0&&NX.askClaudeVision&&NX.getApiKey()){
+    if(lowTextPages.length>0&&NX.askClaudeVision){
       const pagesToScan=lowTextPages.slice(0,8); // Max 8 pages via Vision
       log(`  🔍 ${pagesToScan.length} scanned/image pages detected — using Vision OCR`);
       for(const pageNum of pagesToScan){
@@ -1479,7 +1479,7 @@ async function extractPdfText(file){
     }
 
     // Pass 3: Extract embedded images (logos, receipts, photos)
-    if(NX.askClaudeVision&&NX.getApiKey()){
+    if(NX.askClaudeVision){
       let imageCount=0;
       for(let i=1;i<=Math.min(numPages,20)&&imageCount<5;i++){
         try{
@@ -1553,7 +1553,7 @@ async function extractDocxText(file){
           });
         }
         // Extract images for Vision
-        if(NX.askClaudeVision&&NX.getApiKey()){
+        if(NX.askClaudeVision){
           const imgs=div.querySelectorAll('img');
           for(let i=0;i<Math.min(imgs.length,3);i++){
             const src=imgs[i].src;
@@ -2472,7 +2472,7 @@ function updateStats(){const el=document.getElementById('ingestStats');if(!el)re
 // ═══ WEEKLY DIGEST — generates operational report via Claude ═══
 async function generateDigest(){
   clearLog();log('📊 Generating weekly digest...');
-  const apiKey=NX.getApiKey();if(!apiKey){log('No API key','error');return;}
+  // (api key check removed — edge function holds the key)
   try{
     const weekAgo=new Date(Date.now()-7*86400000).toISOString();
     const today=new Date().toISOString().split('T')[0];
@@ -2535,13 +2535,17 @@ KEY CONVERSATIONS (${chats.length} total):
 ${chats.slice(0,8).map(c=>`${c.user_name}: "${(c.question||'').slice(0,60)}"`).join('\n')||'None'}`;
 
     log('Sending to Claude for analysis...');
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:800,messages:[{role:'user',content:`You are NEXUS, a personal intelligence system for Suerte, Este, and Bar Toti restaurants (Austin TX). Generate a weekly operations digest from this data. Be direct, insightful, and actionable. Flag concerns. Praise wins. Suggest what to focus on next week. Format with headers but keep it concise — this goes on a phone screen.\n\n${data}`}]})
-    });
-    const result=await resp.json();
-    const digest=result.content?.[0]?.text;
+    let digest = '';
+    try {
+      digest = await NX.askClaude(
+        '',
+        [{ role: 'user', content: `You are NEXUS, a personal intelligence system for Suerte, Este, and Bar Toti restaurants (Austin TX). Generate a weekly operations digest from this data. Be direct, insightful, and actionable. Flag concerns. Praise wins. Suggest what to focus on next week. Format with headers but keep it concise — this goes on a phone screen.\n\n${data}` }],
+        800
+      );
+    } catch (e) {
+      log('Digest generation failed: ' + (e?.message || e), 'error');
+      return;
+    }
     if(!digest){log('No digest generated','error');return;}
 
     // Display in log
@@ -2566,7 +2570,7 @@ ${chats.slice(0,8).map(c=>`${c.user_name}: "${(c.question||'').slice(0,60)}"`).j
 // ═══ SMART REMINDERS — find unresolved discussions ═══
 async function smartReminders(){
   clearLog();log('🧠 Scanning for unresolved items...');
-  const apiKey=NX.getApiKey();if(!apiKey){log('No API key','error');return;}
+  // (api key check removed — edge function holds the key)
   try{
     const twoWeeks=new Date(Date.now()-14*86400000).toISOString();
 
@@ -2584,10 +2588,11 @@ async function smartReminders(){
     const chatStr=chats.map(c=>`[${new Date(c.created_at).toLocaleDateString()} ${c.user_name}] Q: ${(c.question||'').slice(0,100)}\nA: ${(c.answer||'').slice(0,150)}`).join('\n---\n');
     const existingItems=[...(cards||[]).map(c=>c.title),...(tickets||[]).map(t=>t.title)].join(', ');
 
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:500,messages:[{role:'user',content:`You are NEXUS. Review these recent conversations and find items that were DISCUSSED but never turned into action items. Things like "we should replace that" or "let's order the part" or "I'll call them Monday" — promises and intentions that might have been forgotten.
+    let text = '';
+    try {
+      text = await NX.askClaude(
+        '',
+        [{ role: 'user', content: `You are NEXUS. Review these recent conversations and find items that were DISCUSSED but never turned into action items. Things like "we should replace that" or "let's order the part" or "I'll call them Monday" — promises and intentions that might have been forgotten.
 
 EXISTING CARDS/TICKETS (already tracked):
 ${existingItems||'none'}
@@ -2601,10 +2606,13 @@ List 1-5 items that seem unresolved. For each, give:
 - Suggested action (create card, create ticket, or follow up)
 
 If everything looks handled, say so. Be brief. JSON format:
-{"items":[{"discussed":"...","who":"...","date":"...","action":"..."}],"all_clear":false}`}]})
-    });
-    const result=await resp.json();
-    const text=result.content?.[0]?.text||'';
+{"items":[{"discussed":"...","who":"...","date":"...","action":"..."}],"all_clear":false}` }],
+        500
+      );
+    } catch (e) {
+      log('Smart reminders failed: ' + (e?.message || e), 'error');
+      return;
+    }
 
     try{
       const clean=text.replace(/```json|```/g,'').trim();
