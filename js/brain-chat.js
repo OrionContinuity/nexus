@@ -137,7 +137,7 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
     return persona;
   }
 
-  function checkApiKey(){const b=document.getElementById('apiBanner');if(b)b.style.display=NX.getApiKey()?'none':'flex';}
+  function checkApiKey(){const b=document.getElementById('apiBanner');if(b)b.style.display='none';}
   function timeStr(){const d=new Date();return d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}).toLowerCase();}
 
   function buildDynamicChips(){
@@ -872,13 +872,13 @@ When you're ready to give your final answer, just respond normally (no JSON, no 
     window.addEventListener('online',()=>{document.getElementById('offlineBanner').style.display='none';});
     window.addEventListener('offline',()=>{document.getElementById('offlineBanner').style.display='block';});
     if(!navigator.onLine)document.getElementById('offlineBanner').style.display='block';
-    if(!localStorage.getItem('nexus_onboarded')&&!NX.getApiKey()){showOnboarding();}
+    if(!localStorage.getItem('nexus_onboarded')){showOnboarding();}
     // Proactive greeting after briefing data loads
     setTimeout(()=>proactiveGreeting(),3500);
   }
 
   async function proactiveGreeting(){
-    if(!NX.getApiKey()||!NX.currentUser)return;
+    if(!NX.currentUser)return;
     const b=NX._briefingData;if(!b)return;
 
     // Build a natural briefing string from real data
@@ -928,13 +928,7 @@ ${lines.join('\n')}
 
 Keep it casual and warm. No markdown formatting.`;
 
-      const resp=await fetch('https://api.anthropic.com/v1/messages',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','x-api-key':NX.getApiKey(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:200,messages:[{role:'user',content:prompt}]})
-      });
-      const data=await resp.json();
-      const msg=data.content?.[0]?.text;
+      const msg=await NX.askClaude('',[{role:'user',content:prompt}],200);
       if(msg&&msg.length>10){
         // Show as first chat message — not in expanded mode, just peek
         const welcome=document.getElementById('brainWelcome');
@@ -1249,7 +1243,7 @@ Keep it casual and warm. No markdown formatting.`;
     chatActive=true;addB(q,'user');chatHistory.push({role:'user',content:q});
     if(NX.syslog)NX.syslog('chat_ask',q.slice(0,80));
     showTyping();
-    if(!NX.getApiKey()){hideTyping();addB(tt('noApiKey'),'ai');return;}
+    // (api-key gate removed — edge function holds the key now)
     const task=detectTask(q);
     if(task){
       if(task.type==='research'){try{await handleResearch(task.content);}catch(e){addB('Research error: '+e.message,'ai');}return;}
