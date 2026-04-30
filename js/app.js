@@ -229,19 +229,61 @@ const NX = {
       pin = pin.slice(0, -1); updateDisplay(); error.textContent = '';
     });
 
-    // Language toggle on PIN screen
-    const currentLang = this.i18n ? this.i18n.getLang() : 'en';
-    document.querySelectorAll('.pin-lang-btn').forEach(btn => {
-      if (btn.dataset.lang === currentLang) btn.classList.add('active');
-      btn.addEventListener('click', () => {
-        const lang = btn.dataset.lang;
-        localStorage.setItem('nexus_lang', lang);
-        document.querySelectorAll('.pin-lang-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const sub = document.querySelector('.pin-sub');
-        if (sub) sub.textContent = lang === 'es' ? 'Ingrese su PIN' : 'Enter your PIN';
+    // Language buttons on PIN screen — dynamically rendered from
+    // nexus_config.primary_languages (admin-configured). default_language
+    // is pre-selected for first-time users. Tap → saves to localStorage
+    // so verify_pin path AND post-login both honor the choice.
+    const LANG_NAMES_PIN = {
+      en:'English', es:'Español', fr:'Français', pt:'Português',
+      it:'Italiano', de:'Deutsch', zh:'中文', ja:'日本語',
+      ko:'한국어', vi:'Tiếng Việt', ar:'العربية', hi:'हिन्दी',
+    };
+    const PIN_SUB_TEXT = {
+      en:'Enter your PIN', es:'Ingrese su PIN', fr:'Entrez votre PIN',
+      pt:'Digite seu PIN',  it:'Inserisci il PIN', de:'PIN eingeben',
+      zh:'请输入您的PIN',     ja:'PINを入力',         ko:'PIN을 입력하세요',
+      vi:'Nhập mã PIN',     ar:'أدخل رمز PIN',     hi:'अपना PIN दर्ज करें',
+    };
+    const renderPinLangs = (primaries, defaultLang) => {
+      const row = document.querySelector('.pin-lang-row');
+      if (!row) return;
+      const current = localStorage.getItem('nexus_lang') || defaultLang || 'en';
+      // Persist the default if no language is yet stored — so the verify_pin
+      // path & post-login start in the right place even with no tap.
+      if (!localStorage.getItem('nexus_lang') && defaultLang) {
+        localStorage.setItem('nexus_lang', defaultLang);
+      }
+      const safe = (primaries || []).filter(c => LANG_NAMES_PIN[c]);
+      const list = safe.length ? safe : ['en','es'];
+      row.innerHTML = list.map((code, i) =>
+        (i ? '<span class="pin-lang-dot">·</span>' : '') +
+        `<button class="pin-lang-btn${code===current?' active':''}" data-lang="${code}">${LANG_NAMES_PIN[code]||code}</button>`
+      ).join('');
+      row.querySelectorAll('.pin-lang-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const lang = btn.dataset.lang;
+          localStorage.setItem('nexus_lang', lang);
+          row.querySelectorAll('.pin-lang-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          const sub = document.querySelector('.pin-sub');
+          if (sub) sub.textContent = PIN_SUB_TEXT[lang] || PIN_SUB_TEXT.en;
+          // Update i18n if it's already set up
+          if (this.i18n?.setLang) try { this.i18n.setLang(lang); } catch(_) {}
+        });
       });
-    });
+      // Set the sub-text now too in case it was wrong on first paint
+      const sub = document.querySelector('.pin-sub');
+      if (sub) sub.textContent = PIN_SUB_TEXT[current] || PIN_SUB_TEXT.en;
+    };
+
+    // Render with the configured set, but don't block on it. Show EN/ES
+    // immediately so the screen never looks broken; replace once config arrives.
+    renderPinLangs(['en','es'], 'en');
+    this.sb.from('nexus_config').select('primary_languages,default_language').eq('id', 1).single()
+      .then(({ data }) => {
+        if (data) renderPinLangs(data.primary_languages || ['en','es'], data.default_language || 'en');
+      })
+      .catch(() => { /* keep the EN/ES fallback */ });
 
     // ═══ BIOMETRIC AUTH — fingerprint/face as PIN alternative ═══
     if (NX.biometric && await NX.biometric.check()) {
@@ -401,7 +443,18 @@ const NX = {
     sessionStorage.setItem('nexus_current_user', JSON.stringify(safeUser));
     // Keep PIN only in memory for session verification
     this._sessionPin = pin;
-    if (user.language && this.i18n && user.language !== this.i18n.getLang()) {
+    // Language sync — three cases:
+    // 1) User has no language set: adopt whatever was on the PIN screen
+    // 2) PIN-screen choice differs from user's saved language: update the
+    //    user record (option A — saves immediately, takes effect next session)
+    // 3) Else: pull saved language into localStorage so the app honors it
+    const pinLang = localStorage.getItem('nexus_lang');
+    if (pinLang && pinLang !== user.language) {
+      // Update user record — fire-and-forget, don't block login
+      this.sb.from('nexus_users').update({ language: pinLang }).eq('id', user.id)
+        .then(() => { user.language = pinLang; this.currentUser.language = pinLang; })
+        .catch(e => console.warn('[auth] language sync failed:', e?.message));
+    } else if (user.language && this.i18n && user.language !== this.i18n.getLang()) {
       localStorage.setItem('nexus_lang', user.language);
     }
     userEl.textContent = (this.i18n ? this.i18n.t('welcome') : 'Welcome,') + ' ' + user.name;
@@ -985,6 +1038,55 @@ td.check{background:#F0EDE6 !important}
         document.getElementById('adminTrelloToken').placeholder = tt ? 'Token set (••••' + tt.slice(-4) + ')' : 'Trello Token';
         document.getElementById('adminModel').value = this.getModel();
         document.getElementById('adminVoice').value = (this.config && this.config.voice_idx != null) ? this.config.voice_idx : (localStorage.getItem('nexus_voice_idx') || '0');
+
+        // ── Language chips + default language picker ──
+        // 12 supported codes — same order as everywhere else in NEXUS.
+        const SUPPORTED_LANGS = [
+          ['en','English'],['es','Español'],['fr','Français'],['pt','Português'],
+          ['it','Italiano'],['de','Deutsch'],['zh','中文'],['ja','日本語'],
+          ['ko','한국어'],['vi','Tiếng Việt'],['ar','العربية'],['hi','हिन्दी'],
+        ];
+        const grid = document.getElementById('adminLangGrid');
+        const defaultSel = document.getElementById('adminDefaultLang');
+        if (grid && defaultSel) {
+          const selected = new Set(this.config?.primary_languages || ['en','es']);
+          const currentDefault = this.config?.default_language || 'en';
+          const renderDefaultOptions = () => {
+            const opts = [...selected];
+            if (!opts.includes(currentDefault) && opts.length) {
+              // currentDefault was just unselected — fall back to first
+            }
+            defaultSel.innerHTML = opts.map(c => {
+              const name = (SUPPORTED_LANGS.find(l => l[0] === c) || [c, c])[1];
+              const sel = c === currentDefault ? ' selected' : '';
+              return `<option value="${c}"${sel}>${name}</option>`;
+            }).join('') || `<option value="en">English</option>`;
+          };
+          grid.innerHTML = SUPPORTED_LANGS.map(([code, name]) => `
+            <button type="button" class="admin-lang-chip${selected.has(code)?' active':''}" data-lang="${code}">
+              <span>${name}</span>
+            </button>
+          `).join('');
+          grid.querySelectorAll('.admin-lang-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+              const code = chip.dataset.lang;
+              if (selected.has(code)) {
+                if (selected.size <= 1) return; // need at least one
+                selected.delete(code);
+                chip.classList.remove('active');
+              } else {
+                if (selected.size >= 4) return; // cap at 4
+                selected.add(code);
+                chip.classList.add('active');
+              }
+              renderDefaultOptions();
+            });
+          });
+          renderDefaultOptions();
+          // Stash the live set on the grid so the save handler can read it
+          grid._selected = selected;
+        }
+
         // Voice saves immediately on change
         document.getElementById('adminVoice').addEventListener('change', async (e) => {
           const idx = parseInt(e.target.value) || 0;
@@ -1059,6 +1161,16 @@ td.check{background:#F0EDE6 !important}
         voice_idx: parseInt(document.getElementById('adminVoice').value)||0,
         updated_at: new Date().toISOString()
       };
+      // Language settings (admin-controlled)
+      const grid = document.getElementById('adminLangGrid');
+      const defaultSel = document.getElementById('adminDefaultLang');
+      if (grid && grid._selected && grid._selected.size > 0) {
+        updates.primary_languages = [...grid._selected];
+        const def = defaultSel?.value || 'en';
+        updates.default_language = updates.primary_languages.includes(def)
+          ? def
+          : updates.primary_languages[0];
+      }
       localStorage.setItem('nexus_voice_idx', document.getElementById('adminVoice').value);
       // Also save to localStorage as backup
       if (ak) localStorage.setItem('nexus_api_key', ak);
