@@ -480,12 +480,21 @@
     return false;
   }
 
-  // Apply a user's language choice: persist, update i18n if present,
-  // then either translate the visible DOM or revert.
+  // Apply a user's language choice: persist (localStorage AND, when
+  // possible, nexus_users.language so it sticks across devices), update
+  // i18n if present, then either translate the visible DOM or revert.
   async function setTarget(lang, opts) {
     opts = opts || {};
-    const prev = localStorage.getItem('nexus_lang');
     localStorage.setItem('nexus_lang', lang);
+    // Persist to user record so next login lands in the same language.
+    if (NX.currentUser?.id && NX.sb) {
+      try {
+        await NX.sb.from('nexus_users').update({ language: lang }).eq('id', NX.currentUser.id);
+        NX.currentUser.language = lang;
+      } catch (e) {
+        console.warn('[NX.tr] save user language failed:', e?.message || e);
+      }
+    }
     // Sync with legacy dictionary i18n (affects data-i18n elements)
     if (window.NEXUS_I18N?.setLang) {
       try { window.NEXUS_I18N.setLang(lang); } catch(_) {}
@@ -511,26 +520,39 @@
     }
   }
 
-  // ── FAB + PICKER UI ────────────────────────────────────────────────
-  // One floating button, bottom-right above the bottom nav. Shows the
-  // current target language. Tap → picker modal. Mounted once per app
-  // session after login; absent on PIN screen (PIN screen has its own
-  // English/Español toggle for pre-auth).
+  // ── TOP-NAV CHIP + PICKER UI ───────────────────────────────────────
+  // Small chip in the top nav (left of the hamburger) showing the
+  // current language code. Tap → picker modal. Picker prioritizes
+  // `nexus_config.primary_languages` (admin-configured); the rest of
+  // the supported set lives behind a "More languages" disclosure.
+  // Mounted once per app session after login. Replaces the old FAB.
   function mountFab() {
-    if (document.getElementById('nxTrFab')) return;
-    const fab = document.createElement('button');
-    fab.id = 'nxTrFab';
-    fab.className = 'nx-tr-fab';
-    fab.type = 'button';
-    fab.innerHTML = `<span class="nx-tr-fab-icon">🌐</span><span class="nx-tr-fab-lang" id="nxTrFabLang">${currentCode()}</span>`;
-    fab.addEventListener('click', (e) => {
+    // Kept for backward compat with app.js — same name, different mount.
+    if (document.getElementById('nxTrChip')) return;
+    const navMore = document.getElementById('navMore');
+    if (!navMore || !navMore.parentNode) {
+      // Top nav not ready yet — try again shortly. Avoids races during
+      // first-paint when app.js mounts us before lucide finishes.
+      setTimeout(mountFab, 200);
+      return;
+    }
+    const chip = document.createElement('button');
+    chip.id = 'nxTrChip';
+    chip.type = 'button';
+    chip.className = 'nx-tr-chip';
+    chip.title = 'Language';
+    chip.innerHTML =
+      `<span class="nx-tr-chip-icon">🌐</span>` +
+      `<span class="nx-tr-chip-lang" id="nxTrChipLang">${currentCode()}</span>`;
+    chip.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       openPicker();
     });
-    document.body.appendChild(fab);
+    navMore.parentNode.insertBefore(chip, navMore);
+
     // Re-apply saved non-English lang on startup so users don't have to
-    // tap the FAB every session. Small delay lets modules finish their
+    // tap the chip every session. Small delay lets modules finish their
     // first render, then we translate their output.
     const saved = localStorage.getItem('nexus_lang');
     if (saved && saved !== 'en' && SUPPORTED.includes(saved)) {
@@ -546,13 +568,14 @@
   }
 
   function refreshFab() {
-    const el = document.getElementById('nxTrFabLang');
+    const el = document.getElementById('nxTrChipLang');
     if (el) el.textContent = currentCode();
   }
 
-  // Picker modal — two big EN/ES buttons on top (the team's primary
-  // languages), "More languages" expands the rest. Picking applies
-  // immediately and closes the modal.
+  // Picker modal — admin-configured "primary" languages get big buttons
+  // up top (Suerte/Este/Bar Toti's working set: EN/ES by default).
+  // Everything else lives behind a "More languages" disclosure.
+  // Picking applies immediately and closes the modal.
   function openPicker() {
     const existing = document.getElementById('nxTrPicker');
     if (existing) { existing.remove(); return; }
@@ -560,11 +583,16 @@
     const modal = document.createElement('div');
     modal.id = 'nxTrPicker';
     modal.className = 'nx-tr-picker-bg';
-    const primary = [
-      { code: 'en', name: 'English' },
-      { code: 'es', name: 'Español' },
-    ];
-    const others = SUPPORTED.filter(c => !primary.find(p => p.code === c));
+
+    // Read admin config; fall back to EN/ES if anything's missing.
+    const cfgPrimary = (NX.config?.primary_languages || []).filter(c => SUPPORTED.includes(c));
+    const primaryCodes = cfgPrimary.length ? cfgPrimary : ['en','es'];
+    const primary = primaryCodes.map(code => ({
+      code,
+      name: LANG_NAMES[code] || code.toUpperCase(),
+    }));
+    const others = SUPPORTED.filter(c => !primaryCodes.includes(c));
+
     modal.innerHTML = `
       <div class="nx-tr-picker">
         <div class="nx-tr-picker-head">
@@ -579,6 +607,7 @@
             </button>
           `).join('')}
         </div>
+        ${others.length ? `
         <details class="nx-tr-picker-more">
           <summary>More languages</summary>
           <div class="nx-tr-picker-grid">
@@ -588,7 +617,7 @@
               </button>
             `).join('')}
           </div>
-        </details>
+        </details>` : ''}
         <div class="nx-tr-picker-note">
           Translations are cached — after the first time, they're instant.
         </div>
