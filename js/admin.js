@@ -312,8 +312,8 @@ async function init(){
   if(!gmailRestored){
     // Check server for a stored refresh token — source of truth
     try{
-      const{data:cfg}=await NX.sb.from('nexus_config').select('config').eq('id',1).single();
-      if(cfg?.config?.gmail_refresh_token){
+      const{data:status}=await NX.sb.rpc('get_admin_config_status');
+      if(status?.gmail_connected){
         const ok=await autoRefreshGmail();
         if(!ok)showGmailDisconnected();
       }else{
@@ -924,15 +924,14 @@ async function updateServerHeartbeat(){
   const action=document.getElementById('hbAction');
   if(!card||!dot||!line||!sub)return;
   try{
-    const{data,error}=await NX.sb.from('nexus_config').select('config').eq('id',1).single();
+    const{data:cfg,error}=await NX.sb.rpc('get_admin_config_status');
     if(error)throw error;
-    const cfg=(data&&data.config)||{};
-    const lastRun=cfg.last_process_run_at;
-    const lastPull=cfg.last_gmail_pull_at;
-    const lastPush=cfg.gmail_last_push_at;
-    const pushStatus=cfg.gmail_last_push_status;
-    const err=cfg.last_process_error;
-    const procStatus=cfg.last_process_status;
+    const lastRun=cfg?.last_process_run_at;
+    const lastPull=cfg?.last_gmail_pull_at;
+    const lastPush=cfg?.gmail_last_push_at;
+    const pushStatus=cfg?.gmail_last_push_status;
+    const err=cfg?.last_process_error;
+    const procStatus=cfg?.last_process_status;
     const newest=[lastRun,lastPull,lastPush].filter(Boolean).sort().pop();
 
     card.className='ig-status';
@@ -2484,7 +2483,7 @@ async function generateDigest(){
       NX.sb.from('nodes').select('name,category,created_at').gte('created_at',weekAgo),
       NX.sb.from('kanban_cards').select('title,column_name,due_date,location').limit(50),
       NX.sb.from('daily_logs').select('entry,created_at').gte('created_at',weekAgo).like('entry','%Cleaning%'),
-      NX.sb.from('chat_history').select('question,answer,user_name,created_at').gte('created_at',weekAgo).limit(50)
+      NX.sb.rpc('get_chat_history_admin', { p_since: weekAgo, p_limit: 50 })
     ]);
 
     const hours=hoursR.status==='fulfilled'?hoursR.value.data||[]:[];
@@ -2575,9 +2574,7 @@ async function smartReminders(){
     const twoWeeks=new Date(Date.now()-14*86400000).toISOString();
 
     // Get recent chats
-    const{data:chats}=await NX.sb.from('chat_history')
-      .select('question,answer,user_name,created_at')
-      .gte('created_at',twoWeeks).order('created_at',{ascending:false}).limit(100);
+    const{data:chats}=await NX.sb.rpc('get_chat_history_admin', { p_since: twoWeeks, p_limit: 100 });
 
     // Get existing cards and tickets
     const{data:cards}=await NX.sb.from('kanban_cards').select('title').limit(200);
@@ -2725,11 +2722,10 @@ async function scanSensitive(){
   let deletePatterns=[];
   let customRules=[];
   try{
-    const{data}=await NX.sb.from('nexus_config').select('config').eq('id',1).single();
-    const cfg=data?.config||{};
-    safePatterns=cfg.privacy_safe||[];
-    deletePatterns=cfg.privacy_deleted||[];
-    customRules=cfg.privacy_custom_rules||[];
+    const{data}=await NX.sb.rpc('get_admin_privacy_rules');
+    safePatterns=data?.privacy_safe||[];
+    deletePatterns=data?.privacy_deleted||[];
+    customRules=data?.privacy_custom_rules||[];
   }catch(e){
     // Fallback to localStorage
     safePatterns=JSON.parse(localStorage.getItem('nexus_safe_patterns')||'[]');
@@ -2799,12 +2795,13 @@ If nothing sensitive: {"flagged":[]}`,
   // Save learned rules back to Supabase
   async function savePrivacyRules(){
     try{
-      const{data}=await NX.sb.from('nexus_config').select('config').eq('id',1).single();
-      const cfg=data?.config||{};
-      cfg.privacy_safe=safePatterns.slice(-50);
-      cfg.privacy_deleted=deletePatterns.slice(-30);
-      cfg.privacy_custom_rules=customRules;
-      await NX.sb.from('nexus_config').upsert({id:1,config:cfg});
+      // RPC does a proper jsonb merge — won't wipe gmail_refresh_token,
+      // VAPID key, or any other field stored alongside in config.
+      await NX.sb.rpc('save_admin_privacy_rules', {
+        p_safe:         safePatterns.slice(-50),
+        p_deleted:      deletePatterns.slice(-30),
+        p_custom_rules: customRules,
+      });
     }catch(e){
       // Fallback save to localStorage
       localStorage.setItem('nexus_safe_patterns',JSON.stringify(safePatterns));
