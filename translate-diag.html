@@ -3,96 +3,204 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NEXUS Translate Diag</title>
+<title>NEXUS Translation Pipeline Diagnostic</title>
 <style>
-  body{background:#0a0a0a;color:#d4c8a5;font-family:monospace;font-size:14px;padding:14px;line-height:1.6}
-  h1{color:#c8a44e;font-size:16px;margin:0 0 12px}
-  .ok{color:#4ade80}.bad{color:#ef4444}.warn{color:#fbbf24}
-  pre{background:#141414;padding:10px;border-radius:6px;white-space:pre-wrap;word-break:break-all;border:1px solid #2a2a2a}
-  button{background:#c8a44e;color:#0a0a0a;border:0;padding:10px 16px;border-radius:6px;font-weight:600;font-size:14px;margin:6px 0;cursor:pointer}
+  body{background:#0a0a0a;color:#d4c8a5;font-family:monospace;font-size:13px;padding:14px;line-height:1.5;margin:0}
+  h1{color:#c8a44e;font-size:15px;margin:0 0 8px}
+  h2{color:#c8a44e;font-size:13px;margin:14px 0 4px;border-top:1px solid #2a2a2a;padding-top:10px}
+  .ok{color:#4ade80}.bad{color:#ef4444}.warn{color:#fbbf24}.dim{color:#666}
+  pre{background:#141414;padding:8px;border-radius:4px;white-space:pre-wrap;word-break:break-all;border:1px solid #2a2a2a;margin:4px 0;font-size:12px;max-height:300px;overflow:auto}
+  button{background:#c8a44e;color:#0a0a0a;border:0;padding:10px 14px;border-radius:6px;font-weight:600;font-size:13px;margin:4px 4px 4px 0;cursor:pointer}
+  button.alt{background:#2a2a2a;color:#d4c8a5;border:1px solid #444}
+  .step{margin:6px 0}
+  iframe{width:100%;height:200px;border:1px solid #444;border-radius:4px;background:#000;margin-top:8px}
+  .input-row{margin:4px 0}
+  input{background:#1a1a1a;color:#d4c8a5;border:1px solid #444;padding:6px 10px;border-radius:4px;width:100%;font-family:inherit;font-size:13px;box-sizing:border-box}
 </style>
 </head>
 <body>
-<h1>🔍 NEXUS Translate Diagnostic</h1>
-<p>This loads your live <code>translate.js</code> and tells you exactly what's there.</p>
-<button onclick="runDiag()">Run Diagnostic</button>
-<pre id="out">Tap the button above.</pre>
+<h1>🔬 NEXUS Translation Pipeline Diagnostic</h1>
+<p class="dim">Tests every stage of the translation pipeline against your live deployment.</p>
+
+<button onclick="runFull()">🚀 Run All Tests</button>
+<button class="alt" onclick="document.getElementById('out').innerHTML=''">Clear</button>
+
+<pre id="out">Tap "Run All Tests" to begin.</pre>
+
+<h2>Manual: Test specific text</h2>
+<div class="input-row">
+  <input id="customText" placeholder='Custom text to translate' value="Welcome to NEXUS, all equipment is current">
+</div>
+<button onclick="testCustom()">Translate Custom Text</button>
 
 <script>
-async function runDiag() {
-  const out = document.getElementById('out');
-  const log = (msg, cls) => out.innerHTML += `<span class="${cls||''}">${msg}</span>\n`;
-  out.innerHTML = '';
+const SUPABASE_URL = 'https://oprsthfxqrdbwdvommpw.supabase.co';
+const SUPABASE_ANON_KEY = '';  // will fetch from config.js
+const out = document.getElementById('out');
 
-  // Step 1: Fetch the deployed file
-  log('━━━ STEP 1: Fetching translate.js ━━━', 'warn');
-  let code;
+function log(msg, cls) {
+  out.innerHTML += `<span class="${cls||''}">${msg}</span>\n`;
+  out.scrollTop = out.scrollHeight;
+}
+
+function clearOut() { out.innerHTML = ''; }
+
+async function getAnonKey() {
+  // Pull anon key from the live NEXUS config.js
   try {
-    const r = await fetch('https://orioncontinuity.github.io/nexus/js/translate.js?_=' + Date.now());
-    code = await r.text();
-    log(`✓ HTTP ${r.status}, ${code.length} bytes`, 'ok');
-  } catch(e) {
-    log('✗ Fetch failed: ' + e.message, 'bad'); return;
-  }
+    const r = await fetch('https://orioncontinuity.github.io/nexus/js/config.js?_=' + Date.now());
+    const code = await r.text();
+    const m = code.match(/['"](eyJ[A-Za-z0-9_\-\.]+)['"]/);
+    return m ? m[1] : null;
+  } catch(e) { return null; }
+}
 
-  // Step 2: Look for the bug signature
-  log('\n━━━ STEP 2: Bug signature check ━━━', 'warn');
-  const m = code.match(/NX\.tr\s*=\s*\{([^}]+)\}/);
-  if (!m) { log('✗ Could not find NX.tr = {} block', 'bad'); return; }
-  const block = m[1];
-  const buggy = /\bbatch,\s*\n\s*translatePage,/.test(block);
-  log(buggy ? '✗ BUGGY VERSION DEPLOYED (forward refs present)' : '✓ FIXED VERSION DEPLOYED', buggy?'bad':'ok');
-  log('First IIFE NX.tr block:', 'warn');
-  log(block.trim().split('\n').slice(0,15).join('\n'));
+async function runFull() {
+  clearOut();
+  log('━━━ STAGE 1: Edge function direct test ━━━', 'warn');
 
-  // Step 3: Actually run the file
-  log('\n━━━ STEP 3: Loading translate.js into this page ━━━', 'warn');
-  window.NX = window.NX || {};
+  const anonKey = await getAnonKey();
+  if (!anonKey) { log('✗ Could not get anon key from config.js', 'bad'); return; }
+  log('✓ Got anon key (' + anonKey.length + ' chars, prefix: ' + anonKey.slice(0, 20) + '...)', 'ok');
+
+  // Test 1: Single text translation
+  log('\nTest 1: Single string translation', 'warn');
   try {
-    eval(code);
-    log('✓ No syntax/runtime error during load', 'ok');
-  } catch(e) {
-    log('✗ CRASH on load: ' + e.message, 'bad');
-    log('  (this is what happens in NEXUS too)', 'warn');
-    return;
-  }
+    const r = await fetch(SUPABASE_URL + '/functions/v1/translate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + anonKey,
+        'apikey': anonKey,
+      },
+      body: JSON.stringify({ text: 'Welcome to NEXUS', target: 'es' })
+    });
+    const data = await r.json();
+    log('  HTTP ' + r.status, r.ok ? 'ok' : 'bad');
+    log('  Response: ' + JSON.stringify(data).slice(0, 300));
+    if (data.translated) log('  ✓ Got translation: "' + data.translated + '"', 'ok');
+  } catch(e) { log('  ✗ ' + e.message, 'bad'); }
 
-  // Step 4: Inspect NX.tr
-  log('\n━━━ STEP 4: NX.tr inspection ━━━', 'warn');
-  log('typeof NX.tr: ' + typeof NX.tr, NX.tr ? 'ok':'bad');
-  if (!NX.tr) { log('NX.tr never got initialized', 'bad'); return; }
-  const keys = Object.keys(NX.tr);
-  log('Keys (' + keys.length + '): ' + keys.join(', '));
-  ['mountFab','translatePage','openPicker','batch','setTarget'].forEach(k => {
-    const t = typeof NX.tr[k];
-    log('  NX.tr.' + k + ': ' + t, t==='function'?'ok':'bad');
+  // Test 2: Batch translation (this is what NX.tr.batch uses)
+  log('\nTest 2: Batch translation (texts: array)', 'warn');
+  try {
+    const r = await fetch(SUPABASE_URL + '/functions/v1/translate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + anonKey,
+        'apikey': anonKey,
+      },
+      body: JSON.stringify({
+        texts: ['Welcome', 'Evening', 'All equipment is current', 'Nothing urgent this morning'],
+        target: 'es'
+      })
+    });
+    const data = await r.json();
+    log('  HTTP ' + r.status, r.ok ? 'ok' : 'bad');
+    log('  Response: ' + JSON.stringify(data).slice(0, 600));
+    if (data.translations && Array.isArray(data.translations)) {
+      log('  ✓ Got ' + data.translations.length + ' translations:', 'ok');
+      data.translations.forEach((t, i) => log('    [' + i + '] ' + t));
+    } else {
+      log('  ✗ data.translations is missing or not an array', 'bad');
+    }
+  } catch(e) { log('  ✗ ' + e.message, 'bad'); }
+
+  // Stage 2: Load translate.js + run NX.tr.batch as NEXUS would
+  log('\n━━━ STAGE 2: NX.tr.batch via deployed translate.js ━━━', 'warn');
+
+  // Load Supabase client + config
+  log('Loading supabase client...');
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+    s.onload = res;
+    s.onerror = rej;
+    document.head.appendChild(s);
   });
+  log('  ✓ supabase client loaded', 'ok');
 
-  // Step 5: Try to mount the FAB
-  log('\n━━━ STEP 5: Calling mountFab() ━━━', 'warn');
-  if (typeof NX.tr.mountFab !== 'function') {
-    log('✗ Cannot — mountFab is not a function', 'bad');
-    return;
-  }
+  window.NX = window.NX || {};
+  window.NX.sb = window.supabase.createClient(SUPABASE_URL, anonKey);
+  log('  ✓ NX.sb initialized', 'ok');
+
+  log('Loading deployed translate.js...');
+  const tjsRes = await fetch('https://orioncontinuity.github.io/nexus/js/translate.js?_=' + Date.now());
+  const tjsCode = await tjsRes.text();
   try {
-    NX.tr.mountFab();
-    const fab = document.getElementById('nxTrFab');
-    log(fab ? '✓ FAB element created and in DOM' : '✗ mountFab ran but no #nxTrFab element', fab?'ok':'bad');
-    if (fab) log('  FAB visible? ' + (fab.offsetParent !== null), 'warn');
+    eval(tjsCode);
+    log('  ✓ translate.js loaded, NX.tr keys: ' + Object.keys(NX.tr).join(','), 'ok');
   } catch(e) {
-    log('✗ mountFab threw: ' + e.message, 'bad');
+    log('  ✗ translate.js threw: ' + e.message, 'bad'); return;
   }
 
-  // Step 6: Try translatePage
-  log('\n━━━ STEP 6: Calling translatePage("es") ━━━', 'warn');
+  // Now call NX.tr.batch directly
+  log('\nTest 3: NX.tr.batch(["Welcome", "Evening"], "es")', 'warn');
   try {
-    const result = await NX.tr.translatePage('es', { timeout: 5000 });
-    log('✓ translatePage returned: ' + JSON.stringify(result).slice(0,200), 'ok');
+    const result = await NX.tr.batch(['Welcome', 'Evening', 'All equipment is current'], 'es');
+    log('  Result: ' + JSON.stringify(result));
+    if (Array.isArray(result) && result[0] !== 'Welcome') {
+      log('  ✓ Translation succeeded', 'ok');
+    } else {
+      log('  ⚠ Result equals input — translation no-op or fallback', 'warn');
+    }
   } catch(e) {
-    log('✗ translatePage error: ' + e.message, 'bad');
+    log('  ✗ ' + e.message, 'bad');
+  }
+
+  // Stage 3: Test NX.tr.translatePage on a stub DOM
+  log('\n━━━ STAGE 3: translatePage on DOM ━━━', 'warn');
+  const testDom = document.createElement('div');
+  testDom.id = 'tr-test-dom';
+  testDom.innerHTML = `
+    <h1>Evening, Alfredo.</h1>
+    <p>All equipment is current and nothing new came in overnight.</p>
+    <p>The restaurants are calm.</p>
+  `;
+  document.body.appendChild(testDom);
+  log('Created test DOM with 3 strings');
+  log('  Before: ' + testDom.querySelector('h1').textContent);
+
+  try {
+    await NX.tr.translatePage('es', { root: testDom });
+    log('  After: ' + testDom.querySelector('h1').textContent);
+    if (testDom.querySelector('h1').textContent.includes('Alfredo') && !testDom.querySelector('h1').textContent.startsWith('Evening')) {
+      log('  ✓ DOM was translated', 'ok');
+    } else {
+      log('  ✗ DOM unchanged', 'bad');
+    }
+  } catch(e) {
+    log('  ✗ translatePage threw: ' + e.message, 'bad');
+    log('  Stack: ' + String(e.stack || '').slice(0, 400));
   }
 
   log('\n━━━ DONE ━━━', 'warn');
+}
+
+async function testCustom() {
+  const text = document.getElementById('customText').value;
+  if (!text) return;
+  clearOut();
+  log('Translating: "' + text + '" → es', 'warn');
+
+  const anonKey = await getAnonKey();
+  if (!anonKey) { log('✗ No anon key', 'bad'); return; }
+
+  try {
+    const r = await fetch(SUPABASE_URL + '/functions/v1/translate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + anonKey,
+        'apikey': anonKey,
+      },
+      body: JSON.stringify({ text, target: 'es' })
+    });
+    const data = await r.json();
+    log('HTTP ' + r.status);
+    log(JSON.stringify(data, null, 2));
+  } catch(e) { log('✗ ' + e.message, 'bad'); }
 }
 </script>
 </body>
