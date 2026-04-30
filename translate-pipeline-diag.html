@@ -1,255 +1,207 @@
-// NEXUS Translate — on-demand content translation with durable cache.
-//
-// Why an edge function and not a client-side call?
-//   - Anthropic API key stays server-side (never ships to browser)
-//   - The cache is shared across ALL users — once someone on the team
-//     translates a vendor email, everyone else gets it free
-//   - Rate-limiting & retry logic lives in one place
-//
-// Cache strategy: SHA-256 of normalized content + target_lang is the
-// key. Same text → same translation → single row, reused forever. A
-// busy kitchen with 5 Spanish-speaking cooks reading the same vendor
-// email sees one API call, four cache hits.
-//
-// Usage:
-//   POST /translate
-//   body: { text: "...", target: "es" }
-//   body: { text: "...", target: "es", source: "en" }  // optional hint
-//   body: { text: "...", target: "es", force: true }   // skip cache
-//
-// Response:
-//   { translated: "...", source_lang: "en", cached: false, hash: "..." }
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NEXUS Translation Pipeline Diagnostic</title>
+<style>
+  body{background:#0a0a0a;color:#d4c8a5;font-family:monospace;font-size:13px;padding:14px;line-height:1.5;margin:0}
+  h1{color:#c8a44e;font-size:15px;margin:0 0 8px}
+  h2{color:#c8a44e;font-size:13px;margin:14px 0 4px;border-top:1px solid #2a2a2a;padding-top:10px}
+  .ok{color:#4ade80}.bad{color:#ef4444}.warn{color:#fbbf24}.dim{color:#666}
+  pre{background:#141414;padding:8px;border-radius:4px;white-space:pre-wrap;word-break:break-all;border:1px solid #2a2a2a;margin:4px 0;font-size:12px;max-height:300px;overflow:auto}
+  button{background:#c8a44e;color:#0a0a0a;border:0;padding:10px 14px;border-radius:6px;font-weight:600;font-size:13px;margin:4px 4px 4px 0;cursor:pointer}
+  button.alt{background:#2a2a2a;color:#d4c8a5;border:1px solid #444}
+  .step{margin:6px 0}
+  iframe{width:100%;height:200px;border:1px solid #444;border-radius:4px;background:#000;margin-top:8px}
+  .input-row{margin:4px 0}
+  input{background:#1a1a1a;color:#d4c8a5;border:1px solid #444;padding:6px 10px;border-radius:4px;width:100%;font-family:inherit;font-size:13px;box-sizing:border-box}
+</style>
+</head>
+<body>
+<h1>🔬 NEXUS Translation Pipeline Diagnostic</h1>
+<p class="dim">Tests every stage of the translation pipeline against your live deployment.</p>
 
-import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+<button onclick="runFull()">🚀 Run All Tests</button>
+<button class="alt" onclick="document.getElementById('out').innerHTML=''">Clear</button>
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-api-version",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Max-Age": "86400",
-  "Vary": "Origin",
-};
+<pre id="out">Tap "Run All Tests" to begin.</pre>
 
-// Languages we support. Add more anytime — Claude handles most of the
-// world's languages, this is just the allow-list for UI validation.
-const SUPPORTED = new Set(["en", "es", "fr", "pt", "it", "de", "zh", "ja", "ko", "vi", "ar", "hi"]);
+<h2>Manual: Test specific text</h2>
+<div class="input-row">
+  <input id="customText" placeholder='Custom text to translate' value="Welcome to NEXUS, all equipment is current">
+</div>
+<button onclick="testCustom()">Translate Custom Text</button>
 
-// Content hash — used for cache key. Normalizes whitespace + case so
-// "Hello World" and "hello  world" share a translation. Length-bounded
-// so we don't build obscene strings in JS.
-async function hashContent(text: string, target: string): Promise<string> {
-  const normalized = text.trim().replace(/\s+/g, " ").toLowerCase().slice(0, 10000);
-  const buffer = new TextEncoder().encode(`${target}:${normalized}`);
-  const digest = await crypto.subtle.digest("SHA-256", buffer);
-  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
+<script>
+const SUPABASE_URL = 'https://oprsthfxqrdbwdvommpw.supabase.co';
+const SUPABASE_ANON_KEY = '';  // will fetch from config.js
+const out = document.getElementById('out');
+
+function log(msg, cls) {
+  out.innerHTML += `<span class="${cls||''}">${msg}</span>\n`;
+  out.scrollTop = out.scrollHeight;
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") {
-    return new Response("method not allowed", { status: 405, headers: corsHeaders });
-  }
+function clearOut() { out.innerHTML = ''; }
 
+async function getAnonKey() {
+  // Pull anon key from the live NEXUS config.js
   try {
-    const body = await req.json();
-    const { text, texts, target, source, force } = body;
+    const r = await fetch('https://orioncontinuity.github.io/nexus/js/config.js?_=' + Date.now());
+    const code = await r.text();
+    const m = code.match(/['"](eyJ[A-Za-z0-9_\-\.]+)['"]/);
+    return m ? m[1] : null;
+  } catch(e) { return null; }
+}
 
-    if (!target || !SUPPORTED.has(target)) {
-      throw new Error(`unsupported target language: ${target}`);
-    }
+async function runFull() {
+  clearOut();
+  log('━━━ STAGE 1: Edge function direct test ━━━', 'warn');
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!anthropicKey) throw new Error("ANTHROPIC_API_KEY not configured");
-    const sb = createClient(supabaseUrl, supabaseKey);
+  const anonKey = await getAnonKey();
+  if (!anonKey) { log('✗ Could not get anon key from config.js', 'bad'); return; }
+  log('✓ Got anon key (' + anonKey.length + ' chars, prefix: ' + anonKey.slice(0, 20) + '...)', 'ok');
 
-    // ── BATCH MODE ─────────────────────────────────────────────────
-    // When the client sends a `texts: string[]`, translate all of them
-    // in one request. This is how NX.tr.translatePage() bulk-translates
-    // a whole UI. Each string is still hashed + cached independently so
-    // we don't pay for the same phrase twice across pages.
-    if (Array.isArray(texts)) {
-      if (texts.length === 0) {
-        return new Response(JSON.stringify({ translations: [], source_lang: null }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (texts.length > 50) throw new Error("max 50 texts per batch");
-
-      // Cache-check each, collect cache misses for a single Claude call
-      const results: string[] = new Array(texts.length);
-      const misses: { index: number; text: string; hash: string }[] = [];
-
-      await Promise.all(texts.map(async (t, idx) => {
-        const input = String(t || "").slice(0, 20000);
-        if (input.trim().length < 2) { results[idx] = input; return; }
-        const hash = await hashContent(input, target);
-        if (!force) {
-          const { data: cached } = await sb.from("translations")
-            .select("translated").eq("hash", hash).maybeSingle();
-          if (cached) {
-            results[idx] = cached.translated;
-            // bump last_used_at async
-            sb.from("translations").update({ last_used_at: new Date().toISOString() })
-              .eq("hash", hash).then(() => {}).catch(() => {});
-            return;
-          }
-        }
-        misses.push({ index: idx, text: input, hash });
-      }));
-
-      // One Claude call for ALL cache misses, using a numbered delimiter
-      // format so we can split the response reliably. Each item is wrapped
-      // in <t N>...</t N> tags; Claude returns the same structure.
-      if (misses.length > 0) {
-        const targetName: Record<string, string> = {
-          en: "English", es: "Spanish", fr: "French", pt: "Portuguese",
-          it: "Italian", de: "German", zh: "Chinese (Simplified)",
-          ja: "Japanese", ko: "Korean", vi: "Vietnamese", ar: "Arabic", hi: "Hindi",
-        };
-        const targetLabel = targetName[target] || target;
-        const wrapped = misses.map((m, i) => `<t${i}>${m.text}</t${i}>`).join("\n");
-
-        const claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": anthropicKey,
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model: "claude-haiku-4-5-20251001",
-            max_tokens: 4096,
-            system: `You are a professional translator for a restaurant operations app. Translate each numbered segment to ${targetLabel}. Preserve the <tN>...</tN> tags exactly. Inside each tag, output only the translation — no commentary. If a segment is already in ${targetLabel}, output it unchanged. Preserve line breaks, model numbers, and technical terms.`,
-            messages: [{ role: "user", content: wrapped }],
-          }),
-        });
-        if (!claudeResp.ok) {
-          const errTxt = await claudeResp.text();
-          throw new Error(`Claude API ${claudeResp.status}: ${errTxt.slice(0, 200)}`);
-        }
-        const claudeData = await claudeResp.json();
-        const raw = claudeData.content?.[0]?.text || "";
-
-        // Parse numbered tags back out. If a tag is missing, fall back
-        // to the original (never show "undefined" to the user).
-        const writes: any[] = [];
-        misses.forEach((m, i) => {
-          const re = new RegExp(`<t${i}>([\\s\\S]*?)</t${i}>`);
-          const match = raw.match(re);
-          const translated = match ? match[1].trim() : m.text;
-          results[m.index] = translated;
-          writes.push({
-            hash: m.hash,
-            source_text: m.text.slice(0, 5000),
-            source_lang: "auto",
-            target_lang: target,
-            translated,
-            char_count: m.text.length,
-            created_at: new Date().toISOString(),
-            last_used_at: new Date().toISOString(),
-          });
-        });
-        // Bulk upsert cache in the background — don't block response
-        if (writes.length) {
-          sb.from("translations").upsert(writes, { onConflict: "hash" })
-            .then(() => {}).catch((e) => console.warn("[translate] batch cache write:", e));
-        }
-      }
-
-      return new Response(JSON.stringify({ translations: results, batched: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // ── SINGLE MODE ────────────────────────────────────────────────
-    if (!text || typeof text !== "string") {
-      throw new Error("missing text");
-    }
-    const input = String(text).slice(0, 20000);
-    if (input.length < 2) {
-      return new Response(JSON.stringify({ translated: input, source_lang: target, cached: true, hash: null }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const hash = await hashContent(input, target);
-
-    // Cache hit?
-    if (!force) {
-      const { data: cached } = await sb.from("translations")
-        .select("translated, source_lang, created_at")
-        .eq("hash", hash).maybeSingle();
-      if (cached) {
-        sb.from("translations").update({ last_used_at: new Date().toISOString() }).eq("hash", hash).then(() => {}).catch(() => {});
-        return new Response(JSON.stringify({
-          translated: cached.translated,
-          source_lang: cached.source_lang,
-          cached: true,
-          hash,
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-    }
-
-    const targetName: Record<string, string> = {
-      en: "English", es: "Spanish", fr: "French", pt: "Portuguese",
-      it: "Italian", de: "German", zh: "Chinese (Simplified)",
-      ja: "Japanese", ko: "Korean", vi: "Vietnamese", ar: "Arabic", hi: "Hindi",
-    };
-    const targetLabel = targetName[target] || target;
-    const sourceHint = source && SUPPORTED.has(source)
-      ? `The source language is ${targetName[source] || source}. `
-      : "Detect the source language automatically. ";
-
-    const claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
+  // Test 1: Single text translation
+  log('\nTest 1: Single string translation', 'warn');
+  try {
+    const r = await fetch(SUPABASE_URL + '/functions/v1/translate', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
-        "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01",
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + anonKey,
+        'apikey': anonKey,
+      },
+      body: JSON.stringify({ text: 'Welcome to NEXUS', target: 'es' })
+    });
+    const data = await r.json();
+    log('  HTTP ' + r.status, r.ok ? 'ok' : 'bad');
+    log('  Response: ' + JSON.stringify(data).slice(0, 300));
+    if (data.translated) log('  ✓ Got translation: "' + data.translated + '"', 'ok');
+  } catch(e) { log('  ✗ ' + e.message, 'bad'); }
+
+  // Test 2: Batch translation (this is what NX.tr.batch uses)
+  log('\nTest 2: Batch translation (texts: array)', 'warn');
+  try {
+    const r = await fetch(SUPABASE_URL + '/functions/v1/translate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + anonKey,
+        'apikey': anonKey,
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 4096,
-        system: `You are a professional translator for a restaurant operations app. ${sourceHint}Translate the user's text to ${targetLabel}. Preserve formatting (line breaks, bullet points, technical terms like model numbers). Do not add commentary, disclaimers, or explanations. Output ONLY the translation, nothing else. If the text is already in ${targetLabel}, output it unchanged.`,
-        messages: [{ role: "user", content: input }],
-      }),
+        texts: ['Welcome', 'Evening', 'All equipment is current', 'Nothing urgent this morning'],
+        target: 'es'
+      })
     });
-    if (!claudeResp.ok) {
-      const errTxt = await claudeResp.text();
-      throw new Error(`Claude API ${claudeResp.status}: ${errTxt.slice(0, 200)}`);
+    const data = await r.json();
+    log('  HTTP ' + r.status, r.ok ? 'ok' : 'bad');
+    log('  Response: ' + JSON.stringify(data).slice(0, 600));
+    if (data.translations && Array.isArray(data.translations)) {
+      log('  ✓ Got ' + data.translations.length + ' translations:', 'ok');
+      data.translations.forEach((t, i) => log('    [' + i + '] ' + t));
+    } else {
+      log('  ✗ data.translations is missing or not an array', 'bad');
     }
-    const claudeData = await claudeResp.json();
-    const translated = claudeData.content?.[0]?.text?.trim() || "";
-    if (!translated) throw new Error("empty translation from Claude");
+  } catch(e) { log('  ✗ ' + e.message, 'bad'); }
 
-    const detectedSource = translated.trim() === input.trim()
-      ? target
-      : (source && SUPPORTED.has(source) ? source : "auto");
+  // Stage 2: Load translate.js + run NX.tr.batch as NEXUS would
+  log('\n━━━ STAGE 2: NX.tr.batch via deployed translate.js ━━━', 'warn');
 
-    sb.from("translations").upsert({
-      hash,
-      source_text: input.slice(0, 5000),
-      source_lang: detectedSource,
-      target_lang: target,
-      translated,
-      char_count: input.length,
-      created_at: new Date().toISOString(),
-      last_used_at: new Date().toISOString(),
-    }, { onConflict: "hash" }).then(() => {}).catch((e) => console.warn("[translate] cache write:", e));
+  // Load Supabase client + config
+  log('Loading supabase client...');
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+    s.onload = res;
+    s.onerror = rej;
+    document.head.appendChild(s);
+  });
+  log('  ✓ supabase client loaded', 'ok');
 
-    return new Response(JSON.stringify({
-      translated,
-      source_lang: detectedSource,
-      cached: false,
-      hash,
-    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-  } catch (e) {
-    console.error("[translate] error:", e);
-    return new Response(JSON.stringify({ error: (e as Error).message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  window.NX = window.NX || {};
+  window.NX.sb = window.supabase.createClient(SUPABASE_URL, anonKey);
+  log('  ✓ NX.sb initialized', 'ok');
+
+  log('Loading deployed translate.js...');
+  const tjsRes = await fetch('https://orioncontinuity.github.io/nexus/js/translate.js?_=' + Date.now());
+  const tjsCode = await tjsRes.text();
+  try {
+    eval(tjsCode);
+    log('  ✓ translate.js loaded, NX.tr keys: ' + Object.keys(NX.tr).join(','), 'ok');
+  } catch(e) {
+    log('  ✗ translate.js threw: ' + e.message, 'bad'); return;
   }
-});
+
+  // Now call NX.tr.batch directly
+  log('\nTest 3: NX.tr.batch(["Welcome", "Evening"], "es")', 'warn');
+  try {
+    const result = await NX.tr.batch(['Welcome', 'Evening', 'All equipment is current'], 'es');
+    log('  Result: ' + JSON.stringify(result));
+    if (Array.isArray(result) && result[0] !== 'Welcome') {
+      log('  ✓ Translation succeeded', 'ok');
+    } else {
+      log('  ⚠ Result equals input — translation no-op or fallback', 'warn');
+    }
+  } catch(e) {
+    log('  ✗ ' + e.message, 'bad');
+  }
+
+  // Stage 3: Test NX.tr.translatePage on a stub DOM
+  log('\n━━━ STAGE 3: translatePage on DOM ━━━', 'warn');
+  const testDom = document.createElement('div');
+  testDom.id = 'tr-test-dom';
+  testDom.innerHTML = `
+    <h1>Evening, Alfredo.</h1>
+    <p>All equipment is current and nothing new came in overnight.</p>
+    <p>The restaurants are calm.</p>
+  `;
+  document.body.appendChild(testDom);
+  log('Created test DOM with 3 strings');
+  log('  Before: ' + testDom.querySelector('h1').textContent);
+
+  try {
+    await NX.tr.translatePage('es', { root: testDom });
+    log('  After: ' + testDom.querySelector('h1').textContent);
+    if (testDom.querySelector('h1').textContent.includes('Alfredo') && !testDom.querySelector('h1').textContent.startsWith('Evening')) {
+      log('  ✓ DOM was translated', 'ok');
+    } else {
+      log('  ✗ DOM unchanged', 'bad');
+    }
+  } catch(e) {
+    log('  ✗ translatePage threw: ' + e.message, 'bad');
+    log('  Stack: ' + String(e.stack || '').slice(0, 400));
+  }
+
+  log('\n━━━ DONE ━━━', 'warn');
+}
+
+async function testCustom() {
+  const text = document.getElementById('customText').value;
+  if (!text) return;
+  clearOut();
+  log('Translating: "' + text + '" → es', 'warn');
+
+  const anonKey = await getAnonKey();
+  if (!anonKey) { log('✗ No anon key', 'bad'); return; }
+
+  try {
+    const r = await fetch(SUPABASE_URL + '/functions/v1/translate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + anonKey,
+        'apikey': anonKey,
+      },
+      body: JSON.stringify({ text, target: 'es' })
+    });
+    const data = await r.json();
+    log('HTTP ' + r.status);
+    log(JSON.stringify(data, null, 2));
+  } catch(e) { log('✗ ' + e.message, 'bad'); }
+}
+</script>
+</body>
+</html>
