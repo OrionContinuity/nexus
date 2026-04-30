@@ -777,16 +777,17 @@
   async function hydrateSession(sessionId) {
     if (!sessionId || !NX.sb) return [];
     try {
-      const { data, error } = await NX.sb
-        .from('chat_history')
-        .select('question, answer, created_at')
-        .eq('session_id', sessionId)
-        .order('created_at', { ascending: true })
-        .limit(200);
+      const { data, error } = await NX.sb.rpc('get_chat_history_admin', {
+        p_since: null,
+        p_limit: 200,
+        p_session_id: sessionId,
+      });
       if (error || !data) return [];
+      // RPC returns DESC; flip to ASC for chronological replay.
+      const rows = data.slice().reverse();
       // Each row has q + a. Expand into two turn objects each.
       const turns = [];
-      data.forEach(r => {
+      rows.forEach(r => {
         if (r.question) turns.push({ role: 'user', content: r.question, ts: r.created_at });
         if (r.answer)   turns.push({ role: 'assistant', content: r.answer, ts: r.created_at });
       });
@@ -802,12 +803,10 @@
     try {
       // Group chat_history by session_id, most recent first
       const since = new Date(Date.now() - 60 * 86400000).toISOString();
-      const { data, error } = await NX.sb
-        .from('chat_history')
-        .select('session_id, question, answer, created_at, user_name')
-        .gte('created_at', since)
-        .order('created_at', { ascending: false })
-        .limit(400);
+      const { data, error } = await NX.sb.rpc('get_chat_history_admin', {
+        p_since: since,
+        p_limit: 400,
+      });
       if (error || !data) return;
 
       const byId = new Map();
