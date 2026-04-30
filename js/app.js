@@ -39,9 +39,7 @@ const NX = {
   async fetchMemory(question) {
     try {
       // Fetch last 200 conversations for deep memory
-      const { data } = await this.sb.from('chat_history')
-        .select('question,answer,created_at,user_name')
-        .order('created_at', { ascending: false }).limit(200);
+      const { data } = await this.sb.rpc('get_chat_history_admin', { p_since: null, p_limit: 200 });
       if (!data || !data.length) return '';
       const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
       if (!words.length) return '';
@@ -1645,7 +1643,7 @@ td.check{background:#F0EDE6 !important}
     if (!list) return;
     list.innerHTML = '<div style="font-size:11px;color:var(--faint);padding:8px">Loading...</div>';
     try {
-      const { data } = await this.sb.from('chat_history').select('*').order('created_at', { ascending: false }).limit(100);
+      const { data } = await this.sb.rpc('get_chat_history_admin', { p_since: null, p_limit: 100 });
       list.innerHTML = '';
       if (!data || !data.length) { list.innerHTML = '<div style="font-size:11px;color:var(--faint);padding:8px">No chat history yet.</div>'; return; }
       data.forEach(entry => {
@@ -2077,15 +2075,12 @@ if ('serviceWorker' in navigator) {
             userVisibleOnly: true,
             applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
           });
-          const row = {
-            user_id: NX.currentUser?.id,
-            user_name: NX.currentUser?.name,
-            subscription: sub.toJSON(),
-            user_agent: navigator.userAgent.slice(0, 200),
-            updated_at: new Date().toISOString(),
-          };
-          const { error } = await NX.sb.from('push_subscriptions')
-            .upsert(row, { onConflict: 'user_id' });
+          const { error } = await NX.sb.rpc('save_push_subscription', {
+            p_user_id:      NX.currentUser?.id,
+            p_user_name:    NX.currentUser?.name || '',
+            p_subscription: sub.toJSON(),
+            p_user_agent:   navigator.userAgent.slice(0, 200),
+          });
           if (error) throw error;
           NX.toast && NX.toast('Notifications enabled ✓', 'success');
           return { ok: true };
@@ -2131,11 +2126,13 @@ if ('serviceWorker' in navigator) {
           return { ok: false, reason: 'user_declined_previously' };
         }
         try {
-          const { data: cfg } = await NX.sb.from('nexus_config')
-            .select('config').eq('id', 1).single();
-          const vapid = cfg?.config?.vapid_public_key;
+          const { data: vapid, error: rpcErr } = await NX.sb.rpc('get_vapid_public_key');
+          if (rpcErr) {
+            console.warn('[push] vapid rpc error:', rpcErr.message);
+            return { ok: false, reason: 'config_fetch_failed', error: rpcErr.message };
+          }
           if (!vapid) {
-            console.warn('[push] no VAPID key in nexus_config.config.vapid_public_key');
+            console.warn('[push] no VAPID key configured (nexus_config.config.vapid_public_key)');
             return { ok: false, reason: 'no_vapid_key' };
           }
           localStorage.setItem('nexus_push_asked', '1');
@@ -2150,8 +2147,7 @@ if ('serviceWorker' in navigator) {
           const sub = await reg.pushManager.getSubscription();
           if (sub) await sub.unsubscribe();
           if (NX.currentUser?.id) {
-            await NX.sb.from('push_subscriptions')
-              .delete().eq('user_id', NX.currentUser.id);
+            await NX.sb.rpc('delete_push_subscription', { p_user_id: NX.currentUser.id });
           }
           NX.toast && NX.toast('Notifications disabled', 'info');
           return { ok: true };
