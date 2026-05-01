@@ -34,17 +34,23 @@
 /* Stage holds the coin + the (i) button. perspective enables 3D children. */
 .nx-coin-stage {
   position: relative;
-  width: 200px;
-  height: 200px;
-  margin: 0 auto 18px;
+  /* Stage is wider/taller than the coin itself — gives the (i) button
+     a corner to sit in without overlapping the coin's edge, and gives
+     vertical breathing room above the NEXUS title below. */
+  width: 240px;
+  height: 240px;
+  margin: 0 auto 32px;
   perspective: 1200px;
 }
 
-/* The coin itself — preserves 3D so faces sit on opposite sides. */
+/* Center the coin inside the larger stage — the extra padding around it
+   becomes the safe zone for the (i) button + glow halo. */
 .nx-coin {
-  position: relative;
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  width: 200px;
+  height: 200px;
   cursor: pointer;
   transform-style: preserve-3d;
   transition: transform 1.1s cubic-bezier(0.4, 0.0, 0.2, 1);
@@ -97,19 +103,21 @@
   -webkit-user-select: none;
 }
 
-/* The (i) info button — sits at top-right of stage, doesn't move with flip. */
+/* The (i) info button — sits at top-right corner of the stage, in the
+   safe zone outside the coin itself. Slightly bigger tap target than
+   before so it's easier to hit without accidentally tapping the coin. */
 .nx-coin-info {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 22px;
-  height: 22px;
+  top: 0;
+  right: 0;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   background: rgba(20, 18, 14, 0.85);
   border: 1px solid rgba(200, 164, 78, 0.4);
   color: #c8a44e;
   font-family: 'Outfit', -apple-system, sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   font-style: italic;
   cursor: pointer;
@@ -154,8 +162,11 @@
 
 .nx-coin-info-card {
   position: relative;
-  max-width: 380px;
+  max-width: 420px;
   width: 100%;
+  max-height: 88vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   background: linear-gradient(180deg, #1c1814 0%, #14110d 100%);
   border: 1px solid rgba(200, 164, 78, 0.3);
   border-radius: 6px;
@@ -253,12 +264,19 @@
   font-style: italic;
 }
 
-/* Slightly smaller coin on narrow phones */
+/* Slightly smaller coin on narrow phones — preserve the 20px safe zone
+   around the coin so the (i) button never crowds it. */
 @media (max-width: 380px) {
   .nx-coin-stage {
+    width: 200px;
+    height: 200px;
+    margin-bottom: 26px;
+  }
+  .nx-coin {
+    top: 15px;
+    left: 15px;
     width: 170px;
     height: 170px;
-    margin-bottom: 14px;
   }
 }
 </style>
@@ -349,20 +367,58 @@
   <div class="nx-coin-info-overlay" id="nxCoinInfoOverlay" aria-hidden="true">
     <div class="nx-coin-info-card" role="dialog" aria-labelledby="nxCoinInfoTitle">
       <button class="nx-coin-info-close" id="nxCoinInfoClose" type="button" aria-label="Close">✕</button>
+
       <h2 id="nxCoinInfoTitle" class="nx-coin-info-title">NEXUS</h2>
-      <p class="nx-coin-info-tagline"><em>that which binds.</em></p>
+      <p class="nx-coin-info-tagline">
+        From Latin <em>nectere</em> — to bind, to tie together.
+        A nexus is the point where threads meet.
+      </p>
+
       <div class="nx-coin-info-divider"></div>
+
       <div class="nx-coin-info-section">
-        <div class="nx-coin-info-label">Front</div>
-        <p>Trajan, the operator-emperor. The Romans rated him above Augustus —
-        <em>"Felicior Augusto, melior Traiano."</em></p>
+        <div class="nx-coin-info-label">Front · Trajan</div>
+        <p class="nx-coin-info-latin">NEXVS · TRAIANVS · MMXXVI</p>
+        <p>
+          Roman emperor, 98–117 AD. Built roads, bridges, aqueducts, and the
+          first welfare program for poor children. Less famous than Augustus,
+          but the Romans rated him higher.
+        </p>
+        <p>
+          For 200 years after his death, every new emperor was greeted by the
+          Senate with the wish: <em>felicior Augusto, melior Traiano</em> —
+          luckier than Augustus, better than Trajan.
+        </p>
+        <p>
+          He is the patron of the work that doesn't show. The system that runs
+          because someone is paying attention.
+        </p>
       </div>
-      <div class="nx-coin-info-section">
-        <div class="nx-coin-info-label">Back</div>
-        <p>Orion, the hunter who set down the bow and pointed to the stars he came from.</p>
-        <p class="nx-coin-info-latin">Astra monstrat — he shows the stars.</p>
-      </div>
+
       <div class="nx-coin-info-divider"></div>
+
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">Back · Orion</div>
+        <p class="nx-coin-info-latin">NEXVS ASTRORVM · ASTRA MONSTRAT</p>
+        <p>
+          <em>Nexus astrorum</em> — the binding of the stars.
+          <em>Astra monstrat</em> — he shows the stars.
+        </p>
+        <p>
+          Orion was the hunter of Greek myth. On this coin he has set down the
+          bow. He plants a staff in the ground and raises his hand to the
+          constellation that bears his name — three stars in a line, the most
+          recognized pattern in the night sky.
+        </p>
+        <p>
+          The book of Job asks: <em>canst thou loose the bands of Orion?</em>
+          The coin's answer: this Orion is bound by his own hand, to his work,
+          and points beyond it.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-divider"></div>
+
       <p class="nx-coin-info-foot">Tap the coin to turn it.</p>
     </div>
   </div>
