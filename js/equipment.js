@@ -817,7 +817,8 @@ function renderParts(eq, parts) {
       <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.extractBOMFromManual('${eq.id}')" style="margin-right:6px">✨ Extract from Manual</button>
       <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.exportPartsCart('${eq.id}')" style="margin-right:6px">🛒 Shopping List</button>
       <h4>Bill of Materials</h4>
-      <button class="eq-btn eq-btn-small eq-btn-primary" onclick="NX.modules.equipment.addPart('${eq.id}')">+ Add Part</button>
+      <button class="eq-btn eq-btn-small eq-btn-primary" onclick="NX.modules.equipment.addPart('${eq.id}')" style="margin-right:6px">+ Add Part</button>
+      <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.addPartFromUrl('${eq.id}')">🔗 From URL</button>
     </div>
     ${!parts.length ? '<div class="eq-empty-small">No parts cataloged yet.</div>' : `
       <div class="eq-parts-list" data-multi-vendor="1">
@@ -1188,6 +1189,263 @@ async function deleteMaintenance(id, equipId) {
 /* ─── Parts CRUD ─── */
 
 function addPart(equipId) { openPartModal(null, equipId); }
+
+// ─── ADD PART FROM URL ──────────────────────────────────────────────
+// Paste a Parts Town / Amazon / etc. URL, server fetches and asks Claude
+// to extract structured fields, then you review/edit/check what gets
+// saved. If the fetch is bot-walled, we silently swap to a paste-content
+// fallback in the same modal so the user never gets stuck.
+function addPartFromUrl(equipId) {
+  const modal = document.getElementById('eqPartModal') || (() => {
+    const m = document.createElement('div');
+    m.id = 'eqPartModal';
+    m.className = 'eq-modal';
+    document.body.appendChild(m);
+    return m;
+  })();
+
+  // Stage 1: URL input
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="NX.modules.equipment.closePart()"></div>
+    <div class="eq-detail eq-edit">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="NX.modules.equipment.closePart()">✕</button>
+        <h2>Add Part from URL</h2>
+      </div>
+      <div class="eq-detail-body">
+        <div class="eq-form">
+          <div class="eq-form-group">
+            <label>Supplier URL</label>
+            <input id="eqPartUrlInput" type="url" placeholder="https://www.partstown.com/..." autocomplete="off"
+                   style="font-size:14px">
+            <div style="font-size:11px;color:#857f75;margin-top:4px">
+              Parts Town, Amazon, WebstaurantStore, manufacturer sites — paste the product page URL.
+            </div>
+          </div>
+          <div id="eqPartUrlPasteWrap" style="display:none">
+            <div class="eq-form-group">
+              <label>Or paste the page content</label>
+              <textarea id="eqPartUrlPaste" rows="6"
+                        placeholder="On your phone, open the URL, select all, copy, paste here"></textarea>
+              <div style="font-size:11px;color:#857f75;margin-top:4px">
+                The site blocked automatic fetch. Open the URL on your phone, copy
+                the visible content (long-press → Select All → Copy), and paste here.
+              </div>
+            </div>
+          </div>
+          <div id="eqPartUrlStatus" style="font-size:12px;color:#a89e87;min-height:18px;margin:6px 0"></div>
+          <div class="eq-form-actions">
+            <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closePart()">Cancel</button>
+            <button type="button" class="eq-btn eq-btn-primary" id="eqPartUrlFetchBtn">Fetch &amp; Parse</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+
+  const fetchBtn = document.getElementById('eqPartUrlFetchBtn');
+  fetchBtn.addEventListener('click', () => doFetchPartUrl(equipId, false));
+
+  // Pressing Enter in the URL field also fetches
+  document.getElementById('eqPartUrlInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); doFetchPartUrl(equipId, false); }
+  });
+}
+
+async function doFetchPartUrl(equipId, withPaste) {
+  const urlEl = document.getElementById('eqPartUrlInput');
+  const pasteEl = document.getElementById('eqPartUrlPaste');
+  const statusEl = document.getElementById('eqPartUrlStatus');
+  const btn = document.getElementById('eqPartUrlFetchBtn');
+  const url = (urlEl?.value || '').trim();
+  if (!url) { statusEl.textContent = 'Enter a URL first.'; statusEl.style.color = '#e07b7b'; return; }
+  if (!/^https?:\/\//i.test(url)) {
+    statusEl.textContent = 'URL must start with http:// or https://';
+    statusEl.style.color = '#e07b7b';
+    return;
+  }
+
+  btn.disabled = true;
+  statusEl.style.color = '#a89e87';
+  statusEl.textContent = withPaste ? 'Parsing pasted content…' : 'Fetching page…';
+
+  const body = { url };
+  if (withPaste) {
+    const pasted = (pasteEl?.value || '').trim();
+    if (pasted.length < 50) {
+      statusEl.textContent = 'Paste at least a paragraph of the page content.';
+      statusEl.style.color = '#e07b7b';
+      btn.disabled = false;
+      return;
+    }
+    body.html = pasted;
+  }
+
+  try {
+    const { data, error } = await NX.sb.functions.invoke('parse-part-url', { body });
+    if (error) throw new Error(error.message || 'fetch failed');
+
+    if (!data?.ok) {
+      // Server returned a structured failure — most often "blocked"
+      if (data?.reason === 'blocked' || data?.reason === 'fetch_error' || data?.reason === 'http_403') {
+        // Reveal the paste-content fallback
+        document.getElementById('eqPartUrlPasteWrap').style.display = '';
+        statusEl.style.color = '#d4a44e';
+        statusEl.textContent = data.message || 'Site blocked us. Paste page content below.';
+        // Repurpose the button for the paste flow
+        btn.textContent = 'Parse Pasted Content';
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+        newBtn.addEventListener('click', () => doFetchPartUrl(equipId, true));
+        newBtn.disabled = false;
+        return;
+      }
+      statusEl.style.color = '#e07b7b';
+      statusEl.textContent = data?.message || 'Could not parse — try editing the part manually.';
+      btn.disabled = false;
+      return;
+    }
+
+    // Success — render review screen
+    renderPartReview(equipId, url, data.fields, data.source);
+  } catch (e) {
+    console.error('[parse-part-url]', e);
+    statusEl.style.color = '#e07b7b';
+    statusEl.textContent = 'Network error. Try again, or paste content below.';
+    document.getElementById('eqPartUrlPasteWrap').style.display = '';
+    btn.disabled = false;
+  }
+}
+
+// Stage 2: review extracted fields with checkboxes — uncheck to skip,
+// edit values inline, save what's checked.
+function renderPartReview(equipId, sourceUrl, fields, source) {
+  const modal = document.getElementById('eqPartModal');
+  if (!modal) return;
+  const f = fields || {};
+
+  // Each row: [internal_key, label, value, db_column_or_null]
+  // db_column = null means we fold into `notes` instead of a real column.
+  const rows = [
+    ['part_name',       'Part Name',       f.part_name       || '', 'part_name'],
+    ['oem_part_number', 'OEM Part #',      f.oem_part_number || '', 'oem_part_number'],
+    ['mfr_part_number', 'Mfr Part #',      f.mfr_part_number || '', null],
+    ['manufacturer',    'Manufacturer',    f.manufacturer    || '', null],
+    ['supplier',        'Supplier',        f.supplier        || '', 'supplier'],
+    ['price_usd',       'Price (USD)',     f.price_usd != null ? String(f.price_usd) : '', 'last_price'],
+    ['description',     'Description',    f.description     || '', null],
+    ['fits_models',     'Fits Models',     f.fits_models     || '', null],
+  ];
+
+  const conf = (f.confidence || 'medium').toLowerCase();
+  const confColor = conf === 'high' ? '#7bc88a' : conf === 'low' ? '#e0a06a' : '#d4a44e';
+
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="NX.modules.equipment.closePart()"></div>
+    <div class="eq-detail eq-edit">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="NX.modules.equipment.closePart()">✕</button>
+        <h2>Review &amp; Save</h2>
+      </div>
+      <div class="eq-detail-body">
+        <div style="font-size:11px;color:#857f75;margin-bottom:8px">
+          Confidence: <span style="color:${confColor};font-weight:600">${conf.toUpperCase()}</span>
+          ${source === 'paste' ? ' · from pasted content' : ` · from ${esc(detectDomain(sourceUrl))}`}
+        </div>
+        <form class="eq-form" id="eqPartReviewForm">
+          ${rows.map(([key, label, val]) => `
+            <div class="eq-form-group" style="display:flex;gap:8px;align-items:flex-start">
+              <input type="checkbox" class="eq-part-include" data-key="${key}"
+                     ${val ? 'checked' : ''} style="margin-top:8px;flex:0 0 auto">
+              <div style="flex:1">
+                <label style="font-size:11px;color:#a89e87">${label}</label>
+                <input class="eq-part-val" data-key="${key}" value="${esc(val)}"
+                       placeholder="${val ? '' : '(not found on page)'}">
+              </div>
+            </div>
+          `).join('')}
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>Quantity</label>
+              <input type="number" id="eqPartReviewQty" value="1" min="1">
+            </div>
+          </div>
+          <div class="eq-form-actions">
+            <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closePart()">Cancel</button>
+            <button type="button" class="eq-btn eq-btn-primary" id="eqPartReviewSaveBtn">Save Part</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('eqPartReviewSaveBtn').addEventListener('click', async () => {
+    await savePartFromReview(equipId, sourceUrl);
+  });
+}
+
+// Read the review form, build the equipment_parts row, insert.
+async function savePartFromReview(equipId, sourceUrl) {
+  const btn = document.getElementById('eqPartReviewSaveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  // Collect checked rows
+  const checked = {};
+  document.querySelectorAll('.eq-part-include').forEach(cb => {
+    if (cb.checked) {
+      const key = cb.dataset.key;
+      const val = (document.querySelector(`.eq-part-val[data-key="${key}"]`)?.value || '').trim();
+      if (val) checked[key] = val;
+    }
+  });
+
+  if (!checked.part_name) {
+    NX.toast && NX.toast('Part Name is required (check it and try again)', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Part'; }
+    return;
+  }
+
+  // Map to equipment_parts columns. Anything without a real column goes
+  // into notes as a labeled line so it's preserved and searchable.
+  const data = {
+    equipment_id: equipId,
+    part_name: checked.part_name,
+    quantity: parseInt(document.getElementById('eqPartReviewQty')?.value || '1') || 1,
+    supplier_url: sourceUrl,  // always store the source URL for paper trail
+  };
+  if (checked.oem_part_number) data.oem_part_number = checked.oem_part_number;
+  if (checked.supplier)        data.supplier        = checked.supplier;
+  if (checked.price_usd) {
+    const num = parseFloat(String(checked.price_usd).replace(/[^0-9.]/g, ''));
+    if (!isNaN(num)) data.last_price = num;
+  }
+
+  const noteLines = [];
+  if (checked.mfr_part_number) noteLines.push(`Mfr Part #: ${checked.mfr_part_number}`);
+  if (checked.manufacturer)    noteLines.push(`Manufacturer: ${checked.manufacturer}`);
+  if (checked.description)     noteLines.push(checked.description);
+  if (checked.fits_models)     noteLines.push(`Fits: ${checked.fits_models}`);
+  if (noteLines.length) data.notes = noteLines.join('\n');
+
+  try {
+    await NX.sb.from('equipment_parts').insert(data);
+    NX.toast && NX.toast('Part saved ✓', 'success');
+    closePart();
+    openDetail(equipId);
+  } catch (err) {
+    console.error(err);
+    NX.toast && NX.toast('Save failed: ' + (err.message || err), 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Part'; }
+  }
+}
+
+// Helper for the review header — small standalone domain extractor so we
+// don't drag in URL parsing edge cases on old phones.
+function detectDomain(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); }
+  catch { return url.slice(0, 40); }
+}
 
 async function editPart(partId) {
   const { data } = await NX.sb.from('equipment_parts').select('*').eq('id', partId).single();
@@ -5887,6 +6145,7 @@ NX.modules.equipment = {
   rejectPmLog,
   markPmSpam,
   addPart,
+  addPartFromUrl,
   editPart,
   deletePart,
   closePart,
