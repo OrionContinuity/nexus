@@ -56,20 +56,20 @@
      ═════════════════════════════════════════════════════════════════════════ */
 
   function cleanupListHeader() {
+    // NOTE: Previously this stripped #eqPrintQRs (legacy "QR Sheet" button).
+    // That ID has been repurposed for the new "🖨 Stickers" button which is
+    // a real feature — full-color sticker export with size picker and
+    // location filter. We no longer remove it.
+    //
+    // Still removing the Phase 3 Zebra batch button (eq-zebra-header-btn)
+    // since that's been superseded by the per-row Zebra badge.
     const observer = new MutationObserver(() => {
-      // QR Sheet button (rendered in equipment.js buildUI)
-      const qrBtn = document.getElementById('eqPrintQRs');
-      if (qrBtn) qrBtn.remove();
-      
-      // Zebra batch button (injected by equipment-p3.js)
       document.querySelectorAll('.eq-zebra-header-btn').forEach(b => b.remove());
     });
     observer.observe(document.body, { childList: true, subtree: true });
-    
+
     // Initial pass
     setTimeout(() => {
-      const qrBtn = document.getElementById('eqPrintQRs');
-      if (qrBtn) qrBtn.remove();
       document.querySelectorAll('.eq-zebra-header-btn').forEach(b => b.remove());
     }, 100);
   }
