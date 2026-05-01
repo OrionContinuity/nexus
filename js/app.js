@@ -966,21 +966,17 @@ td.check{background:#F0EDE6 !important}
     else {
       this.loadScript(file, () => {
         this.loaded[view] = true;
-        // For equipment, also load phase 2 + 3 extensions after base loads
+        // For equipment, also load the context menu (still separate because
+        // log view loads it independently — see below).
         if (view === 'equipment') {
-          // NOTE: equipment-p3.js, equipment-ux.js, equipment-ai-creator.js,
-          // equipment-full-editor.js, and equipment-fixes.js were all
-          // consolidated into equipment.js (one source of truth, no more
-          // MutationObserver race conditions).
-          this.loadScript('js/equipment-ai.js', () => {
-            this.loadScript('js/equipment-cleanup.js', () => {
-              this.loadScript('js/equipment-context-menu.js', () => {
-                this.loadScript('js/equipment-brain-sync.js', () => {
-                  this.loadScript('js/equipment-badge-choice.js', () => {});
-                });
-              });
-            });
-          });
+          // NOTE: Previously loaded as separate scripts:
+          //   equipment-ai.js, equipment-brain-sync.js, equipment-badge-choice.js,
+          //   equipment-cleanup.js, plus earlier round of equipment-p3.js,
+          //   equipment-ux.js, equipment-ai-creator.js, equipment-full-editor.js,
+          //   equipment-fixes.js. All consolidated into equipment.js.
+          // equipment-cleanup.js was DELETED — its job is no longer needed.
+          // equipment-context-menu.js stays separate because log view loads it.
+          this.loadScript('js/equipment-context-menu.js', () => {});
         }
         // Log view also needs the context menu (Deleted tab + search)
         if (view === 'log') {
