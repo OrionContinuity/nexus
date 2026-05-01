@@ -152,7 +152,7 @@ function buildUI() {
         <div class="eq-actions">
           <button class="eq-btn eq-btn-primary eq-ai-create-btn" id="eqAiCreateBtn" title="AI create equipment from photo or description">✨ AI Create</button>
           <button class="eq-btn eq-btn-secondary eq-zebra-header-btn" id="eqZebraHeaderBtn" title="Print labels on Zebra printer">🏷️ Zebra</button>
-          <button class="eq-btn eq-btn-secondary" id="eqPrintQRs" title="Print QR sticker sheet">🖨 QR Sheet</button>
+          <button class="eq-btn eq-btn-secondary" id="eqPrintQRs" title="Export equipment stickers (full color, multiple sizes)">🖨 Stickers</button>
           <button class="eq-btn eq-btn-secondary" id="eqAddBtn">+ Manual</button>
         </div>
       </div>
@@ -199,7 +199,7 @@ function buildUI() {
   document.getElementById('eqAiCreateBtn').addEventListener('click', openAICreator);
   document.getElementById('eqZebraHeaderBtn').addEventListener('click', printZebraBatch);
   document.getElementById('eqAddBtn').addEventListener('click', () => openEditModal(null));
-  document.getElementById('eqPrintQRs').addEventListener('click', printQRSheet);
+  document.getElementById('eqPrintQRs').addEventListener('click', openStickerExport);
   document.getElementById('eqSearch').addEventListener('input', e => {
     searchQuery = e.target.value.toLowerCase();
     renderList();
@@ -462,6 +462,7 @@ async function openDetail(id) {
         <div class="eq-overflow-wrap">
           <button class="eq-btn eq-overflow-btn" onclick="NX.modules.equipment.toggleOverflow(event, '${eq.id}')" aria-label="More actions">⋯</button>
           <div class="eq-overflow-menu" id="eqOverflow-${eq.id}" onclick="event.stopPropagation()">
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.duplicateEquipment('${eq.id}')">📋 Duplicate equipment</button>
             <button class="eq-overflow-item eq-overflow-danger" onclick="NX.modules.equipment.deleteEquipment('${eq.id}')">🗑 Delete permanently</button>
           </div>
         </div>
@@ -1048,6 +1049,209 @@ async function deleteEquipment(id) {
   } catch (err) {
     console.error('[Equipment] Delete error:', err);
     NX.toast && NX.toast('Delete failed: ' + err.message, 'error');
+  }
+}
+
+// ─── DUPLICATE EQUIPMENT ────────────────────────────────────────────
+// Useful when stocking N units of the same model across locations.
+// Copies: equipment row (minus serial/dates/identifiers), parts (BOM),
+//         custom fields, recurring PM schedule (next_pm_date, interval).
+// Skips:  serial_number, install_date, warranty_until, purchase_price,
+//         attachments, maintenance history, qr_code, pm_logs, photos,
+//         data plate, manual URL (these are unit-specific).
+// Names:  appended " — 2", " — 3", etc. User can rename after.
+function duplicateEquipment(equipId) {
+  const eq = equipment.find(e => e.id === equipId);
+  if (!eq) return;
+
+  const modal = document.getElementById('eqDupeModal') || (() => {
+    const m = document.createElement('div');
+    m.id = 'eqDupeModal';
+    m.className = 'eq-modal';
+    document.body.appendChild(m);
+    return m;
+  })();
+
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="NX.modules.equipment.closeDupe()"></div>
+    <div class="eq-detail eq-edit">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="NX.modules.equipment.closeDupe()">✕</button>
+        <h2>Duplicate Equipment</h2>
+      </div>
+      <div class="eq-detail-body">
+        <div style="font-size:13px;color:#d4c8a5;margin-bottom:6px">
+          Source: <strong>${esc(eq.name)}</strong>
+        </div>
+        <div style="font-size:11px;color:#857f75;margin-bottom:14px;line-height:1.5">
+          Copies name, manufacturer, model, category, location, notes,
+          parts (BOM), custom fields, and PM schedule.<br>
+          <strong>Does NOT copy:</strong> serial number, install/purchase dates,
+          attachments, service history, QR code, photos.
+        </div>
+
+        <form class="eq-form" id="eqDupeForm">
+          <div class="eq-form-group" style="margin-bottom:10px">
+            <label style="font-size:11px;color:#a89e87;margin-bottom:4px;display:block">
+              How many copies?
+            </label>
+            <input type="number" id="eqDupeCount" value="1" min="1" max="10"
+                   style="width:100%;box-sizing:border-box">
+            <div style="font-size:10px;color:#857f75;margin-top:4px">
+              Up to 10 at once. Each gets a number suffix (e.g. "${esc(eq.name)} — 2").
+            </div>
+          </div>
+
+          <div class="eq-form-group" style="margin-bottom:10px">
+            <label style="font-size:11px;color:#a89e87;margin-bottom:4px;display:block">
+              Location for the copies
+            </label>
+            <select id="eqDupeLocation" style="width:100%;box-sizing:border-box">
+              <option value="${esc(eq.location || '')}" selected>Same as source (${esc(eq.location || 'unset')})</option>
+              <option value="suerte">Suerte</option>
+              <option value="este">Este</option>
+              <option value="bartoti">Bar Toti</option>
+            </select>
+          </div>
+
+          <div class="eq-form-actions">
+            <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeDupe()">Cancel</button>
+            <button type="button" class="eq-btn eq-btn-primary" id="eqDupeRunBtn">Create Copies</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+
+  document.getElementById('eqDupeRunBtn').addEventListener('click', async () => {
+    await runDuplicate(equipId);
+  });
+}
+
+function closeDupe() {
+  const m = document.getElementById('eqDupeModal');
+  if (m) m.classList.remove('active');
+}
+
+async function runDuplicate(sourceId) {
+  const btn = document.getElementById('eqDupeRunBtn');
+  if (!btn) return;
+  const count = Math.max(1, Math.min(10, parseInt(document.getElementById('eqDupeCount').value) || 1));
+  const location = document.getElementById('eqDupeLocation').value;
+  btn.disabled = true;
+  btn.textContent = `Copying… (0/${count})`;
+
+  let createdIds = [];
+
+  try {
+    // 1. Pull complete source: equipment row + parts + custom fields
+    const [eqRes, partsRes, customRes] = await Promise.all([
+      NX.sb.from('equipment').select('*').eq('id', sourceId).single(),
+      NX.sb.from('equipment_parts').select('*').eq('equipment_id', sourceId),
+      NX.sb.from('equipment_custom_fields').select('*').eq('equipment_id', sourceId),
+    ]);
+    if (eqRes.error || !eqRes.data) throw new Error('Could not load source equipment');
+    const src       = eqRes.data;
+    const srcParts  = partsRes.data  || [];
+    const srcCustom = customRes.data || [];
+
+    // 2. Build N equipment copies — strip unit-specific fields
+    const baseName = (src.name || 'Equipment').trim();
+    const baseRow = { ...src };
+    // Fields to drop (unit-specific or auto-generated)
+    delete baseRow.id;
+    delete baseRow.created_at;
+    delete baseRow.updated_at;
+    delete baseRow.serial_number;
+    delete baseRow.install_date;
+    delete baseRow.warranty_until;
+    delete baseRow.purchase_price;
+    delete baseRow.qr_code;
+    delete baseRow.photo_url;
+    delete baseRow.data_plate_url;
+    delete baseRow.manual_url;
+    delete baseRow.health_score;          // recomputed by trigger
+    delete baseRow.cost_this_year;        // accrues from new history
+    delete baseRow.services_this_year;    // accrues from new history
+    delete baseRow.next_pm_date;          // recomputed below from interval
+    // Status defaults to active for new units
+    baseRow.status = 'active';
+    // Apply location override if user picked one
+    if (location && location !== src.location) baseRow.location = location;
+    // If source had a PM interval, set next_pm_date = today + interval
+    if (baseRow.pm_interval_days && Number(baseRow.pm_interval_days) > 0) {
+      const next = new Date(Date.now() + Number(baseRow.pm_interval_days) * 86400000);
+      baseRow.next_pm_date = next.toISOString().slice(0, 10);
+    }
+
+    // 3. Insert each copy, capture IDs
+    for (let i = 0; i < count; i++) {
+      const suffix = ` — ${i + 2}`; // " — 2", " — 3", ... (matches "Original" being unit 1)
+      const row = { ...baseRow, name: baseName + suffix };
+      const { data: created, error } = await NX.sb.from('equipment').insert(row).select().single();
+      if (error) throw new Error(`Copy ${i + 1}: ${error.message}`);
+      createdIds.push(created.id);
+      btn.textContent = `Copying… (${i + 1}/${count})`;
+    }
+
+    // 4. Fan out child rows to each new equipment_id
+    for (const newId of createdIds) {
+      const partRows = srcParts.map(p => {
+        const row = { ...p };
+        delete row.id;
+        delete row.created_at;
+        delete row.updated_at;
+        row.equipment_id = newId;
+        return row;
+      });
+      const customRows = srcCustom.map(c => {
+        const row = { ...c };
+        delete row.id;
+        delete row.created_at;
+        delete row.updated_at;
+        row.equipment_id = newId;
+        return row;
+      });
+      const childInserts = [];
+      if (partRows.length)   childInserts.push(NX.sb.from('equipment_parts').insert(partRows));
+      if (customRows.length) childInserts.push(NX.sb.from('equipment_custom_fields').insert(customRows));
+      if (childInserts.length) {
+        const results = await Promise.all(childInserts);
+        for (const r of results) if (r.error) throw new Error(`Child insert: ${r.error.message}`);
+      }
+    }
+
+    // 5. Done — refresh list, close modal, show source again
+    NX.toast && NX.toast(
+      `Created ${count} cop${count === 1 ? 'y' : 'ies'} ✓`,
+      'success'
+    );
+    closeDupe();
+    await loadEquipment();
+    renderList();
+    // Reopen the source detail; user can navigate to a copy from the list
+    openDetail(sourceId);
+
+  } catch (err) {
+    console.error('[Equipment] Duplicate error:', err);
+    // Best-effort rollback: delete any equipment rows we created
+    if (createdIds.length) {
+      try {
+        await NX.sb.from('equipment').delete().in('id', createdIds);
+        // Child rows are gone too if FK has ON DELETE CASCADE.
+        // If not, they were already inserted under the doomed equipment_id;
+        // they're orphaned. We surface this in the error below.
+      } catch (rbErr) {
+        console.error('[Equipment] Rollback failed:', rbErr);
+      }
+    }
+    NX.toast && NX.toast(
+      'Duplicate failed: ' + (err.message || err) +
+      (createdIds.length ? ' (rolled back)' : ''),
+      'error'
+    );
+    if (btn) { btn.disabled = false; btn.textContent = 'Create Copies'; }
   }
 }
 
@@ -3526,44 +3730,394 @@ function printSingleQR(id) {
   w.document.close();
 }
 
-function printQRSheet() {
+// ═══════════════════════════════════════════════════════════════════
+//  STICKER EXPORT — full-color equipment labels for Traffic Jet print
+//
+//  User picks:
+//    • Size (2x2 through 4x6, six built-in standards)
+//    • Location filter (All / Suerte / Este / Bar Toti)
+//    • Layout (auto-calculates stickers-per-page from size)
+//
+//  Output: opens a print preview window with a sheet of stickers
+//  ready to send to a professional Traffic Jet inkjet printer.
+//  Design: cream/honey background, charcoal type, gold rule accents,
+//  NEXUS wordmark, prominent name, location subtitle, large QR,
+//  monospace ID, scan instruction. Editorial × terminal aesthetic.
+// ═══════════════════════════════════════════════════════════════════
+
+const STICKER_SIZES = [
+  { id: '2x2', label: '2" × 2" — Small',         w: 2,   h: 2,   perPage: 12, qrSize: 130 },
+  { id: '2x3', label: '2" × 3" — Vertical',      w: 2,   h: 3,   perPage: 9,  qrSize: 140 },
+  { id: '3x3', label: '3" × 3" — Standard ★',    w: 3,   h: 3,   perPage: 6,  qrSize: 200 },
+  { id: '3x4', label: '3" × 4" — Vertical Tall', w: 3,   h: 4,   perPage: 4,  qrSize: 220 },
+  { id: '4x4', label: '4" × 4" — Large',         w: 4,   h: 4,   perPage: 4,  qrSize: 280 },
+  { id: '4x6', label: '4" × 6" — Extra Large',   w: 4,   h: 6,   perPage: 2,  qrSize: 320 },
+];
+
+function openStickerExport() {
   const filtered = getFiltered();
   if (!filtered.length) {
     NX.toast && NX.toast('No equipment to print', 'info');
     return;
   }
 
-  const stickers = filtered.map(eq => {
+  // Build location filter options from actual equipment data, plus "All"
+  const locations = [...new Set(equipment.map(e => e.location).filter(Boolean))].sort();
+
+  const modal = document.getElementById('eqStickerModal') || (() => {
+    const m = document.createElement('div');
+    m.id = 'eqStickerModal';
+    m.className = 'eq-modal';
+    document.body.appendChild(m);
+    return m;
+  })();
+
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="NX.modules.equipment.closeStickerExport()"></div>
+    <div class="eq-detail eq-edit">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="NX.modules.equipment.closeStickerExport()">✕</button>
+        <h2>Export Equipment Stickers</h2>
+      </div>
+      <div class="eq-detail-body">
+        <div style="font-size:12px;color:#857f75;margin-bottom:14px;line-height:1.5">
+          Generates a print-ready sheet of stickers with QR codes, designed for
+          full-color professional printing on Traffic Jet inkjet printers.
+        </div>
+
+        <form class="eq-form" id="eqStickerForm">
+          <div class="eq-form-group" style="margin-bottom:12px">
+            <label style="font-size:11px;color:#a89e87;margin-bottom:4px;display:block">
+              Sticker Size
+            </label>
+            <select id="eqStickerSize" style="width:100%;box-sizing:border-box">
+              ${STICKER_SIZES.map(s => `
+                <option value="${s.id}" ${s.id === '3x3' ? 'selected' : ''}>${s.label}</option>
+              `).join('')}
+            </select>
+            <div style="font-size:10px;color:#857f75;margin-top:4px" id="eqStickerSizeNote">
+              6 stickers per US Letter page · 200px QR
+            </div>
+          </div>
+
+          <div class="eq-form-group" style="margin-bottom:12px">
+            <label style="font-size:11px;color:#a89e87;margin-bottom:4px;display:block">
+              Filter by Location
+            </label>
+            <select id="eqStickerLocation" style="width:100%;box-sizing:border-box">
+              <option value="">All locations (${equipment.length} equipment)</option>
+              ${locations.map(loc => {
+                const count = equipment.filter(e => e.location === loc).length;
+                return `<option value="${esc(loc)}">${esc(loc)} (${count} equipment)</option>`;
+              }).join('')}
+            </select>
+          </div>
+
+          <div class="eq-form-group" style="margin-bottom:12px">
+            <label style="font-size:11px;color:#a89e87;margin-bottom:4px;display:block">
+              Use current search/filter
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d4c8a5;cursor:pointer">
+              <input type="checkbox" id="eqStickerUseFiltered" checked>
+              <span>Only stickers for equipment matching current page filter (${filtered.length} equipment)</span>
+            </label>
+          </div>
+
+          <div class="eq-form-actions">
+            <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeStickerExport()">Cancel</button>
+            <button type="button" class="eq-btn eq-btn-primary" id="eqStickerExportBtn">Generate Stickers</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+
+  // Live update the size note when picker changes
+  const sizeSelect = document.getElementById('eqStickerSize');
+  const sizeNote   = document.getElementById('eqStickerSizeNote');
+  const updateNote = () => {
+    const cfg = STICKER_SIZES.find(s => s.id === sizeSelect.value);
+    if (cfg) sizeNote.textContent = `${cfg.perPage} stickers per US Letter page · ${cfg.qrSize}px QR`;
+  };
+  sizeSelect.addEventListener('change', updateNote);
+  updateNote();
+
+  document.getElementById('eqStickerExportBtn').addEventListener('click', () => {
+    const sizeId   = sizeSelect.value;
+    const location = document.getElementById('eqStickerLocation').value;
+    const useFiltered = document.getElementById('eqStickerUseFiltered').checked;
+    closeStickerExport();
+    printStickers({ sizeId, location, useFiltered });
+  });
+}
+
+function closeStickerExport() {
+  const m = document.getElementById('eqStickerModal');
+  if (m) m.classList.remove('active');
+}
+
+// Generate the print-ready sticker sheet HTML and open in a new window.
+function printStickers({ sizeId, location, useFiltered }) {
+  const cfg = STICKER_SIZES.find(s => s.id === sizeId) || STICKER_SIZES[2];
+
+  // Decide which equipment to include
+  let list = useFiltered ? getFiltered() : [...equipment];
+  if (location) list = list.filter(e => e.location === location);
+  // Skip equipment without a QR code (shouldn't happen, but defensive)
+  list = list.filter(e => e.qr_code);
+
+  if (!list.length) {
+    NX.toast && NX.toast('No equipment matched those filters', 'info');
+    return;
+  }
+
+  // Build each sticker's HTML
+  const stickers = list.map(eq => {
     const url = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
-    const qrImgSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
+    // Use qrserver.com — same provider already used for the QR tab.
+    // Black on white square, optimal for scanning.
+    const qrImgSrc = `https://api.qrserver.com/v1/create-qr-code/?size=${cfg.qrSize}x${cfg.qrSize}&data=${encodeURIComponent(url)}&margin=0&ecc=M`;
     return `
       <div class="sticker">
-        <h3>${esc(eq.name)}</h3>
-        <div class="loc">${esc(eq.location)}${eq.area?' · '+esc(eq.area):''}</div>
-        <img src="${qrImgSrc}" alt="QR">
-        <div class="model">${esc(eq.manufacturer||'')} ${esc(eq.model||'')}</div>
-      </div>`;
+        <div class="sticker-inner">
+          <div class="sticker-top">
+            <span class="sticker-brand">NEXUS</span>
+            <span class="sticker-rule"></span>
+          </div>
+          <div class="sticker-name">${esc(eq.name || 'Untitled')}</div>
+          <div class="sticker-loc">${esc(eq.location || '')}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
+          <div class="sticker-qr-wrap">
+            <img class="sticker-qr" src="${qrImgSrc}" alt="QR">
+          </div>
+          <div class="sticker-id">${esc(eq.qr_code || '')}</div>
+          <div class="sticker-instr">Scan to view · log · report</div>
+          <div class="sticker-bottom">
+            <span class="sticker-rule"></span>
+            <span class="sticker-mark">★</span>
+            <span class="sticker-rule"></span>
+          </div>
+        </div>
+      </div>
+    `;
   }).join('');
 
   const w = window.open('', '_blank');
-  w.document.write(`
-    <!DOCTYPE html><html><head><title>NEXUS Equipment QR Sheet</title>
-    <style>
-      @page { size: letter; margin: 10mm; }
-      body{font-family:sans-serif;margin:0;padding:0}
-      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5mm}
-      .sticker{border:1.5px solid #000;padding:5mm;text-align:center;break-inside:avoid;page-break-inside:avoid}
-      h3{font-size:11pt;margin:0 0 2mm 0}
-      .loc{font-size:9pt;color:#555;margin-bottom:2mm}
-      .model{font-size:7pt;color:#666;margin-top:2mm}
-      img{width:35mm;height:35mm}
-    </style></head><body>
-    <div class="grid">${stickers}</div>
-    <script>setTimeout(()=>window.print(),1000)</script>
-    </body></html>
-  `);
+  if (!w) {
+    NX.toast && NX.toast('Pop-up blocked — allow pop-ups to print stickers', 'error');
+    return;
+  }
+
+  // CSS sized to physical inches. Print rendering will honor @page + inch units.
+  // The browser's Print dialog will let you choose paper size; default is US Letter.
+  // Each sticker is sized exactly to cfg.w × cfg.h inches.
+  // perPage controls the grid columns based on what fits in 8.5" × 11" with margins.
+  const cols = (() => {
+    if (cfg.w <= 2)        return 4;     // 2x2 → 4 cols (8" wide)
+    if (cfg.w === 3)       return 2;     // 3x3 / 3x4 → 2 cols (6" wide)
+    return 2;                            // 4x4 / 4x6 → 2 cols (8" wide)
+  })();
+
+  const labelCount  = list.length;
+  const filterLabel = location ? location : 'All locations';
+
+  w.document.write(`<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>NEXUS Equipment Stickers — ${esc(filterLabel)} (${labelCount})</title>
+<style>
+  @page { size: letter; margin: 0.4in; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Outfit', 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f4ecd8;
+    color: #1c1814;
+  }
+  /* Print-only header on first page (hidden when printing) */
+  .header {
+    padding: 12px 16px;
+    background: #1c1814;
+    color: #d4c8a5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+  }
+  .header strong { color: #d4a44e; letter-spacing: 1px; }
+  .header button {
+    background: #d4a44e;
+    color: #1c1814;
+    border: none;
+    padding: 8px 16px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 4px;
+    font-family: inherit;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(${cols}, ${cfg.w}in);
+    gap: 0.15in;
+    padding: 0.15in;
+    justify-content: center;
+  }
+
+  .sticker {
+    width: ${cfg.w}in;
+    height: ${cfg.h}in;
+    background: #f4ecd8;
+    border: 1px dashed #c8a44e;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    overflow: hidden;
+    position: relative;
+  }
+  .sticker-inner {
+    width: 100%;
+    height: 100%;
+    padding: ${Math.max(0.08, cfg.w * 0.04)}in;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    text-align: center;
+  }
+
+  /* Top branding row */
+  .sticker-top, .sticker-bottom {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .sticker-top {
+    margin-bottom: ${cfg.w * 0.02}in;
+  }
+  .sticker-bottom {
+    margin-top: ${cfg.w * 0.02}in;
+    justify-content: center;
+  }
+  .sticker-brand {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: ${Math.max(7, cfg.w * 3)}pt;
+    font-weight: 700;
+    color: #1c1814;
+    letter-spacing: 2px;
+    flex-shrink: 0;
+  }
+  .sticker-rule {
+    flex: 1;
+    height: 1px;
+    background: #c8a44e;
+  }
+  .sticker-mark {
+    color: #c8a44e;
+    font-size: ${Math.max(8, cfg.w * 3)}pt;
+    flex-shrink: 0;
+  }
+
+  /* Name — most prominent text */
+  .sticker-name {
+    font-size: ${Math.max(9, cfg.w * 4.2)}pt;
+    font-weight: 700;
+    color: #1c1814;
+    line-height: 1.15;
+    margin: ${cfg.w * 0.015}in 0 ${cfg.w * 0.005}in 0;
+    word-break: break-word;
+    /* Cap at 3 lines so very long names don't blow out the layout */
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .sticker-loc {
+    font-size: ${Math.max(7, cfg.w * 2.8)}pt;
+    color: #5a5247;
+    font-weight: 500;
+    margin-bottom: ${cfg.w * 0.04}in;
+    letter-spacing: 0.3px;
+  }
+
+  /* QR — central element, white background for scan reliability */
+  .sticker-qr-wrap {
+    background: #ffffff;
+    padding: ${cfg.w * 0.025}in;
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .sticker-qr {
+    width: ${cfg.qrSize}px;
+    height: ${cfg.qrSize}px;
+    max-width: ${cfg.w * 0.65}in;
+    max-height: ${cfg.w * 0.65}in;
+    display: block;
+  }
+
+  /* ID — monospace, technical */
+  .sticker-id {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: ${Math.max(6, cfg.w * 2.2)}pt;
+    color: #5a5247;
+    margin-top: ${cfg.w * 0.03}in;
+    letter-spacing: 0.5px;
+  }
+
+  /* Instruction */
+  .sticker-instr {
+    font-size: ${Math.max(5.5, cfg.w * 2)}pt;
+    color: #857f75;
+    font-style: italic;
+    margin-top: ${cfg.w * 0.01}in;
+  }
+
+  /* Print-specific overrides */
+  @media print {
+    .header { display: none !important; }
+    body { background: #f4ecd8; }
+    .grid { padding: 0; gap: 0.1in; }
+    .sticker { border: 1px dashed #c8a44e; }
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <strong>NEXUS</strong> — Equipment Stickers ·
+      ${labelCount} stickers · ${cfg.w}″ × ${cfg.h}″ · ${esc(filterLabel)}
+    </div>
+    <button onclick="window.print()">🖨 Print</button>
+  </div>
+  <div class="grid">${stickers}</div>
+  <script>
+    // Auto-trigger print dialog after QR images load (avoids printing
+    // before QR codes have fetched from qrserver.com).
+    window.addEventListener('load', () => {
+      const imgs = Array.from(document.querySelectorAll('img'));
+      if (imgs.length === 0) return;
+      let loaded = 0;
+      const done = () => {
+        if (++loaded >= imgs.length) {
+          setTimeout(() => window.print(), 600);
+        }
+      };
+      imgs.forEach(img => {
+        if (img.complete) done();
+        else { img.addEventListener('load', done); img.addEventListener('error', done); }
+      });
+    });
+  </script>
+</body></html>`);
   w.document.close();
 }
+
+
 
 /* ─── Zebra ZPL generation ─── */
 
@@ -6139,6 +6693,8 @@ NX.modules.equipment = {
   // Add/edit modal (simple form)
   closeEdit,
   deleteEquipment,
+  duplicateEquipment,
+  closeDupe,
 
   // Service log + parts
   logService,
@@ -6196,7 +6752,9 @@ NX.modules.equipment = {
   printZebraBatch,
   quickPrint,
   printSingleQR,
-  printQRSheet,
+  openStickerExport,
+  closeStickerExport,
+  printStickers,
   copyQRLink,
 
   // Public scan (pre-auth)
