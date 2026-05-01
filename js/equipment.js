@@ -1353,23 +1353,26 @@ function renderPartReview(equipId, sourceUrl, fields, source) {
           Confidence: <span style="color:${confColor};font-weight:600">${conf.toUpperCase()}</span>
           ${source === 'paste' ? ' · from pasted content' : ` · from ${esc(detectDomain(sourceUrl))}`}
         </div>
+        <div style="font-size:11px;color:#857f75;margin-bottom:12px">
+          Untick any field you don't want saved. Edit values inline.
+        </div>
         <form class="eq-form" id="eqPartReviewForm">
           ${rows.map(([key, label, val]) => `
-            <div class="eq-form-group" style="display:flex;gap:8px;align-items:flex-start">
-              <input type="checkbox" class="eq-part-include" data-key="${key}"
-                     ${val ? 'checked' : ''} style="margin-top:8px;flex:0 0 auto">
-              <div style="flex:1">
-                <label style="font-size:11px;color:#a89e87">${label}</label>
-                <input class="eq-part-val" data-key="${key}" value="${esc(val)}"
-                       placeholder="${val ? '' : '(not found on page)'}">
-              </div>
+            <div class="eq-form-group" style="margin-bottom:10px">
+              <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:#a89e87;margin-bottom:4px;cursor:pointer">
+                <input type="checkbox" class="eq-part-include" data-key="${key}"
+                       ${val ? 'checked' : ''} style="margin:0;flex:0 0 auto">
+                <span>${label}</span>
+              </label>
+              <input class="eq-part-val" data-key="${key}" value="${esc(val)}"
+                     placeholder="${val ? '' : '(not found on page)'}"
+                     style="width:100%;box-sizing:border-box">
             </div>
           `).join('')}
-          <div class="eq-form-row">
-            <div class="eq-form-group">
-              <label>Quantity</label>
-              <input type="number" id="eqPartReviewQty" value="1" min="1">
-            </div>
+          <div class="eq-form-group" style="margin-bottom:10px">
+            <label style="font-size:11px;color:#a89e87;margin-bottom:4px;display:block">Quantity</label>
+            <input type="number" id="eqPartReviewQty" value="1" min="1"
+                   style="width:100%;box-sizing:border-box">
           </div>
           <div class="eq-form-actions">
             <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closePart()">Cancel</button>
