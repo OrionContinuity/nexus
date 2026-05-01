@@ -826,6 +826,21 @@ td.check{background:#F0EDE6 !important}
   // ═══ INIT ═══
   async init() {
     this.sb = supabase.createClient(this.SUPA_URL, this.SUPA_KEY);
+
+    // ─── Auto-inject NEXUS proxy secret on every edge-function call ──
+    // The /chat, /translate, /markitdown functions check this header
+    // (defense-in-depth since their "Verify JWT" is OFF). Any code path
+    // that calls NX.sb.functions.invoke(...) gets the header for free —
+    // no per-call edits needed.
+    const proxySecret = window.NEXUS_CONFIG?.NX_PROXY_SECRET;
+    if (proxySecret && this.sb?.functions?.invoke) {
+      const _origInvoke = this.sb.functions.invoke.bind(this.sb.functions);
+      this.sb.functions.invoke = (name, opts = {}) => {
+        const headers = { ...(opts.headers || {}), 'X-NEXUS-Auth': proxySecret };
+        return _origInvoke(name, { ...opts, headers });
+      };
+    }
+
     if(window.NEXUS_I18N) { this.i18n = NEXUS_I18N; this.i18n.applyUI(); }
     // Test Supabase connection
     this.sb.from('nexus_users').select('id',{count:'exact',head:true}).then(({error})=>{
