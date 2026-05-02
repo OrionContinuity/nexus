@@ -1,17 +1,18 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   NEXUS Home — Stage C
+   NEXUS Home — built on nx-system.css
+   ────────────────────────────────────
+   This file is intentionally THIN. It only contains:
+     - Layout (page padding, masthead, lede, intro)
+     - Feed-card styling (broadsheet items)
+     - Calendar strip (timeline list)
+     - Coin masthead micro-interactions (in galaxy.css, not here)
    
-   Clean editorial home dashboard. Uses the app's existing brand font
-   (Outfit + DM Sans) for continuity — no outside-feeling serif. The
-   editorial feel comes from typography hierarchy, fine hairlines, and
-   the 60/30/10 color discipline, not from a display typeface that 
-   fights the rest of NEXUS.
+   All buttons, sections, list-rows, and stat cells use the primitives
+   from nx-system.css (.nx-pill, .nx-section, .nx-listrow, .nx-stat).
    
-   Display: Outfit 300 at large sizes, tight letter-spacing — reads as
-     confident and thin without looking artsy
-   Body: DM Sans 400/500 at 15px — the existing NEXUS body voice
-   Metrics & timestamps: JetBrains Mono — the "terminal" thread
+   When changing button styles app-wide, edit nx-system.css, not this file.
    ═══════════════════════════════════════════════════════════════════════ */
+
 
 /* ─── View shell ─────────────────────────────────────────────────── */
 #homeView {
@@ -24,50 +25,45 @@
 #homeView::-webkit-scrollbar { display: none; }
 
 .home-page {
-  max-width: 640px;
-  margin: 0 auto;
-  /* Bottom padding clears fixed ask bar (~54px) + gap (10px) + bnav (56px) + safe area */
-  padding: 24px 22px calc(140px + env(safe-area-inset-bottom));
-  min-height: 100%;
-  font-family: 'DM Sans', system-ui, sans-serif;
-  color: var(--text);
-  --home-hairline: rgba(212, 182, 138, 0.14);
-  --home-hairline-strong: rgba(212, 182, 138, 0.28);
-  --home-dim: var(--muted);
-  /* Final guard — nothing inside home is ever allowed to scroll the
-     page horizontally. Any errant wide child gets clipped instead. */
-  overflow-x: hidden;
   max-width: min(640px, 100vw);
+  margin: 0 auto;
+  /* Bottom padding clears fixed ask bar (~64px) + gap (10px) + bnav (56px) + safe area */
+  padding: 24px 22px calc(150px + env(safe-area-inset-bottom));
+  min-height: 100%;
+  font-family: var(--nx-font-body);
+  color: var(--nx-text);
+  overflow-x: hidden;
 }
+
 
 /* ─── Masthead ───────────────────────────────────────────────────── */
 .home-mast {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--home-hairline);
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(212, 182, 138, 0.14);
   min-width: 0;
 }
 .home-mast-brand {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--nx-font-mono);
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 5px;
   flex-shrink: 0;
-  color: var(--accent);
+  color: var(--nx-gold);
 }
 .home-mast-date {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--nx-font-mono);
   font-size: 10.5px;
   font-weight: 400;
   letter-spacing: 1.8px;
-  color: var(--faint);
+  color: var(--nx-faint);
   text-transform: uppercase;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
   flex-shrink: 1;
   overflow: hidden;
@@ -75,216 +71,81 @@
   text-overflow: ellipsis;
 }
 
-/* ─── Mini galaxy icon in the masthead ──────────────────────────
-   Pokémon-style: gently bobs + breathes at idle, fires a bright
-   amber aura + diagonal shine sweep when .is-active is applied
-   (triggered by NX.homeGalaxyPulse() on node-open, data arrival,
-   etc.). The canvas inside keeps rendering the spinning galaxy —
-   this layer adds personality on top. */
-.home-mini-galaxy {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  cursor: pointer;
-  position: relative;
-  background:
-    radial-gradient(circle at 50% 50%,
-      rgba(212, 164, 78, 0.22) 0%,
-      rgba(212, 164, 78, 0.06) 45%,
-      transparent 75%);
-  -webkit-tap-highlight-color: transparent;
-  box-shadow:
-    0 0 0 1px rgba(212, 164, 78, 0.22),
-    0 0 6px 1px rgba(212, 164, 78, 0.18);
-  animation: home-mini-bob 3.2s ease-in-out infinite;
-  transition:
-    box-shadow 0.35s ease,
-    transform 0.2s ease;
-  overflow: visible;  /* let the aura bloom outside the circle */
-}
 
-/* Shine sweep — a diagonal gleam that races across the icon.
-   Idle: plays softly every ~7.5s. Active: a faster, brighter sweep. */
-.home-mini-galaxy::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  overflow: hidden;
-  background: linear-gradient(
-    115deg,
-    transparent 38%,
-    rgba(255, 245, 215, 0.0)  44%,
-    rgba(255, 245, 215, 0.55) 50%,
-    rgba(255, 245, 215, 0.0)  56%,
-    transparent 62%
-  );
-  background-size: 260% 260%;
-  background-position: -120% 0%;
-  mix-blend-mode: screen;
-  pointer-events: none;
-  animation: home-mini-shine-idle 7.5s ease-in-out infinite;
-}
-
-/* Outer aura ring — only visible on hover / active */
-.home-mini-galaxy::after {
-  content: '';
-  position: absolute;
-  inset: -5px;
-  border-radius: 50%;
-  pointer-events: none;
-  box-shadow:
-    0 0 0 1px rgba(255, 220, 140, 0),
-    0 0 14px 2px rgba(255, 200, 100, 0),
-    0 0 28px 4px rgba(255, 180, 80, 0);
-  transition: box-shadow 0.25s ease;
-}
-
-.home-mini-galaxy:hover {
-  transform: scale(1.12);
-  box-shadow:
-    0 0 0 1px rgba(255, 215, 140, 0.55),
-    0 0 10px 2px rgba(255, 190, 100, 0.45);
-}
-.home-mini-galaxy:active { transform: scale(0.92); }
-
-.home-mini-galaxy canvas {
-  width: 100%;
-  height: 100%;
-  display: block;
-  border-radius: 50%;
-  position: relative;
-  z-index: 0;
-}
-
-/* ── ACTIVE STATE ──────────────────────────────────────────────
-   Added for ~1s by NX.homeGalaxyPulse(). Bright aura + fast shine. */
-.home-mini-galaxy.is-active {
-  animation:
-    home-mini-bob 0.85s ease-in-out infinite,
-    home-mini-breathe 1.1s ease-out 1;
-}
-.home-mini-galaxy.is-active::before {
-  animation: home-mini-shine-active 0.9s cubic-bezier(.22,.61,.36,1) 1;
-}
-.home-mini-galaxy.is-active::after {
-  box-shadow:
-    0 0 0 1px rgba(255, 220, 140, 0.85),
-    0 0 14px 2px rgba(255, 200, 100, 0.75),
-    0 0 28px 4px rgba(255, 180, 80, 0.38);
-}
-
-/* ── KEYFRAMES ─────────────────────────────────────────────── */
-@keyframes home-mini-bob {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-1.5px); }
-}
-
-@keyframes home-mini-breathe {
-  0%   { filter: brightness(1.6) saturate(1.25); }
-  60%  { filter: brightness(1.25) saturate(1.15); }
-  100% { filter: brightness(1)    saturate(1);    }
-}
-
-/* Idle shine: rests off-screen, briefly streaks across once per cycle */
-@keyframes home-mini-shine-idle {
-  0%, 82%  { background-position: -120% 0%; opacity: 0; }
-  85%      { opacity: 1; }
-  96%      { background-position:  120% 0%; opacity: 1; }
-  100%     { background-position:  120% 0%; opacity: 0; }
-}
-
-/* Active shine: faster + brighter, plays exactly once */
-@keyframes home-mini-shine-active {
-  0%   { background-position: -120% 0%; opacity: 1; }
-  100% { background-position:  120% 0%; opacity: 0.2; }
-}
-
-/* Respect reduced-motion preference */
-@media (prefers-reduced-motion: reduce) {
-  .home-mini-galaxy,
-  .home-mini-galaxy::before,
-  .home-mini-galaxy.is-active,
-  .home-mini-galaxy.is-active::before {
-    animation: none !important;
-  }
-}
-
-/* ─── Lede — "Afternoon, Alfredo." using the NEXUS brand font ────── */
-/* Sized to read as a confident header, not a cover-story headline.
-   Margin above is tight because the masthead already defines the top. */
+/* ─── Lede — "Afternoon, Alfredo." ──────────────────────────────── */
 .home-lede {
   margin: 28px 0 14px;
-  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif;
+  font-family: var(--nx-font-display);
   font-weight: 300;
   font-size: clamp(34px, 8.5vw, 48px);
   line-height: 1.05;
   letter-spacing: -0.025em;
-  color: var(--text);
-  /* One-line by default — "Morning, Alfredo." on a single line reads
-     tighter and leaves room below for the situation paragraph. */
+  color: var(--nx-text);
 }
 .home-lede-comma {
-  color: var(--home-dim);
+  color: var(--nx-muted);
   font-weight: 300;
 }
 .home-lede-name {
-  color: var(--accent);
+  color: var(--nx-gold);
   font-weight: 400;
   letter-spacing: -0.03em;
 }
 
+
 /* ─── Intro / situation line ────────────────────────────────────── */
-/* Reads a summary of what's happening across the restaurants right
-   now — live data, not meta-commentary about the feed below. Gold
-   <strong> elements highlight the subjects of interest. */
 .home-intro {
   font-size: 15px;
-  color: var(--home-dim);
+  color: var(--nx-muted);
   line-height: 1.55;
-  margin: 0 0 36px;
+  margin: 0 0 var(--nx-space-8);
   max-width: 48ch;
   letter-spacing: 0.05px;
 }
 .home-intro strong {
-  color: var(--accent);
+  color: var(--nx-gold);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
-/* ─── Priority feed — numbered broadsheet items ──────────────────── */
-.home-feed { display: flex; flex-direction: column; gap: 14px; }
+
+/* ─── Priority feed — broadsheet items ───────────────────────────── */
+.home-feed { display: flex; flex-direction: column; gap: 12px; }
 
 .home-item {
   position: relative;
   display: block;
   padding: 18px 18px 18px 46px;
-  border: 1px solid var(--home-hairline);
-  border-radius: 2px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.01) 0%, transparent 100%);
+  border: 1px solid rgba(212, 182, 138, 0.14);
+  border-radius: var(--nx-radius-card);
+  background: var(--nx-surface);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: border-color 0.2s, transform 0.15s;
+  transition:
+    border-color var(--nx-press),
+    background var(--nx-press),
+    transform var(--nx-press);
   text-decoration: none;
   color: inherit;
 }
-.home-item:hover { border-color: var(--home-hairline-strong); }
-.home-item:active { transform: scale(0.995); }
+.home-item:hover { border-color: rgba(212, 182, 138, 0.28); }
+.home-item:active {
+  transform: scale(0.995);
+  background: var(--nx-surface-press);
+}
 
 .home-item-num {
   position: absolute;
   top: 18px;
   left: 16px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--nx-font-mono);
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.5px;
-  color: var(--faint);
+  color: var(--nx-faint);
 }
-
 .home-item-kicker {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--nx-font-mono);
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 2px;
@@ -302,23 +163,23 @@
   border-radius: 50%;
   background: currentColor;
 }
-.home-item[data-tone="overdue"] .home-item-kicker   { color: var(--red); }
-.home-item[data-tone="incoming"] .home-item-kicker  { color: var(--accent); }
-.home-item[data-tone="reported"] .home-item-kicker  { color: var(--amber); }
-.home-item[data-tone="calm"] .home-item-kicker      { color: var(--green); }
-.home-item[data-tone="fyi"] .home-item-kicker       { color: var(--muted); }
+.home-item[data-tone="overdue"]  .home-item-kicker { color: var(--nx-red); }
+.home-item[data-tone="incoming"] .home-item-kicker { color: var(--nx-gold); }
+.home-item[data-tone="reported"] .home-item-kicker { color: var(--amber); }
+.home-item[data-tone="calm"]     .home-item-kicker { color: var(--green); }
+.home-item[data-tone="fyi"]      .home-item-kicker { color: var(--nx-muted); }
 
 .home-item-title {
   font-size: 16.5px;
   font-weight: 600;
   line-height: 1.3;
-  color: var(--text);
+  color: var(--nx-text);
   margin-bottom: 6px;
   letter-spacing: -0.01em;
 }
 .home-item-body {
   font-size: 14px;
-  color: var(--home-dim);
+  color: var(--nx-muted);
   line-height: 1.55;
   margin-bottom: 12px;
 }
@@ -326,145 +187,92 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-family: 'DM Sans', sans-serif;
+  font-family: inherit;
   font-size: 12.5px;
   font-weight: 500;
-  color: var(--accent);
+  color: var(--nx-gold);
   letter-spacing: 0.3px;
   border: none;
   background: none;
   padding: 0;
   cursor: pointer;
-  font-family: inherit;
 }
 .home-item-action::after {
   content: '→';
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--nx-font-mono);
   transition: transform 0.2s;
 }
 .home-item:hover .home-item-action::after { transform: translateX(3px); }
 
-/* Calm state — when nothing urgent is happening.
-   Tappable so the user can jump to the equipment list directly
-   (most common "next thing to do" when nothing is burning). */
+
+/* ─── Calm state — when nothing urgent is happening ──────────────── */
 .home-feed-calm {
   display: block;
   width: 100%;
   text-align: center;
-  padding: 40px 20px 48px;
-  border: 1px solid var(--home-hairline);
-  border-radius: 2px;
-  background: transparent;
+  padding: 40px 20px 36px;
+  border: 1px solid rgba(212, 182, 138, 0.14);
+  border-radius: var(--nx-radius-card);
+  background: var(--nx-surface);
   color: inherit;
   cursor: pointer;
   font-family: inherit;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+  transition:
+    background var(--nx-press),
+    border-color var(--nx-press),
+    transform var(--nx-press);
   -webkit-tap-highlight-color: transparent;
 }
-.home-feed-calm:hover {
-  border-color: rgba(212, 164, 78, 0.35);
-  background: rgba(212, 164, 78, 0.03);
-}
+.home-feed-calm:hover { border-color: var(--nx-gold-line-2); }
 .home-feed-calm:active {
-  background: rgba(212, 164, 78, 0.07);
-  border-color: var(--accent);
+  background: var(--nx-gold-faint);
+  border-color: var(--nx-gold);
   transform: scale(0.995);
 }
 .home-feed-calm-mark {
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--nx-font-display);
   font-weight: 300;
   font-size: 32px;
-  color: var(--accent);
+  color: var(--nx-gold);
   margin-bottom: 12px;
   display: block;
   letter-spacing: -0.02em;
 }
 .home-feed-calm-text {
   font-size: 13px;
-  color: var(--home-dim);
+  color: var(--nx-muted);
   line-height: 1.55;
   max-width: 34ch;
-  margin: 0 auto;
-}
-.home-feed-calm-cta {
-  display: inline-block;
-  margin-top: 18px;
-  padding: 8px 14px;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: var(--accent);
-  border: 1px solid rgba(212, 164, 78, 0.25);
-  border-radius: 999px;
-  background: rgba(212, 164, 78, 0.04);
-  transition: all 0.15s ease;
-}
-.home-feed-calm:hover .home-feed-calm-cta {
-  border-color: rgba(212, 164, 78, 0.5);
-  background: rgba(212, 164, 78, 0.08);
+  margin: 0 auto 18px;
 }
 
-/* ─── Section rule — fine-cut divider with label ────────────────── */
-.home-rule {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin: 44px 0 24px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9.5px;
-  letter-spacing: 2.2px;
-  color: var(--faint);
-  text-transform: uppercase;
-}
-.home-rule::before, .home-rule::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--home-hairline);
-}
 
-/* ─── On the books — calendar strip (past/today/future) ────────── */
-/* Timeline-style list with date on the left, events on the right.
-   Past days get reduced opacity so they recede without disappearing.
-   Today gets a pulsing gold dot so it reads as "now" at a glance.
-   Density cap handled in JS — max ~10 rows.
-   
-   Layout containment notes:
-   - overflow: hidden on the outer container prevents any child from
-     pushing the whole page wider than the viewport.
-   - min-width: 0 is set on every flex child that needs to shrink
-     past its natural content width (flex defaults to min-width: auto
-     which stops shrinking at content size, causing overflow). */
+/* ─── Calendar strip — "On the books" ────────────────────────────── */
 .home-cal {
   display: flex;
   flex-direction: column;
   gap: 14px;
   margin-bottom: 14px;
-  overflow: hidden;         /* belt-and-suspenders clip */
+  overflow: hidden;
   max-width: 100%;
 }
 .home-cal-day {
   display: flex;
   gap: 16px;
   padding: 2px 0;
-  min-width: 0;             /* allow inner flex children to shrink */
+  min-width: 0;
 }
-.home-cal-day.is-past {
-  opacity: 0.48;
-}
-.home-cal-day.is-today .home-cal-date {
-  color: var(--accent);
-}
+.home-cal-day.is-past { opacity: 0.48; }
+.home-cal-day.is-today .home-cal-date { color: var(--nx-gold); }
 
 .home-cal-date {
   flex-shrink: 0;
   width: 96px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--nx-font-mono);
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 1.4px;
-  color: var(--faint);
+  color: var(--nx-faint);
   text-transform: uppercase;
   padding-top: 6px;
   display: flex;
@@ -474,10 +282,9 @@
   gap: 3px 6px;
   line-height: 1.3;
 }
-.home-cal-date-label { /* hook for future; inherits parent */ }
 .home-cal-date-rel {
   width: 100%;
-  color: var(--accent);
+  color: var(--nx-gold);
   opacity: 0.7;
   font-size: 9px;
   letter-spacing: 1.3px;
@@ -487,7 +294,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--nx-gold);
   display: inline-block;
   margin-top: 7px;
   flex-shrink: 0;
@@ -504,13 +311,13 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 0;             /* critical — lets title/desc truncate */
+  min-width: 0;
   overflow: hidden;
 }
 .home-cal-item {
   display: flex;
   gap: 12px;
-  padding: 8px 0 8px 10px;        /* left pad leaves room for accent bar */
+  padding: 8px 0 8px 10px;
   background: transparent;
   border: none;
   border-bottom: 1px solid rgba(212, 182, 138, 0.06);
@@ -522,14 +329,12 @@
   transition: transform 0.1s, background 0.15s;
   width: 100%;
   min-width: 0;
-  position: relative;              /* for accent bar positioning */
+  position: relative;
 }
 .home-cal-item:last-child { border-bottom: none; }
 .home-cal-item:active { transform: scale(0.99); }
-.home-cal-item:hover .home-cal-title-text { color: var(--accent); }
+.home-cal-item:hover .home-cal-title-text { color: var(--nx-gold); }
 
-/* Left accent bar — a colored sliver that signals status at a glance.
-   2px wide, spans the row height minus a bit of breathing room. */
 .home-cal-accent {
   position: absolute;
   left: 0;
@@ -539,19 +344,17 @@
   border-radius: 2px;
 }
 
-/* "NEXT UP" kicker — small gold label above the first upcoming event.
-   Gives the strip forward momentum when today is empty. */
 .home-cal-nextup {
   display: inline-block;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--nx-font-mono);
   font-size: 8.5px;
   font-weight: 600;
   letter-spacing: 1.8px;
-  color: var(--accent);
+  color: var(--nx-gold);
   text-transform: uppercase;
   margin-bottom: 4px;
   padding: 2px 6px;
-  background: rgba(212, 164, 78, 0.12);
+  background: var(--nx-gold-faint);
   border-radius: 2px;
   align-self: flex-start;
 }
@@ -562,14 +365,13 @@
   width: 3px;
   box-shadow: 0 0 8px rgba(212, 164, 78, 0.4);
 }
-
 .home-cal-time {
   flex-shrink: 0;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--nx-font-mono);
   font-size: 11.5px;
-  color: var(--text);
+  color: var(--nx-text);
   font-variant-numeric: tabular-nums;
-  width: 64px;              /* fixed width so time doesn't grow */
+  width: 64px;
   padding-top: 1px;
   letter-spacing: 0.3px;
   font-weight: 500;
@@ -579,12 +381,12 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 0;             /* critical */
+  min-width: 0;
   overflow: hidden;
 }
 .home-cal-title {
   font-size: 13.5px;
-  color: var(--text);
+  color: var(--nx-text);
   line-height: 1.4;
   letter-spacing: 0.05px;
   display: flex;
@@ -595,8 +397,6 @@
 .home-cal-title-text {
   flex: 1;
   min-width: 0;
-  /* Multi-line clamp with wrapping so long contractor names break
-     cleanly instead of pushing the container width. */
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -609,23 +409,23 @@
 .home-cal-status {
   flex-shrink: 0;
   font-size: 10.5px;
-  color: var(--accent);
+  color: var(--nx-gold);
   opacity: 0.85;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 .home-cal-desc {
   font-size: 11.5px;
-  color: var(--home-dim);
+  color: var(--nx-muted);
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;      /* single line, truncates on overflow */
+  white-space: nowrap;
   max-width: 100%;
 }
 .home-cal-empty {
   font-size: 12.5px;
-  color: var(--faint);
+  color: var(--nx-faint);
   padding: 4px 0;
   letter-spacing: 0.1px;
   font-style: italic;
@@ -634,159 +434,40 @@
   padding: 22px 18px;
   text-align: center;
   font-size: 12.5px;
-  color: var(--home-dim);
+  color: var(--nx-muted);
   line-height: 1.6;
-  border: 1px solid var(--home-hairline);
-  border-radius: 2px;
+  border: 1px solid rgba(212, 182, 138, 0.14);
+  border-radius: var(--nx-radius-card);
+  background: var(--nx-surface);
 }
 
-.home-cal-viewall {
-  display: block;
-  width: 100%;
-  background: none;
-  border: none;
-  margin: 0 0 36px;
-  padding: 10px 0 0;
-  color: var(--accent);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 1.8px;
-  text-transform: uppercase;
-  cursor: pointer;
-  text-align: right;
-  -webkit-tap-highlight-color: transparent;
-  transition: opacity 0.15s;
+/* "View full calendar" — quiet pill aligned right */
+.home-cal-viewall-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 4px 0 0;
 }
-.home-cal-viewall:hover { opacity: 0.7; }
 
-/* Cal-specific skeleton — wider than a stat card, shorter than a feed item */
+/* Cal-specific skeleton */
 .home-skeleton-cal { height: 44px; }
 
-/* Small phones — stack date label above its events to reclaim width.
-   Breakpoint raised to 440px so most phones get the stacked layout,
-   which reads better on narrow viewports anyway. */
-@media (max-width: 440px) {
-  .home-cal-day   { flex-direction: column; gap: 6px; }
-  .home-cal-date  { width: auto; padding-top: 0; font-size: 9.5px; }
-  .home-cal-item  { gap: 10px; }
-  .home-cal-time  { width: 58px; font-size: 11px; }
-  .home-cal-title { font-size: 13px; }
-  .home-cal-desc  { font-size: 11px; }
-}
 
-/* ─── Glance — 4-column stat strip ──────────────────────────────── */
+/* ─── Glance — 2x2 stat grid using .nx-stat primitives ──────────── */
+/* On wider screens, the grid expands to 4 across. */
 .home-glance {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
-  margin-bottom: 36px;
+  margin-bottom: 0;
 }
-.home-stat {
-  padding: 14px 4px 10px;
-  text-align: left;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-family: inherit;
-  color: inherit;
-  border-top: 1px solid var(--home-hairline);
-  transition: border-color 0.15s;
-  -webkit-tap-highlight-color: transparent;
-}
-.home-stat:active { transform: scale(0.97); }
-.home-stat:hover { border-top-color: var(--accent); }
-.home-stat-num {
-  display: block;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 30px;
-  font-weight: 500;
-  color: var(--text);
-  line-height: 1;
-  letter-spacing: -0.5px;
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum';
-}
-.home-stat-num.alert { color: var(--red); }
-.home-stat-num.loading { color: var(--faint); opacity: 0.5; }
-.home-stat-label {
-  display: block;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 1.5px;
-  color: var(--faint);
-  text-transform: uppercase;
-  margin-top: 8px;
-}
-.home-stat-sub {
-  display: block;
-  font-size: 10.5px;
-  color: var(--home-dim);
-  margin-top: 2px;
-  letter-spacing: 0.2px;
+@media (min-width: 480px) {
+  .home-glance {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
-/* ─── Ask NEXUS bar — permanent sticky entry point ──────────────────
-   Fixed above the bottom navigation, always visible while scrolling Home.
-   Glass backdrop so scrolling content is hinted-at underneath. Width
-   matches .home-page content (centered, max 600px on wider screens). */
-.home-ask {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  width: calc(100% - 28px);
-  max-width: 600px;
-  bottom: calc(56px + env(safe-area-inset-bottom) + 10px);
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border: 1px solid rgba(212, 182, 138, 0.28);
-  border-radius: 12px;
-  background: rgba(14, 13, 18, 0.88);
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  box-shadow:
-    0 8px 28px rgba(0, 0, 0, 0.5),
-    0 2px 6px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(212, 182, 138, 0.06);
-  cursor: text;
-  transition: border-color 0.2s, background 0.2s, transform 0.2s;
-}
-.home-ask:hover,
-.home-ask:active {
-  border-color: var(--accent);
-  background: rgba(22, 19, 26, 0.92);
-}
-.home-ask:active {
-  transform: translateX(-50%) scale(0.99);
-}
-.home-ask-prompt {
-  flex: 1;
-  font-size: 14.5px;
-  color: var(--faint);
-  letter-spacing: 0.1px;
-}
-.home-ask-prompt em {
-  color: var(--accent);
-  font-style: normal;
-  font-weight: 500;
-  font-family: inherit;
-  letter-spacing: 0.5px;
-}
-.home-ask-kbd {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 1px;
-  color: var(--faint);
-  padding: 4px 7px;
-  border: 1px solid var(--home-hairline);
-  border-radius: 3px;
-  background: rgba(0, 0, 0, 0.2);
-}
 
-/* ─── Skeleton loading states — appear before data arrives ──────── */
+/* ─── Skeleton loading states ───────────────────────────────────── */
 .home-skeleton {
   height: 88px;
   background: linear-gradient(
@@ -797,23 +478,87 @@
   );
   background-size: 200% 100%;
   animation: homeShimmer 2.2s ease-in-out infinite;
-  border-radius: 2px;
+  border-radius: var(--nx-radius-card);
 }
 @keyframes homeShimmer {
-  0% { background-position: 200% 0; }
+  0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
 
-/* ─── Responsive — tighten on small phones ──────────────────────── */
-@media (max-width: 380px) {
-  .home-page { padding: 20px 18px calc(88px + env(safe-area-inset-bottom)); }
-  .home-lede { margin: 32px 0 30px; }
-  .home-glance { gap: 6px; }
-  .home-stat-num { font-size: 26px; }
+
+/* ─── Ask NEXUS bar — sticky primary action ──────────────────────── */
+/* Built on the .nx-pill--primary visual language: solid gold gradient,
+   dark text, tactile press. Sticky-fixed above the bottom nav.
+   This IS the primary action of the home screen. */
+.home-ask {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 28px);
+  max-width: 600px;
+  bottom: calc(56px + env(safe-area-inset-bottom) + 10px);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 24px;
+  border-radius: var(--nx-radius-pill);
+  border: none;
+  background: linear-gradient(180deg, var(--nx-gold) 0%, var(--nx-gold-deep) 100%);
+  color: var(--nx-gold-on);
+  font-family: var(--nx-font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.5),
+    0 4px 16px rgba(212, 164, 78, 0.25);
+  transition:
+    background var(--nx-press),
+    transform var(--nx-press),
+    box-shadow var(--nx-press);
 }
-/* Tablet / desktop refinement */
+.home-ask:active {
+  background: linear-gradient(180deg, var(--nx-gold-deep) 0%, var(--nx-gold-darker) 100%);
+  transform: translateX(-50%) scale(0.985);
+}
+.home-ask-prompt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.home-ask-prompt::before {
+  /* Spark/asterisk symbol — visual hint that this calls AI */
+  content: '✦';
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 380px) {
+  .home-page { padding: 20px 18px calc(140px + env(safe-area-inset-bottom)); }
+  .home-lede { margin: 24px 0 14px; }
+  .home-glance { gap: 8px; }
+  .home-ask { font-size: 14px; padding: 14px 22px; }
+}
+
 @media (min-width: 720px) {
-  .home-lede { margin: 60px 0 56px; font-size: 72px; }
+  .home-lede { margin: 60px 0 22px; font-size: 60px; }
   .home-item { padding: 22px 22px 22px 54px; }
   .home-item-num { top: 22px; left: 20px; font-size: 12px; }
+}
+
+
+/* ─── Calendar small-screen reflow ────────────────────────────────── */
+@media (max-width: 440px) {
+  .home-cal-day  { flex-direction: column; gap: 6px; }
+  .home-cal-date { width: auto; padding-top: 0; font-size: 9.5px; }
+  .home-cal-item { gap: 10px; }
+  .home-cal-time { width: 58px; font-size: 11px; }
+  .home-cal-title { font-size: 13px; }
+  .home-cal-desc  { font-size: 11px; }
 }
