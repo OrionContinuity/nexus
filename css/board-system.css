@@ -1,0 +1,1273 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Board — Trello-influenced redesign
+   ─────────────────────────────────────────
+   Brings the things that actually make Trello feel like Trello — tactile
+   cards floating on list panels, generous whitespace, icon-led meta,
+   colored avatar circles, flat label pills, proper drag feedback — into
+   the NEXUS dark palette.
+   
+   Targets the .b-* class hierarchy that board.js actually renders, plus
+   .board-tab for the top board switcher.
+   
+   What stays the same:
+     • Card cover image at top (already Trello-style)
+     • Color strip below cover (already Trello-style)
+     • Terminal list collapse pattern
+     • Realtime presence pip
+     • All behavior — drag/drop, move picker, modal, etc.
+   
+   What gets the redesign:
+     • LIST COLUMNS get a real surface — cards visibly float on top
+     • CARDS become tactile sticky-notes — proper shadow, lift on hover
+     • DRAG feedback — tilt, lift, ghost (not just opacity .5)
+     • LABELS — flat solid pills with dark text on light colors
+     • BADGES — emoji prefixes hidden, replaced with clean text
+     • ASSIGNEE — colored avatar circle, not inline initials
+     • LIST HEADER — gets dot menu affordance
+     • ADD CARD — quiet text-link at column bottom, not big button
+     • SPACING — generous Trello rhythm
+   
+   Load order: ... → views-system.css → board-system.css (this file) → ...
+   ═══════════════════════════════════════════════════════════════════════ */
+
+
+/* ═══ PAGE WRAP ═════════════════════════════════════════════════════ */
+
+#boardWrap {
+  padding: 0 var(--nx-space-3) calc(80px + env(safe-area-inset-bottom)) !important;
+  background: var(--nx-bg) !important;
+}
+
+
+/* ═══ SUMMARY STRIP ═════════════════════════════════════════════════ */
+
+.b-summary {
+  display: flex !important;
+  gap: var(--nx-space-2) !important;
+  padding: var(--nx-space-3) var(--nx-space-2) var(--nx-space-3) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  margin-bottom: var(--nx-space-3) !important;
+}
+.b-summary-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 5px 12px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-muted) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  border: 1px solid transparent !important;
+  letter-spacing: 0.1px;
+}
+.b-summary-chip strong {
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-mono) !important;
+  font-weight: 600 !important;
+  font-variant-numeric: tabular-nums !important;
+}
+.b-summary-chip.alert {
+  background: var(--nx-red-soft) !important;
+  border-color: var(--nx-red-line) !important;
+  color: var(--nx-red) !important;
+}
+.b-summary-chip.alert strong { color: var(--nx-red) !important; }
+.b-summary-chip.ok {
+  background: rgba(91, 186, 95, 0.10) !important;
+  color: var(--nx-green) !important;
+}
+.b-summary-chip.ok strong { color: var(--nx-green) !important; }
+
+.b-summary-stats-btn {
+  margin-left: auto !important;
+  background: transparent !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  color: var(--nx-faint) !important;
+  padding: 6px 14px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.3px !important;
+  cursor: pointer !important;
+  transition: color var(--nx-press), border-color var(--nx-press) !important;
+}
+.b-summary-stats-btn:hover {
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold-line-2) !important;
+}
+
+/* Realtime presence pip */
+.b-rt-chip {
+  background: var(--nx-surface-2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10.5px !important;
+  color: var(--nx-faint) !important;
+  letter-spacing: 0.4px;
+  padding: 4px 10px !important;
+  border-radius: var(--nx-radius-pill) !important;
+}
+.b-rt-dot.is-live {
+  background: var(--nx-green) !important;
+  box-shadow: 0 0 8px rgba(91, 186, 95, 0.6) !important;
+}
+
+.b-rt-toast {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  background: rgba(20, 18, 14, 0.95) !important;
+  border: 1px solid var(--nx-gold-line-2) !important;
+  border-left: 3px solid var(--nx-green) !important;
+  color: var(--nx-text) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  padding: 10px 14px !important;
+  box-shadow: var(--nx-shadow-card) !important;
+}
+
+
+/* ═══ BOARD SWITCHER (top tabs) ═════════════════════════════════════ */
+
+.board-header {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--nx-space-1) !important;
+  overflow-x: auto !important;
+  padding: 4px 0 var(--nx-space-3) !important;
+  scrollbar-width: none;
+}
+.board-header::-webkit-scrollbar { display: none; }
+
+.board-tab {
+  background: var(--nx-surface-1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  color: var(--nx-muted) !important;
+  padding: 8px 16px !important;
+  min-height: 36px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.2px !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  /* Each board has a colored left stripe — keep this Trello pattern.
+     The stripe is set via inline style="border-left-color:...". */
+  border-left-width: 3px !important;
+  transition:
+    background var(--nx-press),
+    color var(--nx-press),
+    border-color var(--nx-press) !important;
+}
+.board-tab:hover {
+  color: var(--nx-text) !important;
+  background: var(--nx-surface-2) !important;
+}
+.board-tab.active {
+  color: var(--nx-gold) !important;
+  background: var(--nx-gold-soft) !important;
+  border-color: var(--nx-gold-line-2) !important;
+  font-weight: 600 !important;
+}
+.board-add-tab {
+  font-weight: 600 !important;
+  padding: 8px 14px !important;
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold-line) !important;
+  border-left-color: var(--nx-gold-line) !important;
+}
+
+
+/* ═══ FILTERS ═══════════════════════════════════════════════════════ */
+
+.b-filters {
+  display: flex !important;
+  gap: var(--nx-space-1) !important;
+  padding: 0 0 var(--nx-space-3) !important;
+  overflow-x: auto !important;
+  scrollbar-width: none;
+}
+.b-filters::-webkit-scrollbar { display: none; }
+.b-filter {
+  background: var(--nx-surface-1) !important;
+  border: 1px solid transparent !important;
+  color: var(--nx-faint) !important;
+  padding: 6px 12px !important;
+  min-height: 30px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  letter-spacing: 0.2px;
+  transition:
+    background var(--nx-press),
+    color var(--nx-press),
+    border-color var(--nx-press) !important;
+}
+.b-filter:hover {
+  color: var(--nx-muted) !important;
+  background: var(--nx-surface-2) !important;
+}
+.b-filter.active {
+  background: var(--nx-gold-soft) !important;
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold-line-2) !important;
+  font-weight: 600 !important;
+}
+
+
+/* ═══ LISTS ROW (kanban columns) ═══════════════════════════════════ */
+/* This is the BIG Trello-feel change: list columns get a real surface
+   that's distinguishable from the page background. Cards then visibly
+   FLOAT on top of the list panel — the core Trello sensation. */
+
+.b-lists {
+  display: flex !important;
+  gap: var(--nx-space-3) !important;
+  overflow-x: auto !important;
+  padding: 0 0 var(--nx-space-5) !important;
+  scrollbar-width: thin;
+  flex: 1;
+  min-height: 0;
+  align-items: flex-start !important;  /* lists size to content, not stretched */
+}
+
+/* List column — distinct surface so cards visibly float */
+.b-list {
+  flex: 0 0 290px !important;
+  background: var(--nx-surface-1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border-radius: 14px !important;
+  padding: 12px 8px 8px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  /* Cap height so internal cards-area scrolls instead of pushing the
+     whole list down. matches Trello's per-column scroll. */
+  max-height: calc(100vh - 220px) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.20) !important;
+}
+@media (min-width: 900px) {
+  .b-list { flex: 0 0 300px !important; }
+}
+
+/* List header — title, count, dot menu */
+.b-list-head {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 4px 8px 10px !important;
+  margin-bottom: 4px !important;
+  border-bottom: none !important;
+}
+.b-list-name {
+  font-family: var(--nx-font-display) !important;
+  font-weight: 600 !important;
+  font-size: var(--nx-text-sm) !important;
+  letter-spacing: 0.2px !important;
+  color: var(--nx-text) !important;
+  flex: 1 !important;
+  line-height: 1.3;
+}
+.b-list-count {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 11px !important;
+  color: var(--nx-faint) !important;
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  /* Pure number, no chip wrapper — calmer than Trello's pill but
+     still scannable. Trello uses a small gray pill; we go even
+     cleaner since NEXUS dark theme makes pills heavier. */
+}
+.b-list-collapse-icon {
+  color: var(--nx-faint) !important;
+  font-size: 10px !important;
+  margin-right: 0 !important;
+}
+
+/* Cards container — Trello-style, scrollable */
+.b-list-cards {
+  flex: 1 !important;
+  overflow-y: auto !important;
+  min-height: 30px !important;
+  padding: 0 4px !important;
+  margin: 0 -4px !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+}
+.b-list-cards::-webkit-scrollbar { width: 6px; }
+.b-list-cards::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+
+/* Drop-zone highlight when dragging over */
+.b-list-cards.drag-over {
+  background: var(--nx-gold-faint) !important;
+  border-radius: 10px !important;
+  outline: 2px dashed var(--nx-gold-line-2) !important;
+  outline-offset: -2px !important;
+}
+
+/* Empty list — Trello-style soft prompt at the bottom */
+.b-list-cards:empty::after {
+  content: 'Drop cards here';
+  display: block;
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--nx-faintest);
+  font-family: var(--nx-font-body);
+  font-size: var(--nx-text-xs);
+  font-style: italic;
+  border: 1.5px dashed rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  margin: 4px 0;
+}
+
+/* Add card — quiet text-link at bottom, like Trello */
+.b-list-add {
+  background: transparent !important;
+  border: none !important;
+  color: var(--nx-faint) !important;
+  padding: 10px 12px !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+  margin-top: 4px !important;
+  width: 100% !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  text-align: left !important;
+  transition: background var(--nx-press), color var(--nx-press) !important;
+}
+.b-list-add:hover {
+  background: var(--nx-surface-3) !important;
+  color: var(--nx-gold) !important;
+  border-color: transparent !important;
+}
+
+/* Terminal list (Done/Closed) — slightly muted */
+.b-list.is-terminal {
+  background: rgba(20, 18, 14, 0.55) !important;
+  opacity: 0.92 !important;
+}
+.b-list.is-terminal .b-list-head {
+  color: var(--nx-faint) !important;
+}
+.b-list.is-collapsed { min-height: 0 !important; }
+
+
+/* ═══ CARDS — the tactile float ═══════════════════════════════════ */
+/* This is the "feels like Trello" moment. Cards float on the list
+   panel with a real shadow, lift on hover, tilt + lift on drag. */
+
+.b-card {
+  position: relative !important;
+  background: var(--nx-surface-3) !important;
+  border: 1px solid transparent !important;
+  border-radius: 10px !important;
+  margin-bottom: 8px !important;
+  cursor: pointer !important;
+  overflow: hidden !important;
+  /* Real card shadow — visible on dark bg without being heavy.
+     Two layers: short tight (1px) for crispness, longer 4px for lift. */
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.30),
+    0 2px 4px rgba(0, 0, 0, 0.30) !important;
+  transition:
+    transform 0.12s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.15s cubic-bezier(0.2, 0.8, 0.2, 1),
+    background 0.15s !important;
+}
+.b-card:hover {
+  background: rgba(40, 35, 28, 0.95) !important;
+  border-color: transparent !important;
+  /* Subtle lift on hover — feels like the card is rising */
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.40),
+    0 6px 16px rgba(0, 0, 0, 0.40) !important;
+}
+.b-card:active {
+  transform: translateY(0) scale(0.99);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.30),
+    0 1px 2px rgba(0, 0, 0, 0.30) !important;
+}
+
+/* Drag state — Trello tilts + lifts. Crucial for the kanban feel. */
+.b-card[draggable="true"]:active,
+.b-card.is-dragging {
+  transform: rotate(2.5deg) scale(1.02) !important;
+  cursor: grabbing !important;
+  opacity: 1 !important;  /* override the inline 0.5 we WERE setting */
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.55),
+    0 2px 6px rgba(212, 164, 78, 0.20) !important;
+  z-index: 100;
+}
+
+/* Card cover (image at top) — keep its bleed treatment */
+.b-card-cover {
+  width: 100% !important;
+  height: 130px !important;
+  overflow: hidden !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+.b-card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.4s var(--nx-ease);
+}
+.b-card:hover .b-card-cover img {
+  transform: scale(1.02);
+}
+
+/* Color strip below cover — slightly thicker than 3px so it reads */
+.b-card-strip {
+  height: 4px !important;
+  width: 100% !important;
+  flex-shrink: 0;
+}
+
+/* Card body padding */
+.b-card-body {
+  padding: 10px 12px 10px !important;
+}
+
+/* Title — display font, calm hierarchy */
+.b-card-title {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  color: var(--nx-text) !important;
+  line-height: 1.4 !important;
+  letter-spacing: 0.1px !important;
+  margin-bottom: 4px !important;
+}
+
+/* Labels — flat colored pills, Trello-style */
+.b-card-labels {
+  display: flex !important;
+  gap: 4px !important;
+  flex-wrap: wrap !important;
+  margin-bottom: 6px !important;
+}
+.b-card-label {
+  display: inline-flex !important;
+  align-items: center !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  padding: 3px 10px !important;
+  border-radius: 4px !important;  /* Trello uses square-ish, not pill */
+  color: rgba(0, 0, 0, 0.78) !important;  /* dark text on light bg */
+  letter-spacing: 0.2px !important;
+  line-height: 1.3 !important;
+  /* background set inline by board.js via style="background:#..." */
+}
+
+/* Badges — restyle the legacy emoji-prefixed badges. We hide the emoji
+   via font-size:0 + ::before content swap so the legacy markup stays
+   intact but the visual is clean text. */
+.b-card-badges {
+  display: flex !important;
+  gap: 4px !important;
+  flex-wrap: wrap !important;
+  margin-bottom: 4px !important;
+}
+.b-card-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 3px !important;
+  font-family: var(--nx-font-mono) !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  padding: 2px 7px !important;
+  border-radius: 4px !important;
+  letter-spacing: 0.6px !important;
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-faint) !important;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+.b-card-badge.pri-urgent {
+  background: var(--nx-red-soft) !important;
+  color: var(--nx-red) !important;
+  font-weight: 700 !important;
+}
+.b-card-badge.pri-high {
+  background: rgba(232, 168, 48, 0.15) !important;
+  color: var(--nx-amber) !important;
+}
+.b-card-badge.loc {
+  background: var(--nx-gold-faint) !important;
+  /* color set inline */
+  font-weight: 600 !important;
+}
+.b-card-badge.eq {
+  background: var(--nx-gold-faint) !important;
+  color: var(--nx-gold) !important;
+}
+.b-card-badge.overdue {
+  background: var(--nx-red-soft) !important;
+  color: var(--nx-red) !important;
+  font-weight: 700 !important;
+}
+
+/* Meta row — checklists, comments, due dates, age */
+.b-card-meta {
+  display: flex !important;
+  gap: 10px !important;
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10.5px !important;
+  color: var(--nx-faint) !important;
+  margin-top: 6px !important;
+  padding-top: 6px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.04) !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+  line-height: 1.4;
+}
+.b-card-meta-due-soon {
+  color: var(--nx-red) !important;
+  font-weight: 700 !important;
+}
+.b-card-meta-due-warn {
+  color: var(--nx-amber) !important;
+  font-weight: 600 !important;
+}
+.b-card-meta-age      { color: var(--nx-faintest) !important; }
+.b-card-meta-age-warn { color: var(--nx-amber) !important; font-weight: 600 !important; }
+.b-card-meta-age-old  { color: var(--nx-red) !important; font-weight: 700 !important; }
+.b-card-meta-progress { color: var(--nx-amber) !important; }
+.b-card-meta-done     { color: var(--nx-green) !important; }
+
+/* Assignee avatar — colored circle with initials, like Trello.
+   The legacy markup is a small inline initials chip; we restyle it
+   into a proper avatar circle. */
+.b-card-meta-assignee {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 22px !important;
+  height: 22px !important;
+  border-radius: 50% !important;
+  background: linear-gradient(135deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  color: var(--nx-gold-on) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+  margin-right: 0 !important;
+  border: 1.5px solid var(--nx-surface-3);  /* halo against card bg */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.30);
+}
+
+/* Move button — visible on mobile always, on hover on desktop */
+.b-card-move-btn {
+  position: absolute !important;
+  top: 8px !important;
+  right: 8px !important;
+  background: rgba(20, 18, 14, 0.85) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--nx-gold-line) !important;
+  color: var(--nx-gold) !important;
+  padding: 4px 10px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.4px !important;
+  cursor: pointer !important;
+  z-index: 2;
+  transition: opacity 0.15s, background 0.15s !important;
+}
+.b-card-move-btn:hover {
+  background: var(--nx-gold-soft) !important;
+}
+
+/* Done card — Trello-style faded with strike */
+.b-card.is-done {
+  opacity: 0.55 !important;
+  background: var(--nx-surface-2) !important;
+}
+.b-card.is-done .b-card-title {
+  text-decoration: line-through !important;
+  color: var(--nx-faint) !important;
+}
+
+
+/* ═══ DETAIL MODAL ═══════════════════════════════════════════════════ */
+
+.b-modal-bg {
+  background: rgba(0, 0, 0, 0.75) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+}
+.b-modal {
+  background: var(--nx-surface-1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: var(--nx-radius-card) !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
+  max-width: 600px !important;
+}
+.b-modal-head {
+  padding: 18px 20px !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  background: transparent !important;
+}
+.b-modal-title {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-lg) !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--nx-text) !important;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+}
+.b-modal-close {
+  color: var(--nx-faint) !important;
+  font-size: 20px !important;
+  background: transparent !important;
+  border: none !important;
+  cursor: pointer;
+  padding: 4px 8px !important;
+  border-radius: 50%;
+  transition: color var(--nx-press), background var(--nx-press) !important;
+}
+.b-modal-close:hover {
+  color: var(--nx-text) !important;
+  background: var(--nx-surface-2) !important;
+}
+.b-modal-body {
+  padding: 18px 20px !important;
+  max-height: 70vh !important;
+}
+
+/* Sections inside the modal */
+.b-section { margin-bottom: 18px !important; }
+.b-section-label {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 1.6px !important;
+  text-transform: uppercase !important;
+  color: var(--nx-gold) !important;
+  font-weight: 600 !important;
+  margin-bottom: 8px !important;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Field controls */
+.b-field {
+  background: var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  padding: 10px 12px !important;
+  outline: none !important;
+  transition: border-color var(--nx-press) !important;
+}
+.b-field:focus { border-color: var(--nx-gold-line-3) !important; }
+textarea.b-field {
+  resize: vertical;
+  min-height: 72px !important;
+  line-height: 1.5;
+}
+.b-field-row { display: flex; gap: 10px; }
+.b-field-row > * { flex: 1; min-width: 0; }
+
+/* Equipment embed inside the modal */
+.b-eq-embed {
+  background: var(--nx-gold-faint) !important;
+  border: 1px solid var(--nx-gold-line-2) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  padding: 12px 14px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  cursor: pointer !important;
+  transition: background var(--nx-press) !important;
+}
+.b-eq-embed:hover { background: var(--nx-gold-soft) !important; }
+.b-eq-embed-icon { font-size: 22px !important; flex-shrink: 0; }
+.b-eq-embed-name {
+  font-family: var(--nx-font-display) !important;
+  font-weight: 600 !important;
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-gold) !important;
+  margin-bottom: 2px !important;
+  letter-spacing: -0.005em;
+}
+.b-eq-embed-meta {
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-muted) !important;
+}
+.b-eq-embed-chev { color: var(--nx-faint) !important; }
+
+/* Photos row */
+.b-photo {
+  width: 80px !important;
+  height: 80px !important;
+  object-fit: cover !important;
+  border-radius: var(--nx-radius-tight) !important;
+  cursor: pointer !important;
+  background: var(--nx-surface-2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: transform var(--nx-press), border-color var(--nx-press) !important;
+}
+.b-photo:hover {
+  transform: scale(1.04);
+  border-color: var(--nx-gold-line-2) !important;
+}
+.b-photo-add {
+  width: 80px !important;
+  height: 80px !important;
+  border: 1.5px dashed var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: var(--nx-faint) !important;
+  font-size: 24px !important;
+  font-weight: 300 !important;
+  cursor: pointer !important;
+  background: transparent !important;
+  transition: border-color var(--nx-press), color var(--nx-press) !important;
+}
+.b-photo-add:hover {
+  border-color: var(--nx-gold-line-2) !important;
+  color: var(--nx-gold) !important;
+}
+
+/* Checklist */
+.b-check {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 6px 0 !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-text) !important;
+  line-height: 1.4;
+}
+.b-check input[type="checkbox"] {
+  accent-color: var(--nx-gold) !important;
+  width: 18px !important;
+  height: 18px !important;
+  cursor: pointer !important;
+}
+.b-check.done span {
+  text-decoration: line-through !important;
+  color: var(--nx-faint) !important;
+}
+
+.b-check-add {
+  display: flex !important;
+  gap: 8px !important;
+  margin-top: 8px !important;
+}
+.b-check-add input {
+  flex: 1;
+  background: var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  color: var(--nx-text) !important;
+  padding: 8px 12px !important;
+  min-height: 36px !important;
+  border-radius: var(--nx-radius-tight) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  outline: none !important;
+}
+.b-check-add input:focus { border-color: var(--nx-gold-line-3) !important; }
+.b-check-add button {
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  border: none !important;
+  color: var(--nx-gold-on) !important;
+  padding: 8px 14px !important;
+  min-height: 36px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+}
+
+/* Comments */
+.b-comment {
+  padding: 10px 12px !important;
+  background: var(--nx-surface-2) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  margin-bottom: 6px !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  line-height: 1.5;
+}
+.b-comment-by {
+  font-family: var(--nx-font-mono) !important;
+  color: var(--nx-gold) !important;
+  font-weight: 600 !important;
+  margin-right: 6px !important;
+  letter-spacing: 0.3px;
+}
+.b-comment-time {
+  color: var(--nx-faint) !important;
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+}
+
+
+/* ═══ MOVE PICKER MODAL ═════════════════════════════════════════════ */
+
+.b-move-modal { max-width: 360px !important; }
+.b-move-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  padding: 8px !important;
+}
+.b-move-item {
+  background: transparent !important;
+  border: none !important;
+  color: var(--nx-text) !important;
+  padding: 12px 14px !important;
+  min-height: var(--nx-touch-min) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  text-align: left !important;
+  cursor: pointer !important;
+  transition: background var(--nx-press) !important;
+}
+.b-move-item:hover {
+  background: var(--nx-gold-faint) !important;
+  color: var(--nx-gold) !important;
+}
+.b-move-item.current {
+  background: var(--nx-gold-soft) !important;
+  color: var(--nx-gold) !important;
+  font-weight: 600 !important;
+}
+
+
+/* ═══ NEUTRALIZE the views-system.css board overrides ═══════════════
+   The earlier views-system.css has rules for .board-list, .board-card,
+   .card-detail-* — those classes DON'T exist in board.js (it uses
+   .b-list / .b-card / .b-modal). These rules have no effect; this is
+   just a comment marker that the cascade is clean. */
+
+
+/* ═══ INLINE COMPOSER — replaces native prompt() ═══════════════════
+   Trello's defining interaction. Tap "+ Add a card" → the button is
+   replaced in-place by a textarea + Add button + ✕ cancel. Type,
+   press Enter, card appears, composer stays open for batch entry.
+   
+   Used identically for new cards, new lists, new boards — same
+   visual language at all three scales. */
+
+.b-composer {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  padding: 8px !important;
+  margin: 4px 0 !important;
+  background: var(--nx-surface-3) !important;
+  border-radius: 10px !important;
+  /* Match the card's tactile shadow so the composer feels like a
+     "card-in-progress". When user submits, the resulting card slides
+     into the column with the same surface — visual continuity. */
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.30),
+    0 4px 12px rgba(0, 0, 0, 0.30) !important;
+}
+
+.b-composer-input {
+  width: 100% !important;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  resize: none !important;
+  padding: 8px 4px !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  line-height: 1.4 !important;
+  letter-spacing: 0.1px !important;
+  box-sizing: border-box !important;
+}
+.b-composer-input::placeholder {
+  color: var(--nx-faint) !important;
+  font-weight: 400 !important;
+}
+
+.b-composer-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.b-composer-submit {
+  padding: 8px 16px !important;
+  min-height: 36px !important;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  color: var(--nx-gold-on) !important;
+  border: none !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.4px !important;
+  cursor: pointer !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+  transition: transform var(--nx-press), background var(--nx-press) !important;
+}
+.b-composer-submit:active {
+  transform: scale(0.97) !important;
+  background: linear-gradient(180deg, var(--nx-gold-deep), var(--nx-gold-darker)) !important;
+}
+.b-composer-submit:disabled {
+  opacity: 0.6 !important;
+  cursor: wait !important;
+  transform: none !important;
+}
+
+.b-composer-cancel {
+  width: 32px !important;
+  height: 32px !important;
+  background: transparent !important;
+  border: none !important;
+  color: var(--nx-faint) !important;
+  font-size: 16px !important;
+  font-weight: 400 !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: background var(--nx-press), color var(--nx-press) !important;
+}
+.b-composer-cancel:hover {
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-text) !important;
+}
+
+
+/* ═══ QUICK SEARCH — in the summary strip ═══════════════════════════
+   Free-text filter across all card titles + descriptions on this
+   board. Live-filters as user types (120ms debounced). Pressing
+   Escape clears. Sits between summary chips and action buttons. */
+
+.b-search-wrap {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 5px 10px 5px 12px !important;
+  min-height: 30px !important;
+  background: var(--nx-surface-2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  transition: border-color var(--nx-press) !important;
+  flex: 1 1 180px !important;
+  max-width: 280px !important;
+  min-width: 0 !important;
+}
+.b-search-wrap:focus-within {
+  border-color: var(--nx-gold-line-2) !important;
+  background: var(--nx-surface-3) !important;
+}
+.b-search-icon {
+  color: var(--nx-faint) !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+  flex-shrink: 0 !important;
+}
+.b-search-wrap:focus-within .b-search-icon {
+  color: var(--nx-gold) !important;
+}
+.b-search-input {
+  flex: 1 !important;
+  min-width: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  letter-spacing: 0.1px !important;
+  /* Disable the browser's default search-input clear button — we
+     render our own ✕ when there's a query, styled to match. */
+  -webkit-appearance: none !important;
+  appearance: none !important;
+}
+.b-search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+}
+.b-search-input::placeholder {
+  color: var(--nx-faint) !important;
+}
+.b-search-clear {
+  width: 18px !important;
+  height: 18px !important;
+  background: var(--nx-surface-1) !important;
+  border: none !important;
+  color: var(--nx-faint) !important;
+  font-size: 10px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  padding: 0 !important;
+  transition: background var(--nx-press), color var(--nx-press) !important;
+}
+.b-search-clear:hover {
+  background: var(--nx-gold-soft) !important;
+  color: var(--nx-gold) !important;
+}
+
+/* On really tight phones, the search drops to its own row beneath
+   the chips. Otherwise the strip wraps and looks unintentional. */
+@media (max-width: 460px) {
+  .b-search-wrap {
+    flex-basis: 100% !important;
+    max-width: 100% !important;
+    order: 99 !important;  /* push to end of flex order so it's on its own row */
+  }
+}
+
+
+/* ═══ QUICK-ACTIONS MENU — long-press / right-click on a card ════════
+   Anchored floating panel with priority pills, due-date input, and
+   archive/open actions. Lets you re-prioritize, set dates, archive
+   without opening the full modal. The single biggest weekly-grooming
+   speedup on the board. */
+
+.b-qa-menu {
+  position: absolute !important;
+  z-index: 900 !important;
+  min-width: 280px !important;
+  max-width: 320px !important;
+  padding: 10px !important;
+  background: rgba(20, 18, 14, 0.96) !important;
+  backdrop-filter: blur(16px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%) !important;
+  border: 1px solid var(--nx-gold-line-2) !important;
+  border-radius: var(--nx-radius-card) !important;
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.30) !important;
+  /* Subtle entrance — feels responsive, not abrupt */
+  animation: bQaIn 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-origin: top left;
+}
+@keyframes bQaIn {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.b-qa-section {
+  margin-bottom: 10px;
+}
+.b-qa-section:last-child {
+  margin-bottom: 0;
+}
+.b-qa-section + .b-qa-section {
+  padding-top: 10px;
+  border-top: 1px solid var(--nx-gold-line);
+}
+
+.b-qa-label {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 9.5px !important;
+  letter-spacing: 1.5px !important;
+  text-transform: uppercase !important;
+  font-weight: 600 !important;
+  color: var(--nx-gold) !important;
+  margin-bottom: 6px !important;
+}
+
+.b-qa-row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 4px !important;
+  align-items: center !important;
+}
+
+/* Priority chips — color-keyed via --c CSS var set inline */
+.b-qa-pri {
+  flex: 1 1 auto;
+  min-width: 70px;
+  padding: 8px 12px !important;
+  min-height: 34px !important;
+  background: var(--nx-surface-2) !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--nx-radius-pill) !important;
+  color: var(--nx-muted) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.2px !important;
+  cursor: pointer !important;
+  transition:
+    background var(--nx-press),
+    color var(--nx-press),
+    border-color var(--nx-press) !important;
+  text-align: center;
+  white-space: nowrap;
+}
+.b-qa-pri:hover {
+  background: var(--nx-surface-3) !important;
+  color: var(--nx-text) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+.b-qa-pri.active {
+  background: color-mix(in oklab, var(--c) 16%, transparent) !important;
+  color: var(--c) !important;
+  border-color: color-mix(in oklab, var(--c) 35%, transparent) !important;
+  font-weight: 600 !important;
+}
+
+/* Due-date input */
+.b-qa-due {
+  flex: 1 1 auto;
+  min-height: 36px;
+  padding: 8px 12px !important;
+  background: var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-mono) !important;
+  font-size: 12px !important;
+  outline: none !important;
+  transition: border-color var(--nx-press) !important;
+  /* Tame the native date-picker indicator on dark themes */
+  color-scheme: dark;
+}
+.b-qa-due:focus {
+  border-color: var(--nx-gold-line-3) !important;
+}
+
+.b-qa-due-clear {
+  width: 30px !important;
+  height: 30px !important;
+  background: transparent !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  color: var(--nx-faint) !important;
+  border-radius: 50% !important;
+  font-size: 11px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: color var(--nx-press), border-color var(--nx-press) !important;
+}
+.b-qa-due-clear:hover {
+  color: var(--nx-text) !important;
+  border-color: var(--nx-gold-line-2) !important;
+}
+
+/* Action buttons (Open card / Archive) */
+.b-qa-action {
+  display: block !important;
+  width: 100% !important;
+  padding: 10px 14px !important;
+  min-height: 38px !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: var(--nx-radius-tight) !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.1px !important;
+  text-align: left !important;
+  cursor: pointer !important;
+  transition: background var(--nx-press), color var(--nx-press) !important;
+  margin-bottom: 2px !important;
+}
+.b-qa-action:hover {
+  background: var(--nx-gold-faint) !important;
+  color: var(--nx-gold) !important;
+}
+.b-qa-action.b-qa-archive:hover {
+  background: var(--nx-red-soft) !important;
+  color: var(--nx-red) !important;
+}
+
+
+/* ═══ CLEANING LINK BANNER — top of card detail modal ════════════
+   When a card was escalated from a cleaning section, the modal opens
+   with a small banner explaining the link. Marking the card Done
+   timestamps the cleaning section as completed today (handled by
+   board.js's closeOutCleaningSection). */
+
+.b-cleaning-link {
+  display: grid !important;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  padding: 12px 14px !important;
+  margin-bottom: 14px !important;
+  background: var(--nx-gold-faint) !important;
+  border: 1px solid var(--nx-gold-line-2) !important;
+  border-radius: var(--nx-radius-tight) !important;
+}
+.b-cleaning-link-icon {
+  font-size: 18px;
+  grid-row: span 2;
+  align-self: start;
+  padding-top: 2px;
+  opacity: 0.9;
+}
+.b-cleaning-link-title {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 600 !important;
+  color: var(--nx-gold) !important;
+  letter-spacing: 0.1px;
+  line-height: 1.3;
+}
+.b-cleaning-link-meta {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-muted) !important;
+  letter-spacing: 0.4px;
+  line-height: 1.4;
+  margin-top: 2px;
+}
+.b-cleaning-link-hint {
+  grid-column: 2;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-muted) !important;
+  line-height: 1.5 !important;
+  margin-top: 4px;
+  font-style: italic;
+}
