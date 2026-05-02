@@ -361,6 +361,194 @@
   margin-top: 12px;
 }
 
+/* ─── Swap zone — fixed min-height so coin/title/lang stay anchored ───
+   The keypad and time clock panel both render here. We set a min-height
+   tall enough for whichever is taller (the keypad) so when content
+   swaps post-auth the surrounding elements never shift. */
+#pinScreen .pin-swap {
+  min-height: 380px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+/* ─── Time clock panel — fixed-size editorial theme ─────────────────── */
+#pinScreen .tc-panel {
+  width: 100%;
+  max-width: 280px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 4px 0;
+}
+#pinScreen .tc-status {
+  text-align: center;
+  font-size: 14px;
+  color: #c8a44e;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  margin: 0;
+}
+#pinScreen .tc-time {
+  text-align: center;
+  font-size: 11px;
+  color: #857f75;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin: 0 0 6px;
+}
+#pinScreen .tc-loc-row {
+  margin: 0;
+}
+#pinScreen .tc-loc-select {
+  width: 100%;
+  background: rgba(28, 24, 20, 0.6);
+  border: 1px solid rgba(200, 164, 78, 0.25);
+  border-radius: 8px;
+  color: #d4c8a5;
+  padding: 11px 14px;
+  font-family: 'Outfit', -apple-system, sans-serif;
+  font-size: 14px;
+  text-align: center;
+  text-align-last: center;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23857f75' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 14px;
+}
+#pinScreen .tc-buttons {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 0;
+}
+/* Override the bright green Clock In with editorial gold theme. */
+#pinScreen .tc-btn {
+  flex: 1;
+  padding: 12px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(200, 164, 78, 0.35);
+  background: rgba(200, 164, 78, 0.08);
+  color: #c8a44e;
+  font-family: 'Outfit', -apple-system, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+#pinScreen .tc-btn:active {
+  background: rgba(200, 164, 78, 0.18);
+  border-color: rgba(200, 164, 78, 0.6);
+  transform: scale(0.97);
+}
+#pinScreen .tc-btn-in {
+  background: linear-gradient(180deg, #d4a44e 0%, #b88830 100%);
+  color: #1c1814;
+  border-color: transparent;
+  font-weight: 700;
+}
+#pinScreen .tc-btn-in:active {
+  background: linear-gradient(180deg, #b88830 0%, #9a7026 100%);
+  border-color: transparent;
+}
+#pinScreen .tc-btn-out {
+  background: rgba(180, 80, 80, 0.12);
+  border-color: rgba(180, 80, 80, 0.4);
+  color: #d47878;
+}
+#pinScreen .tc-btn-out:active {
+  background: rgba(180, 80, 80, 0.22);
+}
+/* "Enter NEXUS" — primary post-auth action. Strong gold. */
+#pinScreen .tc-pin-actions {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+#pinScreen .tc-enter {
+  width: 100%;
+  padding: 13px 18px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(180deg, #d4a44e 0%, #b88830 100%);
+  color: #1c1814;
+  font-family: 'Outfit', -apple-system, sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+#pinScreen .tc-enter:active {
+  background: linear-gradient(180deg, #b88830 0%, #9a7026 100%);
+  transform: scale(0.98);
+}
+
+/* Scrollable timesheet log — capped height, scroll inside, ~14 days. */
+#pinScreen .tc-pin-log {
+  width: 100%;
+  max-height: 200px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 8px 0 4px;
+  padding: 4px 2px;
+  border-top: 1px solid rgba(200, 164, 78, 0.15);
+  border-bottom: 1px solid rgba(200, 164, 78, 0.15);
+  /* Fade edges to indicate more scroll content */
+  mask-image: linear-gradient(180deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+}
+/* Custom scrollbar for the log */
+#pinScreen .tc-pin-log::-webkit-scrollbar {
+  width: 4px;
+}
+#pinScreen .tc-pin-log::-webkit-scrollbar-track {
+  background: transparent;
+}
+#pinScreen .tc-pin-log::-webkit-scrollbar-thumb {
+  background: rgba(200, 164, 78, 0.3);
+  border-radius: 2px;
+}
+/* Each log row — date + location + ⋯ overflow */
+#pinScreen .tc-pin-log > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 6px;
+  font-size: 12px;
+  color: #a89e87;
+  border-bottom: 1px solid rgba(200, 164, 78, 0.08);
+}
+#pinScreen .tc-pin-log > div:last-child {
+  border-bottom: none;
+}
+
+/* My Timesheet download button — quieter than the primary actions. */
+#pinScreen .tc-download {
+  background: transparent;
+  border: 1px solid rgba(200, 164, 78, 0.25);
+  color: #c8a44e;
+  padding: 9px 16px;
+  border-radius: 999px;
+  font-family: 'Outfit', -apple-system, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  transition: border-color 0.15s, background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+#pinScreen .tc-download:active {
+  background: rgba(200, 164, 78, 0.08);
+  border-color: rgba(200, 164, 78, 0.5);
+}
+
 /* Slightly smaller coin on narrow phones — preserve the 20px safe zone
    around the coin so the (i) button never crowds it. */
 @media (max-width: 380px) {
@@ -398,10 +586,10 @@
         <button class="nx-coin-info" id="nxCoinInfo" type="button" aria-label="About the NEXUS coin">i</button>
         <div class="nx-coin" id="nxCoin" tabindex="0" role="button" aria-label="NEXUS coin — tap to flip">
           <div class="nx-coin-face nx-coin-front">
-            <img src="assets/coin-trajan.png" alt="Trajan, Optimus Princeps" draggable="false">
+            <img src="assets/coin-trajan-v2.png" alt="Trajan, Optimus Princeps" draggable="false">
           </div>
           <div class="nx-coin-face nx-coin-back">
-            <img src="assets/coin-providentia.png" alt="Providentia, goddess of foresight" draggable="false">
+            <img src="assets/coin-providentia-v2.png" alt="Providentia, goddess of foresight" draggable="false">
           </div>
         </div>
       </div>
@@ -410,44 +598,51 @@
       <div class="pin-hairline"></div>
       <div class="pin-date" id="pinDate">—</div>
     </div>
-    <div class="pin-display" id="pinDisplay">
-      <span class="pin-circle"></span><span class="pin-circle"></span>
-      <span class="pin-circle"></span><span class="pin-circle"></span>
-    </div>
-    <div class="pin-pad" id="pinPad">
-      <button class="pin-key" data-val="1">1</button>
-      <button class="pin-key" data-val="2">2</button>
-      <button class="pin-key" data-val="3">3</button>
-      <button class="pin-key" data-val="4">4</button>
-      <button class="pin-key" data-val="5">5</button>
-      <button class="pin-key" data-val="6">6</button>
-      <button class="pin-key" data-val="7">7</button>
-      <button class="pin-key" data-val="8">8</button>
-      <button class="pin-key" data-val="9">9</button>
-      <button class="pin-key pin-key-empty"></button>
-      <button class="pin-key" data-val="0">0</button>
-      <button class="pin-key pin-key-del" id="pinDel">⌫</button>
-    </div>
-    <p class="pin-sub" data-i18n="enterPin">Enter your PIN</p>
-    <div class="pin-error" id="pinError"></div>
-    <div class="pin-user" id="pinUser"></div>
-    <!-- TIME CLOCK — shows after PIN verified -->
-    <div class="tc-panel" id="tcPanel" style="display:none">
-      <div class="tc-status" id="tcStatus"></div>
-      <div class="tc-time" id="tcTime"></div>
-      <div class="tc-loc-row">
-        <select id="tcLocation" class="tc-loc-select"></select>
+    <!-- Swap zone — content here changes between PIN entry (keypad) and
+         post-auth (time clock panel). Wrapper has a fixed min-height so
+         the coin, NEXUS title, date, and language buttons never reflow
+         when this content changes. -->
+    <div class="pin-swap" id="pinSwap">
+      <div class="pin-display" id="pinDisplay">
+        <span class="pin-circle"></span><span class="pin-circle"></span>
+        <span class="pin-circle"></span><span class="pin-circle"></span>
       </div>
-      <div class="tc-buttons">
-        <button class="tc-btn tc-btn-in" id="tcClockIn" data-i18n="clockIn">Clock In</button>
-        <button class="tc-btn tc-btn-out" id="tcClockOut" style="display:none" data-i18n="clockOut">Clock Out</button>
+      <div class="pin-pad" id="pinPad">
+        <button class="pin-key" data-val="1">1</button>
+        <button class="pin-key" data-val="2">2</button>
+        <button class="pin-key" data-val="3">3</button>
+        <button class="pin-key" data-val="4">4</button>
+        <button class="pin-key" data-val="5">5</button>
+        <button class="pin-key" data-val="6">6</button>
+        <button class="pin-key" data-val="7">7</button>
+        <button class="pin-key" data-val="8">8</button>
+        <button class="pin-key" data-val="9">9</button>
+        <button class="pin-key pin-key-empty"></button>
+        <button class="pin-key" data-val="0">0</button>
+        <button class="pin-key pin-key-del" id="pinDel">⌫</button>
       </div>
-      <div class="tc-pin-actions">
-        <button class="tc-enter" id="tcEnter" data-i18n="enterNexus">Enter NEXUS →</button>
-      </div>
-      <div class="tc-pin-log" id="tcPinLog"></div>
-      <div class="tc-pin-actions">
-        <button class="tc-download" id="tcPinDownload">⬇ My Timesheet</button>
+      <p class="pin-sub" data-i18n="enterPin">Enter your PIN</p>
+      <div class="pin-error" id="pinError"></div>
+      <div class="pin-user" id="pinUser"></div>
+      <!-- TIME CLOCK — shows after PIN verified -->
+      <div class="tc-panel" id="tcPanel" style="display:none">
+        <div class="tc-status" id="tcStatus"></div>
+        <div class="tc-time" id="tcTime"></div>
+        <div class="tc-loc-row">
+          <select id="tcLocation" class="tc-loc-select"></select>
+        </div>
+        <div class="tc-buttons">
+          <button class="tc-btn tc-btn-in" id="tcClockIn" data-i18n="clockIn">Clock In</button>
+          <button class="tc-btn tc-btn-out" id="tcClockOut" style="display:none" data-i18n="clockOut">Clock Out</button>
+        </div>
+        <div class="tc-pin-actions">
+          <button class="tc-enter" id="tcEnter" data-i18n="enterNexus">Enter NEXUS →</button>
+        </div>
+        <!-- Scrollable log of recent clock-ins/outs (14 days) -->
+        <div class="tc-pin-log" id="tcPinLog"></div>
+        <div class="tc-pin-actions">
+          <button class="tc-download" id="tcPinDownload">⬇ My Timesheet</button>
+        </div>
       </div>
     </div>
     <div class="pin-lang-row">
