@@ -1,0 +1,706 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Admin — design system migration
+   ─────────────────────────────────────
+   Overrides the admin modal's visual styling to align with nx-system.
+   The admin modal has TWO style sources:
+     1. .admin-* classes in nexus.css (legacy form widgets)
+     2. .at-* classes in inline <style> in index.html (tab redesign)
+   Plus inline styles on individual elements.
+   
+   This file overrides both class systems, plus quiets emoji-prefixed
+   tab labels via CSS so the bar reads as clean text.
+   
+   Load order: ... → views-system.css → admin-system.css (this file)
+                  → home.css → chat.css
+   ═══════════════════════════════════════════════════════════════════════ */
+
+
+/* ═══ MODAL SHELL ═══ */
+
+.admin-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  background: rgba(0, 0, 0, 0.7) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  z-index: 100 !important;
+  display: none;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  padding: 60px 16px 16px !important;
+  overflow-y: auto !important;
+}
+.admin-overlay.open { display: flex !important; }
+
+.admin-box {
+  background: var(--nx-surface-1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: var(--nx-radius-card) !important;
+  padding: var(--nx-space-6) !important;
+  width: 92% !important;
+  max-width: 480px !important;
+  max-height: 88vh !important;
+  overflow-y: auto !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
+}
+
+/* Modal title */
+.admin-title {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xl) !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--nx-text) !important;
+  margin-bottom: var(--nx-space-4) !important;
+  text-transform: none !important;
+}
+
+
+/* ═══ USER INFO HEADER (top of modal) ═══ */
+
+.admin-user-info {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--nx-space-3) !important;
+  margin-bottom: var(--nx-space-4) !important;
+  padding-bottom: var(--nx-space-3) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+}
+.admin-user-name {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-md) !important;
+  font-weight: 500 !important;
+  color: var(--nx-text) !important;
+}
+.admin-user-role {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 1.6px !important;
+  font-weight: 600 !important;
+  color: var(--nx-gold) !important;
+  padding: 4px 10px !important;
+  border: 1px solid var(--nx-gold-line-2) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  background: var(--nx-gold-faint) !important;
+  text-transform: uppercase;
+}
+
+/* Other-user list (below current admin info) */
+.admin-user-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: var(--nx-space-2) !important;
+  margin-bottom: var(--nx-space-3) !important;
+}
+.admin-user-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--nx-space-2) !important;
+  padding: 10px 12px !important;
+  background: var(--nx-surface-2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  font-size: var(--nx-text-sm) !important;
+}
+.admin-user-name-sm {
+  flex: 1 !important;
+  font-weight: 500 !important;
+  color: var(--nx-text) !important;
+}
+.admin-user-role-sm {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 9.5px !important;
+  color: var(--nx-gold) !important;
+  letter-spacing: 1.4px !important;
+  text-transform: uppercase !important;
+  font-weight: 600 !important;
+}
+.admin-user-loc-sm,
+.admin-user-pin-sm {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  color: var(--nx-faint) !important;
+  letter-spacing: 0.4px;
+}
+
+
+/* ═══ TAB BAR ═══
+   Quiet the inline-styled tab bar and turn it into a system pill row.
+   Hide the emoji prefixes via font-size:0 + ::before content swap. */
+
+.admin-tab-bar {
+  display: flex !important;
+  gap: var(--nx-space-1) !important;
+  margin: var(--nx-space-3) 0 var(--nx-space-4) !important;
+  background: var(--nx-surface-2) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  padding: 4px !important;
+  overflow-x: auto !important;
+  scrollbar-width: none;
+}
+.admin-tab-bar::-webkit-scrollbar { display: none; }
+
+.at-tab {
+  flex: 1 !important;
+  min-width: 80px !important;
+  padding: 9px 10px !important;
+  background: transparent !important;
+  border: none !important;
+  color: var(--nx-faint) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  border-radius: var(--nx-radius-pill) !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  transition: background var(--nx-press), color var(--nx-press) !important;
+  letter-spacing: 0.3px !important;
+}
+.at-tab:active { transform: scale(0.96); }
+.at-tab.active {
+  background: var(--nx-gold-soft) !important;
+  color: var(--nx-gold) !important;
+  font-weight: 600 !important;
+}
+
+/* Quiet emoji-prefixed labels — replace via ::before, hide original */
+.at-tab[data-tab="overview"] {
+  font-size: 0 !important;
+  letter-spacing: 0 !important;
+}
+.at-tab[data-tab="overview"]::before {
+  content: 'Overview';
+  font-family: var(--nx-font-display);
+  font-size: var(--nx-text-sm);
+  font-weight: inherit;
+  letter-spacing: 0.3px;
+}
+.at-tab[data-tab="configure"] {
+  font-size: 0 !important;
+  letter-spacing: 0 !important;
+}
+.at-tab[data-tab="configure"]::before {
+  content: 'Configure';
+  font-family: var(--nx-font-display);
+  font-size: var(--nx-text-sm);
+  font-weight: inherit;
+  letter-spacing: 0.3px;
+}
+.at-tab[data-tab="actions"] {
+  font-size: 0 !important;
+  letter-spacing: 0 !important;
+}
+.at-tab[data-tab="actions"]::before {
+  content: 'Actions';
+  font-family: var(--nx-font-display);
+  font-size: var(--nx-text-sm);
+  font-weight: inherit;
+  letter-spacing: 0.3px;
+}
+.at-tab[data-tab="logs"] {
+  font-size: 0 !important;
+  letter-spacing: 0 !important;
+}
+.at-tab[data-tab="logs"]::before {
+  content: 'Logs';
+  font-family: var(--nx-font-display);
+  font-size: var(--nx-text-sm);
+  font-weight: inherit;
+  letter-spacing: 0.3px;
+}
+
+
+/* ═══ OVERVIEW: STATS GRID ═══ */
+
+.at-stats-grid {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: var(--nx-space-2) !important;
+  margin: var(--nx-space-2) 0 var(--nx-space-5) !important;
+}
+.at-stat-card {
+  background: var(--nx-surface-2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-radius: var(--nx-radius-card) !important;
+  padding: 12px 6px !important;
+  text-align: center !important;
+  transition: border-color var(--nx-press) !important;
+  box-shadow: var(--nx-shadow-soft);
+}
+.at-stat-card .at-stat-icon {
+  font-size: 16px !important;
+  margin-bottom: 3px !important;
+  line-height: 1 !important;
+  opacity: 0.7;
+}
+.at-stat-card .at-stat-num {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-lg) !important;
+  font-weight: 600 !important;
+  color: var(--nx-text) !important;
+  line-height: 1.1 !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.3px;
+}
+.at-stat-card .at-stat-label {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 9px !important;
+  color: var(--nx-faint) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 1.4px !important;
+  margin-top: 4px !important;
+  font-weight: 600 !important;
+}
+.at-stat-card.alert {
+  background: var(--nx-red-soft) !important;
+  border-color: var(--nx-red-line) !important;
+}
+.at-stat-card.alert .at-stat-num { color: var(--nx-red) !important; }
+
+
+/* ═══ INTEGRATIONS CHIPS ═══ */
+
+.at-integrations {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: var(--nx-space-2) !important;
+  margin: var(--nx-space-2) 0 var(--nx-space-5) !important;
+}
+.at-int-chip {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 500 !important;
+  padding: 6px 12px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  background: var(--nx-surface-2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  color: var(--nx-muted) !important;
+  letter-spacing: 0.2px;
+}
+.at-int-chip.ok {
+  border-color: rgba(91, 186, 95, 0.30) !important;
+  color: var(--nx-green) !important;
+  background: rgba(91, 186, 95, 0.08) !important;
+}
+.at-int-chip.off {
+  border-color: var(--nx-red-line) !important;
+  color: var(--nx-red) !important;
+  background: var(--nx-red-soft) !important;
+}
+
+
+/* ═══ SECTION TITLES ═══ */
+
+.at-section-title {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-base) !important;
+  font-weight: 500 !important;
+  text-transform: none !important;
+  letter-spacing: -0.005em !important;
+  color: var(--nx-text) !important;
+  margin: var(--nx-space-5) 0 var(--nx-space-3) !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+/* Legacy admin-section-label — used inside Configure tab */
+.admin-section-label {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 1.6px !important;
+  color: var(--nx-faint) !important;
+  text-transform: uppercase !important;
+  font-weight: 600 !important;
+  margin: var(--nx-space-4) 0 var(--nx-space-2) !important;
+}
+
+
+/* ═══ ATTENTION ROWS ═══ */
+
+.at-attn-item {
+  font-size: var(--nx-text-sm) !important;
+  padding: 10px 14px !important;
+  margin-bottom: var(--nx-space-1) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  background: rgba(232, 168, 48, 0.08) !important;
+  border: 1px solid rgba(232, 168, 48, 0.20) !important;
+  color: var(--nx-text) !important;
+  line-height: 1.45 !important;
+}
+.at-attn-item.ok {
+  background: rgba(91, 186, 95, 0.06) !important;
+  border-color: rgba(91, 186, 95, 0.18) !important;
+  color: var(--nx-green) !important;
+}
+.at-attn-item.danger {
+  background: var(--nx-red-soft) !important;
+  border-color: var(--nx-red-line) !important;
+  color: var(--nx-red) !important;
+}
+
+
+/* ═══ ACTIVITY FEED ═══ */
+
+.at-activity {
+  max-height: 200px !important;
+  overflow-y: auto !important;
+  border-radius: var(--nx-radius-tight) !important;
+  background: var(--nx-surface-2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  padding: 4px 0 !important;
+}
+.at-activity-row {
+  display: flex !important;
+  gap: var(--nx-space-2) !important;
+  padding: 8px 12px !important;
+  font-size: var(--nx-text-xs) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03) !important;
+}
+.at-activity-row:last-child { border-bottom: none; }
+.at-activity-time {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  color: var(--nx-faint) !important;
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: 0.3px;
+}
+.at-activity-msg {
+  color: var(--nx-text) !important;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.at-activity-empty {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  padding: 16px 12px !important;
+  text-align: center;
+  color: var(--nx-faint) !important;
+}
+
+
+/* ═══ FORM FIELDS — admin-field, admin-field-sm, admin-divider ═══ */
+
+.admin-field,
+.admin-field-sm {
+  width: 100% !important;
+  padding: 12px 14px !important;
+  min-height: var(--nx-touch-min) !important;
+  background: var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  margin-bottom: var(--nx-space-2) !important;
+  outline: none !important;
+  transition: border-color var(--nx-press) !important;
+}
+.admin-field:focus,
+.admin-field-sm:focus { border-color: var(--nx-gold-line-3) !important; }
+.admin-field::placeholder,
+.admin-field-sm::placeholder { color: var(--nx-faint) !important; }
+
+.admin-field-sm {
+  font-size: var(--nx-text-sm) !important;
+  padding: 10px 12px !important;
+  min-height: 40px !important;
+}
+
+.admin-divider {
+  border: none !important;
+  border-top: 1px solid var(--nx-gold-line) !important;
+  margin: var(--nx-space-4) 0 !important;
+}
+
+
+/* ═══ BUTTONS ═══ */
+
+.admin-save-btn {
+  width: 100% !important;
+  padding: 13px 16px !important;
+  min-height: var(--nx-touch-min) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: none !important;
+  background: linear-gradient(180deg, var(--nx-gold) 0%, var(--nx-gold-deep) 100%) !important;
+  color: var(--nx-gold-on) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.5px !important;
+  cursor: pointer !important;
+  margin-top: var(--nx-space-2) !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+  transition: background var(--nx-press), transform var(--nx-press) !important;
+}
+.admin-save-btn:active {
+  background: linear-gradient(180deg, var(--nx-gold-deep) 0%, var(--nx-gold-darker) 100%) !important;
+  transform: scale(0.985);
+}
+
+/* Secondary / quiet save buttons (admin uses inline style overrides
+   for "background:transparent" — match those by detecting and
+   re-styling. The cascade lets inline win over us, BUT the inline
+   uses old colors that need updating. We can't override inline
+   without !important on individual properties. */
+.admin-save-btn[style*="transparent"] {
+  background: transparent !important;
+  color: var(--nx-faint) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  box-shadow: none !important;
+}
+.admin-save-btn[style*="transparent"]:active {
+  background: var(--nx-gold-faint) !important;
+  color: var(--nx-gold) !important;
+}
+
+/* The "Open Activity Log" gold-gradient button uses inline style
+   "background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;"
+   — that's already gold-on-dark, so just round it correctly. */
+#adminOpenLog,
+#adminReviewPmLogs,
+#adminBroadcastSend {
+  /* inline gradient stays — we just ensure shape + interactivity */
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-display) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.5px !important;
+  min-height: var(--nx-touch-min) !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+}
+
+/* Drive sync row */
+.admin-drive-row {
+  display: flex !important;
+  gap: var(--nx-space-2) !important;
+  margin-top: var(--nx-space-2) !important;
+}
+.admin-drive-btn {
+  flex: 1 !important;
+  padding: 10px 8px !important;
+  min-height: 40px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-muted) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.3px !important;
+  cursor: pointer !important;
+  transition: border-color var(--nx-press), color var(--nx-press) !important;
+}
+.admin-drive-btn:hover {
+  border-color: var(--nx-gold-line-2) !important;
+  color: var(--nx-gold) !important;
+}
+
+/* Voice row */
+.admin-voice-row {
+  display: flex !important;
+  gap: var(--nx-space-2) !important;
+  align-items: center !important;
+}
+.admin-test-voice-btn {
+  padding: 10px 16px !important;
+  min-height: 40px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line-2) !important;
+  background: var(--nx-gold-faint) !important;
+  color: var(--nx-gold) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  transition: background var(--nx-press) !important;
+}
+.admin-test-voice-btn:hover { background: var(--nx-gold-soft) !important; }
+
+/* Status text */
+.admin-key-status {
+  text-align: center !important;
+  padding: var(--nx-space-2) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-muted) !important;
+  line-height: 1.5;
+}
+
+/* Bottom action row (Enter / Cancel) */
+.admin-actions {
+  display: flex !important;
+  gap: var(--nx-space-2) !important;
+  margin-top: var(--nx-space-4) !important;
+}
+.admin-enter,
+.admin-cancel {
+  flex: 1 !important;
+  padding: 13px !important;
+  min-height: var(--nx-touch-min) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: none !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.5px !important;
+  cursor: pointer !important;
+  transition: background var(--nx-press), transform var(--nx-press) !important;
+}
+.admin-enter {
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  color: var(--nx-gold-on) !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+}
+.admin-enter:active {
+  background: linear-gradient(180deg, var(--nx-gold-deep), var(--nx-gold-darker)) !important;
+  transform: scale(0.985);
+}
+.admin-cancel {
+  background: transparent !important;
+  color: var(--nx-faint) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  font-weight: 500 !important;
+}
+.admin-cancel:active { background: var(--nx-gold-faint) !important; }
+
+
+/* ═══ TOGGLE ROW (PIN cache, etc.) ═══ */
+
+.admin-toggle-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 12px 14px !important;
+  background: var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  cursor: pointer !important;
+  margin-top: var(--nx-space-2) !important;
+}
+.admin-toggle-row input[type="checkbox"] {
+  accent-color: var(--nx-gold) !important;
+}
+
+
+/* ═══ ONBOARDING ═══ */
+
+.onboard-overlay {
+  background: rgba(17, 17, 22, 0.92) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+.onboard-box {
+  background: var(--nx-surface-1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: var(--nx-radius-card) !important;
+  padding: var(--nx-space-7) var(--nx-space-6) !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
+}
+.onboard-dot {
+  background: var(--nx-gold) !important;
+  box-shadow: 0 0 24px var(--nx-gold-glow) !important;
+}
+.onboard-title {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-2xl) !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--nx-text) !important;
+  text-transform: none !important;
+}
+.onboard-desc {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-base) !important;
+  color: var(--nx-muted) !important;
+  line-height: 1.6 !important;
+  margin-bottom: var(--nx-space-6) !important;
+}
+.onboard-step {
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-text) !important;
+  line-height: 1.55 !important;
+}
+.onboard-step b { color: var(--nx-gold) !important; font-weight: 600 !important; }
+.onboard-num {
+  width: 28px !important;
+  height: 28px !important;
+  border: 1px solid var(--nx-gold-line-2) !important;
+  background: var(--nx-gold-faint) !important;
+  color: var(--nx-gold) !important;
+  font-family: var(--nx-font-mono) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+.onboard-btn {
+  width: 100% !important;
+  padding: 14px !important;
+  min-height: var(--nx-touch-min) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: none !important;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  color: var(--nx-gold-on) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-base) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.5px !important;
+  cursor: pointer !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+}
+
+
+/* ═══ UTILITY TRAY (drops down from top nav) ═══ */
+
+.util-tray {
+  background: var(--nx-surface-1) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  backdrop-filter: blur(20px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.4) !important;
+}
+.util-btn {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 10px 12px !important;
+  background: transparent !important;
+  border: none !important;
+  color: var(--nx-faint) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  border-radius: var(--nx-radius-tight) !important;
+  transition: color var(--nx-press), background var(--nx-press) !important;
+  min-height: 56px !important;
+}
+.util-btn:hover {
+  color: var(--nx-gold) !important;
+  background: var(--nx-gold-faint) !important;
+}
+.util-btn .util-icon {
+  width: 20px !important;
+  height: 20px !important;
+  stroke-width: 1.7 !important;
+}
+
+
+/* ═══ ALERT BANNERS ═══ */
+
+.api-banner {
+  background: var(--nx-red) !important;
+  color: #fff !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+}
+.api-banner button {
+  background: rgba(255, 255, 255, 0.2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  color: #fff !important;
+  padding: 5px 12px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 600 !important;
+}
