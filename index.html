@@ -330,11 +330,13 @@
 }
 
 /* ─── PIN screen spacing overrides ────────────────────────────────────
-   With the coin added at the top, the existing chain of pin-mast
-   elements + pin-display + pin-pad + pin-sub + pin-lang-row felt too
-   tight. These overrides add proper breathing room between the cluster
-   above the keypad and below the keypad. Inline here so we don't touch
-   the shared nexus.css. */
+   Aggressive override of nexus.css spacing. The original CSS had:
+   - .pin-sub margin-bottom: 24px
+   - .pin-error margin-top: 16px + min-height: 18px (reserves space when empty!)
+   - .pin-user margin-top: 12px + min-height: 20px (reserves space when empty!)
+   - .pin-lang-row margin-top: 20px
+   Total = 110+ px of dead vertical space between keypad and language row.
+   These overrides collapse that to zero unless content is actually present. */
 #pinScreen .pin-dot {
   margin-bottom: 14px;
 }
@@ -348,22 +350,38 @@
   margin-bottom: 36px;
 }
 #pinScreen .pin-pad {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 #pinScreen .pin-sub {
-  margin-bottom: 12px;
-  margin-top: 0;
+  margin: 8px 0 0 0;
+}
+#pinScreen .pin-error {
+  margin: 0;
+  min-height: 0;
+}
+#pinScreen .pin-error:empty {
+  display: none;
+}
+#pinScreen .pin-user {
+  margin: 0;
+  min-height: 0;
+}
+#pinScreen .pin-user:empty {
+  display: none;
 }
 #pinScreen .pin-lang-row {
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
 /* ─── Swap zone — fixed min-height so coin/title/lang stay anchored ───
    The keypad and time clock panel both render here. We set a min-height
    tall enough for whichever is taller (the keypad) so when content
    swaps post-auth the surrounding elements never shift. */
+/* ─── Swap zone ───────────────────────────────────────────────────────
+   Container for keypad (PIN entry) and time clock panel (post-auth).
+   Sizes naturally to content — no forced min-height that creates dead
+   vertical space when only the keypad is showing. */
 #pinScreen .pin-swap {
-  min-height: 380px;
   display: flex;
   flex-direction: column;
   align-items: center;
