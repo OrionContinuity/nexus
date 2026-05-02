@@ -1,0 +1,462 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Design System
+   ────────────────────
+   The single source of truth for visual language across NEXUS. Born from
+   the login + time-clock screen, where the editorial-pill button language
+   was first established and approved.
+   
+   This file defines:
+     1. DESIGN TOKENS         — colors, spacing, type, radii (CSS vars)
+     2. PRIMITIVES            — .nx-pill, .nx-card, .nx-section, .nx-listrow
+     3. UTILITY CLASSES       — type scale, spacing helpers
+   
+   USAGE PRINCIPLES
+   ────────────────
+   • One primary action per screen (gold gradient pill).
+   • Secondary actions = outlined gold pill.
+   • Tertiary actions = quiet text-link (faint grey).
+   • Section headings use spacing for hierarchy, not horizontal rules.
+   • Touch targets ≥ 44px tall. Pills are easy on a thumb.
+   • Editorial restraint: no extra decoration, no shadow stacks, no
+     gradient noise. Gold accents earn their place.
+   
+   When adding a new surface to NEXUS, REACH FOR THESE PRIMITIVES FIRST.
+   Custom one-off styles are a smell. If you need a button, use .nx-pill.
+   If you need a panel, use .nx-card. If you need a list, use .nx-listrow.
+   
+   File load order: nexus.css → nx-system.css → (feature CSS).
+   The system file overrides nexus.css base styles where needed and is
+   in turn extended by feature-specific CSS (home.css, equipment.css).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+
+/* ═══ 1. DESIGN TOKENS ════════════════════════════════════════════════ */
+:root {
+  /* ─── Color: gold accent system ─── */
+  --nx-gold:          #d4a44e;       /* primary accent, gold gradient top */
+  --nx-gold-deep:     #b88830;       /* gradient bottom, hover deepening */
+  --nx-gold-darker:   #9a7026;       /* active press state for primary */
+  --nx-gold-on:       #1c1814;       /* text/icon color on gold surfaces */
+  --nx-gold-faint:    rgba(200, 164, 78, 0.08);   /* low-emphasis fill */
+  --nx-gold-soft:     rgba(200, 164, 78, 0.18);   /* press state for outlined */
+  --nx-gold-line:     rgba(200, 164, 78, 0.25);   /* default border */
+  --nx-gold-line-2:   rgba(200, 164, 78, 0.40);   /* hover border */
+  --nx-gold-line-3:   rgba(200, 164, 78, 0.60);   /* active border */
+  --nx-gold-glow:     rgba(212, 164, 78, 0.15);   /* shadow tint */
+
+  /* ─── Color: text hierarchy (inherits from nexus.css base, aliased) ─ */
+  --nx-text:          #ede9e0;       /* body text — warm cream */
+  --nx-text-strong:   #f5f1e8;       /* emphasis */
+  --nx-muted:         #a49c94;       /* secondary text */
+  --nx-faint:         #857f75;       /* tertiary text, captions */
+  --nx-faintest:      #5a554f;       /* almost invisible — labels */
+
+  /* ─── Color: surface system ─── */
+  --nx-bg:            #111116;       /* page background */
+  --nx-surface:       rgba(28, 24, 20, 0.4);     /* card fill (translucent) */
+  --nx-surface-2:     rgba(20, 18, 14, 0.6);     /* nested surface (input, dropdown) */
+  --nx-surface-press: rgba(36, 32, 28, 0.6);     /* card on press */
+
+  /* ─── Color: semantic ─── */
+  --nx-red:           #d45858;
+  --nx-red-soft:      rgba(180, 80, 80, 0.12);
+  --nx-red-line:      rgba(180, 80, 80, 0.40);
+
+  /* ─── Spacing scale ─── */
+  --nx-space-1:       4px;
+  --nx-space-2:       8px;
+  --nx-space-3:       12px;
+  --nx-space-4:       16px;
+  --nx-space-5:       20px;
+  --nx-space-6:       24px;
+  --nx-space-8:       36px;
+  --nx-space-10:      52px;
+
+  /* ─── Radii ─── */
+  --nx-radius-pill:   999px;
+  --nx-radius-card:   12px;
+  --nx-radius-tight:  8px;
+  --nx-radius-tighter: 4px;
+
+  /* ─── Pill component sizes ─── */
+  --nx-pill-pad:      14px 22px;     /* canonical primary action */
+  --nx-pill-pad-sm:   11px 16px;     /* tighter, secondary contexts */
+  --nx-pill-pad-xs:   8px 14px;      /* compact, like tag buttons */
+
+  /* ─── Type ─── */
+  --nx-font-display:  'Outfit', 'DM Sans', system-ui, sans-serif;
+  --nx-font-body:     'DM Sans', 'Outfit', system-ui, sans-serif;
+  --nx-font-mono:     'JetBrains Mono', 'Courier New', monospace;
+
+  /* ─── Shadows ─── */
+  --nx-shadow-pill:   0 4px 16px rgba(212, 164, 78, 0.15);
+  --nx-shadow-card:   0 2px 12px rgba(0, 0, 0, 0.25);
+  --nx-shadow-fab:    0 8px 24px rgba(0, 0, 0, 0.4);
+
+  /* ─── Motion ─── */
+  --nx-ease:          cubic-bezier(0.4, 0, 0.2, 1);
+  --nx-press:         0.15s var(--nx-ease);
+  --nx-flow:          0.25s var(--nx-ease);
+}
+
+
+/* ═══ 2. PRIMITIVES ══════════════════════════════════════════════════ */
+
+/* ─── PILL BUTTON ──────────────────────────────────────────────────
+   The canonical NEXUS button. One-handed thumb-sized. Letter-spacing
+   gives it the editorial confidence. Press scales 0.98 — tactile but
+   not theatrical.
+   
+   Variants (apply as additional class):
+     .nx-pill--primary   solid gold gradient, dark text, glow shadow
+     .nx-pill--secondary outlined gold, transparent fill, gold text
+     .nx-pill--ghost     no border, gold text on transparent (tertiary)
+     .nx-pill--quiet     faint grey text, no chrome (text-link feel)
+     .nx-pill--danger    red-soft fill + red border (destructive)
+   
+   Sizes:
+     (default)           14px / 22px padding
+     .nx-pill--sm        11px / 16px padding, smaller text
+     .nx-pill--xs        8px / 14px padding, smallest
+   
+   Width:
+     (default)           sized to content
+     .nx-pill--block     width: 100%
+   ───────────────────────────────────────────────────────────────── */
+.nx-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nx-space-2);
+  padding: var(--nx-pill-pad);
+  border-radius: var(--nx-radius-pill);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--nx-text);
+  font-family: var(--nx-font-display);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background var(--nx-press),
+    border-color var(--nx-press),
+    color var(--nx-press),
+    transform var(--nx-press);
+  /* Sane button reset — eliminate UA overrides */
+  font-family: var(--nx-font-display);
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.nx-pill:active { transform: scale(0.98); }
+.nx-pill:disabled,
+.nx-pill[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* ── Variant: primary — the loudest action on a screen ───────────── */
+.nx-pill--primary {
+  background: linear-gradient(180deg, var(--nx-gold) 0%, var(--nx-gold-deep) 100%);
+  color: var(--nx-gold-on);
+  border-color: transparent;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  box-shadow: var(--nx-shadow-pill);
+}
+.nx-pill--primary:active {
+  background: linear-gradient(180deg, var(--nx-gold-deep) 0%, var(--nx-gold-darker) 100%);
+}
+
+/* ── Variant: secondary — outlined gold ──────────────────────────── */
+.nx-pill--secondary {
+  background: transparent;
+  border-color: var(--nx-gold-line-2);
+  color: var(--nx-gold);
+  font-weight: 600;
+}
+.nx-pill--secondary:active {
+  background: var(--nx-gold-faint);
+  border-color: var(--nx-gold-line-3);
+}
+
+/* ── Variant: ghost — gold tint, very low emphasis ───────────────── */
+.nx-pill--ghost {
+  background: var(--nx-gold-faint);
+  border-color: var(--nx-gold-line);
+  color: var(--nx-gold);
+  font-weight: 500;
+}
+.nx-pill--ghost:active {
+  background: var(--nx-gold-soft);
+}
+
+/* ── Variant: quiet — text-link feel, no chrome ──────────────────── */
+.nx-pill--quiet {
+  background: transparent;
+  border: none;
+  color: var(--nx-faint);
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  padding: var(--nx-space-2) var(--nx-space-4);
+}
+.nx-pill--quiet:active {
+  color: var(--nx-gold);
+}
+
+/* ── Variant: danger — destructive action ────────────────────────── */
+.nx-pill--danger {
+  background: var(--nx-red-soft);
+  border-color: var(--nx-red-line);
+  color: var(--nx-red);
+  font-weight: 600;
+}
+.nx-pill--danger:active {
+  background: rgba(180, 80, 80, 0.22);
+}
+
+/* ── Size modifiers ──────────────────────────────────────────────── */
+.nx-pill--sm {
+  padding: var(--nx-pill-pad-sm);
+  font-size: 13.5px;
+  letter-spacing: 0.4px;
+}
+.nx-pill--xs {
+  padding: var(--nx-pill-pad-xs);
+  font-size: 12px;
+  letter-spacing: 0.3px;
+}
+
+/* ── Width modifier ──────────────────────────────────────────────── */
+.nx-pill--block { width: 100%; }
+
+
+/* ─── CARD ─────────────────────────────────────────────────────────
+   Dark-glass surface with gold hairline. Holds related controls
+   together. Same styling as the login time-clock card. */
+.nx-card {
+  background: var(--nx-surface);
+  border: 1px solid rgba(200, 164, 78, 0.15);
+  border-radius: var(--nx-radius-card);
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+
+/* ─── SECTION HEADING ──────────────────────────────────────────────
+   Replaces decorative hairline-rules. Editorial rhythm comes from
+   generous top space + restrained type, not graphics. The heading
+   itself does the work.
+   
+   Structure (markup):
+     <h2 class="nx-section">
+       <span class="nx-section-title">On the books</span>
+       <span class="nx-section-meta">3 upcoming</span>  <!-- optional -->
+     </h2> */
+.nx-section {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--nx-space-4);
+  margin: var(--nx-space-10) 0 var(--nx-space-5);
+  font-family: var(--nx-font-display);
+  font-weight: 400;          /* not bold — editorial trust */
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--nx-text);
+  border: none;              /* no horizontal rule, on purpose */
+  padding: 0;
+}
+.nx-section-title {
+  flex: 1;
+  min-width: 0;
+}
+.nx-section-meta {
+  flex-shrink: 0;
+  font-family: var(--nx-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 1px;
+  color: var(--nx-faint);
+  text-transform: uppercase;
+}
+
+/* First section on a page has less top space (it follows the lede,
+   which already provides separation). */
+.nx-section--first {
+  margin-top: var(--nx-space-6);
+}
+
+
+/* ─── LIST ROW ─────────────────────────────────────────────────────
+   The canonical "row in a list" pattern: a horizontal flex with
+   primary content left, optional metadata right. Pressable.
+   
+   Used by: timesheet log, calendar items, ticket lists, etc. */
+.nx-listrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nx-space-3);
+  padding: var(--nx-space-3) var(--nx-space-1);
+  border-bottom: 1px solid rgba(200, 164, 78, 0.08);
+  background: transparent;
+  border-radius: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--nx-press);
+  /* Reset for button elements used as rows */
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  width: 100%;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+}
+.nx-listrow:last-child { border-bottom: none; }
+.nx-listrow:active { background: var(--nx-gold-faint); }
+
+.nx-listrow-primary {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--nx-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nx-listrow-meta {
+  flex-shrink: 0;
+  font-family: var(--nx-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--nx-faint);
+}
+
+
+/* ─── STAT CELL ────────────────────────────────────────────────────
+   Pill-radius stat cell for grids. Used in the home dashboard's
+   "At a glance" 2x2 (or 1x4) grid. Visually a fat pill — gold
+   hairline border, large mono number, small caps label.
+   
+   Structure (markup):
+     <button class="nx-stat">
+       <span class="nx-stat-num">4</span>
+       <span class="nx-stat-label">Tickets</span>
+     </button> */
+.nx-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nx-space-1);
+  padding: 18px 12px 14px;
+  border-radius: var(--nx-radius-pill);
+  border: 1px solid var(--nx-gold-line);
+  background: var(--nx-gold-faint);
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background var(--nx-press),
+    border-color var(--nx-press),
+    transform var(--nx-press);
+  text-align: center;
+  min-height: 84px;
+}
+.nx-stat:active {
+  transform: scale(0.97);
+  background: var(--nx-gold-soft);
+  border-color: var(--nx-gold-line-3);
+}
+.nx-stat-num {
+  font-family: var(--nx-font-mono);
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--nx-text);
+  line-height: 1;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+}
+.nx-stat-num.is-loading {
+  color: var(--nx-faint);
+  opacity: 0.5;
+}
+.nx-stat-num.is-alert {
+  color: var(--nx-red);
+}
+.nx-stat-label {
+  font-family: var(--nx-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.6px;
+  color: var(--nx-faint);
+  text-transform: uppercase;
+}
+
+
+/* ─── INPUT (text + select) ────────────────────────────────────────
+   Dark inset surface, gold hairline, generous tap target. */
+.nx-input,
+.nx-select {
+  width: 100%;
+  background: var(--nx-surface-2);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: var(--nx-radius-tight);
+  color: var(--nx-text);
+  padding: 12px 14px;
+  font-family: var(--nx-font-body);
+  font-size: 14px;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color var(--nx-press);
+}
+.nx-input:focus,
+.nx-select:focus {
+  outline: none;
+  border-color: var(--nx-gold-line-3);
+}
+.nx-select {
+  text-align: center;
+  text-align-last: center;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23857f75' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 14px;
+  padding-right: 36px;
+}
+
+
+/* ═══ 3. UTILITY CLASSES ═════════════════════════════════════════════ */
+
+/* Type scale */
+.nx-display { font-family: var(--nx-font-display); font-weight: 300; font-size: clamp(34px, 8.5vw, 48px); line-height: 1.05; letter-spacing: -0.025em; }
+.nx-h1      { font-family: var(--nx-font-display); font-weight: 400; font-size: 22px; line-height: 1.3; }
+.nx-h2      { font-family: var(--nx-font-display); font-weight: 500; font-size: 18px; line-height: 1.3; letter-spacing: -0.01em; }
+.nx-body    { font-family: var(--nx-font-body); font-size: 15px; line-height: 1.55; color: var(--nx-text); }
+.nx-meta    { font-family: var(--nx-font-mono); font-size: 11px; font-weight: 500; letter-spacing: 1.4px; text-transform: uppercase; color: var(--nx-faint); }
+
+/* Spacing helpers */
+.nx-stack-2 > * + * { margin-top: var(--nx-space-2); }
+.nx-stack-3 > * + * { margin-top: var(--nx-space-3); }
+.nx-stack-4 > * + * { margin-top: var(--nx-space-4); }
+.nx-stack-6 > * + * { margin-top: var(--nx-space-6); }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .nx-pill, .nx-listrow, .nx-stat {
+    transition: none;
+  }
+  .nx-pill:active, .nx-stat:active {
+    transform: none;
+  }
+}
