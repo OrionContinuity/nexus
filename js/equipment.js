@@ -151,7 +151,8 @@ function buildUI() {
         <h2 class="eq-title">🔧 Equipment</h2>
         <div class="eq-actions">
           <button class="eq-btn eq-btn-primary eq-ai-create-btn" id="eqAiCreateBtn" title="AI create equipment from photo or description">✨ AI Create</button>
-          <button class="eq-btn eq-btn-secondary" id="eqPrintQRs" title="Export equipment stickers (full color, multiple sizes)">🖨 Stickers</button>
+          <button class="eq-btn eq-btn-secondary eq-zebra-header-btn" id="eqZebraHeaderBtn" title="Print labels on Zebra printer">🏷️ Zebra</button>
+          <button class="eq-btn eq-btn-secondary" id="eqPrintQRs" title="Print QR sticker sheet">🖨 QR Sheet</button>
           <button class="eq-btn eq-btn-secondary" id="eqAddBtn">+ Manual</button>
         </div>
       </div>
@@ -196,8 +197,9 @@ function buildUI() {
 
   // Wire header buttons
   document.getElementById('eqAiCreateBtn').addEventListener('click', openAICreator);
+  document.getElementById('eqZebraHeaderBtn').addEventListener('click', printZebraBatch);
   document.getElementById('eqAddBtn').addEventListener('click', () => openEditModal(null));
-  document.getElementById('eqPrintQRs').addEventListener('click', openStickerExport);
+  document.getElementById('eqPrintQRs').addEventListener('click', printQRSheet);
   document.getElementById('eqSearch').addEventListener('input', e => {
     searchQuery = e.target.value.toLowerCase();
     renderList();
@@ -460,7 +462,6 @@ async function openDetail(id) {
         <div class="eq-overflow-wrap">
           <button class="eq-btn eq-overflow-btn" onclick="NX.modules.equipment.toggleOverflow(event, '${eq.id}')" aria-label="More actions">⋯</button>
           <div class="eq-overflow-menu" id="eqOverflow-${eq.id}" onclick="event.stopPropagation()">
-            <button class="eq-overflow-item" onclick="NX.modules.equipment.duplicateEquipment('${eq.id}')">📋 Duplicate equipment</button>
             <button class="eq-overflow-item eq-overflow-danger" onclick="NX.modules.equipment.deleteEquipment('${eq.id}')">🗑 Delete permanently</button>
           </div>
         </div>
@@ -617,19 +618,40 @@ async function loadOpenCardsForEquipment(eq) {
 }
 
 async function reportIssue(equipId) {
-  const issue = prompt('What\'s the issue?\n\n(A card will be created on the Board with this equipment linked.)');
-  if (!issue || !issue.trim()) return;
+  // Look up the equipment first so we can show its name in the dialog title
+  const { data: eq } = await NX.sb.from('equipment')
+    .select('id, name, location').eq('id', equipId).single();
+  if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
+  // Open the composer modal — gives a proper labeled dialog instead of
+  // the native browser prompt() popup. Composer fires the same logic
+  // path on submit (NX.modules.board.createFromEquipment).
+  if (!NX.composer?.modal) {
+    // Fallback if composer.js didn't load — keep the legacy path so
+    // the feature never breaks.
+    const issue = prompt(`What's the issue with "${eq.name}"?`);
+    if (!issue || !issue.trim()) return;
+    return commitIssue(eq, issue.trim());
+  }
+  NX.composer.modal({
+    title: 'Report an issue',
+    subtitle: `${eq.name}${eq.location ? ' · ' + eq.location : ''}`,
+    placeholder: 'What\'s wrong? Be specific — the next person reading this needs to know what to do.',
+    buttonLabel: 'Create card',
+    onSubmit: async (issue) => {
+      await commitIssue(eq, issue);
+    },
+  });
+}
+
+async function commitIssue(eq, issue) {
   try {
-    const { data: eq } = await NX.sb.from('equipment')
-      .select('id, name, location').eq('id', equipId).single();
-    if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
     if (NX.modules?.board?.createFromEquipment) {
-      await NX.modules.board.createFromEquipment(eq, issue.trim());
+      await NX.modules.board.createFromEquipment(eq, issue);
     } else {
       // Fallback — direct insert if board module not loaded yet
       await NX.sb.from('kanban_cards').insert({
-        title: `${issue.trim()} — ${eq.name}`,
-        description: issue.trim(),
+        title: `${issue} — ${eq.name}`,
+        description: issue,
         priority: 'high',
         location: eq.location || null,
         equipment_id: eq.id,
@@ -816,8 +838,7 @@ function renderParts(eq, parts) {
       <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.extractBOMFromManual('${eq.id}')" style="margin-right:6px">✨ Extract from Manual</button>
       <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.exportPartsCart('${eq.id}')" style="margin-right:6px">🛒 Shopping List</button>
       <h4>Bill of Materials</h4>
-      <button class="eq-btn eq-btn-small eq-btn-primary" onclick="NX.modules.equipment.addPart('${eq.id}')" style="margin-right:6px">+ Add Part</button>
-      <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.addPartFromUrl('${eq.id}')">🔗 From URL</button>
+      <button class="eq-btn eq-btn-small eq-btn-primary" onclick="NX.modules.equipment.addPart('${eq.id}')">+ Add Part</button>
     </div>
     ${!parts.length ? '<div class="eq-empty-small">No parts cataloged yet.</div>' : `
       <div class="eq-parts-list" data-multi-vendor="1">
@@ -1050,209 +1071,6 @@ async function deleteEquipment(id) {
   }
 }
 
-// ─── DUPLICATE EQUIPMENT ────────────────────────────────────────────
-// Useful when stocking N units of the same model across locations.
-// Copies: equipment row (minus serial/dates/identifiers), parts (BOM),
-//         custom fields, recurring PM schedule (next_pm_date, interval).
-// Skips:  serial_number, install_date, warranty_until, purchase_price,
-//         attachments, maintenance history, qr_code, pm_logs, photos,
-//         data plate, manual URL (these are unit-specific).
-// Names:  appended " — 2", " — 3", etc. User can rename after.
-function duplicateEquipment(equipId) {
-  const eq = equipment.find(e => e.id === equipId);
-  if (!eq) return;
-
-  const modal = document.getElementById('eqDupeModal') || (() => {
-    const m = document.createElement('div');
-    m.id = 'eqDupeModal';
-    m.className = 'eq-modal';
-    document.body.appendChild(m);
-    return m;
-  })();
-
-  modal.innerHTML = `
-    <div class="eq-detail-bg" onclick="NX.modules.equipment.closeDupe()"></div>
-    <div class="eq-detail eq-edit">
-      <div class="eq-detail-head">
-        <button class="eq-close" onclick="NX.modules.equipment.closeDupe()">✕</button>
-        <h2>Duplicate Equipment</h2>
-      </div>
-      <div class="eq-detail-body">
-        <div style="font-size:13px;color:#d4c8a5;margin-bottom:6px">
-          Source: <strong>${esc(eq.name)}</strong>
-        </div>
-        <div style="font-size:11px;color:#857f75;margin-bottom:14px;line-height:1.5">
-          Copies name, manufacturer, model, category, location, notes,
-          parts (BOM), custom fields, and PM schedule.<br>
-          <strong>Does NOT copy:</strong> serial number, install/purchase dates,
-          attachments, service history, QR code, photos.
-        </div>
-
-        <form class="eq-form" id="eqDupeForm">
-          <div class="eq-form-group" style="margin-bottom:10px">
-            <label style="font-size:11px;color:#a89e87;margin-bottom:4px;display:block">
-              How many copies?
-            </label>
-            <input type="number" id="eqDupeCount" value="1" min="1" max="10"
-                   style="width:100%;box-sizing:border-box">
-            <div style="font-size:10px;color:#857f75;margin-top:4px">
-              Up to 10 at once. Each gets a number suffix (e.g. "${esc(eq.name)} — 2").
-            </div>
-          </div>
-
-          <div class="eq-form-group" style="margin-bottom:10px">
-            <label style="font-size:11px;color:#a89e87;margin-bottom:4px;display:block">
-              Location for the copies
-            </label>
-            <select id="eqDupeLocation" style="width:100%;box-sizing:border-box">
-              <option value="${esc(eq.location || '')}" selected>Same as source (${esc(eq.location || 'unset')})</option>
-              <option value="suerte">Suerte</option>
-              <option value="este">Este</option>
-              <option value="bartoti">Bar Toti</option>
-            </select>
-          </div>
-
-          <div class="eq-form-actions">
-            <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeDupe()">Cancel</button>
-            <button type="button" class="eq-btn eq-btn-primary" id="eqDupeRunBtn">Create Copies</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  `;
-  modal.classList.add('active');
-
-  document.getElementById('eqDupeRunBtn').addEventListener('click', async () => {
-    await runDuplicate(equipId);
-  });
-}
-
-function closeDupe() {
-  const m = document.getElementById('eqDupeModal');
-  if (m) m.classList.remove('active');
-}
-
-async function runDuplicate(sourceId) {
-  const btn = document.getElementById('eqDupeRunBtn');
-  if (!btn) return;
-  const count = Math.max(1, Math.min(10, parseInt(document.getElementById('eqDupeCount').value) || 1));
-  const location = document.getElementById('eqDupeLocation').value;
-  btn.disabled = true;
-  btn.textContent = `Copying… (0/${count})`;
-
-  let createdIds = [];
-
-  try {
-    // 1. Pull complete source: equipment row + parts + custom fields
-    const [eqRes, partsRes, customRes] = await Promise.all([
-      NX.sb.from('equipment').select('*').eq('id', sourceId).single(),
-      NX.sb.from('equipment_parts').select('*').eq('equipment_id', sourceId),
-      NX.sb.from('equipment_custom_fields').select('*').eq('equipment_id', sourceId),
-    ]);
-    if (eqRes.error || !eqRes.data) throw new Error('Could not load source equipment');
-    const src       = eqRes.data;
-    const srcParts  = partsRes.data  || [];
-    const srcCustom = customRes.data || [];
-
-    // 2. Build N equipment copies — strip unit-specific fields
-    const baseName = (src.name || 'Equipment').trim();
-    const baseRow = { ...src };
-    // Fields to drop (unit-specific or auto-generated)
-    delete baseRow.id;
-    delete baseRow.created_at;
-    delete baseRow.updated_at;
-    delete baseRow.serial_number;
-    delete baseRow.install_date;
-    delete baseRow.warranty_until;
-    delete baseRow.purchase_price;
-    delete baseRow.qr_code;
-    delete baseRow.photo_url;
-    delete baseRow.data_plate_url;
-    delete baseRow.manual_url;
-    delete baseRow.health_score;          // recomputed by trigger
-    delete baseRow.cost_this_year;        // accrues from new history
-    delete baseRow.services_this_year;    // accrues from new history
-    delete baseRow.next_pm_date;          // recomputed below from interval
-    // Status defaults to active for new units
-    baseRow.status = 'active';
-    // Apply location override if user picked one
-    if (location && location !== src.location) baseRow.location = location;
-    // If source had a PM interval, set next_pm_date = today + interval
-    if (baseRow.pm_interval_days && Number(baseRow.pm_interval_days) > 0) {
-      const next = new Date(Date.now() + Number(baseRow.pm_interval_days) * 86400000);
-      baseRow.next_pm_date = next.toISOString().slice(0, 10);
-    }
-
-    // 3. Insert each copy, capture IDs
-    for (let i = 0; i < count; i++) {
-      const suffix = ` — ${i + 2}`; // " — 2", " — 3", ... (matches "Original" being unit 1)
-      const row = { ...baseRow, name: baseName + suffix };
-      const { data: created, error } = await NX.sb.from('equipment').insert(row).select().single();
-      if (error) throw new Error(`Copy ${i + 1}: ${error.message}`);
-      createdIds.push(created.id);
-      btn.textContent = `Copying… (${i + 1}/${count})`;
-    }
-
-    // 4. Fan out child rows to each new equipment_id
-    for (const newId of createdIds) {
-      const partRows = srcParts.map(p => {
-        const row = { ...p };
-        delete row.id;
-        delete row.created_at;
-        delete row.updated_at;
-        row.equipment_id = newId;
-        return row;
-      });
-      const customRows = srcCustom.map(c => {
-        const row = { ...c };
-        delete row.id;
-        delete row.created_at;
-        delete row.updated_at;
-        row.equipment_id = newId;
-        return row;
-      });
-      const childInserts = [];
-      if (partRows.length)   childInserts.push(NX.sb.from('equipment_parts').insert(partRows));
-      if (customRows.length) childInserts.push(NX.sb.from('equipment_custom_fields').insert(customRows));
-      if (childInserts.length) {
-        const results = await Promise.all(childInserts);
-        for (const r of results) if (r.error) throw new Error(`Child insert: ${r.error.message}`);
-      }
-    }
-
-    // 5. Done — refresh list, close modal, show source again
-    NX.toast && NX.toast(
-      `Created ${count} cop${count === 1 ? 'y' : 'ies'} ✓`,
-      'success'
-    );
-    closeDupe();
-    await loadEquipment();
-    renderList();
-    // Reopen the source detail; user can navigate to a copy from the list
-    openDetail(sourceId);
-
-  } catch (err) {
-    console.error('[Equipment] Duplicate error:', err);
-    // Best-effort rollback: delete any equipment rows we created
-    if (createdIds.length) {
-      try {
-        await NX.sb.from('equipment').delete().in('id', createdIds);
-        // Child rows are gone too if FK has ON DELETE CASCADE.
-        // If not, they were already inserted under the doomed equipment_id;
-        // they're orphaned. We surface this in the error below.
-      } catch (rbErr) {
-        console.error('[Equipment] Rollback failed:', rbErr);
-      }
-    }
-    NX.toast && NX.toast(
-      'Duplicate failed: ' + (err.message || err) +
-      (createdIds.length ? ' (rolled back)' : ''),
-      'error'
-    );
-    if (btn) { btn.disabled = false; btn.textContent = 'Create Copies'; }
-  }
-}
-
 function logService(equipId) {
   const eq = equipment.find(e => e.id === equipId);
   if (!eq) return;
@@ -1391,266 +1209,6 @@ async function deleteMaintenance(id, equipId) {
 /* ─── Parts CRUD ─── */
 
 function addPart(equipId) { openPartModal(null, equipId); }
-
-// ─── ADD PART FROM URL ──────────────────────────────────────────────
-// Paste a Parts Town / Amazon / etc. URL, server fetches and asks Claude
-// to extract structured fields, then you review/edit/check what gets
-// saved. If the fetch is bot-walled, we silently swap to a paste-content
-// fallback in the same modal so the user never gets stuck.
-function addPartFromUrl(equipId) {
-  const modal = document.getElementById('eqPartModal') || (() => {
-    const m = document.createElement('div');
-    m.id = 'eqPartModal';
-    m.className = 'eq-modal';
-    document.body.appendChild(m);
-    return m;
-  })();
-
-  // Stage 1: URL input
-  modal.innerHTML = `
-    <div class="eq-detail-bg" onclick="NX.modules.equipment.closePart()"></div>
-    <div class="eq-detail eq-edit">
-      <div class="eq-detail-head">
-        <button class="eq-close" onclick="NX.modules.equipment.closePart()">✕</button>
-        <h2>Add Part from URL</h2>
-      </div>
-      <div class="eq-detail-body">
-        <div class="eq-form">
-          <div class="eq-form-group">
-            <label>Supplier URL</label>
-            <input id="eqPartUrlInput" type="url" placeholder="https://www.partstown.com/..." autocomplete="off"
-                   style="font-size:14px">
-            <div style="font-size:11px;color:#857f75;margin-top:4px">
-              Parts Town, Amazon, WebstaurantStore, manufacturer sites — paste the product page URL.
-            </div>
-          </div>
-          <div id="eqPartUrlPasteWrap" style="display:none">
-            <div class="eq-form-group">
-              <label>Or paste the page content</label>
-              <textarea id="eqPartUrlPaste" rows="6"
-                        placeholder="On your phone, open the URL, select all, copy, paste here"></textarea>
-              <div style="font-size:11px;color:#857f75;margin-top:4px">
-                The site blocked automatic fetch. Open the URL on your phone, copy
-                the visible content (long-press → Select All → Copy), and paste here.
-              </div>
-            </div>
-          </div>
-          <div id="eqPartUrlStatus" style="font-size:12px;color:#a89e87;min-height:18px;margin:6px 0"></div>
-          <div class="eq-form-actions">
-            <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closePart()">Cancel</button>
-            <button type="button" class="eq-btn eq-btn-primary" id="eqPartUrlFetchBtn">Fetch &amp; Parse</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-  modal.classList.add('active');
-
-  const fetchBtn = document.getElementById('eqPartUrlFetchBtn');
-  fetchBtn.addEventListener('click', () => doFetchPartUrl(equipId, false));
-
-  // Pressing Enter in the URL field also fetches
-  document.getElementById('eqPartUrlInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); doFetchPartUrl(equipId, false); }
-  });
-}
-
-async function doFetchPartUrl(equipId, withPaste) {
-  const urlEl = document.getElementById('eqPartUrlInput');
-  const pasteEl = document.getElementById('eqPartUrlPaste');
-  const statusEl = document.getElementById('eqPartUrlStatus');
-  const btn = document.getElementById('eqPartUrlFetchBtn');
-  const url = (urlEl?.value || '').trim();
-  if (!url) { statusEl.textContent = 'Enter a URL first.'; statusEl.style.color = '#e07b7b'; return; }
-  if (!/^https?:\/\//i.test(url)) {
-    statusEl.textContent = 'URL must start with http:// or https://';
-    statusEl.style.color = '#e07b7b';
-    return;
-  }
-
-  btn.disabled = true;
-  statusEl.style.color = '#a89e87';
-  statusEl.textContent = withPaste ? 'Parsing pasted content…' : 'Fetching page…';
-
-  const body = { url };
-  if (withPaste) {
-    const pasted = (pasteEl?.value || '').trim();
-    if (pasted.length < 50) {
-      statusEl.textContent = 'Paste at least a paragraph of the page content.';
-      statusEl.style.color = '#e07b7b';
-      btn.disabled = false;
-      return;
-    }
-    body.html = pasted;
-  }
-
-  try {
-    const { data, error } = await NX.sb.functions.invoke('parse-part-url', { body });
-    if (error) throw new Error(error.message || 'fetch failed');
-
-    if (!data?.ok) {
-      // Server returned a structured failure — most often "blocked"
-      if (data?.reason === 'blocked' || data?.reason === 'fetch_error' || data?.reason === 'http_403') {
-        // Reveal the paste-content fallback
-        document.getElementById('eqPartUrlPasteWrap').style.display = '';
-        statusEl.style.color = '#d4a44e';
-        statusEl.textContent = data.message || 'Site blocked us. Paste page content below.';
-        // Repurpose the button for the paste flow
-        btn.textContent = 'Parse Pasted Content';
-        const newBtn = btn.cloneNode(true);
-        btn.parentNode.replaceChild(newBtn, btn);
-        newBtn.addEventListener('click', () => doFetchPartUrl(equipId, true));
-        newBtn.disabled = false;
-        return;
-      }
-      statusEl.style.color = '#e07b7b';
-      statusEl.textContent = data?.message || 'Could not parse — try editing the part manually.';
-      btn.disabled = false;
-      return;
-    }
-
-    // Success — render review screen
-    renderPartReview(equipId, url, data.fields, data.source);
-  } catch (e) {
-    console.error('[parse-part-url]', e);
-    statusEl.style.color = '#e07b7b';
-    statusEl.textContent = 'Network error. Try again, or paste content below.';
-    document.getElementById('eqPartUrlPasteWrap').style.display = '';
-    btn.disabled = false;
-  }
-}
-
-// Stage 2: review extracted fields with checkboxes — uncheck to skip,
-// edit values inline, save what's checked.
-function renderPartReview(equipId, sourceUrl, fields, source) {
-  const modal = document.getElementById('eqPartModal');
-  if (!modal) return;
-  const f = fields || {};
-
-  // Each row: [internal_key, label, value, db_column_or_null]
-  // db_column = null means we fold into `notes` instead of a real column.
-  const rows = [
-    ['part_name',       'Part Name',       f.part_name       || '', 'part_name'],
-    ['oem_part_number', 'OEM Part #',      f.oem_part_number || '', 'oem_part_number'],
-    ['mfr_part_number', 'Mfr Part #',      f.mfr_part_number || '', null],
-    ['manufacturer',    'Manufacturer',    f.manufacturer    || '', null],
-    ['supplier',        'Supplier',        f.supplier        || '', 'supplier'],
-    ['price_usd',       'Price (USD)',     f.price_usd != null ? String(f.price_usd) : '', 'last_price'],
-    ['description',     'Description',    f.description     || '', null],
-    ['fits_models',     'Fits Models',     f.fits_models     || '', null],
-  ];
-
-  const conf = (f.confidence || 'medium').toLowerCase();
-  const confColor = conf === 'high' ? '#7bc88a' : conf === 'low' ? '#e0a06a' : '#d4a44e';
-
-  modal.innerHTML = `
-    <div class="eq-detail-bg" onclick="NX.modules.equipment.closePart()"></div>
-    <div class="eq-detail eq-edit">
-      <div class="eq-detail-head">
-        <button class="eq-close" onclick="NX.modules.equipment.closePart()">✕</button>
-        <h2>Review &amp; Save</h2>
-      </div>
-      <div class="eq-detail-body">
-        <div style="font-size:11px;color:#857f75;margin-bottom:8px">
-          Confidence: <span style="color:${confColor};font-weight:600">${conf.toUpperCase()}</span>
-          ${source === 'paste' ? ' · from pasted content' : ` · from ${esc(detectDomain(sourceUrl))}`}
-        </div>
-        <div style="font-size:11px;color:#857f75;margin-bottom:12px">
-          Untick any field you don't want saved. Edit values inline.
-        </div>
-        <form class="eq-form" id="eqPartReviewForm">
-          ${rows.map(([key, label, val]) => `
-            <div class="eq-form-group" style="margin-bottom:10px">
-              <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:#a89e87;margin-bottom:4px;cursor:pointer">
-                <input type="checkbox" class="eq-part-include" data-key="${key}"
-                       ${val ? 'checked' : ''} style="margin:0;flex:0 0 auto">
-                <span>${label}</span>
-              </label>
-              <input class="eq-part-val" data-key="${key}" value="${esc(val)}"
-                     placeholder="${val ? '' : '(not found on page)'}"
-                     style="width:100%;box-sizing:border-box">
-            </div>
-          `).join('')}
-          <div class="eq-form-group" style="margin-bottom:10px">
-            <label style="font-size:11px;color:#a89e87;margin-bottom:4px;display:block">Quantity</label>
-            <input type="number" id="eqPartReviewQty" value="1" min="1"
-                   style="width:100%;box-sizing:border-box">
-          </div>
-          <div class="eq-form-actions">
-            <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closePart()">Cancel</button>
-            <button type="button" class="eq-btn eq-btn-primary" id="eqPartReviewSaveBtn">Save Part</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  `;
-
-  document.getElementById('eqPartReviewSaveBtn').addEventListener('click', async () => {
-    await savePartFromReview(equipId, sourceUrl);
-  });
-}
-
-// Read the review form, build the equipment_parts row, insert.
-async function savePartFromReview(equipId, sourceUrl) {
-  const btn = document.getElementById('eqPartReviewSaveBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-
-  // Collect checked rows
-  const checked = {};
-  document.querySelectorAll('.eq-part-include').forEach(cb => {
-    if (cb.checked) {
-      const key = cb.dataset.key;
-      const val = (document.querySelector(`.eq-part-val[data-key="${key}"]`)?.value || '').trim();
-      if (val) checked[key] = val;
-    }
-  });
-
-  if (!checked.part_name) {
-    NX.toast && NX.toast('Part Name is required (check it and try again)', 'error');
-    if (btn) { btn.disabled = false; btn.textContent = 'Save Part'; }
-    return;
-  }
-
-  // Map to equipment_parts columns. Anything without a real column goes
-  // into notes as a labeled line so it's preserved and searchable.
-  const data = {
-    equipment_id: equipId,
-    part_name: checked.part_name,
-    quantity: parseInt(document.getElementById('eqPartReviewQty')?.value || '1') || 1,
-    supplier_url: sourceUrl,  // always store the source URL for paper trail
-  };
-  if (checked.oem_part_number) data.oem_part_number = checked.oem_part_number;
-  if (checked.supplier)        data.supplier        = checked.supplier;
-  if (checked.price_usd) {
-    const num = parseFloat(String(checked.price_usd).replace(/[^0-9.]/g, ''));
-    if (!isNaN(num)) data.last_price = num;
-  }
-
-  const noteLines = [];
-  if (checked.mfr_part_number) noteLines.push(`Mfr Part #: ${checked.mfr_part_number}`);
-  if (checked.manufacturer)    noteLines.push(`Manufacturer: ${checked.manufacturer}`);
-  if (checked.description)     noteLines.push(checked.description);
-  if (checked.fits_models)     noteLines.push(`Fits: ${checked.fits_models}`);
-  if (noteLines.length) data.notes = noteLines.join('\n');
-
-  try {
-    await NX.sb.from('equipment_parts').insert(data);
-    NX.toast && NX.toast('Part saved ✓', 'success');
-    closePart();
-    openDetail(equipId);
-  } catch (err) {
-    console.error(err);
-    NX.toast && NX.toast('Save failed: ' + (err.message || err), 'error');
-    if (btn) { btn.disabled = false; btn.textContent = 'Save Part'; }
-  }
-}
-
-// Helper for the review header — small standalone domain extractor so we
-// don't drag in URL parsing edge cases on old phones.
-function detectDomain(url) {
-  try { return new URL(url).hostname.replace(/^www\./, ''); }
-  catch { return url.slice(0, 40); }
-}
 
 async function editPart(partId) {
   const { data } = await NX.sb.from('equipment_parts').select('*').eq('id', partId).single();
@@ -2648,7 +2206,7 @@ async function extractBOMFromManual(equipId) {
 
     if (!eq.manual_url) { showError('No manual uploaded yet. Go to the Manual tab and upload a PDF first.'); return; }
 
-    const apiKey = 'edge';  // edge function holds the real key
+    const apiKey = NX.getApiKey?.() || NX.config?.api_key;
     if (!apiKey) { showError('No Anthropic API key configured. Set it in Admin → API Keys.'); return; }
 
     setStep('Downloading manual PDF…');
@@ -2666,11 +2224,17 @@ async function extractBOMFromManual(equipId) {
     if (cancelled) return;
 
     setStep(`Sending ${sizeMB}MB PDF to Claude (20–60 seconds)…`);
-    const { data, error: invokeErr } = await NX.sb.functions.invoke('chat', {
-      body: {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
         model: NX.getModel?.() || 'claude-sonnet-4-5',
         max_tokens: 4096,
-        user_name: NX.currentUser?.name,
         messages: [{
           role: 'user',
           content: [
@@ -2700,12 +2264,17 @@ Return raw JSON array (no markdown, no preamble):
 If no parts are found, return [].` }
           ]
         }]
-      }
+      })
     });
     if (cancelled) return;
 
-    if (invokeErr) { showError('Claude API error: ' + (invokeErr.message || 'invoke failed')); return; }
-    if (data?.error) { showError('Claude returned error: ' + (typeof data.error === 'string' ? data.error : data.error.message)); return; }
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      showError(`Claude API error (${resp.status}): ${errBody.slice(0, 300)}`);
+      return;
+    }
+    const data = await resp.json();
+    if (data.error) { showError('Claude returned error: ' + data.error.message); return; }
 
     setStep('Parsing parts list…');
     const answer = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
@@ -2790,11 +2359,20 @@ async function extractBOMFromManual_LEGACY(equipId) {
     const pdfBlob = await pdfRes.blob();
     const pdfBase64 = await blobToBase64(pdfBlob);
 
-    const { data, error: invokeErr } = await NX.sb.functions.invoke('chat', {
-      body: {
+    const key = NX.getApiKey();
+    if (!key) throw new Error('No API key configured');
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
         model: NX.getModel(),
         max_tokens: 4000,
-        user_name: NX.currentUser?.name,
         messages: [{
           role: 'user',
           content: [
@@ -2823,11 +2401,11 @@ Return raw JSON array (no markdown):
 If no parts are found, return []. Extract only what's explicitly listed.` }
           ]
         }]
-      }
+      })
     });
 
-    if (invokeErr) throw new Error(invokeErr.message || 'AI request failed');
-    if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : data.error.message);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message);
     const answer = data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
 
     const arrStart = answer.indexOf('[');
@@ -3728,394 +3306,44 @@ function printSingleQR(id) {
   w.document.close();
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  STICKER EXPORT — full-color equipment labels for Traffic Jet print
-//
-//  User picks:
-//    • Size (2x2 through 4x6, six built-in standards)
-//    • Location filter (All / Suerte / Este / Bar Toti)
-//    • Layout (auto-calculates stickers-per-page from size)
-//
-//  Output: opens a print preview window with a sheet of stickers
-//  ready to send to a professional Traffic Jet inkjet printer.
-//  Design: cream/honey background, charcoal type, gold rule accents,
-//  NEXUS wordmark, prominent name, location subtitle, large QR,
-//  monospace ID, scan instruction. Editorial × terminal aesthetic.
-// ═══════════════════════════════════════════════════════════════════
-
-const STICKER_SIZES = [
-  { id: '2x2', label: '2" × 2" — Small',         w: 2,   h: 2,   perPage: 12, qrSize: 130 },
-  { id: '2x3', label: '2" × 3" — Vertical',      w: 2,   h: 3,   perPage: 9,  qrSize: 140 },
-  { id: '3x3', label: '3" × 3" — Standard ★',    w: 3,   h: 3,   perPage: 6,  qrSize: 200 },
-  { id: '3x4', label: '3" × 4" — Vertical Tall', w: 3,   h: 4,   perPage: 4,  qrSize: 220 },
-  { id: '4x4', label: '4" × 4" — Large',         w: 4,   h: 4,   perPage: 4,  qrSize: 280 },
-  { id: '4x6', label: '4" × 6" — Extra Large',   w: 4,   h: 6,   perPage: 2,  qrSize: 320 },
-];
-
-function openStickerExport() {
+function printQRSheet() {
   const filtered = getFiltered();
   if (!filtered.length) {
     NX.toast && NX.toast('No equipment to print', 'info');
     return;
   }
 
-  // Build location filter options from actual equipment data, plus "All"
-  const locations = [...new Set(equipment.map(e => e.location).filter(Boolean))].sort();
-
-  const modal = document.getElementById('eqStickerModal') || (() => {
-    const m = document.createElement('div');
-    m.id = 'eqStickerModal';
-    m.className = 'eq-modal';
-    document.body.appendChild(m);
-    return m;
-  })();
-
-  modal.innerHTML = `
-    <div class="eq-detail-bg" onclick="NX.modules.equipment.closeStickerExport()"></div>
-    <div class="eq-detail eq-edit">
-      <div class="eq-detail-head">
-        <button class="eq-close" onclick="NX.modules.equipment.closeStickerExport()">✕</button>
-        <h2>Export Equipment Stickers</h2>
-      </div>
-      <div class="eq-detail-body">
-        <div style="font-size:12px;color:#857f75;margin-bottom:14px;line-height:1.5">
-          Generates a print-ready sheet of stickers with QR codes, designed for
-          full-color professional printing on Traffic Jet inkjet printers.
-        </div>
-
-        <form class="eq-form" id="eqStickerForm">
-          <div class="eq-form-group" style="margin-bottom:12px">
-            <label style="font-size:11px;color:#a89e87;margin-bottom:4px;display:block">
-              Sticker Size
-            </label>
-            <select id="eqStickerSize" style="width:100%;box-sizing:border-box">
-              ${STICKER_SIZES.map(s => `
-                <option value="${s.id}" ${s.id === '3x3' ? 'selected' : ''}>${s.label}</option>
-              `).join('')}
-            </select>
-            <div style="font-size:10px;color:#857f75;margin-top:4px" id="eqStickerSizeNote">
-              6 stickers per US Letter page · 200px QR
-            </div>
-          </div>
-
-          <div class="eq-form-group" style="margin-bottom:12px">
-            <label style="font-size:11px;color:#a89e87;margin-bottom:4px;display:block">
-              Filter by Location
-            </label>
-            <select id="eqStickerLocation" style="width:100%;box-sizing:border-box">
-              <option value="">All locations (${equipment.length} equipment)</option>
-              ${locations.map(loc => {
-                const count = equipment.filter(e => e.location === loc).length;
-                return `<option value="${esc(loc)}">${esc(loc)} (${count} equipment)</option>`;
-              }).join('')}
-            </select>
-          </div>
-
-          <div class="eq-form-group" style="margin-bottom:12px">
-            <label style="font-size:11px;color:#a89e87;margin-bottom:4px;display:block">
-              Use current search/filter
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d4c8a5;cursor:pointer">
-              <input type="checkbox" id="eqStickerUseFiltered" checked>
-              <span>Only stickers for equipment matching current page filter (${filtered.length} equipment)</span>
-            </label>
-          </div>
-
-          <div class="eq-form-actions">
-            <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeStickerExport()">Cancel</button>
-            <button type="button" class="eq-btn eq-btn-primary" id="eqStickerExportBtn">Generate Stickers</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  `;
-  modal.classList.add('active');
-
-  // Live update the size note when picker changes
-  const sizeSelect = document.getElementById('eqStickerSize');
-  const sizeNote   = document.getElementById('eqStickerSizeNote');
-  const updateNote = () => {
-    const cfg = STICKER_SIZES.find(s => s.id === sizeSelect.value);
-    if (cfg) sizeNote.textContent = `${cfg.perPage} stickers per US Letter page · ${cfg.qrSize}px QR`;
-  };
-  sizeSelect.addEventListener('change', updateNote);
-  updateNote();
-
-  document.getElementById('eqStickerExportBtn').addEventListener('click', () => {
-    const sizeId   = sizeSelect.value;
-    const location = document.getElementById('eqStickerLocation').value;
-    const useFiltered = document.getElementById('eqStickerUseFiltered').checked;
-    closeStickerExport();
-    printStickers({ sizeId, location, useFiltered });
-  });
-}
-
-function closeStickerExport() {
-  const m = document.getElementById('eqStickerModal');
-  if (m) m.classList.remove('active');
-}
-
-// Generate the print-ready sticker sheet HTML and open in a new window.
-function printStickers({ sizeId, location, useFiltered }) {
-  const cfg = STICKER_SIZES.find(s => s.id === sizeId) || STICKER_SIZES[2];
-
-  // Decide which equipment to include
-  let list = useFiltered ? getFiltered() : [...equipment];
-  if (location) list = list.filter(e => e.location === location);
-  // Skip equipment without a QR code (shouldn't happen, but defensive)
-  list = list.filter(e => e.qr_code);
-
-  if (!list.length) {
-    NX.toast && NX.toast('No equipment matched those filters', 'info');
-    return;
-  }
-
-  // Build each sticker's HTML
-  const stickers = list.map(eq => {
+  const stickers = filtered.map(eq => {
     const url = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
-    // Use qrserver.com — same provider already used for the QR tab.
-    // Black on white square, optimal for scanning.
-    const qrImgSrc = `https://api.qrserver.com/v1/create-qr-code/?size=${cfg.qrSize}x${cfg.qrSize}&data=${encodeURIComponent(url)}&margin=0&ecc=M`;
+    const qrImgSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
     return `
       <div class="sticker">
-        <div class="sticker-inner">
-          <div class="sticker-top">
-            <span class="sticker-brand">NEXUS</span>
-            <span class="sticker-rule"></span>
-          </div>
-          <div class="sticker-name">${esc(eq.name || 'Untitled')}</div>
-          <div class="sticker-loc">${esc(eq.location || '')}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
-          <div class="sticker-qr-wrap">
-            <img class="sticker-qr" src="${qrImgSrc}" alt="QR">
-          </div>
-          <div class="sticker-id">${esc(eq.qr_code || '')}</div>
-          <div class="sticker-instr">Scan to view · log · report</div>
-          <div class="sticker-bottom">
-            <span class="sticker-rule"></span>
-            <span class="sticker-mark">★</span>
-            <span class="sticker-rule"></span>
-          </div>
-        </div>
-      </div>
-    `;
+        <h3>${esc(eq.name)}</h3>
+        <div class="loc">${esc(eq.location)}${eq.area?' · '+esc(eq.area):''}</div>
+        <img src="${qrImgSrc}" alt="QR">
+        <div class="model">${esc(eq.manufacturer||'')} ${esc(eq.model||'')}</div>
+      </div>`;
   }).join('');
 
   const w = window.open('', '_blank');
-  if (!w) {
-    NX.toast && NX.toast('Pop-up blocked — allow pop-ups to print stickers', 'error');
-    return;
-  }
-
-  // CSS sized to physical inches. Print rendering will honor @page + inch units.
-  // The browser's Print dialog will let you choose paper size; default is US Letter.
-  // Each sticker is sized exactly to cfg.w × cfg.h inches.
-  // perPage controls the grid columns based on what fits in 8.5" × 11" with margins.
-  const cols = (() => {
-    if (cfg.w <= 2)        return 4;     // 2x2 → 4 cols (8" wide)
-    if (cfg.w === 3)       return 2;     // 3x3 / 3x4 → 2 cols (6" wide)
-    return 2;                            // 4x4 / 4x6 → 2 cols (8" wide)
-  })();
-
-  const labelCount  = list.length;
-  const filterLabel = location ? location : 'All locations';
-
-  w.document.write(`<!DOCTYPE html>
-<html><head>
-<meta charset="utf-8">
-<title>NEXUS Equipment Stickers — ${esc(filterLabel)} (${labelCount})</title>
-<style>
-  @page { size: letter; margin: 0.4in; }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    padding: 0;
-    font-family: 'Outfit', 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    background: #f4ecd8;
-    color: #1c1814;
-  }
-  /* Print-only header on first page (hidden when printing) */
-  .header {
-    padding: 12px 16px;
-    background: #1c1814;
-    color: #d4c8a5;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 12px;
-  }
-  .header strong { color: #d4a44e; letter-spacing: 1px; }
-  .header button {
-    background: #d4a44e;
-    color: #1c1814;
-    border: none;
-    padding: 8px 16px;
-    font-weight: 600;
-    cursor: pointer;
-    border-radius: 4px;
-    font-family: inherit;
-  }
-
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(${cols}, ${cfg.w}in);
-    gap: 0.15in;
-    padding: 0.15in;
-    justify-content: center;
-  }
-
-  .sticker {
-    width: ${cfg.w}in;
-    height: ${cfg.h}in;
-    background: #f4ecd8;
-    border: 1px dashed #c8a44e;
-    page-break-inside: avoid;
-    break-inside: avoid;
-    overflow: hidden;
-    position: relative;
-  }
-  .sticker-inner {
-    width: 100%;
-    height: 100%;
-    padding: ${Math.max(0.08, cfg.w * 0.04)}in;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: space-between;
-    text-align: center;
-  }
-
-  /* Top branding row */
-  .sticker-top, .sticker-bottom {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .sticker-top {
-    margin-bottom: ${cfg.w * 0.02}in;
-  }
-  .sticker-bottom {
-    margin-top: ${cfg.w * 0.02}in;
-    justify-content: center;
-  }
-  .sticker-brand {
-    font-family: 'JetBrains Mono', 'Courier New', monospace;
-    font-size: ${Math.max(7, cfg.w * 3)}pt;
-    font-weight: 700;
-    color: #1c1814;
-    letter-spacing: 2px;
-    flex-shrink: 0;
-  }
-  .sticker-rule {
-    flex: 1;
-    height: 1px;
-    background: #c8a44e;
-  }
-  .sticker-mark {
-    color: #c8a44e;
-    font-size: ${Math.max(8, cfg.w * 3)}pt;
-    flex-shrink: 0;
-  }
-
-  /* Name — most prominent text */
-  .sticker-name {
-    font-size: ${Math.max(9, cfg.w * 4.2)}pt;
-    font-weight: 700;
-    color: #1c1814;
-    line-height: 1.15;
-    margin: ${cfg.w * 0.015}in 0 ${cfg.w * 0.005}in 0;
-    word-break: break-word;
-    /* Cap at 3 lines so very long names don't blow out the layout */
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .sticker-loc {
-    font-size: ${Math.max(7, cfg.w * 2.8)}pt;
-    color: #5a5247;
-    font-weight: 500;
-    margin-bottom: ${cfg.w * 0.04}in;
-    letter-spacing: 0.3px;
-  }
-
-  /* QR — central element, white background for scan reliability */
-  .sticker-qr-wrap {
-    background: #ffffff;
-    padding: ${cfg.w * 0.025}in;
-    border-radius: 2px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-  .sticker-qr {
-    width: ${cfg.qrSize}px;
-    height: ${cfg.qrSize}px;
-    max-width: ${cfg.w * 0.65}in;
-    max-height: ${cfg.w * 0.65}in;
-    display: block;
-  }
-
-  /* ID — monospace, technical */
-  .sticker-id {
-    font-family: 'JetBrains Mono', 'Courier New', monospace;
-    font-size: ${Math.max(6, cfg.w * 2.2)}pt;
-    color: #5a5247;
-    margin-top: ${cfg.w * 0.03}in;
-    letter-spacing: 0.5px;
-  }
-
-  /* Instruction */
-  .sticker-instr {
-    font-size: ${Math.max(5.5, cfg.w * 2)}pt;
-    color: #857f75;
-    font-style: italic;
-    margin-top: ${cfg.w * 0.01}in;
-  }
-
-  /* Print-specific overrides */
-  @media print {
-    .header { display: none !important; }
-    body { background: #f4ecd8; }
-    .grid { padding: 0; gap: 0.1in; }
-    .sticker { border: 1px dashed #c8a44e; }
-  }
-</style>
-</head>
-<body>
-  <div class="header">
-    <div>
-      <strong>NEXUS</strong> — Equipment Stickers ·
-      ${labelCount} stickers · ${cfg.w}″ × ${cfg.h}″ · ${esc(filterLabel)}
-    </div>
-    <button onclick="window.print()">🖨 Print</button>
-  </div>
-  <div class="grid">${stickers}</div>
-  <script>
-    // Auto-trigger print dialog after QR images load (avoids printing
-    // before QR codes have fetched from qrserver.com).
-    window.addEventListener('load', () => {
-      const imgs = Array.from(document.querySelectorAll('img'));
-      if (imgs.length === 0) return;
-      let loaded = 0;
-      const done = () => {
-        if (++loaded >= imgs.length) {
-          setTimeout(() => window.print(), 600);
-        }
-      };
-      imgs.forEach(img => {
-        if (img.complete) done();
-        else { img.addEventListener('load', done); img.addEventListener('error', done); }
-      });
-    });
-  </script>
-</body></html>`);
+  w.document.write(`
+    <!DOCTYPE html><html><head><title>NEXUS Equipment QR Sheet</title>
+    <style>
+      @page { size: letter; margin: 10mm; }
+      body{font-family:sans-serif;margin:0;padding:0}
+      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5mm}
+      .sticker{border:1.5px solid #000;padding:5mm;text-align:center;break-inside:avoid;page-break-inside:avoid}
+      h3{font-size:11pt;margin:0 0 2mm 0}
+      .loc{font-size:9pt;color:#555;margin-bottom:2mm}
+      .model{font-size:7pt;color:#666;margin-top:2mm}
+      img{width:35mm;height:35mm}
+    </style></head><body>
+    <div class="grid">${stickers}</div>
+    <script>setTimeout(()=>window.print(),1000)</script>
+    </body></html>
+  `);
   w.document.close();
 }
-
-
 
 /* ─── Zebra ZPL generation ─── */
 
@@ -5018,6 +4246,32 @@ async function addAttachment(equipId, type, returnTo) {
   };
 
   if (type === 'link') {
+    if (NX.composer?.modal) {
+      NX.composer.modal({
+        title: 'Add a link',
+        subtitle: 'External resource for this equipment',
+        buttonLabel: 'Add link',
+        fields: [
+          { name: 'title', label: 'Link title', placeholder: 'e.g. Manufacturer manual', autofocus: true },
+          { name: 'url',   label: 'URL', placeholder: 'https://…' },
+        ],
+        onSubmit: async ({ title, url }) => {
+          if (!title || !url) {
+            NX.toast && NX.toast('Both title and URL are required', 'warn');
+            throw new Error('missing fields');
+          }
+          await NX.sb.from('equipment_attachments').insert({
+            equipment_id: equipId, type: 'link',
+            title: title.slice(0, 200), external_url: url,
+            uploaded_by: NX.currentUser?.name || 'user'
+          });
+          NX.toast && NX.toast('Link added ✓', 'success');
+          reopen();
+        },
+      });
+      return;
+    }
+    // Fallback if composer.js didn't load
     const title = prompt('Link title:');
     if (!title) return;
     const url = prompt('URL:');
@@ -5033,6 +4287,32 @@ async function addAttachment(equipId, type, returnTo) {
   }
 
   if (type === 'note') {
+    if (NX.composer?.modal) {
+      NX.composer.modal({
+        title: 'Add a note',
+        subtitle: 'Notes stay attached to this equipment',
+        buttonLabel: 'Add note',
+        fields: [
+          { name: 'title', label: 'Note title', placeholder: 'Short heading', autofocus: true },
+          { name: 'desc',  label: 'Content', placeholder: 'Details…', multiline: true, rows: 4 },
+        ],
+        onSubmit: async ({ title, desc }) => {
+          if (!title || !desc) {
+            NX.toast && NX.toast('Both title and content are required', 'warn');
+            throw new Error('missing fields');
+          }
+          await NX.sb.from('equipment_attachments').insert({
+            equipment_id: equipId, type: 'note',
+            title: title.slice(0, 200), description: desc,
+            uploaded_by: NX.currentUser?.name || 'user'
+          });
+          NX.toast && NX.toast('Note added ✓', 'success');
+          reopen();
+        },
+      });
+      return;
+    }
+    // Fallback
     const title = prompt('Note title:');
     if (!title) return;
     const desc = prompt('Note content:');
@@ -6691,8 +5971,6 @@ NX.modules.equipment = {
   // Add/edit modal (simple form)
   closeEdit,
   deleteEquipment,
-  duplicateEquipment,
-  closeDupe,
 
   // Service log + parts
   logService,
@@ -6702,7 +5980,6 @@ NX.modules.equipment = {
   rejectPmLog,
   markPmSpam,
   addPart,
-  addPartFromUrl,
   editPart,
   deletePart,
   closePart,
@@ -6750,9 +6027,7 @@ NX.modules.equipment = {
   printZebraBatch,
   quickPrint,
   printSingleQR,
-  openStickerExport,
-  closeStickerExport,
-  printStickers,
+  printQRSheet,
   copyQRLink,
 
   // Public scan (pre-auth)
@@ -6778,1170 +6053,5 @@ NX.modules.equipment = {
 };
 
 console.log('[Equipment] unified module loaded — ' + Object.keys(NX.modules.equipment).length + ' exports');
-
-})();
-
-
-/* ═══════════════════════════════════════════════════════════════════════════
- * ═══════════════════════════════════════════════════════════════════════════
- *
- *   CONSOLIDATED MODULES — formerly separate files
- *
- *   The following sections were previously loaded as standalone scripts after
- *   equipment.js. They've been folded in here for a single source of truth.
- *
- *   Original load order (preserved):
- *     1. equipment-ai.js          — Phase 2 AI features (data plate, manual fetch)
- *     2. equipment-brain-sync.js  — auto-sync equipment ↔ nodes table
- *     3. equipment-badge-choice.js — Zebra/Paper print picker on row badges
- *
- *   NOT consolidated (stays separate):
- *     • equipment-context-menu.js — also loaded by log view standalone
- *     • equipment-cleanup.js      — DELETED, its job is no longer needed
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
-/* ═══════════════════════════════════════════════════════════════════════
-   NEXUS Equipment Phase 2 — AI Layer
-   - Data plate scanner (Claude Vision → auto-populate)
-   - Manual PDF upload to Supabase Storage
-   - Web auto-fetch manuals from manufacturer
-   - Pattern-based failure prediction
-   - Cost intelligence (replace vs. repair analysis)
-   ═══════════════════════════════════════════════════════════════════════ */
-(function(){
-
-if (!NX.modules || !NX.modules.equipment) {
-  console.error('[EquipmentAI] Base equipment module not loaded');
-  return;
-}
-
-const EQ = NX.modules.equipment;
-
-/* ═══════════════════════════════════════════════════════════════════════
-   DATA PLATE SCANNER
-   User snaps photo of equipment's data plate → Claude Vision extracts
-   manufacturer, model, serial, specs → auto-populates form
-   ═══════════════════════════════════════════════════════════════════════ */
-
-async function scanDataPlate(existingId) {
-  // Use universal file picker — shows 3-option popup (Take Photo / Library / Files)
-  let file = null;
-  if (NX.filePicker) {
-    const files = await NX.filePicker.pick({
-      accept: 'image/*',
-      multiple: false,
-      title: 'Scan data plate'
-    });
-    if (!files || !files.length) return;
-    file = files[0];
-  } else {
-    // Legacy fallback
-    file = await new Promise((resolve) => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.onchange = e => resolve(e.target.files[0] || null);
-      input.click();
-    });
-    if (!file) return;
-  }
-
-  await processDataPlateFile(file, existingId);
-}
-
-async function processDataPlateFile(file, existingId) {
-    NX.toast && NX.toast('Reading data plate…', 'info', 8000);
-
-    try {
-      // Convert to base64
-      const base64 = await fileToBase64(file);
-      const mimeType = file.type;
-
-      // Upload the photo itself to storage for the data_plate_url
-      let dataPlateUrl = null;
-      try {
-        const fname = `data-plate-${Date.now()}.${file.type.split('/')[1] || 'jpg'}`;
-        const { data: upload } = await NX.sb.storage
-          .from('equipment-photos')
-          .upload(fname, file, { upsert: false, contentType: file.type });
-        if (upload) {
-          const { data: { publicUrl } } = NX.sb.storage
-            .from('equipment-photos')
-            .getPublicUrl(fname);
-          dataPlateUrl = publicUrl;
-        }
-      } catch(e) { console.warn('[DataPlate] Upload skipped:', e.message); }
-
-      // Ask Claude to extract structured data
-      const prompt = `You are reading a commercial kitchen or HVAC equipment data plate.
-Extract ONLY what you can clearly see. Return raw JSON, no markdown:
-{
-  "manufacturer": "...",
-  "model": "...",
-  "serial_number": "...",
-  "year_manufactured": null or YYYY,
-  "specs": {
-    "voltage": null or "115V" etc,
-    "amperage": null or "10A",
-    "hz": null or 60,
-    "phase": null or "1" or "3",
-    "refrigerant_type": null or "R-290",
-    "refrigerant_amount": null or "3.5 oz",
-    "btu": null or number,
-    "capacity": null or "12 cu ft",
-    "max_pressure_psi": null or number,
-    "wattage": null or "1500W",
-    "gas_type": null or "NG" or "LP"
-  },
-  "likely_category": "refrigeration | cooking | ice | hvac | dish | bev | smallware | other",
-  "confidence": "high | medium | low"
-}
-Decode year from serial if manufacturer uses a known format (e.g. Hoshizaki: 3rd-4th chars = year).
-Return null for any field not clearly visible. Do NOT guess.`;
-
-      const answer = await NX.askClaudeVision(prompt, base64, mimeType);
-
-      // Parse JSON robustly
-      const jsonStart = answer.indexOf('{');
-      const jsonEnd = answer.lastIndexOf('}');
-      if (jsonStart === -1 || jsonEnd === -1) throw new Error('No JSON in response');
-      const extracted = JSON.parse(answer.slice(jsonStart, jsonEnd + 1));
-
-      // If updating existing equipment, merge and save
-      if (existingId) {
-        const updates = {};
-        if (extracted.manufacturer) updates.manufacturer = extracted.manufacturer;
-        if (extracted.model) updates.model = extracted.model;
-        if (extracted.serial_number) updates.serial_number = extracted.serial_number;
-        if (extracted.specs && Object.keys(extracted.specs).length) {
-          // Merge specs — filter nulls
-          const clean = {};
-          for (const [k, v] of Object.entries(extracted.specs)) {
-            if (v != null && v !== '') clean[k] = v;
-          }
-          if (Object.keys(clean).length) updates.specs = clean;
-        }
-        if (dataPlateUrl) updates.data_plate_url = dataPlateUrl;
-
-        await NX.sb.from('equipment').update(updates).eq('id', existingId);
-        NX.toast && NX.toast(`✓ Extracted: ${extracted.manufacturer || ''} ${extracted.model || ''}`, 'success');
-        if (NX.syslog) NX.syslog('equipment_scanned', `${extracted.manufacturer} ${extracted.model}`);
-        EQ.closeDetail();
-        await EQ.loadEquipment();
-        EQ.openDetail(existingId);
-      } else {
-        // New equipment — open add modal pre-populated
-        openPrepopulatedAddModal(extracted, dataPlateUrl);
-      }
-    } catch (err) {
-      console.error('[DataPlate] Extraction failed:', err);
-      NX.toast && NX.toast('Could not read plate — try better lighting/angle', 'error', 5000);
-    }
-}
-
-function openPrepopulatedAddModal(data, dataPlateUrl) {
-  const modal = document.getElementById('eqPrepopModal') || (() => {
-    const m = document.createElement('div');
-    m.id = 'eqPrepopModal';
-    m.className = 'eq-modal';
-    document.body.appendChild(m);
-    return m;
-  })();
-
-  const catGuess = data.likely_category || 'other';
-  const specsStr = data.specs ? JSON.stringify(data.specs, null, 2) : '{}';
-
-  modal.innerHTML = `
-    <div class="eq-detail-bg" onclick="document.getElementById('eqPrepopModal').classList.remove('active')"></div>
-    <div class="eq-detail eq-edit">
-      <div class="eq-detail-head">
-        <button class="eq-close" onclick="document.getElementById('eqPrepopModal').classList.remove('active')">✕</button>
-        <h2>✨ Scanned — Confirm Details</h2>
-      </div>
-      <div class="eq-detail-body">
-        ${dataPlateUrl ? `<img src="${dataPlateUrl}" class="eq-detail-photo" style="max-height:150px">` : ''}
-        <div class="eq-scan-conf">Confidence: <b>${data.confidence || 'medium'}</b></div>
-        <form class="eq-form" id="eqPrepopForm">
-          <div class="eq-form-group">
-            <label>Name * (you name it)</label>
-            <input name="name" required placeholder="e.g. Walk-In Cooler Kitchen">
-          </div>
-          <div class="eq-form-row">
-            <div class="eq-form-group">
-              <label>Location *</label>
-              <select name="location" required>
-                <option value="Suerte">Suerte</option>
-                <option value="Este">Este</option>
-                <option value="Bar Toti">Bar Toti</option>
-              </select>
-            </div>
-            <div class="eq-form-group">
-              <label>Category</label>
-              <select name="category">
-                <option value="refrigeration" ${catGuess==='refrigeration'?'selected':''}>❄ Refrigeration</option>
-                <option value="cooking" ${catGuess==='cooking'?'selected':''}>🔥 Cooking</option>
-                <option value="ice" ${catGuess==='ice'?'selected':''}>🧊 Ice</option>
-                <option value="hvac" ${catGuess==='hvac'?'selected':''}>💨 HVAC</option>
-                <option value="dish" ${catGuess==='dish'?'selected':''}>🧼 Dishwashing</option>
-                <option value="bev" ${catGuess==='bev'?'selected':''}>🥤 Beverage</option>
-                <option value="smallware" ${catGuess==='smallware'?'selected':''}>🍴 Smallware</option>
-                <option value="other" ${catGuess==='other'?'selected':''}>⚙ Other</option>
-              </select>
-            </div>
-          </div>
-          <div class="eq-form-row">
-            <div class="eq-form-group">
-              <label>Manufacturer (from plate)</label>
-              <input name="manufacturer" value="${escAttr(data.manufacturer||'')}">
-            </div>
-            <div class="eq-form-group">
-              <label>Model (from plate)</label>
-              <input name="model" value="${escAttr(data.model||'')}">
-            </div>
-          </div>
-          <div class="eq-form-group">
-            <label>Serial Number (from plate)</label>
-            <input name="serial_number" value="${escAttr(data.serial_number||'')}">
-          </div>
-          ${data.year_manufactured ? `
-          <div class="eq-form-group">
-            <label>Install Date (year extracted: ${data.year_manufactured})</label>
-            <input type="date" name="install_date" value="${data.year_manufactured}-01-01">
-          </div>` : ''}
-          <div class="eq-form-group">
-            <label>Extracted Specs (auto-filled, edit if needed)</label>
-            <textarea name="_specs_json" rows="5" style="font-family:monospace;font-size:12px">${escHTML(specsStr)}</textarea>
-          </div>
-          <div class="eq-form-actions">
-            <button type="button" class="eq-btn eq-btn-secondary" onclick="document.getElementById('eqPrepopModal').classList.remove('active')">Cancel</button>
-            <button type="submit" class="eq-btn eq-btn-primary">Create Equipment</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  `;
-  modal.classList.add('active');
-
-  document.getElementById('eqPrepopForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const payload = {};
-    for (const [k, v] of fd.entries()) {
-      if (v !== '' && v != null && !k.startsWith('_')) payload[k] = v;
-    }
-    // Parse specs
-    try {
-      const specsJson = fd.get('_specs_json');
-      if (specsJson) payload.specs = JSON.parse(specsJson);
-    } catch(e) { console.warn('Invalid specs JSON, skipping'); }
-    if (dataPlateUrl) payload.data_plate_url = dataPlateUrl;
-
-    try {
-      const { data: created, error } = await NX.sb.from('equipment').insert(payload).select().single();
-      if (error) throw error;
-      NX.toast && NX.toast('Equipment created ✓', 'success');
-      if (NX.syslog) NX.syslog('equipment_scanned_created', created.name);
-      modal.classList.remove('active');
-      await EQ.loadEquipment();
-      EQ.openDetail(created.id);
-
-      // Auto-trigger manual fetch in background
-      if (created.manufacturer && created.model) {
-        setTimeout(() => autoFetchManual(created.id), 500);
-      }
-    } catch (err) {
-      console.error('[DataPlate] Create failed:', err);
-      NX.toast && NX.toast('Save failed: ' + err.message, 'error');
-    }
-  });
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   MANUAL PDF UPLOAD
-   Upload to Supabase Storage bucket 'equipment-manuals'
-   Save URL to equipment.manual_url
-   ═══════════════════════════════════════════════════════════════════════ */
-
-async function uploadManual(equipId) {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'application/pdf';
-
-  input.addEventListener('change', async e => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    if (file.size > 50 * 1024 * 1024) {
-      NX.toast && NX.toast('PDF too large (max 50MB)', 'error');
-      return;
-    }
-
-    NX.toast && NX.toast('Uploading manual…', 'info', 5000);
-
-    try {
-      const fname = `${equipId}/${Date.now()}-${file.name.replace(/[^a-z0-9.]/gi, '_')}`;
-      const { error } = await NX.sb.storage
-        .from('equipment-manuals')
-        .upload(fname, file, { upsert: false, contentType: 'application/pdf' });
-      if (error) throw error;
-
-      const { data: { publicUrl } } = NX.sb.storage
-        .from('equipment-manuals')
-        .getPublicUrl(fname);
-
-      await NX.sb.from('equipment').update({ manual_url: publicUrl }).eq('id', equipId);
-
-      NX.toast && NX.toast('Manual uploaded ✓', 'success');
-      if (NX.syslog) NX.syslog('manual_uploaded', `equipment ${equipId}`);
-      await EQ.loadEquipment();
-      EQ.openDetail(equipId);
-    } catch (err) {
-      console.error('[Manual] Upload failed:', err);
-      NX.toast && NX.toast('Upload failed: ' + err.message, 'error');
-    }
-  });
-
-  input.click();
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   WEB AUTO-FETCH MANUAL
-   Given manufacturer + model, search the web for official manual PDF
-   Store the source URL (fetching and hosting the PDF requires CORS proxy)
-   ═══════════════════════════════════════════════════════════════════════ */
-
-async function autoFetchManual(equipId) {
-  const eq = (await NX.sb.from('equipment').select('*').eq('id', equipId).single()).data;
-  if (!eq) return;
-  if (!eq.manufacturer || !eq.model) {
-    NX.toast && NX.toast('Add manufacturer and model first', 'info');
-    return;
-  }
-
-  NX.toast && NX.toast(`Searching web for ${eq.manufacturer} ${eq.model} manual…`, 'info', 6000);
-
-  try {
-    const prompt = `Find the official service/owner manual PDF URL for this commercial kitchen equipment:
-Manufacturer: ${eq.manufacturer}
-Model: ${eq.model}
-
-Prefer in this order:
-1. Manufacturer's official website (e.g. hoshizakiamerica.com, vulcanequipment.com)
-2. partstown.com resource center
-3. manualslib.com
-
-Return raw JSON, no markdown:
-{
-  "manual_url": "direct PDF URL or webpage containing manual",
-  "source": "manufacturer | partstown | manualslib | other",
-  "confidence": "high | medium | low",
-  "notes": "brief note about what was found"
-}
-If nothing found, return {"manual_url": null, "source": null, "confidence": "low", "notes": "..."}`;
-
-    const answer = await NX.askClaude(prompt, [{ role: 'user', content: 'Search now.' }], 800, true);
-
-    const jsonStart = answer.indexOf('{');
-    const jsonEnd = answer.lastIndexOf('}');
-    if (jsonStart === -1) throw new Error('No JSON found');
-    const result = JSON.parse(answer.slice(jsonStart, jsonEnd + 1));
-
-    if (result.manual_url) {
-      await NX.sb.from('equipment').update({
-        manual_source_url: result.manual_url
-      }).eq('id', equipId);
-
-      NX.toast && NX.toast(`Found manual (${result.confidence} confidence) — saved link`, 'success', 5000);
-      await EQ.loadEquipment();
-      EQ.openDetail(equipId);
-    } else {
-      NX.toast && NX.toast(`No manual found. Try uploading a PDF directly.`, 'info', 5000);
-    }
-  } catch (err) {
-    console.error('[Manual] Auto-fetch failed:', err);
-    NX.toast && NX.toast('Search failed — try uploading manually', 'error');
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   FAILURE PATTERN DETECTION
-   Analyzes repair history for pattern (e.g. "compressor every 4 months")
-   Runs for all equipment — returns predictions for morning brief
-   ═══════════════════════════════════════════════════════════════════════ */
-
-async function detectPatterns(equipId) {
-  const { data: maint } = await NX.sb.from('equipment_maintenance')
-    .select('*')
-    .eq('equipment_id', equipId)
-    .eq('event_type', 'repair')
-    .order('event_date', { ascending: true });
-
-  if (!maint || maint.length < 2) {
-    return { hasPattern: false, reason: 'Not enough history (need 2+ repairs)' };
-  }
-
-  // Calculate intervals between repairs (in days)
-  const intervals = [];
-  for (let i = 1; i < maint.length; i++) {
-    const a = new Date(maint[i - 1].event_date);
-    const b = new Date(maint[i].event_date);
-    intervals.push(Math.round((b - a) / 86400000));
-  }
-
-  const avgInterval = intervals.reduce((s, d) => s + d, 0) / intervals.length;
-  const variance = intervals.reduce((s, d) => s + Math.pow(d - avgInterval, 2), 0) / intervals.length;
-  const stdDev = Math.sqrt(variance);
-  const relStdDev = stdDev / avgInterval; // lower = more regular pattern
-
-  const lastRepair = new Date(maint[maint.length - 1].event_date);
-  const daysSinceLastRepair = Math.round((new Date() - lastRepair) / 86400000);
-
-  // Extract common symptom keywords
-  const allSymptoms = maint.map(m => (m.symptoms || m.description || '').toLowerCase()).join(' ');
-  const keywords = ['compressor', 'fan', 'thermostat', 'refrigerant', 'drain', 'seal', 'gasket', 'motor', 'valve', 'pilot', 'igniter'];
-  const topSymptom = keywords.find(k => (allSymptoms.match(new RegExp(k, 'g')) || []).length >= 2);
-
-  // Strong pattern: stddev is < 40% of mean AND we have 3+ data points
-  const hasPattern = relStdDev < 0.4 && maint.length >= 3;
-  const predictedDate = new Date(lastRepair.getTime() + avgInterval * 86400000);
-  const daysUntilPredicted = Math.round((predictedDate - new Date()) / 86400000);
-
-  return {
-    hasPattern,
-    totalRepairs: maint.length,
-    avgInterval: Math.round(avgInterval),
-    relStdDev: relStdDev.toFixed(2),
-    daysSinceLastRepair,
-    daysUntilPredicted,
-    predictedDate: predictedDate.toISOString().slice(0, 10),
-    topSymptom,
-    alertLevel: daysUntilPredicted <= 14 && hasPattern ? 'urgent' :
-                daysUntilPredicted <= 30 && hasPattern ? 'warning' : 'none'
-  };
-}
-
-async function renderIntelligenceTab(equipId) {
-  const eq = NX._equipmentCache?.find(e => e.id === equipId) ||
-             (await NX.sb.from('equipment_with_stats').select('*').eq('id', equipId).single()).data;
-  if (!eq) return '<div class="eq-empty-small">Not found</div>';
-
-  const pattern = await detectPatterns(equipId);
-  const costAnalysis = analyzeCost(eq);
-
-  let html = '<div class="eq-ai-panel">';
-
-  // Pattern prediction
-  html += '<div class="eq-ai-card"><h4>🔮 Failure Pattern Analysis</h4>';
-  if (pattern.hasPattern) {
-    const color = pattern.alertLevel === 'urgent' ? 'var(--red)' : pattern.alertLevel === 'warning' ? 'var(--amber)' : 'var(--green)';
-    html += `
-      <div class="eq-ai-alert" style="border-color:${color}">
-        <div class="eq-ai-big" style="color:${color}">
-          ${pattern.daysUntilPredicted < 0
-            ? `⚠ Overdue by ${-pattern.daysUntilPredicted} days`
-            : pattern.daysUntilPredicted <= 14
-            ? `⚠ Service needed in ~${pattern.daysUntilPredicted} days`
-            : `${pattern.daysUntilPredicted} days until predicted service`}
-        </div>
-        <div class="eq-ai-detail">
-          Based on ${pattern.totalRepairs} past repairs averaging every ${pattern.avgInterval} days.
-          ${pattern.topSymptom ? `<br><b>Common issue:</b> ${pattern.topSymptom}` : ''}
-          <br>Last repair: ${pattern.daysSinceLastRepair} days ago
-          <br>Predicted next: ${new Date(pattern.predictedDate).toLocaleDateString()}
-        </div>
-      </div>`;
-  } else {
-    html += `<div class="eq-ai-neutral">${pattern.reason || `Need more repair history to detect patterns (${pattern.totalRepairs || 0} recorded).`}</div>`;
-  }
-  html += '</div>';
-
-  // Cost analysis
-  html += '<div class="eq-ai-card"><h4>💰 Cost Intelligence</h4>';
-  if (costAnalysis.recommendation === 'replace') {
-    html += `
-      <div class="eq-ai-alert" style="border-color:var(--red)">
-        <div class="eq-ai-big" style="color:var(--red)">🔄 Consider Replacement</div>
-        <div class="eq-ai-detail">
-          Total repairs last 12mo: <b>$${costAnalysis.yearlyCost.toLocaleString()}</b><br>
-          ${costAnalysis.projectedNextYear ? `Projected next year: <b>$${costAnalysis.projectedNextYear.toLocaleString()}</b><br>` : ''}
-          ${eq.purchase_price ? `Original cost: $${Math.round(eq.purchase_price).toLocaleString()}<br>` : ''}
-          <i>${costAnalysis.reasoning}</i>
-        </div>
-      </div>`;
-  } else if (costAnalysis.recommendation === 'monitor') {
-    html += `
-      <div class="eq-ai-alert" style="border-color:var(--amber)">
-        <div class="eq-ai-big" style="color:var(--amber)">⚠ Monitor Costs</div>
-        <div class="eq-ai-detail">
-          YTD repair cost: <b>$${costAnalysis.yearlyCost.toLocaleString()}</b><br>
-          <i>${costAnalysis.reasoning}</i>
-        </div>
-      </div>`;
-  } else {
-    html += `
-      <div class="eq-ai-neutral">
-        YTD repair cost: $${costAnalysis.yearlyCost.toLocaleString()}<br>
-        <i>${costAnalysis.reasoning}</i>
-      </div>`;
-  }
-  html += '</div>';
-
-  // Actions
-  html += `
-    <div class="eq-ai-actions">
-      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.scanDataPlate('${equipId}')">📷 Re-scan Data Plate</button>
-      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${equipId}')">🌐 Find Manual Online</button>
-      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.uploadManual('${equipId}')">📄 Upload Manual PDF</button>
-    </div>
-  `;
-
-  html += '</div>';
-  return html;
-}
-
-function analyzeCost(eq) {
-  const yearlyCost = parseFloat(eq.cost_this_year) || 0;
-  const purchasePrice = parseFloat(eq.purchase_price) || 0;
-  const servicesThisYear = eq.services_this_year || 0;
-
-  // Simple heuristic: if yearly repair cost > 40% of purchase price → replace
-  if (purchasePrice > 0 && yearlyCost > purchasePrice * 0.4) {
-    return {
-      yearlyCost,
-      projectedNextYear: Math.round(yearlyCost * 1.3), // 30% escalation
-      recommendation: 'replace',
-      reasoning: `Repairs (${Math.round(yearlyCost / purchasePrice * 100)}% of purchase price) exceed the 40% replacement threshold. A new unit likely pays back within a year.`
-    };
-  }
-
-  // Monitor if 3+ services in a year
-  if (servicesThisYear >= 3) {
-    return {
-      yearlyCost,
-      recommendation: 'monitor',
-      reasoning: `${servicesThisYear} services this year suggests increasing failure rate. Watch for escalation.`
-    };
-  }
-
-  return {
-    yearlyCost,
-    recommendation: 'healthy',
-    reasoning: servicesThisYear === 0
-      ? 'No repairs this year — running well.'
-      : `Only ${servicesThisYear} service${servicesThisYear>1?'s':''} this year — normal maintenance profile.`
-  };
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   FLEET-WIDE PATTERN SCAN (for morning brief)
-   Runs across all equipment, returns prediction summary
-   ═══════════════════════════════════════════════════════════════════════ */
-
-async function scanFleet() {
-  const { data: allEq } = await NX.sb.from('equipment').select('id, name, location')
-    .not('status', 'eq', 'retired');
-  if (!allEq || !allEq.length) return [];
-
-  const urgent = [];
-  for (const eq of allEq) {
-    const p = await detectPatterns(eq.id);
-    if (p.hasPattern && p.alertLevel !== 'none') {
-      urgent.push({
-        id: eq.id,
-        name: eq.name,
-        location: eq.location,
-        days: p.daysUntilPredicted,
-        level: p.alertLevel,
-        symptom: p.topSymptom
-      });
-    }
-  }
-  return urgent.sort((a, b) => a.days - b.days);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   UTILITIES
-   ═══════════════════════════════════════════════════════════════════════ */
-
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-function escHTML(s) {
-  if (s == null) return '';
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-function escAttr(s) {
-  if (s == null) return '';
-  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   EXTEND EXISTING EQUIPMENT MODULE
-   ═══════════════════════════════════════════════════════════════════════ */
-
-Object.assign(NX.modules.equipment, {
-  scanDataPlate,
-  uploadManual,
-  autoFetchManual,
-  detectPatterns,
-  renderIntelligenceTab,
-  scanFleet,
-  analyzeCost,
-  // Expose for external loading
-  loadEquipment: NX.modules.equipment.loadEquipment || (async () => {
-    const { data } = await NX.sb.from('equipment_with_stats').select('*');
-    NX._equipmentCache = data || [];
-  })
-});
-
-// Inject "Intelligence" tab and data plate scan button into existing detail modal
-// by hooking into modal creation
-const _origOpenDetail = NX.modules.equipment.openDetail;
-NX.modules.equipment.openDetail = async function(id) {
-  await _origOpenDetail(id);
-
-  // Add Intelligence tab after render
-  setTimeout(() => {
-    const modal = document.getElementById('eqModal');
-    if (!modal) return;
-
-    const tabs = modal.querySelector('.eq-detail-tabs');
-    const body = modal.querySelector('.eq-detail-body');
-    if (!tabs || !body) return;
-
-    // Skip if already added
-    if (tabs.querySelector('[data-tab="intel"]')) return;
-
-    // Add Intelligence tab button
-    const intelTab = document.createElement('button');
-    intelTab.className = 'eq-tab';
-    intelTab.dataset.tab = 'intel';
-    intelTab.innerHTML = '🧠 AI';
-    tabs.appendChild(intelTab);
-
-    // Add Intelligence panel
-    const intelPanel = document.createElement('div');
-    intelPanel.className = 'eq-tab-panel';
-    intelPanel.dataset.panel = 'intel';
-    intelPanel.innerHTML = '<div class="eq-empty-small">Loading intelligence…</div>';
-    body.appendChild(intelPanel);
-
-    // Wire click
-    intelTab.addEventListener('click', async () => {
-      modal.querySelectorAll('.eq-tab').forEach(t => t.classList.remove('active'));
-      modal.querySelectorAll('.eq-tab-panel').forEach(p => p.classList.remove('active'));
-      intelTab.classList.add('active');
-      intelPanel.classList.add('active');
-      intelPanel.innerHTML = await renderIntelligenceTab(id);
-    });
-
-    // Upgrade Manual tab with real upload + auto-fetch buttons
-    const manualPanel = modal.querySelector('[data-panel="manual"]');
-    if (manualPanel && !manualPanel.dataset.upgraded) {
-      manualPanel.dataset.upgraded = '1';
-      // Add upload/fetch buttons (works whether manual exists or not)
-      const uploadBtn = document.createElement('div');
-      uploadBtn.className = 'eq-manual-upgrade';
-      uploadBtn.innerHTML = `
-        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadManual('${id}')">📄 Upload PDF</button>
-          <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${id}')">🌐 Find Online</button>
-        </div>`;
-      manualPanel.appendChild(uploadBtn);
-    }
-
-    // Add "Scan Data Plate" button to Overview tab
-    const overviewPanel = modal.querySelector('[data-panel="overview"]');
-    if (overviewPanel && !overviewPanel.dataset.upgraded) {
-      overviewPanel.dataset.upgraded = '1';
-      const scanBtn = document.createElement('button');
-      scanBtn.className = 'eq-btn eq-btn-secondary';
-      scanBtn.style.marginTop = '16px';
-      scanBtn.innerHTML = '📷 Scan Data Plate (auto-fill)';
-      scanBtn.addEventListener('click', () => scanDataPlate(id));
-      overviewPanel.appendChild(scanBtn);
-    }
-  }, 50);
-};
-
-// Also add "Scan Data Plate" as an alternative to + Add Equipment
-// by injecting after the add button is rendered
-const _origBuildUI = NX.modules.equipment.buildUI;
-if (_origBuildUI) {
-  NX.modules.equipment.buildUI = function() {
-    _origBuildUI();
-    injectScanButton();
-  };
-}
-
-function injectScanButton() {
-  const actions = document.querySelector('.eq-actions');
-  if (!actions || actions.querySelector('.eq-scan-btn')) return;
-  const btn = document.createElement('button');
-  btn.className = 'eq-btn eq-btn-secondary eq-scan-btn';
-  btn.innerHTML = '📷 Scan Plate';
-  btn.title = 'Scan equipment data plate with camera';
-  btn.addEventListener('click', () => scanDataPlate(null));
-  actions.insertBefore(btn, actions.firstChild);
-}
-
-// On init, inject the scan button once everything is ready
-setTimeout(injectScanButton, 500);
-
-console.log('[EquipmentAI] Phase 2 loaded');
-
-})();
-
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   NEXUS Equipment ↔ Brain Sync v1
-   
-   Auto-syncs equipment rows into the nodes table as category='equipment'
-   so the brain/galaxy renders them as nebulae and the AI can query them.
-   
-   Sync rules:
-     - On equipment list load → upsert each non-deleted equipment as a node
-     - On equipment edit/save → re-sync that one row
-     - On part add/edit/delete → re-sync the parent equipment node
-     - On dispatch event → re-sync (status note)
-     - On maintenance log → re-sync (last service date)
-     - On soft delete → soft-delete the matching node
-     - On soft restore → restore the node
-   
-   Node structure for equipment:
-     name = equipment.name
-     category = 'equipment'
-     notes = rich summary string with all key facts (model, location, 
-             status, parts count, last service, contractor info, etc.)
-             AI search reads notes — this is where the queryable text lives
-     tags = [location, equipment_category, status, manufacturer]
-     links = [related_node_ids]  (contractors, parts vendors)
-     source_emails = []
-     access_count = updated to current time
-     
-   Node ID strategy:
-     We use a deterministic node ID derived from equipment.id so re-syncs
-     UPSERT cleanly without duplicates. Format: 'eq:<equipment_id>'
-     This requires nodes.id to be text. If it's bigint, we use a separate
-     equipment_node_id column on equipment to track the link.
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-(function() {
-  'use strict';
-
-  function whenReady(check, fn, maxWait = 5000) {
-    const start = Date.now();
-    const interval = setInterval(() => {
-      if (check()) { clearInterval(interval); fn(); }
-      else if (Date.now() - start > maxWait) { clearInterval(interval); }
-    }, 100);
-  }
-
-  whenReady(
-    () => NX && NX.modules && NX.modules.equipment && NX.sb,
-    () => init()
-  );
-
-  let nodesIdType = null;  // Detected at runtime: 'text', 'bigint', 'uuid'
-
-  async function init() {
-    console.log('[eq-brain-sync] initializing equipment→brain sync');
-    await detectNodesIdType();
-    patchSyncHooks();
-    // Initial bulk sync after a moment so equipment data is loaded
-    setTimeout(syncAllEquipment, 1500);
-  }
-
-  async function detectNodesIdType() {
-    // Sniff a node to determine the id column type
-    try {
-      const { data } = await NX.sb.from('nodes').select('id').limit(1).single();
-      if (data && data.id != null) {
-        const v = data.id;
-        if (typeof v === 'number') nodesIdType = 'bigint';
-        else if (typeof v === 'string' && /^[0-9a-f]{8}-/i.test(v)) nodesIdType = 'uuid';
-        else nodesIdType = 'text';
-      } else {
-        nodesIdType = 'bigint';  // safe default
-      }
-      console.log('[eq-brain-sync] detected nodes.id type:', nodesIdType);
-    } catch (e) {
-      nodesIdType = 'bigint';
-    }
-  }
-
-  /* ═════════════════════════════════════════════════════════════════════════
-     BUILD NODE PAYLOAD from equipment row
-     ═════════════════════════════════════════════════════════════════════════ */
-
-  function buildNodePayload(eq, parts, recentMaint, recentDispatches) {
-    parts = parts || [];
-    recentMaint = recentMaint || [];
-    recentDispatches = recentDispatches || [];
-    
-    // Build a rich, AI-searchable notes string. Format is plain natural language
-    // so embeddings/search work well.
-    const lines = [];
-    lines.push(`${eq.name || 'Equipment'} — ${eq.category || 'uncategorized'}`);
-    if (eq.location || eq.area) {
-      lines.push(`Location: ${eq.location || ''}${eq.area ? ' · ' + eq.area : ''}`);
-    }
-    if (eq.manufacturer || eq.model) {
-      lines.push(`Make/Model: ${eq.manufacturer || ''} ${eq.model || ''}`.trim());
-    }
-    if (eq.serial_number) lines.push(`Serial: ${eq.serial_number}`);
-    if (eq.status) lines.push(`Status: ${eq.status}`);
-    if (eq.health_score != null) lines.push(`Health: ${eq.health_score}%`);
-    if (eq.install_date) lines.push(`Installed: ${eq.install_date}`);
-    if (eq.warranty_until) lines.push(`Warranty until: ${eq.warranty_until}`);
-    if (eq.purchase_price) lines.push(`Cost: $${eq.purchase_price}`);
-    if (eq.next_pm_date) lines.push(`Next PM: ${eq.next_pm_date}`);
-    if (eq.notes) lines.push(`Notes: ${eq.notes}`);
-    
-    // Service contractor info
-    if (eq.service_contractor_name) {
-      lines.push(`Service contractor: ${eq.service_contractor_name}${eq.service_contractor_phone ? ' (' + eq.service_contractor_phone + ')' : ''}`);
-    }
-    if (eq.backup_contractor_name) {
-      lines.push(`Backup contractor: ${eq.backup_contractor_name}${eq.backup_contractor_phone ? ' (' + eq.backup_contractor_phone + ')' : ''}`);
-    }
-    
-    // Parts catalog
-    if (parts.length) {
-      lines.push(`Parts catalog (${parts.length}):`);
-      parts.slice(0, 20).forEach(p => {
-        const vendorCount = Array.isArray(p.vendors) ? p.vendors.length : 0;
-        const vendorStr = vendorCount > 0 
-          ? ` — ${vendorCount} vendor${vendorCount === 1 ? '' : 's'}`
-          : (p.supplier ? ` — ${p.supplier}` : '');
-        lines.push(`  • ${p.part_name}${p.oem_part_number ? ' (OEM: ' + p.oem_part_number + ')' : ''}${vendorStr}`);
-      });
-      if (parts.length > 20) lines.push(`  …and ${parts.length - 20} more parts`);
-    }
-    
-    // Recent maintenance
-    if (recentMaint.length) {
-      lines.push(`Recent service:`);
-      recentMaint.slice(0, 5).forEach(m => {
-        const dateStr = m.event_date ? new Date(m.event_date).toLocaleDateString() : '';
-        lines.push(`  • ${dateStr} — ${m.event_type || 'service'}${m.notes ? ': ' + m.notes : ''}`);
-      });
-    }
-    
-    // Recent dispatches
-    if (recentDispatches.length) {
-      lines.push(`Recent dispatches:`);
-      recentDispatches.slice(0, 5).forEach(d => {
-        const dateStr = d.dispatched_at ? new Date(d.dispatched_at).toLocaleDateString() : '';
-        lines.push(`  • ${dateStr} — called ${d.contractor_name || 'contractor'}${d.issue_description ? ' for: ' + d.issue_description : ''}`);
-      });
-    }
-    
-    // Manual link
-    if (eq.manual_url) lines.push(`Manual: ${eq.manual_url}`);
-
-    // Tags = filterable / facetable terms
-    const tags = ['equipment'];
-    if (eq.location) tags.push(eq.location);
-    if (eq.category) tags.push(eq.category);
-    if (eq.status) tags.push(eq.status);
-    if (eq.manufacturer) tags.push(eq.manufacturer);
-
-    return {
-      name: eq.name || 'Unnamed equipment',
-      category: 'equipment',
-      notes: lines.join('\n'),
-      tags,
-      links: [],
-      source_emails: [],
-      access_count: Date.now()
-    };
-  }
-
-  /* ═════════════════════════════════════════════════════════════════════════
-     SYNC ONE equipment row → its corresponding node
-     Uses the equipment_node_id column on equipment (added by SQL migration)
-     to track which node represents which equipment.
-     ═════════════════════════════════════════════════════════════════════════ */
-
-  async function syncOneEquipment(equipId) {
-    try {
-      // Load full equipment + parts + recent events
-      const [{ data: eq }, { data: parts }, { data: maint }, { data: dispatches }] = await Promise.all([
-        NX.sb.from('equipment').select('*').eq('id', equipId).single(),
-        NX.sb.from('equipment_parts').select('*').eq('equipment_id', equipId).eq('is_deleted', false).order('part_name'),
-        NX.sb.from('equipment_maintenance').select('*').eq('equipment_id', equipId).order('event_date', { ascending: false }).limit(5),
-        NX.sb.from('dispatch_events').select('*').eq('equipment_id', equipId).order('dispatched_at', { ascending: false }).limit(5)
-      ]);
-
-      if (!eq) return;
-      
-      // Soft-deleted equipment? Soft-delete the matching node too
-      if (eq.is_deleted) {
-        if (eq.equipment_node_id) {
-          await NX.sb.from('nodes').update({
-            is_deleted: true,
-            deleted_at: new Date().toISOString(),
-            deleted_by: 'auto-sync',
-            deleted_reason: 'parent equipment was deleted'
-          }).eq('id', eq.equipment_node_id);
-        }
-        return;
-      }
-      
-      const payload = buildNodePayload(eq, parts, maint, dispatches);
-      
-      if (eq.equipment_node_id) {
-        // Update existing node — also restore if it was soft-deleted
-        const { error } = await NX.sb.from('nodes').update({
-          ...payload,
-          is_deleted: false,
-          deleted_at: null,
-          deleted_by: null,
-          deleted_reason: null
-        }).eq('id', eq.equipment_node_id);
-        if (error) {
-          // Node probably got hard-deleted — create a new one
-          console.warn('[eq-brain-sync] update failed, creating new node:', error.message);
-          await createNewNodeForEquipment(eq, payload);
-        }
-      } else {
-        // No linked node — create one
-        await createNewNodeForEquipment(eq, payload);
-      }
-    } catch (e) {
-      console.warn('[eq-brain-sync] sync failed for', equipId, e);
-    }
-  }
-
-  async function createNewNodeForEquipment(eq, payload) {
-    try {
-      const { data, error } = await NX.sb.from('nodes').insert(payload).select().single();
-      if (error) throw error;
-      // Link the new node ID back to the equipment
-      await NX.sb.from('equipment').update({ equipment_node_id: data.id }).eq('id', eq.id);
-      // Add to local NX.nodes cache so galaxy picks it up
-      if (NX.nodes && Array.isArray(NX.nodes)) NX.nodes.push(data);
-    } catch (e) {
-      console.warn('[eq-brain-sync] create node failed:', e);
-    }
-  }
-
-  /* ═════════════════════════════════════════════════════════════════════════
-     BULK SYNC — runs once after equipment view loads. Catches any equipment
-     that doesn't have a linked node yet and creates them.
-     ═════════════════════════════════════════════════════════════════════════ */
-
-  async function syncAllEquipment() {
-    try {
-      const { data: allEq } = await NX.sb.from('equipment')
-        .select('id, equipment_node_id, is_deleted')
-        .eq('is_deleted', false);
-      if (!allEq?.length) return;
-      
-      // Only sync the ones missing a node link OR that haven't been synced recently
-      const needsSync = allEq.filter(e => !e.equipment_node_id);
-      if (!needsSync.length) {
-        console.log('[eq-brain-sync] all equipment already synced');
-        return;
-      }
-      
-      console.log(`[eq-brain-sync] bulk syncing ${needsSync.length} equipment to brain…`);
-      // Sync in parallel batches of 5 to avoid hammering Supabase
-      for (let i = 0; i < needsSync.length; i += 5) {
-        const batch = needsSync.slice(i, i + 5);
-        await Promise.all(batch.map(e => syncOneEquipment(e.id)));
-      }
-      console.log('[eq-brain-sync] bulk sync done');
-    } catch (e) {
-      console.warn('[eq-brain-sync] bulk sync error:', e);
-    }
-  }
-
-  /* ═════════════════════════════════════════════════════════════════════════
-     PATCH HOOKS — re-sync the relevant equipment whenever data changes
-     ═════════════════════════════════════════════════════════════════════════ */
-
-  function patchSyncHooks() {
-    const EQ = NX.modules.equipment;
-    if (!EQ) return;
-
-    // Wrap saveEquipment / updateEquipment if they exist
-    ['saveEquipment', 'updateEquipment', 'edit'].forEach(fn => {
-      if (typeof EQ[fn] === 'function') {
-        const orig = EQ[fn];
-        EQ[fn] = async function(...args) {
-          const result = await orig.apply(this, args);
-          // First arg is usually the equipment ID
-          const id = typeof args[0] === 'string' ? args[0] : args[0]?.id;
-          if (id) setTimeout(() => syncOneEquipment(id), 500);
-          return result;
-        };
-      }
-    });
-
-    // Wrap addPart/editPart/deletePart — re-sync parent equipment
-    ['addPart', 'editPart', 'savePart'].forEach(fn => {
-      if (typeof EQ[fn] === 'function') {
-        const orig = EQ[fn];
-        EQ[fn] = async function(...args) {
-          const result = await orig.apply(this, args);
-          // Try to extract the equipId from the most-recently-opened detail
-          const equipId = NX.currentEquipId || EQ.currentEquipId;
-          if (equipId) setTimeout(() => syncOneEquipment(equipId), 500);
-          return result;
-        };
-      }
-    });
-
-    // Wrap dispatch logging via the eq-fixes openDispatchModal
-    if (EQ.dispatch) {
-      const orig = EQ.dispatch;
-      EQ.dispatch = async function(equipId) {
-        const result = await orig.call(this, equipId);
-        if (equipId) setTimeout(() => syncOneEquipment(equipId), 1500);
-        return result;
-      };
-    }
-
-    // Wrap logService
-    if (typeof EQ.logService === 'function') {
-      const orig = EQ.logService;
-      EQ.logService = async function(equipId, ...rest) {
-        const result = await orig.call(this, equipId, ...rest);
-        if (equipId) setTimeout(() => syncOneEquipment(equipId), 1000);
-        return result;
-      };
-    }
-    
-    console.log('[eq-brain-sync] hooks patched');
-  }
-
-  // Expose for manual sync from console / AI tools
-  NX.eqBrainSync = {
-    syncOne: syncOneEquipment,
-    syncAll: syncAllEquipment,
-    buildNodePayload
-  };
-
-})();
-
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   NEXUS Badge Print Choice v1
-   
-   Patches the inline 🏷 badge on each equipment row/card so tapping it
-   pops up a small menu with two options:
-     • 🏷 Zebra     — print thermal sticker (if printer available)
-     • 📄 Paper     — print HTML/Avery sticker (any printer)
-   
-   This way when the Zebra is down, you still have a print path.
-   
-   Load order: AFTER equipment-ux.js (which defines quickPrint).
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-(function() {
-  'use strict';
-
-  function whenReady(check, fn, maxWait = 5000) {
-    const start = Date.now();
-    const interval = setInterval(() => {
-      if (check()) { clearInterval(interval); fn(); }
-      else if (Date.now() - start > maxWait) { clearInterval(interval); }
-    }, 80);
-  }
-
-  whenReady(
-    () => NX && NX.modules && NX.modules.equipment,
-    () => init()
-  );
-
-  function init() {
-    console.log('[badge-choice] initializing badge print choice');
-    patchQuickPrint();
-  }
-
-  function patchQuickPrint() {
-    // The original quickPrint goes straight to Zebra. We replace it with
-    // a popup choice. The originals are kept available as Zebra-direct and
-    // HTML-direct paths.
-    
-    const EQ = NX.modules.equipment;
-    
-    // Save original Zebra-direct path (if exists)
-    const originalZebraPath = EQ.printZebraSingle || EQ.quickPrint;
-    
-    // Override quickPrint to show choice popup
-    EQ.quickPrint = function(equipId) {
-      showBadgeChoicePopup(equipId, originalZebraPath);
-    };
-  }
-
-  function showBadgeChoicePopup(equipId, zebraFn) {
-    // Remove any existing popup
-    document.querySelectorAll('.badge-choice-popup').forEach(p => p.remove());
-    
-    const popup = document.createElement('div');
-    popup.className = 'badge-choice-popup';
-    popup.innerHTML = `
-      <div class="badge-choice-bg"></div>
-      <div class="badge-choice-card">
-        <div class="badge-choice-title">Print Label</div>
-        <div class="badge-choice-options">
-          <button class="badge-choice-btn" id="badgeChoiceZebra">
-            <span class="badge-choice-icon">🏷</span>
-            <span class="badge-choice-name">Zebra</span>
-            <span class="badge-choice-sub">Thermal sticker</span>
-          </button>
-          <button class="badge-choice-btn" id="badgeChoicePaper">
-            <span class="badge-choice-icon">📄</span>
-            <span class="badge-choice-name">Paper</span>
-            <span class="badge-choice-sub">HTML print</span>
-          </button>
-        </div>
-        <button class="badge-choice-cancel" id="badgeChoiceCancel">Cancel</button>
-      </div>
-    `;
-    document.body.appendChild(popup);
-    
-    const close = () => popup.remove();
-    popup.querySelector('.badge-choice-bg').addEventListener('click', close);
-    popup.querySelector('#badgeChoiceCancel').addEventListener('click', close);
-    
-    popup.querySelector('#badgeChoiceZebra').addEventListener('click', () => {
-      close();
-      // Try Zebra path. If it errors silently (the cleanup module suppresses
-      // toast spam), fall back to HTML print.
-      try {
-        if (typeof zebraFn === 'function') {
-          zebraFn(equipId);
-        } else if (NX.ctxMenu?.printSingleLabel) {
-          NX.ctxMenu.printSingleLabel(equipId);
-        }
-      } catch (e) {
-        console.warn('[badge-choice] Zebra failed, falling back:', e);
-        if (NX.ctxMenu?.printSingleLabel) NX.ctxMenu.printSingleLabel(equipId);
-      }
-    });
-    
-    popup.querySelector('#badgeChoicePaper').addEventListener('click', () => {
-      close();
-      // Direct HTML print — uses the centered single label format
-      if (NX.ctxMenu?.printSingleLabel) {
-        NX.ctxMenu.printSingleLabel(equipId);
-      } else {
-        alert('Print module not loaded yet — try again in a moment');
-      }
-    });
-  }
 
 })();
