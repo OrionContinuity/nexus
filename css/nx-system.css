@@ -595,28 +595,115 @@ html {
 }
 
 
-/* ═══ 6. SHELL OVERRIDES ═════════════════════════════════════════
-   Tame nexus.css's top nav so it doesn't compete with the content
-   below. The top nav was originally designed for desktop tabs;
-   on mobile it just shows a NEXUS pill + the ☰ menu, and the
-   bold gold-bordered pill fights every screen for attention.
+/* ═══ 6. UNIFIED MASTHEAD ═════════════════════════════════════════
+   The top .nav becomes THE single masthead for the entire app —
+   replaces both the legacy nav-nexus pill AND any duplicate
+   "NEXUS / date" rows in individual views (like home's old
+   .home-mast block, which is now removed).
    
-   Replace with quieter chrome — a small dot + thin label, plus
-   the listen indicator. The page lede or masthead carries the
-   brand presence on each view. */
+   Layout:
+   ┌─────────────────────────────────────────────────────────┐
+   │ [coin]  ● NEXUS    SAT MAY 2 · 1:23 PM           ☰      │
+   │ ─────────────────────────────────────────────────────── │
+   └─────────────────────────────────────────────────────────┘
+   
+   The coin (28px) is the visual anchor on the left.
+   NEXUS wordmark + live date sit center-left in mono caps.
+   Hamburger menu on the right.
+   Single hairline divider beneath. */
 .nav {
-  background: transparent !important;
-  border-bottom: 1px solid rgba(212, 164, 78, 0.06) !important;
-  padding: 8px 14px !important;
+  background: var(--nx-bg) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  padding: 10px 16px !important;
+  gap: 10px !important;
+  align-items: center !important;
 }
+
+/* The masthead coin — leftmost element. Uses same image assets as
+   login + home. Idle wobble, tap to flip / navigate. */
+.nx-mast-coin {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  cursor: pointer;
+  position: relative;
+  display: inline-block;
+  perspective: 200px;
+  -webkit-tap-highlight-color: transparent;
+  animation: nxMastCoinWobble 5.5s ease-in-out infinite;
+}
+.nx-mast-coin-flip {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.4, 0.05, 0.3, 1);
+}
+.nx-mast-coin-flip.flipped { transform: rotateY(180deg); }
+.nx-mast-coin-face {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  display: block;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+.nx-mast-coin-back { transform: rotateY(180deg); }
+@keyframes nxMastCoinWobble {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(1.5deg); }
+}
+
+/* Gold rim glow when AI active (pulsing). Same pattern as
+   .home-coin-mini.pulsing. */
+.nx-mast-coin::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow: 0 0 0 0 rgba(212, 164, 78, 0);
+  transition: box-shadow 0.3s ease;
+  z-index: -1;
+}
+.nx-mast-coin.pulsing::before {
+  animation: nxMastCoinPulse 1.4s cubic-bezier(0.4, 0, 0.6, 1) 1;
+}
+@keyframes nxMastCoinPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(212, 164, 78, 0); }
+  35%  { box-shadow: 0 0 8px 2px rgba(212, 164, 78, 0.6), 0 0 16px 4px rgba(212, 164, 78, 0.25); }
+  70%  { box-shadow: 0 0 12px 3px rgba(212, 164, 78, 0.45), 0 0 24px 8px rgba(212, 164, 78, 0.18); }
+  100% { box-shadow: 0 0 0 0 rgba(212, 164, 78, 0); }
+}
+.nx-mast-coin.listening::before {
+  animation: nxMastCoinListening 3s ease-in-out infinite;
+}
+@keyframes nxMastCoinListening {
+  0%, 100% { box-shadow: 0 0 4px 1px rgba(212, 164, 78, 0.15), 0 0 8px 2px rgba(212, 164, 78, 0.06); }
+  50%      { box-shadow: 0 0 6px 1px rgba(212, 164, 78, 0.25), 0 0 12px 3px rgba(212, 164, 78, 0.10); }
+}
+
+/* nav-nexus — keep the dot + NEXUS wordmark, but unify the styling
+   with the masthead. Drop the gold-bordered pill chrome — the coin
+   now carries the brand presence. */
 .nav-nexus {
   border: none !important;
   background: transparent !important;
-  padding: 6px 8px !important;
-  color: var(--nx-faint) !important;
+  padding: 0 !important;
+  color: var(--nx-gold) !important;
   font-family: var(--nx-font-mono) !important;
-  font-size: 10px !important;
-  letter-spacing: 2px !important;
+  font-size: 12px !important;
+  letter-spacing: 3px !important;
+  font-weight: 500 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  min-height: 0 !important;
+  flex-shrink: 0 !important;
 }
 .nav-nexus.active {
   color: var(--nx-gold) !important;
@@ -629,7 +716,32 @@ html {
   background: var(--nx-gold) !important;
   box-shadow: 0 0 8px rgba(212, 164, 78, 0.4) !important;
 }
+
+/* Live date/time — mono caps, faint, sits flush right of NEXUS.
+   Filled by app.js with "SAT · MAY 2 · 1:23 PM" format. */
+.nx-mast-date {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--nx-font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--nx-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 6px;
+}
+
 .nav-more {
   color: var(--nx-faint) !important;
+  flex-shrink: 0;
+}
+.nav-more .nav-icon { width: 22px; height: 22px; }
+
+/* On ultra-narrow screens, drop the date to keep the layout clean */
+@media (max-width: 360px) {
+  .nx-mast-date { display: none; }
 }
 
