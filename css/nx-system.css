@@ -626,8 +626,8 @@ html {
    the <img> tags, so if the PNG assets fail to load (e.g. cache miss,
    bad path) we still see a recognizable gold coin shape — not nothing. */
 .nx-mast-coin {
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
   cursor: pointer;
   position: relative;
@@ -641,7 +641,14 @@ html {
       #a07a28 70%,
       #6a5018 100%);
   -webkit-tap-highlight-color: transparent;
-  animation: nxMastCoinWobble 5.5s ease-in-out infinite;
+  /* Brief greeting wobble on mount, then still. No constant motion in
+     peripheral vision — that gets annoying after a few minutes. */
+  animation: nxMastCoinGreet 1.4s ease-in-out 1;
+}
+@keyframes nxMastCoinGreet {
+  0%, 100% { transform: rotate(0deg); }
+  30%      { transform: rotate(-2deg); }
+  60%      { transform: rotate(1.5deg); }
 }
 .nx-mast-coin-flip {
   position: relative;
@@ -664,10 +671,6 @@ html {
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 }
 .nx-mast-coin-back { transform: rotateY(180deg); }
-@keyframes nxMastCoinWobble {
-  0%, 100% { transform: rotate(0deg); }
-  50%      { transform: rotate(1.5deg); }
-}
 
 /* Gold rim glow when AI active (pulsing). Same pattern as
    .home-coin-mini.pulsing. */
@@ -754,5 +757,114 @@ html {
 /* On ultra-narrow screens, drop the date to keep the layout clean */
 @media (max-width: 360px) {
   .nx-mast-date { display: none; }
+}
+
+
+/* ═══ 7. BOTTOM NAV REDESIGN ═════════════════════════════════════
+   Match the editorial-pill design language used everywhere else.
+   The active state changes from "thin gold underline at top" to
+   "soft gold pill behind the icon" — a more contemporary tap-target
+   feedback that aligns with .nx-pill semantics.
+   
+   Touch targets bumped to 60px tall, icons to 24px, label
+   typography tightened. */
+.bottom-nav {
+  background: rgba(20, 18, 14, 0.92) !important;
+  border-top: 1px solid var(--nx-gold-line) !important;
+  backdrop-filter: blur(24px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.4) !important;
+  min-height: 60px !important;
+  padding: 6px 0 !important;
+  padding-bottom: calc(6px + env(safe-area-inset-bottom)) !important;
+}
+.bnav-btn {
+  flex: 1 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  padding: 6px 4px !important;
+  min-height: 56px !important;
+  background: none !important;
+  border: none !important;
+  color: var(--nx-faint) !important;
+  cursor: pointer !important;
+  position: relative !important;
+  font-family: var(--nx-font-body) !important;
+  -webkit-tap-highlight-color: transparent !important;
+  transition: color var(--nx-press), transform var(--nx-press) !important;
+}
+/* Icon container — soft gold pill behind icon when active.
+   We wrap the icon in a 36×36 invisible pill that fills with gold
+   tint and goes solid on the active button. */
+.bnav-btn .bnav-icon {
+  width: 24px !important;
+  height: 24px !important;
+  stroke-width: 1.7 !important;
+  flex-shrink: 0;
+  transition: transform var(--nx-press);
+  position: relative;
+  z-index: 1;
+}
+.bnav-btn::before {
+  /* The gold-pill behind-icon — sized to fit the icon area only,
+     positioned to sit centered above the label. */
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 56px;
+  height: 32px;
+  border-radius: var(--nx-radius-pill);
+  background: transparent;
+  transition:
+    background var(--nx-press),
+    border-color var(--nx-press);
+  border: 1px solid transparent;
+  z-index: 0;
+}
+.bnav-btn span {
+  font-size: 11px !important;
+  letter-spacing: 0.3px !important;
+  font-weight: 500 !important;
+  color: inherit;
+  position: relative;
+  z-index: 1;
+  margin-top: 2px;
+}
+
+/* Press feedback */
+.bnav-btn:active { transform: scale(0.97) !important; }
+.bnav-btn:active::before { background: var(--nx-gold-faint); }
+
+/* Active state — gold pill behind icon, gold text, gold icon stroke.
+   Override the legacy `.bnav-btn.active::after` underline rule. */
+.bnav-btn.active {
+  color: var(--nx-gold) !important;
+}
+.bnav-btn.active::before {
+  background: var(--nx-gold-soft);
+  border-color: var(--nx-gold-line-2);
+}
+.bnav-btn.active::after {
+  /* Override / hide the legacy gold underline at the top. */
+  display: none !important;
+}
+.bnav-btn.active .bnav-icon {
+  /* Slight icon scale-up makes the active state feel tactile */
+  transform: scale(1.06);
+}
+
+/* Reduce home button's special outlined style — the legacy
+   .bnav-btn-home .bnav-icon padding/border treatment looked grafted
+   on. Now Home behaves like every other button. */
+.bnav-btn-home .bnav-icon {
+  padding: 0 !important;
+  border: none !important;
+}
+.bnav-btn-home.active .bnav-icon {
+  border-color: transparent !important;
 }
 
