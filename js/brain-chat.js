@@ -8,6 +8,29 @@
   // ═══ SELF-OPTIMIZATION (Layer 6) — Meta-signal tracking ═══
   let lastAIResponse='',lastUserQuery='',consecutiveFollowUps=0;
 
+  // ═══ BOARD/LIST RESOLVER ════════════════════════════════════════════
+  // Chat creates cards on behalf of the user but doesn't know which
+  // board is "active" (chat is global, board view may not be open).
+  // Pick the first non-archived board, prefer a list named report/
+  // todo/triage. Without this, cards get created with no board_id +
+  // no list_id and become orphans — invisible on every board view.
+  async function resolveBoardAndList(){
+    try{
+      const { data: bs } = await NX.sb.from('boards')
+        .select('id').eq('archived', false).order('position').limit(1);
+      if(!bs?.length) return null;
+      const boardId = bs[0].id;
+      const { data: ls } = await NX.sb.from('board_lists')
+        .select('*').eq('board_id', boardId).order('position');
+      const target = (ls||[]).find(l => /report|todo|triage/i.test(l.name)) || (ls||[])[0];
+      if(!target) return null;
+      return { boardId, listId: target.id };
+    }catch(e){
+      console.warn('[brain-chat] resolveBoardAndList:', e);
+      return null;
+    }
+  }
+
   async function logMeta(signalType, data){
     try{
       await NX.sb.from('meta_signals').insert({signal_type:signalType,signal_data:data});
@@ -204,7 +227,27 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
               if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
               chainLog.push({type:'ticket',title:action.title,result:'created'});
             }else if(action.type==='card'){
-              const cardRow={title:action.title,column_name:'todo',priority:action.urgency,reported_by:NX.currentUser?.name||null};
+              // Resolve a board + list so the card is visible on the
+              // board (not orphaned). Picks the first non-archived
+              // board and prefers a list named report/todo/triage.
+              // Without these the card is created with no list_id and
+              // never appears anywhere — silent data loss.
+              const target=await resolveBoardAndList();
+              if(!target){
+                NX.toast('Could not find a board to add this card to','error');
+                return;
+              }
+              const cardRow={
+                title:action.title,
+                board_id:target.boardId,
+                list_id:target.listId,
+                column_name:'',
+                position:999,
+                priority:action.urgency,
+                reported_by:NX.currentUser?.name||null,
+                checklist:[], comments:[], labels:[], photo_urls:[],
+                archived:false,
+              };
               await NX.sb.from('kanban_cards').insert(cardRow);
               if (NX.notifyCardCreated) NX.notifyCardCreated(cardRow);
               chainLog.push({type:'card',title:action.title,result:'created'});
@@ -219,7 +262,21 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
                 await NX.sb.from('contractor_events').insert({contractor_name:contractor.name,event_date:tomorrow,description:action.title,status:'pending'});
                 chainLog.push({type:'schedule',title:contractor.name,result:'event created'});
               }else{
-                const schedCard={title:'Schedule: '+action.title,column_name:'todo',reported_by:NX.currentUser?.name||null};
+                const target=await resolveBoardAndList();
+                if(!target){
+                  chainLog.push({type:'card',title:'Schedule: '+action.title,result:'no board found'});
+                  return;
+                }
+                const schedCard={
+                  title:'Schedule: '+action.title,
+                  board_id:target.boardId,
+                  list_id:target.listId,
+                  column_name:'',
+                  position:999,
+                  reported_by:NX.currentUser?.name||null,
+                  checklist:[], comments:[], labels:[], photo_urls:[],
+                  archived:false,
+                };
                 await NX.sb.from('kanban_cards').insert(schedCard);
                 if (NX.notifyCardCreated) NX.notifyCardCreated(schedCard);
                 chainLog.push({type:'card',title:'Schedule: '+action.title,result:'card created (no contractor found)'});
@@ -250,7 +307,18 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
   async function handleTask(task){
     if(task.type==='log'){const{error}=await NX.sb.from('daily_logs').insert({entry:task.content});return error?'Failed to log.':`Logged: "${task.content}"`;}
     if(task.type==='card'){
-      const cardRow={title:task.content,column_name:'todo',reported_by:NX.currentUser?.name||null};
+      const target=await resolveBoardAndList();
+      if(!target) return 'Could not find a board to add this card to.';
+      const cardRow={
+        title:task.content,
+        board_id:target.boardId,
+        list_id:target.listId,
+        column_name:'',
+        position:999,
+        reported_by:NX.currentUser?.name||null,
+        checklist:[], comments:[], labels:[], photo_urls:[],
+        archived:false,
+      };
       const{error}=await NX.sb.from('kanban_cards').insert(cardRow);
       if (!error && NX.notifyCardCreated) NX.notifyCardCreated(cardRow);
       return error?'Failed.':`Card created: "${task.content}"`;
@@ -1394,11 +1462,6 @@ Keep it casual and warm. No markdown formatting.`;
     }
     const c=document.getElementById('chatMessages');c.appendChild(el);
     requestAnimationFrame(()=>{c.scrollTop=c.scrollHeight;});
-    // Pulse the masthead coin on every AI thinking/working message —
-    // this gives a global "AI is active" signal in the home masthead
-    // even when the user is on the brain view. Pulse is no-op if
-    // home view hasn't mounted yet.
-    if(type.includes('thinking')) NX.coin?.pulse?.();
     // Offer inline translation on completed AI bubbles. Skip typing/
     // thinking indicators (they're transient) and skip user messages
     // (user wrote them — no need). The button appears as a small 🌐
