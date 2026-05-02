@@ -279,208 +279,236 @@ body.chatview-open .chat-hud { display: none !important; }
   letter-spacing: 0.2px;
 }
 
-/* ─── Empty state — warm and dense, not a lonely void ──────────── */
+/* ─── Empty state — calm, generous, AI-interface inspired ────────
+   Replaces the old hairline-rectangle prompt grid with the
+   .nx-prompt design-system primitive: big tappable cards, soft
+   shadows, generous spacing. Modeled after Claude.ai/ChatGPT empty
+   states but in NEXUS gold language. */
 .cv-empty {
   position: relative;
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  padding-top: 12px;
+  padding-top: var(--nx-space-5);
 }
-/* Ambient gradient at top — subtle texture so the screen doesn't start
-   in pure void. Gold glow fades down. */
+
+/* Ambient gradient — subtle gold wash at top so screen isn't a flat void */
 .cv-empty-ambient {
   position: absolute;
-  top: -28px;
+  top: -40px;
   left: -40px;
   right: -40px;
-  height: 220px;
+  height: 280px;
   pointer-events: none;
   background:
-    radial-gradient(ellipse at 70% 30%, rgba(212, 164, 78, 0.08) 0%, transparent 55%),
-    radial-gradient(ellipse at 20% 0%, rgba(212, 164, 78, 0.04) 0%, transparent 50%);
+    radial-gradient(ellipse at 60% 20%, rgba(212, 164, 78, 0.10) 0%, transparent 60%),
+    radial-gradient(ellipse at 20% 0%, rgba(212, 164, 78, 0.05) 0%, transparent 55%);
   z-index: 0;
 }
 .cv-empty-inner {
   position: relative;
   z-index: 1;
-  padding-bottom: 16px;
+  padding-bottom: var(--nx-space-5);
 }
+
+/* Eyebrow above the lede — small monospace caption */
 .cv-empty-eyebrow {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9.5px;
+  font-family: var(--nx-font-mono);
+  font-size: var(--nx-text-xs);
   letter-spacing: 2px;
-  color: var(--faint);
+  color: var(--nx-faint);
   text-transform: uppercase;
-  margin-bottom: 14px;
+  margin-bottom: var(--nx-space-3);
 }
+
+/* Hero lede — "Morning, Alfredo. What do you need?" */
 .cv-empty-h {
-  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif;
+  font-family: var(--nx-font-display);
   font-weight: 300;
-  font-size: clamp(32px, 8vw, 44px);
-  line-height: 1.08;
-  color: var(--text);
+  font-size: clamp(36px, 9vw, 52px);
+  line-height: 1.05;
+  color: var(--nx-text);
   letter-spacing: -0.025em;
-  margin-bottom: 16px;
+  margin-bottom: var(--nx-space-5);
 }
 .cv-empty-h em {
-  color: var(--accent);
+  color: var(--nx-gold);
   font-style: normal;
   font-weight: 400;
   letter-spacing: -0.03em;
 }
-/* Situation line — one-sentence "what's happening right now" */
+
+/* Situation line — one-sentence "what's happening" status */
 .cv-empty-situation {
-  font-size: 14px;
+  font-size: var(--nx-text-md);
   line-height: 1.55;
-  color: var(--muted);
-  margin-bottom: 32px;
+  color: var(--nx-muted);
+  margin-bottom: var(--nx-space-9);
   max-width: 44ch;
   letter-spacing: 0.05px;
 }
 .cv-empty-situation strong {
-  color: var(--accent);
+  color: var(--nx-gold);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+
+/* Section labels above prompt grids and recents — same hierarchy as
+   .nx-section but inline-feel since they're inside the empty state */
 .cv-empty-section-label {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9.5px;
-  letter-spacing: 2px;
-  color: var(--faint);
-  text-transform: uppercase;
-  margin-bottom: 12px;
-  margin-top: 24px;
+  font-family: var(--nx-font-display);
+  font-size: var(--nx-text-md);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--nx-text);
+  margin: 0 0 var(--nx-space-4);
 }
 .cv-empty-section-label:first-of-type { margin-top: 0; }
 
-/* Prompts — 2-column grid on phones (single-col on very small, 2 on normal) */
+/* Prompts grid — single column on phones (more vertical room per card)
+   2 columns on wider screens. Spacing is generous; the cards themselves
+   are the focus. */
 .cv-empty-prompts {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 8px;
-  margin-bottom: 28px;
+  gap: var(--nx-space-3);
+  margin-bottom: var(--nx-space-9);
 }
-@media (min-width: 480px) {
+@media (min-width: 520px) {
   .cv-empty-prompts {
     grid-template-columns: 1fr 1fr;
+    gap: var(--nx-space-3);
   }
 }
 
+/* Each prompt card uses the .nx-prompt primitive language. */
 .cv-prompt {
-  text-align: left;
-  padding: 12px 14px;
-  border-radius: 2px;
-  border: 1px solid rgba(212, 182, 138, 0.14);
-  background: rgba(212, 182, 138, 0.015);
-  color: var(--muted);
-  font-family: inherit;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: border-color 0.15s, color 0.15s, background 0.15s, transform 0.1s;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-height: 62px;
+  gap: var(--nx-space-2);
+  padding: var(--nx-space-5);
+  min-height: 92px;
+  background: var(--nx-surface-1);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--nx-radius-card);
+  color: var(--nx-text);
+  font-family: var(--nx-font-body);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background var(--nx-press),
+    border-color var(--nx-press),
+    transform var(--nx-press),
+    box-shadow var(--nx-press);
+  box-shadow: var(--nx-shadow-soft);
+  width: 100%;
 }
 .cv-prompt:hover {
-  border-color: rgba(212, 182, 138, 0.35);
-  background: rgba(212, 182, 138, 0.04);
-  color: var(--text);
+  background: var(--nx-surface-3);
+  border-color: var(--nx-gold-line);
+  transform: translateY(-1px);
 }
-.cv-prompt:active { transform: scale(0.98); }
+.cv-prompt:active {
+  transform: translateY(0) scale(0.99);
+  border-color: var(--nx-gold-line-2);
+  background: var(--nx-surface-3);
+}
 .cv-prompt-kicker {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
+  font-family: var(--nx-font-mono);
+  font-size: var(--nx-text-xs);
+  font-weight: 600;
   letter-spacing: 1.6px;
-  color: var(--accent);
+  color: var(--nx-gold);
   text-transform: uppercase;
-  font-weight: 500;
 }
 .cv-prompt-text {
-  font-size: 13.5px;
+  font-size: var(--nx-text-md);
   line-height: 1.4;
-  color: var(--text);
+  color: var(--nx-text);
   font-weight: 400;
   letter-spacing: 0.05px;
 }
 
 /* Skeleton placeholder while prompts populate */
 .cv-prompt-skeleton {
-  min-height: 62px;
-  background: linear-gradient(
-    90deg,
-    rgba(212, 182, 138, 0.02) 0%,
-    rgba(212, 182, 138, 0.06) 50%,
-    rgba(212, 182, 138, 0.02) 100%
-  );
-  background-size: 200% 100%;
-  animation: cvShimmer 2.2s ease-in-out infinite;
+  min-height: 92px;
+  background: var(--nx-surface-1);
+  border-radius: var(--nx-radius-card);
+  animation: cvPromptShimmer 2s ease-in-out infinite;
 }
-@keyframes cvShimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+@keyframes cvPromptShimmer {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 0.7; }
 }
 
-/* Recents rail — last 3 conversations, compact */
+/* Recents — last few conversations as a quiet list. Single row each,
+   no card chrome. Date on left, title on right. */
 .cv-empty-recents-wrap {
-  margin-top: 8px;
-  padding-top: 22px;
-  border-top: 1px solid rgba(212, 182, 138, 0.1);
+  margin-top: var(--nx-space-7);
 }
 .cv-empty-recents {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 .cv-recent {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 10px 4px;
-  border: none;
+  gap: var(--nx-space-4);
+  padding: var(--nx-space-3) 0;
+  min-height: var(--nx-touch-min);
   background: transparent;
-  color: var(--muted);
-  font-family: inherit;
+  border: none;
+  border-bottom: 1px solid rgba(212, 164, 78, 0.06);
+  color: var(--nx-muted);
   cursor: pointer;
+  font-family: inherit;
   text-align: left;
   -webkit-tap-highlight-color: transparent;
-  transition: color 0.12s;
-  border-bottom: 1px solid rgba(212, 182, 138, 0.06);
+  transition: color var(--nx-press), padding-left var(--nx-press);
+  width: 100%;
 }
 .cv-recent:last-child { border-bottom: none; }
-.cv-recent:hover  { color: var(--text); }
-.cv-recent:active { transform: translateX(2px); }
+.cv-recent:hover {
+  color: var(--nx-text);
+  padding-left: var(--nx-space-2);
+}
+.cv-recent:active { transform: scale(0.99); }
 .cv-recent-time {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9.5px;
-  letter-spacing: 1px;
-  color: var(--faint);
-  text-transform: uppercase;
-  min-width: 60px;
   flex-shrink: 0;
+  font-family: var(--nx-font-mono);
+  font-size: var(--nx-text-xs);
+  letter-spacing: 1px;
+  color: var(--nx-faint);
+  width: 64px;
 }
 .cv-recent-title {
   flex: 1;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--muted);
-  letter-spacing: 0.1px;
+  min-width: 0;
+  font-size: var(--nx-text-base);
+  color: var(--nx-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 400;
 }
-.cv-recent:hover .cv-recent-title { color: var(--text); }
+.cv-recent:hover .cv-recent-title { color: var(--nx-gold); }
 
-/* ─── Input bar — pinned bottom, hairline frame ─────────────────── */
+
+/* ─── Input bar — pinned bottom, pill-language ──────────────────── 
+   Replaces the hairline-rectangle frame with a pill-radius surface
+   that matches the .nx-pill design language. Soft shadow lifts it
+   off the background. The send button is the only thing that goes
+   solid gold — that's the action, everything else is interface. */
 .cv-input-wrap {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+  padding: var(--nx-space-4) var(--nx-space-4) calc(var(--nx-space-4) + env(safe-area-inset-bottom));
   background:
-    linear-gradient(180deg, transparent 0%, var(--bg) 28%);
+    linear-gradient(180deg, transparent 0%, var(--nx-bg) 35%);
   z-index: 3;
 }
 .cv-input-wrap-inner {
@@ -488,87 +516,98 @@ body.chatview-open .chat-hud { display: none !important; }
   margin: 0 auto;
   display: flex;
   align-items: flex-end;
-  gap: 8px;
-  padding: 6px 10px 6px 12px;
-  border: 1px solid rgba(212, 182, 138, 0.28);
-  border-radius: 2px;
-  background: var(--surface);
-  transition: border-color 0.2s;
+  gap: var(--nx-space-2);
+  padding: 8px 8px 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 28px;
+  background: var(--nx-surface-3);
+  box-shadow: var(--nx-shadow-card);
+  transition: border-color var(--nx-press);
+  position: relative;
 }
 .cv-input-wrap-inner:focus-within {
-  border-color: var(--accent);
+  border-color: var(--nx-gold-line-2);
 }
+
+/* Plus / attach button — quiet, secondary */
 .cv-plus {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
-  border-radius: 2px;
+  border-radius: var(--nx-radius-pill);
   border: none;
   background: transparent;
-  color: var(--muted);
+  color: var(--nx-faint);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: color 0.15s, background 0.15s;
-  position: relative;
+  transition: color var(--nx-press), background var(--nx-press);
 }
-.cv-plus:active { background: rgba(212, 182, 138, 0.08); }
-.cv-plus svg { width: 18px; height: 18px; stroke-width: 2; }
+.cv-plus:active { background: var(--nx-gold-faint); color: var(--nx-gold); }
+.cv-plus svg { width: 20px; height: 20px; stroke-width: 2; }
 .cv-plus.is-open {
-  color: var(--accent);
-  background: rgba(212, 182, 138, 0.1);
+  color: var(--nx-gold);
+  background: var(--nx-gold-faint);
 }
 
+/* Text input — clean, no chrome of its own */
 .cv-input {
   flex: 1;
-  min-height: 28px;
+  min-height: 32px;
   max-height: 140px;
-  padding: 8px 4px;
+  padding: 10px 6px;
   border: none;
   background: transparent;
-  color: var(--text);
-  font-family: inherit;
-  font-size: 15px;
-  line-height: 1.5;
+  color: var(--nx-text);
+  font-family: var(--nx-font-body);
+  font-size: var(--nx-text-base);
+  line-height: 1.45;
   resize: none;
   outline: none;
   letter-spacing: 0.1px;
 }
 .cv-input::placeholder {
-  color: var(--faint);
+  color: var(--nx-faint);
   font-family: inherit;
-  font-size: 15px;
+  font-size: var(--nx-text-base);
   letter-spacing: 0.1px;
 }
+
+/* Send button — solid gold pill when active, faded when empty */
 .cv-send {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
-  border-radius: 2px;
+  border-radius: var(--nx-radius-pill);
   border: none;
-  background: var(--accent);
-  color: #1a1408;
+  background: linear-gradient(180deg, var(--nx-gold) 0%, var(--nx-gold-deep) 100%);
+  color: var(--nx-gold-on);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: opacity 0.15s, transform 0.1s;
+  transition: opacity var(--nx-press), transform var(--nx-press), background var(--nx-press);
+  box-shadow: var(--nx-shadow-pill);
 }
 .cv-send:disabled {
   opacity: 0.35;
   cursor: default;
-  background: rgba(212, 182, 138, 0.18);
-  color: var(--faint);
+  background: var(--nx-surface-1);
+  color: var(--nx-faint);
+  box-shadow: none;
 }
-.cv-send:not(:disabled):active { transform: scale(0.95); }
-.cv-send svg { width: 16px; height: 16px; stroke-width: 2; }
+.cv-send:not(:disabled):active {
+  transform: scale(0.94);
+  background: linear-gradient(180deg, var(--nx-gold-deep) 0%, var(--nx-gold-darker) 100%);
+}
+.cv-send svg { width: 18px; height: 18px; stroke-width: 2; }
 
-/* Mic recording ring */
+/* Mic recording state */
 .cv-plus.recording {
-  color: var(--red);
+  color: var(--nx-red);
   animation: cvRecPulse 1s ease-in-out infinite;
 }
 @keyframes cvRecPulse {
