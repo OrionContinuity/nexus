@@ -63,14 +63,24 @@
     });
   }
 
-  // Parse receipt text via Claude API (edge function)
+  // Parse receipt text via Claude API
   async function ocrViaClaudeVision(base64, mimeType) {
+    const apiKey = NX.getApiKey();
+    if (!apiKey) { NX.toast('No API key', 'error'); return null; }
+    
     try {
       NX.toast('Reading document...', 'info', 3000);
-      const { data, error: invokeErr } = await NX.sb.functions.invoke('chat', {
-        body: {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
           max_tokens: 500,
-          user_name: NX.currentUser?.name,
           messages: [{
             role: 'user',
             content: [
@@ -80,9 +90,10 @@
 If not a receipt, describe what you see in "notes" and set vendor to "Unknown".` }
             ]
           }]
-        }
+        })
       });
-      if (invokeErr) { NX.toast('OCR error', 'error'); return null; }
+      
+      const data = await resp.json();
       const text = data.content?.[0]?.text || '';
       
       try {
@@ -405,10 +416,14 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
 
       console.log('[NEXUS] Notification listener active for:', watchApps.join(', '));
       NX.toast('Notification capture active', 'success');
-      // Show listening indicator
+      // Show listening indicator (legacy nav badge dot)
       const dot=document.getElementById('listenDot');
       if(dot)dot.classList.add('active');
       NX._isListening=true;
+      // Light up the masthead coin's persistent listening glow.
+      // No-op if coin not yet mounted (e.g. PIN screen) — coin checks
+      // NX._isListening on mount and reflects state then.
+      NX.coin?.idle?.(true);
     } catch(e) {
       console.warn('[NEXUS] Notification listener not available:', e.message);
     }
@@ -430,7 +445,8 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
   // ═══ WEEKLY CHECKLIST SCANNER ═══
   // Scan 3 pages of a weekly laminated checklist → create daily logs for each day
   NX.scanWeeklyChecklist = async function() {
-    // (api key check removed — edge function holds the key)
+    const apiKey = NX.getApiKey();
+    if (!apiKey) { NX.toast('No API key', 'error'); return null; }
 
     const cleanTasks = NX.cleaningTasks;
     if (!cleanTasks) { NX.toast('Tasks not loaded', 'error'); return null; }
@@ -495,17 +511,22 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
       NX.toast('🔍 Leyendo página ' + (pageNum + 1) + '...', 'info', 8000);
 
       try {
-        const { data, error: invokeErr } = await NX.sb.functions.invoke('chat', {
-          body: {
-            max_tokens: 2000,
-            user_name: NX.currentUser?.name,
+        const resp = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json', 'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514', max_tokens: 2000,
             messages: [{ role: 'user', content: [
               { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
               { type: 'text', text: 'This is page ' + (pageNum + 1) + ' of 2 of a WEEKLY cleaning checklist for "' + location.toUpperCase() + '". It has 7 day columns: L (Lunes/Mon), MA (Martes/Tue), MI (Miércoles/Wed), J (Jueves/Thu), V (Viernes/Fri), S (Sábado/Sat), D (Domingo/Sun).\n\nThe checkboxes are ☐ when empty and should have a mark (☑, ✓, X, or any filling) when completed.\n\nRead EVERY task row and report which boxes are checked for EACH of the 7 days.\n\nKnown tasks:\n' + taskRef + '\n\nReturn ONLY valid JSON:\n{"results": [{"section": "section name", "task_index": <number>, "days": [<true/false for L>, <true/false for MA>, <true/false for MI>, <true/false for J>, <true/false for V>, <true/false for S>, <true/false for D>]}], "additions": [{"section": "section name or New", "text_es": "Spanish", "text_en": "English", "days": [7 booleans]}]}\n\nIMPORTANT: Include ALL tasks visible on this page. The "days" array must always have exactly 7 booleans. Match section names to the known tasks above. If a checkbox has ANY mark in it, report true.' }
             ]}]
-          }
+          })
         });
-        if (invokeErr) throw invokeErr;
+
+        const data = await resp.json();
         const text = data.content?.[0]?.text || '';
         let clean = text.replace(/```json|```/g, '').trim();
         const s = clean.indexOf('{'), e = clean.lastIndexOf('}');
@@ -644,7 +665,8 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
       if (!base64) return null;
     }
 
-    // (api key check removed — edge function holds the key)
+    const apiKey = NX.getApiKey();
+    if (!apiKey) { NX.toast('No API key', 'error'); return null; }
 
     NX.toast('📷 Reading checklist...', 'info', 8000);
 
@@ -665,10 +687,17 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
     }).join('\n\n');
 
     try {
-      const { data, error: invokeErr } = await NX.sb.functions.invoke('chat', {
-        body: {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
           max_tokens: 1500,
-          user_name: NX.currentUser?.name,
           messages: [{
             role: 'user',
             content: [
@@ -704,11 +733,11 @@ IMPORTANT:
 - If no additions or modifications, return empty arrays for those fields.` }
             ]
           }]
-        }
+        })
       });
-      if (invokeErr) { NX.toast('OCR error', 'error'); return null; }
 
-      const text = data?.content?.[0]?.text || '';
+      const data = await resp.json();
+      const text = data.content?.[0]?.text || '';
       
       // Parse response
       let clean = text.replace(/```json|```/g, '').trim();
@@ -989,13 +1018,23 @@ IMPORTANT:
       if (!base64) return null;
     }
 
-    // Send to Claude vision for smart categorization (edge function)
+    // Send to Claude vision for smart categorization
+    const apiKey = NX.getApiKey();
+    if (!apiKey) { NX.toast('No API key', 'error'); return null; }
+
     NX.toast('🔍 Analyzing...', 'info', 5000);
     try {
-      const { data, error: invokeErr } = await NX.sb.functions.invoke('chat', {
-        body: {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
           max_tokens: 500,
-          user_name: NX.currentUser?.name,
           messages: [{
             role: 'user',
             content: [
@@ -1005,11 +1044,11 @@ IMPORTANT:
 Be specific. If it's equipment, include the make/model. If it's a document, extract key info. If it's a person, describe the context.` }
             ]
           }]
-        }
+        })
       });
-      if (invokeErr) { NX.toast('Vision error', 'error'); return null; }
 
-      const text = data?.content?.[0]?.text || '';
+      const data = await resp.json();
+      const text = data.content?.[0]?.text || '';
       const clean = text.replace(/```json|```/g, '').trim();
       const parsed = JSON.parse(clean);
 
