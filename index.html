@@ -81,13 +81,12 @@
   inset: 0;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  border-radius: 50%;
-  overflow: hidden;
-  /* Soft outer glow to make the coin feel lit. */
-  box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.5),
-    0 0 32px rgba(212, 164, 78, 0.15),
-    inset 0 0 0 1px rgba(212, 164, 78, 0.2);
+  /* Image is already circular with transparent corners, so we don't need
+     a border-radius clip. We do still want the soft outer glow to make
+     the coin feel lit and grounded against the dark background. */
+  filter:
+    drop-shadow(0 4px 16px rgba(0, 0, 0, 0.5))
+    drop-shadow(0 0 24px rgba(212, 164, 78, 0.18));
 }
 
 .nx-coin-front { transform: rotateY(0deg); }
@@ -96,7 +95,7 @@
 .nx-coin-face img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
   pointer-events: none;
   user-select: none;
@@ -586,10 +585,10 @@
         <button class="nx-coin-info" id="nxCoinInfo" type="button" aria-label="About the NEXUS coin">i</button>
         <div class="nx-coin" id="nxCoin" tabindex="0" role="button" aria-label="NEXUS coin — tap to flip">
           <div class="nx-coin-face nx-coin-front">
-            <img src="assets/coin-trajan-v2.png" alt="Trajan, Optimus Princeps" draggable="false">
+            <img src="assets/coin-trajan-v11.png" alt="Trajan, Optimus Princeps" draggable="false">
           </div>
           <div class="nx-coin-face nx-coin-back">
-            <img src="assets/coin-providentia-v2.png" alt="Providentia, goddess of foresight" draggable="false">
+            <img src="assets/coin-providentia-v11.png" alt="Providentia, goddess of foresight" draggable="false">
           </div>
         </div>
       </div>
