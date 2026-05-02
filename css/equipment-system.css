@@ -1,0 +1,495 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Equipment — design system migration
+   ─────────────────────────────────────────
+   This file overrides selected sections of equipment.css to align the
+   equipment view with the nx-system.css design language. It does NOT
+   replace equipment.css — it loads AFTER it, and overrides specific
+   selectors via CSS cascade.
+   
+   What this file changes:
+     • Header (title row, actions, search, view toggle)
+     • Filter chips — horizontal-scroll pill bar (Apple Health pattern)
+     • Stats strip — uses .nx-stat primitive language
+     • List rows — refined typography, soft hover, gold accent
+     • Empty state — calm, generous, on-system
+   
+   What this file does NOT touch:
+     • Detail modal (eq-modal-*)        — works fine, fragile
+     • AI Creator                       — separate concern
+     • Photo capture / QR / Zebra print — operational, leave alone
+     • Cross-system close-out modal     — fragile
+     • Parts / Manual / Form sections   — leave alone
+   
+   Load order: equipment.css → equipment-fixes.css → equipment-card-polish.css
+               → equipment-public-pm.css → equipment-system.css (this file)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+
+/* ═══ HEADER ═══ */
+
+/* Top header container — generous breathing room.
+   The legacy 16px margin-bottom was tight; bump for editorial calm. */
+#equipmentView .eq-header {
+  margin-bottom: var(--nx-space-5) !important;
+  padding-top: var(--nx-space-3);
+}
+
+/* Title row — title big and confident, not a small "h2 18px".
+   Plus action buttons live as a SECONDARY group, primary action
+   (AI Create) gets visual emphasis. */
+#equipmentView .eq-title-row {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  gap: var(--nx-space-3);
+  margin-bottom: var(--nx-space-4) !important;
+}
+#equipmentView .eq-title {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-2xl) !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--nx-text) !important;
+  margin: 0 !important;
+  /* Strip emoji from rendered text via parent CSS — the title now
+     reads as a proper heading, not an icon-prefixed label.
+     The emoji stays in JS-controlled markup but is hidden visually. */
+}
+/* Hide the emoji prefix in the title — equipment.js renders
+   "🔧 Equipment" but we want a clean heading. The emoji is the first
+   character; we use a font-feature trick + flex to remove it visually
+   without touching JS. Implementation: shrink the font of the emoji
+   space, then restore. Actually simpler — :before clean replacement: */
+#equipmentView .eq-title {
+  font-size: 0 !important;
+}
+#equipmentView .eq-title::before {
+  content: 'Equipment';
+  font-family: var(--nx-font-display);
+  font-size: var(--nx-text-2xl);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--nx-text);
+}
+
+/* Actions row — primary gold gradient on AI Create, secondaries
+   become a quiet horizontal group. On phones, the secondary
+   actions tuck into a compact action menu (handled in JS update). */
+#equipmentView .eq-actions {
+  display: flex !important;
+  gap: var(--nx-space-2) !important;
+  flex-shrink: 0;
+}
+
+/* The four legacy buttons — restyle to match .nx-pill primitives.
+   Override one selector at a time so we can keep their per-button
+   variants (primary AI Create, secondary the rest). */
+#equipmentView .eq-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: var(--nx-space-1) !important;
+  padding: 10px 14px !important;
+  min-height: 40px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.4px !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  transition:
+    background var(--nx-press),
+    border-color var(--nx-press),
+    transform var(--nx-press) !important;
+  -webkit-tap-highlight-color: transparent;
+}
+#equipmentView .eq-btn:active { transform: scale(0.97) !important; }
+
+/* AI Create — solid gold primary action */
+#equipmentView .eq-btn-primary,
+#equipmentView .eq-ai-create-btn {
+  background: linear-gradient(180deg, var(--nx-gold) 0%, var(--nx-gold-deep) 100%) !important;
+  color: var(--nx-gold-on) !important;
+  border: 1px solid transparent !important;
+  font-weight: 700 !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+}
+#equipmentView .eq-btn-primary:active,
+#equipmentView .eq-ai-create-btn:active {
+  background: linear-gradient(180deg, var(--nx-gold-deep) 0%, var(--nx-gold-darker) 100%) !important;
+}
+
+/* Zebra / QR Sheet / Manual — ghost variant */
+#equipmentView .eq-btn-secondary {
+  background: var(--nx-gold-faint) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  color: var(--nx-gold) !important;
+  font-weight: 500 !important;
+}
+#equipmentView .eq-btn-secondary:active {
+  background: var(--nx-gold-soft) !important;
+}
+
+/* On phones (< 480px), wrap secondary actions to a second row so
+   they don't overflow. AI Create stays prominent on the title row. */
+@media (max-width: 480px) {
+  #equipmentView .eq-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
+
+
+/* ═══ SEARCH + VIEW TOGGLE ═══ */
+
+#equipmentView .eq-search-row {
+  display: flex !important;
+  gap: var(--nx-space-2) !important;
+  margin-bottom: var(--nx-space-4) !important;
+}
+#equipmentView .eq-search {
+  flex: 1;
+  padding: 12px 16px !important;
+  min-height: 44px !important;
+  background: var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-base) !important;
+  outline: none !important;
+  transition: border-color var(--nx-press) !important;
+}
+#equipmentView .eq-search:focus {
+  border-color: var(--nx-gold-line-3) !important;
+}
+#equipmentView .eq-search::placeholder {
+  color: var(--nx-faint) !important;
+}
+
+/* View toggle (list / grid) — small pair of pills */
+#equipmentView .eq-view-toggle {
+  display: flex !important;
+  background: var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  overflow: hidden !important;
+  flex-shrink: 0;
+  padding: 2px;
+  gap: 2px;
+}
+#equipmentView .eq-view-btn {
+  padding: 8px 14px !important;
+  background: transparent !important;
+  border: none !important;
+  color: var(--nx-faint) !important;
+  font-size: 14px !important;
+  cursor: pointer !important;
+  border-radius: var(--nx-radius-pill) !important;
+  min-height: 36px !important;
+  min-width: 40px !important;
+  transition: background var(--nx-press), color var(--nx-press) !important;
+}
+#equipmentView .eq-view-btn.active {
+  background: var(--nx-gold-soft) !important;
+  color: var(--nx-gold) !important;
+}
+
+
+/* ═══ FILTERS ═══
+   Replace the three stacked label+chip rows with a single horizontal
+   scrolling pill bar. Apple Health / iOS App Store category-style.
+   Each chip becomes the source of truth for one filter dimension —
+   we keep the data-attributes intact so the existing JS still works. */
+
+#equipmentView .eq-filters {
+  display: flex !important;
+  flex-direction: row !important;
+  gap: var(--nx-space-2);
+  overflow-x: auto !important;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 0 4px 0;
+  margin: 0 calc(-1 * var(--nx-space-4)) var(--nx-space-5) !important;
+  padding-left: var(--nx-space-4);
+  padding-right: var(--nx-space-4);
+}
+#equipmentView .eq-filters::-webkit-scrollbar { display: none; }
+
+#equipmentView .eq-filter-group {
+  display: inline-flex !important;
+  gap: var(--nx-space-1) !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  margin-bottom: 0 !important;
+  flex-shrink: 0;
+  padding-right: var(--nx-space-3);
+  border-right: 1px solid var(--nx-gold-line);
+}
+#equipmentView .eq-filter-group:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+
+#equipmentView .eq-filter-label {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  color: var(--nx-faint) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 1.4px !important;
+  margin-right: var(--nx-space-1) !important;
+  flex-shrink: 0;
+}
+
+#equipmentView .eq-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 7px 13px !important;
+  min-height: 32px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid transparent !important;
+  background: var(--nx-surface-1) !important;
+  color: var(--nx-muted) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.2px !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  transition:
+    background var(--nx-press),
+    color var(--nx-press),
+    border-color var(--nx-press) !important;
+  flex-shrink: 0;
+}
+#equipmentView .eq-chip:hover {
+  color: var(--nx-text) !important;
+  background: var(--nx-surface-3) !important;
+  border-color: var(--nx-gold-line) !important;
+}
+#equipmentView .eq-chip.active {
+  background: var(--nx-gold-soft) !important;
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold-line-2) !important;
+  font-weight: 600 !important;
+}
+
+
+/* ═══ STATS ═══
+   Equipment stats become smaller, tabular-style summary rather than
+   3-4 fat pill cells. We use a horizontal mono row that reads more
+   like a status line than a dashboard. */
+#equipmentView .eq-stats {
+  display: flex !important;
+  gap: var(--nx-space-4) !important;
+  flex-wrap: wrap !important;
+  margin-bottom: var(--nx-space-5) !important;
+  padding: var(--nx-space-3) var(--nx-space-4);
+  background: var(--nx-surface-1);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: var(--nx-radius-card);
+  box-shadow: var(--nx-shadow-soft);
+}
+#equipmentView .eq-stat {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: baseline !important;
+  gap: var(--nx-space-2) !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  min-width: 0 !important;
+}
+#equipmentView .eq-stat-v {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-lg) !important;
+  font-weight: 500 !important;
+  color: var(--nx-text) !important;
+  line-height: 1 !important;
+  font-variant-numeric: tabular-nums !important;
+}
+#equipmentView .eq-stat-l {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  color: var(--nx-faint) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 1.4px !important;
+}
+#equipmentView .eq-stat-red .eq-stat-v { color: var(--nx-red) !important; }
+#equipmentView .eq-stat-amber .eq-stat-v { color: var(--nx-amber) !important; }
+
+
+/* ═══ EMPTY STATE ═══ */
+#equipmentView .eq-empty {
+  text-align: center !important;
+  padding: var(--nx-space-10) var(--nx-space-5) !important;
+  color: var(--nx-muted) !important;
+}
+#equipmentView .eq-empty-icon,
+#equipmentView .eq-empty-emoji {
+  font-size: 32px !important;
+  margin-bottom: var(--nx-space-3) !important;
+  display: block;
+  color: var(--nx-gold) !important;
+  opacity: 0.6;
+}
+#equipmentView .eq-empty h3,
+#equipmentView .eq-empty-title {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xl) !important;
+  font-weight: 400 !important;
+  color: var(--nx-text) !important;
+  margin-bottom: var(--nx-space-3) !important;
+}
+#equipmentView .eq-empty-msg,
+#equipmentView .eq-empty p {
+  font-size: var(--nx-text-base) !important;
+  color: var(--nx-muted) !important;
+  line-height: 1.55 !important;
+  max-width: 36ch;
+  margin: 0 auto var(--nx-space-5) !important;
+}
+
+
+/* ═══ LIST VIEW ═══
+   Each equipment row becomes an .nx-card-style item — soft shadow,
+   gold accent on hover, refined typography. The row content stays
+   the same (status-dot, name, location, model, PM date) but reads
+   cleaner. */
+#equipmentView .eq-list { padding-bottom: var(--nx-space-9); }
+
+#equipmentView .eq-row,
+#equipmentView .eq-list-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--nx-space-3) !important;
+  padding: var(--nx-space-4) !important;
+  margin-bottom: var(--nx-space-2) !important;
+  background: var(--nx-surface-1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border-radius: var(--nx-radius-card) !important;
+  cursor: pointer !important;
+  transition:
+    border-color var(--nx-press),
+    background var(--nx-press),
+    transform var(--nx-press) !important;
+  box-shadow: var(--nx-shadow-soft) !important;
+  min-height: var(--nx-touch-min);
+}
+#equipmentView .eq-row:hover,
+#equipmentView .eq-list-item:hover {
+  border-color: var(--nx-gold-line) !important;
+  background: var(--nx-surface-3) !important;
+}
+#equipmentView .eq-row:active,
+#equipmentView .eq-list-item:active {
+  transform: scale(0.995);
+  border-color: var(--nx-gold-line-2) !important;
+}
+
+/* Status dot — calm and proportionate */
+#equipmentView .eq-row-status,
+#equipmentView .eq-status-dot {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  flex-shrink: 0;
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* Row body — name primary, meta secondary */
+#equipmentView .eq-row-body,
+#equipmentView .eq-row-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+#equipmentView .eq-row-name,
+#equipmentView .eq-row-title {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-md) !important;
+  font-weight: 500 !important;
+  color: var(--nx-text) !important;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#equipmentView .eq-row-meta,
+#equipmentView .eq-row-sub {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-faint) !important;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Trailing meta column — PM dates, status labels */
+#equipmentView .eq-row-trailing,
+#equipmentView .eq-row-aside {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-faint) !important;
+  letter-spacing: 0.4px;
+  text-align: right;
+  flex-shrink: 0;
+}
+#equipmentView .eq-row-trailing.is-overdue,
+#equipmentView .eq-row-aside.is-overdue {
+  color: var(--nx-red) !important;
+}
+#equipmentView .eq-row-trailing.is-soon,
+#equipmentView .eq-row-aside.is-soon {
+  color: var(--nx-amber) !important;
+}
+
+
+/* ═══ GRID VIEW ═══ */
+#equipmentView .eq-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important;
+  gap: var(--nx-space-3) !important;
+  padding-bottom: var(--nx-space-9);
+}
+#equipmentView .eq-grid-item {
+  display: flex !important;
+  flex-direction: column !important;
+  padding: var(--nx-space-4) !important;
+  background: var(--nx-surface-1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border-radius: var(--nx-radius-card) !important;
+  cursor: pointer !important;
+  transition:
+    border-color var(--nx-press),
+    transform var(--nx-press) !important;
+  box-shadow: var(--nx-shadow-soft) !important;
+  text-align: left;
+}
+#equipmentView .eq-grid-item:hover {
+  border-color: var(--nx-gold-line) !important;
+}
+#equipmentView .eq-grid-item:active {
+  transform: scale(0.98);
+}
+
+
+/* ═══ ON ULTRA-NARROW SCREENS ═══ */
+@media (max-width: 380px) {
+  #equipmentView .eq-actions {
+    gap: var(--nx-space-1) !important;
+  }
+  #equipmentView .eq-btn {
+    padding: 9px 12px !important;
+    font-size: 12px !important;
+  }
+}
