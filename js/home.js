@@ -147,21 +147,6 @@
 
       el.innerHTML = `
         <div class="home-page">
-          <div class="home-mast">
-            <div class="home-mast-brand">NEXUS</div>
-            <div class="home-mast-date">
-              <span>${esc(dateLine)}</span>
-              <span class="home-coin-mini" id="homeCoinMini" title="NEXUS coin">
-                <span class="home-coin-mini-flip">
-                  <img class="home-coin-mini-face home-coin-mini-front"
-                       src="assets/coin-trajan.png" alt="Trajan" draggable="false">
-                  <img class="home-coin-mini-face home-coin-mini-back"
-                       src="assets/coin-providentia.png" alt="Providentia" draggable="false">
-                </span>
-              </span>
-            </div>
-          </div>
-
           <h1 class="home-lede">
             ${esc(greeting)}<span class="home-lede-comma">,</span>
             <span class="home-lede-name">${esc(firstName)}.</span>
