@@ -1,0 +1,290 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Composer — shared styles for inline + modal composer patterns
+   ────────────────────────────────────────────────────────────────────
+   Two patterns paired with composer.js:
+     .nx-composer            — inline (slots into a column, replaces a + button)
+     .nx-composer-modal-bg   — focused floating dialog
+   Both use the same submit-pill + cancel-✕ visual language, system tokens,
+   and the same Enter/Escape/click-outside semantics.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+
+/* ═══ INLINE COMPOSER ═══════════════════════════════════════════════ */
+/* Used inline where a + Add button used to be. Surface matches a card so
+   the resulting object slides in seamlessly. Tap outside or ESC to close. */
+
+.nx-composer {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  padding: 10px !important;
+  margin: 4px 0 !important;
+  background: var(--nx-surface-3) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.30),
+    0 4px 14px rgba(0, 0, 0, 0.30) !important;
+  /* Subtle slide-down entrance — communicates that the trigger button
+     "expanded" into this composer rather than a popup appearing */
+  animation: nxComposerIn 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-origin: top;
+}
+@keyframes nxComposerIn {
+  from { opacity: 0; transform: translateY(-4px) scaleY(0.95); }
+  to   { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+.nx-composer-input {
+  width: 100% !important;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  resize: none !important;
+  padding: 6px 4px !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  line-height: 1.45 !important;
+  letter-spacing: 0.1px !important;
+  box-sizing: border-box !important;
+  min-height: 44px;
+}
+.nx-composer-input::placeholder {
+  color: var(--nx-faint) !important;
+  font-weight: 400 !important;
+}
+
+.nx-composer-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.nx-composer-submit {
+  padding: 9px 18px !important;
+  min-height: 36px !important;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  color: var(--nx-gold-on) !important;
+  border: none !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.4px !important;
+  cursor: pointer !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+  transition: transform var(--nx-press), background var(--nx-press) !important;
+}
+.nx-composer-submit:active {
+  transform: scale(0.97) !important;
+  background: linear-gradient(180deg, var(--nx-gold-deep), var(--nx-gold-darker)) !important;
+}
+.nx-composer-submit:disabled {
+  opacity: 0.6 !important;
+  cursor: wait !important;
+  transform: none !important;
+}
+
+.nx-composer-cancel {
+  width: 32px !important;
+  height: 32px !important;
+  background: transparent !important;
+  border: none !important;
+  color: var(--nx-faint) !important;
+  font-size: 16px !important;
+  font-weight: 400 !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: background var(--nx-press), color var(--nx-press) !important;
+}
+.nx-composer-cancel:hover {
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-text) !important;
+}
+
+
+/* ═══ MODAL COMPOSER ════════════════════════════════════════════════ */
+/* Focused dialog overlaid on the page. Used wherever an inline anchor
+   isn't natural — Report issue (equipment), Custom cleaning extra, etc. */
+
+.nx-composer-modal-bg {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 1500 !important;
+  background: rgba(0, 0, 0, 0.65) !important;
+  backdrop-filter: blur(10px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(120%) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 20px;
+  overflow-y: auto;
+  animation: nxModalBgIn 0.2s ease;
+}
+@keyframes nxModalBgIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.nx-composer-modal-bg.is-leaving {
+  animation: nxModalBgOut 0.15s ease forwards;
+}
+@keyframes nxModalBgOut {
+  to { opacity: 0; }
+}
+
+.nx-composer-modal {
+  width: 100% !important;
+  max-width: 460px !important;
+  background: var(--nx-surface-1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: var(--nx-radius-card) !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
+  overflow: hidden !important;
+  animation: nxModalIn 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.is-leaving .nx-composer-modal {
+  animation: nxModalOut 0.15s ease forwards;
+}
+@keyframes nxModalIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes nxModalOut {
+  to { opacity: 0; transform: translateY(4px) scale(0.99); }
+}
+
+.nx-composer-modal-head {
+  padding: 18px 20px 14px !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+}
+.nx-composer-modal-title {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-lg) !important;
+  font-weight: 500 !important;
+  color: var(--nx-text) !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1.3 !important;
+}
+.nx-composer-modal-sub {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-muted) !important;
+  margin-top: 4px !important;
+  line-height: 1.45 !important;
+}
+
+.nx-composer-modal-body {
+  padding: 16px 20px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+}
+
+.nx-composer-field-wrap {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+}
+
+.nx-composer-label {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 1.5px !important;
+  text-transform: uppercase !important;
+  font-weight: 600 !important;
+  color: var(--nx-gold) !important;
+}
+
+.nx-composer-modal-field {
+  width: 100% !important;
+  background: var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  padding: 11px 13px !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  line-height: 1.45 !important;
+  letter-spacing: 0.1px !important;
+  outline: none !important;
+  resize: vertical !important;
+  box-sizing: border-box !important;
+  min-height: 44px !important;
+  transition: border-color var(--nx-press), background var(--nx-press) !important;
+}
+.nx-composer-modal-field:focus {
+  border-color: var(--nx-gold-line-3) !important;
+  background: var(--nx-surface-3) !important;
+}
+.nx-composer-modal-field::placeholder {
+  color: var(--nx-faint) !important;
+  font-weight: 400 !important;
+}
+
+.nx-composer-modal-actions {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  padding: 14px 20px 18px !important;
+  border-top: 1px solid var(--nx-gold-line) !important;
+}
+
+.nx-composer-modal-cancel {
+  padding: 10px 16px !important;
+  min-height: 38px !important;
+  background: transparent !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  color: var(--nx-faint) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.4px !important;
+  cursor: pointer !important;
+  transition: color var(--nx-press), border-color var(--nx-press) !important;
+}
+.nx-composer-modal-cancel:hover {
+  color: var(--nx-text) !important;
+  border-color: var(--nx-gold-line-2) !important;
+}
+
+.nx-composer-modal-submit {
+  padding: 10px 22px !important;
+  min-height: 38px !important;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  color: var(--nx-gold-on) !important;
+  border: none !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.4px !important;
+  cursor: pointer !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+  transition: transform var(--nx-press), background var(--nx-press) !important;
+}
+.nx-composer-modal-submit:active {
+  transform: scale(0.97) !important;
+  background: linear-gradient(180deg, var(--nx-gold-deep), var(--nx-gold-darker)) !important;
+}
+.nx-composer-modal-submit:disabled {
+  opacity: 0.6 !important;
+  cursor: wait !important;
+  transform: none !important;
+}
+
+/* On phones, the modal should mostly fill the width */
+@media (max-width: 480px) {
+  .nx-composer-modal-bg { padding: 12px; }
+  .nx-composer-modal { max-width: 100% !important; }
+  .nx-composer-modal-head { padding: 16px 16px 12px !important; }
+  .nx-composer-modal-body { padding: 14px 16px !important; gap: 12px !important; }
+  .nx-composer-modal-actions { padding: 12px 16px 16px !important; }
+}
