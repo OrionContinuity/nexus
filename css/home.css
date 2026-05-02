@@ -537,6 +537,34 @@
   display: inline-flex;
   align-items: center;
   gap: var(--nx-space-2);
+  flex-shrink: 0;
+}
+
+/* Cycling hint text — quietly suggests example prompts. Muted color
+   so it reads as supportive context, not a competing label. */
+.home-ask-hint {
+  display: inline-block;
+  color: var(--nx-faint);
+  font-weight: 400;
+  font-size: var(--nx-text-sm);
+  letter-spacing: 0.2px;
+  margin-left: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  /* Subtle fade-in transition when text changes — feels alive, not abrupt */
+  animation: homeAskHintFade 4s ease-in-out infinite;
+}
+@keyframes homeAskHintFade {
+  0%, 8%   { opacity: 0; transform: translateY(2px); }
+  18%, 92% { opacity: 1; transform: translateY(0); }
+  100%     { opacity: 0; transform: translateY(-2px); }
+}
+/* On narrow screens, hide the cycling hint — the "Ask NEXUS" label
+   alone is enough; cycling text just makes the pill cramped. */
+@media (max-width: 420px) {
+  .home-ask-hint { display: none; }
 }
 .home-ask-prompt::before {
   /* Spark/asterisk symbol — visual hint that this calls AI */
@@ -561,12 +589,34 @@
 }
 
 
-/* ─── Calendar small-screen reflow ────────────────────────────────── */
+/* ─── Calendar small-screen reflow ────────────────────────────────── 
+   Below 440px we stack the date label above the items. Date gets a
+   compact inline-row (no longer 96px-fixed-width column). Items get
+   full width to breathe. */
 @media (max-width: 440px) {
-  .home-cal-day  { flex-direction: column; gap: 6px; }
-  .home-cal-date { width: auto; padding-top: 0; font-size: 9.5px; }
-  .home-cal-item { gap: 10px; }
-  .home-cal-time { width: 58px; font-size: 11px; }
+  .home-cal-day {
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 0;
+  }
+  .home-cal-date {
+    width: 100%;
+    padding-top: 0;
+    padding-bottom: 2px;
+    font-size: 10px;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 8px;
+    border-bottom: 1px solid rgba(212, 164, 78, 0.06);
+  }
+  .home-cal-date-rel {
+    /* Pull "in 2 days" inline with the date instead of below */
+    width: auto;
+    font-size: 9.5px;
+    margin-left: auto;
+  }
+  .home-cal-item { gap: 10px; padding-left: 4px; }
+  .home-cal-time { width: 56px; font-size: 11px; }
   .home-cal-title { font-size: 13px; }
   .home-cal-desc  { font-size: 11px; }
 }
