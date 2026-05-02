@@ -547,7 +547,55 @@ html {
 }
 
 
-/* ═══ 5. SHELL OVERRIDES ═════════════════════════════════════════
+/* ═══ 5. THEME AWARENESS ════════════════════════════════════════════
+   nx-system.css's default token values target dark theme. When
+   [data-theme="light"] is active, this block overrides the gold
+   shades, surface translucencies, and shadows for proper light-bg
+   contrast.
+   
+   The legacy --accent / --text / --muted / --faint / --bg / --red
+   tokens from nexus.css already swap automatically with theme; we
+   just rebind --nx-* to follow them where they map cleanly, and
+   recompute light-specific values where they don't (gold gradient
+   bottoms need to be darker on a linen background to stay readable). */
+[data-theme="light"] {
+  --nx-gold:        var(--accent);            /* #8B6914 from nexus.css */
+  --nx-gold-deep:   #6E5210;                  /* deeper for contrast */
+  --nx-gold-darker: #533D0C;
+  --nx-gold-on:     #FAFAF6;                  /* light text on dark-gold pill */
+
+  --nx-text:        var(--text);
+  --nx-text-strong: #1A1612;
+  --nx-muted:       var(--muted);
+  --nx-faint:       var(--faint);
+  --nx-faintest:    rgba(133, 125, 114, 0.55);
+  --nx-bg:          var(--bg);
+  --nx-red:         var(--red);
+  --nx-amber:       var(--amber);
+  --nx-green:       var(--green);
+
+  /* Surface translucency — barely-tinted brown on linen */
+  --nx-surface-0:   rgba(100, 85, 55, 0.04);
+  --nx-surface-1:   rgba(100, 85, 55, 0.06);
+  --nx-surface-2:   rgba(100, 85, 55, 0.10);
+  --nx-surface-3:   rgba(100, 85, 55, 0.14);
+  --nx-surface:     var(--nx-surface-1);
+
+  --nx-gold-faint:  rgba(139, 105, 20, 0.06);
+  --nx-gold-soft:   rgba(139, 105, 20, 0.15);
+  --nx-gold-line:   rgba(139, 105, 20, 0.22);
+  --nx-gold-line-2: rgba(139, 105, 20, 0.40);
+  --nx-gold-line-3: rgba(139, 105, 20, 0.60);
+
+  /* Shadows — softer on linen, less black */
+  --nx-shadow-soft: 0 1px 2px rgba(60, 50, 30, 0.08), 0 4px 12px rgba(60, 50, 30, 0.06);
+  --nx-shadow-card: 0 2px 4px rgba(60, 50, 30, 0.10), 0 8px 24px rgba(60, 50, 30, 0.10);
+  --nx-shadow-pill: 0 4px 14px rgba(139, 105, 20, 0.18);
+  --nx-shadow-fab:  0 8px 28px rgba(60, 50, 30, 0.18);
+}
+
+
+/* ═══ 6. SHELL OVERRIDES ═════════════════════════════════════════
    Tame nexus.css's top nav so it doesn't compete with the content
    below. The top nav was originally designed for desktop tabs;
    on mobile it just shows a NEXUS pill + the ☰ menu, and the
@@ -583,14 +631,5 @@ html {
 }
 .nav-more {
   color: var(--nx-faint) !important;
-}
-
-/* Bottom nav — slightly larger touch targets and labels */
-.bottom-nav .bnav-btn {
-  min-height: 56px !important;
-}
-.bnav-icon {
-  width: 22px !important;
-  height: 22px !important;
 }
 
