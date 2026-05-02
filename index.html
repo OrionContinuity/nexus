@@ -1151,7 +1151,18 @@
 <!-- APP (hidden until PIN auth) -->
 <div id="appWrap" style="display:none">
 <nav class="nav" role="navigation">
+  <!-- Masthead coin — clickable, opens brain view (admin) or flips (non-admin) -->
+  <span class="nx-mast-coin" id="mastCoin" title="NEXUS">
+    <span class="nx-mast-coin-flip">
+      <img class="nx-mast-coin-face nx-mast-coin-front"
+           src="assets/coin-trajan.png" alt="" draggable="false">
+      <img class="nx-mast-coin-face nx-mast-coin-back"
+           src="assets/coin-providentia.png" alt="" draggable="false">
+    </span>
+  </span>
   <button class="nav-nexus" id="navNexus" data-view="brain"><div class="nav-dot"></div><span>NEXUS</span><span class="listen-dot" id="listenDot" title="Listening for notifications"></span><span class="notify-count" id="notifyCount" style="display:none">0</span></button>
+  <!-- Live date/time, mono caps. Updated by app.js ticker. -->
+  <span class="nx-mast-date" id="mastDate"></span>
   <div class="nav-tabs" id="navTabs">
     <button class="nav-tab" data-view="home" title="Home"><i data-lucide="home" class="nav-icon"></i> <span data-i18n="home">Home</span></button>
     <button class="nav-tab" data-view="clean"><i data-lucide="sparkles" class="nav-icon"></i> <span data-i18n="cleaning">Cleaning</span></button>
