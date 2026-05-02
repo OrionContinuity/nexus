@@ -218,6 +218,49 @@
   border-color: var(--nx-green) !important;
   color: var(--nx-green) !important;
 }
+
+/* Board-link badge — appears on overdue/due-soon non-daily sections.
+   Pill button next to the Check-All. Two states:
+     • "Add to board" — gold, prompts escalation
+     • "On board" — calmer, indicates a linked card already exists */
+.clean-link-board {
+  padding: 6px 11px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line-2) !important;
+  background: var(--nx-gold-soft) !important;
+  color: var(--nx-gold) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.3px !important;
+  cursor: pointer !important;
+  margin-left: 6px !important;
+  white-space: nowrap !important;
+  transition: background var(--nx-press), color var(--nx-press), border-color var(--nx-press) !important;
+}
+.clean-link-board:hover {
+  background: var(--nx-gold-faint) !important;
+  border-color: var(--nx-gold-line-3) !important;
+}
+.clean-link-board.is-on-board {
+  background: transparent !important;
+  border-color: rgba(91, 186, 95, 0.30) !important;
+  color: var(--nx-green) !important;
+}
+.clean-link-board.is-on-board:hover {
+  background: rgba(91, 186, 95, 0.08) !important;
+  border-color: rgba(91, 186, 95, 0.45) !important;
+}
+/* On phone-narrow screens, the section header gets crowded — hide
+   the long status text and just keep the badge + count. The status
+   info is still inferable from the badge color (red/amber/green). */
+@media (max-width: 460px) {
+  .clean-link-board {
+    padding: 5px 9px !important;
+    font-size: 10px !important;
+    margin-left: 4px !important;
+  }
+}
 .clean-sec-body { padding: 0 16px var(--nx-space-2) !important; }
 
 /* Individual cleaning items */
