@@ -571,6 +571,7 @@ const NX = {
       });
     });
     this.setupNav();
+    this.setupMasthead();
     this.setupAdmin();
 
     // ─── PUSH NOTIFICATIONS — Stage T ───────────────────────────────
@@ -850,6 +851,85 @@ td.check{background:#F0EDE6 !important}
     if (homeTopTab) homeTopTab.classList.add('active');
     document.body.classList.add('view-home');
     this.activateModule('home');
+  },
+
+  // ═══ MASTHEAD ═══
+  // Wire the unified top masthead — coin (left), NEXUS+date (center),
+  // hamburger (right). Replaces both the legacy nav-nexus pill chrome
+  // AND the per-view "NEXUS / date" duplicate rows that used to live
+  // inside home, brain, etc.
+  //
+  // Three responsibilities:
+  //   1. Tick the live date/time display every minute.
+  //   2. Wire the coin to the AI activity pulse system (NX.coin API).
+  //   3. Wire coin tap behavior — admins navigate to brain view, non-
+  //      admins flip the coin as ornamental feedback.
+  setupMasthead() {
+    // ── Live date/time ticker ───────────────────────────────────────
+    const dateEl = document.getElementById('mastDate');
+    const tickDate = () => {
+      if (!dateEl) return;
+      const now = new Date();
+      const day  = ['SUN','MON','TUE','WED','THU','FRI','SAT'][now.getDay()];
+      const mon  = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][now.getMonth()];
+      const time = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toUpperCase();
+      dateEl.textContent = `${day} · ${mon} ${now.getDate()} · ${time}`;
+    };
+    tickDate();
+    // Re-tick every 30s so the minute display stays current without
+    // burning timers. Drift is acceptable; precision isn't the point.
+    setInterval(tickDate, 30000);
+
+    // ── Coin pulse + listening API ──────────────────────────────────
+    // Same API surface as the old home.js wireGalaxy — exposed under
+    // NX.coin.{pulse, idle, flip} and aliased as NX.homeGalaxyPulse for
+    // backward compat. The 7+ existing callers across admin.js,
+    // board.js, brain-chat.js, cleaning.js, equipment.js automatically
+    // get coin pulses with no edits.
+    const wrap = document.getElementById('mastCoin');
+    if (!wrap) return;
+    const flip = wrap.querySelector('.nx-mast-coin-flip');
+
+    let pulseTimeoutId = null;
+    const pulse = () => {
+      wrap.classList.remove('pulsing');
+      void wrap.offsetWidth;  // force reflow so animation restarts
+      wrap.classList.add('pulsing');
+      if (pulseTimeoutId) clearTimeout(pulseTimeoutId);
+      pulseTimeoutId = setTimeout(() => {
+        wrap.classList.remove('pulsing');
+        pulseTimeoutId = null;
+      }, 1500);
+    };
+    const idle = (on) => {
+      wrap.classList.toggle('listening', !!on);
+    };
+    const flipFace = () => {
+      if (!flip) return;
+      flip.classList.toggle('flipped');
+    };
+
+    NX.coin = { pulse, idle, flip: flipFace };
+    NX.homeGalaxyPulse = pulse;
+
+    // Reflect the listening state if it was already turned on
+    // before the masthead mounted (rare, but cheap to handle).
+    if (NX._isListening) idle(true);
+
+    // Galaxy node-open events still trigger a pulse, same as the old
+    // mini-galaxy did.
+    document.addEventListener('galaxy:node-open', pulse);
+
+    // Tap behavior: admins go to brain view (with a tactile flip
+    // first), non-admins just flip the coin as ornamental feedback.
+    wrap.addEventListener('click', () => {
+      if (document.body.classList.contains('no-galaxy-access')) {
+        flipFace();
+        return;
+      }
+      flipFace();
+      setTimeout(() => NX.switchTo?.('brain'), 180);
+    });
   },
 
   activateModule(view) {
@@ -1169,9 +1249,18 @@ td.check{background:#F0EDE6 !important}
       const lang = document.getElementById('newUserLang').value;
       if (!name || !pin) return;
       btn.disabled = true; btn.textContent = 'Adding...';
-      const { error } = await this.sb.from('nexus_users').insert({ name, pin, role, location: loc, language: lang });
+      // Phase B: nexus_users direct insert is locked down. The add_user
+      // RPC runs SECURITY DEFINER server-side and raises 'duplicate_pin'
+      // (errcode 23505) on PIN conflict — we still detect that here.
+      const { error } = await this.sb.rpc('add_user', {
+        p_name: name,
+        p_pin: pin,
+        p_role: role,
+        p_location: loc,
+        p_language: lang,
+      });
       if (error) {
-        if (error.message.includes('unique') || error.message.includes('duplicate')) {
+        if (error.code === '23505' || /duplicate|unique/i.test(error.message)) {
           alert('That PIN is already taken. Pick a different one.');
         } else { alert('Error: ' + error.message); }
         btn.disabled = false; btn.textContent = '+ Add'; return;
@@ -1186,8 +1275,10 @@ td.check{background:#F0EDE6 !important}
   async loadUserList() {
     const el = document.getElementById('adminUserList'); if (!el) return;
     try {
-      const { data } = await this.sb.from('nexus_users').select('*').order('created_at');
-      if (!data) return;
+      // Phase B: nexus_users direct select is locked down. list_users()
+      // RPC returns a JSON array via SECURITY DEFINER.
+      const { data, error } = await this.sb.rpc('list_users');
+      if (error || !data) return;
       el.innerHTML = data.map(u => `
         <div class="admin-user-row">
           <span class="admin-user-name-sm">${u.name}</span>
@@ -1201,7 +1292,9 @@ td.check{background:#F0EDE6 !important}
       el.querySelectorAll('.admin-user-del').forEach(btn => {
         btn.addEventListener('click', async () => {
           if (!confirm('Remove this user?')) return;
-          await this.sb.from('nexus_users').delete().eq('id', btn.dataset.id);
+          // Phase B: direct delete locked down. delete_user RPC runs
+          // SECURITY DEFINER and returns true if a row was removed.
+          await this.sb.rpc('delete_user', { p_id: btn.dataset.id });
           this.loadUserList();
         });
       });
@@ -2668,8 +2761,10 @@ NX.timeClock = {
     const sel = document.getElementById('tcFilterUser');
     if (!sel) return;
     try {
-      const { data } = await NX.sb.from('nexus_users').select('id,name');
-      if (data) {
+      // Phase B: nexus_users direct select locked down. list_user_names()
+      // RPC returns just id+name (lighter, no PIN exposure).
+      const { data, error } = await NX.sb.rpc('list_user_names');
+      if (!error && Array.isArray(data)) {
         sel.innerHTML = '<option value="all">All Team</option>';
         data.forEach(u => {
           const opt = document.createElement('option');
