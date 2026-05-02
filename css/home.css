@@ -486,10 +486,13 @@
 }
 
 
-/* ─── Ask NEXUS bar — sticky primary action ──────────────────────── */
-/* Built on the .nx-pill--primary visual language: solid gold gradient,
-   dark text, tactile press. Sticky-fixed above the bottom nav.
-   This IS the primary action of the home screen. */
+/* ─── Ask NEXUS bar — sticky, GLASSY (option B) ──────────────────
+   The home screen has a lot going on (lede, calm card, calendar,
+   stats). A solid gold pill at the bottom fights that content.
+   This variant is a frosted dark surface with a hairline gold ring
+   and gold text. Still clearly tappable, no longer screams.
+   The chat empty state is the place for the loud solid-gold version
+   — that screen is dedicated to that one action. */
 .home-ask {
   position: fixed;
   left: 50%;
@@ -502,28 +505,32 @@
   align-items: center;
   justify-content: center;
   gap: var(--nx-space-2);
-  padding: 18px 26px;
-  min-height: 56px;
+  padding: 16px 24px;
+  min-height: 54px;
   border-radius: var(--nx-radius-pill);
-  border: none;
-  background: linear-gradient(180deg, var(--nx-gold) 0%, var(--nx-gold-deep) 100%);
-  color: var(--nx-gold-on);
+  /* Glassy frosted surface — sits softly against any background */
+  background: rgba(28, 24, 20, 0.85);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--nx-gold-line-2);
+  color: var(--nx-gold);
   font-family: var(--nx-font-display);
   font-size: var(--nx-text-md);
-  font-weight: 700;
-  letter-spacing: 0.6px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   box-shadow:
-    0 8px 28px rgba(0, 0, 0, 0.45),
-    0 4px 16px rgba(212, 164, 78, 0.30);
+    0 8px 28px rgba(0, 0, 0, 0.5),
+    0 0 1px rgba(212, 164, 78, 0.2);
   transition:
     background var(--nx-press),
-    transform var(--nx-press),
-    box-shadow var(--nx-press);
+    border-color var(--nx-press),
+    transform var(--nx-press);
 }
 .home-ask:active {
-  background: linear-gradient(180deg, var(--nx-gold-deep) 0%, var(--nx-gold-darker) 100%);
+  background: rgba(36, 32, 28, 0.92);
+  border-color: var(--nx-gold-line-3);
   transform: translateX(-50%) scale(0.985);
 }
 .home-ask-prompt {
@@ -535,7 +542,7 @@
   /* Spark/asterisk symbol — visual hint that this calls AI */
   content: '✦';
   font-size: 14px;
-  opacity: 0.9;
+  opacity: 0.85;
 }
 
 
@@ -544,7 +551,7 @@
   .home-page { padding: 20px 18px calc(140px + env(safe-area-inset-bottom)); }
   .home-lede { margin: 24px 0 14px; }
   .home-glance { gap: 8px; }
-  .home-ask { font-size: var(--nx-text-base); padding: 16px 22px; min-height: 52px; }
+  .home-ask { font-size: var(--nx-text-base); padding: 14px 22px; min-height: 48px; }
 }
 
 @media (min-width: 720px) {
