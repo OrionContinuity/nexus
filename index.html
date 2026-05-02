@@ -319,16 +319,14 @@
 }
 
 /* ─── PIN screen vertical layout override ────────────────────────────
-   The default pin-screen centers content vertically. With the coin added
-   at the top, that creates a large dead space below the language buttons
-   on tall phones. Anchor the content to the top with comfortable padding
-   so everything reads as one continuous composition. */
+   Anchor content to the top of the screen, not vertically centered.
+   Override nexus.css's pin-box padding (which adds 24px all around)
+   so the coin sits close to the top with just a small comfortable gap. */
 #pinScreen.pin-screen {
   align-items: flex-start;
 }
 #pinScreen .pin-box {
-  padding-top: 32px;
-  padding-bottom: 24px;
+  padding: 8px 24px 16px;
 }
 
 /* ─── PIN screen spacing overrides ────────────────────────────────────
