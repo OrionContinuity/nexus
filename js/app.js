@@ -759,20 +759,6 @@ td.check{background:#F0EDE6 !important}
   // ═══ INIT ═══
   async init() {
     this.sb = supabase.createClient(this.SUPA_URL, this.SUPA_KEY);
-    // ─── Coin pulse hook on every edge-function call ───────────────
-    // Wrap functions.invoke so any call to chat / translate / parse-part-url /
-    // markitdown / predictive-notify / etc. automatically triggers the
-    // masthead coin's gold rim glow pulse. The coin module exposes
-    // NX.coin.pulse() (also aliased as NX.homeGalaxyPulse for backward
-    // compat). If the coin hasn't been wired yet (e.g. PIN screen, before
-    // home view mounts), the call is a no-op. No try/catch needed —
-    // we use optional chaining so a missing API can't break invokes.
-    const _origInvoke = this.sb.functions.invoke.bind(this.sb.functions);
-    this.sb.functions.invoke = (...args) => {
-      NX.coin?.pulse?.();
-      return _origInvoke(...args);
-    };
-
     if(window.NEXUS_I18N) { this.i18n = NEXUS_I18N; this.i18n.applyUI(); }
     // Test Supabase connection
     this.sb.from('nexus_users').select('id',{count:'exact',head:true}).then(({error})=>{
