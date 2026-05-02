@@ -243,7 +243,8 @@ const STYLES = `
 // ─────────────────────────────────────────────────────────────────────────
 let boards = [], activeBoard = null, lists = [], cards = [], stats = null;
 let equipmentCache = [];     // for the equipment picker in the card modal
-let filters = { priority:null, location:null, equipment:null };
+let filters = { priority:null, location:null, equipment:null, state:null };
+let searchQuery = '';        // free-text title/description search
 let dragCard = null, dragOverListId = null;
 
 // ── REALTIME + PERF STATE ────────────────────────────────────────────
@@ -541,10 +542,25 @@ async function loadEquipmentCache(){
 // FILTERING
 // ─────────────────────────────────────────────────────────────────────────
 function applyFilters(cardList){
+  const q = searchQuery.trim().toLowerCase();
+  const now = Date.now();
+  const fortnight = 14 * 86400000;
   return cardList.filter(c => {
     if(filters.priority && c.priority !== filters.priority) return false;
     if(filters.location && c.location !== filters.location) return false;
     if(filters.equipment && c.equipment_id !== filters.equipment) return false;
+    if(filters.state === 'overdue'){
+      if(isDone(c)) return false;
+      if(!isOverdue(c)) return false;
+    } else if(filters.state === 'stale'){
+      if(isDone(c)) return false;
+      const created = c.created_at ? new Date(c.created_at).getTime() : 0;
+      if(!created || (now - created) < fortnight) return false;
+    }
+    if(q){
+      const hay = `${c.title || ''} ${c.description || ''}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
     return true;
   });
 }
@@ -601,6 +617,22 @@ function renderSummaryStrip(){
   if(closedThisWeek > 0){
     html += `<span class="b-summary-chip ok">✓ ${closedThisWeek} done this week</span>`;
   }
+  // Quick search — text filter across all card titles + descriptions on
+  // this board. Empty by default; live filters as user types. Sits
+  // before the action buttons so it's reachable but doesn't dominate.
+  html += `<span class="b-search-wrap">
+    <span class="b-search-icon">⌕</span>
+    <input
+      class="b-search-input"
+      id="bSearchInput"
+      type="search"
+      placeholder="Search cards…"
+      value="${esc(searchQuery)}"
+      autocomplete="off"
+      spellcheck="false"
+    >
+    ${searchQuery ? '<button class="b-search-clear" id="bSearchClear" title="Clear">✕</button>' : ''}
+  </span>`;
   // Clean Up button only appears when there's meaningful backlog
   if(open > 30){
     html += `<button class="b-summary-stats-btn" id="bCleanUpBtn" style="background:rgba(212,88,88,0.15);border-color:rgba(212,88,88,0.3);color:#e88">🧹 Clean Up</button>`;
@@ -610,6 +642,66 @@ function renderSummaryStrip(){
   strip.querySelector('#bStatsBtn').addEventListener('click', openStatsModal);
   const cleanBtn = strip.querySelector('#bCleanUpBtn');
   if(cleanBtn) cleanBtn.addEventListener('click', openTriageModal);
+
+  // Wire search — debounced re-render so typing isn't laggy on big boards.
+  // Re-render the lists only (not the strip itself, to avoid stealing focus).
+  const searchInput = strip.querySelector('#bSearchInput');
+  if(searchInput){
+    let t = null;
+    searchInput.addEventListener('input', e => {
+      searchQuery = e.target.value;
+      if(t) clearTimeout(t);
+      t = setTimeout(() => {
+        // Re-render only the cards area; keep the input focused.
+        const wrap = document.getElementById('boardWrap');
+        if(!wrap) return;
+        // Find the lists row and replace just it. The strip stays put,
+        // input keeps focus + cursor position.
+        const oldLists = wrap.querySelector('.b-lists');
+        const newLists = renderLists();
+        if(oldLists) oldLists.replaceWith(newLists);
+        // Show/hide the clear button without losing focus
+        const existingClear = strip.querySelector('#bSearchClear');
+        if(searchQuery && !existingClear){
+          const wrapEl = strip.querySelector('.b-search-wrap');
+          if(wrapEl){
+            const btn = document.createElement('button');
+            btn.className = 'b-search-clear';
+            btn.id = 'bSearchClear';
+            btn.title = 'Clear';
+            btn.textContent = '✕';
+            btn.addEventListener('click', () => {
+              searchQuery = '';
+              searchInput.value = '';
+              btn.remove();
+              const oldL = wrap.querySelector('.b-lists');
+              if(oldL) oldL.replaceWith(renderLists());
+              searchInput.focus();
+            });
+            wrapEl.appendChild(btn);
+          }
+        } else if(!searchQuery && existingClear){
+          existingClear.remove();
+        }
+      }, 120);
+    });
+    // Escape clears the search and blurs
+    searchInput.addEventListener('keydown', e => {
+      if(e.key === 'Escape'){
+        searchQuery = '';
+        searchInput.value = '';
+        searchInput.dispatchEvent(new Event('input'));
+      }
+    });
+  }
+  const initialClear = strip.querySelector('#bSearchClear');
+  if(initialClear){
+    initialClear.addEventListener('click', () => {
+      searchQuery = '';
+      const inp = strip.querySelector('#bSearchInput');
+      if(inp){ inp.value = ''; inp.dispatchEvent(new Event('input')); inp.focus(); }
+    });
+  }
   return strip;
 }
 
@@ -632,7 +724,7 @@ function renderBoardHeader(){
       subscribeRealtime();
     });
   });
-  header.querySelector('#bAddBoard').addEventListener('click', promptNewBoard);
+  header.querySelector('#bAddBoard').addEventListener('click', (e) => promptNewBoard(e.currentTarget));
   return header;
 }
 
@@ -649,6 +741,12 @@ function renderFilterBar(){
   html += mk('priority', 'urgent', '🚨 Urgent', '#d45858');
   html += mk('priority', 'high',   '⚠ High',   '#e8a830');
   html += mk('priority', 'low',    'Low',      '#5b9bd5');
+  html += `<span style="width:8px"></span>`;
+  // State filters — Overdue (past due) and Stale (>14d old, no due date
+  // or past due). These surface cards that have fallen through cracks
+  // — the "weekly cleanup" pass any kitchen manager runs Monday morning.
+  html += mk('state', 'overdue', '📅 Overdue', '#d45858');
+  html += mk('state', 'stale',   '⏱ Stale 14d+', '#a49c94');
   html += `<span style="width:8px"></span>`;
   LOCATIONS.forEach(l => {
     html += mk('location', l.key, l.label, l.color);
@@ -738,8 +836,8 @@ function renderLists(){
 
     const addBtn = document.createElement('button');
     addBtn.className = 'b-list-add';
-    addBtn.textContent = '+ Add card';
-    addBtn.addEventListener('click', () => promptNewCard(list.id));
+    addBtn.textContent = '+ Add a card';
+    addBtn.addEventListener('click', () => promptNewCard(list.id, addBtn));
     listEl.appendChild(addBtn);
 
     wrapper.appendChild(listEl);
@@ -747,11 +845,12 @@ function renderLists(){
 
   // Add list button
   const addListEl = document.createElement('div');
-  addListEl.className = 'b-list';
+  addListEl.className = 'b-list b-list-new';
   addListEl.style.background = 'transparent';
   addListEl.style.border = '1px dashed rgba(255,255,255,0.1)';
-  addListEl.innerHTML = `<button class="b-list-add" style="margin:0">+ Add list</button>`;
-  addListEl.querySelector('button').addEventListener('click', promptNewList);
+  addListEl.innerHTML = `<button class="b-list-add" style="margin:0">+ Add another list</button>`;
+  const addListBtn = addListEl.querySelector('button');
+  addListBtn.addEventListener('click', () => promptNewList(addListBtn));
   wrapper.appendChild(addListEl);
 
   return wrapper;
@@ -879,16 +978,207 @@ function createCardEl(card){
     openMovePicker(card);
   });
 
-  // Desktop drag
-  el.addEventListener('dragstart', e => {
+  // Drag — toggle .is-dragging class so CSS can apply tilt + lift +
+  // gold glow shadow consistently across browsers (CSS :active state
+  // is unreliable during HTML5 drag — Firefox drops it, Safari mid-
+  // way through). The class-based approach is deterministic.
+  el.addEventListener('dragstart', () => {
     dragCard = card;
-    el.style.opacity = '0.5';
+    el.classList.add('is-dragging');
   });
   el.addEventListener('dragend', () => {
-    el.style.opacity = '1';
+    el.classList.remove('is-dragging');
   });
 
+  // Quick-actions menu — long-press on mobile, right-click on desktop.
+  // Lets you set priority, due date, or archive without opening the
+  // full detail modal. The single biggest "weekly grooming" speedup
+  // since you can re-prioritize 30 cards without 30 modal trips.
+  let pressTimer = null;
+  let pressFired = false;
+  const startPress = (e) => {
+    pressFired = false;
+    pressTimer = setTimeout(() => {
+      pressFired = true;
+      // Vibrate confirmation if available — feels native on mobile
+      try{ navigator.vibrate?.(8); }catch(_){}
+      openQuickActions(card, el);
+    }, 480);  // 480ms is the sweet spot — long enough not to fire on
+              // accidental press during scroll, short enough not to feel sluggish
+  };
+  const endPress = () => {
+    if(pressTimer){ clearTimeout(pressTimer); pressTimer = null; }
+  };
+  el.addEventListener('touchstart', startPress, { passive: true });
+  el.addEventListener('touchend', endPress);
+  el.addEventListener('touchmove', endPress);  // cancel on scroll
+  el.addEventListener('touchcancel', endPress);
+  // Right-click on desktop
+  el.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    openQuickActions(card, el);
+  });
+  // If long-press fired, suppress the click that follows (would open modal)
+  el.addEventListener('click', e => {
+    if(pressFired){
+      e.stopPropagation();
+      e.preventDefault();
+      pressFired = false;
+      return false;
+    }
+  }, true);  // capture so we beat the existing click handler
+
   return el;
+}
+
+// Quick-actions menu — anchored to a card, shows priority chips,
+// due-date picker, and Archive. Tap any action → write + render +
+// close. Tap outside → close.
+function openQuickActions(card, anchorEl){
+  // Close any existing menu first (only one open at a time)
+  document.querySelectorAll('.b-qa-menu').forEach(m => m.remove());
+
+  const menu = document.createElement('div');
+  menu.className = 'b-qa-menu';
+  menu.innerHTML = `
+    <div class="b-qa-section">
+      <div class="b-qa-label">Priority</div>
+      <div class="b-qa-row">
+        <button class="b-qa-pri ${card.priority==='urgent'?'active':''}" data-pri="urgent" style="--c:#d45858">🚨 Urgent</button>
+        <button class="b-qa-pri ${card.priority==='high'?'active':''}"   data-pri="high"   style="--c:#e8a830">⚠ High</button>
+        <button class="b-qa-pri ${(card.priority==='normal'||!card.priority)?'active':''}" data-pri="normal" style="--c:#a49c94">Normal</button>
+        <button class="b-qa-pri ${card.priority==='low'?'active':''}"    data-pri="low"    style="--c:#5b9bd5">Low</button>
+      </div>
+    </div>
+    <div class="b-qa-section">
+      <div class="b-qa-label">Due date</div>
+      <div class="b-qa-row">
+        <input class="b-qa-due" type="date" value="${esc(card.due_date||'')}">
+        ${card.due_date ? '<button class="b-qa-due-clear" title="Clear date">✕</button>' : ''}
+      </div>
+    </div>
+    <div class="b-qa-section">
+      <button class="b-qa-action b-qa-detail">Open card</button>
+      <button class="b-qa-action b-qa-archive">Archive</button>
+    </div>
+  `;
+  document.body.appendChild(menu);
+
+  // Position the menu relative to the anchor card. Prefer below; if
+  // it would overflow the viewport bottom, flip above.
+  const anchorRect = anchorEl.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  let top = anchorRect.bottom + 6 + window.scrollY;
+  let left = anchorRect.left + window.scrollX;
+  // Flip if it'd go off screen vertically
+  if(top + menuRect.height > window.scrollY + window.innerHeight - 12){
+    top = anchorRect.top - menuRect.height - 6 + window.scrollY;
+  }
+  // Constrain horizontally
+  const maxLeft = window.scrollX + window.innerWidth - menuRect.width - 12;
+  if(left > maxLeft) left = maxLeft;
+  if(left < window.scrollX + 12) left = window.scrollX + 12;
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+
+  const close = () => {
+    menu.remove();
+    document.removeEventListener('mousedown', onOutside, true);
+  };
+  const onOutside = (e) => {
+    if(!menu.contains(e.target)) close();
+  };
+  setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
+
+  // Priority chips
+  menu.querySelectorAll('.b-qa-pri').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const newPri = btn.dataset.pri;
+      const prev = card.priority;
+      card.priority = newPri;
+      optimisticSet.add(card.id);
+      render();
+      close();
+      try{
+        await NX.sb.from('kanban_cards').update({ priority: newPri }).eq('id', card.id);
+        NX.toast && NX.toast(`Priority: ${newPri}`, 'success');
+      }catch(e){
+        card.priority = prev;
+        optimisticSet.delete(card.id);
+        render();
+        NX.toast && NX.toast('Failed — reverted', 'error');
+      }
+    });
+  });
+
+  // Due-date input
+  const dueInput = menu.querySelector('.b-qa-due');
+  dueInput.addEventListener('change', async () => {
+    const newDue = dueInput.value || null;
+    const prev = card.due_date;
+    card.due_date = newDue;
+    optimisticSet.add(card.id);
+    render();
+    close();
+    try{
+      await NX.sb.from('kanban_cards').update({ due_date: newDue }).eq('id', card.id);
+      NX.toast && NX.toast(newDue ? `Due ${newDue}` : 'Due date cleared', 'success');
+    }catch(e){
+      card.due_date = prev;
+      optimisticSet.delete(card.id);
+      render();
+      NX.toast && NX.toast('Failed — reverted', 'error');
+    }
+  });
+  // Clear date button
+  const clearBtn = menu.querySelector('.b-qa-due-clear');
+  if(clearBtn){
+    clearBtn.addEventListener('click', async () => {
+      const prev = card.due_date;
+      card.due_date = null;
+      optimisticSet.add(card.id);
+      render();
+      close();
+      try{
+        await NX.sb.from('kanban_cards').update({ due_date: null }).eq('id', card.id);
+        NX.toast && NX.toast('Due date cleared', 'success');
+      }catch(e){
+        card.due_date = prev;
+        optimisticSet.delete(card.id);
+        render();
+        NX.toast && NX.toast('Failed — reverted', 'error');
+      }
+    });
+  }
+
+  // Open detail (modal) — escape hatch when quick actions aren't enough
+  menu.querySelector('.b-qa-detail').addEventListener('click', () => {
+    close();
+    openCardDetail(card);
+  });
+
+  // Archive
+  menu.querySelector('.b-qa-archive').addEventListener('click', async () => {
+    if(!confirm(`Archive "${card.title}"?`)){ return; }
+    close();
+    const prev = card.archived;
+    card.archived = true;
+    optimisticSet.add(card.id);
+    // Remove from local state since loadCards filters by archived=false
+    const idx = cards.findIndex(c => c.id === card.id);
+    if(idx >= 0) cards.splice(idx, 1);
+    render();
+    try{
+      await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', card.id);
+      NX.toast && NX.toast('Card archived', 'success');
+    }catch(e){
+      card.archived = prev;
+      optimisticSet.delete(card.id);
+      cards.push(card);
+      render();
+      NX.toast && NX.toast('Archive failed', 'error');
+    }
+  });
 }
 
 // Produce initials from a name like "Ana Maria" → "AM". Used for the
@@ -980,6 +1270,14 @@ async function moveCard(card, targetList){
     if (movingToDone && wasNotDone && card.equipment_id) {
       offerEquipmentRepaired(card);
     }
+    // If this card was escalated from a cleaning section, completing
+    // it writes "done today" records to cleaning_logs for every task
+    // in that section. The cleaning view's OVERDUE pill clears next
+    // load. The card itself stays around as the system-of-record for
+    // the work (photos, comments, costs, contractor).
+    if (movingToDone && wasNotDone && card.cleaning_link_location && card.cleaning_link_section) {
+      closeOutCleaningSection(card);
+    }
   }catch(e){
     console.error('[board] moveCard:', e);
     // Revert
@@ -989,6 +1287,60 @@ async function moveCard(card, targetList){
     optimisticSet.delete(card.id);
     render();
     NX.toast && NX.toast('Failed to move card — reverted', 'error');
+  }
+}
+
+/* When a card escalated from a cleaning section is moved to Done,
+   write completion records to cleaning_logs for every task index in
+   that section. We can't query cleaning's DEFAULTS table from here
+   (it's hard-coded in cleaning.js), so we count the tasks via the
+   logs themselves: any task_index that has EVER been recorded for
+   this section gets a fresh "done today" entry.
+   
+   For sections that have never been logged before, we fall back to
+   logging task_index 0 only. The cleaning view treats "any task done
+   today" in a section as evidence the section was worked on, and its
+   `oldestDays` recompute will reflect that. Not perfect — but the
+   user's actual fallback is to open cleaning and tap "All ✓" on the
+   section, which is one extra tap. */
+async function closeOutCleaningSection(card) {
+  const location = card.cleaning_link_location;
+  const section = card.cleaning_link_section;
+  const today = new Date().toISOString().slice(0, 10);
+  const completedAt = new Date().toISOString();
+  try {
+    // Find all task_indices that have ever existed for this section.
+    // De-dupe in JS since Supabase doesn't have a clean DISTINCT in
+    // its query builder for arbitrary columns.
+    const { data } = await NX.sb.from('cleaning_logs')
+      .select('task_index')
+      .eq('location', location)
+      .eq('section', section)
+      .limit(500);
+    const indices = Array.from(new Set((data || []).map(r => r.task_index)));
+    if (!indices.length) indices.push(0);  // fallback: at least mark task_index 0
+
+    // Upsert one row per task_index for today's date, marking done.
+    const rows = indices.map(idx => ({
+      location,
+      log_date: today,
+      task_index: idx,
+      section,
+      done: true,
+      completed_at: completedAt,
+    }));
+    // Supabase upsert with onConflict — handles re-runs if the user
+    // moves the card to Done, back to In Progress, then to Done again.
+    const { error } = await NX.sb.from('cleaning_logs').upsert(rows, {
+      onConflict: 'location,log_date,task_index,section'
+    });
+    if (error) throw error;
+    NX.toast && NX.toast(`${section} marked done in Cleaning · ${location}`, 'success');
+  } catch (err) {
+    console.error('[closeOutCleaningSection]', err);
+    // Don't toast error — the card move itself succeeded, this is
+    // a secondary effect. Silent failure is OK; user can manually
+    // tap All ✓ on the section in Cleaning.
   }
 }
 
@@ -1036,6 +1388,16 @@ async function openCardDetail(card){
       <button class="b-modal-close">✕</button>
     </div>
     <div class="b-modal-body">
+
+      ${card.cleaning_link_section ? `
+      <div class="b-cleaning-link">
+        <span class="b-cleaning-link-icon">🧹</span>
+        <div class="b-cleaning-link-body">
+          <div class="b-cleaning-link-title">Linked to Cleaning</div>
+          <div class="b-cleaning-link-meta">${esc(card.cleaning_link_section)} · ${esc(card.cleaning_link_location||'')}</div>
+        </div>
+        <div class="b-cleaning-link-hint">Marking this card Done will timestamp the section as completed today.</div>
+      </div>` : ''}
 
       <div class="b-section">
         <div class="b-section-label">
@@ -1433,22 +1795,139 @@ async function uploadPhoto(file, cardId){
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// INLINE COMPOSER — replaces native prompt() for new cards/lists/boards
+//
+// Trello has had inline composition for a decade: type in the column,
+// press Enter, card appears. Native browser prompt() is jarring on
+// mobile (system dialog) and ugly on desktop. This helper takes a
+// "trigger" element (the + Add button) and swaps it for a small
+// textarea + submit/cancel pair. Calls onSubmit(text) when committed.
+//
+// Usage:
+//   startInlineComposer(triggerEl, {
+//     placeholder: 'Enter a title…',
+//     buttonLabel: 'Add card',
+//     onSubmit: async (text) => { ... },
+//   });
+//
+// Behavior:
+//   • Focus textarea immediately
+//   • Enter submits (Shift+Enter newline)
+//   • Escape cancels
+//   • Cancel button (✕) cancels
+//   • On submit, the textarea clears and stays open for fast batch entry
+//   • Click outside the composer also cancels
+// ─────────────────────────────────────────────────────────────────────────
+function startInlineComposer(triggerEl, opts){
+  if(!triggerEl) return;
+  const placeholder = opts?.placeholder || 'Enter a title…';
+  const buttonLabel = opts?.buttonLabel || 'Add';
+  const onSubmit = opts?.onSubmit;
+  const minRows = opts?.minRows || 2;
+
+  // Build the composer
+  const composer = document.createElement('div');
+  composer.className = 'b-composer';
+  composer.innerHTML = `
+    <textarea class="b-composer-input" rows="${minRows}" placeholder="${esc(placeholder)}"></textarea>
+    <div class="b-composer-actions">
+      <button type="button" class="b-composer-submit">${esc(buttonLabel)}</button>
+      <button type="button" class="b-composer-cancel" title="Cancel" aria-label="Cancel">✕</button>
+    </div>
+  `;
+
+  // Hide the trigger, insert composer in its place
+  const parent = triggerEl.parentElement;
+  if(!parent) return;
+  triggerEl.style.display = 'none';
+  parent.insertBefore(composer, triggerEl.nextSibling);
+
+  const ta = composer.querySelector('.b-composer-input');
+  const submitBtn = composer.querySelector('.b-composer-submit');
+  const cancelBtn = composer.querySelector('.b-composer-cancel');
+
+  // Focus immediately. requestAnimationFrame ensures the element is in
+  // the layout tree before iOS Safari accepts focus.
+  requestAnimationFrame(() => ta.focus());
+
+  let closed = false;
+  const close = () => {
+    if(closed) return;
+    closed = true;
+    composer.remove();
+    triggerEl.style.display = '';
+    document.removeEventListener('mousedown', onOutside, true);
+  };
+  const submit = async () => {
+    const text = ta.value.trim();
+    if(!text){
+      // Empty submit = cancel
+      close();
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = '…';
+    try{
+      await onSubmit?.(text);
+      // Reset for fast batch entry — Trello keeps the composer open so
+      // users can type a second card without re-clicking Add.
+      ta.value = '';
+      submitBtn.disabled = false;
+      submitBtn.textContent = buttonLabel;
+      ta.focus();
+    }catch(e){
+      console.error('[composer] submit failed:', e);
+      submitBtn.disabled = false;
+      submitBtn.textContent = buttonLabel;
+      NX.toast && NX.toast('Add failed — try again', 'error');
+    }
+  };
+
+  // Click outside cancels (but not clicks inside the composer itself)
+  const onOutside = (e) => {
+    if(!composer.contains(e.target)){
+      // If there's text, treat outside-click as submit (Trello pattern).
+      // Otherwise just close.
+      if(ta.value.trim()) submit();
+      else close();
+    }
+  };
+  // Defer attaching the outside-click listener so the same click that
+  // opened the composer doesn't immediately close it.
+  setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
+
+  // Keyboard shortcuts
+  ta.addEventListener('keydown', e => {
+    if(e.key === 'Enter' && !e.shiftKey){
+      e.preventDefault();
+      submit();
+    } else if(e.key === 'Escape'){
+      e.preventDefault();
+      close();
+    }
+  });
+
+  submitBtn.addEventListener('click', submit);
+  cancelBtn.addEventListener('click', close);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // CREATE CARD / LIST / BOARD
 // ─────────────────────────────────────────────────────────────────────────
-async function promptNewCard(listId, prefill){
-  const title = prefill?.title || prompt('Card title:');
-  if(!title) return;
+async function createCard(listId, payload){
+  // Pure data path — used by both the inline composer and external
+  // callers (prefill flow). Returns the created row or null.
   try{
     const { data: created } = await NX.sb.from('kanban_cards').insert({
-      title,
-      description: prefill?.description || null,
+      title: payload.title,
+      description: payload.description || null,
       board_id: activeBoard.id,
       list_id: listId,
       column_name: '',
       position: cards.filter(c=>c.list_id===listId).length,
-      priority: prefill?.priority || 'normal',
-      location: prefill?.location || null,
-      equipment_id: prefill?.equipment_id || null,
+      priority: payload.priority || 'normal',
+      location: payload.location || null,
+      equipment_id: payload.equipment_id || null,
       reported_by: NX.currentUser?.name || null,
       checklist: [], comments: [], labels: [],
       photo_urls: [],
@@ -1459,15 +1938,64 @@ async function promptNewCard(listId, prefill){
     // Fire push notification — every new card = every new report = buzzes
     // the managers/admins who need to know. Fire-and-forget.
     if (created && NX.notifyCardCreated) NX.notifyCardCreated(created);
-    // If created with prefill, open it immediately
-    if(prefill && created) openCardDetail(created);
+    return created;
   }catch(e){
-    console.error('[board] promptNewCard:', e);
+    console.error('[board] createCard:', e);
     NX.toast && NX.toast('Could not create card', 'error');
+    throw e;  // let the inline composer reset its button on failure
   }
 }
 
-async function promptNewList(){
+async function promptNewCard(listId, prefillOrTrigger){
+  // Two callable forms:
+  //   1. promptNewCard(listId, triggerEl)  — UI path, opens inline composer
+  //   2. promptNewCard(listId, {title, ...}) — programmatic prefill, immediate insert
+  //   3. promptNewCard(listId)             — fallback, opens inline composer if a +Add button exists
+  const arg = prefillOrTrigger;
+  // Form 2: prefill object with a title
+  if(arg && typeof arg === 'object' && !arg.nodeType && arg.title){
+    const created = await createCard(listId, arg);
+    if(created) openCardDetail(created);
+    return;
+  }
+  // Form 1 or 3: find or use a trigger to anchor the inline composer
+  const triggerEl = (arg && arg.nodeType) ? arg
+    : document.querySelector(`.b-list .b-list-add[data-list="${listId}"]`)
+      || document.querySelector(`.b-list-cards[data-list-id="${listId}"]`)?.parentElement?.querySelector('.b-list-add');
+  if(!triggerEl){
+    // No trigger to anchor against — fall back to a minimal modal. This
+    // shouldn't happen in normal use but keeps the function robust.
+    const title = prompt('Card title:');
+    if(!title) return;
+    await createCard(listId, { title });
+    return;
+  }
+  startInlineComposer(triggerEl, {
+    placeholder: 'Enter a title for this card…',
+    buttonLabel: 'Add card',
+    onSubmit: async (text) => {
+      await createCard(listId, { title: text });
+    },
+  });
+}
+
+async function promptNewList(triggerEl){
+  // If a trigger element is provided, use the inline composer.
+  // Otherwise fall back to the legacy prompt() (rare path).
+  if(triggerEl && triggerEl.nodeType){
+    startInlineComposer(triggerEl, {
+      placeholder: 'Enter list title…',
+      buttonLabel: 'Add list',
+      minRows: 1,
+      onSubmit: async (text) => {
+        await NX.sb.from('board_lists').insert({
+          board_id: activeBoard.id, name: text, position: lists.length
+        });
+        await loadLists(); render();
+      },
+    });
+    return;
+  }
   const name = prompt('List name:');
   if(!name) return;
   try{
@@ -1478,10 +2006,8 @@ async function promptNewList(){
   }catch(e){ console.error('[board] promptNewList:', e); }
 }
 
-async function promptNewBoard(){
-  const name = prompt('Board name:');
-  if(!name) return;
-  try{
+async function promptNewBoard(triggerEl){
+  const create = async (name) => {
     const { data: nb } = await NX.sb.from('boards').insert({
       name, color: '#c8a44e', position: boards.length
     }).select().single();
@@ -1494,7 +2020,20 @@ async function promptNewBoard(){
       await loadLists(); await loadCards();
       render();
     }
-  }catch(e){ console.error('[board] promptNewBoard:', e); }
+  };
+  if(triggerEl && triggerEl.nodeType){
+    startInlineComposer(triggerEl, {
+      placeholder: 'New board name…',
+      buttonLabel: 'Create board',
+      minRows: 1,
+      onSubmit: create,
+    });
+    return;
+  }
+  const name = prompt('Board name:');
+  if(!name) return;
+  try{ await create(name); }
+  catch(e){ console.error('[board] promptNewBoard:', e); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
