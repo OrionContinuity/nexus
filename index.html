@@ -392,40 +392,32 @@
   justify-content: flex-start;
 }
 
-/* ─── Time clock panel — unified editorial card ──────────────────────
-   Structure (top to bottom):
-     1. Status block: "Welcome, name" (.pin-user, above the panel)
-     2. CLOCKED IN / NOT CLOCKED IN status badge
-     3. Elapsed time (when clocked in)
-     4. Location dropdown
-     5. Primary action: Clock In (or Clock Out)
-     6. Secondary action: Enter NEXUS
-     7. Divider
-     8. Recent timesheet log (scrollable)
-     9. My Timesheet download button
-   Tight rhythm — every gap is intentional. Card has subtle border to
-   group all these elements as one composition. */
+/* ─── Time clock panel — wrapper for two compositions ───────────────────
+   Contains:
+     1. .tc-card — the time clock widget (status, dropdown, clock in, log)
+     2. .tc-enter — the primary "Enter NEXUS" button, stands apart
+   Wrapper just stacks them with breathing room. */
 #pinScreen .tc-panel {
   width: 100%;
-  max-width: 300px;
+  max-width: 320px;
+  margin: 12px auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Inner card — the time clock UI as a self-contained widget */
+#pinScreen .tc-card {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0;
-  margin: 12px auto 0;
-  padding: 18px 16px 16px;
+  padding: 18px 16px 14px;
   background: rgba(28, 24, 20, 0.4);
   border: 1px solid rgba(200, 164, 78, 0.15);
   border-radius: 12px;
 }
 
-/* Status badge — replaces the green color with a subtle gold/grey treatment.
-   "NOT CLOCKED IN" reads as muted info; "CLOCKED IN" reads as gold.
-   The inline color set by app.js (#5bba5f green) is overridden via !important.
-   We use a data attribute fallback by checking if the text contains "CLOCKED IN"
-   without "NOT" — but simpler: muted by default, gold when text has been set
-   to CLOCKED IN via a sibling :has() check. Since :has support varies,
-   we just keep both states muted-gold and let the elapsed time tell the story. */
+/* Status badge — muted grey caps, monospace */
 #pinScreen .tc-status {
   text-align: center;
   font-family: 'JetBrains Mono', 'Courier New', monospace;
@@ -434,7 +426,7 @@
   letter-spacing: 2px;
   text-transform: uppercase;
   color: #857f75 !important;
-  margin: 0 0 6px;
+  margin: 0 0 10px;
 }
 #pinScreen .tc-time {
   text-align: center;
@@ -449,7 +441,7 @@
   display: none;
 }
 
-/* Location dropdown — looks like part of the form, with label affordance. */
+/* Location dropdown */
 #pinScreen .tc-loc-row {
   margin: 0 0 10px;
 }
@@ -472,7 +464,7 @@
   background-size: 14px;
 }
 
-/* Primary action row: Clock In / Clock Out */
+/* Clock In / Clock Out — primary action of the time clock card */
 #pinScreen .tc-buttons {
   display: flex;
   gap: 8px;
@@ -480,7 +472,7 @@
 }
 #pinScreen .tc-btn {
   flex: 1;
-  padding: 13px 18px;
+  padding: 12px 18px;
   border-radius: 999px;
   border: 1px solid rgba(200, 164, 78, 0.35);
   background: rgba(200, 164, 78, 0.08);
@@ -517,40 +509,13 @@
   background: rgba(180, 80, 80, 0.22);
 }
 
-/* Secondary action row: Enter NEXUS — outlined, less primary than Clock In */
-#pinScreen .tc-pin-actions {
-  display: flex;
-  flex-direction: column;
-  margin: 8px 0 0;
-}
-#pinScreen .tc-enter {
-  width: 100%;
-  padding: 11px 18px;
-  border-radius: 999px;
-  border: 1px solid rgba(200, 164, 78, 0.4);
-  background: transparent;
-  color: #c8a44e;
-  font-family: 'Outfit', -apple-system, sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 0.15s;
-  -webkit-tap-highlight-color: transparent;
-}
-#pinScreen .tc-enter:active {
-  background: rgba(200, 164, 78, 0.1);
-  border-color: rgba(200, 164, 78, 0.7);
-  transform: scale(0.98);
-}
-
-/* Divider before the log section */
+/* Scrollable log inside the card */
 #pinScreen .tc-pin-log {
   width: 100%;
   max-height: 168px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  margin: 14px 0 8px;
+  margin: 14px 0 0;
   padding: 6px 0 0;
   border-top: 1px solid rgba(200, 164, 78, 0.15);
 }
@@ -567,7 +532,6 @@
   background: rgba(200, 164, 78, 0.3);
   border-radius: 2px;
 }
-/* Each log row */
 #pinScreen .tc-pin-log > div {
   display: flex;
   justify-content: space-between;
@@ -581,7 +545,12 @@
   border-bottom: none;
 }
 
-/* My Timesheet download — quietest action, sits at bottom of the card */
+/* Quiet text-link timesheet at bottom of card */
+#pinScreen .tc-pin-actions {
+  display: flex;
+  flex-direction: column;
+  margin: 8px 0 0;
+}
 #pinScreen .tc-download {
   background: transparent;
   border: none;
@@ -598,6 +567,31 @@
 }
 #pinScreen .tc-download:active {
   color: #c8a44e;
+}
+
+/* ─── Enter NEXUS — the primary action of this screen ─────────────────
+   Sits BELOW the time clock card, not inside it. This is what the user
+   actually does to use the app — clocking in is optional. Solid gold
+   pill, prominent. */
+#pinScreen .tc-enter {
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(180deg, #d4a44e 0%, #b88830 100%);
+  color: #1c1814;
+  font-family: 'Outfit', -apple-system, sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 4px 16px rgba(200, 164, 78, 0.15);
+}
+#pinScreen .tc-enter:active {
+  background: linear-gradient(180deg, #b88830 0%, #9a7026 100%);
+  transform: scale(0.98);
 }
 
 /* Slightly smaller coin on narrow phones — preserve the 20px safe zone
@@ -675,25 +669,33 @@
       <p class="pin-sub" data-i18n="enterPin">Enter your PIN</p>
       <div class="pin-error" id="pinError"></div>
       <div class="pin-user" id="pinUser"></div>
-      <!-- TIME CLOCK — shows after PIN verified -->
+      <!-- TIME CLOCK — shows after PIN verified.
+           Wraps two visual blocks: the time-clock card (status, location,
+           Clock In, log, timesheet) and the primary Enter NEXUS action
+           that proceeds into the app. Both show/hide together via this
+           wrapper, but they read as separate compositions. -->
       <div class="tc-panel" id="tcPanel" style="display:none">
-        <div class="tc-status" id="tcStatus"></div>
-        <div class="tc-time" id="tcTime"></div>
-        <div class="tc-loc-row">
-          <select id="tcLocation" class="tc-loc-select"></select>
+        <!-- Inner card: time clock as a self-contained widget -->
+        <div class="tc-card">
+          <div class="tc-status" id="tcStatus"></div>
+          <div class="tc-time" id="tcTime"></div>
+          <div class="tc-loc-row">
+            <select id="tcLocation" class="tc-loc-select"></select>
+          </div>
+          <div class="tc-buttons">
+            <button class="tc-btn tc-btn-in" id="tcClockIn" data-i18n="clockIn">Clock In</button>
+            <button class="tc-btn tc-btn-out" id="tcClockOut" style="display:none" data-i18n="clockOut">Clock Out</button>
+          </div>
+          <!-- Scrollable log of recent clock-ins/outs (~14 days) -->
+          <div class="tc-pin-log" id="tcPinLog"></div>
+          <div class="tc-pin-actions">
+            <button class="tc-download" id="tcPinDownload">⬇ My Timesheet</button>
+          </div>
         </div>
-        <div class="tc-buttons">
-          <button class="tc-btn tc-btn-in" id="tcClockIn" data-i18n="clockIn">Clock In</button>
-          <button class="tc-btn tc-btn-out" id="tcClockOut" style="display:none" data-i18n="clockOut">Clock Out</button>
-        </div>
-        <div class="tc-pin-actions">
-          <button class="tc-enter" id="tcEnter" data-i18n="enterNexus">Enter NEXUS →</button>
-        </div>
-        <!-- Scrollable log of recent clock-ins/outs (14 days) -->
-        <div class="tc-pin-log" id="tcPinLog"></div>
-        <div class="tc-pin-actions">
-          <button class="tc-download" id="tcPinDownload">⬇ My Timesheet</button>
-        </div>
+        <!-- Primary action: enters the main app. Sits OUTSIDE the time clock
+             card because entering NEXUS is the actual primary action of this
+             screen — clocking in is optional, entering is not. -->
+        <button class="tc-enter" id="tcEnter" data-i18n="enterNexus">Enter NEXUS →</button>
       </div>
     </div>
     <div class="pin-lang-row">
