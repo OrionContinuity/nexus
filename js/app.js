@@ -39,7 +39,9 @@ const NX = {
   async fetchMemory(question) {
     try {
       // Fetch last 200 conversations for deep memory
-      const { data } = await this.sb.rpc('get_chat_history_admin', { p_since: null, p_limit: 200 });
+      const { data } = await this.sb.from('chat_history')
+        .select('question,answer,created_at,user_name')
+        .order('created_at', { ascending: false }).limit(200);
       if (!data || !data.length) return '';
       const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
       if (!words.length) return '';
@@ -227,61 +229,19 @@ const NX = {
       pin = pin.slice(0, -1); updateDisplay(); error.textContent = '';
     });
 
-    // Language buttons on PIN screen — dynamically rendered from
-    // nexus_config.primary_languages (admin-configured). default_language
-    // is pre-selected for first-time users. Tap → saves to localStorage
-    // so verify_pin path AND post-login both honor the choice.
-    const LANG_NAMES_PIN = {
-      en:'English', es:'Español', fr:'Français', pt:'Português',
-      it:'Italiano', de:'Deutsch', zh:'中文', ja:'日本語',
-      ko:'한국어', vi:'Tiếng Việt', ar:'العربية', hi:'हिन्दी',
-    };
-    const PIN_SUB_TEXT = {
-      en:'Enter your PIN', es:'Ingrese su PIN', fr:'Entrez votre PIN',
-      pt:'Digite seu PIN',  it:'Inserisci il PIN', de:'PIN eingeben',
-      zh:'请输入您的PIN',     ja:'PINを入力',         ko:'PIN을 입력하세요',
-      vi:'Nhập mã PIN',     ar:'أدخل رمز PIN',     hi:'अपना PIN दर्ज करें',
-    };
-    const renderPinLangs = (primaries, defaultLang) => {
-      const row = document.querySelector('.pin-lang-row');
-      if (!row) return;
-      const current = localStorage.getItem('nexus_lang') || defaultLang || 'en';
-      // Persist the default if no language is yet stored — so the verify_pin
-      // path & post-login start in the right place even with no tap.
-      if (!localStorage.getItem('nexus_lang') && defaultLang) {
-        localStorage.setItem('nexus_lang', defaultLang);
-      }
-      const safe = (primaries || []).filter(c => LANG_NAMES_PIN[c]);
-      const list = safe.length ? safe : ['en','es'];
-      row.innerHTML = list.map((code, i) =>
-        (i ? '<span class="pin-lang-dot">·</span>' : '') +
-        `<button class="pin-lang-btn${code===current?' active':''}" data-lang="${code}">${LANG_NAMES_PIN[code]||code}</button>`
-      ).join('');
-      row.querySelectorAll('.pin-lang-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const lang = btn.dataset.lang;
-          localStorage.setItem('nexus_lang', lang);
-          row.querySelectorAll('.pin-lang-btn').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          const sub = document.querySelector('.pin-sub');
-          if (sub) sub.textContent = PIN_SUB_TEXT[lang] || PIN_SUB_TEXT.en;
-          // Update i18n if it's already set up
-          if (this.i18n?.setLang) try { this.i18n.setLang(lang); } catch(_) {}
-        });
+    // Language toggle on PIN screen
+    const currentLang = this.i18n ? this.i18n.getLang() : 'en';
+    document.querySelectorAll('.pin-lang-btn').forEach(btn => {
+      if (btn.dataset.lang === currentLang) btn.classList.add('active');
+      btn.addEventListener('click', () => {
+        const lang = btn.dataset.lang;
+        localStorage.setItem('nexus_lang', lang);
+        document.querySelectorAll('.pin-lang-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const sub = document.querySelector('.pin-sub');
+        if (sub) sub.textContent = lang === 'es' ? 'Ingrese su PIN' : 'Enter your PIN';
       });
-      // Set the sub-text now too in case it was wrong on first paint
-      const sub = document.querySelector('.pin-sub');
-      if (sub) sub.textContent = PIN_SUB_TEXT[current] || PIN_SUB_TEXT.en;
-    };
-
-    // Render with the configured set, but don't block on it. Show EN/ES
-    // immediately so the screen never looks broken; replace once config arrives.
-    renderPinLangs(['en','es'], 'en');
-    this.sb.from('nexus_config').select('primary_languages,default_language').eq('id', 1).single()
-      .then(({ data }) => {
-        if (data) renderPinLangs(data.primary_languages || ['en','es'], data.default_language || 'en');
-      })
-      .catch(() => { /* keep the EN/ES fallback */ });
+    });
 
     // ═══ BIOMETRIC AUTH — fingerprint/face as PIN alternative ═══
     if (NX.biometric && await NX.biometric.check()) {
@@ -397,18 +357,7 @@ const NX = {
       }
       
       // ═══ SLOW PATH: Full Supabase verification ═══
-      // Uses security-definer RPC verify_pin() so the pin column is never
-      // sent to the client. Falls back to direct table read if the RPC
-      // isn't deployed yet (safe rollback while migrating).
-      let data, error;
-      const rpc = await this.sb.rpc('verify_pin', { p_pin: pin });
-      if (rpc.error && /function .* does not exist/i.test(rpc.error.message || '')) {
-        // Fallback: RPC not yet deployed — use legacy direct read
-        const fb = await this.sb.from('nexus_users').select('*').eq('pin', pin).single();
-        data = fb.data; error = fb.error;
-      } else {
-        data = rpc.data; error = rpc.error;
-      }
+      const { data, error } = await this.sb.from('nexus_users').select('*').eq('pin', pin).single();
       if (error || !data) {
         errorEl.textContent = this.i18n ? this.i18n.t('invalidPin') : 'Invalid PIN';
         errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500);
@@ -441,18 +390,7 @@ const NX = {
     sessionStorage.setItem('nexus_current_user', JSON.stringify(safeUser));
     // Keep PIN only in memory for session verification
     this._sessionPin = pin;
-    // Language sync — three cases:
-    // 1) User has no language set: adopt whatever was on the PIN screen
-    // 2) PIN-screen choice differs from user's saved language: update the
-    //    user record (option A — saves immediately, takes effect next session)
-    // 3) Else: pull saved language into localStorage so the app honors it
-    const pinLang = localStorage.getItem('nexus_lang');
-    if (pinLang && pinLang !== user.language) {
-      // Update user record — fire-and-forget, don't block login
-      this.sb.from('nexus_users').update({ language: pinLang }).eq('id', user.id)
-        .then(() => { user.language = pinLang; this.currentUser.language = pinLang; })
-        .catch(e => console.warn('[auth] language sync failed:', e?.message));
-    } else if (user.language && this.i18n && user.language !== this.i18n.getLang()) {
+    if (user.language && this.i18n && user.language !== this.i18n.getLang()) {
       localStorage.setItem('nexus_lang', user.language);
     }
     userEl.textContent = (this.i18n ? this.i18n.t('welcome') : 'Welcome,') + ' ' + user.name;
@@ -501,13 +439,8 @@ const NX = {
       else { console.log('NEXUS: No config row found'); }
     } catch (e) { console.error('Config load exception:', e); }
 
-    // ONE-TIME MIGRATION: DISABLED in security lockdown.
-    // Previously pushed local API keys up to nexus_config. After the
-    // edge-function refactor, no API keys live in nexus_config — they
-    // live ONLY in Supabase Edge Function secrets. Re-enabling this
-    // block would leak any saved keys to the publicly-readable
-    // nexus_config row.
-    if (false /* migration disabled */) {
+    // ONE-TIME MIGRATION: if Supabase config is empty but localStorage has keys, push them up
+    if ((!this.config || !this.config.anthropic_key) && localStorage.getItem('nexus_api_key')) {
       console.log('NEXUS: Migrating keys from localStorage to Supabase...');
       const updates = {};
       const lk = localStorage.getItem('nexus_api_key'); if (lk) updates.anthropic_key = lk;
@@ -826,20 +759,19 @@ td.check{background:#F0EDE6 !important}
   // ═══ INIT ═══
   async init() {
     this.sb = supabase.createClient(this.SUPA_URL, this.SUPA_KEY);
-
-    // ─── Auto-inject NEXUS proxy secret on every edge-function call ──
-    // The /chat, /translate, /markitdown functions check this header
-    // (defense-in-depth since their "Verify JWT" is OFF). Any code path
-    // that calls NX.sb.functions.invoke(...) gets the header for free —
-    // no per-call edits needed.
-    const proxySecret = window.NEXUS_CONFIG?.NX_PROXY_SECRET;
-    if (proxySecret && this.sb?.functions?.invoke) {
-      const _origInvoke = this.sb.functions.invoke.bind(this.sb.functions);
-      this.sb.functions.invoke = (name, opts = {}) => {
-        const headers = { ...(opts.headers || {}), 'X-NEXUS-Auth': proxySecret };
-        return _origInvoke(name, { ...opts, headers });
-      };
-    }
+    // ─── Coin pulse hook on every edge-function call ───────────────
+    // Wrap functions.invoke so any call to chat / translate / parse-part-url /
+    // markitdown / predictive-notify / etc. automatically triggers the
+    // masthead coin's gold rim glow pulse. The coin module exposes
+    // NX.coin.pulse() (also aliased as NX.homeGalaxyPulse for backward
+    // compat). If the coin hasn't been wired yet (e.g. PIN screen, before
+    // home view mounts), the call is a no-op. No try/catch needed —
+    // we use optional chaining so a missing API can't break invokes.
+    const _origInvoke = this.sb.functions.invoke.bind(this.sb.functions);
+    this.sb.functions.invoke = (...args) => {
+      NX.coin?.pulse?.();
+      return _origInvoke(...args);
+    };
 
     if(window.NEXUS_I18N) { this.i18n = NEXUS_I18N; this.i18n.applyUI(); }
     // Test Supabase connection
@@ -966,17 +898,21 @@ td.check{background:#F0EDE6 !important}
     else {
       this.loadScript(file, () => {
         this.loaded[view] = true;
-        // For equipment, also load the context menu (still separate because
-        // log view loads it independently — see below).
+        // For equipment, also load phase 2 + 3 extensions after base loads
         if (view === 'equipment') {
-          // NOTE: Previously loaded as separate scripts:
-          //   equipment-ai.js, equipment-brain-sync.js, equipment-badge-choice.js,
-          //   equipment-cleanup.js, plus earlier round of equipment-p3.js,
-          //   equipment-ux.js, equipment-ai-creator.js, equipment-full-editor.js,
-          //   equipment-fixes.js. All consolidated into equipment.js.
-          // equipment-cleanup.js was DELETED — its job is no longer needed.
-          // equipment-context-menu.js stays separate because log view loads it.
-          this.loadScript('js/equipment-context-menu.js', () => {});
+          // NOTE: equipment-p3.js, equipment-ux.js, equipment-ai-creator.js,
+          // equipment-full-editor.js, and equipment-fixes.js were all
+          // consolidated into equipment.js (one source of truth, no more
+          // MutationObserver race conditions).
+          this.loadScript('js/equipment-ai.js', () => {
+            this.loadScript('js/equipment-cleanup.js', () => {
+              this.loadScript('js/equipment-context-menu.js', () => {
+                this.loadScript('js/equipment-brain-sync.js', () => {
+                  this.loadScript('js/equipment-badge-choice.js', () => {});
+                });
+              });
+            });
+          });
         }
         // Log view also needs the context menu (Deleted tab + search)
         if (view === 'log') {
@@ -1047,55 +983,6 @@ td.check{background:#F0EDE6 !important}
         document.getElementById('adminTrelloToken').placeholder = tt ? 'Token set (••••' + tt.slice(-4) + ')' : 'Trello Token';
         document.getElementById('adminModel').value = this.getModel();
         document.getElementById('adminVoice').value = (this.config && this.config.voice_idx != null) ? this.config.voice_idx : (localStorage.getItem('nexus_voice_idx') || '0');
-
-        // ── Language chips + default language picker ──
-        // 12 supported codes — same order as everywhere else in NEXUS.
-        const SUPPORTED_LANGS = [
-          ['en','English'],['es','Español'],['fr','Français'],['pt','Português'],
-          ['it','Italiano'],['de','Deutsch'],['zh','中文'],['ja','日本語'],
-          ['ko','한국어'],['vi','Tiếng Việt'],['ar','العربية'],['hi','हिन्दी'],
-        ];
-        const grid = document.getElementById('adminLangGrid');
-        const defaultSel = document.getElementById('adminDefaultLang');
-        if (grid && defaultSel) {
-          const selected = new Set(this.config?.primary_languages || ['en','es']);
-          const currentDefault = this.config?.default_language || 'en';
-          const renderDefaultOptions = () => {
-            const opts = [...selected];
-            if (!opts.includes(currentDefault) && opts.length) {
-              // currentDefault was just unselected — fall back to first
-            }
-            defaultSel.innerHTML = opts.map(c => {
-              const name = (SUPPORTED_LANGS.find(l => l[0] === c) || [c, c])[1];
-              const sel = c === currentDefault ? ' selected' : '';
-              return `<option value="${c}"${sel}>${name}</option>`;
-            }).join('') || `<option value="en">English</option>`;
-          };
-          grid.innerHTML = SUPPORTED_LANGS.map(([code, name]) => `
-            <button type="button" class="admin-lang-chip${selected.has(code)?' active':''}" data-lang="${code}">
-              <span>${name}</span>
-            </button>
-          `).join('');
-          grid.querySelectorAll('.admin-lang-chip').forEach(chip => {
-            chip.addEventListener('click', () => {
-              const code = chip.dataset.lang;
-              if (selected.has(code)) {
-                if (selected.size <= 1) return; // need at least one
-                selected.delete(code);
-                chip.classList.remove('active');
-              } else {
-                if (selected.size >= 4) return; // cap at 4
-                selected.add(code);
-                chip.classList.add('active');
-              }
-              renderDefaultOptions();
-            });
-          });
-          renderDefaultOptions();
-          // Stash the live set on the grid so the save handler can read it
-          grid._selected = selected;
-        }
-
         // Voice saves immediately on change
         document.getElementById('adminVoice').addEventListener('change', async (e) => {
           const idx = parseInt(e.target.value) || 0;
@@ -1170,16 +1057,6 @@ td.check{background:#F0EDE6 !important}
         voice_idx: parseInt(document.getElementById('adminVoice').value)||0,
         updated_at: new Date().toISOString()
       };
-      // Language settings (admin-controlled)
-      const grid = document.getElementById('adminLangGrid');
-      const defaultSel = document.getElementById('adminDefaultLang');
-      if (grid && grid._selected && grid._selected.size > 0) {
-        updates.primary_languages = [...grid._selected];
-        const def = defaultSel?.value || 'en';
-        updates.default_language = updates.primary_languages.includes(def)
-          ? def
-          : updates.primary_languages[0];
-      }
       localStorage.setItem('nexus_voice_idx', document.getElementById('adminVoice').value);
       // Also save to localStorage as backup
       if (ak) localStorage.setItem('nexus_api_key', ak);
@@ -1654,7 +1531,7 @@ td.check{background:#F0EDE6 !important}
     if (!list) return;
     list.innerHTML = '<div style="font-size:11px;color:var(--faint);padding:8px">Loading...</div>';
     try {
-      const { data } = await this.sb.rpc('get_chat_history_admin', { p_since: null, p_limit: 100 });
+      const { data } = await this.sb.from('chat_history').select('*').order('created_at', { ascending: false }).limit(100);
       list.innerHTML = '';
       if (!data || !data.length) { list.innerHTML = '<div style="font-size:11px;color:var(--faint);padding:8px">No chat history yet.</div>'; return; }
       data.forEach(entry => {
@@ -1899,30 +1776,39 @@ td.check{background:#F0EDE6 !important}
     }catch(e){}
   },
   async askClaude(system, messages, maxTokens = 600, useSearch = false) {
-    // Routes through the /chat edge function so the Anthropic key never
-    // touches the browser. Edge function reads ANTHROPIC_API_KEY from
-    // Supabase Edge Function secrets — the only place the key now lives.
-    const body = { system, messages, model: this.getModel(), max_tokens: maxTokens };
+    const key = this.getApiKey();
+    if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
+    const body = { model: this.getModel(), max_tokens: maxTokens, system, messages };
     if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
-    if (this.currentUser?.name) body.user_name = this.currentUser.name;
-    const { data, error } = await this.sb.functions.invoke('chat', { body });
-    if (error) throw new Error(error.message || 'AI request failed');
-    if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || 'API error'));
-    return data?.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message || 'API error');
+    return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
   },
 
   async askClaudeVision(prompt, base64Data, mimeType) {
-    // Routes through the /chat edge function. See askClaude above.
+    const key = this.getApiKey();
+    if (!key) return '';
     try {
-      const messages = [{ role: 'user', content: [
-        { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Data } },
-        { type: 'text', text: prompt }
-      ]}];
-      const body = { messages, model: this.getModel(), max_tokens: 1500 };
-      if (this.currentUser?.name) body.user_name = this.currentUser.name;
-      const { data, error } = await this.sb.functions.invoke('chat', { body });
-      if (error || data?.error) return '';
-      return data?.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({
+          model: this.getModel(),
+          max_tokens: 1500,
+          messages: [{ role: 'user', content: [
+            { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Data } },
+            { type: 'text', text: prompt }
+          ]}]
+        })
+      });
+      const data = await resp.json();
+      if (data.error) return '';
+      return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
     } catch (e) { return ''; }
   },
 
@@ -2086,12 +1972,15 @@ if ('serviceWorker' in navigator) {
             userVisibleOnly: true,
             applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
           });
-          const { error } = await NX.sb.rpc('save_push_subscription', {
-            p_user_id:      NX.currentUser?.id,
-            p_user_name:    NX.currentUser?.name || '',
-            p_subscription: sub.toJSON(),
-            p_user_agent:   navigator.userAgent.slice(0, 200),
-          });
+          const row = {
+            user_id: NX.currentUser?.id,
+            user_name: NX.currentUser?.name,
+            subscription: sub.toJSON(),
+            user_agent: navigator.userAgent.slice(0, 200),
+            updated_at: new Date().toISOString(),
+          };
+          const { error } = await NX.sb.from('push_subscriptions')
+            .upsert(row, { onConflict: 'user_id' });
           if (error) throw error;
           NX.toast && NX.toast('Notifications enabled ✓', 'success');
           return { ok: true };
@@ -2137,13 +2026,11 @@ if ('serviceWorker' in navigator) {
           return { ok: false, reason: 'user_declined_previously' };
         }
         try {
-          const { data: vapid, error: rpcErr } = await NX.sb.rpc('get_vapid_public_key');
-          if (rpcErr) {
-            console.warn('[push] vapid rpc error:', rpcErr.message);
-            return { ok: false, reason: 'config_fetch_failed', error: rpcErr.message };
-          }
+          const { data: cfg } = await NX.sb.from('nexus_config')
+            .select('config').eq('id', 1).single();
+          const vapid = cfg?.config?.vapid_public_key;
           if (!vapid) {
-            console.warn('[push] no VAPID key configured (nexus_config.config.vapid_public_key)');
+            console.warn('[push] no VAPID key in nexus_config.config.vapid_public_key');
             return { ok: false, reason: 'no_vapid_key' };
           }
           localStorage.setItem('nexus_push_asked', '1');
@@ -2158,7 +2045,8 @@ if ('serviceWorker' in navigator) {
           const sub = await reg.pushManager.getSubscription();
           if (sub) await sub.unsubscribe();
           if (NX.currentUser?.id) {
-            await NX.sb.rpc('delete_push_subscription', { p_user_id: NX.currentUser.id });
+            await NX.sb.from('push_subscriptions')
+              .delete().eq('user_id', NX.currentUser.id);
           }
           NX.toast && NX.toast('Notifications disabled', 'info');
           return { ok: true };
