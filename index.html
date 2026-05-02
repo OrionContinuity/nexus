@@ -216,6 +216,14 @@
   letter-spacing: 0.5px;
 }
 
+.nx-coin-info-tagline-sub {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: #6b6258;
+  letter-spacing: 0.4px;
+  font-style: italic;
+}
+
 .nx-coin-info-divider {
   height: 1px;
   background: linear-gradient(
@@ -243,10 +251,13 @@
 }
 
 .nx-coin-info-section p {
-  margin: 0 0 6px;
+  margin: 0 0 10px;
   font-size: 13.5px;
-  line-height: 1.55;
+  line-height: 1.6;
   color: #d4c8a5;
+}
+.nx-coin-info-section p:last-child {
+  margin-bottom: 0;
 }
 
 .nx-coin-info-latin {
@@ -257,11 +268,80 @@
   margin-top: 4px;
 }
 
+/* Bullet list — used in The Titulature section to break out the
+   abbreviations of Trajan's full name. Editorial, not bulleted. */
+.nx-coin-info-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 14px;
+  border-left: 1px solid rgba(200, 164, 78, 0.3);
+}
+.nx-coin-info-list li {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #d4c8a5;
+  padding: 6px 0 6px 14px;
+  text-align: left;
+}
+.nx-coin-info-list li strong {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  color: #c8a44e;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+/* Pull-quote — used for the central thesis of the coin near the end.
+   Indented, italic, gold accent rule on the left. */
+.nx-coin-info-quote {
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #e3d8b4;
+  margin: 14px 0;
+  padding: 4px 14px;
+  border-left: 2px solid #c8a44e;
+  text-align: left;
+}
+
 .nx-coin-info-foot {
-  font-size: 11px;
+  font-size: 12px;
   color: #857f75;
   margin: 0;
   font-style: italic;
+  line-height: 1.6;
+  letter-spacing: 0.3px;
+}
+.nx-coin-info-foot em {
+  color: #c8a44e;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-style: normal;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+
+/* ─── PIN screen spacing overrides ────────────────────────────────────
+   With the coin added at the top, the existing chain of pin-mast
+   elements + pin-display + pin-pad + pin-sub + pin-lang-row felt too
+   tight. These overrides add proper breathing room between the cluster
+   above the keypad and below the keypad. Inline here so we don't touch
+   the shared nexus.css. */
+#pinScreen .pin-dot {
+  margin-bottom: 14px;
+}
+#pinScreen .pin-title {
+  margin-bottom: 10px;
+}
+#pinScreen .pin-date {
+  margin-bottom: 22px;
+}
+#pinScreen .pin-display {
+  margin-bottom: 36px;
+}
+#pinScreen .pin-pad {
+  margin-bottom: 22px;
+}
+#pinScreen .pin-lang-row {
+  margin-top: 32px;
 }
 
 /* Slightly smaller coin on narrow phones — preserve the 20px safe zone
@@ -301,10 +381,10 @@
         <button class="nx-coin-info" id="nxCoinInfo" type="button" aria-label="About the NEXUS coin">i</button>
         <div class="nx-coin" id="nxCoin" tabindex="0" role="button" aria-label="NEXUS coin — tap to flip">
           <div class="nx-coin-face nx-coin-front">
-            <img src="assets/coin-trajan.png" alt="Trajan, the operator-emperor" draggable="false">
+            <img src="assets/coin-trajan.png" alt="Trajan, Optimus Princeps" draggable="false">
           </div>
           <div class="nx-coin-face nx-coin-back">
-            <img src="assets/coin-orion.png" alt="Orion, who shows the stars" draggable="false">
+            <img src="assets/coin-providentia.png" alt="Providentia, goddess of foresight" draggable="false">
           </div>
         </div>
       </div>
@@ -370,56 +450,434 @@
 
       <h2 id="nxCoinInfoTitle" class="nx-coin-info-title">NEXUS</h2>
       <p class="nx-coin-info-tagline">
-        From Latin <em>nectere</em> — to bind, to tie together.
-        A nexus is the point where threads meet.
+        Latin · <em>nectere</em>, to bind. A nexus is the knot — the point
+        where threads cross and hold.
+      </p>
+      <p class="nx-coin-info-tagline-sub">
+        Connection. Continuity. The thing that does not unravel.
       </p>
 
       <div class="nx-coin-info-divider"></div>
 
       <div class="nx-coin-info-section">
-        <div class="nx-coin-info-label">Front · Trajan</div>
-        <p class="nx-coin-info-latin">NEXVS · TRAIANVS · MMXXVI</p>
+        <div class="nx-coin-info-label">The Coin</div>
         <p>
-          Roman emperor, 98–117 AD. Built roads, bridges, aqueducts, and the
-          first welfare program for poor children. Less famous than Augustus,
-          but the Romans rated him higher.
+          A gold aureus, struck 2026, in the manner of Trajan's mint at
+          Rome, circa 110 AD.
         </p>
         <p>
-          For 200 years after his death, every new emperor was greeted by the
-          Senate with the wish: <em>felicior Augusto, melior Traiano</em> —
-          luckier than Augustus, better than Trajan.
+          A coin has two sides because trust does. One face says
+          <em>who</em>. The other says <em>why</em>. The metal between
+          them is the same.
         </p>
         <p>
-          He is the patron of the work that doesn't show. The system that runs
-          because someone is paying attention.
+          This is the NEXUS coin. It is not a souvenir. It is not a logo
+          rendered round. It is a working symbol, struck the way Romans
+          struck them — with full titulature, real iconography, and
+          meanings that have to be earned to be understood.
+        </p>
+        <p>
+          If you can read the coin, you understand what NEXUS is for.
         </p>
       </div>
 
       <div class="nx-coin-info-divider"></div>
 
       <div class="nx-coin-info-section">
-        <div class="nx-coin-info-label">Back · Orion</div>
-        <p class="nx-coin-info-latin">NEXVS ASTRORVM · ASTRA MONSTRAT</p>
-        <p>
-          <em>Nexus astrorum</em> — the binding of the stars.
-          <em>Astra monstrat</em> — he shows the stars.
+        <div class="nx-coin-info-label">Obverse · Trajan</div>
+        <p class="nx-coin-info-latin">
+          IMP TRAIANO AVG GER DAC<br>
+          P M TR P COS V P P
         </p>
         <p>
-          Orion was the hunter of Greek myth. On this coin he has set down the
-          bow. He plants a staff in the ground and raises his hand to the
-          constellation that bears his name — three stars in a line, the most
-          recognized pattern in the night sky.
+          A young Marcus Ulpius Traianus faces right, wearing the laurel
+          wreath of triumph. The portrait is faithful to surviving aurei
+          from the year 110 AD — the same set of the jaw, the same curl
+          of the hair beneath the laurel ribbon, the same downward tilt
+          of the gaze that belonged to a soldier who had become an
+          emperor and never stopped being a soldier.
         </p>
         <p>
-          The book of Job asks: <em>canst thou loose the bands of Orion?</em>
-          The coin's answer: this Orion is bound by his own hand, to his work,
-          and points beyond it.
+          The inscription wrapping the rim is the full Roman titulature
+          of Trajan in 110 AD — every name and office he held at once,
+          in the order Romans listed them.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">The Titulature, Read</div>
+        <ul class="nx-coin-info-list">
+          <li><strong>IMP</strong> · <em>Imperator</em> — Commander, acclaimed by the army</li>
+          <li><strong>TRAIANO</strong> · the dative — <em>for him</em></li>
+          <li><strong>AVG</strong> · <em>Augustus</em> — The Revered, the imperial name itself</li>
+          <li><strong>GER</strong> · <em>Germanicus</em> — Conqueror of Germans</li>
+          <li><strong>DAC</strong> · <em>Dacicus</em> — Conqueror of Dacians, the wars of 101–106</li>
+          <li><strong>P M</strong> · <em>Pontifex Maximus</em> — Chief Priest of Rome</li>
+          <li><strong>TR P</strong> · <em>Tribunicia Potestate</em> — Holding tribunician power</li>
+          <li><strong>COS V</strong> · <em>Consul Quintum</em> — Consul for the fifth time. He held this office from 103 to 111. The V dates the coin.</li>
+          <li><strong>P P</strong> · <em>Pater Patriae</em> — Father of the Country, granted only to those who earned it</li>
+        </ul>
+        <p>The whole inscription, expanded, reads:</p>
+        <p class="nx-coin-info-latin">
+          To Imperator Trajan Augustus, conqueror of Germans and Dacians,
+          Chief Priest, holder of tribunician power, consul for the fifth
+          time, Father of the Country.
+        </p>
+        <p>
+          Nine titles. One man. Each one a separate thing he carried —
+          the army, the Senate, the gods, the courts, the people. A
+          nexus is a knot, and Trajan's life was a knot of obligations
+          none of which could be set down.
+        </p>
+        <p>
+          That is why he is on the coin.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">Why Trajan, Specifically</div>
+        <p>
+          Rome had thirteen emperors before Trajan. Some were monsters.
+          Some were ghosts. Some were merely competent. Trajan was the
+          first the Romans called <em>Optimus</em> — the Best.
+        </p>
+        <p>
+          The reason was not military, though he doubled the size of the
+          empire. It was not financial, though he funded the
+          <em>alimenta</em> — Rome's first welfare program for poor
+          children — from the spoils of one war and never raised a tax
+          to feed it. It was not architectural, though he built Trajan's
+          Column, Trajan's Forum, Trajan's Market, Trajan's Bridge
+          across the Danube whose piers became islands.
+        </p>
+        <p>
+          The reason was that Trajan paid attention.
+        </p>
+        <p>
+          He answered his own letters. The historian Pliny the Younger,
+          governor of Bithynia, wrote to Trajan with a long question
+          about how to handle the Christians in his province. Trajan
+          wrote back personally, in his own hand, with a careful answer.
+          There are 121 of these letters. They are all about ordinary
+          things: a fire brigade in Nicomedia, a new aqueduct, a soldier
+          asking for leave. Trajan answered them all.
+        </p>
+        <p>
+          For two hundred years after he died, every new Roman emperor
+          was greeted by the Senate with the same prayer:
+        </p>
+        <p class="nx-coin-info-latin">
+          felicior Augusto, melior Traiano.
+        </p>
+        <p>
+          Luckier than Augustus. Better than Trajan. The empire never
+          used the prayer for anyone again, because no one earned it.
+        </p>
+        <p>
+          He is the patron of the work that does not announce itself.
+          The system that runs because someone is paying attention.
+          The work of NEXUS.
         </p>
       </div>
 
       <div class="nx-coin-info-divider"></div>
 
-      <p class="nx-coin-info-foot">Tap the coin to turn it.</p>
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">Reverse · Providentia</div>
+        <p class="nx-coin-info-latin">
+          NEXVS · OPTIMO PRINCIPI
+        </p>
+        <p>
+          The reverse shows a goddess. She is <strong>Providentia</strong>
+          — the Roman personification of foresight, planning, and the
+          foreknowledge that allows good rule to happen at all.
+        </p>
+        <p>
+          She is dressed in a flowing stola and palla, the formal dress
+          of a Roman matron. She leans on a fluted Doric column. In her
+          right hand she holds a slender wand — the <em>pertica</em>,
+          the rod of measurement and direction — and she points it down
+          at a globe resting at her feet. In her left arm she cradles a
+          cornucopia overflowing with grain, grapes, and fruit. Behind
+          her, in the upper field, the stars of the constellation Orion
+          are scattered across the night sky, with the three stars of
+          his belt clearly visible in their tight diagonal line.
+        </p>
+        <p>
+          Every element on this side means something. Read it slowly.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">Providentia · The Woman</div>
+        <p>
+          Of all the Roman virtues that became goddesses —
+          <em>Pietas, Concordia, Salus, Spes, Virtus</em> — Providentia
+          was the one Trajan favored most. She appears on more of his
+          coins than any other deity.
+        </p>
+        <p>
+          The reason is that <em>providentia</em> is the virtue that
+          comes before all the others. Before piety, before harmony,
+          before health, before hope, before courage, you must first
+          <strong>see clearly</strong>. You must look ahead. You must
+          plan.
+        </p>
+        <p>
+          The Latin word <em>providentia</em> means
+          <em>seeing forward</em>. It is the root of the English word
+          <em>providence</em>. It is also the root of <em>provide</em>
+          — because the only way to provide is to have seen the need in
+          advance.
+        </p>
+        <p>
+          She is the goddess of the work nobody thanks you for. The
+          maintenance schedule that prevented the breakdown. The order
+          placed three days early. The walk-through that caught the
+          leak before the ceiling fell. She is the patron of operators.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">The Column · What She Leans On</div>
+        <p>
+          She leans on a Doric column. The Doric is the simplest of the
+          three classical orders — older than Ionic, older than
+          Corinthian. No ornament. No flourish. Just a fluted shaft and
+          a plain capital. Romans used Doric columns for two kinds of
+          buildings: military structures, and storehouses.
+        </p>
+        <p>
+          A column is what holds the roof up. Providentia leans on hers
+          because foresight is what holds the future up. Without her
+          there is no roof. There is only weather.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">The Pertica · The Wand</div>
+        <p>
+          She holds a <em>pertica</em>. In Roman surveying, the pertica
+          was the standard rod the <em>agrimensores</em> — the imperial
+          surveyors — used to measure land. It was ten Roman feet long,
+          and from it came the unit <em>pertica</em> (the perch in
+          English) and the practice of <em>centuriation</em> — the grid
+          pattern by which Romans laid out new colonies, military camps,
+          and reclaimed farmland across the entire empire.
+        </p>
+        <p>
+          When you fly over Italy or Tunisia or Spain today, you can
+          still see the centuriation grid in the fields. It has been
+          there for two thousand years. The pertica drew it.
+        </p>
+        <p>
+          In Providentia's hand, the pertica is the tool she uses to
+          <strong>measure the world</strong> before she shapes it.
+          Before you build, you measure. Before you act, you plan.
+          Before you provide, you see.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">The Globe · What She Measures</div>
+        <p>
+          At her feet rests a globe. The Romans called it the
+          <em>orbis terrarum</em> — the circle of the lands. It
+          represented the known world: the Mediterranean, Egypt, Gaul,
+          Britain, the Danubian provinces, the East, the African coast.
+        </p>
+        <p>
+          By 110 AD, the <em>orbis terrarum</em> on Trajan's coins meant
+          the empire itself, which Trajan had just expanded to its
+          greatest extent. The globe was not decorative. It was
+          inventory. It was <em>what we have to manage</em>.
+        </p>
+        <p>
+          Providentia points her pertica <strong>at</strong> the globe.
+          She is not holding it up. She is not crowning it. She is
+          <strong>measuring it</strong>. The gesture says:
+          <em>I see what is here, and I am responsible for it.</em>
+        </p>
+        <p>
+          A nexus is not a single point. It is a relationship between
+          many points — a knot tied to make those points hold each
+          other. Providentia, measuring the globe with her pertica, is
+          tying the knot.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">The Cornucopia · What Comes of It</div>
+        <p>
+          In her left arm she carries the <em>cornucopia copiae</em> —
+          the horn of plenty. It is overflowing with grain, with grapes,
+          with fruit. The Romans put cornucopias on coins for one
+          reason: to say that the leadership being celebrated had
+          <strong>produced abundance</strong>.
+        </p>
+        <p>
+          Providence without abundance is just calculation. Abundance
+          without providence is just luck. The cornucopia is here
+          because the woman holding it has earned it — by foresight, by
+          measurement, by tying the knot well.
+        </p>
+        <p>
+          The cornucopia is what NEXUS is for. Not the system. The
+          result.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">The Stars · What Watches</div>
+        <p>
+          Behind her, in the field above her shoulder, the stars of
+          <strong>Orion</strong> are visible. The three stars of his
+          belt are the most recognizable pattern in the night sky.
+          Egyptian priests aligned the pyramids of Giza to them.
+          Sumerian shepherds named them five thousand years ago. Greek
+          sailors steered by them. Job 38 invokes them:
+        </p>
+        <p class="nx-coin-info-latin">
+          numquid solvere poteris vincula Orionis?
+        </p>
+        <p>
+          <em>Canst thou bind the sweet influences of Pleiades, or loose
+          the bands of Orion?</em> — the question God asks Job to remind
+          him that some patterns are older than humans.
+        </p>
+        <p>
+          Orion is on the coin because he is the longest witness humans
+          have. The constellations were watching when the pyramids went
+          up. They were watching when Trajan crossed the Danube. They
+          are watching now.
+        </p>
+        <p>
+          Providentia plans. The cornucopia overflows. And the stars —
+          old beyond reckoning — see.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">The Inscription</div>
+        <p class="nx-coin-info-latin">
+          NEXVS · OPTIMO PRINCIPI
+        </p>
+        <p>
+          The phrase <em>Optimo Principi</em> — to the best ruler —
+          appears on dozens of real Trajan reverses. The Senate awarded
+          him the title <em>Optimus</em> in 114 AD, near the end of his
+          reign, but coins began saluting him as
+          <em>Optimo Principi</em> a decade earlier. It was the people
+          insisting on the title before the Senate would.
+        </p>
+        <p>Adding <strong>NEXVS</strong> to it does two things:</p>
+        <p>
+          First — <strong>it claims the lineage</strong>. This coin is
+          in the tradition of Trajan's coinage: full titulature, formal
+          Latin, real iconography. NEXUS is announcing itself as a
+          system in the same tradition — foresight, measurement,
+          abundance, the work of governance.
+        </p>
+        <p>
+          Second — <strong>it dedicates the coin</strong>.
+          <em>Nexus optimo principi</em> — Nexus, to the best ruler.
+          The best ruler is whoever is using NEXUS to do the work. The
+          operator opening the app. The manager closing the ticket.
+          The cook clocking in. The coin is dedicated to <em>them</em>.
+        </p>
+        <p>
+          The inscription is not a brag. It is a charge.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-divider"></div>
+
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">What the Coin Means as a Whole</div>
+        <p>
+          One side is a man. The other side is the work he made
+          possible.
+        </p>
+        <p>
+          The obverse is <strong>the operator</strong> — Trajan, the
+          patron of attention, the emperor who answered his own letters.
+          The reverse is <strong>the operation</strong> — Providentia
+          measuring the world with her wand, the cornucopia overflowing,
+          the stars watching.
+        </p>
+        <p>Together they say:</p>
+        <p class="nx-coin-info-quote">
+          The work that does not announce itself produces abundance.
+          Foresight is the column the roof rests on. Measure the world
+          before you shape it. The stars have always been watching.
+        </p>
+        <p>
+          That is what NEXUS is. Not software. A practice. A way of
+          paying attention.
+        </p>
+        <p>
+          When you log in and the coin shows you Trajan's face, it is
+          asking you to be the one who pays attention today. When it
+          flips to Providentia, it is showing you what comes of paying
+          attention: the world measured, the harvest gathered, the stars
+          witnessing.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-divider"></div>
+
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">The Maker</div>
+        <p>
+          NEXUS is operations software for restaurants. Equipment that
+          works. Cleaning that gets done. Tickets that close. The boring
+          things that, when they fail, kill a restaurant. When they
+          hold, they free the people inside to make something worth
+          eating.
+        </p>
+        <p>
+          One operator. Three rooms in Austin: Suerte, Este, Bar Toti.
+          Built from a phone, late at night, on the floor of one of
+          them.
+        </p>
+        <p>
+          Trajan on one side. Providentia on the other. The hand that
+          carries the work, and the foresight that shapes the world the
+          work happens in.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-divider"></div>
+
+      <div class="nx-coin-info-section">
+        <div class="nx-coin-info-label">The Date</div>
+        <p>
+          The coin is struck in the year you are reading it. In 110 AD,
+          Trajan's mint at Rome struck thousands of aurei a year. They
+          scattered across the empire, paid soldiers, paid suppliers,
+          ended up buried in fields in Britain and Spain and Romania,
+          where they are still being dug up today, two thousand years
+          later, gleaming and unworn.
+        </p>
+        <p>
+          This coin is struck in the same tradition. It will be small
+          in the world. It will mean something only to the people who
+          hold it. Two thousand years from now it may still be here, in
+          some form, and the stars will still be watching, and someone
+          will still be doing the work that does not announce itself.
+        </p>
+        <p>
+          That is the nexus. The knot that does not unravel.
+        </p>
+      </div>
+
+      <div class="nx-coin-info-divider"></div>
+
+      <p class="nx-coin-info-foot">
+        <em>Astra monstrat.</em><br>
+        The stars are pointing.<br>
+        Tap the coin. Turn it over.
+      </p>
     </div>
   </div>
 </div>
