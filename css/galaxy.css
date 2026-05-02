@@ -75,29 +75,127 @@
   text-overflow: ellipsis;
 }
 
-/* ─── Tiny spinning galaxy in the masthead ──────────────────────── */
-.home-mini-galaxy {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
+/* ─── Masthead coin — small Trajan/Providentia in the date row ─────
+   Replaces the spinning mini-galaxy. Same artifact as the login coin
+   for visual continuity. Three states:
+     - default:  Trajan face, subtle idle wobble
+     - .pulsing: gold rim glow breathes once (~1.4s) for AI activity
+     - .listening: steady dim rim glow for persistent notification watch
+   Tapping a tap on .home-coin-mini-flip toggles .flipped to rotate
+   between Trajan (front) and Providentia (back) sides via CSS 3D. */
+.home-coin-mini {
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
   cursor: pointer;
   position: relative;
-  background:
-    radial-gradient(circle at 50% 50%,
-      rgba(212, 164, 78, 0.18) 0%,
-      rgba(212, 164, 78, 0.05) 40%,
-      transparent 72%);
+  display: inline-block;
+  perspective: 200px;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.2s ease;
+  /* Subtle idle wobble — barely perceptible, gives "alive" feel */
+  animation: coinIdleWobble 5.5s ease-in-out infinite;
 }
-.home-mini-galaxy:hover { transform: scale(1.15); }
-.home-mini-galaxy:active { transform: scale(0.92); }
-.home-mini-galaxy canvas {
+.home-coin-mini:hover { filter: brightness(1.08); }
+.home-coin-mini:active .home-coin-mini-flip { transform: scale(0.92); }
+
+/* Inner element handles the 3D flip rotation */
+.home-coin-mini-flip {
+  position: relative;
   width: 100%;
   height: 100%;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.4, 0.05, 0.3, 1);
+}
+.home-coin-mini-flip.flipped {
+  transform: rotateY(180deg);
+}
+.home-coin-mini-face {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
   display: block;
+  /* Drop-shadow follows the circular shape since the PNGs are
+     transparent outside the disc — gives a true round shadow,
+     not a square one. */
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+.home-coin-mini-back {
+  transform: rotateY(180deg);
+}
+
+/* Idle wobble — ±1.5° tilt over 5.5s. Just enough to feel like
+   the coin is sitting on a surface, breathing. Not noticeable
+   unless you watch for it. */
+@keyframes coinIdleWobble {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(1.5deg); }
+}
+
+/* AI activity pulse — gold rim glow breathes in then out.
+   Implemented as a ::before pseudo-element so it doesn't disturb
+   the coin image itself. */
+.home-coin-mini::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
   border-radius: 50%;
+  pointer-events: none;
+  box-shadow: 0 0 0 0 rgba(212, 164, 78, 0);
+  transition: box-shadow 0.3s ease;
+  z-index: -1;
+}
+.home-coin-mini.pulsing::before {
+  animation: coinPulse 1.4s cubic-bezier(0.4, 0, 0.6, 1) 1;
+}
+@keyframes coinPulse {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(212, 164, 78, 0),
+      0 0 0 0 rgba(212, 164, 78, 0);
+  }
+  35% {
+    box-shadow:
+      0 0 8px 2px rgba(212, 164, 78, 0.6),
+      0 0 16px 4px rgba(212, 164, 78, 0.25);
+  }
+  70% {
+    box-shadow:
+      0 0 12px 3px rgba(212, 164, 78, 0.45),
+      0 0 24px 8px rgba(212, 164, 78, 0.18);
+  }
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(212, 164, 78, 0),
+      0 0 0 0 rgba(212, 164, 78, 0);
+  }
+}
+
+/* Persistent listening — steady dim glow. Separate animation that
+   breathes much slower (3s) and at lower intensity. Stacks with
+   pulse: when both classes are present, pulse takes precedence
+   visually because it's brighter. */
+.home-coin-mini.listening::before {
+  animation: coinListening 3s ease-in-out infinite;
+}
+.home-coin-mini.listening.pulsing::before {
+  animation: coinPulse 1.4s cubic-bezier(0.4, 0, 0.6, 1) 1;
+}
+@keyframes coinListening {
+  0%, 100% {
+    box-shadow:
+      0 0 4px 1px rgba(212, 164, 78, 0.15),
+      0 0 8px 2px rgba(212, 164, 78, 0.06);
+  }
+  50% {
+    box-shadow:
+      0 0 6px 1px rgba(212, 164, 78, 0.25),
+      0 0 12px 3px rgba(212, 164, 78, 0.10);
+  }
 }
 
 /* ─── Lede — "Afternoon, Alfredo." using the NEXUS brand font ────── */
