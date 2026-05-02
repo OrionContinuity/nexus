@@ -319,6 +319,19 @@
   letter-spacing: 1px;
 }
 
+/* ─── PIN screen vertical layout override ────────────────────────────
+   The default pin-screen centers content vertically. With the coin added
+   at the top, that creates a large dead space below the language buttons
+   on tall phones. Anchor the content to the top with comfortable padding
+   so everything reads as one continuous composition. */
+#pinScreen.pin-screen {
+  align-items: flex-start;
+}
+#pinScreen .pin-box {
+  padding-top: 32px;
+  padding-bottom: 24px;
+}
+
 /* ─── PIN screen spacing overrides ────────────────────────────────────
    With the coin added at the top, the existing chain of pin-mast
    elements + pin-display + pin-pad + pin-sub + pin-lang-row felt too
