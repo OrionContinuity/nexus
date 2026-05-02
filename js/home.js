@@ -156,6 +156,20 @@
             Checking what's happening across the restaurants…
           </p>
 
+          <!-- STATS — moved above the fold. Most-tapped surface,
+               so it should be visible without scrolling. -->
+          <div class="home-glance" id="homeGlance">
+            ${['tickets','overdue','services','nodes'].map(k => `
+              <button class="nx-stat" data-stat="${k}">
+                <span class="nx-stat-num is-loading">—</span>
+                <span class="nx-stat-label">${labelFor(k)}</span>
+              </button>
+            `).join('')}
+          </div>
+
+          <h2 class="nx-section nx-section--first">
+            <span class="nx-section-title">Today</span>
+          </h2>
           <div class="home-feed" id="homeFeed">
             <div class="home-skeleton"></div>
             <div class="home-skeleton"></div>
@@ -175,23 +189,40 @@
             </button>
           </div>
 
-          <h2 class="nx-section">
-            <span class="nx-section-title">At a glance</span>
-          </h2>
-          <div class="home-glance" id="homeGlance">
-            ${['tickets','overdue','services','nodes'].map(k => `
-              <button class="nx-stat" data-stat="${k}">
-                <span class="nx-stat-num is-loading">—</span>
-                <span class="nx-stat-label">${labelFor(k)}</span>
-              </button>
-            `).join('')}
-          </div>
-
           <button class="home-ask" id="homeAsk" type="button">
-            <span class="home-ask-prompt">Ask NEXUS anything</span>
+            <span class="home-ask-prompt">Ask NEXUS</span>
+            <span class="home-ask-hint" id="homeAskHint"></span>
           </button>
         </div>
       `;
+
+      // Cycle through example prompt previews under the Ask pill.
+      // Gives users an idea of what they can ask without taking up
+      // visual real estate. Cycles every 4s; pauses on hover.
+      const askHint = document.getElementById('homeAskHint');
+      if (askHint) {
+        const examples = [
+          'about overdue equipment',
+          'how was last week',
+          'what to plan tomorrow',
+          'about a contractor',
+          'for the day\'s priorities',
+        ];
+        let idx = 0;
+        const tick = () => {
+          askHint.textContent = examples[idx];
+          idx = (idx + 1) % examples.length;
+        };
+        tick();
+        const askInterval = setInterval(tick, 4000);
+        // Stop cycling on press so the user sees a stable hint when
+        // they're about to tap.
+        const askBtn = document.getElementById('homeAsk');
+        if (askBtn) {
+          askBtn.addEventListener('mouseenter', () => clearInterval(askInterval));
+          askBtn.addEventListener('touchstart', () => clearInterval(askInterval), { passive: true });
+        }
+      }
     },
 
     async refresh() {
