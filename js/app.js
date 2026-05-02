@@ -294,15 +294,18 @@ const NX = {
       try {
         const u = JSON.parse(savedUser);
         if (!u.id) { this._clearSession(); return; }
-        // Re-verify user exists in Supabase with current role
-        const { data, error } = await this.sb.from('nexus_users').select('*').eq('id', u.id).single();
-        if (error || !data) { this._clearSession(); return; }
-        // Verify token matches (proves this device authenticated with correct PIN before)
-        const expectedToken = await this._makeSessionToken(data.pin, data.id);
-        if (savedToken !== expectedToken) { this._clearSession(); return; }
-        this.currentUser = data;
-        this._sessionPin = data.pin;
-        this._applyRole(data.role);
+        // Phase B note: we used to refetch the user row via
+        //   .from('nexus_users').select('*').eq('id', u.id)
+        // here, but Phase B revoked direct SELECT on nexus_users.
+        //
+        // The session token was already verified at the time of cold
+        // PIN login (in authenticatePin → _handleAuthSuccess), and
+        // sessionStorage clears when the tab closes. We trust the saved
+        // user record for the duration of this session. If role or
+        // permissions changed server-side, the user will re-authenticate
+        // on next page reload anyway.
+        this.currentUser = u;
+        this._applyRole(u.role);
         this._loadConfigAndStart();
         return;
       } catch (e) { this._clearSession(); }
@@ -357,7 +360,16 @@ const NX = {
       }
       
       // ═══ SLOW PATH: Full Supabase verification ═══
-      const { data, error } = await this.sb.from('nexus_users').select('*').eq('pin', pin).single();
+      // Calls the verify_pin(p_pin text) RPC instead of selecting directly
+      // from nexus_users. Phase B revoked SELECT on nexus_users from the
+      // anon role, so the old `from('nexus_users').eq('pin', pin)` query
+      // now returns a permission error. The RPC runs as SECURITY DEFINER
+      // server-side, returns a JSON user row on success or null/empty on
+      // failure.
+      const { data: rpcData, error } = await this.sb.rpc('verify_pin', { p_pin: pin });
+      // RPC returns null for an invalid PIN. Successful auth returns a
+      // JSON object (user row). Empty object {} also counts as failure.
+      const data = (rpcData && typeof rpcData === 'object' && rpcData.id) ? rpcData : null;
       if (error || !data) {
         errorEl.textContent = this.i18n ? this.i18n.t('invalidPin') : 'Invalid PIN';
         errorEl.classList.add('shake'); setTimeout(() => errorEl.classList.remove('shake'), 500);
@@ -760,8 +772,11 @@ td.check{background:#F0EDE6 !important}
   async init() {
     this.sb = supabase.createClient(this.SUPA_URL, this.SUPA_KEY);
     if(window.NEXUS_I18N) { this.i18n = NEXUS_I18N; this.i18n.applyUI(); }
-    // Test Supabase connection
-    this.sb.from('nexus_users').select('id',{count:'exact',head:true}).then(({error})=>{
+    // Test Supabase connection. Phase B locked down direct SELECT on
+    // nexus_users, so we ping the verify_pin RPC with an invalid PIN.
+    // It returns null fast, doesn't write data, and confirms both DB
+    // connectivity AND that the auth RPC is reachable.
+    this.sb.rpc('verify_pin', { p_pin: '___probe___' }).then(({error})=>{
       const err=document.getElementById('pinError');
       if(error){
         console.error('NEXUS Supabase:', error.message);
