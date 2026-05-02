@@ -365,6 +365,10 @@
 #pinScreen .pin-user {
   margin: 0;
   min-height: 0;
+  color: #c8a44e;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
 }
 #pinScreen .pin-user:empty {
   display: none;
@@ -388,38 +392,70 @@
   justify-content: flex-start;
 }
 
-/* ─── Time clock panel — fixed-size editorial theme ─────────────────── */
+/* ─── Time clock panel — unified editorial card ──────────────────────
+   Structure (top to bottom):
+     1. Status block: "Welcome, name" (.pin-user, above the panel)
+     2. CLOCKED IN / NOT CLOCKED IN status badge
+     3. Elapsed time (when clocked in)
+     4. Location dropdown
+     5. Primary action: Clock In (or Clock Out)
+     6. Secondary action: Enter NEXUS
+     7. Divider
+     8. Recent timesheet log (scrollable)
+     9. My Timesheet download button
+   Tight rhythm — every gap is intentional. Card has subtle border to
+   group all these elements as one composition. */
 #pinScreen .tc-panel {
   width: 100%;
-  max-width: 280px;
+  max-width: 300px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 10px;
-  padding: 4px 0;
+  gap: 0;
+  margin: 12px auto 0;
+  padding: 18px 16px 16px;
+  background: rgba(28, 24, 20, 0.4);
+  border: 1px solid rgba(200, 164, 78, 0.15);
+  border-radius: 12px;
 }
+
+/* Status badge — replaces the green color with a subtle gold/grey treatment.
+   "NOT CLOCKED IN" reads as muted info; "CLOCKED IN" reads as gold.
+   The inline color set by app.js (#5bba5f green) is overridden via !important.
+   We use a data attribute fallback by checking if the text contains "CLOCKED IN"
+   without "NOT" — but simpler: muted by default, gold when text has been set
+   to CLOCKED IN via a sibling :has() check. Since :has support varies,
+   we just keep both states muted-gold and let the elapsed time tell the story. */
 #pinScreen .tc-status {
   text-align: center;
-  font-size: 14px;
-  color: #c8a44e;
-  font-weight: 500;
-  letter-spacing: 0.3px;
-  margin: 0;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #857f75 !important;
+  margin: 0 0 6px;
 }
 #pinScreen .tc-time {
   text-align: center;
-  font-size: 11px;
-  color: #857f75;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 18px;
+  color: #c8a44e;
   letter-spacing: 1.5px;
-  text-transform: uppercase;
-  margin: 0 0 6px;
+  margin: 0 0 14px;
+  min-height: 0;
 }
+#pinScreen .tc-time:empty {
+  display: none;
+}
+
+/* Location dropdown — looks like part of the form, with label affordance. */
 #pinScreen .tc-loc-row {
-  margin: 0;
+  margin: 0 0 10px;
 }
 #pinScreen .tc-loc-select {
   width: 100%;
-  background: rgba(28, 24, 20, 0.6);
+  background: rgba(20, 18, 14, 0.6);
   border: 1px solid rgba(200, 164, 78, 0.25);
   border-radius: 8px;
   color: #d4c8a5;
@@ -435,15 +471,16 @@
   background-position: right 12px center;
   background-size: 14px;
 }
+
+/* Primary action row: Clock In / Clock Out */
 #pinScreen .tc-buttons {
   display: flex;
   gap: 8px;
-  margin: 4px 0 0;
+  margin: 0;
 }
-/* Override the bright green Clock In with editorial gold theme. */
 #pinScreen .tc-btn {
   flex: 1;
-  padding: 12px 18px;
+  padding: 13px 18px;
   border-radius: 999px;
   border: 1px solid rgba(200, 164, 78, 0.35);
   background: rgba(200, 164, 78, 0.08);
@@ -479,49 +516,49 @@
 #pinScreen .tc-btn-out:active {
   background: rgba(180, 80, 80, 0.22);
 }
-/* "Enter NEXUS" — primary post-auth action. Strong gold. */
+
+/* Secondary action row: Enter NEXUS — outlined, less primary than Clock In */
 #pinScreen .tc-pin-actions {
   display: flex;
   flex-direction: column;
-  margin: 0;
+  margin: 8px 0 0;
 }
 #pinScreen .tc-enter {
   width: 100%;
-  padding: 13px 18px;
+  padding: 11px 18px;
   border-radius: 999px;
-  border: none;
-  background: linear-gradient(180deg, #d4a44e 0%, #b88830 100%);
-  color: #1c1814;
+  border: 1px solid rgba(200, 164, 78, 0.4);
+  background: transparent;
+  color: #c8a44e;
   font-family: 'Outfit', -apple-system, sans-serif;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   letter-spacing: 0.5px;
   cursor: pointer;
-  transition: background 0.15s, transform 0.15s;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
   -webkit-tap-highlight-color: transparent;
 }
 #pinScreen .tc-enter:active {
-  background: linear-gradient(180deg, #b88830 0%, #9a7026 100%);
+  background: rgba(200, 164, 78, 0.1);
+  border-color: rgba(200, 164, 78, 0.7);
   transform: scale(0.98);
 }
 
-/* Scrollable timesheet log — capped height, scroll inside, ~14 days. */
+/* Divider before the log section */
 #pinScreen .tc-pin-log {
   width: 100%;
-  max-height: 200px;
+  max-height: 168px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  margin: 8px 0 4px;
-  padding: 4px 2px;
+  margin: 14px 0 8px;
+  padding: 6px 0 0;
   border-top: 1px solid rgba(200, 164, 78, 0.15);
-  border-bottom: 1px solid rgba(200, 164, 78, 0.15);
-  /* Fade edges to indicate more scroll content */
-  mask-image: linear-gradient(180deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
 }
-/* Custom scrollbar for the log */
+#pinScreen .tc-pin-log:empty {
+  display: none;
+}
 #pinScreen .tc-pin-log::-webkit-scrollbar {
-  width: 4px;
+  width: 3px;
 }
 #pinScreen .tc-pin-log::-webkit-scrollbar-track {
   background: transparent;
@@ -530,12 +567,12 @@
   background: rgba(200, 164, 78, 0.3);
   border-radius: 2px;
 }
-/* Each log row — date + location + ⋯ overflow */
+/* Each log row */
 #pinScreen .tc-pin-log > div {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 6px;
+  padding: 9px 4px;
   font-size: 12px;
   color: #a89e87;
   border-bottom: 1px solid rgba(200, 164, 78, 0.08);
@@ -544,24 +581,23 @@
   border-bottom: none;
 }
 
-/* My Timesheet download button — quieter than the primary actions. */
+/* My Timesheet download — quietest action, sits at bottom of the card */
 #pinScreen .tc-download {
   background: transparent;
-  border: 1px solid rgba(200, 164, 78, 0.25);
-  color: #c8a44e;
-  padding: 9px 16px;
-  border-radius: 999px;
+  border: none;
+  color: #857f75;
+  padding: 6px 16px;
   font-family: 'Outfit', -apple-system, sans-serif;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   width: 100%;
-  transition: border-color 0.15s, background 0.15s;
+  letter-spacing: 0.3px;
+  transition: color 0.15s;
   -webkit-tap-highlight-color: transparent;
 }
 #pinScreen .tc-download:active {
-  background: rgba(200, 164, 78, 0.08);
-  border-color: rgba(200, 164, 78, 0.5);
+  color: #c8a44e;
 }
 
 /* Slightly smaller coin on narrow phones — preserve the 20px safe zone
