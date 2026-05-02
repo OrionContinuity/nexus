@@ -3,6 +3,11 @@
 let loc='suerte';
 const stateCache={}; // Per-location state cache
 const lastDone={};
+// linkedCards[location+'__'+section] = card.id — populated by loadLinkedCards.
+// Tracks open (non-archived) board cards that escalated from a cleaning
+// section, so the section header can show "→ On board" instead of
+// "→ Add to board" and prevent duplicate escalations.
+const linkedCards={};
 const NON_DAILY=['Bi-Semanal','Mensual','Semanal','Quincenal','Trimestral','Jardín','Jardin','Garden'];
 
 // Cleaning date: before 8 AM = still yesterday's shift
@@ -108,6 +113,7 @@ async function init(){
       t.classList.add('active');loc=t.dataset.cloc;
       try{await loadToday();}catch(e){}
       try{await loadHistory();}catch(e){}
+      try{await loadLinkedCards();}catch(e){}
       populateSections();render();
     });
   });
@@ -115,6 +121,7 @@ async function init(){
   const ab=document.getElementById('cleanAddBtn');if(ab)ab.addEventListener('click',addTaskUI);
   try{await loadToday();}catch(e){}
   try{await loadHistory();}catch(e){}
+      try{await loadLinkedCards();}catch(e){}
   populateSections();render();
 }
 
@@ -146,6 +153,7 @@ async function show(){
   stateCache[loc]={};
   try{await loadToday();}catch(e){}
   try{await loadHistory();}catch(e){}
+      try{await loadLinkedCards();}catch(e){}
   populateSections();render();
   // Update submit button text for edit mode
   const submitBtn=document.getElementById('cleanSubmit');
@@ -177,6 +185,127 @@ async function loadHistory(){
   });}
 }
 
+// ═══ CLEANING ↔ BOARD LINKAGE ════════════════════════════════════════
+// Loads the set of OPEN (non-archived, not Done) board cards that were
+// escalated from a cleaning section at the current location. Keyed by
+// "location__section" so the section header can display:
+//   → "On board" (link exists) — tap to jump to the card
+//   → "Add to board" (no link) — tap to escalate
+// Called at init/show + after escalating a new card.
+async function loadLinkedCards(){
+  Object.keys(linkedCards).forEach(k=>delete linkedCards[k]);
+  if(!NX.sb||NX.paused)return;
+  try{
+    // We pull cards for this location only. board.js's "Done" detection
+    // is column-name based (any list named done/closed/resolved/etc),
+    // so we filter that out client-side after fetch.
+    const{data}=await NX.sb.from('kanban_cards')
+      .select('id,cleaning_link_location,cleaning_link_section,column_name,list_id,archived')
+      .eq('cleaning_link_location',loc)
+      .eq('archived',false);
+    if(!data) return;
+    data.forEach(c=>{
+      const cn=(c.column_name||'').toLowerCase();
+      if(/(done|closed|resolved|complete|archived?)/.test(cn)) return;
+      if(c.cleaning_link_section){
+        linkedCards[loc+'__'+c.cleaning_link_section]=c.id;
+      }
+    });
+  }catch(e){
+    console.warn('[cleaning] loadLinkedCards:',e);
+  }
+}
+
+// Pick the first non-archived board + a list named report/todo/triage
+// (or first list if none match). Same pattern as brain-chat.js — chat
+// and cleaning both create cards without a board context, so they need
+// to resolve one. Returns null if nothing found.
+async function resolveBoardAndList(){
+  try{
+    const{data:bs}=await NX.sb.from('boards')
+      .select('id').eq('archived',false).order('position').limit(1);
+    if(!bs?.length)return null;
+    const boardId=bs[0].id;
+    const{data:ls}=await NX.sb.from('board_lists')
+      .select('*').eq('board_id',boardId).order('position');
+    const target=(ls||[]).find(l=>/report|todo|triage/i.test(l.name))||(ls||[])[0];
+    if(!target)return null;
+    return{boardId,listId:target.id};
+  }catch(e){
+    console.warn('[cleaning] resolveBoardAndList:',e);
+    return null;
+  }
+}
+
+// Escalate an overdue cleaning section to a board card. The card
+// remembers (cleaning_link_location, cleaning_link_section) so when
+// it's later marked Done in board.js, that move writes completion
+// records to cleaning_logs for every task in this section — clearing
+// the OVERDUE pill on this view. The card itself stays around with
+// its photos/comments/cost as the system-of-record for the work.
+async function escalateSectionToBoard(section){
+  const sec=getData(loc).find(s=>s.sec===section);
+  if(!sec){NX.toast&&NX.toast('Section not found','error');return;}
+  // Don't double-escalate. Cheap re-check before write.
+  if(linkedCards[loc+'__'+section]){
+    NX.toast&&NX.toast('Already on the board','info');
+    return;
+  }
+  const target=await resolveBoardAndList();
+  if(!target){
+    NX.toast&&NX.toast('No board found — open Board view first','warn');
+    return;
+  }
+  // Compute due-date proposal: today if overdue, otherwise the day it
+  // hits the frequency cliff. Manager can edit on the board.
+  const freq=getFrequency(section);
+  let oldestDays=null;
+  sec.items.forEach((_,i)=>{
+    const hist=lastDone[section+'_'+i];
+    if(hist){const d=daysBetween(hist.date,today);if(oldestDays===null||d>oldestDays)oldestDays=d;}
+    else oldestDays=999;
+  });
+  const isOverdue=(oldestDays==null||oldestDays>=freq);
+  const dueDate=isOverdue?today
+    :new Date(Date.now()+(freq-oldestDays)*86400000).toISOString().slice(0,10);
+  // Description = bilingual checklist of the items in this section.
+  // Gives the contractor a complete picture of what to do.
+  const lang=NX.i18n?NX.i18n.getLang():'en';
+  const itemLines=sec.items.map(it=>{
+    const primary=lang==='es'?it[0]:it[1];
+    const secondary=lang==='es'?it[1]:it[0];
+    return`• ${primary} (${secondary})`;
+  }).join('\n');
+  const locTitle=loc.charAt(0).toUpperCase()+loc.slice(1);
+  const cardRow={
+    title:`${section} – ${locTitle}`,
+    description:`Cleaning section escalated to board.\nFrequency: every ${freq} days.\nLast done: ${oldestDays===999?'never':daysAgoText(oldestDays)}.\n\nItems to complete:\n${itemLines}`,
+    board_id:target.boardId,
+    list_id:target.listId,
+    column_name:'',
+    position:999,
+    priority:isOverdue?'high':'normal',
+    location:loc,
+    due_date:dueDate,
+    cleaning_link_location:loc,
+    cleaning_link_section:section,
+    reported_by:NX.currentUser?.name||null,
+    checklist:[], comments:[], labels:[], photo_urls:[],
+    archived:false,
+  };
+  try{
+    const{data:created,error}=await NX.sb.from('kanban_cards').insert(cardRow).select().single();
+    if(error)throw error;
+    linkedCards[loc+'__'+section]=created.id;
+    if(NX.notifyCardCreated)NX.notifyCardCreated(created);
+    NX.toast&&NX.toast(`${section} → on the board`,'success');
+    render();
+  }catch(e){
+    console.error('[cleaning] escalateSection:',e);
+    NX.toast&&NX.toast('Could not add to board','error');
+  }
+}
+
 function populateSections(){
   const sel=document.getElementById('cleanTaskSec');if(!sel)return;
   sel.innerHTML='';
@@ -189,7 +318,26 @@ function addTaskUI(){
   const en=document.getElementById('cleanTaskEn').value.trim();
   let sec=document.getElementById('cleanTaskSec').value;
   if(!es&&!en)return;
-  if(sec==='__new__'){sec=prompt('Section name:');if(!sec)return;}
+  if(sec==='__new__'){
+    if(NX.composer?.modal){
+      NX.composer.modal({
+        title:'New section',
+        subtitle:'Group cleaning tasks under a new heading',
+        placeholder:'e.g. Patio, Storage, Walk-in',
+        buttonLabel:'Create section',
+        onSubmit:async(name)=>{
+          if(!name)throw new Error('empty');
+          addTask(loc,name,es||en,en||es);
+          document.getElementById('cleanTaskEs').value='';
+          document.getElementById('cleanTaskEn').value='';
+          populateSections();
+        },
+      });
+      return;
+    }
+    sec=prompt('Section name:');
+    if(!sec)return;
+  }
   addTask(loc,sec,es||en,en||es);
   document.getElementById('cleanTaskEs').value='';
   document.getElementById('cleanTaskEn').value='';
@@ -210,6 +358,8 @@ function render(){
 
     // For non-daily sections: calculate status
     let secStatus='';
+    let needsBoard=false;  // true → render "→ Add to board" pill
+    let onBoard=false;     // true → render "→ On board" pill (link exists)
     if(!isDaily){
       const freq=getFrequency(sec.sec);
       // Find oldest "last done" among this section's tasks
@@ -219,10 +369,13 @@ function render(){
         if(hist){const d=daysBetween(hist.date,today);if(oldestDays===null||d>oldestDays)oldestDays=d;}
         else oldestDays=999;
       });
-      if(oldestDays===null||oldestDays===999){secStatus='<span class="clean-overdue">Never done</span>';}
-      else if(oldestDays>freq){secStatus=`<span class="clean-overdue">OVERDUE ${oldestDays-freq}d</span>`;}
-      else if(oldestDays>freq*0.8){secStatus=`<span class="clean-due-soon">Due soon · ${daysAgoText(oldestDays)}</span>`;}
+      if(oldestDays===null||oldestDays===999){secStatus='<span class="clean-overdue">Never done</span>';needsBoard=true;}
+      else if(oldestDays>freq){secStatus=`<span class="clean-overdue">OVERDUE ${oldestDays-freq}d</span>`;needsBoard=true;}
+      else if(oldestDays>freq*0.8){secStatus=`<span class="clean-due-soon">Due soon · ${daysAgoText(oldestDays)}</span>`;needsBoard=true;}
       else{secStatus=`<span class="clean-on-track">✓ ${daysAgoText(oldestDays)} · every ${freq}d</span>`;}
+      // If a linked card already exists, show "On board" instead of
+      // "Add to board" (and the cleanup completes via that card).
+      if(linkedCards[loc+'__'+sec.sec]){onBoard=true;needsBoard=false;}
     }
 
     const el=document.createElement('div');
@@ -246,7 +399,35 @@ function render(){
     });
 
     h.appendChild(caBtn);
-    h.addEventListener('click',(e)=>{if(e.target===caBtn)return;el.classList.toggle('collapsed');});
+
+    // Cleaning ↔ Board linkage badge — appears on non-daily sections
+    // that are overdue / due soon / never done. Clicking either:
+    //   • escalates the section to a new board card, or
+    //   • jumps to the existing linked card on the board
+    // The badge is excluded from the collapse-toggle handler below.
+    let linkBtn=null;
+    if(needsBoard||onBoard){
+      linkBtn=document.createElement('button');
+      linkBtn.className='clean-link-board'+(onBoard?' is-on-board':'');
+      linkBtn.textContent=onBoard?'→ On board':'→ Add to board';
+      linkBtn.title=onBoard?'Tap to open the linked board card':'Add this section to the board for tracking';
+      linkBtn.addEventListener('click',async(e)=>{
+        e.stopPropagation();
+        if(onBoard){
+          // Jump to the board view; the user's already-linked card is there.
+          if(NX.switchTo)NX.switchTo('board');
+          return;
+        }
+        await escalateSectionToBoard(sec.sec);
+      });
+      h.appendChild(linkBtn);
+    }
+
+    h.addEventListener('click',(e)=>{
+      if(e.target===caBtn)return;
+      if(linkBtn&&e.target===linkBtn)return;
+      el.classList.toggle('collapsed');
+    });
     el.appendChild(h);
 
     const body=document.createElement('div');body.className='clean-sec-body';
@@ -387,7 +568,31 @@ function renderExtras(list){
   addBtn.addEventListener('click',()=>{
     const v=sel.value;if(!v)return;
     const timeNow=new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}).toLowerCase();
-    if(v==='custom'){const es=prompt('Tarea (español):');const en=prompt('Task (English):');if(!es&&!en)return;
+    if(v==='custom'){
+      // One dialog, two fields — beats the sequential prompt() pair
+      if(NX.composer?.modal){
+        NX.composer.modal({
+          title:'Custom cleaning task',
+          subtitle:'Add an extra task done today',
+          buttonLabel:'Log it',
+          fields:[
+            {name:'es',label:'Tarea (Español)',placeholder:'p.ej. Limpiar bajo la nevera',autofocus:true},
+            {name:'en',label:'Task (English)',placeholder:'e.g. Clean under fridge'},
+          ],
+          onSubmit:async({es,en})=>{
+            if(!es&&!en)throw new Error('empty');
+            const ext=getExtrasToday();
+            ext.push({es:es||en,en:en||es,time:timeNow});
+            saveExtrasToday(ext);
+            sel.value='';
+            render();
+          },
+        });
+        return;
+      }
+      // Fallback if composer.js didn't load
+      const es=prompt('Tarea (español):');const en=prompt('Task (English):');
+      if(!es&&!en)return;
       const ext=getExtrasToday();ext.push({es:es||en,en:en||es,time:timeNow});saveExtrasToday(ext);
     }else{const ex=COMMON_EXTRAS[parseInt(v)];const ext=getExtrasToday();ext.push({es:ex[0],en:ex[1],time:timeNow});saveExtrasToday(ext);}
     sel.value='';render();
