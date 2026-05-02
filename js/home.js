@@ -39,7 +39,9 @@
       // Called once by app.js module loader. Render immediately with
       // skeletons, then populate from real data.
       this.render();
-      this.wireGalaxy();
+      // wireGalaxy() removed Stage U — masthead in app.js setupMasthead()
+      // owns the coin lifecycle now (NX.coin.* + NX.homeGalaxyPulse alias).
+      // The legacy homeCoinMini element no longer renders.
       this.wireAsk();
       await this.refresh();
       this._loaded = true;
@@ -198,7 +200,11 @@
 
       // Cycle through example prompt previews under the Ask pill.
       // Gives users an idea of what they can ask without taking up
-      // visual real estate. Cycles every 4s; pauses on hover.
+      // visual real estate. Text swap is driven by the CSS animation's
+      // `animationiteration` event — this fires at the END of each
+      // 4s cycle, when the hint has just faded out. Swapping at that
+      // exact moment means text never changes mid-fade (the previous
+      // setInterval-based version drifted against the CSS clock).
       const askHint = document.getElementById('homeAskHint');
       if (askHint) {
         const examples = [
@@ -209,18 +215,21 @@
           'for the day\'s priorities',
         ];
         let idx = 0;
-        const tick = () => {
+        // Initial paint
+        askHint.textContent = examples[idx];
+        idx = (idx + 1) % examples.length;
+        // Swap on every animation cycle end
+        const onIter = () => {
           askHint.textContent = examples[idx];
           idx = (idx + 1) % examples.length;
         };
-        tick();
-        const askInterval = setInterval(tick, 4000);
-        // Stop cycling on press so the user sees a stable hint when
-        // they're about to tap.
+        askHint.addEventListener('animationiteration', onIter);
+        // Pause on press — user is about to tap; hold the current hint
         const askBtn = document.getElementById('homeAsk');
         if (askBtn) {
-          askBtn.addEventListener('mouseenter', () => clearInterval(askInterval));
-          askBtn.addEventListener('touchstart', () => clearInterval(askInterval), { passive: true });
+          const pause = () => askHint.style.animationPlayState = 'paused';
+          askBtn.addEventListener('mouseenter', pause);
+          askBtn.addEventListener('touchstart', pause, { passive: true });
         }
       }
     },
@@ -541,107 +550,11 @@
       });
     },
 
-    /* ═════════════ THE COIN — masthead artifact + AI activity signal ═
-       Replaces the spinning mini-galaxy. The coin is the visual identity
-       artifact of NEXUS — the same Trajan/Providentia pair from the login
-       screen. In the masthead it serves three roles:
-       
-         1. IDENTITY. A small (28px) version of the login coin. Trajan
-            face shown by default. Idle state has a barely-perceptible
-            wobble so it feels alive without being distracting.
-         
-         2. AI ACTIVITY SIGNAL. When AI work happens anywhere in the app
-            (chat message, edge function call, galaxy node open), the
-            coin's gold rim glow breathes — a soft pulse that breathes
-            in then out over ~1.4s. Stacks: rapid successive pulses keep
-            the glow alive without flickering off.
-         
-         3. PERSISTENT LISTENING. When the notification listener is
-            active (NX._isListening), a steadier, dimmer rim glow stays
-            on continuously to indicate "the system is watching for new
-            events" — distinct from the brighter pulse for active work.
-       
-       Public API:
-         NX.coin.pulse()    — trigger one breath of the gold rim glow
-         NX.coin.idle(on)   — turn the persistent listening glow on/off
-         NX.coin.flip()     — manually flip Trajan ↔ Providentia
-       
-       Backward compat: NX.homeGalaxyPulse is preserved as an alias for
-       NX.coin.pulse() so the 7+ existing callers across admin.js,
-       board.js, brain-chat.js, cleaning.js, equipment.js, home.js, and
-       native-bridge.js automatically become coin pulses with no edits.
-       
-       Tap behavior:
-         - Admins (no `.no-galaxy-access` class): opens the full galaxy
-           view, same as the old spinning galaxy did.
-         - Non-admins: a manual flip animation, ornamental only.
-    */
-    wireGalaxy() {
-      const wrap = document.getElementById('homeCoinMini');
-      if (!wrap) return;
-      const flip = wrap.querySelector('.home-coin-mini-flip');
-
-      let pulseTimeoutId = null;
-      let listening = false;
-
-      // Pulse: add the .pulsing class which CSS animates as a breath of
-      // gold rim glow. We remove and re-add to allow rapid re-triggers.
-      const pulse = () => {
-        wrap.classList.remove('pulsing');
-        // Force reflow so re-adding the class restarts the animation
-        // ─── eslint-disable-next-line no-unused-expressions ───
-        void wrap.offsetWidth;
-        wrap.classList.add('pulsing');
-        if (pulseTimeoutId) clearTimeout(pulseTimeoutId);
-        // Pulse animation is 1.4s; clear class slightly after to allow re-trigger
-        pulseTimeoutId = setTimeout(() => {
-          wrap.classList.remove('pulsing');
-          pulseTimeoutId = null;
-        }, 1500);
-      };
-
-      // Idle listening: persistent dim glow. Toggleable.
-      const idle = (on) => {
-        listening = !!on;
-        wrap.classList.toggle('listening', listening);
-      };
-
-      // Manual flip — toggles the .flipped class, CSS handles 3D rotation
-      const flipFace = () => {
-        if (!flip) return;
-        flip.classList.toggle('flipped');
-      };
-
-      // Public API. Exposed under NX.coin.* and the legacy
-      // NX.homeGalaxyPulse alias for backward compatibility.
-      NX.coin = {
-        pulse,
-        idle,
-        flip: flipFace,
-      };
-      NX.homeGalaxyPulse = pulse;
-
-      // If the notification listener was already active before this view
-      // mounted, reflect that state on the coin immediately.
-      if (NX._isListening) idle(true);
-
-      // Listen for node-open events from the full galaxy view, just
-      // as the old spinning galaxy did.
-      document.addEventListener('galaxy:node-open', pulse);
-
-      // Tap behavior. Admins go to brain view; non-admins get a manual
-      // flip as ornamental feedback.
-      wrap.addEventListener('click', () => {
-        if (document.body.classList.contains('no-galaxy-access')) {
-          flipFace();
-          return;
-        }
-        // Subtle flip on tap before navigating, so the action feels
-        // tactile rather than instant.
-        flipFace();
-        setTimeout(() => NX.switchTo?.('brain'), 180);
-      });
-    },
+    /* THE COIN — moved to app.js setupMasthead() in Stage U.
+       The coin now lives in the persistent top masthead rather than
+       inside the home view, so its lifecycle is owned by app.js.
+       Public API: NX.coin.{pulse, idle, flip} and NX.homeGalaxyPulse
+       (alias for backward compat with ~7 callers across the app). */
 
 
     /* ═════════════ ASK NEXUS ENTRY POINT ═════════════════════════ */
