@@ -1,0 +1,634 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Public PM — design system migration
+   ─────────────────────────────────────────
+   The contractor-facing surface. Three flows:
+     1. PUBLIC SCAN LANDING — what a tech sees after scanning a QR sticker
+        (3-4 big tappable buttons: Log PM, Login, Call, Report Issue)
+     2. PM LOGGER MODAL — the form they fill out (name, work, parts,
+        photos, signature)
+     3. SUCCESS SCREEN — confirmation after submit
+   
+   This file overrides equipment-public-pm.css with a refined visual
+   language. Light-themed (NOT dark NEXUS) — contractors are guests,
+   they should feel they're in a polished, trustworthy form, not in
+   the operator's dashboard. The light treatment uses the SAME design
+   system tokens as the rest of NEXUS, just with a warm linen/cream
+   palette instead of dark glass.
+   
+   What this file does NOT touch:
+     • Admin review screen (uses dark NEXUS — already styled by
+       equipment-public-pm.css's `.pm-review-card` rules)
+     • Form behavior (signature pad, photo upload, mass mode)
+   
+   Load order: ... → equipment-system.css → equipment-public-pm-system.css
+   (this file) → views-system.css → admin-system.css → home.css → chat.css
+   ═══════════════════════════════════════════════════════════════════════ */
+
+
+/* ─── Color palette — light-mode public PM ────────────────────────────
+   These are LOCAL to this file (not part of nx-system tokens) since
+   the public PM is the only surface that uses light theme. Defining
+   them here keeps them isolated. */
+:root {
+  --pm-bg:           #faf7f0;          /* warm linen page background */
+  --pm-surface:      #ffffff;          /* form card surface */
+  --pm-surface-2:    #f5f1e8;          /* nested surface (eq info, mass) */
+  --pm-surface-3:    #fff8e8;          /* gold-tinted surface (highlights) */
+  --pm-border:       #e8e2d4;          /* default borders */
+  --pm-border-2:     #d8d2c4;          /* stronger borders */
+  --pm-gold:         #b89342;          /* darker gold for light bg contrast */
+  --pm-gold-on:      #1a1408;          /* text on gold pill */
+  --pm-gold-soft:    #fff8e8;          /* gold-tinted fill */
+  --pm-gold-line:    rgba(184, 147, 66, 0.30);
+  --pm-text:         #1a1408;          /* primary text — warm near-black */
+  --pm-text-muted:   #635846;          /* secondary text */
+  --pm-text-faint:   #8b8270;          /* tertiary text, captions */
+  --pm-red:          #b83030;
+  --pm-red-soft:     rgba(184, 48, 48, 0.08);
+  --pm-green:        #2e8540;
+}
+
+
+/* ═══ PUBLIC SCAN LANDING — 3-4 big tappable cards ═══════════════════ */
+
+.pm-public-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px !important;
+  margin-top: 24px !important;
+  padding: 0 !important;
+}
+
+/* The big tappable cards. Same .nx-prompt-card language as on dark
+   side — generous padding, soft shadow, gold ring on press — but
+   in light values. */
+.pm-public-btn {
+  display: flex !important;
+  align-items: center !important;
+  gap: 16px !important;
+  padding: 18px 20px !important;
+  min-height: 72px !important;
+  border-radius: 14px !important;
+  border: 1.5px solid !important;
+  background: var(--pm-surface) !important;
+  cursor: pointer !important;
+  font-family: 'Outfit', 'DM Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif !important;
+  text-align: left !important;
+  width: 100% !important;
+  -webkit-tap-highlight-color: transparent !important;
+  box-shadow: 0 1px 2px rgba(60, 50, 30, 0.04), 0 4px 12px rgba(60, 50, 30, 0.04) !important;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.15s,
+    box-shadow 0.15s !important;
+}
+.pm-public-btn:hover {
+  box-shadow: 0 2px 4px rgba(60, 50, 30, 0.08), 0 8px 24px rgba(60, 50, 30, 0.08) !important;
+  transform: translateY(-1px);
+}
+.pm-public-btn:active {
+  transform: translateY(0) scale(0.99) !important;
+}
+
+/* Primary — solid gold pill (the loudest action: "PM Logger") */
+.pm-public-btn-primary {
+  background: linear-gradient(135deg, #d4b86a 0%, #c8a44e 50%, #b89342 100%) !important;
+  border-color: #a07a28 !important;
+  color: var(--pm-gold-on) !important;
+  box-shadow:
+    0 1px 2px rgba(160, 120, 40, 0.20),
+    0 6px 20px rgba(184, 147, 66, 0.30) !important;
+}
+
+/* Secondary — outlined gold (Login) */
+.pm-public-btn-secondary {
+  background: var(--pm-surface) !important;
+  border-color: var(--pm-border-2) !important;
+  color: var(--pm-text) !important;
+}
+
+/* Call (if a service contact is configured) — gold-tinted soft */
+.pm-public-btn-call {
+  background: var(--pm-gold-soft) !important;
+  border-color: var(--pm-gold-line) !important;
+  color: var(--pm-text) !important;
+}
+
+/* Tertiary — danger-tinted (Report Issue) */
+.pm-public-btn-tertiary {
+  background: var(--pm-red-soft) !important;
+  border-color: rgba(184, 48, 48, 0.30) !important;
+  color: var(--pm-red) !important;
+}
+
+.pm-public-btn-icon {
+  font-size: 30px !important;
+  line-height: 1 !important;
+  flex-shrink: 0 !important;
+}
+.pm-public-btn-label {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 3px !important;
+  flex: 1 !important;
+  min-width: 0;
+}
+.pm-public-btn-title {
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.005em !important;
+  line-height: 1.25 !important;
+}
+.pm-public-btn-sub {
+  font-size: 12.5px !important;
+  opacity: 0.78 !important;
+  line-height: 1.35 !important;
+  font-weight: 400 !important;
+}
+
+
+/* ═══ PM LOGGER MODAL ═════════════════════════════════════════════════ */
+
+.pm-logger-modal {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 5000 !important;
+  display: flex !important;
+  align-items: flex-end !important;
+  justify-content: center !important;
+  font-family: 'Outfit', 'DM Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif !important;
+  animation: pmFadeIn 0.22s ease-out !important;
+}
+@keyframes pmFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.pm-logger-bg {
+  position: absolute !important;
+  inset: 0 !important;
+  background: rgba(20, 18, 14, 0.55) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+.pm-logger-card {
+  position: relative !important;
+  width: 100% !important;
+  max-width: 580px !important;
+  height: 95vh !important;
+  height: 95dvh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: var(--pm-bg) !important;
+  border-radius: 20px 20px 0 0 !important;
+  animation: pmSlideUp 0.28s cubic-bezier(0.22, 1, 0.36, 1) !important;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.35) !important;
+  overflow: hidden;
+}
+@keyframes pmSlideUp {
+  from { transform: translateY(24px); opacity: 0.6; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+@media (min-width: 600px) {
+  .pm-logger-modal { align-items: center !important; padding: 24px; }
+  .pm-logger-card { border-radius: 20px !important; height: 90vh !important; height: 90dvh !important; }
+}
+
+/* Header — title + close button */
+.pm-logger-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 18px 22px !important;
+  border-bottom: 1px solid var(--pm-border) !important;
+  flex-shrink: 0 !important;
+  background: var(--pm-surface) !important;
+}
+.pm-logger-title {
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif !important;
+  font-size: 18px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.005em !important;
+  color: var(--pm-text) !important;
+  /* Hide emoji prefix and replace with clean text */
+  font-size: 0 !important;
+}
+.pm-logger-title::before {
+  content: 'Log Service';
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--pm-text);
+}
+.pm-logger-close {
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 50% !important;
+  border: none !important;
+  background: var(--pm-surface-2) !important;
+  color: var(--pm-text-muted) !important;
+  font-size: 18px !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: background 0.15s !important;
+}
+.pm-logger-close:active { background: var(--pm-border) !important; }
+
+/* Equipment info banner — gold-tinted highlight */
+.pm-logger-eq {
+  padding: 16px 22px !important;
+  background: var(--pm-surface-3) !important;
+  border-bottom: 1px solid var(--pm-gold-line) !important;
+  flex-shrink: 0 !important;
+}
+.pm-logger-eq-name {
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif !important;
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  color: var(--pm-text) !important;
+  letter-spacing: -0.005em !important;
+  line-height: 1.3 !important;
+}
+.pm-logger-eq-meta {
+  font-size: 12.5px !important;
+  color: var(--pm-text-faint) !important;
+  margin-top: 3px !important;
+  letter-spacing: 0.2px;
+}
+
+/* Mass-mode toggle row */
+.pm-logger-mass-toggle {
+  padding: 14px 22px !important;
+  background: var(--pm-surface-2) !important;
+  border-bottom: 1px solid var(--pm-border) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  cursor: pointer !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  color: var(--pm-text) !important;
+  flex-shrink: 0 !important;
+}
+.pm-logger-mass-toggle input {
+  width: 22px !important;
+  height: 22px !important;
+  accent-color: var(--pm-gold) !important;
+}
+.pm-logger-mass-list {
+  max-height: 240px !important;
+  overflow-y: auto !important;
+  padding: 14px 18px !important;
+  background: var(--pm-surface) !important;
+  border-bottom: 1px solid var(--pm-border) !important;
+  flex-shrink: 0 !important;
+}
+.pm-mass-loading,
+.pm-mass-empty {
+  padding: 22px !important;
+  text-align: center !important;
+  color: var(--pm-text-faint) !important;
+  font-size: 13px !important;
+  font-style: italic !important;
+}
+.pm-mass-header {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  padding: 8px 4px !important;
+  margin-bottom: 10px !important;
+  font-size: 11px !important;
+  color: var(--pm-text-muted) !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 1.4px !important;
+}
+.pm-mass-all {
+  background: transparent !important;
+  border: 1px solid var(--pm-gold-line) !important;
+  color: var(--pm-gold) !important;
+  padding: 6px 12px !important;
+  border-radius: 999px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  letter-spacing: 0.4px;
+}
+.pm-mass-eq-info { flex: 1; min-width: 0; }
+.pm-mass-eq-name {
+  font-size: 13.5px !important;
+  font-weight: 600 !important;
+  color: var(--pm-text) !important;
+}
+.pm-mass-eq-loc {
+  font-size: 11.5px !important;
+  color: var(--pm-text-faint) !important;
+  margin-top: 2px !important;
+}
+
+/* Form scroll area */
+.pm-logger-form {
+  flex: 1 !important;
+  overflow-y: auto !important;
+  padding: 20px 22px 24px !important;
+  -webkit-overflow-scrolling: touch !important;
+  background: var(--pm-bg) !important;
+}
+
+/* Form sections — separated by spacing, not heavy hrules */
+.pm-form-section {
+  margin-bottom: 24px !important;
+  padding-bottom: 20px !important;
+  border-bottom: 1px solid var(--pm-border) !important;
+}
+.pm-form-section:last-of-type {
+  border-bottom: none !important;
+  padding-bottom: 0 !important;
+}
+.pm-form-section h3 {
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif !important;
+  font-size: 13px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 1.6px !important;
+  color: var(--pm-gold) !important;
+  font-weight: 700 !important;
+  margin-bottom: 14px !important;
+  margin-top: 0 !important;
+}
+
+/* Field labels — top-aligned, persistent (per UX research) */
+.pm-label {
+  display: block !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  color: var(--pm-text-muted) !important;
+  margin-bottom: 6px !important;
+  margin-top: 14px !important;
+  letter-spacing: 0.1px;
+}
+.pm-label:first-child { margin-top: 0 !important; }
+
+/* All inputs/selects/textareas — generous, friendly, gold-on-focus */
+.pm-input {
+  width: 100% !important;
+  background: var(--pm-surface) !important;
+  border: 1.5px solid var(--pm-border-2) !important;
+  border-radius: 12px !important;
+  padding: 13px 14px !important;
+  min-height: 48px !important;
+  font-family: 'DM Sans', 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif !important;
+  font-size: 15px !important;
+  color: var(--pm-text) !important;
+  outline: none !important;
+  box-sizing: border-box !important;
+  transition: border-color 0.15s, box-shadow 0.15s !important;
+  -webkit-appearance: none !important;
+  appearance: none;
+}
+.pm-input:focus {
+  border-color: var(--pm-gold) !important;
+  box-shadow: 0 0 0 3px rgba(184, 147, 66, 0.12) !important;
+}
+.pm-input::placeholder { color: var(--pm-text-faint) !important; }
+textarea.pm-input {
+  resize: vertical !important;
+  min-height: 72px !important;
+  line-height: 1.5;
+}
+select.pm-input {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b8270' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 14px center !important;
+  background-size: 14px !important;
+  padding-right: 38px !important;
+}
+.pm-file {
+  padding: 12px !important;
+  font-size: 13px !important;
+  background: var(--pm-surface-2) !important;
+  border-style: dashed !important;
+}
+
+/* Form rows — for date+type, phone+email, etc. */
+.pm-form-row {
+  display: flex !important;
+  gap: 12px !important;
+}
+.pm-form-half { flex: 1 !important; min-width: 0 !important; }
+
+/* Photo previews */
+.pm-photo-preview {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  margin-top: 10px !important;
+}
+.pm-photo-thumb {
+  width: 72px !important;
+  height: 72px !important;
+  object-fit: cover !important;
+  border-radius: 10px !important;
+  border: 1.5px solid var(--pm-border-2) !important;
+  box-shadow: 0 1px 3px rgba(60, 50, 30, 0.06);
+}
+.pm-pdf-preview { margin-top: 10px !important; }
+.pm-pdf-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 10px 14px !important;
+  background: var(--pm-surface-3) !important;
+  border: 1px solid var(--pm-gold-line) !important;
+  border-radius: 999px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: var(--pm-text) !important;
+}
+.pm-file-size {
+  color: var(--pm-text-faint) !important;
+  font-size: 11.5px !important;
+}
+
+/* Signature pad — clean, generous, friendly */
+.pm-signature-wrap {
+  position: relative !important;
+  background: var(--pm-surface) !important;
+  border: 2px dashed var(--pm-border-2) !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+}
+.pm-signature-canvas {
+  display: block !important;
+  width: 100% !important;
+  height: 180px !important;
+  cursor: crosshair !important;
+  touch-action: none !important;
+}
+.pm-sig-clear {
+  position: absolute !important;
+  top: 8px !important;
+  right: 8px !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid var(--pm-border-2) !important;
+  padding: 5px 12px !important;
+  border-radius: 999px !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  color: var(--pm-text-muted) !important;
+  font-family: inherit !important;
+  letter-spacing: 0.2px;
+}
+.pm-sig-hint {
+  font-size: 12px !important;
+  color: var(--pm-text-faint) !important;
+  margin-top: 8px !important;
+  text-align: center !important;
+  font-style: italic !important;
+  letter-spacing: 0.1px;
+}
+
+/* Action row — Cancel + Submit */
+.pm-logger-actions {
+  display: flex !important;
+  gap: 12px !important;
+  padding-top: 20px !important;
+  border-top: 1px solid var(--pm-border) !important;
+  margin-top: 20px !important;
+}
+.pm-cancel-btn {
+  flex: 1 !important;
+  padding: 15px !important;
+  min-height: 50px !important;
+  background: var(--pm-surface) !important;
+  border: 1.5px solid var(--pm-border-2) !important;
+  border-radius: 999px !important;
+  color: var(--pm-text-muted) !important;
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.3px !important;
+  cursor: pointer !important;
+  transition: background 0.15s, border-color 0.15s !important;
+}
+.pm-cancel-btn:active {
+  background: var(--pm-surface-2) !important;
+  border-color: var(--pm-border-2) !important;
+}
+.pm-submit-btn {
+  flex: 2 !important;
+  padding: 15px !important;
+  min-height: 50px !important;
+  background: linear-gradient(135deg, #d4b86a 0%, #c8a44e 50%, #b89342 100%) !important;
+  border: none !important;
+  border-radius: 999px !important;
+  color: var(--pm-gold-on) !important;
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.4px !important;
+  cursor: pointer !important;
+  box-shadow:
+    0 1px 2px rgba(160, 120, 40, 0.20),
+    0 6px 20px rgba(184, 147, 66, 0.30) !important;
+  transition: transform 0.12s, box-shadow 0.15s !important;
+}
+.pm-submit-btn:active {
+  transform: scale(0.985) !important;
+  box-shadow:
+    0 1px 1px rgba(160, 120, 40, 0.18),
+    0 3px 12px rgba(184, 147, 66, 0.22) !important;
+}
+.pm-submit-btn:disabled {
+  opacity: 0.55 !important;
+  cursor: wait !important;
+}
+
+/* Reassuring tip below the form — calm, not loud */
+.pm-logger-tip {
+  margin-top: 16px !important;
+  padding: 14px !important;
+  background: var(--pm-surface-3) !important;
+  border: 1px solid var(--pm-gold-line) !important;
+  border-radius: 12px !important;
+  font-size: 12.5px !important;
+  color: var(--pm-text-muted) !important;
+  text-align: center !important;
+  line-height: 1.5 !important;
+}
+
+
+/* ═══ SUCCESS SCREEN ═══════════════════════════════════════════════════ */
+
+.pm-success {
+  padding: 48px 28px !important;
+  text-align: center !important;
+}
+.pm-success-icon {
+  font-size: 72px !important;
+  color: var(--pm-green) !important;
+  line-height: 1 !important;
+  margin-bottom: 16px !important;
+}
+.pm-success-title {
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif !important;
+  font-size: 28px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.015em !important;
+  color: var(--pm-text) !important;
+  margin-bottom: 14px !important;
+  line-height: 1.2 !important;
+}
+.pm-success-msg {
+  font-size: 15px !important;
+  color: var(--pm-text-muted) !important;
+  line-height: 1.6 !important;
+  margin-bottom: 28px !important;
+  max-width: 36ch;
+  margin-left: auto;
+  margin-right: auto;
+}
+.pm-success-summary {
+  background: var(--pm-surface) !important;
+  border: 1px solid var(--pm-border) !important;
+  border-radius: 14px !important;
+  padding: 18px !important;
+  margin-bottom: 28px !important;
+  text-align: left !important;
+  box-shadow: 0 1px 2px rgba(60, 50, 30, 0.04);
+}
+.pm-success-row {
+  display: flex !important;
+  justify-content: space-between !important;
+  padding: 8px 0 !important;
+  font-size: 13.5px !important;
+  color: var(--pm-text-muted) !important;
+  border-bottom: 1px solid var(--pm-border);
+}
+.pm-success-row:last-child { border-bottom: none; }
+.pm-success-row strong {
+  color: var(--pm-text) !important;
+  font-weight: 600 !important;
+}
+.pm-success-btn {
+  width: 100% !important;
+  padding: 15px !important;
+  min-height: 50px !important;
+  background: linear-gradient(135deg, #d4b86a 0%, #c8a44e 50%, #b89342 100%) !important;
+  border: none !important;
+  border-radius: 999px !important;
+  color: var(--pm-gold-on) !important;
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.4px !important;
+  cursor: pointer !important;
+  box-shadow:
+    0 1px 2px rgba(160, 120, 40, 0.20),
+    0 6px 20px rgba(184, 147, 66, 0.30) !important;
+  transition: transform 0.12s !important;
+}
+.pm-success-btn:active { transform: scale(0.985) !important; }
