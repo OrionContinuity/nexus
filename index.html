@@ -103,12 +103,12 @@
   -webkit-user-select: none;
 }
 
-/* The (i) info button — sits at top-right corner of the stage, in the
+/* The (i) info button — sits at bottom-right corner of the stage, in the
    safe zone outside the coin itself. Slightly bigger tap target than
    before so it's easier to hit without accidentally tapping the coin. */
 .nx-coin-info {
   position: absolute;
-  top: 0;
+  bottom: 0;
   right: 0;
   width: 26px;
   height: 26px;
@@ -338,10 +338,14 @@
   margin-bottom: 36px;
 }
 #pinScreen .pin-pad {
-  margin-bottom: 22px;
+  margin-bottom: 12px;
+}
+#pinScreen .pin-sub {
+  margin-bottom: 12px;
+  margin-top: 0;
 }
 #pinScreen .pin-lang-row {
-  margin-top: 32px;
+  margin-top: 12px;
 }
 
 /* Slightly smaller coin on narrow phones — preserve the 20px safe zone
