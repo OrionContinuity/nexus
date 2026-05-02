@@ -1,0 +1,828 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Ingest View — design system migration
+   ────────────────────────────────────────────
+   The .ig-* namespace (a.k.a. "ingest view" / what app.js calls
+   "admin.js" by historic naming) is the data-pipeline surface:
+   Gmail sync, file upload, WhatsApp/contacts import, paste-anything,
+   maintenance tools, advanced settings.
+   
+   This file overrides the .ig-* visual styling from nexus.css (~209
+   selectors) to align with nx-system. It does NOT replace nexus.css's
+   ingest section — it loads after and the cascade wins.
+   
+   Keeps intact:
+     • All ID hooks that admin.js queries (ingestLog, gmailStatus, etc.)
+     • Collapsible card behavior (.collapsed toggle in markup onclick)
+     • Status state classes (is-healthy / is-stale / is-error)
+     • Chip data-val + active patterns
+   
+   Load order: ... → admin-system.css → ingest-system.css (this file)
+                  → file-picker.css → home.css → chat.css
+   ═══════════════════════════════════════════════════════════════════════ */
+
+
+/* ═══ INGEST WRAP — page padding, max width ═══════════════════════════ */
+
+.ingest-wrap {
+  padding: var(--nx-space-5) var(--nx-space-4) calc(80px + env(safe-area-inset-bottom)) !important;
+  max-width: 720px !important;
+  margin: 0 auto !important;
+}
+
+
+/* ═══ STATUS HERO — "Is it working?" answered in a glance ═══════════ */
+
+.ig-status {
+  background: var(--nx-surface-1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-radius: var(--nx-radius-card) !important;
+  padding: 20px !important;
+  margin: 0 0 var(--nx-space-4) !important;
+  box-shadow: var(--nx-shadow-soft) !important;
+  position: relative;
+  overflow: hidden;
+}
+.ig-status.is-healthy {
+  border-color: rgba(91, 186, 95, 0.25) !important;
+  background:
+    linear-gradient(135deg, rgba(91, 186, 95, 0.05), rgba(91, 186, 95, 0.01)),
+    var(--nx-surface-1) !important;
+}
+.ig-status.is-stale {
+  border-color: rgba(232, 168, 48, 0.30) !important;
+  background:
+    linear-gradient(135deg, rgba(232, 168, 48, 0.06), rgba(232, 168, 48, 0.01)),
+    var(--nx-surface-1) !important;
+}
+.ig-status.is-error {
+  border-color: rgba(212, 88, 88, 0.30) !important;
+  background:
+    linear-gradient(135deg, rgba(212, 88, 88, 0.06), rgba(212, 88, 88, 0.01)),
+    var(--nx-surface-1) !important;
+}
+.ig-status-row {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: var(--nx-space-3) !important;
+}
+.ig-status-dot {
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  flex-shrink: 0 !important;
+  margin-top: 6px !important;
+  background: var(--nx-faint) !important;
+  transition: background 0.3s, box-shadow 0.3s !important;
+}
+.ig-status-dot.is-healthy {
+  background: var(--nx-green) !important;
+  box-shadow: 0 0 12px rgba(91, 186, 95, 0.7) !important;
+  animation: igStatusPulse 2.4s ease-in-out infinite;
+}
+.ig-status-dot.is-stale {
+  background: var(--nx-amber) !important;
+  box-shadow: 0 0 10px rgba(232, 168, 48, 0.5) !important;
+}
+.ig-status-dot.is-error {
+  background: var(--nx-red) !important;
+  box-shadow: 0 0 10px rgba(212, 88, 88, 0.55) !important;
+}
+@keyframes igStatusPulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+.ig-status-text { flex: 1; min-width: 0; }
+.ig-status-line {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-lg) !important;
+  font-weight: 500 !important;
+  color: var(--nx-text) !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1.3 !important;
+  margin-bottom: 4px !important;
+}
+.ig-status-sub {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-muted) !important;
+  line-height: 1.5 !important;
+}
+.ig-status-action {
+  margin-top: var(--nx-space-4) !important;
+  padding-top: var(--nx-space-4) !important;
+  border-top: 1px solid var(--nx-gold-line) !important;
+}
+.ig-status-action button {
+  width: 100% !important;
+  padding: 13px !important;
+  min-height: var(--nx-touch-min) !important;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  color: var(--nx-gold-on) !important;
+  border: none !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.4px !important;
+  cursor: pointer !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+}
+
+
+/* ═══ TODAY STATS — "Since this morning: X, Y, Z" ═══════════════════ */
+
+.ig-today {
+  background: var(--nx-surface-1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border-radius: var(--nx-radius-card) !important;
+  padding: var(--nx-space-4) var(--nx-space-4) !important;
+  margin-bottom: var(--nx-space-4) !important;
+  box-shadow: var(--nx-shadow-soft) !important;
+}
+.ig-today-label {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 1.6px !important;
+  text-transform: uppercase !important;
+  color: var(--nx-faint) !important;
+  font-weight: 600 !important;
+  margin-bottom: var(--nx-space-3) !important;
+}
+.ig-today-row {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: var(--nx-space-3) !important;
+}
+.ig-today-stat {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  text-align: center !important;
+}
+.ig-today-val {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-2xl) !important;
+  font-weight: 600 !important;
+  color: var(--nx-gold) !important;
+  line-height: 1 !important;
+  letter-spacing: -0.02em !important;
+  font-variant-numeric: tabular-nums !important;
+}
+.ig-today-lbl {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-muted) !important;
+  margin-top: 6px !important;
+  line-height: 1.35 !important;
+}
+
+
+/* ═══ INGEST CARDS — collapsible source/tool cards ═══════════════════ */
+
+.ig-card {
+  background: var(--nx-surface-1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-radius: var(--nx-radius-card) !important;
+  margin-bottom: var(--nx-space-2) !important;
+  overflow: hidden !important;
+  box-shadow: var(--nx-shadow-soft) !important;
+  transition: border-color var(--nx-press) !important;
+}
+.ig-card-head {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--nx-space-3) !important;
+  padding: 14px 16px !important;
+  min-height: var(--nx-touch-min) !important;
+  cursor: pointer !important;
+  user-select: none;
+  transition: background var(--nx-press) !important;
+}
+.ig-card-head:active { background: var(--nx-gold-faint) !important; }
+.ig-card-icon {
+  font-size: 18px !important;
+  flex-shrink: 0 !important;
+  width: 24px !important;
+  text-align: center !important;
+  opacity: 0.85;
+}
+.ig-card-title-wrap { flex: 1; min-width: 0; }
+.ig-card-title {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-md) !important;
+  font-weight: 600 !important;
+  color: var(--nx-text) !important;
+  letter-spacing: -0.005em !important;
+  line-height: 1.3 !important;
+}
+.ig-card-sub {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-muted) !important;
+  margin-top: 2px !important;
+  line-height: 1.4 !important;
+}
+.ig-card-chevron {
+  color: var(--nx-faint) !important;
+  font-size: 10px !important;
+  margin-left: 6px !important;
+  transition: transform 0.2s !important;
+  flex-shrink: 0;
+}
+.ig-card.collapsed .ig-card-chevron {
+  transform: rotate(-90deg) !important;
+}
+.ig-card-body {
+  padding: 4px 16px 16px !important;
+  border-top: 1px solid var(--nx-gold-line) !important;
+}
+
+
+/* ═══ NOTES / CALLOUTS inside cards ═══════════════════════════════════ */
+
+.ig-note {
+  background: rgba(107, 155, 240, 0.06) !important;
+  border-left: 3px solid var(--nx-blue, #6b9bf0) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  padding: 12px 14px !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-muted) !important;
+  line-height: 1.55 !important;
+}
+.ig-note-good {
+  background: rgba(91, 186, 95, 0.06) !important;
+  border-left-color: var(--nx-green) !important;
+  color: var(--nx-text) !important;
+}
+
+
+/* ═══ BUTTONS ═══════════════════════════════════════════════════════ */
+
+/* Primary (gold gradient pill) — main actions */
+.ig-btn-primary {
+  flex: 1 !important;
+  padding: 12px 16px !important;
+  min-height: var(--nx-touch-min) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: none !important;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  color: var(--nx-gold-on) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.4px !important;
+  cursor: pointer !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+  transition: transform var(--nx-press), background var(--nx-press) !important;
+}
+.ig-btn-primary:active {
+  transform: scale(0.97) !important;
+  background: linear-gradient(180deg, var(--nx-gold-deep), var(--nx-gold-darker)) !important;
+}
+.ig-btn-primary:disabled {
+  opacity: 0.5 !important;
+  cursor: wait !important;
+  transform: none !important;
+}
+.ig-btn-wide {
+  width: 100% !important;
+  padding: 14px !important;
+  font-size: var(--nx-text-base) !important;
+  font-weight: 700 !important;
+  flex: none !important;
+}
+
+/* Outline (ghost-gold pill) — secondary actions */
+.ig-btn-outline {
+  padding: 12px 18px !important;
+  min-height: var(--nx-touch-min) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: var(--nx-gold-faint) !important;
+  color: var(--nx-gold) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.3px !important;
+  cursor: pointer !important;
+  transition: background var(--nx-press) !important;
+}
+.ig-btn-outline:active { background: var(--nx-gold-soft) !important; }
+
+.ig-btn-row {
+  display: flex !important;
+  gap: var(--nx-space-2) !important;
+  margin-top: var(--nx-space-3) !important;
+}
+
+/* Run-action button (used in legacy advanced area) — rounds + recolors
+   the legacy blue gradient run button. */
+.ig-btn-run {
+  width: 100% !important;
+  padding: 13px 0 !important;
+  min-height: var(--nx-touch-min) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: none !important;
+  cursor: pointer !important;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  color: var(--nx-gold-on) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.4px !important;
+  margin-top: var(--nx-space-3) !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+  transition: transform var(--nx-press), opacity var(--nx-press) !important;
+}
+.ig-btn-run:active { transform: scale(0.97) !important; opacity: 0.9; }
+.ig-btn-run:disabled { opacity: 0.5 !important; cursor: wait !important; }
+
+/* Connect-Gmail button — keep Google blue but pill it */
+.ig-btn-connect {
+  padding: 11px 22px !important;
+  min-height: 42px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: none !important;
+  background: #4285f4 !important;
+  color: #fff !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.2px !important;
+  cursor: pointer !important;
+  transition: transform var(--nx-press) !important;
+}
+.ig-btn-connect:active { transform: scale(0.97); }
+.ig-connect-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--nx-space-3) !important;
+  margin-top: var(--nx-space-3) !important;
+}
+
+/* Pause button (top of admin tray) */
+.ig-pause-btn {
+  padding: 7px 14px !important;
+  min-height: 32px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 500 !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: transparent !important;
+  color: var(--nx-faint) !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  transition: color var(--nx-press), border-color var(--nx-press) !important;
+}
+.ig-pause-btn.paused {
+  border-color: var(--nx-red-line) !important;
+  color: var(--nx-red) !important;
+  background: var(--nx-red-soft) !important;
+}
+
+
+/* ═══ CHIPS — mode/batch/interval presets ═══════════════════════════ */
+
+.ig-chips {
+  display: flex !important;
+  gap: var(--nx-space-1) !important;
+  flex-wrap: wrap !important;
+}
+.ig-chip {
+  padding: 7px 13px !important;
+  min-height: 32px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid transparent !important;
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-muted) !important;
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition:
+    background var(--nx-press),
+    color var(--nx-press),
+    border-color var(--nx-press) !important;
+  letter-spacing: 0.3px;
+}
+.ig-chip.active {
+  border-color: var(--nx-gold-line-2) !important;
+  color: var(--nx-gold) !important;
+  background: var(--nx-gold-soft) !important;
+  font-weight: 600 !important;
+}
+
+
+/* ═══ FORM FIELDS — labels, rows, inputs ═══════════════════════════ */
+
+.ig-field { margin-top: var(--nx-space-3) !important; }
+.ig-field-label {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 1.6px !important;
+  color: var(--nx-faint) !important;
+  text-transform: uppercase !important;
+  font-weight: 600 !important;
+  margin-bottom: 8px !important;
+}
+.ig-field-row {
+  display: flex !important;
+  gap: var(--nx-space-4) !important;
+  margin-top: var(--nx-space-3) !important;
+}
+.ig-field-row .ig-field {
+  flex: 1 !important;
+  margin-top: 0 !important;
+}
+
+.ig-filter-row {
+  display: flex !important;
+  gap: var(--nx-space-2) !important;
+  margin-top: var(--nx-space-3) !important;
+}
+.ig-filter-input,
+.ig-select {
+  padding: 11px 14px !important;
+  min-height: 42px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  outline: none !important;
+  transition: border-color var(--nx-press) !important;
+}
+.ig-filter-input { flex: 1; min-width: 0; }
+.ig-filter-input:focus,
+.ig-select:focus { border-color: var(--nx-gold-line-3) !important; }
+.ig-filter-input::placeholder { color: var(--nx-faint) !important; }
+
+
+/* ═══ TEXTAREA — paste-anything ═══════════════════════════════════ */
+
+.ig-textarea {
+  width: 100% !important;
+  min-height: 120px !important;
+  padding: 14px 16px !important;
+  border-radius: var(--nx-radius-card) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  outline: none !important;
+  resize: vertical !important;
+  margin-bottom: var(--nx-space-3) !important;
+  transition: border-color var(--nx-press) !important;
+  box-sizing: border-box;
+  line-height: 1.55;
+}
+.ig-textarea:focus { border-color: var(--nx-gold-line-3) !important; }
+.ig-textarea::placeholder { color: var(--nx-faint) !important; }
+
+
+/* ═══ FILE PICKERS — drop zone + file label ═══════════════════════ */
+
+.ig-drop {
+  border: 1.5px dashed var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-card) !important;
+  padding: 20px !important;
+  text-align: center !important;
+  background: var(--nx-surface-2) !important;
+  margin-top: var(--nx-space-3) !important;
+  transition: border-color var(--nx-press), background var(--nx-press) !important;
+}
+.ig-drop.dragover {
+  border-color: var(--nx-gold-line-3) !important;
+  background: var(--nx-gold-faint) !important;
+}
+.ig-drop-label {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-muted) !important;
+}
+.ig-drop-link {
+  color: var(--nx-gold) !important;
+  text-decoration: underline !important;
+  cursor: pointer !important;
+  font-weight: 500 !important;
+}
+.ig-drop-types {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  color: var(--nx-faint) !important;
+  margin-top: 6px !important;
+  letter-spacing: 1px !important;
+  display: block !important;
+}
+
+.ig-file-pick {
+  display: flex !important;
+  gap: var(--nx-space-2) !important;
+  margin-top: var(--nx-space-3) !important;
+  align-items: stretch;
+}
+.ig-file-label {
+  flex: 1;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0 16px !important;
+  min-height: var(--nx-touch-min) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  cursor: pointer !important;
+  transition: border-color var(--nx-press) !important;
+  gap: 8px;
+}
+.ig-file-label:active { border-color: var(--nx-gold-line-2) !important; }
+.ig-file-placeholder {
+  color: var(--nx-faint);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ig-file-browse {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 600 !important;
+  color: var(--nx-gold) !important;
+  letter-spacing: 0.4px !important;
+  flex-shrink: 0;
+}
+.ig-file-hint {
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-faint) !important;
+  margin-top: var(--nx-space-2) !important;
+  line-height: 1.5 !important;
+}
+
+
+/* ═══ TOOLS GRID — 2x grid of maintenance buttons ═══════════════════ */
+
+.ig-tools-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: var(--nx-space-2) !important;
+  margin-top: var(--nx-space-3) !important;
+}
+.ig-tool-btn {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 14px !important;
+  min-height: var(--nx-touch-min) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-muted) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  text-align: center !important;
+  transition: background var(--nx-press), color var(--nx-press), border-color var(--nx-press) !important;
+}
+.ig-tool-btn:active {
+  background: var(--nx-gold-faint) !important;
+  border-color: var(--nx-gold-line) !important;
+  color: var(--nx-gold) !important;
+}
+
+
+/* ═══ TOGGLES — inline checkboxes ═══════════════════════════════════ */
+
+.ig-toggles {
+  display: flex !important;
+  gap: var(--nx-space-3) !important;
+  flex-wrap: wrap !important;
+}
+.ig-toggle-inline {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-muted) !important;
+  cursor: pointer !important;
+}
+.ig-toggle-inline input {
+  accent-color: var(--nx-gold) !important;
+  width: 16px !important;
+  height: 16px !important;
+}
+.ig-mini-toggle {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-muted) !important;
+  cursor: pointer !important;
+}
+.ig-mini-toggle input {
+  accent-color: var(--nx-gold) !important;
+  width: 14px !important;
+  height: 14px !important;
+}
+
+
+/* ═══ DETAILS / SUMMARY — collapsible advanced section ═══════════════ */
+
+.ig-details {
+  margin-top: var(--nx-space-2) !important;
+}
+.ig-details summary {
+  cursor: pointer !important;
+  padding: 10px 0 !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-muted) !important;
+  list-style: none !important;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ig-details summary::-webkit-details-marker { display: none; }
+.ig-details summary::before {
+  content: "▸";
+  color: var(--nx-faint);
+  font-size: 11px;
+  transition: transform 0.2s;
+}
+.ig-details[open] summary::before { transform: rotate(90deg); }
+.ig-details[open] summary {
+  color: var(--nx-text) !important;
+  font-weight: 500 !important;
+}
+
+
+/* ═══ FEEDBACK / STATUS LINES ═══════════════════════════════════════ */
+
+.ig-feedback {
+  margin-top: var(--nx-space-2) !important;
+  padding: 10px 12px !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-muted) !important;
+  line-height: 1.5 !important;
+  border-radius: var(--nx-radius-tight);
+  min-height: 0;
+}
+.ig-feedback:empty { padding: 0; margin: 0; }
+
+
+/* ═══ PROGRESS BAR ═══════════════════════════════════════════════════ */
+
+.ingest-progress {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--nx-space-3) !important;
+  margin-top: var(--nx-space-3) !important;
+  padding: var(--nx-space-2) var(--nx-space-3) !important;
+  background: var(--nx-surface-2) !important;
+  border-radius: var(--nx-radius-pill) !important;
+}
+.ingest-progress-bar {
+  flex: 1 !important;
+  height: 6px !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  overflow: hidden !important;
+}
+.ingest-progress-fill {
+  height: 100% !important;
+  background: linear-gradient(90deg, var(--nx-gold-deep), var(--nx-gold)) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  transition: width 0.3s var(--nx-ease) !important;
+}
+.ingest-progress-text {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-muted) !important;
+  font-variant-numeric: tabular-nums !important;
+  letter-spacing: 0.3px;
+  min-width: 50px;
+  text-align: right;
+}
+
+
+/* ═══ INFO TIP — little info dot with hover popup ═══════════════════ */
+
+.ig-info {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 16px !important;
+  height: 16px !important;
+  border-radius: 50% !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  color: var(--nx-faint) !important;
+  cursor: pointer !important;
+  vertical-align: middle !important;
+  margin-left: 4px !important;
+  position: relative;
+  transition: color var(--nx-press), border-color var(--nx-press) !important;
+}
+.ig-info:hover,
+.ig-info.active {
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold-line-2) !important;
+}
+.ig-info-tip {
+  position: absolute !important;
+  bottom: calc(100% + 8px) !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  background: rgba(20, 18, 14, 0.98) !important;
+  border: 1px solid var(--nx-gold-line-2) !important;
+  color: var(--nx-text) !important;
+  padding: 10px 14px !important;
+  border-radius: var(--nx-radius-tight) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  white-space: normal !important;
+  width: 220px !important;
+  line-height: 1.55 !important;
+  z-index: 30 !important;
+  box-shadow: var(--nx-shadow-card) !important;
+  pointer-events: none;
+}
+
+
+/* ═══ RAW STATS — inside Advanced section ═══════════════════════════ */
+
+.ig-raw-stats {
+  padding: var(--nx-space-2) 0 !important;
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-sm) !important;
+  line-height: 1.85 !important;
+  color: var(--nx-muted) !important;
+}
+.ig-raw-stats b {
+  color: var(--nx-text) !important;
+  font-weight: 600 !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+
+/* ═══ CLEAR LOG BUTTON ═══════════════════════════════════════════════ */
+
+.ig-clear-btn {
+  margin-left: auto !important;
+  padding: 4px 12px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: transparent !important;
+  color: var(--nx-faint) !important;
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 0.5px !important;
+  cursor: pointer !important;
+  transition: color var(--nx-press), border-color var(--nx-press) !important;
+}
+.ig-clear-btn:hover {
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold-line-2) !important;
+}
+
+
+/* ═══ INGEST LOG (bottom of advanced) ═══════════════════════════════ */
+
+#ingestLog {
+  background: var(--nx-surface-2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  padding: var(--nx-space-3) !important;
+  max-height: 240px !important;
+  overflow-y: auto !important;
+  font-family: var(--nx-font-mono) !important;
+  font-size: 11.5px !important;
+  line-height: 1.6 !important;
+  color: var(--nx-muted) !important;
+}
+.log-line {
+  padding: 2px 0 !important;
+  display: flex;
+  gap: 8px;
+}
+.log-ts {
+  color: var(--nx-faint) !important;
+  flex-shrink: 0;
+}
+.log-error { color: var(--nx-red) !important; }
+.log-warn  { color: var(--nx-amber) !important; }
+.log-success { color: var(--nx-green) !important; }
