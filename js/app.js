@@ -1071,9 +1071,62 @@ td.check{background:#F0EDE6 !important}
           if (this.config) this.config.voice_idx = idx;
           try { await this.sb.from('nexus_config').update({ voice_idx: idx }).eq('id', 1); } catch(e) {}
           const voiceNames = ['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
+          let name = voiceNames[idx];
+          if (!name) {
+            // Custom voice (idx >= 20) — pull from brain-chat
+            try {
+              const meta = NX.getVoiceMeta && NX.getVoiceMeta(idx);
+              if (meta && meta.name) name = meta.name;
+            } catch (_) {}
+            name = name || ('Voice ' + idx);
+          }
           const vs = document.getElementById('voiceTestStatus');
-          if (vs) { vs.textContent = `✓ ${voiceNames[idx]} selected & saved`; vs.style.color = '#5bba5f'; }
+          if (vs) { vs.textContent = `✓ ${name} selected & saved`; vs.style.color = '#5bba5f'; }
         });
+
+        // Voice speed — slider 0.8× to 1.6×. Persists to localStorage.
+        // brain-chat's speak() reads NX.getVoiceSpeed() at call time so
+        // changes apply to the next utterance with no re-init needed.
+        const speedSlider = document.getElementById('adminVoiceSpeed');
+        const speedVal = document.getElementById('adminVoiceSpeedVal');
+        if (speedSlider && speedVal) {
+          const stored = parseFloat(localStorage.getItem('nexus_voice_speed') || '1.25');
+          const clamped = isNaN(stored) ? 1.25 : Math.max(0.8, Math.min(1.6, stored));
+          speedSlider.value = String(clamped);
+          speedVal.textContent = clamped.toFixed(2) + '×';
+          speedSlider.addEventListener('input', () => {
+            const v = parseFloat(speedSlider.value);
+            speedVal.textContent = v.toFixed(2) + '×';
+          });
+          speedSlider.addEventListener('change', () => {
+            const v = parseFloat(speedSlider.value);
+            localStorage.setItem('nexus_voice_speed', String(v));
+          });
+        }
+
+        // Voice replies on/off — admin mirror of the chat top-bar toggle.
+        // Fires nx-voice-on-change so chat-view.js syncs its icon.
+        const voiceOnToggle = document.getElementById('adminVoiceOn');
+        if (voiceOnToggle) {
+          voiceOnToggle.checked = (localStorage.getItem('nx_voice_on') !== '0');
+          voiceOnToggle.addEventListener('change', () => {
+            const on = voiceOnToggle.checked;
+            localStorage.setItem('nx_voice_on', on ? '1' : '0');
+            window.dispatchEvent(new CustomEvent('nx-voice-on-change', { detail: { on } }));
+          });
+          window.addEventListener('nx-voice-on-change', (e) => {
+            const on = e.detail?.on;
+            if (on === undefined) return;
+            if (voiceOnToggle.checked !== on) voiceOnToggle.checked = on;
+          });
+        }
+
+        // ═══ CUSTOM VOICES ════════════════════════════════════════════
+        // Renders the list of custom voices, wires Add/Providentia/Test/
+        // Delete buttons, and folds custom voices into the main voice
+        // select so they're picker-able alongside the 20 defaults.
+        this.setupCustomVoices();
+
         this.loadUserList();
         // Show chat log for admin
         document.getElementById('adminChatLog').style.display='block';
@@ -1175,20 +1228,47 @@ td.check{background:#F0EDE6 !important}
     // Test voice button
     document.getElementById('testVoiceBtn').addEventListener('click', async () => {
       const voiceIdx = parseInt(document.getElementById('adminVoice').value) || 0;
-      const voiceNames = ['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
-      const voiceIds = ['pNInz6obpgDQGcFmaJgB','EXAVITQu4vr4xnSDxMaL','onwK4e9ZLuTAKqWW03F9','XB0fDUnXU5powFXDhCwa','TX3LPaxmHKxFdv7VOQHJ','LcfcDJNUP1GQjkzn1xUU','yoZ06aMxZJJ28mfd3POQ','ThT5KcBeYPX3keUQqHPh','VR6AewLTigWG4xSOukaG','pqHfZKP75CvOlQylNhV4','ErXwobaYiN019PkySvjV','AZnzlk1XvdvUeBnXmlld','D38z5RcWu1voky8WS1ja','jsCqWAovK2LkecY7zXl4','jBpfuIE2acCO8z3wKNLl','oWAxZDx7w5VEj9dCyTzz','SOYHLrjzK2X1ezoPC6cr','ZQe5CZNOzWyzPSCn5a3c','TxGEqnHWrfWFTfGW9XjX','21m00Tcm4TlvDq8ikWAM'];
       const status = document.getElementById('voiceTestStatus');
       const ek = this.getElevenLabsKey();
       if (!ek) { status.textContent = 'Add ElevenLabs key first'; status.style.color = '#d45858'; return; }
-      status.textContent = `Playing ${voiceNames[voiceIdx]}...`; status.style.color = 'var(--accent)';
+
+      // Resolve voice meta — for default voices (0-19) or custom (20+).
+      // Falls back to the legacy hardcoded arrays if NX isn't ready.
+      let voice = null;
       try {
-        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceIds[voiceIdx]}`, {
+        if (NX.getVoiceMeta) voice = NX.getVoiceMeta(voiceIdx);
+      } catch (_) {}
+      if (!voice) {
+        const voiceNames = ['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
+        const voiceIds = ['pNInz6obpgDQGcFmaJgB','EXAVITQu4vr4xnSDxMaL','onwK4e9ZLuTAKqWW03F9','XB0fDUnXU5powFXDhCwa','TX3LPaxmHKxFdv7VOQHJ','LcfcDJNUP1GQjkzn1xUU','yoZ06aMxZJJ28mfd3POQ','ThT5KcBeYPX3keUQqHPh','VR6AewLTigWG4xSOukaG','pqHfZKP75CvOlQylNhV4','ErXwobaYiN019PkySvjV','AZnzlk1XvdvUeBnXmlld','D38z5RcWu1voky8WS1ja','jsCqWAovK2LkecY7zXl4','jBpfuIE2acCO8z3wKNLl','oWAxZDx7w5VEj9dCyTzz','SOYHLrjzK2X1ezoPC6cr','ZQe5CZNOzWyzPSCn5a3c','TxGEqnHWrfWFTfGW9XjX','21m00Tcm4TlvDq8ikWAM'];
+        voice = { name: voiceNames[voiceIdx], id: voiceIds[voiceIdx] };
+      }
+      if (!voice || !voice.id) {
+        status.textContent = 'Could not resolve voice'; status.style.color = '#d45858'; return;
+      }
+
+      status.textContent = `Playing ${voice.name}...`; status.style.color = 'var(--accent)';
+      try {
+        // Per-voice tuning if present (custom voices like Providentia);
+        // otherwise the test-button defaults from before.
+        const stability  = voice.stability  != null ? voice.stability  : 0.45;
+        const similarity = voice.similarity != null ? voice.similarity : 0.78;
+        const style      = voice.style      != null ? voice.style      : 0.35;
+        const speed      = voice.speed      != null ? voice.speed      : (parseFloat(localStorage.getItem('nexus_voice_speed') || '1.25') || 1.25);
+
+        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice.id}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'xi-api-key': ek },
-          body: JSON.stringify({ text: `Hi, I'm ${voiceNames[voiceIdx]}. I'll be your NEXUS voice.`, model_id: 'eleven_turbo_v2', voice_settings: { stability: .45, similarity_boost: .78, style: .35, use_speaker_boost: true } })
+          body: JSON.stringify({
+            text: `Hi, I'm ${voice.name}. I'll be your NEXUS voice.`,
+            model_id: 'eleven_multilingual_v2',
+            voice_settings: { stability, similarity_boost: similarity, style, use_speaker_boost: true }
+          })
         });
         if (r.ok) {
           const bl = await r.blob(), u = URL.createObjectURL(bl), a = new Audio(u);
-          a.play(); a.onended = () => { URL.revokeObjectURL(u); status.textContent = `✓ ${voiceNames[voiceIdx]} ready`; status.style.color = '#5bba5f'; };
+          a.playbackRate = speed;
+          a.play();
+          a.onended = () => { URL.revokeObjectURL(u); status.textContent = `✓ ${voice.name} ready`; status.style.color = '#5bba5f'; };
         } else { status.textContent = 'Voice test failed'; status.style.color = '#d45858'; }
       } catch (e) { status.textContent = 'Error: ' + e.message; status.style.color = '#d45858'; }
     });
@@ -1270,6 +1350,334 @@ td.check{background:#F0EDE6 !important}
       btn.disabled = false; btn.textContent = '+ Add';
       this.loadUserList();
     });
+  },
+
+  // ═══ THE TWO VOICES OF NEXUS ═══════════════════════════════════════
+  // Providentia and Trajan — the figures on the coin. Each is sculpted
+  // in ElevenLabs Voice Design from a written prompt, then activated
+  // here. The two are stored under localStorage.nexus_custom_voices
+  // (kept in that key for backward compat with existing brain-chat
+  // logic that reads custom voices from there).
+  //
+  // Schema per character entry:
+  //   { id, name, blurb, stability, similarity, style, speed, systemPrefix }
+  //
+  // Trajan and Providentia carry per-voice tuning AND distinct AI
+  // personality prefixes — when Trajan is the active voice, the AI
+  // BECOMES Trajan in tone, not just the audio.
+  setupCustomVoices() {
+    // Each character has its own card with copy-prompt, voice ID input,
+    // test, and activate buttons. Wiring is character-keyed.
+    const characters = ['providentia', 'trajan'];
+    if (!characters.some(c => document.querySelector(`[data-character="${c}"]`))) return;
+
+    // ─── PERSONA DEFINITIONS ──────────────────────────────────────
+    // Per-character settings: voice tuning + system prompt prefix.
+    // The voice ID is the only piece the user provides (after running
+    // Voice Design); everything else is baked in here so the persona
+    // is consistent across sessions and devices.
+    const PERSONAS = {
+      providentia: {
+        name: 'Providentia',
+        blurb: 'Foresight, calm, knowing — the coin reverse',
+        // Wise mentor register: high stability (steady, no waver),
+        // high similarity (anchored to natural timbre), low style
+        // (gravitas not theatrics). Slower than baseline.
+        stability: 0.72,
+        similarity: 0.88,
+        style: 0.22,
+        speed: 1.00,
+        systemPrefix:
+          "You are speaking AS Providentia — Roman goddess of foresight, " +
+          "the figure on the reverse of the NEXUS aureus. You are NEXUS's wise " +
+          "voice: calm, measured, knowing. You see patterns across time. You " +
+          "speak in clear, deliberate sentences — no bullet lists when prose " +
+          "will do, no exclamation marks, no rushing. You refer to what you " +
+          "have observed (\"I've seen…\", \"the pattern here is…\") rather " +
+          "than rattling off facts. You drop Latin into English without " +
+          "apology when it fits — \"festina lente\", \"dum spiro spero\", " +
+          "\"providentia rerum\" — because to you these are not quotations. " +
+          "When you don't know, you say so plainly. You can use every tool " +
+          "NEXUS has — equipment status, the board, cleaning logs, " +
+          "contractors, the calendar — but you describe what you found in " +
+          "your own voice, not as a database dump. Brevity is still a virtue; " +
+          "gravitas is not the same as long-windedness. The user is Orion, " +
+          "who runs three restaurants. He trusts you with the whole picture."
+      },
+      trajan: {
+        name: 'Trajan',
+        blurb: 'Decisive, plain-spoken, soldier-emperor — the coin obverse',
+        // Emperor register: high stability, moderate similarity, low
+        // style. Same slow tempo as Providentia (gravitas needs time).
+        stability: 0.74,
+        similarity: 0.85,
+        style: 0.20,
+        speed: 1.00,
+        systemPrefix:
+          "You are speaking AS Trajan — Roman emperor, soldier first, " +
+          "statesman second, the figure on the obverse of the NEXUS aureus. " +
+          "You are honored two thousand years after your death by an app " +
+          "that bears your face. You speak plainly. You do not use three " +
+          "words when one will do. You give answers, not options. You do " +
+          "not say \"perhaps\" or \"it might be that\" — you say what " +
+          "you know, and when you don't know, you say so flat. You drop " +
+          "Latin and Spanish into English when it fits, like a campaign " +
+          "veteran who has crossed too many borders to be precious about " +
+          "language. You can use every tool NEXUS has — equipment status, " +
+          "the board, cleaning logs, contractors, the calendar — and you " +
+          "report findings the way a centurion reports to his legate: " +
+          "facts first, recommendation second, brief throughout. The user " +
+          "is Orion, who runs three restaurants in Austin. Treat his work " +
+          "as a campaign and yourself as his most trusted advisor."
+      }
+    };
+
+    // ─── STORAGE ──────────────────────────────────────────────────
+    const load = () => {
+      try {
+        const raw = localStorage.getItem('nexus_custom_voices');
+        return raw ? (JSON.parse(raw) || []) : [];
+      } catch (e) { return []; }
+    };
+    const save = (arr) => {
+      localStorage.setItem('nexus_custom_voices', JSON.stringify(arr));
+      if (NX.reloadCustomVoices) NX.reloadCustomVoices();
+    };
+
+    // ─── RENDER (per-character status + voice ID prefill) ─────────
+    const renderCharacterState = (charKey) => {
+      const card = document.querySelector(`[data-character="${charKey}"]`);
+      if (!card) return;
+      const idInput = card.querySelector('.admin-voice-id-input');
+      const status = card.querySelector('.admin-voice-status');
+      const customs = load();
+      const meta = PERSONAS[charKey];
+      const existing = customs.find(v => v.name === meta.name);
+      if (existing) {
+        if (idInput && !idInput.value) idInput.value = existing.id;
+        // Has she/he been activated? Activated == this voice is the
+        // currently-saved voice_idx. Find the index.
+        const allCustoms = customs;
+        const customIdx = allCustoms.findIndex(v => v.name === meta.name);
+        const overallIdx = customIdx >= 0 ? (20 + customIdx) : -1;
+        const savedIdx = parseInt(localStorage.getItem('nexus_voice_idx') || '0');
+        const isActive = overallIdx === savedIdx;
+        if (status) {
+          status.innerHTML = isActive
+            ? `<span class="admin-voice-status-active">✦ ${meta.name} is the active voice</span>`
+            : `<span class="admin-voice-status-ready">${meta.name} is ready — tap "Bring to life" to activate</span>`;
+        }
+        // Update activate button label
+        const actBtn = card.querySelector('.admin-voice-activate-btn');
+        if (actBtn) actBtn.textContent = isActive ? 'Active ✓' : 'Bring to life';
+      } else {
+        if (status) status.innerHTML = '';
+      }
+    };
+
+    // ─── COPY PROMPT BUTTONS ──────────────────────────────────────
+    document.querySelectorAll('.admin-voice-prompt-copy').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const targetId = btn.dataset.copy;
+        const ta = document.getElementById(targetId);
+        if (!ta) return;
+        const text = ta.value;
+        try {
+          await navigator.clipboard.writeText(text);
+          const orig = btn.textContent;
+          btn.textContent = '✓ Copied';
+          setTimeout(() => { btn.textContent = orig; }, 1600);
+        } catch (e) {
+          // Fallback for browsers without async clipboard
+          ta.select();
+          try { document.execCommand('copy'); btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = '⧉ Copy'; }, 1600); }
+          catch (_) { NX.toast && NX.toast('Copy failed — select manually', 'error'); }
+        }
+      });
+    });
+
+    // ─── TEST BUTTONS ─────────────────────────────────────────────
+    // Hear the pasted voice ID with this character's tuning, without
+    // saving it yet. Lets the user verify the Voice Design output
+    // sounds right before committing.
+    document.querySelectorAll('.admin-voice-test-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const charKey = btn.dataset.test;
+        const card = document.querySelector(`[data-character="${charKey}"]`);
+        if (!card) return;
+        const idInput = card.querySelector('.admin-voice-id-input');
+        const id = (idInput.value || '').trim();
+        if (!id || id.length < 15) {
+          NX.toast && NX.toast('Paste a voice ID first', 'warn');
+          return;
+        }
+        const persona = PERSONAS[charKey];
+        const previewLine = charKey === 'providentia'
+          ? "Providentia listens. What would you have me see?"
+          : "Trajan answers. Speak plainly.";
+        await this.testCustomVoice({
+          id,
+          name: persona.name,
+          stability: persona.stability,
+          similarity: persona.similarity,
+          style: persona.style,
+          speed: persona.speed,
+        }, previewLine);
+      });
+    });
+
+    // ─── ACTIVATE BUTTONS — Bring to life ─────────────────────────
+    // Saves the voice ID + persona settings to nexus_custom_voices,
+    // then sets it as the active voice (voice_idx). The AI will speak
+    // with this voice and adopt the character's persona on next reply.
+    document.querySelectorAll('.admin-voice-activate-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const charKey = btn.dataset.activate;
+        const card = document.querySelector(`[data-character="${charKey}"]`);
+        if (!card) return;
+        const idInput = card.querySelector('.admin-voice-id-input');
+        const id = (idInput.value || '').trim();
+        if (!id || id.length < 15) {
+          NX.toast && NX.toast('Paste the voice ID from ElevenLabs first', 'warn');
+          return;
+        }
+        const persona = PERSONAS[charKey];
+
+        // Upsert into custom voices list
+        const customs = load();
+        const existingIdx = customs.findIndex(v => v.name === persona.name);
+        const entry = {
+          id,
+          name: persona.name,
+          blurb: persona.blurb,
+          stability: persona.stability,
+          similarity: persona.similarity,
+          style: persona.style,
+          speed: persona.speed,
+          systemPrefix: persona.systemPrefix,
+        };
+        if (existingIdx >= 0) customs[existingIdx] = entry;
+        else customs.push(entry);
+        save(customs);
+
+        // Set as active voice. Default voices live at 0-19; customs at
+        // 20+. Find this character's index in customs and shift up.
+        const finalIdx = 20 + customs.findIndex(v => v.name === persona.name);
+        localStorage.setItem('nexus_voice_idx', finalIdx);
+        if (this.config) this.config.voice_idx = finalIdx;
+        try { await this.sb.from('nexus_config').update({ voice_idx: finalIdx }).eq('id', 1); } catch(_) {}
+
+        // Rebuild the visible select to include this voice
+        this._rebuildVoiceSelect();
+
+        // Refresh both character cards (so the OTHER one's status
+        // updates too, since we just changed the active voice)
+        characters.forEach(c => renderCharacterState(c));
+
+        NX.toast && NX.toast(`${persona.name} is alive. NEXUS now speaks as them.`, 'success');
+
+        // Speak the activation line so they introduce themselves
+        const introLine = charKey === 'providentia'
+          ? "Providentia listens. The threads are in my hand."
+          : "Trajan answers. Two thousand years on, the work continues.";
+        setTimeout(() => {
+          this.testCustomVoice({
+            id,
+            name: persona.name,
+            stability: persona.stability,
+            similarity: persona.similarity,
+            style: persona.style,
+            speed: persona.speed,
+          }, introLine);
+        }, 400);
+      });
+    });
+
+    // ─── INITIAL RENDER ───────────────────────────────────────────
+    this._rebuildVoiceSelect();
+    characters.forEach(c => renderCharacterState(c));
+  },
+
+  // Rebuild the main voice <select> from the current custom voices
+  // list. The visible options are: "System default" (value=0, fallback
+  // to brain-chat's first internal voice) plus any saved custom voices
+  // (Providentia, Trajan) at values 20+. The 20 default ElevenLabs
+  // voices are intentionally NOT shown — NEXUS is a two-voice app.
+  _rebuildVoiceSelect() {
+    const sel = document.getElementById('adminVoice');
+    if (!sel) return;
+    let customs = [];
+    try {
+      const raw = localStorage.getItem('nexus_custom_voices');
+      customs = raw ? (JSON.parse(raw) || []) : [];
+    } catch (e) {}
+    // Wipe and rebuild
+    sel.innerHTML = '<option value="0">— System default —</option>';
+    customs.forEach((v, i) => {
+      const opt = document.createElement('option');
+      opt.value = String(20 + i);
+      opt.textContent = `${v.name}${v.blurb ? ' — ' + v.blurb : ''}`;
+      opt.dataset.custom = '1';
+      sel.appendChild(opt);
+    });
+    // Apply saved selection (clamp if out of range)
+    const stored = parseInt(localStorage.getItem('nexus_voice_idx') || '0');
+    // Valid values: 0 (default) or 20..(20+customs.length-1)
+    if (stored >= 20 && stored < 20 + customs.length) {
+      sel.value = String(stored);
+    } else {
+      sel.value = '0';
+    }
+  },
+
+  // Speak a test line using a specific voice's settings, without
+  // permanently switching the active voice. Bypasses the global voice-on
+  // mute so admin testing always plays. Used by the per-character Test
+  // buttons and the Bring-to-life confirmation.
+  async testCustomVoice(voice, customText) {
+    const text = customText || `${voice.name} here.`;
+    const ek = this.getElevenLabsKey();
+    if (!ek) {
+      NX.toast && NX.toast('Set your ElevenLabs API key first', 'warn');
+      return;
+    }
+    try {
+      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'xi-api-key': ek },
+        body: JSON.stringify({
+          text: text.slice(0, 400),
+          model_id: 'eleven_multilingual_v2',
+          voice_settings: {
+            stability: voice.stability != null ? voice.stability : 0.5,
+            similarity_boost: voice.similarity != null ? voice.similarity : 0.85,
+            style: voice.style != null ? voice.style : 0.3,
+            use_speaker_boost: true,
+          }
+        })
+      });
+      if (!r.ok) {
+        const err = await r.text().catch(() => '');
+        NX.toast && NX.toast('ElevenLabs error: ' + (err.slice(0, 80) || r.status), 'error');
+        return;
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.playbackRate = voice.speed != null ? voice.speed : 1.25;
+      audio.play();
+      audio.onended = () => URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('[testCustomVoice]', e);
+      NX.toast && NX.toast('Voice test failed', 'error');
+    }
+  },
+
+  escHTML(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   },
 
   async loadUserList() {
