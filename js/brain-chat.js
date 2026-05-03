@@ -1252,7 +1252,7 @@ Keep it casual and warm. No markdown formatting.`;
       return`[${n.category}] ${n.name}: ${(n.notes||'').slice(0,500)}${extras}`;
     }).join('\n');
 
-    const idx=NX.nodes.filter(n=>!n.is_private).map(n=>`${n.name} (${n.category})`).join(', ');
+    const idx=NX.nodes.filter(n=>!n.is_private).sort((a,b)=>(b.access_count||0)-(a.access_count||0)).slice(0,20).map(n=>`${n.name} (${n.category})`).join(', ');
 
     const relIds=allRelevant.map(n=>n.id);
     NX.brain.state.activatedNodes=new Set(relIds);NX.brain.wakePhysics();
@@ -1369,7 +1369,7 @@ Keep it casual and warm. No markdown formatting.`;
           const src=(n.source_emails||[]).slice(0,2).map(s=>`[${s.date||'?'} from ${s.from||'?'}] ${(s.subject||'').slice(0,40)}`).join('; ');
           return`[${n.category}] ${n.name}: ${n.notes||''}${src?'\n  Sources: '+src:''}`;
         }).join('\n');
-        const idx=NX.nodes.filter(n=>!n.is_private).map(n=>`${n.name} (${n.category})`).join(', ');
+        const idx=NX.nodes.filter(n=>!n.is_private).sort((a,b)=>(b.access_count||0)-(a.access_count||0)).slice(0,20).map(n=>`${n.name} (${n.category})`).join(', ');
         ctx=`RELEVANT NODES (from ${subQueries.length} search angles):\n${det}\n\nFULL INDEX (${NX.nodes.length} nodes):\n${idx}`;
         // Append community summaries, patterns, brief
         try{
@@ -1391,8 +1391,8 @@ Keep it casual and warm. No markdown formatting.`;
           if(brief?.length&&brief[0].brief_text)ctx+='\n\nTODAY\'S BRIEF:\n'+brief[0].brief_text;
         }catch(e){}
       }else{
-        // Simple question — standard single-pass retrieval
-        ctx=await getCtx(q);
+        // Simple question — use MEMORY (filtered by wing/room, no FULL INDEX bloat)
+        ctx=window.MEMORY ? await MEMORY.getContext(q, SESSION_ID) : await getCtx(q);
       }
 
       // ═══ TIER 2: ReAct Loop for complex questions, single-pass for simple ═══
@@ -1412,29 +1412,8 @@ Keep it casual and warm. No markdown formatting.`;
           th.parentElement?.insertBefore(toolNote,th);
         }
       }else{
-        // Simple single-pass — fetch from DB (persona-filtered)
-        let msgs = [];
-        if (NX.sb && getSessionId()) {
-          try {
-            const { data: recentMsgs } = await NX.sb
-              .from('chat_history')
-              .select('question, answer')
-              .eq('session_id', getSessionId())
-              .eq('persona', SESSION_PERSONA)
-              .order('created_at', { ascending: true });
-            if (recentMsgs?.length) {
-              recentMsgs.slice(-6).forEach(r => {
-                if (r.question) msgs.push({role: 'user', content: r.question});
-                if (r.answer) msgs.push({role: 'assistant', content: r.answer});
-              });
-            }
-          } catch (err) {
-            console.warn('[brain] context fetch failed:', err.message);
-            msgs = chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
-          }
-        } else {
-          msgs = chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
-        }
+        // Simple single-pass
+        const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
         cleanAns=await NX.askClaude(persona+'\n\n'+ctx,msgs,300,false)||'No response.';
       }
 
@@ -1481,7 +1460,9 @@ Keep it casual and warm. No markdown formatting.`;
       if(detectCompound(q)&&confidence!=='low'){
         handleCompoundAction(q,cleanAns);
       }
-      try{await NX.sb.from('chat_history').insert({question:q,answer:cleanAns,session_id:SESSION_ID,user_name:(NX.currentUser?NX.currentUser.name:'Unknown')});}catch(e){}
+      // Save with wing/room metadata via MEMORY, falls back to direct insert if module not loaded
+      if (window.MEMORY) { await MEMORY.save(SESSION_ID, q, cleanAns); }
+      else { try{await NX.sb.from('chat_history').insert({question:q,answer:cleanAns,session_id:SESSION_ID,user_name:(NX.currentUser?NX.currentUser.name:'Unknown')});}catch(e){} }
       // Stage R: pulse the mini-galaxy — the brain just did work
       if (NX.homeGalaxyPulse) NX.homeGalaxyPulse();
       // ═══ SELF-OPTIMIZATION — track chat quality ═══
