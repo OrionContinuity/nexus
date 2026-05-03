@@ -185,13 +185,13 @@
     rootEl.innerHTML = `
       <div class="cv-top">
         <button class="cv-back" id="cvBack" aria-label="Back">${svg(ICONS.back)}</button>
-        <div class="cv-brand" id="cvBrand" title="Tone & voice settings">
-          <span class="cv-brand-galaxy" id="cvBrandGalaxy">
-            <canvas width="36" height="36"></canvas>
-          </span>
-          <span class="cv-brand-mark">NEXUS</span>
-        </div>
-        <button class="cv-icon-btn cv-voice-toggle ${state.voiceOn ? 'is-on' : 'is-off'}" id="cvVoiceToggle" aria-label="${state.voiceOn ? 'Mute voice replies' : 'Unmute voice replies'}" title="${state.voiceOn ? 'Voice on — tap to mute' : 'Muted — tap to unmute'}" type="button">${svg(state.voiceOn ? ICONS.volume : ICONS.volumeOff)}</button>
+        <!--
+          Center area intentionally empty. The masthead at the top of the
+          screen already shows the NEXUS coin + wordmark; repeating it
+          here was visual noise. Voice mute moved to the plus menu where
+          the user prefers controls. Top bar reads as: back · clock.
+        -->
+        <div class="cv-top-spacer" aria-hidden="true"></div>
         <button class="cv-icon-btn" id="cvMenu" aria-label="Past conversations" title="Past conversations">${svg(ICONS.history)}</button>
       </div>
 
@@ -208,7 +208,6 @@
           <textarea class="cv-input" id="chatInput" rows="1"
             placeholder="Ask anything…" aria-label="Message"
             autocomplete="off" data-lpignore="true" data-form-type="other"></textarea>
-          <button class="cv-mic" id="cvMicBtn" aria-label="Speak to NEXUS" title="Speak to NEXUS" type="button">${svg(ICONS.mic, 16)}</button>
           <button class="cv-send" id="chatSend" disabled aria-label="Send" type="button">${svg(ICONS.send, 16)}</button>
         </div>
       </div>
@@ -294,74 +293,15 @@
   function wireTopBar() {
     rootEl.querySelector('#cvBack').addEventListener('click', () => chatview.close());
     rootEl.querySelector('#cvMenu').addEventListener('click', () => openDrawer());
-    rootEl.querySelector('#cvBrand').addEventListener('click', () => openPersonaSheet());
-
-    // Mic button — speak to NEXUS. Sits in the input row next to send.
-    // Was previously only accessible via the + menu; user remembered it
-    // as a top-level button. Triggers the existing brain-chat mic flow
-    // through the same code path the plus-menu uses, so all the
-    // SpeechRecognition / mic-permission / transcript logic just works.
-    const micBtn = rootEl.querySelector('#cvMicBtn');
-    if (micBtn) {
-      micBtn.addEventListener('click', () => {
-        // Visual press feedback so the user knows it registered
-        micBtn.classList.add('is-listening');
-        setTimeout(() => micBtn.classList.remove('is-listening'), 300);
-        // Brain-chat owns the mic. It registers a hidden #micBtn handler
-        // and also listens for the nx-mic-tap event. Either path works;
-        // we try the direct click first (legacy preferred), fall back
-        // to the event so we can't double-trigger.
-        const legacy = document.getElementById('micBtn');
-        if (legacy) {
-          legacy.click();
-        } else {
-          window.dispatchEvent(new Event('nx-mic-tap'));
-        }
-      });
-      // Mirror brain-chat's recording state — when it's actively listening,
-      // the mic glows. brain-chat fires nx-mic-state events.
-      window.addEventListener('nx-mic-state', (e) => {
-        const recording = !!e.detail?.recording;
-        micBtn.classList.toggle('is-recording', recording);
-      });
-    }
-
-    // Voice mute toggle — tap to toggle voiceOn state. Was buried in
-    // the plus-menu (Voice replies), now surfaced in the top bar so
-    // it's one tap away. The plus-menu version is kept too so users
-    // who already learned that path don't get surprised.
-    const voiceToggleBtn = rootEl.querySelector('#cvVoiceToggle');
-    if (voiceToggleBtn) {
-      voiceToggleBtn.addEventListener('click', () => {
-        state.voiceOn = !state.voiceOn;
-        localStorage.setItem('nx_voice_on', state.voiceOn ? '1' : '0');
-        // Update the icon + class + aria/title
-        voiceToggleBtn.classList.toggle('is-on', state.voiceOn);
-        voiceToggleBtn.classList.toggle('is-off', !state.voiceOn);
-        voiceToggleBtn.innerHTML = svg(state.voiceOn ? ICONS.volume : ICONS.volumeOff);
-        voiceToggleBtn.setAttribute('aria-label', state.voiceOn ? 'Mute voice replies' : 'Unmute voice replies');
-        voiceToggleBtn.title = state.voiceOn ? 'Voice on — tap to mute' : 'Muted — tap to unmute';
-        // Stop any audio currently playing if we just muted
-        if (!state.voiceOn) {
-          try { window.speechSynthesis?.cancel(); } catch(_) {}
-          if (NX._currentAudio) { try { NX._currentAudio.pause(); } catch(_){} NX._currentAudio = null; }
-        }
-        // Notify the rest of the app — admin section, plus-menu, etc.
-        window.dispatchEvent(new CustomEvent('nx-voice-on-change', { detail: { on: state.voiceOn } }));
-        NX.toast && NX.toast(state.voiceOn ? 'Voice replies on' : 'Voice replies muted', state.voiceOn ? 'success' : 'info');
-      });
-    }
-    // Listen for changes from elsewhere (e.g., admin checkbox) so the
-    // top-bar icon stays in sync. We re-read from state because
-    // some other component might have updated it.
+    // The center brand area, top-bar voice toggle, and inline mic button
+    // were removed in this pass — those controls are now consolidated in
+    // the plus (+) menu. Voice mute, mic, and camera all live there.
+    // Keeping the nx-voice-on-change listener so any voice-state change
+    // (from admin checkbox) updates state.voiceOn for in-flight reads.
     window.addEventListener('nx-voice-on-change', (e) => {
       const on = e.detail?.on;
-      if (on === undefined || !voiceToggleBtn) return;
-      if (state.voiceOn === on) return;  // already in sync
+      if (on === undefined) return;
       state.voiceOn = on;
-      voiceToggleBtn.classList.toggle('is-on', on);
-      voiceToggleBtn.classList.toggle('is-off', !on);
-      voiceToggleBtn.innerHTML = svg(on ? ICONS.volume : ICONS.volumeOff);
     });
   }
 
