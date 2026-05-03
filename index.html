@@ -5,6 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>NEXUS</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%23121214' stroke='%23c9a87c' stroke-width='2'/><circle cx='16' cy='16' r='4' fill='%23c9a87c'/></svg>">
+
+<!-- ═══ PERFORMANCE — preconnect + preload ════════════════════════════
+     preconnect: warm up TCP/TLS to critical origins so first API call
+       and first font/CDN fetch don't pay the connection cost.
+     preload: tell the browser to fetch render-blocking assets in
+       parallel with HTML parsing instead of after CSS finishes.
+     ─────────────────────────────────────────────────────────────────── -->
+<link rel="preconnect" href="https://oprsthfxqrdbwdvommpw.supabase.co" crossorigin>
+<link rel="preconnect" href="https://api.anthropic.com" crossorigin>
+<link rel="preconnect" href="https://api.elevenlabs.io" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="dns-prefetch" href="https://unpkg.com">
+
+<!-- Preload above-the-fold assets so coin + masthead don't flash unstyled -->
+<link rel="preload" href="assets/coin-trajan.png" as="image">
+<link rel="preload" href="assets/coin-providentia.png" as="image">
+<link rel="preload" href="css/nexus.css" as="style">
+<link rel="preload" href="css/nx-system.css" as="style">
+
 <link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/nexus.css">
 <link rel="stylesheet" href="css/nx-system.css">
@@ -30,7 +51,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="NEXUS">
 <link rel="apple-touch-icon" href="icon-192.png">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script async src="https://unpkg.com/lucide@latest/dist/umd/lucide.js" onload="lucide.createIcons()"></script>
 <style>
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1158,16 +1179,20 @@
 <!-- APP (hidden until PIN auth) -->
 <div id="appWrap" style="display:none">
 <nav class="nav" role="navigation">
-  <!-- Masthead coin — clickable, opens brain view (admin) or flips (non-admin) -->
-  <div class="nx-mast-coin" id="mastCoin" title="NEXUS">
-    <div class="nx-mast-coin-flip">
-      <img class="nx-mast-coin-face nx-mast-coin-front"
-           src="assets/coin-trajan.png" alt="" draggable="false">
-      <img class="nx-mast-coin-face nx-mast-coin-back"
-           src="assets/coin-providentia.png" alt="" draggable="false">
-    </div>
-  </div>
+  <!-- NEXUS wordmark first — primary brand, opens brain view -->
   <button class="nav-nexus" id="navNexus" data-view="brain"><div class="nav-dot"></div><span>NEXUS</span><span class="listen-dot" id="listenDot" title="Listening for notifications"></span><span class="notify-count" id="notifyCount" style="display:none">0</span></button>
+  <!-- Masthead coin — clickable, flips persona. Persona label below. -->
+  <div class="nx-mast-coin-wrap" id="mastCoinWrap">
+    <div class="nx-mast-coin" id="mastCoin" title="Tap to switch advisor">
+      <div class="nx-mast-coin-flip">
+        <img class="nx-mast-coin-face nx-mast-coin-front"
+             src="assets/coin-trajan.png" alt="" draggable="false">
+        <img class="nx-mast-coin-face nx-mast-coin-back"
+             src="assets/coin-providentia.png" alt="" draggable="false">
+      </div>
+    </div>
+    <span class="nx-mast-persona" id="mastPersona">PROVIDENTIA</span>
+  </div>
   <!-- Live date/time, mono caps. Updated by app.js ticker. -->
   <span class="nx-mast-date" id="mastDate"></span>
   <div class="nav-tabs" id="navTabs">
