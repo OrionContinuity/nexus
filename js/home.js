@@ -878,19 +878,18 @@
   // Format a calendar-row date label: "TODAY · APR 22", "TOMORROW · APR 23",
   // "YESTERDAY · APR 21", or "THU · APR 24". The + 'T12:00:00' suffix
   // sidesteps timezone-at-midnight bugs that otherwise shift dates.
-  function formatCalDate(isoDate, isToday) {
+  // Format a calendar-row date label: always uses the abbreviated day
+  // name + month/day, e.g. "WED · MAY 3", "FRI · APR 24". Special-case
+  // labels like TODAY/TOMORROW/YESTERDAY are NOT used here — they go
+  // in relativeDayLabel below so the column width stays consistent.
+  // The + 'T12:00:00' suffix sidesteps timezone-at-midnight bugs that
+  // otherwise shift dates.
+  function formatCalDate(isoDate, _isTodayUnused) {
     if (!isoDate) return '';
     const d = new Date(isoDate + 'T12:00:00');
     const weekdays = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
     const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-    const suffix = `${months[d.getMonth()]} ${d.getDate()}`;
-    if (isToday) return `TODAY · ${suffix}`;
-    const today = new Date(); today.setHours(0,0,0,0);
-    const thisDay = new Date(d); thisDay.setHours(0,0,0,0);
-    const diff = Math.round((thisDay.getTime() - today.getTime()) / 86400000);
-    if (diff === 1)  return `TOMORROW · ${suffix}`;
-    if (diff === -1) return `YESTERDAY · ${suffix}`;
-    return `${weekdays[d.getDay()]} · ${suffix}`;
+    return `${weekdays[d.getDay()]} · ${months[d.getMonth()]} ${d.getDate()}`;
   }
 
   // Convert "HH:MM" or "HH:MM:SS" 24h time to "2:00 PM" style.
@@ -909,14 +908,21 @@
   // Appears under the date label so the strip reads with a forward
   // rhythm instead of static dates. Returns '' for today/tomorrow
   // because formatCalDate already covers those relative cases.
+  // Relative-time label for the rel-slot under the date. Carries the
+  // "today" / "tomorrow" / "yesterday" semantics that used to live in
+  // formatCalDate, plus longer-range labels for further-out dates.
+  // For today, returns '' — the gold pulsing dot + gold date color
+  // already communicate "today" without needing the word.
   function relativeDayLabel(isoDate) {
     if (!isoDate) return '';
     const d = new Date(isoDate + 'T12:00:00');
     const today = new Date(); today.setHours(0,0,0,0);
     const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
-    if (diff <= 1)  return '';
-    if (diff <= 7)  return `IN ${diff} DAYS`;
-    if (diff <= 14) return 'NEXT WEEK';
+    if (diff ===  0) return '';                  // dot says "today" already
+    if (diff ===  1) return 'TOMORROW';
+    if (diff === -1) return 'YESTERDAY';
+    if (diff > 1 && diff <= 7)  return `IN ${diff} DAYS`;
+    if (diff > 7 && diff <= 14) return 'NEXT WEEK';
     return '';
   }
 
