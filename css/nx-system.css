@@ -625,6 +625,43 @@ html {
    FALLBACK: a radial-gradient gold disc background renders *underneath*
    the <img> tags, so if the PNG assets fail to load (e.g. cache miss,
    bad path) we still see a recognizable gold coin shape — not nothing. */
+/* ═══ COIN WRAPPER — vertical stack: coin on top, persona name below ═══
+   The coin remains the visual anchor, but it now has a small persona
+   name label sitting directly under it (mono caps, gold-tinted). This
+   anchors the persona identity to the gesture that controls it (the
+   coin), instead of floating as a label in the chat header. */
+.nx-mast-coin-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex-shrink: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The persona name itself — quiet but legible. Updated by JS on
+   nx-persona-change. Tone differs slightly per persona so each
+   advisor has its own visual signature. */
+.nx-mast-persona {
+  font-family: var(--nx-font-mono);
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--nx-gold);
+  opacity: 0.78;
+  transition: opacity 0.2s, color 0.3s;
+  line-height: 1;
+  margin-top: 1px;
+  white-space: nowrap;
+  pointer-events: none;
+  /* Slight tone shift per persona — Trajan warmer, Providentia cooler */
+}
+.nx-mast-persona[data-persona="trajan"]      { color: #e6b157; }
+.nx-mast-persona[data-persona="providentia"] { color: #d6b380; }
+
 .nx-mast-coin {
   width: 34px;
   height: 34px;
