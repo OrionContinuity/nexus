@@ -99,6 +99,30 @@ body.chatview-open .chat-hud { display: none !important; }
 .cv-top-spacer {
   flex: 1;
 }
+/* Phase 1 — small persona marker just right of the back button. Tells
+   the user at a glance whether they're talking to Providentia or
+   Trajan. Color stays neutral gold; persona switching is the gesture
+   of the masthead coin, not this label. */
+.cv-persona-name {
+  font-family: var(--font-display, 'Outfit'), sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #d4a44e;
+  opacity: 0.78;
+  padding: 2px 8px 2px 4px;
+  white-space: nowrap;
+  /* Subtle tone shift so each persona reads slightly differently
+     without becoming a button. Trajan a touch warmer/brassier;
+     Providentia a touch cooler/paler. */
+}
+.cv-persona-name[data-persona="trajan"] {
+  color: #e6b157;
+}
+.cv-persona-name[data-persona="providentia"] {
+  color: #d6b380;
+}
 .cv-brand {
   flex: 1;
   display: flex;
@@ -806,6 +830,21 @@ body.chatview-open .chat-hud { display: none !important; }
   letter-spacing: 1.2px;
   text-transform: uppercase;
 }
+/* Phase 1 — persona badge inside drawer row meta. Inline with the
+   timestamp + msg count, separated by a · already supplied in the
+   markup. ⌬ glyph picks up the same gold accent so it reads as a
+   sigil rather than a UI control. */
+.cv-drawer-item-persona {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 1.2px;
+}
+.cv-drawer-item-persona.is-providentia { color: #d6b380; }
+.cv-drawer-item-persona.is-trajan      { color: #e6b157; }
+.cv-drawer-item-persona.is-legacy      { color: var(--faint); opacity: 0.55; }
 .cv-drawer-empty {
   padding: 40px 20px;
   text-align: center;
