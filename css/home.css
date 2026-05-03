@@ -502,11 +502,12 @@
   transform: translateX(-50%);
   width: calc(100% - 28px);
   max-width: 600px;
-  /* Lift the Ask pill clearly above the bottom nav. Two earlier
-     bumps (10px → 38px) still left it crowding the nav visually.
-     80px buffer is roughly 2cm of breathing room — the pill reads
-     as a deliberate floating element rather than nav decoration. */
-  bottom: calc(56px + env(safe-area-inset-bottom) + 80px);
+  /* Anchored just above the bottom nav so its vertical position
+     matches the chat composer (.cv-input-wrap). When the user taps
+     this pill and chat-view takes over, the input stays in the same
+     spot — no jump, no reflow. The previous "80px lift" was breaking
+     visual continuity with the chat surface. */
+  bottom: calc(56px + env(safe-area-inset-bottom) + 12px);
   z-index: 40;
   display: flex;
   align-items: center;
