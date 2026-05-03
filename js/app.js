@@ -419,8 +419,12 @@ const NX = {
 
   // Private — not callable from console without underscore knowledge
   _applyRole(role) {
-    // Guard — must have valid session (prevents console bypass)
-    if (!this.currentUser || !this._sessionPin) return;
+    // Must have a valid currentUser. _sessionPin is set during fresh
+    // PIN login but is NOT preserved across page reload — sessionStorage
+    // restore relies on the saved session token (already validated at
+    // PIN login, before being saved). So gate on currentUser only;
+    // the role itself comes from a server-validated user record.
+    if (!this.currentUser) return;
     this.isAdmin = role === 'admin';
     this.isManager = role === 'manager' || role === 'admin';
     this.isStaff = true;
@@ -1053,87 +1057,120 @@ td.check{background:#F0EDE6 !important}
       } catch(e) { console.warn('[admin] panel init failed:', e); }
       if (this.isAdmin) {
         keySection.style.display = 'block';
-        // Pre-fill hints
-        const k = this.getApiKey();
-        document.getElementById('adminApiKey').placeholder = k ? 'Key set (••••' + k.slice(-6) + ')' : 'Anthropic API Key';
-        const ek = this.getElevenLabsKey();
-        document.getElementById('adminElevenKey').placeholder = ek ? 'Key set (••••' + ek.slice(-4) + ')' : 'ElevenLabs API Key';
-        const tk = this.getTrelloKey();
-        document.getElementById('adminTrelloKey').placeholder = tk ? 'Key set (••••' + tk.slice(-4) + ')' : 'Trello API Key';
-        const tt = this.getTrelloToken();
-        document.getElementById('adminTrelloToken').placeholder = tt ? 'Token set (••••' + tt.slice(-4) + ')' : 'Trello Token';
-        document.getElementById('adminModel').value = this.getModel();
-        document.getElementById('adminVoice').value = (this.config && this.config.voice_idx != null) ? this.config.voice_idx : (localStorage.getItem('nexus_voice_idx') || '0');
-        // Voice saves immediately on change
-        document.getElementById('adminVoice').addEventListener('change', async (e) => {
-          const idx = parseInt(e.target.value) || 0;
-          localStorage.setItem('nexus_voice_idx', idx);
-          if (this.config) this.config.voice_idx = idx;
-          try { await this.sb.from('nexus_config').update({ voice_idx: idx }).eq('id', 1); } catch(e) {}
-          const voiceNames = ['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
-          let name = voiceNames[idx];
-          if (!name) {
-            // Custom voice (idx >= 20) — pull from brain-chat
-            try {
-              const meta = NX.getVoiceMeta && NX.getVoiceMeta(idx);
-              if (meta && meta.name) name = meta.name;
-            } catch (_) {}
-            name = name || ('Voice ' + idx);
+        // ─── READ-ONLY UPDATES (every open) ──────────────────────────
+        // Pre-fill placeholders + current values. Safe to run multiple
+        // times; each call replaces what's there.
+        try {
+          const k = this.getApiKey();
+          document.getElementById('adminApiKey').placeholder = k ? 'Key set (••••' + k.slice(-6) + ')' : 'Anthropic API Key';
+          const ek = this.getElevenLabsKey();
+          document.getElementById('adminElevenKey').placeholder = ek ? 'Key set (••••' + ek.slice(-4) + ')' : 'ElevenLabs API Key';
+          const tk = this.getTrelloKey();
+          document.getElementById('adminTrelloKey').placeholder = tk ? 'Key set (••••' + tk.slice(-4) + ')' : 'Trello API Key';
+          const tt = this.getTrelloToken();
+          document.getElementById('adminTrelloToken').placeholder = tt ? 'Token set (••••' + tt.slice(-4) + ')' : 'Trello Token';
+          document.getElementById('adminModel').value = this.getModel();
+          document.getElementById('adminVoice').value = (this.config && this.config.voice_idx != null) ? this.config.voice_idx : (localStorage.getItem('nexus_voice_idx') || '0');
+        } catch (e) { console.warn('[admin] prefill failed:', e); }
+
+        try {
+          const speedSlider = document.getElementById('adminVoiceSpeed');
+          const speedVal = document.getElementById('adminVoiceSpeedVal');
+          if (speedSlider && speedVal) {
+            const stored = parseFloat(localStorage.getItem('nexus_voice_speed') || '1.25');
+            const clamped = isNaN(stored) ? 1.25 : Math.max(0.8, Math.min(1.6, stored));
+            speedSlider.value = String(clamped);
+            speedVal.textContent = clamped.toFixed(2) + '×';
           }
-          const vs = document.getElementById('voiceTestStatus');
-          if (vs) { vs.textContent = `✓ ${name} selected & saved`; vs.style.color = '#5bba5f'; }
-        });
+        } catch (e) { console.warn('[admin] speed slider sync failed:', e); }
 
-        // Voice speed — slider 0.8× to 1.6×. Persists to localStorage.
-        // brain-chat's speak() reads NX.getVoiceSpeed() at call time so
-        // changes apply to the next utterance with no re-init needed.
-        const speedSlider = document.getElementById('adminVoiceSpeed');
-        const speedVal = document.getElementById('adminVoiceSpeedVal');
-        if (speedSlider && speedVal) {
-          const stored = parseFloat(localStorage.getItem('nexus_voice_speed') || '1.25');
-          const clamped = isNaN(stored) ? 1.25 : Math.max(0.8, Math.min(1.6, stored));
-          speedSlider.value = String(clamped);
-          speedVal.textContent = clamped.toFixed(2) + '×';
-          speedSlider.addEventListener('input', () => {
-            const v = parseFloat(speedSlider.value);
-            speedVal.textContent = v.toFixed(2) + '×';
-          });
-          speedSlider.addEventListener('change', () => {
-            const v = parseFloat(speedSlider.value);
-            localStorage.setItem('nexus_voice_speed', String(v));
-          });
+        try {
+          const voiceOnToggle = document.getElementById('adminVoiceOn');
+          if (voiceOnToggle) voiceOnToggle.checked = (localStorage.getItem('nx_voice_on') !== '0');
+        } catch (e) {}
+
+        // ─── ONE-TIME LISTENER WIRING ────────────────────────────────
+        // Attach event listeners only once per page load. The flag
+        // prevents duplicate handlers firing (which we had: every
+        // admin click was re-attaching change listeners, leading to
+        // multiple Supabase writes per voice change, etc).
+        if (!this._adminWired) {
+          this._adminWired = true;
+          try {
+            // Voice select change
+            document.getElementById('adminVoice').addEventListener('change', async (e) => {
+              const idx = parseInt(e.target.value) || 0;
+              localStorage.setItem('nexus_voice_idx', idx);
+              if (this.config) this.config.voice_idx = idx;
+              try { await this.sb.from('nexus_config').update({ voice_idx: idx }).eq('id', 1); } catch(_) {}
+              const voiceNames = ['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
+              let name = voiceNames[idx];
+              if (!name) {
+                try {
+                  const meta = NX.getVoiceMeta && NX.getVoiceMeta(idx);
+                  if (meta && meta.name) name = meta.name;
+                } catch (_) {}
+                name = name || ('Voice ' + idx);
+              }
+              const vs = document.getElementById('voiceTestStatus');
+              if (vs) { vs.textContent = `✓ ${name} selected & saved`; vs.style.color = '#5bba5f'; }
+            });
+          } catch (e) { console.warn('[admin] adminVoice listener failed:', e); }
+
+          try {
+            const speedSlider = document.getElementById('adminVoiceSpeed');
+            const speedVal = document.getElementById('adminVoiceSpeedVal');
+            if (speedSlider && speedVal) {
+              speedSlider.addEventListener('input', () => {
+                const v = parseFloat(speedSlider.value);
+                speedVal.textContent = v.toFixed(2) + '×';
+              });
+              speedSlider.addEventListener('change', () => {
+                const v = parseFloat(speedSlider.value);
+                localStorage.setItem('nexus_voice_speed', String(v));
+              });
+            }
+          } catch (e) { console.warn('[admin] speed listener failed:', e); }
+
+          try {
+            const voiceOnToggle = document.getElementById('adminVoiceOn');
+            if (voiceOnToggle) {
+              voiceOnToggle.addEventListener('change', () => {
+                const on = voiceOnToggle.checked;
+                localStorage.setItem('nx_voice_on', on ? '1' : '0');
+                window.dispatchEvent(new CustomEvent('nx-voice-on-change', { detail: { on } }));
+              });
+              window.addEventListener('nx-voice-on-change', (e) => {
+                const on = e.detail?.on;
+                if (on === undefined) return;
+                if (voiceOnToggle.checked !== on) voiceOnToggle.checked = on;
+              });
+            }
+          } catch (e) { console.warn('[admin] voiceOn listener failed:', e); }
+
+          // ═══ TWO VOICES OF NEXUS ════════════════════════════════════
+          // setupCustomVoices wires copy/test/activate buttons for the
+          // Providentia and Trajan character cards. One-time only.
+          try {
+            this.setupCustomVoices();
+          } catch (e) { console.warn('[admin] setupCustomVoices failed:', e); }
+        } else {
+          // On subsequent opens, re-render the character status lines
+          // (they reflect which voice is active, which can change).
+          try {
+            if (this._rebuildVoiceSelect) this._rebuildVoiceSelect();
+          } catch (_) {}
         }
 
-        // Voice replies on/off — admin mirror of the chat top-bar toggle.
-        // Fires nx-voice-on-change so chat-view.js syncs its icon.
-        const voiceOnToggle = document.getElementById('adminVoiceOn');
-        if (voiceOnToggle) {
-          voiceOnToggle.checked = (localStorage.getItem('nx_voice_on') !== '0');
-          voiceOnToggle.addEventListener('change', () => {
-            const on = voiceOnToggle.checked;
-            localStorage.setItem('nx_voice_on', on ? '1' : '0');
-            window.dispatchEvent(new CustomEvent('nx-voice-on-change', { detail: { on } }));
-          });
-          window.addEventListener('nx-voice-on-change', (e) => {
-            const on = e.detail?.on;
-            if (on === undefined) return;
-            if (voiceOnToggle.checked !== on) voiceOnToggle.checked = on;
-          });
-        }
-
-        // ═══ CUSTOM VOICES ════════════════════════════════════════════
-        // Renders the list of custom voices, wires Add/Providentia/Test/
-        // Delete buttons, and folds custom voices into the main voice
-        // select so they're picker-able alongside the 20 defaults.
-        this.setupCustomVoices();
-
-        this.loadUserList();
-        // Show chat log for admin
-        document.getElementById('adminChatLog').style.display='block';
-        document.getElementById('adminBackupSection').style.display='block';
-        document.getElementById('adminAiActivity').style.display='block';
-        this.loadChatLog();
-        this.refreshAiWritesStatus();
+        // ─── ADMIN-ONLY UI BLOCKS (every open) ──────────────────────
+        try {
+          this.loadUserList();
+          document.getElementById('adminChatLog').style.display='block';
+          document.getElementById('adminBackupSection').style.display='block';
+          document.getElementById('adminAiActivity').style.display='block';
+          this.loadChatLog();
+          this.refreshAiWritesStatus();
+        } catch (e) { console.warn('[admin] section render failed:', e); }
       } else {
         keySection.style.display = 'none';
         document.getElementById('adminChatLog').style.display='none';
