@@ -1803,30 +1803,124 @@
       <div class="admin-section-label" data-i18n="voice">Voice</div>
       <div class="admin-voice-row">
         <select id="adminVoice" class="admin-field" style="flex:1">
-        <option value="0">Adam — Sharp & confident</option>
-        <option value="1">Bella — Warm & witty</option>
-        <option value="2">Daniel — British dry wit</option>
-        <option value="3">Charlotte — Smart & smooth</option>
-        <option value="4">Liam — Casual & quick</option>
-        <option value="5">Emily — Friendly & clear</option>
-        <option value="6">Sam — Deep & calm</option>
-        <option value="7">Dorothy — Warm storyteller</option>
-        <option value="8">Arnold — Bold & direct</option>
-        <option value="9">Bill — Natural & relaxed</option>
-        <option value="10">Antoni — Warm & professional</option>
-        <option value="11">Domi — Strong & clear</option>
-        <option value="12">Fin — Precise Irish</option>
-        <option value="13">Freya — Breathy & warm</option>
-        <option value="14">Gigi — Animated & engaging</option>
-        <option value="15">Grace — Southern elegance</option>
-        <option value="16">Harry — Grounded British</option>
-        <option value="17">James — Authoritative deep</option>
-        <option value="18">Josh — Deep & young</option>
-        <option value="19">Rachel — Calm & collected</option>
-      </select>
+          <!--
+            NEXUS only ships TWO voices: Providentia and Trajan, the
+            two faces of the coin. The 20 default ElevenLabs voices
+            are hidden from this picker — kept in code only as silent
+            fallbacks. Custom voices added below populate this list
+            at values 20+. Until at least one is added, "System
+            default" is the only option (uses Charlotte fallback).
+          -->
+          <option value="0">— System default —</option>
+        </select>
         <button id="testVoiceBtn" class="admin-test-voice-btn">▶ Test</button>
       </div>
       <div id="voiceTestStatus" class="admin-key-status" style="font-size:11px;min-height:16px"></div>
+
+      <!-- Voice speed slider — controls TTS playback rate.
+           ElevenLabs plays at audio.playbackRate; browser speech uses utterance.rate.
+           Both honor the same range: 0.8 (slow) — 1.6 (fast). 1.25 was the hardcoded default. -->
+      <div class="admin-voice-speed-row">
+        <label for="adminVoiceSpeed" class="admin-voice-speed-label">Speed</label>
+        <input type="range" id="adminVoiceSpeed" class="admin-voice-speed-slider"
+               min="0.8" max="1.6" step="0.05" value="1.25">
+        <span id="adminVoiceSpeedVal" class="admin-voice-speed-val">1.25×</span>
+      </div>
+
+      <!-- Voice replies on/off — global mute. Mirrored by the chat top-bar
+           toggle via the nx-voice-on-change event. -->
+      <label class="admin-toggle-row" for="adminVoiceOn" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:rgba(200,164,78,0.05);border:1px solid rgba(200,164,78,0.15);border-radius:10px;cursor:pointer;margin-top:8px;">
+        <span style="flex:1;">
+          <span style="display:block;font-size:13px;font-weight:600;color:var(--text);">Voice replies</span>
+          <span style="display:block;font-size:10.5px;color:var(--muted);margin-top:2px;line-height:1.4;">When on, NEXUS speaks its replies in chat using the selected voice.</span>
+        </span>
+        <input type="checkbox" id="adminVoiceOn" style="width:20px;height:20px;accent-color:#d4a44e;cursor:pointer;flex-shrink:0;">
+      </label>
+
+      <!-- ═══ THE TWO VOICES OF NEXUS ═══════════════════════════════════
+           Providentia and Trajan — the two faces of the coin, made
+           audible. Each character has a Voice Design prompt to paste
+           into elevenlabs.io/voice-design, then a voice ID slot to
+           bring them to life. -->
+      <div class="admin-voices-of-nexus">
+        <div class="admin-voices-intro">
+          <div class="admin-voices-title">The Two Voices of NEXUS</div>
+          <div class="admin-voices-sub">
+            Providentia and Trajan — the figures on the coin. Each is
+            sculpted in <a href="https://elevenlabs.io/app/voice-design" target="_blank" rel="noopener">ElevenLabs Voice Design</a>
+            from the prompts below, then brought here.
+          </div>
+        </div>
+
+        <!-- ─── PROVIDENTIA ─────────────────────────────────────────── -->
+        <div class="admin-voice-character" data-character="providentia">
+          <div class="admin-voice-char-head">
+            <div class="admin-voice-char-name">Providentia</div>
+            <div class="admin-voice-char-tagline">Goddess of foresight · the coin's reverse</div>
+          </div>
+          <div class="admin-voice-char-body">
+            She is calm, knowing, deliberate. Speaks like she has already
+            seen what you have not. Mid-40s, alto, RP British with a
+            faint Mediterranean warmth. She drops Latin into English
+            without apology — <em>festina lente</em>, <em>dum spiro spero</em> —
+            because to her they are not quotations.
+          </div>
+          <div class="admin-voice-prompt-block">
+            <div class="admin-voice-prompt-label">
+              Voice Design prompt
+              <button class="admin-voice-prompt-copy" data-copy="prompt-providentia" type="button">⧉ Copy</button>
+            </div>
+            <textarea readonly class="admin-voice-prompt-text" id="prompt-providentia">A mature female voice, mid-40s. Refined British Received Pronunciation with a subtle Mediterranean warmth — like a Roman noblewoman raised in Britain, or a classics professor at Oxford with Italian heritage. Alto pitch, lower than typical female narrator voices. Slow, deliberate tempo — about 110 words per minute, with comfortable pauses between thoughts. Low theatricality, high gravitas. The voice of someone who has already thought through what you are about to ask. Calm even when delivering hard news. Warm but not sentimental. Reads Latin phrases naturally, with Italianate rather than ecclesiastical pronunciation. Resonant lower register. Think Cate Blanchett's Galadriel in calm-mode, or Tilda Swinton narrating a documentary.</textarea>
+          </div>
+          <div class="admin-voice-id-row">
+            <input type="text" class="admin-voice-id-input" id="voiceid-providentia"
+              placeholder="Paste voice ID after Voice Design (20 chars)"
+              autocomplete="off" data-lpignore="true">
+            <button class="admin-voice-test-btn" data-test="providentia" type="button" title="Hear what you've pasted">▶</button>
+            <button class="admin-voice-activate-btn" data-activate="providentia" type="button">Bring to life</button>
+          </div>
+          <div class="admin-voice-status" id="status-providentia"></div>
+        </div>
+
+        <!-- ─── TRAJAN ──────────────────────────────────────────────── -->
+        <div class="admin-voice-character" data-character="trajan">
+          <div class="admin-voice-char-head">
+            <div class="admin-voice-char-name">Trajan</div>
+            <div class="admin-voice-char-tagline">Emperor · the coin's obverse · honored 2,000 years on</div>
+          </div>
+          <div class="admin-voice-char-body">
+            He is decisive, plain-spoken, soldier first and emperor
+            second. Mid-40s to early 50s, baritone, RP British. He
+            never uses three words when one will do. He gives orders
+            he expects to be obeyed. He speaks Spanish like a man who
+            has learned it in the field, not a classroom.
+          </div>
+          <div class="admin-voice-prompt-block">
+            <div class="admin-voice-prompt-label">
+              Voice Design prompt
+              <button class="admin-voice-prompt-copy" data-copy="prompt-trajan" type="button">⧉ Copy</button>
+            </div>
+            <textarea readonly class="admin-voice-prompt-text" id="prompt-trajan">A mature male voice, mid-40s to early 50s. Refined British Received Pronunciation, but grounded — soldier first, statesman second. Baritone, low-pitched, deeply resonant. Slow, deliberate tempo — about 105 words per minute. Speaks like a man giving orders he expects to be obeyed: certain, unhurried, no rising inflection. Low theatricality. The intensity is in the words, not the performance. Think Charles Dance's Tywin Lannister, or Alec Guinness's Obi-Wan, or the Karl Franz voice from Total War: Warhammer. Not Brian Blessed — quieter than that, more controlled. Reads Latin and Spanish naturally with a campaign-veteran's pragmatic accent.</textarea>
+          </div>
+          <div class="admin-voice-id-row">
+            <input type="text" class="admin-voice-id-input" id="voiceid-trajan"
+              placeholder="Paste voice ID after Voice Design (20 chars)"
+              autocomplete="off" data-lpignore="true">
+            <button class="admin-voice-test-btn" data-test="trajan" type="button" title="Hear what you've pasted">▶</button>
+            <button class="admin-voice-activate-btn" data-activate="trajan" type="button">Bring to life</button>
+          </div>
+          <div class="admin-voice-status" id="status-trajan"></div>
+        </div>
+
+        <div class="admin-voices-howto">
+          <strong>How to:</strong> Tap Copy on a character's prompt, open
+          Voice Design in ElevenLabs (link above), paste the prompt,
+          generate the voice, listen and regenerate until it feels
+          right, save the voice to your library, copy the voice ID,
+          paste it back here, tap Bring to life.
+        </div>
+      </div>
+
       <hr class="admin-divider">
       <div class="admin-section-label" data-i18n="integrations">Integrations</div>
       <input autocomplete="off" data-lpignore="true" data-form-type="other" type="password" id="adminTrelloKey" placeholder="Trello API Key" class="admin-field">
