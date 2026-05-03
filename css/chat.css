@@ -11,16 +11,32 @@
    a typeface that would clash with the rest of the app.
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* ─── View shell — full-screen takeover ──────────────────────────── */
+/* ─── View shell — bottom sheet (leaves masthead visible) ─────────
+   Was inset:0 (full takeover) — felt heavy and hid the NEXUS coin
+   identity. Now starts below the 53px top nav so the masthead with
+   the coin, name, and live date stays visible. Reads as a sheet
+   rising from the bottom rather than a full app takeover. */
 .chatview {
   position: fixed;
-  inset: 0;
+  top: 53px;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 120;               /* above bottom-nav (50) + node panel (40) */
   background: var(--bg);
   display: flex;
   flex-direction: column;
   color: var(--text);
   font-family: 'DM Sans', system-ui, sans-serif;
+  /* Top corners — communicates "sheet" rather than "full screen" */
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+  /* Soft shadow at the top edge so it floats over the masthead */
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4);
+  /* Subtle hairline at the top edge — keeps the sheet visually
+     anchored without a heavy border */
+  border-top: 1px solid rgba(212, 164, 78, 0.18);
+  overflow: hidden;
   transform: translateY(100%);
   opacity: 0;
   pointer-events: none;
@@ -74,6 +90,19 @@ body.chatview-open .chat-hud { display: none !important; }
   width: 20px;
   height: 20px;
   stroke-width: 1.75;
+}
+
+/* Voice mute toggle — sits in the top bar between brand and menu.
+   Color-keyed: gold when voice is on (active), faint when muted. */
+.cv-voice-toggle.is-on {
+  color: #d4a44e !important;
+}
+.cv-voice-toggle.is-off {
+  color: rgba(164, 156, 148, 0.55) !important;
+}
+.cv-voice-toggle.is-on:active,
+.cv-voice-toggle.is-off:active {
+  background: rgba(212, 164, 78, 0.10) !important;
 }
 .cv-brand {
   flex: 1;
@@ -604,6 +633,51 @@ body.chatview-open .chat-hud { display: none !important; }
   background: linear-gradient(180deg, var(--nx-gold-deep) 0%, var(--nx-gold-darker) 100%);
 }
 .cv-send svg { width: 18px; height: 18px; stroke-width: 2; }
+
+/* Mic button — sits between textarea and send. Always visible.
+   Ghosted with gold-line border so the solid-gold send button stays
+   the primary call-to-action. Mic is the secondary affordance. */
+.cv-mic {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  margin-right: 4px;
+  border-radius: var(--nx-radius-pill);
+  border: 1px solid var(--nx-gold-line-2);
+  background: var(--nx-gold-faint);
+  color: var(--nx-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--nx-press), color var(--nx-press),
+              border-color var(--nx-press), transform var(--nx-press);
+}
+.cv-mic:active {
+  background: var(--nx-gold-soft);
+  border-color: var(--nx-gold-line-3);
+  transform: scale(0.94);
+}
+.cv-mic.is-listening {
+  /* Brief flash on tap — confirms the press registered before
+     speech recognition spins up */
+  background: var(--nx-gold-soft);
+  border-color: var(--nx-gold-line-3);
+}
+.cv-mic.is-recording {
+  /* Active recording — pulses red to make the live mic state obvious
+     so users know NEXUS is actively listening */
+  background: rgba(212, 88, 88, 0.15);
+  border-color: rgba(212, 88, 88, 0.45);
+  color: var(--nx-red);
+  animation: cvMicPulse 1.2s ease-in-out infinite;
+}
+@keyframes cvMicPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(212, 88, 88, 0.35); }
+  50%      { box-shadow: 0 0 0 6px rgba(212, 88, 88, 0); }
+}
+.cv-mic svg { width: 18px; height: 18px; stroke-width: 2; }
 
 /* Mic recording state */
 .cv-plus.recording {
