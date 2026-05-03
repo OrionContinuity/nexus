@@ -1069,12 +1069,13 @@
 /* The screenshot pill ("Not clocked in") was a NX.toast call
    styled by nexus.css. Bring it into the system. */
 .toast-container {
-  /* Sit above the persistent Ask NEXUS pill on Home so they don't
-     visually fight. Was bottom:80px (legacy) — that landed on top
-     of the Ask pill at the same y. New: above the Ask pill plus a
-     small gap. Other views without an Ask pill aren't affected
-     because the value is still phone-friendly (~170px from bottom). */
-  bottom: calc(56px + env(safe-area-inset-bottom) + 110px) !important;
+  /* Sits above the persistent Ask NEXUS pill on Home so they don't
+     visually fight. The pill was bumped up to bottom:(56+safe+80),
+     pill top edge sits at ~134+safe. Toast at 152 keeps a clean
+     gap above. Other views without an Ask pill aren't bothered by
+     this — it just means transient toasts appear higher on the
+     screen, which is fine. */
+  bottom: calc(56px + env(safe-area-inset-bottom) + 152px) !important;
 }
 .toast {
   font-family: var(--nx-font-body) !important;
