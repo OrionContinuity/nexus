@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -45,6 +46,7 @@
 <link rel="stylesheet" href="css/file-picker.css">
 <link rel="stylesheet" href="css/home.css">
 <link rel="stylesheet" href="css/chat.css">
+<link rel="stylesheet" href="css/preferences.css">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0a0a0c">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1210,7 +1212,8 @@
 <div class="util-tray" id="utilTray">
   <button class="util-btn" id="utilIngest" style="display:none"><i data-lucide="zap" class="util-icon"></i><span>Ingest</span></button>
   <button class="util-btn" id="navClock" title="Time Clock"><i data-lucide="clock" class="util-icon"></i><span>Clock</span><span class="tc-indicator" id="tcIndicator"></span></button>
-  <button class="util-btn" id="themeToggle" title="Toggle theme"><i data-lucide="sun" class="util-icon" id="themeIcon"></i><span>Theme</span></button>
+  <button class="util-btn" id="themeToggle" title="Toggle theme · Auto / Dark / Light"><i data-lucide="circle-half" class="util-icon" id="themeIcon"></i><span>Theme</span></button>
+  <button class="util-btn" id="prefsBtn" title="Preferences"><i data-lucide="sliders-horizontal" class="util-icon"></i><span>Prefs</span></button>
   <button class="util-btn" id="adminBtn"><i data-lucide="settings" class="util-icon"></i><span>Settings</span><span class="ticket-badge" id="ticketBadge" style="display:none"></span></button>
 </div>
 
@@ -2485,42 +2488,89 @@
 <script src="js/home.js"></script>
 <script src="js/native-bridge.js"></script>
 <script>
-// Theme toggle
+// ─── Theme bootstrap ───────────────────────────────────────────────
+// Sets the initial [data-theme] BEFORE any CSS paints, to avoid a
+// flash of wrong theme. Reads from the new nexus_theme_pref key
+// (auto|dark|light) which NX.prefs syncs from Supabase post-login.
+// Falls back to legacy nexus_theme key if the new one isn't set yet
+// (first run after upgrade).
 (function(){
-  const saved=localStorage.getItem('nexus_theme')||'dark';
-  document.documentElement.setAttribute('data-theme',saved);
-  function updateIcon(){
-    const icon=document.getElementById('themeIcon');
-    if(icon)icon.setAttribute('data-lucide',saved==='dark'?'sun':'moon');
-    if(window.lucide)lucide.createIcons();
+  function resolveTheme(){
+    let pref = localStorage.getItem('nexus_theme_pref');
+    if (!pref) {
+      // Legacy fallback — old binary nexus_theme key
+      const legacy = localStorage.getItem('nexus_theme');
+      pref = (legacy === 'dark' || legacy === 'light') ? legacy : 'auto';
+    }
+    if (pref === 'dark' || pref === 'light') return pref;
+    // auto — couple to persona
+    const persona = localStorage.getItem('nexus_active_persona') || 'providentia';
+    return persona === 'trajan' ? 'dark' : 'light';
   }
-  document.addEventListener('DOMContentLoaded',()=>{
+  const initial = resolveTheme();
+  document.documentElement.setAttribute('data-theme', initial);
+
+  function updateIcon(){
+    const icon = document.getElementById('themeIcon');
+    if (!icon) return;
+    const pref = localStorage.getItem('nexus_theme_pref') || 'auto';
+    // auto = circle-half, dark = sun (offers light), light = moon (offers dark)
+    icon.setAttribute('data-lucide',
+      pref === 'auto' ? 'circle-half' :
+      pref === 'dark' ? 'sun' : 'moon');
+    if (window.lucide) lucide.createIcons();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
     updateIcon();
-    // Theme toggle
-    document.getElementById('themeToggle')?.addEventListener('click',()=>{
-      const current=document.documentElement.getAttribute('data-theme')||'dark';
-      const next=current==='dark'?'light':'dark';
-      document.documentElement.setAttribute('data-theme',next);
-      localStorage.setItem('nexus_theme',next);
-      const icon=document.getElementById('themeIcon');
-      if(icon)icon.setAttribute('data-lucide',next==='dark'?'sun':'moon');
-      if(window.lucide)lucide.createIcons();
+
+    // Theme toggle — cycles Auto → Dark → Light → Auto
+    // Writes through NX.prefs if available (which persists to DB),
+    // otherwise falls back to localStorage + DOM only.
+    document.getElementById('themeToggle')?.addEventListener('click', () => {
+      const current = localStorage.getItem('nexus_theme_pref') || 'auto';
+      const next = current === 'auto' ? 'dark'
+                 : current === 'dark' ? 'light'
+                 : 'auto';
+      if (window.NX && NX.prefs && NX.prefs.set) {
+        NX.prefs.set({ theme: next }, { animated: true });
+      } else {
+        localStorage.setItem('nexus_theme_pref', next);
+        const resolved = (next === 'auto')
+          ? ((localStorage.getItem('nexus_active_persona') || 'providentia') === 'trajan' ? 'dark' : 'light')
+          : next;
+        document.documentElement.classList.add('theme-transitioning');
+        document.documentElement.setAttribute('data-theme', resolved);
+        setTimeout(() => document.documentElement.classList.remove('theme-transitioning'), 750);
+      }
+      updateIcon();
     });
+
+    // Preferences button (NEW) — opens the unified prefs sheet
+    document.getElementById('prefsBtn')?.addEventListener('click', () => {
+      if (window.NX && NX.prefs && NX.prefs.openSheet) NX.prefs.openSheet();
+      else NX.toast?.('Preferences not loaded yet — try again in a moment', 'info');
+    });
+
+    // Keep theme icon in sync when prefs change from elsewhere
+    document.addEventListener('nx-prefs-change', updateIcon);
+
     // Utility tray toggle
-    const tray=document.getElementById('utilTray');
-    document.getElementById('navMore')?.addEventListener('click',e=>{
+    const tray = document.getElementById('utilTray');
+    document.getElementById('navMore')?.addEventListener('click', e => {
       e.stopPropagation();
       tray?.classList.toggle('open');
     });
     // Close tray when clicking outside or on a button inside
-    document.addEventListener('click',e=>{
-      if(tray?.classList.contains('open')&&!tray.contains(e.target)){tray.classList.remove('open');}
+    document.addEventListener('click', e => {
+      if (tray?.classList.contains('open') && !tray.contains(e.target)) {
+        tray.classList.remove('open');
+      }
     });
-    tray?.querySelectorAll('.util-btn').forEach(btn=>{
-      const origClick=btn.onclick;
-      btn.addEventListener('click',()=>{
+    tray?.querySelectorAll('.util-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
         // Don't close for clock (it has its own popup) — close for others
-        if(btn.id!=='navClock')setTimeout(()=>tray.classList.remove('open'),150);
+        if (btn.id !== 'navClock') setTimeout(() => tray.classList.remove('open'), 150);
       });
     });
   });
