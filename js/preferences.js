@@ -154,10 +154,13 @@
   function language(){ return state.data?.language || DEFAULTS.language; }
   // Resolves 'auto' to a concrete theme based on persona. This is the
   // value to feed the [data-theme] attribute on <html>.
+  // Mapping (canonical):
+  //   Providentia → dark  (advisor at night, contemplation, foresight)
+  //   Trajan      → light (emperor in daylight, decisive action)
   function effectiveTheme(){
     const t = theme();
     if (t === 'dark' || t === 'light') return t;
-    return persona() === 'trajan' ? 'dark' : 'light';
+    return persona() === 'providentia' ? 'dark' : 'light';
   }
 
   // ─── WRITE ─────────────────────────────────────────────────────────
