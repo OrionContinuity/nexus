@@ -1050,7 +1050,15 @@ td.check{background:#F0EDE6 !important}
           const finalIdx = 20 + customIdx;
           localStorage.setItem('nexus_voice_idx', finalIdx);
           if (this.config) this.config.voice_idx = finalIdx;
+          // Legacy: nexus_config is a single shared row (id=1) — all users
+          // on a device write to it, overwriting each other. Kept here for
+          // backward compat with code that still reads from this.config.
           try { this.sb && this.sb.from('nexus_config').update({ voice_idx: finalIdx }).eq('id', 1); } catch(_) {}
+          // Authoritative: write to user_preferences (per-user, per-device).
+          // This is what survives across logins and devices correctly.
+          if (NX.prefs && NX.prefs.set) {
+            try { NX.prefs.set({ voice_idx: finalIdx }, { silent: true }).catch(()=>{}); } catch(_) {}
+          }
           return true;
         }
       } catch(_) {}
@@ -2467,6 +2475,15 @@ td.check{background:#F0EDE6 !important}
   toast(msg, type='info', duration=3000) {
     const c = document.getElementById('toastContainer');
     if (!c) return;
+    // Dismiss any currently-visible toasts before showing the new one.
+    // Stack of toasts (e.g. "Trajan summoned" + "Providentia returns"
+    // from rapid coin flips) is confusing — the latest message is the
+    // one that's true. Older toasts get a fade-out so the transition
+    // reads as "replaced," not "appeared on top."
+    c.querySelectorAll('.toast:not(.out)').forEach(prev => {
+      prev.classList.add('out');
+      setTimeout(() => prev.remove(), 250);
+    });
     const t = document.createElement('div');
     t.className = 'toast toast-' + type;
     t.textContent = msg;
