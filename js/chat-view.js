@@ -77,6 +77,10 @@
   const ICONS = {
     back:       '<path d="M19 12H5"/><path d="m12 19-7-7 7-7"/>',
     menu:       '<line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/>',
+    // Clock-history icon — used in the top bar for "past conversations".
+    // More legible than ≡ for this purpose; users now see a clock face
+    // and know "this is where my previous chats are."
+    history:    '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
     plus:       '<path d="M5 12h14"/><path d="M12 5v14"/>',
     send:       '<path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4z"/>',
     camera:     '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
@@ -187,7 +191,8 @@
           </span>
           <span class="cv-brand-mark">NEXUS</span>
         </div>
-        <button class="cv-icon-btn" id="cvMenu" aria-label="Conversations">${svg(ICONS.menu)}</button>
+        <button class="cv-icon-btn cv-voice-toggle ${state.voiceOn ? 'is-on' : 'is-off'}" id="cvVoiceToggle" aria-label="${state.voiceOn ? 'Mute voice replies' : 'Unmute voice replies'}" title="${state.voiceOn ? 'Voice on — tap to mute' : 'Muted — tap to unmute'}" type="button">${svg(state.voiceOn ? ICONS.volume : ICONS.volumeOff)}</button>
+        <button class="cv-icon-btn" id="cvMenu" aria-label="Past conversations" title="Past conversations">${svg(ICONS.history)}</button>
       </div>
 
       <div class="cv-transcript" id="cvTranscript">
@@ -203,6 +208,7 @@
           <textarea class="cv-input" id="chatInput" rows="1"
             placeholder="Ask anything…" aria-label="Message"
             autocomplete="off" data-lpignore="true" data-form-type="other"></textarea>
+          <button class="cv-mic" id="cvMicBtn" aria-label="Speak to NEXUS" title="Speak to NEXUS" type="button">${svg(ICONS.mic, 16)}</button>
           <button class="cv-send" id="chatSend" disabled aria-label="Send" type="button">${svg(ICONS.send, 16)}</button>
         </div>
       </div>
@@ -289,6 +295,74 @@
     rootEl.querySelector('#cvBack').addEventListener('click', () => chatview.close());
     rootEl.querySelector('#cvMenu').addEventListener('click', () => openDrawer());
     rootEl.querySelector('#cvBrand').addEventListener('click', () => openPersonaSheet());
+
+    // Mic button — speak to NEXUS. Sits in the input row next to send.
+    // Was previously only accessible via the + menu; user remembered it
+    // as a top-level button. Triggers the existing brain-chat mic flow
+    // through the same code path the plus-menu uses, so all the
+    // SpeechRecognition / mic-permission / transcript logic just works.
+    const micBtn = rootEl.querySelector('#cvMicBtn');
+    if (micBtn) {
+      micBtn.addEventListener('click', () => {
+        // Visual press feedback so the user knows it registered
+        micBtn.classList.add('is-listening');
+        setTimeout(() => micBtn.classList.remove('is-listening'), 300);
+        // Brain-chat owns the mic. It registers a hidden #micBtn handler
+        // and also listens for the nx-mic-tap event. Either path works;
+        // we try the direct click first (legacy preferred), fall back
+        // to the event so we can't double-trigger.
+        const legacy = document.getElementById('micBtn');
+        if (legacy) {
+          legacy.click();
+        } else {
+          window.dispatchEvent(new Event('nx-mic-tap'));
+        }
+      });
+      // Mirror brain-chat's recording state — when it's actively listening,
+      // the mic glows. brain-chat fires nx-mic-state events.
+      window.addEventListener('nx-mic-state', (e) => {
+        const recording = !!e.detail?.recording;
+        micBtn.classList.toggle('is-recording', recording);
+      });
+    }
+
+    // Voice mute toggle — tap to toggle voiceOn state. Was buried in
+    // the plus-menu (Voice replies), now surfaced in the top bar so
+    // it's one tap away. The plus-menu version is kept too so users
+    // who already learned that path don't get surprised.
+    const voiceToggleBtn = rootEl.querySelector('#cvVoiceToggle');
+    if (voiceToggleBtn) {
+      voiceToggleBtn.addEventListener('click', () => {
+        state.voiceOn = !state.voiceOn;
+        localStorage.setItem('nx_voice_on', state.voiceOn ? '1' : '0');
+        // Update the icon + class + aria/title
+        voiceToggleBtn.classList.toggle('is-on', state.voiceOn);
+        voiceToggleBtn.classList.toggle('is-off', !state.voiceOn);
+        voiceToggleBtn.innerHTML = svg(state.voiceOn ? ICONS.volume : ICONS.volumeOff);
+        voiceToggleBtn.setAttribute('aria-label', state.voiceOn ? 'Mute voice replies' : 'Unmute voice replies');
+        voiceToggleBtn.title = state.voiceOn ? 'Voice on — tap to mute' : 'Muted — tap to unmute';
+        // Stop any audio currently playing if we just muted
+        if (!state.voiceOn) {
+          try { window.speechSynthesis?.cancel(); } catch(_) {}
+          if (NX._currentAudio) { try { NX._currentAudio.pause(); } catch(_){} NX._currentAudio = null; }
+        }
+        // Notify the rest of the app — admin section, plus-menu, etc.
+        window.dispatchEvent(new CustomEvent('nx-voice-on-change', { detail: { on: state.voiceOn } }));
+        NX.toast && NX.toast(state.voiceOn ? 'Voice replies on' : 'Voice replies muted', state.voiceOn ? 'success' : 'info');
+      });
+    }
+    // Listen for changes from elsewhere (e.g., admin checkbox) so the
+    // top-bar icon stays in sync. We re-read from state because
+    // some other component might have updated it.
+    window.addEventListener('nx-voice-on-change', (e) => {
+      const on = e.detail?.on;
+      if (on === undefined || !voiceToggleBtn) return;
+      if (state.voiceOn === on) return;  // already in sync
+      state.voiceOn = on;
+      voiceToggleBtn.classList.toggle('is-on', on);
+      voiceToggleBtn.classList.toggle('is-off', !on);
+      voiceToggleBtn.innerHTML = svg(on ? ICONS.volume : ICONS.volumeOff);
+    });
   }
 
   function wireInput() {
@@ -777,17 +851,16 @@
   async function hydrateSession(sessionId) {
     if (!sessionId || !NX.sb) return [];
     try {
-      const { data, error } = await NX.sb.rpc('get_chat_history_admin', {
-        p_since: null,
-        p_limit: 200,
-        p_session_id: sessionId,
-      });
+      const { data, error } = await NX.sb
+        .from('chat_history')
+        .select('question, answer, created_at')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: true })
+        .limit(200);
       if (error || !data) return [];
-      // RPC returns DESC; flip to ASC for chronological replay.
-      const rows = data.slice().reverse();
       // Each row has q + a. Expand into two turn objects each.
       const turns = [];
-      rows.forEach(r => {
+      data.forEach(r => {
         if (r.question) turns.push({ role: 'user', content: r.question, ts: r.created_at });
         if (r.answer)   turns.push({ role: 'assistant', content: r.answer, ts: r.created_at });
       });
@@ -803,10 +876,12 @@
     try {
       // Group chat_history by session_id, most recent first
       const since = new Date(Date.now() - 60 * 86400000).toISOString();
-      const { data, error } = await NX.sb.rpc('get_chat_history_admin', {
-        p_since: since,
-        p_limit: 400,
-      });
+      const { data, error } = await NX.sb
+        .from('chat_history')
+        .select('session_id, question, answer, created_at, user_name')
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(400);
       if (error || !data) return;
 
       const byId = new Map();
