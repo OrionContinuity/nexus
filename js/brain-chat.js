@@ -1328,7 +1328,17 @@ Keep it casual and warm. No markdown formatting.`;
     chatActive=true;addB(q,'user');chatHistory.push({role:'user',content:q});
     if(NX.syslog)NX.syslog('chat_ask',q.slice(0,80));
     showTyping();
-    if(!NX.getApiKey()){hideTyping();addB(tt('noApiKey'),'ai');return;}
+    if(!NX.getApiKey()){
+      hideTyping();
+      // The 'noApiKey' i18n key was never defined — would render the
+      // raw key text. Use a real message that tells the user how to fix.
+      const lang = NX.i18n ? NX.i18n.getLang() : 'en';
+      const msg = lang === 'es'
+        ? 'No tengo una clave de API configurada. Abre Admin → Configurar para añadir tu clave de Anthropic.'
+        : "I don't have an API key configured. Open Admin → Configure to add your Anthropic API key.";
+      addB(msg,'ai');
+      return;
+    }
     const task=detectTask(q);
     if(task){
       if(task.type==='research'){try{await handleResearch(task.content);}catch(e){addB('Research error: '+e.message,'ai');}return;}
