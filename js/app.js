@@ -573,8 +573,11 @@ const NX = {
         this.loadScript('js/brain-list.js', () => {
           this.loadScript('js/brain-events.js', () => {
             this.loadScript('js/ai-writer.js', () => {
-              this.loadScript('js/brain-chat.js', () => {
-                NX.brain.init();
+              // Load memory module BEFORE brain-chat so window.MEMORY exists
+              this.loadScript('js/brain-chat-memory.js', () => {
+                this.loadScript('js/brain-chat.js', () => {
+                  NX.brain.init();
+                });
               });
             });
           });
