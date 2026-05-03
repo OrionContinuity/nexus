@@ -125,6 +125,234 @@
   --nx-press:         0.12s var(--nx-ease);
   --nx-flow:          0.22s var(--nx-ease);
   --nx-slow:          0.35s var(--nx-ease);
+  --nx-cinematic:     0.70s var(--nx-ease);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   LIGHT-THEME TOKEN OVERRIDES
+   --------------------------------------------------------------------
+   THE root-cause fix for light-mode coverage: every feature CSS file
+   (board-system, admin-system, views-system, ingest-system, composer,
+   galaxy, chat, home) references --nx-surface-*, --nx-text, --nx-muted,
+   --nx-faint, --nx-bg, --nx-gold-* — but the original :root block
+   defined those with no light variant. Redefining tokens here means
+   every component using them auto-corrects with no per-selector edits.
+
+   When something looks wrong in light mode, FIRST CHECK if the offender
+   is using a token. If yes, the token is the fix. Only add a per-
+   selector light rule if the offender uses literal colors that bypass
+   tokens.
+
+   Mapping rationale:
+     - Surfaces: warm white / off-white with cream undertones. Mirrors
+       the dark palette's slight warm cast (oil-lamp, not surgical).
+     - Text: warm near-black, not pure black. Reduces eye strain on cream.
+     - Muted/faint: gold-tinted browns instead of grey. Keeps the
+       "editorial × terminal" voice consistent across themes.
+     - Gold: shifted to deeper olive-gold (#8b6914 vs dark's #d4a44e)
+       so gold borders read as borders on cream backgrounds. The dark
+       gold at 22% opacity disappears on light surfaces.
+   ═════════════════════════════════════════════════════════════════ */
+[data-theme="light"] {
+  /* Page + surfaces */
+  --nx-bg:            #F4F1EB;
+  --nx-surface-0:     rgba(255, 253, 247, 0.40);
+  --nx-surface-1:     rgba(255, 253, 247, 0.65);
+  --nx-surface-2:     rgba(255, 253, 247, 0.85);
+  --nx-surface-3:     rgba(255, 253, 247, 0.95);
+  --nx-surface-press: rgba(241, 234, 218, 0.85);
+  --nx-surface:       var(--nx-surface-1);
+
+  /* Text scale */
+  --nx-text:          #1a1a1f;
+  --nx-text-strong:   #0a0a0f;
+  --nx-muted:         #5a4a2a;
+  --nx-faint:         #7a6a4a;
+  --nx-faintest:      #a59a78;
+
+  /* Gold tonality — deeper olive-gold for daylight contrast */
+  --nx-gold:          #8b6914;
+  --nx-gold-faint:    rgba(139, 105, 20, 0.08);
+  --nx-gold-soft:     rgba(139, 105, 20, 0.18);
+  --nx-gold-line:     rgba(139, 105, 20, 0.22);
+  --nx-gold-line-2:   rgba(139, 105, 20, 0.42);
+  --nx-gold-line-3:   rgba(139, 105, 20, 0.65);
+  --nx-gold-glow:     rgba(200, 164, 78, 0.22);
+
+  /* Shadows — flatter on cream, less drama needed */
+  --nx-shadow-card:   0 2px 8px rgba(60, 50, 30, 0.08);
+  --nx-shadow-pill:   0 2px 6px rgba(139, 105, 20, 0.18);
+  --nx-shadow-fab:    0 6px 20px rgba(60, 50, 30, 0.18);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   SYSTEM PRIMITIVES — apply globally regardless of theme
+   --------------------------------------------------------------------
+   Cross-cutting rules that affect every interactive surface. Live
+   here so they're impossible to miss when reading the design system.
+   ═════════════════════════════════════════════════════════════════ */
+
+/* ─── Suppress iOS tap highlight everywhere ─── */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ─── Universal rounding for native form controls ───
+   Bumps default 2-4px corners on form elements and buttons up to 12px.
+   :where() keeps specificity zero so per-component rules always win. */
+:where(button, .btn, input[type="text"], input[type="number"],
+       input[type="email"], input[type="password"], input[type="tel"],
+       textarea, select) {
+  border-radius: 12px;
+}
+
+/* ─── Tap target minimums for primary interactive surfaces ───
+   Below the WCAG 2.5.5 / Apple HIG / Material 44px floor causes
+   missed taps on phones, especially with one-hand use. Minimums
+   only — components can be larger but never smaller. */
+:where(.bnav-btn, .cv-icon-btn, .cv-back, .util-btn,
+       .nx-mast-coin, .cv-plus, .cv-send) {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* ─── Universal press feedback ───
+   Subtle scale on :active for surfaces that don't define their own
+   active state. :where() keeps specificity zero. Skipped during
+   reduced-motion (see below). */
+:where(.nx-pill,
+       .home-glance-item,
+       .home-cal-day,
+       .home-priority,
+       .util-btn,
+       .cv-icon-btn,
+       .cv-back,
+       .cv-plus,
+       .cv-send,
+       .cv-action-chip,
+       .chat-action-btn,
+       .prefs-persona-btn,
+       .prefs-theme-btn,
+       .prefs-tone-btn,
+       .prefs-lang-btn):active {
+  transform: scale(0.97);
+  transition: transform 80ms ease;
+}
+
+/* ─── Disabled state primitive ───
+   Standard look for disabled interactive elements across the app.
+   Two patterns supported: native [disabled] attribute and .is-disabled
+   class (for non-form elements like divs styled as buttons). */
+:where(button, input, textarea, select)[disabled],
+:where(button, input, textarea, select).is-disabled,
+.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+/* ─── Focus states (keyboard only) ───
+   :focus-visible fires on Tab navigation but not mouse/touch, so
+   this gives accessibility users a clear target without polluting
+   the touch UX. WCAG 2.4.7 compliant — 2px outline at 2px offset. */
+:where(button, a, input, textarea, select, [tabindex]):focus {
+  outline: none;
+}
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--nx-gold);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* ─── Selection + caret ───
+   Browser-default selection blue is jarring against the warm palette.
+   Match the active gold accent for both themes. */
+::selection {
+  background: var(--nx-gold-soft);
+  color: inherit;
+}
+input, textarea {
+  caret-color: var(--nx-gold);
+}
+
+/* ─── Scrollbars ───
+   Theme-aware, thin, gold-tinted. Firefox via scrollbar-* properties,
+   WebKit/Chromium via ::-webkit-scrollbar pseudo-elements. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--nx-gold-soft) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--nx-gold-soft);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--nx-gold-line-2);
+}
+
+/* ─── Skeleton loading shimmer ───
+   Gold-tinted gradient that reads on both themes. The :root token
+   override above takes care of the shift; this rule defines the
+   shape once. */
+.home-skeleton,
+.skeleton,
+.cv-skeleton {
+  background: linear-gradient(90deg,
+    var(--nx-gold-faint) 0%,
+    var(--nx-gold-soft) 50%,
+    var(--nx-gold-faint) 100%);
+  background-size: 200% 100%;
+  animation: nx-skeleton-shimmer 1.6s ease-in-out infinite;
+  border-radius: 12px;
+}
+@keyframes nx-skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   REDUCED MOTION — system-wide accessibility
+   --------------------------------------------------------------------
+   When the OS reports prefers-reduced-motion, we don't disable all
+   feedback (people still need to see something happened) — we shorten
+   transitions and disable specific dramatic animations (cinematic
+   coin flip, persona glitch, skeleton shimmer, scale-on-press). Theme
+   cross-fades stay enabled at reduced duration so theme changes are
+   still legible.
+   ═════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* But keep theme cross-fades visible — short, not snapped, so the
+     change reads. Without this exception, theme swaps look broken. */
+  :root.theme-transitioning,
+  :root.theme-transitioning *,
+  :root.theme-transitioning *::before,
+  :root.theme-transitioning *::after {
+    transition-duration: 200ms !important;
+  }
+  /* Disable the universal :active scale — the press feedback survives
+     via outline/color changes, which don't depend on motion. */
+  :where(.nx-pill, .home-glance-item, .home-cal-day, .home-priority,
+         .util-btn, .cv-icon-btn, .cv-back, .cv-plus, .cv-send,
+         .cv-action-chip, .chat-action-btn, .prefs-persona-btn,
+         .prefs-theme-btn, .prefs-tone-btn, .prefs-lang-btn):active {
+    transform: none !important;
+  }
 }
 
 /* Bump the base font-size so the whole app reads a hair larger. */
