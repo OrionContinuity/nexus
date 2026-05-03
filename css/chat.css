@@ -155,7 +155,7 @@ body.chatview-open .chat-hud { display: none !important; }
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  padding: 28px 20px 120px;    /* bottom padding leaves room above input */
+  padding: 28px 20px calc(160px + env(safe-area-inset-bottom));    /* leaves room above input pill, accounting for iPhone home indicator */
   scroll-behavior: smooth;
   /* Constrain line length on tablets/desktop */
   display: flex;
@@ -1135,7 +1135,7 @@ body.chatview-open .chat-hud { display: none !important; }
 
 /* ─── Tiny screens safeguard ─────────────────────────────────────── */
 @media (max-width: 360px) {
-  .cv-transcript { padding: 22px 16px 110px; }
+  .cv-transcript { padding: 22px 16px calc(150px + env(safe-area-inset-bottom)); }
   .cv-turn-body { font-size: 15px; }
   .cv-persona-grid { grid-template-columns: 1fr; }
 }
