@@ -2179,3 +2179,497 @@ body.no-galaxy-access #homeMiniGalaxy {
   /* pointer-events stays auto so hover state still works visually.
      The click handler itself short-circuits in home.js for non-admins. */
 }
+
+
+/* ════════════════════════════════════════════════════════════════════
+   LIGHT-THEME COMPONENT OVERRIDES
+   --------------------------------------------------------------------
+   These rules cover surfaces that use literal colors (rgba bypassing
+   tokens, hardcoded #fff, etc.) — i.e., things the design-token fix
+   in nx-system.css can't reach. When a new view looks wrong in light
+   mode, FIRST check if it's a token problem (most are). Only add a
+   rule here if the offender bypasses tokens.
+   ═════════════════════════════════════════════════════════════════ */
+
+/* ─── Bottom nav — must NEVER be dark in light mode ───
+   The original light rule set a cream background, but inheritance
+   occasionally fails (PWA cache, transition state). Force it. */
+[data-theme="light"] .bottom-nav {
+  background: rgba(250, 250, 246, 0.96) !important;
+  border-top: 1px solid rgba(100, 85, 55, 0.10) !important;
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+}
+[data-theme="light"] .bnav-btn {
+  color: rgba(60, 50, 30, 0.55) !important;
+}
+[data-theme="light"] .bnav-btn.active {
+  color: #8b6914 !important;
+}
+[data-theme="light"] .bnav-btn.active::after {
+  background: #c8a44e !important;
+}
+
+/* ─── Utility tray ─── */
+[data-theme="light"] .util-tray {
+  background: rgba(255, 255, 255, 0.98) !important;
+  border: 1px solid rgba(139, 105, 20, 0.18) !important;
+  box-shadow: 0 8px 32px rgba(60, 50, 30, 0.10) !important;
+}
+[data-theme="light"] .util-btn {
+  color: #3c321e !important;
+  border-color: rgba(139, 105, 20, 0.10) !important;
+}
+[data-theme="light"] .util-btn .util-icon {
+  color: #6a5018 !important;
+}
+[data-theme="light"] .util-btn:active {
+  background: rgba(139, 105, 20, 0.06) !important;
+}
+
+/* ─── Masthead in light mode ─── */
+[data-theme="light"] .nx-mast {
+  background: rgba(250, 250, 246, 0.92) !important;
+  border-bottom: 1px solid rgba(100, 85, 55, 0.08) !important;
+}
+[data-theme="light"] .nx-mast-date {
+  color: #6a5018 !important;
+}
+[data-theme="light"] .nx-mast-persona {
+  color: #8b6914 !important;
+}
+
+/* ─── Home page surfaces ─── */
+[data-theme="light"] .home-glance-item {
+  background: rgba(255, 255, 255, 0.7) !important;
+  border: 1px solid rgba(139, 105, 20, 0.14) !important;
+  box-shadow: 0 1px 3px rgba(60, 50, 30, 0.04);
+}
+[data-theme="light"] .home-glance-num {
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .home-glance-label {
+  color: #6a5018 !important;
+}
+[data-theme="light"] .home-cal-day {
+  background: rgba(255, 255, 255, 0.6) !important;
+  border: 1px solid rgba(139, 105, 20, 0.10) !important;
+}
+[data-theme="light"] .home-cal-day.is-today {
+  background: rgba(200, 164, 78, 0.08) !important;
+  border-color: #c8a44e !important;
+}
+[data-theme="light"] .home-priority,
+[data-theme="light"] .home-calm {
+  background: rgba(255, 255, 255, 0.65) !important;
+  border: 1px solid rgba(139, 105, 20, 0.14) !important;
+}
+
+/* ─── Ask NEXUS pill — frosted cream instead of frosted dark ───
+   Original is dark glassy (rgba(28,24,20,0.85)). On cream background
+   that reads as a dark intrusion. Frosted-cream version sits naturally. */
+[data-theme="light"] .home-ask {
+  background: rgba(255, 255, 255, 0.78) !important;
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid rgba(139, 105, 20, 0.30) !important;
+  color: #6a5018 !important;
+  box-shadow:
+    0 8px 28px rgba(60, 50, 30, 0.12),
+    0 0 1px rgba(139, 105, 20, 0.20) !important;
+}
+[data-theme="light"] .home-ask:active {
+  background: rgba(255, 255, 255, 0.90) !important;
+  border-color: rgba(139, 105, 20, 0.45) !important;
+}
+[data-theme="light"] .home-ask-hint {
+  color: rgba(106, 80, 24, 0.65) !important;
+}
+[data-theme="light"] .home-ask-prompt::before {
+  color: #c8a44e;
+}
+
+/* ─── Chat view in light mode ─── */
+[data-theme="light"] .chatview {
+  background: var(--bg, #F4F1EB) !important;
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .cv-transcript {
+  background: var(--bg, #F4F1EB) !important;
+}
+[data-theme="light"] .cv-top {
+  background: rgba(250, 250, 246, 0.94) !important;
+  border-bottom: 1px solid rgba(100, 85, 55, 0.08) !important;
+}
+[data-theme="light"] .cv-back,
+[data-theme="light"] .cv-icon-btn {
+  color: #3c321e !important;
+}
+[data-theme="light"] .cv-back:active,
+[data-theme="light"] .cv-icon-btn:active {
+  background: rgba(139, 105, 20, 0.08) !important;
+}
+[data-theme="light"] .cv-input-wrap {
+  background: linear-gradient(180deg, transparent 0%, var(--bg, #F4F1EB) 35%) !important;
+}
+[data-theme="light"] .cv-input-wrap-inner {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border: 1px solid rgba(139, 105, 20, 0.18) !important;
+  box-shadow: 0 4px 16px rgba(60, 50, 30, 0.08);
+}
+[data-theme="light"] .cv-input-wrap-inner:focus-within {
+  border-color: #c8a44e !important;
+}
+[data-theme="light"] .cv-input {
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .cv-input::placeholder {
+  color: rgba(106, 80, 24, 0.55) !important;
+}
+[data-theme="light"] .cv-plus {
+  color: rgba(60, 50, 30, 0.6) !important;
+}
+[data-theme="light"] .cv-send {
+  background: #c8a44e !important;
+  color: #fff !important;
+}
+[data-theme="light"] .cv-send[disabled] {
+  background: rgba(139, 105, 20, 0.18) !important;
+  color: rgba(106, 80, 24, 0.5) !important;
+}
+[data-theme="light"] .chat-bubble.chat-user {
+  background: rgba(139, 105, 20, 0.08) !important;
+  border: 1px solid rgba(139, 105, 20, 0.18) !important;
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .chat-bubble.chat-ai {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border: 1px solid rgba(100, 85, 55, 0.10) !important;
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .chat-time {
+  color: rgba(106, 80, 24, 0.5) !important;
+}
+[data-theme="light"] .cv-example {
+  background: rgba(255, 255, 255, 0.75) !important;
+  border: 1px solid rgba(139, 105, 20, 0.16) !important;
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .cv-example-tag {
+  color: #8b6914 !important;
+}
+
+/* ─── Drawer (past conversations) in light mode ─── */
+[data-theme="light"] .cv-drawer {
+  background: #FAFAF6 !important;
+  border-right: 1px solid rgba(100, 85, 55, 0.10) !important;
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .cv-drawer-title {
+  color: #8b6914 !important;
+}
+[data-theme="light"] .cv-drawer-new {
+  background: #c8a44e !important;
+  color: #fff !important;
+}
+[data-theme="light"] .cv-drawer-item {
+  border-bottom: 1px solid rgba(100, 85, 55, 0.06) !important;
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .cv-drawer-item:active,
+[data-theme="light"] .cv-drawer-item.is-active {
+  background: rgba(139, 105, 20, 0.06) !important;
+}
+[data-theme="light"] .cv-drawer-item-meta {
+  color: rgba(106, 80, 24, 0.65) !important;
+}
+
+/* ─── Toasts ─── */
+[data-theme="light"] .nx-toast,
+[data-theme="light"] .toast {
+  background: rgba(28, 24, 20, 0.92) !important;
+  color: #FAFAF6 !important;
+  box-shadow: 0 8px 24px rgba(60, 50, 30, 0.25) !important;
+}
+
+/* ─── Bottom sheets / modals (admin, settings, etc.) ─── */
+[data-theme="light"] .nx-sheet,
+[data-theme="light"] .modal,
+[data-theme="light"] .bottom-sheet {
+  background: #FAFAF6 !important;
+  color: #1a1a1f !important;
+  border-top: 1px solid #c8a44e !important;
+  box-shadow: 0 -12px 40px rgba(60, 50, 30, 0.15) !important;
+}
+
+/* ─── Section titles, headings, accents ─── */
+[data-theme="light"] .nx-section-title,
+[data-theme="light"] .home-section-title,
+[data-theme="light"] .equipment-section-title {
+  color: #8b6914 !important;
+}
+
+/* ─── Form controls ─── */
+[data-theme="light"] input[type="text"],
+[data-theme="light"] input[type="email"],
+[data-theme="light"] input[type="number"],
+[data-theme="light"] input[type="tel"],
+[data-theme="light"] input[type="password"],
+[data-theme="light"] textarea,
+[data-theme="light"] select {
+  background: #FFFFFF !important;
+  color: #1a1a1f !important;
+  border: 1px solid rgba(139, 105, 20, 0.20) !important;
+}
+[data-theme="light"] input:focus,
+[data-theme="light"] textarea:focus,
+[data-theme="light"] select:focus {
+  border-color: #c8a44e !important;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(200, 164, 78, 0.18) !important;
+}
+[data-theme="light"] input::placeholder,
+[data-theme="light"] textarea::placeholder {
+  color: rgba(106, 80, 24, 0.50) !important;
+}
+
+/* ─── Pre-login PIN screen ─── */
+[data-theme="light"] .pin-screen {
+  background: linear-gradient(180deg, #F4F1EB 0%, #EAE6DD 100%) !important;
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .pin-title {
+  color: #8b6914 !important;
+}
+[data-theme="light"] .pin-sub {
+  color: rgba(106, 80, 24, 0.7) !important;
+}
+[data-theme="light"] .pin-date {
+  color: #6a5018 !important;
+}
+[data-theme="light"] .pin-error {
+  color: #b04848 !important;
+}
+
+/* ─── Onboarding overlay ─── */
+[data-theme="light"] .onboard-overlay {
+  background: rgba(244, 241, 235, 0.96) !important;
+}
+[data-theme="light"] .onboard-box {
+  background: #FFFFFF !important;
+  color: #1a1a1f !important;
+  border: 1px solid rgba(139, 105, 20, 0.20) !important;
+  box-shadow: 0 12px 40px rgba(60, 50, 30, 0.18) !important;
+}
+[data-theme="light"] .onboard-title {
+  color: #8b6914 !important;
+}
+
+/* ─── Equipment / board / calendar / cleaning / admin patterns ───
+   Mostly covered by the design-token fix in nx-system.css, but a few
+   components have hardcoded rgba values that bypass tokens. Spot-fix. */
+
+[data-theme="light"] .equipment-row {
+  background: rgba(255, 253, 247, 0.7) !important;
+  border: 1px solid rgba(139, 105, 20, 0.12) !important;
+}
+[data-theme="light"] .equipment-row:active {
+  background: rgba(241, 234, 218, 0.85) !important;
+}
+[data-theme="light"] .equipment-name {
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .equipment-meta {
+  color: #6a5018 !important;
+}
+
+[data-theme="light"] .filter-pill,
+[data-theme="light"] .loc-pill,
+[data-theme="light"] .status-pill {
+  background: rgba(255, 253, 247, 0.6) !important;
+  border: 1px solid rgba(139, 105, 20, 0.18) !important;
+  color: #3c321e !important;
+}
+[data-theme="light"] .filter-pill.is-active,
+[data-theme="light"] .loc-pill.is-active,
+[data-theme="light"] .status-pill.is-active {
+  background: rgba(200, 164, 78, 0.12) !important;
+  border-color: #c8a44e !important;
+  color: #6a5018 !important;
+}
+
+[data-theme="light"] .board-list,
+[data-theme="light"] .kanban-list {
+  background: rgba(255, 253, 247, 0.55) !important;
+  border: 1px solid rgba(139, 105, 20, 0.10) !important;
+}
+[data-theme="light"] .kanban-card,
+[data-theme="light"] .board-card {
+  background: #FFFFFF !important;
+  color: #1a1a1f !important;
+  border: 1px solid rgba(100, 85, 55, 0.10) !important;
+  box-shadow: 0 1px 3px rgba(60, 50, 30, 0.06);
+}
+
+[data-theme="light"] .cal-day,
+[data-theme="light"] .calendar-day {
+  background: rgba(255, 253, 247, 0.60) !important;
+  border: 1px solid rgba(139, 105, 20, 0.08) !important;
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .cal-day.is-today,
+[data-theme="light"] .calendar-day.is-today {
+  background: rgba(200, 164, 78, 0.10) !important;
+  border-color: #c8a44e !important;
+}
+
+[data-theme="light"] .clean-task,
+[data-theme="light"] .clean-item {
+  background: rgba(255, 253, 247, 0.7) !important;
+  border: 1px solid rgba(139, 105, 20, 0.12) !important;
+  color: #1a1a1f !important;
+}
+
+[data-theme="light"] .admin-panel {
+  background: #FAFAF6 !important;
+  color: #1a1a1f !important;
+  border-top: 1px solid #c8a44e !important;
+}
+[data-theme="light"] .admin-section-title {
+  color: #8b6914 !important;
+}
+[data-theme="light"] .admin-input,
+[data-theme="light"] .admin-textarea,
+[data-theme="light"] .admin-select {
+  background: #FFFFFF !important;
+  color: #1a1a1f !important;
+  border: 1px solid rgba(139, 105, 20, 0.20) !important;
+}
+
+[data-theme="light"] .ctx-sheet,
+[data-theme="light"] .ctx-menu {
+  background: #FAFAF6 !important;
+  color: #1a1a1f !important;
+  border-top: 1px solid rgba(139, 105, 20, 0.30) !important;
+  box-shadow: 0 -12px 40px rgba(60, 50, 30, 0.15) !important;
+}
+
+[data-theme="light"] .composer-overlay {
+  background: rgba(244, 241, 235, 0.96) !important;
+}
+[data-theme="light"] .composer-sheet {
+  background: #FFFFFF !important;
+  color: #1a1a1f !important;
+  border: 1px solid rgba(139, 105, 20, 0.20) !important;
+}
+
+[data-theme="light"] .ig-card,
+[data-theme="light"] .ingest-card {
+  background: #FFFFFF !important;
+  color: #1a1a1f !important;
+  border: 1px solid rgba(139, 105, 20, 0.14) !important;
+}
+[data-theme="light"] .ig-textarea {
+  background: #FAFAF6 !important;
+  color: #1a1a1f !important;
+}
+
+/* ─── Empty states + dividers ─── */
+[data-theme="light"] .empty-state,
+[data-theme="light"] .empty,
+[data-theme="light"] .divider {
+  color: rgba(106, 80, 24, 0.6) !important;
+  border-color: rgba(139, 105, 20, 0.14) !important;
+}
+[data-theme="light"] hr {
+  background: rgba(139, 105, 20, 0.14) !important;
+  border-color: rgba(139, 105, 20, 0.14) !important;
+}
+
+/* ─── Component-radius normalization ───
+   A few components still used 4-8px corners that look sharp next to
+   the rest of the system's rounder shapes. */
+.chat-action-btn,
+.cv-action-chip,
+.nav-tab,
+.tag-chip {
+  border-radius: 10px !important;
+}
+.home-glance-item,
+.home-cal-day,
+.equipment-card,
+.ticket-card,
+.kanban-card {
+  border-radius: 16px !important;
+}
+
+/* ─── Equipment view radius polish ───
+   equipment.css has 15+ instances of border-radius: 4px on small
+   surfaces (thumbnails, inline cards, status pills, form inputs).
+   Bumping these to 8-10px makes the equipment view feel consistent
+   with the rest of the system without touching the source file.
+
+   The view toggle (.eq-view-toggle) is a segmented control where
+   the parent has 20px corners and overflow:hidden — meaning the
+   inner buttons inherit the parent's outer rounding but have a
+   sharp inner edge between them. Adding 8px to the inner buttons
+   themselves creates a "pill within a pill" look that reads as
+   intentional rather than rectangular. */
+.eq-thumb,
+.eq-image,
+.eq-photo,
+.eq-attachment-img,
+.equipment-thumb {
+  border-radius: 10px !important;
+}
+.eq-view-btn {
+  border-radius: 10px !important;
+  /* Tiny inset so adjacent buttons don't visually merge with their
+     rounded inner corners */
+  margin: 2px;
+}
+.eq-action-btn,
+.eq-status-pill,
+.eq-timeline-detail,
+.eq-tag,
+.eq-meta-item {
+  border-radius: 8px !important;
+}
+.eq-inline-error,
+.eq-warning,
+.eq-info-card,
+.eq-empty-state {
+  border-radius: 10px !important;
+}
+.eq-input,
+.eq-textarea,
+.eq-search,
+.eq-select,
+.eq-form-field {
+  border-radius: 12px !important;
+}
+
+/* ─── Status badges (used across many views) ───
+   Equipment, board, calendar, and home all use small status
+   indicators (operational/down/scheduled/etc). Consistent rounding
+   makes them feel like one design system. */
+.status-badge,
+.eq-status,
+.board-status,
+.priority-badge,
+.urgency-badge {
+  border-radius: 999px !important;   /* full pill — readable as status */
+}
+
+/* ─── Misc small surfaces that escaped the radius pass ─── */
+.toast,
+.notification,
+.alert-banner,
+.contractor-banner {
+  border-radius: 14px !important;
+}
+.dropdown-menu,
+.popover,
+.tooltip {
+  border-radius: 12px !important;
+}
