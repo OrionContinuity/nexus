@@ -1,0 +1,343 @@
+/* ════════════════════════════════════════════════════════════════════
+   NEXUS PREFERENCES — visual layer
+   --------------------------------------------------------------------
+   Three things live here:
+     1. Theme cross-fade — when [data-theme] changes, all CSS-variable
+        driven colors fade smoothly instead of snapping.
+     2. Cinematic coin flip — the marquee gesture that fires when the
+        user taps the masthead coin or switches advisor in Prefs.
+     3. Preferences bottom sheet — unified settings UI, opened from
+        the utility tray's Prefs button.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ─── 1. THEME CROSS-FADE ─────────────────────────────────────────── */
+/* Applied as a transient class on <html> for ~750ms when theme changes.
+   Universal selector is necessary because theme variables propagate
+   through every element — a targeted approach would miss components.
+   Animation is gated by the class so it never runs at idle. */
+:root.theme-transitioning,
+:root.theme-transitioning *,
+:root.theme-transitioning *::before,
+:root.theme-transitioning *::after {
+  transition:
+    background-color 600ms cubic-bezier(0.4, 0, 0.2, 1),
+    color           600ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color    600ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow      600ms cubic-bezier(0.4, 0, 0.2, 1),
+    fill            600ms cubic-bezier(0.4, 0, 0.2, 1),
+    stroke          600ms cubic-bezier(0.4, 0, 0.2, 1)
+    !important;
+}
+
+/* ─── 2. CINEMATIC COIN FLIP ──────────────────────────────────────── */
+/* The masthead coin (.nx-mast-coin) already has a 0.6s rotateY for the
+   .flipped state. The cinematic version overlays scale + brightness
+   + a gold flash mid-flip so the gesture feels weighted. */
+.nx-mast-coin.cinematic-flip {
+  animation: nxCinematicFlip 700ms cubic-bezier(0.4, 0.05, 0.3, 1);
+  z-index: 5; /* lift above siblings during the spin */
+}
+@keyframes nxCinematicFlip {
+  0% {
+    transform: scale(1);
+    filter: brightness(1) drop-shadow(0 0 0 rgba(212, 164, 78, 0));
+  }
+  35% {
+    transform: scale(1.18);
+    filter: brightness(1.4) drop-shadow(0 0 12px rgba(232, 191, 108, 0.55));
+  }
+  50% {
+    transform: scale(1.25);
+    filter: brightness(2.0) drop-shadow(0 0 20px rgba(255, 220, 140, 0.85));
+  }
+  65% {
+    transform: scale(1.18);
+    filter: brightness(1.4) drop-shadow(0 0 12px rgba(232, 191, 108, 0.55));
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1) drop-shadow(0 0 0 rgba(212, 164, 78, 0));
+  }
+}
+
+/* Persona name brief glitch during flip — subtle skew + opacity dip
+   so the swap from PROVIDENTIA to TRAJAN (or back) doesn't feel like
+   a static text replacement. Keeps the moment cohesive. */
+#mastPersona.persona-glitch {
+  animation: nxPersonaGlitch 700ms cubic-bezier(0.4, 0, 0.3, 1);
+}
+@keyframes nxPersonaGlitch {
+  0%   { opacity: 1; transform: translateY(0) skewX(0); letter-spacing: 0.18em; }
+  35%  { opacity: 0.15; transform: translateY(-2px) skewX(-4deg); letter-spacing: 0.32em; }
+  50%  { opacity: 0;    transform: translateY(0) skewX(0); letter-spacing: 0.4em; }
+  65%  { opacity: 0.15; transform: translateY(2px) skewX(4deg); letter-spacing: 0.32em; }
+  100% { opacity: 1; transform: translateY(0) skewX(0); letter-spacing: 0.18em; }
+}
+
+/* Honor reduced-motion preference — replace dramatic spin with a quick
+   fade. Theme cross-fade still works (CSS transitions are cheap). */
+@media (prefers-reduced-motion: reduce) {
+  .nx-mast-coin.cinematic-flip,
+  #mastPersona.persona-glitch {
+    animation: none !important;
+  }
+  :root.theme-transitioning,
+  :root.theme-transitioning * {
+    transition-duration: 200ms !important;
+  }
+}
+
+/* ─── 3. PREFERENCES BOTTOM SHEET ─────────────────────────────────── */
+.prefs-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9998;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.prefs-scrim.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.prefs-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  background: var(--surface, #1b1b24);
+  color: var(--fg, #e8e6df);
+  border-top: 1px solid var(--accent, #d4a44e);
+  border-radius: 18px 18px 0 0;
+  padding: 12px 18px 24px;
+  max-height: 88vh;
+  overflow-y: auto;
+  transform: translateY(100%);
+  transition: transform 280ms cubic-bezier(0.2, 0, 0.2, 1);
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-size: 15.5px;
+  -webkit-overflow-scrolling: touch;
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+}
+.prefs-sheet.is-open {
+  transform: translateY(0);
+}
+
+.prefs-grip {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent, #d4a44e);
+  opacity: 0.4;
+  margin: 4px auto 14px;
+}
+
+.prefs-h {
+  font-family: 'Outfit', sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin: 0 0 18px;
+  color: var(--accent, #d4a44e);
+  text-transform: uppercase;
+}
+
+.prefs-section {
+  margin-bottom: 22px;
+}
+
+.prefs-section-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--fg-dim, #9a978c);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.prefs-section-meta {
+  font-weight: 400;
+  color: var(--fg, #e8e6df);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+/* Persona row — two big tappable cards */
+.prefs-persona-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.prefs-persona-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 14px 12px;
+  border: 1px solid rgba(212, 164, 78, 0.25);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--fg, #e8e6df);
+  cursor: pointer;
+  text-align: left;
+  transition: all 180ms ease;
+  font-family: inherit;
+}
+.prefs-persona-btn:active {
+  transform: scale(0.97);
+}
+.prefs-persona-btn.is-active {
+  border-color: var(--accent, #d4a44e);
+  background: rgba(212, 164, 78, 0.08);
+  box-shadow: 0 0 0 1px var(--accent, #d4a44e), 0 4px 16px rgba(212, 164, 78, 0.18);
+}
+.prefs-persona-name {
+  font-family: 'Outfit', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--accent, #d4a44e);
+}
+.prefs-persona-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--fg-dim, #9a978c);
+  letter-spacing: 0.02em;
+}
+
+/* Theme row — three pills */
+.prefs-theme-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 8px;
+}
+.prefs-theme-btn,
+.prefs-tone-btn,
+.prefs-lang-btn {
+  padding: 12px 8px;
+  border: 1px solid rgba(212, 164, 78, 0.20);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fg, #e8e6df);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13.5px;
+  letter-spacing: 0.02em;
+  transition: all 160ms ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.prefs-theme-btn:active,
+.prefs-tone-btn:active,
+.prefs-lang-btn:active {
+  transform: scale(0.96);
+}
+.prefs-theme-btn.is-active,
+.prefs-tone-btn.is-active,
+.prefs-lang-btn.is-active {
+  border-color: var(--accent, #d4a44e);
+  background: rgba(212, 164, 78, 0.10);
+  color: var(--accent, #d4a44e);
+}
+.prefs-theme-name {
+  font-weight: 500;
+}
+.prefs-theme-sub {
+  font-size: 10.5px;
+  color: var(--fg-dim, #9a978c);
+  margin-top: 2px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.06em;
+}
+
+/* Tone & language rows */
+.prefs-tone-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 8px;
+}
+.prefs-lang-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* Voice "open picker" link */
+.prefs-voice-open {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px dashed rgba(212, 164, 78, 0.35);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--accent, #d4a44e);
+  font-family: inherit;
+  font-size: 13.5px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+.prefs-voice-open:active {
+  background: rgba(212, 164, 78, 0.08);
+}
+
+/* Done button */
+.prefs-close {
+  width: 100%;
+  margin-top: 8px;
+  padding: 14px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent, #d4a44e);
+  color: #1a1a1f;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter 160ms ease;
+}
+.prefs-close:active {
+  filter: brightness(0.9);
+}
+
+/* Light-theme adjustments for the sheet */
+[data-theme="light"] .prefs-sheet {
+  background: #FAFAF6;
+  color: #1a1a1f;
+  border-top-color: #c8a44e;
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.12);
+}
+[data-theme="light"] .prefs-persona-btn,
+[data-theme="light"] .prefs-theme-btn,
+[data-theme="light"] .prefs-tone-btn,
+[data-theme="light"] .prefs-lang-btn {
+  border-color: rgba(139, 105, 20, 0.25);
+}
+[data-theme="light"] .prefs-persona-btn.is-active {
+  background: rgba(139, 105, 20, 0.08);
+  box-shadow: 0 0 0 1px #c8a44e, 0 4px 16px rgba(139, 105, 20, 0.18);
+}
+[data-theme="light"] .prefs-theme-btn.is-active,
+[data-theme="light"] .prefs-tone-btn.is-active,
+[data-theme="light"] .prefs-lang-btn.is-active {
+  background: rgba(139, 105, 20, 0.10);
+  color: #8b6914;
+}
+[data-theme="light"] .prefs-section-title,
+[data-theme="light"] .prefs-persona-sub,
+[data-theme="light"] .prefs-theme-sub {
+  color: #6a5018;
+}
+[data-theme="light"] .prefs-close {
+  background: #c8a44e;
+  color: #fff;
+}
