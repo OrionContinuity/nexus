@@ -186,11 +186,11 @@
       <div class="cv-top">
         <button class="cv-back" id="cvBack" aria-label="Back">${svg(ICONS.back)}</button>
         <!--
-          Center area intentionally empty. The masthead at the top of the
-          screen already shows the NEXUS coin + wordmark; repeating it
-          here was visual noise. Voice mute moved to the plus menu where
-          the user prefers controls. Top bar reads as: back · clock.
+          Phase 1 — small persona marker so the user always knows which
+          AI they're talking to. Updated by nx-persona-change listener
+          below; tap on the masthead coin (NOT this label) flips persona.
         -->
+        <span class="cv-persona-name" id="cvPersonaName" aria-live="polite">Providentia</span>
         <div class="cv-top-spacer" aria-hidden="true"></div>
         <button class="cv-icon-btn" id="cvMenu" aria-label="Past conversations" title="Past conversations">${svg(ICONS.history)}</button>
       </div>
@@ -303,6 +303,20 @@
       if (on === undefined) return;
       state.voiceOn = on;
     });
+    // Phase 1 — keep the persona label in sync with the active persona.
+    // Fires on every coin flip (NX.flipCoin) and any other path that
+    // calls NX.setActivePersona (e.g. resuming a past chat tagged with
+    // a different persona).
+    syncPersonaName();
+    document.addEventListener('nx-persona-change', syncPersonaName);
+  }
+
+  function syncPersonaName() {
+    const el = document.getElementById('cvPersonaName');
+    if (!el) return;
+    const p = (window.NX && NX.getActivePersona) ? NX.getActivePersona() : 'providentia';
+    el.textContent = p === 'trajan' ? 'Trajan' : 'Providentia';
+    el.dataset.persona = p;
   }
 
   function wireInput() {
@@ -430,6 +444,16 @@
     closeDrawer();
     chatview.renderTranscript();
     inputEl?.focus();
+    // Phase 1 — create chat_sessions row with locked persona. Fire and
+    // forget; brain-chat will read it when chat opens.
+    if (NX.sb && NX.currentUser) {
+      const persona = (NX.getActivePersona && NX.getActivePersona()) || 'providentia';
+      NX.sb.from('chat_sessions').insert({
+        session_id: newId,
+        user_id: NX.currentUser.id,
+        persona,
+      }).catch(() => {});
+    }
   }
 
   function wirePersonaSheet(scrim) {
@@ -791,10 +815,20 @@
   async function hydrateSession(sessionId) {
     if (!sessionId || !NX.sb) return [];
     try {
+      // Phase 1 — load persona field so we know which persona this session
+      // is locked to. Filter context loading to that persona only.
+      const { data: sessData, error: sessErr } = await NX.sb
+        .from('chat_sessions')
+        .select('persona')
+        .eq('session_id', sessionId)
+        .single();
+      const lockedPersona = sessData?.persona || 'legacy';
+      
       const { data, error } = await NX.sb
         .from('chat_history')
-        .select('question, answer, created_at')
+        .select('question, answer, created_at, persona')
         .eq('session_id', sessionId)
+        .eq('persona', lockedPersona)
         .order('created_at', { ascending: true })
         .limit(200);
       if (error || !data) return [];
@@ -818,7 +852,7 @@
       const since = new Date(Date.now() - 60 * 86400000).toISOString();
       const { data, error } = await NX.sb
         .from('chat_history')
-        .select('session_id, question, answer, created_at, user_name')
+        .select('session_id, question, answer, created_at, user_name, persona')
         .gte('created_at', since)
         .order('created_at', { ascending: false })
         .limit(400);
@@ -833,12 +867,20 @@
             title: '',
             last: r.created_at,
             count: 0,
+            // Phase 1 — capture the persona from the most-recent row of
+            // each session. Older rows backfilled to 'legacy' get
+            // overwritten by newer rows tagged 'providentia'/'trajan'.
+            persona: r.persona || null,
           });
         }
         const s = byId.get(r.session_id);
         s.count++;
         // Use the FIRST question as the title (earliest row of this session)
         if (r.question) s.title = r.question;
+        // Persona resolution: prefer any non-legacy tag we encounter,
+        // since old rows are 'legacy' but newer ones carry the real value.
+        if (r.persona && r.persona !== 'legacy' && !s.persona) s.persona = r.persona;
+        if (r.persona && r.persona !== 'legacy' && s.persona === 'legacy') s.persona = r.persona;
       });
       state.sessions = [...byId.values()].sort((a, b) => new Date(b.last) - new Date(a.last)).slice(0, 40);
       if (drawerEl?.classList.contains('is-open')) renderSessionsList();
@@ -854,17 +896,36 @@
       list.innerHTML = `<div class="cv-drawer-empty">No conversations yet. Start one with the input below.</div>`;
       return;
     }
+    // Phase 1 — small persona dot per row. ⌬ glyph in gold, with the
+    // persona name as a tiny caption. Sessions tagged 'legacy' (the
+    // backfill value for chats from before the persona migration) get
+    // a neutral dot and no name.
+    const personaBadge = (p) => {
+      if (p === 'providentia') return `<span class="cv-drawer-item-persona is-providentia" title="Providentia">⌬ Providentia</span>`;
+      if (p === 'trajan')      return `<span class="cv-drawer-item-persona is-trajan" title="Trajan">⌬ Trajan</span>`;
+      return `<span class="cv-drawer-item-persona is-legacy" title="Pre-persona session">·</span>`;
+    };
     list.innerHTML = state.sessions.map(s => `
-      <button class="cv-drawer-item ${s.id === state.currentSessionId ? 'is-active' : ''}" data-sess="${esc(s.id)}" type="button">
+      <button class="cv-drawer-item ${s.id === state.currentSessionId ? 'is-active' : ''}" data-sess="${esc(s.id)}" data-persona="${esc(s.persona || 'legacy')}" type="button">
         <div class="cv-drawer-item-title">${esc(truncate(s.title || 'Untitled', 80))}</div>
-        <div class="cv-drawer-item-meta">${esc(formatRelDate(s.last))} · ${s.count} msg${s.count === 1 ? '' : 's'}</div>
+        <div class="cv-drawer-item-meta">${esc(formatRelDate(s.last))} · ${s.count} msg${s.count === 1 ? '' : 's'} · ${personaBadge(s.persona)}</div>
       </button>
     `).join('');
     list.querySelectorAll('.cv-drawer-item').forEach(btn => {
       btn.addEventListener('click', () => {
         const id = btn.dataset.sess;
+        const sessPersona = btn.dataset.persona;
         localStorage.setItem('nexus_session_id', id);
         state.currentSessionId = id;
+        // Phase 1 — if the past chat is tagged with a real persona,
+        // make that persona active when resuming. 'legacy' sessions
+        // leave the active persona untouched (it stays whatever the
+        // user had set via the coin).
+        if ((sessPersona === 'providentia' || sessPersona === 'trajan')
+            && window.NX && NX.setActivePersona
+            && NX.getActivePersona && NX.getActivePersona() !== sessPersona) {
+          NX.setActivePersona(sessPersona, { persist: true });
+        }
         closeDrawer();
         chatview.renderTranscript();
       });
