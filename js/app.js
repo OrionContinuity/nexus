@@ -898,18 +898,104 @@ td.check{background:#F0EDE6 !important}
   // both the right voice ID *and* the right systemPrefix without any
   // further wiring.
   _initActivePersona() {
-    // Resolve persona from currentUser → localStorage → default
+    // Auto-register both personas to nexus_custom_voices if missing.
+    // The voice IDs are hardcoded — no "Bring to Life" ceremony needed.
+    // The user can still TEST a voice in admin, but the persona system
+    // works without that step.
+    this._ensurePersonasRegistered();
+
+    // Resolve persona — priority order:
+    //   1. Login coin pre-selection (if user flipped coin on PIN screen
+    //      before logging in, honor that choice for this session)
+    //   2. Supabase nexus_users.default_persona (cross-device default)
+    //   3. localStorage active persona (last choice on this device)
+    //   4. 'providentia' (system default)
     let persona = null;
-    if (this.currentUser && this.currentUser.default_persona) {
+
+    // 1. Login coin pre-selection
+    const loginChoice = sessionStorage.getItem('nexus_login_coin_choice');
+    if (loginChoice === 'providentia' || loginChoice === 'trajan') {
+      persona = loginChoice;
+      // Clear it — only applies to this login. After this, the
+      // Supabase / localStorage values take over for future logins.
+      sessionStorage.removeItem('nexus_login_coin_choice');
+    }
+
+    // 2. Supabase
+    if (!persona && this.currentUser && this.currentUser.default_persona) {
       const dp = String(this.currentUser.default_persona).toLowerCase();
       if (dp === 'providentia' || dp === 'trajan') persona = dp;
     }
+
+    // 3. localStorage
     if (!persona) {
       const ls = localStorage.getItem('nexus_active_persona');
       if (ls === 'providentia' || ls === 'trajan') persona = ls;
     }
+
+    // 4. Default
     if (!persona) persona = 'providentia';
-    this.setActivePersona(persona, { silent: false, persist: false });
+
+    // If persona came from the login coin, persist it so subsequent
+    // logins on this device honor the choice. Otherwise just apply.
+    const fromLoginCoin = !!loginChoice;
+    this.setActivePersona(persona, {
+      silent: !fromLoginCoin,        // suppress "voice not activated" toast on init
+      persist: fromLoginCoin,        // only write to Supabase if user actively chose
+    });
+  },
+
+  // Auto-register personas to nexus_custom_voices using hardcoded voice
+  // IDs + tuning. Idempotent — only writes entries that are missing.
+  // Eliminates the "Bring to Life" friction; the personas are alive
+  // from the moment the app boots.
+  _ensurePersonasRegistered() {
+    // Canonical persona definitions — single source of truth. Mirrors
+    // the PERSONAS object inside admin.setupAdmin(); kept here so the
+    // persona system works before admin module is opened.
+    const CANONICAL = {
+      providentia: {
+        name: 'Providentia',
+        blurb: 'Senior advisor · the coin reverse',
+        id: 'L0N1xQrEBaR6SGctgc28',
+        stability: 0.78,
+        similarity: 0.85,
+        style: 0.20,
+        speed: 1.05,
+      },
+      trajan: {
+        name: 'Trajan',
+        blurb: 'Father-emperor · the coin obverse',
+        id: 'JgL2ebuu6rJHIcKBML4x',
+        stability: 0.72,
+        similarity: 0.85,
+        style: 0.28,
+        speed: 1.05,
+      },
+    };
+    try {
+      const raw = localStorage.getItem('nexus_custom_voices');
+      let customs = raw ? (JSON.parse(raw) || []) : [];
+      let changed = false;
+      Object.values(CANONICAL).forEach(p => {
+        const existing = customs.findIndex(v => v && v.name === p.name);
+        if (existing < 0) {
+          customs.push(p);
+          changed = true;
+        } else if (!customs[existing].id || customs[existing].id !== p.id) {
+          // Repair: someone activated with a placeholder/old ID.
+          // Update to the canonical one.
+          customs[existing] = { ...customs[existing], ...p };
+          changed = true;
+        }
+      });
+      if (changed) {
+        localStorage.setItem('nexus_custom_voices', JSON.stringify(customs));
+        console.log('[NX] Personas registered automatically — no Bring-to-Life required');
+      }
+    } catch(err) {
+      console.warn('[NX] Persona auto-register failed:', err.message);
+    }
   },
 
   getActivePersona() {
@@ -931,18 +1017,36 @@ td.check{background:#F0EDE6 !important}
     //    prompt prefix won't apply automatically in that case — but
     //    we still flip the persona name + coin face so the user gets
     //    visible feedback.
-    try {
-      const customs = JSON.parse(localStorage.getItem('nexus_custom_voices') || '[]');
-      const targetName = persona === 'providentia' ? 'Providentia' : 'Trajan';
-      const customIdx = customs.findIndex(v => v && v.name === targetName);
-      if (customIdx >= 0) {
-        const finalIdx = 20 + customIdx;
-        localStorage.setItem('nexus_voice_idx', finalIdx);
-        if (this.config) this.config.voice_idx = finalIdx;
-        // Best-effort persist to nexus_config — don't await, don't surface errors
-        try { this.sb && this.sb.from('nexus_config').update({ voice_idx: finalIdx }).eq('id', 1); } catch(_) {}
+    // ── Sync voice for the new persona. Voices are auto-registered
+    //    on app boot via _ensurePersonasRegistered, so this lookup
+    //    should always succeed. If it doesn't (corrupted localStorage
+    //    or first-time race), recover by re-registering and trying
+    //    again — silent self-heal, no user-facing error.
+    const trySync = () => {
+      try {
+        const customs = JSON.parse(localStorage.getItem('nexus_custom_voices') || '[]');
+        const targetName = persona === 'providentia' ? 'Providentia' : 'Trajan';
+        const customIdx = customs.findIndex(v => v && v.name === targetName);
+        if (customIdx >= 0) {
+          const finalIdx = 20 + customIdx;
+          localStorage.setItem('nexus_voice_idx', finalIdx);
+          if (this.config) this.config.voice_idx = finalIdx;
+          try { this.sb && this.sb.from('nexus_config').update({ voice_idx: finalIdx }).eq('id', 1); } catch(_) {}
+          return true;
+        }
+      } catch(_) {}
+      return false;
+    };
+
+    if (!trySync()) {
+      // Self-heal: re-register and retry once.
+      this._ensurePersonasRegistered();
+      if (!trySync()) {
+        // Genuinely stuck — log to console for debugging but don't
+        // toast the user (the visual coin flip still completes).
+        console.warn('[NX] Voice sync failed for', persona, '— check nexus_custom_voices in localStorage');
       }
-    } catch(_) {}
+    }
 
     // ── Sync masthead coin face. HTML has front=trajan, back=providentia.
     //    The CSS `.flipped` class on .nx-mast-coin-flip shows the back face.
@@ -1055,6 +1159,40 @@ td.check{background:#F0EDE6 !important}
     tapTarget.addEventListener('click', () => {
       if (NX.flipCoin) NX.flipCoin();
       else flipFace();  // fallback if persona system isn't wired yet
+    });
+
+    // Long-press / right-click → quiet info toast explaining the gesture.
+    // Lets users discover what the coin does without cluttering the UI
+    // with a permanent (i) icon. Threshold is 600ms — long enough to
+    // distinguish from accidental holds, short enough to feel responsive.
+    let pressTimer = null;
+    let pressFired = false;
+    const startPress = () => {
+      pressFired = false;
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(() => {
+        pressFired = true;
+        if (NX.toast) NX.toast(
+          "The coin's two faces are your two advisors. Tap to flip.",
+          'info'
+        );
+      }, 600);
+    };
+    const cancelPress = () => { clearTimeout(pressTimer); };
+    tapTarget.addEventListener('touchstart', startPress, { passive: true });
+    tapTarget.addEventListener('touchend',   cancelPress);
+    tapTarget.addEventListener('touchmove',  cancelPress);
+    tapTarget.addEventListener('mousedown',  startPress);
+    tapTarget.addEventListener('mouseup',    cancelPress);
+    tapTarget.addEventListener('mouseleave', cancelPress);
+    tapTarget.addEventListener('contextmenu', (e) => {
+      // Right-click on desktop also shows the info — and prevents the
+      // browser context menu from disrupting the gesture.
+      e.preventDefault();
+      if (NX.toast) NX.toast(
+        "The coin's two faces are your two advisors. Tap to flip.",
+        'info'
+      );
     });
 
     // ── Sync coin face AND persona label to active persona on mount.
@@ -1670,15 +1808,18 @@ td.check{background:#F0EDE6 !important}
         if (status) {
           status.innerHTML = isActive
             ? `<span class="admin-voice-status-active">✦ ${meta.name} is the active voice</span>`
-            : `<span class="admin-voice-status-ready">${meta.name} is ready — tap "Bring to life" to activate</span>`;
+            : `<span class="admin-voice-status-ready">${meta.name} is registered — tap to test</span>`;
         }
-        // Update activate button label
+        // Update activate button label. Personas auto-register on app
+        // boot, so the button is now "Test voice" (plays the intro
+        // line) rather than activation. Active state still shown.
         const actBtn = card.querySelector('.admin-voice-activate-btn');
-        if (actBtn) actBtn.textContent = isActive ? 'Active ✓' : 'Bring to life';
+        if (actBtn) actBtn.textContent = isActive ? 'Active ✓' : 'Test voice';
       } else if (meta.voiceId) {
-        // Persona has a canonical voice ID but user hasn't activated
-        // yet — show that the voice exists and is ready to bring to life.
-        if (status) status.innerHTML = `<span class="admin-voice-status-ready">${meta.name} is ready — tap "Bring to life" to activate</span>`;
+        // Persona has a canonical voice ID. Auto-registration should
+        // have already saved it to nexus_custom_voices on boot, but
+        // if the user is here before that ran, surface a "ready" state.
+        if (status) status.innerHTML = `<span class="admin-voice-status-ready">${meta.name} is registered — tap to test</span>`;
       } else {
         if (status) status.innerHTML = '';
       }
@@ -1735,28 +1876,38 @@ td.check{background:#F0EDE6 !important}
       });
     });
 
-    // ─── ACTIVATE BUTTONS — Bring to life ─────────────────────────
-    // Saves the voice ID + persona settings to nexus_custom_voices,
-    // then sets it as the active voice (voice_idx). The AI will speak
-    // with this voice and adopt the character's persona on next reply.
+    // ─── TEST VOICE BUTTONS ─────────────────────────────────────────
+    // Voices are auto-registered on app boot. This button now does two
+    // things:
+    //   1. If the user pasted a NEW voice ID into the input field
+    //      (different from the one on file), re-register with that ID.
+    //      This is the path for "I re-recorded the voice in ElevenLabs
+    //      and want to use the new one."
+    //   2. Play the intro line so the user can hear how it sounds.
     document.querySelectorAll('.admin-voice-activate-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const charKey = btn.dataset.activate;
         const card = document.querySelector(`[data-character="${charKey}"]`);
         if (!card) return;
         const idInput = card.querySelector('.admin-voice-id-input');
-        const id = (idInput.value || '').trim();
-        if (!id || id.length < 15) {
+        const persona = PERSONAS[charKey];
+
+        // Determine which voice ID to use:
+        //   - If input has a valid ID, use that (user updated it).
+        //   - Otherwise, fall back to the canonical hardcoded ID.
+        const inputId = (idInput.value || '').trim();
+        const useId = (inputId.length >= 15) ? inputId : persona.voiceId;
+
+        if (!useId) {
           NX.toast && NX.toast('Paste the voice ID from ElevenLabs first', 'warn');
           return;
         }
-        const persona = PERSONAS[charKey];
 
-        // Upsert into custom voices list
+        // Upsert into custom voices list (only if ID changed or missing)
         const customs = load();
         const existingIdx = customs.findIndex(v => v.name === persona.name);
         const entry = {
-          id,
+          id: useId,
           name: persona.name,
           blurb: persona.blurb,
           stability: persona.stability,
@@ -1765,9 +1916,10 @@ td.check{background:#F0EDE6 !important}
           speed: persona.speed,
           systemPrefix: persona.systemPrefix,
         };
+        const idChanged = existingIdx < 0 || customs[existingIdx].id !== useId;
         if (existingIdx >= 0) customs[existingIdx] = entry;
         else customs.push(entry);
-        save(customs);
+        if (idChanged) save(customs);
 
         // Set as active voice. Default voices live at 0-19; customs at
         // 20+. Find this character's index in customs and shift up.
@@ -1783,15 +1935,17 @@ td.check{background:#F0EDE6 !important}
         // updates too, since we just changed the active voice)
         characters.forEach(c => renderCharacterState(c));
 
-        NX.toast && NX.toast(`${persona.name} is alive. NEXUS now speaks as them.`, 'success');
+        if (idChanged) {
+          NX.toast && NX.toast(`${persona.name}'s voice updated.`, 'success');
+        }
 
-        // Speak the activation line so they introduce themselves
+        // Play the intro line so user can hear the voice
         const introLine = charKey === 'providentia'
           ? "Providentia listens. The threads are in my hand."
           : "Trajan answers. Two thousand years on, the work continues.";
         setTimeout(() => {
           this.testCustomVoice({
-            id,
+            id: useId,
             name: persona.name,
             stability: persona.stability,
             similarity: persona.similarity,
