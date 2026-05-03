@@ -2612,12 +2612,34 @@
         sessionStorage.setItem('nexus_login_coin_choice', persona);
       } catch(_) {}
     };
+
+    // Theme cross-fade preview — when user flips the PIN coin, the
+    // page theme should transition to match the chosen persona.
+    // Providentia → light, Trajan → dark. Purely visual: the actual
+    // saved theme preference is reapplied after login by prefs.init().
+    // If the user's saved theme is 'auto', the preview becomes
+    // authoritative (no flicker on login). If the saved theme is
+    // explicit dark/light, the preview is overridden at login —
+    // their explicit preference wins, as it should.
+    const previewTheme = () => {
+      const isFlipped = coin.classList.contains('nx-coin-flipped');
+      const next = isFlipped ? 'dark' : 'light';
+      const root = document.documentElement;
+      if (root.getAttribute('data-theme') === next) return;
+      root.classList.add('theme-transitioning');
+      root.setAttribute('data-theme', next);
+      // 750ms matches the cinematic flip duration in preferences.css
+      // so the coin spin and theme cross-fade complete in lockstep.
+      setTimeout(() => root.classList.remove('theme-transitioning'), 750);
+    };
+
     const toggleFlip = (e) => {
       // Don't flip when the (i) button is the click target.
       if (e && (e.target === infoBtn || infoBtn.contains(e.target))) return;
       coin.classList.add('nx-coin-interacted');
       coin.classList.toggle('nx-coin-flipped');
       recordChoice();   // user actively flipped — record their choice
+      previewTheme();   // cross-fade theme to match the new face
     };
     coin.addEventListener('click', toggleFlip);
     coin.addEventListener('keydown', (e) => {
