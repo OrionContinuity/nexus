@@ -38,10 +38,20 @@ const NX = {
   // ─── Persistent Memory ───
   async fetchMemory(question) {
     try {
-      // Fetch last 200 conversations for deep memory
-      const { data } = await this.sb.from('chat_history')
+      // Persona-scoped fetch: when v2 memory is in use (wing column on
+      // chat_history), restrict to the active persona so Trajan doesn't
+      // see Providentia's exchanges and vice versa. Falls back to an
+      // unscoped query if the wing column or getActivePersona aren't
+      // available (older deployments).
+      const persona = (this.getActivePersona && this.getActivePersona()) || null;
+      let q = this.sb.from('chat_history')
         .select('question,answer,created_at,user_name')
-        .order('created_at', { ascending: false }).limit(200);
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (persona === 'providentia' || persona === 'trajan') {
+        q = q.eq('wing', persona);
+      }
+      const { data } = await q;
       if (!data || !data.length) return '';
       const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
       if (!words.length) return '';
@@ -569,14 +579,23 @@ const NX = {
       this.loadGlossary();
       this.loadAliases();
       this.loadCriticalFacts();
-      this.loadScript('js/galaxy.js', () => {
-        this.loadScript('js/brain-list.js', () => {
-          this.loadScript('js/brain-events.js', () => {
-            this.loadScript('js/ai-writer.js', () => {
-              // Load memory module BEFORE brain-chat so window.MEMORY exists
-              this.loadScript('js/brain-chat-memory.js', () => {
-                this.loadScript('js/brain-chat.js', () => {
-                  NX.brain.init();
+      // Load preferences module FIRST so persona/theme/voice are
+      // synced from Supabase before brain-chat reads them. NX.prefs
+      // hydrates from DB and applies the effective theme on first paint.
+      this.loadScript('js/preferences.js', () => {
+        // Init is async but non-blocking — UI can render with defaults
+        // while DB row loads. brain-chat reads via NX.prefs.* so it
+        // gets the live value once init resolves.
+        if (NX.prefs && NX.prefs.init) NX.prefs.init();
+        this.loadScript('js/galaxy.js', () => {
+          this.loadScript('js/brain-list.js', () => {
+            this.loadScript('js/brain-events.js', () => {
+              this.loadScript('js/ai-writer.js', () => {
+                // Load memory module BEFORE brain-chat so window.MEMORY exists
+                this.loadScript('js/brain-chat-memory.js', () => {
+                  this.loadScript('js/brain-chat.js', () => {
+                    NX.brain.init();
+                  });
                 });
               });
             });
@@ -1072,6 +1091,24 @@ td.check{background:#F0EDE6 !important}
       try {
         this.sb.from('nexus_users').update({ default_persona: persona }).eq('id', this.currentUser.id).then(() => {});
       } catch(_) {}
+      // Also write through to user_preferences (per-device).
+      // NX.prefs handles theme=auto coupling so the theme cross-fades
+      // automatically when persona changes. Animated flag determines
+      // whether the transition runs the smooth cross-fade or snaps.
+      if (NX.prefs && NX.prefs.set) {
+        try {
+          NX.prefs.set({ persona }, { animated: o.animated !== false }).catch(()=>{});
+        } catch(_) {}
+      }
+    }
+
+    // ── Cinematic coin flip — only when explicitly animated (a user
+    //    gesture). Initial-load persona application skips this so the
+    //    coin doesn't spin on every reload.
+    if (o.animated !== false && o.persist !== false && prev && prev !== persona) {
+      if (NX.prefs && NX.prefs.playCinematicFlip) {
+        try { NX.prefs.playCinematicFlip(); } catch(_) {}
+      }
     }
 
     // ── Broadcast — brain-chat.js, chat-view.js, anything else listens
@@ -1085,7 +1122,9 @@ td.check{background:#F0EDE6 !important}
   flipCoin() {
     const cur = this.getActivePersona();
     const next = cur === 'providentia' ? 'trajan' : 'providentia';
-    this.setActivePersona(next, { persist: true });
+    // animated:true → cinematic spin + theme cross-fade. This is the
+    // marquee gesture, so it gets the full ~700ms moment.
+    this.setActivePersona(next, { persist: true, animated: true });
     const msg = next === 'trajan' ? 'Trajan summoned.' : 'Providentia returns.';
     if (NX.toast) NX.toast(msg, 'info');
   },
