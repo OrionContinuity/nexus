@@ -1166,70 +1166,9 @@ Keep it casual and warm. No markdown formatting.`;
     const linkedNodes=sortedHops.map(h=>h.node);
     const allRelevant=[...rel,...linkedNodes];
 
-    // ═══ PALACE NAVIGATION — walk communities for deeper context ═══
-    let palaceCtx='';
-    const hasCommunities=allRelevant.some(n=>n.community_id!=null);
-    if(hasCommunities){
-      // Find which communities the relevant nodes belong to
-      const relComms=new Map();
-      allRelevant.forEach(n=>{
-        const cid=n.community_id;
-        if(cid==null)return;
-        if(!relComms.has(cid))relComms.set(cid,{nodes:[],label:n.community_label||'Zone '+cid});
-        relComms.get(cid).nodes.push(n);
-      });
-
-      // For each relevant community, find bridge nodes that connect to other communities
-      const bridgeContext=[];
-      relComms.forEach((comm,cid)=>{
-        const communityNodes=NX.nodes.filter(n=>n.community_id===cid&&!n.is_private);
-        const bridges=communityNodes.filter(n=>n.community_role==='bridge');
-        const godNode=communityNodes.find(n=>n.community_role==='god');
-
-        // Walk bridges to find connected communities
-        bridges.slice(0,3).forEach(b=>{
-          const crossLinks=(b.links||[]).map(lid=>NX.nodes.find(nn=>nn.id===lid)).filter(nn=>nn&&nn.community_id!=null&&nn.community_id!==cid);
-          crossLinks.slice(0,2).forEach(cl=>{
-            bridgeContext.push(`${b.name} connects "${comm.label}" to "${cl.community_label||'Zone '+cl.community_id}" (via ${cl.name})`);
-          });
-        });
-
-        // Add god node context if not already in allRelevant
-        if(godNode&&!allRelevant.find(n=>n.id===godNode.id)){
-          allRelevant.push(godNode);
-        }
-      });
-
-      if(relComms.size>0){
-        palaceCtx='\n\nMEMORY PALACE (community structure):\n';
-        relComms.forEach((comm,cid)=>{
-          const communityNodes=NX.nodes.filter(n=>n.community_id===cid&&!n.is_private);
-          palaceCtx+=`Room "${comm.label}" (${communityNodes.length} items): ${communityNodes.slice(0,6).map(n=>n.name).join(', ')}${communityNodes.length>6?'...':''}\n`;
-        });
-        if(bridgeContext.length){
-          palaceCtx+='Connections: '+bridgeContext.slice(0,4).join('; ')+'\n';
-        }
-      }
-
-      // Deep dive: include adjacent communities too
-      if(/deep dive|thorough|tell me everything|full picture/i.test(q)&&relComms.size>0){
-        const adjacentComms=new Set();
-        relComms.forEach((comm,cid)=>{
-          const communityNodes=NX.nodes.filter(n=>n.community_id===cid);
-          communityNodes.forEach(n=>{
-            (n.links||[]).forEach(lid=>{
-              const linked=NX.nodes.find(nn=>nn.id===lid);
-              if(linked&&linked.community_id!=null&&!relComms.has(linked.community_id))adjacentComms.add(linked.community_id);
-            });
-          });
-        });
-        adjacentComms.forEach(adjCid=>{
-          const adjNodes=NX.nodes.filter(n=>n.community_id===adjCid&&!n.is_private);
-          const adjLabel=adjNodes[0]?.community_label||'Zone '+adjCid;
-          palaceCtx+=`Adjacent room "${adjLabel}" (${adjNodes.length} items): ${adjNodes.slice(0,4).map(n=>n.name).join(', ')}\n`;
-        });
-      }
-    }
+    // Palace/community code removed — those columns aren't in the
+    // schema, the queries failed silently, and the bloat (5-8K tokens
+    // per call) was never being read by anything useful.
 
     const det=allRelevant.map(n=>{
       let extras='';
@@ -1251,8 +1190,6 @@ Keep it casual and warm. No markdown formatting.`;
       }
       return`[${n.category}] ${n.name}: ${(n.notes||'').slice(0,500)}${extras}`;
     }).join('\n');
-
-    const idx=NX.nodes.filter(n=>!n.is_private).sort((a,b)=>(b.access_count||0)-(a.access_count||0)).slice(0,20).map(n=>`${n.name} (${n.category})`).join(', ');
 
     const relIds=allRelevant.map(n=>n.id);
     NX.brain.state.activatedNodes=new Set(relIds);NX.brain.wakePhysics();
@@ -1276,30 +1213,11 @@ Keep it casual and warm. No markdown formatting.`;
         if(cleanLogs.length)cleanStatus="\n\nTODAY'S CLEANING:\n"+cleanLogs.map(l=>(l.entry||'').slice(0,100)).join('\n');
       }
     }catch(e){}
-    // ═══ COMMUNITY SUMMARIES (Layer 1 — GraphRAG) ═══
+    // Community summaries + pattern predictions removed — the
+    // `communities` and `patterns` tables either don't exist or aren't
+    // populated. The queries 404'd silently and added 50-200ms per call.
     let summaryCtx='';
-    if(hasCommunities){
-      const relCommIds=[...new Set(allRelevant.map(n=>n.community_id).filter(Boolean))];
-      try{
-        const{data:comms}=await NX.sb.from('communities').select('community_id,label,summary').in('community_id',relCommIds);
-        if(comms?.length){
-          const withSummary=comms.filter(c=>c.summary);
-          if(withSummary.length){
-            summaryCtx='\n\nCOMMUNITY INTELLIGENCE:\n'+withSummary.map(c=>`${c.label}: ${c.summary}`).join('\n');
-          }
-        }
-      }catch(e){}
-    }
-
-    // ═══ PATTERN PREDICTIONS (Layer 6) ═══
     let patternCtx='';
-    try{
-      const weekAhead=new Date(Date.now()+7*86400000).toISOString().split('T')[0];
-      const{data:pats}=await NX.sb.from('patterns').select('*').lte('next_predicted',weekAhead).eq('active',true).limit(5);
-      if(pats?.length){
-        patternCtx='\n\nPREDICTED PATTERNS:\n'+pats.map(p=>`${p.entity_name}: ${p.pattern_type} (next: ${p.next_predicted}, every ~${p.interval_days} days, ${Math.round(p.confidence*100)}% confidence)`).join('\n');
-      }
-    }catch(e){}
 
     // ═══ MORNING BRIEF (Layer 2) ═══
     let briefCtx='';
@@ -1311,7 +1229,7 @@ Keep it casual and warm. No markdown formatting.`;
       }
     }catch(e){}
 
-    return`RELEVANT NODES:\n${det}${palaceCtx}${summaryCtx}${patternCtx}${briefCtx}\n\nFULL INDEX (${NX.nodes.length} nodes):\n${idx}${memory}${ev}${tickets}${cleanStatus}`;
+    return`RELEVANT NODES:\n${det}${briefCtx}${memory}${ev}${tickets}${cleanStatus}`;
   }
 
   async function askAI(){
@@ -1369,22 +1287,18 @@ Keep it casual and warm. No markdown formatting.`;
           const src=(n.source_emails||[]).slice(0,2).map(s=>`[${s.date||'?'} from ${s.from||'?'}] ${(s.subject||'').slice(0,40)}`).join('; ');
           return`[${n.category}] ${n.name}: ${n.notes||''}${src?'\n  Sources: '+src:''}`;
         }).join('\n');
-        const idx=NX.nodes.filter(n=>!n.is_private).sort((a,b)=>(b.access_count||0)-(a.access_count||0)).slice(0,20).map(n=>`${n.name} (${n.category})`).join(', ');
-        ctx=`RELEVANT NODES (from ${subQueries.length} search angles):\n${det}\n\nFULL INDEX (${NX.nodes.length} nodes):\n${idx}`;
-        // Append community summaries, patterns, brief
-        try{
-          const commIds=[...new Set(multiNodes.map(n=>n.community_id).filter(Boolean))];
-          if(commIds.length){
-            const{data:comms}=await NX.sb.from('communities').select('community_id,label,summary').in('community_id',commIds);
-            const withSummary=(comms||[]).filter(c=>c.summary);
-            if(withSummary.length)ctx+='\n\nCOMMUNITY INTELLIGENCE:\n'+withSummary.map(c=>`${c.label}: ${c.summary}`).join('\n');
-          }
-        }catch(e){}
-        try{
-          const weekAhead=new Date(Date.now()+7*86400000).toISOString().split('T')[0];
-          const{data:pats}=await NX.sb.from('patterns').select('*').lte('next_predicted',weekAhead).eq('active',true).limit(5);
-          if(pats?.length)ctx+='\n\nPREDICTED PATTERNS:\n'+pats.map(p=>`${p.entity_name}: ${p.pattern_type} (next: ${p.next_predicted}, ~${p.interval_days}d, ${Math.round(p.confidence*100)}%)`).join('\n');
-        }catch(e){}
+
+        // ═══ MEMORY-FIRST: prepend persona-filtered conversation context
+        //    (last 6 from this session + 3 from same room) so the
+        //    multi-search results sit on top of the same memory context
+        //    a simple question would get. Replaces the FULL INDEX bloat
+        //    and the dead community/pattern queries that ran here. ═══
+        const memCtx = window.MEMORY
+          ? await MEMORY.getContext(q, SESSION_ID)
+          : '';
+        ctx = `${memCtx}\n\nRELEVANT NODES (from ${subQueries.length} search angles):\n${det}`;
+
+        // Today's brief still useful — keeps the morning hand-off
         try{
           const todayStr=new Date().toISOString().split('T')[0];
           const{data:brief}=await NX.sb.from('briefs').select('brief_text').eq('brief_date',todayStr).limit(1);
