@@ -1,0 +1,46 @@
+{
+  "name": "NEXUS",
+  "short_name": "NEXUS",
+  "description": "Restaurant operations brain — Suerte, Este, Bar Toti",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a0c",
+  "theme_color": "#0a0a0c",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Ask NEXUS",
+      "short_name": "Ask",
+      "description": "Open chat with active advisor",
+      "url": "./?view=brain"
+    },
+    {
+      "name": "Equipment",
+      "short_name": "Equipment",
+      "description": "Equipment status & PMs",
+      "url": "./?view=equipment"
+    },
+    {
+      "name": "Board",
+      "short_name": "Board",
+      "description": "Task board",
+      "url": "./?view=board"
+    }
+  ]
+}
