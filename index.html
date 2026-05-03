@@ -1800,22 +1800,17 @@
         <option value="claude-sonnet-4-20250514">Claude Sonnet (fast)</option>
         <option value="claude-opus-4-20250514">Claude Opus (smartest)</option>
       </select>
-      <div class="admin-section-label" data-i18n="voice">Voice</div>
-      <div class="admin-voice-row">
-        <select id="adminVoice" class="admin-field" style="flex:1">
-          <!--
-            NEXUS only ships TWO voices: Providentia and Trajan, the
-            two faces of the coin. The 20 default ElevenLabs voices
-            are hidden from this picker — kept in code only as silent
-            fallbacks. Custom voices added below populate this list
-            at values 20+. Until at least one is added, "System
-            default" is the only option (uses Charlotte fallback).
-          -->
-          <option value="0">— System default —</option>
-        </select>
-        <button id="testVoiceBtn" class="admin-test-voice-btn">▶ Test</button>
-      </div>
-      <div id="voiceTestStatus" class="admin-key-status" style="font-size:11px;min-height:16px"></div>
+      <!-- Voice selector — hidden control. The legacy dropdown lives
+           on as the underlying state mechanism (writes to nexus_voice_idx
+           in localStorage and Supabase), but its UI was removed in favor
+           of the Two Voices of NEXUS character cards below. Bring to life
+           on a card writes to this same dropdown's value.
+           Custom voices populate this list at values 20+. Default value
+           0 = system fallback (Charlotte). -->
+      <select id="adminVoice" class="admin-field" style="display:none">
+        <option value="0">— System default —</option>
+      </select>
+      <div id="voiceTestStatus" class="admin-key-status" style="display:none"></div>
 
       <!-- Voice speed slider — controls TTS playback rate.
            ElevenLabs plays at audio.playbackRate; browser speech uses utterance.rate.
