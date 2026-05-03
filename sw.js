@@ -49,6 +49,7 @@ const APP_SHELL = [
   './js/ai-writer.js',
   './js/board.js',
   './js/brain-chat.js',
+  './js/brain-chat-memory.js',
   './js/brain-events.js',
   './js/brain-list.js',
   './js/calendar.js',
