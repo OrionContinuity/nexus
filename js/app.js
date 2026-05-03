@@ -1262,53 +1262,10 @@ td.check{background:#F0EDE6 !important}
       location.reload();
     });
 
-    // Test voice button
-    document.getElementById('testVoiceBtn').addEventListener('click', async () => {
-      const voiceIdx = parseInt(document.getElementById('adminVoice').value) || 0;
-      const status = document.getElementById('voiceTestStatus');
-      const ek = this.getElevenLabsKey();
-      if (!ek) { status.textContent = 'Add ElevenLabs key first'; status.style.color = '#d45858'; return; }
-
-      // Resolve voice meta — for default voices (0-19) or custom (20+).
-      // Falls back to the legacy hardcoded arrays if NX isn't ready.
-      let voice = null;
-      try {
-        if (NX.getVoiceMeta) voice = NX.getVoiceMeta(voiceIdx);
-      } catch (_) {}
-      if (!voice) {
-        const voiceNames = ['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
-        const voiceIds = ['pNInz6obpgDQGcFmaJgB','EXAVITQu4vr4xnSDxMaL','onwK4e9ZLuTAKqWW03F9','XB0fDUnXU5powFXDhCwa','TX3LPaxmHKxFdv7VOQHJ','LcfcDJNUP1GQjkzn1xUU','yoZ06aMxZJJ28mfd3POQ','ThT5KcBeYPX3keUQqHPh','VR6AewLTigWG4xSOukaG','pqHfZKP75CvOlQylNhV4','ErXwobaYiN019PkySvjV','AZnzlk1XvdvUeBnXmlld','D38z5RcWu1voky8WS1ja','jsCqWAovK2LkecY7zXl4','jBpfuIE2acCO8z3wKNLl','oWAxZDx7w5VEj9dCyTzz','SOYHLrjzK2X1ezoPC6cr','ZQe5CZNOzWyzPSCn5a3c','TxGEqnHWrfWFTfGW9XjX','21m00Tcm4TlvDq8ikWAM'];
-        voice = { name: voiceNames[voiceIdx], id: voiceIds[voiceIdx] };
-      }
-      if (!voice || !voice.id) {
-        status.textContent = 'Could not resolve voice'; status.style.color = '#d45858'; return;
-      }
-
-      status.textContent = `Playing ${voice.name}...`; status.style.color = 'var(--accent)';
-      try {
-        // Per-voice tuning if present (custom voices like Providentia);
-        // otherwise the test-button defaults from before.
-        const stability  = voice.stability  != null ? voice.stability  : 0.45;
-        const similarity = voice.similarity != null ? voice.similarity : 0.78;
-        const style      = voice.style      != null ? voice.style      : 0.35;
-        const speed      = voice.speed      != null ? voice.speed      : (parseFloat(localStorage.getItem('nexus_voice_speed') || '1.25') || 1.25);
-
-        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice.id}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'xi-api-key': ek },
-          body: JSON.stringify({
-            text: `Hi, I'm ${voice.name}. I'll be your NEXUS voice.`,
-            model_id: 'eleven_multilingual_v2',
-            voice_settings: { stability, similarity_boost: similarity, style, use_speaker_boost: true }
-          })
-        });
-        if (r.ok) {
-          const bl = await r.blob(), u = URL.createObjectURL(bl), a = new Audio(u);
-          a.playbackRate = speed;
-          a.play();
-          a.onended = () => { URL.revokeObjectURL(u); status.textContent = `✓ ${voice.name} ready`; status.style.color = '#5bba5f'; };
-        } else { status.textContent = 'Voice test failed'; status.style.color = '#d45858'; }
-      } catch (e) { status.textContent = 'Error: ' + e.message; status.style.color = '#d45858'; }
-    });
+    // The legacy global testVoiceBtn was removed when the voice
+    // selector dropdown was hidden — each Two Voices of NEXUS
+    // character card now has its own ▶ test button using the
+    // identical TTS flow. See setupCustomVoices.
 
     // Drive sync
     document.getElementById('driveConnectBtn').addEventListener('click', () => this.driveConnect());
