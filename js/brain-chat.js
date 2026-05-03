@@ -1412,8 +1412,29 @@ Keep it casual and warm. No markdown formatting.`;
           th.parentElement?.insertBefore(toolNote,th);
         }
       }else{
-        // Simple single-pass
-        const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
+        // Simple single-pass — fetch from DB (persona-filtered)
+        let msgs = [];
+        if (NX.sb && getSessionId()) {
+          try {
+            const { data: recentMsgs } = await NX.sb
+              .from('chat_history')
+              .select('question, answer')
+              .eq('session_id', getSessionId())
+              .eq('persona', SESSION_PERSONA)
+              .order('created_at', { ascending: true });
+            if (recentMsgs?.length) {
+              recentMsgs.slice(-6).forEach(r => {
+                if (r.question) msgs.push({role: 'user', content: r.question});
+                if (r.answer) msgs.push({role: 'assistant', content: r.answer});
+              });
+            }
+          } catch (err) {
+            console.warn('[brain] context fetch failed:', err.message);
+            msgs = chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
+          }
+        } else {
+          msgs = chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
+        }
         cleanAns=await NX.askClaude(persona+'\n\n'+ctx,msgs,300,false)||'No response.';
       }
 
