@@ -305,6 +305,8 @@ const NX = {
         // permissions changed server-side, the user will re-authenticate
         // on next page reload anyway.
         this.currentUser = u;
+        // Phase 1 — restore active persona for this session as well.
+        this._initActivePersona();
         this._applyRole(u.role);
         this._loadConfigAndStart();
         return;
@@ -393,6 +395,11 @@ const NX = {
   // Shared success handler for both cache-hit and cold auth paths
   _handleAuthSuccess(user, pin, userEl) {
     this.currentUser = user;
+    // Phase 1 — load this user's preferred persona (Providentia/Trajan).
+    // Reads currentUser.default_persona if the verify_pin RPC returns
+    // it, else localStorage fallback, else 'providentia'. Fires
+    // nx-persona-change so brain-chat picks up CURRENT_PERSONA.
+    this._initActivePersona();
     // Create session token tied to this PIN + user + device
     this._makeSessionToken(pin, user.id).then(token => {
       sessionStorage.setItem('nexus_session_token', token);
@@ -868,6 +875,105 @@ td.check{background:#F0EDE6 !important}
   //   2. Wire the coin to the AI activity pulse system (NX.coin API).
   //   3. Wire coin tap behavior — admins navigate to brain view, non-
   //      admins flip the coin as ornamental feedback.
+  // ═══ PHASE 1 — TWO PERSONAS (Providentia & Trajan) ═══════════════════
+  // Source of truth for the active persona this session. Read via
+  // NX.getActivePersona(); change via NX.flipCoin() or NX.setActivePersona().
+  // Both write through to localStorage AND nexus_users.default_persona,
+  // and broadcast the 'nx-persona-change' event so brain-chat.js,
+  // chat-view.js, and the masthead coin face all stay in sync.
+  //
+  // Fallback chain on first read:
+  //   1. NX._activePersona (already set this session)
+  //   2. NX.currentUser.default_persona (returned by verify_pin RPC)
+  //   3. localStorage 'nexus_active_persona' (mirror, survives reloads)
+  //   4. 'providentia' (default for new users)
+  //
+  // Voice/system-prompt switching is automatic: setActivePersona()
+  // looks up the persona's voice in the merged voices list (custom
+  // voices added via "Bring to life") and updates voice_idx. The
+  // existing speak() and getPERSONA() in brain-chat.js then pick up
+  // both the right voice ID *and* the right systemPrefix without any
+  // further wiring.
+  _initActivePersona() {
+    // Resolve persona from currentUser → localStorage → default
+    let persona = null;
+    if (this.currentUser && this.currentUser.default_persona) {
+      const dp = String(this.currentUser.default_persona).toLowerCase();
+      if (dp === 'providentia' || dp === 'trajan') persona = dp;
+    }
+    if (!persona) {
+      const ls = localStorage.getItem('nexus_active_persona');
+      if (ls === 'providentia' || ls === 'trajan') persona = ls;
+    }
+    if (!persona) persona = 'providentia';
+    this.setActivePersona(persona, { silent: false, persist: false });
+  },
+
+  getActivePersona() {
+    return this._activePersona || 'providentia';
+  },
+
+  setActivePersona(persona, opts) {
+    if (persona !== 'providentia' && persona !== 'trajan') return;
+    const o = opts || {};
+    const prev = this._activePersona;
+    this._activePersona = persona;
+    // Local mirror so reloads / other tabs see the choice immediately
+    try { localStorage.setItem('nexus_active_persona', persona); } catch(_) {}
+
+    // ── Sync voice_idx if this persona's voice is registered in
+    //    nexus_custom_voices (i.e. user tapped "Bring to life" in admin).
+    //    Without that activation, voice_idx is left as-is and speak()
+    //    will use whatever voice was previously selected. The system
+    //    prompt prefix won't apply automatically in that case — but
+    //    we still flip the persona name + coin face so the user gets
+    //    visible feedback.
+    try {
+      const customs = JSON.parse(localStorage.getItem('nexus_custom_voices') || '[]');
+      const targetName = persona === 'providentia' ? 'Providentia' : 'Trajan';
+      const customIdx = customs.findIndex(v => v && v.name === targetName);
+      if (customIdx >= 0) {
+        const finalIdx = 20 + customIdx;
+        localStorage.setItem('nexus_voice_idx', finalIdx);
+        if (this.config) this.config.voice_idx = finalIdx;
+        // Best-effort persist to nexus_config — don't await, don't surface errors
+        try { this.sb && this.sb.from('nexus_config').update({ voice_idx: finalIdx }).eq('id', 1); } catch(_) {}
+      }
+    } catch(_) {}
+
+    // ── Sync masthead coin face. HTML has front=trajan, back=providentia.
+    //    The CSS `.flipped` class on .nx-mast-coin-flip shows the back face.
+    const flip = document.querySelector('#mastCoin .nx-mast-coin-flip');
+    if (flip) {
+      if (persona === 'providentia') flip.classList.add('flipped');
+      else flip.classList.remove('flipped');
+    }
+
+    // ── Persist to Supabase nexus_users.default_persona unless caller
+    //    asked us to skip (e.g. _initActivePersona on login — that's a
+    //    READ of the persisted value, no need to write it back).
+    if (o.persist !== false && this.currentUser && this.currentUser.id != null && this.sb) {
+      try {
+        this.sb.from('nexus_users').update({ default_persona: persona }).eq('id', this.currentUser.id).then(() => {});
+      } catch(_) {}
+    }
+
+    // ── Broadcast — brain-chat.js, chat-view.js, anything else listens
+    if (prev !== persona) {
+      try {
+        document.dispatchEvent(new CustomEvent('nx-persona-change', { detail: { persona, prev } }));
+      } catch(_) {}
+    }
+  },
+
+  flipCoin() {
+    const cur = this.getActivePersona();
+    const next = cur === 'providentia' ? 'trajan' : 'providentia';
+    this.setActivePersona(next, { persist: true });
+    const msg = next === 'trajan' ? 'Trajan summoned.' : 'Providentia returns.';
+    if (NX.toast) NX.toast(msg, 'info');
+  },
+
   setupMasthead() {
     // ── Live date/time ticker ───────────────────────────────────────
     const dateEl = document.getElementById('mastDate');
@@ -924,16 +1030,24 @@ td.check{background:#F0EDE6 !important}
     // mini-galaxy did.
     document.addEventListener('galaxy:node-open', pulse);
 
-    // Tap behavior: admins go to brain view (with a tactile flip
-    // first), non-admins just flip the coin as ornamental feedback.
+    // Tap behavior: flip the active persona (Providentia ↔ Trajan).
+    // Phase 1 — the coin IS the persona switch. Brain/galaxy access
+    // moves to the NEXUS wordmark (#navNexus) which is already wired
+    // to switchTo('brain') above. The coin is no longer a brain
+    // shortcut; it is the *gesture* of the persona system.
     wrap.addEventListener('click', () => {
-      if (document.body.classList.contains('no-galaxy-access')) {
-        flipFace();
-        return;
-      }
-      flipFace();
-      setTimeout(() => NX.switchTo?.('brain'), 180);
+      if (NX.flipCoin) NX.flipCoin();
+      else flipFace();  // fallback if persona system isn't wired yet
     });
+
+    // ── Sync coin face to active persona on mount. _initActivePersona
+    //    runs at login, BEFORE the masthead exists in the DOM, so the
+    //    initial face-class write is a no-op. We catch up here.
+    if (this._activePersona) {
+      const p = this._activePersona;
+      if (p === 'providentia') flip && flip.classList.add('flipped');
+      else flip && flip.classList.remove('flipped');
+    }
   },
 
   activateModule(view) {
