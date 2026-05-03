@@ -1828,8 +1828,9 @@
       <!-- Voice selector — hidden control. The legacy dropdown lives
            on as the underlying state mechanism (writes to nexus_voice_idx
            in localStorage and Supabase), but its UI was removed in favor
-           of the Two Voices of NEXUS character cards below. Bring to life
-           on a card writes to this same dropdown's value.
+           of the Two Voices of NEXUS character cards below. Voices
+           auto-register on app boot; the cards are for testing and
+           re-recording, not activation.
            Custom voices populate this list at values 20+. Default value
            0 = system fallback (Charlotte). -->
       <select id="adminVoice" class="admin-field" style="display:none">
@@ -1900,7 +1901,7 @@
               placeholder="Paste voice ID after Voice Design (20 chars)"
               autocomplete="off" data-lpignore="true">
             <button class="admin-voice-test-btn" data-test="providentia" type="button" title="Hear what you've pasted">▶</button>
-            <button class="admin-voice-activate-btn" data-activate="providentia" type="button">Bring to life</button>
+            <button class="admin-voice-activate-btn" data-activate="providentia" type="button">Test voice</button>
           </div>
           <div class="admin-voice-status" id="status-providentia"></div>
         </div>
@@ -1934,17 +1935,17 @@
               placeholder="Paste voice ID after Voice Design (20 chars)"
               autocomplete="off" data-lpignore="true">
             <button class="admin-voice-test-btn" data-test="trajan" type="button" title="Hear what you've pasted">▶</button>
-            <button class="admin-voice-activate-btn" data-activate="trajan" type="button">Bring to life</button>
+            <button class="admin-voice-activate-btn" data-activate="trajan" type="button">Test voice</button>
           </div>
           <div class="admin-voice-status" id="status-trajan"></div>
         </div>
 
         <div class="admin-voices-howto">
-          <strong>How to:</strong> Tap Copy on a character's prompt, open
-          Voice Design in ElevenLabs (link above), paste the prompt,
-          generate the voice, listen and regenerate until it feels
-          right, save the voice to your library, copy the voice ID,
-          paste it back here, tap Bring to life.
+          <strong>How to:</strong> The two voices are registered automatically.
+          Tap <em>Test voice</em> on either card to hear them. To re-record
+          a voice: copy that character's prompt, open Voice Design in
+          ElevenLabs (link above), paste the prompt, generate, save the
+          voice, copy the new voice ID, and paste it back here.
         </div>
       </div>
 
@@ -2542,12 +2543,30 @@
     const closeBtn = document.getElementById('nxCoinInfoClose');
     if (!coin || !infoBtn || !overlay) return;
 
-    // Coin flip — also halts idle wobble after first interaction.
+    // Coin flip — also halts idle wobble after first interaction,
+    // AND records which advisor is face-up so _initActivePersona
+    // honors the user's choice when they log in.
+    //
+    // Front face (no .nx-coin-flipped) = Trajan
+    // Back face  (.nx-coin-flipped)    = Providentia
+    //
+    // We only record on USER INTERACTION — not on initial mount —
+    // so the user's saved Supabase preference is honored when they
+    // log in without flipping.
+    const recordChoice = () => {
+      try {
+        const persona = coin.classList.contains('nx-coin-flipped')
+          ? 'providentia'
+          : 'trajan';
+        sessionStorage.setItem('nexus_login_coin_choice', persona);
+      } catch(_) {}
+    };
     const toggleFlip = (e) => {
       // Don't flip when the (i) button is the click target.
       if (e && (e.target === infoBtn || infoBtn.contains(e.target))) return;
       coin.classList.add('nx-coin-interacted');
       coin.classList.toggle('nx-coin-flipped');
+      recordChoice();   // user actively flipped — record their choice
     };
     coin.addEventListener('click', toggleFlip);
     coin.addEventListener('keydown', (e) => {
