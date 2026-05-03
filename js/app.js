@@ -949,6 +949,15 @@ td.check{background:#F0EDE6 !important}
       else flip.classList.remove('flipped');
     }
 
+    // ── Sync masthead persona label (sits directly under the coin).
+    //    Updated in lockstep with the coin face so the name and the
+    //    visible side of the coin always agree.
+    const personaLabel = document.getElementById('mastPersona');
+    if (personaLabel) {
+      personaLabel.textContent = persona === 'trajan' ? 'TRAJAN' : 'PROVIDENTIA';
+      personaLabel.setAttribute('data-persona', persona);
+    }
+
     // ── Persist to Supabase nexus_users.default_persona unless caller
     //    asked us to skip (e.g. _initActivePersona on login — that's a
     //    READ of the persisted value, no need to write it back).
@@ -1035,18 +1044,29 @@ td.check{background:#F0EDE6 !important}
     // moves to the NEXUS wordmark (#navNexus) which is already wired
     // to switchTo('brain') above. The coin is no longer a brain
     // shortcut; it is the *gesture* of the persona system.
-    wrap.addEventListener('click', () => {
+    //
+    // The whole coin-wrap (coin + persona label below) is tappable so
+    // the touch target is generous on mobile. Falls back to the coin
+    // alone if the wrap isn't present (legacy markup).
+    const tapTarget = document.getElementById('mastCoinWrap') || wrap;
+    tapTarget.addEventListener('click', () => {
       if (NX.flipCoin) NX.flipCoin();
       else flipFace();  // fallback if persona system isn't wired yet
     });
 
-    // ── Sync coin face to active persona on mount. _initActivePersona
-    //    runs at login, BEFORE the masthead exists in the DOM, so the
-    //    initial face-class write is a no-op. We catch up here.
+    // ── Sync coin face AND persona label to active persona on mount.
+    //    _initActivePersona runs at login, BEFORE the masthead exists
+    //    in the DOM, so the initial face-class write is a no-op. We
+    //    catch up here.
     if (this._activePersona) {
       const p = this._activePersona;
       if (p === 'providentia') flip && flip.classList.add('flipped');
       else flip && flip.classList.remove('flipped');
+      const personaLabel = document.getElementById('mastPersona');
+      if (personaLabel) {
+        personaLabel.textContent = p === 'trajan' ? 'TRAJAN' : 'PROVIDENTIA';
+        personaLabel.setAttribute('data-persona', p);
+      }
     }
   },
 
