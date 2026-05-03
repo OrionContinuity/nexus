@@ -157,6 +157,17 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
     // in the chat Tone & voice sheet. Empty string for default tone.
     const toneSuffix = window._NX_PERSONA_SUFFIX || '';
     if (toneSuffix) persona += toneSuffix;
+    // Per-voice persona prefix — when the active voice carries a
+    // systemPrefix (e.g. Providentia: "You are Providentia, goddess of
+    // foresight…"), prepend it so it sets the tone before the rest of
+    // NEXUS's instructions. This is what makes a custom voice feel
+    // like a different *agent*, not just a different timbre.
+    try{
+      const v = NX.getVoiceMeta && NX.getVoiceMeta(getVoiceIdx());
+      if(v && v.systemPrefix){
+        persona = v.systemPrefix + '\n\n' + persona;
+      }
+    }catch(_){}
     return persona;
   }
 
@@ -1504,8 +1515,88 @@ Keep it casual and warm. No markdown formatting.`;
 
   // Voice
   let pv=null;
-  const VOICES=[{id:'XB0fDUnXU5powFXDhCwa',name:'Charlotte'},{id:'EXAVITQu4vr4xnSDxMaL',name:'Bella'},{id:'jsCqWAovK2LkecY7zXl4',name:'Freya'},{id:'oWAxZDx7w5VEj9dCyTzz',name:'Grace'},{id:'21m00Tcm4TlvDq8ikWAM',name:'Rachel'},{id:'LcfcDJNUP1GQjkzn1xUU',name:'Emily'},{id:'jBpfuIE2acCO8z3wKNLl',name:'Gigi'},{id:'ErXwobaYiN019PkySvjV',name:'Antoni'},{id:'onwK4e9ZLuTAKqWW03F9',name:'Daniel'},{id:'TX3LPaxmHKxFdv7VOQHJ',name:'Liam'},{id:'TxGEqnHWrfWFTfGW9XjX',name:'Josh'},{id:'SOYHLrjzK2X1ezoPC6cr',name:'Harry'},{id:'ZQe5CZNOzWyzPSCn5a3c',name:'James'},{id:'pNInz6obpgDQGcFmaJgB',name:'Adam'},{id:'yoZ06aMxZJJ28mfd3POQ',name:'Sam'},{id:'ThT5KcBeYPX3keUQqHPh',name:'Dorothy'},{id:'VR6AewLTigWG4xSOukaG',name:'Arnold'},{id:'pqHfZKP75CvOlQylNhV4',name:'Bill'},{id:'AZnzlk1XvdvUeBnXmlld',name:'Domi'},{id:'D38z5RcWu1voky8WS1ja',name:'Fin'}];
-  function getVoiceIdx(){return parseInt((NX.config&&NX.config.voice_idx!=null)?NX.config.voice_idx:(localStorage.getItem('nexus_voice_idx')||'0'))%VOICES.length;}
+  // VOICES array — order MATCHES the admin <select> values 0-19 in
+  // index.html. Picking value=0 ("Adam") plays Adam's actual voice ID.
+  // (This was previously misordered — admin and brain-chat had the
+  // same names paired with different IDs, so the wrong voice always
+  // played. Names+IDs are paired correctly throughout.)
+  const VOICES=[
+    {id:'pNInz6obpgDQGcFmaJgB',name:'Adam'},        // 0
+    {id:'EXAVITQu4vr4xnSDxMaL',name:'Bella'},       // 1
+    {id:'onwK4e9ZLuTAKqWW03F9',name:'Daniel'},      // 2
+    {id:'XB0fDUnXU5powFXDhCwa',name:'Charlotte'},   // 3
+    {id:'TX3LPaxmHKxFdv7VOQHJ',name:'Liam'},        // 4
+    {id:'LcfcDJNUP1GQjkzn1xUU',name:'Emily'},       // 5
+    {id:'yoZ06aMxZJJ28mfd3POQ',name:'Sam'},         // 6
+    {id:'ThT5KcBeYPX3keUQqHPh',name:'Dorothy'},     // 7
+    {id:'VR6AewLTigWG4xSOukaG',name:'Arnold'},      // 8
+    {id:'pqHfZKP75CvOlQylNhV4',name:'Bill'},        // 9
+    {id:'ErXwobaYiN019PkySvjV',name:'Antoni'},      // 10
+    {id:'AZnzlk1XvdvUeBnXmlld',name:'Domi'},        // 11
+    {id:'D38z5RcWu1voky8WS1ja',name:'Fin'},         // 12
+    {id:'jsCqWAovK2LkecY7zXl4',name:'Freya'},       // 13
+    {id:'jBpfuIE2acCO8z3wKNLl',name:'Gigi'},        // 14
+    {id:'oWAxZDx7w5VEj9dCyTzz',name:'Grace'},       // 15
+    {id:'SOYHLrjzK2X1ezoPC6cr',name:'Harry'},       // 16
+    {id:'ZQe5CZNOzWyzPSCn5a3c',name:'James'},       // 17
+    {id:'TxGEqnHWrfWFTfGW9XjX',name:'Josh'},        // 18
+    {id:'21m00Tcm4TlvDq8ikWAM',name:'Rachel'},      // 19
+  ];
+
+  // ═══ CUSTOM VOICES ═══════════════════════════════════════════════════
+  // Append-only list managed via admin UI. Stored as JSON array under
+  //   localStorage: nexus_custom_voices
+  // Each entry: { id, name, blurb, stability?, similarity?, style?, speed?, systemPrefix? }
+  // Custom voices get indices STARTING AT 20 — they don't disturb the
+  // 0–19 default voice mapping (which existing users have saved).
+  // Per-voice tuning lets a persona like "Providentia" have its own
+  // ElevenLabs voice_settings AND its own playback rate AND its own
+  // system-prompt-prefix to shift the AI's character — not just timbre.
+  function loadCustomVoices(){
+    try{
+      const raw=localStorage.getItem('nexus_custom_voices');
+      if(!raw)return [];
+      const arr=JSON.parse(raw);
+      return Array.isArray(arr)?arr.filter(v=>v&&v.id&&v.name):[];
+    }catch(e){
+      console.warn('[brain-chat] loadCustomVoices:',e);
+      return [];
+    }
+  }
+  function getAllVoices(){
+    return VOICES.concat(loadCustomVoices());
+  }
+  function getVoiceMeta(idx){
+    const all=getAllVoices();
+    if(idx>=0 && idx<all.length) return all[idx];
+    return all[0];  // fallback to first voice
+  }
+  // Expose so chat-view.js, app.js, the persona sheet, etc., all see
+  // the SAME merged list. Re-evaluated on every read so adding a new
+  // custom voice in admin shows up immediately without page reload.
+  Object.defineProperty(NX,'VOICES',{
+    get(){return getAllVoices();},
+    configurable:true,
+  });
+  NX.getVoiceMeta=getVoiceMeta;
+  NX.reloadCustomVoices=()=>{
+    // Hook for admin UI to fire after edits. Currently a no-op since
+    // getAllVoices reads localStorage every call, but kept for future
+    // caching changes.
+    return getAllVoices().length;
+  };
+  function getVoiceIdx(){
+    const stored=parseInt((NX.config&&NX.config.voice_idx!=null)?NX.config.voice_idx:(localStorage.getItem('nexus_voice_idx')||'0'));
+    const total=getAllVoices().length;
+    if(isNaN(stored)||total<=0)return 0;
+    // Don't modulo — that would silently wrap a stored idx of 20
+    // (Providentia) back to 0 (Charlotte) if the user temporarily
+    // clears their custom voices. Clamp instead so it picks the last
+    // valid voice.
+    if(stored<0)return 0;
+    if(stored>=total)return total-1;
+    return stored;
+  }
   let cvi=0;
   function setupVoice(){document.getElementById('micBtn').addEventListener('click',toggleMic);const vb=document.getElementById('voiceBtn');vb.classList.add('on');let pt=null;vb.addEventListener('click',()=>{voiceOn=!voiceOn;vb.classList.toggle('on',voiceOn);});vb.addEventListener('pointerdown',()=>{pt=setTimeout(()=>{cvi=(cvi+1)%VOICES.length;localStorage.setItem('nexus_voice_idx',cvi);voiceOn=true;vb.classList.add('on');speak(`${VOICES[cvi].name} here.`);pt=null;},600);});vb.addEventListener('pointerup',()=>{if(pt)clearTimeout(pt);});vb.addEventListener('pointerleave',()=>{if(pt)clearTimeout(pt);});if('speechSynthesis'in window){const pk=()=>{const v=speechSynthesis.getVoices();for(const n of['Samantha','Karen','Daniel','Microsoft Aria']){const f=v.find(x=>x.name.includes(n));if(f){pv=f;break;}}};pk();speechSynthesis.onvoiceschanged=pk;}}
   function toggleMic(){
@@ -1557,7 +1648,74 @@ Keep it casual and warm. No markdown formatting.`;
     recognition.start();
   }
   let currentAudio=null;
-  async function speak(text){cvi=getVoiceIdx();const ek=NX.getElevenLabsKey();if(ek){try{const r=await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICES[cvi].id}`,{method:'POST',headers:{'Content-Type':'application/json','xi-api-key':ek},body:JSON.stringify({text:text.slice(0,800),model_id:'eleven_turbo_v2',voice_settings:{stability:.35,similarity_boost:.82,style:.45,use_speaker_boost:true}})});if(r.ok){const bl=await r.blob(),u=URL.createObjectURL(bl);if(currentAudio){currentAudio.pause();currentAudio=null;}const a=new Audio(u);a.playbackRate=1.25;currentAudio=a;a.play();a.onended=()=>{URL.revokeObjectURL(u);currentAudio=null;};return;}}catch(e){}}if(!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));if(pv)u.voice=pv;u.rate=1.3;speechSynthesis.speak(u);}
+  // Read TTS rate from localStorage on every speak() call so the admin
+  // slider's value takes effect immediately. Clamp 0.8–1.6 to stay
+  // within both ElevenLabs (audio.playbackRate) and Web Speech API
+  // (utterance.rate) safe ranges.
+  function getVoiceSpeed(){
+    const raw = parseFloat(localStorage.getItem('nexus_voice_speed') || '1.25');
+    if (isNaN(raw)) return 1.25;
+    return Math.max(0.8, Math.min(1.6, raw));
+  }
+  // Expose on NX for any module that wants the same value (admin echo,
+  // future read-this-card playback, etc.)
+  NX.getVoiceSpeed = getVoiceSpeed;
+  // Expose stopSpeaking on NX so chat-view.js's mute toggle can cancel
+  // any in-flight playback when the user mutes mid-utterance.
+  NX.stopSpeaking = stopSpeaking;
+  async function speak(text){
+    // Respect the global voice-on toggle. If muted, do nothing —
+    // even the brief request to ElevenLabs is wasted otherwise.
+    if (localStorage.getItem('nx_voice_on') === '0') return;
+    cvi = getVoiceIdx();
+    // Pull the full voice metadata. For default voices this is just
+    // {id, name}; for custom voices it can carry stability/similarity/
+    // style/speed overrides. Per-voice speed wins over the global.
+    const voice = getVoiceMeta(cvi);
+    if (!voice || !voice.id) return;
+    const speed = (voice.speed != null) ? voice.speed : getVoiceSpeed();
+    // ElevenLabs voice_settings — defaults match the previous hardcoded
+    // values so existing voices sound exactly as before. Custom voices
+    // can override any/all of these.
+    const stability      = (voice.stability      != null) ? voice.stability      : 0.35;
+    const similarityBoost= (voice.similarity     != null) ? voice.similarity     : 0.82;
+    const style          = (voice.style          != null) ? voice.style          : 0.45;
+    const ek = NX.getElevenLabsKey();
+    if (ek) {
+      try {
+        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'xi-api-key': ek },
+          body: JSON.stringify({
+            text: text.slice(0, 800),
+            model_id: 'eleven_multilingual_v2',
+            voice_settings: {
+              stability,
+              similarity_boost: similarityBoost,
+              style,
+              use_speaker_boost: true,
+            }
+          })
+        });
+        if (r.ok) {
+          const bl = await r.blob(), u = URL.createObjectURL(bl);
+          if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+          const a = new Audio(u);
+          a.playbackRate = speed;
+          currentAudio = a;
+          a.play();
+          a.onended = () => { URL.revokeObjectURL(u); currentAudio = null; };
+          return;
+        }
+      } catch(e) {}
+    }
+    if (!('speechSynthesis' in window)) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text.slice(0, 600));
+    if (pv) u.voice = pv;
+    u.rate = speed;
+    speechSynthesis.speak(u);
+  }
   function stopSpeaking(){if(currentAudio){currentAudio.pause();currentAudio=null;}if('speechSynthesis'in window)speechSynthesis.cancel();}
 
   // Camera — scan receipt/document directly from chat
