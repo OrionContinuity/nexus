@@ -22,6 +22,15 @@
   left: 0;
   right: 0;
   bottom: 0;
+  /* Pin chatview height to the dynamic viewport so it tracks keyboard
+     state correctly. Without this, on mobile Chrome when the keyboard
+     opens, the layout viewport stays full-height while the visual
+     viewport shrinks — the chatview's top edge ends up above the
+     visible area, hiding the cv-top toolbar. dvh tracks the live
+     visible viewport, so cv-top stays put. Fallback to vh for older
+     browsers. */
+  height: calc(100vh - 53px);
+  height: calc(100dvh - 53px);
   z-index: 120;               /* above bottom-nav (50) + node panel (40) */
   background: var(--bg);
   display: flex;
@@ -51,6 +60,23 @@
 
 /* Hide the legacy chat-hud while the new chat view is open */
 body.chatview-open .chat-hud { display: none !important; }
+
+/* Lock body scroll while chat is open. Without this, mobile Chrome's
+   "scroll input into view on focus" behavior can push the entire
+   page (including the masthead and chat top bar) above the visible
+   viewport when the keyboard opens — leaving the user staring at a
+   blank cream area with only the input visible. Locking body scroll
+   prevents that auto-scroll. */
+body.chatview-open {
+  overflow: hidden;
+  /* Prevent any leftover scroll on html as well — some browsers route
+     scroll events to <html> when <body> is locked. */
+  position: fixed;
+  width: 100%;
+}
+html:has(body.chatview-open) {
+  overflow: hidden;
+}
 
 /* ─── Top bar — 52px, editorial and quiet ────────────────────────── */
 .cv-top {
