@@ -2508,9 +2508,11 @@
       pref = (legacy === 'dark' || legacy === 'light') ? legacy : 'auto';
     }
     if (pref === 'dark' || pref === 'light') return pref;
-    // auto — couple to persona
+    // auto — couple to persona.
+    // Providentia → dark, Trajan → light. (Default persona is Providentia,
+    // so the default auto-theme is dark.)
     const persona = localStorage.getItem('nexus_active_persona') || 'providentia';
-    return persona === 'trajan' ? 'dark' : 'light';
+    return persona === 'providentia' ? 'dark' : 'light';
   }
   const initial = resolveTheme();
   document.documentElement.setAttribute('data-theme', initial);
@@ -2542,7 +2544,7 @@
       } else {
         localStorage.setItem('nexus_theme_pref', next);
         const resolved = (next === 'auto')
-          ? ((localStorage.getItem('nexus_active_persona') || 'providentia') === 'trajan' ? 'dark' : 'light')
+          ? ((localStorage.getItem('nexus_active_persona') || 'providentia') === 'providentia' ? 'dark' : 'light')
           : next;
         document.documentElement.classList.add('theme-transitioning');
         document.documentElement.setAttribute('data-theme', resolved);
@@ -2619,15 +2621,17 @@
 
     // Theme cross-fade preview — when user flips the PIN coin, the
     // page theme should transition to match the chosen persona.
-    // Providentia → light, Trajan → dark. Purely visual: the actual
-    // saved theme preference is reapplied after login by prefs.init().
-    // If the user's saved theme is 'auto', the preview becomes
-    // authoritative (no flicker on login). If the saved theme is
-    // explicit dark/light, the preview is overridden at login —
-    // their explicit preference wins, as it should.
+    //   Providentia → dark, Trajan → light.
+    // Pre-login coin face mapping: front (no .nx-coin-flipped) = Providentia,
+    // back (.nx-coin-flipped) = Trajan. So unflipped → dark, flipped → light.
+    // Purely visual: the actual saved theme preference is reapplied after
+    // login by prefs.init(). If the user's saved theme is 'auto', the
+    // preview becomes authoritative (no flicker on login). If saved theme
+    // is explicit dark/light, preview is overridden at login — their
+    // explicit preference wins, as it should.
     const previewTheme = () => {
       const isFlipped = coin.classList.contains('nx-coin-flipped');
-      const next = isFlipped ? 'dark' : 'light';
+      const next = isFlipped ? 'light' : 'dark';
       const root = document.documentElement;
       if (root.getAttribute('data-theme') === next) return;
       root.classList.add('theme-transitioning');
