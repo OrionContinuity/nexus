@@ -2673,3 +2673,39 @@ body.no-galaxy-access #homeMiniGalaxy {
 .tooltip {
   border-radius: 12px !important;
 }
+
+
+/* ════════════════════════════════════════════════════════════════════
+   PIN THE MASTHEAD
+   --------------------------------------------------------------------
+   The original .nav rule (line ~102) used `position: sticky; top: 0`,
+   but sticky elements need a scrollable ancestor. Body has
+   `overflow: hidden` (line ~31), .main has `overflow: hidden` (~127).
+   The actual scrolling happens inside `.view` (which is `overflow-y: auto`),
+   but `.nav` sits OUTSIDE `.view` — they're siblings under .main, not
+   parent/child. So sticky has no scroll context to anchor to and falls
+   back to behaving like static positioning. The masthead drifted with
+   layout instead of pinning.
+
+   Switching to `position: fixed` anchors directly to the viewport — no
+   scroll-context dependency. Then we shift .main down by 53px so its
+   content doesn't sit underneath the now-fixed masthead. Total layout
+   still adds to 100dvh: 53px nav + (100dvh - 53px) main.
+
+   Chatview already opens at top: 53px so it lines up under the masthead
+   without any change needed there.
+   ════════════════════════════════════════════════════════════════════ */
+
+.nav {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.main {
+  /* Compensate for the now-fixed masthead. margin-top (not padding-top)
+     so .main's `height: calc(100dvh - 53px)` calc still measures
+     correctly from the element's top, not from the viewport top. */
+  margin-top: 53px;
+}
