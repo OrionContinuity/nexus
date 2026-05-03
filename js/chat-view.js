@@ -95,11 +95,31 @@
   /* ═════════════════════════════════════════════════════════════════
      STATE
      ═════════════════════════════════════════════════════════════════ */
+  // Read from NX.prefs first (authoritative, DB-backed), fall back to
+  // localStorage (cache from previous session), then to defaults. This
+  // resolution order means new-device logins get the user's saved
+  // preferences automatically once prefs.init() resolves.
+  function _initialTone(){
+    if (window.NX && NX.prefs && NX.prefs.tone) {
+      const t = NX.prefs.tone();
+      if (t && t !== 'default') return t;
+    }
+    return localStorage.getItem('nx_chat_tone')
+        || localStorage.getItem('nexus_tone')
+        || 'default';
+  }
+  function _initialVoiceIdx(){
+    if (window.NX && NX.prefs && NX.prefs.voiceIdx) {
+      const v = NX.prefs.voiceIdx();
+      if (typeof v === 'number' && v >= 0) return v;
+    }
+    return parseInt(localStorage.getItem('nexus_voice_idx') || '0') || 0;
+  }
   const state = {
     isOpen: false,
     currentSessionId: null,
-    tone: localStorage.getItem('nx_chat_tone') || 'default',
-    voiceIdx: parseInt(localStorage.getItem('nexus_voice_idx') || '0') || 0,
+    tone: _initialTone(),
+    voiceIdx: _initialVoiceIdx(),
     voiceOn: localStorage.getItem('nx_voice_on') !== '0',
     sessions: [],
     plusOpen: false,
@@ -127,9 +147,14 @@
       this.renderTranscript();
       // Fetch session list in background for the drawer
       loadSessions();
-      // Autofocus input unless user came via a specific flow
+      // Autofocus input unless user came via a specific flow.
+      // preventScroll:true keeps the browser from auto-scrolling the
+      // page to bring the input into view — which on mobile Chrome
+      // would push the masthead and chat top bar above the visible
+      // viewport when the keyboard opens. The input is already in
+      // its target position; no scroll needed.
       if (!opts.noFocus) {
-        setTimeout(() => inputEl?.focus(), 320);
+        setTimeout(() => inputEl?.focus({ preventScroll: true }), 320);
       }
     },
 
@@ -168,6 +193,12 @@
       localStorage.setItem('nx_chat_tone', toneKey);
       // Expose so brain-chat.js can read when building persona
       window._NX_PERSONA_SUFFIX = TONE_PRESETS[toneKey]?.suffix || '';
+      // Persist to user_preferences (DB) so the choice survives reload
+      // and propagates to other devices. Best-effort — falls through
+      // silently if prefs isn't loaded yet (e.g. pre-login).
+      if (window.NX && NX.prefs && NX.prefs.set) {
+        try { NX.prefs.set({ tone: toneKey }).catch(()=>{}); } catch(_) {}
+      }
     },
   };
 
@@ -184,13 +215,14 @@
     rootEl.className = 'chatview';
     rootEl.innerHTML = `
       <div class="cv-top">
-        <button class="cv-back" id="cvBack" aria-label="Back">${svg(ICONS.back)}</button>
         <!--
-          Persona identity now lives in the masthead (under the coin).
-          Chat top bar stays minimal: back arrow + history menu only.
+          History on the LEFT for thumb-reach on a held phone.
+          Back on the right.
+          Persona identity lives in the masthead, top bar stays minimal.
         -->
-        <div class="cv-top-spacer" aria-hidden="true"></div>
         <button class="cv-icon-btn" id="cvMenu" aria-label="Past conversations" title="Past conversations">${svg(ICONS.history)}</button>
+        <div class="cv-top-spacer" aria-hidden="true"></div>
+        <button class="cv-back" id="cvBack" aria-label="Back">${svg(ICONS.back)}</button>
       </div>
 
       <div class="cv-transcript" id="cvTranscript">
@@ -430,7 +462,7 @@
     state.currentSessionId = newId;
     closeDrawer();
     chatview.renderTranscript();
-    inputEl?.focus();
+    inputEl?.focus({ preventScroll: true });
     // Phase 1 — create chat_sessions row with locked persona. Fire and
     // forget; brain-chat will read it when chat opens.
     if (NX.sb && NX.currentUser) {
