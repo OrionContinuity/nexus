@@ -616,20 +616,36 @@ html {
   border-bottom: 1px solid var(--nx-gold-line) !important;
   padding: 10px 16px !important;
   gap: 10px !important;
-  align-items: center !important;
+  /* Align to the COIN's center (not midpoints) so the persona label
+     hanging below the coin doesn't pull the row visually off-center.
+     The coin is 34px tall + 11px label = 45px total wrap height. We
+     align everything to the coin's midpoint (17px from top of wrap). */
+  align-items: flex-start !important;
 }
 
-/* The masthead coin — leftmost element. Uses same image assets as
-   login + home. Idle wobble, tap to flip / navigate.
-   
+/* Items that should sit on the coin's midline (not the wrap's midline):
+   pull them down by half the label-slot height so they line up with
+   the coin's vertical center, not with the entire coin+label stack. */
+.nav .nav-nexus,
+.nav .nx-mast-date,
+.nav .nav-more,
+.nav .nav-tabs {
+  margin-top: 6px;   /* pulls these onto the coin's midline */
+}
+
+/* The masthead coin — visual anchor for the persona system.
+   Uses same image assets as login + home. Idle wobble, tap to flip.
+
    FALLBACK: a radial-gradient gold disc background renders *underneath*
    the <img> tags, so if the PNG assets fail to load (e.g. cache miss,
    bad path) we still see a recognizable gold coin shape — not nothing. */
+
 /* ═══ COIN WRAPPER — vertical stack: coin on top, persona name below ═══
    The coin remains the visual anchor, but it now has a small persona
-   name label sitting directly under it (mono caps, gold-tinted). This
-   anchors the persona identity to the gesture that controls it (the
-   coin), instead of floating as a label in the chat header. */
+   name label sitting directly under it. The wrap is sized to the coin
+   width so the masthead row stays balanced, with the label rendering
+   in a fixed-height slot below the coin (won't push other elements
+   when text changes between PROVIDENTIA and TRAJAN). */
 .nx-mast-coin-wrap {
   display: flex;
   flex-direction: column;
@@ -639,25 +655,32 @@ html {
   flex-shrink: 0;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  /* Reserve label height so the row doesn't reflow when text swaps */
+  padding-bottom: 0;
+  position: relative;
 }
 
 /* The persona name itself — quiet but legible. Updated by JS on
    nx-persona-change. Tone differs slightly per persona so each
-   advisor has its own visual signature. */
+   advisor has its own visual signature.
+
+   Sits in a fixed-height slot directly below the coin so the row
+   stays balanced when toggling between PROVIDENTIA and TRAJAN. */
 .nx-mast-persona {
   font-family: var(--nx-font-mono);
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 500;
-  letter-spacing: 1.4px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
   color: var(--nx-gold);
-  opacity: 0.78;
-  transition: opacity 0.2s, color 0.3s;
+  opacity: 0.85;
+  transition: color 0.3s, opacity 0.3s;
   line-height: 1;
-  margin-top: 1px;
+  height: 11px;          /* fixed slot — text can't push siblings */
+  margin-top: 2px;
   white-space: nowrap;
   pointer-events: none;
-  /* Slight tone shift per persona — Trajan warmer, Providentia cooler */
+  text-align: center;
 }
 .nx-mast-persona[data-persona="trajan"]      { color: #e6b157; }
 .nx-mast-persona[data-persona="providentia"] { color: #d6b380; }
