@@ -349,6 +349,74 @@
   letter-spacing: 1px;
 }
 
+/* ─── Coin info overlay — LIGHT THEME OVERRIDES ─────────────────────
+   The overlay's defaults are hardcoded dark (#1c1814 → #14110d gradient,
+   #d4c8a5 cream-on-dark text, #857f75 muted, etc). On a cream page,
+   the overlay still renders dark — jarring when the rest of the app
+   has cross-faded to light. These rules invert the palette so the
+   modal reads as a cream parchment with deep gold accents instead. */
+[data-theme="light"] .nx-coin-info-overlay {
+  background: rgba(60, 50, 30, 0.45);
+}
+[data-theme="light"] .nx-coin-info-card {
+  background: linear-gradient(180deg, #fdfaf2 0%, #f5efe3 100%);
+  border: 1px solid rgba(139, 105, 20, 0.30);
+  color: #1a1a1f;
+  box-shadow: 0 16px 40px rgba(60, 50, 30, 0.18);
+}
+[data-theme="light"] .nx-coin-info-close {
+  color: #6a5018;
+}
+[data-theme="light"] .nx-coin-info-close:hover {
+  color: #1a1a1f;
+  background: rgba(139, 105, 20, 0.10);
+}
+[data-theme="light"] .nx-coin-info-title {
+  color: #8b6914;
+}
+[data-theme="light"] .nx-coin-info-tagline {
+  color: #6a5018;
+}
+[data-theme="light"] .nx-coin-info-tagline-sub {
+  color: rgba(106, 80, 24, 0.70);
+}
+[data-theme="light"] .nx-coin-info-divider {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(139, 105, 20, 0.40) 50%,
+    transparent 100%
+  );
+}
+[data-theme="light"] .nx-coin-info-label {
+  color: #8b6914;
+}
+[data-theme="light"] .nx-coin-info-section p {
+  color: #1a1a1f;
+}
+[data-theme="light"] .nx-coin-info-latin {
+  color: #8b6914;
+}
+[data-theme="light"] .nx-coin-info-list {
+  border-left-color: rgba(139, 105, 20, 0.30);
+}
+[data-theme="light"] .nx-coin-info-list li {
+  color: #1a1a1f;
+}
+[data-theme="light"] .nx-coin-info-list li strong {
+  color: #8b6914;
+}
+[data-theme="light"] .nx-coin-info-quote {
+  color: #2a2a2f;
+  border-left-color: #c8a44e;
+}
+[data-theme="light"] .nx-coin-info-foot {
+  color: rgba(106, 80, 24, 0.75);
+}
+[data-theme="light"] .nx-coin-info-foot em {
+  color: #8b6914;
+}
+
 /* ─── PIN screen vertical layout override ────────────────────────────
    Anchor content to the top of the screen, not vertically centered.
    Override nexus.css's pin-box padding (which adds 24px all around)
@@ -2621,14 +2689,12 @@
 
     // Theme cross-fade preview — when user flips the PIN coin, the
     // page theme should transition to match the chosen persona.
-    //   Providentia → dark, Trajan → light.
-    // Pre-login coin face mapping: front (no .nx-coin-flipped) = Providentia,
-    // back (.nx-coin-flipped) = Trajan. So unflipped → dark, flipped → light.
-    // Purely visual: the actual saved theme preference is reapplied after
-    // login by prefs.init(). If the user's saved theme is 'auto', the
-    // preview becomes authoritative (no flicker on login). If saved theme
-    // is explicit dark/light, preview is overridden at login — their
-    // explicit preference wins, as it should.
+    // Providentia → light, Trajan → dark. Purely visual: the actual
+    // saved theme preference is reapplied after login by prefs.init().
+    // If the user's saved theme is 'auto', the preview becomes
+    // authoritative (no flicker on login). If the saved theme is
+    // explicit dark/light, the preview is overridden at login —
+    // their explicit preference wins, as it should.
     const previewTheme = () => {
       const isFlipped = coin.classList.contains('nx-coin-flipped');
       const next = isFlipped ? 'light' : 'dark';
