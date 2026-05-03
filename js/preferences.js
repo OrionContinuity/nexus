@@ -119,14 +119,12 @@
     const legacyTheme = localStorage.getItem('nexus_theme'); // OLD key, just dark|light
     const legacyVoice = localStorage.getItem('nexus_voice_idx');
     const legacyLang  = localStorage.getItem('nexus_lang');
+    const legacyTone  = localStorage.getItem('nx_chat_tone'); // chat-view's key
     // Old theme key was binary; map to explicit dark/light (not auto, since
     // user had clearly chosen one). DB row exists already, so only migrate
     // values we don't have yet.
     if (legacyTheme && state.data.theme === 'auto'
         && (legacyTheme === 'dark' || legacyTheme === 'light')) {
-      // Don't override the brand-new 'auto' default with a stale binary
-      // pick — only migrate if the user appears to have actively flipped
-      // the toggle (i.e. nexus_theme exists). Heuristic: trust it.
       changes.theme = legacyTheme;
     }
     if (legacyVoice && (state.data.voice_idx == null || state.data.voice_idx === 0)) {
@@ -136,6 +134,10 @@
     if (legacyLang && state.data.language === 'en'
         && (legacyLang === 'en' || legacyLang === 'es')) {
       changes.language = legacyLang;
+    }
+    if (legacyTone && state.data.tone === 'default'
+        && ['default','concise','warm','technical'].includes(legacyTone)) {
+      changes.tone = legacyTone;
     }
     if (Object.keys(changes).length) {
       await set(changes, { silent: true });
@@ -226,20 +228,33 @@
   // Triggers the spinning coin animation + theme cross-fade together.
   // Called by setActivePersona when the user taps the masthead coin
   // OR taps the persona selector in the Preferences sheet.
+  //
+  // The classList.remove + reflow + add pattern alone is not enough on
+  // first invocation: the base `.nx-mast-coin` rule in nx-system.css
+  // already has `animation: nxMastCoinGreet 1.4s ...` set, and some
+  // browsers (notably iOS WebKit) do not restart an animation when only
+  // the animation-name changes via class addition. The fix is to
+  // explicitly null out the `animation` property via inline style,
+  // force a reflow, then clear the inline override and add the class.
+  // This guarantees a clean restart every single time.
+  function _restartAnimation(el, className){
+    if (!el) return;
+    el.classList.remove(className);
+    el.style.animation = 'none';
+    void el.offsetWidth;        // force reflow
+    el.style.animation = '';    // clear inline override; class rule takes over
+    el.classList.add(className);
+  }
+
   function playCinematicFlip(){
     const coin = document.getElementById('mastCoin');
     const personaLabel = document.getElementById('mastPersona');
     if (coin) {
-      coin.classList.remove('cinematic-flip'); // restart if already running
-      // force reflow so the keyframe restarts cleanly
-      void coin.offsetWidth;
-      coin.classList.add('cinematic-flip');
+      _restartAnimation(coin, 'cinematic-flip');
       setTimeout(() => coin.classList.remove('cinematic-flip'), 750);
     }
     if (personaLabel) {
-      personaLabel.classList.remove('persona-glitch');
-      void personaLabel.offsetWidth;
-      personaLabel.classList.add('persona-glitch');
+      _restartAnimation(personaLabel, 'persona-glitch');
       setTimeout(() => personaLabel.classList.remove('persona-glitch'), 700);
     }
   }
@@ -423,15 +438,43 @@
   }
 
   // ─── VOICE-IDX SYNC ────────────────────────────────────────────────
-  // chat-view.js writes to localStorage('nexus_voice_idx') and fires
-  // 'nx-voice-idx-change'. Mirror that into user_preferences so the
-  // table stays authoritative.
-  document.addEventListener('nx-voice-idx-change', (e) => {
+  // chat-view.js writes to localStorage('nexus_voice_idx') and dispatches
+  // 'nx-voice-idx-change' on `window` (not document). Mirror that into
+  // user_preferences so the table stays authoritative across devices.
+  // Listener target MUST match dispatch target — events on window do
+  // not bubble through document by default for custom events.
+  window.addEventListener('nx-voice-idx-change', (e) => {
     const idx = e?.detail?.idx;
     if (typeof idx !== 'number') return;
     if (idx === voiceIdx()) return;
     set({ voice_idx: idx }, { silent: false });
   });
+
+  // ─── TONE SYNC (legacy compat) ─────────────────────────────────────
+  // chat-view.js uses localStorage('nx_chat_tone') for tone. Preferences
+  // uses 'nexus_tone'. Two keys, one setting. We mirror tone changes
+  // from prefs INTO chat-view's key so chat-view reads the correct
+  // value on init, AND we listen for chat-view's writes so user picks
+  // there flow through to user_preferences. Single source of truth in
+  // the DB, two cache mirrors for backward compat.
+  document.addEventListener('nx-prefs-change', (e) => {
+    const changes = e?.detail?.changes || {};
+    if ('tone' in changes) {
+      try { localStorage.setItem('nx_chat_tone', changes.tone); } catch(_) {}
+    }
+  });
+  // chat-view doesn't dispatch a tone event — it just writes localStorage
+  // and updates _NX_PERSONA_SUFFIX. We poll the localStorage key once
+  // per second for change detection; cheap and avoids rewriting chat-view.
+  // (A dispatch from chat-view would be cleaner — flagged for next pass.)
+  let _lastSeenTone = localStorage.getItem('nx_chat_tone');
+  setInterval(() => {
+    const cur = localStorage.getItem('nx_chat_tone');
+    if (cur && cur !== _lastSeenTone && cur !== tone()) {
+      _lastSeenTone = cur;
+      set({ tone: cur }, { silent: false });
+    }
+  }, 1000);
 
   // ─── EXPORT ────────────────────────────────────────────────────────
   window.NX = window.NX || {};
