@@ -437,18 +437,22 @@
   gap: 14px;
 }
 
-/* Inner card — the time clock UI as a self-contained widget */
+/* Inner card — the time clock UI as a self-contained widget.
+   Uses design tokens so it auto-flips with the theme. The dark
+   variant comes from --nx-surface-1 in :root; light variant comes
+   from the [data-theme="light"] override in nx-system.css. */
 #pinScreen .tc-card {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   padding: 18px 16px 14px;
-  background: rgba(28, 24, 20, 0.4);
-  border: 1px solid rgba(200, 164, 78, 0.15);
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
   border-radius: 12px;
 }
 
-/* Status badge — muted grey caps, monospace */
+/* Status badge — muted caps, monospace. Color via token so it
+   stays legible in both themes. */
 #pinScreen .tc-status {
   text-align: center;
   font-family: 'JetBrains Mono', 'Courier New', monospace;
@@ -456,7 +460,7 @@
   font-weight: 700;
   letter-spacing: 2px;
   text-transform: uppercase;
-  color: #857f75 !important;
+  color: var(--nx-faint);
   margin: 0 0 10px;
 }
 #pinScreen .tc-time {
