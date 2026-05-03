@@ -57,6 +57,45 @@
     logMeta('node_access',{node_id:nodeId,name:nodeName?.slice(0,50),source});
   }
 
+  // ─── ROLLING WINDOW BUILDER ────────────────────────────────────────
+  // Build the messages array sent to the API. Keeps the most recent
+  // `keepFull` turns at full length (so fresh context stays sharp) and
+  // truncates older assistant turns within the window to `truncTo` chars.
+  // User turns are always kept full — they're short and define intent.
+  // This caps the per-turn cost of accumulating chat history while
+  // preserving recall via the FTS layer in MEMORY for older content.
+  function buildMsgsWindow(history, windowSize, keepFull, truncTo){
+    const slice = history.slice(-windowSize);
+    const cutoff = slice.length - keepFull;
+    return slice.map((m, i) => {
+      const role = m.role === 'user' ? 'user' : 'assistant';
+      let content = (typeof m.content === 'string' ? m.content : '') || '';
+      if (role === 'assistant' && i < cutoff && content.length > truncTo){
+        content = content.slice(0, truncTo) + '…';
+      }
+      return { role, content };
+    });
+  }
+
+  // ─── EXTRACTION GATE ───────────────────────────────────────────────
+  // autoExtractNodes used to fire on every reply > 80 chars, costing
+  // ~700 tokens per chat turn even for meta/conversational replies
+  // where there's no factual content to extract. This gate ensures the
+  // call only fires when the response actually contains extractable
+  // facts (digits, proper nouns mid-sentence, or domain terminology).
+  const META_Q_RX = /\b(feel|feeling|how are you|how('?| i)s it going|good (morning|afternoon|evening|night)|hello|hi|hey|thanks|thank you|cool|nice|ok|okay|sup|what'?s up|love you|miss you|are you (there|ok|alive|real))\b/i;
+  const FACTUAL_A_RX = /\d|[a-z]\s+[A-Z][a-z]+|\b(model|serial|warranty|manufactured|part\s*#|sku|vendor|contractor|location|installed|invoice|hoshizaki|true|manitowoc|scotsman)\b/i;
+  function shouldExtractNodes(question, answer, confidence){
+    if (confidence === 'low') return false;
+    if (!answer || answer.length < 80) return false;
+    // Skip short meta/conversational questions — nothing factual to mine
+    if (question.length < 60 && META_Q_RX.test(question)) return false;
+    // Require the ANSWER to look factual — digits, mid-sentence proper
+    // nouns, or domain terms. Philosophical replies fail this check.
+    if (!FACTUAL_A_RX.test(answer)) return false;
+    return true;
+  }
+
   const PERSONA_BASE=`You are NEXUS — a personal intelligence system. Calm, warm, a little dry. Not bubbly, not excited. Chill confidence — you know your stuff and you don't need to prove it.
 
 HOW YOU TALK:
@@ -137,19 +176,14 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
       persona+=`\nTIME: ${dayName} ${shift}, ${now.toLocaleDateString()} ${now.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`;
 
       // Match the team's energy
-      persona+=`\n\nPERSONALITY MATCH:
-- Warm, playful, a little flirty. You're the assistant everyone wants.
-- Keep answers tight. If they ask a yes/no, answer yes or no first, then explain if needed.
-- Don't over-explain. They'll ask if they want more.
-- Never use anyone's name in your responses.
-- Be confident. Say "yeah that's the Hoshizaki compressor" not "it appears to be related to the Hoshizaki compressor"
-- Toss in a casual compliment when they're on top of things. "Look at you" or "nice" works.
-- When something's wrong, still be direct but keep it warm: "hey heads up, the walk-in temp is off"
-- Use terminology that matches the knowledge in your nodes naturally
-- Bilingual — if they switch to Spanish, switch with them
-- Late night questions get shorter, softer answers
-- If they say "deep dive" go thorough
-- Never say "I understand your concern" or "that's a great point" — just get to it`;
+      persona+=`\n\nOPS RULES:
+- Yes/no first when applicable, then briefly the reasoning if needed.
+- Never use staff names in responses.
+- Be specific: "the Hoshizaki compressor" not "it appears to be the compressor."
+- Bilingual — if they switch to Spanish, switch with them.
+- Late night (after 10pm) questions get shorter, softer answers.
+- "deep dive" means walk every connected zone.
+- Never open with "I understand", "great question", "absolutely", "I'd be happy to" — just answer.`;
     }
 
     if(lang==='es')persona+='\n\nRespond ONLY in Spanish.';
@@ -198,13 +232,23 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
   function detectTask(q){for(const p of TASK_RX){const m=q.match(p.rx);if(m)return{type:p.type,content:m[1]};}return null;}
 
   // ═══ COMPOUND INTENT DETECTION (Layer 5 — Agentic Actions) ═══
+  // Detects when a user message implies follow-up actions (create
+  // ticket, schedule, etc.) so handleCompoundAction can offer them.
+  // The 4th regex was previously too greedy — "what happened" / "check
+  // on" with no object would match conversational asks like "what
+  // happened to my coffee?" and trigger a 400-token API call. Now
+  // requires an explicit ops noun (ticket, repair, contractor, etc.).
   const COMPOUND_RX=[
     /(?:broken|not working|running warm|running hot|leaking|down|malfunction|stopped)/i,
     /(?:schedule|set up|arrange|book)\s+(?:a\s+)?(?:visit|appointment|service|repair)/i,
     /(?:prepare|get ready|prep)\s+(?:for|before)\s+(?:inspection|health|audit|visit)/i,
-    /(?:follow up|check on|what happened|status of|update on)\s+/i,
+    /(?:follow up|check on|status of|update on)\s+(?:the\s+)?(?:ticket|repair|service|inspection|order|delivery|equipment|warranty|pm|maintenance|contractor|vendor)\b/i,
   ];
-  function detectCompound(q){return COMPOUND_RX.some(rx=>rx.test(q));}
+  function detectCompound(q){
+    if (!q || q.length < 12) return false;
+    if (META_Q_RX.test(q)) return false;
+    return COMPOUND_RX.some(rx=>rx.test(q));
+  }
 
   async function handleCompoundAction(q,aiResponse){
     // Ask Claude to detect actionable intents from the conversation
@@ -710,6 +754,7 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     {name:'get_pending_pm_logs',description:'Check for service logs submitted via QR scan that are awaiting admin review. Use when asked about pending reviews, unreviewed service submissions, or new PM entries.',params:{}},
     {name:'list_equipment_by_status',description:'List equipment filtered by operational status. Use when asked what is down, what needs service, what is retired. Status options: operational, needs_service, down, retired.',params:{status:'string',location:'string (optional)'}},
     {name:'get_upcoming_deadlines',description:'Unified view of everything due in the next N days — kanban cards with due dates, contractor events, equipment warranty expirations, and upcoming PMs. Use when asked about upcoming schedule, deadlines, next week, what is coming up.',params:{days:'number'}},
+    {name:'search_library',description:'Search the Roman library — Marcus Aurelius, Plutarch, Caesar, Suetonius, Tacitus, Cassius Dio, Livy, Gibbon. Returns 1-5 matching passages with source attribution. Use when the user asks about Roman history, classical philosophy, or to ground a verdict in a primary source. Pass topic as free text.',params:{topic:'string',source:'string (optional, e.g. "marcus_aurelius", "plutarch")'}},
   ];
 
   // Execute a graph tool call against real data
@@ -834,6 +879,23 @@ After the troubleshoot steps, ask the person to add more details and optionally 
           items.sort((a,b)=>(a.d||'').localeCompare(b.d||''));
           return`${items.length} item(s) upcoming in next ${days} days:\n`+items.map(i=>`- ${i.d}: ${i.t}`).join('\n');
         }
+        case 'search_library':{
+          // Search the Roman corpus via Postgres FTS (search_library RPC).
+          // Returns up to 5 matches, ranked. Source filter optional.
+          const topic=(params.topic||'').trim();
+          if(!topic) return 'No topic provided.';
+          const source=(params.source||'').trim() || null;
+          const{data,error}=await NX.sb.rpc('search_library',{q:topic,p_source:source,p_limit:5});
+          if(error) return 'Library search failed: '+error.message;
+          if(!data||!data.length) return `No matches in the library for "${topic}".`;
+          // Format for the model: source, citation, content. Keep it tight
+          // so the model can quote without paraphrasing the whole passage.
+          return data.map(r=>{
+            const cite = `${r.source}${r.book?', '+r.book:''}${r.chapter?' §'+r.chapter:''}`;
+            const trans = r.translator ? ` (tr. ${r.translator})` : '';
+            return `[${cite}${trans}] ${r.title?r.title+' — ':''}${r.content}`;
+          }).join('\n\n');
+        }
         default:return'Unknown tool: '+toolName;
       }
     }catch(e){return'Tool error: '+e.message;}
@@ -858,7 +920,8 @@ When you're ready to give your final answer, just respond normally (no JSON, no 
     let toolHistory=[];
     let finalAnswer=null;
 
-    const msgs=chatHistory.slice(-4).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
+    // Rolling window: keep last 4 turns, last 2 full, older truncated to 250
+    const msgs = buildMsgsWindow(chatHistory, 4, 2, 250);
     msgs.push({role:'user',content:question});
 
     for(let step=0;step<maxSteps;step++){
@@ -1043,7 +1106,13 @@ Keep it casual and warm. No markdown formatting.`;
   }
 
   async function getCtx(q){
-    await NX.loadNodes();
+    // Only reload nodes if we don't already have them. The unconditional
+    // call here was re-pulling all ~2811 nodes from Supabase on every
+    // simple-question fallback (a 1-2s round-trip + bandwidth waste).
+    // NX.nodes is populated on login by app.js → no need to refetch.
+    if (!NX.nodes || !NX.nodes.length) {
+      await NX.loadNodes();
+    }
     const w=q.toLowerCase().split(/\s+/).filter(x=>x.length>2);
     const qLow=q.toLowerCase();
     const userLoc=(localStorage.getItem('nexus_last_location')||NX.currentUser?.location||'').toLowerCase();
@@ -1326,14 +1395,18 @@ Keep it casual and warm. No markdown formatting.`;
           th.parentElement?.insertBefore(toolNote,th);
         }
       }else{
-        // Simple single-pass
-        const msgs=chatHistory.slice(-6).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content}));
+        // Simple single-pass — rolling window keeps last 6 turns, last
+        // 2 full and older truncated to 250 chars to cap accumulation.
+        const msgs = buildMsgsWindow(chatHistory, 6, 2, 250);
         cleanAns=await NX.askClaude(persona+'\n\n'+ctx,msgs,300,false)||'No response.';
       }
 
       clearInterval(searchDots);
-      // Parse confidence tag
-      cleanAns=cleanAns.replace(/\[confidence:(high|medium|low)\]/i,(m,level)=>{confidence=level.toLowerCase();return '';}).trim();
+      // Parse confidence tag — scan all occurrences and keep the LAST
+      // one. Models occasionally emit the tag mid-text and again at end
+      // when persona instructions conflict. The trailing tag is the one
+      // that reflects their final verdict.
+      cleanAns=cleanAns.replace(/\[confidence:(high|medium|low)\]/gi,(m,level)=>{confidence=level.toLowerCase();return '';}).trim();
       // Strip markdown formatting — no asterisks, bullets, headers, or symbols
       cleanAns=cleanAns
         .replace(/\*\*([^*]+)\*\*/g,'$1')   // **bold**
@@ -1341,7 +1414,7 @@ Keep it casual and warm. No markdown formatting.`;
         .replace(/__([^_]+)__/g,'$1')        // __bold__
         .replace(/_([^_]+)_/g,'$1')          // _italic_
         .replace(/^#+\s*/gm,'')              // # headers
-        .replace(/^[-•●▸▹►]\s*/gm,'')       // bullet points
+        .replace(/^[-+*•●▸▹►]\s+/gm,'')      // bullet points (incl. -, *, +)
         .replace(/^\d+\.\s+/gm,'')           // numbered lists
         .replace(/`([^`]+)`/g,'$1')          // `code`
         .replace(/```[\s\S]*?```/g,'')       // code blocks
@@ -1366,8 +1439,11 @@ Keep it casual and warm. No markdown formatting.`;
         const words=q.split(/\s+/).filter(w=>w.length>2).slice(0,3).join(' ');
         addB(`💡 Low confidence. Try: "look up ${words}" for a web search.`,'ai');
       }
-      // Auto-create nodes if AI response has substantial new info
-      if(cleanAns.length>80&&confidence!=='low'){
+      // Auto-create nodes if AI response has substantial NEW factual
+      // info. The shouldExtractNodes gate filters out meta/conversational
+      // replies (e.g. "How are you feeling?") where there's nothing to
+      // extract — those used to silently cost ~700 tokens per turn.
+      if(shouldExtractNodes(q,cleanAns,confidence)){
         autoExtractNodes(q,cleanAns);
       }
       // ═══ COMPOUND ACTIONS (Layer 5) — detect and suggest multi-step actions ═══
@@ -1705,8 +1781,16 @@ Return ONLY JSON.`,
       for(const n of parsed.nodes){
         const nm=(n.name||'').trim();if(!nm||nm.length<2)continue;
         if(existing.includes(nm.toLowerCase()))continue;
+        // Previously: silent coercion to 'people' for unknown categories.
+        // That polluted the people category with equipment, vendors,
+        // mis-classified procedures, etc. Now: skip with a warning so
+        // bad extractions don't corrupt the graph.
+        if(!vc.includes(n.category)){
+          console.warn('[autoExtract] skipping invalid category:',n.category,'for node:',nm);
+          continue;
+        }
         const{error}=await NX.sb.from('nodes').insert({
-          name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'people',
+          name:nm.slice(0,200),category:n.category,
           tags:Array.isArray(n.tags)?n.tags.slice(0,10):[],notes:(n.notes||'').slice(0,2000),
           links:[],access_count:1,source_emails:[{from:'Auto-extract',subject:question.slice(0,100),date:new Date().toISOString().split('T')[0]}]
         });
