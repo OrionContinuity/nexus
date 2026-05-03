@@ -186,11 +186,9 @@
       <div class="cv-top">
         <button class="cv-back" id="cvBack" aria-label="Back">${svg(ICONS.back)}</button>
         <!--
-          Phase 1 — small persona marker so the user always knows which
-          AI they're talking to. Updated by nx-persona-change listener
-          below; tap on the masthead coin (NOT this label) flips persona.
+          Persona identity now lives in the masthead (under the coin).
+          Chat top bar stays minimal: back arrow + history menu only.
         -->
-        <span class="cv-persona-name" id="cvPersonaName" aria-live="polite">Providentia</span>
         <div class="cv-top-spacer" aria-hidden="true"></div>
         <button class="cv-icon-btn" id="cvMenu" aria-label="Past conversations" title="Past conversations">${svg(ICONS.history)}</button>
       </div>
@@ -304,19 +302,8 @@
       state.voiceOn = on;
     });
     // Phase 1 — keep the persona label in sync with the active persona.
-    // Fires on every coin flip (NX.flipCoin) and any other path that
-    // calls NX.setActivePersona (e.g. resuming a past chat tagged with
-    // a different persona).
-    syncPersonaName();
-    document.addEventListener('nx-persona-change', syncPersonaName);
-  }
-
-  function syncPersonaName() {
-    const el = document.getElementById('cvPersonaName');
-    if (!el) return;
-    const p = (window.NX && NX.getActivePersona) ? NX.getActivePersona() : 'providentia';
-    el.textContent = p === 'trajan' ? 'Trajan' : 'Providentia';
-    el.dataset.persona = p;
+    // Persona name moved to masthead (under coin). app.js handles
+    // sync there; chat top bar no longer carries the label.
   }
 
   function wireInput() {
