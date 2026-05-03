@@ -29,6 +29,19 @@
     !important;
 }
 
+/* CRITICAL: The universal rule above is shorthand-`transition` with
+   `!important`, which replaces (not merges with) any existing
+   transition declarations on matching elements. Without this override,
+   .nx-mast-coin-flip's `transition: transform 0.6s ...` rule gets
+   wiped during theme cross-fade, and the inner coin face SNAPS from
+   0° to 180° instantly — the user sees a "pop" instead of a flip.
+   This rule re-asserts transform transitions on the coin elements
+   (and any pre-login coin) with the same !important weight. */
+:root.theme-transitioning .nx-mast-coin-flip,
+:root.theme-transitioning .nx-coin {
+  transition: transform 0.6s cubic-bezier(0.4, 0.05, 0.3, 1) !important;
+}
+
 /* ─── 2. CINEMATIC COIN FLIP ──────────────────────────────────────── */
 /* The masthead coin (.nx-mast-coin) already has a 0.6s rotateY for the
    .flipped state. The cinematic version overlays scale + brightness
