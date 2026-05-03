@@ -1443,7 +1443,7 @@ body.panel-open .chat-hud{opacity:0;pointer-events:none;transform:translateY(100
 /* ═══ TIME CLOCK PIN SCREEN — expanded ═══ */
 .tc-loc-row{margin-bottom:10px}
 .tc-loc-select{padding:8px 14px;border-radius:8px;border:1px solid rgba(200,164,78,.2);background:rgba(255,255,255,.05);color:var(--text);font-size:13px;font-family:inherit;width:100%;max-width:200px;text-align:center;outline:none}
-.tc-pin-log{margin:14px 0 10px;max-height:140px;overflow-y:auto;text-align:left;width:100%}
+.tc-pin-log{margin:14px 0 10px;height:140px;overflow-y:auto;text-align:left;width:100%}
 .tc-pin-log-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px}
 .tc-pin-log-date{color:var(--faint)}
 .tc-pin-log-hrs{color:var(--accent);font-weight:700;font-family:'JetBrains Mono',monospace}
@@ -2676,24 +2676,22 @@ body.no-galaxy-access #homeMiniGalaxy {
 
 
 /* ════════════════════════════════════════════════════════════════════
-   PIN THE MASTHEAD
+   PIN THE MASTHEAD (v2 — height-aware)
    --------------------------------------------------------------------
-   The original .nav rule (line ~102) used `position: sticky; top: 0`,
-   but sticky elements need a scrollable ancestor. Body has
-   `overflow: hidden` (line ~31), .main has `overflow: hidden` (~127).
-   The actual scrolling happens inside `.view` (which is `overflow-y: auto`),
-   but `.nav` sits OUTSIDE `.view` — they're siblings under .main, not
-   parent/child. So sticky has no scroll context to anchor to and falls
-   back to behaving like static positioning. The masthead drifted with
-   layout instead of pinning.
+   Original .nav rule used `position: sticky; top: 0`, but sticky needs
+   a scrollable ancestor. Body has overflow:hidden, .main has
+   overflow:hidden. The actual scroll happens inside .view (which is a
+   sibling of .nav, not an ancestor) — so sticky has no scroll context
+   and falls back to static positioning.
 
-   Switching to `position: fixed` anchors directly to the viewport — no
-   scroll-context dependency. Then we shift .main down by 53px so its
-   content doesn't sit underneath the now-fixed masthead. Total layout
-   still adds to 100dvh: 53px nav + (100dvh - 53px) main.
+   Switching to position:fixed anchors directly to the viewport.
 
-   Chatview already opens at top: 53px so it lines up under the masthead
-   without any change needed there.
+   v2 update: corrected the height compensation. Original assumed 53px
+   but the actual rendered nav is ~70px:
+     coin (34px) + gap (2px) + persona label (~12px) +
+     padding (10px top + 10px bottom) + border (1px) ≈ 69-70px
+   Earlier 53px left a ~17px overlap where Board view's .b-summary
+   strip was hidden behind the masthead. 70px clears it cleanly.
    ════════════════════════════════════════════════════════════════════ */
 
 .nav {
@@ -2705,7 +2703,81 @@ body.no-galaxy-access #homeMiniGalaxy {
 
 .main {
   /* Compensate for the now-fixed masthead. margin-top (not padding-top)
-     so .main's `height: calc(100dvh - 53px)` calc still measures
-     correctly from the element's top, not from the viewport top. */
-  margin-top: 53px;
+     so .main's height calc still measures correctly from the element's
+     top, not from the viewport top. */
+  margin-top: 70px;
+  height: calc(100vh - 70px) !important;
+  height: calc(100dvh - 70px) !important;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   BOARD TAB — LIGHT THEME OVERRIDES
+   --------------------------------------------------------------------
+   The default .board-tab styling uses subtle white-on-dark surface
+   colors that wash out on a cream background. In light theme the tabs
+   were rendering as nearly-invisible text-with-stripe instead of the
+   pill shape they should have. These rules restore the pill look.
+   ════════════════════════════════════════════════════════════════════ */
+
+[data-theme="light"] .board-tab {
+  background: rgba(255, 253, 247, 0.85) !important;
+  border: 1px solid rgba(139, 105, 20, 0.18) !important;
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .board-tab:hover {
+  background: rgba(255, 253, 247, 0.95) !important;
+  color: #6a5018 !important;
+}
+[data-theme="light"] .board-tab.active {
+  background: rgba(200, 164, 78, 0.18) !important;
+  border-color: rgba(200, 164, 78, 0.55) !important;
+  color: #6a5018 !important;
+  font-weight: 600 !important;
+}
+[data-theme="light"] .board-add-tab {
+  background: transparent !important;
+  border: 1px dashed rgba(139, 105, 20, 0.30) !important;
+  color: #8b6914 !important;
+}
+
+/* Filter pills (All / Urgent / High / Low / Overdue / Stale) */
+[data-theme="light"] .b-filter {
+  background: rgba(255, 253, 247, 0.7) !important;
+  color: #6a5018 !important;
+  border-color: transparent !important;
+}
+[data-theme="light"] .b-filter.active {
+  background: rgba(200, 164, 78, 0.18) !important;
+  color: #6a5018 !important;
+  border-color: rgba(200, 164, 78, 0.5) !important;
+}
+
+/* Summary chips (open / overdue / urgent) */
+[data-theme="light"] .b-summary-chip {
+  background: rgba(255, 253, 247, 0.7) !important;
+  border: 1px solid rgba(139, 105, 20, 0.15) !important;
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .b-summary-chip strong {
+  color: #6a5018 !important;
+}
+[data-theme="light"] .b-summary-chip.alert strong {
+  color: #b84040 !important;
+}
+[data-theme="light"] .b-summary-stats-btn {
+  background: transparent !important;
+  border-color: rgba(139, 105, 20, 0.20) !important;
+  color: #6a5018 !important;
+}
+[data-theme="light"] .b-search-wrap {
+  background: rgba(255, 253, 247, 0.85) !important;
+  border-color: rgba(139, 105, 20, 0.18) !important;
+}
+[data-theme="light"] .b-search-input {
+  color: #1a1a1f !important;
+}
+[data-theme="light"] .b-rt-chip {
+  background: rgba(255, 253, 247, 0.7) !important;
+  color: #6a5018 !important;
 }
