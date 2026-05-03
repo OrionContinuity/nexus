@@ -74,11 +74,14 @@
 
 /* ─── Lede — "Afternoon, Alfredo." ──────────────────────────────── */
 .home-lede {
-  margin: 32px 0 16px;
+  margin: 22px 0 14px;
   font-family: var(--nx-font-display);
   font-weight: 300;
-  font-size: clamp(40px, 10vw, 56px);
-  line-height: 1.04;
+  /* Was clamp(40px, 10vw, 56px) — felt huge on mobile, especially
+     with longer names. Calmer scale keeps the editorial feel without
+     dominating the page. */
+  font-size: clamp(30px, 7.5vw, 44px);
+  line-height: 1.06;
   letter-spacing: -0.025em;
   color: var(--nx-text);
 }
@@ -499,7 +502,11 @@
   transform: translateX(-50%);
   width: calc(100% - 28px);
   max-width: 600px;
-  bottom: calc(56px + env(safe-area-inset-bottom) + 10px);
+  /* Lift the Ask pill clearly above the bottom nav. Two earlier
+     bumps (10px → 38px) still left it crowding the nav visually.
+     80px buffer is roughly 2cm of breathing room — the pill reads
+     as a deliberate floating element rather than nav decoration. */
+  bottom: calc(56px + env(safe-area-inset-bottom) + 80px);
   z-index: 40;
   display: flex;
   align-items: center;
