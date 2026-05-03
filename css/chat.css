@@ -61,20 +61,15 @@
 /* Hide the legacy chat-hud while the new chat view is open */
 body.chatview-open .chat-hud { display: none !important; }
 
-/* Lock body scroll while chat is open. Without this, mobile Chrome's
-   "scroll input into view on focus" behavior can push the entire
-   page (including the masthead and chat top bar) above the visible
-   viewport when the keyboard opens — leaving the user staring at a
-   blank cream area with only the input visible. Locking body scroll
-   prevents that auto-scroll. */
+/* Lock scroll while chat is open. Without this, mobile Chrome's
+   "scroll input into view on focus" reflex pushes the page up to
+   bring the input center-of-screen — taking the masthead and chat
+   top bar out of the visible area when the keyboard opens.
+   Just `overflow: hidden` (NOT `position: fixed`) preserves the
+   positioning context for absolute-positioned descendants like
+   .cv-input-wrap. Earlier attempts using position:fixed broke the
+   input's bottom anchor on Android Chrome. */
 body.chatview-open {
-  overflow: hidden;
-  /* Prevent any leftover scroll on html as well — some browsers route
-     scroll events to <html> when <body> is locked. */
-  position: fixed;
-  width: 100%;
-}
-html:has(body.chatview-open) {
   overflow: hidden;
 }
 
