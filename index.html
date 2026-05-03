@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -47,6 +46,7 @@
 <link rel="stylesheet" href="css/home.css">
 <link rel="stylesheet" href="css/chat.css">
 <link rel="stylesheet" href="css/preferences.css">
+<link rel="stylesheet" href="css/daily-card.css">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0a0a0c">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -662,10 +662,10 @@
         <button class="nx-coin-info" id="nxCoinInfo" type="button" aria-label="About the NEXUS coin">i</button>
         <div class="nx-coin" id="nxCoin" tabindex="0" role="button" aria-label="NEXUS coin — tap to flip">
           <div class="nx-coin-face nx-coin-front">
-            <img src="assets/coin-trajan.png" alt="Trajan, Optimus Princeps" draggable="false">
+            <img src="assets/coin-providentia.png" alt="Providentia, goddess of foresight" draggable="false">
           </div>
           <div class="nx-coin-face nx-coin-back">
-            <img src="assets/coin-providentia.png" alt="Providentia, goddess of foresight" draggable="false">
+            <img src="assets/coin-trajan.png" alt="Trajan, Optimus Princeps" draggable="false">
           </div>
         </div>
       </div>
@@ -2485,6 +2485,7 @@
 <script src="js/translate.js"></script>
 <script src="js/composer.js"></script>
 <script src="js/app.js"></script>
+<script src="js/daily-card.js"></script>
 <script src="js/home.js"></script>
 <script src="js/native-bridge.js"></script>
 <script>
@@ -2597,8 +2598,8 @@
     // AND records which advisor is face-up so _initActivePersona
     // honors the user's choice when they log in.
     //
-    // Front face (no .nx-coin-flipped) = Trajan
-    // Back face  (.nx-coin-flipped)    = Providentia
+    // Front face (no .nx-coin-flipped) = Providentia (welcoming default)
+    // Back face  (.nx-coin-flipped)    = Trajan
     //
     // We only record on USER INTERACTION — not on initial mount —
     // so the user's saved Supabase preference is honored when they
@@ -2606,8 +2607,8 @@
     const recordChoice = () => {
       try {
         const persona = coin.classList.contains('nx-coin-flipped')
-          ? 'providentia'
-          : 'trajan';
+          ? 'trajan'
+          : 'providentia';
         sessionStorage.setItem('nexus_login_coin_choice', persona);
       } catch(_) {}
     };
