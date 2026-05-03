@@ -270,7 +270,12 @@
 
 .home-cal-date {
   flex-shrink: 0;
-  width: 96px;
+  /* Width tuned to fit "TODAY · MAY 3" + the today-dot without wrap.
+     Earlier 96px was sized for 3-letter day abbrevs like "FRI · MAY 3"
+     but didn't account for "TODAY". 110px keeps 3-letter days roomy
+     and absorbs the longer label cleanly. The today-dot lives inside
+     this flex container, so width has to cover both. */
+  width: 110px;
   font-family: var(--nx-font-mono);
   font-size: 10px;
   font-weight: 500;
@@ -502,12 +507,18 @@
   transform: translateX(-50%);
   width: calc(100% - 28px);
   max-width: 600px;
-  /* Anchored just above the bottom nav so its vertical position
-     matches the chat composer (.cv-input-wrap). When the user taps
-     this pill and chat-view takes over, the input stays in the same
-     spot — no jump, no reflow. The previous "80px lift" was breaking
-     visual continuity with the chat surface. */
-  bottom: calc(56px + env(safe-area-inset-bottom) + 12px);
+  /* Lift the Ask pill clearly above the bottom nav. Two earlier
+     bumps (10px → 38px) still left it crowding the nav visually.
+     80px buffer is roughly 2cm of breathing room — the pill reads
+     as a deliberate floating element rather than nav decoration. */
+  /* Anchored above the bottom nav with breathing room. The earlier
+     +12px was flush against the nav and read as crowded; +30px gives
+     a clear visual gap so the pill reads as a deliberate floating
+     control rather than an extension of the nav. Far enough below
+     the chat composer height that the home → chat transition still
+     feels continuous (composer takes over near the same vertical
+     band when chat opens). */
+  bottom: calc(56px + env(safe-area-inset-bottom) + 30px);
   z-index: 40;
   display: flex;
   align-items: center;
