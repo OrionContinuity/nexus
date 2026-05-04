@@ -251,13 +251,18 @@
       --ps-border: rgba(212, 182, 138, 0.08);
       --ps-border-strong: rgba(212, 182, 138, 0.18);
       --ps-glow: rgba(212, 164, 78, 0.18);
-      --ps-green: #5bba5f;
-      --ps-amber: #e8a830;
-      --ps-red: #d45858;
-      --ps-blue: #6b9bf0;
+      /* Palette-coherent status colors — no greens, no scarlets.
+         Operational: olive-bronze. Needs service: brand gold (= accent).
+         Down: oxblood. Retired: graphite. */
+      --ps-green: #9c8a3e;
+      --ps-amber: #d4a44e;
+      --ps-red:   #a83e3e;
+      --ps-blue:  #7a8db8;
+      /* Per-page status tint — set inline on .nx-ps-page from JS. */
+      --ps-status-tint: var(--ps-accent);
     }
 
-    /* Page shell */
+    /* Page shell — relative for the absolute stripe child */
     .nx-ps-page {
       background: var(--ps-bg);
       color: var(--ps-text);
@@ -267,6 +272,22 @@
       padding: 0 0 calc(env(safe-area-inset-bottom, 0px) + 48px);
       font-feature-settings: 'ss01', 'cv11';
       -webkit-font-smoothing: antialiased;
+      position: relative;
+    }
+    /* Status stripe — full-width band at the very top of the page.
+       Color comes from --ps-status-tint set inline per-equipment.
+       Visible-but-subtle (3px tall) so the page identity (gold-on-dark)
+       wins; the stripe is an accent that says "this thing's status"
+       without dominating. Soft fade-in from the top edge. */
+    .nx-ps-status-stripe {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--ps-status-tint);
+      box-shadow: 0 0 24px var(--ps-status-tint);
+      opacity: 0.85;
+      pointer-events: none;
+      z-index: 1;
     }
     /* Header — minimalist, just brand wordmark */
     .nx-ps-header {
@@ -950,13 +971,17 @@
 
   // ─── 9. RENDER SCAN PAGE ────────────────────────────────────────────
   function renderScan({ eq, activeTicket, maint, contact }) {
+    // Palette-coherent status colors — no greens, no scarlets.
+    // Olive-bronze for operational (settled), gold for needs_service
+    // (= brand accent, "look at me"), oxblood for down (authoritative,
+    // not panicked), graphite for retired.
     const statusMap = {
-      operational:   { label: 'Operational',   color: '#5bba5f' },
-      needs_service: { label: 'Needs Service', color: '#e8a830' },
-      down:          { label: 'Down',          color: '#d45858' },
-      retired:       { label: 'Retired',       color: '#857f75' },
+      operational:   { label: 'Operational',   color: '#9c8a3e' },
+      needs_service: { label: 'Needs Service', color: '#d4a44e' },
+      down:          { label: 'Down',          color: '#a83e3e' },
+      retired:       { label: 'Retired',       color: '#6b6258' },
     };
-    const status = statusMap[eq.status] || { label: eq.status || 'Unknown', color: '#888' };
+    const status = statusMap[eq.status] || { label: eq.status || 'Unknown', color: '#857f75' };
 
     const pm = eq.next_pm_date ? new Date(eq.next_pm_date) : null;
     const pmStr = pm ? pm.toLocaleDateString() : 'Not scheduled';
@@ -1041,7 +1066,8 @@
     ` : '';
 
     const html = `
-      <div class="nx-ps-page" id="nx-ps-page">
+      <div class="nx-ps-page" id="nx-ps-page" style="--ps-status-tint:${status.color}">
+        <div class="nx-ps-status-stripe" aria-hidden="true"></div>
         <div class="nx-ps-header"><div class="nx-ps-brand">NEXUS</div></div>
         <div class="nx-ps-body">
           <div class="nx-ps-card">
