@@ -150,8 +150,11 @@
 .eq-col-name { display: flex; align-items: center; gap: 12px; min-width: 0; }
 /* Bigger category icon as primary visual anchor — eye lands on it, then
    reads name. Was 20px, felt timid against the long row. */
-.eq-cat-icon { font-size: 22px; flex-shrink: 0; opacity: 0.95 }
-.eq-cat-icon-lg { font-size: 32px; flex-shrink: 0; }
+/* Category icon — now an inline SVG (see catIcon() in equipment.js).
+   font-size sets the visual size (SVG is width/height: 1em).
+   Color via gold accent so glyphs match brand language. */
+.eq-cat-icon { font-size: 22px; flex-shrink: 0; color: var(--accent); display: inline-flex; align-items: center; }
+.eq-cat-icon-lg { font-size: 32px; flex-shrink: 0; color: var(--accent); display: inline-flex; align-items: center; }
 .eq-name { font-weight: 600; color: var(--text); font-size: 13.5px; line-height: 1.3; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Manufacturer de-emphasized vs model number. The model is what you
    actually search for when ordering parts; the brand is context. */
