@@ -898,6 +898,7 @@ function renderQR(eq) {
       <div class="eq-qr-actions">
         <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.printZebraSingle('${eq.id}')">🏷️ Print on Zebra</button>
         <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.printSingleQR('${eq.id}')">🖨 Paper Sticker</button>
+        <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.printServiceLog('${eq.id}')">📋 Service Log Sheet</button>
         <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.copyQRLink('${eq.qr_code}')">Copy Link</button>
       </div>
     </div>`;
@@ -2224,9 +2225,15 @@ async function extractBOMFromManual(equipId) {
     if (cancelled) return;
 
     setStep(`Sending ${sizeMB}MB PDF to Claude (20–60 seconds)…`);
-    let data;
-    try {
-      data = await NX.callClaude({
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
         model: NX.getModel?.() || 'claude-sonnet-4-5',
         max_tokens: 4096,
         messages: [{
@@ -2258,12 +2265,17 @@ Return raw JSON array (no markdown, no preamble):
 If no parts are found, return [].` }
           ]
         }]
-      });
-    } catch (err) {
-      showError('Claude API error: ' + err.message);
+      })
+    });
+    if (cancelled) return;
+
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      showError(`Claude API error (${resp.status}): ${errBody.slice(0, 300)}`);
       return;
     }
-    if (cancelled) return;
+    const data = await resp.json();
+    if (data.error) { showError('Claude returned error: ' + data.error.message); return; }
 
     setStep('Parsing parts list…');
     const answer = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
@@ -2348,14 +2360,25 @@ async function extractBOMFromManual_LEGACY(equipId) {
     const pdfBlob = await pdfRes.blob();
     const pdfBase64 = await blobToBase64(pdfBlob);
 
-    const data = await NX.callClaude({
-      model: NX.getModel(),
-      max_tokens: 4000,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } },
-          { type: 'text', text: `You are reading a service/parts manual for commercial kitchen equipment:
+    const key = NX.getApiKey();
+    if (!key) throw new Error('No API key configured');
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: NX.getModel(),
+        max_tokens: 4000,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } },
+            { type: 'text', text: `You are reading a service/parts manual for commercial kitchen equipment:
 Equipment: ${eq.manufacturer} ${eq.model}
 
 Extract all SERVICEABLE PARTS from the parts list / exploded diagram sections.
@@ -2377,9 +2400,13 @@ Return raw JSON array (no markdown):
 ]
 
 If no parts are found, return []. Extract only what's explicitly listed.` }
-        ]
-      }]
+          ]
+        }]
+      })
     });
+
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message);
     const answer = data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
 
     const arrStart = answer.indexOf('[');
@@ -3252,71 +3279,1084 @@ function copyQRLink(qrCode) {
 function printSingleQR(id) {
   const eq = equipment.find(e => e.id === id);
   if (!eq) return;
-  const url = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
-  const qrImgSrc = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(url)}`;
+  printStickers([eq], { variant: 'single' });
+}
+
+/* ─── Sticker print engine — shared by single + sheet + per-location.
+   Editorial design: coin wordmark at top, QR center, equipment name
+   in Outfit display, status stripe down the left edge, trilingual
+   "scan to view" instruction at bottom. SVG-clean for sign-shop output.
+   Cream background (not white) to match NEXUS palette and to feel
+   like a typeset edition rather than a CMMS dump.
+   ─────────────────────────────────────────────────────────────────── */
+function printStickers(equipList, opts = {}) {
+  if (!equipList || !equipList.length) {
+    NX.toast && NX.toast('No equipment to print', 'info');
+    return;
+  }
+  const variant = opts.variant || 'sheet';   // 'single' | 'sheet'
+  const labelTitle = opts.title || (
+    variant === 'single' ? `QR — ${equipList[0].name}` :
+    `NEXUS Equipment QR — ${equipList.length} item${equipList.length===1?'':'s'}`
+  );
+
+  // Palette-coherent status colors. Mirror nexus.css tokens but inlined
+  // here because the print window has no access to the parent stylesheet.
+  const STATUS_COLOR = {
+    operational:   '#9c8a3e',  // olive-bronze
+    needs_service: '#d4a44e',  // brand gold
+    down:          '#a83e3e',  // oxblood
+    retired:       '#6b6258',  // graphite
+  };
+  // Coin URL — absolute so the print window can load it. Falls back to
+  // Providentia (the default daily advisor). The print preview will
+  // briefly show a placeholder until the coin loads from the same origin.
+  const coinUrl = `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, '')}assets/coin-providentia.png`;
+
+  // Compose each sticker as a self-contained block. Internal layout uses
+  // CSS grid so every element has a fixed slot — sign shops can rely on
+  // consistent placement when they generate plates from the PDF.
+  const stickerHTML = (eq) => {
+    const url = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
+    // SVG QR — scales infinitely without raster artifacts. Sign shops
+    // love SVG because they can pull it directly into Illustrator.
+    const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&format=svg&ecc=H&margin=0&data=${encodeURIComponent(url)}`;
+    const stat = STATUS_COLOR[eq.status] || STATUS_COLOR.operational;
+    const stationLine = [eq.location, eq.area].filter(Boolean).join(' · ');
+    const modelLine = [eq.manufacturer, eq.model].filter(Boolean).join(' ');
+
+    return `
+      <div class="sticker" data-eq="${esc(eq.qr_code)}">
+        <!-- Status stripe — left edge, vertical band of palette-coherent color -->
+        <div class="status-stripe" style="background:${stat}"></div>
+
+        <!-- Top: coin wordmark (replaces "NEXUS" text) — the strongest
+             brand statement. Coin is the seal; nothing else needs to say it. -->
+        <div class="head">
+          <img class="coin" src="${coinUrl}" alt="NEXUS" crossorigin="anonymous">
+          <div class="brand-line">N · E · X · U · S</div>
+        </div>
+
+        <!-- Middle: equipment identity — name in display face, station + model muted -->
+        <div class="title-block">
+          <div class="eq-name">${esc(eq.name)}</div>
+          ${stationLine ? `<div class="eq-station">${esc(stationLine)}</div>` : ''}
+          ${modelLine   ? `<div class="eq-model">${esc(modelLine)}</div>`     : ''}
+        </div>
+
+        <!-- QR — clean, full-contrast, no overlay. Critical: must scan from
+             4ft away across a kitchen, so we keep it pure black on cream. -->
+        <div class="qr-wrap">
+          <img class="qr" src="${qrSrc}" alt="QR code">
+          <div class="qr-id">${esc(eq.qr_code)}</div>
+        </div>
+
+        <!-- Footer: trilingual scan instruction. English / Spanish for
+             your kitchens; Korean intentionally added because Orion
+             noted bilingual+ teams. Tiny mono caps so it reads as
+             instructional metadata, not body copy. -->
+        <div class="foot">
+          <div class="instr">SCAN TO VIEW · ESCANEAR PARA VER · 스캔하여 보기</div>
+          <div class="cornerpiece tl"></div>
+          <div class="cornerpiece tr"></div>
+          <div class="cornerpiece bl"></div>
+          <div class="cornerpiece br"></div>
+        </div>
+      </div>
+    `;
+  };
+
+  const allStickers = equipList.map(stickerHTML).join('');
+  // For sheet mode, group into pages of 12 (4 rows × 3 cols on letter)
+  // so page breaks land cleanly. CSS handles the actual paging via
+  // page-break-inside: avoid on each .sticker.
+  const wrapClass = variant === 'single' ? 'single-wrap' : 'sheet-wrap';
 
   const w = window.open('', '_blank');
-  w.document.write(`
-    <!DOCTYPE html><html><head><title>QR — ${esc(eq.name)}</title>
-    <style>
-      body{font-family:sans-serif;margin:0;padding:20mm;display:flex;justify-content:center;align-items:center;min-height:100vh}
-      .sticker{border:2px solid #000;padding:10mm;text-align:center;width:80mm}
-      h1{font-size:14pt;margin:0 0 4mm 0}
-      .loc{font-size:11pt;color:#555;margin-bottom:4mm}
-      .model{font-size:9pt;color:#666;margin-top:4mm}
-      img{width:60mm;height:60mm}
-      @media print{ body{padding:0} }
-    </style></head><body>
-    <div class="sticker">
-      <h1>${esc(eq.name)}</h1>
-      <div class="loc">${esc(eq.location)}</div>
-      <img src="${qrImgSrc}" alt="QR">
-      <div class="model">${esc(eq.manufacturer||'')} ${esc(eq.model||'')}</div>
-      <div class="model">Scan to view details</div>
-    </div>
-    <script>setTimeout(()=>window.print(),500)</script>
-    </body></html>
-  `);
+  if (!w) { NX.toast && NX.toast('Popup blocked — allow popups to print', 'warn'); return; }
+
+  w.document.write(`<!DOCTYPE html>
+<html><head>
+<title>${esc(labelTitle)}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ═══ Print sheet — palette + page setup ═══ */
+  @page {
+    size: letter portrait;
+    /* Sign shops need bleed margins. 6mm is generous and matches
+       common cutting tolerances. Background extends fully to the edge
+       so cuts don't reveal white paper underneath. */
+    margin: 6mm;
+  }
+
+  :root {
+    --cream:  #fdf8ec;     /* sticker face — warm not white */
+    --cream-deep: #f3ead4; /* slightly deeper for inner panels */
+    --ink:    #1c1408;     /* near-black, brown undertone */
+    --gold:   #c8a44e;     /* brand accent, print-safe */
+    --gold-deep: #8b6914;  /* gold-line color, deeper for paper */
+    --hairline: rgba(139, 105, 20, 0.22);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #f1ead7;
+    font-family: 'DM Sans', system-ui, sans-serif;
+    color: var(--ink);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* ═══ Layout — single vs sheet ═══ */
+  .single-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 12mm;
+  }
+  .single-wrap .sticker {
+    /* Single mode: standard ~3.5" × 5" portrait sticker, suitable
+       for 4×6 thermal label printers OR cut-from-letter. */
+    width: 90mm;
+    height: 130mm;
+  }
+
+  .sheet-wrap {
+    display: grid;
+    /* 3 cols × 4 rows = 12 per letter page. Each sticker ~60mm × 60mm
+       finished. Sign shops can guillotine on the dotted lines. */
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: 88mm;
+    gap: 4mm;
+    padding: 0;
+  }
+  .sheet-wrap .sticker {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ═══ Sticker base — used by both modes ═══ */
+  .sticker {
+    position: relative;
+    background: var(--cream);
+    border: 1px solid var(--gold-deep);
+    border-radius: 6px;
+    overflow: hidden;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    display: grid;
+    grid-template-rows: auto 1fr auto auto;
+    padding: 5mm 5mm 4mm 8mm;   /* extra left padding for status stripe */
+    color: var(--ink);
+    /* Subtle paper-grain feel via two layered radial gradients —
+       prints faithfully on both inkjet and offset. */
+    background-image:
+      radial-gradient(1200px 600px at 30% -10%, rgba(200, 164, 78, 0.06) 0%, transparent 60%),
+      radial-gradient(800px 400px at 80% 110%, rgba(139, 105, 20, 0.05) 0%, transparent 60%);
+  }
+
+  /* Vertical status stripe down the left edge — visible from across
+     the kitchen, palette-coherent (gold/olive/oxblood/graphite, no
+     scarlet/green). This is the "from across the room" tell. */
+  .status-stripe {
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    width: 4mm;
+  }
+
+  /* Decorative corner pieces — small gold L-shapes in each corner.
+     Editorial flourish; reads as "deliberate" rather than utility. */
+  .cornerpiece {
+    position: absolute;
+    width: 4mm; height: 4mm;
+    border: 0.4mm solid var(--gold);
+    pointer-events: none;
+  }
+  .cornerpiece.tl { top: 1.5mm; left: 5.5mm;  border-right: none; border-bottom: none; }
+  .cornerpiece.tr { top: 1.5mm; right: 1.5mm; border-left:  none; border-bottom: none; }
+  .cornerpiece.bl { bottom: 1.5mm; left: 5.5mm;  border-right: none; border-top: none; }
+  .cornerpiece.br { bottom: 1.5mm; right: 1.5mm; border-left:  none; border-top: none; }
+
+  /* ═══ Head — coin in place of "NEXUS" wordmark ═══ */
+  .head {
+    text-align: center;
+    padding-bottom: 2mm;
+    border-bottom: 0.3mm solid var(--hairline);
+    margin-bottom: 3mm;
+  }
+  .coin {
+    width: 14mm;
+    height: 14mm;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto 1mm;
+  }
+  .single-wrap .coin { width: 22mm; height: 22mm; margin-bottom: 1.5mm; }
+  .brand-line {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    font-size: 7pt;
+    font-weight: 600;
+    letter-spacing: 2pt;
+    color: var(--gold-deep);
+    text-transform: uppercase;
+  }
+  .single-wrap .brand-line { font-size: 9pt; letter-spacing: 3pt; }
+
+  /* ═══ Title block — equipment identity ═══ */
+  .title-block {
+    text-align: center;
+    margin-bottom: 2mm;
+    padding: 0 2mm;
+  }
+  .eq-name {
+    font-family: 'Outfit', 'DM Sans', system-ui, sans-serif;
+    font-size: 11pt;
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.2pt;
+    color: var(--ink);
+    /* Truncate gracefully for very long names */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .single-wrap .eq-name { font-size: 18pt; -webkit-line-clamp: 3; }
+  .eq-station {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    font-size: 6.5pt;
+    font-weight: 500;
+    letter-spacing: 1.5pt;
+    color: var(--gold-deep);
+    text-transform: uppercase;
+    margin-top: 1mm;
+  }
+  .single-wrap .eq-station { font-size: 9pt; letter-spacing: 2pt; margin-top: 2mm; }
+  .eq-model {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-size: 6.5pt;
+    color: rgba(28, 20, 8, 0.55);
+    margin-top: 0.8mm;
+  }
+  .single-wrap .eq-model { font-size: 9pt; margin-top: 1mm; }
+
+  /* ═══ QR — black on cream, clean and full contrast ═══ */
+  .qr-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5mm;
+    margin: 1mm 0;
+  }
+  .qr {
+    /* Square aspect, sized by container. SVG output scales infinitely. */
+    width: 38mm;
+    height: 38mm;
+    /* Wrap in a tiny gold frame — editorial, not utility */
+    border: 0.3mm solid var(--gold);
+    padding: 1.5mm;
+    background: white;
+  }
+  .single-wrap .qr { width: 60mm; height: 60mm; padding: 2.5mm; }
+  .qr-id {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    font-size: 5.5pt;
+    font-weight: 600;
+    letter-spacing: 0.8pt;
+    color: var(--gold-deep);
+  }
+  .single-wrap .qr-id { font-size: 8pt; letter-spacing: 1.2pt; }
+
+  /* ═══ Footer — trilingual scan instruction ═══ */
+  .foot {
+    text-align: center;
+    padding-top: 2mm;
+    border-top: 0.3mm solid var(--hairline);
+  }
+  .instr {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    font-size: 5pt;
+    font-weight: 500;
+    letter-spacing: 0.5pt;
+    color: rgba(28, 20, 8, 0.6);
+    /* The Korean glyphs need slightly more room — give the line a touch
+       of breathing space top to bottom. */
+    line-height: 1.5;
+  }
+  .single-wrap .instr { font-size: 7pt; letter-spacing: 0.7pt; }
+
+  /* ═══ Sheet-mode-only utility ═══ */
+  /* Tiny tear-off line between rows — visual cue for guillotine cuts. */
+  @media print {
+    body { background: var(--cream); }
+    .sheet-wrap { gap: 4mm; }
+    .sticker {
+      box-shadow: none;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="${wrapClass}">${allStickers}</div>
+  <script>
+    // Wait for fonts AND coin AND first QR image to load before printing.
+    // Sign shops printing the resulting PDF expect everything resolved.
+    Promise.all([
+      document.fonts ? document.fonts.ready : Promise.resolve(),
+      ...Array.from(document.images).map(img => img.complete
+        ? Promise.resolve()
+        : new Promise(r => { img.onload = img.onerror = r; })
+      )
+    ]).then(() => setTimeout(() => window.print(), 250));
+  </script>
+</body></html>`);
   w.document.close();
 }
 
+/* ─── Service Log Sheet — single-page printable history + handwritten
+   future-entries form. Goes in a binder near the equipment, or on a
+   clipboard nearby. Editorial design matches the QR sticker aesthetic
+   so binders/walls feel like a unified system, not parts from
+   different tools.
+
+   Layout (US Letter portrait):
+     ┌──────────────────────────────────────────┐
+     │  [coin]  N · E · X · U · S    [QR]      │
+     │  ─────────────────────────────────────   │
+     │  Equipment identity block (specs grid)   │
+     │  Status + warranty banner                │
+     │  ─────────────────────────────────────   │
+     │  Recent service history (last 5)         │
+     │  ─────────────────────────────────────   │
+     │  Future entries form (12 blank rows)     │
+     │  ─────────────────────────────────────   │
+     │  Footer: location, print date, scan note │
+     └──────────────────────────────────────────┘
+
+   The pre-printed history at the top gives contractors context they
+   need before touching the equipment. The blank-row table at the
+   bottom is for analog-trusting techs who want to write before they
+   sync. The QR at the top right links back to the digital record so
+   anything they wrote down can be reconciled with NEXUS later.
+   ─────────────────────────────────────────────────────────────── */
+async function printServiceLog(id) {
+  const eq = equipment.find(e => e.id === id);
+  if (!eq) return;
+
+  // Fetch the last 5 service events and the most recent few open
+  // tickets (if any). Both are best-effort — a missing table doesn't
+  // block the print, the relevant section just renders empty.
+  let maint = [];
+  let openTicket = null;
+  try {
+    if (NX.sb) {
+      const { data } = await NX.sb.from('equipment_maintenance')
+        .select('event_date, event_type, description, performed_by, cost, parts_replaced, next_pm_due')
+        .eq('equipment_id', id)
+        .order('event_date', { ascending: false })
+        .limit(5);
+      if (data) maint = data;
+
+      // Latest open ticket (issue) for this equipment, if any
+      const { data: tk } = await NX.sb.from('tickets')
+        .select('title, created_at, reported_by')
+        .contains('linked_equipment_ids', [id])
+        .neq('status', 'closed')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (tk && tk.length) openTicket = tk[0];
+    }
+  } catch (e) { /* best-effort, continue with empty history */ }
+
+  const STATUS_COLOR = {
+    operational:   '#9c8a3e',
+    needs_service: '#d4a44e',
+    down:          '#a83e3e',
+    retired:       '#6b6258',
+  };
+  const STATUS_LABEL = {
+    operational:   'Operational',
+    needs_service: 'Needs Service',
+    down:          'Down',
+    retired:       'Retired',
+  };
+  const stat   = STATUS_COLOR[eq.status]   || STATUS_COLOR.operational;
+  const statL  = STATUS_LABEL[eq.status]   || (eq.status || 'Unknown');
+
+  // Warranty calc — drives the warranty banner color and message.
+  const today = new Date();
+  const warrantyDate = eq.warranty_until ? new Date(eq.warranty_until) : null;
+  const warrantyValid = warrantyDate && warrantyDate > today;
+  const warrantyDays = warrantyValid
+    ? Math.floor((warrantyDate.getTime() - today.getTime()) / 86400000)
+    : 0;
+
+  const nextPM = eq.next_pm_date ? new Date(eq.next_pm_date) : null;
+  const pmOverdue = nextPM && nextPM < today;
+  const pmDays = pmOverdue ? Math.floor((today.getTime() - nextPM.getTime()) / 86400000) : 0;
+
+  // QR for the small corner code (links back to digital)
+  const scanURL = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&format=svg&ecc=H&margin=0&data=${encodeURIComponent(scanURL)}`;
+  // Coin URL — same one used on the QR sticker
+  const coinUrl = `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, '')}assets/coin-providentia.png`;
+
+  // Format helpers
+  const fmtDate = (d) => {
+    if (!d) return '—';
+    const dt = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(dt)) return '—';
+    return dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+  const fmtDateShort = (d) => {
+    if (!d) return '—';
+    const dt = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(dt)) return '—';
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+  };
+  const fmtCost = (c) => {
+    if (c == null || c === '') return '';
+    const n = parseFloat(c);
+    if (isNaN(n)) return '';
+    return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  };
+
+  // Pre-printed history rows. If none exist, we leave the section header
+  // visible but show a "No service events recorded yet" line so the page
+  // doesn't look broken — and the contractor knows they're at zero.
+  const historyRows = maint.length ? maint.map(m => {
+    const eventLabel = (m.event_type || 'service').replace(/_/g, ' ').toUpperCase();
+    return `
+      <tr>
+        <td class="hist-date">${esc(fmtDateShort(m.event_date))}</td>
+        <td class="hist-type">${esc(eventLabel)}</td>
+        <td class="hist-desc">
+          ${esc(m.description || '—')}
+          ${m.parts_replaced ? `<div class="hist-parts"><span class="hist-parts-label">Parts:</span> ${esc(m.parts_replaced)}</div>` : ''}
+        </td>
+        <td class="hist-by">${esc(m.performed_by || '—')}</td>
+        <td class="hist-cost">${esc(fmtCost(m.cost))}</td>
+      </tr>
+    `;
+  }).join('') : `
+    <tr><td colspan="5" class="hist-empty">No service events recorded in NEXUS yet.</td></tr>
+  `;
+
+  // 12 blank entry rows for handwritten future logs. Slightly tall
+  // (8mm) so a contractor can write comfortably with a regular pen.
+  const blankRows = Array.from({ length: 12 }, () => `
+    <tr class="blank-row">
+      <td class="blank-date"></td>
+      <td class="blank-work"></td>
+      <td class="blank-tech"></td>
+      <td class="blank-cost"></td>
+      <td class="blank-sign"></td>
+    </tr>
+  `).join('');
+
+  // Status of the equipment as a discrete band — uses the same
+  // palette-coherent color as everywhere else (no scarlets, no greens).
+  const statusBanner = `
+    <div class="status-banner">
+      <span class="status-dot" style="background:${stat}"></span>
+      <span class="status-label" style="color:${stat}">${esc(statL)}</span>
+      ${pmOverdue ? `<span class="status-meta">PM ${pmDays} day${pmDays===1?'':'s'} overdue</span>` :
+        nextPM ?    `<span class="status-meta">Next PM ${fmtDate(nextPM)}</span>` : ''}
+      ${warrantyValid ? `<span class="status-meta status-warranty">Under warranty — ${warrantyDays} day${warrantyDays===1?'':'s'} left</span>` : ''}
+      ${openTicket ? `<span class="status-meta status-issue">Open issue: ${esc((openTicket.title||'').slice(0,40))}</span>` : ''}
+    </div>
+  `;
+
+  const w = window.open('', '_blank');
+  if (!w) { NX.toast && NX.toast('Popup blocked — allow popups to print', 'warn'); return; }
+
+  w.document.write(`<!DOCTYPE html>
+<html><head>
+<title>Service Log — ${esc(eq.name)}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ═══════════════════════════════════════════════════════════════
+     Service Log Sheet — single page, US Letter portrait.
+     Editorial palette matches the QR sticker so binders feel unified.
+     Print-color-adjust:exact preserves cream + gold + status tint.
+     ═══════════════════════════════════════════════════════════════ */
+  @page { size: letter portrait; margin: 12mm; }
+
+  :root {
+    --cream:      #fdf8ec;
+    --cream-deep: #f3ead4;
+    --ink:        #1c1408;
+    --ink-soft:   rgba(28, 20, 8, 0.7);
+    --ink-faint:  rgba(28, 20, 8, 0.45);
+    --gold:       #c8a44e;
+    --gold-deep:  #8b6914;
+    --hairline:   rgba(139, 105, 20, 0.22);
+    --rule:       rgba(139, 105, 20, 0.45);
+    --status:     ${stat};
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--cream);
+    font-family: 'DM Sans', system-ui, sans-serif;
+    color: var(--ink);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-size: 10pt;
+    line-height: 1.4;
+  }
+  .page {
+    /* Letter page minus print margins. Single page; nothing should
+       overflow or paginate. The blank-row table is sized so 12 rows
+       fit comfortably on the same sheet. */
+    width: 100%;
+    max-width: 186mm;   /* letter width minus 12mm × 2 margins */
+    margin: 0 auto;
+    padding: 0;
+    /* Subtle paper grain — same as sticker */
+    background-image:
+      radial-gradient(1200px 600px at 30% -10%, rgba(200, 164, 78, 0.05) 0%, transparent 60%),
+      radial-gradient(800px 400px at 80% 110%, rgba(139, 105, 20, 0.04) 0%, transparent 60%);
+  }
+
+  /* ═══ HEADER — coin + brand line + small QR top-right ═══ */
+  .header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 10mm;
+    padding-bottom: 4mm;
+    border-bottom: 0.5mm solid var(--gold-deep);
+  }
+  .header-coin {
+    width: 18mm; height: 18mm;
+    object-fit: contain;
+  }
+  .header-brand {
+    text-align: center;
+  }
+  .brand-mark {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10pt;
+    font-weight: 600;
+    letter-spacing: 4pt;
+    color: var(--gold-deep);
+    margin: 0;
+  }
+  .doc-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 18pt;
+    font-weight: 500;
+    letter-spacing: -0.3pt;
+    color: var(--ink);
+    margin: 1mm 0 0;
+    line-height: 1.1;
+  }
+  .doc-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8pt;
+    letter-spacing: 1.5pt;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    margin-top: 1mm;
+  }
+  .header-qr-block {
+    text-align: center;
+  }
+  .header-qr {
+    width: 18mm; height: 18mm;
+    border: 0.3mm solid var(--gold);
+    padding: 1mm;
+    background: white;
+    display: block;
+  }
+  .header-qr-id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 6.5pt;
+    font-weight: 600;
+    letter-spacing: 0.5pt;
+    color: var(--gold-deep);
+    margin-top: 1mm;
+  }
+
+  /* ═══ EQUIPMENT IDENTITY — the spec grid ═══ */
+  .identity {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 3mm 6mm;
+    padding: 5mm 0;
+  }
+  .spec-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7pt;
+    font-weight: 600;
+    letter-spacing: 1.2pt;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    margin-bottom: 0.5mm;
+  }
+  .spec-value {
+    font-size: 10pt;
+    color: var(--ink);
+    font-weight: 500;
+    line-height: 1.3;
+    word-break: break-word;
+  }
+  .spec-value.dim { color: var(--ink-faint); }
+
+  /* ═══ STATUS BANNER — current state at a glance ═══ */
+  .status-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8pt;
+    padding: 3mm 4mm;
+    border: 0.3mm solid var(--hairline);
+    border-left: 1.5mm solid var(--status);
+    background: rgba(212, 164, 78, 0.04);
+    border-radius: 1.5mm;
+    font-size: 9pt;
+    margin-bottom: 5mm;
+  }
+  .status-dot {
+    width: 8pt; height: 8pt; border-radius: 50%;
+    display: inline-block;
+  }
+  .status-label {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 11pt;
+    letter-spacing: 0.2pt;
+  }
+  .status-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8pt;
+    letter-spacing: 0.5pt;
+    color: var(--ink-soft);
+    padding-left: 8pt;
+    border-left: 0.2mm solid var(--hairline);
+  }
+  .status-meta.status-warranty { color: var(--gold-deep); font-weight: 600; }
+  .status-meta.status-issue { color: var(--status); font-weight: 600; }
+
+  /* ═══ SECTION TITLE — gold caps with ruled line below ═══ */
+  .section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9pt;
+    font-weight: 600;
+    letter-spacing: 2.5pt;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    margin: 2mm 0 2mm;
+    padding-bottom: 1mm;
+    border-bottom: 0.4mm solid var(--rule);
+  }
+
+  /* ═══ HISTORY TABLE — pre-printed last 5 events ═══ */
+  .history-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 4mm;
+    font-size: 9pt;
+  }
+  .history-table th {
+    text-align: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7pt;
+    font-weight: 600;
+    letter-spacing: 1pt;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    padding: 1.5mm 2mm;
+    border-bottom: 0.3mm solid var(--rule);
+  }
+  .history-table td {
+    padding: 2mm;
+    border-bottom: 0.2mm solid var(--hairline);
+    vertical-align: top;
+  }
+  .hist-date { width: 18mm; font-family: 'JetBrains Mono', monospace; font-size: 8pt; color: var(--ink-soft); }
+  .hist-type { width: 22mm; font-family: 'JetBrains Mono', monospace; font-size: 7pt; font-weight: 600; letter-spacing: 0.8pt; color: var(--gold-deep); }
+  .hist-desc { font-size: 9pt; }
+  .hist-parts { font-size: 8pt; color: var(--ink-soft); margin-top: 1mm; }
+  .hist-parts-label { font-family: 'JetBrains Mono', monospace; font-size: 7pt; letter-spacing: 0.5pt; text-transform: uppercase; color: var(--gold-deep); }
+  .hist-by   { width: 32mm; font-size: 9pt; color: var(--ink-soft); }
+  .hist-cost { width: 16mm; font-family: 'JetBrains Mono', monospace; font-size: 9pt; text-align: right; color: var(--ink-soft); }
+  .hist-empty { color: var(--ink-faint); font-style: italic; padding: 4mm 2mm; text-align: center; }
+
+  /* ═══ FUTURE ENTRIES — 12 blank rows for handwriting ═══ */
+  .blank-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1mm;
+  }
+  .blank-table th {
+    text-align: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7pt;
+    font-weight: 600;
+    letter-spacing: 1pt;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    padding: 1.5mm 2mm;
+    border-bottom: 0.4mm solid var(--rule);
+  }
+  .blank-table td {
+    border-bottom: 0.2mm solid var(--hairline);
+    height: 8mm;             /* generous writing room */
+    padding: 0 2mm;
+  }
+  .blank-date { width: 22mm; }
+  .blank-work { /* takes the rest */ }
+  .blank-tech { width: 32mm; }
+  .blank-cost { width: 18mm; }
+  .blank-sign { width: 26mm; }
+
+  /* ═══ FOOTER — print metadata + scan-to-update note ═══ */
+  .foot {
+    margin-top: 6mm;
+    padding-top: 3mm;
+    border-top: 0.4mm solid var(--rule);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7pt;
+    letter-spacing: 0.8pt;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .foot strong { color: var(--gold-deep); font-weight: 600; }
+  .foot-note { text-align: right; }
+  .foot-note .lang {
+    display: block;
+    font-size: 6.5pt;
+    line-height: 1.5;
+  }
+
+  /* Decorative gold corner ornaments — same flourish as sticker. */
+  .page { position: relative; }
+  .corner {
+    position: absolute;
+    width: 6mm; height: 6mm;
+    border: 0.4mm solid var(--gold);
+    pointer-events: none;
+  }
+  .corner.tl { top: 0; left: 0; border-right: none; border-bottom: none; }
+  .corner.tr { top: 0; right: 0; border-left: none; border-bottom: none; }
+  .corner.bl { bottom: 0; left: 0; border-right: none; border-top: none; }
+  .corner.br { bottom: 0; right: 0; border-left: none; border-top: none; }
+</style>
+</head>
+<body>
+<div class="page">
+  <span class="corner tl"></span>
+  <span class="corner tr"></span>
+  <span class="corner bl"></span>
+  <span class="corner br"></span>
+
+  <!-- Header: coin / title block / QR -->
+  <header class="header">
+    <img class="header-coin" src="${coinUrl}" alt="NEXUS" crossorigin="anonymous">
+    <div class="header-brand">
+      <div class="brand-mark">N · E · X · U · S</div>
+      <h1 class="doc-title">${esc(eq.name)}</h1>
+      <div class="doc-sub">SERVICE LOG · ${esc((eq.location || '').toUpperCase())}${eq.area ? ' · ' + esc(eq.area.toUpperCase()) : ''}</div>
+    </div>
+    <div class="header-qr-block">
+      <img class="header-qr" src="${qrSrc}" alt="QR">
+      <div class="header-qr-id">${esc(eq.qr_code)}</div>
+    </div>
+  </header>
+
+  <!-- Identity grid: 8 spec fields, 4 columns × 2 rows -->
+  <div class="identity">
+    <div>
+      <div class="spec-label">Manufacturer</div>
+      <div class="spec-value">${esc(eq.manufacturer || '—')}</div>
+    </div>
+    <div>
+      <div class="spec-label">Model</div>
+      <div class="spec-value">${esc(eq.model || '—')}</div>
+    </div>
+    <div>
+      <div class="spec-label">Serial Number</div>
+      <div class="spec-value">${esc(eq.serial_number || '—')}</div>
+    </div>
+    <div>
+      <div class="spec-label">Category</div>
+      <div class="spec-value">${esc((eq.category || '—').replace(/^\w/, c => c.toUpperCase()))}</div>
+    </div>
+    <div>
+      <div class="spec-label">Installed</div>
+      <div class="spec-value">${esc(fmtDate(eq.install_date))}</div>
+    </div>
+    <div>
+      <div class="spec-label">Warranty Until</div>
+      <div class="spec-value ${warrantyValid ? '' : 'dim'}">${esc(fmtDate(eq.warranty_until))}${warrantyValid ? '' : eq.warranty_until ? ' (expired)' : ''}</div>
+    </div>
+    <div>
+      <div class="spec-label">Next PM Due</div>
+      <div class="spec-value ${pmOverdue ? '' : 'dim'}">${esc(fmtDate(eq.next_pm_date))}${pmOverdue ? ' (overdue)' : ''}</div>
+    </div>
+    <div>
+      <div class="spec-label">Asset ID</div>
+      <div class="spec-value">${esc(eq.qr_code)}</div>
+    </div>
+  </div>
+
+  <!-- Status banner — palette-coherent stripe + condition meta -->
+  ${statusBanner}
+
+  <!-- Recent service history (last 5 from equipment_maintenance) -->
+  <h2 class="section-title">Recent Service History</h2>
+  <table class="history-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Type</th>
+        <th>Work Performed</th>
+        <th>Technician</th>
+        <th style="text-align:right">Cost</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${historyRows}
+    </tbody>
+  </table>
+
+  <!-- Future entries — handwritten log -->
+  <h2 class="section-title">Future Service Entries</h2>
+  <table class="blank-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Work Performed / Notes</th>
+        <th>Technician / Company</th>
+        <th style="text-align:right">Cost</th>
+        <th>Signature</th>
+      </tr>
+    </thead>
+    <tbody>${blankRows}</tbody>
+  </table>
+
+  <!-- Footer: print metadata + reconciliation note -->
+  <div class="foot">
+    <div>
+      Printed <strong>${esc(fmtDate(today))}</strong>
+      &nbsp;·&nbsp; Sheet: ${esc(eq.qr_code)}
+    </div>
+    <div class="foot-note">
+      <span class="lang">SCAN QR ABOVE TO RECONCILE WITH NEXUS</span>
+      <span class="lang">ESCANEE EL CÓDIGO PARA SINCRONIZAR</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Wait for fonts + coin + QR to fully resolve before triggering print.
+  Promise.all([
+    document.fonts ? document.fonts.ready : Promise.resolve(),
+    ...Array.from(document.images).map(img => img.complete
+      ? Promise.resolve()
+      : new Promise(r => { img.onload = img.onerror = r; })
+    )
+  ]).then(() => setTimeout(() => window.print(), 250));
+</script>
+</body></html>`);
+  w.document.close();
+}
+
+/* ─── Mass-print sheet — picks restaurant first, then prints all
+   equipment for that location (or "all" across locations).
+   Designed for sign-shop output: produces a clean printable PDF the
+   shop can pull into Illustrator and run on aluminum or vinyl.
+   ─────────────────────────────────────────────────────────────── */
 function printQRSheet() {
-  const filtered = getFiltered();
-  if (!filtered.length) {
+  // Build a small modal with location chips + "all locations" + a count
+  // preview per location. No heavy modal infra — vanilla overlay.
+  const all = equipment.filter(e => !e.archived && e.qr_code);
+  if (!all.length) {
     NX.toast && NX.toast('No equipment to print', 'info');
     return;
   }
 
-  const stickers = filtered.map(eq => {
-    const url = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
-    const qrImgSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
-    return `
-      <div class="sticker">
-        <h3>${esc(eq.name)}</h3>
-        <div class="loc">${esc(eq.location)}${eq.area?' · '+esc(eq.area):''}</div>
-        <img src="${qrImgSrc}" alt="QR">
-        <div class="model">${esc(eq.manufacturer||'')} ${esc(eq.model||'')}</div>
-      </div>`;
-  }).join('');
+  // Pre-count per location so the user sees "Suerte (47)" not just "Suerte".
+  const counts = LOCATIONS.reduce((m, loc) => {
+    m[loc] = all.filter(e => (e.location || '') === loc).length;
+    return m;
+  }, {});
+  const totalCount = all.length;
 
-  const w = window.open('', '_blank');
-  w.document.write(`
-    <!DOCTYPE html><html><head><title>NEXUS Equipment QR Sheet</title>
+  // Use the existing modal helper if available; otherwise build inline.
+  const overlay = document.createElement('div');
+  overlay.id = 'eqPrintLocationOverlay';
+  overlay.style.cssText = `
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(8, 6, 4, 0.7);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+    font-family: 'DM Sans', system-ui, sans-serif;
+  `;
+
+  // Location chip helper — same look as the rest of NEXUS.
+  const chip = (label, count, value) => `
+    <button class="eq-print-chip" data-loc="${esc(value)}" type="button"
+      ${count === 0 ? 'disabled' : ''}>
+      <span class="chip-label">${esc(label)}</span>
+      <span class="chip-count">${count} item${count===1?'':'s'}</span>
+    </button>
+  `;
+
+  overlay.innerHTML = `
+    <div class="eq-print-modal">
+      <div class="eq-print-head">
+        <div class="eq-print-eyebrow">MASS PRINT · QR STICKERS</div>
+        <h2 class="eq-print-title">Which location?</h2>
+        <p class="eq-print-sub">Pick a restaurant — every active piece of equipment there gets its own sticker. Send the resulting PDF to your sign shop.</p>
+      </div>
+      <div class="eq-print-chips">
+        ${LOCATIONS.map(loc => chip(loc, counts[loc] || 0, loc)).join('')}
+        <button class="eq-print-chip eq-print-chip-all" data-loc="__all__" type="button">
+          <span class="chip-label">All locations</span>
+          <span class="chip-count">${totalCount} items</span>
+        </button>
+      </div>
+      <div class="eq-print-foot">
+        <button class="eq-print-cancel" type="button">Cancel</button>
+      </div>
+    </div>
     <style>
-      @page { size: letter; margin: 10mm; }
-      body{font-family:sans-serif;margin:0;padding:0}
-      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5mm}
-      .sticker{border:1.5px solid #000;padding:5mm;text-align:center;break-inside:avoid;page-break-inside:avoid}
-      h3{font-size:11pt;margin:0 0 2mm 0}
-      .loc{font-size:9pt;color:#555;margin-bottom:2mm}
-      .model{font-size:7pt;color:#666;margin-top:2mm}
-      img{width:35mm;height:35mm}
-    </style></head><body>
-    <div class="grid">${stickers}</div>
-    <script>setTimeout(()=>window.print(),1000)</script>
-    </body></html>
-  `);
-  w.document.close();
+      .eq-print-modal {
+        background: var(--surface, #1b1b24);
+        border: 1px solid rgba(212, 164, 78, 0.3);
+        border-radius: 14px;
+        max-width: 420px; width: 100%;
+        padding: 28px 24px 22px;
+        color: var(--text, #ede9e0);
+        box-shadow: 0 16px 40px rgba(0,0,0,.5);
+      }
+      .eq-print-eyebrow {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9.5px; font-weight: 600; letter-spacing: 2.5px;
+        color: var(--accent, #d4a44e); margin-bottom: 6px;
+      }
+      .eq-print-title {
+        font-family: 'Outfit', sans-serif;
+        font-size: 22px; font-weight: 500; margin: 0 0 6px;
+        letter-spacing: -0.2px;
+      }
+      .eq-print-sub {
+        font-size: 13px; color: var(--muted, #a49c94);
+        margin: 0 0 20px; line-height: 1.5;
+      }
+      .eq-print-chips {
+        display: grid; gap: 8px;
+      }
+      .eq-print-chip {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 12px 16px;
+        background: transparent;
+        border: 1px solid rgba(212, 164, 78, 0.18);
+        border-radius: 12px;
+        color: var(--text, #ede9e0);
+        font-family: inherit;
+        font-size: 14px;
+        cursor: pointer;
+        transition: background .15s, border-color .15s, transform .15s;
+        -webkit-tap-highlight-color: transparent;
+        text-align: left;
+      }
+      .eq-print-chip:hover:not(:disabled) {
+        background: rgba(212, 164, 78, 0.08);
+        border-color: rgba(212, 164, 78, 0.4);
+      }
+      .eq-print-chip:active:not(:disabled) { transform: scale(.98); }
+      .eq-print-chip:disabled {
+        opacity: 0.35; cursor: not-allowed;
+      }
+      .eq-print-chip .chip-label {
+        font-weight: 500; letter-spacing: 0.1px;
+      }
+      .eq-print-chip .chip-count {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px; color: var(--accent, #d4a44e);
+        letter-spacing: 0.5px;
+      }
+      .eq-print-chip-all {
+        margin-top: 4px;
+        background: rgba(212, 164, 78, 0.08);
+        border-color: rgba(212, 164, 78, 0.4);
+      }
+      .eq-print-foot {
+        margin-top: 20px;
+        display: flex; justify-content: flex-end;
+      }
+      .eq-print-cancel {
+        background: transparent;
+        border: 1px solid rgba(212, 164, 78, 0.18);
+        border-radius: 10px;
+        color: var(--muted, #a49c94);
+        font-family: inherit; font-size: 13px;
+        padding: 8px 16px; cursor: pointer;
+        transition: color .15s, border-color .15s;
+      }
+      .eq-print-cancel:hover {
+        color: var(--accent, #d4a44e);
+        border-color: rgba(212, 164, 78, 0.4);
+      }
+      @media (prefers-color-scheme: light) {}
+    </style>
+  `;
+
+  const close = () => overlay.remove();
+
+  overlay.addEventListener('click', e => {
+    // Click on backdrop closes
+    if (e.target === overlay) close();
+  });
+  overlay.querySelector('.eq-print-cancel').addEventListener('click', close);
+
+  overlay.querySelectorAll('.eq-print-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const loc = btn.getAttribute('data-loc');
+      const list = loc === '__all__'
+        ? all
+        : all.filter(e => (e.location || '') === loc);
+      if (!list.length) {
+        NX.toast && NX.toast(`No equipment for ${loc}`, 'info');
+        return;
+      }
+      // Sort: by location → area → name. Within a sheet, items group
+      // visually by station, so the print matches a physical walkthrough.
+      list.sort((a, b) =>
+        (a.location || '').localeCompare(b.location || '') ||
+        (a.area     || '').localeCompare(b.area     || '') ||
+        (a.name     || '').localeCompare(b.name     || '')
+      );
+      close();
+      const title = loc === '__all__'
+        ? `NEXUS QR Sheet — All locations (${list.length})`
+        : `NEXUS QR Sheet — ${loc} (${list.length})`;
+      printStickers(list, { variant: 'sheet', title });
+    });
+  });
+
+  // Esc to close
+  const onKey = (e) => {
+    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
+  };
+  document.addEventListener('keydown', onKey);
+
+  document.body.appendChild(overlay);
 }
 
 /* ─── Zebra ZPL generation ─── */
@@ -6002,6 +7042,7 @@ NX.modules.equipment = {
   quickPrint,
   printSingleQR,
   printQRSheet,
+  printServiceLog,
   copyQRLink,
 
   // Public scan (pre-auth)
