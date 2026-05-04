@@ -4754,17 +4754,81 @@ function quickPrint(equipId) {
    ════════════════════════════════════════════════════════════════════════════ */
 
 function renderPublicScanView(qrCode) {
+  // Apply theme-from-coin BEFORE first paint so the user sees the right
+  // theme on initial render. Same logic as the main app's IIFE in
+  // index.html — read nexus_theme_pref + nexus_active_persona, default
+  // to dark + Providentia for new visitors.
+  try {
+    let pref = localStorage.getItem('nexus_theme_pref');
+    if (!pref) {
+      const legacy = localStorage.getItem('nexus_theme');
+      pref = (legacy === 'dark' || legacy === 'light') ? legacy : 'auto';
+    }
+    let theme;
+    if (pref === 'dark' || pref === 'light') theme = pref;
+    else {
+      const persona = localStorage.getItem('nexus_active_persona') || 'providentia';
+      theme = persona === 'trajan' ? 'light' : 'dark';
+    }
+    document.documentElement.setAttribute('data-theme', theme);
+  } catch (_) { /* no localStorage — defaults to dark via attribute below */ }
+
+  // Mark body so the public-views.css can scope its overrides without
+  // affecting the main app surface.
+  document.body.classList.add('public-view');
+
+  const persona = localStorage.getItem('nexus_active_persona') || 'providentia';
+  const coinSrc = persona === 'trajan'
+    ? 'assets/coin-trajan.png'
+    : 'assets/coin-providentia.png';
+  const coinName = persona === 'trajan' ? 'Trajan' : 'Providentia';
+
   document.body.innerHTML = `
     <div class="public-scan-container">
-      <div class="public-scan-header">
+      <header class="public-scan-masthead">
+        <button class="public-coin" id="publicCoin" type="button" aria-label="Flip coin — change theme">
+          <img src="${coinSrc}" alt="${coinName}" draggable="false">
+          <span class="public-coin-name">${coinName}</span>
+        </button>
         <div class="public-scan-brand">NEXUS</div>
-      </div>
+      </header>
       <div class="public-scan-body" id="publicScanBody">
-        <div class="public-scan-loading">Loading equipment details…</div>
+        <div class="public-scan-loading">
+          <div class="public-scan-loader"></div>
+          <div>Loading…</div>
+        </div>
       </div>
     </div>
   `;
+  wirePublicCoin();
   loadPublicScan(qrCode);
+}
+
+// Mounted on every public view. Tap → flip persona + theme. Persists
+// to the same localStorage keys the main app reads, so the choice
+// follows the user when they log in.
+function wirePublicCoin() {
+  const coin = document.getElementById('publicCoin');
+  if (!coin) return;
+  coin.addEventListener('click', () => {
+    const cur = localStorage.getItem('nexus_active_persona') || 'providentia';
+    const next = cur === 'trajan' ? 'providentia' : 'trajan';
+    const newTheme = next === 'trajan' ? 'light' : 'dark';
+    localStorage.setItem('nexus_active_persona', next);
+    localStorage.setItem('nexus_theme_pref', 'auto');
+    document.documentElement.setAttribute('data-theme', newTheme);
+    const img = coin.querySelector('img');
+    const lbl = coin.querySelector('.public-coin-name');
+    if (img) {
+      img.src = next === 'trajan'
+        ? 'assets/coin-trajan.png'
+        : 'assets/coin-providentia.png';
+      img.alt = next === 'trajan' ? 'Trajan' : 'Providentia';
+    }
+    if (lbl) lbl.textContent = next === 'trajan' ? 'Trajan' : 'Providentia';
+    coin.classList.add('public-coin-flipped');
+    setTimeout(() => coin.classList.remove('public-coin-flipped'), 600);
+  });
 }
 
 async function loadPublicScan(qrCode) {
@@ -4792,26 +4856,38 @@ async function loadPublicScan(qrCode) {
   }
 }
 
+function _publicSvg(path, size) {
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">${path}</svg>`;
+}
+
 function renderPublicScanHTML(eq, maint) {
-  const status = {
-    operational:    { label: 'Operational',    color: '#4caf50' },
-    needs_service:  { label: 'Needs Service',  color: '#ff9800' },
-    down:           { label: 'Down',           color: '#f44336' },
-    retired:        { label: 'Retired',        color: '#888' }
-  }[eq.status] || { label: eq.status, color: '#888' };
+  // Status palette — tokens, no raw web colors. Editorial set:
+  // olive (operational), gold (needs service), oxblood (down),
+  // graphite (retired). Same family the equipment list uses
+  // post-login, so the public scan reads consistent.
+  const status = ({
+    operational:    { label: 'Operational',    color: 'var(--nx-green, #9c8a3e)' },
+    needs_service:  { label: 'Needs Service',  color: 'var(--nx-amber, #d4a44e)' },
+    down:           { label: 'Down',           color: 'var(--nx-red, #a83e3e)' },
+    retired:        { label: 'Retired',        color: 'var(--nx-faint, #6b6258)' },
+  })[eq.status] || { label: eq.status || 'Unknown', color: 'var(--nx-faint, #6b6258)' };
 
   const pm = eq.next_pm_date ? new Date(eq.next_pm_date) : null;
   const pmStr = pm ? pm.toLocaleDateString() : 'Not scheduled';
   const pmOverdue = pm && pm < new Date();
 
+  const PIN_ICON   = '<path d="M20 10c0 7-8 13-8 13s-8-6-8-13a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>';
+  const ALERT_ICON = '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>';
+  const LOGIN_ICON = '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>';
+
   document.getElementById('publicScanBody').innerHTML = `
     <div class="public-scan-card">
-      ${eq.photo_url ? `<img src="${eq.photo_url}" class="public-scan-photo">` : ''}
+      ${eq.photo_url ? `<img src="${esc(eq.photo_url)}" class="public-scan-photo" onerror="this.style.display='none'">` : ''}
       <h1 class="public-scan-name">${esc(eq.name)}</h1>
-      <div class="public-scan-loc">📍 ${esc(eq.location)}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
-      <div class="public-scan-status" style="background:${status.color}22;border-color:${status.color}">
-        <span class="public-scan-dot" style="background:${status.color}"></span>
-        <span style="color:${status.color}">${status.label}</span>
+      <div class="public-scan-loc">${_publicSvg(PIN_ICON, '14')} ${esc(eq.location)}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
+      <div class="public-scan-status" style="--pill-c:${status.color}">
+        <span class="public-scan-dot"></span>
+        <span class="public-scan-status-label">${status.label}</span>
       </div>
       <div class="public-scan-fields">
         ${eq.manufacturer ? `<div><label>Manufacturer</label><div>${esc(eq.manufacturer)}</div></div>` : ''}
@@ -4819,7 +4895,7 @@ function renderPublicScanHTML(eq, maint) {
         ${eq.serial_number ? `<div><label>Serial Number</label><div>${esc(eq.serial_number)}</div></div>` : ''}
         ${eq.install_date ? `<div><label>Installed</label><div>${new Date(eq.install_date).toLocaleDateString()}</div></div>` : ''}
         ${eq.warranty_until ? `<div><label>Warranty</label><div>${new Date(eq.warranty_until).toLocaleDateString()}</div></div>` : ''}
-        <div><label>Next PM</label><div ${pmOverdue?'style="color:#f44336"':''}>${pmStr}${pmOverdue?' (overdue)':''}</div></div>
+        <div><label>Next PM</label><div${pmOverdue ? ' class="public-scan-overdue"' : ''}>${pmStr}${pmOverdue ? ' (overdue)' : ''}</div></div>
       </div>
       ${maint.length ? `
         <div class="public-scan-section">
@@ -4835,11 +4911,11 @@ function renderPublicScanHTML(eq, maint) {
             </div>
           `).join('')}
         </div>` : ''}
-      <div class="public-scan-actions">
-        <button class="public-scan-btn public-scan-btn-primary" onclick="NX.modules.equipment.publicReportIssue('${eq.qr_code}')">🔴 Report Issue</button>
-        <button class="public-scan-btn" onclick="window.location.href='${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}&login=1'">Sign In for Full Details</button>
+      <div class="public-scan-actions" id="publicScanActions">
+        <button class="public-scan-btn public-scan-btn-primary" onclick="NX.modules.equipment.publicReportIssue('${eq.qr_code}')">${_publicSvg(ALERT_ICON, '16')} Report Issue</button>
+        <button class="public-scan-btn" onclick="window.location.href='${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}&login=1'">${_publicSvg(LOGIN_ICON, '16')} Sign In</button>
       </div>
-      <div class="public-scan-footer">Powered by NEXUS · Restaurant Operations Intelligence</div>
+      <div class="public-scan-footer">Restaurant Operations · NEXUS</div>
     </div>
   `;
 }
