@@ -23,8 +23,8 @@
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────
 const PRIORITIES = {
-  urgent: { label: 'Urgent', color: '#d45858', rank: 4 },
-  high:   { label: 'High',   color: '#e8a830', rank: 3 },
+  urgent: { label: 'Urgent', color: '#a83e3e', rank: 4 },
+  high:   { label: 'High',   color: '#d4a44e', rank: 3 },
   normal: { label: 'Normal', color: '',        rank: 2 },
   low:    { label: 'Low',    color: '#5b9bd5', rank: 1 },
 };
@@ -32,10 +32,10 @@ const PRIORITIES = {
 const LOCATIONS = [
   { key: 'suerte', label: 'Suerte', color: '#c8a44e' },
   { key: 'este',   label: 'Este',   color: '#a88fd8' },
-  { key: 'toti',   label: 'Toti',   color: '#5bba5f' },
+  { key: 'toti',   label: 'Toti',   color: '#9c8a3e' },
 ];
 
-const LABEL_COLORS = ['#d45858','#e8a830','#5bba5f','#5b9bd5','#a88fd8','#d4a44e','#6b9bf0','#a49c94'];
+const LABEL_COLORS = ['#a83e3e','#d4a44e','#9c8a3e','#5b9bd5','#a88fd8','#d4a44e','#6b9bf0','#a49c94'];
 
 // Default list structure when a brand-new board is created
 const DEFAULT_LISTS = [
@@ -61,8 +61,8 @@ const STYLES = `
   .view#boardView.active{display:flex;flex-direction:column}
   .b-summary{display:flex;gap:10px;padding:12px 12px 8px;font-size:12px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:8px}
   .b-summary-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:12px;background:rgba(255,255,255,0.04);color:var(--text,#d4c8a5)}
-  .b-summary-chip.alert{background:rgba(212,88,88,0.15);color:#e88;border:1px solid rgba(212,88,88,0.3)}
-  .b-summary-chip.ok{background:rgba(91,186,95,0.10);color:#8fd492}
+  .b-summary-chip.alert{background:rgba(168, 62, 62,0.15);color:#c8625e;border:1px solid rgba(168, 62, 62,0.3)}
+  .b-summary-chip.ok{background:rgba(156, 138, 62,0.10);color:#9c8a3e}
   .b-summary-chip.tap{cursor:pointer;user-select:none}
   .b-summary-chip.tap:active{transform:scale(0.97)}
 
@@ -73,10 +73,10 @@ const STYLES = `
      Separate from global NX.toast so bulk moves don't spam main UI. */
   .b-rt-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);font-size:11px;color:var(--text-dim,#a49c94);font-variant-numeric:tabular-nums}
   .b-rt-dot{width:7px;height:7px;border-radius:50%;background:var(--text-faint,#746c5e);flex-shrink:0;transition:background .3s,box-shadow .3s}
-  .b-rt-dot.is-live{background:#5bba5f;box-shadow:0 0 6px rgba(91,186,95,.6);animation:bRtPulse 2.4s ease-in-out infinite}
+  .b-rt-dot.is-live{background:#9c8a3e;box-shadow:0 0 6px rgba(156,138,62,.55);animation:bRtPulse 2.4s ease-in-out infinite}
   @keyframes bRtPulse{0%,100%{opacity:1}50%{opacity:.55}}
   .b-rt-toast-stack{position:fixed;bottom:80px;right:10px;display:flex;flex-direction:column;gap:6px;z-index:999;pointer-events:none;max-width:min(320px,calc(100vw - 20px))}
-  .b-rt-toast{background:rgba(20,18,14,0.95);border:1px solid rgba(200,164,78,0.25);border-left:3px solid #5bba5f;color:var(--text,#d4c8a5);padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.35;box-shadow:0 6px 20px rgba(0,0,0,0.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:bRtToastIn .22s cubic-bezier(0.2,0.8,0.2,1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .b-rt-toast{background:rgba(20,18,14,0.95);border:1px solid rgba(200,164,78,0.25);border-left:3px solid #9c8a3e;color:var(--text,#d4c8a5);padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.35;box-shadow:0 6px 20px rgba(0,0,0,0.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:bRtToastIn .22s cubic-bezier(0.2,0.8,0.2,1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
   .b-rt-toast.is-leaving{animation:bRtToastOut .3s ease forwards}
   @keyframes bRtToastIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
   @keyframes bRtToastOut{to{transform:translateX(20px);opacity:0}}
@@ -84,7 +84,8 @@ const STYLES = `
 
   .board-header{display:flex;align-items:center;gap:4px;overflow-x:auto;padding:4px 0 12px;scrollbar-width:none}
   .board-header::-webkit-scrollbar{display:none}
-  .board-tab{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--text,#d4c8a5);padding:6px 12px;border-radius:14px;font-size:12px;cursor:pointer;white-space:nowrap;border-left-width:3px}
+  .board-tab{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--text,#d4c8a5);padding:6px 12px;border-radius:14px;font-size:12px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+  .board-tab-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;display:inline-block}
   .board-tab.active{background:rgba(200,164,78,0.12);border-color:#c8a44e}
   .board-add-tab{font-weight:bold;padding:6px 10px}
 
@@ -144,20 +145,20 @@ const STYLES = `
   .b-card-label{font-size:10px;padding:2px 7px;border-radius:8px;color:#1a1408;font-weight:600}
   .b-card-badges{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:4px}
   .b-card-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,0.05);color:var(--text-dim,#a49c94)}
-  .b-card-badge.pri-urgent{background:rgba(212,88,88,0.15);color:#e88;font-weight:600}
-  .b-card-badge.pri-high{background:rgba(232,168,48,0.15);color:#e8a830}
+  .b-card-badge.pri-urgent{background:rgba(168, 62, 62,0.15);color:#c8625e;font-weight:600}
+  .b-card-badge.pri-high{background:rgba(212,164,78,0.15);color:#d4a44e}
   .b-card-badge.loc{font-weight:500}
   .b-card-badge.eq{background:rgba(200,164,78,0.10);color:#c8a44e}
-  .b-card-badge.overdue{background:rgba(212,88,88,0.20);color:#e88;font-weight:600}
+  .b-card-badge.overdue{background:rgba(168,62,62,0.18);color:#c8625e;font-weight:600}
   .b-card-meta{display:flex;gap:8px;font-size:10px;color:var(--text-faint,#746c5e);margin-top:4px;align-items:center;flex-wrap:wrap}
-  /* Meta sub-variants — age + due date urgency coloring */
-  .b-card-meta-due-soon{color:#e88;font-weight:600}
-  .b-card-meta-due-warn{color:#e8a830;font-weight:500}
+  /* Meta sub-variants — age + due date urgency coloring (palette-coherent) */
+  .b-card-meta-due-soon{color:#c8625e;font-weight:600}
+  .b-card-meta-due-warn{color:#d4a44e;font-weight:500}
   .b-card-meta-age{color:#746c5e}
-  .b-card-meta-age-warn{color:#e8a830;font-weight:500}
-  .b-card-meta-age-old{color:#e88;font-weight:600}
-  .b-card-meta-progress{color:#e8a830}
-  .b-card-meta-done{color:#5bba5f}
+  .b-card-meta-age-warn{color:#d4a44e;font-weight:500}
+  .b-card-meta-age-old{color:#c8625e;font-weight:600}
+  .b-card-meta-progress{color:#d4a44e}
+  .b-card-meta-done{color:#9c8a3e}
   .b-card-meta-assignee{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(200,164,78,0.2);color:#c8a44e;font-size:9px;font-weight:700;margin-right:-2px}
   /* Done card — fade + strike title. Cards stay visible in their terminal
      list but read as archived-in-place rather than active work. */
@@ -220,7 +221,7 @@ const STYLES = `
   .b-btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--text,#d4c8a5);padding:7px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit}
   .b-btn:active{background:rgba(255,255,255,0.08)}
   .b-btn-primary{background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;border-color:#c8a44e}
-  .b-btn-danger{background:rgba(212,88,88,0.1);color:#e88;border-color:rgba(212,88,88,0.3)}
+  .b-btn-danger{background:rgba(168, 62, 62,0.1);color:#c8625e;border-color:rgba(168, 62, 62,0.3)}
 
   /* Move picker */
   .b-move-modal{max-width:360px}
@@ -233,8 +234,8 @@ const STYLES = `
   .b-stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
   .b-stat{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:12px}
   .b-stat-num{font-size:22px;font-weight:700;color:var(--text,#d4c8a5);margin-bottom:2px}
-  .b-stat-num.alert{color:#e88}
-  .b-stat-num.ok{color:#8fd492}
+  .b-stat-num.alert{color:#c8625e}
+  .b-stat-num.ok{color:#9c8a3e}
   .b-stat-label{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-faint,#746c5e)}
 `;
 
@@ -635,7 +636,7 @@ function renderSummaryStrip(){
   </span>`;
   // Clean Up button only appears when there's meaningful backlog
   if(open > 30){
-    html += `<button class="b-summary-stats-btn" id="bCleanUpBtn" style="background:rgba(212,88,88,0.15);border-color:rgba(212,88,88,0.3);color:#e88">🧹 Clean Up</button>`;
+    html += `<button class="b-summary-stats-btn" id="bCleanUpBtn" style="background:rgba(168, 62, 62,0.15);border-color:rgba(168, 62, 62,0.3);color:#c8625e">🧹 Clean Up</button>`;
   }
   html += `<button class="b-summary-stats-btn" id="bStatsBtn">📊 Stats</button>`;
   strip.innerHTML = html;
@@ -710,7 +711,13 @@ function renderBoardHeader(){
   header.className = 'board-header';
   header.innerHTML = boards.map(b => {
     const active = b.id === activeBoard?.id ? ' active' : '';
-    return `<button class="board-tab${active}" data-bid="${b.id}" style="border-left-color:${b.color||'#c8a44e'}">${esc(b.name)}</button>`;
+    // Was: border-left:3px solid <color>. That made the pill look
+    // sharp on the left. Replaced with an inline colored dot before
+    // the label so the per-board color signal survives, but the pill
+    // shape stays fully round. The dot is 6px and inherits the same
+    // color the border used to.
+    const dotColor = b.color || '#c8a44e';
+    return `<button class="board-tab${active}" data-bid="${b.id}"><span class="board-tab-dot" style="background:${dotColor}"></span>${esc(b.name)}</button>`;
   }).join('') + '<button class="board-tab board-add-tab" id="bAddBoard">+</button>';
 
   header.querySelectorAll('.board-tab[data-bid]').forEach(btn => {
@@ -738,14 +745,14 @@ function renderFilterBar(){
   };
   let html = '';
   html += mk('priority', null, 'All', null);
-  html += mk('priority', 'urgent', '🚨 Urgent', '#d45858');
-  html += mk('priority', 'high',   '⚠ High',   '#e8a830');
+  html += mk('priority', 'urgent', '🚨 Urgent', '#a83e3e');
+  html += mk('priority', 'high',   '⚠ High',   '#d4a44e');
   html += mk('priority', 'low',    'Low',      '#5b9bd5');
   html += `<span style="width:8px"></span>`;
   // State filters — Overdue (past due) and Stale (>14d old, no due date
   // or past due). These surface cards that have fallen through cracks
   // — the "weekly cleanup" pass any kitchen manager runs Monday morning.
-  html += mk('state', 'overdue', '📅 Overdue', '#d45858');
+  html += mk('state', 'overdue', '📅 Overdue', '#a83e3e');
   html += mk('state', 'stale',   '⏱ Stale 14d+', '#a49c94');
   html += `<span style="width:8px"></span>`;
   LOCATIONS.forEach(l => {
@@ -1044,8 +1051,8 @@ function openQuickActions(card, anchorEl){
     <div class="b-qa-section">
       <div class="b-qa-label">Priority</div>
       <div class="b-qa-row">
-        <button class="b-qa-pri ${card.priority==='urgent'?'active':''}" data-pri="urgent" style="--c:#d45858">🚨 Urgent</button>
-        <button class="b-qa-pri ${card.priority==='high'?'active':''}"   data-pri="high"   style="--c:#e8a830">⚠ High</button>
+        <button class="b-qa-pri ${card.priority==='urgent'?'active':''}" data-pri="urgent" style="--c:#a83e3e">🚨 Urgent</button>
+        <button class="b-qa-pri ${card.priority==='high'?'active':''}"   data-pri="high"   style="--c:#d4a44e">⚠ High</button>
         <button class="b-qa-pri ${(card.priority==='normal'||!card.priority)?'active':''}" data-pri="normal" style="--c:#a49c94">Normal</button>
         <button class="b-qa-pri ${card.priority==='low'?'active':''}"    data-pri="low"    style="--c:#5b9bd5">Low</button>
       </div>
@@ -1704,7 +1711,7 @@ async function renderEquipmentEmbed(card, container){
     }
     const meta = [eq.category, eq.manufacturer, eq.model].filter(Boolean).join(' · ');
     const health = (eq.health_score != null)
-      ? `<span style="color:${eq.health_score>=70?'#8fd492':eq.health_score>=40?'#e8a830':'#e88'}">${eq.health_score}%</span>`
+      ? `<span style="color:${eq.health_score>=70?'#9c8a3e':eq.health_score>=40?'#d4a44e':'#c8625e'}">${eq.health_score}%</span>`
       : '—';
     container.innerHTML = `
       <div class="b-eq-embed" id="bEqGo">
@@ -2150,7 +2157,7 @@ async function openTriageModal(){
     <div class="b-modal-body" id="bTriageBody"></div>
     <div style="padding:10px 16px;border-top:1px solid rgba(255,255,255,0.05);display:flex;gap:8px;flex-wrap:wrap;background:rgba(255,255,255,0.02)">
       <button class="b-btn b-btn-danger" id="bTArchive" style="flex:1;min-width:100px">📦 Archive</button>
-      <button class="b-btn" id="bTClose" style="flex:1;min-width:100px;background:rgba(91,186,95,0.12);color:#8fd492;border-color:rgba(91,186,95,0.3)">✓ Close</button>
+      <button class="b-btn" id="bTClose" style="flex:1;min-width:100px;background:rgba(156, 138, 62,0.12);color:#9c8a3e;border-color:rgba(156, 138, 62,0.3)">✓ Close</button>
       <button class="b-btn" id="bTSkip" style="flex:1;min-width:100px">⏭ Skip</button>
     </div>
     <div style="padding:6px 16px 14px;display:flex;gap:8px;flex-wrap:wrap">
