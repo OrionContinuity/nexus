@@ -78,7 +78,7 @@
 }
 .b-summary-chip.alert strong { color: var(--nx-red) !important; }
 .b-summary-chip.ok {
-  background: rgba(91, 186, 95, 0.10) !important;
+  background: rgba(156, 138, 62, 0.10) !important;
   color: var(--nx-green) !important;
 }
 .b-summary-chip.ok strong { color: var(--nx-green) !important; }
@@ -114,8 +114,11 @@
   border-radius: var(--nx-radius-pill) !important;
 }
 .b-rt-dot.is-live {
+  /* Was bright green — swapped to olive-bronze (--nx-green now resolves
+     to #9c8a3e), with palette-coherent glow. Reads as "active, healthy"
+     without the saturated medical-app green. */
   background: var(--nx-green) !important;
-  box-shadow: 0 0 8px rgba(91, 186, 95, 0.6) !important;
+  box-shadow: 0 0 8px rgba(156, 138, 62, 0.55) !important;
 }
 
 .b-rt-toast {
@@ -123,7 +126,7 @@
   font-size: var(--nx-text-xs) !important;
   background: rgba(20, 18, 14, 0.95) !important;
   border: 1px solid var(--nx-gold-line-2) !important;
-  border-left: 3px solid var(--nx-green) !important;
+  border-left: 3px solid var(--nx-gold) !important;
   color: var(--nx-text) !important;
   border-radius: var(--nx-radius-tight) !important;
   padding: 10px 14px !important;
@@ -156,13 +159,23 @@
   letter-spacing: 0.2px !important;
   cursor: pointer !important;
   white-space: nowrap !important;
-  /* Each board has a colored left stripe — keep this Trello pattern.
-     The stripe is set via inline style="border-left-color:...". */
-  border-left-width: 3px !important;
+  /* Per-board color signal moved from a left-edge stripe to an inline
+     dot before the label. Keeps the pill genuinely round on all sides
+     while preserving the per-board color cue. See board.js render. */
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
   transition:
     background var(--nx-press),
     color var(--nx-press),
     border-color var(--nx-press) !important;
+}
+.board-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
 }
 .board-tab:hover {
   color: var(--nx-text) !important;
@@ -509,7 +522,7 @@
   font-weight: 700 !important;
 }
 .b-card-badge.pri-high {
-  background: rgba(232, 168, 48, 0.15) !important;
+  background: rgba(212, 164, 78, 0.15) !important;
   color: var(--nx-amber) !important;
 }
 .b-card-badge.loc {
