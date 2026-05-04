@@ -2632,7 +2632,29 @@
     const persona = localStorage.getItem('nexus_active_persona') || 'providentia';
     return persona === 'trajan' ? 'dark' : 'light';
   }
-  const initial = resolveTheme();
+
+  // First-paint theme.
+  //
+  // This inline script runs BEFORE preferences.js loads (and before
+  // prefs.applyEffectiveTheme can run), so it's the very first thing
+  // that decides what the browser paints. The PIN screen is always
+  // visible at this point because no user has logged in yet — the
+  // "hidden" class doesn't get added to #pinScreen until after a
+  // successful login (see app.js loginUser flow).
+  //
+  // Therefore: always paint dark on first load. The PIN screen wants
+  // to feel official / editorial — gold-on-charcoal — regardless of
+  // the user's saved persona+theme preference. Post-login, the proper
+  // theme gets re-applied by prefs.applyEffectiveTheme() in app.js.
+  //
+  // Only exception: if a user has an active session (currentUser
+  // stashed in sessionStorage by app.js post-login), respect their
+  // theme preference on reload. Otherwise — fresh session, no user
+  // yet — paint dark to match the PIN screen aesthetic.
+  let hasSession = false;
+  try { hasSession = !!sessionStorage.getItem('nexus_current_user'); }
+  catch (e) { /* sessionStorage blocked / unavailable — assume no session */ }
+  const initial = hasSession ? resolveTheme() : 'dark';
   document.documentElement.setAttribute('data-theme', initial);
 
   function updateIcon(){
