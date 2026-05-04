@@ -46,7 +46,7 @@
 <link rel="stylesheet" href="css/home.css">
 <link rel="stylesheet" href="css/chat.css">
 <link rel="stylesheet" href="css/preferences.css">
-<link rel="stylesheet" href="css/library-card.css">
+<link rel="stylesheet" href="css/daily-card.css">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0a0a0c">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -440,15 +440,31 @@
 /* Inner card — the time clock UI as a self-contained widget.
    Uses design tokens so it auto-flips with the theme. The dark
    variant comes from --nx-surface-1 in :root; light variant comes
-   from the [data-theme="light"] override in nx-system.css. */
+   from the [data-theme="light"] override in nx-system.css.
+
+   FIXED HEIGHT — critical for layout stability. Without this, the
+   card grows when tc-pin-log loads its rows, pushing the language
+   buttons (which sit outside .tc-panel) off the bottom of the
+   viewport. Locking the card to a budget keeps everything below it
+   anchored. The log section inside scrolls independently.
+
+   460px chosen empirically: enough for status + time + location +
+   buttons + ~3 visible log rows + timesheet link, on a ~660px tall
+   viewport (iPhone SE / Android compact landscape minimum). On
+   taller phones the card stays the same size — the spare space goes
+   to the lang row breathing room rather than growing the card. */
 #pinScreen .tc-card {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  padding: 18px 16px 14px;
+  padding: 16px 16px 12px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
   border-radius: 12px;
+  height: 360px;          /* fixed budget — see comment above */
+  max-height: 60vh;       /* on very small screens, never overflow viewport */
+  overflow: hidden;       /* internal scroll only happens in tc-pin-log */
+  flex-shrink: 0;
 }
 
 /* Status badge — muted caps, monospace. Color via token so it
@@ -461,7 +477,8 @@
   letter-spacing: 2px;
   text-transform: uppercase;
   color: var(--nx-faint);
-  margin: 0 0 10px;
+  margin: 0 0 8px;
+  flex-shrink: 0;
 }
 #pinScreen .tc-time {
   text-align: center;
@@ -469,8 +486,9 @@
   font-size: 18px;
   color: #c8a44e;
   letter-spacing: 1.5px;
-  margin: 0 0 14px;
+  margin: 0 0 10px;
   min-height: 0;
+  flex-shrink: 0;
 }
 #pinScreen .tc-time:empty {
   display: none;
@@ -478,7 +496,8 @@
 
 /* Location dropdown */
 #pinScreen .tc-loc-row {
-  margin: 0 0 10px;
+  margin: 0 0 8px;
+  flex-shrink: 0;
 }
 #pinScreen .tc-loc-select {
   width: 100%;
@@ -504,6 +523,7 @@
   display: flex;
   gap: 8px;
   margin: 0;
+  flex-shrink: 0;
 }
 #pinScreen .tc-btn {
   flex: 1;
@@ -544,18 +564,28 @@
   background: rgba(180, 80, 80, 0.22);
 }
 
-/* Scrollable log inside the card */
+/* Scrollable log inside the card.
+
+   Uses flex:1 + min-height:0 to absorb whatever space is left in the
+   card after the fixed-height children (status, time, location,
+   buttons, timesheet link) lay out. This is the ONLY scrollable
+   element inside .tc-card — the card itself has overflow:hidden and
+   a fixed height, so the lang-row and Enter button below the card
+   stay anchored regardless of how many log rows the user has. */
 #pinScreen .tc-pin-log {
   width: 100%;
-  max-height: 168px;
+  flex: 1 1 auto;
+  min-height: 0;          /* required for flex children to actually scroll */
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  margin: 14px 0 0;
-  padding: 6px 0 0;
+  margin: 12px 0 0;
+  padding: 4px 0 0;
   border-top: 1px solid rgba(200, 164, 78, 0.15);
 }
 #pinScreen .tc-pin-log:empty {
-  display: none;
+  /* Even when empty (still loading), keep the slot — the card has a
+     budget for it. Stops the layout from popping when rows arrive. */
+  flex: 1 1 auto;
 }
 #pinScreen .tc-pin-log::-webkit-scrollbar {
   width: 3px;
@@ -567,24 +597,65 @@
   background: rgba(200, 164, 78, 0.3);
   border-radius: 2px;
 }
-#pinScreen .tc-pin-log > div {
+/* Each row: date+location on the left, time pair on the right.
+   Tighter padding (6px) than before to fit more rows in view. */
+#pinScreen .tc-pin-log-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 9px 4px;
-  font-size: 12px;
-  color: #a89e87;
+  gap: 8px;
+  padding: 6px 4px;
+  font-size: 11.5px;
+  color: var(--nx-faint, #a89e87);
   border-bottom: 1px solid rgba(200, 164, 78, 0.08);
+  min-height: 0;
 }
-#pinScreen .tc-pin-log > div:last-child {
+#pinScreen .tc-pin-log-row:last-child {
   border-bottom: none;
 }
+/* Date column: wraps, doesn't push the times off-screen */
+#pinScreen .tc-pin-log-date {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Time pair (clock-in → clock-out, or just clock-in if active) */
+#pinScreen .tc-pin-log-times {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+  color: var(--nx-gold, #c8a44e);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+#pinScreen .tc-pin-log-times .arrow {
+  opacity: 0.5;
+  margin: 0 3px;
+}
+#pinScreen .tc-pin-log-times .active {
+  color: var(--nx-gold, #c8a44e);
+  font-style: italic;
+  opacity: 0.8;
+}
+/* Empty / loading state — keeps the slot from collapsing */
+#pinScreen .tc-pin-log-empty {
+  text-align: center;
+  font-size: 10px;
+  color: var(--nx-faint, #857f75);
+  padding: 14px 0;
+  letter-spacing: 0.5px;
+}
 
-/* Quiet text-link timesheet at bottom of card */
+/* Quiet text-link timesheet at bottom of card.
+   flex-shrink:0 + sits AFTER the flex:1 log = always pinned at bottom,
+   never compressed. The log scrolls; this link does not. */
 #pinScreen .tc-pin-actions {
   display: flex;
   flex-direction: column;
-  margin: 8px 0 0;
+  flex-shrink: 0;
+  margin: 6px 0 0;
 }
 #pinScreen .tc-download {
   background: transparent;
@@ -2489,7 +2560,7 @@
 <script src="js/translate.js"></script>
 <script src="js/composer.js"></script>
 <script src="js/app.js"></script>
-<script src="js/library.js"></script>
+<script src="js/daily-card.js"></script>
 <script src="js/home.js"></script>
 <script src="js/native-bridge.js"></script>
 <script>
