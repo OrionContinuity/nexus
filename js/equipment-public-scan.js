@@ -262,6 +262,29 @@
       --ps-status-tint: var(--ps-accent);
     }
 
+    /* ─── Light-theme palette ─────────────────────────────────────
+       Triggered when html[data-theme="light"] (set by the coin tap).
+       Cream/parchment surfaces, deep-gold text, charcoal lines.
+       Same editorial family as the post-login app's light theme so the
+       transition into the main app feels seamless. */
+    html[data-theme="light"] .nx-ps-page,
+    html[data-theme="light"].nx-ps {
+      --ps-bg: #f4ecd8;          /* cream / parchment */
+      --ps-surface: #ede2c8;
+      --ps-elevated: #e2d4b3;
+      --ps-text: #2a2008;        /* deep brown-black, easier on eyes than pure black */
+      --ps-muted: #6b5f3e;
+      --ps-faint: #968864;
+      --ps-accent: #8b6914;      /* deep gold — readable on cream */
+      --ps-border: rgba(70, 50, 18, 0.12);
+      --ps-border-strong: rgba(70, 50, 18, 0.22);
+      --ps-glow: rgba(139, 105, 20, 0.16);
+      --ps-green: #6b6014;       /* desaturated olive */
+      --ps-amber: #8b6914;
+      --ps-red:   #7a2828;       /* deep oxblood */
+      --ps-blue:  #4a5878;
+    }
+
     /* Page shell — relative for the absolute stripe child */
     .nx-ps-page {
       background: var(--ps-bg);
@@ -289,18 +312,65 @@
       pointer-events: none;
       z-index: 1;
     }
-    /* Header — minimalist, just brand wordmark */
+    /* Header — coin masthead on left, wordmark on right.
+       The coin is the same metaphor as the post-login app: tap to flip
+       persona (Trajan ↔ Providentia) which also flips theme (light ↔
+       dark). State persists to the same localStorage keys the main app
+       reads, so the user's choice carries through after they sign in. */
     .nx-ps-header {
-      padding: 22px 20px 18px;
-      text-align: center;
+      padding: 18px 20px 16px;
       border-bottom: 1px solid var(--ps-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }
     .nx-ps-brand {
       font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
-      font-size: 14px;
-      font-weight: 500;
+      font-size: 13px;
+      font-weight: 600;
       color: var(--ps-accent);
-      letter-spacing: 6px;
+      letter-spacing: 4px;
+    }
+    .nx-ps-coin {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      padding: 0;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nx-ps-coin img {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      display: block;
+      filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
+      animation: nx-ps-coin-bob 6s ease-in-out infinite;
+      transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+      user-select: none;
+    }
+    .nx-ps-coin:hover img { animation-play-state: paused; }
+    .nx-ps-coin.is-flipped img {
+      transform: rotateY(360deg);
+      animation: none;
+    }
+    .nx-ps-coin-name {
+      font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+      font-size: 8.5px;
+      font-weight: 600;
+      letter-spacing: 1.8px;
+      text-transform: uppercase;
+      color: var(--ps-accent);
+    }
+    @keyframes nx-ps-coin-bob {
+      0%, 100% { transform: translateY(0); }
+      50%      { transform: translateY(-2px); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .nx-ps-coin img { animation: none; transition: none; }
     }
     .nx-ps-body {
       padding: 24px 16px;
@@ -847,6 +917,70 @@
   `;
 
 
+  // ─── 5b. COIN MASTHEAD ──────────────────────────────────────────────
+  // The coin is the same metaphor as the post-login app: tap to flip
+  // persona, which also flips theme. State persists to localStorage so
+  // the user's choice carries through into the main app when they sign
+  // in. First-paint reads the saved preference (default Providentia +
+  // dark for new visitors).
+  function applyThemeFromPersona() {
+    try {
+      let pref = localStorage.getItem('nexus_theme_pref');
+      if (!pref) {
+        const legacy = localStorage.getItem('nexus_theme');
+        pref = (legacy === 'dark' || legacy === 'light') ? legacy : 'auto';
+      }
+      let theme;
+      if (pref === 'dark' || pref === 'light') theme = pref;
+      else {
+        const persona = localStorage.getItem('nexus_active_persona') || 'providentia';
+        theme = persona === 'trajan' ? 'light' : 'dark';
+      }
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch (_) { /* ignore */ }
+  }
+  applyThemeFromPersona();  // run immediately at module evaluation
+
+  function coinHTML() {
+    const persona = (function() {
+      try { return localStorage.getItem('nexus_active_persona') || 'providentia'; }
+      catch (_) { return 'providentia'; }
+    })();
+    const src = persona === 'trajan' ? 'assets/coin-trajan.png' : 'assets/coin-providentia.png';
+    const name = persona === 'trajan' ? 'Trajan' : 'Providentia';
+    return `<button class="nx-ps-coin" id="nxPsCoin" type="button" aria-label="Flip coin — change theme">
+      <img src="${src}" alt="${name}" draggable="false">
+      <span class="nx-ps-coin-name">${name}</span>
+    </button>`;
+  }
+
+  function wireCoin(root) {
+    const coin = root.querySelector('#nxPsCoin');
+    if (!coin) return;
+    coin.addEventListener('click', () => {
+      let cur;
+      try { cur = localStorage.getItem('nexus_active_persona') || 'providentia'; }
+      catch (_) { cur = 'providentia'; }
+      const next = cur === 'trajan' ? 'providentia' : 'trajan';
+      const newTheme = next === 'trajan' ? 'light' : 'dark';
+      try {
+        localStorage.setItem('nexus_active_persona', next);
+        localStorage.setItem('nexus_theme_pref', 'auto');
+      } catch (_) { /* private browsing — flip in-memory only */ }
+      document.documentElement.setAttribute('data-theme', newTheme);
+      const img = coin.querySelector('img');
+      const lbl = coin.querySelector('.nx-ps-coin-name');
+      if (img) {
+        img.src = next === 'trajan' ? 'assets/coin-trajan.png' : 'assets/coin-providentia.png';
+        img.alt = next === 'trajan' ? 'Trajan' : 'Providentia';
+      }
+      if (lbl) lbl.textContent = next === 'trajan' ? 'Trajan' : 'Providentia';
+      coin.classList.add('is-flipped');
+      setTimeout(() => coin.classList.remove('is-flipped'), 600);
+    });
+  }
+
+
   // ─── 6. BOOT LOADER ─────────────────────────────────────────────────
   function renderBoot() {
     // Inject styles first
@@ -1068,7 +1202,7 @@
     const html = `
       <div class="nx-ps-page" id="nx-ps-page" style="--ps-status-tint:${status.color}">
         <div class="nx-ps-status-stripe" aria-hidden="true"></div>
-        <div class="nx-ps-header"><div class="nx-ps-brand">NEXUS</div></div>
+        <div class="nx-ps-header">${coinHTML()}<div class="nx-ps-brand">NEXUS</div></div>
         <div class="nx-ps-body">
           <div class="nx-ps-card">
             ${photoHTML}
@@ -1127,6 +1261,7 @@
     wrap.id = 'nx-ps-root';
     wrap.innerHTML = html;
     document.body.appendChild(wrap);
+    wireCoin(wrap);  // tap-to-flip persona+theme
 
     // Wire up button actions
     wrap.addEventListener('click', e => {
@@ -1410,7 +1545,7 @@
     wrap.id = 'nx-ps-root';
     wrap.className = 'nx-ps-page';
     wrap.innerHTML = `
-      <div class="nx-ps-header"><div class="nx-ps-brand">NEXUS</div></div>
+      <div class="nx-ps-header">${coinHTML()}<div class="nx-ps-brand">NEXUS</div></div>
       <div class="nx-ps-error">
         <div class="nx-ps-error-icon">${icon('warning', 48)}</div>
         <div class="nx-ps-error-title">Could not load equipment</div>
@@ -1419,6 +1554,7 @@
       </div>
     `;
     document.body.appendChild(wrap);
+    wireCoin(wrap);
   }
 
   // ─── 12. MAIN ───────────────────────────────────────────────────────
