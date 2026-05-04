@@ -2696,64 +2696,39 @@ td.check{background:#F0EDE6 !important}
       this.sb.from('daily_logs').insert({entry:`[BRIEF-FEEDBACK] ${engagement}: ${readTime}s`}).then(()=>{});
     }catch(e){}
   },
-  // ═══════════════════════════════════════════════════════════════════
-  //  CLAUDE PROXY — every call to the Anthropic Messages API goes
-  //  through this helper, which routes through the Supabase chat edge
-  //  function (supabase/functions/chat/index.ts). The real Anthropic
-  //  API key lives in edge function secrets, NEVER in the browser.
-  //
-  //  Body is forwarded verbatim — pass any valid Messages API body
-  //  shape (system, messages, tools, vision, etc.). Returns the parsed
-  //  response (same shape as a direct Anthropic call: { content: [...],
-  //  stop_reason, usage, ... }).
-  //
-  //  Throws on non-2xx or on { error: ... } payloads, matching the
-  //  contract of the legacy direct-fetch sites that callers depend on.
-  // ═══════════════════════════════════════════════════════════════════
-  async callClaude(body, opts) {
-    const cfg = window.NEXUS_CONFIG || {};
-    const url  = (cfg.SUPABASE_URL || this.SUPA_URL || '').replace(/\/$/, '') + '/functions/v1/chat';
-    const anon = cfg.SUPABASE_ANON || this.SUPA_KEY || '';
-    if (!url || !anon) throw new Error('NEXUS_CONFIG missing SUPABASE_URL/SUPABASE_ANON');
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': anon,
-        'Authorization': 'Bearer ' + anon,
-      },
-      body: JSON.stringify(body),
-      signal: opts && opts.signal,
-    });
-    let data;
-    try { data = await resp.json(); }
-    catch (_) { throw new Error(`proxy returned non-JSON (status ${resp.status})`); }
-    if (!resp.ok) {
-      throw new Error(data?.error?.message || `proxy error ${resp.status}`);
-    }
-    if (data && data.error) {
-      throw new Error(data.error.message || 'Anthropic API error');
-    }
-    return data;
-  },
-
   async askClaude(system, messages, maxTokens = 600, useSearch = false) {
+    const key = this.getApiKey();
+    if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
     const body = { model: this.getModel(), max_tokens: maxTokens, system, messages };
     if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
-    const data = await this.callClaude(body);
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message || 'API error');
     return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
   },
 
   async askClaudeVision(prompt, base64Data, mimeType) {
+    const key = this.getApiKey();
+    if (!key) return '';
     try {
-      const data = await this.callClaude({
-        model: this.getModel(),
-        max_tokens: 1500,
-        messages: [{ role: 'user', content: [
-          { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Data } },
-          { type: 'text', text: prompt }
-        ]}]
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({
+          model: this.getModel(),
+          max_tokens: 1500,
+          messages: [{ role: 'user', content: [
+            { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Data } },
+            { type: 'text', text: prompt }
+          ]}]
+        })
       });
+      const data = await resp.json();
+      if (data.error) return '';
       return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
     } catch (e) { return ''; }
   },
@@ -3420,21 +3395,40 @@ NX.timeClock = {
     const list = document.getElementById('tcPinLog');
     if (!list || !NX.currentUser) return;
     try {
+      // Pull 60 days back, up to 30 rows. Plenty for "view older dates"
+      // without making the round-trip slow. The card's internal scroll
+      // surfaces them; the card itself stays a fixed height.
       const since = new Date();
-      since.setDate(since.getDate() - 14);
+      since.setDate(since.getDate() - 60);
       const { data } = await NX.sb.from('time_clock').select('*')
         .eq('user_id', NX.currentUser.id)
         .gte('clock_in', since.toISOString())
-        .order('clock_in', { ascending: false }).limit(7);
-      if (!data || !data.length) { list.innerHTML = '<div style="font-size:10px;color:var(--faint);text-align:center">No recent records</div>'; return; }
+        .order('clock_in', { ascending: false }).limit(30);
+      if (!data || !data.length) {
+        list.innerHTML = '<div class="tc-pin-log-empty">No recent records</div>';
+        return;
+      }
+      // Each row shows: day + location on the left, time pair on the right.
+      // Time pair is "8:24 AM → 4:32 PM" if both present, or
+      // "8:24 AM → active" if still clocked in. Both clock_in and
+      // clock_out get rendered so the user can audit by eye.
+      const fmtTime = d => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       list.innerHTML = data.map(r => {
         const cin = new Date(r.clock_in);
+        const cout = r.clock_out ? new Date(r.clock_out) : null;
         const day = cin.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-        const hrs = r.hours ? r.hours.toFixed(1) + 'h' : '...';
         const loc = r.location ? ` · ${r.location}` : '';
-        return `<div class="tc-pin-log-row"><span class="tc-pin-log-date">${day}${loc}</span><span class="tc-pin-log-hrs">${hrs}</span></div>`;
+        const timeHTML = cout
+          ? `${fmtTime(cin)}<span class="arrow">→</span>${fmtTime(cout)}`
+          : `${fmtTime(cin)}<span class="arrow">→</span><span class="active">active</span>`;
+        return `<div class="tc-pin-log-row">
+          <span class="tc-pin-log-date">${day}${loc}</span>
+          <span class="tc-pin-log-times">${timeHTML}</span>
+        </div>`;
       }).join('');
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[loadPinLog]', e);
+    }
   },
 
   async exportUserTimesheet() {
