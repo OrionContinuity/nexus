@@ -154,6 +154,8 @@
     cleaning:               '<path d="M3 22h18"/><path d="M6 18V8a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v10"/><path d="M9 5V3h6v2"/>',
     smallware_replacements: '<path d="M11 11.5V14"/><path d="m6 11 11.5 11.5"/><path d="m12.5 5.5 4-4 4 4-4 4Z"/>',
     foh_consumables:        '<path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/>',
+    // Synthetic kind for unified Assets view
+    equipment:              '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.121 2.121 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
   };
 
   function catIcon(cat) {
@@ -715,19 +717,65 @@
 
   /* ════════════════════════════════════════════════════════════════
      5. DATA LOADING
+     ────────────────────────────────────────────────────────────────
+     Assets in the inventory module is a UNION of two underlying
+     tables:
+       (a) inventory_assets  — small portable items (Vitamixes, scales,
+           knives) added directly through the inventory UI. Have
+           check-out/in flow, custodians, photos.
+       (b) equipment         — the existing equipment registry (fridges,
+           ovens, walk-ins). Have PM schedules, parts BOM, contractors.
+
+     Conceptually equipment IS an asset — it's something the restaurant
+     owns and tracks. Showing it in the Assets list saves the user from
+     re-entering everything. Tapping an equipment row routes to the
+     equipment module's detail (so the existing rich PM / parts / cost
+     features stay there); tapping an inventory_assets row opens the
+     inventory detail (custodian / check-out / photos).
+
+     The unified view tags each row with `_kind` ('asset' or 'equipment')
+     so the renderer + click handler know where it came from.
      ════════════════════════════════════════════════════════════════ */
   async function loadAll() {
     if (!NX.sb) return;
     try {
-      const [aRes, sRes, schRes] = await Promise.all([
+      const [aRes, sRes, schRes, eRes] = await Promise.all([
         NX.sb.from('inventory_assets').select('*')
           .is('archived_at', null).order('created_at', { ascending: false }),
         NX.sb.from('inventory_stock_with_status').select('*')
           .order('name', { ascending: true }),
         NX.sb.from('inventory_audit_schedules').select('*')
           .eq('active', true).order('next_due_date', { ascending: true }),
+        // Equipment — only the columns the asset list view needs. Skip
+        // archived rows; assume equipment.is_active is the live signal.
+        NX.sb.from('equipment')
+          .select('id, name, manufacturer, model, serial_number, location, area, status, qr_code, photo_url, category')
+          .order('name', { ascending: true }),
       ]);
-      state.assets    = aRes.data || [];
+      const invAssets = (aRes.data || []).map(a => ({ ...a, _kind: 'asset' }));
+      // Adapt equipment rows into the same shape the asset row renderer
+      // expects. Equipment statuses don't map 1:1 to asset statuses;
+      // we pin them to 'on_shelf' for routing/coloring purposes and
+      // surface the real equipment status in the row subtitle.
+      const equipAssets = (eRes.data || []).map(e => ({
+        _kind: 'equipment',
+        id: e.id,
+        internal_pn: e.qr_code || `EQ-${e.id}`,
+        qr_code: e.qr_code,
+        name: e.name,
+        manufacturer: e.manufacturer,
+        model: e.model,
+        serial_number: e.serial_number,
+        category: 'equipment',  // synthetic category for filter
+        status: 'on_shelf',     // equipment doesn't use asset statuses
+        _equipment_status: e.status,  // preserve real status for subtitle
+        home_location: e.location,
+        current_location: e.area,
+        custodian_user_id: null,
+        primary_photo_url: e.photo_url,
+        photos: [],
+      }));
+      state.assets    = [...invAssets, ...equipAssets];
       state.stock     = sRes.data || [];
       state.schedules = schRes.data || [];
     } catch (e) {
@@ -883,30 +931,57 @@
     if (f.assetLocation !== 'all') list = list.filter(a => a.home_location === f.assetLocation);
     if (f.assetCategory !== 'all') list = list.filter(a => a.category === f.assetCategory);
     if (f.assetStatus !== 'all')   list = list.filter(a => a.status === f.assetStatus);
+    if (f.assetKind && f.assetKind !== 'all') list = list.filter(a => a._kind === f.assetKind);
     return list;
   }
 
   function assetRowHTML(a) {
+    const isEquip = a._kind === 'equipment';
     const iconBlock = a.primary_photo_url
-      ? `<img class="inv-row-img" src="${esc(a.primary_photo_url)}" alt="">`
+      ? `<img class="inv-row-img" src="${esc(a.primary_photo_url)}" alt="" onerror="this.outerHTML='<div class=\\'inv-row-icon\\'>${catIcon(a.category).replace(/'/g, '&#39;')}</div>'">`
       : `<div class="inv-row-icon">${catIcon(a.category)}</div>`;
+    // Right side shows status pill for inventory assets; for equipment
+    // we show a small "EQUIP" tag plus its real status. Different visual
+    // treatment is intentional — it tells the user this row routes to a
+    // different module.
+    const right = isEquip
+      ? `<span class="inv-pill" style="--pill-c:#9c8a3e;font-size:8.5px;letter-spacing:1.5px">EQUIP</span>`
+      : statusPill(a.status);
+    const subParts = [
+      esc(a.internal_pn),
+      esc(a.home_location),
+    ];
+    if (isEquip && a._equipment_status) subParts.push(esc(a._equipment_status));
+    if (!isEquip && a.custodian_user_id) subParts.push('loaned');
+    // data-kind drives the click handler routing — see wireEvents
     return `
-      <div class="inv-row" data-asset-id="${a.id}">
+      <div class="inv-row" data-asset-id="${a.id}" data-kind="${isEquip ? 'equipment' : 'asset'}">
         ${iconBlock}
         <div class="inv-row-body">
           <div class="inv-row-title">${esc(a.name)}</div>
-          <div class="inv-row-sub">${esc(a.internal_pn)} · ${esc(a.home_location)}${a.custodian_user_id ? ' · loaned' : ''}</div>
+          <div class="inv-row-sub">${subParts.filter(Boolean).join(' · ')}</div>
         </div>
-        <div class="inv-row-right">${statusPill(a.status)}</div>
+        <div class="inv-row-right">${right}</div>
       </div>
     `;
   }
 
   function assetsViewHTML() {
     const list = filteredAssets();
+    const counts = {
+      all:       state.assets.length,
+      asset:     state.assets.filter(a => a._kind === 'asset').length,
+      equipment: state.assets.filter(a => a._kind === 'equipment').length,
+    };
+    const kind = state.filters.assetKind || 'all';
     return `
       <div class="inv-listhead">
-        <input type="text" class="inv-search" id="invAssetSearch" placeholder="Search assets…" value="${esc(state.filters.assetSearch)}">
+        <input type="text" class="inv-search" id="invAssetSearch" placeholder="Search assets & equipment…" value="${esc(state.filters.assetSearch)}">
+        <div class="inv-filter-row">
+          <button class="inv-chip ${kind === 'all' ? 'active' : ''}" data-filter="assetKind" data-val="all">All ${counts.all}</button>
+          <button class="inv-chip ${kind === 'asset' ? 'active' : ''}" data-filter="assetKind" data-val="asset">Assets ${counts.asset}</button>
+          <button class="inv-chip ${kind === 'equipment' ? 'active' : ''}" data-filter="assetKind" data-val="equipment">Equipment ${counts.equipment}</button>
+        </div>
         <div class="inv-filter-row">
           <button class="inv-chip ${state.filters.assetLocation === 'all' ? 'active' : ''}" data-filter="assetLocation" data-val="all">All sites</button>
           ${LOCATIONS.map(loc => `<button class="inv-chip ${state.filters.assetLocation === loc ? 'active' : ''}" data-filter="assetLocation" data-val="${esc(loc)}">${esc(loc)}</button>`).join('')}
@@ -917,7 +992,7 @@
         </div>
       </div>
       ${list.length ? `<div class="inv-list">${list.map(assetRowHTML).join('')}</div>` :
-        renderEmptyList('asset', state.filters.assetSearch || state.filters.assetLocation !== 'all' || state.filters.assetCategory !== 'all')}
+        renderEmptyList('asset', state.filters.assetSearch || state.filters.assetLocation !== 'all' || state.filters.assetCategory !== 'all' || (state.filters.assetKind && state.filters.assetKind !== 'all'))}
     `;
   }
 
@@ -2254,6 +2329,35 @@ Suggested order: ${(stock.par_level - currentCount) * 2} units (rebuild buffer)`
     render();
   }
 
+  // Click router for the unified Assets list. Equipment rows hand off
+  // to the equipment module's detail view; native inventory_assets rows
+  // open the inventory detail. The data-kind attribute is the source
+  // of truth (set by assetRowHTML).
+  function handleAssetRowClick(row) {
+    const id = parseInt(row.getAttribute('data-asset-id'));
+    const kind = row.getAttribute('data-kind');
+    const asset = state.assets.find(a => a.id === id && a._kind === kind);
+    if (!asset) return;
+    if (kind === 'equipment') {
+      // Hand off to equipment module. Switch view first so it loads,
+      // then open detail. The setTimeout buffers the lazy-load of
+      // equipment.js if it hasn't been initialized yet.
+      const open = () => {
+        if (NX.modules?.equipment?.openDetail) {
+          NX.modules.equipment.openDetail(id);
+        } else {
+          NX.toast?.('Loading equipment…', 'info');
+          setTimeout(open, 200);
+        }
+      };
+      if (NX.switchTo) NX.switchTo('equipment');
+      setTimeout(open, 250);
+      return;
+    }
+    // Native inventory asset
+    openAssetDetail(asset);
+  }
+
   function wireEvents(root) {
     // Tab switch
     root.querySelectorAll('.inv-tab').forEach(btn => {
@@ -2310,13 +2414,9 @@ Suggested order: ${(stock.par_level - currentCount) * 2} units (rebuild buffer)`
         const newHtml = filtered.length ? `<div class="inv-list">${filtered.map(assetRowHTML).join('')}</div>` : renderEmptyList('asset', true);
         if (list) list.outerHTML = newHtml;
         else if (empty) empty.outerHTML = newHtml;
-        // Re-bind row clicks
+        // Re-bind row clicks (both kinds — see handleAssetRowClick)
         root.querySelectorAll('[data-asset-id]').forEach(row => {
-          row.addEventListener('click', () => {
-            const id = parseInt(row.getAttribute('data-asset-id'));
-            const asset = state.assets.find(a => a.id === id);
-            if (asset) openAssetDetail(asset);
-          });
+          row.addEventListener('click', () => handleAssetRowClick(row));
         });
       }
     });
@@ -2353,13 +2453,9 @@ Suggested order: ${(stock.par_level - currentCount) * 2} units (rebuild buffer)`
       });
     });
 
-    // Row clicks — assets
+    // Row clicks — assets (routes by kind: equipment → equipment module)
     root.querySelectorAll('[data-asset-id]').forEach(row => {
-      row.addEventListener('click', () => {
-        const id = parseInt(row.getAttribute('data-asset-id'));
-        const asset = state.assets.find(a => a.id === id);
-        if (asset) openAssetDetail(asset);
-      });
+      row.addEventListener('click', () => handleAssetRowClick(row));
     });
 
     // Row clicks — stock
