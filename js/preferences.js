@@ -213,10 +213,24 @@
     // editorial in dark mode (gold-on-charcoal, the primary brand
     // identity). If we're showing the PIN screen, force dark and
     // skip the cross-fade so it doesn't flash light first.
+    //
+    // The PIN screen uses class `hidden` (set by app.js post-login),
+    // which CSS only fades to opacity:0 — display stays `flex`. So the
+    // robust signal that PIN is *no longer in use* is either the
+    // `hidden` class OR a faded-out opacity. Both are checked. (Earlier
+    // code looked for `is-hidden`, which never matched, so post-login
+    // theme switching was permanently locked to dark.)
     const pinScreen = document.getElementById('pinScreen');
-    const pinVisible = pinScreen && pinScreen.style.display !== 'none' &&
-                       !pinScreen.classList.contains('is-hidden') &&
-                       getComputedStyle(pinScreen).display !== 'none';
+    let pinVisible = false;
+    if (pinScreen) {
+      const inlineDisplayHidden = pinScreen.style.display === 'none';
+      const classHidden = pinScreen.classList.contains('hidden');
+      const cs = getComputedStyle(pinScreen);
+      const computedDisplayHidden = cs.display === 'none';
+      const opacityFaded = parseFloat(cs.opacity || '1') < 0.05;
+      pinVisible = !(inlineDisplayHidden || classHidden ||
+                     computedDisplayHidden || opacityFaded);
+    }
     const next = pinVisible ? 'dark' : effectiveTheme();
     const root = document.documentElement;
     const prev = root.getAttribute('data-theme');
