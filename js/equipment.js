@@ -44,6 +44,27 @@ const CATEGORIES = [
   { key: 'furniture',     label: 'Furniture',     icon: '🪑' },
   { key: 'other',         label: 'Other',         icon: '⚙' }
 ];
+
+/* ─── Category icon SVG paths ───────────────────────────────────────
+   Replaces the emoji icons with clean Lucide-based line art that
+   matches the rest of the NEXUS visual language (used elsewhere in
+   the public scan and on the QR sticker pages). Emojis render
+   inconsistently across devices and feel out-of-place against the
+   editorial typography. SVG glyphs scale with parent font-size and
+   inherit currentColor, so they pick up the gold accent automatically.
+   Paths are lifted from lucide-static (MIT). 24×24 viewBox. */
+const ICON_PATHS = {
+  refrigeration: '<path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M3 10h18"/><path d="M8 6v0"/><path d="M8 14v0"/>',
+  cooking:       '<path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/>',
+  ice:           '<path d="M2 12h20"/><path d="M12 2v20"/><path d="m4.93 4.93 14.14 14.14"/><path d="m19.07 4.93-14.14 14.14"/>',
+  hvac:          '<path d="M12 12v9"/><path d="M12 3v3"/><path d="m4.93 4.93 2.12 2.12"/><path d="m16.95 16.95 2.12 2.12"/><path d="M3 12h3"/><path d="M18 12h3"/><path d="m4.93 19.07 2.12-2.12"/><path d="m16.95 7.05 2.12-2.12"/><circle cx="12" cy="12" r="3"/>',
+  dish:          '<path d="M3 12c.5-2 1.5-3 3-3 1.5 0 2.5 1 3 3"/><path d="M9 12c.5-2 1.5-3 3-3 1.5 0 2.5 1 3 3"/><path d="M15 12c.5-2 1.5-3 3-3 1.5 0 2.5 1 3 3"/><path d="M3 18h18"/><path d="M5 18l1 3h12l1-3"/>',
+  bev:           '<path d="M8 2h8"/><path d="M9 2v2.789a4 4 0 0 1-.672 2.219l-.656.984A4 4 0 0 0 7 10.212V20a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-9.789a4 4 0 0 0-.672-2.219l-.656-.984A4 4 0 0 1 15 4.788V2"/>',
+  smallware:     '<path d="M8 7V2"/><path d="M11 4V2"/><path d="M5 4V2"/><path d="M5 7c0 4 1 6 3 6h0c2 0 3-2 3-6"/><path d="M8 13v9"/><path d="M16 22V2c2 0 3 1 3 4v7h-3"/>',
+  furniture:     '<path d="M2 9V5a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v4"/><path d="M2 11v5a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H6v-2a2 2 0 0 0-4 0z"/><path d="M4 18v2"/><path d="M20 18v2"/>',
+  other:         '<circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/>',
+};
+
 const STATUSES = [
   { key: 'operational',   label: 'Operational',   color: 'var(--green)' },
   { key: 'needs_service', label: 'Needs Service', color: 'var(--amber)' },
@@ -56,7 +77,7 @@ const RELATIONSHIP_TYPES = [
   { key: 'connected_to',   label: 'Connected to',   icon: '⇄' },
   { key: 'feeds',          label: 'Feeds',          icon: '→' },
   { key: 'pairs_with',     label: 'Pairs with',     icon: '⇋' },
-  { key: 'shares_circuit', label: 'Shares circuit', icon: '⚡' },
+  { key: 'shares_circuit', label: 'Shares circuit', icon: '±' },
 ];
 const ZEBRA_CONFIG = {
   dpi: 203,
@@ -954,7 +975,7 @@ function openEditModal(id) {
             <div class="eq-form-group">
               <label>Category</label>
               <select name="category">
-                ${CATEGORIES.map(c => `<option value="${c.key}" ${eq.category===c.key?'selected':''}>${c.icon} ${c.label}</option>`).join('')}
+                ${CATEGORIES.map(c => `<option value="${c.key}" ${eq.category===c.key?'selected':''}>${c.label}</option>`).join('')}
               </select>
             </div>
             <div class="eq-form-group">
@@ -1802,7 +1823,7 @@ function openPrepopulatedAddModal(data, dataPlateUrl) {
             <div class="eq-form-group">
               <label>Category</label>
               <select name="category">
-                ${CATEGORIES.map(c => `<option value="${c.key}" ${catGuess===c.key?'selected':''}>${c.icon} ${c.label}</option>`).join('')}
+                ${CATEGORIES.map(c => `<option value="${c.key}" ${catGuess===c.key?'selected':''}>${c.label}</option>`).join('')}
               </select>
             </div>
           </div>
@@ -6796,7 +6817,16 @@ function blobToBase64(blob) {
 
 function statusColor(s) { return STATUSES.find(x => x.key === s)?.color || 'var(--muted)'; }
 function statusLabel(s) { return STATUSES.find(x => x.key === s)?.label || s; }
-function catIcon(c)     { return CATEGORIES.find(x => x.key === c)?.icon  || '⚙'; }
+/* catIcon — emits a Lucide-style line-art SVG glyph for an equipment
+   category. Replaces the emoji approach (inconsistent rendering across
+   devices, off-aesthetic). The SVG sizes itself to the parent's
+   font-size via 1em width/height, and inherits color via currentColor —
+   so existing call sites that style .eq-cat-icon (font-size:22px) and
+   .eq-cat-icon-lg (font-size:32px) work without changes. */
+function catIcon(c) {
+  const path = ICON_PATHS[c] || ICON_PATHS.other;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">${path}</svg>`;
+}
 
 function statusDot(s) {
   const dotColors = {
