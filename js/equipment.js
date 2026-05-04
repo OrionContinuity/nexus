@@ -172,8 +172,8 @@ function buildUI() {
         <h2 class="eq-title">🔧 Equipment</h2>
         <div class="eq-actions">
           <button class="eq-btn eq-btn-primary eq-ai-create-btn" id="eqAiCreateBtn" title="AI create equipment from photo or description">✨ AI Create</button>
-          <button class="eq-btn eq-btn-secondary eq-zebra-header-btn" id="eqZebraHeaderBtn" title="Print labels on Zebra printer">🏷️ Zebra</button>
-          <button class="eq-btn eq-btn-secondary" id="eqPrintQRs" title="Print QR sticker sheet">🖨 QR Sheet</button>
+          <button class="eq-btn eq-btn-secondary eq-zebra-header-btn" id="eqZebraHeaderBtn" title="Print labels on Zebra printer">Zebra</button>
+          <button class="eq-btn eq-btn-secondary" id="eqPrintQRs" title="Print QR sticker sheet">QR Sheet</button>
           <button class="eq-btn eq-btn-secondary" id="eqAddBtn">+ Manual</button>
         </div>
       </div>
@@ -571,7 +571,7 @@ function ensureBoardStyles() {
     .eq-open-card:active{background:rgba(20,18,14,0.85)}
     .eq-open-card-title{flex:1;color:var(--text,#d4c8a5);font-weight:500}
     .eq-open-card-meta{font-size:10px;color:var(--text-dim,#a49c94)}
-    .eq-open-card-overdue{color:#e88;font-weight:600;font-size:10px}
+    .eq-open-card-overdue{color:#c8625e;font-weight:600;font-size:10px}
   `;
   document.head.appendChild(s);
 }
@@ -604,7 +604,7 @@ async function loadOpenCardsForEquipment(eq) {
     return;
   }
 
-  const PRI_COLOR = { urgent:'#d45858', high:'#e8a830', normal:'#a49c94', low:'#5b9bd5' };
+  const PRI_COLOR = { urgent:'#a83e3e', high:'#d4a44e', normal:'#a49c94', low:'#5b9bd5' };
   const today = new Date(new Date().toDateString()).getTime();
 
   container.innerHTML = `
@@ -748,7 +748,7 @@ function renderOverview(eq, attachments, customFields) {
 
     ${customFields.length ? `
       <div class="eq-overview-section">
-        <h4>🏷️ Custom Fields</h4>
+        <h4>Custom Fields</h4>
         <div class="eq-fields">
           ${customFields.map(f => `
             <div class="eq-field">
@@ -917,9 +917,9 @@ function renderQR(eq) {
       <div class="eq-qr-code">${esc(eq.qr_code)}</div>
       <div class="eq-qr-url">${scanURL}</div>
       <div class="eq-qr-actions">
-        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.printZebraSingle('${eq.id}')">🏷️ Print on Zebra</button>
-        <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.printSingleQR('${eq.id}')">🖨 Paper Sticker</button>
-        <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.printServiceLog('${eq.id}')">📋 Service Log Sheet</button>
+        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.printZebraSingle('${eq.id}')">Print on Zebra</button>
+        <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.printSingleQR('${eq.id}')">Paper Sticker</button>
+        <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.printServiceLog('${eq.id}')">Service Log Sheet</button>
         <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.copyQRLink('${eq.qr_code}')">Copy Link</button>
       </div>
     </div>`;
@@ -2557,7 +2557,7 @@ async function exportPartsCart(equipId) {
             const text = ${JSON.stringify(list.map(p => `${p.name} | PN: ${p.pn} | Qty: ${p.qty} | ${p.url}`).join('\n'))};
             navigator.clipboard.writeText(text);
             NX.toast && NX.toast('List copied ✓', 'success');
-          ">📋 Copy List</button>
+          ">Copy List</button>
         </div>
       </div>
     </div>
@@ -4490,7 +4490,7 @@ function openZebraPrintDialog(equipmentList, preselectedSize) {
     <div class="eq-detail eq-edit">
       <div class="eq-detail-head">
         <button class="eq-close" onclick="document.getElementById('zebraPrintModal').classList.remove('active')">✕</button>
-        <h2>🏷️ Print Zebra Labels (${count})</h2>
+        <h2>Print Zebra Labels (${count})</h2>
       </div>
       <div class="eq-detail-body">
         <div class="eq-zebra-tabs">
@@ -4515,7 +4515,7 @@ function openZebraPrintDialog(equipmentList, preselectedSize) {
             </select>
           </div>
           <div class="eq-form-actions">
-            <button class="eq-btn eq-btn-primary" id="zebraPrintBtn">🖨️ Print ${count} Label${count > 1 ? 's' : ''}</button>
+            <button class="eq-btn eq-btn-primary" id="zebraPrintBtn">Print ${count} Label${count > 1 ? 's' : ''}</button>
           </div>
         </div>
 
@@ -4535,7 +4535,7 @@ function openZebraPrintDialog(equipmentList, preselectedSize) {
           </div>
           <div class="eq-form-actions">
             <button class="eq-btn eq-btn-primary" id="zebraDownloadBtn">💾 Download ZPL File</button>
-            <button class="eq-btn eq-btn-secondary" id="zebraCopyBtn">📋 Copy ZPL</button>
+            <button class="eq-btn eq-btn-secondary" id="zebraCopyBtn">Copy ZPL</button>
           </div>
         </div>
 
@@ -4587,7 +4587,7 @@ function openZebraPrintDialog(equipmentList, preselectedSize) {
     } else {
       NX.toast && NX.toast('Print failed: ' + result.error, 'error', 8000);
       btn.disabled = false;
-      btn.textContent = `🖨️ Print ${count} Label${count > 1 ? 's' : ''}`;
+      btn.textContent = `Print ${count} Label${count > 1 ? 's' : ''}`;
     }
   });
 
