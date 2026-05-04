@@ -24,6 +24,7 @@ en:{
   log:'Log',
   board:'Board',
   cal:'Cal',
+  inventory:'Inventory',
   ingest:'Ingest',
 
   // ── BRAIN ──
@@ -177,6 +178,7 @@ es:{
   log:'Registro',
   board:'Tablero',
   cal:'Cal',
+  inventory:'Inventario',
   ingest:'Ingesta',
 
   // ── BRAIN ──
