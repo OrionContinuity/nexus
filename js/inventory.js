@@ -173,10 +173,20 @@
      ════════════════════════════════════════════════════════════════ */
 
   const STYLES = `
+    /* ─── Module shell ──────────────────────────────────────────
+       box-sizing: border-box on every descendant prevents the
+       overflow-on-right bug where padding+border on inputs got
+       added to width:100%, pushing the search bar past the screen
+       edge. min-width:0 on flex children stops them from refusing
+       to shrink below their intrinsic content size (the classic
+       "tabs bleed off the right side" trap on iOS).                */
+    #inventoryView, #inventoryView * { box-sizing: border-box; }
     #inventoryView {
       font-family: 'DM Sans', system-ui, sans-serif;
       color: var(--nx-text);
       padding: 0 0 80px;
+      max-width: 100vw;
+      overflow-x: hidden;  /* defense in depth — nothing should clip but if it does, hide it */
     }
     .inv-wrap { max-width: 720px; margin: 0 auto; padding: 18px 16px 0; }
 
@@ -187,7 +197,8 @@
     }
     .inv-tabs::-webkit-scrollbar { display: none; }
     .inv-tab {
-      flex: 1; padding: 8px 14px; min-height: 36px; border: none;
+      flex: 1 1 0; min-width: 0;  /* min-width 0 lets flex shrink below content size */
+      padding: 8px 14px; min-height: 36px; border: none;
       background: transparent; color: var(--nx-muted); font-family: inherit;
       font-size: 12.5px; font-weight: 500; letter-spacing: 0.3px;
       border-radius: 999px; cursor: pointer; white-space: nowrap;
@@ -937,8 +948,16 @@
 
   function assetRowHTML(a) {
     const isEquip = a._kind === 'equipment';
+    // Image-or-icon block. Both renderings sit in column 1 of the grid
+    // and are sized 36×36 by CSS — neither escapes its slot. If the
+    // image fails to load, onerror just hides it; the parent column
+    // stays at 36px (set by grid-template-columns), no layout shift.
+    // Earlier code tried to swap the <img> for a <div> via outerHTML
+    // inside the onerror attribute — escaping was wrong, the resulting
+    // HTML broke the grid, and the image rendered at intrinsic size
+    // overlapping the title.
     const iconBlock = a.primary_photo_url
-      ? `<img class="inv-row-img" src="${esc(a.primary_photo_url)}" alt="" onerror="this.outerHTML='<div class=\\'inv-row-icon\\'>${catIcon(a.category).replace(/'/g, '&#39;')}</div>'">`
+      ? `<img class="inv-row-img" src="${esc(a.primary_photo_url)}" alt="" onerror="this.style.display='none'">`
       : `<div class="inv-row-icon">${catIcon(a.category)}</div>`;
     // Right side shows status pill for inventory assets; for equipment
     // we show a small "EQUIP" tag plus its real status. Different visual
