@@ -1,0 +1,392 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Library card — daily reading audio player
+   ─────────────────────────────────────────────────────────────────────
+   Renders the daily card on Home: track tag, book + chapter heading,
+   audio player with scrubber + skip/speed controls, mark-done button,
+   and a collapsible "switch book" drawer.
+
+   Uses --nx-* design tokens so dark/light themes are automatic.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+
+/* ─── Card shell ──────────────────────────────────────────────────────── */
+.lib-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 18px 14px;
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in oklab, var(--nx-surface-1) 100%, transparent 0%) 0%,
+      color-mix(in oklab, var(--nx-surface-2) 100%, transparent 0%) 100%);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  color: var(--nx-text);
+  position: relative;
+  overflow: hidden;
+}
+/* Soft gold edge on top — same accent as glance items */
+.lib-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--nx-gold-line-2, rgba(200,164,78,.4)) 50%,
+    transparent 100%);
+}
+
+.lib-card-loading,
+.lib-card-empty {
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  text-align: center;
+  color: var(--nx-faint);
+  font-size: 13px;
+  letter-spacing: 0.3px;
+}
+.lib-empty-msg {
+  line-height: 1.5;
+  max-width: 320px;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 11.5px;
+}
+
+
+/* ─── Track tag row ───────────────────────────────────────────────────── */
+.lib-track-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.lib-track-tag {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--nx-gold);
+  text-transform: uppercase;
+}
+.lib-swap-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--nx-gold-line);
+  background: transparent;
+  border-radius: 10px;
+  color: var(--nx-faint);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s, transform .25s;
+  -webkit-tap-highlight-color: transparent;
+}
+.lib-swap-btn:hover,
+.lib-swap-btn:focus-visible {
+  color: var(--nx-gold);
+  border-color: var(--nx-gold-line-2, rgba(200,164,78,.4));
+}
+.lib-swap-btn.is-open {
+  transform: rotate(180deg);
+  color: var(--nx-gold);
+}
+.lib-swap-btn:active { transform: scale(.94); }
+.lib-swap-btn.is-open:active { transform: rotate(180deg) scale(.94); }
+
+
+/* ─── Heading ─────────────────────────────────────────────────────────── */
+.lib-book-title {
+  margin: 2px 0 0;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -0.2px;
+  color: var(--nx-text);
+}
+.lib-book-meta {
+  font-size: 12.5px;
+  color: var(--nx-muted);
+  letter-spacing: 0.1px;
+}
+.lib-chapter-line {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 11.5px;
+  color: var(--nx-faint);
+  letter-spacing: 0.3px;
+  margin-top: 2px;
+}
+.lib-chapter-pos {
+  color: var(--nx-muted);
+}
+
+
+/* ─── Player ──────────────────────────────────────────────────────────── */
+.lib-player {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--nx-gold-line);
+}
+.lib-play-btn {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 1px solid var(--nx-gold-line-2, rgba(200,164,78,.4));
+  background: var(--nx-gold-soft, rgba(200,164,78,.08));
+  color: var(--nx-gold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform .15s, background .15s, border-color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.lib-play-btn:hover { background: var(--nx-gold-soft, rgba(200,164,78,.14)); }
+.lib-play-btn:active { transform: scale(.94); }
+.lib-play-btn.is-playing {
+  background: var(--nx-gold);
+  color: var(--nx-bg);
+  border-color: var(--nx-gold);
+}
+.lib-play-btn svg { display: block; }
+
+.lib-player-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+
+/* ─── Scrubber ────────────────────────────────────────────────────────── */
+.lib-scrub {
+  position: relative;
+  height: 22px;                 /* large hit target for fingers */
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;           /* lets us handle drag without page scroll */
+}
+.lib-scrub-track {
+  position: absolute;
+  left: 0; right: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--nx-gold-line);
+}
+.lib-scrub-fill {
+  position: absolute;
+  left: 0;
+  height: 3px;
+  width: 0%;
+  border-radius: 2px;
+  background: var(--nx-gold);
+  pointer-events: none;
+  transition: width .08s linear;
+}
+.lib-scrub-knob {
+  position: absolute;
+  left: 0%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--nx-gold);
+  box-shadow: 0 0 0 3px var(--nx-bg), 0 1px 4px rgba(0,0,0,.3);
+  pointer-events: none;
+  transition: left .08s linear;
+}
+
+
+/* ─── Time row + sub-controls ─────────────────────────────────────────── */
+.lib-time-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 10.5px;
+  color: var(--nx-faint);
+  letter-spacing: 0.5px;
+}
+.lib-time-cur, .lib-time-tot {
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+}
+.lib-time-tot { text-align: right; }
+
+.lib-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.lib-skip-back, .lib-skip-fwd, .lib-speed {
+  background: transparent;
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 8px;
+  color: var(--nx-muted);
+  padding: 4px 8px;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s, transform .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.lib-skip-back:hover, .lib-skip-fwd:hover, .lib-speed:hover {
+  color: var(--nx-gold);
+  border-color: var(--nx-gold-line-2, rgba(200,164,78,.4));
+}
+.lib-skip-back:active, .lib-skip-fwd:active, .lib-speed:active {
+  transform: scale(.94);
+}
+.lib-speed { min-width: 38px; text-align: center; }
+
+
+/* ─── Footer ──────────────────────────────────────────────────────────── */
+.lib-footer {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.lib-done-btn {
+  background: transparent;
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  color: var(--nx-gold);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, transform .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.lib-done-btn:hover {
+  background: var(--nx-gold-soft, rgba(200,164,78,.08));
+  border-color: var(--nx-gold-line-2, rgba(200,164,78,.4));
+}
+.lib-done-btn:active { transform: scale(.97); }
+
+.lib-stat {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 10.5px;
+  color: var(--nx-faint);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  text-align: right;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+
+/* ─── Swap drawer ─────────────────────────────────────────────────────── */
+.lib-swap-drawer {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--nx-gold-line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lib-swap-drawer[hidden] { display: none; }
+.lib-swap-label {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 9.5px;
+  color: var(--nx-faint);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.lib-swap-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lib-swap-option {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 4px 10px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--nx-text);
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.lib-swap-option:hover {
+  background: var(--nx-gold-soft, rgba(200,164,78,.06));
+  border-color: var(--nx-gold-line-2, rgba(200,164,78,.4));
+}
+.lib-swap-option:active { transform: scale(.99); }
+.lib-swap-title {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--nx-text);
+}
+.lib-swap-author {
+  grid-column: 1;
+  grid-row: 2;
+  font-size: 11.5px;
+  color: var(--nx-muted);
+}
+.lib-swap-meta {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 10px;
+  color: var(--nx-faint);
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+
+
+/* ─── Reduced motion ──────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .lib-scrub-fill, .lib-scrub-knob,
+  .lib-swap-btn, .lib-play-btn,
+  .lib-skip-back, .lib-skip-fwd, .lib-speed,
+  .lib-done-btn, .lib-swap-option {
+    transition: none !important;
+  }
+  .lib-swap-btn.is-open { transform: none; }
+}
+
+
+/* ─── Mobile tightening ───────────────────────────────────────────────── */
+@media (max-width: 380px) {
+  .lib-card { padding: 16px 14px 12px; }
+  .lib-book-title { font-size: 17px; }
+  .lib-play-btn { width: 50px; height: 50px; }
+  .lib-time-row { font-size: 10px; }
+  .lib-controls { gap: 4px; }
+  .lib-skip-back, .lib-skip-fwd, .lib-speed {
+    padding: 4px 6px; font-size: 10px;
+  }
+  .lib-stat {
+    /* Drop the stat on cramped phones — the mark-done button is more important */
+    display: none;
+  }
+}
