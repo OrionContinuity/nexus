@@ -355,12 +355,22 @@
    unambiguous primary action. Cleaner, no truncation, clearer
    hierarchy. */
 .clean-footer {
-  padding: 14px 16px calc(var(--nx-space-5) + env(safe-area-inset-bottom)) !important;
+  /* Float above the bottom-nav. The bnav is position:fixed at viewport
+     bottom (min-height 56px + safe-area). A naive sticky:bottom:0 would
+     sit BEHIND the bnav and be invisible — that's the bug screenshots
+     showed. We anchor at calc(56px + safe-area-inset-bottom) instead so
+     the Submit / Scan / Print row floats just above the nav. The
+     padding-bottom is light (only the inset, since the nav itself
+     handles its own breathing room). */
+  padding: 14px 16px 14px !important;
   border-top: 1px solid var(--nx-gold-line) !important;
   background: var(--nx-bg) !important;
   display: flex !important;
   gap: 10px !important;
   align-items: center !important;
+  position: sticky !important;
+  bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important;
+  z-index: 6;
 }
 .clean-scan {
   /* Compact circular icon button. font-size:0 hides the text node;
@@ -440,6 +450,67 @@
 .clean-submit:active {
   background: linear-gradient(180deg, var(--nx-gold-deep), var(--nx-gold-darker)) !important;
   transform: scale(0.985);
+}
+
+/* ─── Inline camera button on each checklist row ────────────────────
+   The little camera that sits at the right edge of each task row,
+   used to upload a "proof" photo of work done. Replaces the previous
+   emoji (📷/⏳/✅/❌) with a single ::before mask icon driven by a
+   `data-state` attribute. Same line-art family as the footer Scan
+   icon — keeps the visual vocabulary consistent across the screen. */
+.clean-cam {
+  position: absolute !important;
+  right: 8px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 32px !important; height: 32px !important;
+  background: none !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: 50% !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  opacity: 0.55;
+  transition: opacity .15s, border-color .15s, color .15s, background .15s !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  -webkit-tap-highlight-color: transparent !important;
+  font-size: 0 !important;  /* belt-and-suspenders: kill any text rendering */
+  color: var(--nx-faint);
+}
+.clean-cam:hover, .clean-cam:active { opacity: 1; color: var(--nx-gold); border-color: var(--nx-gold-line-2); }
+.clean-cam:disabled { cursor: default; opacity: 0.6; }
+
+/* Icon via mask — currentColor lets state classes recolor it. */
+.clean-cam::before {
+  content: '';
+  width: 16px; height: 16px;
+  background-color: currentColor;
+  -webkit-mask: var(--cam-icon, url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z'/><circle cx='12' cy='13' r='3'/></svg>")) no-repeat center / 16px 16px;
+  mask: var(--cam-icon, url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z'/><circle cx='12' cy='13' r='3'/></svg>")) no-repeat center / 16px 16px;
+}
+
+/* Pending — spinner (rotates a circle with a gap) */
+.clean-cam[data-state="pending"] { color: var(--nx-gold); opacity: 1; }
+.clean-cam[data-state="pending"]::before {
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'><path d='M21 12a9 9 0 1 1-6.219-8.56'/></svg>") no-repeat center / 16px 16px;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'><path d='M21 12a9 9 0 1 1-6.219-8.56'/></svg>") no-repeat center / 16px 16px;
+  animation: clean-spin 0.9s linear infinite;
+}
+@keyframes clean-spin { to { transform: rotate(360deg); } }
+
+/* Success — check mark in olive-bronze (success without scarlet/screaming green) */
+.clean-cam[data-state="ok"] { color: var(--nx-green, #9c8a3e); opacity: 1; border-color: currentColor !important; background: rgba(156,138,62,0.08) !important; }
+.clean-cam[data-state="ok"]::before {
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") no-repeat center / 14px 14px;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") no-repeat center / 14px 14px;
+}
+
+/* Error — X in oxblood */
+.clean-cam[data-state="err"] { color: var(--nx-red, #a83e3e); opacity: 1; border-color: currentColor !important; background: rgba(168,62,62,0.06) !important; }
+.clean-cam[data-state="err"]::before {
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'/><line x1='6' y1='6' x2='18' y2='18'/></svg>") no-repeat center / 14px 14px;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'/><line x1='6' y1='6' x2='18' y2='18'/></svg>") no-repeat center / 14px 14px;
 }
 
 
