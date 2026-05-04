@@ -485,6 +485,11 @@ const NX = {
   // The set of resources is fixed (see PERM_RESOURCES). New ones get
   // added here AND in admin.js's permissions matrix UI.
   //
+  // Note: there is no separate "brain" permission. The brain view (the
+  // canvas of knowledge nodes) and the galaxy view are the same DOM
+  // element — `#brainView` rendered by galaxy.js. Access to that view
+  // is the `galaxy` permission.
+  //
   // Empty-perms fallback: if a user has no permissions object yet
   // (a brand-new account, or pre-Phase-D existing user before SQL
   // migration), they get a permissive default — every resource except
@@ -492,7 +497,7 @@ const NX = {
   // upgrade window. As soon as an admin sets ANY explicit perms, the
   // explicit object wins and the fallback is bypassed.
 
-  PERM_RESOURCES: ['brain','clean','log','board','cal','equipment','inventory','galaxy','admin'],
+  PERM_RESOURCES: ['clean','log','board','cal','equipment','inventory','galaxy','admin'],
 
   hasPermission(resource) {
     const u = this.currentUser;
@@ -2258,11 +2263,18 @@ td.check{background:#F0EDE6 !important}
 
   // ─── PERMISSIONS MATRIX (Phase D) ─────────────────────────────────
   // Renders all users as rows × resources as cells. Each cell is a
-  // tappable pill that toggles the user's permission for that resource.
-  // Admins/owners are shown but their cells are read-only "is-locked"
-  // (since the role itself bypasses the perm check). Self-edit allowed
-  // — a current admin can adjust their own row, but it's still display
-  // -only because role bypass keeps them admin regardless.
+  // tappable pill that flips that user's permission for that resource
+  // — but only LOCALLY. The row gains an "is-dirty" class and a Save
+  // button slides in. Tap Save to commit via update_user_permissions
+  // RPC. Cancel by reloading the matrix (or just navigating away).
+  //
+  // Admins/owners are shown but their cells are read-only ("is-locked")
+  // since the role itself bypasses the perm check.
+  //
+  // Why per-row save instead of auto-save: it lets the admin configure
+  // a user fully (e.g., turning off 5 things and turning on 1) and
+  // commit as a single intent. Auto-save fires 6 RPCs and could leave
+  // the row in an intermediate state if the connection drops.
   async loadPermsMatrix() {
     const el = document.getElementById('adminPermsMatrix'); if (!el) return;
     if (!this.isAdmin) {
@@ -2270,7 +2282,6 @@ td.check{background:#F0EDE6 !important}
       return;
     }
     try {
-      // Use list_users_with_perms which includes the permissions JSONB
       const { data, error } = await this.sb.rpc('list_users_with_perms');
       if (error || !data) {
         el.innerHTML = '<div style="color:#c8625e;font-size:11px;padding:12px">Could not load permissions. Did you run permissions_phase_d.sql?</div>';
@@ -2278,7 +2289,7 @@ td.check{background:#F0EDE6 !important}
       }
       const RESOURCES = this.PERM_RESOURCES;
       const RES_LABELS = {
-        brain: 'Brain', clean: 'Clean', log: 'Log', board: 'Board',
+        clean: 'Clean', log: 'Log', board: 'Board',
         cal: 'Cal', equipment: 'Equip', inventory: 'Inv',
         galaxy: 'Galaxy', admin: 'Admin',
       };
@@ -2290,23 +2301,41 @@ td.check{background:#F0EDE6 !important}
           </div>
         </div>
       `;
-      const rows = data.map(u => {
+
+      // Compute the "current effective" perms for each user (admin role
+      // bypass; empty-perms fallback for legacy users; otherwise the
+      // explicit JSON object). This is what the row's cells reflect on
+      // first render — and what we compare against to detect dirty.
+      const computeEffective = (u) => {
+        const effective = {};
         const isAdminRow = u.role === 'admin' || u.role === 'owner';
         const perms = u.permissions || {};
         const empty = Object.keys(perms).length === 0;
+        RESOURCES.forEach(r => {
+          if (isAdminRow) effective[r] = true;
+          else if (empty) effective[r] = (r !== 'galaxy' && r !== 'admin');
+          else effective[r] = perms[r] === true;
+        });
+        return effective;
+      };
+
+      const rows = data.map(u => {
+        const isAdminRow = u.role === 'admin' || u.role === 'owner';
+        const effective = computeEffective(u);
+        // We stash the saved perms as a JSON-encoded data attribute
+        // so the dirty check can compare without a closure
+        const savedJson = JSON.stringify(effective);
         return `
-          <div class="admin-perms-row ${isAdminRow ? 'is-admin' : ''}" data-user-id="${u.id}">
+          <div class="admin-perms-row ${isAdminRow ? 'is-admin' : ''}"
+               data-user-id="${u.id}"
+               data-saved="${this._escAttr(savedJson)}">
             <div class="admin-perms-name">
               <strong>${this._escAttr(u.name)}</strong>
               <span class="perms-role">${u.role || 'staff'}</span>
             </div>
             <div class="admin-perms-cells">
               ${RESOURCES.map(r => {
-                const allowed = isAdminRow
-                  ? true
-                  : (empty
-                      ? (r !== 'galaxy' && r !== 'admin')
-                      : perms[r] === true);
+                const allowed = effective[r];
                 return `<button type="button"
                   class="admin-perm-cell ${allowed ? 'is-on' : ''} ${isAdminRow ? 'is-locked' : ''}"
                   data-resource="${r}"
@@ -2316,49 +2345,107 @@ td.check{background:#F0EDE6 !important}
                   ${RES_LABELS[r] || r}
                 </button>`;
               }).join('')}
+              ${isAdminRow ? '' : `
+                <button type="button" class="admin-perm-save" data-action="save" disabled>
+                  <span class="admin-perm-save-label">Save</span>
+                </button>
+                <button type="button" class="admin-perm-revert" data-action="revert" style="display:none" title="Discard changes">↺</button>
+              `}
             </div>
           </div>
         `;
       }).join('');
       el.innerHTML = headerRow + rows;
 
-      // Wire toggles. Click a cell → flip the user's perms object for
-      // that resource → POST to RPC → re-render this matrix on success.
-      // Optimistic UI: flip the class first; revert on RPC failure.
+      // ─── Cell tap → flip locally + recompute dirty ───────────────
+      const updateRowDirty = (row) => {
+        const saved = JSON.parse(row.getAttribute('data-saved'));
+        const current = {};
+        row.querySelectorAll('.admin-perm-cell:not(.is-locked)').forEach(c => {
+          current[c.getAttribute('data-resource')] = c.classList.contains('is-on');
+        });
+        const dirty = Object.keys(saved).some(k => saved[k] !== current[k]);
+        row.classList.toggle('is-dirty', dirty);
+        const saveBtn = row.querySelector('.admin-perm-save');
+        const revertBtn = row.querySelector('.admin-perm-revert');
+        if (saveBtn) saveBtn.disabled = !dirty;
+        if (revertBtn) revertBtn.style.display = dirty ? '' : 'none';
+      };
+
       el.querySelectorAll('.admin-perm-cell:not(.is-locked)').forEach(cell => {
-        cell.addEventListener('click', async () => {
-          const row = cell.closest('.admin-perms-row');
+        cell.addEventListener('click', () => {
+          cell.classList.toggle('is-on');
+          updateRowDirty(cell.closest('.admin-perms-row'));
+        });
+      });
+
+      // ─── Save button → commit row's perms via RPC ────────────────
+      el.querySelectorAll('.admin-perm-save').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('.admin-perms-row');
           const userId = parseInt(row.getAttribute('data-user-id'));
-          const resource = cell.getAttribute('data-resource');
-          const wasOn = cell.classList.contains('is-on');
-          // Reconstruct the user's full permissions object from the row's
-          // current cells, then flip the one we tapped. This way a row
-          // that started "empty perms" becomes explicit on first toggle.
+          // Build perms object from current cell states. Only "on"
+          // cells become keys with true — off cells are omitted, which
+          // (combined with the empty-fallback) means an explicitly-empty
+          // perms object grants nothing. So we ALWAYS include at least
+          // one false to ensure the JS treats this as explicit.
           const newPerms = {};
           row.querySelectorAll('.admin-perm-cell:not(.is-locked)').forEach(c => {
             const r = c.getAttribute('data-resource');
-            const on = c === cell ? !wasOn : c.classList.contains('is-on');
-            if (on) newPerms[r] = true;
+            if (c.classList.contains('is-on')) newPerms[r] = true;
           });
-          // Optimistic flip
-          cell.classList.toggle('is-on');
+          // Empty object would trip the "permissive fallback" — pin one
+          // explicit false so the object stays non-empty even if the
+          // admin denied everything.
+          if (Object.keys(newPerms).length === 0) newPerms._explicit = false;
+
+          const lbl = btn.querySelector('.admin-perm-save-label');
+          const orig = lbl.textContent;
+          btn.disabled = true;
+          lbl.textContent = 'Saving…';
           try {
             const { data: ok, error } = await this.sb.rpc('update_user_permissions', {
               p_user_id: userId,
               p_permissions: newPerms,
             });
             if (error || ok === false) throw error || new Error('update failed');
-            if (NX.toast) NX.toast(`${resource}: ${wasOn ? 'revoked' : 'granted'}`, 'success');
-            // If the user is editing themselves, re-apply gates
+            // Update saved state to current → row is now clean
+            const newSaved = {};
+            row.querySelectorAll('.admin-perm-cell:not(.is-locked)').forEach(c => {
+              newSaved[c.getAttribute('data-resource')] = c.classList.contains('is-on');
+            });
+            row.setAttribute('data-saved', JSON.stringify(newSaved));
+            row.classList.remove('is-dirty');
+            lbl.textContent = 'Saved ✓';
+            const revertBtn = row.querySelector('.admin-perm-revert');
+            if (revertBtn) revertBtn.style.display = 'none';
+            // If editing self, re-apply gates immediately
             if (userId === this.currentUser?.id) {
               this.currentUser.permissions = newPerms;
               this.applyPermissionGates();
             }
+            // Reset label after a beat
+            setTimeout(() => { lbl.textContent = orig; }, 1400);
           } catch (e) {
             console.warn('[perms] update failed:', e);
-            cell.classList.toggle('is-on');  // revert
-            if (NX.toast) NX.toast('Permission update failed', 'error');
+            lbl.textContent = 'Failed — retry';
+            btn.disabled = false;
+            if (NX.toast) NX.toast('Save failed: ' + (e.message || e), 'error');
+            setTimeout(() => { lbl.textContent = orig; btn.disabled = false; }, 2000);
           }
+        });
+      });
+
+      // ─── Revert button → restore cells to last-saved state ──────
+      el.querySelectorAll('.admin-perm-revert').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const row = btn.closest('.admin-perms-row');
+          const saved = JSON.parse(row.getAttribute('data-saved'));
+          row.querySelectorAll('.admin-perm-cell:not(.is-locked)').forEach(c => {
+            const r = c.getAttribute('data-resource');
+            c.classList.toggle('is-on', saved[r] === true);
+          });
+          updateRowDirty(row);
         });
       });
     } catch (e) {
