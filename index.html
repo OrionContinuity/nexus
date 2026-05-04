@@ -1328,6 +1328,7 @@
     <button class="nav-tab" data-view="board" title="Task Board"><i data-lucide="columns-3" class="nav-icon"></i> <span data-i18n="board">Board</span></button>
     <button class="nav-tab" data-view="cal" title="Calendar"><i data-lucide="calendar" class="nav-icon"></i> <span data-i18n="cal">Cal</span></button>
     <button class="nav-tab" data-view="equipment" title="Equipment"><i data-lucide="wrench" class="nav-icon"></i> <span data-i18n="equipment">Equipment</span></button>
+    <button class="nav-tab" data-view="inventory" title="Inventory"><i data-lucide="boxes" class="nav-icon"></i> <span data-i18n="inventory">Inventory</span></button>
   </div>
   <button class="nav-more" id="navMore" title="More"><i data-lucide="menu" class="nav-icon"></i></button>
 </nav>
@@ -1521,6 +1522,9 @@
       <div class="cal-detail" id="calDetail"></div>
     </div>
   </div>
+
+  <!-- INVENTORY (Phase A — placeholder for the real module that arrives in Phase B/C) -->
+  <div class="view" id="inventoryView" data-view="inventory"></div>
 
   <!-- INGEST -->
   <div class="view" id="ingestView" data-view="ingest">
@@ -1829,9 +1833,13 @@
     <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="3" y="15" width="7" height="6" rx="1"/><rect x="14" y="11" width="7" height="10" rx="1"/></svg>
     <span data-i18n="board">Board</span>
   </button>
-  <button class="bnav-btn" data-view="cal" aria-label="Calendar">
-    <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>
-    <span data-i18n="cal">Cal</span>
+  <button class="bnav-btn" data-view="inventory" aria-label="Inventory">
+    <!-- Lucide-style "boxes" — speaks to inventory/stock without the
+         ambiguity of a single box (which reads as packaging) or a
+         clipboard (which reads as a checklist). Three stacked boxes
+         is the universal "items in stock" iconographic shorthand. -->
+    <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></svg>
+    <span data-i18n="inventory">Inventory</span>
   </button>
 </nav>
 
