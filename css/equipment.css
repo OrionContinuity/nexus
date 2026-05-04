@@ -350,13 +350,13 @@
 /* ─── Pending PM review entry — distinct treatment so admins see
        at a glance that this log hasn't been approved yet.          ─── */
 .eq-timeline-pending {
-  border-left-color: #e8a830;
+  border-left-color: #d4a44e;
   background: linear-gradient(
     to right,
-    rgba(232, 168, 48, 0.08),
+    rgba(212, 164, 78, 0.08),
     rgba(35, 34, 40, 0.95) 70%
   );
-  border: 1px solid rgba(232, 168, 48, 0.22);
+  border: 1px solid rgba(212, 164, 78, 0.22);
   border-left-width: 3px;
 }
 .eq-timeline-pending-badge {
@@ -366,9 +366,9 @@
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.8px;
-  color: #e8a830;
-  background: rgba(232, 168, 48, 0.14);
-  border: 1px solid rgba(232, 168, 48, 0.3);
+  color: #d4a44e;
+  background: rgba(212, 164, 78, 0.14);
+  border: 1px solid rgba(212, 164, 78, 0.3);
   border-radius: 10px;
   white-space: nowrap;
 }
@@ -437,12 +437,12 @@
   -webkit-tap-highlight-color: transparent;
 }
 .eq-btn-approve {
-  background: rgba(91, 186, 95, 0.14);
+  background: rgba(156, 138, 62, 0.14);
   color: #7bc57b;
-  border-color: rgba(91, 186, 95, 0.3);
+  border-color: rgba(156, 138, 62, 0.3);
 }
 .eq-btn-approve:active {
-  background: rgba(91, 186, 95, 0.24);
+  background: rgba(156, 138, 62, 0.24);
   transform: scale(0.97);
 }
 .eq-btn-reject {
@@ -471,8 +471,8 @@
   padding: 1px 5px;
   font-size: 9px;
   font-weight: 700;
-  color: #e8a830;
-  background: rgba(232, 168, 48, 0.2);
+  color: #d4a44e;
+  background: rgba(212, 164, 78, 0.2);
   border-radius: 8px;
   vertical-align: middle;
 }
@@ -557,14 +557,14 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: rgba(91, 186, 95, 0.16);
+  background: rgba(156, 138, 62, 0.16);
   color: #7bc57b;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 20px;
   font-weight: 700;
-  box-shadow: 0 0 16px rgba(91, 186, 95, 0.25);
+  box-shadow: 0 0 16px rgba(156, 138, 62, 0.25);
 }
 .eq-closeout-title {
   font-size: 16px;
@@ -646,14 +646,14 @@
   transform: scale(0.97);
 }
 .eq-closeout-btn-primary {
-  background: rgba(91, 186, 95, 0.14);
+  background: rgba(156, 138, 62, 0.14);
   color: #7bc57b;
-  border-color: rgba(91, 186, 95, 0.35);
+  border-color: rgba(156, 138, 62, 0.35);
   font-weight: 600;
 }
 .eq-closeout-btn-primary:active {
-  background: rgba(91, 186, 95, 0.26);
-  border-color: rgba(91, 186, 95, 0.6);
+  background: rgba(156, 138, 62, 0.26);
+  border-color: rgba(156, 138, 62, 0.6);
   transform: scale(0.97);
 }
 .eq-timeline-del {
@@ -2775,19 +2775,19 @@
 }
 
 .eq-dispatch-chip .chip-outcome.outcome-pending {
-  background: rgba(232, 168, 48, 0.15);
+  background: rgba(212, 164, 78, 0.15);
   color: var(--amber);
 }
 
 .eq-dispatch-chip .chip-outcome.outcome-resolved,
 .eq-dispatch-chip .chip-outcome.outcome-scheduled,
 .eq-dispatch-chip .chip-outcome.outcome-acknowledged {
-  background: rgba(91, 186, 95, 0.15);
+  background: rgba(156, 138, 62, 0.15);
   color: var(--green);
 }
 
 .eq-dispatch-chip .chip-outcome.outcome-no_response {
-  background: rgba(212, 88, 88, 0.15);
+  background: rgba(168, 62, 62, 0.15);
   color: var(--red);
 }
 
