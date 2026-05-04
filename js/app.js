@@ -1350,7 +1350,7 @@ td.check{background:#F0EDE6 !important}
     const userInfo = document.getElementById('adminUserInfo');
     if (this.currentUser) {
       const hasKey = this.getApiKey() ? '✓ API Key loaded' : '✗ No API Key';
-      const keyColor = this.getApiKey() ? '#5bba5f' : '#d45858';
+      const keyColor = this.getApiKey() ? '#9c8a3e' : '#a83e3e';
       const source = this.config?.anthropic_key ? 'Supabase' : (localStorage.getItem('nexus_api_key') ? 'localStorage' : 'none');
       userInfo.innerHTML = `<span class="admin-user-name">${this.currentUser.name}</span><span class="admin-user-role">${this.currentUser.role.toUpperCase()}</span><div style="font-size:11px;margin-top:6px;color:${keyColor}">${hasKey} (source: ${source})</div>`;
     }
@@ -1435,7 +1435,7 @@ td.check{background:#F0EDE6 !important}
                 name = name || ('Voice ' + idx);
               }
               const vs = document.getElementById('voiceTestStatus');
-              if (vs) { vs.textContent = `✓ ${name} selected & saved`; vs.style.color = '#5bba5f'; }
+              if (vs) { vs.textContent = `✓ ${name} selected & saved`; vs.style.color = '#9c8a3e'; }
             });
           } catch (e) { console.warn('[admin] adminVoice listener failed:', e); }
 
@@ -1570,7 +1570,7 @@ td.check{background:#F0EDE6 !important}
       const voiceNames=['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
       const voiceIdx=updates.voice_idx||0;
       document.getElementById('adminKeyStatus').textContent = error ? 'Save failed: ' + error.message : `✓ Saved — Voice: ${voiceNames[voiceIdx]||'Unknown'}, Model: ${updates.model.includes('opus')?'Opus':'Sonnet'}`;
-      document.getElementById('adminKeyStatus').style.color = error ? '#d45858' : '#5bba5f';
+      document.getElementById('adminKeyStatus').style.color = error ? '#a83e3e' : '#9c8a3e';
       setTimeout(() => { document.getElementById('adminKeyStatus').textContent = ''; }, 5000);
     });
 
@@ -1606,8 +1606,8 @@ td.check{background:#F0EDE6 !important}
     document.getElementById('driveBackupBtn').addEventListener('click', async () => {
       const s = document.getElementById('driveStatus');
       try { s.textContent = 'Backing up...'; s.style.color = 'var(--muted)';
-        await this.driveBackupKeys(); s.textContent = '✓ Backed up to Drive'; s.style.color = '#5bba5f';
-      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = '#d45858'; }
+        await this.driveBackupKeys(); s.textContent = '✓ Backed up to Drive'; s.style.color = '#9c8a3e';
+      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = '#a83e3e'; }
     });
     document.getElementById('driveRestoreBtn').addEventListener('click', async () => {
       const s = document.getElementById('driveStatus');
@@ -1624,15 +1624,15 @@ td.check{background:#F0EDE6 !important}
           await this.sb.from('nexus_config').update(updates).eq('id', 1);
           Object.assign(this.config || {}, updates);
         }
-        s.textContent = '✓ Restored from Drive'; s.style.color = '#5bba5f';
-      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = '#d45858'; }
+        s.textContent = '✓ Restored from Drive'; s.style.color = '#9c8a3e';
+      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = '#a83e3e'; }
     });
 
     const driveToken = localStorage.getItem('nexus_drive_token');
     const driveExpiry = localStorage.getItem('nexus_drive_expiry');
     if (driveToken && driveExpiry && Date.now() < parseInt(driveExpiry)) {
       const ds = document.getElementById('driveStatus');
-      if (ds) { ds.textContent = '✓ Connected'; ds.style.color = '#5bba5f'; }
+      if (ds) { ds.textContent = '✓ Connected'; ds.style.color = '#9c8a3e'; }
     }
 
     // Add user
@@ -2197,7 +2197,7 @@ td.check{background:#F0EDE6 !important}
             localStorage.setItem('nexus_drive_token', r.access_token);
             localStorage.setItem('nexus_drive_expiry', String(Date.now() + 55 * 60 * 1000));
             const s = document.getElementById('driveStatus');
-            if (s) { s.textContent = '✓ Connected'; s.style.color = '#5bba5f'; }
+            if (s) { s.textContent = '✓ Connected'; s.style.color = '#9c8a3e'; }
           }
         }
       });
@@ -2427,13 +2427,13 @@ td.check{background:#F0EDE6 !important}
       }
 
       status.textContent = '✓ Import complete';
-      status.style.color = '#5bba5f';
+      status.style.color = '#9c8a3e';
       this.toast('Imported: ' + summary.join(', '), 'success');
       await this.loadNodes();
       if (this.brain) this.brain.init();
     } catch (e) {
       status.textContent = 'Error: ' + e.message;
-      status.style.color = '#d45858';
+      status.style.color = '#a83e3e';
     }
   },
 
@@ -3182,7 +3182,7 @@ NX.timeClock = {
     const tcPanel = document.getElementById('tcPanel');
     if (tcPanel && tcPanel.style.display !== 'none') {
       document.getElementById('tcStatus').textContent = isIn ? 'CLOCKED IN' : 'NOT CLOCKED IN';
-      document.getElementById('tcStatus').style.color = isIn ? '#5bba5f' : 'rgba(255,255,255,.4)';
+      document.getElementById('tcStatus').style.color = isIn ? '#9c8a3e' : 'rgba(255,255,255,.4)';
       document.getElementById('tcTime').textContent = isIn ? this.getElapsed() || '0:00:00' : '';
       document.getElementById('tcClockIn').style.display = isIn ? 'none' : '';
       document.getElementById('tcClockOut').style.display = isIn ? '' : 'none';
@@ -3208,7 +3208,7 @@ NX.timeClock = {
     if (popup && popup.classList.contains('open')) {
       popup.querySelector('.tc-popup-status').textContent = isIn ? 'CLOCKED IN' : 'NOT CLOCKED IN';
       popup.querySelector('.tc-popup-time').textContent = isIn ? this.getElapsed() || '0:00:00' : '--:--';
-      popup.querySelector('.tc-popup-time').style.color = isIn ? '#5bba5f' : 'var(--faint)';
+      popup.querySelector('.tc-popup-time').style.color = isIn ? '#9c8a3e' : 'var(--faint)';
       const btn = popup.querySelector('.tc-popup-btn');
       if (btn) {
         btn.textContent = isIn ? 'Clock Out' : 'Clock In';
