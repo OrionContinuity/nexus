@@ -469,20 +469,32 @@ function render(){
           NX.offlineQueue.add({type:'cleaning',data:upsertData});
         }
       };
-      // Camera button — photo proof
-      const cam=document.createElement('button');cam.className='clean-cam';cam.textContent='📷';cam.title='Take photo';
+      // Camera button — photo proof. Uses an SVG mask icon rather than
+      // emoji because emoji rendering is platform-dependent (a small
+      // detail that previously made the whole UI look childish on iOS,
+      // where the system camera emoji is a glossy raster glyph that
+      // fights every other line-art element in the app).
+      // States are conveyed via a `data-state` attr on the button:
+      //   idle    → camera icon
+      //   pending → spinner (CSS animation)
+      //   ok      → check
+      //   err     → X
+      const cam=document.createElement('button');
+      cam.className='clean-cam';
+      cam.setAttribute('data-state','idle');
+      cam.title='Take photo';
       cam.addEventListener('click',async(e)=>{
         e.stopPropagation();
         const input=document.createElement('input');input.type='file';input.accept='image/*';input.capture='environment';
         input.addEventListener('change',async()=>{
           if(!input.files.length)return;
           const file=input.files[0];
-          cam.textContent='⏳';cam.disabled=true;
+          cam.setAttribute('data-state','pending');cam.disabled=true;
           try{
             const path=`cleaning/${loc}/${today}/${sec.sec}_${i}_${Date.now()}.jpg`;
             const{error}=await NX.sb.storage.from('nexus-files').upload(path,file,{contentType:file.type,upsert:true});
             if(!error){
-              cam.textContent='✅';
+              cam.setAttribute('data-state','ok');
               // Store photo ref in cleaning log
               await NX.sb.from('cleaning_logs').upsert({
                 location:loc,log_date:today,task_index:i,section:sec.sec,
@@ -490,9 +502,9 @@ function render(){
                 photo_path:path
               },{onConflict:'location,log_date,task_index,section'});
               if(NX.toast)NX.toast('Photo saved ✓','success');
-            }else{cam.textContent='❌';if(NX.toast)NX.toast('Upload failed','error');}
-          }catch(err){cam.textContent='❌';if(NX.toast)NX.toast('Upload failed','error');}
-          setTimeout(()=>{cam.textContent='📷';cam.disabled=false;},2000);
+            }else{cam.setAttribute('data-state','err');if(NX.toast)NX.toast('Upload failed','error');}
+          }catch(err){cam.setAttribute('data-state','err');if(NX.toast)NX.toast('Upload failed','error');}
+          setTimeout(()=>{cam.setAttribute('data-state','idle');cam.disabled=false;},2000);
         });
         input.click();
       });
