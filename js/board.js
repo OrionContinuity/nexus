@@ -35,7 +35,7 @@ const LOCATIONS = [
   { key: 'toti',   label: 'Toti',   color: '#9c8a3e' },
 ];
 
-const LABEL_COLORS = ['#a83e3e','#d4a44e','#9c8a3e','#5b9bd5','#a88fd8','#d4a44e','#6b9bf0','#a49c94'];
+const LABEL_COLORS = ['#a83e3e','#d4a44e','#9c8a3e','#5b9bd5','#a88fd8','#d4a44e','#7a8db8','#a49c94'];
 
 // Default list structure when a brand-new board is created
 const DEFAULT_LISTS = [
@@ -611,7 +611,7 @@ function renderSummaryStrip(){
   html += `<span class="b-rt-chip"><span class="b-rt-dot" id="bRtDot"></span><span id="bRtLabel">—</span></span>`;
   html += `<span class="b-summary-chip ${open>0?'':'ok'}"><strong>${open}</strong> open</span>`;
   if(overdue > 0) html += `<span class="b-summary-chip alert"><strong>${overdue}</strong> overdue</span>`;
-  if(urgent > 0) html += `<span class="b-summary-chip alert">🚨 <strong>${urgent}</strong> urgent</span>`;
+  if(urgent > 0) html += `<span class="b-summary-chip alert"><strong>${urgent}</strong> urgent</span>`;
   if(stats && stats.avg_close_days_30d != null){
     html += `<span class="b-summary-chip">avg close <strong>${Number(stats.avg_close_days_30d).toFixed(1)}d</strong></span>`;
   }
@@ -636,7 +636,7 @@ function renderSummaryStrip(){
   </span>`;
   // Clean Up button only appears when there's meaningful backlog
   if(open > 30){
-    html += `<button class="b-summary-stats-btn" id="bCleanUpBtn" style="background:rgba(168, 62, 62,0.15);border-color:rgba(168, 62, 62,0.3);color:#c8625e">🧹 Clean Up</button>`;
+    html += `<button class="b-summary-stats-btn" id="bCleanUpBtn" style="background:rgba(168, 62, 62,0.15);border-color:rgba(168, 62, 62,0.3);color:#c8625e">Clean Up</button>`;
   }
   html += `<button class="b-summary-stats-btn" id="bStatsBtn">📊 Stats</button>`;
   strip.innerHTML = html;
@@ -745,15 +745,15 @@ function renderFilterBar(){
   };
   let html = '';
   html += mk('priority', null, 'All', null);
-  html += mk('priority', 'urgent', '🚨 Urgent', '#a83e3e');
-  html += mk('priority', 'high',   '⚠ High',   '#d4a44e');
+  html += mk('priority', 'urgent', 'Urgent', '#a83e3e');
+  html += mk('priority', 'high',   'High',   '#d4a44e');
   html += mk('priority', 'low',    'Low',      '#5b9bd5');
   html += `<span style="width:8px"></span>`;
   // State filters — Overdue (past due) and Stale (>14d old, no due date
   // or past due). These surface cards that have fallen through cracks
   // — the "weekly cleanup" pass any kitchen manager runs Monday morning.
-  html += mk('state', 'overdue', '📅 Overdue', '#a83e3e');
-  html += mk('state', 'stale',   '⏱ Stale 14d+', '#a49c94');
+  html += mk('state', 'overdue', 'Overdue', '#a83e3e');
+  html += mk('state', 'stale',   'Stale 14d+', '#a49c94');
   html += `<span style="width:8px"></span>`;
   LOCATIONS.forEach(l => {
     html += mk('location', l.key, l.label, l.color);
@@ -913,11 +913,11 @@ function createCardEl(card){
 
   // Badges row — priority, location, equipment, overdue
   const badges = [];
-  if(card.priority === 'urgent') badges.push(`<span class="b-card-badge pri-urgent">🚨 URGENT</span>`);
-  else if(card.priority === 'high') badges.push(`<span class="b-card-badge pri-high">⚠ HIGH</span>`);
+  if(card.priority === 'urgent') badges.push(`<span class="b-card-badge pri-urgent">URGENT</span>`);
+  else if(card.priority === 'high') badges.push(`<span class="b-card-badge pri-high">HIGH</span>`);
   if(loc) badges.push(`<span class="b-card-badge loc" style="color:${loc.color}">📍 ${esc(loc.label)}</span>`);
   if(card.equipment_id) badges.push(`<span class="b-card-badge eq">🔧 Equipment</span>`);
-  if(overdue) badges.push(`<span class="b-card-badge overdue">📅 OVERDUE</span>`);
+  if(overdue) badges.push(`<span class="b-card-badge overdue">OVERDUE</span>`);
   if(badges.length) html += `<div class="b-card-badges">${badges.join('')}</div>`;
 
   // Meta row: checklist progress, comments, due, assignee, age
@@ -941,15 +941,15 @@ function createCardEl(card){
     const dueLbl = daysOut === 0 ? 'today'
                  : daysOut === 1 ? 'tomorrow'
                  : dueD.toLocaleDateString([], {month:'short', day:'numeric'});
-    meta.push(`<span class="${dueCls}">📅 ${dueLbl}</span>`);
+    meta.push(`<span class="${dueCls}">${dueLbl}</span>`);
   }
   if(card.assignee) meta.push(`<span class="b-card-meta-assignee">${initials(card.assignee)}</span> ${esc(card.assignee)}`);
   if(card.cost_estimate) meta.push(`$${Number(card.cost_estimate).toFixed(0)} est`);
   // Age indicator — only for open cards. Silent under 3d, amber at 7d, red at 14d.
   if(!done && card.created_at){
     const ageDays = Math.floor((Date.now() - new Date(card.created_at).getTime())/86400000);
-    if(ageDays >= 14) meta.push(`<span class="b-card-meta-age-old">⏱ ${ageDays}d old</span>`);
-    else if(ageDays >= 7) meta.push(`<span class="b-card-meta-age-warn">⏱ ${ageDays}d old</span>`);
+    if(ageDays >= 14) meta.push(`<span class="b-card-meta-age-old">${ageDays}d old</span>`);
+    else if(ageDays >= 7) meta.push(`<span class="b-card-meta-age-warn">${ageDays}d old</span>`);
     else if(ageDays >= 3) meta.push(`<span class="b-card-meta-age">${ageDays}d</span>`);
   }
   if(meta.length) html += `<div class="b-card-meta">${meta.join(' · ')}</div>`;
@@ -1051,8 +1051,8 @@ function openQuickActions(card, anchorEl){
     <div class="b-qa-section">
       <div class="b-qa-label">Priority</div>
       <div class="b-qa-row">
-        <button class="b-qa-pri ${card.priority==='urgent'?'active':''}" data-pri="urgent" style="--c:#a83e3e">🚨 Urgent</button>
-        <button class="b-qa-pri ${card.priority==='high'?'active':''}"   data-pri="high"   style="--c:#d4a44e">⚠ High</button>
+        <button class="b-qa-pri ${card.priority==='urgent'?'active':''}" data-pri="urgent" style="--c:#a83e3e">Urgent</button>
+        <button class="b-qa-pri ${card.priority==='high'?'active':''}"   data-pri="high"   style="--c:#d4a44e">High</button>
         <button class="b-qa-pri ${(card.priority==='normal'||!card.priority)?'active':''}" data-pri="normal" style="--c:#a49c94">Normal</button>
         <button class="b-qa-pri ${card.priority==='low'?'active':''}"    data-pri="low"    style="--c:#5b9bd5">Low</button>
       </div>
@@ -1532,7 +1532,7 @@ async function openCardDetail(card){
           trBtn.textContent = '✕ Hide translation';
           shown = true;
         } catch (_) {
-          trBtn.textContent = '⚠ retry';
+          trBtn.textContent = 'retry';
         } finally {
           trBtn.disabled = false;
         }
@@ -2207,11 +2207,11 @@ async function openTriageModal(){
     progressEl.textContent = `Card ${idx + 1} of ${total}`;
 
     const badges = [];
-    if (c.priority === 'urgent') badges.push('<span class="b-card-badge pri-urgent">🚨 URGENT</span>');
-    else if (c.priority === 'high') badges.push('<span class="b-card-badge pri-high">⚠ HIGH</span>');
+    if (c.priority === 'urgent') badges.push('<span class="b-card-badge pri-urgent">URGENT</span>');
+    else if (c.priority === 'high') badges.push('<span class="b-card-badge pri-high">HIGH</span>');
     if (loc) badges.push(`<span class="b-card-badge loc" style="color:${loc.color}">📍 ${esc(loc.label)}</span>`);
     if (c.equipment_id) badges.push('<span class="b-card-badge eq">🔧 Equipment</span>');
-    if (overdue) badges.push('<span class="b-card-badge overdue">📅 OVERDUE</span>');
+    if (overdue) badges.push('<span class="b-card-badge overdue">OVERDUE</span>');
     if (stuckDays != null && stuckDays > 30) badges.push(`<span class="b-card-badge overdue">⏳ Stuck ${stuckDays}d</span>`);
 
     const photoHtml = (c.photo_urls||[]).length
