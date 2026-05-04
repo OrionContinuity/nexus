@@ -18,7 +18,7 @@
    rising from the bottom rather than a full app takeover. */
 .chatview {
   position: fixed;
-  top: 53px;
+  top: 70px;
   left: 0;
   right: 0;
   bottom: 0;
@@ -29,8 +29,8 @@
      visible area, hiding the cv-top toolbar. dvh tracks the live
      visible viewport, so cv-top stays put. Fallback to vh for older
      browsers. */
-  height: calc(100vh - 53px);
-  height: calc(100dvh - 53px);
+  height: calc(100vh - 70px);
+  height: calc(100dvh - 70px);
   z-index: 120;               /* above bottom-nav (50) + node panel (40) */
   background: var(--bg);
   display: flex;
