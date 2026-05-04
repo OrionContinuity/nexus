@@ -566,7 +566,7 @@
     .nx-ps-btn-call .nx-ps-btn-icon-wrap svg { color: var(--ps-accent); }
 
     /* Issue — subtle red tint, not aggressive */
-    .nx-ps-btn-issue .nx-ps-btn-icon-wrap { background: rgba(212, 88, 88, 0.1); }
+    .nx-ps-btn-issue .nx-ps-btn-icon-wrap { background: rgba(168, 62, 62, 0.1); }
     .nx-ps-btn-issue .nx-ps-btn-icon-wrap svg { color: #e88080; }
 
     /* Login — neutral */
@@ -782,7 +782,7 @@
       color: var(--ps-accent);
     }
     .nx-ps-modal-header-icon.is-report {
-      background: rgba(212, 88, 88, 0.12);
+      background: rgba(168, 62, 62, 0.12);
       color: #e88080;
     }
 
@@ -817,7 +817,7 @@
       color: var(--ps-accent);
     }
     .nx-ps-modal-pri-btn[data-pri="urgent"].active {
-      background: rgba(212, 88, 88, 0.14);
+      background: rgba(168, 62, 62, 0.14);
       border-color: var(--ps-red);
       color: #e88080;
     }
