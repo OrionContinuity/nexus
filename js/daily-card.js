@@ -117,30 +117,20 @@ Rules:
       const topicSpec = TOPIC_ROTATION[weekday];
       const prompt = buildPrompt(topicSpec);
 
-      // Pattern matches brain-chat.js — direct browser call to
-      // Anthropic with the dangerous-direct-browser-access flag.
-      // This is the same security posture as the rest of NEXUS chat;
-      // a Phase C edge function migration will fix all of it at once.
-      const apiKey = (NX.getApiKey && NX.getApiKey()) || localStorage.getItem('nexus_api_key');
-      if (!apiKey) {
-        console.warn('[daily-card] no API key; skipping generation');
-        return null;
-      }
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
+      // Phase C complete: routes through the Supabase chat edge function
+      // (NX.callClaude → /functions/v1/chat). The Anthropic API key lives
+      // in edge function secrets, not in the browser.
+      let data;
+      try {
+        data = await NX.callClaude({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 700,
           messages: [{ role: 'user', content: prompt }],
-        }),
-      });
-      const data = await resp.json();
+        });
+      } catch (e) {
+        console.warn('[daily-card] proxy call failed:', e.message);
+        return null;
+      }
       const text = data?.content?.[0]?.text;
       if (!text) {
         console.warn('[daily-card] empty response from Claude', data);
