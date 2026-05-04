@@ -70,30 +70,19 @@
     
     try {
       NX.toast('Reading document...', 'info', 3000);
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 500,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: mimeType || 'image/jpeg', data: base64 } },
-              { type: 'text', text: `Extract from this receipt/invoice/document. Return ONLY JSON:
+      const data = await NX.callClaude({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 500,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mimeType || 'image/jpeg', data: base64 } },
+            { type: 'text', text: `Extract from this receipt/invoice/document. Return ONLY JSON:
 {"vendor":"company name","amount":"total $","date":"date","items":["line items"],"notes":"any other details like account numbers, PO numbers, phone numbers"}
 If not a receipt, describe what you see in "notes" and set vendor to "Unknown".` }
-            ]
-          }]
-        })
+          ]
+        }]
       });
-      
-      const data = await resp.json();
       const text = data.content?.[0]?.text || '';
       
       try {
@@ -511,22 +500,13 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
       NX.toast('🔍 Leyendo página ' + (pageNum + 1) + '...', 'info', 8000);
 
       try {
-        const resp = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json', 'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514', max_tokens: 2000,
-            messages: [{ role: 'user', content: [
-              { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
-              { type: 'text', text: 'This is page ' + (pageNum + 1) + ' of 2 of a WEEKLY cleaning checklist for "' + location.toUpperCase() + '". It has 7 day columns: L (Lunes/Mon), MA (Martes/Tue), MI (Miércoles/Wed), J (Jueves/Thu), V (Viernes/Fri), S (Sábado/Sat), D (Domingo/Sun).\n\nThe checkboxes are ☐ when empty and should have a mark (☑, ✓, X, or any filling) when completed.\n\nRead EVERY task row and report which boxes are checked for EACH of the 7 days.\n\nKnown tasks:\n' + taskRef + '\n\nReturn ONLY valid JSON:\n{"results": [{"section": "section name", "task_index": <number>, "days": [<true/false for L>, <true/false for MA>, <true/false for MI>, <true/false for J>, <true/false for V>, <true/false for S>, <true/false for D>]}], "additions": [{"section": "section name or New", "text_es": "Spanish", "text_en": "English", "days": [7 booleans]}]}\n\nIMPORTANT: Include ALL tasks visible on this page. The "days" array must always have exactly 7 booleans. Match section names to the known tasks above. If a checkbox has ANY mark in it, report true.' }
-            ]}]
-          })
+        const data = await NX.callClaude({
+          model: 'claude-sonnet-4-20250514', max_tokens: 2000,
+          messages: [{ role: 'user', content: [
+            { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+            { type: 'text', text: 'This is page ' + (pageNum + 1) + ' of 2 of a WEEKLY cleaning checklist for "' + location.toUpperCase() + '". It has 7 day columns: L (Lunes/Mon), MA (Martes/Tue), MI (Miércoles/Wed), J (Jueves/Thu), V (Viernes/Fri), S (Sábado/Sat), D (Domingo/Sun).\n\nThe checkboxes are ☐ when empty and should have a mark (☑, ✓, X, or any filling) when completed.\n\nRead EVERY task row and report which boxes are checked for EACH of the 7 days.\n\nKnown tasks:\n' + taskRef + '\n\nReturn ONLY valid JSON:\n{"results": [{"section": "section name", "task_index": <number>, "days": [<true/false for L>, <true/false for MA>, <true/false for MI>, <true/false for J>, <true/false for V>, <true/false for S>, <true/false for D>]}], "additions": [{"section": "section name or New", "text_es": "Spanish", "text_en": "English", "days": [7 booleans]}]}\n\nIMPORTANT: Include ALL tasks visible on this page. The "days" array must always have exactly 7 booleans. Match section names to the known tasks above. If a checkbox has ANY mark in it, report true.' }
+          ]}]
         });
-
-        const data = await resp.json();
         const text = data.content?.[0]?.text || '';
         let clean = text.replace(/```json|```/g, '').trim();
         const s = clean.indexOf('{'), e = clean.lastIndexOf('}');
@@ -687,22 +667,14 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
     }).join('\n\n');
 
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1500,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
-              { type: 'text', text: `This is a photograph of a laminated restaurant cleaning checklist filled out with dry-erase marker. The sheet has checkboxes for each day of the week (Mon-Sun).
+      const data = await NX.callClaude({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+            { type: 'text', text: `This is a photograph of a laminated restaurant cleaning checklist filled out with dry-erase marker. The sheet has checkboxes for each day of the week (Mon-Sun).
 
 TWO TASKS:
 
@@ -731,12 +703,9 @@ IMPORTANT:
 - Only include "additions" if you see genuinely NEW handwritten text not in the original template.
 - Only include "modifications" if an original task was visibly crossed out or altered.
 - If no additions or modifications, return empty arrays for those fields.` }
-            ]
-          }]
-        })
+          ]
+        }]
       });
-
-      const data = await resp.json();
       const text = data.content?.[0]?.text || '';
       
       // Parse response
@@ -1024,30 +993,19 @@ IMPORTANT:
 
     NX.toast('🔍 Analyzing...', 'info', 5000);
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 500,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
-              { type: 'text', text: `Analyze this image. What is it? Return ONLY JSON:
+      const data = await NX.callClaude({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 500,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+            { type: 'text', text: `Analyze this image. What is it? Return ONLY JSON:
 {"name":"short descriptive title","category":"one of: equipment|contractors|vendors|people|procedure|location|parts|projects|systems","notes":"detailed description including any text, numbers, model numbers, prices, dates visible","tags":["relevant","tags"]}
 Be specific. If it's equipment, include the make/model. If it's a document, extract key info. If it's a person, describe the context.` }
-            ]
-          }]
-        })
+          ]
+        }]
       });
-
-      const data = await resp.json();
       const text = data.content?.[0]?.text || '';
       const clean = text.replace(/```json|```/g, '').trim();
       const parsed = JSON.parse(clean);
