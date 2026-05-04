@@ -647,6 +647,8 @@ const NX = {
     try {
       const urlParams = new URLSearchParams(window.location.search);
       const equipQr = urlParams.get('equip');
+      const invAssetQr = urlParams.get('inv-asset');
+      const invStockQr = urlParams.get('inv-stock');
       if (equipQr) {
         // Clean the URL so a later refresh doesn't re-trigger this jump
         const cleanUrl = window.location.origin + window.location.pathname;
@@ -672,6 +674,40 @@ const NX = {
             } else if (tries > 0) {
               setTimeout(() => waitForMod(tries - 1), 150);
             }
+          };
+          waitForMod();
+        }, 300);
+      } else if (invAssetQr || invStockQr) {
+        // Inventory QR scan flow (Phase C): same idea as equipment, but
+        // route to the inventory module's detail-by-id helpers. The
+        // inventory module also has its own scan-redirect handler in
+        // init() that catches this same URL — but the app-level one
+        // here ensures we land on the inventory tab even if the module
+        // was loaded with stale URL state.
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, '', cleanUrl);
+        const qr = invAssetQr || invStockQr;
+        const isAsset = !!invAssetQr;
+        setTimeout(async () => {
+          if (!this.switchTo) return;
+          this.switchTo('inventory');
+          const waitForMod = (tries = 20) => {
+            const mod = NX.modules?.inventory;
+            if (!mod) {
+              if (tries > 0) setTimeout(() => waitForMod(tries - 1), 150);
+              return;
+            }
+            // Look up by qr_code then defer to module's by-id opener
+            const table = isAsset ? 'inventory_assets' : 'inventory_stock_with_status';
+            NX.sb.from(table).select('id').eq('qr_code', qr).maybeSingle()
+              .then(({ data }) => {
+                if (!data) {
+                  NX.toast?.('Item not found: ' + qr, 'warn');
+                  return;
+                }
+                if (isAsset) mod.openAssetDetailById?.(data.id);
+                else mod.openStockDetailById?.(data.id);
+              });
           };
           waitForMod();
         }, 300);
@@ -855,7 +891,7 @@ td.check{background:#F0EDE6 !important}
       nexusBtn.classList.remove('active');
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       // Sync body class for view-aware CSS (e.g. chat HUD only shows on brain)
-      document.body.classList.remove('view-brain','view-clean','view-log','view-board','view-cal','view-equipment','view-ingest');
+      document.body.classList.remove('view-brain','view-clean','view-log','view-board','view-cal','view-equipment','view-ingest','view-inventory');
       document.body.classList.add('view-' + view);
       // Set active on correct buttons
       if (view === 'brain') { nexusBtn.classList.add('active'); }
@@ -1268,7 +1304,7 @@ td.check{background:#F0EDE6 !important}
   },
 
   activateModule(view) {
-    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js' };
+    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js', inventory: 'js/inventory.js' };
 
     // ── Local helper: re-translate the currently visible view if user
     // has a non-English language pinned. Called at the END of every
