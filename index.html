@@ -1472,7 +1472,7 @@
       <button id="cleanAddBtn" class="clean-add-btn" data-i18n="addTask">+ Add</button>
     </div>
     <div class="clean-list" id="cleanList"></div>
-    <div class="clean-footer"><button class="clean-scan" id="cleanScan">📷 Scan</button><button class="clean-export" id="cleanExport">🖨 Print</button><button class="clean-submit" id="cleanSubmit" data-i18n="submitReport">Submit Report</button><div class="clean-submit-confirm" id="cleanConfirm" style="display:none"></div></div>
+    <div class="clean-footer"><button class="clean-scan" id="cleanScan" aria-label="Scan QR"></button><button class="clean-export" id="cleanExport" aria-label="Print"></button><button class="clean-submit" id="cleanSubmit" data-i18n="submitReport">Submit Report</button><div class="clean-submit-confirm" id="cleanConfirm" style="display:none"></div></div>
   </div>
 
   <!-- LOG -->
@@ -1993,6 +1993,65 @@
   .admin-perms-name strong { font-size: 12px; }
   .admin-perm-cell { font-size: 9px; padding: 3px 6px; }
 }
+
+/* Save / revert buttons — appear in the cells row, after the perm pills */
+.admin-perm-save {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 4px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 80%, #000));
+  color: #1a1408;
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  transition: opacity .15s, transform .12s, background .15s;
+  min-height: 26px;
+  margin-left: 6px;
+  -webkit-tap-highlight-color: transparent;
+}
+.admin-perm-save:disabled {
+  opacity: 0;            /* hidden until the row is dirty */
+  pointer-events: none;
+  transform: scale(.85);
+}
+.admin-perms-row.is-dirty .admin-perm-save:not(:disabled) {
+  opacity: 1;
+  transform: scale(1);
+}
+.admin-perm-save:active:not(:disabled) { transform: scale(.96); }
+[data-theme="light"] .admin-perm-save {
+  color: #fff;
+}
+
+.admin-perm-revert {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--faint);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; line-height: 1;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  margin-left: 4px;
+  -webkit-tap-highlight-color: transparent;
+}
+.admin-perm-revert:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Dirty rows get a subtle gold left-bar to draw the eye */
+.admin-perms-row.is-dirty {
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+/* "Saved ✓" flash — same gold tint */
+.admin-perm-save-label { white-space: nowrap; }
 </style>
 
 <div class="admin-overlay" id="adminModal">
