@@ -154,10 +154,16 @@
   function language(){ return state.data?.language || DEFAULTS.language; }
   // Resolves 'auto' to a concrete theme based on persona. This is the
   // value to feed the [data-theme] attribute on <html>.
+  //
+  // Mapping (after inversion): Trajan = light, Providentia = dark.
+  // The reasoning: Trajan is the cold emperor of decisive action — his
+  // light/parchment world reads as daylit ledgers and signed orders.
+  // Providentia is the patient advisor of foresight — her dark/charcoal
+  // world reads as nightwatch and counsel by lamplight.
   function effectiveTheme(){
     const t = theme();
     if (t === 'dark' || t === 'light') return t;
-    return persona() === 'trajan' ? 'dark' : 'light';
+    return persona() === 'trajan' ? 'light' : 'dark';
   }
 
   // ─── WRITE ─────────────────────────────────────────────────────────
@@ -207,35 +213,20 @@
   // cross-fade in lockstep. The class is auto-removed.
   let _themeFadeTimer = null;
   function applyEffectiveTheme(animated){
-    // PIN screen / login should always paint dark, regardless of the
-    // user's saved persona+theme preference. Theme switching is a
-    // post-auth concern — pre-auth, the app feels more "official" /
-    // editorial in dark mode (gold-on-charcoal, the primary brand
-    // identity). If we're showing the PIN screen, force dark and
-    // skip the cross-fade so it doesn't flash light first.
+    // Theme follows the active persona's coin at all times — including
+    // the PIN screen. Default persona is Providentia (= dark), so a
+    // fresh login still feels editorial / official by default. But a
+    // returning user who prefers Trajan will see the light/parchment
+    // PIN screen consistent with their advisor.
     //
-    // The PIN screen uses class `hidden` (set by app.js post-login),
-    // which CSS only fades to opacity:0 — display stays `flex`. So the
-    // robust signal that PIN is *no longer in use* is either the
-    // `hidden` class OR a faded-out opacity. Both are checked. (Earlier
-    // code looked for `is-hidden`, which never matched, so post-login
-    // theme switching was permanently locked to dark.)
-    const pinScreen = document.getElementById('pinScreen');
-    let pinVisible = false;
-    if (pinScreen) {
-      const inlineDisplayHidden = pinScreen.style.display === 'none';
-      const classHidden = pinScreen.classList.contains('hidden');
-      const cs = getComputedStyle(pinScreen);
-      const computedDisplayHidden = cs.display === 'none';
-      const opacityFaded = parseFloat(cs.opacity || '1') < 0.05;
-      pinVisible = !(inlineDisplayHidden || classHidden ||
-                     computedDisplayHidden || opacityFaded);
-    }
-    const next = pinVisible ? 'dark' : effectiveTheme();
+    // Earlier code force-painted dark on PIN regardless of preference.
+    // That made theme switching feel broken (and also broke the visual
+    // "this is YOUR app" continuity from the moment you tap to login).
+    const next = effectiveTheme();
     const root = document.documentElement;
     const prev = root.getAttribute('data-theme');
     if (prev === next) return;
-    if (animated && !pinVisible) {
+    if (animated) {
       root.classList.add('theme-transitioning');
       clearTimeout(_themeFadeTimer);
       _themeFadeTimer = setTimeout(() => {
