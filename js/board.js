@@ -22,20 +22,33 @@
 // ─────────────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────
+// ─── PALETTE ──────────────────────────────────────────────────────────
+// Board uses the same editorial set everything else does:
+//   gold   #d4a44e   primary brand, "high" priority
+//   olive  #9c8a3e   "operational" green substitute, "Toti" location
+//   oxblood #a83e3e   urgent / overdue
+//   plum   #8a6c9e   muted royal — Este location
+//   graphite #6b6258  neutral, "low" priority (instead of out-of-place blue)
+//   parchment #d4c8a5  warm secondary, optional label colors
+//
+// No screaming red, no candy blue, no kindergarten green. Two-and-a-half
+// years of iteration says editorial > productivity-app default.
 const PRIORITIES = {
-  urgent: { label: 'Urgent', color: '#a83e3e', rank: 4 },
-  high:   { label: 'High',   color: '#d4a44e', rank: 3 },
-  normal: { label: 'Normal', color: '',        rank: 2 },
-  low:    { label: 'Low',    color: '#5b9bd5', rank: 1 },
+  urgent: { label: 'Urgent', color: '#a83e3e', rank: 4 },  // oxblood
+  high:   { label: 'High',   color: '#d4a44e', rank: 3 },  // brand gold
+  normal: { label: 'Normal', color: '',        rank: 2 },  // no strip
+  low:    { label: 'Low',    color: '#6b6258', rank: 1 },  // graphite (was blue)
 };
 
 const LOCATIONS = [
-  { key: 'suerte', label: 'Suerte', color: '#c8a44e' },
-  { key: 'este',   label: 'Este',   color: '#a88fd8' },
-  { key: 'toti',   label: 'Toti',   color: '#9c8a3e' },
+  { key: 'suerte', label: 'Suerte', color: '#c8a44e' },  // gold (lighter for light theme)
+  { key: 'este',   label: 'Este',   color: '#8a6c9e' },  // muted plum (was bright purple)
+  { key: 'toti',   label: 'Toti',   color: '#9c8a3e' },  // olive
 ];
 
-const LABEL_COLORS = ['#a83e3e','#d4a44e','#9c8a3e','#5b9bd5','#a88fd8','#d4a44e','#7a8db8','#a49c94'];
+// Label color presets for cards. Same family — usable in any combo.
+//   oxblood, gold, olive, graphite, plum, parchment, denim-slate, taupe
+const LABEL_COLORS = ['#a83e3e','#d4a44e','#9c8a3e','#6b6258','#8a6c9e','#d4c8a5','#7a8db8','#a49c94'];
 
 // Default list structure when a brand-new board is created
 const DEFAULT_LISTS = [
@@ -747,7 +760,7 @@ function renderFilterBar(){
   html += mk('priority', null, 'All', null);
   html += mk('priority', 'urgent', 'Urgent', '#a83e3e');
   html += mk('priority', 'high',   'High',   '#d4a44e');
-  html += mk('priority', 'low',    'Low',      '#5b9bd5');
+  html += mk('priority', 'low',    'Low',      '#6b6258');
   html += `<span style="width:8px"></span>`;
   // State filters — Overdue (past due) and Stale (>14d old, no due date
   // or past due). These surface cards that have fallen through cracks
@@ -880,10 +893,15 @@ function createCardEl(card){
 
   // Cover image — Trello-style bleed at top of card. First photo in
   // photo_urls wins. On done cards we still show it but dimmed.
+  // The onerror handler hides the cover entirely if the URL 404s
+  // (common when nexus-files bucket isn't public, when a path was
+  // deleted, or during a Supabase storage outage). Without it, the OS
+  // would render the broken-image icon — which looked like the card
+  // itself was broken.
   const cover = (card.photo_urls || [])[0];
   let html = '';
   if(cover){
-    html += `<div class="b-card-cover"><img src="${esc(cover)}" loading="lazy" alt=""></div>`;
+    html += `<div class="b-card-cover"><img src="${esc(cover)}" loading="lazy" alt="" onerror="this.parentElement.style.display='none'"></div>`;
   }
 
   // Category color strip — a 4px bar at the top of the card body,
@@ -1054,7 +1072,7 @@ function openQuickActions(card, anchorEl){
         <button class="b-qa-pri ${card.priority==='urgent'?'active':''}" data-pri="urgent" style="--c:#a83e3e">Urgent</button>
         <button class="b-qa-pri ${card.priority==='high'?'active':''}"   data-pri="high"   style="--c:#d4a44e">High</button>
         <button class="b-qa-pri ${(card.priority==='normal'||!card.priority)?'active':''}" data-pri="normal" style="--c:#a49c94">Normal</button>
-        <button class="b-qa-pri ${card.priority==='low'?'active':''}"    data-pri="low"    style="--c:#5b9bd5">Low</button>
+        <button class="b-qa-pri ${card.priority==='low'?'active':''}"    data-pri="low"    style="--c:#6b6258">Low</button>
       </div>
     </div>
     <div class="b-qa-section">
@@ -1441,7 +1459,7 @@ async function openCardDetail(card){
         <div class="b-section-label">Photos</div>
         <div class="b-photos" id="bPhotos">
           ${(card.photo_urls||[]).map((u,i) =>
-            `<img class="b-photo" src="${esc(u)}" data-idx="${i}">`
+            `<img class="b-photo" src="${esc(u)}" data-idx="${i}" onerror="this.style.display='none'">`
           ).join('')}
           <button class="b-photo-add" id="bPhotoAdd">+</button>
         </div>
