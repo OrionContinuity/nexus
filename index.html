@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
@@ -135,7 +135,13 @@
 
 /* The (i) info button — sits at bottom-right corner of the stage, in the
    safe zone outside the coin itself. Slightly bigger tap target than
-   before so it's easier to hit without accidentally tapping the coin. */
+   before so it's easier to hit without accidentally tapping the coin.
+
+   Theme-aware: uses --nx-surface-2 / --nx-gold-line-2 tokens so the
+   button stays readable on both dark (gold-on-charcoal) and light
+   (gold-on-cream) themes. Falls back to literal values for
+   environments where the design tokens haven't loaded yet (PIN
+   screen renders before nx-system.css fully takes effect). */
 .nx-coin-info {
   position: absolute;
   bottom: 0;
@@ -143,9 +149,9 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: rgba(20, 18, 14, 0.85);
-  border: 1px solid rgba(200, 164, 78, 0.4);
-  color: #c8a44e;
+  background: var(--nx-surface-2, rgba(20, 18, 14, 0.85));
+  border: 1px solid var(--nx-gold-line-2, rgba(200, 164, 78, 0.4));
+  color: var(--nx-gold, #c8a44e);
   font-family: 'Outfit', -apple-system, sans-serif;
   font-size: 13px;
   font-weight: 600;
@@ -162,19 +168,25 @@
 }
 .nx-coin-info:hover,
 .nx-coin-info:focus {
-  background: rgba(20, 18, 14, 0.95);
-  border-color: rgba(200, 164, 78, 0.8);
+  background: var(--nx-surface-3, rgba(20, 18, 14, 0.95));
+  border-color: var(--nx-gold, rgba(200, 164, 78, 0.8));
   outline: none;
 }
 .nx-coin-info:active {
   transform: scale(0.92);
 }
 
-/* ─── Info overlay ───────────────────────────────────────────────── */
+/* ─── Info overlay ─────────────────────────────────────────────────
+   The backdrop wash + modal card. Tokenized so both themes look
+   right: dark mode = near-black wash + charcoal card with gold rule;
+   light mode = warm-brown wash + cream card with gold-deep rule.
+   The card's interior text + dividers also route through tokens
+   (--nx-text, --nx-muted, --nx-faint, --nx-gold-line) so the whole
+   modal is a single semantic unit per theme. */
 .nx-coin-info-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(8, 6, 4, 0.75);
+  background: var(--nx-overlay, rgba(8, 6, 4, 0.75));
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   z-index: 9999;
@@ -197,12 +209,16 @@
   max-height: 88vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  background: linear-gradient(180deg, #1c1814 0%, #14110d 100%);
-  border: 1px solid rgba(200, 164, 78, 0.3);
+  /* Theme-aware card — dark theme uses charcoal gradient, light
+     theme overrides via the [data-theme="light"] rule below. */
+  background: linear-gradient(180deg,
+    var(--nx-surface-1, #1c1814) 0%,
+    var(--nx-surface-2, #14110d) 100%);
+  border: 1px solid var(--nx-gold-line-2, rgba(200, 164, 78, 0.3));
   border-radius: 6px;
   padding: 32px 28px 24px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
-  color: #d4c8a5;
+  box-shadow: var(--nx-shadow-modal, 0 16px 40px rgba(0, 0, 0, 0.6));
+  color: var(--nx-text, #d4c8a5);
   font-family: 'Outfit', -apple-system, sans-serif;
   text-align: center;
 }
@@ -215,7 +231,7 @@
   height: 32px;
   background: transparent;
   border: none;
-  color: #857f75;
+  color: var(--nx-faint, #857f75);
   font-size: 16px;
   cursor: pointer;
   border-radius: 50%;
@@ -226,8 +242,8 @@
   -webkit-tap-highlight-color: transparent;
 }
 .nx-coin-info-close:hover {
-  color: #d4c8a5;
-  background: rgba(200, 164, 78, 0.1);
+  color: var(--nx-text, #d4c8a5);
+  background: var(--nx-gold-soft, rgba(200, 164, 78, 0.1));
 }
 
 .nx-coin-info-title {
@@ -236,20 +252,20 @@
   font-weight: 700;
   letter-spacing: 6px;
   margin: 0 0 4px;
-  color: #c8a44e;
+  color: var(--nx-gold, #c8a44e);
 }
 
 .nx-coin-info-tagline {
   margin: 0 0 12px;
   font-size: 13px;
-  color: #857f75;
+  color: var(--nx-muted, #857f75);
   letter-spacing: 0.5px;
 }
 
 .nx-coin-info-tagline-sub {
   margin: 0 0 4px;
   font-size: 12px;
-  color: #6b6258;
+  color: var(--nx-faint, #6b6258);
   letter-spacing: 0.4px;
   font-style: italic;
 }
@@ -259,7 +275,7 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(200, 164, 78, 0.4) 50%,
+    var(--nx-gold-line-2, rgba(200, 164, 78, 0.4)) 50%,
     transparent 100%
   );
   margin: 18px 0;
@@ -275,7 +291,7 @@
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 2px;
-  color: #c8a44e;
+  color: var(--nx-gold, #c8a44e);
   text-transform: uppercase;
   margin-bottom: 6px;
 }
@@ -284,7 +300,7 @@
   margin: 0 0 10px;
   font-size: 13.5px;
   line-height: 1.6;
-  color: #d4c8a5;
+  color: var(--nx-text, #d4c8a5);
 }
 .nx-coin-info-section p:last-child {
   margin-bottom: 0;
@@ -293,7 +309,7 @@
 .nx-coin-info-latin {
   font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-size: 12px;
-  color: #c8a44e;
+  color: var(--nx-gold, #c8a44e);
   letter-spacing: 0.5px;
   margin-top: 4px;
 }
@@ -304,18 +320,18 @@
   list-style: none;
   padding: 0;
   margin: 12px 0 14px;
-  border-left: 1px solid rgba(200, 164, 78, 0.3);
+  border-left: 1px solid var(--nx-gold-line-2, rgba(200, 164, 78, 0.3));
 }
 .nx-coin-info-list li {
   font-size: 13px;
   line-height: 1.55;
-  color: #d4c8a5;
+  color: var(--nx-text, #d4c8a5);
   padding: 6px 0 6px 14px;
   text-align: left;
 }
 .nx-coin-info-list li strong {
   font-family: 'JetBrains Mono', 'Courier New', monospace;
-  color: #c8a44e;
+  color: var(--nx-gold, #c8a44e);
   font-weight: 700;
   letter-spacing: 1px;
 }
@@ -326,27 +342,58 @@
   font-style: italic;
   font-size: 14px;
   line-height: 1.7;
-  color: #e3d8b4;
+  color: var(--nx-text-emphasis, #e3d8b4);
   margin: 14px 0;
   padding: 4px 14px;
-  border-left: 2px solid #c8a44e;
+  border-left: 2px solid var(--nx-gold, #c8a44e);
   text-align: left;
 }
 
 .nx-coin-info-foot {
   font-size: 12px;
-  color: #857f75;
+  color: var(--nx-muted, #857f75);
   margin: 0;
   font-style: italic;
   line-height: 1.6;
   letter-spacing: 0.3px;
 }
 .nx-coin-info-foot em {
-  color: #c8a44e;
+  color: var(--nx-gold, #c8a44e);
   font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-style: normal;
   font-size: 13px;
   letter-spacing: 1px;
+}
+
+/* ─── Light-theme override for the (i) modal ─────────────────────────
+   The token fallbacks above keep the modal working even before
+   nx-system.css fully loads. But on light theme, a few things need
+   explicit treatment to feel intentional rather than just "tokens
+   resolved":
+
+   - The modal's gradient background is from --nx-surface-1 →
+     --nx-surface-2. On light theme those tokens resolve to cream
+     shades, which works — the modal becomes a slightly-deeper
+     cream island over the warm wash.
+   - The overlay backdrop on light theme should be a brown wash,
+     not a black wash, to feel cohesive with the cream UI.
+   - The pull-quote text-emphasis falls back to gold-deep so it
+     reads as ink, not washed-out. */
+[data-theme="light"] .nx-coin-info-overlay {
+  background: rgba(70, 50, 18, 0.35);
+}
+[data-theme="light"] .nx-coin-info {
+  /* On cream backgrounds, the dark-blob token would resolve to a
+     light surface — losing the "this is a button" cue. Force it
+     visible: gold-tinted face with a deeper gold border. */
+  background: var(--nx-gold-faint, rgba(139, 105, 20, 0.08));
+  border-color: var(--nx-gold-line-2);
+  color: var(--nx-gold-deep, #8b6914);
+}
+[data-theme="light"] .nx-coin-info:hover,
+[data-theme="light"] .nx-coin-info:focus {
+  background: var(--nx-gold-soft, rgba(139, 105, 20, 0.14));
+  border-color: var(--nx-gold-deep, #8b6914);
 }
 
 /* ─── PIN screen vertical layout override ────────────────────────────
@@ -1807,21 +1854,21 @@
 .at-stat-card .at-stat-icon { font-size:16px; margin-bottom:2px; line-height:1; }
 .at-stat-card .at-stat-num { font-size:18px; font-weight:700; color:var(--text,#d4c8a5); font-family:'JetBrains Mono',monospace; line-height:1.2; }
 .at-stat-card .at-stat-label { font-size:8.5px; color:var(--text-dim,#a49c94); text-transform:uppercase; letter-spacing:0.5px; margin-top:3px; }
-.at-stat-card.alert { background:rgba(212,88,88,0.1); border-color:rgba(212,88,88,0.3); }
-.at-stat-card.alert .at-stat-num { color:#e88; }
+.at-stat-card.alert { background:rgba(168, 62, 62,0.1); border-color:rgba(168, 62, 62,0.3); }
+.at-stat-card.alert .at-stat-num { color:#c8625e; }
 
 /* Overview integrations chips */
 .at-integrations { display:flex; flex-wrap:wrap; gap:5px; margin:6px 0 14px; }
 .at-int-chip { font-size:10.5px; padding:4px 9px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); }
-.at-int-chip.ok { border-color:rgba(91,186,95,0.3); color:#8fd492; background:rgba(91,186,95,0.08); }
-.at-int-chip.off { border-color:rgba(212,88,88,0.3); color:#d88; background:rgba(212,88,88,0.08); }
+.at-int-chip.ok { border-color:rgba(156, 138, 62,0.3); color:#9c8a3e; background:rgba(156, 138, 62,0.08); }
+.at-int-chip.off { border-color:rgba(168, 62, 62,0.3); color:#d88; background:rgba(168, 62, 62,0.08); }
 
 /* Overview section headers + attention + activity */
 .at-section-title { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:1.2px; color:var(--text-dim,#a49c94); margin:14px 0 6px; padding-bottom:5px; border-bottom:1px solid rgba(255,255,255,0.05); }
 .at-attention { margin-bottom:14px; }
-.at-attn-item { font-size:11.5px; padding:8px 12px; margin-bottom:4px; border-radius:8px; background:rgba(232,168,48,0.1); border:1px solid rgba(232,168,48,0.2); color:var(--text,#d4c8a5); }
-.at-attn-item.ok { background:rgba(91,186,95,0.08); border-color:rgba(91,186,95,0.2); color:#8fd492; }
-.at-attn-item.danger { background:rgba(212,88,88,0.1); border-color:rgba(212,88,88,0.25); color:#e88; }
+.at-attn-item { font-size:11.5px; padding:8px 12px; margin-bottom:4px; border-radius:8px; background:rgba(212, 164, 78,0.1); border:1px solid rgba(212, 164, 78,0.2); color:var(--text,#d4c8a5); }
+.at-attn-item.ok { background:rgba(156, 138, 62,0.08); border-color:rgba(156, 138, 62,0.2); color:#9c8a3e; }
+.at-attn-item.danger { background:rgba(168, 62, 62,0.1); border-color:rgba(168, 62, 62,0.25); color:#c8625e; }
 .at-activity { max-height:180px; overflow-y:auto; border-radius:8px; background:rgba(0,0,0,0.18); padding:2px 0; }
 .at-activity-row { display:flex; gap:8px; padding:6px 10px; font-size:10.5px; border-bottom:1px solid rgba(255,255,255,0.03); }
 .at-activity-row:last-child { border-bottom:none; }
