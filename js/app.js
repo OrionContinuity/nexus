@@ -405,6 +405,22 @@ const NX = {
   // Shared success handler for both cache-hit and cold auth paths
   _handleAuthSuccess(user, pin, userEl) {
     this.currentUser = user;
+    // Phase D: ensure currentUser.permissions is populated. If verify_pin's
+    // SELECT shape doesn't include the new column, fetch via the dedicated
+    // get_user_permissions RPC (SECURITY DEFINER, fast). Fire-and-forget;
+    // the empty-perms permissive fallback in hasPermission keeps the UI
+    // working until this resolves.
+    if (user && user.id != null && user.permissions === undefined) {
+      this.sb.rpc('get_user_permissions', { p_user_id: user.id })
+        .then(({ data, error }) => {
+          if (!error && data) {
+            this.currentUser.permissions = data;
+            // Re-apply gates now that real perms are loaded
+            if (this.applyPermissionGates) this.applyPermissionGates();
+          }
+        })
+        .catch(e => console.warn('[perms] post-login fetch failed:', e));
+    }
     // Phase 1 — load this user's preferred persona (Providentia/Trajan).
     // Reads currentUser.default_persona if the verify_pin RPC returns
     // it, else localStorage fallback, else 'providentia'. Fires
@@ -445,12 +461,74 @@ const NX = {
     this.isAdmin = role === 'admin';
     this.isManager = role === 'manager' || role === 'admin';
     this.isStaff = true;
-    // Stage O: CSS gate for non-admins — mini-galaxy on Home stays
-    // visible (as an ornament/identity piece), but the NEXUS wordmark
-    // top-left and tapping the mini-galaxy are disabled via this class.
-    // CSS target: body.no-galaxy-access #navNexus { display: none }
-    //            body.no-galaxy-access #homeMiniGalaxy { pointer-events: none }
-    if (this.isAdmin) {
+    // Galaxy access is now permission-driven (not role-driven). Admins
+    // and owners still always pass via hasPermission's role bypass, but
+    // managers and staff need an explicit `galaxy: true` to unlock the
+    // NEXUS wordmark and the mini-galaxy on Home. CSS targets:
+    //   body.no-galaxy-access #navNexus     { display: none }
+    //   body.no-galaxy-access #homeMiniGalaxy { pointer-events: none }
+    if (this.hasPermission && this.hasPermission('galaxy')) {
+      document.body.classList.remove('no-galaxy-access');
+    } else {
+      document.body.classList.add('no-galaxy-access');
+    }
+    // Apply permission-based hide/show to nav buttons. Run on every
+    // role change so a user's nav rebuilds the moment perms update.
+    if (this.applyPermissionGates) this.applyPermissionGates();
+  },
+
+  // ─── PERMISSIONS ──────────────────────────────────────────────────
+  // The permission system gates which top-level resources a user can
+  // access. Admins and owners always pass; everyone else is gated by
+  // their `permissions` JSONB column on nexus_users.
+  //
+  // The set of resources is fixed (see PERM_RESOURCES). New ones get
+  // added here AND in admin.js's permissions matrix UI.
+  //
+  // Empty-perms fallback: if a user has no permissions object yet
+  // (a brand-new account, or pre-Phase-D existing user before SQL
+  // migration), they get a permissive default — every resource except
+  // galaxy and admin. This keeps the system functional during the
+  // upgrade window. As soon as an admin sets ANY explicit perms, the
+  // explicit object wins and the fallback is bypassed.
+
+  PERM_RESOURCES: ['brain','clean','log','board','cal','equipment','inventory','galaxy','admin'],
+
+  hasPermission(resource) {
+    const u = this.currentUser;
+    if (!u) return false;
+    // Admin and owner roles bypass the matrix entirely
+    if (u.role === 'admin' || u.role === 'owner') return true;
+    const perms = u.permissions || {};
+    // Admin / galaxy always require explicit grant — never granted by
+    // the empty-perms permissive fallback
+    if (resource === 'admin' || resource === 'galaxy') {
+      return perms[resource] === true;
+    }
+    // Empty perms object → permissive default (legacy users)
+    if (!perms || Object.keys(perms).length === 0) return true;
+    return perms[resource] === true;
+  },
+
+  // Hide / show every element with [data-perm="X"] based on the user's
+  // current permissions. Called from _applyRole after every login or
+  // role change. Also called manually after admin updates perms.
+  applyPermissionGates() {
+    const els = document.querySelectorAll('[data-perm]');
+    els.forEach(el => {
+      const resource = el.getAttribute('data-perm');
+      if (!resource) return;
+      const allowed = this.hasPermission(resource);
+      // We toggle a class rather than display:none directly so the
+      // existing nav-tab.active styling can still target hidden tabs
+      // for animations / first-load states without flicker.
+      el.classList.toggle('perm-denied', !allowed);
+      // Also set inline display:none so layout collapses cleanly (no
+      // empty slot in the bottom nav for hidden buttons).
+      el.style.display = allowed ? '' : 'none';
+    });
+    // Galaxy access bit on body — same source of truth
+    if (this.hasPermission('galaxy')) {
       document.body.classList.remove('no-galaxy-access');
     } else {
       document.body.classList.add('no-galaxy-access');
@@ -880,6 +958,16 @@ td.check{background:#F0EDE6 !important}
     const bnavBtns = document.querySelectorAll('.bnav-btn');
     const nexusBtn = document.getElementById('navNexus');
     const switchTo = (view) => {
+      // Permission gate — deny-then-redirect for forbidden views.
+      // Home is always allowed. The check happens BEFORE any UI state
+      // changes so a denied tap is a no-op visually (nav doesn't even
+      // flicker). For galaxy/admin/etc the user shouldn't have seen
+      // the button at all (applyPermissionGates hid it), but a stale
+      // bookmark or programmatic call could still try — so guard here.
+      if (view !== 'home' && this.hasPermission && !this.hasPermission(view)) {
+        if (NX.toast) NX.toast('No access to that section', 'warn');
+        view = 'home';
+      }
       // Stop any playing speech
       if('speechSynthesis'in window)speechSynthesis.cancel();
       if(NX.brain&&NX.brain.stopSpeaking)NX.brain.stopSpeaking();
@@ -2159,9 +2247,130 @@ td.check{background:#F0EDE6 !important}
           // SECURITY DEFINER and returns true if a row was removed.
           await this.sb.rpc('delete_user', { p_id: btn.dataset.id });
           this.loadUserList();
+          this.loadPermsMatrix();
         });
       });
+      // Refresh the permissions matrix in the same pass so adds/deletes
+      // stay in sync. Cheap enough — both use SECURITY DEFINER RPCs.
+      this.loadPermsMatrix();
     } catch (e) { el.innerHTML = '<div style="color:var(--faint);font-size:11px">Could not load users</div>'; }
+  },
+
+  // ─── PERMISSIONS MATRIX (Phase D) ─────────────────────────────────
+  // Renders all users as rows × resources as cells. Each cell is a
+  // tappable pill that toggles the user's permission for that resource.
+  // Admins/owners are shown but their cells are read-only "is-locked"
+  // (since the role itself bypasses the perm check). Self-edit allowed
+  // — a current admin can adjust their own row, but it's still display
+  // -only because role bypass keeps them admin regardless.
+  async loadPermsMatrix() {
+    const el = document.getElementById('adminPermsMatrix'); if (!el) return;
+    if (!this.isAdmin) {
+      el.innerHTML = '<div style="color:var(--faint);font-size:11px;padding:12px">Admin access required.</div>';
+      return;
+    }
+    try {
+      // Use list_users_with_perms which includes the permissions JSONB
+      const { data, error } = await this.sb.rpc('list_users_with_perms');
+      if (error || !data) {
+        el.innerHTML = '<div style="color:#c8625e;font-size:11px;padding:12px">Could not load permissions. Did you run permissions_phase_d.sql?</div>';
+        return;
+      }
+      const RESOURCES = this.PERM_RESOURCES;
+      const RES_LABELS = {
+        brain: 'Brain', clean: 'Clean', log: 'Log', board: 'Board',
+        cal: 'Cal', equipment: 'Equip', inventory: 'Inv',
+        galaxy: 'Galaxy', admin: 'Admin',
+      };
+      const headerRow = `
+        <div class="admin-perms-row is-header">
+          <div class="admin-perms-name">User</div>
+          <div class="admin-perms-cells">
+            ${RESOURCES.map(r => `<span class="admin-perm-cell is-locked" style="background:transparent">${RES_LABELS[r] || r}</span>`).join('')}
+          </div>
+        </div>
+      `;
+      const rows = data.map(u => {
+        const isAdminRow = u.role === 'admin' || u.role === 'owner';
+        const perms = u.permissions || {};
+        const empty = Object.keys(perms).length === 0;
+        return `
+          <div class="admin-perms-row ${isAdminRow ? 'is-admin' : ''}" data-user-id="${u.id}">
+            <div class="admin-perms-name">
+              <strong>${this._escAttr(u.name)}</strong>
+              <span class="perms-role">${u.role || 'staff'}</span>
+            </div>
+            <div class="admin-perms-cells">
+              ${RESOURCES.map(r => {
+                const allowed = isAdminRow
+                  ? true
+                  : (empty
+                      ? (r !== 'galaxy' && r !== 'admin')
+                      : perms[r] === true);
+                return `<button type="button"
+                  class="admin-perm-cell ${allowed ? 'is-on' : ''} ${isAdminRow ? 'is-locked' : ''}"
+                  data-resource="${r}"
+                  ${isAdminRow ? 'disabled' : ''}
+                  title="${isAdminRow ? 'Admin/owner role — always granted' : (allowed ? 'Tap to revoke' : 'Tap to grant')}">
+                  <span class="admin-perm-cell-dot"></span>
+                  ${RES_LABELS[r] || r}
+                </button>`;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      }).join('');
+      el.innerHTML = headerRow + rows;
+
+      // Wire toggles. Click a cell → flip the user's perms object for
+      // that resource → POST to RPC → re-render this matrix on success.
+      // Optimistic UI: flip the class first; revert on RPC failure.
+      el.querySelectorAll('.admin-perm-cell:not(.is-locked)').forEach(cell => {
+        cell.addEventListener('click', async () => {
+          const row = cell.closest('.admin-perms-row');
+          const userId = parseInt(row.getAttribute('data-user-id'));
+          const resource = cell.getAttribute('data-resource');
+          const wasOn = cell.classList.contains('is-on');
+          // Reconstruct the user's full permissions object from the row's
+          // current cells, then flip the one we tapped. This way a row
+          // that started "empty perms" becomes explicit on first toggle.
+          const newPerms = {};
+          row.querySelectorAll('.admin-perm-cell:not(.is-locked)').forEach(c => {
+            const r = c.getAttribute('data-resource');
+            const on = c === cell ? !wasOn : c.classList.contains('is-on');
+            if (on) newPerms[r] = true;
+          });
+          // Optimistic flip
+          cell.classList.toggle('is-on');
+          try {
+            const { data: ok, error } = await this.sb.rpc('update_user_permissions', {
+              p_user_id: userId,
+              p_permissions: newPerms,
+            });
+            if (error || ok === false) throw error || new Error('update failed');
+            if (NX.toast) NX.toast(`${resource}: ${wasOn ? 'revoked' : 'granted'}`, 'success');
+            // If the user is editing themselves, re-apply gates
+            if (userId === this.currentUser?.id) {
+              this.currentUser.permissions = newPerms;
+              this.applyPermissionGates();
+            }
+          } catch (e) {
+            console.warn('[perms] update failed:', e);
+            cell.classList.toggle('is-on');  // revert
+            if (NX.toast) NX.toast('Permission update failed', 'error');
+          }
+        });
+      });
+    } catch (e) {
+      el.innerHTML = '<div style="color:#c8625e;font-size:11px;padding:12px">Matrix load error: ' + (e.message || e) + '</div>';
+    }
+  },
+
+  // Tiny helper for safely interpolating user names into the matrix
+  _escAttr(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   },
 
   // ─── Drive Sync ───
