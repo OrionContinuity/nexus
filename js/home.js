@@ -149,10 +149,11 @@
 
       el.innerHTML = `
         <div class="home-page">
-          <!-- Daily Roman reading — mounts above the lede so it leads
-               the morning ritual. Module fills this in async after
-               the rest of Home renders. See js/daily-card.js. -->
-          <div class="dcard-mount" id="dailyCardMount"></div>
+          <!-- Library card — surfaces today's track + chapter from
+               js/library.js. Mounts above the lede so it leads the
+               morning ritual. Module fills this in async after the
+               rest of Home renders. -->
+          <div class="dcard-mount" id="libraryCardMount"></div>
 
           <h1 class="home-lede">
             ${esc(greeting)}<span class="home-lede-comma">,</span>
@@ -203,15 +204,15 @@
         </div>
       `;
 
-      // Mount the daily Roman reading. Module handles its own loading,
+      // Mount the library card. Module handles its own loading,
       // generation, error states. Fire-and-forget — Home keeps rendering
-      // even if the daily card is slow or fails.
+      // even if the library is slow or fails.
       try {
-        const dcardMount = document.getElementById('dailyCardMount');
-        if (dcardMount && NX.dailyCard && typeof NX.dailyCard.mount === 'function') {
-          NX.dailyCard.mount(dcardMount);
+        const libMount = document.getElementById('libraryCardMount');
+        if (libMount && NX.library && typeof NX.library.mount === 'function') {
+          NX.library.mount(libMount);
         }
-      } catch (e) { console.warn('[home] daily card mount failed', e); }
+      } catch (e) { console.warn('[home] library mount failed', e); }
 
       // Cycle through example prompt previews under the Ask pill.
       // Gives users an idea of what they can ask without taking up
