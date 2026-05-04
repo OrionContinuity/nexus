@@ -1193,23 +1193,40 @@ function logService(equipId) {
       }
     }
 
-    try {
-      const { error } = await NX.sb.from('equipment_maintenance').insert(data);
-      if (error) throw error;
-      if (data.next_pm_due) {
-        await NX.sb.from('equipment').update({ next_pm_date: data.next_pm_due }).eq('id', equipId);
+    // ─── Inventory Phase C hook: PM parts consumption ─────────────
+    // Before logging the maintenance event, if this is a PM and the
+    // inventory module is loaded, show the parts-used modal. Stock
+    // counts are decremented and reorder cards are auto-created.
+    const persistMaintenance = async () => {
+      try {
+        const { error } = await NX.sb.from('equipment_maintenance').insert(data);
+        if (error) throw error;
+        if (data.next_pm_due) {
+          await NX.sb.from('equipment').update({ next_pm_date: data.next_pm_due }).eq('id', equipId);
+        }
+        try { await NX.sb.rpc('recompute_health_score', { eq_id: equipId }); } catch(e){}
+
+        NX.toast && NX.toast('Service logged ✓', 'success');
+        // equipment_service syslog → now handled by Postgres trigger on equipment_maintenance INSERT
+
+        closeService();
+        await loadEquipment();
+        openDetail(equipId);
+      } catch (err) {
+        console.error('[Equipment] Service log error:', err);
+        NX.toast && NX.toast('Save failed: ' + err.message, 'error');
       }
-      try { await NX.sb.rpc('recompute_health_score', { eq_id: equipId }); } catch(e){}
+    };
 
-      NX.toast && NX.toast('Service logged ✓', 'success');
-      // equipment_service syslog → now handled by Postgres trigger on equipment_maintenance INSERT
-
-      closeService();
-      await loadEquipment();
-      openDetail(equipId);
-    } catch (err) {
-      console.error('[Equipment] Service log error:', err);
-      NX.toast && NX.toast('Save failed: ' + err.message, 'error');
+    if (data.event_type === 'pm' && NX.modules?.inventory?.openPmCompletionModal) {
+      const eqRow = equipment.find(e => e.id === equipId);
+      const eqName = eqRow?.name || 'Equipment';
+      NX.modules.inventory.openPmCompletionModal(equipId, eqName, () => {
+        // Whether the user confirmed parts or skipped, proceed to log the PM.
+        persistMaintenance();
+      });
+    } else {
+      await persistMaintenance();
     }
   });
 }
@@ -3338,7 +3355,9 @@ function printStickers(equipList, opts = {}) {
   // CSS grid so every element has a fixed slot — sign shops can rely on
   // consistent placement when they generate plates from the PDF.
   const stickerHTML = (eq) => {
-    const url = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
+    const url = opts.urlBuilder
+      ? opts.urlBuilder(eq)
+      : `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
     // SVG QR — scales infinitely without raster artifacts. Sign shops
     // love SVG because they can pull it directly into Illustrator.
     const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&format=svg&ecc=H&margin=0&data=${encodeURIComponent(url)}`;
@@ -3636,6 +3655,57 @@ function printStickers(equipList, opts = {}) {
   </script>
 </body></html>`);
   w.document.close();
+}
+
+/* ─── Inventory sticker wrapper ─────────────────────────────────────
+   Reuses the same editorial sticker template (coin, status stripe,
+   trilingual scan footer) for inventory assets and stock parts.
+   Adapts the inventory data shape into the equipment shape that
+   printStickers expects, and supplies a custom URL builder so the
+   QR points at ?inv-asset=XXX or ?inv-stock=XXX instead of ?equip=.
+
+   Inventory items don't have status_color states like equipment does,
+   so we map the inventory status to a single sane default (gold for
+   in-flight, olive-bronze for stable, oxblood for problems).
+*/
+function printInventoryStickers(items, type /* 'asset' | 'stock' */) {
+  if (!items || !items.length) {
+    NX.toast && NX.toast('No items to print', 'info');
+    return;
+  }
+  const param = type === 'asset' ? 'inv-asset' : 'inv-stock';
+
+  // Adapt inventory shape → equipment shape that stickerHTML expects.
+  // Pre-color via a synthetic 'status' that maps into STATUS_COLOR.
+  const adapted = items.map(item => {
+    let synthStatus = 'operational';  // → olive-bronze
+    if (type === 'asset') {
+      if (item.status === 'broken' || item.status === 'missing') synthStatus = 'down';
+      else if (item.status === 'loaned' || item.status === 'relocated') synthStatus = 'needs_service';
+      else if (item.status === 'retired') synthStatus = 'retired';
+    } else {
+      // Stock — coloring by PAR is more useful than a single status
+      if (item.is_below_threshold || item.count_on_hand < (item.reorder_threshold ?? 1)) synthStatus = 'down';
+      else if (item.is_below_par || item.count_on_hand < (item.par_level ?? 1)) synthStatus = 'needs_service';
+    }
+    return {
+      qr_code:      item.qr_code,
+      name:         item.name,
+      manufacturer: item.manufacturer,
+      model:        item.model || item.manufacturer_pn,  // stock uses OEM PN here
+      location:     item.home_location || item.location,
+      area:         item.bin_hint,                        // stock bin shown like an "area"
+      status:       synthStatus,
+    };
+  });
+
+  printStickers(adapted, {
+    variant: items.length === 1 ? 'single' : 'sheet',
+    title: items.length === 1
+      ? `QR — ${items[0].name}`
+      : `NEXUS Inventory QR — ${items.length} ${type}${items.length === 1 ? '' : 's'}`,
+    urlBuilder: (eq) => `${window.location.origin}${window.location.pathname}?${param}=${eq.qr_code}`,
+  });
 }
 
 /* ─── Service Log Sheet — single-page printable history + handwritten
@@ -7074,6 +7144,7 @@ NX.modules.equipment = {
   printQRSheet,
   printServiceLog,
   copyQRLink,
+  printInventoryStickers,    // Phase C — inventory uses the same sticker engine
 
   // Public scan (pre-auth)
   renderPublicScanView,
