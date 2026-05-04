@@ -2022,36 +2022,64 @@ body.view-brain .list-toggle {
    accent not as highlight, more breathing room.                       
    ═══════════════════════════════════════════════════════════════════ */
 
-/* ─── Board tabs (Operations | + Add board) ─────────────────────── */
-/* Was: bright-yellow outlined pill. Now: subtle row with active
-   tab pinned in gold underline. Reads like editorial tabs. */
+/* ─── Board tabs (Operations | + Add board) ─────────────────────────
+   Pill-shaped tabs with a colored dot before the label — see
+   views-system.css and board-system.css for the canonical styles.
+   Inline dot replaces the old left-stripe so the pill stays genuinely
+   round on all sides. The "+" Add Board button gets the same round
+   treatment so it doesn't read as an out-of-place hatched box. */
 .board-header .board-tab {
-  background: transparent !important;
-  border: none !important;
-  border-bottom: 2px solid transparent !important;
-  border-radius: 0 !important;
-  border-left: none !important;
-  padding: 8px 14px !important;
+  background: var(--nx-surface-1, var(--surface)) !important;
+  border: 1px solid rgba(212, 182, 138, 0.18) !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  min-height: 36px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
   font-family: 'DM Sans', system-ui, sans-serif !important;
-  font-size: 13.5px !important;
+  font-size: 13px !important;
   font-weight: 500 !important;
   color: var(--text-dim, #a49c94) !important;
-  letter-spacing: 0.1px !important;
-  transition: color .15s, border-color .15s !important;
+  letter-spacing: 0.2px !important;
+  transition: color .15s, border-color .15s, background .15s !important;
 }
-.board-header .board-tab:hover { color: var(--text, #d4c8a5) !important; }
+.board-header .board-tab:hover {
+  color: var(--text, #d4c8a5) !important;
+  border-color: rgba(212, 182, 138, 0.35) !important;
+}
 .board-header .board-tab.active {
   color: var(--accent) !important;
-  border-bottom-color: var(--accent) !important;
+  background: rgba(212, 164, 78, 0.08) !important;
+  border-color: rgba(212, 164, 78, 0.4) !important;
+  font-weight: 600 !important;
 }
 .board-header .board-add-tab {
-  color: var(--text-faint, #746c5e) !important;
-  font-size: 16px !important;
-  font-weight: 400 !important;
-  padding: 8px 10px !important;
-  border: 1px dashed rgba(212, 182, 138, 0.15) !important;
-  border-radius: 6px !important;
-  margin-left: 6px !important;
+  color: var(--accent) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  padding: 8px 12px !important;
+  min-width: 36px !important;
+  justify-content: center !important;
+  background: transparent !important;
+  border: 1px dashed rgba(212, 182, 138, 0.30) !important;
+  border-radius: 999px !important;
+  margin-left: 4px !important;
+}
+.board-header .board-add-tab:hover {
+  background: rgba(212, 164, 78, 0.06) !important;
+  border-color: rgba(212, 164, 78, 0.45) !important;
+  border-style: solid !important;
+}
+/* Per-board color signal — small dot before label.
+   Replaces the prior border-left:3px stripe (which flattened the
+   pill's left edge). Same color cue, fully round shape. */
+.board-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
 }
 
 /* ─── Column headers (To Do | In Progress | etc.) ───────────────── */
