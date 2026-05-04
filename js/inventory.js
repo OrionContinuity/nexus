@@ -179,25 +179,40 @@
        added to width:100%, pushing the search bar past the screen
        edge. min-width:0 on flex children stops them from refusing
        to shrink below their intrinsic content size (the classic
-       "tabs bleed off the right side" trap on iOS).                */
+       "tabs bleed off the right side" trap on iOS).
+       
+       Width clamp belt-and-suspenders: every container declares an
+       explicit width so flex column doesn't let children stretch
+       past the viewport. overflow-x: clip on the view kills any
+       residual horizontal scroll.                                  */
     #inventoryView, #inventoryView * { box-sizing: border-box; }
     #inventoryView {
       font-family: 'DM Sans', system-ui, sans-serif;
       color: var(--nx-text);
       padding: 0 0 80px;
+      width: 100%;
       max-width: 100vw;
-      overflow-x: hidden;  /* defense in depth — nothing should clip but if it does, hide it */
+      overflow-x: clip;       /* clip > hidden — also kills programmatic scrollLeft */
     }
-    .inv-wrap { max-width: 720px; margin: 0 auto; padding: 18px 16px 0; }
+    .inv-wrap {
+      width: 100%;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 18px 16px 0;
+      overflow-x: clip;
+    }
 
     .inv-tabs {
       display: flex; gap: 4px; margin: 0 0 18px; padding: 4px;
       background: var(--nx-surface-1); border: 1px solid var(--nx-gold-line);
-      border-radius: 999px; overflow-x: auto; scrollbar-width: none;
+      border-radius: 999px;
+      width: 100%;            /* explicit width — don't let intrinsic content size win */
+      overflow-x: auto;
+      scrollbar-width: none;
     }
     .inv-tabs::-webkit-scrollbar { display: none; }
     .inv-tab {
-      flex: 1 1 0; min-width: 0;  /* min-width 0 lets flex shrink below content size */
+      flex: 1 1 0; min-width: 0;
       padding: 8px 14px; min-height: 36px; border: none;
       background: transparent; color: var(--nx-muted); font-family: inherit;
       font-size: 12.5px; font-weight: 500; letter-spacing: 0.3px;
@@ -265,9 +280,14 @@
     .inv-scan-btn:active { transform: scale(.98); }
     .inv-scan-btn svg { width: 20px; height: 20px; }
 
-    .inv-listhead { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+    .inv-listhead {
+      display: flex; flex-direction: column; gap: 10px;
+      margin-bottom: 14px;
+      width: 100%; min-width: 0;
+    }
     .inv-search {
-      width: 100%; padding: 11px 14px; background: var(--nx-surface-1);
+      width: 100%; max-width: 100%; min-width: 0;
+      padding: 11px 14px; background: var(--nx-surface-1);
       border: 1px solid var(--nx-gold-line); border-radius: 999px;
       color: var(--nx-text); font-family: inherit; font-size: 14px;
       transition: border-color .15s;
@@ -278,6 +298,7 @@
     .inv-filter-row {
       display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
       padding-bottom: 4px; -webkit-overflow-scrolling: touch;
+      width: 100%; max-width: 100%; min-width: 0;
     }
     .inv-filter-row::-webkit-scrollbar { display: none; }
     .inv-chip {
