@@ -448,21 +448,21 @@
    viewport. Locking the card to a budget keeps everything below it
    anchored. The log section inside scrolls independently.
 
-   460px chosen empirically: enough for status + time + location +
-   buttons + ~3 visible log rows + timesheet link, on a ~660px tall
-   viewport (iPhone SE / Android compact landscape minimum). On
-   taller phones the card stays the same size — the spare space goes
-   to the lang row breathing room rather than growing the card. */
+   280px chosen to match PIN-screen language-bar position: enough
+   for status + time + location + buttons + ~2 visible log rows +
+   timesheet link, while keeping the language row at roughly the
+   same vertical position it has on the PIN keypad screen. The log
+   scrolls internally for older entries. */
 #pinScreen .tc-card {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  padding: 16px 16px 12px;
+  padding: 14px 16px 10px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
   border-radius: 12px;
-  height: 360px;          /* fixed budget — see comment above */
-  max-height: 60vh;       /* on very small screens, never overflow viewport */
+  height: 280px;          /* tightened from 360 — see comment above */
+  max-height: 50vh;       /* on very small screens, never overflow viewport */
   overflow: hidden;       /* internal scroll only happens in tc-pin-log */
   flex-shrink: 0;
 }
@@ -556,12 +556,14 @@
   border-color: transparent;
 }
 #pinScreen .tc-btn-out {
-  background: rgba(180, 80, 80, 0.12);
-  border-color: rgba(180, 80, 80, 0.4);
-  color: #d47878;
+  /* Was reddish — swapped to oxblood-on-cream / oxblood-on-dark to
+     match the palette (no scarlet). Reads as "exit" without panicking. */
+  background: rgba(168, 62, 62, 0.10);
+  border-color: rgba(168, 62, 62, 0.4);
+  color: #c8625e;
 }
 #pinScreen .tc-btn-out:active {
-  background: rgba(180, 80, 80, 0.22);
+  background: rgba(168, 62, 62, 0.20);
 }
 
 /* Scrollable log inside the card.
@@ -2079,12 +2081,12 @@
             if (!s.supported) {
               if (s.iosNeedsInstall) {
                 statusEl.innerHTML = '📱 iPhone — install to home screen first';
-                statusEl.style.color = '#e8a830';
+                statusEl.style.color = '#d4a44e';
                 actionsEl.innerHTML = '';
                 hintEl.innerHTML = 'Tap the <b>Share</b> button in Safari → <b>Add to Home Screen</b> → open NEXUS from the home screen icon → come back here.';
               } else {
                 statusEl.textContent = '❌ Not supported on this browser';
-                statusEl.style.color = '#e88';
+                statusEl.style.color = '#a83e3e';
                 actionsEl.innerHTML = '';
                 hintEl.textContent = 'Try Chrome, Firefox, or Edge.';
               }
@@ -2092,14 +2094,14 @@
             }
             if (s.permission === 'denied') {
               statusEl.textContent = '🚫 Blocked in browser settings';
-              statusEl.style.color = '#e88';
+              statusEl.style.color = '#a83e3e';
               actionsEl.innerHTML = '';
               hintEl.textContent = 'Tap the padlock icon in your address bar, find Notifications, and change it to Allow.';
               return;
             }
             if (s.subscribed && s.permission === 'granted') {
               statusEl.textContent = '✅ Enabled on this device';
-              statusEl.style.color = '#5bba5f';
+              statusEl.style.color = '#9c8a3e';
               actionsEl.innerHTML = `
                 <button id="adminPushTest" class="admin-save-btn" style="background:transparent;color:var(--accent);border:1px solid rgba(200,164,78,0.35)">Send test notification</button>
                 <button id="adminPushOff" class="admin-save-btn" style="background:transparent;color:var(--muted);border:1px solid rgba(200,164,78,0.2);font-size:12px;padding:8px 14px">Disable on this device</button>
@@ -2146,7 +2148,7 @@
                 if (r?.reason === 'no_vapid_key') {
                   onBtn.textContent = 'Server not configured';
                   hintEl.textContent = 'Admin: run PUSH_SETUP.sql to add vapid_public_key to nexus_config.';
-                  hintEl.style.color = '#e8a830';
+                  hintEl.style.color = '#d4a44e';
                 } else if (r?.reason === 'permission_denied') {
                   onBtn.textContent = 'Blocked — see browser settings';
                 } else {
@@ -2156,7 +2158,7 @@
             };
           } catch (e) {
             statusEl.textContent = 'Status check failed';
-            statusEl.style.color = '#e88';
+            statusEl.style.color = '#a83e3e';
             console.warn('[push status]', e);
           }
         };
@@ -2268,7 +2270,7 @@
             const priority = document.getElementById('adminBroadcastPriority').value;
             if (!title || !body) {
               statusEl.textContent = '⚠️ Title and message required.';
-              statusEl.style.color = '#d45858';
+              statusEl.style.color = '#a83e3e';
               return;
             }
             if (!confirm(`Send "${title}" to ${audience}?\n\nEveryone with notifications enabled will get a push within 30 seconds.`)) return;
@@ -2284,14 +2286,14 @@
               const nativeSent = data?.native_sent ?? 0;
               const errs = data?.errors ?? 0;
               statusEl.innerHTML = `✅ Sent. ${webSent} web + ${nativeSent} native delivered${errs ? `, ${errs} failed` : ''}.`;
-              statusEl.style.color = '#5bba5f';
+              statusEl.style.color = '#9c8a3e';
               document.getElementById('adminBroadcastTitle').value = '';
               document.getElementById('adminBroadcastBody').value = '';
               if (NX.toast) NX.toast('Announcement sent ✓', 'success');
               if (NX.syslog) NX.syslog('broadcast_sent', `"${title}" → ${audience} (${webSent + nativeSent} delivered)`);
             } catch (e) {
               statusEl.textContent = '❌ Failed: ' + (e.message || 'unknown error');
-              statusEl.style.color = '#d45858';
+              statusEl.style.color = '#a83e3e';
               console.error('[broadcast] send failed:', e);
             } finally {
               sendBtn.disabled = false;
