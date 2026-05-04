@@ -33,6 +33,36 @@
 (function() {
   'use strict';
 
+  /* ═════════════════════════════════════════════════════════════════════════
+     ICONS — line-art SVG, replacing emoji glyphs throughout the public PM
+     ─────────────────────────────────────────────────────────────────────
+     Emojis render inconsistently across platforms (iOS shows glossy raster
+     glyphs, Android shows another set, Windows yet another) — they fight
+     the editorial line-art used everywhere else in the app. These are
+     Lucide-derived paths sized to inherit currentColor and the parent's
+     font-size. Use via svg('iconKey').
+     ═════════════════════════════════════════════════════════════════════════ */
+  const ICONS = {
+    wrench:   '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.121 2.121 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+    lock:     '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    phone:    '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+    alert:    '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    close:    '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    list:     '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+    camera:   '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+    document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/>',
+    shield:   '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+    check:    '<polyline points="20 6 9 17 4 12"/>',
+    triangle: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    ban:      '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+    spinner:  '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+    pen:      '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
+  };
+  function svg(key, sizeEm = 1) {
+    const path = ICONS[key] || '';
+    return `<svg viewBox="0 0 24 24" width="${sizeEm}em" height="${sizeEm}em" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">${path}</svg>`;
+  }
+
   // Wait for NX + supabase
   function whenReady(check, fn, maxWait = 8000) {
     const start = Date.now();
@@ -129,7 +159,7 @@
     
     const callBtnHtml = contact ? `
         <button class="pm-public-btn pm-public-btn-call" id="pmCallBtn" type="button">
-          <span class="pm-public-btn-icon">📞</span>
+          <span class="pm-public-btn-icon">${svg('phone', 1.4)}</span>
           <span class="pm-public-btn-label">
             <span class="pm-public-btn-title">Call ${esc(contact.name || 'Service')}</span>
             <span class="pm-public-btn-sub">${esc(contact.phone || '')}</span>
@@ -140,7 +170,7 @@
     actionsEl.innerHTML = `
       <div class="pm-public-actions">
         <button class="pm-public-btn pm-public-btn-primary" id="pmLogBtn">
-          <span class="pm-public-btn-icon">🔧</span>
+          <span class="pm-public-btn-icon">${svg('wrench', 1.4)}</span>
           <span class="pm-public-btn-label">
             <span class="pm-public-btn-title">PM Logger</span>
             <span class="pm-public-btn-sub">Service contractors — no login</span>
@@ -148,7 +178,7 @@
         </button>
         
         <button class="pm-public-btn pm-public-btn-secondary" id="pmLoginBtn">
-          <span class="pm-public-btn-icon">🔐</span>
+          <span class="pm-public-btn-icon">${svg('lock', 1.4)}</span>
           <span class="pm-public-btn-label">
             <span class="pm-public-btn-title">Login</span>
             <span class="pm-public-btn-sub">Restaurant staff</span>
@@ -158,7 +188,7 @@
         ${callBtnHtml}
         
         <button class="pm-public-btn pm-public-btn-tertiary" id="pmReportIssueBtn">
-          <span class="pm-public-btn-icon">🚨</span>
+          <span class="pm-public-btn-icon">${svg('alert', 1.4)}</span>
           <span class="pm-public-btn-label">
             <span class="pm-public-btn-title">Report Issue</span>
             <span class="pm-public-btn-sub">Something's broken or unsafe</span>
@@ -224,8 +254,8 @@
       <div class="pm-logger-bg"></div>
       <div class="pm-logger-card">
         <div class="pm-logger-header">
-          <div class="pm-logger-title">🔧 Log Service</div>
-          <button class="pm-logger-close" id="pmFormClose">✕</button>
+          <div class="pm-logger-title"><span class="pm-logger-title-icon">${svg('wrench', 1)}</span> Log Service</div>
+          <button class="pm-logger-close" id="pmFormClose" aria-label="Close">${svg('close', 1)}</button>
         </div>
         
         <div class="pm-logger-eq">
@@ -234,7 +264,7 @@
         </div>
         
         <div class="pm-logger-mass-toggle" id="pmMassToggle">
-          <span>📋 Mass PM mode — log multiple units at once</span>
+          <span><span class="pm-logger-toggle-icon">${svg('list', 1)}</span> Mass PM mode — log multiple units at once</span>
           <input type="checkbox" id="pmMassCheckbox">
         </div>
         
@@ -313,12 +343,12 @@
           <div class="pm-form-section">
             <h3>Attachments (optional)</h3>
             
-            <label class="pm-label">📷 Photos</label>
+            <label class="pm-label"><span class="pm-label-icon">${svg('camera', 1)}</span> Photos</label>
             <input type="file" id="pmPhotos" class="pm-input pm-file" 
               accept="image/*" multiple>
             <div class="pm-photo-preview" id="pmPhotoPreview"></div>
             
-            <label class="pm-label">📄 Invoice / Report PDF</label>
+            <label class="pm-label"><span class="pm-label-icon">${svg('document', 1)}</span> Invoice / Report PDF</label>
             <input type="file" id="pmPdf" class="pm-input pm-file" accept="application/pdf">
             <div class="pm-pdf-preview" id="pmPdfPreview"></div>
           </div>
@@ -338,7 +368,7 @@
           </div>
           
           <div class="pm-logger-tip">
-            🛡️ Your submission goes to a review queue before it appears on the equipment record.
+            <span class="pm-tip-icon">${svg('shield', 1)}</span> Your submission goes to a review queue before it appears on the equipment record.
           </div>
         </form>
       </div>
@@ -442,7 +472,7 @@
         } else if (kind === 'pdf' && file.type === 'application/pdf') {
           const div = document.createElement('div');
           div.className = 'pm-pdf-chip';
-          div.innerHTML = `📄 ${esc(file.name)} <span class="pm-file-size">(${(file.size/1024).toFixed(0)} KB)</span>`;
+          div.innerHTML = `${svg("document", 1)} ${esc(file.name)} <span class="pm-file-size">(${(file.size/1024).toFixed(0)} KB)</span>`;
           preview.appendChild(div);
         }
       });
@@ -638,7 +668,7 @@
     const card = modal.querySelector('.pm-logger-card');
     card.innerHTML = `
       <div class="pm-success">
-        <div class="pm-success-icon">✓</div>
+        <div class="pm-success-icon">${svg('check', 1.5)}</div>
         <div class="pm-success-title">Service Logged</div>
         <div class="pm-success-msg">
           ${count > 1 
@@ -684,8 +714,8 @@
       <div class="pm-logger-bg"></div>
       <div class="pm-logger-card pm-review-card">
         <div class="pm-logger-header">
-          <div class="pm-logger-title">📋 Pending PM Logs</div>
-          <button class="pm-logger-close" id="pmReviewClose">✕</button>
+          <div class="pm-logger-title"><span class="pm-logger-title-icon">${svg("list", 1)}</span> Pending PM Logs</div>
+          <button class="pm-logger-close" id="pmReviewClose" aria-label="Close">${svg("close", 1)}</button>
         </div>
         <div class="pm-review-body" id="pmReviewBody">Loading…</div>
       </div>
@@ -701,7 +731,7 @@
       if (error) throw error;
       
       if (!data?.length) {
-        body.innerHTML = '<div class="pm-review-empty">No pending logs to review. ✓</div>';
+        body.innerHTML = '<div class="pm-review-empty">No pending logs to review.</div>';
         return;
       }
       
@@ -712,7 +742,7 @@
             <span class="pm-review-loc">${esc(log.equipment_location || '')}</span>
           </div>
           <div class="pm-review-contractor">
-            ${log.flagged_spam ? '<span class="pm-review-spam-flag">⚠ Honeypot tripped</span>' : ''}
+            ${log.flagged_spam ? `<span class="pm-review-spam-flag">${svg('triangle', 0.85)} Honeypot tripped</span>` : ''}
             ${esc(log.contractor_name)}${log.contractor_company ? ' · ' + esc(log.contractor_company) : ''}
             ${log.contractor_phone ? ' · ' + esc(log.contractor_phone) : ''}
           </div>
@@ -730,16 +760,16 @@
             </div>
           ` : ''}
           
-          ${log.pdf_url ? `<div class="pm-review-pdf"><a href="${esc(log.pdf_url)}" target="_blank">📄 View PDF Invoice</a></div>` : ''}
+          ${log.pdf_url ? `<div class="pm-review-pdf">${svg("document", 0.95)} <a href="${esc(log.pdf_url)}" target="_blank">View PDF Invoice</a></div>` : ''}
           
           ${log.signature_data ? `<img src="${esc(log.signature_data)}" class="pm-review-signature">` : ''}
           
           ${log.batch_id ? `<div class="pm-review-batch">Part of batch: ${esc(log.batch_id.slice(0, 8))}…</div>` : ''}
           
           <div class="pm-review-actions">
-            <button class="pm-review-approve" data-id="${log.id}">✓ Approve</button>
-            <button class="pm-review-reject" data-id="${log.id}">✕ Reject</button>
-            <button class="pm-review-spam" data-id="${log.id}">🚫 Mark Spam</button>
+            <button class="pm-review-approve" data-id="${log.id}">${svg('check', 0.95)} Approve</button>
+            <button class="pm-review-reject" data-id="${log.id}">${svg('close', 0.95)} Reject</button>
+            <button class="pm-review-spam" data-id="${log.id}">${svg('ban', 0.95)} Mark Spam</button>
           </div>
         </div>
       `).join('');
@@ -791,7 +821,7 @@
       // Remove the row visually
       body.querySelector(`[data-id="${id}"]`)?.remove();
       if (!body.querySelector('.pm-review-item')) {
-        body.innerHTML = '<div class="pm-review-empty">No pending logs to review. ✓</div>';
+        body.innerHTML = '<div class="pm-review-empty">No pending logs to review.</div>';
       }
     } catch (e) {
       alert('Failed: ' + e.message);
@@ -818,7 +848,7 @@
     modal.innerHTML = `
       <div class="eq-call-confirm-bg"></div>
       <div class="eq-call-confirm-card">
-        <div class="eq-call-confirm-icon">📞</div>
+        <div class="eq-call-confirm-icon">${svg("phone", 1.5)}</div>
         <div class="eq-call-confirm-title">Call ${esc(contact.name || 'Service')}?</div>
         <div class="eq-call-confirm-phone">${esc(contact.phone || '')}</div>
         <div class="eq-call-confirm-meta">Service contact on file</div>
@@ -839,7 +869,7 @@
         
         <div class="eq-call-confirm-actions">
           <button class="eq-btn eq-btn-secondary" type="button" id="pmCallCancel">Cancel</button>
-          <a class="eq-btn eq-call-service-btn is-disabled" id="pmCallGo" href="${esc(telHref)}" aria-disabled="true">📞 Call Now</a>
+          <a class="eq-btn eq-call-service-btn is-disabled" id="pmCallGo" href="${esc(telHref)}" aria-disabled="true">${svg('phone', 1)} Call Now</a>
         </div>
       </div>
     `;
@@ -890,7 +920,7 @@
           outcome: 'pending',
         });
         await NX.sb.from('daily_logs').insert({
-          entry: `📞 [PUBLIC-DISPATCH] ${callerName} called ${contact.name || 'Service'} (${contact.phone || 'no phone'}) for "${issue}" re: ${eq?.name || qrCode}`
+          entry: `[PUBLIC-DISPATCH] ${callerName} called ${contact.name || 'Service'} (${contact.phone || 'no phone'}) for "${issue}" re: ${eq?.name || qrCode}`
         });
       } catch (err) { console.warn('public dispatch log failed:', err); }
       setTimeout(close, 100);
