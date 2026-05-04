@@ -1306,7 +1306,7 @@
 <div id="appWrap" style="display:none">
 <nav class="nav" role="navigation">
   <!-- NEXUS wordmark first — primary brand, opens brain view -->
-  <button class="nav-nexus" id="navNexus" data-view="brain"><div class="nav-dot"></div><span>NEXUS</span><span class="listen-dot" id="listenDot" title="Listening for notifications"></span><span class="notify-count" id="notifyCount" style="display:none">0</span></button>
+  <button class="nav-nexus" id="navNexus" data-view="brain" data-perm="galaxy"><div class="nav-dot"></div><span>NEXUS</span><span class="listen-dot" id="listenDot" title="Listening for notifications"></span><span class="notify-count" id="notifyCount" style="display:none">0</span></button>
   <!-- Masthead coin — clickable, flips persona. Persona label below. -->
   <div class="nx-mast-coin-wrap" id="mastCoinWrap">
     <div class="nx-mast-coin" id="mastCoin" title="Tap to switch advisor">
@@ -1323,12 +1323,12 @@
   <span class="nx-mast-date" id="mastDate"></span>
   <div class="nav-tabs" id="navTabs">
     <button class="nav-tab" data-view="home" title="Home"><i data-lucide="home" class="nav-icon"></i> <span data-i18n="home">Home</span></button>
-    <button class="nav-tab" data-view="clean"><i data-lucide="sparkles" class="nav-icon"></i> <span data-i18n="cleaning">Cleaning</span></button>
-    <button class="nav-tab" data-view="log"><i data-lucide="file-text" class="nav-icon"></i> <span data-i18n="log">Log</span></button>
-    <button class="nav-tab" data-view="board" title="Task Board"><i data-lucide="columns-3" class="nav-icon"></i> <span data-i18n="board">Board</span></button>
-    <button class="nav-tab" data-view="cal" title="Calendar"><i data-lucide="calendar" class="nav-icon"></i> <span data-i18n="cal">Cal</span></button>
-    <button class="nav-tab" data-view="equipment" title="Equipment"><i data-lucide="wrench" class="nav-icon"></i> <span data-i18n="equipment">Equipment</span></button>
-    <button class="nav-tab" data-view="inventory" title="Inventory"><i data-lucide="boxes" class="nav-icon"></i> <span data-i18n="inventory">Inventory</span></button>
+    <button class="nav-tab" data-view="clean" data-perm="clean"><i data-lucide="sparkles" class="nav-icon"></i> <span data-i18n="cleaning">Cleaning</span></button>
+    <button class="nav-tab" data-view="log" data-perm="log"><i data-lucide="file-text" class="nav-icon"></i> <span data-i18n="log">Log</span></button>
+    <button class="nav-tab" data-view="board" data-perm="board" title="Task Board"><i data-lucide="columns-3" class="nav-icon"></i> <span data-i18n="board">Board</span></button>
+    <button class="nav-tab" data-view="cal" data-perm="cal" title="Calendar"><i data-lucide="calendar" class="nav-icon"></i> <span data-i18n="cal">Cal</span></button>
+    <button class="nav-tab" data-view="equipment" data-perm="equipment" title="Equipment"><i data-lucide="wrench" class="nav-icon"></i> <span data-i18n="equipment">Equipment</span></button>
+    <button class="nav-tab" data-view="inventory" data-perm="inventory" title="Inventory"><i data-lucide="boxes" class="nav-icon"></i> <span data-i18n="inventory">Inventory</span></button>
   </div>
   <button class="nav-more" id="navMore" title="More"><i data-lucide="menu" class="nav-icon"></i></button>
 </nav>
@@ -1817,11 +1817,11 @@
 
 <!-- Bottom Navigation — mobile primary nav. "Brain" removed (NEXUS logo top-left handles that). -->
 <nav class="bottom-nav" id="bottomNav" role="navigation">
-  <button class="bnav-btn" data-view="clean" aria-label="Cleaning">
+  <button class="bnav-btn" data-view="clean" data-perm="clean" aria-label="Cleaning">
     <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M12 5l3 3-3 3M12 5l-3 3 3 3"/><path d="M5 19h14" stroke-dasharray="2 2"/></svg>
     <span data-i18n="cleaning">Clean</span>
   </button>
-  <button class="bnav-btn" data-view="equipment" aria-label="Equipment">
+  <button class="bnav-btn" data-view="equipment" data-perm="equipment" aria-label="Equipment">
     <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
     <span data-i18n="equipment">Equip</span>
   </button>
@@ -1829,11 +1829,11 @@
     <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/></svg>
     <span>Home</span>
   </button>
-  <button class="bnav-btn" data-view="board" aria-label="Board">
+  <button class="bnav-btn" data-view="board" data-perm="board" aria-label="Board">
     <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="3" y="15" width="7" height="6" rx="1"/><rect x="14" y="11" width="7" height="10" rx="1"/></svg>
     <span data-i18n="board">Board</span>
   </button>
-  <button class="bnav-btn" data-view="inventory" aria-label="Inventory">
+  <button class="bnav-btn" data-view="inventory" data-perm="inventory" aria-label="Inventory">
     <!-- Lucide-style "boxes" — speaks to inventory/stock without the
          ambiguity of a single box (which reads as packaging) or a
          clipboard (which reads as a checklist). Three stacked boxes
@@ -1883,6 +1883,116 @@
 .at-activity-time { color:var(--text-faint,#746c5e); font-family:'JetBrains Mono',monospace; font-size:9.5px; white-space:nowrap; flex-shrink:0; }
 .at-activity-msg { color:var(--text,#d4c8a5); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .at-activity-empty { font-size:11px; padding:14px 10px; text-align:center; color:var(--text-faint,#746c5e); }
+
+/* ─── Permissions matrix (Phase D) ────────────────────────────── */
+.admin-perms-help {
+  font-size: 11px; color: var(--muted); line-height: 1.5;
+  margin: 0 0 10px; padding: 10px 12px;
+  background: rgba(0,0,0,.06); border-radius: 8px;
+  border-left: 2px solid var(--accent);
+}
+[data-theme="light"] .admin-perms-help { background: rgba(139,105,20,.05); }
+.admin-perms-matrix {
+  display: flex; flex-direction: column; gap: 1px;
+  background: var(--border); border-radius: 8px; overflow: hidden;
+  margin-bottom: 12px;
+}
+.admin-perms-row {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 0;
+  background: var(--surface);
+  align-items: stretch;
+}
+.admin-perms-row.is-header {
+  background: var(--bg);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--faint);
+  position: sticky; top: 0; z-index: 2;
+}
+.admin-perms-name {
+  padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 2px;
+  min-width: 0;
+}
+.admin-perms-name strong {
+  font-size: 13px; font-weight: 500;
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.admin-perms-name .perms-role {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; letter-spacing: 1px;
+  color: var(--faint); text-transform: uppercase;
+}
+.admin-perms-row.is-admin .perms-role {
+  color: var(--accent); font-weight: 600;
+}
+.admin-perms-cells {
+  display: flex; flex-wrap: wrap;
+  gap: 4px; padding: 8px 10px;
+  align-items: center;
+}
+.admin-perms-row.is-header .admin-perms-cells {
+  padding: 8px 10px;
+  font-size: 9px;
+}
+.admin-perm-cell {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--faint);
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none; min-height: 26px;
+}
+.admin-perm-cell:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.admin-perm-cell.is-on {
+  color: var(--accent);
+  background: rgba(212,164,78,.08);
+  border-color: var(--accent);
+}
+[data-theme="light"] .admin-perm-cell.is-on {
+  background: rgba(139,105,20,.08);
+}
+.admin-perm-cell.is-locked {
+  cursor: default;
+  opacity: .85;
+}
+.admin-perm-cell.is-locked:hover {
+  border-color: var(--border);
+  color: var(--accent);
+}
+.admin-perm-cell-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  background: transparent;
+  flex-shrink: 0;
+  transition: background .15s;
+}
+.admin-perm-cell.is-on .admin-perm-cell-dot {
+  background: currentColor;
+}
+
+/* Compact responsive layout for narrow phones */
+@media (max-width: 380px) {
+  .admin-perms-row { grid-template-columns: 100px 1fr; }
+  .admin-perms-name strong { font-size: 12px; }
+  .admin-perm-cell { font-size: 9px; padding: 3px 6px; }
+}
 </style>
 
 <div class="admin-overlay" id="adminModal">
@@ -2249,6 +2359,20 @@
         </select>
         <button id="addUserBtn" class="admin-save-btn" style="margin-top:0;padding:8px 14px">+ Add</button>
       </div>
+
+      <!-- ─── PERMISSIONS MATRIX (Phase D) ──────────────────────── -->
+      <!-- Per-user resource access. Each row is a user; each column a
+           resource. Admin / owner rows are read-only (always-true). For
+           everyone else, tapping a checkbox toggles that resource and
+           persists immediately. Empty perms = legacy permissive default. -->
+      <hr class="admin-divider">
+      <div class="admin-section-label" data-i18n="permissionsMatrix">Permissions Matrix</div>
+      <div class="admin-perms-help">
+        Admins always have full access. For everyone else, check the
+        boxes to grant access. Galaxy is invitational — leave it unchecked
+        unless this person should see the knowledge graph.
+      </div>
+      <div id="adminPermsMatrix" class="admin-perms-matrix"></div>
     </div>
     </div>
 
@@ -2636,33 +2760,23 @@
       pref = (legacy === 'dark' || legacy === 'light') ? legacy : 'auto';
     }
     if (pref === 'dark' || pref === 'light') return pref;
-    // auto — couple to persona
+    // auto — couple to persona. INVERTED mapping (Phase D):
+    //   Trajan      = light  (parchment, daylit ledgers)
+    //   Providentia = dark   (charcoal, lamplight counsel)
+    // Default persona is Providentia, so first-load with no saved
+    // persona paints dark — preserving the editorial-on-charcoal
+    // first impression.
     const persona = localStorage.getItem('nexus_active_persona') || 'providentia';
-    return persona === 'trajan' ? 'dark' : 'light';
+    return persona === 'trajan' ? 'light' : 'dark';
   }
 
-  // First-paint theme.
-  //
-  // This inline script runs BEFORE preferences.js loads (and before
-  // prefs.applyEffectiveTheme can run), so it's the very first thing
-  // that decides what the browser paints. The PIN screen is always
-  // visible at this point because no user has logged in yet — the
-  // "hidden" class doesn't get added to #pinScreen until after a
-  // successful login (see app.js loginUser flow).
-  //
-  // Therefore: always paint dark on first load. The PIN screen wants
-  // to feel official / editorial — gold-on-charcoal — regardless of
-  // the user's saved persona+theme preference. Post-login, the proper
-  // theme gets re-applied by prefs.applyEffectiveTheme() in app.js.
-  //
-  // Only exception: if a user has an active session (currentUser
-  // stashed in sessionStorage by app.js post-login), respect their
-  // theme preference on reload. Otherwise — fresh session, no user
-  // yet — paint dark to match the PIN screen aesthetic.
-  let hasSession = false;
-  try { hasSession = !!sessionStorage.getItem('nexus_current_user'); }
-  catch (e) { /* sessionStorage blocked / unavailable — assume no session */ }
-  const initial = hasSession ? resolveTheme() : 'dark';
+  // First-paint theme follows the active coin — even on the PIN screen.
+  // Earlier versions force-painted dark regardless. The new behavior:
+  // a returning user who prefers Trajan (light) sees the light PIN
+  // screen consistent with their advisor; a Providentia user (or first-
+  // time visitor with no preference) sees dark. Continuity from coin
+  // to PIN to home, all the way through.
+  const initial = resolveTheme();
   document.documentElement.setAttribute('data-theme', initial);
 
   function updateIcon(){
