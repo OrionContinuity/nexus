@@ -2696,39 +2696,64 @@ td.check{background:#F0EDE6 !important}
       this.sb.from('daily_logs').insert({entry:`[BRIEF-FEEDBACK] ${engagement}: ${readTime}s`}).then(()=>{});
     }catch(e){}
   },
+  // ═══════════════════════════════════════════════════════════════════
+  //  CLAUDE PROXY — every call to the Anthropic Messages API goes
+  //  through this helper, which routes through the Supabase chat edge
+  //  function (supabase/functions/chat/index.ts). The real Anthropic
+  //  API key lives in edge function secrets, NEVER in the browser.
+  //
+  //  Body is forwarded verbatim — pass any valid Messages API body
+  //  shape (system, messages, tools, vision, etc.). Returns the parsed
+  //  response (same shape as a direct Anthropic call: { content: [...],
+  //  stop_reason, usage, ... }).
+  //
+  //  Throws on non-2xx or on { error: ... } payloads, matching the
+  //  contract of the legacy direct-fetch sites that callers depend on.
+  // ═══════════════════════════════════════════════════════════════════
+  async callClaude(body, opts) {
+    const cfg = window.NEXUS_CONFIG || {};
+    const url  = (cfg.SUPABASE_URL || this.SUPA_URL || '').replace(/\/$/, '') + '/functions/v1/chat';
+    const anon = cfg.SUPABASE_ANON || this.SUPA_KEY || '';
+    if (!url || !anon) throw new Error('NEXUS_CONFIG missing SUPABASE_URL/SUPABASE_ANON');
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': anon,
+        'Authorization': 'Bearer ' + anon,
+      },
+      body: JSON.stringify(body),
+      signal: opts && opts.signal,
+    });
+    let data;
+    try { data = await resp.json(); }
+    catch (_) { throw new Error(`proxy returned non-JSON (status ${resp.status})`); }
+    if (!resp.ok) {
+      throw new Error(data?.error?.message || `proxy error ${resp.status}`);
+    }
+    if (data && data.error) {
+      throw new Error(data.error.message || 'Anthropic API error');
+    }
+    return data;
+  },
+
   async askClaude(system, messages, maxTokens = 600, useSearch = false) {
-    const key = this.getApiKey();
-    if (!key) throw new Error('No API key. Admin → save your Anthropic key.');
     const body = { model: this.getModel(), max_tokens: maxTokens, system, messages };
     if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify(body)
-    });
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error.message || 'API error');
+    const data = await this.callClaude(body);
     return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
   },
 
   async askClaudeVision(prompt, base64Data, mimeType) {
-    const key = this.getApiKey();
-    if (!key) return '';
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: this.getModel(),
-          max_tokens: 1500,
-          messages: [{ role: 'user', content: [
-            { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Data } },
-            { type: 'text', text: prompt }
-          ]}]
-        })
+      const data = await this.callClaude({
+        model: this.getModel(),
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Data } },
+          { type: 'text', text: prompt }
+        ]}]
       });
-      const data = await resp.json();
-      if (data.error) return '';
       return data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
     } catch (e) { return ''; }
   },
