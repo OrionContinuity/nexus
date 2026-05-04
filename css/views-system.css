@@ -164,7 +164,7 @@
 }
 .clean-sec.complete {
   border-left: 3px solid var(--nx-green) !important;
-  background: rgba(91, 186, 95, 0.03) !important;
+  background: rgba(156, 138, 62, 0.03) !important;
 }
 .clean-sec-head {
   display: flex !important;
@@ -244,12 +244,12 @@
 }
 .clean-link-board.is-on-board {
   background: transparent !important;
-  border-color: rgba(91, 186, 95, 0.30) !important;
+  border-color: rgba(156, 138, 62, 0.30) !important;
   color: var(--nx-green) !important;
 }
 .clean-link-board.is-on-board:hover {
-  background: rgba(91, 186, 95, 0.08) !important;
-  border-color: rgba(91, 186, 95, 0.45) !important;
+  background: rgba(156, 138, 62, 0.08) !important;
+  border-color: rgba(156, 138, 62, 0.45) !important;
 }
 /* On phone-narrow screens, the section header gets crowded — hide
    the long status text and just keep the badge + count. The status
@@ -292,7 +292,7 @@
 }
 .clean-item.done .ci-box {
   border-color: var(--nx-green) !important;
-  background: rgba(91, 186, 95, 0.1) !important;
+  background: rgba(156, 138, 62, 0.1) !important;
 }
 .ci-primary {
   font-family: var(--nx-font-body) !important;
@@ -341,53 +341,88 @@
   font-weight: 600 !important;
   text-transform: uppercase;
 }
-.clean-overdue { color: var(--nx-red) !important; background: rgba(212, 88, 88, 0.12) !important; }
-.clean-due-soon { color: var(--nx-amber) !important; background: rgba(232, 168, 48, 0.12) !important; }
-.clean-on-track { color: var(--nx-green) !important; background: rgba(91, 186, 95, 0.10) !important; }
+.clean-overdue { color: var(--nx-red) !important; background: rgba(168, 62, 62, 0.12) !important; }
+.clean-due-soon { color: var(--nx-amber) !important; background: rgba(212, 164, 78, 0.12) !important; }
+.clean-on-track { color: var(--nx-green) !important; background: rgba(156, 138, 62, 0.10) !important; }
 
-/* Footer (scan / export / submit) */
+/* Footer (scan / export / submit) — rebalanced.
+
+   Previously all three buttons fought for horizontal space, with
+   Scan and Print getting truncated labels next to a giant Submit
+   Report. New approach: Scan and Print become compact 44px circular
+   icon-only secondaries (universally understood — camera and printer
+   glyphs need no labels); Submit Report fills the rest as the
+   unambiguous primary action. Cleaner, no truncation, clearer
+   hierarchy. */
 .clean-footer {
   padding: 14px 16px calc(var(--nx-space-5) + env(safe-area-inset-bottom)) !important;
   border-top: 1px solid var(--nx-gold-line) !important;
   background: var(--nx-bg) !important;
   display: flex !important;
-  gap: var(--nx-space-2) !important;
+  gap: 10px !important;
   align-items: center !important;
 }
 .clean-scan {
+  /* Compact circular icon button. font-size:0 hides the text node;
+     we re-inject the icon via ::before. Camera glyph is universal. */
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  padding: 14px 16px !important;
-  min-height: 48px !important;
-  border-radius: var(--nx-radius-pill) !important;
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
   border: 1px solid var(--nx-gold-line-2) !important;
   background: var(--nx-gold-faint) !important;
   color: var(--nx-gold) !important;
-  font-family: var(--nx-font-display) !important;
-  font-size: var(--nx-text-sm) !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.4px !important;
+  font-size: 0 !important;
   cursor: pointer !important;
+  flex-shrink: 0 !important;
   transition: background var(--nx-press), transform var(--nx-press) !important;
 }
-.clean-scan:active { background: var(--nx-gold-soft) !important; transform: scale(0.97); }
+.clean-scan::before {
+  content: '';
+  width: 20px; height: 20px;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z'/><circle cx='12' cy='13' r='3'/></svg>") no-repeat center;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z'/><circle cx='12' cy='13' r='3'/></svg>") no-repeat center;
+}
+.clean-scan:active { background: var(--nx-gold-soft) !important; transform: scale(0.94); }
+
 .clean-export {
-  padding: 14px 16px !important;
-  min-height: 48px !important;
-  border-radius: var(--nx-radius-pill) !important;
-  border: none !important;
+  /* Same circular treatment, slightly less prominent (no fill bg). */
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  border: 1px solid var(--nx-gold-line) !important;
   background: transparent !important;
   color: var(--nx-faint) !important;
-  font-family: var(--nx-font-display) !important;
-  font-size: var(--nx-text-sm) !important;
-  font-weight: 500 !important;
+  font-size: 0 !important;
   cursor: pointer !important;
-  transition: color var(--nx-press) !important;
+  flex-shrink: 0 !important;
+  transition: color var(--nx-press), border-color var(--nx-press), transform var(--nx-press) !important;
 }
-.clean-export:active { color: var(--nx-gold) !important; }
+.clean-export::before {
+  content: '';
+  width: 20px; height: 20px;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 6 2 18 2 18 9'/><path d='M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2'/><rect x='6' y='14' width='12' height='8'/></svg>") no-repeat center;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 6 2 18 2 18 9'/><path d='M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2'/><rect x='6' y='14' width='12' height='8'/></svg>") no-repeat center;
+}
+.clean-export:active {
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold-line-2) !important;
+  transform: scale(0.94);
+}
+
 .clean-submit {
-  flex: 1;
+  flex: 1 1 auto !important;
   padding: 14px !important;
   min-height: 48px !important;
   border-radius: var(--nx-radius-pill) !important;
@@ -590,7 +625,7 @@
 }
 .cal-status-done,
 .cal-status-closed {
-  background: rgba(91, 186, 95, 0.12) !important;
+  background: rgba(156, 138, 62, 0.12) !important;
   color: var(--nx-green) !important;
 }
 .cal-status-noted {
