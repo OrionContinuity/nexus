@@ -154,13 +154,10 @@
   function language(){ return state.data?.language || DEFAULTS.language; }
   // Resolves 'auto' to a concrete theme based on persona. This is the
   // value to feed the [data-theme] attribute on <html>.
-  // Mapping (canonical):
-  //   Providentia → dark  (advisor at night, contemplation, foresight)
-  //   Trajan      → light (emperor in daylight, decisive action)
   function effectiveTheme(){
     const t = theme();
     if (t === 'dark' || t === 'light') return t;
-    return persona() === 'providentia' ? 'dark' : 'light';
+    return persona() === 'trajan' ? 'dark' : 'light';
   }
 
   // ─── WRITE ─────────────────────────────────────────────────────────
@@ -210,11 +207,21 @@
   // cross-fade in lockstep. The class is auto-removed.
   let _themeFadeTimer = null;
   function applyEffectiveTheme(animated){
-    const next = effectiveTheme();
+    // PIN screen / login should always paint dark, regardless of the
+    // user's saved persona+theme preference. Theme switching is a
+    // post-auth concern — pre-auth, the app feels more "official" /
+    // editorial in dark mode (gold-on-charcoal, the primary brand
+    // identity). If we're showing the PIN screen, force dark and
+    // skip the cross-fade so it doesn't flash light first.
+    const pinScreen = document.getElementById('pinScreen');
+    const pinVisible = pinScreen && pinScreen.style.display !== 'none' &&
+                       !pinScreen.classList.contains('is-hidden') &&
+                       getComputedStyle(pinScreen).display !== 'none';
+    const next = pinVisible ? 'dark' : effectiveTheme();
     const root = document.documentElement;
     const prev = root.getAttribute('data-theme');
     if (prev === next) return;
-    if (animated) {
+    if (animated && !pinVisible) {
       root.classList.add('theme-transitioning');
       clearTimeout(_themeFadeTimer);
       _themeFadeTimer = setTimeout(() => {
