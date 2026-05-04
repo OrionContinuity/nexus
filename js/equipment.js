@@ -2224,15 +2224,9 @@ async function extractBOMFromManual(equipId) {
     if (cancelled) return;
 
     setStep(`Sending ${sizeMB}MB PDF to Claude (20–60 seconds)…`);
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
+    let data;
+    try {
+      data = await NX.callClaude({
         model: NX.getModel?.() || 'claude-sonnet-4-5',
         max_tokens: 4096,
         messages: [{
@@ -2264,17 +2258,12 @@ Return raw JSON array (no markdown, no preamble):
 If no parts are found, return [].` }
           ]
         }]
-      })
-    });
-    if (cancelled) return;
-
-    if (!resp.ok) {
-      const errBody = await resp.text();
-      showError(`Claude API error (${resp.status}): ${errBody.slice(0, 300)}`);
+      });
+    } catch (err) {
+      showError('Claude API error: ' + err.message);
       return;
     }
-    const data = await resp.json();
-    if (data.error) { showError('Claude returned error: ' + data.error.message); return; }
+    if (cancelled) return;
 
     setStep('Parsing parts list…');
     const answer = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
@@ -2359,25 +2348,14 @@ async function extractBOMFromManual_LEGACY(equipId) {
     const pdfBlob = await pdfRes.blob();
     const pdfBase64 = await blobToBase64(pdfBlob);
 
-    const key = NX.getApiKey();
-    if (!key) throw new Error('No API key configured');
-
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: NX.getModel(),
-        max_tokens: 4000,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } },
-            { type: 'text', text: `You are reading a service/parts manual for commercial kitchen equipment:
+    const data = await NX.callClaude({
+      model: NX.getModel(),
+      max_tokens: 4000,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } },
+          { type: 'text', text: `You are reading a service/parts manual for commercial kitchen equipment:
 Equipment: ${eq.manufacturer} ${eq.model}
 
 Extract all SERVICEABLE PARTS from the parts list / exploded diagram sections.
@@ -2399,13 +2377,9 @@ Return raw JSON array (no markdown):
 ]
 
 If no parts are found, return []. Extract only what's explicitly listed.` }
-          ]
-        }]
-      })
+        ]
+      }]
     });
-
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error.message);
     const answer = data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
 
     const arrStart = answer.indexOf('[');
