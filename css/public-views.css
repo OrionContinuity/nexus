@@ -485,6 +485,13 @@ body.public-view * { box-sizing: border-box; }
   color: var(--nx-text) !important;
   display: flex; align-items: center; gap: 10px;
 }
+/* Kill the legacy decorative ::before text from
+   equipment-public-pm-system.css that was inserting a duplicate
+   "Log Service" ghost label next to our actual title. The old
+   stylesheet zeroed the title font-size and used ::before to draw
+   a clean replacement; our new JS already renders a proper title
+   with an SVG icon, so the ::before becomes a duplicate. */
+.pm-logger-title::before { content: none !important; }
 .pm-logger-title-icon {
   display: inline-flex;
   align-items: center;
