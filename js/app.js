@@ -502,6 +502,15 @@ const NX = {
     // Hide PIN, show app
     document.getElementById('pinScreen').classList.add('hidden');
     document.getElementById('appWrap').style.display = '';
+    // PIN screen was forcing dark theme regardless of user preference
+    // (see applyEffectiveTheme in preferences.js — login is always
+    // dark). Now that PIN is hidden, re-resolve to the user's actual
+    // persona+theme preference. The transition animates smoothly.
+    try {
+      if (NX.prefs && typeof NX.prefs.applyEffectiveTheme === 'function') {
+        NX.prefs.applyEffectiveTheme(true);
+      }
+    } catch (e) { /* prefs may not be ready yet — auto-flips on first prefs load */ }
     this.syslog&&this.syslog('login',`${this.currentUser.name} (${this.currentUser.role}) logged in`);
     if (window.lucide) { lucide.createIcons(); if(this.i18n)this.i18n.applyUI(); }
     else { 
