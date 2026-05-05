@@ -15,6 +15,26 @@ if (!NX.modules || !NX.modules.equipment) {
 
 const EQ = NX.modules.equipment;
 
+/* ─── Local SVG icon helper ─────────────────────────────────────────
+   Lightweight Lucide line-art set so we can drop emoji glyphs from
+   AI-tab headings, scan-plate buttons, and the prepopulate modal.
+   Inline'd here to avoid a load-order dependency on equipment.js.   */
+const AI_ICONS = {
+  sparkles:  '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
+  crystal:   '<path d="M6 3h12l4 6-10 13L2 9Z"/><path d="M11 3 8 9l4 13 4-13-3-6"/><path d="M2 9h20"/>',
+  dollar:    '<line x1="12" y1="2" x2="12" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  refresh:   '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>',
+  alert:     '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  camera:    '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+  document:  '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+  link:      '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  brain:     '<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/>',
+  close:     '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+};
+function aiSvg(key, size = '14px') {
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${AI_ICONS[key] || ''}</svg>`;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    DATA PLATE SCANNER
    User snaps photo of equipment's data plate → Claude Vision extracts
@@ -153,8 +173,8 @@ function openPrepopulatedAddModal(data, dataPlateUrl) {
     <div class="eq-detail-bg" onclick="document.getElementById('eqPrepopModal').classList.remove('active')"></div>
     <div class="eq-detail eq-edit">
       <div class="eq-detail-head">
-        <button class="eq-close" onclick="document.getElementById('eqPrepopModal').classList.remove('active')">✕</button>
-        <h2>✨ Scanned — Confirm Details</h2>
+        <button class="eq-close" onclick="document.getElementById('eqPrepopModal').classList.remove('active')">${aiSvg('close', '16px')}</button>
+        <h2>${aiSvg("sparkles", "16px")} Scanned — Confirm Details</h2>
       </div>
       <div class="eq-detail-body">
         ${dataPlateUrl ? `<img src="${dataPlateUrl}" class="eq-detail-photo" style="max-height:150px">` : ''}
@@ -176,14 +196,14 @@ function openPrepopulatedAddModal(data, dataPlateUrl) {
             <div class="eq-form-group">
               <label>Category</label>
               <select name="category">
-                <option value="refrigeration" ${catGuess==='refrigeration'?'selected':''}>❄ Refrigeration</option>
-                <option value="cooking" ${catGuess==='cooking'?'selected':''}>🔥 Cooking</option>
-                <option value="ice" ${catGuess==='ice'?'selected':''}>🧊 Ice</option>
-                <option value="hvac" ${catGuess==='hvac'?'selected':''}>💨 HVAC</option>
-                <option value="dish" ${catGuess==='dish'?'selected':''}>🧼 Dishwashing</option>
-                <option value="bev" ${catGuess==='bev'?'selected':''}>🥤 Beverage</option>
-                <option value="smallware" ${catGuess==='smallware'?'selected':''}>🍴 Smallware</option>
-                <option value="other" ${catGuess==='other'?'selected':''}>⚙ Other</option>
+                <option value="refrigeration" ${catGuess==='refrigeration'?'selected':''}>Refrigeration</option>
+                <option value="cooking" ${catGuess==='cooking'?'selected':''}>Cooking</option>
+                <option value="ice" ${catGuess==='ice'?'selected':''}>Ice</option>
+                <option value="hvac" ${catGuess==='hvac'?'selected':''}>HVAC</option>
+                <option value="dish" ${catGuess==='dish'?'selected':''}>Dishwashing</option>
+                <option value="bev" ${catGuess==='bev'?'selected':''}>Beverage</option>
+                <option value="smallware" ${catGuess==='smallware'?'selected':''}>Smallware</option>
+                <option value="other" ${catGuess==='other'?'selected':''}>Other</option>
               </select>
             </div>
           </div>
@@ -429,16 +449,16 @@ async function renderIntelligenceTab(equipId) {
   let html = '<div class="eq-ai-panel">';
 
   // Pattern prediction
-  html += '<div class="eq-ai-card"><h4>🔮 Failure Pattern Analysis</h4>';
+  html += `<div class=\"eq-ai-card\"><h4>${aiSvg('crystal','14px')} Failure Pattern Analysis</h4>`;
   if (pattern.hasPattern) {
     const color = pattern.alertLevel === 'urgent' ? 'var(--red)' : pattern.alertLevel === 'warning' ? 'var(--amber)' : 'var(--green)';
     html += `
       <div class="eq-ai-alert" style="border-color:${color}">
         <div class="eq-ai-big" style="color:${color}">
           ${pattern.daysUntilPredicted < 0
-            ? `⚠ Overdue by ${-pattern.daysUntilPredicted} days`
+            ? `${aiSvg('alert','14px')} Overdue by ${-pattern.daysUntilPredicted} days`
             : pattern.daysUntilPredicted <= 14
-            ? `⚠ Service needed in ~${pattern.daysUntilPredicted} days`
+            ? `${aiSvg('alert','14px')} Service needed in ~${pattern.daysUntilPredicted} days`
             : `${pattern.daysUntilPredicted} days until predicted service`}
         </div>
         <div class="eq-ai-detail">
@@ -454,11 +474,11 @@ async function renderIntelligenceTab(equipId) {
   html += '</div>';
 
   // Cost analysis
-  html += '<div class="eq-ai-card"><h4>💰 Cost Intelligence</h4>';
+  html += `<div class=\"eq-ai-card\"><h4>${aiSvg('dollar','14px')} Cost Intelligence</h4>`;
   if (costAnalysis.recommendation === 'replace') {
     html += `
       <div class="eq-ai-alert" style="border-color:var(--red)">
-        <div class="eq-ai-big" style="color:var(--red)">🔄 Consider Replacement</div>
+        <div class="eq-ai-big" style="color:var(--red)">${aiSvg("refresh","14px")} Consider Replacement</div>
         <div class="eq-ai-detail">
           Total repairs last 12mo: <b>$${costAnalysis.yearlyCost.toLocaleString()}</b><br>
           ${costAnalysis.projectedNextYear ? `Projected next year: <b>$${costAnalysis.projectedNextYear.toLocaleString()}</b><br>` : ''}
@@ -469,7 +489,7 @@ async function renderIntelligenceTab(equipId) {
   } else if (costAnalysis.recommendation === 'monitor') {
     html += `
       <div class="eq-ai-alert" style="border-color:var(--amber)">
-        <div class="eq-ai-big" style="color:var(--amber)">⚠ Monitor Costs</div>
+        <div class="eq-ai-big" style="color:var(--amber)">${aiSvg("alert","14px")} Monitor Costs</div>
         <div class="eq-ai-detail">
           YTD repair cost: <b>$${costAnalysis.yearlyCost.toLocaleString()}</b><br>
           <i>${costAnalysis.reasoning}</i>
@@ -487,9 +507,9 @@ async function renderIntelligenceTab(equipId) {
   // Actions
   html += `
     <div class="eq-ai-actions">
-      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.scanDataPlate('${equipId}')">📷 Re-scan Data Plate</button>
-      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${equipId}')">🌐 Find Manual Online</button>
-      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.uploadManual('${equipId}')">📄 Upload Manual PDF</button>
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.scanDataPlate('${equipId}')">${aiSvg("camera","13px")} Re-scan Data Plate</button>
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${equipId}')">${aiSvg("link","13px")} Find Manual Online</button>
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.uploadManual('${equipId}')">${aiSvg("document","13px")} Upload Manual PDF</button>
     </div>
   `;
 
@@ -620,7 +640,7 @@ NX.modules.equipment.openDetail = async function(id) {
     const intelTab = document.createElement('button');
     intelTab.className = 'eq-tab';
     intelTab.dataset.tab = 'intel';
-    intelTab.innerHTML = '🧠 AI';
+    intelTab.innerHTML = aiSvg('brain','14px') + ' AI';
     tabs.appendChild(intelTab);
 
     // Add Intelligence panel
@@ -648,8 +668,8 @@ NX.modules.equipment.openDetail = async function(id) {
       uploadBtn.className = 'eq-manual-upgrade';
       uploadBtn.innerHTML = `
         <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadManual('${id}')">📄 Upload PDF</button>
-          <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${id}')">🌐 Find Online</button>
+          <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadManual('${id}')">${aiSvg("document","13px")} Upload PDF</button>
+          <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${id}')">${aiSvg("link","13px")} Find Online</button>
         </div>`;
       manualPanel.appendChild(uploadBtn);
     }
@@ -661,7 +681,7 @@ NX.modules.equipment.openDetail = async function(id) {
       const scanBtn = document.createElement('button');
       scanBtn.className = 'eq-btn eq-btn-secondary';
       scanBtn.style.marginTop = '16px';
-      scanBtn.innerHTML = '📷 Scan Data Plate (auto-fill)';
+      scanBtn.innerHTML = aiSvg('camera','14px') + ' Scan Data Plate (auto-fill)';
       scanBtn.addEventListener('click', () => scanDataPlate(id));
       overviewPanel.appendChild(scanBtn);
     }
@@ -683,7 +703,9 @@ function injectScanButton() {
   if (!actions || actions.querySelector('.eq-scan-btn')) return;
   const btn = document.createElement('button');
   btn.className = 'eq-btn eq-btn-secondary eq-scan-btn';
-  btn.innerHTML = '📷 Scan Plate';
+  // SVG camera icon (Lucide path) instead of 📷 emoji to match the
+  // editorial line-art family used everywhere else in the app.
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0;margin-right:4px"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Scan Plate';
   btn.title = 'Scan equipment data plate with camera';
   btn.addEventListener('click', () => scanDataPlate(null));
   actions.insertBefore(btn, actions.firstChild);
