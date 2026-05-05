@@ -153,18 +153,18 @@
 .ord-vendor-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   width: calc(100% - 32px);
-  margin: 4px 16px;
-  padding: 12px 14px;
+  margin: 6px 16px;
+  padding: 14px 16px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
+  border-radius: 16px;
   text-align: left;
   font-family: 'Outfit', sans-serif;
   color: var(--nx-text);
   cursor: pointer;
-  transition: border-color .15s, background .15s, transform .12s;
+  transition: border-color .15s, background .15s, transform .12s, box-shadow .15s;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -187,9 +187,10 @@
 
 .ord-recent-vendor,
 .ord-vendor-name {
-  font-size: 15px;
-  font-weight: 500;
+  font-size: 16.5px;
+  font-weight: 600;
   color: var(--nx-text);
+  letter-spacing: 0.1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -197,12 +198,11 @@
 
 .ord-recent-meta,
 .ord-vendor-meta {
-  font-size: 11px;
+  font-size: 12.5px;
   color: var(--nx-faint);
-  margin-top: 3px;
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  margin-top: 4px;
+  font-family: 'Outfit', sans-serif;
+  letter-spacing: 0.1px;
 }
 
 
@@ -2129,4 +2129,277 @@ body.ord-overlay-open .bottom-nav {
    Cancel (mid, ghost), Save (right, primary). */
 .ved-items-list .ord-vitem-edit-actions {
   margin-top: 4px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   PHASE H — VENDOR AVATARS + GLASS + LARGER TYPOGRAPHY
+   ═══════════════════════════════════════════════════════════════════
+   BlueCart-inspired upgrades:
+   • Circular initial avatars on vendor rows + bottom-sheet header
+   • Proper frosted-glass effect on modal backdrops (blur 20px+)
+   • Larger fonts everywhere (50+ user accessibility)
+   • Rounder pills, more generous spacing
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Vendor avatar (circular initial) ──────────────────────────── */
+
+.ord-vendor-avatar {
+  /* Deterministic per-vendor color via --avatar-hue (set inline by JS).
+     Saturation/lightness fixed so all avatars belong to the same
+     visual family — warm, gold-adjacent. The initial sits on top in
+     near-white. */
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: hsl(var(--avatar-hue, 35), 28%, 32%);
+  border: 1px solid hsl(var(--avatar-hue, 35), 35%, 50%);
+  color: #f5ecd6;
+  font-family: 'Outfit', sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+[data-theme="light"] .ord-vendor-avatar {
+  /* In light theme, avatars get a brighter saturation so they pop on
+     the cream background. */
+  background: hsl(var(--avatar-hue, 35), 32%, 92%);
+  border-color: hsl(var(--avatar-hue, 35), 35%, 60%);
+  color: hsl(var(--avatar-hue, 35), 35%, 28%);
+}
+
+/* Smaller avatar variant for use in the bottom-sheet header where
+   it sits next to the vendor name. */
+.ord-vmenu-header .ord-vendor-avatar {
+  width: 48px;
+  height: 48px;
+  font-size: 19px;
+}
+
+/* ─── Bottom sheet — glass + bigger header ──────────────────────── */
+
+/* Override the older backdrop blur — proper frosted glass at 20px+
+   with saturation boost. */
+.ord-vmenu-backdrop {
+  background: rgba(0, 0, 0, 0.45) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
+  backdrop-filter: blur(20px) saturate(140%) !important;
+}
+[data-theme="light"] .ord-vmenu-backdrop {
+  background: rgba(70, 60, 40, 0.32) !important;
+}
+
+/* Sheet itself gets a slightly translucent gold-tinted bg with a
+   secondary blur — the sheet floats as a frosted surface above the
+   blurred backdrop. */
+.ord-vmenu-sheet {
+  background: rgba(20, 18, 14, 0.92) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+}
+[data-theme="light"] .ord-vmenu-sheet {
+  background: rgba(252, 248, 240, 0.94) !important;
+}
+
+/* Sheet header with avatar — replaces the old separate title + sub */
+.ord-vmenu-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 6px 10px;
+}
+.ord-vmenu-header-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ord-vmenu-header .ord-vmenu-title {
+  text-align: left;
+  padding: 0;
+  font-size: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ord-vmenu-header .ord-vmenu-sub {
+  text-align: left;
+  padding: 0;
+  margin-top: 2px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Bigger menu items for accessibility — bump from 14.5 → 15.5px,
+   pad from 14 → 16px vertical. */
+.ord-vmenu-item {
+  padding: 16px 16px;
+  font-size: 15.5px;
+  border-radius: 14px;
+}
+.ord-vmenu-cancel {
+  padding: 15px;
+  font-size: 15px;
+  border-radius: 14px;
+}
+
+/* ─── Quick-add modal — glass backdrop ──────────────────────────── */
+
+.ord-qadd-backdrop {
+  background: rgba(0, 0, 0, 0.5) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(140%) !important;
+  backdrop-filter: blur(22px) saturate(140%) !important;
+}
+[data-theme="light"] .ord-qadd-backdrop {
+  background: rgba(70, 60, 40, 0.36) !important;
+}
+
+.ord-qadd-card {
+  /* Slightly translucent gold-tinted card surface. Already has its
+     own bg, but tweak for the glass aesthetic. */
+  background: rgba(28, 24, 20, 0.96);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+  border-radius: 20px;
+}
+[data-theme="light"] .ord-qadd-card {
+  background: rgba(252, 248, 240, 0.96);
+}
+.ord-qadd-title {
+  font-size: 18.5px;        /* up from 17 */
+}
+.ord-qadd-sub {
+  font-size: 11.5px;        /* up from 10.5 */
+  letter-spacing: 0.4px;
+}
+
+/* ─── Form fields — larger for accessibility ───────────────────── */
+
+.ord-form-input,
+.ord-form-textarea {
+  padding: 12px 14px;       /* up from 10/12 */
+  font-size: 15px;          /* up from 14 */
+  border-radius: 12px;      /* up from 10 */
+}
+.ord-form-textarea {
+  font-size: 13.5px;        /* up from 12.5 */
+}
+.ord-form-label {
+  font-size: 10.5px;        /* up from 9.5 */
+  letter-spacing: 1.6px;
+}
+.ord-form-hint {
+  font-size: 11.5px;        /* up from 10.5 */
+  line-height: 1.5;
+}
+.ord-form-hint code {
+  font-size: 11.5px;        /* up from 10.5 */
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+
+/* ─── Vendor editor — bigger title + buttons ───────────────────── */
+
+.ord-veditor-title { font-size: 18px; }      /* up from 16 */
+.ord-veditor-subtitle { font-size: 11.5px; } /* up from 10.5 */
+.ord-veditor-cancel,
+.ord-veditor-save {
+  height: 50px;             /* up from 44 */
+  font-size: 15px;          /* up from 14 */
+}
+
+/* ─── Order entry — bigger title + items ───────────────────────── */
+
+.ord-entry-vendor { font-size: 18.5px; }     /* up from 17 */
+.ord-entry-sub { font-size: 10.5px; }        /* up from 9.5 */
+
+.ord-item-name { font-size: 15.5px; }        /* up from 14.5 */
+.ord-item-meta { font-size: 11.5px; }        /* up from 10.5 */
+
+.ord-entry-search {
+  font-size: 15px;          /* up from 13.5 */
+  padding: 12px 14px 12px 38px;
+}
+.ord-meta-field input[type="date"] {
+  font-size: 14.5px;        /* up from 13.5 */
+  padding: 10px 14px;
+}
+.ord-meta-label { font-size: 10.5px; }       /* up from 9.5 */
+
+/* Bigger qty controls */
+.ord-qty-btn { width: 38px; height: 38px; font-size: 20px; }
+.ord-qty-input { width: 50px; height: 38px; font-size: 15px; }
+
+/* Bigger entry CTA */
+.ord-entry-cta {
+  height: 54px;             /* up from 50 */
+  font-size: 15.5px;        /* up from 14.5 */
+}
+
+/* ─── Section labels — slightly bigger for hierarchy ────────────── */
+
+.ord-section-label, .ord-entry-section-label {
+  font-size: 11px;          /* up from 10 */
+  letter-spacing: 1.7px;
+}
+.ved-section-divider {
+  font-size: 10.5px;        /* up from 9.5 */
+}
+
+/* ─── Items list (vendor editor) — bigger names ────────────────── */
+
+.ved-item-row {
+  padding: 14px 14px;       /* up from 11/12 */
+  border-radius: 12px;
+  gap: 14px;
+}
+.ved-item-name {
+  font-size: 15.5px;        /* up from 14 */
+}
+.ved-item-meta {
+  font-size: 11.5px;        /* up from 10.5 */
+  margin-top: 4px;
+}
+
+/* ─── Add-vendor button — pillier ──────────────────────────────── */
+
+.ord-add-vendor-btn {
+  padding: 7px 14px;
+  font-size: 12px;          /* up from 11 */
+}
+
+/* ─── Vendor editor's primary "Add item" — bigger ──────────────── */
+
+.ved-add-item-primary {
+  padding: 16px 16px;       /* up from 14 */
+  font-size: 14.5px;        /* up from 13.5 */
+  border-radius: 14px;
+}
+
+/* ─── Row meta — better hierarchy ──────────────────────────────── */
+
+.ord-vendor-meta {
+  /* (Re-asserted to override earlier rules — meta styling now sits
+     here as the canonical version.) */
+  font-size: 12.5px !important;
+  margin-top: 4px;
+}
+
+.ord-arrow {
+  font-size: 22px;          /* up from 18 */
+  font-weight: 300;
+  color: var(--nx-faint);
+}
+
+/* ─── Generic ord-empty bumped ─────────────────────────────────── */
+
+.ord-empty {
+  font-size: 13.5px;
+  padding: 20px 16px;
 }
