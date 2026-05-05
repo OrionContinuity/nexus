@@ -1028,8 +1028,9 @@ function createCardEl(card){
       // Vibrate confirmation if available — feels native on mobile
       try{ navigator.vibrate?.(8); }catch(_){}
       openQuickActions(card, el);
-    }, 480);  // 480ms is the sweet spot — long enough not to fire on
-              // accidental press during scroll, short enough not to feel sluggish
+    }, 700);  // 700ms is the standard mobile long-press threshold —
+              // long enough not to fire on accidental rests while
+              // reading or scrolling, but still distinct from a tap
   };
   const endPress = () => {
     if(pressTimer){ clearTimeout(pressTimer); pressTimer = null; }
@@ -1083,6 +1084,7 @@ function openQuickActions(card, anchorEl){
       </div>
     </div>
     <div class="b-qa-section">
+      <button class="b-qa-action b-qa-move">Move to…</button>
       <button class="b-qa-action b-qa-detail">Open card</button>
       <button class="b-qa-action b-qa-archive">Archive</button>
     </div>
@@ -1177,6 +1179,11 @@ function openQuickActions(card, anchorEl){
   }
 
   // Open detail (modal) — escape hatch when quick actions aren't enough
+  menu.querySelector('.b-qa-move').addEventListener('click', () => {
+    close();
+    openMovePicker(card);
+  });
+
   menu.querySelector('.b-qa-detail').addEventListener('click', () => {
     close();
     openCardDetail(card);
@@ -1490,6 +1497,11 @@ async function openCardDetail(card){
       <div class="b-section">
         <div class="b-section-label">Parts Needed · Cost</div>
         <input class="b-field" id="bParts" value="${esc(card.parts_needed||'')}" placeholder="e.g. compressor seal, gasket" style="margin-bottom:6px">
+        <div class="b-parts-bom" id="bPartsBom" style="display:none">
+          <!-- populated when card.equipment_id exists; shows BOM as
+               tappable chips with auto-populating prices from the
+               preferred vendor of each part -->
+        </div>
         <div class="b-field-row">
           <input class="b-field" id="bCostEst" type="number" step="0.01" value="${esc(card.cost_estimate||'')}" placeholder="Est $">
           <input class="b-field" id="bCostAct" type="number" step="0.01" value="${esc(card.cost_actual||'')}" placeholder="Actual $">
@@ -1570,6 +1582,13 @@ async function openCardDetail(card){
 
   // Equipment embed (async — fetches the equipment row)
   renderEquipmentEmbed(card, bg.querySelector('#bEqEmbed'));
+
+  // Parts BOM picker (async — fetches the equipment's bill of
+  // materials so the user can quick-pick from real parts instead of
+  // typing free-text. Each chip shows the part name and the
+  // preferred vendor's price; tapping a chip appends the part to
+  // the parts input and adds the price to Est $.)
+  renderPartsBomPicker(card, bg);
 
   // Photo: on click, enlarge
   bg.querySelectorAll('.b-photo').forEach(img => {
@@ -1714,6 +1733,9 @@ async function renderEquipmentEmbed(card, container){
           if(locSel) locSel.value = eq.location;
         }
         renderEquipmentEmbed(card, container);
+        // Refresh the parts BOM picker for the newly-linked equipment
+        const modal = container.closest('.b-modal-bg');
+        if (modal) renderPartsBomPicker(card, modal);
       }
     });
     return;
@@ -1752,10 +1774,141 @@ async function renderEquipmentEmbed(card, container){
     container.querySelector('#bEqUnlink').addEventListener('click', () => {
       card.equipment_id = null;
       renderEquipmentEmbed(card, container);
+      // BOM is meaningless without a linked equipment; clear it
+      const bom = document.getElementById('bPartsBom');
+      if (bom) { bom.innerHTML = ''; bom.style.display = 'none'; }
     });
   }catch(e){
     console.error('[board] equipment embed:', e);
     container.innerHTML = '<div style="font-size:11px;color:var(--text-faint,#746c5e)">Could not load equipment</div>';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// PARTS BOM QUICK-PICKER
+// When a card is linked to an equipment, fetch that equipment's parts
+// (bill of materials) and render them as tappable chips below the
+// "Parts Needed" input. Tapping a chip:
+//   1. Appends the part name to the input (comma-separated, no dupes)
+//   2. Adds the preferred vendor's price to the Est $ field
+//   3. Toggles a "selected" visual state
+// This is faster than typing part names by hand AND cheaper to estimate
+// because the prices come from real vendor data already in the system.
+// ─────────────────────────────────────────────────────────────────────────
+async function renderPartsBomPicker(card, modal){
+  const bom = modal.querySelector('#bPartsBom');
+  if (!bom) return;
+  if (!card.equipment_id){
+    bom.innerHTML = '';
+    bom.style.display = 'none';
+    return;
+  }
+
+  try {
+    const { data: parts, error } = await NX.sb
+      .from('equipment_parts')
+      .select('id, part_name, oem_part_number, vendors, supplier, last_price, assembly_path')
+      .eq('equipment_id', card.equipment_id)
+      .order('assembly_path', { ascending: true })
+      .order('part_name',     { ascending: true });
+    if (error) throw error;
+    if (!parts || !parts.length){
+      bom.innerHTML = '';
+      bom.style.display = 'none';
+      return;
+    }
+
+    // For each part, find the preferred vendor's price (or fall back to
+    // last_price if the legacy single-vendor schema is in use).
+    const enriched = parts.map(p => {
+      let price = null;
+      const vendors = Array.isArray(p.vendors) ? p.vendors : [];
+      const preferred = vendors.find(v => v && v.is_preferred);
+      const anyPriced = vendors.find(v => v && v.price != null && v.price !== '');
+      if (preferred && preferred.price != null && preferred.price !== '') {
+        price = parseFloat(preferred.price);
+      } else if (anyPriced) {
+        price = parseFloat(anyPriced.price);
+      } else if (p.last_price != null && p.last_price !== '') {
+        price = parseFloat(p.last_price);
+      }
+      return { id: p.id, name: p.part_name, oem: p.oem_part_number, price: isNaN(price) ? null : price };
+    });
+
+    // Render chips
+    bom.style.display = 'block';
+    bom.innerHTML = `
+      <div class="b-parts-bom-label">Quick-pick from this equipment</div>
+      <div class="b-parts-bom-chips">
+        ${enriched.map(p => `
+          <button type="button" class="b-parts-bom-chip" data-part-id="${esc(p.id)}" data-price="${p.price ?? ''}" data-name="${esc(p.name || '')}">
+            <span class="b-parts-bom-chip-name">${esc(p.name || 'Unnamed')}</span>
+            ${p.price != null ? `<span class="b-parts-bom-chip-price">$${p.price.toFixed(2)}</span>` : ''}
+          </button>
+        `).join('')}
+      </div>
+    `;
+
+    // Helper: rebuild the parts input + est cost from the currently
+    // selected chips. Selected chips are tracked via .is-selected
+    // class. Plus any free-text the user typed that doesn't match a
+    // BOM part name is preserved at the end.
+    const partsInput = modal.querySelector('#bParts');
+    const estInput   = modal.querySelector('#bCostEst');
+    const knownNames = new Set(enriched.map(p => (p.name || '').toLowerCase()));
+
+    function rebuildFromChips(){
+      const selected = bom.querySelectorAll('.b-parts-bom-chip.is-selected');
+      const names = [];
+      let priceSum = 0;
+      selected.forEach(c => {
+        names.push(c.dataset.name);
+        const pr = parseFloat(c.dataset.price);
+        if (!isNaN(pr)) priceSum += pr;
+      });
+      // Preserve any free-text the user added that isn't a known BOM
+      // part — split by comma, drop matches, keep the rest.
+      const existing = (partsInput.value || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => s && !knownNames.has(s.toLowerCase()));
+      const combined = [...names, ...existing].join(', ');
+      partsInput.value = combined;
+      // Only auto-fill Est if the user hasn't entered a value, OR the
+      // current value matches our running total (i.e. we're updating
+      // our own number). Don't stomp on a manually-typed estimate.
+      const currentEst = parseFloat(estInput.value);
+      if (!estInput.value || estInput._bomManaged) {
+        estInput.value = priceSum > 0 ? priceSum.toFixed(2) : '';
+        estInput._bomManaged = true;
+      } else if (!isNaN(currentEst) && Math.abs(currentEst - (estInput._lastBomSum || 0)) < 0.005) {
+        // Was at our last computed sum — safe to update
+        estInput.value = priceSum > 0 ? priceSum.toFixed(2) : '';
+        estInput._bomManaged = true;
+      }
+      estInput._lastBomSum = priceSum;
+    }
+
+    // If the existing parts_needed text already matches some chip
+    // names, pre-select those chips so the visual state reflects
+    // what was already saved.
+    const existingTokens = (card.parts_needed || '')
+      .split(',')
+      .map(s => s.trim().toLowerCase())
+      .filter(Boolean);
+    bom.querySelectorAll('.b-parts-bom-chip').forEach(chip => {
+      if (existingTokens.includes((chip.dataset.name || '').toLowerCase())){
+        chip.classList.add('is-selected');
+      }
+      chip.addEventListener('click', () => {
+        chip.classList.toggle('is-selected');
+        rebuildFromChips();
+      });
+    });
+  } catch (e) {
+    console.error('[board] parts BOM picker:', e);
+    bom.innerHTML = '';
+    bom.style.display = 'none';
   }
 }
 
