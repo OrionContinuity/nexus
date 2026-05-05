@@ -318,8 +318,9 @@
       return;
     }
     // Flat alphabetical — no manager grouping. Tap the row to start an
-    // order; tap the pencil to edit the vendor's details (email,
-    // delivery days, items, etc.).
+    // order; tap the ⋮ button to open the vendor's options sheet (edit,
+    // archive). The pencil-as-separate-button felt visually noisy on a
+    // long list, so options are tucked behind an overflow affordance.
     let html = '';
     for (const v of vendors) {
       const itemCount = vendors._itemCounts[v.id] || 0;
@@ -336,7 +337,7 @@
             ${v.email ? '' : '<span class="ord-vendor-warn" title="No email set">!</span>'}
             <div class="ord-arrow" aria-hidden="true">›</div>
           </button>
-          <button class="ord-vendor-edit" data-vendor-id="${esc(v.id)}" aria-label="Edit ${esc(v.name)}">${editIcon()}</button>
+          <button class="ord-vendor-menu" data-vendor-id="${esc(v.id)}" aria-label="More options for ${esc(v.name)}">${dotsIcon()}</button>
         </div>
       `;
     }
@@ -344,12 +345,52 @@
     el.querySelectorAll('.ord-vendor-row').forEach(b => {
       b.addEventListener('click', () => openVendor(b.dataset.vendorId));
     });
-    el.querySelectorAll('.ord-vendor-edit').forEach(b => {
+    el.querySelectorAll('.ord-vendor-menu').forEach(b => {
       b.addEventListener('click', e => {
         e.stopPropagation();
         const id = b.dataset.vendorId;
         const v = vendors.find(x => x.id === id);
-        if (v) openVendorEditor(v);
+        if (v) showVendorMenu(v);
+      });
+    });
+  }
+
+  /**
+   * Bottom sheet shown when a user taps the ⋮ on a vendor row. Lists
+   * the actions available for that vendor: edit, archive. Tap on
+   * backdrop or Cancel to dismiss.
+   */
+  function showVendorMenu(vendor) {
+    // Remove any existing menu first
+    const existing = document.querySelector('.ord-vmenu-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'ord-vmenu-overlay';
+    overlay.innerHTML = `
+      <div class="ord-vmenu-backdrop"></div>
+      <div class="ord-vmenu-sheet">
+        <div class="ord-vmenu-handle"></div>
+        <div class="ord-vmenu-title">${esc(vendor.name)}</div>
+        ${vendor.email ? `<div class="ord-vmenu-sub">${esc(vendor.email)}</div>` : '<div class="ord-vmenu-sub ord-vmenu-sub-warn">No email set</div>'}
+        <div class="ord-vmenu-divider"></div>
+        <button class="ord-vmenu-item" data-action="edit">${editIcon()}<span>Edit details</span></button>
+        <button class="ord-vmenu-item ord-vmenu-danger" data-action="archive">${trashIcon()}<span>Archive vendor</span></button>
+        <button class="ord-vmenu-cancel" data-action="cancel">Cancel</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = () => { overlay.remove(); };
+    overlay.querySelector('.ord-vmenu-backdrop').addEventListener('click', close);
+    overlay.querySelector('.ord-vmenu-cancel').addEventListener('click', close);
+    overlay.querySelectorAll('.ord-vmenu-item').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const action = btn.dataset.action;
+        close();
+        if (action === 'edit')    openVendorEditor(vendor);
+        else if (action === 'order') openVendor(vendor.id);
+        else if (action === 'archive') archiveVendorById(vendor.id, vendor.name);
       });
     });
   }
@@ -1179,22 +1220,27 @@
     editorState.overlay.innerHTML = `
       <div class="ord-veditor-head">
         <button class="ord-veditor-close" aria-label="Close">${arrowLeftIcon()}</button>
-        <div class="ord-veditor-title">${isNew ? 'New vendor' : esc(v.name) || 'Edit vendor'}</div>
-        <div class="ord-veditor-spacer"></div>
+        <div class="ord-veditor-title-block">
+          <div class="ord-veditor-title">${isNew ? 'New vendor' : esc(v.name) || 'Edit vendor'}</div>
+          ${!isNew && v.email ? `<div class="ord-veditor-subtitle">${esc(v.email)}</div>` : ''}
+          ${!isNew && !v.email ? '<div class="ord-veditor-subtitle ord-veditor-subtitle-warn">No email set</div>' : ''}
+        </div>
+        ${!isNew ? `<div class="ord-veditor-count-chip">${editorState.items.length}<span>${editorState.items.length === 1 ? 'item' : 'items'}</span></div>` : '<div class="ord-veditor-spacer"></div>'}
       </div>
       <div class="ord-veditor-body">
+
+        <div class="ved-section-divider"><span>Vendor</span></div>
         <div class="ord-form-field">
           <label class="ord-form-label" for="vedName">Name</label>
           <input type="text" class="ord-form-input" id="vedName" value="${esc(v.name)}" placeholder="e.g. Farm To Table" autocomplete="off">
         </div>
-
         <div class="ord-form-field">
           <label class="ord-form-label" for="vedEmail">Email</label>
           <input type="email" class="ord-form-input" id="vedEmail" value="${esc(v.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
         </div>
 
+        <div class="ved-section-divider"><span>Delivery days</span></div>
         <div class="ord-form-field">
-          <label class="ord-form-label">Delivery days</label>
           <div class="ord-day-pills" id="vedDays">
             ${WEEKDAY_KEYS.map((k, i) => `
               <button type="button" class="ord-day-pill${days.includes(k) ? ' active' : ''}" data-day="${k}">${WEEKDAY_LBL[i]}</button>
@@ -1203,37 +1249,34 @@
           <div class="ord-form-hint">Tap to toggle. Used to pick the next delivery date when starting an order.</div>
         </div>
 
+        <div class="ved-section-divider"><span>Email composition</span></div>
         <div class="ord-form-field">
-          <label class="ord-form-label" for="vedSubject">Email subject template</label>
+          <label class="ord-form-label" for="vedSubject">Subject line</label>
           <input type="text" class="ord-form-input" id="vedSubject" value="${esc(v.subject_template || '')}" placeholder="${esc(v.name || 'Vendor')} order — {location} for {delivery_date}" autocomplete="off">
-          <div class="ord-form-hint">Tokens you can use: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date}</code></div>
+          <div class="ord-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date}</code></div>
         </div>
-
         <div class="ord-form-field">
-          <label class="ord-form-label" for="vedBody">Email body template</label>
+          <label class="ord-form-label" for="vedBody">Body template</label>
           <textarea class="ord-form-textarea" id="vedBody" rows="6" placeholder="Leave blank to use the standard format. If you set this, your text replaces the body — use {lines} where the item list should appear.">${esc(v.body_template || '')}</textarea>
           <div class="ord-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date_long}</code> <code>{lines}</code> <code>{notes}</code></div>
         </div>
 
+        <div class="ved-section-divider"><span>Internal notes</span></div>
         <div class="ord-form-field">
-          <label class="ord-form-label" for="vedNotes">Internal notes</label>
           <textarea class="ord-form-textarea" id="vedNotes" rows="3" placeholder="Anything to remember about this vendor — only you see this">${esc(v.notes || '')}</textarea>
         </div>
 
         ${!isNew ? `
-          <div class="ord-veditor-items-section">
-            <div class="ord-form-label-row">
-              <span class="ord-form-label">Items <span class="ord-form-label-count">(${editorState.items.length})</span></span>
-              <button class="ord-veditor-add-item-btn" id="vedAddItem">${plusIcon()} Add item</button>
-            </div>
-            <div class="ord-veditor-items" id="vedItemsList">
-              ${renderItemsList()}
-            </div>
+          <div class="ved-section-divider"><span>Catalog (${editorState.items.length})</span></div>
+          <button class="ord-veditor-add-item-btn" id="vedAddItem">${plusIcon()}<span>Add item</span></button>
+          <div class="ord-veditor-items" id="vedItemsList">
+            ${renderItemsList()}
           </div>
         ` : ''}
 
         ${!isNew ? `
-          <button class="ord-veditor-archive-btn" id="vedArchive">${trashIcon()} Archive vendor</button>
+          <div class="ved-section-divider ved-section-divider-danger"><span>Danger zone</span></div>
+          <button class="ord-veditor-archive-btn" id="vedArchive">${trashIcon()}<span>Archive vendor</span></button>
           <div class="ord-form-hint" style="text-align:center">Archived vendors are hidden from the list. Order history is preserved.</div>
         ` : ''}
       </div>
@@ -1260,6 +1303,11 @@
     if (addItem) addItem.addEventListener('click', () => {
       editorState.editingItemId = 'new';
       renderItemsAreaOnly();
+      // Scroll the new form into view
+      setTimeout(() => {
+        const form = overlay.querySelector('.ord-vitem-editing');
+        if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 50);
     });
     // Item row interactions (delegated)
     wireItemListHandlers();
@@ -1451,21 +1499,51 @@
     }
   }
 
+  /**
+   * Archive any vendor by id. Shared by the editor's Archive button and
+   * the vendor row's overflow menu. Surfaces the actual failure
+   * mode — RLS denial returns empty .data with no .error, network
+   * problems throw, validation problems set .error.
+   */
+  async function archiveVendorById(id, name) {
+    if (!id) {
+      if (NX.toast) NX.toast('Cannot archive: no vendor id', 'error');
+      return false;
+    }
+    if (!confirm(`Archive ${name}? It will be hidden from the list. Order history is preserved.`)) return false;
+    try {
+      const { data, error } = await NX.sb.from('order_vendors')
+        .update({ archived: true })
+        .eq('id', id)
+        .select();
+      if (error) {
+        console.error('[ordering] archive RPC error:', error);
+        const msg = error.message || error.details || error.hint || 'unknown error';
+        if (NX.toast) NX.toast('Archive failed: ' + msg, 'error', 4000);
+        return false;
+      }
+      if (!data || data.length === 0) {
+        console.warn('[ordering] archive returned no rows — likely RLS denial or stale id');
+        if (NX.toast) NX.toast('Archive failed: no rows updated (check Supabase logs)', 'error', 4000);
+        return false;
+      }
+      vendors = vendors.filter(v => v.id !== id);
+      renderVendors();
+      if (NX.toast) NX.toast(`${name} archived`, 'info', 1500);
+      return true;
+    } catch (e) {
+      console.error('[ordering] archiveVendorById threw:', e);
+      if (NX.toast) NX.toast('Archive failed: ' + (e.message || 'network error'), 'error', 4000);
+      return false;
+    }
+  }
+
   async function archiveVendor() {
     if (!editorState || editorState.isNew) return;
-    if (!confirm(`Archive ${editorState.vendor.name}? It will be hidden from the list. Order history is preserved.`)) return;
-    try {
-      const { error } = await NX.sb.from('order_vendors')
-        .update({ archived: true }).eq('id', editorState.vendor.id);
-      if (error) throw error;
-      vendors = vendors.filter(v => v.id !== editorState.vendor.id);
-      closeVendorEditor();
-      renderVendors();
-      if (NX.toast) NX.toast('Vendor archived', 'info', 1500);
-    } catch (e) {
-      console.error('[ordering] archiveVendor:', e);
-      if (NX.toast) NX.toast('Failed to archive', 'error');
-    }
+    const id = editorState.vendor.id;
+    const name = editorState.vendor.name;
+    const ok = await archiveVendorById(id, name);
+    if (ok) closeVendorEditor();
   }
 
   async function saveItemFromForm(itemId) {
@@ -1574,6 +1652,9 @@
   }
   function trashIcon() {
     return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
+  }
+  function dotsIcon() {
+    return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/></svg>`;
   }
 
   // ═══════════════════════════════════════════════════════════════════
