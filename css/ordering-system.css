@@ -1,18 +1,20 @@
 /* ═══════════════════════════════════════════════════════════════════
-   ordering-system.css — Duties tab strip + Ordering pane styles
+   ordering-system.css
    ═══════════════════════════════════════════════════════════════════
-   Two surfaces:
+   Three surfaces:
+     1. .duties-tabs          — Cleaning / Ordering switcher
+     2. .ord-* (list pane)    — vendor list + recent + search
+     3. .ord-entry-overlay    — full-screen order entry + cart review
 
-   1. .duties-tabs / .duties-tab — the sub-view switcher at the top
-      of the Duties view (inside #cleanView). Two tabs: Cleaning,
-      Ordering. Gold-underline editorial style consistent with the
-      equipment tab strip.
+   Theme: uses the project tokens (--bg, --surface, --text, --muted,
+   --faint, --accent, --border, --green, --red, --amber, --r/--rs/
+   --rp). All colors auto-adapt between dark and light themes. Where
+   filled gold buttons need readable text in light mode (where bg is
+   cream, not dark), we add explicit [data-theme="light"] overrides.
 
-   2. Everything else (.ord-*) — the Ordering pane content: header
-      with location pills, recent orders list, vendor list grouped by
-      manager, search input.
-
-   All colors use design-system tokens so light/dark themes follow.
+   Persistent masthead: the entry overlay starts at top: 53px so the
+   .nav masthead stays visible above it. The bottom-nav is covered
+   by the overlay while editing — the sticky CTA replaces it.
    ═══════════════════════════════════════════════════════════════════ */
 
 
@@ -21,27 +23,21 @@
 .duties-tabs {
   display: flex;
   gap: 0;
-  background: var(--nx-bg);
-  border-bottom: 1px solid var(--nx-gold-line);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
   padding: 0 16px;
-  /* Sticky just below the masthead. The masthead is ~53px on mobile.
-     If the masthead height ever changes, this anchor adjusts in
-     concert with the .clean-header sticky logic the cleaning module
-     already uses. z-index above clean-header so it doesn't disappear
-     under it. */
   position: sticky;
   top: 0;
   z-index: 6;
 }
-
 .duties-tab {
   flex: 1 1 0;
   padding: 12px 16px;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
-  margin-bottom: -1px;  /* overlap the strip's own bottom border */
-  color: var(--nx-faint);
+  margin-bottom: -1px;
+  color: var(--faint);
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
   font-weight: 500;
@@ -50,25 +46,17 @@
   transition: color .15s, border-color .15s;
   -webkit-tap-highlight-color: transparent;
 }
-
-.duties-tab:hover {
-  color: var(--nx-text);
-}
-
+.duties-tab:hover { color: var(--text); }
 .duties-tab.active {
-  color: var(--nx-gold);
-  border-bottom-color: var(--nx-gold);
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
-
-/* Hidden panes don't take up space — the parent uses [hidden] which
-   sets display:none, but adding the rule here too prevents a brief
-   flicker if a pane is rendered before the hidden attribute is read. */
-.duties-pane[hidden] {
-  display: none !important;
-}
+.duties-pane[hidden] { display: none !important; }
 
 
-/* ─── ORDERING — HEADER ────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════
+   ORDERING — LIST PANE
+   ═══════════════════════════════════════════════════════════════════ */
 
 .ord-header {
   display: flex;
@@ -78,55 +66,41 @@
   padding: 16px 16px 8px;
   flex-wrap: wrap;
 }
-
 .ord-title {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   letter-spacing: 1.6px;
-  color: var(--nx-faint);
+  color: var(--faint);
   text-transform: uppercase;
 }
 
-/* Location picker — three small pills (Este / Toti / Suerte). The
-   active one is gold-filled. Sits next to the title. */
 .ord-loc-picker {
   display: flex;
   gap: 4px;
-  background: var(--nx-surface-1);
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rp);
   padding: 3px;
 }
-
 .ord-loc-btn {
   background: transparent;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--rp);
   padding: 6px 12px;
   font-family: 'Outfit', sans-serif;
   font-size: 12px;
   font-weight: 500;
-  color: var(--nx-faint);
+  color: var(--faint);
   cursor: pointer;
   transition: background .15s, color .15s;
   -webkit-tap-highlight-color: transparent;
 }
-
-.ord-loc-btn:hover {
-  color: var(--nx-text);
-}
-
+.ord-loc-btn:hover { color: var(--text); }
 .ord-loc-btn.active {
-  background: var(--nx-gold);
-  color: var(--nx-gold-on, #1c1408);
+  background: var(--accent);
+  color: var(--bg);
 }
-
-[data-theme="light"] .ord-loc-btn.active {
-  color: #FAFAF6;
-}
-
-
-/* ─── ORDERING — SECTION LABELS ────────────────────────────────── */
+[data-theme="light"] .ord-loc-btn.active { color: #fff; }
 
 .ord-section-label,
 .ord-vgroup-label {
@@ -136,18 +110,8 @@
   text-transform: uppercase;
   padding: 16px 16px 8px;
 }
-
-.ord-section-label {
-  color: var(--nx-faint);
-}
-
-.ord-vgroup-label {
-  color: var(--nx-gold);
-  padding: 14px 16px 6px;
-}
-
-
-/* ─── ORDERING — RECENT ORDERS ─────────────────────────────────── */
+.ord-section-label { color: var(--faint); }
+.ord-vgroup-label  { color: var(--accent); padding: 14px 16px 6px; }
 
 .ord-recent-row,
 .ord-vendor-row {
@@ -157,178 +121,118 @@
   width: calc(100% - 32px);
   margin: 4px 16px;
   padding: 12px 14px;
-  background: var(--nx-surface-1);
-  border: 1px solid var(--nx-gold-line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 12px;
   text-align: left;
   font-family: 'Outfit', sans-serif;
-  color: var(--nx-text);
+  color: var(--text);
   cursor: pointer;
   transition: border-color .15s, background .15s, transform .12s;
   -webkit-tap-highlight-color: transparent;
 }
-
 .ord-recent-row:hover,
 .ord-vendor-row:hover {
-  border-color: var(--nx-gold-line-2, var(--nx-gold-line));
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06));
+  border-color: var(--accent);
+  background: rgba(212, 164, 78, 0.06);
 }
-
 .ord-recent-row:active,
-.ord-vendor-row:active {
-  transform: scale(0.99);
-}
+.ord-vendor-row:active { transform: scale(0.99); }
 
-.ord-recent-main,
-.ord-vendor-main {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.ord-recent-vendor,
-.ord-vendor-name {
+.ord-recent-main, .ord-vendor-main { flex: 1 1 auto; min-width: 0; }
+.ord-recent-vendor, .ord-vendor-name {
   font-size: 15px;
   font-weight: 500;
-  color: var(--nx-text);
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.ord-recent-meta,
-.ord-vendor-meta {
+.ord-recent-meta, .ord-vendor-meta {
   font-size: 11px;
-  color: var(--nx-faint);
+  color: var(--faint);
   margin-top: 3px;
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
 }
 
-
-/* Status pill inside a recent-order row — small inline tag */
-
 .ord-status {
   display: inline-block;
   padding: 1px 8px;
-  border-radius: 999px;
+  border-radius: var(--rp);
   font-family: 'JetBrains Mono', monospace;
   font-size: 9.5px;
   letter-spacing: 0.8px;
   text-transform: uppercase;
 }
-
-.ord-status-draft {
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.10));
-  color: var(--nx-gold);
-}
-
-.ord-status-sent {
-  background: var(--nx-green-soft, rgba(156, 138, 62, 0.10));
-  color: var(--nx-green, #9c8a3e);
-}
-
-.ord-status-cancelled {
-  background: var(--nx-red-soft, rgba(168, 62, 62, 0.10));
-  color: var(--nx-red, #a83e3e);
-}
-
-
-/* ─── ORDERING — VENDOR LIST ───────────────────────────────────── */
+.ord-status-draft     { background: rgba(212, 164, 78, 0.10); color: var(--accent); }
+.ord-status-sent      { background: rgba(156, 138, 62, 0.12); color: var(--green); }
+.ord-status-cancelled { background: rgba(168,  62, 62, 0.10); color: var(--red); }
 
 .ord-vendors-wrap {
   padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px);
-  /* Bottom padding clears the bottom-nav so the last vendor is fully
-     visible above the nav bar. */
 }
-
-.ord-vendors {
-  /* Container — all rows live here, possibly with .ord-vgroup wrappers */
-}
-
-.ord-vgroup {
-  /* No special styling — just a wrapper for hide/show during search */
-}
-
 .ord-vendor-warn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 22px; height: 22px;
   border-radius: 50%;
-  background: var(--nx-amber-soft, rgba(212, 164, 78, 0.18));
-  color: var(--nx-amber, #d4a44e);
+  background: rgba(212, 164, 78, 0.18);
+  color: var(--amber);
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   font-weight: 700;
   flex-shrink: 0;
-  border: 1px solid var(--nx-gold-line);
+  border: 1px solid var(--border);
 }
+.ord-arrow { color: var(--faint); font-size: 18px; flex-shrink: 0; }
 
-.ord-arrow {
-  color: var(--nx-faint);
-  font-size: 18px;
-  flex-shrink: 0;
-}
-
-
-/* ─── ORDERING — SEARCH ─────────────────────────────────────────── */
-
-.ord-search-wrap {
-  padding: 0 16px 4px;
-}
-
+.ord-search-wrap { padding: 0 16px 4px; }
 .ord-search {
   width: 100%;
   padding: 10px 14px;
-  background: var(--nx-bg);
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 999px;
-  color: var(--nx-text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--rp);
+  color: var(--text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
   -webkit-appearance: none;
   appearance: none;
 }
-
-.ord-search:focus {
-  outline: none;
-  border-color: var(--nx-gold);
-}
-
-.ord-search::placeholder {
-  color: var(--nx-faint);
-}
-
-
-/* ─── ORDERING — EMPTY STATE ───────────────────────────────────── */
+.ord-search:focus { outline: none; border-color: var(--accent); }
+.ord-search::placeholder { color: var(--faint); }
 
 .ord-empty {
   margin: 4px 16px;
   padding: 16px;
-  background: var(--nx-surface-1);
-  border: 1px dashed var(--nx-gold-line);
+  background: var(--surface);
+  border: 1px dashed var(--border);
   border-radius: 12px;
-  color: var(--nx-faint);
+  color: var(--faint);
   font-size: 13px;
   text-align: center;
 }
 
 
 /* ═══════════════════════════════════════════════════════════════════
-   ORDER ENTRY OVERLAY
+   ORDER ENTRY OVERLAY  +  CART REVIEW
    ═══════════════════════════════════════════════════════════════════
-   Full-screen modal that opens when the user taps a vendor. Two view
-   modes: item entry (default) and cart review (after Review tap). A
-   single overlay container — content swaps between the two states.
+   Sits below the persistent masthead (top: 53px). Layout: flex
+   column, list in the middle is the only scrolling region. Head,
+   meta, search, CTA are pinned.
    ═══════════════════════════════════════════════════════════════════ */
 
 .ord-entry-overlay {
   position: fixed;
-  inset: 0;
-  z-index: 90;
-  background: var(--nx-bg);
+  top: 53px;          /* clears the .nav masthead (sticky, ~53px tall) */
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 60;        /* above .bottom-nav (50), below modal dialogs */
+  background: var(--bg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -339,7 +243,6 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Lock body scroll when overlay open */
 body.ord-overlay-open { overflow: hidden; }
 
 .ord-entry-loading {
@@ -347,53 +250,50 @@ body.ord-overlay-open { overflow: hidden; }
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--nx-faint);
+  color: var(--faint);
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
 }
 
-/* ─── Header ───────────────────────────────────────────────────── */
+/* ─── Header ─────────────────────────────────────────────────── */
 
 .ord-entry-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 12px;
-  background: var(--nx-bg);
-  border-bottom: 1px solid var(--nx-gold-line);
+  padding: 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  flex-grow: 0;
 }
-
 .ord-entry-close {
   flex-shrink: 0;
   width: 40px; height: 40px;
   border-radius: 50%;
   background: transparent;
-  border: 1px solid var(--nx-gold-line);
-  color: var(--nx-text);
+  border: 1px solid var(--border);
+  color: var(--text);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: background .15s, border-color .15s;
   -webkit-tap-highlight-color: transparent;
+  padding: 0;
 }
 .ord-entry-close:hover {
-  border-color: var(--nx-gold);
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06));
+  border-color: var(--accent);
+  background: rgba(212, 164, 78, 0.06);
 }
-
-.ord-entry-title {
-  flex: 1 1 auto;
-  min-width: 0;
-}
+.ord-entry-title { flex: 1 1 auto; min-width: 0; }
 .ord-entry-vendor {
   font-family: 'Outfit', sans-serif;
   font-size: 17px;
   font-weight: 600;
-  color: var(--nx-text);
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -402,23 +302,24 @@ body.ord-overlay-open { overflow: hidden; }
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   letter-spacing: 1.4px;
-  color: var(--nx-faint);
+  color: var(--faint);
   text-transform: uppercase;
   margin-top: 2px;
 }
 .ord-entry-spacer { width: 40px; flex-shrink: 0; }
 
-/* ─── Meta row (delivery date) ─────────────────────────────────── */
+/* ─── Meta row (delivery date) ───────────────────────────────── */
 
 .ord-entry-meta {
   display: flex;
   gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--nx-gold-line);
-  background: var(--nx-bg);
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
   flex-shrink: 0;
+  flex-grow: 0;
 }
-
 .ord-meta-field {
   display: flex;
   align-items: center;
@@ -428,76 +329,76 @@ body.ord-overlay-open { overflow: hidden; }
   font-family: 'JetBrains Mono', monospace;
   font-size: 9.5px;
   letter-spacing: 1.4px;
-  color: var(--nx-faint);
+  color: var(--faint);
   text-transform: uppercase;
 }
 .ord-meta-field input[type="date"] {
-  background: var(--nx-surface-1);
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
   padding: 6px 10px;
-  color: var(--nx-text);
+  color: var(--text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
   -webkit-appearance: none;
   appearance: none;
+  min-height: 34px;
+  min-width: 140px;
 }
 .ord-meta-field input[type="date"]:focus {
   outline: none;
-  border-color: var(--nx-gold);
+  border-color: var(--accent);
 }
+.ord-meta-field input[type="date"]:disabled { opacity: 0.5; }
 
-/* ─── Search ───────────────────────────────────────────────────── */
+/* ─── Search inside the entry ────────────────────────────────── */
 
 .ord-entry-search-wrap {
   padding: 8px 16px;
-  background: var(--nx-bg);
-  border-bottom: 1px solid var(--nx-gold-line);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  flex-grow: 0;
 }
-
 .ord-entry-search {
   width: 100%;
   padding: 9px 14px;
-  background: var(--nx-surface-1);
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 999px;
-  color: var(--nx-text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rp);
+  color: var(--text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
   -webkit-appearance: none;
   appearance: none;
 }
-.ord-entry-search:focus {
-  outline: none;
-  border-color: var(--nx-gold);
-}
-.ord-entry-search::placeholder { color: var(--nx-faint); }
+.ord-entry-search:focus { outline: none; border-color: var(--accent); }
+.ord-entry-search::placeholder { color: var(--faint); }
 
-/* ─── Item list ────────────────────────────────────────────────── */
+/* ─── Item list (only scrolling region) ──────────────────────── */
 
 .ord-entry-list {
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
-  padding: 8px 0 16px;
   -webkit-overflow-scrolling: touch;
+  padding-bottom: 16px;
+  background: var(--bg);
 }
-
-.ord-entry-section {
-  margin-bottom: 8px;
-}
+.ord-entry-section { margin-bottom: 4px; }
 
 .ord-entry-section-label {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  color: var(--nx-gold);
+  color: var(--accent);
   padding: 14px 16px 6px;
   position: sticky;
   top: 0;
-  background: var(--nx-bg);
+  background: var(--bg);
   z-index: 1;
+  border-bottom: 1px solid var(--border);
 }
 
 .ord-item-row {
@@ -505,86 +406,78 @@ body.ord-overlay-open { overflow: hidden; }
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--nx-gold-line);
-  background: var(--nx-bg);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
   transition: background .15s;
 }
-.ord-item-row.has-qty {
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06));
-}
-.ord-item-row.is-disabled {
-  opacity: 0.45;
-  background: var(--nx-bg);
-}
+.ord-item-row.has-qty { background: rgba(212, 164, 78, 0.06); }
+.ord-item-row.is-disabled { opacity: 0.45; background: var(--bg); }
 
-.ord-item-main {
-  flex: 1 1 auto;
-  min-width: 0;
-}
+.ord-item-main { flex: 1 1 auto; min-width: 0; }
 .ord-item-name {
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
   font-weight: 500;
-  color: var(--nx-text);
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ord-item-meta {
   font-size: 10.5px;
-  color: var(--nx-faint);
+  color: var(--faint);
   margin-top: 2px;
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Quantity control — pill-shaped, three segments: -, input, + */
 .ord-qty {
   display: flex;
   align-items: center;
   gap: 0;
   flex-shrink: 0;
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 999px;
-  background: var(--nx-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--rp);
+  background: var(--bg);
   overflow: hidden;
 }
 .ord-qty-btn {
-  width: 32px;
-  height: 32px;
+  width: 32px; height: 32px;
   background: transparent;
   border: none;
-  color: var(--nx-text);
+  color: var(--text);
   font-size: 18px;
   font-weight: 500;
   line-height: 1;
   cursor: pointer;
   transition: background .12s, color .12s;
   -webkit-tap-highlight-color: transparent;
+  padding: 0;
 }
 .ord-qty-btn:hover {
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.10));
-  color: var(--nx-gold);
+  background: rgba(212, 164, 78, 0.10);
+  color: var(--accent);
 }
 .ord-qty-btn:active {
-  background: var(--nx-gold);
-  color: var(--nx-gold-on, #1c1408);
+  background: var(--accent);
+  color: var(--bg);
 }
+[data-theme="light"] .ord-qty-btn:active { color: #fff; }
 .ord-qty-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+
 .ord-qty-input {
-  width: 44px;
-  height: 32px;
+  width: 44px; height: 32px;
   text-align: center;
   border: none;
   background: transparent;
-  color: var(--nx-text);
+  color: var(--text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
   font-weight: 600;
   -moz-appearance: textfield;
   -webkit-appearance: none;
   appearance: none;
-  border-left: 1px solid var(--nx-gold-line);
-  border-right: 1px solid var(--nx-gold-line);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
 }
 .ord-qty-input::-webkit-outer-spin-button,
 .ord-qty-input::-webkit-inner-spin-button {
@@ -593,54 +486,52 @@ body.ord-overlay-open { overflow: hidden; }
 }
 .ord-qty-input:focus {
   outline: none;
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08));
+  background: rgba(212, 164, 78, 0.08);
 }
-.ord-item-row.has-qty .ord-qty-input {
-  color: var(--nx-gold);
-}
+.ord-item-row.has-qty .ord-qty-input { color: var(--accent); }
 
 .ord-item-unit {
   flex-shrink: 0;
   font-family: 'JetBrains Mono', monospace;
   font-size: 9.5px;
   letter-spacing: 1.2px;
-  color: var(--nx-faint);
+  color: var(--faint);
   text-transform: uppercase;
   width: 26px;
   text-align: center;
 }
 
-/* ─── Sticky bottom CTA ────────────────────────────────────────── */
+/* ─── Sticky bottom CTA ──────────────────────────────────────── */
 
 .ord-entry-cta-wrap {
   flex-shrink: 0;
+  flex-grow: 0;
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
-  background: var(--nx-bg);
-  border-top: 1px solid var(--nx-gold-line);
+  background: var(--bg);
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-
 .ord-entry-cta {
   width: 100%;
   height: 50px;
   padding: 0 18px;
-  border-radius: 999px;
+  border-radius: var(--rp);
   border: none;
-  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
-  color: var(--nx-gold-on, #1c1408);
+  background: var(--accent);
+  color: var(--bg);
   font-family: 'Outfit', sans-serif;
   font-size: 14.5px;
   font-weight: 600;
   letter-spacing: 0.3px;
   cursor: pointer;
-  box-shadow: 0 2px 10px rgba(212, 164, 78, 0.18);
+  box-shadow: 0 2px 10px var(--glow);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  transition: transform .12s, opacity .15s;
+  transition: transform .12s, opacity .15s, background .15s;
   -webkit-tap-highlight-color: transparent;
 }
 .ord-entry-cta:active { transform: scale(0.985); }
@@ -649,12 +540,12 @@ body.ord-overlay-open { overflow: hidden; }
   cursor: not-allowed;
   box-shadow: none;
 }
-[data-theme="light"] .ord-entry-cta { color: #FAFAF6; }
+[data-theme="light"] .ord-entry-cta { color: #fff; }
 
 .ord-entry-save-status {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
-  color: var(--nx-faint);
+  color: var(--faint);
   letter-spacing: 0.3px;
   text-align: center;
   height: 14px;
@@ -666,31 +557,29 @@ body.ord-overlay-open { overflow: hidden; }
    ═══════════════════════════════════════════════════════════════════ */
 
 .ord-review-body {
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
-  padding: 8px 0 16px;
   -webkit-overflow-scrolling: touch;
+  padding: 8px 0 16px;
+  background: var(--bg);
 }
+.ord-review-section { padding: 8px 16px 12px; }
 
-.ord-review-section {
-  padding: 8px 16px 12px;
-}
-
-/* Recipient section */
 .ord-recipient-row {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 12px 14px;
-  background: var(--nx-surface-1);
-  border: 1px solid var(--nx-gold-line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 12px;
 }
 .ord-recipient-email {
   flex: 1 1 auto;
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
-  color: var(--nx-text);
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -698,18 +587,18 @@ body.ord-overlay-open { overflow: hidden; }
 .ord-recipient-edit {
   flex-shrink: 0;
   background: transparent;
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-radius: var(--rp);
   padding: 5px 12px;
-  color: var(--nx-faint);
+  color: var(--faint);
   font-size: 11px;
   font-family: 'Outfit', sans-serif;
   cursor: pointer;
   transition: color .15s, border-color .15s;
 }
 .ord-recipient-edit:hover {
-  color: var(--nx-gold);
-  border-color: var(--nx-gold);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .ord-recipient-missing {
@@ -717,569 +606,103 @@ body.ord-overlay-open { overflow: hidden; }
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background: var(--nx-amber-soft, rgba(212, 164, 78, 0.08));
-  border: 1px solid var(--nx-gold-line);
+  background: rgba(212, 164, 78, 0.08);
+  border: 1px solid var(--border);
   border-radius: 12px;
 }
 .ord-recipient-warn {
   font-size: 12px;
-  color: var(--nx-amber, #d4a44e);
+  color: var(--amber);
   font-family: 'Outfit', sans-serif;
 }
 .ord-recipient-input {
   flex: 1 1 auto;
   padding: 9px 12px;
-  background: var(--nx-bg);
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
-  color: var(--nx-text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
 }
-.ord-recipient-input:focus {
-  outline: none;
-  border-color: var(--nx-gold);
-}
+.ord-recipient-input:focus { outline: none; border-color: var(--accent); }
 .ord-recipient-save {
   align-self: flex-end;
   padding: 7px 14px;
-  background: var(--nx-gold);
+  background: var(--accent);
   border: none;
-  border-radius: 999px;
-  color: var(--nx-gold-on, #1c1408);
+  border-radius: var(--rp);
+  color: var(--bg);
   font-family: 'Outfit', sans-serif;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
-[data-theme="light"] .ord-recipient-save { color: #FAFAF6; }
+[data-theme="light"] .ord-recipient-save { color: #fff; }
 
-/* Subject preview */
 .ord-subject-preview {
   padding: 12px 14px;
-  background: var(--nx-surface-1);
-  border: 1px solid var(--nx-gold-line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 12px;
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
-  color: var(--nx-text);
+  color: var(--text);
   word-break: break-word;
 }
 
-/* Review line list */
 .ord-review-section-head {
   font-family: 'JetBrains Mono', monospace;
   font-size: 9.5px;
   letter-spacing: 1.4px;
-  color: var(--nx-gold);
+  color: var(--accent);
   text-transform: uppercase;
   padding: 10px 0 4px;
 }
-
 .ord-review-line {
   display: flex;
   gap: 12px;
   padding: 8px 0;
   align-items: baseline;
-  border-bottom: 1px solid var(--nx-gold-line);
+  border-bottom: 1px solid var(--border);
 }
 .ord-review-line:last-child { border-bottom: none; }
-
 .ord-review-qty {
   flex-shrink: 0;
   width: 64px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   font-weight: 600;
-  color: var(--nx-gold);
+  color: var(--accent);
   letter-spacing: 0.3px;
 }
 .ord-review-name {
   flex: 1 1 auto;
   font-family: 'Outfit', sans-serif;
   font-size: 13.5px;
-  color: var(--nx-text);
+  color: var(--text);
 }
 .ord-review-sku {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
-  color: var(--nx-faint);
+  color: var(--faint);
   margin-left: 6px;
 }
 
-/* Notes */
 .ord-notes-input {
   width: 100%;
   min-height: 70px;
   resize: vertical;
   padding: 10px 12px;
-  background: var(--nx-surface-1);
-  border: 1px solid var(--nx-gold-line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  color: var(--nx-text);
+  color: var(--text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
   line-height: 1.45;
   -webkit-appearance: none;
   appearance: none;
 }
-.ord-notes-input:focus {
-  outline: none;
-  border-color: var(--nx-gold);
-}
-.ord-notes-input::placeholder { color: var(--nx-faint); }
-
-/* Send CTA — same as Review CTA but always visible */
-.ord-send-cta {
-  /* Inherits .ord-entry-cta styles */
-}
-
-
-/* ─── ORDER ENTRY VIEW ─────────────────────────────────────────── */
-
-.ord-loading {
-  padding: 40px 16px;
-  text-align: center;
-  color: var(--nx-faint);
-  font-size: 13px;
-}
-
-.ord-entry-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--nx-bg);
-  border-bottom: 1px solid var(--nx-gold-line);
-  position: sticky;
-  top: 49px;  /* sits below the duties tab strip (49px) */
-  z-index: 5;
-}
-
-.ord-back-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 1px solid var(--nx-gold-line);
-  background: transparent;
-  color: var(--nx-text);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  flex-shrink: 0;
-  -webkit-tap-highlight-color: transparent;
-  transition: border-color .15s, background .15s;
-}
-.ord-back-btn:hover {
-  border-color: var(--nx-gold);
-  background: var(--nx-gold-soft, rgba(212,164,78,0.06));
-}
-.ord-back-btn:active { transform: scale(0.95); }
-
-.ord-entry-title-wrap {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.ord-entry-title {
-  font-family: 'Outfit', sans-serif;
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--nx-text);
-  letter-spacing: 0.2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ord-entry-sub {
-  font-size: 11px;
-  color: var(--nx-faint);
-  margin-top: 2px;
-  font-family: 'JetBrains Mono', monospace;
-  letter-spacing: 0.4px;
-}
-
-.ord-save-indicator {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--nx-faint);
-  transition: color .2s, opacity .2s;
-}
-.ord-save-indicator[data-state="saving"] { color: var(--nx-amber, #d4a44e); }
-.ord-save-indicator[data-state="saved"]  { color: var(--nx-green, #9c8a3e); opacity: 0.7; }
-.ord-save-indicator[data-state="error"]  { color: var(--nx-red, #a83e3e); }
-.ord-save-indicator[data-state="idle"]   { opacity: 0; }
-
-.ord-apply-pars-btn {
-  flex-shrink: 0;
-  padding: 6px 12px;
-  background: transparent;
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 999px;
-  color: var(--nx-gold);
-  font-family: 'Outfit', sans-serif;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: background .15s;
-}
-.ord-apply-pars-btn:hover {
-  background: var(--nx-gold-soft, rgba(212,164,78,0.06));
-}
-.ord-apply-pars-btn:active { transform: scale(0.97); }
-
-
-/* ─── ORDER ENTRY — META FIELDS (delivery date, location) ──────── */
-
-.ord-entry-meta {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  padding: 12px 16px 8px;
-}
-
-.ord-meta-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.ord-meta-label {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9.5px;
-  letter-spacing: 1.4px;
-  text-transform: uppercase;
-  color: var(--nx-faint);
-  padding-left: 2px;
-}
-
-.ord-meta-input {
-  background: var(--nx-bg);
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
-  padding: 9px 12px;
-  color: var(--nx-text);
-  font-family: 'Outfit', sans-serif;
-  font-size: 14px;
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  box-sizing: border-box;
-}
-.ord-meta-input:focus {
-  outline: none;
-  border-color: var(--nx-gold);
-}
-
-
-/* ─── ORDER ENTRY — SEARCH ──────────────────────────────────────── */
-
-.ord-entry-search-wrap {
-  padding: 4px 16px 8px;
-}
-
-
-/* ─── ORDER ENTRY — ITEM ROWS ──────────────────────────────────── */
-
-.ord-entry-list {
-  padding-bottom: 100px; /* clears the sticky CTA bar */
-}
-
-.ord-entry-section {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9.5px;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  color: var(--nx-gold);
-  padding: 14px 16px 4px;
-  background: var(--nx-bg);
-  position: sticky;
-  top: 96px; /* duties tabs (49px) + entry head (47px) */
-  z-index: 3;
-}
-
-.ord-item-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--nx-gold-line);
-  transition: background .15s;
-}
-.ord-item-row.has-qty {
-  background: var(--nx-gold-soft, rgba(212,164,78,0.05));
-}
-
-.ord-item-main {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.ord-item-name {
-  font-family: 'Outfit', sans-serif;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--nx-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ord-item-sku {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9.5px;
-  color: var(--nx-faint);
-  margin-left: 8px;
-  letter-spacing: 0.4px;
-  vertical-align: middle;
-}
-
-.ord-item-meta {
-  font-size: 11px;
-  color: var(--nx-faint);
-  margin-top: 2px;
-  font-family: 'JetBrains Mono', monospace;
-  letter-spacing: 0.3px;
-}
-
-.ord-item-qty-block {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.ord-qty-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 1px solid var(--nx-gold-line);
-  background: var(--nx-bg);
-  color: var(--nx-gold);
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  -webkit-tap-highlight-color: transparent;
-  transition: background .15s, border-color .15s, transform .12s;
-}
-.ord-qty-btn:hover {
-  background: var(--nx-gold-soft, rgba(212,164,78,0.08));
-}
-.ord-qty-btn:active {
-  transform: scale(0.92);
-}
-
-.ord-qty-input {
-  width: 48px;
-  height: 32px;
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
-  background: var(--nx-bg);
-  color: var(--nx-text);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
-  text-align: center;
-  -moz-appearance: textfield;
-  appearance: none;
-}
-.ord-qty-input::-webkit-outer-spin-button,
-.ord-qty-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-.ord-qty-input:focus {
-  outline: none;
-  border-color: var(--nx-gold);
-}
-.ord-qty-input::placeholder {
-  color: var(--nx-faint);
-  opacity: 0.5;
-}
-
-.ord-item-unit {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: var(--nx-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  min-width: 22px;
-  text-align: left;
-}
-
-
-/* ─── STICKY CTA BAR ────────────────────────────────────────────── */
-
-.ord-entry-cta-wrap {
-  position: fixed;
-  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
-  left: 0;
-  right: 0;
-  padding: 12px 16px;
-  background: linear-gradient(180deg, transparent 0%, var(--nx-bg) 30%);
-  z-index: 4;
-  display: flex;
-  gap: 10px;
-}
-
-.ord-cta-wrap-review {
-  /* Two buttons side-by-side */
-}
-
-.ord-cta {
-  flex: 1 1 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  height: 48px;
-  border-radius: 999px;
-  border: 1px solid var(--nx-gold);
-  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
-  color: var(--nx-gold-on, #1c1408);
-  font-family: 'Outfit', sans-serif;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: opacity .15s, transform .12s;
-  box-shadow: 0 2px 10px rgba(212, 164, 78, 0.18);
-}
-.ord-cta:active { transform: scale(0.98); }
-.ord-cta:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.ord-cta-label {
-  font-weight: 600;
-}
-.ord-cta-count {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.4px;
-  opacity: 0.85;
-}
-
-[data-theme="light"] .ord-cta {
-  color: #FAFAF6;
-  box-shadow: 0 2px 10px rgba(139, 105, 20, 0.22);
-}
-
-.ord-cta-secondary {
-  background: transparent;
-  border: 1px solid var(--nx-gold-line);
-  color: var(--nx-text);
-  box-shadow: none;
-}
-.ord-cta-secondary:hover {
-  border-color: var(--nx-gold);
-  background: var(--nx-gold-soft, rgba(212,164,78,0.06));
-}
-
-
-/* ─── REVIEW VIEW ──────────────────────────────────────────────── */
-
-.ord-review-section {
-  padding: 4px 0 8px;
-}
-
-.ord-review-lines {
-  background: var(--nx-surface-1);
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
-  margin: 0 16px;
-  padding: 4px 0;
-}
-
-.ord-review-line {
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  gap: 10px;
-  align-items: center;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--nx-gold-line);
-}
-.ord-review-line:last-child { border-bottom: none; }
-
-.ord-review-qty {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--nx-gold);
-  min-width: 28px;
-  text-align: right;
-}
-
-.ord-review-unit {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: var(--nx-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  min-width: 28px;
-}
-
-.ord-review-name {
-  font-family: 'Outfit', sans-serif;
-  font-size: 14px;
-  color: var(--nx-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ord-review-notes {
-  width: calc(100% - 32px);
-  margin: 0 16px;
-  min-height: 80px;
-  padding: 12px 14px;
-  background: var(--nx-bg);
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 12px;
-  color: var(--nx-text);
-  font-family: 'Outfit', sans-serif;
-  font-size: 14px;
-  resize: vertical;
-  box-sizing: border-box;
-}
-.ord-review-notes:focus {
-  outline: none;
-  border-color: var(--nx-gold);
-}
-
-.ord-body-field {
-  padding: 0 16px;
-}
-
-.ord-body-input {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  resize: vertical;
-}
-
-.ord-body-hint {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9.5px;
-  color: var(--nx-faint);
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  margin-top: 6px;
-  padding-left: 2px;
-}
-
-.ord-empty-warn {
-  border-color: var(--nx-amber, #d4a44e) !important;
-  background: var(--nx-amber-soft, rgba(212, 164, 78, 0.10)) !important;
-  color: var(--nx-text) !important;
-  font-size: 13px;
-  text-align: left;
-}
+.ord-notes-input:focus { outline: none; border-color: var(--accent); }
+.ord-notes-input::placeholder { color: var(--faint); }
