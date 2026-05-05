@@ -60,12 +60,12 @@
         <div class="badge-choice-title">Print Label</div>
         <div class="badge-choice-options">
           <button class="badge-choice-btn" id="badgeChoiceZebra">
-            <span class="badge-choice-icon">🏷</span>
+            <span class="badge-choice-icon"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h18l-2 11H5L3 8Z"/><path d="M5 8V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v3"/></svg></span>
             <span class="badge-choice-name">Zebra</span>
             <span class="badge-choice-sub">Thermal sticker</span>
           </button>
           <button class="badge-choice-btn" id="badgeChoicePaper">
-            <span class="badge-choice-icon">📄</span>
+            <span class="badge-choice-icon"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
             <span class="badge-choice-name">Paper</span>
             <span class="badge-choice-sub">HTML print</span>
           </button>
