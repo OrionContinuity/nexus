@@ -27,6 +27,43 @@
 (function() {
   'use strict';
 
+  /* ─── Icon helper ──────────────────────────────────────────────────
+     The context menu's icon column accepts raw HTML, so we pass SVG
+     line-art instead of emoji glyphs. Same Lucide path family used
+     in equipment.js. Defined locally so this file doesn't depend on
+     load order with equipment.js (which has its own ACTION_ICONS). */
+  const CM_ICONS = {
+    edit:       '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+    sparkles:   '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
+    family:     '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    audit:      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+    trash:      '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>',
+    documents:  '<path d="M14 4.272A2 2 0 0 1 13 6h-3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3a2 2 0 0 1-1-1.728"/><path d="M16 2H8a2 2 0 0 0-2 2v16"/>',
+    label:      '<path d="M3 8h18l-2 11H5L3 8Z"/><path d="M5 8V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v3"/>',
+    phone:      '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+    ticket:     '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/>',
+    pen:        '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+    settings:   '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    clipboard:  '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>',
+    note:       '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+    calendar:   '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    cog:        '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    bolt:       '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+    star:       '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+    refresh:    '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>',
+    close:      '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    printer:    '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
+    cart:       '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
+    bolt:       '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+    wrench:     '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.121 2.121 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+    search:     '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+    email:      '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>',
+    phone2:     '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  };
+  function cmSvg(key, size = '15px') {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${CM_ICONS[key] || ''}</svg>`;
+  }
+
   function whenReady(check, fn, maxWait = 5000) {
     const start = Date.now();
     const interval = setInterval(() => {
@@ -102,12 +139,12 @@
     wrap.className = 'eq-print-everything-wrap';
     wrap.innerHTML = `
       <button class="eq-print-everything-btn" id="eqPrintEverythingBtn">
-        <span class="eq-pe-icon">📑</span>
+        <span class="eq-pe-icon"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4.272A2 2 0 0 1 13 6h-3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3a2 2 0 0 1-1-1.728"/><path d="M16 2H8a2 2 0 0 0-2 2v16"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="15" y2="15"/></svg></span>
         <span class="eq-pe-body">
           <span class="eq-pe-title">Print EVERYTHING</span>
           <span class="eq-pe-sub">Complete dossier — specs, parts, timeline, all</span>
         </span>
-        <span class="eq-pe-arrow">→</span>
+        <span class="eq-pe-arrow"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
       </button>
     `;
     overviewPanel.insertBefore(wrap, overviewPanel.firstChild);
@@ -232,24 +269,24 @@
 
   function buildEquipmentMenu(equipId, equipName) {
     return [
-      { icon: '✎', label: 'Edit', action: () => NX.modules.equipment?.edit?.(equipId) },
-      { icon: '📑', label: 'Print EVERYTHING', action: () => printEverything(equipId) },
-      { icon: '🖨', label: 'Print this Tab', action: () => printActiveTab(equipId) },
-      { icon: '🏷', label: 'Print Single Label', action: () => printSingleLabel(equipId) },
-      { icon: '📄', label: 'Print Avery Sheet (10×)', action: () => printAverySheet(equipId) },
-      { icon: '🛒', label: 'Shopping List', action: () => exportShoppingList(equipId) },
-      { icon: '✨', label: 'Extract Parts from Manual', action: () => triggerExtractFromManual(equipId) },
-      { icon: '👥', label: 'Set Parent / Add Child', action: () => openFamilyManager(equipId, equipName) },
-      { icon: '📜', label: 'Audit Log', action: () => openItemAuditLog('equipment', equipId, equipName) },
-      { icon: '🗑', label: 'Delete', danger: true, action: () => softDeleteWithConfirm('equipment', equipId, equipName) }
+      { icon: cmSvg('pen'), label: 'Edit', action: () => NX.modules.equipment?.edit?.(equipId) },
+      { icon: cmSvg('documents'), label: 'Print EVERYTHING', action: () => printEverything(equipId) },
+      { icon: cmSvg('printer'), label: 'Print this Tab', action: () => printActiveTab(equipId) },
+      { icon: cmSvg('label'), label: 'Print Single Label', action: () => printSingleLabel(equipId) },
+      { icon: cmSvg('label'), label: 'Print Avery Sheet (10×)', action: () => printAverySheet(equipId) },
+      { icon: cmSvg('cart'), label: 'Shopping List', action: () => exportShoppingList(equipId) },
+      { icon: cmSvg('sparkles'), label: 'Extract Parts from Manual', action: () => triggerExtractFromManual(equipId) },
+      { icon: cmSvg('family'), label: 'Set Parent / Add Child', action: () => openFamilyManager(equipId, equipName) },
+      { icon: cmSvg('audit'), label: 'Audit Log', action: () => openItemAuditLog('equipment', equipId, equipName) },
+      { icon: cmSvg('trash'), label: 'Delete', danger: true, action: () => softDeleteWithConfirm('equipment', equipId, equipName) }
     ];
   }
 
   function buildPartMenu(partId, partName, equipId) {
     return [
-      { icon: '✎', label: 'Edit', action: () => NX.modules.equipment?.editPart?.(partId) },
-      { icon: '📜', label: 'Audit Log', action: () => openItemAuditLog('equipment_parts', partId, partName) },
-      { icon: '🗑', label: 'Delete', danger: true, action: () => softDeleteWithConfirm('equipment_parts', partId, partName, equipId) }
+      { icon: cmSvg('pen'), label: 'Edit', action: () => NX.modules.equipment?.editPart?.(partId) },
+      { icon: cmSvg('audit'), label: 'Audit Log', action: () => openItemAuditLog('equipment_parts', partId, partName) },
+      { icon: cmSvg('trash'), label: 'Delete', danger: true, action: () => softDeleteWithConfirm('equipment_parts', partId, partName, equipId) }
     ];
   }
 
@@ -481,7 +518,7 @@
     modal.innerHTML = `
       <div class="ctx-confirm-bg"></div>
       <div class="ctx-confirm-card">
-        <div class="ctx-confirm-icon">🗑</div>
+        <div class="ctx-confirm-icon">${cmSvg("trash", "32px")}</div>
         <div class="ctx-confirm-title">Delete ${esc(meta.label)}?</div>
         <div class="ctx-confirm-name">${esc(name)}</div>
         <div class="ctx-confirm-msg">
@@ -610,8 +647,8 @@
       <div class="ctx-audit-bg"></div>
       <div class="ctx-audit-card">
         <div class="ctx-audit-header">
-          <div class="ctx-audit-title">📜 Activity Log</div>
-          <button class="ctx-audit-close">✕</button>
+          <div class="ctx-audit-title">${cmSvg("audit", "14px")} Activity Log</div>
+          <button class="ctx-audit-close">${cmSvg("close", "14px")}</button>
         </div>
         <div class="ctx-audit-subject">${esc(name)}</div>
         <div class="ctx-audit-body" id="ctxAuditBody">Loading history…</div>
@@ -652,7 +689,7 @@
       const { data: item } = await NX.sb.from(table).select('*').eq('id', id).single();
       if (item?.created_at) {
         events.push({
-          type: 'create', icon: '✨',
+          type: 'create', icon: cmSvg('sparkles'),
           title: 'Created',
           detail: null,
           who: item.created_by || item.reported_by || null,
@@ -661,7 +698,7 @@
       }
       if (item?.is_deleted && item?.deleted_at) {
         events.push({
-          type: 'delete', icon: '🗑',
+          type: 'delete', icon: cmSvg('trash'),
           title: 'Moved to trash',
           detail: item.deleted_reason || null,
           who: item.deleted_by,
@@ -678,7 +715,7 @@
           .order('created_at', { ascending: false })
           .limit(50);
         (ai || []).forEach(row => events.push({
-          type: 'ai', icon: '⚡',
+          type: 'ai', icon: cmSvg('sparkles'),
           title: `AI: ${row.tool_name}`,
           detail: row.reasoning || null,
           who: 'AI · status: ' + row.result_status,
@@ -692,7 +729,7 @@
           const { data: dispatches } = await NX.sb.from('dispatch_events')
             .select('*').eq('equipment_id', id).order('dispatched_at', { ascending: false });
           (dispatches || []).forEach(d => events.push({
-            type: 'dispatch', icon: '📞',
+            type: 'dispatch', icon: cmSvg('phone'),
             title: `Dispatched: ${d.contractor_name || 'Unknown'}`,
             detail: d.issue_description || null,
             who: d.dispatched_by,
@@ -703,7 +740,7 @@
           const { data: maint } = await NX.sb.from('equipment_maintenance')
             .select('*').eq('equipment_id', id).order('event_date', { ascending: false });
           (maint || []).forEach(m => events.push({
-            type: 'service', icon: '🔧',
+            type: 'service', icon: cmSvg('wrench'),
             title: m.event_type || 'Service',
             detail: m.notes || null,
             who: m.performed_by || null,
@@ -721,7 +758,7 @@
             .order('created_at', { ascending: false })
             .limit(30);
           (logs || []).forEach(l => events.push({
-            type: 'log', icon: '📝',
+            type: 'log', icon: cmSvg('note'),
             title: 'Mentioned in log',
             detail: l.entry,
             who: null,
@@ -739,7 +776,7 @@
             .order('created_at', { ascending: false })
             .limit(20);
           (tickets || []).forEach(t => events.push({
-            type: 'ticket', icon: '🎫',
+            type: 'ticket', icon: cmSvg('ticket'),
             title: `Ticket: ${t.title || 'Untitled'}`,
             detail: (t.notes || '').slice(0, 200),
             who: t.reported_by + ' · ' + (t.status || 'open'),
@@ -796,7 +833,7 @@
     const chip = document.createElement('button');
     chip.className = 'feed-chip ctx-deleted-chip';
     chip.dataset.filter = 'deleted';
-    chip.innerHTML = '🗑 Deleted';
+    chip.innerHTML = cmSvg('trash','11px') + ' Deleted';
     chip.addEventListener('click', async () => {
       // Toggle active class on chip
       bar.querySelectorAll('.feed-chip').forEach(c => c.classList.remove('active'));
@@ -814,7 +851,7 @@
     wrap.className = 'ctx-feed-search-wrap';
     wrap.innerHTML = `
       <input type="text" id="ctxFeedSearch" class="ctx-feed-search" 
-        placeholder="🔍 Search log…" autocomplete="off">
+        placeholder="Search log…" autocomplete="off">
     `;
     feedView.parentElement?.insertBefore(wrap, feedView);
     
@@ -867,14 +904,12 @@
       return;
     }
 
-    const TYPE_ICONS = {
-      equipment: '⚙', part: '🔩', node: '⭐',
-      ticket: '🎫', card: '📋', event: '📅'
-    };
+    function TYPE_ICONS_SVG(t) { return ({ equipment:'settings', part:'bolt', node:'star', ticket:'ticket', card:'clipboard', event:'calendar' })[t]; }
+  const TYPE_ICONS = new Proxy({}, { get: (_, t) => cmSvg(TYPE_ICONS_SVG(t) || 'documents', '14px') });
 
     list.innerHTML = currentDeletedItems.map(item => `
       <div class="feed-row ctx-deleted-row" data-table="${tableForType(item.item_type)}" data-id="${esc(item.item_id)}">
-        <div class="ctx-deleted-icon">${TYPE_ICONS[item.item_type] || '📄'}</div>
+        <div class="ctx-deleted-icon">${TYPE_ICONS[item.item_type] || cmSvg('documents','14px')}</div>
         <div class="ctx-deleted-body">
           <div class="ctx-deleted-name">${esc(item.item_name || 'Untitled')}</div>
           <div class="ctx-deleted-meta">
@@ -886,7 +921,7 @@
             ${item.deleted_reason ? ' · ' + esc(item.deleted_reason) : ''}
           </div>
         </div>
-        <button class="ctx-deleted-restore-btn">♻ Restore</button>
+        <button class="ctx-deleted-restore-btn">${cmSvg("refresh", "12px")} Restore</button>
       </div>
     `).join('');
 
@@ -1693,7 +1728,7 @@
   
   <!-- IDENTITY + SPECS -->
   <div class="dos-section">
-    <div class="dos-section-title">⚙ Identity & Specifications</div>
+    <div class="dos-section-title">${cmSvg("settings", "13px")} Identity & Specifications</div>
     <div class="dos-specs">
       <div class="dos-spec">
         <div class="dos-spec-label">Manufacturer</div>
@@ -1738,7 +1773,7 @@
     </div>
     ${eq.manual_url ? `
       <div style="margin-top:10pt;padding:8pt 12pt;background:#fff8e8;border-radius:4pt;font-size:9pt;">
-        📄 <strong>Manual:</strong> <span class="mono">${esc(eq.manual_url)}</span>
+        ${cmSvg("document","13px")} <strong>Manual:</strong> <span class="mono">${esc(eq.manual_url)}</span>
       </div>
     ` : ''}
   </div>
@@ -1746,7 +1781,7 @@
   <!-- NOTES -->
   ${eq.notes ? `
     <div class="dos-section">
-      <div class="dos-section-title">📝 Notes</div>
+      <div class="dos-section-title">${cmSvg("note", "13px")} Notes</div>
       <div class="dos-notes">${esc(eq.notes)}</div>
     </div>
   ` : ''}
@@ -1754,7 +1789,7 @@
   <!-- CONTRACTORS -->
   ${(eq.service_contractor_name || eq.backup_contractor_name) ? `
     <div class="dos-section">
-      <div class="dos-section-title">📞 Service Contractors</div>
+      <div class="dos-section-title">${cmSvg("phone", "13px")} Service Contractors</div>
       ${eq.service_contractor_name ? `
         <div class="dos-contractor">
           <div class="dos-contractor-label">Primary</div>
@@ -1779,7 +1814,7 @@
   <!-- FAMILY -->
   ${(d.parent || d.children.length) ? `
     <div class="dos-section">
-      <div class="dos-section-title">👥 Equipment Family</div>
+      <div class="dos-section-title">${cmSvg("family", "13px")} Equipment Family</div>
       ${d.parent ? `
         <div class="dos-family-item">
           <span class="dos-family-label">Parent:</span>
@@ -1800,7 +1835,7 @@
   
   <!-- BILL OF MATERIALS -->
   <div class="dos-section">
-    <div class="dos-section-title">🔩 Bill of Materials (${d.parts.length} part${d.parts.length === 1 ? '' : 's'})</div>
+    <div class="dos-section-title">${cmSvg("bolt", "13px")} Bill of Materials (${d.parts.length} part${d.parts.length === 1 ? '' : 's'})</div>
     ${d.parts.length ? `
       <table class="dos-parts-table">
         <thead>
@@ -1817,7 +1852,7 @@
             const vendors = Array.isArray(p.vendors) ? p.vendors : [];
             const vendorHtml = vendors.length ? vendors.map(v => `
               <span class="dos-parts-vendor-row ${v.is_preferred ? 'dos-parts-vendor-preferred' : ''}">
-                ${v.is_preferred ? '★ ' : ''}${esc(v.name)}${v.price ? ' · $' + parseFloat(v.price).toFixed(2) : ''}${v.in_stock === true ? ' · in stock' : v.in_stock === false ? ' · out' : ''}
+                ${v.is_preferred ? '* ' : ''}${esc(v.name)}${v.price ? ' · $' + parseFloat(v.price).toFixed(2) : ''}${v.in_stock === true ? ' · in stock' : v.in_stock === false ? ' · out' : ''}
               </span>
             `).join('') : (p.supplier ? `<span>${esc(p.supplier)}${p.last_price ? ' · $' + parseFloat(p.last_price).toFixed(2) : ''}</span>` : '<span style="color:#aaa;">—</span>');
             
@@ -1838,7 +1873,7 @@
   
   <!-- COMPLETE SERVICE TIMELINE -->
   <div class="dos-section">
-    <div class="dos-section-title">📅 Complete Service Timeline (${timeline.length} event${timeline.length === 1 ? '' : 's'})</div>
+    <div class="dos-section-title">${cmSvg("calendar", "13px")} Complete Service Timeline (${timeline.length} event${timeline.length === 1 ? '' : 's'})</div>
     ${timeline.length ? timeline.map(e => `
       <div class="dos-timeline-entry ${e.type}">
         <div class="dos-tl-date">${fmtDate(e.date)}</div>
@@ -2008,8 +2043,8 @@
       <div class="ctx-confirm-bg"></div>
       <div class="ctx-confirm-card" style="max-width:480px;text-align:left;padding:20px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-          <div style="font-size:15px;font-weight:600;color:var(--accent,#c8a44e);">👥 Equipment Family</div>
-          <button class="ctx-audit-close" id="famClose">✕</button>
+          <div style="font-size:15px;font-weight:600;color:var(--accent,#c8a44e);">${cmSvg("family","14px")} Equipment Family</div>
+          <button class="ctx-audit-close" id="famClose">${cmSvg("close", "14px")}</button>
         </div>
         <div style="font-size:13px;color:var(--text,#e6dccc);margin-bottom:14px;">
           ${esc(equipName)}
@@ -2158,7 +2193,7 @@
       <div class="eq-tl-detail-card">
         <div class="eq-tl-detail-header">
           <div class="eq-tl-detail-title">Service Detail</div>
-          <button class="eq-tl-detail-close">✕</button>
+          <button class="eq-tl-detail-close">${cmSvg("close","16px")}</button>
         </div>
         <div class="eq-tl-detail-body" id="eqTlDetailBody">Loading…</div>
       </div>
@@ -2216,7 +2251,7 @@
       <div class="eq-tl-detail-hero">
         <div class="eq-tl-detail-type">${esc(typeLabel)}</div>
         <div class="eq-tl-detail-date">${esc(dateStr)}</div>
-        ${pmLog ? `<div class="eq-tl-detail-source">📲 Submitted via QR code</div>` : ''}
+        ${pmLog ? `<div class="eq-tl-detail-source">Submitted via QR code</div>` : ''}
       </div>
 
       ${m.description ? `
@@ -2240,12 +2275,12 @@
             <div class="eq-tl-detail-contractor-name">${esc(m.performed_by)}</div>
             ${contractorPhone ? `
               <a href="tel:${esc(contractorPhone.replace(/[^\d+]/g,''))}" class="eq-tl-detail-contact-btn">
-                📞 ${esc(contractorPhone)}
+                ${cmSvg('phone2','12px')} ${esc(contractorPhone)}
               </a>
             ` : ''}
             ${contractorEmail ? `
               <a href="mailto:${esc(contractorEmail)}" class="eq-tl-detail-contact-btn">
-                ✉ ${esc(contractorEmail)}
+                ${cmSvg('email','12px')} ${esc(contractorEmail)}
               </a>
             ` : ''}
           </div>
@@ -2308,7 +2343,7 @@
         <div class="eq-tl-detail-section">
           <div class="eq-tl-detail-section-label">Invoice / Report</div>
           <a href="${esc(pdfUrl)}" target="_blank" rel="noopener" class="eq-tl-detail-pdf-btn">
-            📄 Open PDF
+            ${cmSvg('documents','12px')} Open PDF
           </a>
         </div>
       ` : ''}
