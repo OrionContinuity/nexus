@@ -332,11 +332,11 @@
   border-radius: 10px; letter-spacing: 0.5px; font-weight: 600;
   margin-bottom: 6px;
 }
-.eq-type-repair { background: rgba(200,70,70,0.15); color: var(--red); }
-.eq-type-pm { background: rgba(70,140,200,0.15); color: var(--blue); }
-.eq-type-inspection { background: rgba(160,130,60,0.15); color: var(--amber); }
-.eq-type-install { background: rgba(70,180,120,0.15); color: var(--green); }
-.eq-type-recall { background: rgba(200,70,70,0.25); color: var(--red); }
+.eq-type-repair { background: rgba(168, 62, 62, 0.15); color: var(--red); }
+.eq-type-pm { background: rgba(107, 122, 138, 0.15); color: var(--blue); }
+.eq-type-inspection { background: rgba(212, 164, 78, 0.15); color: var(--amber); }
+.eq-type-install { background: rgba(156, 138, 62, 0.15); color: var(--green); }
+.eq-type-recall { background: rgba(168, 62, 62, 0.25); color: var(--red); }
 .eq-timeline-desc { font-size: 13px; color: var(--text); margin-bottom: 6px; }
 .eq-timeline-who, .eq-timeline-cost, .eq-timeline-dt {
   font-size: 11px; color: var(--muted); margin-top: 2px;
@@ -1686,9 +1686,9 @@
   font-weight: 600;
 }
 
-.eq-conf-high { background: rgba(70,180,120,0.2); color: var(--green); }
-.eq-conf-medium { background: rgba(200,164,78,0.2); color: var(--amber); }
-.eq-conf-low { background: rgba(200,70,70,0.2); color: var(--red); }
+.eq-conf-high { background: rgba(156, 138, 62, 0.20); color: var(--green); }
+.eq-conf-medium { background: rgba(212, 164, 78, 0.20); color: var(--amber); }
+.eq-conf-low { background: rgba(168, 62, 62, 0.20); color: var(--red); }
 
 .eq-confirm-details {
   display: grid;
