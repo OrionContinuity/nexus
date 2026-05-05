@@ -20,6 +20,35 @@
 (function(){
 
 // ─────────────────────────────────────────────────────────────────────────
+// SVG ICONS
+// Lucide-derived line art for badges, modal headers, and action buttons.
+// Local to the IIFE so we don't depend on equipment.js load order. SVGs
+// inherit currentColor and font-size, so they pick up the surrounding
+// theme (gold accents on chips, faint on metadata, etc.) automatically.
+// ─────────────────────────────────────────────────────────────────────────
+const B_ICONS = {
+  check:      '<polyline points="20 6 9 17 4 12"/>',
+  search:     '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  close:      '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  chart:      '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+  pin:        '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  wrench:     '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.121 2.121 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  square:     '<rect x="3" y="3" width="18" height="18" rx="2"/>',  // empty checkbox
+  squareCheck:'<rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="9 12 11 14 16 9"/>',
+  broom:      '<path d="M19.36 2.72 20.78 4.14l-5.66 5.66"/><path d="m14 7 6.16-3.39"/><path d="m12.71 5.71-3.42 3.42a3 3 0 0 0 0 4.24l3.43 3.42 4.24-4.24a3 3 0 0 0 0-4.24Z"/><path d="m14 14 7 7"/><path d="m9 16 1.5 1.5"/><path d="m4 21 4-4"/>',
+  globe:      '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+  phone:      '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  archive:    '<rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"/><line x1="10" y1="13" x2="14" y2="13"/>',
+  skipFwd:    '<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/>',
+  sparkles:   '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
+  hourglass:  '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
+  message:    '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+};
+function bSvg(key, size = '1em', stroke = '1.75') {
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${B_ICONS[key] || ''}</svg>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────
 // ─── PALETTE ──────────────────────────────────────────────────────────
@@ -629,13 +658,13 @@ function renderSummaryStrip(){
     html += `<span class="b-summary-chip">avg close <strong>${Number(stats.avg_close_days_30d).toFixed(1)}d</strong></span>`;
   }
   if(closedThisWeek > 0){
-    html += `<span class="b-summary-chip ok">✓ ${closedThisWeek} done this week</span>`;
+    html += `<span class="b-summary-chip ok">${bSvg("check","11px")} ${closedThisWeek} done this week</span>`;
   }
   // Quick search — text filter across all card titles + descriptions on
   // this board. Empty by default; live filters as user types. Sits
   // before the action buttons so it's reachable but doesn't dominate.
   html += `<span class="b-search-wrap">
-    <span class="b-search-icon">⌕</span>
+    <span class="b-search-icon">${bSvg("search","14px")}</span>
     <input
       class="b-search-input"
       id="bSearchInput"
@@ -645,13 +674,13 @@ function renderSummaryStrip(){
       autocomplete="off"
       spellcheck="false"
     >
-    ${searchQuery ? '<button class="b-search-clear" id="bSearchClear" title="Clear">✕</button>' : ''}
+    ${searchQuery ? `<button class=\"b-search-clear\" id=\"bSearchClear\" title=\"Clear\">${bSvg('close','12px')}</button>` : ''}
   </span>`;
   // Clean Up button only appears when there's meaningful backlog
   if(open > 30){
     html += `<button class="b-summary-stats-btn" id="bCleanUpBtn" style="background:rgba(168, 62, 62,0.15);border-color:rgba(168, 62, 62,0.3);color:#c8625e">Clean Up</button>`;
   }
-  html += `<button class="b-summary-stats-btn" id="bStatsBtn">📊 Stats</button>`;
+  html += `<button class="b-summary-stats-btn" id="bStatsBtn">${bSvg("chart","13px")} Stats</button>`;
   strip.innerHTML = html;
   strip.querySelector('#bStatsBtn').addEventListener('click', openStatsModal);
   const cleanBtn = strip.querySelector('#bCleanUpBtn');
@@ -683,7 +712,7 @@ function renderSummaryStrip(){
             btn.className = 'b-search-clear';
             btn.id = 'bSearchClear';
             btn.title = 'Clear';
-            btn.textContent = '✕';
+            btn.innerHTML = bSvg('close','13px');
             btn.addEventListener('click', () => {
               searchQuery = '';
               searchInput.value = '';
@@ -901,7 +930,11 @@ function createCardEl(card){
   const cover = (card.photo_urls || [])[0];
   let html = '';
   if(cover){
-    html += `<div class="b-card-cover"><img src="${esc(cover)}" loading="lazy" alt="" onerror="this.parentElement.style.display='none'"></div>`;
+    // draggable=false + style stops the browser's native image-drag and
+    // long-press-to-save UI from intercepting touches before they reach
+    // the card's gesture handlers (the cause of the "drag-from-image
+    // opens quick-actions" regression).
+    html += `<div class="b-card-cover"><img src="${esc(cover)}" loading="lazy" alt="" draggable="false" style="-webkit-user-drag:none;user-select:none;pointer-events:none" onerror="this.parentElement.style.display='none'"></div>`;
   }
 
   // Category color strip — a 4px bar at the top of the card body,
@@ -933,8 +966,8 @@ function createCardEl(card){
   const badges = [];
   if(card.priority === 'urgent') badges.push(`<span class="b-card-badge pri-urgent">URGENT</span>`);
   else if(card.priority === 'high') badges.push(`<span class="b-card-badge pri-high">HIGH</span>`);
-  if(loc) badges.push(`<span class="b-card-badge loc" style="color:${loc.color}">📍 ${esc(loc.label)}</span>`);
-  if(card.equipment_id) badges.push(`<span class="b-card-badge eq">🔧 Equipment</span>`);
+  if(loc) badges.push(`<span class=\"b-card-badge loc\" style=\"color:${loc.color}\">${bSvg('pin','11px')} ${esc(loc.label)}</span>`);
+  if(card.equipment_id) badges.push(`<span class=\"b-card-badge eq\">${bSvg('wrench','11px')} Equipment</span>`);
   if(overdue) badges.push(`<span class="b-card-badge overdue">OVERDUE</span>`);
   if(badges.length) html += `<div class="b-card-badges">${badges.join('')}</div>`;
 
@@ -945,7 +978,7 @@ function createCardEl(card){
     const doneChecks = cl.filter(c=>c.done).length;
     const pct = doneChecks/cl.length;
     const cls = pct===1 ? 'b-card-meta-done' : (pct>=0.5 ? 'b-card-meta-progress' : '');
-    meta.push(`<span class="${cls}">☐ ${doneChecks}/${cl.length}</span>`);
+    meta.push(`<span class=\"${cls}\">${bSvg(doneChecks===cl.length?'squareCheck':'square','11px')} ${doneChecks}/${cl.length}</span>`);
   }
   const cm = card.comments || [];
   if(cm.length) meta.push(`💬 ${cm.length}`);
@@ -1019,10 +1052,31 @@ function createCardEl(card){
   // Lets you set priority, due date, or archive without opening the
   // full detail modal. The single biggest "weekly grooming" speedup
   // since you can re-prioritize 30 cards without 30 modal trips.
+  //
+  // Movement-aware: the timer cancels on ANY finger movement >10px,
+  // tracked at the document level. This handles a regression where
+  // dragging from the card's photo area would still fire the menu —
+  // the <img> element's native touch handling was absorbing touchmove
+  // events before they bubbled to the card. Listening at document
+  // level catches the motion regardless of which child element
+  // captured it.
   let pressTimer = null;
   let pressFired = false;
+  let pressStartX = 0, pressStartY = 0;
+  const onDocMove = (e) => {
+    if (!pressTimer) return;
+    const t = e.touches && e.touches[0];
+    if (!t) return;
+    const dx = Math.abs(t.clientX - pressStartX);
+    const dy = Math.abs(t.clientY - pressStartY);
+    if (dx > 10 || dy > 10) endPress();
+  };
   const startPress = (e) => {
     pressFired = false;
+    const t = e.touches && e.touches[0];
+    pressStartX = t ? t.clientX : 0;
+    pressStartY = t ? t.clientY : 0;
+    document.addEventListener('touchmove', onDocMove, { passive: true });
     pressTimer = setTimeout(() => {
       pressFired = true;
       // Vibrate confirmation if available — feels native on mobile
@@ -1034,10 +1088,11 @@ function createCardEl(card){
   };
   const endPress = () => {
     if(pressTimer){ clearTimeout(pressTimer); pressTimer = null; }
+    document.removeEventListener('touchmove', onDocMove, { passive: true });
   };
   el.addEventListener('touchstart', startPress, { passive: true });
   el.addEventListener('touchend', endPress);
-  el.addEventListener('touchmove', endPress);  // cancel on scroll
+  el.addEventListener('touchmove', endPress);  // cancel on scroll (also)
   el.addEventListener('touchcancel', endPress);
   // Right-click on desktop
   el.addEventListener('contextmenu', e => {
@@ -1080,7 +1135,7 @@ function openQuickActions(card, anchorEl){
       <div class="b-qa-label">Due date</div>
       <div class="b-qa-row">
         <input class="b-qa-due" type="date" value="${esc(card.due_date||'')}">
-        ${card.due_date ? '<button class="b-qa-due-clear" title="Clear date">✕</button>' : ''}
+        ${card.due_date ? `<button class=\"b-qa-due-clear\" title=\"Clear date\">${bSvg('close','12px')}</button>` : ''}
       </div>
     </div>
     <div class="b-qa-section">
@@ -1227,7 +1282,7 @@ function openMovePicker(card){
   bg.className = 'b-modal-bg';
   bg.innerHTML = `<div class="b-modal b-move-modal">
     <div class="b-modal-head"><div style="flex:1;font-size:13px;font-weight:600">Move to…</div>
-      <button class="b-modal-close">✕</button></div>
+      <button class="b-modal-close">${bSvg("close","16px")}</button></div>
     <div class="b-move-list">
       ${lists.map(l => {
         const isCurrent = l.id === card.list_id;
@@ -1417,13 +1472,13 @@ async function openCardDetail(card){
   bg.innerHTML = `<div class="b-modal">
     <div class="b-modal-head">
       <input class="b-modal-title" id="bTitle" value="${esc(card.title||'')}" placeholder="Card title">
-      <button class="b-modal-close">✕</button>
+      <button class="b-modal-close">${bSvg("close","16px")}</button>
     </div>
     <div class="b-modal-body">
 
       ${card.cleaning_link_section ? `
       <div class="b-cleaning-link">
-        <span class="b-cleaning-link-icon">🧹</span>
+        <span class="b-cleaning-link-icon">${bSvg("broom","16px")}</span>
         <div class="b-cleaning-link-body">
           <div class="b-cleaning-link-title">Linked to Cleaning</div>
           <div class="b-cleaning-link-meta">${esc(card.cleaning_link_section)} · ${esc(card.cleaning_link_location||'')}</div>
@@ -1434,7 +1489,7 @@ async function openCardDetail(card){
       <div class="b-section">
         <div class="b-section-label">
           Description
-          <button type="button" class="b-tr-btn" id="bTrDesc" title="Translate to your language" style="display:none">🌐 Translate</button>
+          <button type="button" class="b-tr-btn" id="bTrDesc" title="Translate to your language" style="display:none">${bSvg("globe","13px")} Translate</button>
         </div>
         <textarea class="b-field" id="bDesc" placeholder="Details, steps to reproduce, what was tried…" rows="3">${esc(card.description||'')}</textarea>
         <div class="b-tr-out" id="bDescTrOut" style="display:none"></div>
@@ -1523,7 +1578,7 @@ async function openCardDetail(card){
 
       <div class="b-actions">
         <button class="b-btn b-btn-primary" id="bSave">Save</button>
-        ${card.equipment_id ? `<button class="b-btn" id="bCall">📞 Call Service</button>` : ''}
+        ${card.equipment_id ? `<button class="b-btn" id="bCall">${bSvg("phone","13px")} Call Service</button>` : ''}
         <button class="b-btn" id="bMoveBtn">→ Move</button>
         <button class="b-btn b-btn-danger" id="bArchive">Archive</button>
       </div>
@@ -1549,7 +1604,7 @@ async function openCardDetail(card){
       trBtn.addEventListener('click', async () => {
         if (shown) {
           trOut.style.display = 'none';
-          trBtn.textContent = '🌐 Translate';
+          trBtn.innerHTML = bSvg('globe','13px') + ' Translate';
           shown = false;
           return;
         }
@@ -1559,7 +1614,7 @@ async function openCardDetail(card){
           if (!cached) cached = await NX.tr.text(descEl.value);
           trOut.textContent = cached;
           trOut.style.display = '';
-          trBtn.textContent = '✕ Hide translation';
+          trBtn.innerHTML = bSvg('close','12px') + ' Hide translation';
           shown = true;
         } catch (_) {
           trBtn.textContent = 'retry';
@@ -1755,7 +1810,7 @@ async function renderEquipmentEmbed(card, container){
       : '—';
     container.innerHTML = `
       <div class="b-eq-embed" id="bEqGo">
-        <div class="b-eq-embed-icon">🔧</div>
+        <div class="b-eq-embed-icon">${bSvg("wrench","18px")}</div>
         <div class="b-eq-embed-body">
           <div class="b-eq-embed-name">${esc(eq.name)}</div>
           <div class="b-eq-embed-meta">${esc(meta)}${meta?' · ':''}Health ${health}</div>
@@ -2010,7 +2065,7 @@ function startInlineComposer(triggerEl, opts){
     <textarea class="b-composer-input" rows="${minRows}" placeholder="${esc(placeholder)}"></textarea>
     <div class="b-composer-actions">
       <button type="button" class="b-composer-submit">${esc(buttonLabel)}</button>
-      <button type="button" class="b-composer-cancel" title="Cancel" aria-label="Cancel">✕</button>
+      <button type="button" class="b-composer-cancel" title="Cancel" aria-label="Cancel">${bSvg("close","14px")}</button>
     </div>
   `;
 
@@ -2107,492 +2162,4 @@ async function createCard(listId, payload){
       location: payload.location || null,
       equipment_id: payload.equipment_id || null,
       reported_by: NX.currentUser?.name || null,
-      checklist: [], comments: [], labels: [],
-      photo_urls: [],
-      archived: false,
-    }).select().single();
-    await loadCards(); render();
-    NX.toast && NX.toast('Card created', 'success');
-    // Fire push notification — every new card = every new report = buzzes
-    // the managers/admins who need to know. Fire-and-forget.
-    if (created && NX.notifyCardCreated) NX.notifyCardCreated(created);
-    return created;
-  }catch(e){
-    console.error('[board] createCard:', e);
-    NX.toast && NX.toast('Could not create card', 'error');
-    throw e;  // let the inline composer reset its button on failure
-  }
-}
-
-async function promptNewCard(listId, prefillOrTrigger){
-  // Two callable forms:
-  //   1. promptNewCard(listId, triggerEl)  — UI path, opens inline composer
-  //   2. promptNewCard(listId, {title, ...}) — programmatic prefill, immediate insert
-  //   3. promptNewCard(listId)             — fallback, opens inline composer if a +Add button exists
-  const arg = prefillOrTrigger;
-  // Form 2: prefill object with a title
-  if(arg && typeof arg === 'object' && !arg.nodeType && arg.title){
-    const created = await createCard(listId, arg);
-    if(created) openCardDetail(created);
-    return;
-  }
-  // Form 1 or 3: find or use a trigger to anchor the inline composer
-  const triggerEl = (arg && arg.nodeType) ? arg
-    : document.querySelector(`.b-list .b-list-add[data-list="${listId}"]`)
-      || document.querySelector(`.b-list-cards[data-list-id="${listId}"]`)?.parentElement?.querySelector('.b-list-add');
-  if(!triggerEl){
-    // No trigger to anchor against — fall back to a minimal modal. This
-    // shouldn't happen in normal use but keeps the function robust.
-    const title = prompt('Card title:');
-    if(!title) return;
-    await createCard(listId, { title });
-    return;
-  }
-  startInlineComposer(triggerEl, {
-    placeholder: 'Enter a title for this card…',
-    buttonLabel: 'Add card',
-    onSubmit: async (text) => {
-      await createCard(listId, { title: text });
-    },
-  });
-}
-
-async function promptNewList(triggerEl){
-  // If a trigger element is provided, use the inline composer.
-  // Otherwise fall back to the legacy prompt() (rare path).
-  if(triggerEl && triggerEl.nodeType){
-    startInlineComposer(triggerEl, {
-      placeholder: 'Enter list title…',
-      buttonLabel: 'Add list',
-      minRows: 1,
-      onSubmit: async (text) => {
-        await NX.sb.from('board_lists').insert({
-          board_id: activeBoard.id, name: text, position: lists.length
-        });
-        await loadLists(); render();
-      },
-    });
-    return;
-  }
-  const name = prompt('List name:');
-  if(!name) return;
-  try{
-    await NX.sb.from('board_lists').insert({
-      board_id: activeBoard.id, name, position: lists.length
-    });
-    await loadLists(); render();
-  }catch(e){ console.error('[board] promptNewList:', e); }
-}
-
-async function promptNewBoard(triggerEl){
-  const create = async (name) => {
-    const { data: nb } = await NX.sb.from('boards').insert({
-      name, color: '#c8a44e', position: boards.length
-    }).select().single();
-    if(nb){
-      await NX.sb.from('board_lists').insert(
-        DEFAULT_LISTS.map(l => ({ ...l, board_id: nb.id }))
-      );
-      boards.push(nb);
-      activeBoard = nb;
-      await loadLists(); await loadCards();
-      render();
-    }
-  };
-  if(triggerEl && triggerEl.nodeType){
-    startInlineComposer(triggerEl, {
-      placeholder: 'New board name…',
-      buttonLabel: 'Create board',
-      minRows: 1,
-      onSubmit: create,
-    });
-    return;
-  }
-  const name = prompt('Board name:');
-  if(!name) return;
-  try{ await create(name); }
-  catch(e){ console.error('[board] promptNewBoard:', e); }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// STATS MODAL
-// ─────────────────────────────────────────────────────────────────────────
-async function openStatsModal(){
-  await loadStats();
-
-  // Also compute inline stats from what's loaded
-  const open = cards.length;
-  const overdue = cards.filter(isOverdue).length;
-  const urgent = cards.filter(c => c.priority === 'urgent').length;
-  const waitingParts = cards.filter(c => (c.status||'').toLowerCase().includes('wait')).length;
-  const byLocation = LOCATIONS.map(l => ({
-    ...l,
-    count: cards.filter(c => c.location === l.key).length,
-  }));
-
-  const avgClose = stats?.avg_close_days_30d != null
-    ? Number(stats.avg_close_days_30d).toFixed(1) + 'd' : '—';
-  const closed7 = stats?.closed_last_7d ?? '—';
-  const closed30 = stats?.closed_last_30d ?? '—';
-  const spend30 = stats?.spend_30d ? '$' + Number(stats.spend_30d).toFixed(0) : '—';
-  const spend365 = stats?.spend_365d ? '$' + Number(stats.spend_365d).toFixed(0) : '—';
-
-  const bg = document.createElement('div');
-  bg.className = 'b-modal-bg';
-  bg.innerHTML = `<div class="b-modal">
-    <div class="b-modal-head">
-      <div style="flex:1;font-size:14px;font-weight:600">📊 Board Stats</div>
-      <button class="b-modal-close">✕</button>
-    </div>
-    <div class="b-modal-body">
-
-      <div class="b-stats-grid">
-        <div class="b-stat"><div class="b-stat-num">${open}</div><div class="b-stat-label">Open</div></div>
-        <div class="b-stat"><div class="b-stat-num ${overdue>0?'alert':''}">${overdue}</div><div class="b-stat-label">Overdue</div></div>
-        <div class="b-stat"><div class="b-stat-num ${urgent>0?'alert':''}">${urgent}</div><div class="b-stat-label">Urgent open</div></div>
-        <div class="b-stat"><div class="b-stat-num">${waitingParts}</div><div class="b-stat-label">Waiting parts</div></div>
-        <div class="b-stat"><div class="b-stat-num ok">${closed7}</div><div class="b-stat-label">Closed 7d</div></div>
-        <div class="b-stat"><div class="b-stat-num ok">${closed30}</div><div class="b-stat-label">Closed 30d</div></div>
-        <div class="b-stat"><div class="b-stat-num">${avgClose}</div><div class="b-stat-label">Avg close 30d</div></div>
-        <div class="b-stat"><div class="b-stat-num">${spend30}</div><div class="b-stat-label">Spend 30d</div></div>
-      </div>
-
-      <div class="b-section">
-        <div class="b-section-label">Open by location</div>
-        <div class="b-stats-grid">
-          ${byLocation.map(l =>
-            `<div class="b-stat"><div class="b-stat-num" style="color:${l.color}">${l.count}</div><div class="b-stat-label">${l.label}</div></div>`
-          ).join('')}
-        </div>
-      </div>
-
-      <div class="b-section">
-        <div class="b-section-label">Yearly spend</div>
-        <div class="b-stat"><div class="b-stat-num">${spend365}</div><div class="b-stat-label">Last 365 days</div></div>
-      </div>
-
-    </div>
-  </div>`;
-  const close = () => bg.remove();
-  bg.addEventListener('click', e => { if(e.target===bg) close(); });
-  bg.querySelector('.b-modal-close').addEventListener('click', close);
-  document.body.appendChild(bg);
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// INIT
-// ─────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────
-// TRIAGE MODAL — bulk clean-up walkthrough
-// One card at a time, oldest-stuck first, three-button decide.
-// ─────────────────────────────────────────────────────────────────────────
-async function openTriageModal(){
-  // Load ALL open cards across all boards, sorted by oldest last_status_change_at
-  // (cards stuck for longest → shown first)
-  let allOpen = [];
-  try {
-    const { data } = await NX.sb.from('kanban_cards')
-      .select('*')
-      .eq('archived', false)
-      .not('status', 'in', '(closed,done)')
-      .order('last_status_change_at', { ascending: true, nullsFirst: true })
-      .order('created_at', { ascending: true })
-      .limit(2000);
-    allOpen = data || [];
-  } catch(e) {
-    console.error('[board] triage load:', e);
-    NX.toast && NX.toast('Could not load cards', 'error');
-    return;
-  }
-
-  if (!allOpen.length) {
-    NX.toast && NX.toast('Nothing to clean up — you are caught up ✨', 'success');
-    return;
-  }
-
-  let idx = 0;
-  const total = allOpen.length;
-  let archivedCount = 0, closedCount = 0, skippedCount = 0;
-  let lastAction = null; // { card, prevState } for undo
-
-  const bg = document.createElement('div');
-  bg.className = 'b-modal-bg';
-  bg.innerHTML = `<div class="b-modal" id="bTriageModal">
-    <div class="b-modal-head">
-      <div style="flex:1">
-        <div style="font-size:14px;font-weight:600">🧹 Clean Up</div>
-        <div id="bTriageProgress" style="font-size:11px;color:var(--text-dim,#a49c94);margin-top:2px"></div>
-      </div>
-      <button class="b-modal-close">✕ Done</button>
-    </div>
-    <div class="b-modal-body" id="bTriageBody"></div>
-    <div style="padding:10px 16px;border-top:1px solid rgba(255,255,255,0.05);display:flex;gap:8px;flex-wrap:wrap;background:rgba(255,255,255,0.02)">
-      <button class="b-btn b-btn-danger" id="bTArchive" style="flex:1;min-width:100px">📦 Archive</button>
-      <button class="b-btn" id="bTClose" style="flex:1;min-width:100px;background:rgba(156, 138, 62,0.12);color:#9c8a3e;border-color:rgba(156, 138, 62,0.3)">✓ Close</button>
-      <button class="b-btn" id="bTSkip" style="flex:1;min-width:100px">⏭ Skip</button>
-    </div>
-    <div style="padding:6px 16px 14px;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="b-btn" id="bTUndo" style="font-size:11px;flex:1" disabled>↶ Undo last</button>
-      <button class="b-btn b-btn-danger" id="bTArchiveAll" style="font-size:11px;flex:1">Archive ALL remaining</button>
-    </div>
-  </div>`;
-
-  document.body.appendChild(bg);
-
-  const progressEl = bg.querySelector('#bTriageProgress');
-  const bodyEl = bg.querySelector('#bTriageBody');
-  const undoBtn = bg.querySelector('#bTUndo');
-
-  const finish = () => {
-    bg.remove();
-    loadCards().then(() => {
-      render();
-      const msg = [];
-      if (archivedCount) msg.push(`${archivedCount} archived`);
-      if (closedCount) msg.push(`${closedCount} closed`);
-      if (skippedCount) msg.push(`${skippedCount} skipped`);
-      NX.toast && NX.toast(msg.length ? `✓ ${msg.join(' · ')}` : 'All done', 'success');
-    });
-  };
-
-  const renderCurrent = () => {
-    if (idx >= allOpen.length) {
-      bodyEl.innerHTML = `<div style="padding:40px 20px;text-align:center">
-        <div style="font-size:48px;margin-bottom:10px">✨</div>
-        <div style="font-size:16px;color:#c8a44e;margin-bottom:8px;font-weight:600">All done!</div>
-        <div style="font-size:13px;color:var(--text-dim,#a49c94)">
-          ${archivedCount} archived · ${closedCount} closed · ${skippedCount} skipped
-        </div>
-      </div>`;
-      return;
-    }
-    const c = allOpen[idx];
-    const pri = priorityInfo(c.priority);
-    const loc = locationInfo(c.location);
-    const created = c.created_at ? new Date(c.created_at) : null;
-    const lastChange = c.last_status_change_at ? new Date(c.last_status_change_at) : null;
-    const ageDays = created ? Math.floor((Date.now() - created.getTime())/86400000) : null;
-    const stuckDays = lastChange ? Math.floor((Date.now() - lastChange.getTime())/86400000) : null;
-    const overdue = isOverdue(c);
-
-    progressEl.textContent = `Card ${idx + 1} of ${total}`;
-
-    const badges = [];
-    if (c.priority === 'urgent') badges.push('<span class="b-card-badge pri-urgent">URGENT</span>');
-    else if (c.priority === 'high') badges.push('<span class="b-card-badge pri-high">HIGH</span>');
-    if (loc) badges.push(`<span class="b-card-badge loc" style="color:${loc.color}">📍 ${esc(loc.label)}</span>`);
-    if (c.equipment_id) badges.push('<span class="b-card-badge eq">🔧 Equipment</span>');
-    if (overdue) badges.push('<span class="b-card-badge overdue">OVERDUE</span>');
-    if (stuckDays != null && stuckDays > 30) badges.push(`<span class="b-card-badge overdue">⏳ Stuck ${stuckDays}d</span>`);
-
-    const photoHtml = (c.photo_urls||[]).length
-      ? `<img src="${esc(c.photo_urls[0])}" style="width:100%;max-height:180px;object-fit:cover;border-radius:6px;margin-bottom:8px">`
-      : '';
-
-    bodyEl.innerHTML = `
-      <div style="position:relative;padding-left:8px;border-left:4px solid ${pri.color||'transparent'};margin-bottom:12px">
-        <div style="font-size:15px;font-weight:600;color:var(--text,#d4c8a5);line-height:1.3;margin-bottom:8px">${esc(c.title||'(untitled)')}</div>
-        ${badges.length ? `<div class="b-card-badges">${badges.join('')}</div>` : ''}
-      </div>
-      ${photoHtml}
-      ${c.description ? `<div style="font-size:13px;color:var(--text,#d4c8a5);margin-bottom:10px;line-height:1.4;white-space:pre-wrap">${esc(c.description)}</div>` : ''}
-      <div style="font-size:11px;color:var(--text-dim,#a49c94);line-height:1.6">
-        ${created ? `Created ${ageDays}d ago (${created.toLocaleDateString()})<br>` : ''}
-        ${lastChange ? `Last status change ${stuckDays}d ago<br>` : ''}
-        ${c.status ? `Status: <strong>${esc((c.status||'').replace(/_/g,' '))}</strong><br>` : ''}
-        ${c.assignee ? `Assigned: ${esc(c.assignee)}<br>` : ''}
-        ${c.reported_by ? `Reported by: ${esc(c.reported_by)}<br>` : ''}
-        ${c.due_date ? `Due: ${esc(c.due_date)}<br>` : ''}
-      </div>
-      ${(c.checklist && c.checklist.length) ? `<div style="margin-top:10px;font-size:11px;color:var(--text-dim,#a49c94)">Checklist: ${c.checklist.filter(x=>x.done).length}/${c.checklist.length} done</div>` : ''}
-      ${(c.comments && c.comments.length) ? `<div style="margin-top:4px;font-size:11px;color:var(--text-dim,#a49c94)">💬 ${c.comments.length} comment${c.comments.length!==1?'s':''}</div>` : ''}
-    `;
-
-    undoBtn.disabled = !lastAction;
-  };
-
-  const doAction = async (action) => {
-    if (idx >= allOpen.length) return;
-    const c = allOpen[idx];
-    lastAction = { card: c, action, prevArchived: c.archived, prevStatus: c.status };
-
-    try {
-      if (action === 'archive') {
-        await NX.sb.from('kanban_cards').update({ archived: true }).eq('id', c.id);
-        archivedCount++;
-      } else if (action === 'close') {
-        await NX.sb.from('kanban_cards').update({ status: 'closed' }).eq('id', c.id);
-        closedCount++;
-      } else if (action === 'skip') {
-        skippedCount++;
-      }
-    } catch (e) {
-      console.error('[triage] action failed:', e);
-      NX.toast && NX.toast('Action failed', 'error');
-      return;
-    }
-
-    idx++;
-    renderCurrent();
-  };
-
-  bg.querySelector('#bTArchive').addEventListener('click', () => doAction('archive'));
-  bg.querySelector('#bTClose').addEventListener('click', () => doAction('close'));
-  bg.querySelector('#bTSkip').addEventListener('click', () => doAction('skip'));
-
-  undoBtn.addEventListener('click', async () => {
-    if (!lastAction) return;
-    const { card, action, prevArchived, prevStatus } = lastAction;
-    try {
-      if (action === 'archive') {
-        await NX.sb.from('kanban_cards').update({ archived: prevArchived }).eq('id', card.id);
-        archivedCount--;
-      } else if (action === 'close') {
-        await NX.sb.from('kanban_cards').update({ status: prevStatus }).eq('id', card.id);
-        closedCount--;
-      } else if (action === 'skip') {
-        skippedCount--;
-      }
-      idx--;
-      lastAction = null;
-      renderCurrent();
-    } catch (e) { console.error('[triage] undo:', e); }
-  });
-
-  bg.querySelector('#bTArchiveAll').addEventListener('click', async () => {
-    const remaining = allOpen.length - idx;
-    if (!confirm(`Archive ALL ${remaining} remaining cards?\n\nThis bulk-archives everything you haven't triaged yet. The cards aren't deleted — you can find them later by filtering "archived" in the database.\n\nProceed?`)) return;
-    const ids = allOpen.slice(idx).map(c => c.id);
-    try {
-      // Supabase caps batch updates; chunk into groups of 200
-      for (let i = 0; i < ids.length; i += 200) {
-        const chunk = ids.slice(i, i + 200);
-        await NX.sb.from('kanban_cards').update({ archived: true }).in('id', chunk);
-      }
-      archivedCount += remaining;
-      idx = allOpen.length;
-      renderCurrent();
-    } catch (e) {
-      console.error('[triage] archive all:', e);
-      NX.toast && NX.toast('Bulk archive failed — some cards may be archived', 'error');
-    }
-  });
-
-  bg.querySelector('.b-modal-close').addEventListener('click', finish);
-
-  renderCurrent();
-}
-
-async function init(){
-  await loadBoards();
-  await loadLists();
-  await loadCards();
-  loadStats();
-  render();
-  subscribeRealtime();
-  bindVisibilityHandler();
-}
-
-async function show(){
-  // Stale-while-revalidate: if we have a live realtime subscription and
-  // data pulled recently, render from memory NOW (instant), then kick
-  // a silent refresh in the background. Tab switches become snappy.
-  const isWarm = rtChannel && rtConnected && (Date.now() - lastFetchAt) < 10000;
-  if(isWarm){
-    render();
-    // Silent background refresh — only re-renders if anything changed
-    // (realtime should have caught mutations already, this is a safety
-    // net against dropped events during reconnect windows).
-    loadStats();
-    return;
-  }
-  await loadCards();
-  loadStats();
-  render();
-  // (Re)subscribe if we don't have an active channel
-  if(!rtChannel) subscribeRealtime();
-}
-
-// Tear down realtime when the tab is backgrounded; re-sub on return.
-// Saves Supabase connections when the phone screen is locked or the
-// tab sits unused. Critical on mobile where backgrounded tabs can live
-// for hours without closing.
-let visibilityBound = false;
-function bindVisibilityHandler(){
-  if(visibilityBound) return;
-  visibilityBound = true;
-  document.addEventListener('visibilitychange', () => {
-    if(document.visibilityState === 'hidden'){
-      unsubscribeRealtime();
-    }else if(document.visibilityState === 'visible'){
-      // Only resubscribe if the Board view is the active one — no point
-      // in keeping a board channel open when user's on Equipment etc.
-      const boardActive = document.querySelector('.view[data-view="board"]')?.classList.contains('active');
-      if(boardActive && activeBoard){
-        // Pull latest (we may have missed events while hidden)
-        loadCards().then(() => { render(); subscribeRealtime(); });
-      }
-    }
-  });
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// PUBLIC API — used by equipment.js integration
-// ─────────────────────────────────────────────────────────────────────────
-async function createFromEquipment(equipment, prefilledIssue){
-  // Make sure the board system is initialized
-  if(!boards.length) await loadBoards();
-  if(!activeBoard) return;
-  if(!lists.length) await loadLists();
-
-  // Find the first list that looks like "Reported" (or just first list)
-  const targetList = lists.find(l => l.name.toLowerCase().includes('report'))
-                  || lists.find(l => l.name.toLowerCase().includes('todo'))
-                  || lists[0];
-  if(!targetList) return;
-
-  // Switch to the Board view
-  document.querySelector('.nav-tab[data-view="board"]')?.click();
-  document.querySelector('.bnav-btn[data-view="board"]')?.click();
-
-  await promptNewCard(targetList.id, {
-    title: prefilledIssue
-      ? `${prefilledIssue} — ${equipment.name}`
-      : `Issue: ${equipment.name}`,
-    description: prefilledIssue || '',
-    priority: 'high',
-    location: equipment.location || null,
-    equipment_id: equipment.id,
-  });
-}
-
-async function getOpenCardsForEquipment(equipmentId){
-  try{
-    const { data } = await NX.sb.from('kanban_cards')
-      .select('id, title, priority, status, list_id, due_date, created_at')
-      .eq('equipment_id', equipmentId)
-      .eq('archived', false)
-      .order('created_at', { ascending: false });
-    return data || [];
-  }catch(e){
-    console.error('[board] getOpenCardsForEquipment:', e);
-    return [];
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// EXPORT
-// ─────────────────────────────────────────────────────────────────────────
-if(!NX.modules) NX.modules = {};
-NX.modules.board = {
-  init,
-  show,
-  createFromEquipment,
-  getOpenCardsForEquipment,
-  // also expose loadCards so equipment-integration refreshes correctly
-  reload: async () => { await loadCards(); render(); },
-};
-
-console.log('[board] v4 loaded — ' + Object.keys(NX.modules.board).length + ' exports');
-
-})();
+      checklist: [], comments: [], labels:
