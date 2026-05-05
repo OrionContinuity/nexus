@@ -628,6 +628,84 @@ body.public-view * { box-sizing: border-box; }
 }
 .pm-logger-toggle-icon { color: var(--nx-gold); margin-right: 4px; }
 
+/* ─── Mass-PM unit list ─────────────────────────────────────────────
+   When mass mode is on, the modal expands a list of similar-category
+   equipment so the contractor can check multiple units at once. The
+   legacy stylesheet (equipment-public-pm.css line 208+) styled these
+   rows with HARDCODED hex colors (#faf8f5 cream background, #fff8e8
+   selected highlight) — bypassing both --nx-* and --pm-* tokens. So
+   even after redefining --pm-* to be theme-aware, these rows stayed
+   cream in dark mode.
+
+   Override here, scoped to body.public-view, with higher specificity
+   to win against the legacy rules. */
+body.public-view .pm-logger-mass-list {
+  background: var(--nx-surface-1) !important;
+  padding: 14px 22px !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+}
+body.public-view .pm-mass-header {
+  font-family: 'JetBrains Mono', monospace !important;
+  color: var(--nx-faint) !important;
+  font-size: 9.5px !important;
+  letter-spacing: 1.4px !important;
+}
+body.public-view .pm-mass-all {
+  background: transparent !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  color: var(--nx-gold) !important;
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.4px !important;
+}
+body.public-view .pm-mass-all:hover {
+  border-color: var(--nx-gold) !important;
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06)) !important;
+}
+body.public-view .pm-mass-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+body.public-view .pm-mass-item {
+  background: var(--nx-bg) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  transition: border-color .15s, background .15s !important;
+}
+body.public-view .pm-mass-item:has(input:checked) {
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08)) !important;
+  border-color: var(--nx-gold) !important;
+}
+body.public-view .pm-mass-item input[type="checkbox"] {
+  width: 20px !important;
+  height: 20px !important;
+  accent-color: var(--nx-gold) !important;
+  cursor: pointer;
+}
+body.public-view .pm-mass-eq-name {
+  color: var(--nx-text) !important;
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+}
+body.public-view .pm-mass-eq-loc {
+  font-family: 'JetBrains Mono', monospace !important;
+  color: var(--nx-faint) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-top: 3px !important;
+}
+body.public-view .pm-mass-loading,
+body.public-view .pm-mass-empty {
+  color: var(--nx-faint) !important;
+  background: var(--nx-bg) !important;
+  border-radius: 10px;
+}
+
 .pm-form-section {
   /* Form sections also share the modal's surface — no separate card
      treatment. They're delineated by an internal section heading and
