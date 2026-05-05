@@ -1,20 +1,18 @@
 /* ═══════════════════════════════════════════════════════════════════
-   ordering-system.css
+   ordering-system.css — Duties tab strip + Ordering pane styles
    ═══════════════════════════════════════════════════════════════════
-   Three surfaces:
-     1. .duties-tabs          — Cleaning / Ordering switcher
-     2. .ord-* (list pane)    — vendor list + recent + search
-     3. .ord-entry-overlay    — full-screen order entry + cart review
+   Two surfaces:
 
-   Theme: uses the project tokens (--bg, --surface, --text, --muted,
-   --faint, --accent, --border, --green, --red, --amber, --r/--rs/
-   --rp). All colors auto-adapt between dark and light themes. Where
-   filled gold buttons need readable text in light mode (where bg is
-   cream, not dark), we add explicit [data-theme="light"] overrides.
+   1. .duties-tabs / .duties-tab — the sub-view switcher at the top
+      of the Duties view (inside #cleanView). Two tabs: Cleaning,
+      Ordering. Gold-underline editorial style consistent with the
+      equipment tab strip.
 
-   Persistent masthead: the entry overlay starts at top: 53px so the
-   .nav masthead stays visible above it. The bottom-nav is covered
-   by the overlay while editing — the sticky CTA replaces it.
+   2. Everything else (.ord-*) — the Ordering pane content: header
+      with location pills, recent orders list, vendor list grouped by
+      manager, search input.
+
+   All colors use design-system tokens so light/dark themes follow.
    ═══════════════════════════════════════════════════════════════════ */
 
 
@@ -23,21 +21,27 @@
 .duties-tabs {
   display: flex;
   gap: 0;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  background: var(--nx-bg);
+  border-bottom: 1px solid var(--nx-gold-line);
   padding: 0 16px;
+  /* Sticky just below the masthead. The masthead is ~53px on mobile.
+     If the masthead height ever changes, this anchor adjusts in
+     concert with the .clean-header sticky logic the cleaning module
+     already uses. z-index above clean-header so it doesn't disappear
+     under it. */
   position: sticky;
   top: 0;
   z-index: 6;
 }
+
 .duties-tab {
   flex: 1 1 0;
   padding: 12px 16px;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  color: var(--faint);
+  margin-bottom: -1px;  /* overlap the strip's own bottom border */
+  color: var(--nx-faint);
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
   font-weight: 500;
@@ -46,17 +50,25 @@
   transition: color .15s, border-color .15s;
   -webkit-tap-highlight-color: transparent;
 }
-.duties-tab:hover { color: var(--text); }
-.duties-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+
+.duties-tab:hover {
+  color: var(--nx-text);
 }
-.duties-pane[hidden] { display: none !important; }
+
+.duties-tab.active {
+  color: var(--nx-gold);
+  border-bottom-color: var(--nx-gold);
+}
+
+/* Hidden panes don't take up space — the parent uses [hidden] which
+   sets display:none, but adding the rule here too prevents a brief
+   flicker if a pane is rendered before the hidden attribute is read. */
+.duties-pane[hidden] {
+  display: none !important;
+}
 
 
-/* ═══════════════════════════════════════════════════════════════════
-   ORDERING — LIST PANE
-   ═══════════════════════════════════════════════════════════════════ */
+/* ─── ORDERING — HEADER ────────────────────────────────────────── */
 
 .ord-header {
   display: flex;
@@ -66,41 +78,55 @@
   padding: 16px 16px 8px;
   flex-wrap: wrap;
 }
+
 .ord-title {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   letter-spacing: 1.6px;
-  color: var(--faint);
+  color: var(--nx-faint);
   text-transform: uppercase;
 }
 
+/* Location picker — three small pills (Este / Toti / Suerte). The
+   active one is gold-filled. Sits next to the title. */
 .ord-loc-picker {
   display: flex;
   gap: 4px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--rp);
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
   padding: 3px;
 }
+
 .ord-loc-btn {
   background: transparent;
   border: none;
-  border-radius: var(--rp);
+  border-radius: 999px;
   padding: 6px 12px;
   font-family: 'Outfit', sans-serif;
   font-size: 12px;
   font-weight: 500;
-  color: var(--faint);
+  color: var(--nx-faint);
   cursor: pointer;
   transition: background .15s, color .15s;
   -webkit-tap-highlight-color: transparent;
 }
-.ord-loc-btn:hover { color: var(--text); }
-.ord-loc-btn.active {
-  background: var(--accent);
-  color: var(--bg);
+
+.ord-loc-btn:hover {
+  color: var(--nx-text);
 }
-[data-theme="light"] .ord-loc-btn.active { color: #fff; }
+
+.ord-loc-btn.active {
+  background: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+}
+
+[data-theme="light"] .ord-loc-btn.active {
+  color: #FAFAF6;
+}
+
+
+/* ─── ORDERING — SECTION LABELS ────────────────────────────────── */
 
 .ord-section-label,
 .ord-vgroup-label {
@@ -110,8 +136,18 @@
   text-transform: uppercase;
   padding: 16px 16px 8px;
 }
-.ord-section-label { color: var(--faint); }
-.ord-vgroup-label  { color: var(--accent); padding: 14px 16px 6px; }
+
+.ord-section-label {
+  color: var(--nx-faint);
+}
+
+.ord-vgroup-label {
+  color: var(--nx-gold);
+  padding: 14px 16px 6px;
+}
+
+
+/* ─── ORDERING — RECENT ORDERS ─────────────────────────────────── */
 
 .ord-recent-row,
 .ord-vendor-row {
@@ -121,118 +157,186 @@
   width: calc(100% - 32px);
   margin: 4px 16px;
   padding: 12px 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
   border-radius: 12px;
   text-align: left;
   font-family: 'Outfit', sans-serif;
-  color: var(--text);
+  color: var(--nx-text);
   cursor: pointer;
   transition: border-color .15s, background .15s, transform .12s;
   -webkit-tap-highlight-color: transparent;
 }
+
 .ord-recent-row:hover,
 .ord-vendor-row:hover {
-  border-color: var(--accent);
-  background: rgba(212, 164, 78, 0.06);
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line));
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06));
 }
-.ord-recent-row:active,
-.ord-vendor-row:active { transform: scale(0.99); }
 
-.ord-recent-main, .ord-vendor-main { flex: 1 1 auto; min-width: 0; }
-.ord-recent-vendor, .ord-vendor-name {
+.ord-recent-row:active,
+.ord-vendor-row:active {
+  transform: scale(0.99);
+}
+
+.ord-recent-main,
+.ord-vendor-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ord-recent-vendor,
+.ord-vendor-name {
   font-size: 15px;
   font-weight: 500;
-  color: var(--text);
+  color: var(--nx-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ord-recent-meta, .ord-vendor-meta {
+
+.ord-recent-meta,
+.ord-vendor-meta {
   font-size: 11px;
-  color: var(--faint);
+  color: var(--nx-faint);
   margin-top: 3px;
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
 }
 
+
+/* Status pill inside a recent-order row — small inline tag */
+
 .ord-status {
   display: inline-block;
   padding: 1px 8px;
-  border-radius: var(--rp);
+  border-radius: 999px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 9.5px;
   letter-spacing: 0.8px;
   text-transform: uppercase;
 }
-.ord-status-draft     { background: rgba(212, 164, 78, 0.10); color: var(--accent); }
-.ord-status-sent      { background: rgba(156, 138, 62, 0.12); color: var(--green); }
-.ord-status-cancelled { background: rgba(168,  62, 62, 0.10); color: var(--red); }
+
+.ord-status-draft {
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.10));
+  color: var(--nx-gold);
+}
+
+.ord-status-sent {
+  background: var(--nx-green-soft, rgba(156, 138, 62, 0.10));
+  color: var(--nx-green, #9c8a3e);
+}
+
+.ord-status-cancelled {
+  background: var(--nx-red-soft, rgba(168, 62, 62, 0.10));
+  color: var(--nx-red, #a83e3e);
+}
+
+
+/* ─── ORDERING — VENDOR LIST ───────────────────────────────────── */
 
 .ord-vendors-wrap {
   padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px);
+  /* Bottom padding clears the bottom-nav so the last vendor is fully
+     visible above the nav bar. */
 }
+
+.ord-vendors {
+  /* Container — all rows live here, possibly with .ord-vgroup wrappers */
+}
+
+.ord-vgroup {
+  /* No special styling — just a wrapper for hide/show during search */
+}
+
 .ord-vendor-warn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px; height: 22px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background: rgba(212, 164, 78, 0.18);
-  color: var(--amber);
+  background: var(--nx-amber-soft, rgba(212, 164, 78, 0.18));
+  color: var(--nx-amber, #d4a44e);
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   font-weight: 700;
   flex-shrink: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--nx-gold-line);
 }
-.ord-arrow { color: var(--faint); font-size: 18px; flex-shrink: 0; }
 
-.ord-search-wrap { padding: 0 16px 4px; }
+.ord-arrow {
+  color: var(--nx-faint);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+
+/* ─── ORDERING — SEARCH ─────────────────────────────────────────── */
+
+.ord-search-wrap {
+  padding: 0 16px 4px;
+}
+
 .ord-search {
   width: 100%;
   padding: 10px 14px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--rp);
-  color: var(--text);
+  background: var(--nx-bg);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
   -webkit-appearance: none;
   appearance: none;
 }
-.ord-search:focus { outline: none; border-color: var(--accent); }
-.ord-search::placeholder { color: var(--faint); }
+
+.ord-search:focus {
+  outline: none;
+  border-color: var(--nx-gold);
+}
+
+.ord-search::placeholder {
+  color: var(--nx-faint);
+}
+
+
+/* ─── ORDERING — EMPTY STATE ───────────────────────────────────── */
 
 .ord-empty {
   margin: 4px 16px;
   padding: 16px;
-  background: var(--surface);
-  border: 1px dashed var(--border);
+  background: var(--nx-surface-1);
+  border: 1px dashed var(--nx-gold-line);
   border-radius: 12px;
-  color: var(--faint);
+  color: var(--nx-faint);
   font-size: 13px;
   text-align: center;
 }
 
 
 /* ═══════════════════════════════════════════════════════════════════
-   ORDER ENTRY OVERLAY  +  CART REVIEW
+   ORDER ENTRY OVERLAY
    ═══════════════════════════════════════════════════════════════════
-   Sits below the persistent masthead (top: 53px). Layout: flex
-   column, list in the middle is the only scrolling region. Head,
-   meta, search, CTA are pinned.
+   Full-screen modal that opens when the user taps a vendor. Two view
+   modes: item entry (default) and cart review (after Review tap). A
+   single overlay container — content swaps between the two states.
    ═══════════════════════════════════════════════════════════════════ */
 
 .ord-entry-overlay {
   position: fixed;
-  top: 53px;          /* clears the .nav masthead (sticky, ~53px tall) */
-  right: 0;
-  bottom: 0;
+  /* Sit BELOW the masthead. The persistent .nav at top:0 is ~53px tall
+     with z-index:50. Starting the overlay at top:53px and using
+     z-index:40 keeps the masthead visible above the overlay — user
+     keeps persona/time/date context. The bottom: calc(...) clears the
+     bottom-nav so our flex-end CTA isn't hidden behind it. */
+  top: 53px;
   left: 0;
-  z-index: 60;        /* above .bottom-nav (50), below modal dialogs */
-  background: var(--bg);
+  right: 0;
+  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  z-index: 40;
+  background: var(--nx-bg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -243,57 +347,70 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Lock body scroll when overlay open */
 body.ord-overlay-open { overflow: hidden; }
+
+/* Dim the bottom-nav while in focused order-entry / editor mode. The
+   bottom-nav is at z=50 above our overlays at z=40, so we visually
+   recede it. Pointer-events stay on so the user can still navigate
+   away — drafts autosave on every change. */
+body.ord-overlay-open .bottom-nav {
+  opacity: 0.35;
+  transition: opacity .15s ease;
+}
 
 .ord-entry-loading {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--faint);
+  color: var(--nx-faint);
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
 }
 
-/* ─── Header ─────────────────────────────────────────────────── */
+/* ─── Header ───────────────────────────────────────────────────── */
 
 .ord-entry-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  padding: 12px 12px;
+  background: var(--nx-bg);
+  border-bottom: 1px solid var(--nx-gold-line);
   flex-shrink: 0;
-  flex-grow: 0;
 }
+
 .ord-entry-close {
   flex-shrink: 0;
   width: 40px; height: 40px;
   border-radius: 50%;
   background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text);
+  border: 1px solid var(--nx-gold-line);
+  color: var(--nx-text);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: background .15s, border-color .15s;
   -webkit-tap-highlight-color: transparent;
-  padding: 0;
 }
 .ord-entry-close:hover {
-  border-color: var(--accent);
-  background: rgba(212, 164, 78, 0.06);
+  border-color: var(--nx-gold);
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06));
 }
-.ord-entry-title { flex: 1 1 auto; min-width: 0; }
+
+.ord-entry-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .ord-entry-vendor {
   font-family: 'Outfit', sans-serif;
   font-size: 17px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--nx-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -302,24 +419,23 @@ body.ord-overlay-open { overflow: hidden; }
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   letter-spacing: 1.4px;
-  color: var(--faint);
+  color: var(--nx-faint);
   text-transform: uppercase;
   margin-top: 2px;
 }
 .ord-entry-spacer { width: 40px; flex-shrink: 0; }
 
-/* ─── Meta row (delivery date) ───────────────────────────────── */
+/* ─── Meta row (delivery date) ─────────────────────────────────── */
 
 .ord-entry-meta {
   display: flex;
   gap: 12px;
-  align-items: center;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--nx-gold-line);
+  background: var(--nx-bg);
   flex-shrink: 0;
-  flex-grow: 0;
 }
+
 .ord-meta-field {
   display: flex;
   align-items: center;
@@ -329,76 +445,76 @@ body.ord-overlay-open { overflow: hidden; }
   font-family: 'JetBrains Mono', monospace;
   font-size: 9.5px;
   letter-spacing: 1.4px;
-  color: var(--faint);
+  color: var(--nx-faint);
   text-transform: uppercase;
 }
 .ord-meta-field input[type="date"] {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 8px;
   padding: 6px 10px;
-  color: var(--text);
+  color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
   -webkit-appearance: none;
   appearance: none;
-  min-height: 34px;
-  min-width: 140px;
 }
 .ord-meta-field input[type="date"]:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--nx-gold);
 }
-.ord-meta-field input[type="date"]:disabled { opacity: 0.5; }
 
-/* ─── Search inside the entry ────────────────────────────────── */
+/* ─── Search ───────────────────────────────────────────────────── */
 
 .ord-entry-search-wrap {
   padding: 8px 16px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  background: var(--nx-bg);
+  border-bottom: 1px solid var(--nx-gold-line);
   flex-shrink: 0;
-  flex-grow: 0;
 }
+
 .ord-entry-search {
   width: 100%;
   padding: 9px 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--rp);
-  color: var(--text);
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
   -webkit-appearance: none;
   appearance: none;
 }
-.ord-entry-search:focus { outline: none; border-color: var(--accent); }
-.ord-entry-search::placeholder { color: var(--faint); }
+.ord-entry-search:focus {
+  outline: none;
+  border-color: var(--nx-gold);
+}
+.ord-entry-search::placeholder { color: var(--nx-faint); }
 
-/* ─── Item list (only scrolling region) ──────────────────────── */
+/* ─── Item list ────────────────────────────────────────────────── */
 
 .ord-entry-list {
-  flex: 1 1 0;
-  min-height: 0;
+  flex: 1 1 auto;
   overflow-y: auto;
+  padding: 8px 0 16px;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 16px;
-  background: var(--bg);
 }
-.ord-entry-section { margin-bottom: 4px; }
+
+.ord-entry-section {
+  margin-bottom: 8px;
+}
 
 .ord-entry-section-label {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--nx-gold);
   padding: 14px 16px 6px;
   position: sticky;
   top: 0;
-  background: var(--bg);
+  background: var(--nx-bg);
   z-index: 1;
-  border-bottom: 1px solid var(--border);
 }
 
 .ord-item-row {
@@ -406,78 +522,86 @@ body.ord-overlay-open { overflow: hidden; }
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
+  border-bottom: 1px solid var(--nx-gold-line);
+  background: var(--nx-bg);
   transition: background .15s;
 }
-.ord-item-row.has-qty { background: rgba(212, 164, 78, 0.06); }
-.ord-item-row.is-disabled { opacity: 0.45; background: var(--bg); }
+.ord-item-row.has-qty {
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06));
+}
+.ord-item-row.is-disabled {
+  opacity: 0.45;
+  background: var(--nx-bg);
+}
 
-.ord-item-main { flex: 1 1 auto; min-width: 0; }
+.ord-item-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .ord-item-name {
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
   font-weight: 500;
-  color: var(--text);
+  color: var(--nx-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ord-item-meta {
   font-size: 10.5px;
-  color: var(--faint);
+  color: var(--nx-faint);
   margin-top: 2px;
   font-family: 'JetBrains Mono', monospace;
 }
 
+/* Quantity control — pill-shaped, three segments: -, input, + */
 .ord-qty {
   display: flex;
   align-items: center;
   gap: 0;
   flex-shrink: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--rp);
-  background: var(--bg);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  background: var(--nx-bg);
   overflow: hidden;
 }
 .ord-qty-btn {
-  width: 32px; height: 32px;
+  width: 32px;
+  height: 32px;
   background: transparent;
   border: none;
-  color: var(--text);
+  color: var(--nx-text);
   font-size: 18px;
   font-weight: 500;
   line-height: 1;
   cursor: pointer;
   transition: background .12s, color .12s;
   -webkit-tap-highlight-color: transparent;
-  padding: 0;
 }
 .ord-qty-btn:hover {
-  background: rgba(212, 164, 78, 0.10);
-  color: var(--accent);
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.10));
+  color: var(--nx-gold);
 }
 .ord-qty-btn:active {
-  background: var(--accent);
-  color: var(--bg);
+  background: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
 }
-[data-theme="light"] .ord-qty-btn:active { color: #fff; }
 .ord-qty-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
-
 .ord-qty-input {
-  width: 44px; height: 32px;
+  width: 44px;
+  height: 32px;
   text-align: center;
   border: none;
   background: transparent;
-  color: var(--text);
+  color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
   font-weight: 600;
   -moz-appearance: textfield;
   -webkit-appearance: none;
   appearance: none;
-  border-left: 1px solid var(--border);
-  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--nx-gold-line);
+  border-right: 1px solid var(--nx-gold-line);
 }
 .ord-qty-input::-webkit-outer-spin-button,
 .ord-qty-input::-webkit-inner-spin-button {
@@ -486,52 +610,55 @@ body.ord-overlay-open { overflow: hidden; }
 }
 .ord-qty-input:focus {
   outline: none;
-  background: rgba(212, 164, 78, 0.08);
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08));
 }
-.ord-item-row.has-qty .ord-qty-input { color: var(--accent); }
+.ord-item-row.has-qty .ord-qty-input {
+  color: var(--nx-gold);
+}
 
 .ord-item-unit {
   flex-shrink: 0;
   font-family: 'JetBrains Mono', monospace;
   font-size: 9.5px;
   letter-spacing: 1.2px;
-  color: var(--faint);
+  color: var(--nx-faint);
   text-transform: uppercase;
   width: 26px;
   text-align: center;
 }
 
-/* ─── Sticky bottom CTA ──────────────────────────────────────── */
+/* ─── Sticky bottom CTA ────────────────────────────────────────── */
 
 .ord-entry-cta-wrap {
   flex-shrink: 0;
-  flex-grow: 0;
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
-  background: var(--bg);
-  border-top: 1px solid var(--border);
+  background: var(--nx-bg);
+  border-top: 1px solid var(--nx-gold-line);
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
+
 .ord-entry-cta {
   width: 100%;
   height: 50px;
   padding: 0 18px;
-  border-radius: var(--rp);
+  border-radius: 999px;
   border: none;
-  background: var(--accent);
-  color: var(--bg);
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
+  color: var(--nx-gold-on, #1c1408);
   font-family: 'Outfit', sans-serif;
   font-size: 14.5px;
   font-weight: 600;
   letter-spacing: 0.3px;
   cursor: pointer;
-  box-shadow: 0 2px 10px var(--glow);
+  /* Theme-aware shadow: gold-glow on dark, warm-brown on light. */
+  box-shadow: var(--nx-shadow-pill, 0 2px 10px rgba(212, 164, 78, 0.18));
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  transition: transform .12s, opacity .15s, background .15s;
+  transition: transform .12s, opacity .15s;
   -webkit-tap-highlight-color: transparent;
 }
 .ord-entry-cta:active { transform: scale(0.985); }
@@ -540,12 +667,12 @@ body.ord-overlay-open { overflow: hidden; }
   cursor: not-allowed;
   box-shadow: none;
 }
-[data-theme="light"] .ord-entry-cta { color: #fff; }
+[data-theme="light"] .ord-entry-cta { color: #FAFAF6; }
 
 .ord-entry-save-status {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
-  color: var(--faint);
+  color: var(--nx-faint);
   letter-spacing: 0.3px;
   text-align: center;
   height: 14px;
@@ -557,29 +684,31 @@ body.ord-overlay-open { overflow: hidden; }
    ═══════════════════════════════════════════════════════════════════ */
 
 .ord-review-body {
-  flex: 1 1 0;
-  min-height: 0;
+  flex: 1 1 auto;
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
   padding: 8px 0 16px;
-  background: var(--bg);
+  -webkit-overflow-scrolling: touch;
 }
-.ord-review-section { padding: 8px 16px 12px; }
 
+.ord-review-section {
+  padding: 8px 16px 12px;
+}
+
+/* Recipient section */
 .ord-recipient-row {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 12px 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
   border-radius: 12px;
 }
 .ord-recipient-email {
   flex: 1 1 auto;
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
-  color: var(--text);
+  color: var(--nx-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -587,18 +716,18 @@ body.ord-overlay-open { overflow: hidden; }
 .ord-recipient-edit {
   flex-shrink: 0;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--rp);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
   padding: 5px 12px;
-  color: var(--faint);
+  color: var(--nx-faint);
   font-size: 11px;
   font-family: 'Outfit', sans-serif;
   cursor: pointer;
   transition: color .15s, border-color .15s;
 }
 .ord-recipient-edit:hover {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--nx-gold);
+  border-color: var(--nx-gold);
 }
 
 .ord-recipient-missing {
@@ -606,103 +735,653 @@ body.ord-overlay-open { overflow: hidden; }
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background: rgba(212, 164, 78, 0.08);
-  border: 1px solid var(--border);
+  background: var(--nx-amber-soft, rgba(212, 164, 78, 0.08));
+  border: 1px solid var(--nx-gold-line);
   border-radius: 12px;
 }
 .ord-recipient-warn {
   font-size: 12px;
-  color: var(--amber);
+  color: var(--nx-amber, #d4a44e);
   font-family: 'Outfit', sans-serif;
 }
 .ord-recipient-input {
   flex: 1 1 auto;
   padding: 9px 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  color: var(--text);
+  background: var(--nx-bg);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 8px;
+  color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
 }
-.ord-recipient-input:focus { outline: none; border-color: var(--accent); }
+.ord-recipient-input:focus {
+  outline: none;
+  border-color: var(--nx-gold);
+}
 .ord-recipient-save {
   align-self: flex-end;
   padding: 7px 14px;
-  background: var(--accent);
+  background: var(--nx-gold);
   border: none;
-  border-radius: var(--rp);
-  color: var(--bg);
+  border-radius: 999px;
+  color: var(--nx-gold-on, #1c1408);
   font-family: 'Outfit', sans-serif;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
-[data-theme="light"] .ord-recipient-save { color: #fff; }
+[data-theme="light"] .ord-recipient-save { color: #FAFAF6; }
 
+/* Subject preview */
 .ord-subject-preview {
   padding: 12px 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
   border-radius: 12px;
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
-  color: var(--text);
+  color: var(--nx-text);
   word-break: break-word;
 }
 
+/* Review line list */
 .ord-review-section-head {
   font-family: 'JetBrains Mono', monospace;
   font-size: 9.5px;
   letter-spacing: 1.4px;
-  color: var(--accent);
+  color: var(--nx-gold);
   text-transform: uppercase;
   padding: 10px 0 4px;
 }
+
 .ord-review-line {
   display: flex;
   gap: 12px;
   padding: 8px 0;
   align-items: baseline;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--nx-gold-line);
 }
 .ord-review-line:last-child { border-bottom: none; }
+
 .ord-review-qty {
   flex-shrink: 0;
   width: 64px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--nx-gold);
   letter-spacing: 0.3px;
 }
 .ord-review-name {
   flex: 1 1 auto;
   font-family: 'Outfit', sans-serif;
   font-size: 13.5px;
-  color: var(--text);
+  color: var(--nx-text);
 }
 .ord-review-sku {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
-  color: var(--faint);
+  color: var(--nx-faint);
   margin-left: 6px;
 }
 
+/* Notes */
 .ord-notes-input {
   width: 100%;
   min-height: 70px;
   resize: vertical;
   padding: 10px 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
   border-radius: 12px;
-  color: var(--text);
+  color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
   font-size: 13px;
   line-height: 1.45;
   -webkit-appearance: none;
   appearance: none;
 }
-.ord-notes-input:focus { outline: none; border-color: var(--accent); }
-.ord-notes-input::placeholder { color: var(--faint); }
+.ord-notes-input:focus {
+  outline: none;
+  border-color: var(--nx-gold);
+}
+.ord-notes-input::placeholder { color: var(--nx-faint); }
+
+/* Send CTA — same as Review CTA but always visible */
+.ord-send-cta {
+  /* Inherits .ord-entry-cta styles */
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PHASE B — VENDOR + ITEM EDITOR
+   ═══════════════════════════════════════════════════════════════════
+   Two new UX surfaces:
+
+   • .ord-section-label-with-action  — header row with "+ Add" affordance
+   • .ord-vendor-row-wrap            — vendor row + edit-pencil pair
+   • .ord-veditor-overlay            — full-screen vendor editor
+   • .ord-vitem-row / .ord-vitem-editing — items list (read / inline edit)
+
+   Same theming constraints as the rest of this file: tokens flip via
+   data-theme="light" overrides defined in nx-system.css.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Section label with inline action (Vendors / + Add) ──────── */
+
+.ord-section-label-with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 8px;
+}
+.ord-section-label-with-action > span:first-child {
+  /* Inherits .ord-section-label visual */
+}
+.ord-add-vendor-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.12));
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  color: var(--nx-gold);
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-add-vendor-btn:hover {
+  background: var(--nx-gold);
+  color: var(--nx-gold-on);
+  border-color: var(--nx-gold);
+}
+[data-theme="light"] .ord-add-vendor-btn:hover { color: #FAFAF6; }
+
+/* ─── Vendor row + edit pencil pair ─────────────────────────────── */
+
+.ord-vendor-row-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin: 4px 16px;
+}
+.ord-vendor-row-wrap .ord-vendor-row {
+  flex: 1 1 auto;
+  margin: 0;                  /* override default ord-vendor-row margin */
+  width: auto;                /* override default 100%-32px width */
+}
+.ord-vendor-edit {
+  flex-shrink: 0;
+  width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 12px;
+  color: var(--nx-faint);
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-vendor-edit:hover {
+  color: var(--nx-gold);
+  border-color: var(--nx-gold);
+  background: var(--nx-gold-soft);
+}
+
+/* ─── Vendor Editor Overlay ─────────────────────────────────────── */
+
+.ord-veditor-overlay {
+  position: fixed;
+  /* Same positioning model as .ord-entry-overlay — masthead and bottom
+     nav stay visible (we dim the bottom-nav via body.ord-overlay-open). */
+  top: 53px;
+  left: 0;
+  right: 0;
+  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  z-index: 40;
+  background: var(--nx-bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: ordOverlayIn .18s ease-out;
+}
+
+.ord-veditor-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--nx-gold-line);
+  flex-shrink: 0;
+}
+.ord-veditor-close {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line);
+  color: var(--nx-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-veditor-close:hover {
+  border-color: var(--nx-gold);
+  background: var(--nx-gold-soft);
+}
+.ord-veditor-title {
+  flex: 1 1 auto;
+  font-family: 'Outfit', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--nx-text);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 8px;
+}
+.ord-veditor-spacer {
+  width: 40px;
+  flex-shrink: 0;
+}
+
+.ord-veditor-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ord-veditor-foot {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--nx-gold-line);
+  flex-shrink: 0;
+}
+.ord-veditor-cancel,
+.ord-veditor-save {
+  flex: 1 1 0;
+  height: 44px;
+  border-radius: 999px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-veditor-cancel {
+  background: transparent;
+  border: 1px solid var(--nx-gold-line);
+  color: var(--nx-faint);
+}
+.ord-veditor-cancel:hover {
+  border-color: var(--nx-gold);
+  color: var(--nx-text);
+}
+.ord-veditor-save {
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
+  border: none;
+  color: var(--nx-gold-on, #1c1408);
+  box-shadow: var(--nx-shadow-pill, 0 2px 10px rgba(212, 164, 78, 0.18));
+}
+[data-theme="light"] .ord-veditor-save { color: #FAFAF6; }
+.ord-veditor-save:active { transform: scale(0.985); }
+
+/* ─── Form fields (shared by vendor editor + item editor) ───────── */
+
+.ord-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ord-form-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 1.5px;
+  color: var(--nx-faint);
+  text-transform: uppercase;
+}
+.ord-form-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ord-form-label-count {
+  color: var(--nx-gold);
+  margin-left: 4px;
+}
+.ord-form-input,
+.ord-form-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 10px;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color .15s;
+}
+.ord-form-input:focus,
+.ord-form-textarea:focus {
+  outline: none;
+  border-color: var(--nx-gold);
+  background: var(--nx-bg);
+}
+.ord-form-input::placeholder,
+.ord-form-textarea::placeholder {
+  color: var(--nx-faint);
+}
+.ord-form-textarea {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 60px;
+}
+.ord-form-hint {
+  font-size: 10.5px;
+  color: var(--nx-faint);
+  line-height: 1.4;
+  padding-top: 2px;
+}
+.ord-form-hint code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  background: var(--nx-gold-soft);
+  color: var(--nx-gold);
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin: 0 1px;
+}
+.ord-form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* ─── Day-of-week toggle pills (delivery_days) ──────────────────── */
+
+.ord-day-pills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.ord-day-pill {
+  flex: 1 1 0;
+  min-width: 38px;
+  padding: 8px 4px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 8px;
+  color: var(--nx-faint);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-day-pill:hover {
+  color: var(--nx-text);
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line));
+}
+.ord-day-pill.active {
+  background: var(--nx-gold);
+  border-color: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+}
+[data-theme="light"] .ord-day-pill.active { color: #FAFAF6; }
+
+/* ─── Day-of-week pars (per-item, with input fields) ───────────── */
+
+.ord-day-pars {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.ord-day-par {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.ord-day-par > span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  color: var(--nx-faint);
+  text-transform: uppercase;
+}
+.ord-day-par > input {
+  width: 100%;
+  height: 32px;
+  text-align: center;
+  background: var(--nx-bg);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 6px;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  -moz-appearance: textfield;
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 0;
+}
+.ord-day-par > input::-webkit-outer-spin-button,
+.ord-day-par > input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.ord-day-par > input:focus {
+  outline: none;
+  border-color: var(--nx-gold);
+}
+
+/* ─── Items section in vendor editor ────────────────────────────── */
+
+.ord-veditor-items-section {
+  border-top: 1px solid var(--nx-gold-line);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ord-veditor-add-item-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  background: var(--nx-gold-soft);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  color: var(--nx-gold);
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.ord-veditor-add-item-btn:hover {
+  background: var(--nx-gold);
+  color: var(--nx-gold-on);
+}
+[data-theme="light"] .ord-veditor-add-item-btn:hover { color: #FAFAF6; }
+
+.ord-veditor-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ord-vitem-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-vitem-row:not(.ord-vitem-editing):hover {
+  border-color: var(--nx-gold);
+  background: var(--nx-gold-soft);
+}
+.ord-vitem-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ord-vitem-name {
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  color: var(--nx-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ord-vitem-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--nx-faint);
+  margin-top: 2px;
+  letter-spacing: 0.3px;
+}
+.ord-vitem-edit-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--nx-faint);
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-vitem-edit-btn:hover {
+  color: var(--nx-gold);
+  border-color: var(--nx-gold-line);
+  background: var(--nx-gold-soft);
+}
+
+/* Inline edit mode — row expands into a form */
+.ord-vitem-editing {
+  display: block;
+  cursor: default;
+  padding: 14px;
+  background: var(--nx-bg);
+  border: 1px solid var(--nx-gold);
+  box-shadow: var(--nx-shadow-pill, 0 2px 10px rgba(212, 164, 78, 0.18));
+}
+.ord-vitem-editing .ord-form-field {
+  margin-bottom: 12px;
+}
+.ord-vitem-editing .ord-form-row-2 {
+  margin-bottom: 12px;
+}
+.ord-vitem-editing .ord-form-row-2 .ord-form-field {
+  margin-bottom: 0;
+}
+
+.ord-vitem-edit-actions {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+.ord-vitem-cancel-btn,
+.ord-vitem-save-btn,
+.ord-vitem-delete-btn {
+  height: 38px;
+  border-radius: 999px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s, border-color .15s, color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-vitem-cancel-btn {
+  background: transparent;
+  border: 1px solid var(--nx-gold-line);
+  color: var(--nx-faint);
+}
+.ord-vitem-cancel-btn:hover {
+  border-color: var(--nx-gold);
+  color: var(--nx-text);
+}
+.ord-vitem-save-btn {
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
+  border: none;
+  color: var(--nx-gold-on, #1c1408);
+}
+[data-theme="light"] .ord-vitem-save-btn { color: #FAFAF6; }
+.ord-vitem-delete-btn {
+  background: transparent;
+  border: 1px solid var(--nx-red, #a83e3e);
+  color: var(--nx-red, #a83e3e);
+  padding: 0 10px;
+}
+.ord-vitem-delete-btn:hover {
+  background: var(--nx-red, #a83e3e);
+  color: var(--nx-bg);
+}
+
+/* ─── Archive vendor button ─────────────────────────────────────── */
+
+.ord-veditor-archive-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 42px;
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid var(--nx-red, #a83e3e);
+  border-radius: 999px;
+  color: var(--nx-red, #a83e3e);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-veditor-archive-btn:hover {
+  background: var(--nx-red, #a83e3e);
+  color: var(--nx-bg);
+}
