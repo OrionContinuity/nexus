@@ -30,6 +30,22 @@
   'use strict';
   if (window.NX?.tr) return; // already loaded
 
+  /* ─── Inline SVG icons ──────────────────────────────────────────
+     The translate module renders a globe button next to dozens of
+     pieces of user-generated content per page (vendor notes,
+     ticket comments, chat replies). Previously rendered with the
+     🌐 emoji which falls back to a glossy color glyph on iOS (out
+     of place against the editorial monochrome line art).         */
+  const TR_ICONS = {
+    globe: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+    alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    close: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    check: '<polyline points="20 6 9 17 4 12"/>',
+  };
+  function trSvg(key, size = '14px') {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${TR_ICONS[key] || ''}</svg>`;
+  }
+
   const SUPPORTED = ['en', 'es', 'fr', 'pt', 'it', 'de', 'zh', 'ja', 'ko', 'vi', 'ar', 'hi'];
   const LANG_NAMES = {
     en: 'English', es: 'Español', fr: 'Français', pt: 'Português',
@@ -151,7 +167,7 @@
     const btn = document.createElement('button');
     btn.className = 'nx-tr-btn';
     btn.title = `Translate to ${LANG_NAMES[target] || target}`;
-    btn.textContent = '🌐';
+    btn.innerHTML = trSvg('globe', '14px');
     btn.style.cssText =
       'margin-left:6px;padding:2px 6px;font-size:11px;background:transparent;' +
       'border:1px solid rgba(212,164,78,0.3);border-radius:10px;cursor:pointer;' +
@@ -169,7 +185,7 @@
         element.innerHTML = originalHTML;
         element.appendChild(document.createTextNode(' '));
         element.appendChild(btn); // re-attach after innerHTML swap
-        btn.textContent = '🌐';
+        btn.innerHTML = trSvg('globe', '14px');
         btn.title = `Translate to ${LANG_NAMES[target] || target}`;
         showingTranslation = false;
         return;
@@ -197,7 +213,7 @@
         element.appendChild(back);
         showingTranslation = true;
       } catch (err) {
-        btn.textContent = '⚠';
+        btn.innerHTML = trSvg('alert', '14px');
         btn.title = 'Translation failed — tap to retry';
       } finally {
         btn.disabled = false;
@@ -542,7 +558,7 @@
     chip.className = 'nx-tr-chip';
     chip.title = 'Language';
     chip.innerHTML =
-      `<span class="nx-tr-chip-icon">🌐</span>` +
+      `<span class=\"nx-tr-chip-icon\">${trSvg('globe', '13px')}</span>` +
       `<span class="nx-tr-chip-lang" id="nxTrChipLang">${currentCode()}</span>`;
     chip.addEventListener('click', (e) => {
       e.preventDefault();
@@ -597,13 +613,13 @@
       <div class="nx-tr-picker">
         <div class="nx-tr-picker-head">
           <span class="nx-tr-picker-title">Translate this screen</span>
-          <button class="nx-tr-picker-close" type="button">✕</button>
+          <button class="nx-tr-picker-close" type="button">${trSvg("close","16px")}</button>
         </div>
         <div class="nx-tr-picker-primary">
           ${primary.map(p => `
             <button class="nx-tr-lang-btn${p.code===current?' active':''}" data-lang="${p.code}">
               <span class="nx-tr-lang-name">${p.name}</span>
-              ${p.code===current?'<span class="nx-tr-lang-check">✓</span>':''}
+              ${p.code===current?'<span class=\"nx-tr-lang-check\">'+trSvg('check','13px')+'</span>':''}
             </button>
           `).join('')}
         </div>
@@ -670,7 +686,7 @@
       },
       done(msg) {
         el.classList.add('is-done');
-        el.innerHTML = `<span class="nx-tr-toast-text">${escapeHtml(msg || '✓ Done')}</span>`;
+        el.innerHTML = `<span class="nx-tr-toast-text">${escapeHtml(msg || ('Done'))}</span>`;
         setTimeout(() => { el.classList.add('is-leaving'); }, 1500);
         setTimeout(() => { el.remove(); }, 2000);
       },
