@@ -686,15 +686,15 @@
   line-height: 1;
 }
 .eq-part-vendor-stock.in {
-  color: #7fd494;
-  background: rgba(91,186,95,0.12);
+  color: var(--nx-green, #9c8a3e);
+  background: var(--nx-green-soft, rgba(156, 138, 62, 0.12));
 }
-.eq-part-vendor-stock.in::before { content: '●'; font-size: 8px; color: #5bba5f; }
+.eq-part-vendor-stock.in::before { content: '●'; font-size: 8px; color: var(--nx-green, #9c8a3e); }
 .eq-part-vendor-stock.out {
-  color: #e88;
-  background: rgba(212,88,88,0.12);
+  color: var(--nx-red, #a83e3e);
+  background: var(--nx-red-soft, rgba(168, 62, 62, 0.10));
 }
-.eq-part-vendor-stock.out::before { content: '●'; font-size: 8px; color: #d45858; }
+.eq-part-vendor-stock.out::before { content: '●'; font-size: 8px; color: var(--nx-red, #a83e3e); }
 .eq-part-vendor-checked {
   font-style: normal;
   opacity: 0.7;
