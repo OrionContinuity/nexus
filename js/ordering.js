@@ -1527,7 +1527,13 @@
         if (NX.toast) NX.toast('Archive failed: no rows updated (check Supabase logs)', 'error', 4000);
         return false;
       }
-      vendors = vendors.filter(v => v.id !== id);
+      // Mutate the vendors array in place — DO NOT reassign with
+      // .filter() because the array carries a custom ._itemCounts
+      // property that would be lost on a fresh array, breaking
+      // renderVendors() on the very next call.
+      const idx = vendors.findIndex(v => v.id === id);
+      if (idx >= 0) vendors.splice(idx, 1);
+      if (vendors._itemCounts) delete vendors._itemCounts[id];
       renderVendors();
       if (NX.toast) NX.toast(`${name} archived`, 'info', 1500);
       return true;
