@@ -629,8 +629,15 @@
       filterEntryItems(e.target.value);
     });
     overlay.querySelector('#ordEntryReview').addEventListener('click', () => {
-      if (readOnly) cloneAsNewDraft();
-      else if (itemCount > 0) openReview();
+      if (readOnly) { cloneAsNewDraft(); return; }
+      // Re-read the current count instead of the value captured when
+      // this listener was attached. renderEntry() runs once when the
+      // overlay opens; if the user bumps qtys after that, only the
+      // button label updates via updateCtaCounter(). The closure's
+      // `itemCount` stays frozen at the original (often 0), which made
+      // the first tap silently no-op until the user backed out and
+      // re-entered the overlay.
+      if (countItemsInOrder() > 0) openReview();
     });
     overlay.querySelectorAll('.ord-item-row').forEach(row => wireItemRow(row));
 
