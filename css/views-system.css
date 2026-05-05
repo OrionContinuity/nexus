@@ -1454,3 +1454,200 @@
 }
 .eq-family-section h4 svg { color: var(--nx-gold); }
 
+
+
+/* ════════════════════════════════════════════════════════════════════
+   EQUIPMENT — bottom action bar v2
+   ────────────────────────────────────────────────────────────────────
+   Was: 5 cramped icon-stacked buttons (Print, Call, Report, Edit, Log)
+   plus a small ⋯ overflow. Edit/Print/Log are administrative actions
+   that field staff and contractors don't need on the primary bar.
+   
+   Now: two thumb-friendly CTAs (Call Service, Report Issue) plus a
+   single overflow disc holding everything else (Log Service, Edit
+   Equipment, Print Label, Delete). Hierarchy is clear: the buttons
+   you reach for 80% of the time are large and front; the rarer
+   actions are one tap deeper.
+   ════════════════════════════════════════════════════════════════════ */
+
+.eq-detail-actions-v2 {
+  display: flex !important;
+  align-items: stretch;
+  gap: 10px !important;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px)) 16px !important;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    var(--nx-bg) 30%,
+    var(--nx-bg) 100%) !important;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  /* Subtle hairline above the action area to separate it from the
+     scrolling content above. */
+  border-top: 1px solid var(--nx-gold-line) !important;
+}
+
+.eq-action-cta {
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 18px;
+  border-radius: 999px !important;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e)) !important;
+  border: 1px solid var(--nx-gold) !important;
+  color: var(--nx-gold-on, #1c1408) !important;
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: transform .12s, box-shadow .15s, opacity .15s !important;
+  box-shadow: 0 2px 10px rgba(212, 164, 78, 0.18);
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eq-action-cta:active { transform: scale(0.97); }
+.eq-action-cta:disabled { opacity: 0.5; cursor: not-allowed; }
+
+[data-theme="light"] .eq-action-cta {
+  color: #FAFAF6 !important;
+  box-shadow: 0 2px 10px rgba(139, 105, 20, 0.22);
+}
+
+/* Secondary CTA — outline pill that still reads as primary action,
+   just one tier below Call. Same height, same shape, no fill. */
+.eq-action-cta.eq-action-cta-secondary {
+  background: transparent !important;
+  color: var(--nx-text) !important;
+  border: 1px solid var(--nx-gold-line-2, var(--nx-gold-line)) !important;
+  box-shadow: none !important;
+}
+.eq-action-cta.eq-action-cta-secondary:hover {
+  border-color: var(--nx-gold) !important;
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06)) !important;
+}
+[data-theme="light"] .eq-action-cta.eq-action-cta-secondary { color: var(--nx-text) !important; }
+
+.eq-action-cta-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.eq-action-cta-icon svg { display: block; }
+.eq-action-cta-label {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Overflow disc — same height as primary, square aspect. The dots
+   icon is centered inside. Less visually loud than the CTAs but
+   easily tappable. */
+.eq-overflow-btn-v2 {
+  flex: 0 0 52px;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: transparent !important;
+  color: var(--nx-faint) !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-overflow-btn-v2:hover {
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold) !important;
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06)) !important;
+}
+
+/* Overflow menu — re-styled to feel like a proper editorial sheet
+   instead of a floating chip list. */
+.eq-detail-actions-v2 .eq-overflow-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+.eq-detail-actions-v2 .eq-overflow-menu {
+  position: absolute !important;
+  bottom: calc(100% + 8px) !important;
+  right: 0 !important;
+  min-width: 220px;
+  background: var(--nx-bg) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: 14px !important;
+  padding: 6px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  z-index: 100;
+  display: none;
+  flex-direction: column;
+  gap: 0;
+  animation: eq-overflow-pop .15s ease-out;
+}
+[data-theme="light"] .eq-detail-actions-v2 .eq-overflow-menu {
+  box-shadow: 0 10px 30px rgba(70, 50, 18, 0.16);
+}
+.eq-detail-actions-v2 .eq-overflow-menu.active,
+.eq-detail-actions-v2 .eq-overflow-menu[style*="block"] {
+  display: flex !important;
+}
+
+@keyframes eq-overflow-pop {
+  from { opacity: 0; transform: translateY(4px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)  scale(1); }
+}
+
+.eq-detail-actions-v2 .eq-overflow-item {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 14px !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 8px !important;
+  color: var(--nx-text) !important;
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+  transition: background .12s !important;
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-detail-actions-v2 .eq-overflow-item:hover {
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08)) !important;
+}
+.eq-detail-actions-v2 .eq-overflow-item svg {
+  color: var(--nx-faint);
+  flex-shrink: 0;
+}
+.eq-detail-actions-v2 .eq-overflow-item:hover svg {
+  color: var(--nx-gold);
+}
+
+.eq-detail-actions-v2 .eq-overflow-item.eq-overflow-danger {
+  color: var(--nx-red, #a83e3e) !important;
+}
+.eq-detail-actions-v2 .eq-overflow-item.eq-overflow-danger svg {
+  color: var(--nx-red, #a83e3e);
+}
+.eq-detail-actions-v2 .eq-overflow-item.eq-overflow-danger:hover {
+  background: var(--nx-red-soft, rgba(168, 62, 62, 0.08)) !important;
+}
+
+.eq-detail-actions-v2 .eq-overflow-divider {
+  height: 1px;
+  background: var(--nx-gold-line);
+  margin: 4px 6px !important;
+  border: none;
+}
+
