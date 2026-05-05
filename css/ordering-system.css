@@ -1,0 +1,316 @@
+/* ═══════════════════════════════════════════════════════════════════
+   ordering-system.css — Duties tab strip + Ordering pane styles
+   ═══════════════════════════════════════════════════════════════════
+   Two surfaces:
+
+   1. .duties-tabs / .duties-tab — the sub-view switcher at the top
+      of the Duties view (inside #cleanView). Two tabs: Cleaning,
+      Ordering. Gold-underline editorial style consistent with the
+      equipment tab strip.
+
+   2. Everything else (.ord-*) — the Ordering pane content: header
+      with location pills, recent orders list, vendor list grouped by
+      manager, search input.
+
+   All colors use design-system tokens so light/dark themes follow.
+   ═══════════════════════════════════════════════════════════════════ */
+
+
+/* ─── DUTIES TAB STRIP ──────────────────────────────────────────── */
+
+.duties-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--nx-bg);
+  border-bottom: 1px solid var(--nx-gold-line);
+  padding: 0 16px;
+  /* Sticky just below the masthead. The masthead is ~53px on mobile.
+     If the masthead height ever changes, this anchor adjusts in
+     concert with the .clean-header sticky logic the cleaning module
+     already uses. z-index above clean-header so it doesn't disappear
+     under it. */
+  position: sticky;
+  top: 0;
+  z-index: 6;
+}
+
+.duties-tab {
+  flex: 1 1 0;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;  /* overlap the strip's own bottom border */
+  color: var(--nx-faint);
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.duties-tab:hover {
+  color: var(--nx-text);
+}
+
+.duties-tab.active {
+  color: var(--nx-gold);
+  border-bottom-color: var(--nx-gold);
+}
+
+/* Hidden panes don't take up space — the parent uses [hidden] which
+   sets display:none, but adding the rule here too prevents a brief
+   flicker if a pane is rendered before the hidden attribute is read. */
+.duties-pane[hidden] {
+  display: none !important;
+}
+
+
+/* ─── ORDERING — HEADER ────────────────────────────────────────── */
+
+.ord-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 16px 8px;
+  flex-wrap: wrap;
+}
+
+.ord-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 1.6px;
+  color: var(--nx-faint);
+  text-transform: uppercase;
+}
+
+/* Location picker — three small pills (Este / Toti / Suerte). The
+   active one is gold-filled. Sits next to the title. */
+.ord-loc-picker {
+  display: flex;
+  gap: 4px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  padding: 3px;
+}
+
+.ord-loc-btn {
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--nx-faint);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ord-loc-btn:hover {
+  color: var(--nx-text);
+}
+
+.ord-loc-btn.active {
+  background: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+}
+
+[data-theme="light"] .ord-loc-btn.active {
+  color: #FAFAF6;
+}
+
+
+/* ─── ORDERING — SECTION LABELS ────────────────────────────────── */
+
+.ord-section-label,
+.ord-vgroup-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 16px 16px 8px;
+}
+
+.ord-section-label {
+  color: var(--nx-faint);
+}
+
+.ord-vgroup-label {
+  color: var(--nx-gold);
+  padding: 14px 16px 6px;
+}
+
+
+/* ─── ORDERING — RECENT ORDERS ─────────────────────────────────── */
+
+.ord-recent-row,
+.ord-vendor-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 32px);
+  margin: 4px 16px;
+  padding: 12px 14px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 12px;
+  text-align: left;
+  font-family: 'Outfit', sans-serif;
+  color: var(--nx-text);
+  cursor: pointer;
+  transition: border-color .15s, background .15s, transform .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ord-recent-row:hover,
+.ord-vendor-row:hover {
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line));
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06));
+}
+
+.ord-recent-row:active,
+.ord-vendor-row:active {
+  transform: scale(0.99);
+}
+
+.ord-recent-main,
+.ord-vendor-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ord-recent-vendor,
+.ord-vendor-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--nx-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ord-recent-meta,
+.ord-vendor-meta {
+  font-size: 11px;
+  color: var(--nx-faint);
+  margin-top: 3px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+
+/* Status pill inside a recent-order row — small inline tag */
+
+.ord-status {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.ord-status-draft {
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.10));
+  color: var(--nx-gold);
+}
+
+.ord-status-sent {
+  background: var(--nx-green-soft, rgba(156, 138, 62, 0.10));
+  color: var(--nx-green, #9c8a3e);
+}
+
+.ord-status-cancelled {
+  background: var(--nx-red-soft, rgba(168, 62, 62, 0.10));
+  color: var(--nx-red, #a83e3e);
+}
+
+
+/* ─── ORDERING — VENDOR LIST ───────────────────────────────────── */
+
+.ord-vendors-wrap {
+  padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px);
+  /* Bottom padding clears the bottom-nav so the last vendor is fully
+     visible above the nav bar. */
+}
+
+.ord-vendors {
+  /* Container — all rows live here, possibly with .ord-vgroup wrappers */
+}
+
+.ord-vgroup {
+  /* No special styling — just a wrapper for hide/show during search */
+}
+
+.ord-vendor-warn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--nx-amber-soft, rgba(212, 164, 78, 0.18));
+  color: var(--nx-amber, #d4a44e);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+  border: 1px solid var(--nx-gold-line);
+}
+
+.ord-arrow {
+  color: var(--nx-faint);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+
+/* ─── ORDERING — SEARCH ─────────────────────────────────────────── */
+
+.ord-search-wrap {
+  padding: 0 16px 4px;
+}
+
+.ord-search {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--nx-bg);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.ord-search:focus {
+  outline: none;
+  border-color: var(--nx-gold);
+}
+
+.ord-search::placeholder {
+  color: var(--nx-faint);
+}
+
+
+/* ─── ORDERING — EMPTY STATE ───────────────────────────────────── */
+
+.ord-empty {
+  margin: 4px 16px;
+  padding: 16px;
+  background: var(--nx-surface-1);
+  border: 1px dashed var(--nx-gold-line);
+  border-radius: 12px;
+  color: var(--nx-faint);
+  font-size: 13px;
+  text-align: center;
+}
