@@ -144,7 +144,7 @@
     if (!NX.sb) return [];
     const { data, error } = await NX.sb
       .from('order_vendors')
-      .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, subject_template, archived')
+      .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, subject_template, body_template, notes, archived')
       .eq('archived', false)
       .order('name', { ascending: true });
     if (error) { console.error('[ordering] loadVendors:', error); return []; }
@@ -244,7 +244,13 @@
       </div>
       <div class="ord-recent" id="ordRecent"></div>
       <div class="ord-vendors-wrap">
-        <div class="ord-section-label">Vendors</div>
+        <div class="ord-section-label ord-section-label-with-action">
+          <span>Vendors</span>
+          <button class="ord-add-vendor-btn" id="ordAddVendor" aria-label="Add new vendor">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span>Add</span>
+          </button>
+        </div>
         <div class="ord-search-wrap">
           <input type="search" class="ord-search" id="ordSearch"
             placeholder="Search vendors…" autocomplete="off" spellcheck="false"
@@ -258,6 +264,8 @@
     });
     const search = root.querySelector('#ordSearch');
     if (search) search.addEventListener('input', e => filterVendors(e.target.value));
+    const addBtn = root.querySelector('#ordAddVendor');
+    if (addBtn) addBtn.addEventListener('click', () => openVendorEditor(null));
     return root;
   }
 
@@ -305,24 +313,21 @@
   function renderVendors() {
     const el = document.getElementById('ordVendors');
     if (!el) return;
-    const groups = {};
-    for (const v of vendors) {
-      const key = v.managed_by && GROUP_LABEL[v.managed_by] ? v.managed_by : 'other';
-      (groups[key] = groups[key] || []).push(v);
+    if (!vendors.length) {
+      el.innerHTML = `<div class="ord-empty">No vendors yet. Tap + to add your first one.</div>`;
+      return;
     }
+    // Flat alphabetical — no manager grouping. Tap the row to start an
+    // order; tap the pencil to edit the vendor's details (email,
+    // delivery days, items, etc.).
     let html = '';
-    for (const key of GROUP_ORDER) {
-      const list = groups[key];
-      if (!list || !list.length) continue;
-      html += `<div class="ord-vgroup-label">${esc(GROUP_LABEL[key])}</div>`;
-      html += `<div class="ord-vgroup">`;
-      for (const v of list) {
-        const itemCount = vendors._itemCounts[v.id] || 0;
-        const meta = [];
-        if (v.role) meta.push(esc(v.role));
-        if (itemCount) meta.push(`${itemCount} item${itemCount === 1 ? '' : 's'}`);
-        else meta.push('no catalog yet');
-        html += `
+    for (const v of vendors) {
+      const itemCount = vendors._itemCounts[v.id] || 0;
+      const meta = [];
+      if (itemCount) meta.push(`${itemCount} item${itemCount === 1 ? '' : 's'}`);
+      else meta.push('no catalog yet');
+      html += `
+        <div class="ord-vendor-row-wrap">
           <button class="ord-vendor-row" data-vendor-id="${esc(v.id)}" data-vendor-name="${esc(v.name).toLowerCase()}">
             <div class="ord-vendor-main">
               <div class="ord-vendor-name">${esc(v.name)}</div>
@@ -330,13 +335,22 @@
             </div>
             ${v.email ? '' : '<span class="ord-vendor-warn" title="No email set">!</span>'}
             <div class="ord-arrow" aria-hidden="true">›</div>
-          </button>`;
-      }
-      html += `</div>`;
+          </button>
+          <button class="ord-vendor-edit" data-vendor-id="${esc(v.id)}" aria-label="Edit ${esc(v.name)}">${editIcon()}</button>
+        </div>
+      `;
     }
     el.innerHTML = html;
     el.querySelectorAll('.ord-vendor-row').forEach(b => {
       b.addEventListener('click', () => openVendor(b.dataset.vendorId));
+    });
+    el.querySelectorAll('.ord-vendor-edit').forEach(b => {
+      b.addEventListener('click', e => {
+        e.stopPropagation();
+        const id = b.dataset.vendorId;
+        const v = vendors.find(x => x.id === id);
+        if (v) openVendorEditor(v);
+      });
     });
   }
 
@@ -344,26 +358,14 @@
     const q = (query || '').trim().toLowerCase();
     const root = document.getElementById('ordVendors');
     if (!root) return;
-    let visibleGroup = false, lastGroupLabel = null;
-    Array.from(root.children).forEach(child => {
-      if (child.classList.contains('ord-vgroup-label')) {
-        if (lastGroupLabel) lastGroupLabel.style.display = visibleGroup ? '' : 'none';
-        lastGroupLabel = child;
-        visibleGroup = false;
-        child.style.display = '';
-      } else if (child.classList.contains('ord-vgroup')) {
-        let any = false;
-        Array.from(child.children).forEach(row => {
-          const name = row.dataset.vendorName || '';
-          const match = !q || name.includes(q);
-          row.style.display = match ? '' : 'none';
-          if (match) any = true;
-        });
-        visibleGroup = any;
-        child.style.display = any ? '' : 'none';
-      }
+    let any = false;
+    root.querySelectorAll('.ord-vendor-row-wrap').forEach(wrap => {
+      const row = wrap.querySelector('.ord-vendor-row');
+      const name = row ? row.dataset.vendorName : '';
+      const match = !q || name.includes(q);
+      wrap.style.display = match ? '' : 'none';
+      if (match) any = true;
     });
-    if (lastGroupLabel) lastGroupLabel.style.display = visibleGroup ? '' : 'none';
   }
 
   async function setLocation(loc) {
@@ -967,6 +969,7 @@
       vendor: vendor.name,
       location: (LOCS.find(l => l.id === location)?.label) || location,
       delivery_date_long: fmtDateLong(deliveryDate),
+      delivery_date: fmtDateShort(deliveryDate),
     };
     const itemById = {};
     entryState.catalog.forEach(it => itemById[it.id] = it);
@@ -979,18 +982,39 @@
       }))
       .sort((a, b) => (a.section || '').localeCompare(b.section || '') || a.sort_order - b.sort_order);
 
-    let body = `Hi ${vendor.name} team,\n\n`;
-    body += `Please prepare for ${ctx.delivery_date_long} delivery to ${ctx.location}:\n\n`;
+    // Build the formatted line list once — same for both default and
+    // custom templates. {lines} in custom templates expands to this.
+    let linesText = '';
     let lastSection = null;
     for (const l of linesArr) {
       if (l.section && l.section !== lastSection) {
-        body += `\n${l.section.toUpperCase()}\n`;
+        linesText += `\n${l.section.toUpperCase()}\n`;
         lastSection = l.section;
       }
       const qtyUnit = `${l.qty} ${l.unit || 'ea'}`.padEnd(8);
       const sku = l.vendor_sku ? `  [${l.vendor_sku}]` : '';
-      body += `  ${qtyUnit}  ${l.item_name}${sku}\n`;
+      linesText += `  ${qtyUnit}  ${l.item_name}${sku}\n`;
     }
+    linesText = linesText.replace(/^\n+/, '');  // trim leading blank from first section
+
+    // If the vendor has a custom body_template, expand its tokens.
+    // Otherwise use the standard hi-team / please-prepare / lines format.
+    if (vendor.body_template && vendor.body_template.trim()) {
+      let body = vendor.body_template
+        .replace(/\{vendor\}/gi,             ctx.vendor)
+        .replace(/\{location\}/gi,           ctx.location)
+        .replace(/\{delivery_date_long\}/gi, ctx.delivery_date_long)
+        .replace(/\{delivery_date\}/gi,      ctx.delivery_date)
+        .replace(/\{date\}/gi,               ctx.delivery_date)
+        .replace(/\{lines\}/gi,              linesText.trimEnd())
+        .replace(/\{notes\}/gi,              (notes || '').trim());
+      return body + '\n';
+    }
+
+    // Default template
+    let body = `Hi ${vendor.name} team,\n\n`;
+    body += `Please prepare for ${ctx.delivery_date_long} delivery to ${ctx.location}:\n\n`;
+    body += linesText;
     if (notes && notes.trim()) {
       body += `\nNotes: ${notes.trim()}\n`;
     }
@@ -1087,6 +1111,451 @@
     entryState = null;
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // PHASE B — VENDOR + ITEM MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════════
+  // Two new overlays layered on top of the list pane:
+  //   .ord-veditor-overlay — vendor editor (name, email, days, templates,
+  //                           items list, archive)
+  //   Item editing is INLINE inside the vendor editor — tapping an item
+  //   row swaps it for a form, save/cancel returns to the row view.
+  //
+  // Anything that has a body persists to Supabase via direct table CRUD.
+  // The `editorState` global tracks the current editor session.
+
+  let editorState = null;
+  /* shape:
+     {
+       isNew: bool,
+       vendor: { … vendor row, possibly empty for new },
+       items: [ … catalog rows ],
+       editingItemId: itemId | 'new' | null,
+       overlay: DOM,
+     } */
+
+  /**
+   * Open the vendor editor. Pass null/undefined for "new vendor" mode.
+   */
+  async function openVendorEditor(vendor) {
+    const isNew = !vendor;
+    editorState = {
+      isNew,
+      vendor: isNew
+        ? { name: '', email: '', delivery_days: [], subject_template: '', body_template: '', notes: '' }
+        : { ...vendor },
+      items: [],
+      editingItemId: null,
+      overlay: null,
+    };
+    mountVendorEditor();
+    if (!isNew) {
+      try {
+        editorState.items = await loadVendorCatalog(vendor.id);
+      } catch (e) {
+        console.error('[ordering] load items for editor:', e);
+        editorState.items = [];
+      }
+    }
+    renderVendorEditor();
+  }
+
+  function mountVendorEditor() {
+    let el = document.querySelector('.ord-veditor-overlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'ord-veditor-overlay';
+      document.body.appendChild(el);
+      document.body.classList.add('ord-overlay-open');
+    }
+    editorState.overlay = el;
+  }
+
+  function renderVendorEditor() {
+    if (!editorState || !editorState.overlay) return;
+    const v = editorState.vendor;
+    const isNew = editorState.isNew;
+    const days = Array.isArray(v.delivery_days) ? v.delivery_days : [];
+
+    editorState.overlay.innerHTML = `
+      <div class="ord-veditor-head">
+        <button class="ord-veditor-close" aria-label="Close">${arrowLeftIcon()}</button>
+        <div class="ord-veditor-title">${isNew ? 'New vendor' : esc(v.name) || 'Edit vendor'}</div>
+        <div class="ord-veditor-spacer"></div>
+      </div>
+      <div class="ord-veditor-body">
+        <div class="ord-form-field">
+          <label class="ord-form-label" for="vedName">Name</label>
+          <input type="text" class="ord-form-input" id="vedName" value="${esc(v.name)}" placeholder="e.g. Farm To Table" autocomplete="off">
+        </div>
+
+        <div class="ord-form-field">
+          <label class="ord-form-label" for="vedEmail">Email</label>
+          <input type="email" class="ord-form-input" id="vedEmail" value="${esc(v.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
+        </div>
+
+        <div class="ord-form-field">
+          <label class="ord-form-label">Delivery days</label>
+          <div class="ord-day-pills" id="vedDays">
+            ${WEEKDAY_KEYS.map((k, i) => `
+              <button type="button" class="ord-day-pill${days.includes(k) ? ' active' : ''}" data-day="${k}">${WEEKDAY_LBL[i]}</button>
+            `).join('')}
+          </div>
+          <div class="ord-form-hint">Tap to toggle. Used to pick the next delivery date when starting an order.</div>
+        </div>
+
+        <div class="ord-form-field">
+          <label class="ord-form-label" for="vedSubject">Email subject template</label>
+          <input type="text" class="ord-form-input" id="vedSubject" value="${esc(v.subject_template || '')}" placeholder="${esc(v.name || 'Vendor')} order — {location} for {delivery_date}" autocomplete="off">
+          <div class="ord-form-hint">Tokens you can use: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date}</code></div>
+        </div>
+
+        <div class="ord-form-field">
+          <label class="ord-form-label" for="vedBody">Email body template</label>
+          <textarea class="ord-form-textarea" id="vedBody" rows="6" placeholder="Leave blank to use the standard format. If you set this, your text replaces the body — use {lines} where the item list should appear.">${esc(v.body_template || '')}</textarea>
+          <div class="ord-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date_long}</code> <code>{lines}</code> <code>{notes}</code></div>
+        </div>
+
+        <div class="ord-form-field">
+          <label class="ord-form-label" for="vedNotes">Internal notes</label>
+          <textarea class="ord-form-textarea" id="vedNotes" rows="3" placeholder="Anything to remember about this vendor — only you see this">${esc(v.notes || '')}</textarea>
+        </div>
+
+        ${!isNew ? `
+          <div class="ord-veditor-items-section">
+            <div class="ord-form-label-row">
+              <span class="ord-form-label">Items <span class="ord-form-label-count">(${editorState.items.length})</span></span>
+              <button class="ord-veditor-add-item-btn" id="vedAddItem">${plusIcon()} Add item</button>
+            </div>
+            <div class="ord-veditor-items" id="vedItemsList">
+              ${renderItemsList()}
+            </div>
+          </div>
+        ` : ''}
+
+        ${!isNew ? `
+          <button class="ord-veditor-archive-btn" id="vedArchive">${trashIcon()} Archive vendor</button>
+          <div class="ord-form-hint" style="text-align:center">Archived vendors are hidden from the list. Order history is preserved.</div>
+        ` : ''}
+      </div>
+      <div class="ord-veditor-foot">
+        <button class="ord-veditor-cancel" id="vedCancel">Cancel</button>
+        <button class="ord-veditor-save" id="vedSave">${isNew ? 'Create vendor' : 'Save changes'}</button>
+      </div>
+    `;
+
+    // Wire all handlers
+    const overlay = editorState.overlay;
+    overlay.querySelector('.ord-veditor-close').addEventListener('click', closeVendorEditor);
+    overlay.querySelector('#vedCancel').addEventListener('click', closeVendorEditor);
+    overlay.querySelector('#vedSave').addEventListener('click', saveVendor);
+    // Day pills
+    overlay.querySelectorAll('.ord-day-pill').forEach(btn => {
+      btn.addEventListener('click', () => btn.classList.toggle('active'));
+    });
+    // Archive
+    const arch = overlay.querySelector('#vedArchive');
+    if (arch) arch.addEventListener('click', archiveVendor);
+    // Add item
+    const addItem = overlay.querySelector('#vedAddItem');
+    if (addItem) addItem.addEventListener('click', () => {
+      editorState.editingItemId = 'new';
+      renderItemsAreaOnly();
+    });
+    // Item row interactions (delegated)
+    wireItemListHandlers();
+  }
+
+  function renderItemsAreaOnly() {
+    // Re-render only the items list portion to avoid losing form state
+    const list = document.getElementById('vedItemsList');
+    if (list) {
+      list.innerHTML = renderItemsList();
+      wireItemListHandlers();
+    }
+  }
+
+  function renderItemsList() {
+    if (!editorState) return '';
+    const items = editorState.items;
+    let html = '';
+
+    // "New item" row — only when adding
+    if (editorState.editingItemId === 'new') {
+      html += renderItemForm({ id: '__new', item_name: '', vendor_sku: '', section: '', unit: 'ea', default_par_qty: null, pars_by_day: {}, note: '' }, true);
+    }
+
+    if (!items.length && editorState.editingItemId !== 'new') {
+      html += `<div class="ord-empty">No items yet. Tap "Add item" to start the catalog.</div>`;
+      return html;
+    }
+
+    for (const it of items) {
+      if (editorState.editingItemId === it.id) {
+        html += renderItemForm(it, false);
+      } else {
+        html += renderItemRow(it);
+      }
+    }
+    return html;
+  }
+
+  function renderItemRow(item) {
+    const meta = [];
+    if (item.vendor_sku) meta.push(`SKU ${esc(item.vendor_sku)}`);
+    if (item.section)   meta.push(esc(item.section));
+    if (item.default_par_qty != null) meta.push(`par ${item.default_par_qty} ${esc(item.unit || 'ea')}`);
+    return `
+      <div class="ord-vitem-row" data-item-id="${esc(item.id)}">
+        <div class="ord-vitem-main">
+          <div class="ord-vitem-name">${esc(item.item_name)}</div>
+          ${meta.length ? `<div class="ord-vitem-meta">${meta.join(' · ')}</div>` : ''}
+        </div>
+        <button class="ord-vitem-edit-btn" data-item-id="${esc(item.id)}" aria-label="Edit ${esc(item.item_name)}">${editIcon()}</button>
+      </div>
+    `;
+  }
+
+  function renderItemForm(item, isNew) {
+    const days = item.pars_by_day || {};
+    return `
+      <div class="ord-vitem-row ord-vitem-editing" data-item-id="${esc(item.id)}">
+        <div class="ord-form-field">
+          <label class="ord-form-label">Item name</label>
+          <input type="text" class="ord-form-input ied-name" value="${esc(item.item_name || '')}" placeholder="e.g. milk" autocomplete="off">
+        </div>
+        <div class="ord-form-row-2">
+          <div class="ord-form-field">
+            <label class="ord-form-label">SKU (optional)</label>
+            <input type="text" class="ord-form-input ied-sku" value="${esc(item.vendor_sku || '')}" placeholder="vendor's code" autocomplete="off">
+          </div>
+          <div class="ord-form-field">
+            <label class="ord-form-label">Section</label>
+            <input type="text" class="ord-form-input ied-section" value="${esc(item.section || '')}" placeholder="e.g. Dairy" autocomplete="off">
+          </div>
+        </div>
+        <div class="ord-form-row-2">
+          <div class="ord-form-field">
+            <label class="ord-form-label">Unit</label>
+            <input type="text" class="ord-form-input ied-unit" value="${esc(item.unit || 'ea')}" placeholder="ea / cs / lb / gal" autocomplete="off">
+          </div>
+          <div class="ord-form-field">
+            <label class="ord-form-label">Default par</label>
+            <input type="number" class="ord-form-input ied-par" value="${item.default_par_qty != null ? item.default_par_qty : ''}" placeholder="0" inputmode="numeric" min="0" step="1">
+          </div>
+        </div>
+        <div class="ord-form-field">
+          <label class="ord-form-label">Day-of-week pars (optional, overrides default)</label>
+          <div class="ord-day-pars">
+            ${WEEKDAY_KEYS.map((k, i) => `
+              <label class="ord-day-par">
+                <span>${WEEKDAY_LBL[i]}</span>
+                <input type="number" class="ied-day" data-day="${k}" value="${days[k] != null ? days[k] : ''}" placeholder="—" inputmode="numeric" min="0" step="1">
+              </label>
+            `).join('')}
+          </div>
+        </div>
+        <div class="ord-form-field">
+          <label class="ord-form-label">Note (optional)</label>
+          <input type="text" class="ord-form-input ied-note" value="${esc(item.note || '')}" placeholder="e.g. 'up to 10' or 'bag'" autocomplete="off">
+        </div>
+        <div class="ord-vitem-edit-actions">
+          ${!isNew ? `<button class="ord-vitem-delete-btn" data-item-id="${esc(item.id)}">${trashIcon()} Delete</button>` : '<div></div>'}
+          <button class="ord-vitem-cancel-btn">Cancel</button>
+          <button class="ord-vitem-save-btn" data-item-id="${esc(item.id)}">Save item</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function wireItemListHandlers() {
+    const list = document.getElementById('vedItemsList');
+    if (!list) return;
+
+    // Tap edit pencil → enter edit mode for that item
+    list.querySelectorAll('.ord-vitem-edit-btn').forEach(b => {
+      b.addEventListener('click', e => {
+        e.stopPropagation();
+        editorState.editingItemId = b.dataset.itemId;
+        renderItemsAreaOnly();
+      });
+    });
+    // Tap row → also enter edit (whole row tappable for accessibility)
+    list.querySelectorAll('.ord-vitem-row:not(.ord-vitem-editing)').forEach(row => {
+      row.addEventListener('click', () => {
+        editorState.editingItemId = row.dataset.itemId;
+        renderItemsAreaOnly();
+      });
+    });
+    // Cancel
+    list.querySelectorAll('.ord-vitem-cancel-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        editorState.editingItemId = null;
+        renderItemsAreaOnly();
+      });
+    });
+    // Save
+    list.querySelectorAll('.ord-vitem-save-btn').forEach(b => {
+      b.addEventListener('click', () => saveItemFromForm(b.dataset.itemId));
+    });
+    // Delete
+    list.querySelectorAll('.ord-vitem-delete-btn').forEach(b => {
+      b.addEventListener('click', () => deleteItem(b.dataset.itemId));
+    });
+  }
+
+  async function saveVendor() {
+    if (!editorState) return;
+    const overlay = editorState.overlay;
+    const name = overlay.querySelector('#vedName').value.trim();
+    const email = overlay.querySelector('#vedEmail').value.trim();
+    const subject = overlay.querySelector('#vedSubject').value.trim();
+    const body = overlay.querySelector('#vedBody').value;
+    const notes = overlay.querySelector('#vedNotes').value;
+    if (!name) {
+      if (NX.toast) NX.toast('Name is required', 'warn');
+      return;
+    }
+    const dayBtns = overlay.querySelectorAll('.ord-day-pill.active');
+    const days = Array.from(dayBtns).map(b => b.dataset.day);
+
+    const payload = {
+      name,
+      email: email || null,
+      delivery_days: days,
+      subject_template: subject || null,
+      body_template: body.trim() || null,
+      notes: notes.trim() || null,
+    };
+
+    try {
+      if (editorState.isNew) {
+        const { data, error } = await NX.sb.from('order_vendors')
+          .insert(payload).select('*').single();
+        if (error) throw error;
+        vendors.push(data);
+        vendors.sort((a, b) => a.name.localeCompare(b.name));
+        vendors._itemCounts[data.id] = 0;
+      } else {
+        const { error } = await NX.sb.from('order_vendors')
+          .update(payload).eq('id', editorState.vendor.id);
+        if (error) throw error;
+        const cached = vendors.find(x => x.id === editorState.vendor.id);
+        if (cached) Object.assign(cached, payload);
+      }
+      if (NX.toast) NX.toast('Saved', 'info', 1200);
+      closeVendorEditor();
+      renderVendors();
+    } catch (e) {
+      console.error('[ordering] saveVendor:', e);
+      if (NX.toast) NX.toast('Failed to save: ' + (e.message || ''), 'error');
+    }
+  }
+
+  async function archiveVendor() {
+    if (!editorState || editorState.isNew) return;
+    if (!confirm(`Archive ${editorState.vendor.name}? It will be hidden from the list. Order history is preserved.`)) return;
+    try {
+      const { error } = await NX.sb.from('order_vendors')
+        .update({ archived: true }).eq('id', editorState.vendor.id);
+      if (error) throw error;
+      vendors = vendors.filter(v => v.id !== editorState.vendor.id);
+      closeVendorEditor();
+      renderVendors();
+      if (NX.toast) NX.toast('Vendor archived', 'info', 1500);
+    } catch (e) {
+      console.error('[ordering] archiveVendor:', e);
+      if (NX.toast) NX.toast('Failed to archive', 'error');
+    }
+  }
+
+  async function saveItemFromForm(itemId) {
+    if (!editorState) return;
+    const isNew = itemId === '__new';
+    const list = document.getElementById('vedItemsList');
+    if (!list) return;
+    const formRow = list.querySelector(`.ord-vitem-editing[data-item-id="${itemId}"]`);
+    if (!formRow) return;
+    const name = formRow.querySelector('.ied-name').value.trim();
+    if (!name) {
+      if (NX.toast) NX.toast('Item name is required', 'warn');
+      return;
+    }
+    const sku  = formRow.querySelector('.ied-sku').value.trim();
+    const sec  = formRow.querySelector('.ied-section').value.trim();
+    const unit = formRow.querySelector('.ied-unit').value.trim() || 'ea';
+    const parRaw = formRow.querySelector('.ied-par').value.trim();
+    const note = formRow.querySelector('.ied-note').value.trim();
+    const par = parRaw === '' ? null : parseFloat(parRaw);
+    // Day pars
+    const days = {};
+    formRow.querySelectorAll('.ied-day').forEach(inp => {
+      const v = inp.value.trim();
+      if (v !== '') days[inp.dataset.day] = parseFloat(v);
+    });
+
+    const payload = {
+      item_name: name,
+      vendor_sku: sku || null,
+      section: sec || null,
+      unit,
+      default_par_qty: par,
+      pars_by_day: days,
+      note: note || null,
+    };
+
+    try {
+      if (isNew) {
+        // Determine sort_order — append to end
+        const maxSort = editorState.items.reduce((m, i) => Math.max(m, i.sort_order || 0), 0);
+        const { data, error } = await NX.sb.from('order_guide_items')
+          .insert({ ...payload, vendor_id: editorState.vendor.id, sort_order: maxSort + 1 })
+          .select('*').single();
+        if (error) throw error;
+        editorState.items.push(data);
+        vendors._itemCounts[editorState.vendor.id] = (vendors._itemCounts[editorState.vendor.id] || 0) + 1;
+      } else {
+        const { error } = await NX.sb.from('order_guide_items')
+          .update(payload).eq('id', itemId);
+        if (error) throw error;
+        const it = editorState.items.find(i => i.id === itemId);
+        if (it) Object.assign(it, payload);
+      }
+      editorState.editingItemId = null;
+      renderVendorEditor();
+      if (NX.toast) NX.toast(isNew ? 'Item added' : 'Item saved', 'info', 1000);
+    } catch (e) {
+      console.error('[ordering] saveItemFromForm:', e);
+      if (NX.toast) NX.toast('Failed to save item', 'error');
+    }
+  }
+
+  async function deleteItem(itemId) {
+    if (!editorState || itemId === '__new') return;
+    const it = editorState.items.find(i => i.id === itemId);
+    if (!it) return;
+    if (!confirm(`Delete "${it.item_name}"?`)) return;
+    try {
+      const { error } = await NX.sb.from('order_guide_items')
+        .delete().eq('id', itemId);
+      if (error) throw error;
+      editorState.items = editorState.items.filter(i => i.id !== itemId);
+      vendors._itemCounts[editorState.vendor.id] = Math.max(0, (vendors._itemCounts[editorState.vendor.id] || 1) - 1);
+      editorState.editingItemId = null;
+      renderVendorEditor();
+      if (NX.toast) NX.toast('Item deleted', 'info', 1000);
+    } catch (e) {
+      console.error('[ordering] deleteItem:', e);
+      if (NX.toast) NX.toast('Failed to delete', 'error');
+    }
+  }
+
+  function closeVendorEditor() {
+    const overlay = document.querySelector('.ord-veditor-overlay');
+    if (overlay) overlay.remove();
+    document.body.classList.remove('ord-overlay-open');
+    editorState = null;
+  }
+
   // ─── ICONS ───────────────────────────────────────────────────────
   function closeIcon() {
     return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
@@ -1096,6 +1565,15 @@
   }
   function envelopeIcon() {
     return `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22 6 12 13 2 6"/></svg>`;
+  }
+  function editIcon() {
+    return `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+  }
+  function plusIcon() {
+    return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+  }
+  function trashIcon() {
+    return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1129,6 +1607,7 @@
 
   NX.modules.ordering = {
     init, show, setLocation, openVendor, openExistingOrder, closeEntry,
+    openVendorEditor, closeVendorEditor,
   };
-  console.log('[ordering] loaded (Phase 2)');
+  console.log('[ordering] loaded (Phase B — vendor + item management)');
 })();
