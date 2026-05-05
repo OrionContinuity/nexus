@@ -34,15 +34,19 @@
 
 const LOCATIONS = ['Suerte', 'Este', 'Bar Toti'];
 const CATEGORIES = [
-  { key: 'refrigeration', label: 'Refrigeration', icon: '❄' },
-  { key: 'cooking',       label: 'Cooking',       icon: '🔥' },
-  { key: 'ice',           label: 'Ice',           icon: '🧊' },
-  { key: 'hvac',          label: 'HVAC',          icon: '💨' },
-  { key: 'dish',          label: 'Dishwashing',   icon: '🧼' },
-  { key: 'bev',           label: 'Beverage',      icon: '🥤' },
-  { key: 'smallware',     label: 'Smallware',     icon: '🍴' },
-  { key: 'furniture',     label: 'Furniture',     icon: '🪑' },
-  { key: 'other',         label: 'Other',         icon: '⚙' }
+  /* Note: the visual icons for these come from ICON_PATHS below
+     (Lucide-derived SVG line art). The previous .icon emoji fields
+     were dead code — never read by any render path — so they've
+     been dropped to keep the data definition clean. */
+  { key: 'refrigeration', label: 'Refrigeration' },
+  { key: 'cooking',       label: 'Cooking'       },
+  { key: 'ice',           label: 'Ice'           },
+  { key: 'hvac',          label: 'HVAC'          },
+  { key: 'dish',          label: 'Dishwashing'   },
+  { key: 'bev',           label: 'Beverage'      },
+  { key: 'smallware',     label: 'Smallware'     },
+  { key: 'furniture',     label: 'Furniture'     },
+  { key: 'other',         label: 'Other'         },
 ];
 
 /* ─── Category icon SVG paths ───────────────────────────────────────
@@ -64,6 +68,64 @@ const ICON_PATHS = {
   furniture:     '<path d="M2 9V5a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v4"/><path d="M2 11v5a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H6v-2a2 2 0 0 0-4 0z"/><path d="M4 18v2"/><path d="M20 18v2"/>',
   other:         '<circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/>',
 };
+
+/* ─── Action / UI icons — Lucide line art ─────────────────────────────
+   Used wherever the equipment module rendered emoji glyphs in UI
+   chrome (bottom action bar, tab strip, page header). Emojis render
+   as glossy raster on iOS, flat color on Android, monochrome on
+   desktop — fights the editorial line-art family used everywhere
+   else in NEXUS. SVG paths inherit currentColor and the parent's
+   font-size, so they pick up theme accents automatically.
+   
+   Use via uiSvg('keyName', '1em') or uiSvg('keyName', '18px').      */
+const ACTION_ICONS = {
+  printer:    '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
+  phone:      '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  ticket:     '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/>',
+  settings:   '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  pen:        '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+  brain:      '<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/>',
+  sparkles:   '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
+  camera:     '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+  qr:         '<rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/>',
+  star:       '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+  filledStar: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill="currentColor"/>',
+  document:   '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+  documents:  '<path d="M14 4.272A2 2 0 0 1 13 6h-3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3a2 2 0 0 1-1-1.728"/><path d="M16 2H8a2 2 0 0 0-2 2v16"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="15" y2="15"/>',
+  arrowRight: '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
+  close:      '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  trash:      '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>',
+  wrench:     '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.121 2.121 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  user:       '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  dollar:     '<line x1="12" y1="2" x2="12" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  alert:      '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  check:      '<polyline points="20 6 9 17 4 12"/>',
+  ban:        '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+  clock:      '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  hourglass:  '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
+  paperclip:  '<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  link:       '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  note:       '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+  receipt:    '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  shield:     '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+  family:     '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  search:     '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  message:    '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  send:       '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+  email:      '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>',
+  building:   '<rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/>',
+  crystal:    '<path d="M6 3h12l4 6-10 13L2 9Z"/><path d="M11 3 8 9l4 13 4-13-3-6"/><path d="M2 9h20"/>',
+  rocket:     '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
+  whatsapp:   '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+  arrowDown:  '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>',
+  arrowUp:    '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>',
+  refresh:    '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>',
+  moreH:      '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+};
+function uiSvg(key, size = '1em') {
+  const path = ACTION_ICONS[key] || '';
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${path}</svg>`;
+}
 
 const STATUSES = [
   { key: 'operational',   label: 'Operational',   color: 'var(--green)' },
@@ -169,11 +231,11 @@ function buildUI() {
   view.innerHTML = `
     <div class="eq-header">
       <div class="eq-title-row">
-        <h2 class="eq-title">🔧 Equipment</h2>
+        <h2 class="eq-title"><span class="eq-title-icon">${uiSvg('wrench', '20px')}</span> Equipment</h2>
         <div class="eq-actions">
-          <button class="eq-btn eq-btn-primary eq-ai-create-btn" id="eqAiCreateBtn" title="AI create equipment from photo or description">✨ AI Create</button>
+          <button class="eq-btn eq-btn-primary eq-ai-create-btn" id="eqAiCreateBtn" title="AI create equipment from photo or description"><span class="eq-action-icon">${uiSvg('sparkles', '14px')}</span> AI Create</button>
           <button class="eq-btn eq-btn-secondary eq-zebra-header-btn" id="eqZebraHeaderBtn" title="Print labels on Zebra printer">Zebra</button>
-          <button class="eq-btn eq-btn-secondary" id="eqPrintQRs" title="Print QR sticker sheet">QR Sheet</button>
+          <button class="eq-btn eq-btn-secondary" id="eqPrintQRs" title="Print QR sticker sheet">${uiSvg('qr', '14px')} QR Sheet</button>
           <button class="eq-btn eq-btn-secondary" id="eqAddBtn">+ Manual</button>
         </div>
       </div>
@@ -181,8 +243,8 @@ function buildUI() {
       <div class="eq-search-row">
         <input type="text" class="eq-search" id="eqSearch" placeholder="Search equipment, model, serial...">
         <div class="eq-view-toggle">
-          <button class="eq-view-btn ${viewMode==='list'?'active':''}" data-mode="list" title="List view">☰</button>
-          <button class="eq-view-btn ${viewMode==='grid'?'active':''}" data-mode="grid" title="Grid view">▦</button>
+          <button class="eq-view-btn ${viewMode==='list'?'active':''}" data-mode="list" title="List view">${uiSvg("documents","16px")}</button>
+          <button class="eq-view-btn ${viewMode==='grid'?'active':''}" data-mode="grid" title="Grid view"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
         </div>
       </div>
 
@@ -294,10 +356,10 @@ function renderList() {
   if (!filtered.length) {
     list.innerHTML = `
       <div class="eq-empty">
-        <div class="eq-empty-icon">🔧</div>
+        <div class="eq-empty-icon">${uiSvg("wrench", "32px")}</div>
         <div class="eq-empty-title">No equipment yet</div>
         <div class="eq-empty-sub">Add your first piece of equipment to get started.</div>
-        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.openAICreator()">✨ AI Create</button>
+        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.openAICreator()">${uiSvg("sparkles", "13px")} AI Create</button>
         <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.add()">+ Manual Add</button>
       </div>`;
     return;
@@ -429,7 +491,7 @@ async function openDetail(id) {
     <div class="eq-detail-bg" onclick="NX.modules.equipment.closeDetail()"></div>
     <div class="eq-detail">
       <div class="eq-detail-head">
-        <button class="eq-close" onclick="NX.modules.equipment.closeDetail()">✕</button>
+        <button class="eq-close" onclick="NX.modules.equipment.closeDetail()">${uiSvg("close", "16px")}</button>
         <div class="eq-detail-title">
           <span class="eq-cat-icon-lg">${catIcon(eq.category)}</span>
           <div>
@@ -451,7 +513,7 @@ async function openDetail(id) {
         <button class="eq-tab" data-tab="timeline">Timeline (${maintenance.length}${pendingLogs.length ? ` <span class="eq-tab-pending-dot" title="${pendingLogs.length} pending review">+${pendingLogs.length}</span>` : ''})</button>
         <button class="eq-tab" data-tab="parts">Parts (${parts.length})</button>
         <button class="eq-tab" data-tab="manual">Manual</button>
-        <button class="eq-tab" data-tab="intel">🧠 AI</button>
+        <button class="eq-tab" data-tab="intel">${uiSvg('brain', '14px')} AI</button>
         <button class="eq-tab" data-tab="qr">QR</button>
       </div>
 
@@ -464,26 +526,23 @@ async function openDetail(id) {
         <div class="eq-tab-panel" data-panel="qr">${renderQR(eq)}</div>
       </div>
 
-      <div class="eq-detail-actions">
-        <button class="eq-btn eq-btn-primary eq-zebra-action-btn" onclick="NX.modules.equipment.quickPrint('${eq.id}')">
-          <span class="eq-action-icon">🖨</span><span>Print</span>
+      <div class="eq-detail-actions eq-detail-actions-v2">
+        <button class="eq-action-cta" onclick="NX.modules.equipment.callService('${eq.id}')">
+          <span class="eq-action-cta-icon">${uiSvg('phone', '18px')}</span>
+          <span class="eq-action-cta-label">Call Service</span>
         </button>
-        <button class="eq-btn eq-call-service-btn" onclick="NX.modules.equipment.callService('${eq.id}')">
-          <span class="eq-action-icon">📞</span><span>Call</span>
-        </button>
-        <button class="eq-btn" onclick="NX.modules.equipment.reportIssue('${eq.id}')">
-          <span class="eq-action-icon">🎫</span><span>Report</span>
-        </button>
-        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">
-          <span class="eq-action-icon">⚙</span><span>Edit</span>
-        </button>
-        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.logService('${eq.id}')">
-          <span class="eq-action-icon">📝</span><span>Log</span>
+        <button class="eq-action-cta eq-action-cta-secondary" onclick="NX.modules.equipment.reportIssue('${eq.id}')">
+          <span class="eq-action-cta-icon">${uiSvg('ticket', '18px')}</span>
+          <span class="eq-action-cta-label">Report Issue</span>
         </button>
         <div class="eq-overflow-wrap">
-          <button class="eq-btn eq-overflow-btn" onclick="NX.modules.equipment.toggleOverflow(event, '${eq.id}')" aria-label="More actions">⋯</button>
+          <button class="eq-overflow-btn-v2" onclick="NX.modules.equipment.toggleOverflow(event, '${eq.id}')" aria-label="More actions">${uiSvg('moreH', '20px')}</button>
           <div class="eq-overflow-menu" id="eqOverflow-${eq.id}" onclick="event.stopPropagation()">
-            <button class="eq-overflow-item eq-overflow-danger" onclick="NX.modules.equipment.deleteEquipment('${eq.id}')">🗑 Delete permanently</button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.logService('${eq.id}')">${uiSvg('pen', '14px')}<span>Log Service</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">${uiSvg('settings', '14px')}<span>Edit Equipment</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.quickPrint('${eq.id}')">${uiSvg('printer', '14px')}<span>Print Label</span></button>
+            <div class="eq-overflow-divider"></div>
+            <button class="eq-overflow-item eq-overflow-danger" onclick="NX.modules.equipment.deleteEquipment('${eq.id}')">${uiSvg('trash', '14px')}<span>Delete permanently</span></button>
           </div>
         </div>
       </div>
@@ -609,7 +668,7 @@ async function loadOpenCardsForEquipment(eq) {
 
   container.innerHTML = `
     <div class="eq-open-cards-head">
-      🎫 ${openCards.length} open card${openCards.length !== 1 ? 's' : ''} on the board
+      ${uiSvg("ticket","13px")} ${openCards.length} open card${openCards.length !== 1 ? 's' : ''} on the board
     </div>
     ${openCards.slice(0, 4).map(c => {
       const overdue = c.due_date && new Date(c.due_date).getTime() < today;
@@ -726,7 +785,7 @@ function renderOverview(eq, attachments, customFields) {
 
     <div class="eq-overview-section">
       <div class="eq-overview-head">
-        <h4>📎 Attachments${attachments.length ? ` (${attachments.length})` : ''}</h4>
+        <h4>${uiSvg('paperclip', '14px')} Attachments${attachments.length ? ` (${attachments.length})` : ''}</h4>
       </div>
       ${attachments.length ? `
         <div class="eq-overview-attachments">
@@ -739,10 +798,10 @@ function renderOverview(eq, attachments, customFields) {
         </div>
       ` : '<div class="eq-empty-small">No attachments yet. Add receipts, invoices, warranty cards, installation photos, or anything else.</div>'}
       <div class="eq-attach-add-row">
-        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'photo', 'detail')">📸 Photo</button>
-        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'file', 'detail')">📄 File</button>
-        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'link', 'detail')">🔗 Link</button>
-        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'note', 'detail')">📝 Note</button>
+        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'photo', 'detail')">${uiSvg('camera', '13px')} Photo</button>
+        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'file', 'detail')">${uiSvg('document', '13px')} File</button>
+        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'link', 'detail')">${uiSvg('link', '13px')} Link</button>
+        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'note', 'detail')">${uiSvg('note', '13px')} Note</button>
       </div>
     </div>
 
@@ -754,7 +813,7 @@ function renderOverview(eq, attachments, customFields) {
             <div class="eq-field">
               <label>${esc(f.field_name)}</label>
               <div>${f.field_type === 'url' && f.field_value ? `<a href="${escAttr(f.field_value)}" target="_blank">${esc(f.field_value)} ↗</a>` :
-                    f.field_type === 'boolean' ? (f.field_value === 'true' ? '✓ Yes' : '✗ No') :
+                    f.field_type === 'boolean' ? (f.field_value === 'true' ? `${uiSvg('check', '12px')} Yes` : `${uiSvg('close', '12px')} No`) :
                     esc(f.field_value || '—')}</div>
             </div>
           `).join('')}
@@ -763,16 +822,16 @@ function renderOverview(eq, attachments, customFields) {
 
     ${hasLinks ? `
       <div class="eq-overview-section">
-        <h4>🔗 Links</h4>
+        <h4>${uiSvg('link', '14px')} Links</h4>
         <div class="eq-overview-links">
-          ${eq.manual_source_url ? `<a href="${escAttr(eq.manual_source_url)}" target="_blank" class="eq-link-btn">📘 Manual (source) ↗</a>` : ''}
-          ${eq.manual_url ? `<a href="${escAttr(eq.manual_url)}" target="_blank" class="eq-link-btn">📄 Manual PDF ↗</a>` : ''}
+          ${eq.manual_source_url ? `<a href="${escAttr(eq.manual_source_url)}" target="_blank" class="eq-link-btn">${uiSvg('document', '13px')} Manual (source) ↗</a>` : ''}
+          ${eq.manual_url ? `<a href="${escAttr(eq.manual_url)}" target="_blank" class="eq-link-btn">${uiSvg('document', '13px')} Manual PDF ↗</a>` : ''}
         </div>
       </div>` : ''}
 
     <div class="eq-overview-section">
-      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.scanDataPlate('${eq.id}')">📷 Scan Data Plate (auto-fill)</button>
-      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.applyPredictivePM('${eq.id}')" title="Auto-schedule next PM based on repair patterns">🔮 Predictive PM</button>
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.scanDataPlate('${eq.id}')">${uiSvg('camera', '14px')} Scan Data Plate (auto-fill)</button>
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.applyPredictivePM('${eq.id}')" title="Auto-schedule next PM based on repair patterns">${uiSvg('crystal', '14px')} Predictive PM</button>
     </div>
 
     <!-- Family section gets injected here by renderFamilySection() -->
@@ -799,30 +858,30 @@ function renderTimeline(eq, maint, pending) {
       <div class="eq-timeline-item eq-timeline-pending" data-pending-id="${p.id}">
         <div class="eq-timeline-date">
           ${new Date(p.service_date).toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'})}
-          <div class="eq-timeline-pending-badge">⏳ PENDING REVIEW</div>
+          <div class="eq-timeline-pending-badge">${uiSvg('hourglass', '11px')} PENDING REVIEW</div>
         </div>
         <div class="eq-timeline-body">
           <div class="eq-timeline-type eq-type-${p.service_type || 'pm'}">${(p.service_type || 'service').toUpperCase()}</div>
           <div class="eq-timeline-desc">${esc(p.work_performed || '')}</div>
-          <div class="eq-timeline-who">👤 ${esc(p.contractor_name || 'Anonymous')}${p.contractor_company ? ' · ' + esc(p.contractor_company) : ''}</div>
+          <div class="eq-timeline-who">${uiSvg('user', '12px')} ${esc(p.contractor_name || 'Anonymous')}${p.contractor_company ? ' · ' + esc(p.contractor_company) : ''}</div>
           ${p.contractor_phone ? `<div class="eq-timeline-detail"><b>Phone:</b> ${esc(p.contractor_phone)}</div>` : ''}
-          ${p.cost_amount ? `<div class="eq-timeline-cost">💰 $${parseFloat(p.cost_amount).toLocaleString()}</div>` : ''}
+          ${p.cost_amount ? `<div class="eq-timeline-cost">${uiSvg('dollar', '12px')} $${parseFloat(p.cost_amount).toLocaleString()}</div>` : ''}
           ${p.parts_replaced ? `<div class="eq-timeline-detail"><b>Parts:</b> ${esc(p.parts_replaced)}</div>` : ''}
           ${p.next_service_date ? `<div class="eq-timeline-detail"><b>Next service:</b> ${esc(p.next_service_date)}</div>` : ''}
           ${photos.length ? `
             <div class="eq-timeline-photos">
-              ${photos.map(u => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" class="eq-timeline-photo"></a>`).join('')}
+              ${photos.map(u => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" class="eq-timeline-photo" onerror="this.style.display='none'"></a>`).join('')}
             </div>
           ` : ''}
-          ${p.pdf_url ? `<div class="eq-timeline-detail"><a href="${esc(p.pdf_url)}" target="_blank">📄 View PDF invoice</a></div>` : ''}
+          ${p.pdf_url ? `<div class="eq-timeline-detail"><a href="${esc(p.pdf_url)}" target="_blank">${uiSvg('document', '12px')} View PDF invoice</a></div>` : ''}
           ${p.signature_data ? `<img src="${esc(p.signature_data)}" class="eq-timeline-signature">` : ''}
-          ${p.flagged_spam ? '<div class="eq-timeline-spam-flag">⚠ Honeypot tripped — likely spam</div>' : ''}
+          ${p.flagged_spam ? `<div class="eq-timeline-spam-flag">${uiSvg('alert', '12px')} Honeypot tripped — likely spam</div>` : ''}
           <div class="eq-timeline-submitted-at">Submitted ${new Date(p.submitted_at || p.created_at).toLocaleString()}</div>
           ${isAdmin ? `
             <div class="eq-timeline-review-actions">
-              <button class="eq-btn eq-btn-approve" onclick="NX.modules.equipment.approvePmLog('${p.id}', '${eq.id}')">✓ Approve</button>
-              <button class="eq-btn eq-btn-reject"  onclick="NX.modules.equipment.rejectPmLog('${p.id}', '${eq.id}')">✕ Reject</button>
-              ${p.flagged_spam ? '' : `<button class="eq-btn eq-btn-spam" onclick="NX.modules.equipment.markPmSpam('${p.id}', '${eq.id}')">🚫 Spam</button>`}
+              <button class="eq-btn eq-btn-approve" onclick="NX.modules.equipment.approvePmLog('${p.id}', '${eq.id}')">${uiSvg('check', '12px')} Approve</button>
+              <button class="eq-btn eq-btn-reject"  onclick="NX.modules.equipment.rejectPmLog('${p.id}', '${eq.id}')">${uiSvg('close', '12px')} Reject</button>
+              ${p.flagged_spam ? '' : `<button class="eq-btn eq-btn-spam" onclick="NX.modules.equipment.markPmSpam('${p.id}', '${eq.id}')">${uiSvg('ban', '12px')} Spam</button>`}
             </div>
           ` : '<div class="eq-timeline-review-hint">Awaiting admin review.</div>'}
         </div>
@@ -836,13 +895,13 @@ function renderTimeline(eq, maint, pending) {
       <div class="eq-timeline-body">
         <div class="eq-timeline-type eq-type-${m.event_type}">${(m.event_type || 'service').toUpperCase()}</div>
         <div class="eq-timeline-desc">${esc(m.description)}</div>
-        ${m.performed_by ? `<div class="eq-timeline-who">👤 ${esc(m.performed_by)}</div>` : ''}
-        ${m.cost ? `<div class="eq-timeline-cost">💰 $${parseFloat(m.cost).toLocaleString()}</div>` : ''}
-        ${m.downtime_hours ? `<div class="eq-timeline-dt">⏱ ${m.downtime_hours}h downtime</div>` : ''}
+        ${m.performed_by ? `<div class="eq-timeline-who">${uiSvg('user', '12px')} ${esc(m.performed_by)}</div>` : ''}
+        ${m.cost ? `<div class="eq-timeline-cost">${uiSvg('dollar', '12px')} $${parseFloat(m.cost).toLocaleString()}</div>` : ''}
+        ${m.downtime_hours ? `<div class="eq-timeline-dt">${uiSvg('clock', '12px')} ${m.downtime_hours}h downtime</div>` : ''}
         ${m.symptoms ? `<div class="eq-timeline-detail"><b>Symptoms:</b> ${esc(m.symptoms)}</div>` : ''}
         ${m.root_cause ? `<div class="eq-timeline-detail"><b>Root cause:</b> ${esc(m.root_cause)}</div>` : ''}
       </div>
-      <button class="eq-timeline-del" onclick="NX.modules.equipment.deleteMaintenance('${m.id}', '${eq.id}')" title="Delete">✕</button>
+      <button class="eq-timeline-del" onclick="NX.modules.equipment.deleteMaintenance('${m.id}', '${eq.id}')" title="Delete">${uiSvg('close', '14px')}</button>
     </div>
   `).join('');
 
@@ -856,8 +915,8 @@ function renderTimeline(eq, maint, pending) {
 function renderParts(eq, parts) {
   return `
     <div class="eq-parts-head">
-      <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.extractBOMFromManual('${eq.id}')" style="margin-right:6px">✨ Extract from Manual</button>
-      <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.exportPartsCart('${eq.id}')" style="margin-right:6px">🛒 Shopping List</button>
+      <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.extractBOMFromManual('${eq.id}')" style="margin-right:6px">${uiSvg("sparkles", "13px")} Extract from Manual</button>
+      <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.exportPartsCart('${eq.id}')" style="margin-right:6px">Shopping List</button>
       <h4>Bill of Materials</h4>
       <button class="eq-btn eq-btn-small eq-btn-primary" onclick="NX.modules.equipment.addPart('${eq.id}')">+ Add Part</button>
     </div>
@@ -874,8 +933,8 @@ function renderParts(eq, parts) {
               ${p.assembly_path ? `<div class="eq-part-path">${esc(p.assembly_path)}</div>` : ''}
             </div>
             <div class="eq-part-actions">
-              <button class="eq-btn eq-btn-tiny" onclick="NX.modules.equipment.editPart('${p.id}')">✎</button>
-              <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="NX.modules.equipment.deletePart('${p.id}', '${eq.id}')">✕</button>
+              <button class="eq-btn eq-btn-tiny" onclick="NX.modules.equipment.editPart('${p.id}')">${uiSvg("pen", "13px")}</button>
+              <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="NX.modules.equipment.deletePart('${p.id}', '${eq.id}')">${uiSvg("close", "13px")}</button>
             </div>
           </div>
         `).join('')}
@@ -900,8 +959,8 @@ function renderManual(eq) {
       `}
       <div class="eq-manual-upgrade">
         <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadManual('${eq.id}')">📄 Upload PDF</button>
-          <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${eq.id}')">🌐 Find Online</button>
+          <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadManual('${eq.id}')">${uiSvg("document", "13px")} Upload PDF</button>
+          <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${eq.id}')">${uiSvg("link", "13px")} Find Online</button>
         </div>
       </div>
     </div>`;
@@ -950,7 +1009,7 @@ function openEditModal(id) {
     <div class="eq-detail-bg" onclick="NX.modules.equipment.closeEdit()"></div>
     <div class="eq-detail eq-edit">
       <div class="eq-detail-head">
-        <button class="eq-close" onclick="NX.modules.equipment.closeEdit()">✕</button>
+        <button class="eq-close" onclick="NX.modules.equipment.closeEdit()">${uiSvg("close", "16px")}</button>
         <h2>${id ? 'Edit' : 'Add'} Equipment</h2>
       </div>
       <div class="eq-detail-body">
@@ -1111,7 +1170,7 @@ function logService(equipId) {
     <div class="eq-detail-bg" onclick="NX.modules.equipment.closeService()"></div>
     <div class="eq-detail eq-edit">
       <div class="eq-detail-head">
-        <button class="eq-close" onclick="NX.modules.equipment.closeService()">✕</button>
+        <button class="eq-close" onclick="NX.modules.equipment.closeService()">${uiSvg("close", "16px")}</button>
         <h2>Log Service — ${esc(eq.name)}</h2>
       </div>
       <div class="eq-detail-body">
@@ -1270,7 +1329,7 @@ function openPartModal(part, equipId) {
     <div class="eq-detail-bg" onclick="NX.modules.equipment.closePart()"></div>
     <div class="eq-detail eq-edit">
       <div class="eq-detail-head">
-        <button class="eq-close" onclick="NX.modules.equipment.closePart()">✕</button>
+        <button class="eq-close" onclick="NX.modules.equipment.closePart()">${uiSvg("close", "16px")}</button>
         <h2>${part ? 'Edit' : 'Add'} Part</h2>
       </div>
       <div class="eq-detail-body">
@@ -1436,7 +1495,7 @@ function renderVendorsListHTML(vendors, partId) {
     <div class="eq-part-vendor${v.is_preferred ? ' is-preferred' : ''}" data-vendor-idx="${idx}">
       <div class="eq-part-vendor-main">
         <div class="eq-part-vendor-row1">
-          ${v.is_preferred ? '<span class="eq-part-vendor-star">PREFERRED</span>' : ''}
+          ${v.is_preferred ? `<span class="eq-part-vendor-star">${uiSvg('filledStar', '11px')} PREFERRED</span>` : ''}
           <span class="eq-part-vendor-name">${esc(v.name || 'Unnamed')}</span>
         </div>
         <div class="eq-part-vendor-row2">
@@ -1450,9 +1509,9 @@ function renderVendorsListHTML(vendors, partId) {
       <div class="eq-part-vendor-price">${v.price ? `$${parseFloat(v.price).toFixed(2)}` : ''}</div>
       <div class="eq-part-vendor-actions">
         ${v.url ? `<a href="${esc(v.url)}" target="_blank" rel="noopener" class="eq-part-vendor-btn order" data-action="order" data-vendor-idx="${idx}">Order</a>` : ''}
-        ${!v.is_preferred ? `<button class="eq-part-vendor-btn star-btn" data-action="prefer" data-vendor-idx="${idx}" title="Mark preferred">☆</button>` : ''}
-        <button class="eq-part-vendor-btn edit-btn" data-action="edit" data-vendor-idx="${idx}" title="Edit">✎</button>
-        <button class="eq-part-vendor-btn remove-btn" data-action="remove" data-vendor-idx="${idx}" title="Remove">✕</button>
+        ${!v.is_preferred ? `<button class="eq-part-vendor-btn star-btn" data-action="prefer" data-vendor-idx="${idx}" title="Mark preferred" aria-label="Mark preferred">${uiSvg('star', '14px')}</button>` : ''}
+        <button class="eq-part-vendor-btn edit-btn" data-action="edit" data-vendor-idx="${idx}" title="Edit" aria-label="Edit">${uiSvg('pen', '14px')}</button>
+        <button class="eq-part-vendor-btn remove-btn" data-action="remove" data-vendor-idx="${idx}" title="Remove" aria-label="Remove">${uiSvg('close', '14px')}</button>
       </div>
     </div>
   `).join('');
@@ -1543,7 +1602,7 @@ function openVendorEditor(existing, onSave) {
     <div class="eq-vendor-card">
       <div class="eq-vendor-header">
         <div class="eq-vendor-title">${existing ? 'Edit Vendor' : 'Add Vendor'}</div>
-        <button class="eq-vendor-close">✕</button>
+        <button class="eq-vendor-close">${uiSvg("close", "13px")}</button>
       </div>
       <div class="eq-vendor-body">
         <label class="eq-vendor-label">Vendor Name</label>
@@ -1637,7 +1696,7 @@ function enhanceManualPanel(panel, equipId) {
       <div class="eq-manual-card-loading">Loading preview…</div>
     </div>
     <div class="eq-manual-card-info">
-      <div class="eq-manual-card-icon">📄</div>
+      <div class="eq-manual-card-icon">${uiSvg("document", "32px")}</div>
       <div class="eq-manual-card-meta">
         <div class="eq-manual-card-name">${esc(fileName)}</div>
         <div class="eq-manual-card-pages" id="eqManualPages">PDF Document</div>
@@ -1665,7 +1724,7 @@ function enhanceManualPanel(panel, equipId) {
 
 async function renderPdfThumbnail(url, thumbContainer, pagesEl) {
   if (!window.pdfjsLib) {
-    thumbContainer.innerHTML = '<div class="eq-manual-card-thumb-fallback">📄</div>';
+    thumbContainer.innerHTML = `<div class=\"eq-manual-card-thumb-fallback\">${uiSvg('document','32px')}</div>`;
     return;
   }
   try {
@@ -1690,7 +1749,7 @@ async function renderPdfThumbnail(url, thumbContainer, pagesEl) {
     thumbContainer.appendChild(canvas);
   } catch (err) {
     console.warn('[manual] PDF thumbnail failed:', err);
-    thumbContainer.innerHTML = '<div class="eq-manual-card-thumb-fallback">📄</div>';
+    thumbContainer.innerHTML = `<div class=\"eq-manual-card-thumb-fallback\">${uiSvg('document','32px')}</div>`;
   }
 }
 
@@ -1819,8 +1878,8 @@ function openPrepopulatedAddModal(data, dataPlateUrl) {
     <div class="eq-detail-bg" onclick="document.getElementById('eqPrepopModal').classList.remove('active')"></div>
     <div class="eq-detail eq-edit">
       <div class="eq-detail-head">
-        <button class="eq-close" onclick="document.getElementById('eqPrepopModal').classList.remove('active')">✕</button>
-        <h2>✨ Scanned — Confirm Details</h2>
+        <button class="eq-close" onclick="document.getElementById('eqPrepopModal').classList.remove('active')">${uiSvg("close", "16px")}</button>
+        <h2>${uiSvg("sparkles", "16px")} Scanned — Confirm Details</h2>
       </div>
       <div class="eq-detail-body">
         ${dataPlateUrl ? `<img src="${dataPlateUrl}" class="eq-detail-photo" style="max-height:150px">` : ''}
@@ -2093,16 +2152,16 @@ async function renderIntelligenceTab(equipId) {
 
   let html = '<div class="eq-ai-panel">';
 
-  html += '<div class="eq-ai-card"><h4>🔮 Failure Pattern Analysis</h4>';
+  html += `<div class="eq-ai-card"><h4>${uiSvg('crystal', '14px')} Failure Pattern Analysis</h4>`;
   if (pattern.hasPattern) {
     const color = pattern.alertLevel === 'urgent' ? 'var(--red)' : pattern.alertLevel === 'warning' ? 'var(--amber)' : 'var(--green)';
     html += `
       <div class="eq-ai-alert" style="border-color:${color}">
         <div class="eq-ai-big" style="color:${color}">
           ${pattern.daysUntilPredicted < 0
-            ? `⚠ Overdue by ${-pattern.daysUntilPredicted} days`
+            ? `${uiSvg('alert', '14px')} Overdue by ${-pattern.daysUntilPredicted} days`
             : pattern.daysUntilPredicted <= 14
-            ? `⚠ Service needed in ~${pattern.daysUntilPredicted} days`
+            ? `${uiSvg('alert', '14px')} Service needed in ~${pattern.daysUntilPredicted} days`
             : `${pattern.daysUntilPredicted} days until predicted service`}
         </div>
         <div class="eq-ai-detail">
@@ -2117,11 +2176,11 @@ async function renderIntelligenceTab(equipId) {
   }
   html += '</div>';
 
-  html += '<div class="eq-ai-card"><h4>💰 Cost Intelligence</h4>';
+  html += `<div class="eq-ai-card"><h4>${uiSvg('dollar', '14px')} Cost Intelligence</h4>`;
   if (costAnalysis.recommendation === 'replace') {
     html += `
       <div class="eq-ai-alert" style="border-color:var(--red)">
-        <div class="eq-ai-big" style="color:var(--red)">🔄 Consider Replacement</div>
+        <div class="eq-ai-big" style="color:var(--red)">${uiSvg('refresh', '14px')} Consider Replacement</div>
         <div class="eq-ai-detail">
           Total repairs last 12mo: <b>$${costAnalysis.yearlyCost.toLocaleString()}</b><br>
           ${costAnalysis.projectedNextYear ? `Projected next year: <b>$${costAnalysis.projectedNextYear.toLocaleString()}</b><br>` : ''}
@@ -2132,7 +2191,7 @@ async function renderIntelligenceTab(equipId) {
   } else if (costAnalysis.recommendation === 'monitor') {
     html += `
       <div class="eq-ai-alert" style="border-color:var(--amber)">
-        <div class="eq-ai-big" style="color:var(--amber)">⚠ Monitor Costs</div>
+        <div class="eq-ai-big" style="color:var(--amber)">${uiSvg('alert', '14px')} Monitor Costs</div>
         <div class="eq-ai-detail">
           YTD repair cost: <b>$${costAnalysis.yearlyCost.toLocaleString()}</b><br>
           <i>${costAnalysis.reasoning}</i>
@@ -2149,9 +2208,9 @@ async function renderIntelligenceTab(equipId) {
 
   html += `
     <div class="eq-ai-actions">
-      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.scanDataPlate('${equipId}')">📷 Re-scan Data Plate</button>
-      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${equipId}')">🌐 Find Manual Online</button>
-      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.uploadManual('${equipId}')">📄 Upload Manual PDF</button>
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.scanDataPlate('${equipId}')">${uiSvg("camera", "13px")} Re-scan Data Plate</button>
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${equipId}')">${uiSvg("link", "13px")} Find Manual Online</button>
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.uploadManual('${equipId}')">${uiSvg("document", "13px")} Upload Manual PDF</button>
     </div>
   `;
   html += '</div>';
@@ -2212,7 +2271,7 @@ async function extractBOMFromManual(equipId) {
     <div class="eq-extract-bg"></div>
     <div class="eq-extract-card">
       <div class="eq-extract-header">
-        <div class="eq-extract-title">✨ Extracting Parts from Manual</div>
+        <div class="eq-extract-title">${uiSvg("sparkles", "16px")} Extracting Parts from Manual</div>
       </div>
       <div class="eq-extract-body" id="eqExtractBody">
         <div class="eq-extract-step" id="eqExtractStep">Starting…</div>
@@ -2231,7 +2290,7 @@ async function extractBOMFromManual(equipId) {
   const showError = (msg) => {
     modal.querySelector('#eqExtractBody').innerHTML = `
       <div class="eq-extract-error">
-        <div class="eq-extract-error-icon">⚠</div>
+        <div class="eq-extract-error-icon">${uiSvg("alert", "32px")}</div>
         <div class="eq-extract-error-msg">${esc(msg)}</div>
       </div>`;
     modal.querySelector('#eqExtractCancel').textContent = 'Close';
@@ -2334,7 +2393,7 @@ If no parts are found, return [].` }
 function showExtractionConfirmation(modal, equipId, parts) {
   modal.querySelector('#eqExtractBody').innerHTML = `
     <div class="eq-extract-success">
-      <div class="eq-extract-success-icon">✓</div>
+      <div class="eq-extract-success-icon">${uiSvg("check", "32px")}</div>
       <div class="eq-extract-success-count">Found ${parts.length} part${parts.length === 1 ? '' : 's'}</div>
     </div>
     <div class="eq-extract-parts-list">
@@ -2471,8 +2530,8 @@ function showBOMConfirmation(equipId, parts) {
     <div class="eq-detail-bg" onclick="this.parentElement.remove()"></div>
     <div class="eq-detail eq-edit">
       <div class="eq-detail-head">
-        <button class="eq-close" onclick="this.closest('.eq-modal').remove()">✕</button>
-        <h2>✨ Extracted ${parts.length} Parts</h2>
+        <button class="eq-close" onclick="this.closest('.eq-modal').remove()">${uiSvg("close", "16px")}</button>
+        <h2>${uiSvg("sparkles", "16px")} Extracted ${parts.length} Parts</h2>
       </div>
       <div class="eq-detail-body">
         <p>Review and deselect any parts you don't want to add:</p>
@@ -2553,8 +2612,8 @@ async function exportPartsCart(equipId) {
     <div class="eq-detail-bg" onclick="this.parentElement.remove()"></div>
     <div class="eq-detail eq-edit">
       <div class="eq-detail-head">
-        <button class="eq-close" onclick="this.closest('.eq-modal').remove()">✕</button>
-        <h2>🛒 Parts Shopping List</h2>
+        <button class="eq-close" onclick="this.closest('.eq-modal').remove()">${uiSvg("close", "16px")}</button>
+        <h2>Parts Shopping List</h2>
       </div>
       <div class="eq-detail-body">
         <p>Click each link to open the part on Parts Town. Each opens in a new tab so you can build your cart there.</p>
@@ -2611,29 +2670,29 @@ function openAICreator() {
     <div class="eq-detail-bg" onclick="document.getElementById('eqAICreatorModal').classList.remove('active')"></div>
     <div class="eq-detail eq-edit">
       <div class="eq-detail-head">
-        <button class="eq-close" onclick="document.getElementById('eqAICreatorModal').classList.remove('active')">✕</button>
-        <h2>✨ AI Create Equipment</h2>
+        <button class="eq-close" onclick="document.getElementById('eqAICreatorModal').classList.remove('active')">${uiSvg('close', '16px')}</button>
+        <h2>${uiSvg("sparkles", "16px")} AI Create Equipment</h2>
       </div>
       <div class="eq-detail-body">
         <div class="eq-ai-intro">Let AI handle the data entry. Pick your method:</div>
         <div class="eq-ai-methods">
           <button class="eq-ai-method" data-method="describe">
-            <div class="eq-ai-method-icon">💬</div>
+            <div class="eq-ai-method-icon">${uiSvg('message', '28px')}</div>
             <div class="eq-ai-method-title">Describe It</div>
             <div class="eq-ai-method-desc">Type or paste details in natural language. AI extracts everything and auto-links contractors, parts, locations.</div>
           </button>
           <button class="eq-ai-method" data-method="photo">
-            <div class="eq-ai-method-icon">📸</div>
+            <div class="eq-ai-method-icon">${uiSvg('camera', '28px')}</div>
             <div class="eq-ai-method-title">Photo of Unit</div>
             <div class="eq-ai-method-desc">Take a picture of the equipment. AI identifies make/model from visible details.</div>
           </button>
           <button class="eq-ai-method" data-method="bulk">
-            <div class="eq-ai-method-icon">🏢</div>
+            <div class="eq-ai-method-icon">${uiSvg('building', '28px')}</div>
             <div class="eq-ai-method-title">Scan Whole Room</div>
             <div class="eq-ai-method-desc">Take a photo of your kitchen or bar. AI identifies every piece it sees and adds all of them at once.</div>
           </button>
           <button class="eq-ai-method" data-method="dataplate">
-            <div class="eq-ai-method-icon">🔖</div>
+            <div class="eq-ai-method-icon">${uiSvg('qr', '28px')}</div>
             <div class="eq-ai-method-title">Scan Data Plate</div>
             <div class="eq-ai-method-desc">Photograph the metal/plastic data plate. AI extracts exact model/serial/specs.</div>
           </button>
@@ -2668,8 +2727,8 @@ function openDescribeDialog() {
     <div class="eq-detail-bg" onclick="document.getElementById('eqDescribeModal').classList.remove('active')"></div>
     <div class="eq-detail eq-edit">
       <div class="eq-detail-head">
-        <button class="eq-close" onclick="document.getElementById('eqDescribeModal').classList.remove('active')">✕</button>
-        <h2>💬 Describe Equipment</h2>
+        <button class="eq-close" onclick="document.getElementById('eqDescribeModal').classList.remove('active')">${uiSvg('close', '16px')}</button>
+        <h2>${uiSvg('message', '18px')} Describe Equipment</h2>
       </div>
       <div class="eq-detail-body">
         <div class="eq-ai-intro">
@@ -2677,9 +2736,9 @@ function openDescribeDialog() {
         </div>
         <div class="eq-ai-examples">
           <div class="eq-ai-examples-title">Examples:</div>
-          <div class="eq-ai-example" data-fill="Hoshizaki KM-320MAH ice machine at Suerte kitchen, installed March 2023, serial 240317001, Tyler from Austin Air & Ice services it quarterly">📝 Single equipment with contractor</div>
-          <div class="eq-ai-example" data-fill="Walk-in cooler at Este, True Manufacturing T-49, bought 2022, warranty until 2027, uses condenser fan 800-5016 and evaporator coil 800-1402. Last serviced by Juan in January">📝 Equipment with parts and history</div>
-          <div class="eq-ai-example" data-fill="Vulcan 6-burner range at Bar Toti, gas, natural gas hookup, bought used in 2021. Has pilot issues every few months">📝 Minimal info with issues</div>
+          <div class="eq-ai-example" data-fill="Hoshizaki KM-320MAH ice machine at Suerte kitchen, installed March 2023, serial 240317001, Tyler from Austin Air & Ice services it quarterly">Single equipment with contractor</div>
+          <div class="eq-ai-example" data-fill="Walk-in cooler at Este, True Manufacturing T-49, bought 2022, warranty until 2027, uses condenser fan 800-5016 and evaporator coil 800-1402. Last serviced by Juan in January">Equipment with parts and history</div>
+          <div class="eq-ai-example" data-fill="Vulcan 6-burner range at Bar Toti, gas, natural gas hookup, bought used in 2021. Has pilot issues every few months">Minimal info with issues</div>
         </div>
         <div class="eq-form-group">
           <label>Description (as much or little as you want)</label>
@@ -2687,7 +2746,7 @@ function openDescribeDialog() {
         </div>
         <div class="eq-form-actions">
           <button class="eq-btn eq-btn-secondary" onclick="document.getElementById('eqDescribeModal').classList.remove('active')">Cancel</button>
-          <button class="eq-btn eq-btn-primary" id="eqDescribeGo">✨ Create with AI</button>
+          <button class="eq-btn eq-btn-primary" id="eqDescribeGo">${uiSvg("sparkles", "13px")} Create with AI</button>
         </div>
       </div>
     </div>
@@ -2706,7 +2765,7 @@ function openDescribeDialog() {
     if (!text) return;
     const btn = document.getElementById('eqDescribeGo');
     btn.disabled = true;
-    btn.textContent = '✨ Thinking…';
+    btn.innerHTML = uiSvg('sparkles','13px') + ' Thinking…';
     try {
       await createFromDescription(text);
       modal.classList.remove('active');
@@ -2714,7 +2773,7 @@ function openDescribeDialog() {
       console.error('[AI-Create] Describe failed:', err);
       NX.toast && NX.toast('Creation failed: ' + err.message, 'error', 6000);
       btn.disabled = false;
-      btn.textContent = '✨ Create with AI';
+      btn.innerHTML = uiSvg('sparkles','13px') + ' Create with AI';
     }
   });
 }
@@ -2899,9 +2958,9 @@ function askLocation() {
         <div class="eq-detail-head"><h2>Which location?</h2></div>
         <div class="eq-detail-body">
           <div class="eq-loc-picker">
-            <button class="eq-loc-btn" data-loc="Suerte">🌴 Suerte</button>
-            <button class="eq-loc-btn" data-loc="Este">🐟 Este</button>
-            <button class="eq-loc-btn" data-loc="Bar Toti">🥃 Bar Toti</button>
+            <button class="eq-loc-btn" data-loc="Suerte">Suerte</button>
+            <button class="eq-loc-btn" data-loc="Este">Este</button>
+            <button class="eq-loc-btn" data-loc="Bar Toti">Bar Toti</button>
           </div>
         </div>
       </div>
@@ -2930,8 +2989,8 @@ function showCreationConfirmation(parsed, context, source = 'describe') {
     <div class="eq-detail-bg" onclick="document.getElementById('eqConfirmModal').classList.remove('active')"></div>
     <div class="eq-detail">
       <div class="eq-detail-head">
-        <button class="eq-close" onclick="document.getElementById('eqConfirmModal').classList.remove('active')">✕</button>
-        <h2>✨ AI Found ${equipList.length} ${multi ? 'Pieces' : 'Piece'}</h2>
+        <button class="eq-close" onclick="document.getElementById('eqConfirmModal').classList.remove('active')">${uiSvg("close", "16px")}</button>
+        <h2>${uiSvg("sparkles","16px")} AI Found ${equipList.length} ${multi ? 'Pieces' : 'Piece'}</h2>
       </div>
       <div class="eq-detail-body">
         ${parsed.interpretation_notes || parsed.scene_description ? `
@@ -2987,32 +3046,32 @@ function showCreationConfirmation(parsed, context, source = 'describe') {
               </div>
               ${eq.linked_contractors?.length || eq.linked_people?.length ? `
                 <div class="eq-confirm-links">
-                  <div class="eq-confirm-links-label">🔗 Will link to:</div>
+                  <div class="eq-confirm-links-label">${uiSvg("link", "13px")} Will link to:</div>
                   ${(eq.linked_contractors || []).map(name => {
                     const existing = context.contractors.find(c => c.name.toLowerCase() === name.toLowerCase());
                     return `<span class="eq-link-chip ${existing?'eq-link-existing':'eq-link-new'}">
-                      ${existing ? '✓' : '+'} ${esc(name)} ${existing ? '' : '(new)'}
+                      ${existing ? uiSvg('check', '11px') : '+'} ${esc(name)} ${existing ? '' : '(new)'}
                     </span>`;
                   }).join('')}
                   ${(eq.linked_people || []).map(name => {
                     const existing = context.people.find(p => p.name.toLowerCase() === name.toLowerCase());
                     return `<span class="eq-link-chip ${existing?'eq-link-existing':'eq-link-new'}">
-                      ${existing ? '✓' : '+'} ${esc(name)} ${existing ? '' : '(new)'}
+                      ${existing ? uiSvg('check', '11px') : '+'} ${esc(name)} ${existing ? '' : '(new)'}
                     </span>`;
                   }).join('')}
                 </div>
               ` : ''}
               ${eq.linked_parts?.length || eq.mentioned_parts_new?.length ? `
                 <div class="eq-confirm-links">
-                  <div class="eq-confirm-links-label">🔧 Parts:</div>
-                  ${(eq.linked_parts || []).map(name => `<span class="eq-link-chip eq-link-existing">✓ ${esc(name)}</span>`).join('')}
+                  <div class="eq-confirm-links-label">${uiSvg("wrench", "13px")} Parts:</div>
+                  ${(eq.linked_parts || []).map(name => `<span class="eq-link-chip eq-link-existing">${uiSvg("check","11px")} ${esc(name)}</span>`).join('')}
                   ${(eq.mentioned_parts_new || []).map(p => `<span class="eq-link-chip eq-link-new">+ ${esc(p.name)} ${p.oem_part_number ? '('+esc(p.oem_part_number)+')' : ''}</span>`).join('')}
                 </div>
               ` : ''}
-              ${eq.notes ? `<div class="eq-confirm-notes">📝 ${esc(eq.notes)}</div>` : ''}
+              ${eq.notes ? `<div class="eq-confirm-notes">${uiSvg("note","12px")} ${esc(eq.notes)}</div>` : ''}
               ${eq.mentioned_issues?.length ? `
                 <div class="eq-confirm-issues">
-                  ⚠ Issues mentioned — ticket will be created:
+                  ${uiSvg("alert", "13px")} Issues mentioned — ticket will be created:
                   ${eq.mentioned_issues.map(i => `<div class="eq-issue">${esc(i)}</div>`).join('')}
                 </div>
               ` : ''}
@@ -3021,7 +3080,7 @@ function showCreationConfirmation(parsed, context, source = 'describe') {
         </div>
         <div class="eq-form-actions">
           <button class="eq-btn eq-btn-secondary" onclick="document.getElementById('eqConfirmModal').classList.remove('active')">Cancel</button>
-          <button class="eq-btn eq-btn-primary" id="eqConfirmCommit">✅ Create ${multi ? 'Selected' : ''}</button>
+          <button class="eq-btn eq-btn-primary" id="eqConfirmCommit">${uiSvg("check", "13px")} Create ${multi ? 'Selected' : ''}</button>
         </div>
       </div>
     </div>
@@ -3052,7 +3111,7 @@ function showCreationConfirmation(parsed, context, source = 'describe') {
       if (!checked.length) {
         NX.toast && NX.toast('Nothing selected', 'info');
         btn.disabled = false;
-        btn.textContent = '✅ Create';
+        btn.innerHTML = uiSvg('check','13px') + ' Create';
         return;
       }
 
@@ -3075,7 +3134,7 @@ function showCreationConfirmation(parsed, context, source = 'describe') {
       console.error('[AI-Create] Commit failed:', err);
       NX.toast && NX.toast('Create failed: ' + err.message, 'error', 8000);
       btn.disabled = false;
-      btn.textContent = '✅ Create';
+      btn.innerHTML = uiSvg('check','13px') + ' Create';
     }
   });
 }
@@ -4559,7 +4618,7 @@ function openZebraPrintDialog(equipmentList, preselectedSize) {
     <div class="eq-detail-bg" onclick="document.getElementById('zebraPrintModal').classList.remove('active')"></div>
     <div class="eq-detail eq-edit">
       <div class="eq-detail-head">
-        <button class="eq-close" onclick="document.getElementById('zebraPrintModal').classList.remove('active')">✕</button>
+        <button class="eq-close" onclick="document.getElementById('zebraPrintModal').classList.remove('active')">${uiSvg("close", "16px")}</button>
         <h2>Print Zebra Labels (${count})</h2>
       </div>
       <div class="eq-detail-body">
@@ -4604,7 +4663,7 @@ function openZebraPrintDialog(equipmentList, preselectedSize) {
             </select>
           </div>
           <div class="eq-form-actions">
-            <button class="eq-btn eq-btn-primary" id="zebraDownloadBtn">💾 Download ZPL File</button>
+            <button class="eq-btn eq-btn-primary" id="zebraDownloadBtn">${uiSvg("arrowDown", "14px")} Download ZPL File</button>
             <button class="eq-btn eq-btn-secondary" id="zebraCopyBtn">Copy ZPL</button>
           </div>
         </div>
@@ -4694,13 +4753,13 @@ async function checkZebraPrinter() {
     if (res.ok) {
       const data = await res.json();
       if (data.printer && data.printer.length) {
-        el.innerHTML = `<span class="eq-zebra-ok">✓ ${data.printer.length} printer${data.printer.length>1?'s':''} connected: ${data.printer.map(p=>p.name).join(', ')}</span>`;
+        el.innerHTML = `<span class="eq-zebra-ok">${uiSvg("check","13px")} ${data.printer.length} printer${data.printer.length>1?'s':''} connected: ${data.printer.map(p=>p.name).join(', ')}</span>`;
       } else {
-        el.innerHTML = '<span class="eq-zebra-warn">⚠ Browser Print running but no printer connected. Plug in your Zebra via USB.</span>';
+        el.innerHTML = `<span class="eq-zebra-warn">${uiSvg('alert','13px')} Browser Print running but no printer connected. Plug in your Zebra via USB.</span>`;
       }
     } else throw new Error('Not running');
   } catch (e) {
-    el.innerHTML = '<span class="eq-zebra-err">❌ Zebra Browser Print not running. <a href="https://www.zebra.com/us/en/software/printer-software/browser-print.html" target="_blank">Install it</a> then refresh.</span>';
+    el.innerHTML = `<span class="eq-zebra-err">${uiSvg('close','13px')} Zebra Browser Print not running. <a href="https://www.zebra.com/us/en/software/printer-software/browser-print.html" target="_blank">Install it</a> then refresh.</span>`;
   }
 }
 
@@ -4926,7 +4985,7 @@ function publicReportIssue(qrCode) {
   modal.innerHTML = `
     <div class="public-report-bg" onclick="this.parentElement.remove()"></div>
     <div class="public-report">
-      <button class="public-report-close" onclick="this.parentElement.parentElement.remove()">✕</button>
+      <button class="public-report-close" onclick="this.parentElement.parentElement.remove()">${uiSvg("close", "13px")}</button>
       <h2>Report Issue</h2>
       <form id="publicReportForm">
         <div class="public-report-field">
@@ -4980,7 +5039,7 @@ function publicReportIssue(qrCode) {
       modal.innerHTML = `
         <div class="public-report-bg" onclick="this.parentElement.remove()"></div>
         <div class="public-report public-report-success">
-          <div style="font-size:48px;margin-bottom:12px">✓</div>
+          <div style="margin-bottom:12px;color:var(--nx-gold)">${uiSvg("check","48px")}</div>
           <h2>Report Sent</h2>
           <p>Thanks! The team has been notified and will address this shortly.</p>
           <button class="public-scan-btn public-scan-btn-primary" onclick="this.parentElement.parentElement.remove()">Done</button>
@@ -5024,8 +5083,8 @@ async function openFullEditor(equipId) {
     <div class="eq-detail-bg" onclick="NX.modules.equipment.closeFullEdit()"></div>
     <div class="eq-detail eq-edit-full">
       <div class="eq-detail-head">
-        <button class="eq-close" onclick="NX.modules.equipment.closeFullEdit()">✕</button>
-        <h2>✎ Edit Everything — ${esc(eq.name)}</h2>
+        <button class="eq-close" onclick="NX.modules.equipment.closeFullEdit()">${uiSvg("close", "16px")}</button>
+        <h2>${uiSvg("pen","16px")} Edit Everything — ${esc(eq.name)}</h2>
       </div>
 
       <div class="eq-detail-tabs">
@@ -5139,7 +5198,7 @@ async function openFullEditor(equipId) {
               <div class="eq-spec-row" data-spec="${escAttr(k)}">
                 <input class="eq-spec-key" value="${escAttr(k)}">
                 <input class="eq-spec-val" value="${escAttr(String(v||''))}">
-                <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="this.parentElement.remove()">✕</button>
+                <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="this.parentElement.remove()">${uiSvg("close", "13px")}</button>
               </div>
             `).join('')}
           </div>
@@ -5158,7 +5217,7 @@ async function openFullEditor(equipId) {
                 </div>
               </div>
             ` : `
-              <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadPhoto('${equipId}', 'photo_url')">📸 Upload Photo</button>
+              <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadPhoto('${equipId}', 'photo_url')">${uiSvg("camera", "13px")} Upload Photo</button>
             `}
           </div>
           <div class="eq-photo-section">
@@ -5172,17 +5231,17 @@ async function openFullEditor(equipId) {
                 </div>
               </div>
             ` : `
-              <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadPhoto('${equipId}', 'data_plate_url')">📸 Upload Data Plate</button>
+              <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadPhoto('${equipId}', 'data_plate_url')">${uiSvg("camera","13px")} Upload Data Plate</button>
             `}
           </div>
         </div>
 
         <div class="eq-tab-panel" data-panel="attach">
           <div class="eq-attach-actions">
-            <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.addAttachment('${equipId}', 'file')">📄 Upload File</button>
-            <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.addAttachment('${equipId}', 'photo')">📸 Add Photo</button>
-            <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.addAttachment('${equipId}', 'link')">🔗 Add Link</button>
-            <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.addAttachment('${equipId}', 'note')">📝 Add Note</button>
+            <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.addAttachment('${equipId}', 'file')">${uiSvg("document","13px")} Upload File</button>
+            <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.addAttachment('${equipId}', 'photo')">${uiSvg("camera","13px")} Add Photo</button>
+            <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.addAttachment('${equipId}', 'link')">${uiSvg("link", "13px")} Add Link</button>
+            <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.addAttachment('${equipId}', 'note')">${uiSvg("note","13px")} Add Note</button>
           </div>
           <div class="eq-attach-list" id="eqAttachList">
             ${attachments.length ? attachments.map(a => renderAttachment(a)).join('') : '<div class="eq-empty-small">No attachments yet. Upload receipts, invoices, warranty cards, installation docs, videos, or anything else.</div>'}
@@ -5196,7 +5255,7 @@ async function openFullEditor(equipId) {
           
           <div class="eq-form-group eq-service-contact" style="margin-bottom:18px;padding:14px;background:var(--elevated,#15151c);border:1px solid var(--border,#2a2a33);border-radius:10px">
             <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-              📞 Service Contact
+              ${uiSvg('phone', '14px')} Service Contact
               <span style="font-weight:400;font-size:11px;color:var(--muted,#8a826f)">— Powers the "Call" button on QR scan</span>
             </label>
             <div class="eq-form-row">
@@ -5211,7 +5270,7 @@ async function openFullEditor(equipId) {
             </div>
             <div style="display:flex;gap:8px;margin-top:8px">
               <button type="button" class="eq-btn eq-btn-tiny eq-btn-secondary" onclick="NX.modules.equipment.lookupServicePhoneFromNode('${eq.id}')" style="flex:1">
-                🔍 Look up from preferred contractor
+                ${uiSvg('search', '13px')} Look up from preferred contractor
               </button>
               ${eq.service_phone ? `<a href="tel:${escAttr(eq.service_phone)}" class="eq-btn eq-btn-tiny" style="flex:0 0 auto">Test Call</a>` : ''}
             </div>
@@ -5252,7 +5311,7 @@ async function openFullEditor(equipId) {
                   <option value="boolean" ${f.field_type==='boolean'?'selected':''}>Yes/No</option>
                 </select>
                 <input class="eq-custom-val" value="${escAttr(f.field_value||'')}" placeholder="Value">
-                <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="NX.modules.equipment.deleteCustomField('${f.id}', '${equipId}')">✕</button>
+                <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="NX.modules.equipment.deleteCustomField('${f.id}', '${equipId}')">${uiSvg("close", "13px")}</button>
               </div>
             `).join('')}
           </div>
@@ -5263,7 +5322,7 @@ async function openFullEditor(equipId) {
 
       <div class="eq-detail-actions">
         <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeFullEdit()">Cancel</button>
-        <button class="eq-btn eq-btn-primary" id="eqFullSave">💾 Save All Changes</button>
+        <button class="eq-btn eq-btn-primary" id="eqFullSave">${uiSvg("check", "14px")} Save All Changes</button>
       </div>
     </div>
   `;
@@ -5287,7 +5346,7 @@ async function openFullEditor(equipId) {
     row.innerHTML = `
       <input class="eq-spec-key" placeholder="key (e.g. voltage)">
       <input class="eq-spec-val" placeholder="value (e.g. 115V)">
-      <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="this.parentElement.remove()">✕</button>
+      <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="this.parentElement.remove()">${uiSvg("close", "13px")}</button>
     `;
     list.appendChild(row);
     row.querySelector('.eq-spec-key').focus();
@@ -5307,7 +5366,7 @@ async function openFullEditor(equipId) {
         <option value="boolean">Yes/No</option>
       </select>
       <input class="eq-custom-val" placeholder="Value">
-      <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="this.parentElement.remove()">✕</button>
+      <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="this.parentElement.remove()">${uiSvg("close", "13px")}</button>
     `;
     list.appendChild(row);
     row.querySelector('.eq-custom-name').focus();
@@ -5373,7 +5432,7 @@ async function openFullEditor(equipId) {
       console.error('[FullEdit] Save failed:', err);
       NX.toast && NX.toast('Save failed: ' + err.message, 'error');
       btn.disabled = false;
-      btn.textContent = '💾 Save All Changes';
+      btn.innerHTML = uiSvg('check','13px') + ' Save All Changes';
     }
   });
 }
@@ -5410,8 +5469,8 @@ function renderAttachment(a) {
         </div>
       </div>
       <div class="eq-attach-actions">
-        <button class="eq-btn eq-btn-tiny" onclick="NX.modules.equipment.editAttachmentDesc('${a.id}')">✎</button>
-        <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="NX.modules.equipment.deleteAttachment('${a.id}')">✕</button>
+        <button class="eq-btn eq-btn-tiny" onclick="NX.modules.equipment.editAttachmentDesc('${a.id}')">${uiSvg("pen", "13px")}</button>
+        <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="NX.modules.equipment.deleteAttachment('${a.id}')">${uiSvg("close", "13px")}</button>
       </div>
     </div>
   `;
@@ -5704,7 +5763,7 @@ async function renderFamilySection(equipId) {
   section.className = 'eq-family-section';
   section.id = 'eqFamilySection';
   section.innerHTML = `
-    <h4>👪 Family</h4>
+    <h4>${uiSvg('family', '14px')} Family</h4>
     ${renderFamilyTree(family, equipId)}
     <div class="eq-family-actions">
       ${hasParent
@@ -5718,7 +5777,7 @@ async function renderFamilySection(equipId) {
 
 async function pickParent(equipId) {
   await openEquipmentPicker({
-    title: '👪 Set parent equipment',
+    title: 'Set parent equipment',
     excludeId: equipId,
     excludeDescendantsOf: equipId,
     showRelationship: true,
@@ -5742,7 +5801,7 @@ async function pickParent(equipId) {
 
 async function pickChild(equipId) {
   await openEquipmentPicker({
-    title: '👪 Add child equipment',
+    title: 'Add child equipment',
     excludeId: equipId,
     excludeAncestorsOf: equipId,
     showRelationship: true,
@@ -5841,7 +5900,7 @@ async function openEquipmentPicker(opts) {
     <div class="eq-picker">
       <div class="eq-picker-head">
         <h3>${esc(opts.title)}</h3>
-        <button class="eq-picker-close" id="eqPickerClose">✕</button>
+        <button class="eq-picker-close" id="eqPickerClose">${uiSvg("close", "13px")}</button>
       </div>
       <div class="eq-picker-search">
         <input type="text" id="eqPickerSearch" placeholder="Search equipment…" autocomplete="off">
@@ -6133,7 +6192,7 @@ async function openDispatchSheet(equipId, ticketId) {
           <div class="dispatch-context">
             <span class="ctx-tag">${catIcon(eq.category)} ${esc(eq.name)}</span>
             <span class="ctx-tag">${esc(eq.location || '')}</span>
-            ${activeTicket ? `<span class="ctx-tag">🎫 ${esc((activeTicket.title || '').slice(0, 40))}</span>` : ''}
+            ${activeTicket ? `<span class="ctx-tag">${uiSvg("ticket","11px")} ${esc((activeTicket.title || '').slice(0, 40))}</span>` : ''}
           </div>
         </div>
         <div class="dispatch-stage" id="dispatchStage">${renderStage()}</div>
@@ -6182,7 +6241,7 @@ async function openDispatchSheet(equipId, ticketId) {
           <div class="dispatch-contact-body">
             <div class="dispatch-contact-name">
               ${esc(c.name)}
-              ${isPref ? '<span class="preferred-star" title="Preferred contractor">★</span>' : ''}
+              ${isPref ? `<span class="preferred-star" title="Preferred contractor">${uiSvg('filledStar', '11px')}</span>` : ''}
             </div>
             <div class="dispatch-contact-meta">
               ${ct.phone ? esc(ct.phone) : ''}${ct.phone && ct.email ? ' · ' : ''}${ct.email ? esc(ct.email) : ''}
@@ -6190,7 +6249,7 @@ async function openDispatchSheet(equipId, ticketId) {
             </div>
           </div>
           <div class="dispatch-contact-methods">
-            ${ct.phone ? '📞' : ''}${ct.phone ? '💬' : ''}${ct.email ? '✉' : ''}
+            ${ct.phone ? uiSvg('phone', '13px') : ''}${ct.phone ? uiSvg('message', '13px') : ''}${ct.email ? uiSvg('email', '13px') : ''}
           </div>
         </div>
       `;
@@ -6208,16 +6267,16 @@ async function openDispatchSheet(equipId, ticketId) {
       </div>
       <div class="dispatch-method-row">
         <button class="dispatch-method-btn" data-method="call"     ${!ct.phone ? 'disabled' : ''}>
-          <span class="method-icon">📞</span><span>Call</span>
+          <span class="method-icon">${uiSvg('phone', '18px')}</span><span>Call</span>
         </button>
         <button class="dispatch-method-btn" data-method="sms"      ${!ct.phone ? 'disabled' : ''}>
-          <span class="method-icon">💬</span><span>SMS</span>
+          <span class="method-icon">${uiSvg('message', '18px')}</span><span>SMS</span>
         </button>
         <button class="dispatch-method-btn" data-method="whatsapp" ${!ct.phone ? 'disabled' : ''}>
-          <span class="method-icon">🟢</span><span>WhatsApp</span>
+          <span class="method-icon">${uiSvg('whatsapp', '18px')}</span><span>WhatsApp</span>
         </button>
         <button class="dispatch-method-btn" data-method="email"    ${!ct.email ? 'disabled' : ''}>
-          <span class="method-icon">✉</span><span>Email</span>
+          <span class="method-icon">${uiSvg('email', '18px')}</span><span>Email</span>
         </button>
       </div>
       ${(!ct.phone && !ct.email) ? `
@@ -6266,7 +6325,7 @@ async function openDispatchSheet(equipId, ticketId) {
     return `<div class="dispatch-actions">
       <button class="eq-btn eq-btn-secondary" id="dispatchBack">← Back</button>
       <button class="eq-btn eq-btn-primary" id="dispatchSend">
-        ${selectedMethod === 'call' ? '📞 Place Call' : '🚀 Send'}
+        ${selectedMethod === 'call' ? `${uiSvg('phone', '14px')} Place Call` : `${uiSvg('send', '14px')} Send`}
       </button>
     </div>`;
   };
@@ -6484,7 +6543,7 @@ async function refreshDispatchChips(equipId) {
   section.className = 'eq-family-section';
   section.id = 'eqDispatchRecent';
   section.innerHTML = `
-    <h4>📞 Recent Dispatches</h4>
+    <h4>${uiSvg("phone", "14px")} Recent Dispatches</h4>
     <div class="eq-dispatch-recent">
       ${recent.map(d => `
         <div class="eq-dispatch-chip" data-id="${d.id}">
@@ -6590,7 +6649,7 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
   modal.innerHTML = `
     <div class="eq-call-confirm-bg"></div>
     <div class="eq-call-confirm-card">
-      <div class="eq-call-confirm-icon">📞</div>
+      <div class="eq-call-confirm-icon">${uiSvg("phone", "32px")}</div>
       <div class="eq-call-confirm-title">Call ${esc(contactName)}?</div>
       <div class="eq-call-confirm-phone">${esc(prettyPhone)}</div>
       <div class="eq-call-confirm-meta">${esc(sourceLabel)} · ${esc(equipName)}</div>
@@ -6664,12 +6723,12 @@ function showNoServiceContactModal(equipId, equipName) {
   modal.innerHTML = `
     <div class="eq-call-confirm-bg"></div>
     <div class="eq-call-confirm-card">
-      <div class="eq-call-confirm-icon" style="filter:grayscale(0.5)">📞</div>
+      <div class="eq-call-confirm-icon" style="color:var(--nx-gold)">${uiSvg("phone","32px")}</div>
       <div class="eq-call-confirm-title">No service contact</div>
       <div class="eq-call-confirm-meta">${esc(equipName)} doesn't have a phone number on file. Add one in the editor to enable quick calling.</div>
       <div class="eq-call-confirm-actions">
         <button class="eq-btn eq-btn-secondary" id="eqCallCancel">Close</button>
-        <button class="eq-btn eq-btn-primary" id="eqCallEdit">⚙ Open Editor</button>
+        <button class="eq-btn eq-btn-primary" id="eqCallEdit">${uiSvg("settings", "14px")} Open Editor</button>
       </div>
     </div>
   `;
@@ -6789,7 +6848,7 @@ function offerCardCloseOut(cards, eq) {
   const cardCount = cards.length;
   modal.innerHTML = `
     <div class="eq-closeout-head">
-      <div class="eq-closeout-icon">✓</div>
+      <div class="eq-closeout-icon" style="color:var(--nx-gold)">${uiSvg("check","32px")}</div>
       <div>
         <h3 class="eq-closeout-title">${esc(eq?.name || 'Equipment')} is back up</h3>
         <p class="eq-closeout-sub">${cardCount} open card${cardCount === 1 ? ' is' : 's are'} linked to this equipment. Close ${cardCount === 1 ? 'it' : 'them'} out?</p>
@@ -6803,7 +6862,7 @@ function offerCardCloseOut(cards, eq) {
     <div class="eq-closeout-actions">
       <button class="eq-closeout-btn eq-closeout-btn-secondary" data-action="skip">Keep open</button>
       <button class="eq-closeout-btn eq-closeout-btn-primary" data-action="move">
-        ✓ Move ${cardCount === 1 ? 'card' : 'all ' + cardCount} to Done
+        ${uiSvg('check', '12px')} Move ${cardCount === 1 ? 'card' : 'all ' + cardCount} to Done
       </button>
     </div>
   `;
@@ -6861,7 +6920,7 @@ function openQuickStatusMenu(equipmentId, anchorBtn) {
       <button class="eq-status-menu-item ${s.key === currentKey ? 'is-current' : ''}" data-key="${s.key}">
         <span class="eq-status-menu-dot" style="background:${s.color}"></span>
         <span>${s.label}</span>
-        ${s.key === currentKey ? '<span class="eq-status-menu-check">✓</span>' : ''}
+        ${s.key === currentKey ? `<span class=\"eq-status-menu-check\">${uiSvg('check','11px')}</span>` : ''}
       </button>
     `).join('')}
   `;
@@ -6998,15 +7057,15 @@ function relLabel(type) {
 function attachmentIcon(a) {
   const isImage = (a.mime_type || '').startsWith('image/');
   const isPDF   = (a.mime_type || '').includes('pdf');
-  return a.type === 'link'     ? '🔗'
-       : a.type === 'note'     ? '📝'
-       : a.type === 'receipt'  ? '🧾'
-       : a.type === 'invoice'  ? '💰'
-       : a.type === 'warranty' ? '🛡️'
-       : a.type === 'photo'    ? '📸'
-       : isImage               ? '📸'
-       : isPDF                 ? '📄'
-       :                         '📎';
+  return a.type === 'link'     ? uiSvg('link', '13px')
+       : a.type === 'note'     ? uiSvg('note', '13px')
+       : a.type === 'receipt'  ? uiSvg('receipt', '13px')
+       : a.type === 'invoice'  ? uiSvg('dollar', '13px')
+       : a.type === 'warranty' ? uiSvg('shield', '13px')
+       : a.type === 'photo'    ? uiSvg('camera', '13px')
+       : isImage               ? uiSvg('camera', '13px')
+       : isPDF                 ? uiSvg('document', '13px')
+       :                         uiSvg('paperclip', '13px');
 }
 
 function formatBytes(b) {
@@ -7016,7 +7075,12 @@ function formatBytes(b) {
 }
 
 function methodIcon(m) {
-  return { call: '📞', sms: '💬', whatsapp: '🟢', email: '✉' }[m] || '📨';
+  return ({
+    call:     uiSvg('phone', '13px'),
+    sms:      uiSvg('message', '13px'),
+    whatsapp: uiSvg('whatsapp', '13px'),
+    email:    uiSvg('email', '13px'),
+  })[m] || uiSvg('message', '13px');
 }
 
 function timeAgo(iso) {
