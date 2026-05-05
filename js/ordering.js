@@ -533,6 +533,7 @@
   function mountEntryOverlay() {
     let el = document.querySelector('.ord-entry-overlay');
     if (el) return el;
+    syncMastheadHeight();           // re-measure right before positioning
     el = document.createElement('div');
     el.className = 'ord-entry-overlay';
     el.innerHTML = `<div class="ord-entry-loading">Loading…</div>`;
@@ -579,7 +580,7 @@
           <div class="ord-entry-vendor">${esc(vendor.name)}</div>
           <div class="ord-entry-sub">${esc(LOCS.find(l => l.id === location)?.label || location)}${readOnly ? ' · sent order' : ''}</div>
         </div>
-        <div class="ord-entry-spacer"></div>
+        ${readOnly ? '<div class="ord-entry-spacer"></div>' : `<button class="ord-entry-add" id="ordEntryAdd" aria-label="Add item to catalog">${plusIcon()}</button>`}
       </div>
       <div class="ord-entry-meta">
         <label class="ord-meta-field">
@@ -611,6 +612,8 @@
     `;
 
     overlay.querySelector('.ord-entry-close').addEventListener('click', closeEntry);
+    const addBtn = overlay.querySelector('#ordEntryAdd');
+    if (addBtn) addBtn.addEventListener('click', () => openQuickAddItem(vendor));
     overlay.querySelector('#ordDeliveryDate').addEventListener('change', e => {
       entryState.delivery_date = e.target.value;
       renderEntryItems();
@@ -1203,6 +1206,7 @@
   function mountVendorEditor() {
     let el = document.querySelector('.ord-veditor-overlay');
     if (!el) {
+      syncMastheadHeight();         // re-measure right before positioning
       el = document.createElement('div');
       el.className = 'ord-veditor-overlay';
       document.body.appendChild(el);
@@ -1640,6 +1644,124 @@
     editorState = null;
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // QUICK-ADD ITEM (from order entry)
+  // ═══════════════════════════════════════════════════════════════════
+  // When the chef is mid-order and realizes they need something not in
+  // the catalog, they can tap "+" in the entry header to add it on the
+  // fly. The item is persisted to the catalog so future orders pick it
+  // up too. Default qty in the current order is 1 — they can adjust
+  // after the modal closes.
+
+  function openQuickAddItem(vendor) {
+    if (!vendor || !entryState) return;
+
+    // Mount a modal overlay
+    const modal = document.createElement('div');
+    modal.className = 'ord-qadd-overlay';
+    modal.innerHTML = `
+      <div class="ord-qadd-backdrop"></div>
+      <div class="ord-qadd-card">
+        <div class="ord-qadd-head">
+          <div class="ord-qadd-title">Add item</div>
+          <div class="ord-qadd-sub">to ${esc(vendor.name)}</div>
+        </div>
+        <div class="ord-qadd-body">
+          <div class="ord-form-field">
+            <label class="ord-form-label" for="qaddName">Name</label>
+            <input type="text" class="ord-form-input" id="qaddName" placeholder="e.g. cilantro" autocomplete="off">
+          </div>
+          <div class="ord-form-row-2">
+            <div class="ord-form-field">
+              <label class="ord-form-label" for="qaddUnit">Unit</label>
+              <input type="text" class="ord-form-input" id="qaddUnit" value="ea" placeholder="ea / cs / lb" autocomplete="off">
+            </div>
+            <div class="ord-form-field">
+              <label class="ord-form-label" for="qaddQty">Qty for this order</label>
+              <input type="number" class="ord-form-input" id="qaddQty" value="1" min="0" step="1" inputmode="numeric">
+            </div>
+          </div>
+          <div class="ord-form-field">
+            <label class="ord-form-label" for="qaddSection">Section (optional)</label>
+            <input type="text" class="ord-form-input" id="qaddSection" placeholder="e.g. Produce" autocomplete="off">
+          </div>
+          <div class="ord-form-hint">This adds the item to <b>${esc(vendor.name)}</b>'s catalog so it's there for future orders too.</div>
+        </div>
+        <div class="ord-qadd-foot">
+          <button class="ord-veditor-cancel" id="qaddCancel">Cancel</button>
+          <button class="ord-veditor-save" id="qaddSave">Add to order</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const close = () => modal.remove();
+    modal.querySelector('.ord-qadd-backdrop').addEventListener('click', close);
+    modal.querySelector('#qaddCancel').addEventListener('click', close);
+
+    // Focus name input on open
+    setTimeout(() => modal.querySelector('#qaddName').focus(), 30);
+
+    modal.querySelector('#qaddSave').addEventListener('click', async () => {
+      const name = modal.querySelector('#qaddName').value.trim();
+      const unit = modal.querySelector('#qaddUnit').value.trim() || 'ea';
+      const sec  = modal.querySelector('#qaddSection').value.trim();
+      const qtyStr = modal.querySelector('#qaddQty').value.trim();
+      const qty = qtyStr === '' ? 1 : Math.max(0, parseFloat(qtyStr) || 0);
+      if (!name) {
+        if (NX.toast) NX.toast('Item name is required', 'warn');
+        return;
+      }
+
+      try {
+        // Determine sort_order: append to end of catalog
+        const maxSort = entryState.catalog.reduce(
+          (m, i) => Math.max(m, i.sort_order || 0), 0);
+        const { data, error } = await NX.sb.from('order_guide_items').insert({
+          vendor_id: vendor.id,
+          item_name: name,
+          unit,
+          section: sec || null,
+          sort_order: maxSort + 1,
+        }).select('*').single();
+        if (error) {
+          console.error('[ordering] quick-add insert:', error);
+          if (NX.toast) NX.toast('Failed: ' + (error.message || 'unknown'), 'error', 4000);
+          return;
+        }
+
+        // Append to in-memory catalog
+        entryState.catalog.push(data);
+        // Bump cached vendor item count
+        if (vendors._itemCounts) {
+          vendors._itemCounts[vendor.id] = (vendors._itemCounts[vendor.id] || 0) + 1;
+        }
+        // Set the qty on the new item if user specified one
+        if (qty > 0) {
+          entryState.lines[data.id] = {
+            qty,
+            unit: data.unit,
+            item_name: data.item_name,
+            vendor_sku: data.vendor_sku || null,
+          };
+          scheduleDraftSave();
+        }
+        renderEntryItems();
+        close();
+        if (NX.toast) NX.toast(`Added "${name}"`, 'info', 1200);
+
+        // Scroll the new item into view
+        setTimeout(() => {
+          const row = document.querySelector(`.ord-item-row[data-item-id="${data.id}"]`);
+          if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 60);
+      } catch (e) {
+        console.error('[ordering] quick-add threw:', e);
+        if (NX.toast) NX.toast('Failed: ' + (e.message || 'network error'), 'error', 4000);
+      }
+    });
+  }
+
   // ─── ICONS ───────────────────────────────────────────────────────
   function closeIcon() {
     return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
@@ -1670,6 +1792,7 @@
   async function init() {
     if (initialized) return;
     activeLoc = resolveLocation();
+    syncMastheadHeight();
     renderShell();
     const [vList, counts, oList] = await Promise.all([
       loadVendors(),
@@ -1683,6 +1806,38 @@
     renderRecent(recentOrders, vmap);
     renderVendors();
     initialized = true;
+  }
+
+  /**
+   * Measure the persistent masthead's actual rendered height and
+   * publish it as `--nx-mast-h` on :root. Overlays use this to sit
+   * exactly below the masthead instead of guessing at 53px (which is
+   * outdated — the persona label below the coin makes the masthead
+   * ~85-90px now). Re-measures via ResizeObserver so persona flips,
+   * orientation changes, and dynamic content all stay correct.
+   */
+  function syncMastheadHeight() {
+    const nav = document.querySelector('.nav');
+    if (!nav) return;
+    const apply = () => {
+      const h = nav.offsetHeight;
+      if (h > 0) document.documentElement.style.setProperty('--nx-mast-h', h + 'px');
+    };
+    apply();
+    if (window.ResizeObserver && !nav._ordMastObserver) {
+      const ro = new ResizeObserver(apply);
+      ro.observe(nav);
+      nav._ordMastObserver = ro;
+    }
+    window.addEventListener('orientationchange', apply);
+    // Catch the post-fonts-load layout state — the persona label below
+    // the coin can shift the masthead height once fonts settle, and
+    // any overlay opened before that fires would have used the wrong
+    // value. Idempotent.
+    if (!window._ordMastLoadHooked) {
+      window.addEventListener('load', apply);
+      window._ordMastLoadHooked = true;
+    }
   }
 
   async function show() {
