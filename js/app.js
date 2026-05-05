@@ -1439,33 +1439,10 @@ td.check{background:#F0EDE6 !important}
       return;
     }
     const file = moduleMap[view]; if (!file) return;
-    if (this.loaded[view]) {
-      const mod = this.modules[view]; if (mod && mod.show) mod.show();
-      // Clean view re-activation — also poke duties so it refreshes
-      // recent orders / sub-pane state.
-      if (view === 'clean' && this.modules.duties && this.modules.duties.show) {
-        this.modules.duties.show();
-      }
-    }
+    if (this.loaded[view]) { const mod = this.modules[view]; if (mod && mod.show) mod.show(); }
     else {
       this.loadScript(file, () => {
         this.loaded[view] = true;
-        // ── Clean / Duties chain ───────────────────────────────────────
-        // The 'clean' view is now the Duties wrapper, with two sub-panes:
-        // Cleaning (existing) and Ordering (new). duties.js is a thin
-        // orchestrator that switches panes; ordering.js renders the
-        // vendor list and order flow. Loading order matters:
-        //   cleaning.js first (above) → duties.js (tab wiring) →
-        //   ordering.js (sub-module). duties.js calls ordering.show()
-        //   once when its tab is first activated.
-        if (view === 'clean') {
-          this.loadScript('js/ordering.js', () => {
-            this.loadScript('js/duties.js', () => {
-              const mod = this.modules.duties;
-              if (mod && mod.init) mod.init();
-            });
-          });
-        }
         // For equipment, also load phase 2 + 3 extensions after base loads
         if (view === 'equipment') {
           // NOTE: equipment-p3.js, equipment-ux.js, equipment-ai-creator.js,
@@ -2039,4 +2016,26 @@ td.check{background:#F0EDE6 !important}
         const targetId = btn.dataset.copy;
         const ta = document.getElementById(targetId);
         if (!ta) return;
-       
+        const text = ta.value;
+        try {
+          await navigator.clipboard.writeText(text);
+          const orig = btn.textContent;
+          btn.textContent = '✓ Copied';
+          setTimeout(() => { btn.textContent = orig; }, 1600);
+        } catch (e) {
+          // Fallback for browsers without async clipboard
+          ta.select();
+          try { document.execCommand('copy'); btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = '⧉ Copy'; }, 1600); }
+          catch (_) { NX.toast && NX.toast('Copy failed — select manually', 'error'); }
+        }
+      });
+    });
+
+    // ─── TEST BUTTONS ─────────────────────────────────────────────
+    // Hear the pasted voice ID with this character's tuning, without
+    // saving it yet. Lets the user verify the Voice Design output
+    // sounds right before committing.
+    document.querySelectorAll('.admin-voice-test-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const charKey = btn.dataset.test;
+        const card = document.querySelector(`[data-char
