@@ -241,8 +241,8 @@
 /* ═══ NOTES / CALLOUTS inside cards ═══════════════════════════════════ */
 
 .ig-note {
-  background: rgba(107, 155, 240, 0.06) !important;
-  border-left: 3px solid var(--nx-blue, #6b9bf0) !important;
+  background: rgba(107, 122, 138, 0.06) !important;
+  border-left: 3px solid var(--nx-blue, #6b7a8a) !important;
   border-radius: var(--nx-radius-tight) !important;
   padding: 12px 14px !important;
   font-family: var(--nx-font-body) !important;
