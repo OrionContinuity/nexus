@@ -1195,3 +1195,262 @@
   padding: 12px 18px !important;
   box-shadow: var(--nx-shadow-card) !important;
 }
+
+
+/* ════════════════════════════════════════════════════════════════════
+   EQUIPMENT — editorial palette overrides
+   ────────────────────────────────────────────────────────────────────
+   The legacy equipment-fixes.css uses bright kelly greens and reds
+   (#5bba5f / #d45858 / #7fd494) for the parts-stock indicators —
+   the only place in the app that breaks the editorial palette
+   (olive-bronze + oxblood + gold). Override them here.
+   ════════════════════════════════════════════════════════════════════ */
+
+.eq-part-vendor-stock.in {
+  color: var(--nx-green, #9c8a3e) !important;       /* olive bronze */
+  background: rgba(156, 138, 62, 0.10) !important;
+}
+.eq-part-vendor-stock.in::before {
+  color: var(--nx-green, #9c8a3e) !important;
+}
+.eq-part-vendor-stock.out {
+  color: var(--nx-red, #a83e3e) !important;         /* oxblood */
+  background: rgba(168, 62, 62, 0.10) !important;
+}
+.eq-part-vendor-stock.out::before {
+  color: var(--nx-red, #a83e3e) !important;
+}
+
+/* PREFERRED tag — gold pill with leading filled-star (replaces
+   the previous solid yellow-on-cream block). Matches the rest of
+   the editorial palette. */
+.eq-part-vendor-star {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px !important;
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.10)) !important;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.30)) !important;
+  color: var(--nx-gold) !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 1px;
+  border-radius: 999px !important;
+}
+.eq-part-vendor-star svg { color: var(--nx-gold); }
+
+/* Vendor row action icons — small circular line-art buttons. The
+   legacy treatment was the raw character glyph (☆ ✎ ✕). Now they
+   render as 28×28 circles with SVG icons and a hover tint. */
+.eq-part-vendor-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px !important;
+  min-height: 30px !important;
+  padding: 0 8px !important;
+  background: transparent !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  color: var(--nx-faint) !important;
+  border-radius: 999px !important;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s !important;
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-part-vendor-btn:hover {
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold-line-2, rgba(212, 164, 78, 0.40)) !important;
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06)) !important;
+}
+.eq-part-vendor-btn.order {
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e)) !important;
+  border-color: var(--nx-gold) !important;
+  color: var(--nx-gold-on, #1c1408) !important;
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 0 16px !important;
+}
+[data-theme="light"] .eq-part-vendor-btn.order { color: #fff !important; }
+
+/* AI Create button — the gradient was over-saturated pure-gold with
+   a glow that competed with everything else on the page. Tone it
+   down to the editorial gold pill style used throughout. */
+.eq-ai-create-btn {
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e)) !important;
+  border: 1px solid var(--nx-gold) !important;
+  box-shadow: none !important;            /* kill the bright glow */
+  color: var(--nx-gold-on, #1c1408) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.2px;
+}
+[data-theme="light"] .eq-ai-create-btn { color: #fff !important; }
+
+/* Equipment header title — better gold vs default text */
+.eq-title { display: inline-flex; align-items: center; gap: 8px; }
+.eq-title-icon { color: var(--nx-gold); display: inline-flex; }
+
+/* Tab strip - AI tab gets gold icon on hover/active */
+.eq-tab[data-tab="intel"] { display: inline-flex; align-items: center; gap: 6px; }
+.eq-tab[data-tab="intel"] svg { color: var(--nx-gold); }
+
+/* Bottom action bar icons — make sure SVGs sit centered with their
+   labels, since the eq-action-icon span is a flex-inline child. */
+.eq-action-icon {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+}
+.eq-action-icon svg { display: block; }
+
+/* Operational/Status pill at top right — was bright kelly green dot.
+   The token-based --nx-green now resolves to olive bronze in dark
+   theme and a desaturated equivalent in light. */
+.eq-status-pill[data-status="operational"] .eq-status-dot,
+.eq-status-pill.operational .eq-status-dot {
+  background: var(--nx-green, #9c8a3e) !important;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--nx-green, #9c8a3e) 50%, transparent);
+}
+
+/* Equipment list filter chip row overflow — same pattern as inventory.
+   Without this the STATUS: All chip got cut off on the right edge. */
+.eq-filter-row {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  width: 100%; max-width: 100%; min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.eq-filter-row::-webkit-scrollbar { display: none; }
+
+
+
+/* ─── Equipment polish: field layout, part name wrapping, search ───
+   These are layout corrections noticed in late-stage QA.
+   ────────────────────────────────────────────────────────────── */
+
+/* Part row title — prevent the awkward 2-line wrap when the title
+   competes with OEM/qty/path metadata for horizontal space. The
+   container is flex; we give the name its own column with a flex
+   basis and let it ellipsize when truly long. */
+.eq-part-row {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%; min-width: 0;
+}
+.eq-part-row > .eq-part-info,
+.eq-part-row > .eq-part-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.eq-part-name {
+  white-space: normal;
+  word-break: break-word;
+  hyphens: auto;
+  /* For cases where the part name is one continuous unhyphenable
+     word at small viewports, allow the line height to expand
+     gracefully rather than competing with the OEM/qty pills */
+  line-height: 1.25 !important;
+}
+
+/* Search input placeholder — was --nx-faint (very dim, almost
+   invisible against --nx-bg in dark mode). Bump to --nx-muted so
+   it's legible at a glance without competing with typed text. */
+.eq-search::placeholder,
+.inventory-search input::placeholder {
+  color: var(--nx-muted, #8a826f) !important;
+  opacity: 0.85;
+}
+
+/* Equipment field grid — balance the two columns so short values
+   don't leave huge gaps. Currently field grids use 1fr 1fr; we
+   let labels size by content and values fill remaining space. */
+.eq-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px 18px;
+  align-items: start;
+}
+.eq-field {
+  min-width: 0;
+}
+.eq-field label {
+  display: block;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 1.4px !important;
+  text-transform: uppercase !important;
+  color: var(--nx-faint, #6e6555) !important;
+  margin-bottom: 4px !important;
+}
+.eq-field > div {
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 14px !important;
+  color: var(--nx-text) !important;
+  word-break: break-word;
+}
+
+/* Health score 100% — it's a numeric highlight, deserves the gold
+   accent like other key metrics. */
+.eq-fields .eq-field:has(label:contains("HEALTH")) > div { color: var(--nx-gold) !important; }
+.eq-field-value-accent { color: var(--nx-gold) !important; font-weight: 600; }
+
+/* Tab strip — the AI tab now has an SVG; ensure tabs evenly
+   distribute and don't push the content past the viewport. */
+.eq-tabs {
+  display: flex;
+  width: 100%; min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.eq-tabs::-webkit-scrollbar { display: none; }
+.eq-tab { flex: 0 0 auto; }
+
+/* Print EVERYTHING banner — gold tint, document icon visible */
+.eq-print-everything-btn {
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06)) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+}
+.eq-pe-icon, .eq-pe-arrow { color: var(--nx-gold); }
+.eq-pe-title { color: var(--nx-gold) !important; font-weight: 600; }
+
+/* Timeline icon spans — make the inline SVGs sit cleanly next to
+   their label text. */
+.eq-timeline-who, .eq-timeline-cost, .eq-timeline-dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.eq-timeline-who svg,
+.eq-timeline-cost svg,
+.eq-timeline-dt svg { color: var(--nx-faint); flex-shrink: 0; }
+.eq-timeline-cost svg { color: var(--nx-gold); }
+
+/* AI tab heading icons */
+.eq-ai-card h4 {
+  display: flex; align-items: center; gap: 8px;
+}
+.eq-ai-card h4 svg { color: var(--nx-gold); flex-shrink: 0; }
+
+/* AI Create method tile icons — center the SVG */
+.eq-ai-method-icon {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--nx-gold);
+  margin-bottom: 8px;
+}
+.eq-ai-method-icon svg { color: var(--nx-gold); }
+
+/* Family section heading icon */
+.eq-family-section h4 {
+  display: flex; align-items: center; gap: 6px;
+}
+.eq-family-section h4 svg { color: var(--nx-gold); }
+
