@@ -1053,46 +1053,27 @@ function createCardEl(card){
   // full detail modal. The single biggest "weekly grooming" speedup
   // since you can re-prioritize 30 cards without 30 modal trips.
   //
-  // Movement-aware: the timer cancels on ANY finger movement >10px,
-  // tracked at the document level. This handles a regression where
-  // dragging from the card's photo area would still fire the menu —
-  // the <img> element's native touch handling was absorbing touchmove
-  // events before they bubbled to the card. Listening at document
-  // level catches the motion regardless of which child element
-  // captured it.
+  // The card image gets pointer-events:none + draggable=false at the
+  // markup level, which makes Chrome's native image touch absorption
+  // pass through to the card. So the basic element-scoped touchmove
+  // listener below is sufficient — no document-level tracking needed.
   let pressTimer = null;
   let pressFired = false;
-  let pressStartX = 0, pressStartY = 0;
-  const onDocMove = (e) => {
-    if (!pressTimer) return;
-    const t = e.touches && e.touches[0];
-    if (!t) return;
-    const dx = Math.abs(t.clientX - pressStartX);
-    const dy = Math.abs(t.clientY - pressStartY);
-    if (dx > 10 || dy > 10) endPress();
-  };
   const startPress = (e) => {
     pressFired = false;
-    const t = e.touches && e.touches[0];
-    pressStartX = t ? t.clientX : 0;
-    pressStartY = t ? t.clientY : 0;
-    document.addEventListener('touchmove', onDocMove, { passive: true });
     pressTimer = setTimeout(() => {
       pressFired = true;
       // Vibrate confirmation if available — feels native on mobile
       try{ navigator.vibrate?.(8); }catch(_){}
       openQuickActions(card, el);
-    }, 700);  // 700ms is the standard mobile long-press threshold —
-              // long enough not to fire on accidental rests while
-              // reading or scrolling, but still distinct from a tap
+    }, 700);  // 700ms is the standard mobile long-press threshold
   };
   const endPress = () => {
     if(pressTimer){ clearTimeout(pressTimer); pressTimer = null; }
-    document.removeEventListener('touchmove', onDocMove, { passive: true });
   };
   el.addEventListener('touchstart', startPress, { passive: true });
   el.addEventListener('touchend', endPress);
-  el.addEventListener('touchmove', endPress);  // cancel on scroll (also)
+  el.addEventListener('touchmove', endPress);  // cancel on scroll
   el.addEventListener('touchcancel', endPress);
   // Right-click on desktop
   el.addEventListener('contextmenu', e => {
@@ -2162,4 +2143,25 @@ async function createCard(listId, payload){
       location: payload.location || null,
       equipment_id: payload.equipment_id || null,
       reported_by: NX.currentUser?.name || null,
-      checklist: [], comments: [], labels:
+      checklist: [], comments: [], labels: [],
+      photo_urls: [],
+      archived: false,
+    }).select().single();
+    await loadCards(); render();
+    NX.toast && NX.toast('Card created', 'success');
+    // Fire push notification — every new card = every new report = buzzes
+    // the managers/admins who need to know. Fire-and-forget.
+    if (created && NX.notifyCardCreated) NX.notifyCardCreated(created);
+    return created;
+  }catch(e){
+    console.error('[board] createCard:', e);
+    NX.toast && NX.toast('Could not create card', 'error');
+    throw e;  // let the inline composer reset its button on failure
+  }
+}
+
+async function promptNewCard(listId, prefillOrTrigger){
+  // Two callable forms:
+  //   1. promptNewCard(listId, triggerEl)  — UI path, opens inline composer
+  //   2. promptNewCard(listId, {title, ...}) — programmatic prefill, immediate insert
+  //   3. promptNewCard(listId)
