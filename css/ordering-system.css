@@ -915,23 +915,28 @@ body.ord-overlay-open .bottom-nav {
   margin: 0;                  /* override default ord-vendor-row margin */
   width: auto;                /* override default 100%-32px width */
 }
-.ord-vendor-edit {
+.ord-vendor-menu {
+  /* Subtle ⋮ overflow button — minimal so it doesn't compete with the
+     vendor name. Just ghosts in the corner; the row itself is the
+     primary tap target (opens order entry). */
   flex-shrink: 0;
-  width: 44px;
+  width: 40px;
+  align-self: stretch;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--nx-surface-1);
-  border: 1px solid var(--nx-gold-line);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 12px;
   color: var(--nx-faint);
   cursor: pointer;
   transition: color .15s, border-color .15s, background .15s;
   -webkit-tap-highlight-color: transparent;
 }
-.ord-vendor-edit:hover {
+.ord-vendor-menu:hover,
+.ord-vendor-menu:active {
   color: var(--nx-gold);
-  border-color: var(--nx-gold);
+  border-color: var(--nx-gold-line);
   background: var(--nx-gold-soft);
 }
 
@@ -1384,4 +1389,295 @@ body.ord-overlay-open .bottom-nav {
 .ord-veditor-archive-btn:hover {
   background: var(--nx-red, #a83e3e);
   color: var(--nx-bg);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   PHASE D — POLISH
+   ═══════════════════════════════════════════════════════════════════
+   • Vendor row ⋮ overflow menu (bottom sheet)
+   • Section dividers in the vendor editor
+   • Polished editor header (title + email subtitle + item-count chip)
+   • Prominent Add Item button
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Bottom-sheet menu (⋮ on vendor row) ──────────────────────── */
+
+.ord-vmenu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;                /* above masthead so menu can sit on top */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  animation: vmenuFadeIn .15s ease-out;
+}
+@keyframes vmenuFadeIn { from { opacity: 0 } to { opacity: 1 } }
+
+.ord-vmenu-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+[data-theme="light"] .ord-vmenu-backdrop {
+  background: rgba(70, 60, 40, 0.42);
+}
+
+.ord-vmenu-sheet {
+  position: relative;
+  background: var(--nx-bg);
+  border-top: 1px solid var(--nx-gold-line);
+  border-radius: 16px 16px 0 0;
+  padding: 8px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: vmenuSlideIn .22s cubic-bezier(.2, 0, .2, 1);
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.45);
+}
+[data-theme="light"] .ord-vmenu-sheet {
+  box-shadow: 0 -8px 24px rgba(60, 50, 30, 0.15);
+}
+@keyframes vmenuSlideIn {
+  from { transform: translateY(100%) }
+  to   { transform: translateY(0) }
+}
+
+.ord-vmenu-handle {
+  width: 36px;
+  height: 4px;
+  background: var(--nx-gold-line-2, var(--nx-gold-line));
+  border-radius: 2px;
+  align-self: center;
+  margin-bottom: 6px;
+}
+
+.ord-vmenu-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--nx-text);
+  text-align: center;
+  padding: 4px 8px 0;
+}
+
+.ord-vmenu-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--nx-faint);
+  text-align: center;
+  padding-bottom: 8px;
+  letter-spacing: 0.3px;
+}
+.ord-vmenu-sub-warn {
+  color: var(--nx-amber, #d4a44e);
+}
+
+.ord-vmenu-divider {
+  height: 1px;
+  background: var(--nx-gold-line);
+  margin: 4px 0 6px;
+}
+
+.ord-vmenu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 12px;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 14.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-vmenu-item > svg {
+  margin: 0;
+  flex-shrink: 0;
+  color: var(--nx-gold);
+}
+.ord-vmenu-item:hover,
+.ord-vmenu-item:active {
+  background: var(--nx-gold-soft);
+  border-color: var(--nx-gold);
+}
+.ord-vmenu-item.ord-vmenu-danger {
+  color: var(--nx-red, #c95a5a);
+}
+.ord-vmenu-item.ord-vmenu-danger > svg {
+  color: var(--nx-red, #c95a5a);
+}
+.ord-vmenu-item.ord-vmenu-danger:hover,
+.ord-vmenu-item.ord-vmenu-danger:active {
+  background: rgba(200, 70, 70, 0.12);
+  border-color: var(--nx-red, #c95a5a);
+}
+
+.ord-vmenu-cancel {
+  margin-top: 8px;
+  padding: 13px;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 12px;
+  color: var(--nx-faint);
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-vmenu-cancel:hover {
+  border-color: var(--nx-gold);
+  color: var(--nx-text);
+}
+
+/* ─── Vendor editor — section dividers ──────────────────────────── */
+
+.ved-section-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 -2px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--nx-gold);
+}
+.ved-section-divider:first-child { margin-top: 0; }
+.ved-section-divider > span {
+  flex-shrink: 0;
+}
+.ved-section-divider::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: linear-gradient(to right,
+    var(--nx-gold-line-2, var(--nx-gold-line)) 0%,
+    var(--nx-gold-line) 60%,
+    transparent 100%);
+}
+.ved-section-divider-danger {
+  color: var(--nx-red, #c95a5a);
+}
+.ved-section-divider-danger::after {
+  background: linear-gradient(to right,
+    rgba(200, 70, 70, 0.4) 0%,
+    rgba(200, 70, 70, 0.18) 60%,
+    transparent 100%);
+}
+
+/* ─── Vendor editor — header polish ─────────────────────────────── */
+
+.ord-veditor-title-block {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 4px;
+}
+.ord-veditor-title {
+  /* Override the centered alignment we set earlier — title block
+     centers everything. */
+  text-align: center;
+  padding: 0;
+  font-size: 16px;
+  font-weight: 600;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ord-veditor-subtitle {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--nx-faint);
+  letter-spacing: 0.3px;
+  width: 100%;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ord-veditor-subtitle-warn {
+  color: var(--nx-amber, #d4a44e);
+}
+
+.ord-veditor-count-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 40px;
+  background: var(--nx-gold-soft);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 10px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nx-gold);
+  line-height: 1;
+}
+.ord-veditor-count-chip > span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-top: 2px;
+  opacity: 0.85;
+}
+
+/* ─── Vendor editor — Add Item promotion ────────────────────────── */
+
+/* Bigger, more prominent "Add item" button. Full-width inside the
+   items section, gold-tinted background, plus icon + label. Replaces
+   the tiny outlined version. */
+.ord-veditor-add-item-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 16px;
+  margin: 6px 0 10px;
+  background: var(--nx-gold-soft);
+  border: 1px dashed var(--nx-gold);
+  border-radius: 12px;
+  color: var(--nx-gold);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s, transform .1s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-veditor-add-item-btn:hover {
+  background: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+  border-style: solid;
+}
+[data-theme="light"] .ord-veditor-add-item-btn:hover { color: #FAFAF6; }
+.ord-veditor-add-item-btn:active { transform: scale(0.985); }
+
+/* Reset the styling on the items-section wrapper that used to host the
+   inline header — sections now stand alone with their dividers. */
+.ord-veditor-items-section {
+  border-top: none;
+  padding-top: 0;
 }
