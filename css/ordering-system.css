@@ -326,12 +326,13 @@
 
 .ord-entry-overlay {
   position: fixed;
-  /* Sit BELOW the masthead. The persistent .nav at top:0 is ~53px tall
-     with z-index:50. Starting the overlay at top:53px and using
-     z-index:40 keeps the masthead visible above the overlay — user
-     keeps persona/time/date context. The bottom: calc(...) clears the
-     bottom-nav so our flex-end CTA isn't hidden behind it. */
-  top: 53px;
+  /* Sit BELOW the masthead. The masthead's actual height is
+     measured at runtime by ordering.js's syncMastheadHeight() and
+     published as --nx-mast-h on :root. Using var() means the persona
+     label below the coin (which makes the masthead taller than the
+     historical 53px assumption) doesn't clip the entry header. The
+     53px fallback is used only if the JS hasn't run yet. */
+  top: var(--nx-mast-h, 53px);
   left: 0;
   right: 0;
   bottom: calc(56px + env(safe-area-inset-bottom, 0px));
@@ -944,9 +945,9 @@ body.ord-overlay-open .bottom-nav {
 
 .ord-veditor-overlay {
   position: fixed;
-  /* Same positioning model as .ord-entry-overlay — masthead and bottom
-     nav stay visible (we dim the bottom-nav via body.ord-overlay-open). */
-  top: 53px;
+  /* Same positioning model as .ord-entry-overlay — sized against
+     the live masthead height via --nx-mast-h. */
+  top: var(--nx-mast-h, 53px);
   left: 0;
   right: 0;
   bottom: calc(56px + env(safe-area-inset-bottom, 0px));
@@ -1680,4 +1681,130 @@ body.ord-overlay-open .bottom-nav {
 .ord-veditor-items-section {
   border-top: none;
   padding-top: 0;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   PHASE E — MASTHEAD SYNC + QUICK-ADD ITEM
+   ═══════════════════════════════════════════════════════════════════
+   Adds:
+   • .ord-entry-add — the + button in the order entry header that opens
+     a quick-add modal so the chef can add a missing item to the
+     catalog without leaving the order they're working on.
+   • .ord-qadd-* — the modal itself (centered card, not full-screen
+     because the user is mid-order — keeps the entry visually intact
+     behind a scrim).
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Entry-header "+ Add item" button ──────────────────────────── */
+
+.ord-entry-add {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--nx-gold-soft);
+  border: 1px solid var(--nx-gold-line);
+  color: var(--nx-gold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s, transform .1s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-entry-add:hover,
+.ord-entry-add:active {
+  background: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+  border-color: var(--nx-gold);
+}
+[data-theme="light"] .ord-entry-add:hover,
+[data-theme="light"] .ord-entry-add:active { color: #FAFAF6; }
+.ord-entry-add:active { transform: scale(0.92); }
+.ord-entry-add svg {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+/* ─── Quick-add modal (centered card with scrim) ────────────────── */
+
+.ord-qadd-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;          /* above entry overlay (z=40), below bottom-sheet menu (z=80) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: vmenuFadeIn .15s ease-out;
+}
+
+.ord-qadd-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+[data-theme="light"] .ord-qadd-backdrop {
+  background: rgba(70, 60, 40, 0.45);
+}
+
+.ord-qadd-card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100vh - 100px);
+  background: var(--nx-bg);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  animation: qaddPop .22s cubic-bezier(.2, 0, .2, 1);
+}
+[data-theme="light"] .ord-qadd-card {
+  box-shadow: 0 16px 48px rgba(60, 50, 30, 0.18);
+}
+@keyframes qaddPop {
+  from { opacity: 0; transform: scale(0.94) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.ord-qadd-head {
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--nx-gold-line);
+  text-align: center;
+}
+.ord-qadd-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--nx-text);
+  letter-spacing: 0.2px;
+}
+.ord-qadd-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--nx-faint);
+  letter-spacing: 0.3px;
+  margin-top: 4px;
+}
+
+.ord-qadd-body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ord-qadd-foot {
+  display: flex;
+  gap: 10px;
+  padding: 12px 18px calc(14px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--nx-gold-line);
 }
