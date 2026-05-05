@@ -59,6 +59,29 @@ body.public-view {
   --pm-green:        var(--nx-green, #9c8a3e);
 }
 
+/* Light-theme override — when the coin is flipped to Trajan, the
+   default --nx-surface-1 is rgba(255, 253, 247, 0.65) — translucent
+   white. Stacked over the modal backdrop blur it produced a muddy
+   washed-out look, with inputs reading as bright opaque white against
+   a cream-gray modal surface (the screenshot you sent showed exactly
+   this). For light theme we need OPAQUE values so the modal reads as
+   a clean parchment sheet with inputs that blend into it. */
+html[data-theme="light"] body.public-view,
+body.public-view[data-theme="light"] {
+  --pm-bg:           #F4F1EB;                      /* opaque parchment */
+  --pm-surface:      #FAF6EC;                      /* slightly lighter than bg — the form sheet */
+  --pm-surface-2:    #F4F1EB;                      /* mass toggle = bg */
+  --pm-surface-3:    rgba(139, 105, 20, 0.06);     /* equipment highlight — gold tint */
+  --pm-border:       rgba(139, 105, 20, 0.18);
+  --pm-border-2:     rgba(139, 105, 20, 0.30);
+  --pm-gold:         #8b6914;                      /* deep gold for cream contrast */
+  --pm-gold-soft:    rgba(139, 105, 20, 0.08);
+  --pm-gold-line:    rgba(139, 105, 20, 0.20);
+  --pm-text:         #1a1408;                      /* warm near-black */
+  --pm-text-muted:   #5a4a2a;
+  --pm-text-faint:   #7a6a4a;
+}
+
 /* ─── Container & masthead ───────────────────────────────────────── */
 body.public-view {
   background: var(--nx-bg) !important;
@@ -491,7 +514,11 @@ body.public-view * { box-sizing: border-box; }
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
-[data-theme="light"] .pm-logger-bg { background: rgba(70, 50, 18, 0.4); }
+/* Light theme: a soft warm wash, not a dark veil. Was 40% warm-brown
+   which produced the muddy backdrop visible in the screenshot
+   behind the modal. 20% with the blur lets the page underneath
+   stay legible while still drawing focus to the modal. */
+[data-theme="light"] .pm-logger-bg { background: rgba(120, 95, 50, 0.18); }
 .pm-logger-card {
   position: relative;
   /* Preserve the legacy flex-column layout so children stack flush
@@ -669,8 +696,8 @@ body.public-view .pm-mass-items {
   gap: 4px;
 }
 body.public-view .pm-mass-item {
-  background: var(--nx-bg) !important;
-  border: 1px solid var(--nx-gold-line) !important;
+  background: var(--pm-bg, var(--nx-bg)) !important;
+  border: 1px solid var(--pm-border, var(--nx-gold-line)) !important;
   border-radius: 10px !important;
   padding: 10px 12px !important;
   transition: border-color .15s, background .15s !important;
@@ -749,13 +776,24 @@ body.public-view .pm-mass-empty {
 .pm-input, .pm-textarea, .pm-select {
   width: 100%;
   padding: 11px 14px !important;
-  background: var(--nx-bg) !important;
-  border: 1px solid var(--nx-gold-line) !important;
+  /* Use --pm-surface (theme-aware via token redefinition above) so
+     inputs blend with the modal sheet. Was --nx-bg which in light
+     theme resolves to opaque #F4F1EB and looked correct in dark mode
+     but the legacy CSS at higher specificity uses --pm-surface, and
+     in light theme --nx-surface-1 default was a translucent white
+     that made inputs look like bright pure-white pills against the
+     cream modal background. Switching to --pm-surface fixes both
+     themes consistently. */
+  background: var(--pm-surface) !important;
+  border: 1px solid var(--pm-border-2, var(--nx-gold-line)) !important;
   border-radius: 10px !important;
-  color: var(--nx-text) !important;
+  color: var(--pm-text, var(--nx-text)) !important;
   font-family: 'DM Sans', sans-serif !important;
   font-size: 14px !important;
   transition: border-color .15s;
+}
+.pm-input::placeholder, .pm-textarea::placeholder {
+  color: var(--pm-text-faint, var(--nx-faint)) !important;
 }
 .pm-input:focus, .pm-textarea:focus, .pm-select:focus {
   outline: none;
