@@ -73,9 +73,18 @@
   // This is called immediately, again on DOMContentLoaded, and again
   // after renderScan so nothing can possibly override it.
   function guaranteeScroll() {
-    // Add classes
+    // Add classes. `nx-ps` controls v5's own scroll/layout rules.
+    // `public-view` is the scope that public-views.css uses to override
+    // the legacy equipment-public-pm-system.css palette tokens — it
+    // makes --pm-bg, --pm-surface, etc theme-aware so the modal flips
+    // dark/light along with the rest of the page when the coin is
+    // tapped. Both classes set on both <html> and <body> for max reach.
     document.documentElement.classList.add('nx-ps');
-    if (document.body) document.body.classList.add('nx-ps');
+    document.documentElement.classList.add('public-view');
+    if (document.body) {
+      document.body.classList.add('nx-ps');
+      document.body.classList.add('public-view');
+    }
 
     // Inject stylesheet if not already present. Append to end of head.
     let style = document.getElementById('nx-ps-reset');
