@@ -64,12 +64,21 @@
   --nx-surface-press: rgba(36, 32, 28, 0.6);
   --nx-surface:       var(--nx-surface-1);  /* v1 alias */
 
-  /* ─── Color: semantic ─── */
-  --nx-red:           #d45858;
-  --nx-red-soft:      rgba(180, 80, 80, 0.12);
-  --nx-red-line:      rgba(180, 80, 80, 0.40);
-  --nx-amber:         #e8a830;
-  --nx-green:         #5bba5f;
+  /* ─── Color: semantic ─────────────────────────────────────────────
+     Editorial palette — desaturated, warm-shifted to live alongside
+     the gold accent without competing with it. The previous bright
+     kelly green (#5bba5f) and saturated red (#d45858) were carried
+     over from the v0 prototype palette; replaced with olive bronze
+     and oxblood that read naturally against the cream/charcoal
+     surfaces NEXUS uses. The :soft and :line variants stay token-
+     derived so they automatically follow when the base shifts.   */
+  --nx-red:           #a83e3e;                          /* oxblood */
+  --nx-red-soft:      rgba(168, 62, 62, 0.10);
+  --nx-red-line:      rgba(168, 62, 62, 0.35);
+  --nx-amber:         #d4a44e;                          /* same as gold — warning ≈ attention */
+  --nx-green:         #9c8a3e;                          /* olive bronze */
+  --nx-green-soft:    rgba(156, 138, 62, 0.10);
+  --nx-green-line:    rgba(156, 138, 62, 0.35);
 
   /* ─── Spacing scale ─── */
   --nx-space-1:       4px;
