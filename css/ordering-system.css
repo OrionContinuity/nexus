@@ -335,7 +335,10 @@
   top: var(--nx-mast-h, 53px);
   left: 0;
   right: 0;
-  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  /* Extends to viewport bottom because the bottom-nav is hidden via
+     body.ord-overlay-open. Safe-area padding is taken internally by
+     the CTA wrap so the Send button sits above the home indicator. */
+  bottom: 0;
   z-index: 40;
   background: var(--nx-bg);
   display: flex;
@@ -351,13 +354,14 @@
 /* Lock body scroll when overlay open */
 body.ord-overlay-open { overflow: hidden; }
 
-/* Dim the bottom-nav while in focused order-entry / editor mode. The
-   bottom-nav is at z=50 above our overlays at z=40, so we visually
-   recede it. Pointer-events stay on so the user can still navigate
-   away — drafts autosave on every change. */
+/* Hide the bottom-nav entirely during overlay mode. Previous attempts
+   used opacity:0.35 to "recede" it, but the bottom-nav has a semi-
+   transparent backdrop-filter background, and dropping its opacity
+   further made the underlying vendor-list rows visibly bleed through
+   onto the bottom-nav buttons. Hiding it cleanly avoids the bleed.
+   The user has the X close button to exit the overlay. */
 body.ord-overlay-open .bottom-nav {
-  opacity: 0.35;
-  transition: opacity .15s ease;
+  display: none;
 }
 
 .ord-entry-loading {
@@ -377,8 +381,8 @@ body.ord-overlay-open .bottom-nav {
 .ord-entry-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 12px;
+  gap: 12px;
+  padding: 14px 16px 12px;
   background: var(--nx-bg);
   border-bottom: 1px solid var(--nx-gold-line);
   flex-shrink: 0;
@@ -386,45 +390,57 @@ body.ord-overlay-open .bottom-nav {
 
 .ord-entry-close {
   flex-shrink: 0;
-  width: 40px; height: 40px;
+  width: 38px; height: 38px;
   border-radius: 50%;
-  background: transparent;
+  background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
   color: var(--nx-text);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background .15s, border-color .15s;
+  transition: background .15s, border-color .15s, color .15s, transform .1s;
   -webkit-tap-highlight-color: transparent;
 }
-.ord-entry-close:hover {
+.ord-entry-close:hover,
+.ord-entry-close:active {
   border-color: var(--nx-gold);
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06));
+  background: var(--nx-gold-soft);
+  color: var(--nx-gold);
 }
+.ord-entry-close:active { transform: scale(0.92); }
 
 .ord-entry-title {
   flex: 1 1 auto;
   min-width: 0;
+}
+.ord-entry-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
 }
 .ord-entry-vendor {
   font-family: 'Outfit', sans-serif;
   font-size: 17px;
   font-weight: 600;
   color: var(--nx-text);
+  letter-spacing: 0.1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ord-entry-sub {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 1.4px;
+  font-size: 9.5px;
+  letter-spacing: 1.5px;
   color: var(--nx-faint);
   text-transform: uppercase;
-  margin-top: 2px;
+  margin-top: 3px;
 }
-.ord-entry-spacer { width: 40px; flex-shrink: 0; }
+.ord-entry-spacer {
+  width: 38px;
+  flex-shrink: 0;
+}
 
 /* ─── Meta row (delivery date) ─────────────────────────────────── */
 
@@ -452,43 +468,66 @@ body.ord-overlay-open .bottom-nav {
 .ord-meta-field input[type="date"] {
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
-  padding: 6px 10px;
+  border-radius: 10px;
+  padding: 8px 14px;
   color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
-  font-size: 13px;
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
   -webkit-appearance: none;
   appearance: none;
+  transition: border-color .15s, background .15s;
 }
 .ord-meta-field input[type="date"]:focus {
   outline: none;
   border-color: var(--nx-gold);
+  background: var(--nx-bg);
 }
 
 /* ─── Search ───────────────────────────────────────────────────── */
 
 .ord-entry-search-wrap {
-  padding: 8px 16px;
+  position: relative;
+  padding: 10px 16px;
   background: var(--nx-bg);
   border-bottom: 1px solid var(--nx-gold-line);
   flex-shrink: 0;
 }
+.ord-entry-search-wrap::before {
+  /* Inline search-glass icon as data URI so we don't have to thread an
+     SVG into the JS for every render. Positioned absolute inside the
+     padded wrap. Color fixed mid-tone gold so it reads on both bg
+     surfaces without theme overrides. */
+  content: '';
+  position: absolute;
+  left: 28px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23857f75' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>") center/contain no-repeat;
+  pointer-events: none;
+  opacity: 0.7;
+}
 
 .ord-entry-search {
   width: 100%;
-  padding: 9px 14px;
+  padding: 10px 14px 10px 36px;     /* extra left padding for the icon */
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
   border-radius: 999px;
   color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
-  font-size: 13px;
+  font-size: 13.5px;
   -webkit-appearance: none;
   appearance: none;
+  transition: border-color .15s, background .15s;
 }
 .ord-entry-search:focus {
   outline: none;
   border-color: var(--nx-gold);
+  background: var(--nx-bg);
 }
 .ord-entry-search::placeholder { color: var(--nx-faint); }
 
@@ -506,29 +545,51 @@ body.ord-overlay-open .bottom-nav {
 }
 
 .ord-entry-section-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
   color: var(--nx-gold);
-  padding: 14px 16px 6px;
+  padding: 16px 16px 8px;
   position: sticky;
   top: 0;
   background: var(--nx-bg);
   z-index: 1;
 }
+.ord-entry-section-label::after {
+  /* Extending hairline matches the vendor-editor section dividers,
+     visually unifying the two surfaces. Fades to transparent on the
+     right so it doesn't fight the section's first item below. */
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: linear-gradient(to right,
+    var(--nx-gold-line-2, var(--nx-gold-line)) 0%,
+    var(--nx-gold-line) 60%,
+    transparent 100%);
+}
 
 .ord-item-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: 12px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--nx-gold-line);
   background: var(--nx-bg);
-  transition: background .15s;
+  transition: background .18s;
+}
+/* Last row in section sheds the bottom border to avoid double-line
+   with the next section's sticky label. */
+.ord-entry-section .ord-item-row:last-child {
+  border-bottom: none;
 }
 .ord-item-row.has-qty {
   background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06));
+  box-shadow: inset 3px 0 0 0 var(--nx-gold);
 }
 .ord-item-row.is-disabled {
   opacity: 0.45;
@@ -541,9 +602,10 @@ body.ord-overlay-open .bottom-nav {
 }
 .ord-item-name {
   font-family: 'Outfit', sans-serif;
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 500;
   color: var(--nx-text);
+  letter-spacing: 0.1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -551,8 +613,9 @@ body.ord-overlay-open .bottom-nav {
 .ord-item-meta {
   font-size: 10.5px;
   color: var(--nx-faint);
-  margin-top: 2px;
+  margin-top: 3px;
   font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.2px;
 }
 
 /* Quantity control — pill-shaped, three segments: -, input, + */
@@ -563,12 +626,17 @@ body.ord-overlay-open .bottom-nav {
   flex-shrink: 0;
   border: 1px solid var(--nx-gold-line);
   border-radius: 999px;
-  background: var(--nx-bg);
+  background: var(--nx-surface-1);
   overflow: hidden;
+  transition: border-color .15s;
+}
+.ord-item-row.has-qty .ord-qty {
+  border-color: var(--nx-gold);
+  background: var(--nx-bg);
 }
 .ord-qty-btn {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   background: transparent;
   border: none;
   color: var(--nx-text);
@@ -589,20 +657,23 @@ body.ord-overlay-open .bottom-nav {
 }
 .ord-qty-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
 .ord-qty-input {
-  width: 44px;
-  height: 32px;
+  width: 46px;
+  height: 34px;
   text-align: center;
   border: none;
   background: transparent;
   color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   -moz-appearance: textfield;
   -webkit-appearance: none;
   appearance: none;
   border-left: 1px solid var(--nx-gold-line);
   border-right: 1px solid var(--nx-gold-line);
+}
+.ord-item-row.has-qty .ord-qty-input {
+  color: var(--nx-gold);
 }
 .ord-qty-input::-webkit-outer-spin-button,
 .ord-qty-input::-webkit-inner-spin-button {
@@ -950,7 +1021,7 @@ body.ord-overlay-open .bottom-nav {
   top: var(--nx-mast-h, 53px);
   left: 0;
   right: 0;
-  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  bottom: 0;
   z-index: 40;
   background: var(--nx-bg);
   display: flex;
