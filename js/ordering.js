@@ -1190,8 +1190,10 @@
       items: [],
       editingItemId: null,
       overlay: null,
+      itemsLoading: !isNew,
     };
     mountVendorEditor();
+    renderVendorEditor();             // render immediately — no blank flash
     if (!isNew) {
       try {
         editorState.items = await loadVendorCatalog(vendor.id);
@@ -1199,8 +1201,9 @@
         console.error('[ordering] load items for editor:', e);
         editorState.items = [];
       }
+      editorState.itemsLoading = false;
+      renderVendorEditor();           // re-render with the catalog filled in
     }
-    renderVendorEditor();
   }
 
   function mountVendorEditor() {
@@ -1220,6 +1223,39 @@
     const v = editorState.vendor;
     const isNew = editorState.isNew;
     const days = Array.isArray(v.delivery_days) ? v.delivery_days : [];
+
+    // Items section is the hero. Either a card with the list + add
+    // button, or (for an empty catalog) a friendly empty-state CTA.
+    const itemsHTML = isNew
+      ? `
+        <div class="ved-section-divider"><span>Catalog</span></div>
+        <div class="ved-items-card ved-items-card-disabled">
+          <div class="ved-items-empty">
+            <div class="ved-items-empty-icon">${listIcon()}</div>
+            <div class="ved-items-empty-title">Catalog comes after</div>
+            <div class="ved-items-empty-msg">Save the vendor first, then you'll be able to add items.</div>
+          </div>
+        </div>
+      `
+      : editorState.itemsLoading
+      ? `
+        <div class="ved-section-divider"><span>Catalog</span></div>
+        <div class="ved-items-card">
+          <div class="ord-entry-loading" style="padding:32px 16px">Loading items…</div>
+        </div>
+      `
+      : `
+        <div class="ved-section-divider">
+          <span>Catalog</span>
+          <span class="ved-section-divider-count">${editorState.items.length}</span>
+        </div>
+        <div class="ved-items-card">
+          <button class="ved-add-item-primary" id="vedAddItem">${plusIcon()}<span>Add item</span></button>
+          <div class="ved-items-list" id="vedItemsList">
+            ${renderItemsList()}
+          </div>
+        </div>
+      `;
 
     editorState.overlay.innerHTML = `
       <div class="ord-veditor-head">
@@ -1242,6 +1278,8 @@
           <label class="ord-form-label" for="vedEmail">Email</label>
           <input type="email" class="ord-form-input" id="vedEmail" value="${esc(v.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
         </div>
+
+        ${itemsHTML}
 
         <div class="ved-section-divider"><span>Delivery days</span></div>
         <div class="ord-form-field">
@@ -1271,14 +1309,6 @@
         </div>
 
         ${!isNew ? `
-          <div class="ved-section-divider"><span>Catalog (${editorState.items.length})</span></div>
-          <button class="ord-veditor-add-item-btn" id="vedAddItem">${plusIcon()}<span>Add item</span></button>
-          <div class="ord-veditor-items" id="vedItemsList">
-            ${renderItemsList()}
-          </div>
-        ` : ''}
-
-        ${!isNew ? `
           <div class="ved-section-divider ved-section-divider-danger"><span>Danger zone</span></div>
           <button class="ord-veditor-archive-btn" id="vedArchive">${trashIcon()}<span>Archive vendor</span></button>
           <div class="ord-form-hint" style="text-align:center">Archived vendors are hidden from the list. Order history is preserved.</div>
@@ -1295,25 +1325,20 @@
     overlay.querySelector('.ord-veditor-close').addEventListener('click', closeVendorEditor);
     overlay.querySelector('#vedCancel').addEventListener('click', closeVendorEditor);
     overlay.querySelector('#vedSave').addEventListener('click', saveVendor);
-    // Day pills
     overlay.querySelectorAll('.ord-day-pill').forEach(btn => {
       btn.addEventListener('click', () => btn.classList.toggle('active'));
     });
-    // Archive
     const arch = overlay.querySelector('#vedArchive');
     if (arch) arch.addEventListener('click', archiveVendor);
-    // Add item
     const addItem = overlay.querySelector('#vedAddItem');
     if (addItem) addItem.addEventListener('click', () => {
       editorState.editingItemId = 'new';
       renderItemsAreaOnly();
-      // Scroll the new form into view
       setTimeout(() => {
         const form = overlay.querySelector('.ord-vitem-editing');
         if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 50);
     });
-    // Item row interactions (delegated)
     wireItemListHandlers();
   }
 
@@ -1331,13 +1356,19 @@
     const items = editorState.items;
     let html = '';
 
-    // "New item" row — only when adding
+    // "New item" form rendered at the top when adding
     if (editorState.editingItemId === 'new') {
       html += renderItemForm({ id: '__new', item_name: '', vendor_sku: '', section: '', unit: 'ea', default_par_qty: null, pars_by_day: {}, note: '' }, true);
     }
 
     if (!items.length && editorState.editingItemId !== 'new') {
-      html += `<div class="ord-empty">No items yet. Tap "Add item" to start the catalog.</div>`;
+      html += `
+        <div class="ved-items-empty">
+          <div class="ved-items-empty-icon">${listIcon()}</div>
+          <div class="ved-items-empty-title">No items yet</div>
+          <div class="ved-items-empty-msg">Tap <b>Add item</b> above to start the catalog.</div>
+        </div>
+      `;
       return html;
     }
 
@@ -1352,18 +1383,20 @@
   }
 
   function renderItemRow(item) {
+    // Build the meta line in the order: SKU · section · par. Use
+    // monospace (set in CSS) so numbers align across rows.
     const meta = [];
-    if (item.vendor_sku) meta.push(`SKU ${esc(item.vendor_sku)}`);
+    if (item.vendor_sku) meta.push(`<span class="ved-meta-sku">${esc(item.vendor_sku)}</span>`);
     if (item.section)   meta.push(esc(item.section));
     if (item.default_par_qty != null) meta.push(`par ${item.default_par_qty} ${esc(item.unit || 'ea')}`);
     return `
-      <div class="ord-vitem-row" data-item-id="${esc(item.id)}">
-        <div class="ord-vitem-main">
-          <div class="ord-vitem-name">${esc(item.item_name)}</div>
-          ${meta.length ? `<div class="ord-vitem-meta">${meta.join(' · ')}</div>` : ''}
+      <button class="ved-item-row" data-item-id="${esc(item.id)}" type="button">
+        <div class="ved-item-main">
+          <div class="ved-item-name">${esc(item.item_name)}</div>
+          ${meta.length ? `<div class="ved-item-meta">${meta.join('<span class="ved-meta-sep">·</span>')}</div>` : ''}
         </div>
-        <button class="ord-vitem-edit-btn" data-item-id="${esc(item.id)}" aria-label="Edit ${esc(item.item_name)}">${editIcon()}</button>
-      </div>
+        <div class="ved-item-chevron" aria-hidden="true">›</div>
+      </button>
     `;
   }
 
@@ -1423,19 +1456,15 @@
     const list = document.getElementById('vedItemsList');
     if (!list) return;
 
-    // Tap edit pencil → enter edit mode for that item
-    list.querySelectorAll('.ord-vitem-edit-btn').forEach(b => {
-      b.addEventListener('click', e => {
-        e.stopPropagation();
-        editorState.editingItemId = b.dataset.itemId;
-        renderItemsAreaOnly();
-      });
-    });
-    // Tap row → also enter edit (whole row tappable for accessibility)
-    list.querySelectorAll('.ord-vitem-row:not(.ord-vitem-editing)').forEach(row => {
+    // Tap row → enter edit mode
+    list.querySelectorAll('.ved-item-row').forEach(row => {
       row.addEventListener('click', () => {
         editorState.editingItemId = row.dataset.itemId;
         renderItemsAreaOnly();
+        setTimeout(() => {
+          const form = list.querySelector('.ord-vitem-editing');
+          if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 50);
       });
     });
     // Cancel
@@ -1783,6 +1812,9 @@
   }
   function dotsIcon() {
     return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/></svg>`;
+  }
+  function listIcon() {
+    return `<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg>`;
   }
 
   // ═══════════════════════════════════════════════════════════════════
