@@ -1,5 +1,24 @@
 /* NEXUS Cleaning v11 — persistent state, 8AM rollover, who-did-what tracking */
 (function(){
+
+/* ─── Inline SVG icons ────────────────────────────────────────────
+   The cleaning module shows check/uncheck state across hundreds of
+   line items per shift. Previously rendered with `✓` / `○` glyphs
+   which fall back to the user's emoji font on iOS (looks blocky)
+   and a plain Times-italic ring on Android. SVG line art renders
+   identically everywhere and inherits gold/text color via
+   currentColor — section headers can use the gold version, item
+   rows use the text version.                                    */
+const CLEAN_ICONS = {
+  check:  '<polyline points="20 6 9 17 4 12"/>',
+  circle: '<circle cx="12" cy="12" r="9"/>',
+  close:  '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  pen:    '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+};
+function csvg(key, size = '14px', stroke = '2') {
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${CLEAN_ICONS[key] || ''}</svg>`;
+}
+
 let loc='suerte';
 const stateCache={}; // Per-location state cache
 const lastDone={};
@@ -137,7 +156,7 @@ async function show(){
       const wrap=document.getElementById('cleanView');
       if(wrap)wrap.insertBefore(banner,wrap.firstChild);
     }
-    banner.innerHTML=`<span>✏ Editing report for <b>${today}</b></span><button id="cancelEditClean" class="clean-edit-cancel">✕ Cancel</button>`;
+    banner.innerHTML=`<span>${csvg("pen","13px")} Editing report for <b>${today}</b></span><button id="cancelEditClean" class="clean-edit-cancel">✕ Cancel</button>`;
     banner.style.display='flex';
     document.getElementById('cancelEditClean')?.addEventListener('click',()=>{
       NX.editingReport=null;today=getCleaningDate();
@@ -372,7 +391,7 @@ function render(){
       if(oldestDays===null||oldestDays===999){secStatus='<span class="clean-overdue">Never done</span>';needsBoard=true;}
       else if(oldestDays>freq){secStatus=`<span class="clean-overdue">OVERDUE ${oldestDays-freq}d</span>`;needsBoard=true;}
       else if(oldestDays>freq*0.8){secStatus=`<span class="clean-due-soon">Due soon · ${daysAgoText(oldestDays)}</span>`;needsBoard=true;}
-      else{secStatus=`<span class="clean-on-track">✓ ${daysAgoText(oldestDays)} · every ${freq}d</span>`;}
+      else{secStatus=`<span class="clean-on-track">${csvg("check","12px","2.25")} ${daysAgoText(oldestDays)} · every ${freq}d</span>`;}
       // If a linked card already exists, show "On board" instead of
       // "Add to board" (and the cleanup completes via that card).
       if(linkedCards[loc+'__'+sec.sec]){onBoard=true;needsBoard=false;}
@@ -381,11 +400,11 @@ function render(){
     const el=document.createElement('div');
     el.className='clean-sec'+(si>3?' collapsed':'')+(isComplete?' complete':'');
     const h=document.createElement('div');h.className='clean-sec-head';
-    h.innerHTML=`<span class="clean-sec-check">${isComplete?'✓':'○'}</span><span class="clean-sec-arrow">▼</span><span class="clean-sec-title">${sec.sec}</span>${secStatus}<span class="clean-sec-count">${sectionDone}/${sec.items.length}</span>`;
+    h.innerHTML=`<span class="clean-sec-check">${isComplete?csvg('check','13px','2.25'):csvg('circle','13px','1.75')}</span><span class="clean-sec-arrow">▼</span><span class="clean-sec-title">${sec.sec}</span>${secStatus}<span class="clean-sec-count">${sectionDone}/${sec.items.length}</span>`;
 
     // Check All button
     const caBtn=document.createElement('button');caBtn.className='clean-check-all';
-    caBtn.textContent=isComplete?'Undo':'All ✓';
+    caBtn.innerHTML=isComplete?'Undo':('All '+csvg('check','12px','2.25'));
     caBtn.addEventListener('click',async(e)=>{
       e.stopPropagation();const newState=!isComplete;
       sec.items.forEach((_,i)=>{
@@ -445,10 +464,10 @@ function render(){
         if(hist){const daysAgo=daysBetween(hist.date,today);lastInfo=`<div class="ci-last">Last: ${daysAgoText(daysAgo)}</div>`;}
         else{lastInfo='<div class="ci-last ci-never">Never done</div>';}
       }
-      it.innerHTML=`<div class="ci-box">${d?'✓':''}</div><div><div class="ci-primary">${lang==='es'?item[0]:item[1]}</div><div class="ci-secondary">${lang==='es'?item[1]:item[0]}</div>${lastInfo}</div>`;
+      it.innerHTML=`<div class=\"ci-box\">${d?csvg('check','12px','2.25'):''}</div><div><div class="ci-primary">${lang==='es'?item[0]:item[1]}</div><div class="ci-secondary">${lang==='es'?item[1]:item[0]}</div>${lastInfo}</div>`;
       // Delete button for custom tasks
       if(item[2]){
-        const del=document.createElement('button');del.className='clean-item-del';del.textContent='✕';
+        const del=document.createElement('button');del.className='clean-item-del';del.innerHTML=csvg('close','12px','2');
         del.addEventListener('click',(e)=>{
           e.stopPropagation();
           const ct=getCustomTasks();
@@ -548,8 +567,8 @@ function renderExtras(list){
 
   extras.forEach((ex,i)=>{
     const it=document.createElement('div');it.className='clean-item done clean-item-custom';
-    it.innerHTML=`<div class="ci-box" style="color:#39ff14">✓</div><div><div class="ci-primary">${NX.i18n&&NX.i18n.getLang()==='es'?ex.es:ex.en}</div><div class="ci-secondary">${NX.i18n&&NX.i18n.getLang()==='es'?ex.en:ex.es}</div><div class="ci-last">${ex.time||''}</div></div>`;
-    const del=document.createElement('button');del.className='clean-item-del';del.textContent='✕';
+    it.innerHTML=`<div class=\"ci-box\">${csvg('check','12px','2.25')}</div><div><div class="ci-primary">${NX.i18n&&NX.i18n.getLang()==='es'?ex.es:ex.en}</div><div class="ci-secondary">${NX.i18n&&NX.i18n.getLang()==='es'?ex.en:ex.es}</div><div class="ci-last">${ex.time||''}</div></div>`;
+    const del=document.createElement('button');del.className='clean-item-del';del.innerHTML=csvg('close','12px','2');
     del.addEventListener('click',(e)=>{e.stopPropagation();const ext=getExtrasToday();ext.splice(i,1);saveExtrasToday(ext);render();});
     it.appendChild(del);body.appendChild(it);
 
