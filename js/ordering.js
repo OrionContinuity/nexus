@@ -330,6 +330,7 @@
       html += `
         <div class="ord-vendor-row-wrap">
           <button class="ord-vendor-row" data-vendor-id="${esc(v.id)}" data-vendor-name="${esc(v.name).toLowerCase()}">
+            ${vendorAvatar(v.name)}
             <div class="ord-vendor-main">
               <div class="ord-vendor-name">${esc(v.name)}</div>
               <div class="ord-vendor-meta">${meta.join(' · ')}</div>
@@ -371,8 +372,13 @@
       <div class="ord-vmenu-backdrop"></div>
       <div class="ord-vmenu-sheet">
         <div class="ord-vmenu-handle"></div>
-        <div class="ord-vmenu-title">${esc(vendor.name)}</div>
-        ${vendor.email ? `<div class="ord-vmenu-sub">${esc(vendor.email)}</div>` : '<div class="ord-vmenu-sub ord-vmenu-sub-warn">No email set</div>'}
+        <div class="ord-vmenu-header">
+          ${vendorAvatar(vendor.name)}
+          <div class="ord-vmenu-header-text">
+            <div class="ord-vmenu-title">${esc(vendor.name)}</div>
+            ${vendor.email ? `<div class="ord-vmenu-sub">${esc(vendor.email)}</div>` : '<div class="ord-vmenu-sub ord-vmenu-sub-warn">No email set</div>'}
+          </div>
+        </div>
         <div class="ord-vmenu-divider"></div>
         <button class="ord-vmenu-item" data-action="edit">${editIcon()}<span>Edit details</span></button>
         <button class="ord-vmenu-item ord-vmenu-danger" data-action="archive">${trashIcon()}<span>Archive vendor</span></button>
@@ -1815,6 +1821,27 @@
   }
   function listIcon() {
     return `<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg>`;
+  }
+
+  /**
+   * Generates a circular initial-based avatar for a vendor row.
+   * The hue is derived deterministically from the vendor name (hash
+   * of the name → 0..360°), then desaturated and warmed toward the
+   * NEXUS gold palette so all avatars look like they belong to the
+   * same family even though no two vendors share the same exact tone.
+   *
+   * Visual: 44px circle, dark surface with a colored letter on top,
+   * subtle gold outline. Reads cleanly in both light and dark themes.
+   */
+  function vendorAvatar(name) {
+    const clean = (name || '').trim();
+    const initial = clean.charAt(0).toUpperCase() || '?';
+    let hash = 0;
+    for (let i = 0; i < clean.length; i++) {
+      hash = ((hash << 5) - hash + clean.charCodeAt(i)) | 0;
+    }
+    const hue = Math.abs(hash) % 360;
+    return `<div class="ord-vendor-avatar" style="--avatar-hue:${hue}">${esc(initial)}</div>`;
   }
 
   // ═══════════════════════════════════════════════════════════════════
