@@ -17,6 +17,48 @@
      --nx-gold-soft, --nx-gold-on
    ════════════════════════════════════════════════════════════════════ */
 
+/* ════════════════════════════════════════════════════════════════════
+   TOKEN REDEFINITION — the critical layer
+   ────────────────────────────────────────────────────────────────────
+   The legacy `equipment-public-pm-system.css` defines a complete
+   light-mode palette via `--pm-*` tokens at `:root` scope. Those
+   tokens are NOT theme-aware: `--pm-bg` is hardcoded `#faf7f0`
+   (cream linen), `--pm-surface` is `#ffffff` (white), etc. So even
+   when the rest of the app flips to dark theme, the PM logger modal
+   stayed cream — the inputs went dark (those use `--nx-*`) but the
+   surrounding card stayed light.
+
+   Rather than rewrite the legacy stylesheet OR write hundreds of
+   override rules with higher specificity, we redefine what the
+   `--pm-*` tokens MEAN inside the public-view scope. The legacy CSS
+   reads the same token names but now gets values from the live
+   theme. Net effect: the entire legacy stylesheet becomes theme-
+   aware automatically, by changing what 7 variables resolve to.
+
+   This also fixes the "detached cards" look: the four sections that
+   appeared to float separately (header / equipment banner / mass
+   toggle / form) all use different `--pm-*` surfaces. When those
+   surfaces all resolve to the same theme value, the sections
+   visually unify and the gap-revealed-as-background goes away.   */
+body.public-view {
+  --pm-bg:           var(--nx-surface-1);
+  --pm-surface:      var(--nx-surface-1);   /* card surface = bg = no banding */
+  --pm-surface-2:    var(--nx-surface-1);   /* mass toggle row */
+  --pm-surface-3:    var(--nx-gold-soft, rgba(212, 164, 78, 0.06));  /* equipment highlight — subtle gold tint, not contrasting cream */
+  --pm-border:       var(--nx-gold-line);
+  --pm-border-2:     var(--nx-gold-line-2, rgba(212, 164, 78, 0.22));
+  --pm-gold:         var(--nx-gold);
+  --pm-gold-on:      var(--nx-gold-on, #1c1408);
+  --pm-gold-soft:    var(--nx-gold-soft, rgba(212, 164, 78, 0.06));
+  --pm-gold-line:    var(--nx-gold-line);
+  --pm-text:         var(--nx-text);
+  --pm-text-muted:   var(--nx-muted);
+  --pm-text-faint:   var(--nx-faint);
+  --pm-red:          var(--nx-red, #a83e3e);
+  --pm-red-soft:     rgba(168, 62, 62, 0.08);
+  --pm-green:        var(--nx-green, #9c8a3e);
+}
+
 /* ─── Container & masthead ───────────────────────────────────────── */
 body.public-view {
   background: var(--nx-bg) !important;
@@ -452,20 +494,44 @@ body.public-view * { box-sizing: border-box; }
 [data-theme="light"] .pm-logger-bg { background: rgba(70, 50, 18, 0.4); }
 .pm-logger-card {
   position: relative;
+  /* Preserve the legacy flex-column layout so children stack flush
+     with no `--pm-bg` showing through between them. Without these,
+     the children flowed in normal block order with implicit margin
+     collapse making the gaps the user saw. */
+  display: flex !important;
+  flex-direction: column !important;
   background: var(--nx-surface-1) !important;
   border-top: 1px solid var(--nx-gold) !important;
-  border-radius: 18px 18px 0 0 !important;
+  border-radius: 22px 22px 0 0 !important;
   max-width: 640px;
   width: 100%;
+  /* Cap height but don't force 95vh — let content size naturally up
+     to the cap. Forces the modal to be only as tall as its content,
+     which means there's no extra space for `--pm-bg` to show through
+     at the bottom. */
   max-height: 92vh;
+  height: auto !important;
   overflow-y: auto;
-  padding: 22px 18px 24px !important;
+  /* No padding on the card itself — sections inside (header, eq banner,
+     mass toggle, form sections, actions) each declare their own 22px
+     horizontal padding so they sit edge-to-edge with hairline dividers
+     between. Earlier the card had its own padding which caused the
+     internal sections to look like nested cards floating in a gutter. */
+  padding: 0 !important;
   animation: pm-slide-up 0.25s ease-out;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.25);
+}
+[data-theme="light"] .pm-logger-card {
+  box-shadow: 0 -8px 32px rgba(70, 50, 18, 0.12);
 }
 @media (min-width: 600px) {
   .pm-logger-card {
     border: 1px solid var(--nx-gold) !important;
-    border-radius: 18px !important;
+    border-radius: 22px !important;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  }
+  [data-theme="light"] .pm-logger-card {
+    box-shadow: 0 12px 40px rgba(70, 50, 18, 0.18);
   }
 }
 @keyframes pm-slide-up {
@@ -474,9 +540,14 @@ body.public-view * { box-sizing: border-box; }
 }
 .pm-logger-header {
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 18px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--nx-gold-line);
+  padding: 18px 22px !important;
+  margin-bottom: 0 !important;
+  /* Single divider hairline; no contrasting background. The whole
+     modal reads as one continuous card now, separated by thin gold
+     lines rather than by background banding which made the sections
+     look like detached cards stacked together. */
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  background: transparent !important;
 }
 .pm-logger-title {
   font-family: 'Outfit', sans-serif !important;
@@ -485,12 +556,6 @@ body.public-view * { box-sizing: border-box; }
   color: var(--nx-text) !important;
   display: flex; align-items: center; gap: 10px;
 }
-/* Kill the legacy decorative ::before text from
-   equipment-public-pm-system.css that was inserting a duplicate
-   "Log Service" ghost label next to our actual title. The old
-   stylesheet zeroed the title font-size and used ::before to draw
-   a clean replacement; our new JS already renders a proper title
-   with an SVG icon, so the ::before becomes a duplicate. */
 .pm-logger-title::before { content: none !important; }
 .pm-logger-title-icon {
   display: inline-flex;
@@ -520,13 +585,19 @@ body.public-view * { box-sizing: border-box; }
 }
 
 .pm-logger-eq {
-  margin-bottom: 16px;
+  padding: 16px 22px !important;
+  /* Subtle gold-tinted highlight, no longer a heavy banner. The card
+     stays continuous; the equipment banner is just a softer-tinted
+     section instead of a contrasting sandwich filling. */
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.04)) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
 }
 .pm-logger-eq-name {
   font-family: 'Outfit', sans-serif !important;
-  font-size: 18px !important;
+  font-size: 17px !important;
   font-weight: 500;
   color: var(--nx-text) !important;
+  margin-bottom: 2px;
 }
 .pm-logger-eq-meta {
   font-family: 'JetBrains Mono', monospace !important;
@@ -538,20 +609,36 @@ body.public-view * { box-sizing: border-box; }
 
 .pm-logger-mass-toggle {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 14px !important;
-  background: var(--nx-bg) !important;
-  border: 1px solid var(--nx-gold-line) !important;
-  border-radius: 10px !important;
-  margin-bottom: 16px;
+  padding: 14px 22px !important;
+  /* Same surface as the rest of the card — no contrasting fill. The
+     bottom hairline divider does all the visual separation work. */
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
   font-size: 13px;
   color: var(--nx-text) !important;
+}
+.pm-logger-mass-toggle input[type="checkbox"] {
+  width: 22px !important;
+  height: 22px !important;
+  accent-color: var(--nx-gold) !important;
+  cursor: pointer;
 }
 .pm-logger-toggle-icon { color: var(--nx-gold); margin-right: 4px; }
 
 .pm-form-section {
-  margin-bottom: 18px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--nx-gold-line);
+  /* Form sections also share the modal's surface — no separate card
+     treatment. They're delineated by an internal section heading and
+     a hairline at the bottom. The first section has no top hairline
+     because the mass-toggle above it already provides one. */
+  padding: 18px 22px !important;
+  margin: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  border-radius: 0 !important;
 }
 .pm-form-section:last-of-type { border-bottom: none; }
 .pm-form-section h3 {
@@ -616,9 +703,11 @@ body.public-view * { box-sizing: border-box; }
 .pm-logger-actions {
   display: flex;
   gap: 10px;
-  margin-top: 18px;
-  padding-top: 14px;
+  padding: 18px 22px calc(22px + env(safe-area-inset-bottom, 0px)) !important;
+  background: var(--nx-surface-1) !important;
   border-top: 1px solid var(--nx-gold-line);
+  position: sticky;
+  bottom: 0;
 }
 .pm-logger-actions button {
   flex: 1;
