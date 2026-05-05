@@ -1651,3 +1651,73 @@
   border: none;
 }
 
+
+
+/* ════════════════════════════════════════════════════════════════════
+   BOARD — parts BOM quick-picker
+   ────────────────────────────────────────────────────────────────────
+   When a card is linked to an equipment, the Parts Needed section
+   shows tappable chips of that equipment's BOM. Selected chips are
+   gold-filled with the part name and the preferred vendor's price;
+   tapping toggles selection and updates the parts input + Est cost.
+   ════════════════════════════════════════════════════════════════════ */
+
+.b-parts-bom {
+  margin: 6px 0 8px;
+  padding: 10px 12px;
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.05));
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 10px;
+}
+.b-parts-bom-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--nx-gold);
+  margin-bottom: 8px;
+}
+.b-parts-bom-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.b-parts-bom-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s, transform .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.b-parts-bom-chip:hover {
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line));
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08));
+}
+.b-parts-bom-chip:active { transform: scale(0.97); }
+.b-parts-bom-chip.is-selected {
+  background: var(--nx-gold);
+  border-color: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+}
+[data-theme="light"] .b-parts-bom-chip.is-selected { color: #FAFAF6; }
+
+.b-parts-bom-chip-name {
+  font-weight: 500;
+}
+.b-parts-bom-chip-price {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  opacity: 0.85;
+  letter-spacing: 0.3px;
+}
+.b-parts-bom-chip.is-selected .b-parts-bom-chip-price { opacity: 1; }
+
