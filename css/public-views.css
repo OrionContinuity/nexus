@@ -44,7 +44,7 @@ body.public-view {
   --pm-bg:           var(--nx-surface-1);
   --pm-surface:      var(--nx-surface-1);   /* card surface = bg = no banding */
   --pm-surface-2:    var(--nx-surface-1);   /* mass toggle row */
-  --pm-surface-3:    var(--nx-gold-soft, rgba(212, 164, 78, 0.06));  /* equipment highlight — subtle gold tint, not contrasting cream */
+  --pm-surface-3:    var(--nx-surface-1);   /* equipment banner — same as card; tint comes from a CSS overlay below */
   --pm-border:       var(--nx-gold-line);
   --pm-border-2:     var(--nx-gold-line-2, rgba(212, 164, 78, 0.22));
   --pm-gold:         var(--nx-gold);
@@ -65,21 +65,31 @@ body.public-view {
    washed-out look, with inputs reading as bright opaque white against
    a cream-gray modal surface (the screenshot you sent showed exactly
    this). For light theme we need OPAQUE values so the modal reads as
-   a clean parchment sheet with inputs that blend into it. */
+   a clean parchment sheet with inputs that blend into it.
+   
+   Multiple selector forms below to ensure match regardless of whether
+   data-theme is on html or body. Also covers the case where v5 sets
+   classes on documentElement while body has public-view. */
 html[data-theme="light"] body.public-view,
-body.public-view[data-theme="light"] {
-  --pm-bg:           #F4F1EB;                      /* opaque parchment */
-  --pm-surface:      #FAF6EC;                      /* slightly lighter than bg — the form sheet */
-  --pm-surface-2:    #F4F1EB;                      /* mass toggle = bg */
-  --pm-surface-3:    rgba(139, 105, 20, 0.06);     /* equipment highlight — gold tint */
-  --pm-border:       rgba(139, 105, 20, 0.18);
-  --pm-border-2:     rgba(139, 105, 20, 0.30);
-  --pm-gold:         #8b6914;                      /* deep gold for cream contrast */
-  --pm-gold-soft:    rgba(139, 105, 20, 0.08);
-  --pm-gold-line:    rgba(139, 105, 20, 0.20);
-  --pm-text:         #1a1408;                      /* warm near-black */
-  --pm-text-muted:   #5a4a2a;
-  --pm-text-faint:   #7a6a4a;
+html[data-theme="light"].public-view body,
+html[data-theme="light"] .public-view,
+body.public-view[data-theme="light"],
+[data-theme="light"].public-view,
+[data-theme="light"] body.public-view,
+[data-theme="light"] .pm-logger-modal,
+[data-theme="light"] .pm-logger-card {
+  --pm-bg:           #F4F1EB !important;            /* opaque parchment */
+  --pm-surface:      #FAF6EC !important;            /* slightly lighter than bg — the form sheet */
+  --pm-surface-2:    #F4F1EB !important;            /* mass toggle = bg */
+  --pm-surface-3:    #F8F2DD !important;            /* equipment highlight — opaque gold-cream, no translucency */
+  --pm-border:       rgba(139, 105, 20, 0.18) !important;
+  --pm-border-2:     rgba(139, 105, 20, 0.30) !important;
+  --pm-gold:         #8b6914 !important;            /* deep gold for cream contrast */
+  --pm-gold-soft:    #F8F2DD !important;
+  --pm-gold-line:    rgba(139, 105, 20, 0.20) !important;
+  --pm-text:         #1a1408 !important;            /* warm near-black */
+  --pm-text-muted:   #5a4a2a !important;
+  --pm-text-faint:   #7a6a4a !important;
 }
 
 /* ─── Container & masthead ───────────────────────────────────────── */
@@ -527,7 +537,20 @@ body.public-view * { box-sizing: border-box; }
      collapse making the gaps the user saw. */
   display: flex !important;
   flex-direction: column !important;
-  background: var(--nx-surface-1) !important;
+  /* CRITICAL: opaque background. The legacy CSS sets background:
+     var(--pm-bg) and our redefinition pointed --pm-bg at
+     --nx-surface-1, which is translucent in BOTH themes (rgba 45% in
+     dark, rgba 65% white in light). When the modal sits over the
+     backdrop blur, that translucency bleeds the backdrop through and
+     produces a muddy gray-brown wash — exactly the "missed the top"
+     visible in the screenshot. The form scroll area below was opaque
+     because its inner sections had their own backgrounds; the header
+     band above didn't.
+     
+     We use --nx-bg directly (which is fully opaque in both themes:
+     dark charcoal #0a0a0c, light parchment #F4F1EB) and override the
+     legacy var(--pm-bg) with !important. */
+  background: var(--nx-bg) !important;
   border-top: 1px solid var(--nx-gold) !important;
   border-radius: 22px 22px 0 0 !important;
   max-width: 640px;
@@ -572,9 +595,13 @@ body.public-view * { box-sizing: border-box; }
   /* Single divider hairline; no contrasting background. The whole
      modal reads as one continuous card now, separated by thin gold
      lines rather than by background banding which made the sections
-     look like detached cards stacked together. */
-  border-bottom: 1px solid var(--nx-gold-line) !important;
+     look like detached cards stacked together.
+     
+     Background: transparent so the card's --nx-bg shows through. The
+     legacy CSS forces var(--pm-surface) which would otherwise resolve
+     to a translucent value. */
   background: transparent !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
 }
 .pm-logger-title {
   font-family: 'Outfit', sans-serif !important;
@@ -613,11 +640,16 @@ body.public-view * { box-sizing: border-box; }
 
 .pm-logger-eq {
   padding: 16px 22px !important;
-  /* Subtle gold-tinted highlight, no longer a heavy banner. The card
-     stays continuous; the equipment banner is just a softer-tinted
-     section instead of a contrasting sandwich filling. */
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.04)) !important;
+  /* Subtle gold-tinted highlight, drawn as a layer atop the card's
+     opaque --nx-bg rather than via a translucent surface token. This
+     way the section reads as cream-with-a-warm-cast in light theme
+     and charcoal-with-a-warm-cast in dark theme — never bleeding the
+     backdrop blur through. */
+  background: rgba(212, 164, 78, 0.06) !important;
   border-bottom: 1px solid var(--nx-gold-line) !important;
+}
+[data-theme="light"] .pm-logger-eq {
+  background: rgba(139, 105, 20, 0.06) !important;
 }
 .pm-logger-eq-name {
   font-family: 'Outfit', sans-serif !important;
@@ -667,7 +699,7 @@ body.public-view * { box-sizing: border-box; }
    Override here, scoped to body.public-view, with higher specificity
    to win against the legacy rules. */
 body.public-view .pm-logger-mass-list {
-  background: var(--nx-surface-1) !important;
+  background: transparent !important;
   padding: 14px 22px !important;
   border-bottom: 1px solid var(--nx-gold-line) !important;
 }
@@ -744,6 +776,13 @@ body.public-view .pm-mass-empty {
   border: none !important;
   border-bottom: 1px solid var(--nx-gold-line) !important;
   border-radius: 0 !important;
+}
+
+/* The form wrapper that scrolls — make it transparent so it inherits
+   the card's opaque --nx-bg. Legacy sets var(--pm-bg) which after our
+   redefinition resolves to a translucent value. */
+.pm-logger-form {
+  background: transparent !important;
 }
 .pm-form-section:last-of-type { border-bottom: none; }
 .pm-form-section h3 {
