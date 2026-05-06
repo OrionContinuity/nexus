@@ -721,7 +721,7 @@
     try {
       const today = new Date().toISOString().slice(0, 10);
       const { data: overdueList } = await NX.sb.from('equipment')
-        .select('id, name, location, area, next_pm_date, service_contact_name')
+        .select('id, name, location, area, next_pm_date, service_contractor_name')
         .lt('next_pm_date', today)
         .order('next_pm_date', { ascending: true })
         .limit(3);
@@ -732,7 +732,7 @@
         const others = overdueList.length - 1;
         const body = others > 0
           ? `Preventative maintenance overdue ${days} day${days === 1 ? '' : 's'}. ${others} other unit${others === 1 ? '' : 's'} also past due.`
-          : `Preventative maintenance overdue ${days} day${days === 1 ? '' : 's'}.${worst.service_contact_name ? ` Usually serviced by ${worst.service_contact_name}.` : ''}`;
+          : `Preventative maintenance overdue ${days} day${days === 1 ? '' : 's'}.${worst.service_contractor_name ? ` Usually serviced by ${worst.service_contractor_name}.` : ''}`;
         candidates.push({
           tone: 'overdue',
           severity: 100 + days, // older = more severe
