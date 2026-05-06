@@ -1,8 +1,19 @@
-/* NEXUS Service Worker — v10
+/* NEXUS Service Worker — v11
    Strategy: network-first for JS/CSS/HTML (always fresh code),
              cache-first for fonts, images, icons, assets.
    Version bumped = full re-cache on next load.
-   
+
+   What changed v10 → v11:
+   - CACHE_NAME bumped so browsers running old SW pick up fresh assets
+     after the constitution work (token migration, primitives, modal
+     visual aliasing, speed-dial, etc.).
+   - APP_SHELL list unchanged: the 3 CSS files that were merged into
+     other files (equipment-fixes.css, equipment-context-menu.css,
+     equipment-card-polish.css) still exist in the css/ directory as
+     orphans, so pre-cache still succeeds. They're not loaded at
+     runtime. Delete them when convenient and remove from APP_SHELL
+     in a future v12 bump.
+
    What changed v9 → v10:
    - Added all current JS modules (was missing 12 files)
    - Added all current CSS files (was missing 8 files)
