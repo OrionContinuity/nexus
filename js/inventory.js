@@ -63,13 +63,13 @@
   ];
 
   const ASSET_STATUSES = [
-    { key: 'on_shelf',  label: 'On Shelf',   color: '#9c8a3e' },
-    { key: 'in_use',    label: 'In Use',     color: '#9c8a3e' },
-    { key: 'loaned',    label: 'Loaned',     color: '#d4a44e' },
-    { key: 'relocated', label: 'Relocated',  color: '#d4a44e' },
-    { key: 'broken',    label: 'Broken',     color: '#a83e3e' },
-    { key: 'missing',   label: 'Missing',    color: '#a83e3e' },
-    { key: 'retired',   label: 'Retired',    color: '#6b6258' },
+    { key: 'on_shelf',  label: 'On Shelf',   color: 'var(--green)' },
+    { key: 'in_use',    label: 'In Use',     color: 'var(--green)' },
+    { key: 'loaned',    label: 'Loaned',     color: 'var(--accent)' },
+    { key: 'relocated', label: 'Relocated',  color: 'var(--accent)' },
+    { key: 'broken',    label: 'Broken',     color: 'var(--red)' },
+    { key: 'missing',   label: 'Missing',    color: 'var(--red)' },
+    { key: 'retired',   label: 'Retired',    color: 'var(--faint)' },
   ];
 
   const state = {
@@ -252,14 +252,14 @@
       background: var(--nx-gold-soft, rgba(200, 164, 78, 0.06));
     }
     .inv-alert.alert-danger.is-active {
-      border-color: #a83e3e; background: rgba(168, 62, 62, 0.08);
+      border-color: var(--red); background: rgba(168, 62, 62, 0.08);
     }
     .inv-alert-num {
       font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 700;
       color: var(--nx-text); line-height: 1; display: block; margin-bottom: 4px;
     }
     .inv-alert.is-active .inv-alert-num { color: var(--nx-gold); }
-    .inv-alert.alert-danger.is-active .inv-alert-num { color: #c8625e; }
+    .inv-alert.alert-danger.is-active .inv-alert-num { color: var(--red); }
     .inv-alert-label {
       font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 600;
       letter-spacing: 1.2px; text-transform: uppercase; color: var(--nx-faint);
@@ -271,7 +271,7 @@
       width: 100%; padding: 14px; min-height: 50px; border: none;
       border-radius: 999px;
       background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep));
-      color: var(--nx-gold-on, #1c1408);
+      color: var(--nx-gold-on);
       font-family: 'Outfit', sans-serif; font-size: 15px; font-weight: 600;
       letter-spacing: 0.3px; cursor: pointer;
       box-shadow: 0 4px 12px rgba(200, 164, 78, 0.2);
@@ -352,17 +352,17 @@
       font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
       font-weight: 500; color: var(--nx-faint); letter-spacing: 0.4px;
     }
-    .inv-row-meta.below-par { color: #c8625e; font-weight: 600; }
+    .inv-row-meta.below-par { color: var(--red); font-weight: 600; }
     .inv-row-meta.below-par-warn { color: var(--nx-gold); font-weight: 600; }
 
     .inv-pill {
       display: inline-block; padding: 3px 10px; border-radius: 999px;
-      background: color-mix(in srgb, var(--pill-c, #9c8a3e) 15%, transparent);
-      color: var(--pill-c, #9c8a3e);
+      background: color-mix(in srgb, var(--pill-c) 15%, transparent);
+      color: var(--pill-c);
       font-family: 'JetBrains Mono', monospace;
       font-size: 9.5px; font-weight: 600; letter-spacing: 0.8px;
       text-transform: uppercase;
-      border: 1px solid color-mix(in srgb, var(--pill-c, #9c8a3e) 30%, transparent);
+      border: 1px solid color-mix(in srgb, var(--pill-c) 30%, transparent);
     }
 
     .inv-empty { text-align: center; padding: 48px 24px; color: var(--nx-faint); }
@@ -391,7 +391,7 @@
       bottom: calc(env(safe-area-inset-bottom, 0px) + 78px);
       width: 56px; height: 56px; border-radius: 50%;
       background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep));
-      color: var(--nx-gold-on, #1c1408); border: none;
+      color: var(--nx-gold-on); border: none;
       box-shadow: 0 6px 16px rgba(200, 164, 78, 0.3); cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       z-index: 100; transition: transform .15s;
@@ -498,13 +498,13 @@
     .inv-action-btn:active { transform: scale(.97); }
     .inv-action-btn.primary {
       background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep));
-      color: var(--nx-gold-on, #1c1408); border-color: var(--nx-gold); font-weight: 600;
+      color: var(--nx-gold-on); border-color: var(--nx-gold); font-weight: 600;
     }
     .inv-action-btn.danger {
-      color: #c8625e; border-color: rgba(168, 62, 62, 0.3);
+      color: var(--red); border-color: rgba(168, 62, 62, 0.3);
     }
     .inv-action-btn.danger:hover {
-      border-color: #a83e3e; background: rgba(168, 62, 62, 0.06);
+      border-color: var(--red); background: rgba(168, 62, 62, 0.06);
     }
 
     .inv-section-h {
@@ -563,7 +563,7 @@
       font-family: 'JetBrains Mono', monospace; font-size: 36px; font-weight: 700;
       color: var(--nx-text); line-height: 1;
     }
-    .inv-par-count.below { color: #c8625e; }
+    .inv-par-count.below { color: var(--red); }
     .inv-par-count.warn { color: var(--nx-gold); }
     .inv-par-of {
       font-family: 'JetBrains Mono', monospace; font-size: 13px;
@@ -577,14 +577,14 @@
       height: 100%; background: var(--nx-gold); border-radius: 3px;
       transition: width .3s ease-out;
     }
-    .inv-par-bar-fill.below { background: #a83e3e; }
+    .inv-par-bar-fill.below { background: var(--red); }
     .inv-par-status {
       font-family: 'JetBrains Mono', monospace; font-size: 11px;
       letter-spacing: 0.8px; color: var(--nx-faint); margin-top: 8px;
       text-transform: uppercase;
     }
     .inv-par-status.warn { color: var(--nx-gold); font-weight: 600; }
-    .inv-par-status.below { color: #c8625e; font-weight: 600; }
+    .inv-par-status.below { color: var(--red); font-weight: 600; }
 
     .inv-modal-overlay {
       position: fixed; inset: 0; background: rgba(8, 6, 4, 0.7);
@@ -985,7 +985,7 @@
     // treatment is intentional — it tells the user this row routes to a
     // different module.
     const right = isEquip
-      ? `<span class="inv-pill" style="--pill-c:#9c8a3e;font-size:8.5px;letter-spacing:1.5px">EQUIP</span>`
+      ? `<span class="inv-pill" style="--pill-c:var(--green);font-size:8.5px;letter-spacing:1.5px">EQUIP</span>`
       : statusPill(a.status);
     const subParts = [
       esc(a.internal_pn),
@@ -1765,7 +1765,7 @@
           ${variances.map(v => `
             <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom: 1px solid var(--nx-gold-line);">
               <span>${esc(v.item.name)}</span>
-              <strong style="color: ${v.delta < 0 ? '#c8625e' : 'var(--nx-gold)'}; font-family: 'JetBrains Mono', monospace;">${v.delta > 0 ? '+' : ''}${v.delta}</strong>
+              <strong style="color: ${v.delta < 0 ? 'var(--red)' : 'var(--nx-gold)'}; font-family: 'JetBrains Mono', monospace;">${v.delta > 0 ? '+' : ''}${v.delta}</strong>
             </div>
           `).join('')}
         </div>
@@ -2180,7 +2180,7 @@
           <div class="inv-field" data-part-id="${p.id}" data-stock-id="${stock?.id || ''}">
             <label class="inv-field-label">
               ${esc(p.part_name || stock?.name || 'Unnamed part')}
-              ${stock ? ` <span style="color: var(--nx-faint); font-weight: 400;">· ${stock.count_on_hand} in stock</span>` : ' <span style="color:#c8625e">· not linked to stock</span>'}
+              ${stock ? ` <span style="color: var(--nx-faint); font-weight: 400;">· ${stock.count_on_hand} in stock</span>` : ' <span style="color:var(--red)">· not linked to stock</span>'}
             </label>
             <input type="number" class="inv-field-input" min="0" max="99"
                    value="${p.pm_default_quantity || p.quantity || 1}"
@@ -2322,7 +2322,7 @@ Suggested order: ${(stock.par_level - currentCount) * 2} units (rebuild buffer)`
           // Fallback: open the QR in a new tab for browser printing.
           const w = window.open('', '_blank');
           if (w) {
-            w.document.write(`<html><head><title>${esc(item.internal_pn)}</title></head><body style="margin:40px;text-align:center;font-family:sans-serif"><img src="${qrSrc}" style="width:300px;height:300px"><div style="margin-top:20px;font-size:14px"><strong>${esc(item.name)}</strong></div><div style="font-size:11px;color:#666;margin-top:4px">${esc(item.internal_pn)}</div><script>setTimeout(()=>window.print(),300);</scr` + `ipt></body></html>`);
+            w.document.write(`<html><head><title>${esc(item.internal_pn)}</title></head><body style="margin:40px;text-align:center;font-family:sans-serif"><img src="${qrSrc}" style="width:300px;height:300px"><div style="margin-top:20px;font-size:14px"><strong>${esc(item.name)}</strong></div><div style="font-size:11px;color:var(--faint);margin-top:4px">${esc(item.internal_pn)}</div><script>setTimeout(()=>window.print(),300);</scr` + `ipt></body></html>`);
             w.document.close();
           }
         }
