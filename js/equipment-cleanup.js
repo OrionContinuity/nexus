@@ -3,11 +3,11 @@
    
    Strips visual clutter and fixes UX nits:
    
-   1. List header: removes "🖨 QR Sheet" (legacy) + "🏷️ Zebra" (Phase 3 batch).
+   1. List header: removes "QR Sheet" (legacy) + "Zebra" (Phase 3 batch).
       Both are replaced by the per-row Zebra badge + the bottom-bar Print
       that auto-prints the active tab.
    
-   2. Parts tab head: removes "🛒 Shopping List" + "✨ Extract from Manual".
+   2. Parts tab head: removes "Shopping List" + "Extract from Manual".
       These move into the ⋯ menu in equipment-context-menu.js.
    
    3. Hides the legacy "Order" link in the LEFT side of each part row.
@@ -57,7 +57,7 @@
 
   function cleanupListHeader() {
     // NOTE: Previously this stripped #eqPrintQRs (legacy "QR Sheet" button).
-    // That ID has been repurposed for the new "🖨 Stickers" button which is
+    // That ID has been repurposed for the new "Stickers" button which is
     // a real feature — full-color sticker export with size picker and
     // location filter. We no longer remove it.
     //
@@ -125,7 +125,7 @@
         const labels = panel.querySelectorAll('div, h4, h3, span, label');
         for (const lbl of labels) {
           const text = (lbl.textContent || '').trim();
-          if (text === 'FAMILY' || text === '👥 FAMILY' || /^👥?\s*FAMILY\s*$/.test(text)) {
+          if (text === 'FAMILY' || /^(?:[\uD83D][\uDC65])?\s*FAMILY\s*$/u.test(text)) {
             // Find the container (parent that includes the buttons)
             let container = lbl;
             // Walk up until we find a container that also includes the Set Parent btn
