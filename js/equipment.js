@@ -10623,110 +10623,26 @@ function wireContractorEditForm() {
     });
   });
 
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const name = (form.querySelector('[name="name"]')?.value || '').trim();
-    if (!name) {
-      NX.toast && NX.toast('Name is required', 'warn');
-      return;
-    }
-    const tagsRaw = form.querySelector('[name="tags"]')?.value || '';
-    const notes = (form.querySelector('[name="notes"]')?.value || '').trim();
-    const tags = tagsRaw.split(/[,;]/).map(s => s.trim()).filter(Boolean);
-
-    // Collect phones (paired with their labels) — order matters: first
-    // entry is the "primary" used by the public scan call button.
-    const phones = [];
-    form.querySelectorAll('.eq-contractor-multi-row[data-multi="phone"]').forEach(row => {
-      const phone = row.querySelector('[name="phone[]"]')?.value.trim();
-      const label = row.querySelector('[name="phone_label[]"]')?.value.trim();
-      if (phone) phones.push({ phone, type: 'phone', label: label || null });
-    });
-
-    // Collect emails (paired with their roles).
-    const emails = [];
-    form.querySelectorAll('.eq-contractor-multi-row[data-multi="email"]').forEach(row => {
-      const email = row.querySelector('[name="email[]"]')?.value.trim();
-      const role = row.querySelector('[name="email_role[]"]')?.value || 'to';
-      if (email) emails.push({ email, type: 'email', role });
-    });
-
-    // Preserve any non-phone-non-email links the user may have stashed
-    // (e.g. website URLs, social handles).
-    const c = contractorsState.activeContractor;
-    const existingLinks = (c.links && Array.isArray(c.links)) ? c.links : [];
-    const otherLinks = existingLinks.filter(l => {
-      if (l && typeof l === 'object' && (l.phone || l.email)) return false;
-      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
-      if (/[\w.+-]+@[\w-]+\.[\w.-]+/.test(str)) return false;
-      if (/(?:tel:)?(\+?[\d\s().-]{10,})/.test(str)) return false;
-      return true;
-    });
-    const newLinks = [...otherLinks, ...phones, ...emails];
-
-    try {
-      const { data, error } = await NX.sb.from('nodes').update({
-        name,
-        notes: notes || null,
-        tags,
-        links: newLinks,
-      }).eq('id', c.id).select('*').single();
-      if (error) throw error;
-
-      // Update in-memory caches. Wrap the derivation in try/catch so a
-      // downstream error (e.g. equipmentLite not yet loaded) doesn't
-      // swallow the success toast — the save itself succeeded.
-      Object.assign(c, data);
-      try {
-        buildContractorDetailDerived();
-      } catch (deriveErr) {
-        console.warn('[equipment] derive after save failed (non-fatal):', deriveErr);
-      }
-      contractorsState.detailTab = 'activity';
-      renderContractors();
-      NX.toast && NX.toast(`Saved · ${phones.length} ${phones.length === 1 ? 'phone' : 'phones'} · ${emails.length} ${emails.length === 1 ? 'email' : 'emails'}`, 'success', 1600);
-
-      // Force a fresh reload from the DB so the contractors list view
-      // is guaranteed to show the saved record next time it's opened.
-      // Without this, a closed → reopened Contractors view could fall
-      // back to a stale empty array if anything wiped local state.
-      try {
-        await loadContractorsList();
-        const refreshed = contractorsState.list.find(x => x.id === c.id);
-        if (refreshed) {
-          contractorsState.activeContractor = refreshed;
-          buildContractorDetailDerived();
-          renderContractors();
-        } else {
-          // The contractor isn't in the fresh list — DB row vanished.
-          console.warn('[equipment] saveContractor: row not found after reload', c.id);
-        }
-      } catch (reloadErr) {
-        console.warn('[equipment] reload after save failed (non-fatal):', reloadErr);
-      }
-    } catch (err) {
-      console.error('[equipment] saveContractor:', err);
-      NX.toast && NX.toast('Could not save: ' + (err.message || ''), 'error');
-    }
-  });
-
-  // Backup: also wire a direct click on the save button. Some mobile
-  // browsers don't always fire form submit reliably (Chrome/iOS edge
-  // cases with virtual keyboard transitions). If submit didn't fire,
-  // the click handler will trigger the same save by dispatching submit.
+  // ─── PRIMARY SAVE PATH: direct click on the save button ──────────
+  // We DO NOT rely on form submit because mobile browsers + virtual
+  // keyboards drop submit events unpredictably. Instead, we hook the
+  // button click directly. The form submit handler (below) is just a
+  // fallback for keyboard-Enter and ensures e.preventDefault()
+  // protects against the page navigating away.
   const saveBtn = form.querySelector('button[type="submit"]');
   if (saveBtn) {
-    saveBtn.addEventListener('click', (e) => {
-      // If form submit will fire, this click is redundant; let it pass.
-      // If submit doesn't fire (mobile quirk), force it ourselves.
-      setTimeout(() => {
-        // If we're still on this tab in 50ms, submit didn't fire.
-        if (contractorsState && contractorsState.detailTab === 'edit' && document.body.contains(form)) {
-          form.requestSubmit?.() || form.dispatchEvent(new Event('submit', { cancelable: true }));
-        }
-      }, 50);
+    saveBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await saveContractorChanges(form, saveBtn);
     });
   }
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (saveBtn && !saveBtn.disabled) {
+      await saveContractorChanges(form, saveBtn);
+    }
+  });
 
   form.querySelector('[data-action="delete"]')?.addEventListener('click', async () => {
     const c = contractorsState.activeContractor;
@@ -10734,7 +10650,6 @@ function wireContractorEditForm() {
     try {
       const { error } = await NX.sb.from('nodes').delete().eq('id', c.id);
       if (error) throw error;
-      // Remove from in-memory list, return to list view.
       contractorsState.list = contractorsState.list.filter(x => x.id !== c.id);
       contractorsState.mode = 'list';
       contractorsState.activeId = null;
@@ -10746,6 +10661,154 @@ function wireContractorEditForm() {
       NX.toast && NX.toast('Could not delete: ' + (err.message || ''), 'error');
     }
   });
+}
+
+/**
+ * Standalone contractor save function. Called by both the click handler
+ * on the save button (primary path) and the form submit (Enter-key
+ * fallback). Heavily instrumented — every step shows a diagnostic
+ * toast or surfaces a clear error so a stuck save can be debugged
+ * from the UI without opening DevTools.
+ */
+async function saveContractorChanges(form, saveBtn) {
+  if (!form || !contractorsState) {
+    NX.toast && NX.toast('Form vanished — try reopening the contractor', 'error', 2400);
+    return;
+  }
+  const c = contractorsState.activeContractor;
+  if (!c || !c.id) {
+    NX.toast && NX.toast('No contractor loaded — try reopening', 'error', 2400);
+    return;
+  }
+  if (!NX.sb) {
+    NX.toast && NX.toast('Supabase not connected', 'error', 2400);
+    return;
+  }
+
+  // Disable the button while we save so double-taps don't fire twice.
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.dataset.origLabel = saveBtn.textContent;
+    saveBtn.textContent = 'Saving…';
+  }
+
+  try {
+    // ─── Collect form values ────────────────────────────────────────
+    const name = (form.querySelector('[name="name"]')?.value || '').trim();
+    if (!name) {
+      NX.toast && NX.toast('Name is required', 'warn', 1800);
+      return;
+    }
+    const tagsRaw = form.querySelector('[name="tags"]')?.value || '';
+    const notes = (form.querySelector('[name="notes"]')?.value || '').trim();
+    const tags = tagsRaw.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+
+    const phones = [];
+    form.querySelectorAll('.eq-contractor-multi-row[data-multi="phone"]').forEach(row => {
+      const phone = (row.querySelector('[name="phone[]"]')?.value || '').trim();
+      const label = (row.querySelector('[name="phone_label[]"]')?.value || '').trim();
+      if (phone) phones.push({ phone, type: 'phone', label: label || null });
+    });
+
+    const emails = [];
+    form.querySelectorAll('.eq-contractor-multi-row[data-multi="email"]').forEach(row => {
+      const email = (row.querySelector('[name="email[]"]')?.value || '').trim();
+      const role = row.querySelector('[name="email_role[]"]')?.value || 'to';
+      if (email) emails.push({ email, type: 'email', role });
+    });
+
+    const existingLinks = (c.links && Array.isArray(c.links)) ? c.links : [];
+    const otherLinks = existingLinks.filter(l => {
+      if (l && typeof l === 'object' && (l.phone || l.email)) return false;
+      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
+      if (/[\w.+-]+@[\w-]+\.[\w.-]+/.test(str)) return false;
+      if (/(?:tel:)?(\+?[\d\s().-]{10,})/.test(str)) return false;
+      return true;
+    });
+    const newLinks = [...otherLinks, ...phones, ...emails];
+
+    const payload = { name, notes: notes || null, tags, links: newLinks };
+    console.log('[saveContractor] id=%s payload=', c.id, payload);
+
+    // ─── Verify auth before write — if not signed in, RLS will block ──
+    let authUser = null;
+    try {
+      const { data: { user } } = await NX.sb.auth.getUser();
+      authUser = user;
+    } catch (_) {}
+    console.log('[saveContractor] auth user:', authUser?.id, authUser?.email);
+    if (!authUser) {
+      NX.toast && NX.toast('Not signed in — sign back in then try saving', 'error', 3000);
+      return;
+    }
+
+    // ─── Do the update ──────────────────────────────────────────────
+    const { data, error, status, statusText } = await NX.sb.from('nodes')
+      .update(payload)
+      .eq('id', c.id)
+      .select('*');
+
+    console.log('[saveContractor] response:', { status, statusText, error, returnedRows: data?.length });
+
+    if (error) {
+      console.error('[saveContractor] DB error:', error);
+      NX.toast && NX.toast(
+        `DB error: ${error.message || error.code || 'unknown'}`,
+        'error',
+        4000
+      );
+      return;
+    }
+
+    if (!data || !data.length) {
+      // Update succeeded but returned no rows. Most common cause: RLS
+      // SELECT policy doesn't let this user read the row they just
+      // updated. The data was written but the round-trip can't return.
+      // We trust the write succeeded and update local state anyway.
+      console.warn('[saveContractor] update returned 0 rows — likely RLS SELECT policy missing');
+      NX.toast && NX.toast(
+        'Saved (but RLS may be blocking reads — check Supabase policies)',
+        'warn',
+        3500
+      );
+      Object.assign(c, payload);
+    } else {
+      Object.assign(c, data[0]);
+      NX.toast && NX.toast(
+        `Saved · ${phones.length} ${phones.length === 1 ? 'phone' : 'phones'} · ${emails.length} ${emails.length === 1 ? 'email' : 'emails'}`,
+        'success',
+        1800
+      );
+    }
+
+    // Re-derive UI state (best-effort).
+    try { buildContractorDetailDerived(); } catch (e) { console.warn(e); }
+    contractorsState.detailTab = 'activity';
+    renderContractors();
+
+    // Reload list from DB so the next list render is fresh.
+    try {
+      await loadContractorsList();
+      const refreshed = contractorsState.list.find(x => x.id === c.id);
+      if (refreshed) {
+        contractorsState.activeContractor = refreshed;
+        buildContractorDetailDerived();
+        renderContractors();
+      } else {
+        console.warn('[saveContractor] row not found in fresh list — RLS SELECT may be blocking');
+      }
+    } catch (reloadErr) {
+      console.warn('[saveContractor] reload failed (non-fatal):', reloadErr);
+    }
+  } catch (err) {
+    console.error('[saveContractor] unexpected:', err);
+    NX.toast && NX.toast(`Save crashed: ${err.message || err}`, 'error', 4000);
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = saveBtn.dataset.origLabel || 'Save changes';
+    }
+  }
 }
 
 /**
