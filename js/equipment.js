@@ -9691,7 +9691,7 @@ async function openContractors() {
   // Hardcoded version stamp so the user can verify in a screenshot
   // exactly which JS code is running. If you don't see this toast,
   // the service worker is serving stale cached code.
-  NX.toast && NX.toast('NEXUS contractors v36 — opening…', 'info', 1400);
+  NX.toast && NX.toast('NEXUS contractors v37 — opening…', 'info', 1400);
 
   const overlay = document.createElement('div');
   overlay.className = 'eq-contractors-overlay';
@@ -9765,7 +9765,7 @@ async function loadContractorsList() {
     NX.sb.from('equipment').select('id, name, location, area, manufacturer, model, service_contractor_node_id, service_contractor_name, service_contractor_phone'),
   ]);
 
-  // ─── Surface every error (this is the whole point of v33) ────────
+  // ─── Surface every error (this is the whole point of v37) ────────
   const errs = [];
   if (nodesRes?.error) errs.push('nodes: ' + (nodesRes.error.message || nodesRes.error.code));
   if (maintRes?.error) errs.push('maint: ' + (maintRes.error.message || maintRes.error.code));
@@ -9779,6 +9779,19 @@ async function loadContractorsList() {
   const maint = maintRes?.data || [];
   const issues = (issuesRes && issuesRes.data) || [];
   const eqList = equipRes?.data || [];
+
+  // Stash diagnostic info that the empty-state box will display.
+  // This is the whole bug-finding strategy in v37: if the list ends
+  // up empty, the user can SEE exactly why right inside the overlay
+  // — no devtools, no console, no relying on toasts being noticed.
+  contractorsState._debug = {
+    rowCount: contractors.length,
+    errMsg: nodesRes?.error?.message || (errs.length ? errs.join(' | ') : null),
+    status: nodesRes?.status,
+    eqCount: eqList.length,
+    maintCount: maint.length,
+    timestamp: new Date().toLocaleTimeString(),
+  };
 
   console.log('[loadContractorsList] counts:', {
     contractors: contractors.length,
@@ -10037,10 +10050,25 @@ function renderContractorsList() {
   } else if (error) {
     bodyHTML = `<div class="eq-contractors-error">Couldn't load: ${esc(error)}</div>`;
   } else if (!list.length) {
+    // ─── DIAGNOSTIC EMPTY STATE ────────────────────────────────────
+    // We don't just say "no contractors yet" — we expose every fact
+    // we can pull about the load attempt so the user can SEE why the
+    // list is empty without devtools.
+    const dbg = contractorsState._debug || {};
     bodyHTML = `
       <div class="eq-contractors-empty">
         <div class="eq-contractors-empty-title">No contractors yet</div>
-        <div class="eq-contractors-empty-msg">Tap the <strong>+</strong> button at the top to add your first contractor. Or import them by linking equipment to existing contractor records.</div>
+        <div class="eq-contractors-empty-msg">Tap the <strong>+</strong> button at the top to add your first contractor.</div>
+        <div style="margin-top:24px;padding:14px;background:rgba(212,164,78,0.05);border:1px dashed var(--nx-gold-line);border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--nx-faint);text-align:left;line-height:1.7">
+          <div style="color:var(--nx-gold);margin-bottom:6px;font-weight:600">DIAGNOSTIC v37</div>
+          <div>NX.sb defined: <strong>${typeof NX !== 'undefined' && NX.sb ? 'YES' : 'NO'}</strong></div>
+          <div>Query rows returned: <strong>${dbg.rowCount ?? '—'}</strong></div>
+          <div>Query error: <strong>${dbg.errMsg ? esc(dbg.errMsg) : '(none)'}</strong></div>
+          <div>Query status: <strong>${dbg.status ?? '—'}</strong></div>
+          <div>Equipment rows: <strong>${dbg.eqCount ?? '—'}</strong></div>
+          <div>Maint rows: <strong>${dbg.maintCount ?? '—'}</strong></div>
+          <div>Run at: <strong>${dbg.timestamp ?? '—'}</strong></div>
+        </div>
       </div>`;
   } else {
     const q = (search || '').toLowerCase().trim();
