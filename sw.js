@@ -1,4 +1,3 @@
-sw-1.js
 /* NEXUS Service Worker — v16
    Strategy: network-first for JS/CSS/HTML (always fresh code),
              cache-first for fonts, images, icons, assets.
