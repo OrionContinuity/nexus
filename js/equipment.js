@@ -8316,7 +8316,7 @@ async function openBulkContractorAssign() {
   overlay.querySelectorAll('[data-id]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const contractorId = btn.dataset.id;
-      const contractor = contractors.find(c => c.id === contractorId);
+      const contractor = contractors.find(c => c.id == contractorId);
       if (!contractor) return;
 
       // Extract phone from contractor record.
@@ -9687,6 +9687,12 @@ let contractorsState = null;
 
 async function openContractors() {
   closeContractors();
+  // ─── DIAGNOSTIC v35 ────────────────────────────────────────────────
+  // Hardcoded version stamp so the user can verify in a screenshot
+  // exactly which JS code is running. If you don't see this toast,
+  // the service worker is serving stale cached code.
+  NX.toast && NX.toast('NEXUS contractors v35 — opening…', 'info', 1400);
+
   const overlay = document.createElement('div');
   overlay.className = 'eq-contractors-overlay';
   document.body.appendChild(overlay);
@@ -9714,6 +9720,7 @@ async function openContractors() {
     renderContractors();
   } catch (e) {
     console.error('[equipment] openContractors:', e);
+    NX.toast && NX.toast(`🔴 Crashed: ${e.message || e}`, 'error', 6000);
     if (contractorsState) {
       contractorsState.loading = false;
       contractorsState.error = e.message || String(e);
@@ -9799,7 +9806,7 @@ async function loadContractorsList() {
       return pb && (pb.includes(nameLower) || nameLower.includes(pb));
     });
     const myIssues = issues.filter(i =>
-      i.contractor_node_id === c.id ||
+      i.contractor_node_id == c.id ||
       ((i.contractor_name || '').toLowerCase() === nameLower && nameLower)
     );
 
@@ -9834,7 +9841,7 @@ async function loadContractorsList() {
     //      where the user typed the contractor name without picking from
     //      the dropdown, so it's not yet FK-linked)
     c._assignedCount = eqList.filter(e =>
-      e.preferred_contractor_node_id === c.id ||
+      e.preferred_contractor_node_id == c.id ||
       ((e.service_contact_name || '').toLowerCase().trim() === nameLower && nameLower)
     ).length;
     // Unique equipment they've serviced historically.
@@ -10146,7 +10153,7 @@ function renderContractorListCard(c) {
 
 async function openContractorDetail(contractorId) {
   if (!contractorsState) return;
-  const c = contractorsState.list.find(x => x.id === contractorId);
+  const c = contractorsState.list.find(x => x.id == contractorId);
   if (!c) return;
 
   contractorsState.mode = 'detail';
@@ -10203,13 +10210,13 @@ function buildContractorDetailDerived() {
   // one-tap action in the Equipment tab.
   const nameLower = (c.name || '').toLowerCase().trim();
   contractorsState.assignedEquipment = eqLite.filter(e =>
-    e.preferred_contractor_node_id === c.id ||
+    e.preferred_contractor_node_id == c.id ||
     ((e.service_contact_name || '').toLowerCase().trim() === nameLower && nameLower)
   );
   // Mark which ones are "loose" links so the UI can show a chip and
   // offer to make the link permanent.
   for (const e of contractorsState.assignedEquipment) {
-    e._linkType = e.preferred_contractor_node_id === c.id ? 'fk' : 'name';
+    e._linkType = e.preferred_contractor_node_id == c.id ? 'fk' : 'name';
   }
   const assignedIds = new Set(contractorsState.assignedEquipment.map(e => e.id));
   const servicedIds = new Set(maint.map(m => m.equipment_id));
@@ -10817,7 +10824,7 @@ async function saveContractorChanges(form, saveBtn) {
     // Reload list from DB so the next list render is fresh.
     try {
       await loadContractorsList();
-      const refreshed = contractorsState.list.find(x => x.id === c.id);
+      const refreshed = contractorsState.list.find(x => x.id == c.id);
       if (refreshed) {
         contractorsState.activeContractor = refreshed;
         buildContractorDetailDerived();
@@ -10887,7 +10894,7 @@ async function promoteContractorNameLinks() {
     renderContractors();
     await loadContractorsList();
     // Re-resolve the active contractor (its underlying ref may be stale).
-    const refreshed = contractorsState.list.find(x => x.id === c.id);
+    const refreshed = contractorsState.list.find(x => x.id == c.id);
     if (refreshed) {
       contractorsState.activeContractor = refreshed;
       buildContractorDetailDerived();
@@ -11018,7 +11025,7 @@ function openContractorAssignSheet() {
       // main equipment list view next time it's opened.
       if (typeof loadEquipment === 'function') await loadEquipment();
       await loadContractorsList();
-      const refreshed = contractorsState.list.find(x => x.id === c.id);
+      const refreshed = contractorsState.list.find(x => x.id == c.id);
       if (refreshed) {
         contractorsState.activeContractor = refreshed;
         buildContractorDetailDerived();
