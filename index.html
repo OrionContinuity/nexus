@@ -32,11 +32,8 @@
 <link rel="stylesheet" href="css/composer.css">
 <link rel="stylesheet" href="css/galaxy.css">
 <link rel="stylesheet" href="css/equipment.css">
-<link rel="stylesheet" href="css/equipment-fixes.css">
-<link rel="stylesheet" href="css/equipment-context-menu.css">
 <link rel="stylesheet" href="css/equipment-public-pm.css">
 <link rel="stylesheet" href="css/equipment-public-pm-system.css">
-<link rel="stylesheet" href="css/equipment-card-polish.css">
 <link rel="stylesheet" href="css/equipment-system.css">
 <link rel="stylesheet" href="css/views-system.css">
 <link rel="stylesheet" href="css/ordering-system.css">
@@ -156,7 +153,7 @@
   border-radius: 50%;
   background: var(--nx-surface-2, rgba(20, 18, 14, 0.85));
   border: 1px solid var(--nx-gold-line-2, rgba(200, 164, 78, 0.4));
-  color: var(--nx-gold, #c8a44e);
+  color: var(--nx-gold);
   font-family: 'Outfit', -apple-system, sans-serif;
   font-size: 13px;
   font-weight: 600;
@@ -217,13 +214,13 @@
   /* Theme-aware card — dark theme uses charcoal gradient, light
      theme overrides via the [data-theme="light"] rule below. */
   background: linear-gradient(180deg,
-    var(--nx-surface-1, #1c1814) 0%,
-    var(--nx-surface-2, #14110d) 100%);
+    var(--nx-surface-1) 0%,
+    var(--nx-surface-2) 100%);
   border: 1px solid var(--nx-gold-line-2, rgba(200, 164, 78, 0.3));
   border-radius: 6px;
   padding: 32px 28px 24px;
   box-shadow: var(--nx-shadow-modal, 0 16px 40px rgba(0, 0, 0, 0.6));
-  color: var(--nx-text, #d4c8a5);
+  color: var(--nx-text);
   font-family: 'Outfit', -apple-system, sans-serif;
   text-align: center;
 }
@@ -236,7 +233,7 @@
   height: 32px;
   background: transparent;
   border: none;
-  color: var(--nx-faint, #857f75);
+  color: var(--nx-faint);
   font-size: 16px;
   cursor: pointer;
   border-radius: 50%;
@@ -247,7 +244,7 @@
   -webkit-tap-highlight-color: transparent;
 }
 .nx-coin-info-close:hover {
-  color: var(--nx-text, #d4c8a5);
+  color: var(--nx-text);
   background: var(--nx-gold-soft, rgba(200, 164, 78, 0.1));
 }
 
@@ -257,20 +254,20 @@
   font-weight: 700;
   letter-spacing: 6px;
   margin: 0 0 4px;
-  color: var(--nx-gold, #c8a44e);
+  color: var(--nx-gold);
 }
 
 .nx-coin-info-tagline {
   margin: 0 0 12px;
   font-size: 13px;
-  color: var(--nx-muted, #857f75);
+  color: var(--nx-muted);
   letter-spacing: 0.5px;
 }
 
 .nx-coin-info-tagline-sub {
   margin: 0 0 4px;
   font-size: 12px;
-  color: var(--nx-faint, #6b6258);
+  color: var(--nx-faint);
   letter-spacing: 0.4px;
   font-style: italic;
 }
@@ -296,7 +293,7 @@
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 2px;
-  color: var(--nx-gold, #c8a44e);
+  color: var(--nx-gold);
   text-transform: uppercase;
   margin-bottom: 6px;
 }
@@ -305,7 +302,7 @@
   margin: 0 0 10px;
   font-size: 13.5px;
   line-height: 1.6;
-  color: var(--nx-text, #d4c8a5);
+  color: var(--nx-text);
 }
 .nx-coin-info-section p:last-child {
   margin-bottom: 0;
@@ -314,7 +311,7 @@
 .nx-coin-info-latin {
   font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-size: 12px;
-  color: var(--nx-gold, #c8a44e);
+  color: var(--nx-gold);
   letter-spacing: 0.5px;
   margin-top: 4px;
 }
@@ -330,13 +327,13 @@
 .nx-coin-info-list li {
   font-size: 13px;
   line-height: 1.55;
-  color: var(--nx-text, #d4c8a5);
+  color: var(--nx-text);
   padding: 6px 0 6px 14px;
   text-align: left;
 }
 .nx-coin-info-list li strong {
   font-family: 'JetBrains Mono', 'Courier New', monospace;
-  color: var(--nx-gold, #c8a44e);
+  color: var(--nx-gold);
   font-weight: 700;
   letter-spacing: 1px;
 }
@@ -347,23 +344,23 @@
   font-style: italic;
   font-size: 14px;
   line-height: 1.7;
-  color: var(--nx-text-emphasis, #e3d8b4);
+  color: var(--nx-text-emphasis);
   margin: 14px 0;
   padding: 4px 14px;
-  border-left: 2px solid var(--nx-gold, #c8a44e);
+  border-left: 2px solid var(--nx-gold);
   text-align: left;
 }
 
 .nx-coin-info-foot {
   font-size: 12px;
-  color: var(--nx-muted, #857f75);
+  color: var(--nx-muted);
   margin: 0;
   font-style: italic;
   line-height: 1.6;
   letter-spacing: 0.3px;
 }
 .nx-coin-info-foot em {
-  color: var(--nx-gold, #c8a44e);
+  color: var(--nx-gold);
   font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-style: normal;
   font-size: 13px;
@@ -393,12 +390,12 @@
      visible: gold-tinted face with a deeper gold border. */
   background: var(--nx-gold-faint, rgba(139, 105, 20, 0.08));
   border-color: var(--nx-gold-line-2);
-  color: var(--nx-gold-deep, #8b6914);
+  color: var(--nx-gold-deep);
 }
 [data-theme="light"] .nx-coin-info:hover,
 [data-theme="light"] .nx-coin-info:focus {
   background: var(--nx-gold-soft, rgba(139, 105, 20, 0.14));
-  border-color: var(--nx-gold-deep, #8b6914);
+  border-color: var(--nx-gold-deep);
 }
 
 /* ─── PIN screen vertical layout override ────────────────────────────
@@ -448,7 +445,7 @@
 #pinScreen .pin-user {
   margin: 0;
   min-height: 0;
-  color: #c8a44e;
+  color: var(--accent);
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.3px;
@@ -536,7 +533,7 @@
   text-align: center;
   font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-size: 18px;
-  color: #c8a44e;
+  color: var(--accent);
   letter-spacing: 1.5px;
   margin: 0 0 10px;
   min-height: 0;
@@ -556,7 +553,7 @@
   background: rgba(20, 18, 14, 0.6);
   border: 1px solid rgba(200, 164, 78, 0.25);
   border-radius: 8px;
-  color: #d4c8a5;
+  color: var(--text);
   padding: 11px 14px;
   font-family: 'Outfit', -apple-system, sans-serif;
   font-size: 14px;
@@ -583,7 +580,7 @@
   border-radius: 999px;
   border: 1px solid rgba(200, 164, 78, 0.35);
   background: rgba(200, 164, 78, 0.08);
-  color: #c8a44e;
+  color: var(--accent);
   font-family: 'Outfit', -apple-system, sans-serif;
   font-size: 14px;
   font-weight: 600;
@@ -598,13 +595,13 @@
   transform: scale(0.97);
 }
 #pinScreen .tc-btn-in {
-  background: linear-gradient(180deg, #d4a44e 0%, #b88830 100%);
-  color: #1c1814;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--nx-gold-deep) 100%);
+  color: var(--nx-bg);
   border-color: transparent;
   font-weight: 700;
 }
 #pinScreen .tc-btn-in:active {
-  background: linear-gradient(180deg, #b88830 0%, #9a7026 100%);
+  background: linear-gradient(180deg, var(--nx-gold-deep) 0%, var(--nx-gold-darker) 100%);
   border-color: transparent;
 }
 #pinScreen .tc-btn-out {
@@ -612,7 +609,7 @@
      match the palette (no scarlet). Reads as "exit" without panicking. */
   background: rgba(168, 62, 62, 0.10);
   border-color: rgba(168, 62, 62, 0.4);
-  color: #c8625e;
+  color: var(--red);
 }
 #pinScreen .tc-btn-out:active {
   background: rgba(168, 62, 62, 0.20);
@@ -660,7 +657,7 @@
   gap: 8px;
   padding: 6px 4px;
   font-size: 11.5px;
-  color: var(--nx-faint, #a89e87);
+  color: var(--nx-faint);
   border-bottom: 1px solid rgba(200, 164, 78, 0.08);
   min-height: 0;
 }
@@ -680,7 +677,7 @@
   font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-size: 10.5px;
   letter-spacing: 0.3px;
-  color: var(--nx-gold, #c8a44e);
+  color: var(--nx-gold);
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -689,7 +686,7 @@
   margin: 0 3px;
 }
 #pinScreen .tc-pin-log-times .active {
-  color: var(--nx-gold, #c8a44e);
+  color: var(--nx-gold);
   font-style: italic;
   opacity: 0.8;
 }
@@ -697,7 +694,7 @@
 #pinScreen .tc-pin-log-empty {
   text-align: center;
   font-size: 10px;
-  color: var(--nx-faint, #857f75);
+  color: var(--nx-faint);
   padding: 14px 0;
   letter-spacing: 0.5px;
 }
@@ -714,7 +711,7 @@
 #pinScreen .tc-download {
   background: transparent;
   border: none;
-  color: #857f75;
+  color: var(--faint);
   padding: 6px 16px;
   font-family: 'Outfit', -apple-system, sans-serif;
   font-size: 12px;
@@ -726,7 +723,7 @@
   -webkit-tap-highlight-color: transparent;
 }
 #pinScreen .tc-download:active {
-  color: #c8a44e;
+  color: var(--accent);
 }
 
 /* ─── Enter NEXUS — the primary action of this screen ─────────────────
@@ -738,8 +735,8 @@
   padding: 14px 18px;
   border-radius: 999px;
   border: none;
-  background: linear-gradient(180deg, #d4a44e 0%, #b88830 100%);
-  color: #1c1814;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--nx-gold-deep) 100%);
+  color: var(--nx-bg);
   font-family: 'Outfit', -apple-system, sans-serif;
   font-size: 15px;
   font-weight: 700;
@@ -750,7 +747,7 @@
   box-shadow: 0 4px 16px rgba(200, 164, 78, 0.15);
 }
 #pinScreen .tc-enter:active {
-  background: linear-gradient(180deg, #b88830 0%, #9a7026 100%);
+  background: linear-gradient(180deg, var(--nx-gold-deep) 0%, var(--nx-gold-darker) 100%);
   transform: scale(0.98);
 }
 
@@ -1419,7 +1416,7 @@
     <div class="chat-hud" id="chatHud">
       <div class="hud-handle" id="hudChevron"><span class="hud-handle-bar"></span></div>
       <div class="hud-body" id="hudBody">
-        <div class="api-banner" id="apiBanner" style="display:none">⚠ No API key. <button onclick="document.getElementById('adminBtn').click()">Admin ⚙</button></div>
+        <div class="api-banner" id="apiBanner" style="display:none"><button onclick="document.getElementById('adminBtn').click()">Admin</button></div>
         <div class="hud-welcome" id="brainWelcome"><span class="hud-welcome-text" data-i18n-html="nexusWelcome">I'm <b>NEXUS</b> — your ops brain. Ask me anything.</span></div>
         <div class="hud-examples" id="brainExamples"></div>
         <div class="hud-messages" id="chatMessages"></div>
@@ -1442,11 +1439,11 @@
       </div>
       <div class="np-body">
         <div id="npNotes" class="np-notes"></div>
-        <button id="npEditNotes" class="np-edit-btn" data-i18n="editNotes">✏ Edit Notes</button>
+        <button id="npEditNotes" class="np-edit-btn" data-i18n="editNotes"><i data-lucide="pencil" class="np-edit-icon"></i> Edit Notes</button>
         <button id="npShowConnected" class="np-edit-btn" onclick="if(NX.brain.state.activeNode)NX.showConnected(NX.brain.state.activeNode)">◇ Show Connected</button>
         <!-- Add files -->
         <div class="np-add-section">
-          <label class="np-add-file-btn"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="npFileInput" multiple accept="image/*,.pdf,.doc,.docx,.xlsx,.csv" hidden data-i18n="addFilePhoto">📎 Add File / Photo</label>
+          <label class="np-add-file-btn"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="npFileInput" multiple accept="image/*,.pdf,.doc,.docx,.xlsx,.csv" hidden data-i18n="addFilePhoto"><i data-lucide="paperclip" class="np-add-file-icon"></i> Add File / Photo</label>
           <div id="npUploadStatus" class="np-upload-status"></div>
         </div>
         <!-- Sources with expandable emails -->
@@ -1614,7 +1611,7 @@
            ══════════════════════════════════════════════════════════ -->
       <div class="ig-card" id="igGmailCard">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <span class="ig-card-icon">✉️</span>
+          <span class="ig-card-icon"><i data-lucide="mail"></i></span>
           <div class="ig-card-title-wrap">
             <div class="ig-card-title">Gmail</div>
             <div class="ig-card-sub" id="gmailStatusText">Checking…</div>
@@ -1648,7 +1645,7 @@
       <!-- UPLOAD FILES -->
       <div class="ig-card">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <span class="ig-card-icon">📁</span>
+          <span class="ig-card-icon"><i data-lucide="folder"></i></span>
           <div class="ig-card-title-wrap">
             <div class="ig-card-title">Upload a file</div>
             <div class="ig-card-sub">PDFs, Word, receipts, photos</div>
@@ -1668,7 +1665,7 @@
       <!-- WHATSAPP / SMS -->
       <div class="ig-card collapsed">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <span class="ig-card-icon">📱</span>
+          <span class="ig-card-icon"><i data-lucide="smartphone"></i></span>
           <div class="ig-card-title-wrap">
             <div class="ig-card-title">WhatsApp or text messages</div>
             <div class="ig-card-sub">Export a chat and upload the .txt file</div>
@@ -1692,7 +1689,7 @@
       <!-- CONTACTS -->
       <div class="ig-card collapsed">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <span class="ig-card-icon">👤</span>
+          <span class="ig-card-icon"><i data-lucide="user"></i></span>
           <div class="ig-card-title-wrap">
             <div class="ig-card-title">Phone contacts</div>
             <div class="ig-card-sub">iPhone or Android address book</div>
@@ -1716,7 +1713,7 @@
       <!-- PASTE -->
       <div class="ig-card collapsed">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <span class="ig-card-icon">📋</span>
+          <span class="ig-card-icon"><i data-lucide="clipboard-list"></i></span>
           <div class="ig-card-title-wrap">
             <div class="ig-card-title">Paste any text</div>
             <div class="ig-card-sub">Email, notes, vendor info — anything</div>
@@ -1732,7 +1729,7 @@
       <!-- TOOLS & BACKUP -->
       <div class="ig-card collapsed">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <span class="ig-card-icon">🔧</span>
+          <span class="ig-card-icon"><i data-lucide="wrench"></i></span>
           <div class="ig-card-title-wrap">
             <div class="ig-card-title">Maintenance & backup</div>
             <div class="ig-card-sub">Clean up duplicates, download a backup</div>
@@ -1741,11 +1738,11 @@
         </div>
         <div class="ig-card-body">
           <div class="ig-tools-grid">
-            <button id="relationshipBtn" class="ig-tool-btn">🔗 Connect related items</button>
-            <button id="dedupBtn" class="ig-tool-btn">🔄 Find duplicates</button>
-            <button id="sensitiveBtn" class="ig-tool-btn">🔒 Privacy scan</button>
-            <button id="digestBtn" class="ig-tool-btn">📊 Weekly summary</button>
-            <button id="remindersBtn" class="ig-tool-btn">🧠 Smart reminders</button>
+            <button id="relationshipBtn" class="ig-tool-btn"><i data-lucide="link" class="ig-tool-icon"></i> Connect related items</button>
+            <button id="dedupBtn" class="ig-tool-btn"><i data-lucide="copy" class="ig-tool-icon"></i> Find duplicates</button>
+            <button id="sensitiveBtn" class="ig-tool-btn"><i data-lucide="shield" class="ig-tool-icon"></i> Privacy scan</button>
+            <button id="digestBtn" class="ig-tool-btn"><i data-lucide="bar-chart-3" class="ig-tool-icon"></i> Weekly summary</button>
+            <button id="remindersBtn" class="ig-tool-btn"><i data-lucide="brain" class="ig-tool-icon"></i> Smart reminders</button>
             <button id="exportBtn" class="ig-tool-btn">⬇ Download backup</button>
             <label class="ig-tool-btn" style="cursor:pointer"><input autocomplete="off" data-lpignore="true" data-form-type="other" type="file" id="importFileInput" accept=".json" hidden>⬆ Restore backup</label>
           </div>
@@ -1757,7 +1754,7 @@
       <!-- ADVANCED — for tech users only -->
       <div class="ig-card collapsed">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed');if(!this.parentElement.classList.contains('collapsed'))setTimeout(()=>this.scrollIntoView({behavior:'smooth',block:'start'}),50)">
-          <span class="ig-card-icon">⚙</span>
+          <span class="ig-card-icon"><i data-lucide="settings"></i></span>
           <div class="ig-card-title-wrap">
             <div class="ig-card-title">Advanced settings</div>
             <div class="ig-card-sub">For tech users — most people never touch these</div>
@@ -1824,7 +1821,7 @@
       <!-- ACTIVITY -->
       <div class="ig-card collapsed">
         <div class="ig-card-head" onclick="this.parentElement.classList.toggle('collapsed')">
-          <span class="ig-card-icon">📜</span>
+          <span class="ig-card-icon"><i data-lucide="scroll-text"></i></span>
           <div class="ig-card-title-wrap">
             <div class="ig-card-title">Activity log</div>
             <div class="ig-card-sub">Step-by-step history of what happened</div>
@@ -1839,10 +1836,40 @@
   </div>
 </main>
 
+<!-- Duties speed-dial — overlay menu that pops up when the Duties bottom-nav
+     button is tapped. Lets the user jump straight to either pane (Cleaning
+     or Ordering) instead of always landing on whichever was active last.
+     Wiring is in app.js setupNav(); duties.js owns activatePane(). -->
+<div class="nx-speed-dial" id="dutiesDial" role="dialog" aria-label="Duties menu" aria-hidden="true">
+  <div class="nx-speed-dial-backdrop" data-dial-close></div>
+  <div class="nx-speed-dial-stack">
+    <button class="nx-speed-dial-action" data-target="cleaning" type="button" aria-label="Open Cleaning">
+      <span class="nx-speed-dial-label" data-i18n="cleaning">Cleaning</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/>
+          <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/>
+        </svg>
+      </span>
+    </button>
+    <button class="nx-speed-dial-action" data-target="ordering" type="button" aria-label="Open Ordering">
+      <span class="nx-speed-dial-label" data-i18n="ordering">Ordering</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="8" cy="21" r="1"/>
+          <circle cx="19" cy="21" r="1"/>
+          <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>
+        </svg>
+      </span>
+    </button>
+  </div>
+</div>
+
 <!-- Bottom Navigation — mobile primary nav. "Brain" removed (NEXUS logo top-left handles that). -->
 <nav class="bottom-nav" id="bottomNav" role="navigation">
-  <button class="bnav-btn" data-view="clean" data-perm="clean" aria-label="Duties">
+  <button class="bnav-btn bnav-btn-has-alt" data-view="clean" data-perm="clean" aria-label="Duties">
     <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg>
+    <svg class="bnav-icon-alt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
     <span data-i18n="duties">Duties</span>
   </button>
   <button class="bnav-btn" data-view="equipment" data-perm="equipment" aria-label="Equipment">
@@ -1873,8 +1900,8 @@
 <style>
 /* Admin tab bar */
 .admin-tab-bar { display:flex; gap:2px; margin:10px -2px 12px; background:rgba(0,0,0,0.18); border-radius:10px; padding:3px; overflow-x:auto; }
-.at-tab { flex:1; min-width:70px; padding:9px 8px; background:transparent; border:none; color:var(--text-dim,#a49c94); font-size:10.5px; font-weight:500; font-family:inherit; border-radius:7px; cursor:pointer; white-space:nowrap; transition:all 0.15s; letter-spacing:0.3px; }
-.at-tab.active { background:rgba(200,164,78,0.15); color:var(--accent,#c8a44e); font-weight:600; }
+.at-tab { flex:1; min-width:70px; padding:9px 8px; background:transparent; border:none; color:var(--text-dim); font-size:10.5px; font-weight:500; font-family:inherit; border-radius:7px; cursor:pointer; white-space:nowrap; transition:all 0.15s; letter-spacing:0.3px; }
+.at-tab.active { background:rgba(200,164,78,0.15); color:var(--accent); font-weight:600; }
 .at-tab:active { transform:scale(0.96); }
 .at-panel { display:none; animation:atFadeIn 0.18s ease-out; }
 .at-panel.active { display:block; }
@@ -1884,29 +1911,29 @@
 .at-stats-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:4px 0 14px; }
 .at-stat-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px 6px; text-align:center; transition:border-color 0.15s; }
 .at-stat-card .at-stat-icon { font-size:16px; margin-bottom:2px; line-height:1; }
-.at-stat-card .at-stat-num { font-size:18px; font-weight:700; color:var(--text,#d4c8a5); font-family:'JetBrains Mono',monospace; line-height:1.2; }
-.at-stat-card .at-stat-label { font-size:8.5px; color:var(--text-dim,#a49c94); text-transform:uppercase; letter-spacing:0.5px; margin-top:3px; }
+.at-stat-card .at-stat-num { font-size:18px; font-weight:700; color:var(--text); font-family:'JetBrains Mono',monospace; line-height:1.2; }
+.at-stat-card .at-stat-label { font-size:8.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px; margin-top:3px; }
 .at-stat-card.alert { background:rgba(168, 62, 62,0.1); border-color:rgba(168, 62, 62,0.3); }
-.at-stat-card.alert .at-stat-num { color:#c8625e; }
+.at-stat-card.alert .at-stat-num { color:var(--red); }
 
 /* Overview integrations chips */
 .at-integrations { display:flex; flex-wrap:wrap; gap:5px; margin:6px 0 14px; }
 .at-int-chip { font-size:10.5px; padding:4px 9px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); }
-.at-int-chip.ok { border-color:rgba(156, 138, 62,0.3); color:#9c8a3e; background:rgba(156, 138, 62,0.08); }
-.at-int-chip.off { border-color:rgba(168, 62, 62,0.3); color:#d88; background:rgba(168, 62, 62,0.08); }
+.at-int-chip.ok { border-color:rgba(156, 138, 62,0.3); color:var(--green); background:rgba(156, 138, 62,0.08); }
+.at-int-chip.off { border-color:rgba(168, 62, 62,0.3); color:var(--red); background:rgba(168, 62, 62,0.08); }
 
 /* Overview section headers + attention + activity */
-.at-section-title { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:1.2px; color:var(--text-dim,#a49c94); margin:14px 0 6px; padding-bottom:5px; border-bottom:1px solid rgba(255,255,255,0.05); }
+.at-section-title { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:1.2px; color:var(--text-dim); margin:14px 0 6px; padding-bottom:5px; border-bottom:1px solid rgba(255,255,255,0.05); }
 .at-attention { margin-bottom:14px; }
-.at-attn-item { font-size:11.5px; padding:8px 12px; margin-bottom:4px; border-radius:8px; background:rgba(212, 164, 78,0.1); border:1px solid rgba(212, 164, 78,0.2); color:var(--text,#d4c8a5); }
-.at-attn-item.ok { background:rgba(156, 138, 62,0.08); border-color:rgba(156, 138, 62,0.2); color:#9c8a3e; }
-.at-attn-item.danger { background:rgba(168, 62, 62,0.1); border-color:rgba(168, 62, 62,0.25); color:#c8625e; }
+.at-attn-item { font-size:11.5px; padding:8px 12px; margin-bottom:4px; border-radius:8px; background:rgba(212, 164, 78,0.1); border:1px solid rgba(212, 164, 78,0.2); color:var(--text); }
+.at-attn-item.ok { background:rgba(156, 138, 62,0.08); border-color:rgba(156, 138, 62,0.2); color:var(--green); }
+.at-attn-item.danger { background:rgba(168, 62, 62,0.1); border-color:rgba(168, 62, 62,0.25); color:var(--red); }
 .at-activity { max-height:180px; overflow-y:auto; border-radius:8px; background:rgba(0,0,0,0.18); padding:2px 0; }
 .at-activity-row { display:flex; gap:8px; padding:6px 10px; font-size:10.5px; border-bottom:1px solid rgba(255,255,255,0.03); }
 .at-activity-row:last-child { border-bottom:none; }
-.at-activity-time { color:var(--text-faint,#746c5e); font-family:'JetBrains Mono',monospace; font-size:9.5px; white-space:nowrap; flex-shrink:0; }
-.at-activity-msg { color:var(--text,#d4c8a5); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.at-activity-empty { font-size:11px; padding:14px 10px; text-align:center; color:var(--text-faint,#746c5e); }
+.at-activity-time { color:var(--text-faint); font-family:'JetBrains Mono',monospace; font-size:9.5px; white-space:nowrap; flex-shrink:0; }
+.at-activity-msg { color:var(--text); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.at-activity-empty { font-size:11px; padding:14px 10px; text-align:center; color:var(--text-faint); }
 
 /* ─── Permissions matrix (Phase D) ────────────────────────────── */
 .admin-perms-help {
@@ -2025,7 +2052,7 @@
   border: 1px solid var(--accent);
   border-radius: 999px;
   background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 80%, #000));
-  color: #1a1408;
+  color: var(--nx-gold-on);
   font-family: 'Outfit', 'DM Sans', sans-serif;
   font-size: 11px;
   font-weight: 600;
@@ -2085,42 +2112,42 @@
 
     <!-- TAB BAR (admin-gated via inline sync script below) -->
     <div class="admin-tab-bar at-admin-gated" id="adminTabBar" style="display:none">
-      <button class="at-tab active" data-tab="overview">📊 Overview</button>
-      <button class="at-tab" data-tab="configure">⚙️ Configure</button>
-      <button class="at-tab" data-tab="actions">🛠 Actions</button>
-      <button class="at-tab" data-tab="logs">📜 Logs</button>
+      <button class="at-tab active" data-tab="overview"><i data-lucide="bar-chart-3" class="at-tab-icon"></i> Overview</button>
+      <button class="at-tab" data-tab="configure"><i data-lucide="settings" class="at-tab-icon"></i> Configure</button>
+      <button class="at-tab" data-tab="actions"><i data-lucide="hammer" class="at-tab-icon"></i> Actions</button>
+      <button class="at-tab" data-tab="logs"><i data-lucide="scroll-text" class="at-tab-icon"></i> Logs</button>
     </div>
 
     <!-- ━━━━━ TAB 1: OVERVIEW ━━━━━ -->
     <div class="at-panel active at-admin-gated" data-panel="overview" id="atOverviewPanel" style="display:none">
       <div class="at-stats-grid">
         <div class="at-stat-card">
-          <div class="at-stat-icon">🔔</div>
+          <div class="at-stat-icon"><i data-lucide="bell"></i></div>
           <div class="at-stat-num" id="atPushCount">—</div>
           <div class="at-stat-label">Push</div>
         </div>
         <div class="at-stat-card">
-          <div class="at-stat-icon">👥</div>
+          <div class="at-stat-icon"><i data-lucide="users"></i></div>
           <div class="at-stat-num" id="atUserCount">—</div>
           <div class="at-stat-label">Team</div>
         </div>
         <div class="at-stat-card">
-          <div class="at-stat-icon">🧠</div>
+          <div class="at-stat-icon"><i data-lucide="brain"></i></div>
           <div class="at-stat-num" id="atNodeCount">—</div>
           <div class="at-stat-label">Brain</div>
         </div>
         <div class="at-stat-card">
-          <div class="at-stat-icon">🔧</div>
+          <div class="at-stat-icon"><i data-lucide="wrench"></i></div>
           <div class="at-stat-num" id="atEquipmentCount">—</div>
           <div class="at-stat-label">Equipment</div>
         </div>
         <div class="at-stat-card">
-          <div class="at-stat-icon">🎫</div>
+          <div class="at-stat-icon"><i data-lucide="ticket"></i></div>
           <div class="at-stat-num" id="atOpenCardsCount">—</div>
           <div class="at-stat-label">Open Cards</div>
         </div>
         <div class="at-stat-card alert" id="atOverdueCard" style="display:none">
-          <div class="at-stat-icon">🚨</div>
+          <div class="at-stat-icon"><i data-lucide="alert-octagon"></i></div>
           <div class="at-stat-num" id="atOverdueCount">—</div>
           <div class="at-stat-label">Overdue</div>
         </div>
@@ -2183,7 +2210,7 @@
           <span style="display:block;font-size:13px;font-weight:600;color:var(--text);">Voice replies</span>
           <span style="display:block;font-size:10.5px;color:var(--muted);margin-top:2px;line-height:1.4;">When on, NEXUS speaks its replies in chat using the selected voice.</span>
         </span>
-        <input type="checkbox" id="adminVoiceOn" style="width:20px;height:20px;accent-color:#d4a44e;cursor:pointer;flex-shrink:0;">
+        <input type="checkbox" id="adminVoiceOn" style="width:20px;height:20px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;">
       </label>
 
       <!-- ═══ THE TWO VOICES OF NEXUS ═══════════════════════════════════
@@ -2293,7 +2320,7 @@
       <div id="driveStatus" class="admin-key-status" style="font-size:11px"></div>
       <!-- LOGIN PERFORMANCE (PIN hash cache for fast re-login) -->
       <hr class="admin-divider">
-      <div class="admin-section-label">⚡ Login Performance</div>
+      <div class="admin-section-label">Login Performance</div>
       <label class="admin-toggle-row" for="adminPinCacheToggle" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:rgba(200,164,78,0.05);border:1px solid rgba(200,164,78,0.15);border-radius:10px;cursor:pointer;margin-top:6px;">
         <span style="flex:1;">
           <span style="display:block;font-size:13px;font-weight:600;color:var(--text);">Remember PIN on this device</span>
@@ -2304,7 +2331,7 @@
       <button id="adminClearPinCache" class="admin-save-btn" style="margin-top:8px;padding:8px 14px;font-size:12px;background:transparent;color:var(--muted);border:1px solid rgba(200,164,78,0.25);">Clear PIN cache</button>
       <!-- PUSH NOTIFICATIONS (per-device config) -->
       <hr class="admin-divider">
-      <div class="admin-section-label">🔔 Push Notifications</div>
+      <div class="admin-section-label">Push Notifications</div>
       <div id="adminPushStatus" class="admin-key-status" style="font-size:11px;margin:6px 0 8px;">Checking…</div>
       <div id="adminPushActions" style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
         <!-- Populated by NX_refreshPushStatus() — buttons vary by state -->
@@ -2328,28 +2355,28 @@
             const s = await NX.getPushStatus();
             if (!s.supported) {
               if (s.iosNeedsInstall) {
-                statusEl.innerHTML = '📱 iPhone — install to home screen first';
-                statusEl.style.color = '#d4a44e';
+                statusEl.innerHTML = 'iPhone — install to home screen first';
+                statusEl.style.color = 'var(--accent)';
                 actionsEl.innerHTML = '';
                 hintEl.innerHTML = 'Tap the <b>Share</b> button in Safari → <b>Add to Home Screen</b> → open NEXUS from the home screen icon → come back here.';
               } else {
-                statusEl.textContent = '❌ Not supported on this browser';
-                statusEl.style.color = '#a83e3e';
+                statusEl.textContent = 'Not supported on this browser';
+                statusEl.style.color = 'var(--red)';
                 actionsEl.innerHTML = '';
                 hintEl.textContent = 'Try Chrome, Firefox, or Edge.';
               }
               return;
             }
             if (s.permission === 'denied') {
-              statusEl.textContent = '🚫 Blocked in browser settings';
-              statusEl.style.color = '#a83e3e';
+              statusEl.textContent = 'Blocked in browser settings';
+              statusEl.style.color = 'var(--red)';
               actionsEl.innerHTML = '';
               hintEl.textContent = 'Tap the padlock icon in your address bar, find Notifications, and change it to Allow.';
               return;
             }
             if (s.subscribed && s.permission === 'granted') {
-              statusEl.textContent = '✅ Enabled on this device';
-              statusEl.style.color = '#9c8a3e';
+              statusEl.textContent = 'Enabled on this device';
+              statusEl.style.color = 'var(--green)';
               actionsEl.innerHTML = `
                 <button id="adminPushTest" class="admin-save-btn" style="background:transparent;color:var(--accent);border:1px solid rgba(200,164,78,0.35)">Send test notification</button>
                 <button id="adminPushOff" class="admin-save-btn" style="background:transparent;color:var(--muted);border:1px solid rgba(200,164,78,0.2);font-size:12px;padding:8px 14px">Disable on this device</button>
@@ -2379,10 +2406,10 @@
               return;
             }
             // Default — not subscribed yet
-            statusEl.textContent = '⚪ Not enabled on this device';
+            statusEl.textContent = 'Not enabled on this device';
             statusEl.style.color = 'var(--muted)';
             actionsEl.innerHTML = `
-              <button id="adminPushOn" class="admin-save-btn" style="background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408">🔔 Enable on this device</button>
+              <button id="adminPushOn" class="admin-save-btn" style="background:linear-gradient(135deg,var(--accent),var(--accent));color:var(--nx-gold-on)"><i data-lucide="bell" class="btn-icon"></i> Enable on this device</button>
             `;
             hintEl.textContent = 'Get buzzed when a ticket or card is reported.';
             hintEl.style.color = 'var(--muted)';
@@ -2396,17 +2423,17 @@
                 if (r?.reason === 'no_vapid_key') {
                   onBtn.textContent = 'Server not configured';
                   hintEl.textContent = 'Admin: run PUSH_SETUP.sql to add vapid_public_key to nexus_config.';
-                  hintEl.style.color = '#d4a44e';
+                  hintEl.style.color = 'var(--accent)';
                 } else if (r?.reason === 'permission_denied') {
                   onBtn.textContent = 'Blocked — see browser settings';
                 } else {
-                  onBtn.textContent = '🔔 Enable on this device';
+                  onBtn.innerHTML = '<i data-lucide="bell" class="btn-icon"></i> Enable on this device'; if(window.lucide)lucide.createIcons();
                 }
               }
             };
           } catch (e) {
             statusEl.textContent = 'Status check failed';
-            statusEl.style.color = '#a83e3e';
+            statusEl.style.color = 'var(--red)';
             console.warn('[push status]', e);
           }
         };
@@ -2463,8 +2490,8 @@
     <!-- Moved here: PM Logs, Broadcast, Data Backup. Admin-gated via at-admin-gated. -->
     <div class="at-panel at-admin-gated" data-panel="actions" id="atActionsPanel" style="display:none">
       <!-- OPERATIONS LOG — primary navigation shortcut (Log moved out of bnav in Stage N) -->
-      <div class="admin-section-label">📜 Operations Log</div>
-      <button id="adminOpenLog" class="admin-save-btn" style="margin-top:6px;background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;">
+      <div class="admin-section-label">Operations Log</div>
+      <button id="adminOpenLog" class="admin-save-btn" style="margin-top:6px;background:linear-gradient(135deg,var(--accent),var(--accent));color:var(--nx-gold-on);">
         Open Activity Log
       </button>
       <div class="admin-key-status" style="font-size:11px;margin-top:4px;">Unified feed: tickets, clock-ins, dispatches, cleaning logs</div>
@@ -2495,30 +2522,30 @@
       </script>
       <hr class="admin-divider">
       <!-- PM LOGS -->
-      <div class="admin-section-label">📋 Contractor PM Logs</div>
-      <button id="adminReviewPmLogs" class="admin-save-btn" style="margin-top:6px;background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <div class="admin-section-label">Contractor PM Logs</div>
+      <button id="adminReviewPmLogs" class="admin-save-btn" style="margin-top:6px;background:linear-gradient(135deg,var(--accent),var(--accent));color:var(--nx-gold-on);display:flex;align-items:center;justify-content:space-between;gap:8px;">
         <span>Review Pending Submissions</span>
-        <span id="adminPmPendingCount" class="ticket-badge" style="display:none;background:#e07070;color:white;font-weight:700;"></span>
+        <span id="adminPmPendingCount" class="ticket-badge" style="display:none;background:var(--red);color:white;font-weight:700;"></span>
       </button>
       <div class="admin-key-status" style="font-size:11px;margin-top:4px;">Contractor service logs submitted via QR scan</div>
       <hr class="admin-divider">
       <!-- BROADCAST ANNOUNCEMENT -->
-      <div class="admin-section-label">📣 Broadcast Announcement</div>
+      <div class="admin-section-label">Broadcast Announcement</div>
       <div class="admin-key-status" style="font-size:11px;margin:6px 0 8px;">Sends an immediate push notification to subscribed devices.</div>
       <input id="adminBroadcastTitle" type="text" placeholder="Title (e.g. Manager meeting at 4 PM)" maxlength="60" class="admin-field-sm" style="width:100%;margin-top:6px;" autocomplete="off" data-lpignore="true" data-form-type="other">
       <textarea id="adminBroadcastBody" placeholder="Message (e.g. Bar Toti — please be on time)" maxlength="200" rows="2" class="admin-field-sm" style="width:100%;margin-top:8px;resize:vertical;font-family:inherit;" autocomplete="off" data-lpignore="true" data-form-type="other"></textarea>
       <div style="display:flex;gap:8px;margin-top:8px;">
         <select id="adminBroadcastAudience" class="admin-field-sm" style="flex:1;">
-          <option value="all">👥 Everyone</option>
-          <option value="managers">👔 Managers + Admins</option>
-          <option value="staff">🧹 Staff only</option>
+          <option value="all">Everyone</option>
+          <option value="managers">Managers + Admins</option>
+          <option value="staff">Staff only</option>
         </select>
         <select id="adminBroadcastPriority" class="admin-field-sm" style="flex:1;">
           <option value="normal">Normal</option>
-          <option value="high">🔔 High (vibrates)</option>
+          <option value="high">High (vibrates)</option>
         </select>
       </div>
-      <button id="adminBroadcastSend" class="admin-save-btn" style="margin-top:10px;background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;">Send announcement</button>
+      <button id="adminBroadcastSend" class="admin-save-btn" style="margin-top:10px;background:linear-gradient(135deg,var(--accent),var(--accent));color:var(--nx-gold-on);">Send announcement</button>
       <div id="adminBroadcastStatus" class="admin-key-status" style="font-size:11px;margin-top:6px;min-height:14px;"></div>
       <script>
         (function() {
@@ -2531,8 +2558,8 @@
             const audience = document.getElementById('adminBroadcastAudience').value;
             const priority = document.getElementById('adminBroadcastPriority').value;
             if (!title || !body) {
-              statusEl.textContent = '⚠️ Title and message required.';
-              statusEl.style.color = '#a83e3e';
+              statusEl.textContent = 'Title and message required.';
+              statusEl.style.color = 'var(--red)';
               return;
             }
             if (!confirm(`Send "${title}" to ${audience}?\n\nEveryone with notifications enabled will get a push within 30 seconds.`)) return;
@@ -2547,15 +2574,15 @@
               const webSent = data?.web_sent ?? 0;
               const nativeSent = data?.native_sent ?? 0;
               const errs = data?.errors ?? 0;
-              statusEl.innerHTML = `✅ Sent. ${webSent} web + ${nativeSent} native delivered${errs ? `, ${errs} failed` : ''}.`;
-              statusEl.style.color = '#9c8a3e';
+              statusEl.innerHTML = `Sent. ${webSent} web + ${nativeSent} native delivered${errs ? `, ${errs} failed` : ''}.`;
+              statusEl.style.color = 'var(--green)';
               document.getElementById('adminBroadcastTitle').value = '';
               document.getElementById('adminBroadcastBody').value = '';
               if (NX.toast) NX.toast('Announcement sent ✓', 'success');
               if (NX.syslog) NX.syslog('broadcast_sent', `"${title}" → ${audience} (${webSent + nativeSent} delivered)`);
             } catch (e) {
-              statusEl.textContent = '❌ Failed: ' + (e.message || 'unknown error');
-              statusEl.style.color = '#a83e3e';
+              statusEl.textContent = 'Failed: ' + (e.message || 'unknown error');
+              statusEl.style.color = 'var(--red)';
               console.error('[broadcast] send failed:', e);
             } finally {
               sendBtn.disabled = false;
@@ -2567,7 +2594,7 @@
       <hr class="admin-divider">
       <!-- DATA BACKUP (existing adminBackupSection — kept for compatibility) -->
       <div id="adminBackupSection" style="display:none">
-        <div class="admin-section-label">💾 Data Backup</div>
+        <div class="admin-section-label">Data Backup</div>
         <div style="display:flex;gap:8px;margin-bottom:8px">
           <button id="exportBtn" class="admin-save-btn" style="flex:1;margin-top:0">⬇ Export All Data</button>
           <button id="exportNodesBtn" class="admin-cancel" style="flex:1;padding:8px">⬇ Nodes Only</button>
@@ -2584,7 +2611,7 @@
     <div class="at-panel at-admin-gated" data-panel="logs" id="atLogsPanel" style="display:none">
       <!-- AI ACTIVITY — audit log for AI writes (kept inline, moved here) -->
       <div id="adminAiActivity" style="display:none">
-        <div class="admin-section-label">⚡ AI Activity</div>
+        <div class="admin-section-label">AI Activity</div>
         <button id="aiActivityOpen" class="admin-save-btn" style="width:100%;margin-top:0">View AI Action Log</button>
         <div style="display:flex;gap:8px;margin-top:8px">
           <button id="aiWritesToggle" class="admin-cancel" style="flex:1;padding:8px;font-size:11px">Toggle AI Writes</button>
@@ -2776,15 +2803,15 @@
       const items = [];
       const pmN = pmPending || 0;
       const odN = overdueCount || 0;
-      if (pmN > 0) items.push({ cls: '', txt: `⚠️ ${pmN} contractor PM log${pmN > 1 ? 's' : ''} pending review` });
-      if (odN >= 50) items.push({ cls: 'danger', txt: `🚨 ${odN} cards overdue — run Board Clean Up` });
-      else if (odN > 0) items.push({ cls: '', txt: `📅 ${odN} card${odN > 1 ? 's' : ''} overdue` });
+      if (pmN > 0) items.push({ cls: 'warn', txt: `${pmN} contractor PM log${pmN > 1 ? 's' : ''} pending review` });
+      if (odN >= 50) items.push({ cls: 'danger', txt: `${odN} cards overdue — run Board Clean Up` });
+      else if (odN > 0) items.push({ cls: '', txt: `${odN} card${odN > 1 ? 's' : ''} overdue` });
       const anthropic = localStorage.getItem('nexus_api_key') || window.NX?.config?.anthropic_key;
-      if (!anthropic) items.push({ cls: 'danger', txt: '🔑 Claude API key not configured' });
+      if (!anthropic) items.push({ cls: 'danger', txt: 'Claude API key not configured' });
 
       attn.innerHTML = items.length
         ? items.map(i => `<div class="at-attn-item ${i.cls}">${i.txt}</div>`).join('')
-        : '<div class="at-attn-item ok">✅ Nothing urgent — everything running smoothly.</div>';
+        : '<div class="at-attn-item ok">Nothing urgent — everything running smoothly.</div>';
     }
 
     // Recent system activity
