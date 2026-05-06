@@ -1,7 +1,20 @@
-/* NEXUS Service Worker — v25
+/* NEXUS Service Worker — v26
    Strategy: network-first for JS/CSS/HTML (always fresh code),
              cache-first for fonts, images, icons, assets.
    Version bumped = full re-cache on next load.
+
+   What changed v25 → v26:
+   - TOOLS ROW added to Equipment view header. Four pill buttons:
+     Contractors / Parts / Analytics / Brands — wired to the existing
+     module overlays that previously had no UI surface (console-only).
+   - LIFECYCLE PILL fix: removed the .eq-table-uniform optimization
+     that was hiding the status column when all units were operational.
+     The lifecycle pill is the visual heartbeat — it must always render.
+   - On mobile, the pill compresses to a glowing 22px circular badge
+     (label hidden, dot + glow + animation preserved) so it fits.
+   - LIGHTBULB color metaphor across all states (gold-only): bright
+     glow when operational, simple fading breath when in progress,
+     irregular dying-bulb flicker when down.
 
    What changed v24 → v25:
    - OVERFLOW MENU enriched. The detail action bar's ⋯ overflow on
@@ -170,7 +183,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v25';
+const CACHE_NAME = 'nexus-v26';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -248,11 +261,11 @@ const CDN_CACHE = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      console.log('[SW v25] Caching app shell');
+      console.log('[SW v26] Caching app shell');
       // Use allSettled so one bad file doesn't poison the whole install
       return Promise.allSettled(
         APP_SHELL.map(url => cache.add(url).catch(err => {
-          console.warn('[SW v25] Skip:', url, err.message);
+          console.warn('[SW v26] Skip:', url, err.message);
         }))
       ).then(() =>
         Promise.allSettled(
@@ -268,7 +281,7 @@ self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => {
-        console.log('[SW v25] Deleting old cache:', k);
+        console.log('[SW v26] Deleting old cache:', k);
         return caches.delete(k);
       }))
     ).then(() => self.clients.claim())
