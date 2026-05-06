@@ -232,28 +232,38 @@
 .eq-col-services { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; padding-right: 4px; }
 
 @media (max-width: 600px) {
-  /* On mobile we hide PM and Services to save space. The status column
-     gets a FIXED width pinned to the right so every beacon aligns
-     vertically — the eye should run down the right edge and see the
-     row of bulbs at a glance.
-
-     Layout:  [ name (flex 1.6) | location (flex 1) | beacon (38px) ]
+  /* Mobile row layout. Two GRID columns (name + location), and the
+     status BEACON is absolutely positioned to the right edge of the
+     row so it ALWAYS sits at the same x-coordinate. This prevents
+     beacons from drifting horizontally when location text wraps to
+     multiple lines or when extra metadata chips push the row taller.
   */
   .eq-row {
-    grid-template-columns: 1.6fr 1fr 38px;
+    position: relative;
+    grid-template-columns: 1.6fr 1fr;
     gap: 8px;
-    padding: 10px 12px;
+    padding: 10px 56px 10px 12px;     /* right-pad reserves 56px for beacon */
     align-items: center;
   }
   .eq-col-pm, .eq-col-services { display: none; }
 
-  /* Hide the verbose pill label on mobile; the glowing dot + color is
-     enough signal in the narrow row. The screen-reader label survives
-     via the aria-label so accessibility is preserved. */
+  /* Status column → absolute, anchored to right edge */
   .eq-col-status {
-    justify-content: center;       /* center beacon in its 38px column */
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
     padding: 0;
+    margin: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
+  /* Hide the verbose pill label on mobile; the glowing dot + color is
+     enough signal in the narrow row. The aria-label survives for screen
+     readers. */
   .eq-col-status .eq-lc-pill-label { display: none; }
   .eq-col-status .eq-lc-pill-time  { display: none; }
   .eq-col-status .eq-lc-pill {
@@ -268,6 +278,13 @@
     width: 10px;
     height: 10px;
     margin: 0;
+  }
+
+  /* Same idea for the head row — hide its status column header so the
+     beacon column doesn't have a duplicate "Status" word floating
+     unmoored on the right edge. */
+  .eq-row-head .eq-col-status {
+    display: none;
   }
 }
 
@@ -10463,4 +10480,130 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
 .public-scan-contact-extra-value {
   color: var(--nx-gold);
   font-weight: 500;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   CONTRACTOR EQUIPMENT TAB — per-location groups
+   ═══════════════════════════════════════════════════════════════════
+   With 3 restaurants, the contractor's assigned equipment is grouped
+   by location so the user can run separate PM rounds per restaurant.
+   Each location header has its own row of bulk actions.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.eq-contractor-loc-group {
+  margin-bottom: 16px;
+  padding: 10px 10px 10px 10px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.eq-contractor-loc-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding: 0 4px;
+}
+.eq-contractor-loc-name {
+  font-family: 'Outfit', sans-serif;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  color: var(--nx-text);
+}
+.eq-contractor-loc-count {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 10.5px;
+  letter-spacing: 1px;
+  color: var(--nx-faint);
+  text-transform: uppercase;
+}
+.eq-contractor-loc-pm-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-top: 10px;
+  padding: 9px 14px;
+  background: var(--nx-gold-mist);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 10px;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--nx-press), border-color var(--nx-press);
+}
+.eq-contractor-loc-pm-btn:hover {
+  border-color: var(--nx-gold);
+  background: rgba(212, 164, 78, 0.16);
+  color: var(--nx-gold);
+}
+.eq-contractor-loc-pm-btn:active { transform: scale(0.98); }
+
+.eq-contractor-loc-promote {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0 4px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   ROW AVATAR — equipment photo as primary, manufacturer letter fallback
+   ═══════════════════════════════════════════════════════════════════
+   When equipment has a photo_url, render it as the row's leading
+   avatar (more recognizable than a colored letter). The whole avatar
+   target is tappable for quick photo replace — opens the camera/gallery
+   picker without leaving the list view.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.eq-cat-icon-photo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;          /* squared, not circular — reads as "photo" */
+  overflow: hidden;
+  flex: 0 0 38px;
+  background: var(--elevated);
+  border: 1px solid var(--nx-gold-line);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--nx-press), border-color var(--nx-press);
+}
+.eq-cat-icon-photo:active {
+  transform: scale(0.94);
+  border-color: var(--nx-gold);
+}
+.eq-cat-icon-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* If the <img> errors, JS removes it and adds .photo-failed; show the
+   letter fallback so the row never looks broken. */
+.eq-cat-icon-photo.photo-failed::after {
+  content: '?';
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 16px;
+  color: var(--nx-faint);
+}
+
+/* Letter-circle avatars also become tappable so users can ADD a
+   photo via the same flow — gives a subtle gold halo on press to
+   hint at interactivity. */
+.eq-cat-icon-with-logo[data-action="quick-photo"] {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--nx-press), filter var(--nx-press);
+}
+.eq-cat-icon-with-logo[data-action="quick-photo"]:active {
+  transform: scale(0.94);
+  filter: brightness(1.12);
 }
