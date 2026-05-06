@@ -34,7 +34,7 @@
   height: 1px;
   background: linear-gradient(90deg,
     transparent 0%,
-    var(--nx-gold-line-2, rgba(200,164,78,.4)) 50%,
+    var(--nx-gold-line-2, var(--nx-gold-line-2)) 50%,
     transparent 100%);
 }
 
@@ -88,7 +88,7 @@
 .lib-swap-btn:hover,
 .lib-swap-btn:focus-visible {
   color: var(--nx-gold);
-  border-color: var(--nx-gold-line-2, rgba(200,164,78,.4));
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line-2));
 }
 .lib-swap-btn.is-open {
   transform: rotate(180deg);
@@ -139,8 +139,8 @@
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  border: 1px solid var(--nx-gold-line-2, rgba(200,164,78,.4));
-  background: var(--nx-gold-soft, rgba(200,164,78,.08));
+  border: 1px solid var(--nx-gold-line-2, var(--nx-gold-line-2));
+  background: var(--nx-gold-soft, var(--nx-gold-faint));
   color: var(--nx-gold);
   display: inline-flex;
   align-items: center;
@@ -149,7 +149,7 @@
   transition: transform .15s, background .15s, border-color .15s;
   -webkit-tap-highlight-color: transparent;
 }
-.lib-play-btn:hover { background: var(--nx-gold-soft, rgba(200,164,78,.14)); }
+.lib-play-btn:hover { background: var(--nx-gold-soft, var(--nx-gold-mist)); }
 .lib-play-btn:active { transform: scale(.94); }
 .lib-play-btn.is-playing {
   background: var(--nx-gold);
@@ -248,7 +248,7 @@
 }
 .lib-skip-back:hover, .lib-skip-fwd:hover, .lib-speed:hover {
   color: var(--nx-gold);
-  border-color: var(--nx-gold-line-2, rgba(200,164,78,.4));
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line-2));
 }
 .lib-skip-back:active, .lib-skip-fwd:active, .lib-speed:active {
   transform: scale(.94);
@@ -279,8 +279,8 @@
   -webkit-tap-highlight-color: transparent;
 }
 .lib-done-btn:hover {
-  background: var(--nx-gold-soft, rgba(200,164,78,.08));
-  border-color: var(--nx-gold-line-2, rgba(200,164,78,.4));
+  background: var(--nx-gold-soft, var(--nx-gold-faint));
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line-2));
 }
 .lib-done-btn:active { transform: scale(.97); }
 
@@ -334,8 +334,8 @@
   -webkit-tap-highlight-color: transparent;
 }
 .lib-swap-option:hover {
-  background: var(--nx-gold-soft, rgba(200,164,78,.06));
-  border-color: var(--nx-gold-line-2, rgba(200,164,78,.4));
+  background: var(--nx-gold-soft, var(--nx-gold-faint));
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line-2));
 }
 .lib-swap-option:active { transform: scale(.99); }
 .lib-swap-title {
