@@ -24,31 +24,33 @@
 // ─────────────────────────────────────────────────────────────────────────
 // ─── PALETTE ──────────────────────────────────────────────────────────
 // Board uses the same editorial set everything else does:
-//   gold   #d4a44e   primary brand, "high" priority
-//   olive  #9c8a3e   "operational" green substitute, "Toti" location
-//   oxblood #a83e3e   urgent / overdue
-//   plum   #8a6c9e   muted royal — Este location
-//   graphite #6b6258  neutral, "low" priority (instead of out-of-place blue)
-//   parchment #d4c8a5  warm secondary, optional label colors
+//   gold   var(--accent)   primary brand, "high" priority
+//   olive  var(--green)   "operational" green substitute, "Toti" location
+//   oxblood var(--red)   urgent / overdue
+//   plum   var(--purple)   muted royal — Este location
+//   graphite var(--faint)  neutral, "low" priority (instead of out-of-place blue)
+//   parchment var(--text)  warm secondary, optional label colors
 //
 // No screaming red, no candy blue, no kindergarten green. Two-and-a-half
 // years of iteration says editorial > productivity-app default.
 const PRIORITIES = {
-  urgent: { label: 'Urgent', color: '#a83e3e', rank: 4 },  // oxblood
-  high:   { label: 'High',   color: '#d4a44e', rank: 3 },  // brand gold
+  urgent: { label: 'Urgent', color: 'var(--red)', rank: 4 },  // oxblood
+  high:   { label: 'High',   color: 'var(--accent)', rank: 3 },  // brand gold
   normal: { label: 'Normal', color: '',        rank: 2 },  // no strip
-  low:    { label: 'Low',    color: '#6b6258', rank: 1 },  // graphite (was blue)
+  low:    { label: 'Low',    color: 'var(--faint)', rank: 1 },  // graphite (was blue)
 };
 
 const LOCATIONS = [
-  { key: 'suerte', label: 'Suerte', color: '#c8a44e' },  // gold (lighter for light theme)
-  { key: 'este',   label: 'Este',   color: '#8a6c9e' },  // muted plum (was bright purple)
-  { key: 'toti',   label: 'Toti',   color: '#9c8a3e' },  // olive
+  { key: 'suerte', label: 'Suerte', color: 'var(--accent)' },  // gold (lighter for light theme)
+  { key: 'este',   label: 'Este',   color: 'var(--purple)' },  // muted plum (was bright purple)
+  { key: 'toti',   label: 'Toti',   color: 'var(--green)' },  // olive
 ];
 
-// Label color presets for cards. Same family — usable in any combo.
-//   oxblood, gold, olive, graphite, plum, parchment, denim-slate, taupe
-const LABEL_COLORS = ['#a83e3e','#d4a44e','#9c8a3e','#6b6258','#8a6c9e','#d4c8a5','#7a8db8','#a49c94'];
+// Label color presets for cards. 8 distinct theme-aware slots.
+// Each slot has dedicated dark + light values defined as --nx-label-N
+// in nx-system.css, so labels stay distinguishable on both themes.
+//   1 oxblood, 2 gold, 3 olive, 4 graphite, 5 plum, 6 parchment, 7 denim-slate, 8 taupe
+const LABEL_COLORS = ['var(--nx-label-1)','var(--nx-label-2)','var(--nx-label-3)','var(--nx-label-4)','var(--nx-label-5)','var(--nx-label-6)','var(--nx-label-7)','var(--nx-label-8)'];
 
 // Default list structure when a brand-new board is created
 const DEFAULT_LISTS = [
@@ -73,9 +75,9 @@ const STYLES = `
   /* Active view container should also be a flex column on desktop */
   .view#boardView.active{display:flex;flex-direction:column}
   .b-summary{display:flex;gap:10px;padding:12px 12px 8px;font-size:12px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:8px}
-  .b-summary-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:12px;background:rgba(255,255,255,0.04);color:var(--text,#d4c8a5)}
-  .b-summary-chip.alert{background:rgba(168, 62, 62,0.15);color:#c8625e;border:1px solid rgba(168, 62, 62,0.3)}
-  .b-summary-chip.ok{background:rgba(156, 138, 62,0.10);color:#9c8a3e}
+  .b-summary-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:12px;background:rgba(255,255,255,0.04);color:var(--text)}
+  .b-summary-chip.alert{background:rgba(168, 62, 62,0.15);color:var(--red);border:1px solid rgba(168, 62, 62,0.3)}
+  .b-summary-chip.ok{background:rgba(156, 138, 62,0.10);color:var(--green)}
   .b-summary-chip.tap{cursor:pointer;user-select:none}
   .b-summary-chip.tap:active{transform:scale(0.97)}
 
@@ -84,28 +86,28 @@ const STYLES = `
      leftmost in the summary strip so it's always visible.
      Toast stack: bottom-right corner, stacks up to 3, auto-dismiss.
      Separate from global NX.toast so bulk moves don't spam main UI. */
-  .b-rt-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);font-size:11px;color:var(--text-dim,#a49c94);font-variant-numeric:tabular-nums}
-  .b-rt-dot{width:7px;height:7px;border-radius:50%;background:var(--text-faint,#746c5e);flex-shrink:0;transition:background .3s,box-shadow .3s}
-  .b-rt-dot.is-live{background:#9c8a3e;box-shadow:0 0 6px rgba(156,138,62,.55);animation:bRtPulse 2.4s ease-in-out infinite}
+  .b-rt-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);font-size:11px;color:var(--text-dim);font-variant-numeric:tabular-nums}
+  .b-rt-dot{width:7px;height:7px;border-radius:50%;background:var(--text-faint);flex-shrink:0;transition:background .3s,box-shadow .3s}
+  .b-rt-dot.is-live{background:var(--green);box-shadow:0 0 6px rgba(156,138,62,.55);animation:bRtPulse 2.4s ease-in-out infinite}
   @keyframes bRtPulse{0%,100%{opacity:1}50%{opacity:.55}}
   .b-rt-toast-stack{position:fixed;bottom:80px;right:10px;display:flex;flex-direction:column;gap:6px;z-index:999;pointer-events:none;max-width:min(320px,calc(100vw - 20px))}
-  .b-rt-toast{background:rgba(20,18,14,0.95);border:1px solid rgba(200,164,78,0.25);border-left:3px solid #9c8a3e;color:var(--text,#d4c8a5);padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.35;box-shadow:0 6px 20px rgba(0,0,0,0.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:bRtToastIn .22s cubic-bezier(0.2,0.8,0.2,1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .b-rt-toast{background:rgba(20,18,14,0.95);border:1px solid rgba(200,164,78,0.25);border-left:3px solid var(--green);color:var(--text);padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.35;box-shadow:0 6px 20px rgba(0,0,0,0.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:bRtToastIn .22s cubic-bezier(0.2,0.8,0.2,1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
   .b-rt-toast.is-leaving{animation:bRtToastOut .3s ease forwards}
   @keyframes bRtToastIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
   @keyframes bRtToastOut{to{transform:translateX(20px);opacity:0}}
-  .b-summary-stats-btn{margin-left:auto;background:transparent;border:1px solid rgba(255,255,255,0.15);color:var(--text,#d4c8a5);padding:5px 12px;border-radius:12px;font-size:11px;cursor:pointer}
+  .b-summary-stats-btn{margin-left:auto;background:transparent;border:1px solid rgba(255,255,255,0.15);color:var(--text);padding:5px 12px;border-radius:12px;font-size:11px;cursor:pointer}
 
   .board-header{display:flex;align-items:center;gap:4px;overflow-x:auto;padding:4px 0 12px;scrollbar-width:none}
   .board-header::-webkit-scrollbar{display:none}
-  .board-tab{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--text,#d4c8a5);padding:6px 12px;border-radius:14px;font-size:12px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+  .board-tab{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--text);padding:6px 12px;border-radius:14px;font-size:12px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
   .board-tab-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;display:inline-block}
-  .board-tab.active{background:rgba(200,164,78,0.12);border-color:#c8a44e}
+  .board-tab.active{background:rgba(200,164,78,0.12);border-color:var(--accent)}
   .board-add-tab{font-weight:bold;padding:6px 10px}
 
   .b-filters{display:flex;gap:6px;padding:0 4px 8px;overflow-x:auto;scrollbar-width:none}
   .b-filters::-webkit-scrollbar{display:none}
-  .b-filter{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:var(--text-dim,#a49c94);padding:4px 10px;border-radius:10px;font-size:11px;cursor:pointer;white-space:nowrap}
-  .b-filter.active{background:rgba(200,164,78,0.15);color:#c8a44e;border-color:#c8a44e}
+  .b-filter{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:var(--text-dim);padding:4px 10px;border-radius:10px;font-size:11px;cursor:pointer;white-space:nowrap}
+  .b-filter.active{background:rgba(200,164,78,0.15);color:var(--accent);border-color:var(--accent)}
 
   .b-lists{display:flex;gap:10px;overflow-x:auto;padding-bottom:20px;scrollbar-width:thin;flex:1;min-height:0;align-items:stretch}
   /* Columns now fill the available vertical space rather than collapsing
@@ -119,22 +121,22 @@ const STYLES = `
     .b-list{flex:0 0 320px}
   }
   .b-list-head{display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:2px 2px 6px;border-bottom:1px solid rgba(255,255,255,0.05)}
-  .b-list-name{font-weight:600;font-size:13px;flex:1;color:var(--text,#d4c8a5)}
-  .b-list-count{font-size:11px;color:var(--text-dim,#a49c94);background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:8px}
+  .b-list-name{font-weight:600;font-size:13px;flex:1;color:var(--text)}
+  .b-list-count{font-size:11px;color:var(--text-dim);background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:8px}
   .b-list-cards{flex:1;overflow-y:auto;min-height:30px;margin:0 -2px;padding:0 2px;scrollbar-width:thin}
   .b-list-cards.drag-over{background:rgba(200,164,78,0.05);border-radius:6px}
   /* Add card button — was a wispy dashed rectangle. Now a calm solid
      affordance that stands out as "press here" without screaming. */
-  .b-list-add{background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.06);color:var(--text-dim,#a49c94);padding:10px;border-radius:8px;cursor:pointer;margin-top:6px;width:100%;font-size:12.5px;font-family:inherit;transition:all .15s}
-  .b-list-add:hover{background:rgba(200,164,78,0.06);border-color:rgba(200,164,78,0.25);color:var(--accent,#c8a44e)}
+  .b-list-add{background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.06);color:var(--text-dim);padding:10px;border-radius:8px;cursor:pointer;margin-top:6px;width:100%;font-size:12.5px;font-family:inherit;transition:all .15s}
+  .b-list-add:hover{background:rgba(200,164,78,0.06);border-color:rgba(200,164,78,0.25);color:var(--accent)}
   .b-list-add:active{transform:scale(0.99)}
 
   /* Terminal list collapse — Done/Closed/Resolved/Complete/Archived default
      to a single-line summary. Tap the header to expand. Saves screen real
      estate on mobile by hiding completed work. */
   .b-list.is-terminal{background:rgba(20,18,14,0.4);opacity:.85}
-  .b-list.is-terminal .b-list-head{color:var(--text-dim,#a49c94)}
-  .b-list-collapse-icon{display:inline-block;margin-right:6px;color:var(--text-dim,#a49c94);font-size:10px;transition:transform .15s;user-select:none}
+  .b-list.is-terminal .b-list-head{color:var(--text-dim)}
+  .b-list-collapse-icon{display:inline-block;margin-right:6px;color:var(--text-dim);font-size:10px;transition:transform .15s;user-select:none}
   .b-list.is-collapsed{min-height:auto}
   .b-list.is-collapsed .b-list-cards,
   .b-list.is-collapsed .b-list-add{display:none}
@@ -153,46 +155,46 @@ const STYLES = `
   .b-card-strip{height:3px;width:100%;background:transparent;flex-shrink:0}
   /* Body padding separate from cover so cover bleeds edge-to-edge */
   .b-card-body{padding:10px 12px 10px 12px;position:relative}
-  .b-card-title{font-size:13px;font-weight:500;color:var(--text,#d4c8a5);margin-bottom:6px;line-height:1.35}
+  .b-card-title{font-size:13px;font-weight:500;color:var(--text);margin-bottom:6px;line-height:1.35}
   .b-card-labels{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
-  .b-card-label{font-size:10px;padding:2px 7px;border-radius:8px;color:#1a1408;font-weight:600}
+  .b-card-label{font-size:10px;padding:2px 7px;border-radius:8px;color:var(--nx-gold-on);font-weight:600}
   .b-card-badges{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:4px}
-  .b-card-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,0.05);color:var(--text-dim,#a49c94)}
-  .b-card-badge.pri-urgent{background:rgba(168, 62, 62,0.15);color:#c8625e;font-weight:600}
-  .b-card-badge.pri-high{background:rgba(212,164,78,0.15);color:#d4a44e}
+  .b-card-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,0.05);color:var(--text-dim)}
+  .b-card-badge.pri-urgent{background:rgba(168, 62, 62,0.15);color:var(--red);font-weight:600}
+  .b-card-badge.pri-high{background:rgba(212,164,78,0.15);color:var(--accent)}
   .b-card-badge.loc{font-weight:500}
-  .b-card-badge.eq{background:rgba(200,164,78,0.10);color:#c8a44e}
-  .b-card-badge.overdue{background:rgba(168,62,62,0.18);color:#c8625e;font-weight:600}
-  .b-card-meta{display:flex;gap:8px;font-size:10px;color:var(--text-faint,#746c5e);margin-top:4px;align-items:center;flex-wrap:wrap}
+  .b-card-badge.eq{background:rgba(200,164,78,0.10);color:var(--accent)}
+  .b-card-badge.overdue{background:rgba(168,62,62,0.18);color:var(--red);font-weight:600}
+  .b-card-meta{display:flex;gap:8px;font-size:10px;color:var(--text-faint);margin-top:4px;align-items:center;flex-wrap:wrap}
   /* Meta sub-variants — age + due date urgency coloring (palette-coherent) */
-  .b-card-meta-due-soon{color:#c8625e;font-weight:600}
-  .b-card-meta-due-warn{color:#d4a44e;font-weight:500}
-  .b-card-meta-age{color:#746c5e}
-  .b-card-meta-age-warn{color:#d4a44e;font-weight:500}
-  .b-card-meta-age-old{color:#c8625e;font-weight:600}
-  .b-card-meta-progress{color:#d4a44e}
-  .b-card-meta-done{color:#9c8a3e}
-  .b-card-meta-assignee{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(200,164,78,0.2);color:#c8a44e;font-size:9px;font-weight:700;margin-right:-2px}
+  .b-card-meta-due-soon{color:var(--red);font-weight:600}
+  .b-card-meta-due-warn{color:var(--accent);font-weight:500}
+  .b-card-meta-age{color:var(--faint)}
+  .b-card-meta-age-warn{color:var(--accent);font-weight:500}
+  .b-card-meta-age-old{color:var(--red);font-weight:600}
+  .b-card-meta-progress{color:var(--accent)}
+  .b-card-meta-done{color:var(--green)}
+  .b-card-meta-assignee{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(200,164,78,0.2);color:var(--accent);font-size:9px;font-weight:700;margin-right:-2px}
   /* Done card — fade + strike title. Cards stay visible in their terminal
      list but read as archived-in-place rather than active work. */
   .b-card.is-done{opacity:.55}
-  .b-card.is-done .b-card-title{text-decoration:line-through;color:var(--text-dim,#a49c94)}
+  .b-card.is-done .b-card-title{text-decoration:line-through;color:var(--text-dim)}
   .b-card.is-done .b-card-cover img{filter:grayscale(.6)}
-  .b-card-move-btn{position:absolute;top:6px;right:6px;background:rgba(255,255,255,0.06);border:0;color:var(--text-dim,#a49c94);padding:3px 8px;border-radius:10px;font-size:10px;cursor:pointer;opacity:0;transition:opacity .15s;z-index:2}
+  .b-card-move-btn{position:absolute;top:6px;right:6px;background:rgba(255,255,255,0.06);border:0;color:var(--text-dim);padding:3px 8px;border-radius:10px;font-size:10px;cursor:pointer;opacity:0;transition:opacity .15s;z-index:2}
   .b-card:hover .b-card-move-btn,.b-card.show-move .b-card-move-btn{opacity:1}
   @media(hover:none){.b-card-move-btn{opacity:1}}
 
   /* Detail modal */
   .b-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px 10px;overflow-y:auto;animation:bfade .15s ease}
   @keyframes bfade{from{opacity:0}to{opacity:1}}
-  .b-modal{background:#1a1408;border:1px solid rgba(200,164,78,0.2);border-radius:12px;width:100%;max-width:600px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.6)}
+  .b-modal{background:var(--nx-gold-on);border:1px solid rgba(200,164,78,0.2);border-radius:12px;width:100%;max-width:600px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.6)}
   .b-modal-head{display:flex;align-items:flex-start;gap:8px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.02)}
-  .b-modal-title{flex:1;background:transparent;border:0;color:var(--text,#d4c8a5);font-size:15px;font-weight:600;outline:none;font-family:inherit}
-  .b-modal-close{background:transparent;border:0;color:var(--text-dim,#a49c94);font-size:18px;cursor:pointer;padding:4px 8px}
+  .b-modal-title{flex:1;background:transparent;border:0;color:var(--text);font-size:15px;font-weight:600;outline:none;font-family:inherit}
+  .b-modal-close{background:transparent;border:0;color:var(--text-dim);font-size:18px;cursor:pointer;padding:4px 8px}
   .b-modal-body{padding:14px 16px;max-height:70vh;overflow-y:auto}
   .b-section{margin-bottom:16px}
-  .b-section-label{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-faint,#746c5e);margin-bottom:4px}
-  .b-field{width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);color:var(--text,#d4c8a5);padding:8px 10px;border-radius:6px;font-size:13px;font-family:inherit;box-sizing:border-box}
+  .b-section-label{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-faint);margin-bottom:4px}
+  .b-field{width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);color:var(--text);padding:8px 10px;border-radius:6px;font-size:13px;font-family:inherit;box-sizing:border-box}
   .b-field:focus{outline:none;border-color:rgba(200,164,78,0.4)}
   textarea.b-field{resize:vertical;min-height:60px}
   select.b-field{cursor:pointer}
@@ -203,53 +205,53 @@ const STYLES = `
   .b-eq-embed:active{background:rgba(200,164,78,0.10)}
   .b-eq-embed-icon{font-size:20px}
   .b-eq-embed-body{flex:1;min-width:0}
-  .b-eq-embed-name{font-weight:600;font-size:13px;color:#c8a44e;margin-bottom:2px}
-  .b-eq-embed-meta{font-size:11px;color:var(--text-dim,#a49c94)}
-  .b-eq-embed-chev{color:var(--text-faint,#746c5e)}
+  .b-eq-embed-name{font-weight:600;font-size:13px;color:var(--accent);margin-bottom:2px}
+  .b-eq-embed-meta{font-size:11px;color:var(--text-dim)}
+  .b-eq-embed-chev{color:var(--text-faint)}
 
   .b-photos{display:flex;gap:6px;flex-wrap:wrap}
   .b-photo{width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;background:rgba(255,255,255,0.04)}
-  .b-photo-add{width:80px;height:80px;border:1px dashed rgba(255,255,255,0.2);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim,#a49c94);font-size:20px;cursor:pointer;background:transparent}
+  .b-photo-add{width:80px;height:80px;border:1px dashed rgba(255,255,255,0.2);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:20px;cursor:pointer;background:transparent}
 
-  .b-check{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;color:var(--text,#d4c8a5)}
-  .b-check input[type=checkbox]{accent-color:#c8a44e;width:16px;height:16px;cursor:pointer}
-  .b-check.done span{text-decoration:line-through;color:var(--text-faint,#746c5e)}
+  .b-check{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;color:var(--text)}
+  .b-check input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px;cursor:pointer}
+  .b-check.done span{text-decoration:line-through;color:var(--text-faint)}
   .b-check-add{display:flex;gap:6px;margin-top:6px}
-  .b-check-add input{flex:1;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);color:var(--text,#d4c8a5);padding:5px 8px;border-radius:4px;font-size:12px}
-  .b-check-add button{background:rgba(200,164,78,0.15);border:1px solid rgba(200,164,78,0.3);color:#c8a44e;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px}
+  .b-check-add input{flex:1;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);color:var(--text);padding:5px 8px;border-radius:4px;font-size:12px}
+  .b-check-add button{background:rgba(200,164,78,0.15);border:1px solid rgba(200,164,78,0.3);color:var(--accent);padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px}
 
   .b-comment{padding:6px 8px;background:rgba(255,255,255,0.02);border-radius:4px;margin-bottom:4px;font-size:12px}
-  .b-comment-by{color:#c8a44e;font-weight:600;margin-right:6px}
-  .b-comment-time{color:var(--text-faint,#746c5e);font-size:10px}
+  .b-comment-by{color:var(--accent);font-weight:600;margin-right:6px}
+  .b-comment-time{color:var(--text-faint);font-size:10px}
 
   /* Translate button on the description label + its rendered output.
      Button is a subtle pill; output is a cream-background blockquote
      styled to clearly mark "this is machine-translated, not the real
      stored value you're editing above". */
-  .b-tr-btn{float:right;background:transparent;border:1px solid rgba(200,164,78,0.35);color:#c8a44e;font-size:10px;padding:3px 8px;border-radius:10px;cursor:pointer;font-family:inherit;letter-spacing:0.3px}
+  .b-tr-btn{float:right;background:transparent;border:1px solid rgba(200,164,78,0.35);color:var(--accent);font-size:10px;padding:3px 8px;border-radius:10px;cursor:pointer;font-family:inherit;letter-spacing:0.3px}
   .b-tr-btn:active{transform:scale(0.96)}
-  .b-tr-out{margin-top:8px;padding:10px 12px;background:rgba(200,164,78,0.05);border-left:2px solid rgba(200,164,78,0.4);border-radius:4px;color:var(--text,#d4c8a5);font-size:12.5px;line-height:1.5;white-space:pre-wrap}
+  .b-tr-out{margin-top:8px;padding:10px 12px;background:rgba(200,164,78,0.05);border-left:2px solid rgba(200,164,78,0.4);border-radius:4px;color:var(--text);font-size:12.5px;line-height:1.5;white-space:pre-wrap}
 
   .b-actions{display:flex;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);margin-top:10px}
-  .b-btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--text,#d4c8a5);padding:7px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit}
+  .b-btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--text);padding:7px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit}
   .b-btn:active{background:rgba(255,255,255,0.08)}
-  .b-btn-primary{background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;border-color:#c8a44e}
-  .b-btn-danger{background:rgba(168, 62, 62,0.1);color:#c8625e;border-color:rgba(168, 62, 62,0.3)}
+  .b-btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent));color:var(--nx-gold-on);border-color:var(--accent)}
+  .b-btn-danger{background:rgba(168, 62, 62,0.1);color:var(--red);border-color:rgba(168, 62, 62,0.3)}
 
   /* Move picker */
   .b-move-modal{max-width:360px}
   .b-move-list{display:flex;flex-direction:column;gap:6px;padding:14px}
-  .b-move-item{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:var(--text,#d4c8a5);padding:12px 14px;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;display:flex;align-items:center;gap:8px}
+  .b-move-item{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:var(--text);padding:12px 14px;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;display:flex;align-items:center;gap:8px}
   .b-move-item.current{opacity:0.45;cursor:default}
-  .b-move-item:not(.current):active{background:rgba(200,164,78,0.1);border-color:#c8a44e}
+  .b-move-item:not(.current):active{background:rgba(200,164,78,0.1);border-color:var(--accent)}
 
   /* Stats modal */
   .b-stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
   .b-stat{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:12px}
-  .b-stat-num{font-size:22px;font-weight:700;color:var(--text,#d4c8a5);margin-bottom:2px}
-  .b-stat-num.alert{color:#c8625e}
-  .b-stat-num.ok{color:#9c8a3e}
-  .b-stat-label{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-faint,#746c5e)}
+  .b-stat-num{font-size:22px;font-weight:700;color:var(--text);margin-bottom:2px}
+  .b-stat-num.alert{color:var(--red)}
+  .b-stat-num.ok{color:var(--green)}
+  .b-stat-label{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-faint)}
 `;
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -341,7 +343,7 @@ async function loadBoards(){
     if(!boards.length){
       // Create default "Operations" board with the restaurant-ops column structure
       const { data: nb } = await NX.sb.from('boards')
-        .insert({ name: 'Operations', color: '#c8a44e', position: 0 })
+        .insert({ name: 'Operations', color: 'var(--accent)', position: 0 })
         .select().single();
       if(nb){
         boards = [nb];
@@ -649,9 +651,9 @@ function renderSummaryStrip(){
   </span>`;
   // Clean Up button only appears when there's meaningful backlog
   if(open > 30){
-    html += `<button class="b-summary-stats-btn" id="bCleanUpBtn" style="background:rgba(168, 62, 62,0.15);border-color:rgba(168, 62, 62,0.3);color:#c8625e">Clean Up</button>`;
+    html += `<button class="b-summary-stats-btn" id="bCleanUpBtn" style="background:rgba(168, 62, 62,0.15);border-color:rgba(168, 62, 62,0.3);color:var(--red)">Clean Up</button>`;
   }
-  html += `<button class="b-summary-stats-btn" id="bStatsBtn">📊 Stats</button>`;
+  html += `<button class="b-summary-stats-btn" id="bStatsBtn"><i data-lucide="bar-chart-3" class="b-btn-icon"></i> Stats</button>`;
   strip.innerHTML = html;
   strip.querySelector('#bStatsBtn').addEventListener('click', openStatsModal);
   const cleanBtn = strip.querySelector('#bCleanUpBtn');
@@ -729,7 +731,7 @@ function renderBoardHeader(){
     // the label so the per-board color signal survives, but the pill
     // shape stays fully round. The dot is 6px and inherits the same
     // color the border used to.
-    const dotColor = b.color || '#c8a44e';
+    const dotColor = b.color || 'var(--accent)';
     return `<button class="board-tab${active}" data-bid="${b.id}"><span class="board-tab-dot" style="background:${dotColor}"></span>${esc(b.name)}</button>`;
   }).join('') + '<button class="board-tab board-add-tab" id="bAddBoard">+</button>';
 
@@ -758,15 +760,15 @@ function renderFilterBar(){
   };
   let html = '';
   html += mk('priority', null, 'All', null);
-  html += mk('priority', 'urgent', 'Urgent', '#a83e3e');
-  html += mk('priority', 'high',   'High',   '#d4a44e');
-  html += mk('priority', 'low',    'Low',      '#6b6258');
+  html += mk('priority', 'urgent', 'Urgent', 'var(--red)');
+  html += mk('priority', 'high',   'High',   'var(--accent)');
+  html += mk('priority', 'low',    'Low',      'var(--faint)');
   html += `<span style="width:8px"></span>`;
   // State filters — Overdue (past due) and Stale (>14d old, no due date
   // or past due). These surface cards that have fallen through cracks
   // — the "weekly cleanup" pass any kitchen manager runs Monday morning.
-  html += mk('state', 'overdue', 'Overdue', '#a83e3e');
-  html += mk('state', 'stale',   'Stale 14d+', '#a49c94');
+  html += mk('state', 'overdue', 'Overdue', 'var(--red)');
+  html += mk('state', 'stale',   'Stale 14d+', 'var(--muted)');
   html += `<span style="width:8px"></span>`;
   LOCATIONS.forEach(l => {
     html += mk('location', l.key, l.label, l.color);
@@ -922,7 +924,7 @@ function createCardEl(card){
   // Labels (small chips, more Trello-ish — already exists, just more compact)
   if((card.labels||[]).length){
     html += `<div class="b-card-labels">${
-      card.labels.map(l => `<span class="b-card-label" style="background:${l.color||'#a49c94'}">${esc(l.name||'')}</span>`).join('')
+      card.labels.map(l => `<span class="b-card-label" style="background:${l.color||'var(--muted)'}">${esc(l.name||'')}</span>`).join('')
     }</div>`;
   }
 
@@ -933,8 +935,8 @@ function createCardEl(card){
   const badges = [];
   if(card.priority === 'urgent') badges.push(`<span class="b-card-badge pri-urgent">URGENT</span>`);
   else if(card.priority === 'high') badges.push(`<span class="b-card-badge pri-high">HIGH</span>`);
-  if(loc) badges.push(`<span class="b-card-badge loc" style="color:${loc.color}">📍 ${esc(loc.label)}</span>`);
-  if(card.equipment_id) badges.push(`<span class="b-card-badge eq">🔧 Equipment</span>`);
+  if(loc) badges.push(`<span class="b-card-badge loc" style="color:${loc.color}"><i data-lucide="map-pin" class="badge-icon"></i> ${esc(loc.label)}</span>`);
+  if(card.equipment_id) badges.push(`<span class="b-card-badge eq"><i data-lucide="wrench" class="badge-icon"></i> Equipment</span>`);
   if(overdue) badges.push(`<span class="b-card-badge overdue">OVERDUE</span>`);
   if(badges.length) html += `<div class="b-card-badges">${badges.join('')}</div>`;
 
@@ -948,7 +950,7 @@ function createCardEl(card){
     meta.push(`<span class="${cls}">☐ ${doneChecks}/${cl.length}</span>`);
   }
   const cm = card.comments || [];
-  if(cm.length) meta.push(`💬 ${cm.length}`);
+  if(cm.length) meta.push(`<i data-lucide="message-square" class="meta-icon"></i> ${cm.length}`);
   if(card.due_date && !overdue){
     // Urgency color by proximity: today=red, tomorrow=amber, this week=neutral
     const dueD = new Date(card.due_date);
@@ -1070,10 +1072,10 @@ function openQuickActions(card, anchorEl){
     <div class="b-qa-section">
       <div class="b-qa-label">Priority</div>
       <div class="b-qa-row">
-        <button class="b-qa-pri ${card.priority==='urgent'?'active':''}" data-pri="urgent" style="--c:#a83e3e">Urgent</button>
-        <button class="b-qa-pri ${card.priority==='high'?'active':''}"   data-pri="high"   style="--c:#d4a44e">High</button>
-        <button class="b-qa-pri ${(card.priority==='normal'||!card.priority)?'active':''}" data-pri="normal" style="--c:#a49c94">Normal</button>
-        <button class="b-qa-pri ${card.priority==='low'?'active':''}"    data-pri="low"    style="--c:#6b6258">Low</button>
+        <button class="b-qa-pri ${card.priority==='urgent'?'active':''}" data-pri="urgent" style="--c:var(--red)">Urgent</button>
+        <button class="b-qa-pri ${card.priority==='high'?'active':''}"   data-pri="high"   style="--c:var(--accent)">High</button>
+        <button class="b-qa-pri ${(card.priority==='normal'||!card.priority)?'active':''}" data-pri="normal" style="--c:var(--muted)">Normal</button>
+        <button class="b-qa-pri ${card.priority==='low'?'active':''}"    data-pri="low"    style="--c:var(--faint)">Low</button>
       </div>
     </div>
     <div class="b-qa-section">
@@ -1423,7 +1425,7 @@ async function openCardDetail(card){
 
       ${card.cleaning_link_section ? `
       <div class="b-cleaning-link">
-        <span class="b-cleaning-link-icon">🧹</span>
+        <span class="b-cleaning-link-icon"><i data-lucide="sparkles"></i></span>
         <div class="b-cleaning-link-body">
           <div class="b-cleaning-link-title">Linked to Cleaning</div>
           <div class="b-cleaning-link-meta">${esc(card.cleaning_link_section)} · ${esc(card.cleaning_link_location||'')}</div>
@@ -1434,7 +1436,7 @@ async function openCardDetail(card){
       <div class="b-section">
         <div class="b-section-label">
           Description
-          <button type="button" class="b-tr-btn" id="bTrDesc" title="Translate to your language" style="display:none">🌐 Translate</button>
+          <button type="button" class="b-tr-btn" id="bTrDesc" title="Translate to your language" style="display:none"><i data-lucide="languages" class="b-btn-icon"></i> Translate</button>
         </div>
         <textarea class="b-field" id="bDesc" placeholder="Details, steps to reproduce, what was tried…" rows="3">${esc(card.description||'')}</textarea>
         <div class="b-tr-out" id="bDescTrOut" style="display:none"></div>
@@ -1523,7 +1525,7 @@ async function openCardDetail(card){
 
       <div class="b-actions">
         <button class="b-btn b-btn-primary" id="bSave">Save</button>
-        ${card.equipment_id ? `<button class="b-btn" id="bCall">📞 Call Service</button>` : ''}
+        ${card.equipment_id ? `<button class="b-btn" id="bCall"><i data-lucide="phone" class="b-btn-icon"></i> Call Service</button>` : ''}
         <button class="b-btn" id="bMoveBtn">→ Move</button>
         <button class="b-btn b-btn-danger" id="bArchive">Archive</button>
       </div>
@@ -1549,7 +1551,7 @@ async function openCardDetail(card){
       trBtn.addEventListener('click', async () => {
         if (shown) {
           trOut.style.display = 'none';
-          trBtn.textContent = '🌐 Translate';
+          trBtn.innerHTML = '<i data-lucide="languages" class="b-btn-icon"></i> Translate'; if(window.lucide)lucide.createIcons();
           shown = false;
           return;
         }
@@ -1746,16 +1748,16 @@ async function renderEquipmentEmbed(card, container){
       .select('id, name, location, category, manufacturer, model, health_score')
       .eq('id', card.equipment_id).single();
     if(!eq){
-      container.innerHTML = '<div style="font-size:11px;color:var(--text-faint,#746c5e)">Equipment not found</div>';
+      container.innerHTML = '<div style="font-size:11px;color:var(--text-faint)">Equipment not found</div>';
       return;
     }
     const meta = [eq.category, eq.manufacturer, eq.model].filter(Boolean).join(' · ');
     const health = (eq.health_score != null)
-      ? `<span style="color:${eq.health_score>=70?'#9c8a3e':eq.health_score>=40?'#d4a44e':'#c8625e'}">${eq.health_score}%</span>`
+      ? `<span style="color:${eq.health_score>=70?'var(--green)':eq.health_score>=40?'var(--accent)':'var(--red)'}">${eq.health_score}%</span>`
       : '—';
     container.innerHTML = `
       <div class="b-eq-embed" id="bEqGo">
-        <div class="b-eq-embed-icon">🔧</div>
+        <div class="b-eq-embed-icon"><i data-lucide="wrench"></i></div>
         <div class="b-eq-embed-body">
           <div class="b-eq-embed-name">${esc(eq.name)}</div>
           <div class="b-eq-embed-meta">${esc(meta)}${meta?' · ':''}Health ${health}</div>
@@ -1780,7 +1782,7 @@ async function renderEquipmentEmbed(card, container){
     });
   }catch(e){
     console.error('[board] equipment embed:', e);
-    container.innerHTML = '<div style="font-size:11px;color:var(--text-faint,#746c5e)">Could not load equipment</div>';
+    container.innerHTML = '<div style="font-size:11px;color:var(--text-faint)">Could not load equipment</div>';
   }
 }
 
@@ -2187,7 +2189,7 @@ async function promptNewList(triggerEl){
 async function promptNewBoard(triggerEl){
   const create = async (name) => {
     const { data: nb } = await NX.sb.from('boards').insert({
-      name, color: '#c8a44e', position: boards.length
+      name, color: 'var(--accent)', position: boards.length
     }).select().single();
     if(nb){
       await NX.sb.from('board_lists').insert(
@@ -2241,7 +2243,7 @@ async function openStatsModal(){
   bg.className = 'b-modal-bg';
   bg.innerHTML = `<div class="b-modal">
     <div class="b-modal-head">
-      <div style="flex:1;font-size:14px;font-weight:600">📊 Board Stats</div>
+      <div style="flex:1;font-size:14px;font-weight:600">Board Stats</div>
       <button class="b-modal-close">✕</button>
     </div>
     <div class="b-modal-body">
@@ -2306,7 +2308,7 @@ async function openTriageModal(){
   }
 
   if (!allOpen.length) {
-    NX.toast && NX.toast('Nothing to clean up — you are caught up ✨', 'success');
+    NX.toast && NX.toast('Nothing to clean up — you are caught up', 'success');
     return;
   }
 
@@ -2320,15 +2322,15 @@ async function openTriageModal(){
   bg.innerHTML = `<div class="b-modal" id="bTriageModal">
     <div class="b-modal-head">
       <div style="flex:1">
-        <div style="font-size:14px;font-weight:600">🧹 Clean Up</div>
-        <div id="bTriageProgress" style="font-size:11px;color:var(--text-dim,#a49c94);margin-top:2px"></div>
+        <div style="font-size:14px;font-weight:600">Clean Up</div>
+        <div id="bTriageProgress" style="font-size:11px;color:var(--text-dim);margin-top:2px"></div>
       </div>
       <button class="b-modal-close">✕ Done</button>
     </div>
     <div class="b-modal-body" id="bTriageBody"></div>
     <div style="padding:10px 16px;border-top:1px solid rgba(255,255,255,0.05);display:flex;gap:8px;flex-wrap:wrap;background:rgba(255,255,255,0.02)">
-      <button class="b-btn b-btn-danger" id="bTArchive" style="flex:1;min-width:100px">📦 Archive</button>
-      <button class="b-btn" id="bTClose" style="flex:1;min-width:100px;background:rgba(156, 138, 62,0.12);color:#9c8a3e;border-color:rgba(156, 138, 62,0.3)">✓ Close</button>
+      <button class="b-btn b-btn-danger" id="bTArchive" style="flex:1;min-width:100px"><i data-lucide="archive" class="b-btn-icon"></i> Archive</button>
+      <button class="b-btn" id="bTClose" style="flex:1;min-width:100px;background:rgba(156, 138, 62,0.12);color:var(--green);border-color:rgba(156, 138, 62,0.3)">✓ Close</button>
       <button class="b-btn" id="bTSkip" style="flex:1;min-width:100px">⏭ Skip</button>
     </div>
     <div style="padding:6px 16px 14px;display:flex;gap:8px;flex-wrap:wrap">
@@ -2358,9 +2360,9 @@ async function openTriageModal(){
   const renderCurrent = () => {
     if (idx >= allOpen.length) {
       bodyEl.innerHTML = `<div style="padding:40px 20px;text-align:center">
-        <div style="font-size:48px;margin-bottom:10px">✨</div>
-        <div style="font-size:16px;color:#c8a44e;margin-bottom:8px;font-weight:600">All done!</div>
-        <div style="font-size:13px;color:var(--text-dim,#a49c94)">
+        <div style="font-size:36px;margin-bottom:10px;color:var(--nx-gold);font-weight:300">◇</div>
+        <div style="font-size:16px;color:var(--accent);margin-bottom:8px;font-weight:600">All done!</div>
+        <div style="font-size:13px;color:var(--text-dim)">
           ${archivedCount} archived · ${closedCount} closed · ${skippedCount} skipped
         </div>
       </div>`;
@@ -2380,8 +2382,8 @@ async function openTriageModal(){
     const badges = [];
     if (c.priority === 'urgent') badges.push('<span class="b-card-badge pri-urgent">URGENT</span>');
     else if (c.priority === 'high') badges.push('<span class="b-card-badge pri-high">HIGH</span>');
-    if (loc) badges.push(`<span class="b-card-badge loc" style="color:${loc.color}">📍 ${esc(loc.label)}</span>`);
-    if (c.equipment_id) badges.push('<span class="b-card-badge eq">🔧 Equipment</span>');
+    if (loc) badges.push(`<span class="b-card-badge loc" style="color:${loc.color}"><i data-lucide="map-pin" class="badge-icon"></i> ${esc(loc.label)}</span>`);
+    if (c.equipment_id) badges.push('<span class="b-card-badge eq"><i data-lucide="wrench" class="badge-icon"></i> Equipment</span>');
     if (overdue) badges.push('<span class="b-card-badge overdue">OVERDUE</span>');
     if (stuckDays != null && stuckDays > 30) badges.push(`<span class="b-card-badge overdue">⏳ Stuck ${stuckDays}d</span>`);
 
@@ -2391,12 +2393,12 @@ async function openTriageModal(){
 
     bodyEl.innerHTML = `
       <div style="position:relative;padding-left:8px;border-left:4px solid ${pri.color||'transparent'};margin-bottom:12px">
-        <div style="font-size:15px;font-weight:600;color:var(--text,#d4c8a5);line-height:1.3;margin-bottom:8px">${esc(c.title||'(untitled)')}</div>
+        <div style="font-size:15px;font-weight:600;color:var(--text);line-height:1.3;margin-bottom:8px">${esc(c.title||'(untitled)')}</div>
         ${badges.length ? `<div class="b-card-badges">${badges.join('')}</div>` : ''}
       </div>
       ${photoHtml}
-      ${c.description ? `<div style="font-size:13px;color:var(--text,#d4c8a5);margin-bottom:10px;line-height:1.4;white-space:pre-wrap">${esc(c.description)}</div>` : ''}
-      <div style="font-size:11px;color:var(--text-dim,#a49c94);line-height:1.6">
+      ${c.description ? `<div style="font-size:13px;color:var(--text);margin-bottom:10px;line-height:1.4;white-space:pre-wrap">${esc(c.description)}</div>` : ''}
+      <div style="font-size:11px;color:var(--text-dim);line-height:1.6">
         ${created ? `Created ${ageDays}d ago (${created.toLocaleDateString()})<br>` : ''}
         ${lastChange ? `Last status change ${stuckDays}d ago<br>` : ''}
         ${c.status ? `Status: <strong>${esc((c.status||'').replace(/_/g,' '))}</strong><br>` : ''}
@@ -2404,8 +2406,8 @@ async function openTriageModal(){
         ${c.reported_by ? `Reported by: ${esc(c.reported_by)}<br>` : ''}
         ${c.due_date ? `Due: ${esc(c.due_date)}<br>` : ''}
       </div>
-      ${(c.checklist && c.checklist.length) ? `<div style="margin-top:10px;font-size:11px;color:var(--text-dim,#a49c94)">Checklist: ${c.checklist.filter(x=>x.done).length}/${c.checklist.length} done</div>` : ''}
-      ${(c.comments && c.comments.length) ? `<div style="margin-top:4px;font-size:11px;color:var(--text-dim,#a49c94)">💬 ${c.comments.length} comment${c.comments.length!==1?'s':''}</div>` : ''}
+      ${(c.checklist && c.checklist.length) ? `<div style="margin-top:10px;font-size:11px;color:var(--text-dim)">Checklist: ${c.checklist.filter(x=>x.done).length}/${c.checklist.length} done</div>` : ''}
+      ${(c.comments && c.comments.length) ? `<div style="margin-top:4px;font-size:11px;color:var(--text-dim)"><i data-lucide="message-square" class="meta-icon"></i> ${c.comments.length} comment${c.comments.length!==1?'s':''}</div>` : ''}
     `;
 
     undoBtn.disabled = !lastAction;
