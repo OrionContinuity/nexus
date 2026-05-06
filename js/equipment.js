@@ -5024,7 +5024,7 @@ function wirePublicCoin() {
 async function loadPublicScan(qrCode) {
   try {
     const { data, error } = await NX.sb.from('equipment')
-      .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code')
+      .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contact_name, service_phone, preferred_contractor_node_id')
       .eq('qr_code', qrCode)
       .single();
     if (error || !data) throw new Error('Equipment not found');
@@ -5035,7 +5035,22 @@ async function loadPublicScan(qrCode) {
       .order('event_date', { ascending: false })
       .limit(5);
 
-    renderPublicScanHTML(data, maint || []);
+    // Pull the linked contractor node (if any) so the public scan can
+    // surface every phone + email the contractor has on file. Best-effort
+    // — if the join fails we fall back to the equipment's own service
+    // contact fields (which still work).
+    let contractor = null;
+    if (data.preferred_contractor_node_id) {
+      try {
+        const { data: cnode } = await NX.sb.from('nodes')
+          .select('id, name, links, notes')
+          .eq('id', data.preferred_contractor_node_id)
+          .maybeSingle();
+        if (cnode) contractor = cnode;
+      } catch (_) { /* ignore — fall back below */ }
+    }
+
+    renderPublicScanHTML(data, maint || [], contractor);
   } catch (err) {
     document.getElementById('publicScanBody').innerHTML = `
       <div class="public-scan-error">
@@ -5050,7 +5065,7 @@ function _publicSvg(path, size) {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">${path}</svg>`;
 }
 
-function renderPublicScanHTML(eq, maint) {
+function renderPublicScanHTML(eq, maint, contractor) {
   // Status palette — tokens, no raw web colors. Editorial set:
   // olive (operational), gold (needs service), oxblood (down),
   // graphite (retired). Same family the equipment list uses
@@ -5069,6 +5084,55 @@ function renderPublicScanHTML(eq, maint) {
   const PIN_ICON   = '<path d="M20 10c0 7-8 13-8 13s-8-6-8-13a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>';
   const ALERT_ICON = '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>';
   const LOGIN_ICON = '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>';
+  const PHONE_ICON = '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>';
+  const MAIL_ICON  = '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>';
+
+  // Resolve contact channels: prefer the linked contractor's full set
+  // (multi-phone, multi-email with TO/CC/BCC), fall back to the
+  // equipment's own service_phone + service_contact_name fields when
+  // the FK isn't set yet.
+  const phones = contractor ? extractContractorPhones(contractor) : [];
+  const emails = contractor ? extractContractorEmails(contractor) : [];
+  if (!phones.length && eq.service_phone) {
+    phones.push({ phone: eq.service_phone, label: '' });
+  }
+  const contactName = (contractor && contractor.name) || eq.service_contact_name || '';
+
+  // Build the email mailto: link with primary in to:, others in cc:.
+  let emailMailto = '';
+  let emailLabel = '';
+  if (emails.length) {
+    const toAddrs   = emails.filter(e => e.role === 'to' || !e.role).map(e => e.email);
+    const ccAddrs   = emails.filter(e => e.role === 'cc').map(e => e.email);
+    const bccAddrs  = emails.filter(e => e.role === 'bcc').map(e => e.email);
+    // If no explicit TOs (everything was marked CC), promote the first
+    // entry to TO so the email is deliverable.
+    const finalTos  = toAddrs.length ? toAddrs : (emails[0] ? [emails[0].email] : []);
+    const finalCcs  = toAddrs.length ? ccAddrs : ccAddrs.concat(emails.slice(1).filter(e => e.role !== 'bcc').map(e => e.email));
+
+    const subject = encodeURIComponent(`${eq.name} — service request`);
+    const body = encodeURIComponent(
+      `Hi${contactName ? ' ' + contactName : ''},\n\n` +
+      `We need service on the following equipment:\n\n` +
+      `  ${eq.name}\n` +
+      `  Location: ${eq.location}${eq.area ? ' · ' + eq.area : ''}\n` +
+      (eq.manufacturer || eq.model ? `  ${[eq.manufacturer, eq.model].filter(Boolean).join(' · ')}\n` : '') +
+      (eq.serial_number ? `  Serial: ${eq.serial_number}\n` : '') +
+      `\nPlease let us know your earliest availability.\n\nThanks.`
+    );
+    const params = [`subject=${subject}`, `body=${body}`];
+    if (finalCcs.length)  params.push(`cc=${encodeURIComponent(finalCcs.join(','))}`);
+    if (bccAddrs.length)  params.push(`bcc=${encodeURIComponent(bccAddrs.join(','))}`);
+    emailMailto = `mailto:${finalTos.join(',')}?${params.join('&')}`;
+    emailLabel  = finalTos[0] || emails[0].email;
+  }
+
+  // Build the Call button. If multiple phones, the primary is the tap
+  // target and a small "+N" chip hints at additional numbers (the
+  // user can long-press / tap-and-hold to pick — handled by browser).
+  const primaryPhone = phones[0]?.phone || '';
+  const primaryLabel = phones[0]?.label || '';
+  const extraPhoneCount = Math.max(0, phones.length - 1);
 
   document.getElementById('publicScanBody').innerHTML = `
     <div class="public-scan-card">
@@ -5087,6 +5151,45 @@ function renderPublicScanHTML(eq, maint) {
         ${eq.warranty_until ? `<div><label>Warranty</label><div>${new Date(eq.warranty_until).toLocaleDateString()}</div></div>` : ''}
         <div><label>Next PM</label><div${pmOverdue ? ' class="public-scan-overdue"' : ''}>${pmStr}${pmOverdue ? ' (overdue)' : ''}</div></div>
       </div>
+
+      ${(primaryPhone || emailMailto) ? `
+        <div class="public-scan-contact-card">
+          ${contactName ? `<div class="public-scan-contact-name">${esc(contactName)}</div>` : ''}
+          <div class="public-scan-contact-actions">
+            ${primaryPhone ? `
+              <a class="public-scan-contact-btn public-scan-contact-call" href="tel:${esc(primaryPhone.replace(/\s+/g, ''))}">
+                <span class="public-scan-contact-icon">${_publicSvg(PHONE_ICON, '18')}</span>
+                <span class="public-scan-contact-text">
+                  <span class="public-scan-contact-label">Call ${primaryLabel ? esc(primaryLabel) : 'service'}</span>
+                  <span class="public-scan-contact-value">${esc(primaryPhone)}</span>
+                </span>
+                ${extraPhoneCount > 0 ? `<span class="public-scan-contact-extra">+${extraPhoneCount}</span>` : ''}
+              </a>
+            ` : ''}
+            ${emailMailto ? `
+              <a class="public-scan-contact-btn public-scan-contact-email" href="${esc(emailMailto)}">
+                <span class="public-scan-contact-icon">${_publicSvg(MAIL_ICON, '18')}</span>
+                <span class="public-scan-contact-text">
+                  <span class="public-scan-contact-label">Email service request</span>
+                  <span class="public-scan-contact-value">${esc(emailLabel)}</span>
+                </span>
+                ${emails.length > 1 ? `<span class="public-scan-contact-extra">+${emails.length - 1}</span>` : ''}
+              </a>
+            ` : ''}
+          </div>
+          ${phones.length > 1 ? `
+            <div class="public-scan-contact-extras">
+              ${phones.slice(1).map(p => `
+                <a class="public-scan-contact-extra-row" href="tel:${esc(p.phone.replace(/\s+/g, ''))}">
+                  <span class="public-scan-contact-extra-label">${p.label ? esc(p.label) : 'alt'}</span>
+                  <span class="public-scan-contact-extra-value">${esc(p.phone)}</span>
+                </a>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      ` : ''}
+
       ${maint.length ? `
         <div class="public-scan-section">
           <h3>Recent Service History</h3>
@@ -5391,12 +5494,19 @@ async function openFullEditor(equipId) {
             </label>
             <div class="eq-form-row">
               <div class="eq-form-group" style="flex:1">
-                <label style="font-size:11px">Contact Name (optional)</label>
-                <input data-field="service_contact_name" value="${escAttr(eq.service_contact_name||'')}" placeholder="Austin Air and Ice">
+                <label style="font-size:11px">Contact Name <span style="color:var(--muted)">— pick existing to auto-link</span></label>
+                <input data-field="service_contact_name" id="eqServiceContactName-${eq.id}" value="${escAttr(eq.service_contact_name||'')}" placeholder="Austin Air and Ice" list="eqContractorOptions-${eq.id}" autocomplete="off">
+                <datalist id="eqContractorOptions-${eq.id}"></datalist>
+                <input type="hidden" data-field="preferred_contractor_node_id" value="${escAttr(eq.preferred_contractor_node_id||'')}">
+                <div id="eqContractorLinkChip-${eq.id}" class="eq-contractor-link-chip" style="display:none">
+                  <span class="eq-contractor-link-chip-icon">🔗</span>
+                  <span class="eq-contractor-link-chip-text"></span>
+                  <button type="button" class="eq-contractor-link-chip-unlink" title="Unlink (keep name as plain text)">×</button>
+                </div>
               </div>
               <div class="eq-form-group" style="flex:1">
                 <label style="font-size:11px">Phone Number</label>
-                <input type="tel" data-field="service_phone" value="${escAttr(eq.service_phone||'')}" placeholder="(512) 555-1234">
+                <input type="tel" data-field="service_phone" id="eqServicePhone-${eq.id}" value="${escAttr(eq.service_phone||'')}" placeholder="(512) 555-1234">
               </div>
             </div>
             <div style="display:flex;gap:8px;margin-top:8px">
@@ -5406,7 +5516,7 @@ async function openFullEditor(equipId) {
               ${eq.service_phone ? `<a href="tel:${escAttr(eq.service_phone)}" class="eq-btn eq-btn-tiny" style="flex:0 0 auto">Test Call</a>` : ''}
             </div>
             <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4">
-              Leave blank to auto-fall-back to the preferred contractor's phone.
+              Type a contractor name to link this equipment. The contractor's phone will auto-fill and the contractor's Equipment tab will show this unit.
             </div>
           </div>
 
@@ -5459,7 +5569,81 @@ async function openFullEditor(equipId) {
   `;
   modal.classList.add('active');
 
-  // Tab switching
+  // Wire the Service Contact typeahead picker. Pulls all contractor nodes,
+  // populates the datalist, and on selection auto-fills phone + sets the
+  // hidden preferred_contractor_node_id field. Without this wiring, the
+  // equipment side and contractor side stay disconnected — the user has
+  // to type the same name in two places and phones drift.
+  (async () => {
+    const dl    = modal.querySelector(`#eqContractorOptions-${eq.id}`);
+    const nameI = modal.querySelector(`#eqServiceContactName-${eq.id}`);
+    const phoneI = modal.querySelector(`#eqServicePhone-${eq.id}`);
+    const fkI   = modal.querySelector('input[data-field="preferred_contractor_node_id"]');
+    const chip  = modal.querySelector(`#eqContractorLinkChip-${eq.id}`);
+    const chipText  = chip?.querySelector('.eq-contractor-link-chip-text');
+    const unlinkBtn = chip?.querySelector('.eq-contractor-link-chip-unlink');
+    if (!dl || !nameI) return;
+
+    let contractorCache = [];
+    try {
+      const { data } = await NX.sb.from('nodes')
+        .select('id, name, links, notes, tags')
+        .eq('category', 'contractors')
+        .order('name', { ascending: true });
+      contractorCache = data || [];
+      // Populate datalist for native typeahead.
+      dl.innerHTML = contractorCache.map(c =>
+        `<option value="${escAttr(c.name)}"></option>`
+      ).join('');
+    } catch (err) {
+      console.warn('[full-editor] contractor lookup failed:', err);
+    }
+
+    // Show "linked" chip if equipment already has FK set.
+    const refreshChip = () => {
+      if (!chip) return;
+      if (fkI && fkI.value && contractorCache.length) {
+        const linked = contractorCache.find(c => c.id === fkI.value);
+        if (linked) {
+          chip.style.display = 'inline-flex';
+          chipText.textContent = `Linked to ${linked.name}`;
+          return;
+        }
+      }
+      chip.style.display = 'none';
+    };
+    refreshChip();
+
+    // When user types or picks, try to match name to a contractor.
+    // If exact match (case-insensitive) → set FK + auto-fill phone if blank.
+    // If no match → clear FK (leaves it as a free-text name).
+    nameI.addEventListener('input', () => {
+      const typed = (nameI.value || '').trim().toLowerCase();
+      const match = contractorCache.find(c => (c.name || '').toLowerCase() === typed);
+      if (match) {
+        fkI.value = match.id;
+        // Auto-fill phone if equipment doesn't have one yet.
+        if (phoneI && !phoneI.value) {
+          const cphone = extractContractorPhone(match);
+          if (cphone) phoneI.value = cphone;
+        }
+        refreshChip();
+      } else {
+        // Loose name — keep typing, no FK linked.
+        if (fkI.value) {
+          fkI.value = '';
+          refreshChip();
+        }
+      }
+    });
+
+    // Unlink button: keep the typed name, but drop the FK.
+    unlinkBtn?.addEventListener('click', () => {
+      fkI.value = '';
+      refreshChip();
+      NX.toast && NX.toast('Unlinked — name kept as plain text', 'info', 1400);
+    });
+  })();
   modal.querySelectorAll('.eq-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       modal.querySelectorAll('.eq-tab').forEach(t => t.classList.remove('active'));
@@ -6921,43 +7105,17 @@ function toggleOverflow(event, equipId) {
    ════════════════════════════════════════════════════════════════════════════ */
 
 function injectRowPrintButtons() {
-  const list = document.getElementById('eqList');
-  if (!list) return;
-
-  // NOTE: Despite the legacy function name, this now injects a
-  // "quick status change" button on each row — admins can flip
-  // equipment status (Operational / Needs Service / Down / Retired)
-  // without opening the detail view. The old label-print icon was
-  // moved to the full editor's Print section (still accessible via
-  // Edit → Print on Zebra or Paper Sticker).
-  list.querySelectorAll('.eq-row[data-eq-id]').forEach(row => {
-    if (row.classList.contains('eq-row-head')) return;
-    if (row.querySelector('.eq-row-status-btn')) return;
-    const id = row.dataset.eqId;
-    const btn = document.createElement('button');
-    btn.className = 'eq-row-status-btn';
-    btn.innerHTML = '⟳';
-    btn.title = 'Change status';
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      openQuickStatusMenu(id, btn);
-    });
-    row.appendChild(btn);
-  });
-
-  list.querySelectorAll('.eq-card[data-eq-id]').forEach(card => {
-    if (card.querySelector('.eq-card-status-btn')) return;
-    const id = card.dataset.eqId;
-    const btn = document.createElement('button');
-    btn.className = 'eq-card-status-btn';
-    btn.innerHTML = '⟳';
-    btn.title = 'Change status';
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      openQuickStatusMenu(id, btn);
-    });
-    card.querySelector('.eq-card-top')?.appendChild(btn);
-  });
+  // Deprecated as of v27. The legacy quick-status ⟳ button on each row
+  // (and on each grid card) is removed — the lifecycle beacon now
+  // carries the visual signal, and status changes are accessible via:
+  //   • long-press dial → no direct status change there, but → tap to detail
+  //   • detail's overflow ⋯ → Edit Everything → Status field
+  //   • the detail header pill (in the future, this could be made tappable)
+  //
+  // Function kept as a no-op so any other call sites that still invoke
+  // it don't break. Safe to remove the call site and this function in a
+  // future cleanup pass.
+  return;
 }
 
 /* ═══ CROSS-SYSTEM CLOSE-OUT ═══════════════════════════════════════════
@@ -9521,7 +9679,7 @@ async function loadContractorsList() {
     NX.sb.from('equipment_issues')
       .select('id, equipment_id, status, contractor_node_id, contractor_name, reported_at, contractor_called_at, repaired_at')
       .order('reported_at', { ascending: false }).then(r => r).catch(() => ({ data: [] })),
-    NX.sb.from('equipment').select('id, name, location, area, manufacturer, model, preferred_contractor_node_id'),
+    NX.sb.from('equipment').select('id, name, location, area, manufacturer, model, preferred_contractor_node_id, service_contact_name, service_phone'),
   ]);
 
   const contractors = nodesRes.data || [];
@@ -9570,8 +9728,15 @@ async function loadContractorsList() {
       ? lastDates.sort().reverse()[0]
       : null;
 
-    // Equipment they're the preferred contractor for.
-    c._assignedCount = eqList.filter(e => e.preferred_contractor_node_id === c.id).length;
+    // Equipment they're linked to. Match by:
+    //   1. preferred_contractor_node_id FK (the strong link)
+    //   2. service_contact_name string (case-insensitive — handles equipment
+    //      where the user typed the contractor name without picking from
+    //      the dropdown, so it's not yet FK-linked)
+    c._assignedCount = eqList.filter(e =>
+      e.preferred_contractor_node_id === c.id ||
+      ((e.service_contact_name || '').toLowerCase().trim() === nameLower && nameLower)
+    ).length;
     // Unique equipment they've serviced historically.
     const servicedIds = new Set(myMaint.map(m => m.equipment_id));
     c._historicalCount = servicedIds.size;
@@ -9614,6 +9779,44 @@ function extractContractorPhone(c) {
   return '';
 }
 
+/**
+ * Extract ALL phones from a contractor's links + notes. Returns an
+ * array of `{phone, label}` objects. The first entry is treated as
+ * primary by callers (Call button, public scan). Used by the public
+ * scan, the email/call buttons in contractor detail, and bulk
+ * propagation when a contractor is assigned to equipment.
+ */
+function extractContractorPhones(c) {
+  if (!c) return [];
+  const out = [];
+  const seen = new Set();
+  const add = (phone, label) => {
+    const norm = (phone || '').trim();
+    if (!norm) return;
+    const key = norm.replace(/\D/g, '');
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ phone: norm, label: label || '' });
+  };
+  if (c.links) {
+    const links = Array.isArray(c.links) ? c.links : [c.links];
+    for (const l of links) {
+      if (l && typeof l === 'object' && l.phone) {
+        add(l.phone, l.label || '');
+        continue;
+      }
+      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
+      const m = str.match(/(?:tel:)?(\+?[\d\s().-]{10,})/);
+      if (m) add(m[1], '');
+    }
+  }
+  if (c.notes) {
+    const matches = c.notes.match(/(\+?[\d\s().-]{10,})/g) || [];
+    matches.forEach(m => add(m, ''));
+  }
+  return out;
+}
+
 function extractContractorEmail(c) {
   if (!c) return '';
   if (c.links) {
@@ -9630,6 +9833,42 @@ function extractContractorEmail(c) {
     if (m) return m[0];
   }
   return '';
+}
+
+/**
+ * Extract ALL emails from a contractor's links + notes, with their role
+ * (to/cc/bcc). Returns an array of `{email, role, label}` where role
+ * defaults to 'to' (primary recipient). Drives the public scan's email
+ * button — primary in to:, others in cc:.
+ */
+function extractContractorEmails(c) {
+  if (!c) return [];
+  const out = [];
+  const seen = new Set();
+  const add = (email, role, label) => {
+    const norm = (email || '').trim().toLowerCase();
+    if (!norm || !/[\w.+-]+@[\w-]+\.[\w.-]+/.test(norm)) return;
+    if (seen.has(norm)) return;
+    seen.add(norm);
+    out.push({ email: norm, role: role || 'to', label: label || '' });
+  };
+  if (c.links) {
+    const links = Array.isArray(c.links) ? c.links : [c.links];
+    for (const l of links) {
+      if (l && typeof l === 'object' && l.email) {
+        add(l.email, l.role || 'to', l.label || '');
+        continue;
+      }
+      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
+      const m = str.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+      if (m) add(m[0], 'to', '');
+    }
+  }
+  if (c.notes) {
+    const matches = c.notes.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || [];
+    matches.forEach(m => add(m, 'to', ''));
+  }
+  return out;
 }
 
 function extractContractorTags(c) {
@@ -9857,9 +10096,26 @@ function buildContractorDetailDerived() {
   contractorsState.activity = events;
 
   // Equipment assignments + historical.
-  contractorsState.assignedEquipment = eqLite.filter(e => e.preferred_contractor_node_id === c.id);
+  // Two paths to "assigned":
+  //   1. preferred_contractor_node_id FK (proper link)
+  //   2. service_contact_name string match (informal link — typed name)
+  // Equipment in the second bucket can be promoted to the first via a
+  // one-tap action in the Equipment tab.
+  const nameLower = (c.name || '').toLowerCase().trim();
+  contractorsState.assignedEquipment = eqLite.filter(e =>
+    e.preferred_contractor_node_id === c.id ||
+    ((e.service_contact_name || '').toLowerCase().trim() === nameLower && nameLower)
+  );
+  // Mark which ones are "loose" links so the UI can show a chip and
+  // offer to make the link permanent.
+  for (const e of contractorsState.assignedEquipment) {
+    e._linkType = e.preferred_contractor_node_id === c.id ? 'fk' : 'name';
+  }
+  const assignedIds = new Set(contractorsState.assignedEquipment.map(e => e.id));
   const servicedIds = new Set(maint.map(m => m.equipment_id));
-  contractorsState.historicalEquipment = eqLite.filter(e => servicedIds.has(e.id) && e.preferred_contractor_node_id !== c.id);
+  contractorsState.historicalEquipment = eqLite.filter(e =>
+    servicedIds.has(e.id) && !assignedIds.has(e.id)
+  );
 }
 
 function renderContractorsDetail() {
@@ -9978,6 +10234,21 @@ function renderContractorsDetail() {
         if (typeof openDetail === 'function') openDetail(id);
       });
     });
+    // Promote name-only links to proper FK links.
+    overlay.querySelector('[data-action="promote-all"]')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await promoteContractorNameLinks();
+    });
+    // Open assign-equipment multi-select sheet.
+    overlay.querySelector('[data-action="assign-equipment"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openContractorAssignSheet();
+    });
+    // Open the bulk-PM scheduler with all currently-assigned equipment.
+    overlay.querySelector('[data-action="bulk-pm"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      schedulePmsForContractor();
+    });
   } else if (detailTab === 'activity') {
     overlay.querySelectorAll('[data-event-eq-id]').forEach(card => {
       card.addEventListener('click', () => {
@@ -10049,25 +10320,59 @@ function renderContractorEquipmentTab() {
   const assigned = contractorsState.assignedEquipment || [];
   const historical = contractorsState.historicalEquipment || [];
 
+  // Two top-level actions: assign more equipment to this contractor, or
+  // schedule PMs across all the equipment they're already assigned to.
+  // Both are full-width gold pills sitting above the lists.
+  const topActions = `
+    <div class="eq-contractor-eq-actions">
+      <button class="eq-contractor-eq-action-btn eq-contractor-eq-action-primary" data-action="assign-equipment">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Assign equipment to this contractor
+      </button>
+      ${assigned.length ? `
+        <button class="eq-contractor-eq-action-btn eq-contractor-eq-action-secondary" data-action="bulk-pm">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          Schedule PMs for all ${assigned.length} assigned
+        </button>
+      ` : ''}
+    </div>
+  `;
+
   if (!assigned.length && !historical.length) {
     return `
+      ${topActions}
       <div class="eq-contractors-empty">
         <div class="eq-contractors-empty-title">No equipment linked yet</div>
-        <div class="eq-contractors-empty-msg">Assign this contractor to equipment via the equipment editor's "Preferred contractor" field, or via the bulk-assign tool from the equipment list.</div>
+        <div class="eq-contractors-empty-msg">Tap <strong>Assign equipment</strong> above to multi-pick units this contractor is in charge of, or set the contractor on a piece of equipment via its editor's Links tab.</div>
       </div>
     `;
   }
 
-  const renderEqRow = (e) => `
-    <div class="eq-contractor-eq-row" data-eq-id="${esc(e.id)}">
-      <div class="eq-contractor-eq-name">${esc(e.name)}</div>
-      <div class="eq-contractor-eq-meta">${esc(e.location || '')}${e.area ? ' · ' + esc(e.area) : ''}${e.manufacturer ? ' · ' + esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}</div>
-    </div>
-  `;
+  // Count loose name-matched links so we can offer a "Promote all" action.
+  const looseCount = assigned.filter(e => e._linkType === 'name').length;
+
+  const renderEqRow = (e) => {
+    const isLoose = e._linkType === 'name';
+    return `
+      <div class="eq-contractor-eq-row${isLoose ? ' is-loose-link' : ''}" data-eq-id="${esc(e.id)}">
+        <div class="eq-contractor-eq-body-text">
+          <div class="eq-contractor-eq-name">
+            ${esc(e.name)}
+            ${isLoose ? '<span class="eq-contractor-eq-loose-chip" title="Linked by name only — tap to make permanent">↗ name only</span>' : ''}
+          </div>
+          <div class="eq-contractor-eq-meta">${esc(e.location || '')}${e.area ? ' · ' + esc(e.area) : ''}${e.manufacturer ? ' · ' + esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}</div>
+        </div>
+      </div>
+    `;
+  };
 
   return `
+    ${topActions}
     ${assigned.length ? `
-      <div class="eq-contractor-eq-group-label">Currently assigned · ${assigned.length}</div>
+      <div class="eq-contractor-eq-group-label">
+        Currently assigned · ${assigned.length}
+        ${looseCount > 0 ? `<button class="eq-contractor-eq-promote-btn" data-action="promote-all">Promote ${looseCount} name-only ${looseCount === 1 ? 'link' : 'links'} to permanent</button>` : ''}
+      </div>
       <div class="eq-contractor-eq-list">${assigned.map(renderEqRow).join('')}</div>
     ` : ''}
     ${historical.length ? `
@@ -10080,9 +10385,13 @@ function renderContractorEquipmentTab() {
 function renderContractorEditTab() {
   const c = contractorsState.activeContractor;
   if (!c) return '';
-  const phone = extractContractorPhone(c);
-  const email = extractContractorEmail(c);
+  const phones = extractContractorPhones(c);
+  const emails = extractContractorEmails(c);
   const tags = extractContractorTags(c);
+
+  // Ensure at least one row of each so the form is fillable from empty.
+  const phoneRows = phones.length ? phones : [{ phone: '', label: '' }];
+  const emailRows = emails.length ? emails : [{ email: '', role: 'to', label: '' }];
 
   return `
     <form class="eq-contractor-edit-form" id="eqContractorEditForm">
@@ -10090,18 +10399,47 @@ function renderContractorEditTab() {
         <label class="eq-contractor-edit-label" for="ccName">Name</label>
         <input class="eq-contractor-edit-input" id="ccName" name="name" type="text" value="${esc(c.name || '')}" required>
       </div>
-      <div class="eq-contractor-edit-row">
-        <div class="eq-contractor-edit-field">
-          <label class="eq-contractor-edit-label" for="ccPhone">Phone</label>
-          <input class="eq-contractor-edit-input" id="ccPhone" name="phone" type="tel" value="${esc(phone)}" placeholder="(555) 123-4567">
-        </div>
-        <div class="eq-contractor-edit-field">
-          <label class="eq-contractor-edit-label" for="ccEmail">Email</label>
-          <input class="eq-contractor-edit-input" id="ccEmail" name="email" type="email" value="${esc(email)}" placeholder="service@vendor.com">
-        </div>
-      </div>
+
       <div class="eq-contractor-edit-field">
-        <label class="eq-contractor-edit-label" for="ccTags">Specialties <span class="eq-contractor-edit-hint">— comma separated (e.g. refrigeration, HVAC, plumbing)</span></label>
+        <label class="eq-contractor-edit-label">
+          Phones
+          <span class="eq-contractor-edit-hint">— first one powers the Call button on QR scan</span>
+        </label>
+        <div class="eq-contractor-multi-list" id="ccPhoneList">
+          ${phoneRows.map((p, i) => `
+            <div class="eq-contractor-multi-row" data-multi="phone">
+              <input class="eq-contractor-edit-input eq-contractor-multi-input" name="phone[]" type="tel" value="${esc(p.phone || '')}" placeholder="(512) 800-2228">
+              <input class="eq-contractor-edit-input eq-contractor-multi-label" name="phone_label[]" type="text" value="${esc(p.label || '')}" placeholder="${i === 0 ? 'main · dispatch · cell' : 'after-hours · cell · etc'}" maxlength="20">
+              <button type="button" class="eq-contractor-multi-remove" data-action="remove" aria-label="Remove">×</button>
+            </div>
+          `).join('')}
+        </div>
+        <button type="button" class="eq-contractor-multi-add" data-add="phone">+ Add another phone</button>
+      </div>
+
+      <div class="eq-contractor-edit-field">
+        <label class="eq-contractor-edit-label">
+          Emails
+          <span class="eq-contractor-edit-hint">— first one is the recipient; mark others as CC to send copies</span>
+        </label>
+        <div class="eq-contractor-multi-list" id="ccEmailList">
+          ${emailRows.map((e, i) => `
+            <div class="eq-contractor-multi-row" data-multi="email">
+              <input class="eq-contractor-edit-input eq-contractor-multi-input" name="email[]" type="email" value="${esc(e.email || '')}" placeholder="dispatch@vendor.com">
+              <select class="eq-contractor-edit-input eq-contractor-multi-role" name="email_role[]">
+                <option value="to" ${e.role === 'to' || !e.role ? 'selected' : ''}>TO</option>
+                <option value="cc" ${e.role === 'cc' ? 'selected' : ''}>CC</option>
+                <option value="bcc" ${e.role === 'bcc' ? 'selected' : ''}>BCC</option>
+              </select>
+              <button type="button" class="eq-contractor-multi-remove" data-action="remove" aria-label="Remove">×</button>
+            </div>
+          `).join('')}
+        </div>
+        <button type="button" class="eq-contractor-multi-add" data-add="email">+ Add another email</button>
+      </div>
+
+      <div class="eq-contractor-edit-field">
+        <label class="eq-contractor-edit-label" for="ccTags">In charge of <span class="eq-contractor-edit-hint">— comma-separated specialties (refrigeration, HVAC, plumbing)</span></label>
         <input class="eq-contractor-edit-input" id="ccTags" name="tags" type="text" value="${esc(tags.join(', '))}" placeholder="refrigeration, ice machines, walk-ins">
       </div>
       <div class="eq-contractor-edit-field">
@@ -10125,23 +10463,85 @@ function wireContractorEditForm() {
   const form = overlay.querySelector('#eqContractorEditForm');
   if (!form) return;
 
+  // Wire + Add and × Remove buttons for the multi-row phone/email lists.
+  const wireMultiRow = (row) => {
+    row.querySelector('[data-action="remove"]')?.addEventListener('click', () => {
+      const list = row.parentElement;
+      // Don't allow removing the last row — keep at least one for the
+      // user to type into. Just clear its values instead.
+      if (list && list.children.length === 1) {
+        row.querySelectorAll('input, select').forEach(el => {
+          if (el.tagName === 'SELECT') el.selectedIndex = 0;
+          else el.value = '';
+        });
+        return;
+      }
+      row.remove();
+    });
+  };
+  form.querySelectorAll('.eq-contractor-multi-row').forEach(wireMultiRow);
+
+  form.querySelectorAll('[data-add]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const kind = btn.dataset.add;
+      const list = form.querySelector(kind === 'phone' ? '#ccPhoneList' : '#ccEmailList');
+      if (!list) return;
+      const row = document.createElement('div');
+      row.className = 'eq-contractor-multi-row';
+      row.dataset.multi = kind;
+      if (kind === 'phone') {
+        row.innerHTML = `
+          <input class="eq-contractor-edit-input eq-contractor-multi-input" name="phone[]" type="tel" value="" placeholder="(512) 555-1234">
+          <input class="eq-contractor-edit-input eq-contractor-multi-label" name="phone_label[]" type="text" value="" placeholder="after-hours · cell" maxlength="20">
+          <button type="button" class="eq-contractor-multi-remove" data-action="remove" aria-label="Remove">×</button>
+        `;
+      } else {
+        row.innerHTML = `
+          <input class="eq-contractor-edit-input eq-contractor-multi-input" name="email[]" type="email" value="" placeholder="dispatch@vendor.com">
+          <select class="eq-contractor-edit-input eq-contractor-multi-role" name="email_role[]">
+            <option value="to">TO</option>
+            <option value="cc" selected>CC</option>
+            <option value="bcc">BCC</option>
+          </select>
+          <button type="button" class="eq-contractor-multi-remove" data-action="remove" aria-label="Remove">×</button>
+        `;
+      }
+      list.appendChild(row);
+      wireMultiRow(row);
+      row.querySelector('input')?.focus();
+    });
+  });
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const fd = new FormData(form);
-    const name = (fd.get('name') || '').toString().trim();
+    const name = (form.querySelector('[name="name"]')?.value || '').trim();
     if (!name) {
       NX.toast && NX.toast('Name is required', 'warn');
       return;
     }
-    const phone = (fd.get('phone') || '').toString().trim();
-    const email = (fd.get('email') || '').toString().trim();
-    const tagsRaw = (fd.get('tags') || '').toString();
-    const notes = (fd.get('notes') || '').toString().trim();
+    const tagsRaw = form.querySelector('[name="tags"]')?.value || '';
+    const notes = (form.querySelector('[name="notes"]')?.value || '').trim();
     const tags = tagsRaw.split(/[,;]/).map(s => s.trim()).filter(Boolean);
 
-    // Build the structured links array — keeps phone/email machine-readable
-    // for dispatch + bulk-assign while preserving any non-phone-non-email
-    // links that might already be there.
+    // Collect phones (paired with their labels) — order matters: first
+    // entry is the "primary" used by the public scan call button.
+    const phones = [];
+    form.querySelectorAll('.eq-contractor-multi-row[data-multi="phone"]').forEach(row => {
+      const phone = row.querySelector('[name="phone[]"]')?.value.trim();
+      const label = row.querySelector('[name="phone_label[]"]')?.value.trim();
+      if (phone) phones.push({ phone, type: 'phone', label: label || null });
+    });
+
+    // Collect emails (paired with their roles).
+    const emails = [];
+    form.querySelectorAll('.eq-contractor-multi-row[data-multi="email"]').forEach(row => {
+      const email = row.querySelector('[name="email[]"]')?.value.trim();
+      const role = row.querySelector('[name="email_role[]"]')?.value || 'to';
+      if (email) emails.push({ email, type: 'email', role });
+    });
+
+    // Preserve any non-phone-non-email links the user may have stashed
+    // (e.g. website URLs, social handles).
     const c = contractorsState.activeContractor;
     const existingLinks = (c.links && Array.isArray(c.links)) ? c.links : [];
     const otherLinks = existingLinks.filter(l => {
@@ -10151,9 +10551,7 @@ function wireContractorEditForm() {
       if (/(?:tel:)?(\+?[\d\s().-]{10,})/.test(str)) return false;
       return true;
     });
-    const newLinks = [...otherLinks];
-    if (phone) newLinks.push({ phone, type: 'phone' });
-    if (email) newLinks.push({ email, type: 'email' });
+    const newLinks = [...otherLinks, ...phones, ...emails];
 
     try {
       const { data, error } = await NX.sb.from('nodes').update({
@@ -10171,7 +10569,7 @@ function wireContractorEditForm() {
       buildContractorDetailDerived();
       contractorsState.detailTab = 'activity';
       renderContractors();
-      NX.toast && NX.toast('Contractor saved', 'success', 1400);
+      NX.toast && NX.toast(`Saved · ${phones.length} ${phones.length === 1 ? 'phone' : 'phones'} · ${emails.length} ${emails.length === 1 ? 'email' : 'emails'}`, 'success', 1600);
     } catch (err) {
       console.error('[equipment] saveContractor:', err);
       NX.toast && NX.toast('Could not save: ' + (err.message || ''), 'error');
@@ -10196,6 +10594,237 @@ function wireContractorEditForm() {
       NX.toast && NX.toast('Could not delete: ' + (err.message || ''), 'error');
     }
   });
+}
+
+/**
+ * Bulk-upgrade equipment that's "linked by name only" (matches the
+ * contractor's name string in equipment.service_contact_name but has no
+ * preferred_contractor_node_id FK) to a proper FK link. Also propagates
+ * the contractor's phone to equipment.service_phone if the equipment
+ * row's phone is missing.
+ *
+ * This is the "the contractor and equipment now talk to each other" fix
+ * — once promoted, both sides carry the same identity and changing the
+ * contractor's phone in one place will be picked up everywhere via the
+ * existing lookupServicePhoneFromNode helper.
+ */
+async function promoteContractorNameLinks() {
+  if (!contractorsState || !contractorsState.activeContractor) return;
+  const c = contractorsState.activeContractor;
+  const loose = (contractorsState.assignedEquipment || []).filter(e => e._linkType === 'name');
+  if (!loose.length) return;
+
+  if (!confirm(
+    `Link ${loose.length} equipment ${loose.length === 1 ? 'unit' : 'units'} to ${c.name} permanently?\n\n` +
+    `This sets the FK on each equipment row so the contractor's contact info syncs automatically. The equipment's typed name + phone stays as-is.`
+  )) return;
+
+  const phone = extractContractorPhone(c);
+  const ids = loose.map(e => e.id);
+
+  try {
+    // Build update payload — set FK on every loose-linked equipment.
+    // We don't overwrite service_phone if the equipment already has one;
+    // we just fill it from the contractor when blank.
+    let updated = 0;
+    for (const eq of loose) {
+      const update = { preferred_contractor_node_id: c.id };
+      if (!eq.service_phone && phone) update.service_phone = phone;
+      const { error } = await NX.sb.from('equipment').update(update).eq('id', eq.id);
+      if (error) throw error;
+      updated++;
+    }
+
+    NX.toast && NX.toast(`Linked ${updated} equipment to ${c.name}`, 'success', 1800);
+
+    // Refresh: rebuild assignment derivations against the updated FK values.
+    // The simplest path is to reload the contractor list which re-derives
+    // all the assignment data.
+    contractorsState.loading = true;
+    renderContractors();
+    await loadContractorsList();
+    // Re-resolve the active contractor (its underlying ref may be stale).
+    const refreshed = contractorsState.list.find(x => x.id === c.id);
+    if (refreshed) {
+      contractorsState.activeContractor = refreshed;
+      buildContractorDetailDerived();
+    }
+    contractorsState.loading = false;
+    renderContractors();
+  } catch (e) {
+    console.error('[equipment] promoteContractorNameLinks:', e);
+    NX.toast && NX.toast('Could not promote: ' + (e.message || ''), 'error');
+  }
+}
+
+/**
+ * Multi-select bottom sheet — pick equipment to assign to the active
+ * contractor. Same idiom as the parts-compatibility bulk-apply sheet:
+ * checkbox row per eligible piece of equipment, same-category units
+ * floated to top with a "MATCHES SPECIALTY" badge, single confirm
+ * button does a batch update of preferred_contractor_node_id.
+ *
+ * "Eligible" = equipment NOT already assigned to this contractor.
+ * Equipment already assigned to a *different* contractor is included
+ * but with a warning chip — assigning steals it from the other.
+ */
+function openContractorAssignSheet() {
+  if (!contractorsState || !contractorsState.activeContractor) return;
+  const c = contractorsState.activeContractor;
+  const eqList = (typeof equipment !== 'undefined' && equipment) ? equipment : (contractorsState.equipmentLite || []);
+  // Already assigned (FK-linked) IDs to exclude.
+  const assignedIds = new Set((contractorsState.assignedEquipment || [])
+    .filter(e => e._linkType === 'fk')
+    .map(e => e.id));
+  const candidates = eqList.filter(e => !assignedIds.has(e.id));
+
+  if (!candidates.length) {
+    NX.toast && NX.toast('All equipment is already assigned to this contractor', 'info', 1800);
+    return;
+  }
+
+  // Sort: equipment whose category matches one of the contractor's
+  // specialties floats to the top (most likely candidates).
+  const tags = extractContractorTags(c).map(t => t.toLowerCase());
+  const matchesSpecialty = (e) => {
+    const cat = (e.category || '').toLowerCase();
+    return tags.some(t => t.includes(cat) || cat.includes(t));
+  };
+  candidates.sort((a, b) => {
+    const aM = matchesSpecialty(a) ? 1 : 0;
+    const bM = matchesSpecialty(b) ? 1 : 0;
+    if (aM !== bM) return bM - aM;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  const selected = new Set();
+
+  const renderSheet = () => {
+    overlay.innerHTML = `
+      <div class="eq-bulk-sheet-backdrop"></div>
+      <div class="eq-bulk-sheet">
+        <div class="eq-bulk-sheet-handle"></div>
+        <div class="eq-bulk-sheet-title">Assign equipment to ${esc(c.name)}</div>
+        <div class="eq-bulk-sheet-sub">Pick the units this contractor is in charge of. We'll set the FK link on each selected piece, and fill in the contractor's primary phone where the equipment doesn't have one yet.</div>
+        <div class="eq-bulk-sheet-list">
+          ${candidates.map(e => {
+            const isSel = selected.has(e.id);
+            const matches = matchesSpecialty(e);
+            const otherContractor = e.preferred_contractor_node_id && e.preferred_contractor_node_id !== c.id;
+            return `
+              <button class="eq-bulk-sheet-item eq-bulk-apply-item ${isSel ? 'is-selected' : ''} ${matches ? 'is-same-brand' : ''}" data-id="${esc(e.id)}" type="button">
+                <div class="eq-bulk-apply-check">
+                  ${isSel ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+                </div>
+                <div class="eq-bulk-sheet-item-text">
+                  <div class="eq-bulk-sheet-item-name">${esc(e.name)}</div>
+                  <div class="eq-bulk-sheet-item-sub">${esc(e.location || '')}${e.manufacturer ? ' · ' + esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}${otherContractor ? ' · ⚠ already assigned to another contractor' : ''}</div>
+                </div>
+                ${matches ? '<span class="eq-bulk-apply-badge">MATCHES</span>' : ''}
+              </button>
+            `;
+          }).join('')}
+        </div>
+        <button class="eq-bulk-sheet-confirm" data-action="confirm" ${selected.size === 0 ? 'disabled' : ''} type="button">
+          Assign ${selected.size} ${selected.size === 1 ? 'unit' : 'units'} to ${esc(c.name)}
+        </button>
+        <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Cancel</button>
+      </div>
+    `;
+    overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', close);
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+    overlay.querySelectorAll('[data-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        if (selected.has(id)) selected.delete(id);
+        else                  selected.add(id);
+        renderSheet();
+      });
+    });
+    overlay.querySelector('[data-action="confirm"]').addEventListener('click', applyConfirm);
+  };
+
+  const close = () => overlay.remove();
+
+  const applyConfirm = async () => {
+    if (!selected.size) return;
+    const ids = Array.from(selected);
+    const phone = extractContractorPhone(c);
+    try {
+      let updated = 0;
+      for (const id of ids) {
+        const eq = candidates.find(e => e.id === id);
+        const update = {
+          preferred_contractor_node_id: c.id,
+          service_contact_name: c.name,  // keep name in sync
+        };
+        if (phone && eq && !eq.service_phone) update.service_phone = phone;
+        const { error } = await NX.sb.from('equipment').update(update).eq('id', id);
+        if (error) throw error;
+        updated++;
+      }
+      NX.toast && NX.toast(`${updated} ${updated === 1 ? 'unit' : 'units'} assigned to ${c.name}`, 'success', 1800);
+      close();
+
+      // Refresh — reload contractor list so derivations update.
+      contractorsState.loading = true;
+      renderContractors();
+      // Also reload the global equipment array so the new FK reflects in the
+      // main equipment list view next time it's opened.
+      if (typeof loadEquipment === 'function') await loadEquipment();
+      await loadContractorsList();
+      const refreshed = contractorsState.list.find(x => x.id === c.id);
+      if (refreshed) {
+        contractorsState.activeContractor = refreshed;
+        buildContractorDetailDerived();
+      }
+      contractorsState.loading = false;
+      renderContractors();
+    } catch (err) {
+      console.error('[equipment] openContractorAssignSheet:', err);
+      NX.toast && NX.toast('Could not assign: ' + (err.message || ''), 'error');
+    }
+  };
+
+  document.body.appendChild(overlay);
+  renderSheet();
+}
+
+/**
+ * Pre-seed the bulk-PM scheduler with every piece of equipment currently
+ * assigned to the active contractor (FK-linked or name-linked). Opens
+ * the existing scheduler sheet which lets the user pick a date and
+ * apply it to all selected at once.
+ *
+ * The user's mental model: "schedule next PM for everything Austin
+ * Air and Ice handles" → one tap.
+ */
+function schedulePmsForContractor() {
+  if (!contractorsState || !contractorsState.activeContractor) return;
+  const c = contractorsState.activeContractor;
+  const assigned = contractorsState.assignedEquipment || [];
+  if (!assigned.length) {
+    NX.toast && NX.toast('No equipment is assigned to this contractor yet', 'warn', 1800);
+    return;
+  }
+  if (!bulkSelectionState) return;
+
+  const ids = assigned.map(e => e.id);
+  bulkSelectionState.active = true;
+  bulkSelectionState.selected = new Set(ids);
+  document.body.classList.add('eq-bulk-mode');
+  // Close the contractor overlay so the bulk PM sheet has the surface.
+  closeContractors();
+  // Re-render the equipment list to show selection highlights.
+  if (typeof renderList === 'function') renderList();
+  if (typeof renderBulkToolbar === 'function') renderBulkToolbar();
+  // Open the scheduler sheet.
+  if (typeof openBulkPmSchedule === 'function') {
+    openBulkPmSchedule();
+  }
+  NX.toast && NX.toast(`Pre-selected ${ids.length} ${ids.length === 1 ? 'unit' : 'units'} from ${c.name}`, 'info', 1500);
 }
 
 async function addNewContractor() {
