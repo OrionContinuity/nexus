@@ -1,3 +1,4 @@
+Try AI directly in your favorite apps … Use Gemini to generate drafts and refine content, plus get Gemini Pro with access to Google's next-gen AI for $19.99 $9.99 for 2 months
 /* ═══════════════════════════════════════════════════════════════════════
    NEXUS Design System  •  v2
    ───────────────────────────
@@ -31,6 +32,43 @@
    
    Load order in index.html:
      nexus.css → nx-system.css → feature CSS files
+
+   ═══════════════════════════════════════════════════════════════════════
+   TABLE OF CONTENTS
+   ═══════════════════════════════════════════════════════════════════════
+
+       37   1. DESIGN TOKENS — :root (dark) declarations
+              · color (gold ladder, red ladder, highlights, labels, semantic)
+              · type (font families, size scale)
+              · spacing (4px base, 1–12 multipliers)
+              · motion (press 120ms, flow 220ms, slow 350ms, cinematic 700ms)
+              · radii, shadows, surface stack
+      197   1.B  Light-theme overrides ([data-theme="light"])
+      309   1.C  Theme-invariant tokens (carry across both themes)
+      442   1.D  Surface tokens (translucent stack with theme-aware tints)
+
+      483   2. PRIMITIVES
+      483   2.A  .nx-pill family (buttons — primary/secondary/ghost/danger + sm/xs)
+       —    .nx-card  / .nx-card--elevated
+       —    .nx-section / .nx-section-row
+       —    .nx-stat / .nx-stats
+       —    .nx-input (text/textarea/select)
+       —    .nx-ask  / .nx-ask-input  / .nx-ask-send
+       —    .nx-prompt
+       —    .nx-alert family (info/warn/danger/neutral + 7 legacy aliases)
+       —    .nx-toast v2 (success/info/error/warn + 4 legacy aliases)
+       —    .nx-sheet (full/medium/compact, mobile-bottom-anchored)
+       —    .nx-speed-dial (FAB-style action menu)
+       —    Icon classes (25 context-specific size + color rules)
+       —    Status dots (clock-in/out, ticket priority, tab pending)
+       —    .eq-modal visual aliasing (modernizes 13 equipment modals)
+
+     1931   3. UTILITIES (.nx-display, .nx-h1, .nx-h2, .nx-faint, etc.)
+     1946   4. ACCESSIBILITY (focus-visible, skip-link, sr-only)
+     1970   5. THEME AWARENESS (transitions on theme switch)
+     1990   6. UNIFIED MASTHEAD (coin + NEXUS wordmark + date row)
+     2215   7. BOTTOM NAV REDESIGN (5-button mobile primary nav)
+
    ═══════════════════════════════════════════════════════════════════════ */
 
 
@@ -2319,4 +2357,3 @@ html {
 .bnav-btn-home.active .bnav-icon {
   border-color: transparent !important;
 }
-
