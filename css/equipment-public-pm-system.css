@@ -30,22 +30,22 @@
    the public PM is the only surface that uses light theme. Defining
    them here keeps them isolated. */
 :root {
-  --pm-bg:           #faf7f0;          /* warm linen page background */
-  --pm-surface:      #ffffff;          /* form card surface */
-  --pm-surface-2:    #f5f1e8;          /* nested surface (eq info, mass) */
-  --pm-surface-3:    #fff8e8;          /* gold-tinted surface (highlights) */
-  --pm-border:       #e8e2d4;          /* default borders */
-  --pm-border-2:     #d8d2c4;          /* stronger borders */
-  --pm-gold:         #b89342;          /* darker gold for light bg contrast */
-  --pm-gold-on:      #1a1408;          /* text on gold pill */
-  --pm-gold-soft:    #fff8e8;          /* gold-tinted fill */
+  --pm-bg:           var(--surface);          /* warm linen page background */
+  --pm-surface:      var(--elevated);          /* form card surface */
+  --pm-surface-2:    var(--bg);          /* nested surface (eq info, mass) */
+  --pm-surface-3:    var(--nx-gold-faint);          /* gold-tinted surface (highlights) */
+  --pm-border:       var(--bg);          /* default borders */
+  --pm-border-2:     var(--faint);          /* stronger borders */
+  --pm-gold:         var(--accent);          /* darker gold for light bg contrast */
+  --pm-gold-on:      var(--nx-gold-on);          /* text on gold pill */
+  --pm-gold-soft:    var(--nx-gold-faint);          /* gold-tinted fill */
   --pm-gold-line:    rgba(184, 147, 66, 0.30);
-  --pm-text:         #1a1408;          /* primary text — warm near-black */
-  --pm-text-muted:   #635846;          /* secondary text */
-  --pm-text-faint:   #8b8270;          /* tertiary text, captions */
-  --pm-red:          #b83030;
+  --pm-text:         var(--nx-gold-on);          /* primary text — warm near-black */
+  --pm-text-muted:   var(--muted);          /* secondary text */
+  --pm-text-faint:   var(--muted);          /* tertiary text, captions */
+  --pm-red:          var(--red);
   --pm-red-soft:     rgba(184, 48, 48, 0.08);
-  --pm-green:        #2e8540;
+  --pm-green:        var(--green);
 }
 
 
@@ -93,7 +93,7 @@
 
 /* Primary — solid gold pill (the loudest action: "PM Logger") */
 .pm-public-btn-primary {
-  background: linear-gradient(135deg, #d4b86a 0%, #c8a44e 50%, #b89342 100%) !important;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent) 50%, var(--accent) 100%) !important;
   border-color: #a07a28 !important;
   color: var(--pm-gold-on) !important;
   box-shadow:
@@ -522,7 +522,7 @@ select.pm-input {
   flex: 2 !important;
   padding: 15px !important;
   min-height: 50px !important;
-  background: linear-gradient(135deg, #d4b86a 0%, #c8a44e 50%, #b89342 100%) !important;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent) 50%, var(--accent) 100%) !important;
   border: none !important;
   border-radius: 999px !important;
   color: var(--pm-gold-on) !important;
@@ -617,7 +617,7 @@ select.pm-input {
   width: 100% !important;
   padding: 15px !important;
   min-height: 50px !important;
-  background: linear-gradient(135deg, #d4b86a 0%, #c8a44e 50%, #b89342 100%) !important;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent) 50%, var(--accent) 100%) !important;
   border: none !important;
   border-radius: 999px !important;
   color: var(--pm-gold-on) !important;
