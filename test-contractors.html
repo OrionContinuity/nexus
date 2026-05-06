@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEXUS Contractor Read Test</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0a0a0a; color: #e8e2d5; padding: 20px; line-height: 1.5; }
+  h1 { color: #d4a44e; margin-bottom: 4px; }
+  .sub { color: #888; font-size: 13px; margin-bottom: 24px; }
+  .test { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+  .test-title { font-weight: 600; color: #d4a44e; margin-bottom: 8px; font-size: 14px; }
+  .ok { color: #6a9b5e; }
+  .err { color: #c75a5a; word-break: break-word; }
+  .neutral { color: #ccc; word-break: break-word; }
+  pre { background: #0a0a0a; padding: 10px; border-radius: 6px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; }
+  button { background: #d4a44e; color: #0a0a0a; border: 0; padding: 12px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; margin-top: 6px; font-size: 14px; }
+  .label { color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<h1>NEXUS Contractor Read Test</h1>
+<div class="sub">Standalone diagnostic — bypasses all NEXUS code, just talks to Supabase directly.</div>
+
+<div id="results"></div>
+<button onclick="runTests()">Run Tests Again</button>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPA_URL  = 'https://oprsthfxqrdbwdvommpw.supabase.co';
+const SUPA_ANON = 'sb_publishable_rOLSdIG6mIjVLY8JmvrwCA_qfM7Vyk9';
+
+const sb = supabase.createClient(SUPA_URL, SUPA_ANON);
+
+const $ = document.getElementById.bind(document);
+const out = $('results');
+
+function box(title, content, cls) {
+  const div = document.createElement('div');
+  div.className = 'test';
+  div.innerHTML = `<div class="test-title">${title}</div><div class="${cls||'neutral'}">${content}</div>`;
+  out.appendChild(div);
+}
+
+async function runTests() {
+  out.innerHTML = '';
+
+  // ─── TEST 1: Auth state ──────────────────────────────────────────
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    box('1. Supabase auth state',
+        user
+          ? `Signed in as ${user.email || user.id}`
+          : 'NOT signed in — running as anon role',
+        user ? 'ok' : 'neutral');
+  } catch (e) {
+    box('1. Supabase auth state', 'Error: ' + e.message, 'err');
+  }
+
+  // ─── TEST 2: Read 5 contractors directly ────────────────────────
+  try {
+    const t0 = Date.now();
+    const res = await sb.from('nodes')
+      .select('id, name, category')
+      .eq('category', 'contractors')
+      .limit(5);
+    const elapsed = Date.now() - t0;
+    if (res.error) {
+      box('2. Read contractors via Supabase JS',
+          `❌ ERROR (${elapsed}ms): <pre>${JSON.stringify(res.error, null, 2)}</pre>`,
+          'err');
+    } else {
+      box('2. Read contractors via Supabase JS',
+          `✓ Got ${res.data.length} rows (${elapsed}ms)<pre>${JSON.stringify(res.data, null, 2)}</pre>`,
+          res.data.length ? 'ok' : 'err');
+    }
+  } catch (e) {
+    box('2. Read contractors via Supabase JS', 'Crash: ' + e.message, 'err');
+  }
+
+  // ─── TEST 3: Count all contractors ─────────────────────────────
+  try {
+    const res = await sb.from('nodes')
+      .select('*', { count: 'exact', head: true })
+      .eq('category', 'contractors');
+    if (res.error) {
+      box('3. Count contractors',
+          `❌ ${JSON.stringify(res.error)}`, 'err');
+    } else {
+      box('3. Count contractors',
+          `Count: ${res.count ?? 'null'}`,
+          (res.count > 0) ? 'ok' : 'err');
+    }
+  } catch (e) {
+    box('3. Count contractors', 'Crash: ' + e.message, 'err');
+  }
+
+  // ─── TEST 4: Read ANY rows from nodes (no filter) ──────────────
+  try {
+    const res = await sb.from('nodes')
+      .select('id, name, category')
+      .limit(5);
+    if (res.error) {
+      box('4. Read any 5 nodes (no filter)',
+          `❌ ${JSON.stringify(res.error)}`, 'err');
+    } else {
+      box('4. Read any 5 nodes (no filter)',
+          `Got ${res.data.length} rows<pre>${JSON.stringify(res.data, null, 2)}</pre>`,
+          res.data.length ? 'ok' : 'err');
+    }
+  } catch (e) {
+    box('4. Read any 5 nodes (no filter)', 'Crash: ' + e.message, 'err');
+  }
+
+  // ─── TEST 5: Read equipment table for comparison ───────────────
+  try {
+    const res = await sb.from('equipment')
+      .select('id, name')
+      .limit(3);
+    if (res.error) {
+      box('5. Read 3 equipment (sanity check)',
+          `❌ ${JSON.stringify(res.error)}`, 'err');
+    } else {
+      box('5. Read 3 equipment (sanity check)',
+          `Got ${res.data.length} rows`,
+          res.data.length ? 'ok' : 'err');
+    }
+  } catch (e) {
+    box('5. Read 3 equipment (sanity check)', 'Crash: ' + e.message, 'err');
+  }
+}
+
+runTests();
+</script>
+</body>
+</html>
