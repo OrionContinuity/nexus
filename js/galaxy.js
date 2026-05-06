@@ -20,7 +20,7 @@
      mid   → stars with voice='mid' glow in their groups
      high  → sparkle particles spawn from the center on transients
    
-   Palette: void black + one hero amber (#c8a44e). Community tint variations
+   Palette: void black + one hero amber (var(--accent)). Community tint variations
    stay in the warm-yellow family. No confetti.
    
    Exposes NX.brain with the same public surface as the old brain-canvas.js
@@ -123,8 +123,8 @@
 
 
   /* ─── PALETTE ──────────────────────────────────────────────────────────── */
-  // One hero color: amber #c8a44e. Community tints stay in the warm-yellow family.
-  const AMBER = [200, 164, 78];               // #c8a44e — the signature hue
+  // One hero color: amber var(--accent). Community tints stay in the warm-yellow family.
+  const AMBER = [200, 164, 78];               // var(--accent) — the signature hue
   const AMBER_BRIGHT = [255, 220, 150];       // highlight / active / sparkle core
   const AMBER_DIM = [80, 70, 45];             // far / dim / dust
 
@@ -1569,7 +1569,8 @@
           const ext = (fname.split('.').pop() || '').toLowerCase();
           const isImg = ['jpg','jpeg','png','gif','webp'].includes(ext);
           const isPdf = ext === 'pdf';
-          const icon = isPdf ? '📄' : isImg ? '🖼' : ext === 'xlsx' || ext === 'csv' ? '📊' : ext === 'docx' ? '📝' : '📎';
+          const iconName = isPdf ? 'file-text' : isImg ? 'image' : ext === 'xlsx' || ext === 'csv' ? 'bar-chart-3' : ext === 'docx' ? 'pencil' : 'paperclip';
+      const icon = `<i data-lucide="${iconName}" class="galaxy-attach-icon"></i>`;
 
           const card = document.createElement('div');
           card.className = 'np-att-card';
