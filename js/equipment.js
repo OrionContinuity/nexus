@@ -277,6 +277,25 @@ function buildUI() {
         </div>
       </div>
 
+      <div class="eq-tools-row" id="eqToolsRow">
+        <button class="eq-tool-btn" id="eqToolContractors" title="Manage contractors">
+          <span class="eq-tool-icon">${uiSvg('user', '14px')}</span>
+          <span class="eq-tool-label">Contractors</span>
+        </button>
+        <button class="eq-tool-btn" id="eqToolParts" title="Browse parts library">
+          <span class="eq-tool-icon">${uiSvg('settings', '14px')}</span>
+          <span class="eq-tool-label">Parts</span>
+        </button>
+        <button class="eq-tool-btn" id="eqToolAnalytics" title="Fleet intelligence">
+          <span class="eq-tool-icon">${uiSvg('brain', '14px')}</span>
+          <span class="eq-tool-label">Analytics</span>
+        </button>
+        <button class="eq-tool-btn" id="eqToolBrands" title="Brand library">
+          <span class="eq-tool-icon">${uiSvg('star', '14px')}</span>
+          <span class="eq-tool-label">Brands</span>
+        </button>
+      </div>
+
       <div class="eq-search-row">
         <input type="text" class="eq-search" id="eqSearch" placeholder="Search equipment, model, serial...">
         <div class="eq-view-toggle">
@@ -320,6 +339,24 @@ function buildUI() {
   document.getElementById('eqZebraHeaderBtn').addEventListener('click', printZebraBatch);
   document.getElementById('eqAddBtn').addEventListener('click', () => openEditModal(null));
   document.getElementById('eqPrintQRs').addEventListener('click', printQRSheet);
+
+  // Wire Tools row — workspaces for fleet-wide management
+  document.getElementById('eqToolContractors')?.addEventListener('click', () => {
+    if (typeof openContractors === 'function') openContractors();
+    else NX.toast && NX.toast('Contractors not loaded yet', 'warn');
+  });
+  document.getElementById('eqToolParts')?.addEventListener('click', () => {
+    if (typeof openParts === 'function') openParts();
+    else NX.toast && NX.toast('Parts library not loaded yet', 'warn');
+  });
+  document.getElementById('eqToolAnalytics')?.addEventListener('click', () => {
+    if (typeof openAnalytics === 'function') openAnalytics();
+    else NX.toast && NX.toast('Analytics not loaded yet', 'warn');
+  });
+  document.getElementById('eqToolBrands')?.addEventListener('click', () => {
+    if (typeof openBrandLibrary === 'function') openBrandLibrary();
+    else NX.toast && NX.toast('Brand library not loaded yet', 'warn');
+  });
   document.getElementById('eqSearch').addEventListener('input', e => {
     searchQuery = e.target.value.toLowerCase();
     renderList();
@@ -407,10 +444,11 @@ function renderList() {
   if (viewMode === 'grid') {
     list.innerHTML = filtered.map(e => buildGridCard(e)).join('');
   } else {
-    const allOperational = filtered.length > 0 && filtered.every(e =>
-      (e.status || 'operational').toLowerCase() === 'operational');
+    // Lifecycle pills must always render — they're the visual heartbeat
+    // of the operation. Even when every unit is operational, the gold
+    // glow tells the operator at a glance that the fleet is alive.
     list.innerHTML = `
-      <div class="eq-table${allOperational ? ' eq-table-uniform' : ''}">
+      <div class="eq-table">
         <div class="eq-row eq-row-head">
           <div class="eq-col eq-col-name">Equipment</div>
           <div class="eq-col eq-col-loc">Location</div>
