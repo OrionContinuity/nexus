@@ -197,8 +197,11 @@
             </button>
           </div>
 
-          <button class="home-ask" id="homeAsk" type="button">
-            <span class="home-ask-prompt">Ask NEXUS</span>
+          <button class="home-ask" id="homeAsk" type="button" aria-label="Ask NEXUS — open AI chat">
+            <span class="home-ask-prompt">
+              <svg class="home-ask-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.287 1.288L3 12l5.8 1.9a2 2 0 0 1 1.288 1.287L12 21l1.9-5.8a2 2 0 0 1 1.287-1.288L21 12l-5.8-1.9a2 2 0 0 1-1.288-1.287Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
+              Ask NEXUS
+            </span>
             <span class="home-ask-hint" id="homeAskHint"></span>
           </button>
         </div>
@@ -388,12 +391,17 @@
           if (!byDate.has(date)) byDate.set(date, []);
           byDate.get(date).push(item);
         };
-        events.forEach(e => pushItem(e.event_date, { ...e, _kind: 'event' }));
+        events.forEach(e => pushItem(e.event_date, {
+          ...e,
+          contractor_name: stripEmoji(e.contractor_name),
+          description: stripEmoji(e.description),
+          _kind: 'event',
+        }));
         cards.forEach(c => {
           pushItem(c.due_date, {
             _kind: 'card',
             id: c.id,
-            contractor_name: c.title || 'Task',
+            contractor_name: stripEmoji(c.title) || 'Task',
             event_date: c.due_date,
             event_time: null,            // cards are "all day"
             description: '',
@@ -617,6 +625,37 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  // ─── Emoji sanitizer ──────────────────────────────────────────────
+  // Strips pictographic emoji from upstream data (process-emails tags
+  // like the urgency prefixes that upstream importers inject) so
+  // Home renders cleanly per UI-UX-CRITERIA §15 banned-pattern #6.
+  // Keeps editorial glyphs: ◇ ◎ ◆ ○ ● ★ ☆ ☐ ☑ ✓ ✕ ✗ ✦ → ← ▼ ▲ · — …
+  // Strips: every pictorial emoji (siren, wrench, warning, etc.)
+  function stripEmoji(s) {
+    if (s == null) return '';
+    return String(s)
+      // Pictographic supplementary planes — Misc Symbols & Pictographs,
+      // Supplemental Symbols & Pictographs, Transport, Symbols Extended-A,
+      // and regional indicators (flags).
+      .replace(/[\u{1F300}-\u{1FFFF}]/gu, '')
+      // Dingbats (2700-27BF) — preserve specific editorial glyphs.
+      .replace(/[\u{2700}-\u{27BF}]/gu, (m) => {
+        const cp = m.codePointAt(0);
+        return (cp === 0x2713 || cp === 0x2715 || cp === 0x2717 ||
+                cp === 0x2726) ? m : '';
+      })
+      // Misc Symbols (2600-26FF) — preserve geometric shapes only.
+      .replace(/[\u{2600}-\u{26FF}]/gu, (m) => {
+        const cp = m.codePointAt(0);
+        return (cp === 0x2605 || cp === 0x2606 ||
+                cp === 0x2610 || cp === 0x2611) ? m : '';
+      })
+      .replace(/\uFE0F/g, '')   // VS-16 (emoji presentation selector)
+      .replace(/\u200D/g, '')   // ZWJ joiner (used by compound emoji)
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
   function numWord(n) {
     const words = ['zero','one','two','three','four','five','six','seven','eight','nine','ten'];
     return n < words.length ? words[n] : String(n);
@@ -697,7 +736,7 @@
         candidates.push({
           tone: 'overdue',
           severity: 100 + days, // older = more severe
-          title: `${worst.name}${worst.location ? ' · ' + titleCase(worst.location) : ''}`,
+          title: `${stripEmoji(worst.name)}${worst.location ? ' · ' + titleCase(worst.location) : ''}`,
           body,
           actionLabel: 'View equipment',
           onClick: () => NX.switchTo?.('equipment'),
@@ -770,9 +809,9 @@
         merged.push({
           kind: 'event',
           when: formatEventWhen(ev.event_date, ev.event_time),
-          title: ev.contractor_name || 'Contractor visit',
+          title: stripEmoji(ev.contractor_name) || 'Contractor visit',
           location: ev.location,
-          description: ev.description,
+          description: stripEmoji(ev.description),
           date: ev.event_date,
         });
       });
@@ -780,7 +819,7 @@
         merged.push({
           kind: 'card',
           when: formatEventWhen(c.due_date, null),
-          title: c.title || 'Task',
+          title: stripEmoji(c.title) || 'Task',
           location: c.location,
           description: '',
           date: c.due_date,
@@ -850,10 +889,13 @@
 
   function stripTicketPrefix(title) {
     if (!title) return '';
-    return title.replace(/^\[(Equipment|CALL|Ticket)\]\s*/i, '').replace(/^[^:]+:\s*/, (m) => {
+    // Strip emoji first (upstream importers inject urgency/category prefixes
+    // labels into ticket titles), then editorial bracket prefixes.
+    const cleaned = stripEmoji(title);
+    return cleaned.replace(/^\[(Equipment|CALL|Ticket)\]\s*/i, '').replace(/^[^:]+:\s*/, (m) => {
       // Keep the actual issue description, drop "Hot Expo Low Boy: " prefix
       return '';
-    }) || title;
+    }) || cleaned;
   }
 
   function titleCase(s) {
@@ -935,23 +977,24 @@
     const s = (e.status || '').toLowerCase();
     if (s === 'completed' || (isPast && !s)) return { key: 'completed', label: 'Completed', icon: '✓' };
     if (s === 'confirmed')                   return { key: 'confirmed', label: 'Confirmed', icon: '●' };
-    if (s === 'pending')                     return { key: 'pending',   label: 'Pending',   icon: '⏱' };
+    if (s === 'pending')                     return { key: 'pending',   label: 'Pending',   icon: '◷' };
     if (isPast)                              return { key: 'past',      label: 'Past',      icon: '' };
     return { key: 'scheduled', label: 'Scheduled', icon: '' };
   }
 
-  // Accent bar color by status. Gold stays the star player (confirmed/
-  // scheduled), muted green signals completed, dim gold for pending,
-  // very muted for unknown past events. All inline-compatible.
+  // Accent bar color by status. Returns CSS var() references so themes
+  // follow tokens automatically. The completed-event green was previously
+  // a literal #6b9b6b (kelly green) — banned by criteria §6.1; now uses
+  // the system's olive-bronze --nx-green.
   function statusColor(status) {
     const key = status?.key || 'scheduled';
     return ({
-      completed: '#6b9b6b',
-      confirmed: 'rgba(212, 164, 78, 0.9)',
-      pending:   'rgba(212, 164, 78, 0.45)',
-      scheduled: 'rgba(212, 164, 78, 0.55)',
-      past:      'rgba(212, 182, 138, 0.2)',
-    })[key] || 'rgba(212, 164, 78, 0.55)';
+      completed: 'var(--nx-green)',
+      confirmed: 'var(--nx-gold)',
+      pending:   'var(--nx-gold-line-2)',
+      scheduled: 'var(--nx-gold-line-3)',
+      past:      'var(--nx-faintest)',
+    })[key] || 'var(--nx-gold-line-3)';
   }
 
   /* ═════════════════════════════════════════════════════════════════
