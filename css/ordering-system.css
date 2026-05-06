@@ -154,18 +154,26 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  width: calc(100% - 32px);
-  margin: 6px 16px;
-  padding: 14px 16px;
+  width: calc(100% - 28px);
+  margin: 8px 14px;
+  padding: 16px 18px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
-  border-radius: 16px;
+  border-radius: 18px;
   text-align: left;
   font-family: 'Outfit', sans-serif;
   color: var(--nx-text);
   cursor: pointer;
   transition: border-color .15s, background .15s, transform .12s, box-shadow .15s;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Vendor cards specifically read taller and roomier — they're the
+   primary navigation surface in the Ordering pane and benefit from
+   weight that matches the rest of the editorial design language. */
+.ord-vendor-row {
+  padding: 18px 18px;
+  min-height: 76px;
 }
 
 .ord-recent-row:hover,
@@ -187,7 +195,7 @@
 
 .ord-recent-vendor,
 .ord-vendor-name {
-  font-size: 16.5px;
+  font-size: 17px;
   font-weight: 600;
   color: var(--nx-text);
   letter-spacing: 0.1px;
@@ -203,6 +211,111 @@
   margin-top: 4px;
   font-family: 'Outfit', sans-serif;
   letter-spacing: 0.1px;
+}
+
+
+/* ─── Recent-orders pagination controls ─────────────────────────────
+   Three states: collapsed (3 + "show more"), expanded (10 + page nav),
+   single-page (10 + just "show less"). All controls live INSIDE the
+   #ordRecent container so they re-render with the row list. */
+
+.ord-recent-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: calc(100% - 28px);
+  margin: 4px 14px 8px;
+  padding: 11px 16px;
+  background: transparent;
+  border: 1px dashed var(--nx-gold-line);
+  border-radius: 14px;
+  color: var(--nx-faint);
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color var(--nx-press), border-color var(--nx-press), background var(--nx-press);
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-recent-more:hover {
+  color: var(--nx-gold);
+  border-color: var(--nx-gold-line-2);
+  background: var(--nx-gold-mist);
+}
+.ord-recent-more:active {
+  transform: scale(0.985);
+}
+.ord-recent-more-arrow {
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.ord-recent-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: calc(100% - 28px);
+  margin: 4px 14px 8px;
+  padding: 6px 4px;
+}
+.ord-recent-collapse {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  padding: 6px 4px;
+  color: var(--nx-faint);
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-recent-collapse:hover { color: var(--nx-gold); }
+.ord-recent-collapse-arrow { font-size: 14px; letter-spacing: 0; }
+
+.ord-recent-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ord-recent-page-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--nx-gold-line);
+  background: transparent;
+  color: var(--nx-gold);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--nx-press), border-color var(--nx-press), color var(--nx-press);
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-recent-page-btn:hover:not(:disabled) {
+  background: var(--nx-gold-mist);
+  border-color: var(--nx-gold-line-2);
+}
+.ord-recent-page-btn:disabled {
+  color: var(--nx-faintest);
+  border-color: var(--nx-gold-line);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.ord-recent-page-label {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--nx-faint);
+  min-width: 40px;
+  text-align: center;
 }
 
 
@@ -1145,6 +1258,45 @@ body.ord-overlay-open .bottom-nav {
   color: var(--nx-gold);
   margin-left: 4px;
 }
+.ord-form-label-hint {
+  /* Inline secondary text inside a label — for "Logo URL — optional" style.
+     Lower weight, normal-case, lower-letterspacing so it reads as
+     a parenthetical rather than part of the field name. */
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--nx-faintest);
+  margin-left: 4px;
+}
+
+/* ─── Vendor editor head — avatar preview alongside name/email ─────
+   Lays out a 56px avatar preview on the left and the two primary
+   identity fields (name + email) stacked on the right. Updates live
+   when the user types. */
+.ved-vendor-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.ved-avatar-preview {
+  flex-shrink: 0;
+  margin-top: 4px;   /* roughly aligns with the first field's input top */
+}
+.ved-avatar-preview .ord-vendor-avatar {
+  width: 56px;
+  height: 56px;
+  font-size: 22px;
+}
+.ved-vendor-head-fields {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .ord-form-input,
 .ord-form-textarea {
   width: 100%;
@@ -2142,16 +2294,16 @@ body.ord-overlay-open .bottom-nav {
    • Rounder pills, more generous spacing
    ═══════════════════════════════════════════════════════════════════ */
 
-/* ─── Vendor avatar (circular initial) ──────────────────────────── */
+/* ─── Vendor avatar (circular initial OR custom image) ──────────── */
 
 .ord-vendor-avatar {
   /* Deterministic per-vendor color via --avatar-hue (set inline by JS).
      Saturation/lightness fixed so all avatars belong to the same
      visual family — warm, gold-adjacent. The initial sits on top in
-     near-white. */
+     near-white. Bumped to 52px to match the larger vendor cards. */
   flex-shrink: 0;
-  width: 44px;
-  height: 44px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
@@ -2160,11 +2312,12 @@ body.ord-overlay-open .bottom-nav {
   border: 1px solid hsl(var(--avatar-hue, 35), 35%, 50%);
   color: #f5ecd6;
   font-family: 'Outfit', sans-serif;
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 600;
   letter-spacing: 0.5px;
   -webkit-user-select: none;
   user-select: none;
+  overflow: hidden;
 }
 [data-theme="light"] .ord-vendor-avatar {
   /* In light theme, avatars get a brighter saturation so they pop on
@@ -2172,6 +2325,24 @@ body.ord-overlay-open .bottom-nav {
   background: hsl(var(--avatar-hue, 35), 32%, 92%);
   border-color: hsl(var(--avatar-hue, 35), 35%, 60%);
   color: hsl(var(--avatar-hue, 35), 35%, 28%);
+}
+
+/* Image variant — when vendor.image_url is set, the avatar renders
+   that image as a cropped, contained background. The hue-driven
+   colors above don't apply (background-image overrides background-
+   color). Border stays neutral so a logo against any color works. */
+.ord-vendor-avatar.ord-vendor-avatar-img {
+  background-color: var(--nx-surface-2);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-color: var(--nx-gold-line);
+  color: transparent;       /* hide any fallback initial text */
+  font-size: 0;
+}
+[data-theme="light"] .ord-vendor-avatar.ord-vendor-avatar-img {
+  background-color: var(--nx-elevated);
+  border-color: var(--nx-gold-line);
 }
 
 /* Smaller avatar variant for use in the bottom-sheet header where
