@@ -9691,7 +9691,7 @@ async function openContractors() {
   // Hardcoded version stamp so the user can verify in a screenshot
   // exactly which JS code is running. If you don't see this toast,
   // the service worker is serving stale cached code.
-  NX.toast && NX.toast('NEXUS contractors v38 — opening…', 'info', 1400);
+  NX.toast && NX.toast('NEXUS contractors v40 — opening…', 'info', 1400);
 
   const overlay = document.createElement('div');
   overlay.className = 'eq-contractors-overlay';
@@ -10060,7 +10060,7 @@ function renderContractorsList() {
         <div class="eq-contractors-empty-title">No contractors yet</div>
         <div class="eq-contractors-empty-msg">Tap the <strong>+</strong> button at the top to add your first contractor.</div>
         <div style="margin-top:24px;padding:14px;background:rgba(212,164,78,0.05);border:1px dashed var(--nx-gold-line);border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--nx-faint);text-align:left;line-height:1.7">
-          <div style="color:var(--nx-gold);margin-bottom:6px;font-weight:600">DIAGNOSTIC v38</div>
+          <div style="color:var(--nx-gold);margin-bottom:6px;font-weight:600">DIAGNOSTIC v40</div>
           <div>NX.sb defined: <strong>${typeof NX !== 'undefined' && NX.sb ? 'YES' : 'NO'}</strong></div>
           <div>Query rows returned: <strong>${dbg.rowCount ?? '—'}</strong></div>
           <div>Query error: <strong>${dbg.errMsg ? esc(dbg.errMsg) : '(none)'}</strong></div>
@@ -10151,26 +10151,32 @@ function renderContractorsList() {
 function renderContractorListCard(c) {
   const phone = extractContractorPhone(c);
   const tags = extractContractorTags(c);
-  const lastSeen = c._lastActivity ? fmtContractorSince(c._lastActivity) : 'No activity yet';
+  const lastSeen = c._lastActivity ? fmtContractorSince(c._lastActivity) : null;
+  // Stats — compact mono format. No "YTD" suffix; the year context is
+  // implied. Helps the line fit on one row even when chevron + lastSeen
+  // are eating the right edge.
   const stats = [];
   if (c._assignedCount)   stats.push(`${c._assignedCount} assigned`);
   if (c._historicalCount) stats.push(`${c._historicalCount} serviced`);
-  if (c._callsYtd)        stats.push(`${c._callsYtd} call${c._callsYtd === 1 ? '' : 's'} YTD`);
+  if (c._callsYtd)        stats.push(`${c._callsYtd} call${c._callsYtd === 1 ? '' : 's'}`);
+
+  // Meta line bundles phone + tags + "last seen" in one row. This keeps
+  // the right column reserved JUST for the chevron, giving the card
+  // body the full width without awkward two-line wraps.
+  const metaParts = [];
+  if (phone)        metaParts.push(`<span class="eq-contractor-card-phone">${esc(phone)}</span>`);
+  if (tags.length)  metaParts.push(`<span class="eq-contractor-card-tags">${tags.slice(0, 3).map(t => esc(t)).join(' · ')}</span>`);
+  if (lastSeen)     metaParts.push(`<span class="eq-contractor-card-when-inline">${esc(lastSeen)}</span>`);
 
   return `
     <div class="eq-contractor-card" data-contractor-id="${esc(c.id)}">
       ${contractorAvatar(c, 'md')}
       <div class="eq-contractor-card-body">
         <div class="eq-contractor-card-name">${esc(c.name)}</div>
-        <div class="eq-contractor-card-meta">
-          ${phone ? `<span class="eq-contractor-card-phone">${esc(phone)}</span>` : ''}
-          ${phone && tags.length ? `<span class="eq-contractor-card-sep">·</span>` : ''}
-          ${tags.length ? `<span class="eq-contractor-card-tags">${tags.slice(0, 3).map(t => esc(t)).join(' · ')}</span>` : ''}
-        </div>
+        ${metaParts.length ? `<div class="eq-contractor-card-meta">${metaParts.join('<span class="eq-contractor-card-sep">·</span>')}</div>` : ''}
         ${stats.length ? `<div class="eq-contractor-card-stats">${stats.join(' · ')}</div>` : ''}
       </div>
-      <div class="eq-contractor-card-when">
-        <div class="eq-contractor-card-when-text">${esc(lastSeen)}</div>
+      <div class="eq-contractor-card-chev">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
       </div>
     </div>
@@ -10686,26 +10692,41 @@ function wireContractorEditForm() {
     });
   });
 
-  // ─── PRIMARY SAVE PATH: direct click on the save button ──────────
-  // We DO NOT rely on form submit because mobile browsers + virtual
-  // keyboards drop submit events unpredictably. Instead, we hook the
-  // button click directly. The form submit handler (below) is just a
-  // fallback for keyboard-Enter and ensures e.preventDefault()
-  // protects against the page navigating away.
+  // ─── SAVE WIRING (v40) — proof-of-life on click ──────────────────
+  // Aggressive instrumentation: we wire BOTH click AND pointerdown
+  // AND touchend to the save button. The very first thing each handler
+  // does is change the button text to "Saving…" — visible proof the
+  // event fired. If you tap save and the button text doesn't change,
+  // NO event handler is firing at all, which points to a blocker
+  // (z-index, pointer-events, an overlay capturing the touch).
   const saveBtn = form.querySelector('button[type="submit"]');
   if (saveBtn) {
-    saveBtn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      await saveContractorChanges(form, saveBtn);
-    });
+    let saveInFlight = false;
+    const handleSave = async (e, source) => {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      if (saveInFlight) return;
+      saveInFlight = true;
+      // INSTANT visible feedback so you know the event fired.
+      saveBtn.textContent = `Saving… (${source})`;
+      saveBtn.disabled = true;
+      try {
+        await saveContractorChanges(form, saveBtn);
+      } finally {
+        // Reset only if we're still on this form — otherwise the form
+        // may have been torn down by a re-render during save success.
+        if (saveBtn.isConnected) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = saveBtn.dataset.origLabel || 'Save changes';
+        }
+        saveInFlight = false;
+      }
+    };
+    saveBtn.dataset.origLabel = saveBtn.textContent || 'Save changes';
+    saveBtn.addEventListener('click',     (e) => handleSave(e, 'click'));
+    saveBtn.addEventListener('pointerdown', (e) => handleSave(e, 'pointer'));
+    // Form submit (Enter key) as a final fallback
+    form.addEventListener('submit', (e) => handleSave(e, 'submit'));
   }
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (saveBtn && !saveBtn.disabled) {
-      await saveContractorChanges(form, saveBtn);
-    }
-  });
 
   form.querySelector('[data-action="delete"]')?.addEventListener('click', async () => {
     const c = contractorsState.activeContractor;
@@ -10734,25 +10755,23 @@ function wireContractorEditForm() {
  * from the UI without opening DevTools.
  */
 async function saveContractorChanges(form, saveBtn) {
+  // Loud first-line toast — proves saveContractorChanges actually ran.
+  // If you don't see this toast when you tap Save, the button click
+  // isn't reaching this function and we have a wiring problem upstream.
+  NX.toast && NX.toast('💾 Save fired — building payload…', 'info', 1400);
+
   if (!form || !contractorsState) {
-    NX.toast && NX.toast('Form vanished — try reopening the contractor', 'error', 2400);
+    NX.toast && NX.toast('Form vanished — try reopening the contractor', 'error', 3000);
     return;
   }
   const c = contractorsState.activeContractor;
   if (!c || !c.id) {
-    NX.toast && NX.toast('No contractor loaded — try reopening', 'error', 2400);
+    NX.toast && NX.toast('No contractor loaded — try reopening', 'error', 3000);
     return;
   }
   if (!NX.sb) {
-    NX.toast && NX.toast('Supabase not connected', 'error', 2400);
+    NX.toast && NX.toast('Supabase not connected', 'error', 3000);
     return;
-  }
-
-  // Disable the button while we save so double-taps don't fire twice.
-  if (saveBtn) {
-    saveBtn.disabled = true;
-    saveBtn.dataset.origLabel = saveBtn.textContent;
-    saveBtn.textContent = 'Saving…';
   }
 
   try {
@@ -10793,17 +10812,10 @@ async function saveContractorChanges(form, saveBtn) {
     const payload = { name, notes: notes || null, tags, links: newLinks };
     console.log('[saveContractor] id=%s payload=', c.id, payload);
 
-    // ─── Verify auth before write — if not signed in, RLS will block ──
-    let authUser = null;
-    try {
-      const { data: { user } } = await NX.sb.auth.getUser();
-      authUser = user;
-    } catch (_) {}
-    console.log('[saveContractor] auth user:', authUser?.id, authUser?.email);
-    if (!authUser) {
-      NX.toast && NX.toast('Not signed in — sign back in then try saving', 'error', 3000);
-      return;
-    }
+    // No auth gate here — NEXUS uses PIN auth, not Supabase Auth, so
+    // auth.getUser() always returns null. Authorization is handled
+    // entirely by the nodes_anon_all RLS policy (USING=true,
+    // WITH_CHECK=true) which lets the anon role write.
 
     // ─── Do the update ──────────────────────────────────────────────
     const { data, error, status, statusText } = await NX.sb.from('nodes')
@@ -10866,12 +10878,9 @@ async function saveContractorChanges(form, saveBtn) {
   } catch (err) {
     console.error('[saveContractor] unexpected:', err);
     NX.toast && NX.toast(`Save crashed: ${err.message || err}`, 'error', 4000);
-  } finally {
-    if (saveBtn) {
-      saveBtn.disabled = false;
-      saveBtn.textContent = saveBtn.dataset.origLabel || 'Save changes';
-    }
   }
+  // Note: button label/disabled state is reset by the wrapper handler
+  // in wireContractorEditForm.handleSave's finally block, not here.
 }
 
 /**
