@@ -20,7 +20,7 @@
    - Added coin assets so they're available offline
    - Added manifest.json + icons to shell
 */
-const CACHE_NAME = 'nexus-v11';
+const CACHE_NAME = 'nexus-v12';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
