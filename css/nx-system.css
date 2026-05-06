@@ -47,6 +47,13 @@
   --nx-gold-line-2:   rgba(212, 164, 78, 0.40);
   --nx-gold-line-3:   rgba(212, 164, 78, 0.62);
   --nx-gold-glow:     rgba(212, 164, 78, 0.18);
+  /* Additional opacity steps to absorb the long tail of inline gold rgba
+     usage scattered across feature CSS files. Each maps to the nearest
+     existing rgba(212,164,78,...) value used in the wild. */
+  --nx-gold-tint:     rgba(212, 164, 78, 0.04);   /* very subtle wash */
+  --nx-gold-mist:     rgba(212, 164, 78, 0.12);   /* gentle hover */
+  --nx-gold-haze:     rgba(212, 164, 78, 0.20);   /* mid-strength fill */
+  --nx-gold-aura:     rgba(212, 164, 78, 0.30);   /* strong glow */
 
   /* ─── Color: text hierarchy ─── */
   --nx-text:          #ede9e0;
@@ -64,6 +71,44 @@
   --nx-surface-press: rgba(36, 32, 28, 0.6);
   --nx-surface:       var(--nx-surface-1);  /* v1 alias */
 
+  /* ─── Color: solid surfaces (for components that don't want translucency) ─── */
+  --nx-surface-solid: #1b1b24;
+  --nx-elevated:      #24242e;
+
+  /* ─── Color: borders ─── */
+  --nx-border:        rgba(212, 182, 138, 0.07);
+  --nx-border-strong: rgba(212, 182, 138, 0.18);
+
+  /* ─── Color: cool accents (non-status — links, info chips) ─── */
+  --nx-blue:          #6b7a8a;
+  --nx-purple:        #8a6c9e;
+
+  /* ─── Color: highlight overlays ─────────────────────────────────────
+     Subtle tints used to LIFT an element above its parent. In dark mode
+     they're translucent white (which lightens the dark BG); in light
+     mode they swap to translucent black (which darkens the cream BG).
+     Same property, opposite direction — the visual effect (this thing
+     is above the BG) reads correctly in both themes. */
+  --nx-highlight-tint:   rgba(255, 255, 255, 0.03);
+  --nx-highlight-faint:  rgba(255, 255, 255, 0.05);
+  --nx-highlight-soft:   rgba(255, 255, 255, 0.08);
+  --nx-highlight-line:   rgba(255, 255, 255, 0.10);
+  --nx-highlight-mid:    rgba(255, 255, 255, 0.15);
+
+  /* ─── Color: label palette ──────────────────────────────────────────
+     8 distinct tokens for user-pickable label colors (used in Board
+     custom labels and similar). Each has a dedicated light-mode value
+     so labels stay distinguishable on both themes. The dark values
+     are saturated; light values are deeper for AA contrast on cream. */
+  --nx-label-1: #a83e3e;   /* oxblood */
+  --nx-label-2: #d4a44e;   /* brand gold */
+  --nx-label-3: #9c8a3e;   /* olive bronze */
+  --nx-label-4: #6b6258;   /* graphite */
+  --nx-label-5: #8a6c9e;   /* muted plum */
+  --nx-label-6: #d4c8a5;   /* parchment */
+  --nx-label-7: #7a8db8;   /* denim slate */
+  --nx-label-8: #a49c94;   /* taupe */
+
   /* ─── Color: semantic ─────────────────────────────────────────────
      Editorial palette — desaturated, warm-shifted to live alongside
      the gold accent without competing with it. The previous bright
@@ -75,6 +120,12 @@
   --nx-red:           #a83e3e;                          /* oxblood */
   --nx-red-soft:      rgba(168, 62, 62, 0.10);
   --nx-red-line:      rgba(168, 62, 62, 0.35);
+  /* Additional opacity steps for red — same pattern as gold */
+  --nx-red-tint:      rgba(168, 62, 62, 0.04);
+  --nx-red-faint:     rgba(168, 62, 62, 0.08);
+  --nx-red-mist:      rgba(168, 62, 62, 0.12);
+  --nx-red-haze:      rgba(168, 62, 62, 0.20);
+  --nx-red-aura:      rgba(168, 62, 62, 0.30);
   --nx-amber:         #d4a44e;                          /* same as gold — warning ≈ attention */
   --nx-green:         #9c8a3e;                          /* olive bronze */
   --nx-green-soft:    rgba(156, 138, 62, 0.10);
@@ -92,6 +143,11 @@
   --nx-space-9:       48px;
   --nx-space-10:      56px;
   --nx-space-12:      72px;
+
+  /* ─── Layout chrome heights ───
+     Single source of truth so popups/sheets that anchor to chrome
+     (speed-dials over the bottom nav, etc.) don't need to guess. */
+  --nx-bottom-nav-h:  56px;
 
   /* ─── Radii ─── */
   --nx-radius-pill:   999px;
@@ -159,40 +215,94 @@
      - Text: warm near-black, not pure black. Reduces eye strain on cream.
      - Muted/faint: gold-tinted browns instead of grey. Keeps the
        "editorial × terminal" voice consistent across themes.
-     - Gold: shifted to deeper olive-gold (#8b6914 vs dark's #d4a44e)
+     - Gold: shifted to deeper olive-gold (var(--accent) vs dark's var(--accent))
        so gold borders read as borders on cream backgrounds. The dark
        gold at 22% opacity disappears on light surfaces.
    ═════════════════════════════════════════════════════════════════ */
 [data-theme="light"] {
   /* Page + surfaces */
   --nx-bg:            #F4F1EB;
-  --nx-surface-0:     rgba(255, 253, 247, 0.40);
-  --nx-surface-1:     rgba(255, 253, 247, 0.65);
-  --nx-surface-2:     rgba(255, 253, 247, 0.85);
-  --nx-surface-3:     rgba(255, 253, 247, 0.95);
-  --nx-surface-press: rgba(241, 234, 218, 0.85);
+  /* Surface translucency tuned for cream backgrounds — barely-tinted
+     warm brown on linen reads as depth without becoming muddy. */
+  --nx-surface-0:     rgba(100, 85, 55, 0.04);
+  --nx-surface-1:     rgba(100, 85, 55, 0.06);
+  --nx-surface-2:     rgba(100, 85, 55, 0.10);
+  --nx-surface-3:     rgba(100, 85, 55, 0.14);
+  --nx-surface-press: rgba(100, 85, 55, 0.18);
   --nx-surface:       var(--nx-surface-1);
 
+  /* Solid surfaces (non-translucent variant) */
+  --nx-surface-solid: #FAFAF6;
+  --nx-elevated:      #FFFFFF;
+
+  /* Borders — warm brown-tinted, visible but gentle on cream */
+  --nx-border:        rgba(100, 85, 55, 0.10);
+  --nx-border-strong: rgba(100, 85, 55, 0.22);
+
+  /* Cool accents — saturated on light, AA-contrast against cream */
+  --nx-blue:          #3568B8;
+  --nx-purple:        #6D28D9;
+
+  /* Highlight overlays — flip white→black so "lifted" reads as darker on cream */
+  --nx-highlight-tint:   rgba(0, 0, 0, 0.025);
+  --nx-highlight-faint:  rgba(0, 0, 0, 0.04);
+  --nx-highlight-soft:   rgba(0, 0, 0, 0.06);
+  --nx-highlight-line:   rgba(0, 0, 0, 0.08);
+  --nx-highlight-mid:    rgba(0, 0, 0, 0.12);
+
+  /* Label palette — deeper variants for cream-bg AA contrast */
+  --nx-label-1: #7c2d2d;   /* oxblood deeper */
+  --nx-label-2: #8b6914;   /* brand gold deeper */
+  --nx-label-3: #6e6020;   /* olive deeper */
+  --nx-label-4: #4a4a44;   /* graphite deeper */
+  --nx-label-5: #5d4880;   /* plum deeper */
+  --nx-label-6: #8b7e58;   /* parchment deeper (visible on cream) */
+  --nx-label-7: #4a6090;   /* denim deeper */
+  --nx-label-8: #6b6258;   /* taupe deeper */
+
   /* Text scale */
-  --nx-text:          #1a1a1f;
-  --nx-text-strong:   #0a0a0f;
-  --nx-muted:         #5a4a2a;
-  --nx-faint:         #7a6a4a;
-  --nx-faintest:      #a59a78;
+  --nx-text:          #2A2520;
+  --nx-text-strong:   #1A1612;
+  --nx-muted:         #635B50;
+  --nx-faint:         #857D72;
+  --nx-faintest:      rgba(133, 125, 114, 0.55);
 
   /* Gold tonality — deeper olive-gold for daylight contrast */
   --nx-gold:          #8b6914;
-  --nx-gold-faint:    rgba(139, 105, 20, 0.08);
-  --nx-gold-soft:     rgba(139, 105, 20, 0.18);
+  --nx-gold-deep:     #6E5210;
+  --nx-gold-darker:   #533D0C;
+  --nx-gold-on:       #FAFAF6;
+  --nx-gold-faint:    rgba(139, 105, 20, 0.06);
+  --nx-gold-soft:     rgba(139, 105, 20, 0.15);
   --nx-gold-line:     rgba(139, 105, 20, 0.22);
-  --nx-gold-line-2:   rgba(139, 105, 20, 0.42);
-  --nx-gold-line-3:   rgba(139, 105, 20, 0.65);
+  --nx-gold-line-2:   rgba(139, 105, 20, 0.40);
+  --nx-gold-line-3:   rgba(139, 105, 20, 0.60);
   --nx-gold-glow:     rgba(200, 164, 78, 0.22);
+  /* Light-mode counterparts for the new opacity steps */
+  --nx-gold-tint:     rgba(139, 105, 20, 0.03);
+  --nx-gold-mist:     rgba(139, 105, 20, 0.10);
+  --nx-gold-haze:     rgba(139, 105, 20, 0.18);
+  --nx-gold-aura:     rgba(139, 105, 20, 0.25);
 
-  /* Shadows — flatter on cream, less drama needed */
-  --nx-shadow-card:   0 2px 8px rgba(60, 50, 30, 0.08);
+  /* Semantic colors — deeper for cream-bg AA contrast */
+  --nx-red:           #7c2d2d;
+  --nx-red-soft:      rgba(124, 45, 45, 0.10);
+  --nx-red-line:      rgba(124, 45, 45, 0.30);
+  --nx-red-tint:      rgba(124, 45, 45, 0.03);
+  --nx-red-faint:     rgba(124, 45, 45, 0.06);
+  --nx-red-mist:      rgba(124, 45, 45, 0.10);
+  --nx-red-haze:      rgba(124, 45, 45, 0.18);
+  --nx-red-aura:      rgba(124, 45, 45, 0.25);
+  --nx-amber:         #8b6914;             /* same as gold — warning ≈ attention */
+  --nx-green:         #7a6a1c;
+  --nx-green-soft:    rgba(122, 106, 28, 0.10);
+  --nx-green-line:    rgba(122, 106, 28, 0.30);
+
+  /* Shadows — softer on linen, less black */
+  --nx-shadow-soft:   0 1px 2px rgba(60, 50, 30, 0.08), 0 4px 12px rgba(60, 50, 30, 0.06);
+  --nx-shadow-card:   0 2px 4px rgba(60, 50, 30, 0.10), 0 8px 24px rgba(60, 50, 30, 0.10);
   --nx-shadow-pill:   0 2px 6px rgba(139, 105, 20, 0.18);
-  --nx-shadow-fab:    0 6px 20px rgba(60, 50, 30, 0.18);
+  --nx-shadow-fab:    0 8px 28px rgba(60, 50, 30, 0.18);
 }
 
 
@@ -745,6 +855,1079 @@ html {
 }
 
 
+/* ─── 2.X  ICON CLASSES ──────────────────────────────────────────────
+   Lucide icons get inserted via <i data-lucide="..."> across the app.
+   These classes give each *context* a sensible default (size, color,
+   alignment) so icons don't render as 1em cubes by accident. They're
+   all designed to inherit currentColor so the icon adopts whatever
+   text color the parent uses — this means a button gets a gold icon,
+   a faint link gets a faint icon, etc.
+
+   Sizing convention:
+     - In a pill / button:   14px
+     - In a card / section:  18-20px
+     - As a section header:  24px
+     - Inline meta chip:     12px
+
+   Special cases at the bottom (status dots, kicker chips). */
+
+/* Generic in-button icon — for primary/secondary pill buttons */
+.btn-icon, .b-btn-icon, .eq-btn-icon {
+  width: 14px; height: 14px;
+  vertical-align: -2px;
+  flex-shrink: 0;
+  stroke-width: 1.75;
+}
+
+/* Notes panel icons (edit, attach) */
+.np-edit-icon, .np-add-file-icon {
+  width: 14px; height: 14px;
+  vertical-align: -2px;
+  flex-shrink: 0;
+  stroke-width: 1.75;
+}
+
+/* Ingest tool buttons & admin tabs */
+.ig-tool-icon, .at-tab-icon {
+  width: 16px; height: 16px;
+  vertical-align: -3px;
+  flex-shrink: 0;
+  stroke-width: 1.75;
+  margin-right: 2px;
+}
+
+/* Calendar event icons */
+.cal-event-icon {
+  width: 14px; height: 14px;
+  vertical-align: -2px;
+  flex-shrink: 0;
+  stroke-width: 1.75;
+  color: var(--nx-faint);
+  margin-right: 2px;
+}
+.cal-event-icon-fallback {
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  color: var(--nx-faintest);
+}
+
+/* Log feed icons (task status, system events) */
+.feed-task-icon, .feed-sys-icon {
+  width: 14px; height: 14px;
+  vertical-align: -2px;
+  flex-shrink: 0;
+  stroke-width: 1.75;
+}
+.feed-sys-icon {
+  /* Render container — the inner <i data-lucide=...> picks up these attrs */
+  display: inline-flex;
+  align-items: center;
+  width: 16px; height: 16px;
+  color: var(--nx-faint);
+}
+.feed-sys-icon i {
+  width: 14px; height: 14px;
+  stroke-width: 1.75;
+}
+
+/* AI chat action icon (in tool-action chip) */
+.action-icon, .agenda-icon {
+  width: 14px; height: 14px;
+  vertical-align: -2px;
+  flex-shrink: 0;
+  stroke-width: 1.75;
+  color: var(--nx-gold);
+  margin-right: 4px;
+}
+
+/* Inline hint, meta, badge icons (smallest size) */
+.hint-icon, .meta-icon, .badge-icon {
+  width: 12px; height: 12px;
+  vertical-align: -1px;
+  flex-shrink: 0;
+  stroke-width: 2;
+  margin-right: 2px;
+}
+
+/* Ordering view warn icon (inline with text) */
+.ord-warn-icon {
+  width: 14px; height: 14px;
+  vertical-align: -2px;
+  color: var(--nx-amber);
+  flex-shrink: 0;
+  stroke-width: 1.75;
+}
+
+/* Ticket form icons */
+.ticket-cam-icon {
+  width: 16px; height: 16px;
+  vertical-align: -3px;
+  flex-shrink: 0;
+  stroke-width: 1.75;
+  margin-right: 4px;
+}
+
+/* Galaxy attachment-type icon */
+.galaxy-attach-icon {
+  width: 14px; height: 14px;
+  vertical-align: -2px;
+  flex-shrink: 0;
+  stroke-width: 1.75;
+  color: var(--nx-faint);
+}
+
+/* ─── Status dots ──────────────────────────────────────────────
+   Token-driven colored dots that replace emoji presence/priority
+   indicators (clock-in/out, ticket priority). 8px circles with a
+   subtle outer ring so they read as states, not decoration. */
+.feed-clock-dot, .ticket-pri-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.feed-clock-in    { background: var(--nx-green); box-shadow: 0 0 0 2px var(--nx-green-soft); }
+.feed-clock-out   { background: var(--nx-red);   box-shadow: 0 0 0 2px var(--nx-red-soft); }
+
+.ticket-pri-dot                       { background: var(--nx-faintest); }
+.ticket-pri-btn[data-pri="low"]    .ticket-pri-dot { background: var(--nx-green); }
+.ticket-pri-btn[data-pri="normal"] .ticket-pri-dot { background: var(--nx-amber); }
+.ticket-pri-btn[data-pri="urgent"] .ticket-pri-dot { background: var(--nx-red);   }
+
+/* ─── Kicker chip ──────────────────────────────────────────────
+   Mono-caps label that prefixes status text in alerts/banners.
+   Replaces the emoji prefix (🚨 OVERDUE → "OVERDUE" with kicker
+   styling). Color inherits from the alert variant. */
+.alert-kicker {
+  font-family: var(--nx-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: rgba(0,0,0,0.18);
+  margin-right: 8px;
+  vertical-align: 1px;
+}
+
+/* Calendar urgent status — token-driven, replaces inline #e88 */
+.cal-status-urgent {
+  color: var(--nx-red) !important;
+  border-color: var(--nx-red-line) !important;
+  background: var(--nx-red-soft) !important;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+}
+
+
+/* ─── 2.Y  ALERTS — .nx-alert ────────────────────────────────────────
+   Banner-style alerts that sit beneath the masthead. Replaces the
+   four legacy systems (offline-banner, alert-banner, api-banner,
+   clean-edit-banner) plus the inline alert-contractor/alert-overdue
+   blocks. Single primitive, four tonal variants, theme-aware.
+
+   Markup pattern:
+     <div class="nx-alert nx-alert--warn">
+       <span class="alert-kicker">WARNING</span>
+       <span class="nx-alert-body">Some message text here.</span>
+       <button class="nx-alert-dismiss" aria-label="Dismiss">✕</button>
+     </div>
+
+   Variants: --info (gold), --warn (amber), --danger (red), --neutral (muted)
+
+   The legacy classes (.offline-banner, .alert-banner, .api-banner,
+   .alert-contractor, .alert-overdue, .clean-edit-banner) are aliased
+   to .nx-alert variants further down in this file so existing markup
+   keeps working until call sites are migrated. */
+.nx-alert {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-family: var(--nx-font-body);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  background: var(--nx-surface-2);
+  border-bottom: 1px solid var(--nx-border-strong);
+  color: var(--nx-text);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: nxAlertIn var(--nx-flow);
+}
+@keyframes nxAlertIn {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+.nx-alert-body {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.4;
+  /* Inline links inside an alert get the variant's color */
+}
+.nx-alert-body a,
+.nx-alert-body button:not(.nx-alert-dismiss) {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.nx-alert-dismiss {
+  flex-shrink: 0;
+  width: 26px; height: 26px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity var(--nx-press), background var(--nx-press);
+}
+.nx-alert-dismiss:hover { opacity: 1; background: rgba(0,0,0,0.10); }
+
+/* ── Variants ── */
+.nx-alert--info {
+  background: var(--nx-gold-soft);
+  border-bottom-color: var(--nx-gold-line-2);
+  color: var(--nx-gold);
+}
+.nx-alert--info .alert-kicker { background: var(--nx-gold); color: var(--nx-bg); }
+
+.nx-alert--warn {
+  background: var(--nx-gold-soft);
+  border-bottom-color: var(--nx-gold-line-2);
+  color: var(--nx-amber);
+}
+.nx-alert--warn .alert-kicker { background: var(--nx-amber); color: var(--nx-bg); }
+
+.nx-alert--danger {
+  background: var(--nx-red-soft);
+  border-bottom-color: var(--nx-red-line);
+  color: var(--nx-red);
+}
+.nx-alert--danger .alert-kicker { background: var(--nx-red); color: #fff; }
+
+.nx-alert--neutral {
+  background: var(--nx-surface-2);
+  border-bottom-color: var(--nx-border-strong);
+  color: var(--nx-muted);
+}
+.nx-alert--neutral .alert-kicker { background: var(--nx-faint); color: var(--nx-bg); }
+
+/* ── Legacy aliases — map old banner classes to .nx-alert variants ── */
+.offline-banner,
+.api-banner,
+.alert-banner {
+  /* shape behaves like .nx-alert; tone via the per-class variant below */
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-family: var(--nx-font-body);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  background: var(--nx-red-soft);
+  border-bottom: 1px solid var(--nx-red-line);
+  color: var(--nx-red);
+  text-align: left;       /* override the legacy text-align:center */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.alert-contractor {
+  background: var(--nx-surface-2);
+  border-bottom: 1px solid var(--nx-border-strong);
+  color: var(--nx-text);
+}
+.alert-overdue {
+  background: var(--nx-red-soft);
+  border-bottom: 1px solid var(--nx-red-line);
+  color: var(--nx-red);
+}
+.clean-edit-banner {
+  background: var(--nx-gold-soft);
+  border-bottom: 1px solid var(--nx-gold-line-2);
+  color: var(--nx-gold);
+}
+/* The legacy ✕ dismiss button used inside the alerts — re-style to
+   match .nx-alert-dismiss so legacy markup looks consistent. */
+.alert-dismiss {
+  flex-shrink: 0;
+  width: 26px; height: 26px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  transition: opacity var(--nx-press), background var(--nx-press);
+}
+.alert-dismiss:hover { opacity: 1; background: rgba(0,0,0,0.10); }
+
+
+/* ─── 2.Z  TOAST v2 — .nx-toast ─────────────────────────────────────
+   Floating notification at the bottom of the viewport. Replaces the
+   legacy .toast classes in nexus.css. The existing NX.toast() API
+   creates DOM with classes like .toast and .toast-success — we keep
+   those classnames working by redefining them here using tokens, AND
+   we add a new .nx-toast class that future call sites can use.
+
+   Markup pattern (existing):
+     <div class="toast toast-success">Saved</div>
+   Markup pattern (new):
+     <div class="nx-toast nx-toast--success">Saved</div>
+
+   Both render identically. */
+.nx-toast,
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: var(--nx-radius-pill);
+  font-family: var(--nx-font-body);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  pointer-events: auto;
+  max-width: 320px;
+  text-align: center;
+  background: var(--nx-surface-3);
+  border: 1px solid var(--nx-border-strong);
+  color: var(--nx-text);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--nx-shadow-card);
+  animation: nxToastIn 0.3s var(--nx-ease);
+}
+@keyframes nxToastIn {
+  from { transform: translateY(40px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+.nx-toast--success, .toast-success {
+  background: var(--nx-green-soft);
+  border-color: var(--nx-green-line);
+  color: var(--nx-green);
+}
+.nx-toast--info, .toast-info {
+  background: var(--nx-gold-soft);
+  border-color: var(--nx-gold-line-2);
+  color: var(--nx-gold);
+}
+.nx-toast--error, .toast-error {
+  background: var(--nx-red-soft);
+  border-color: var(--nx-red-line);
+  color: var(--nx-red);
+}
+.nx-toast--warn {
+  background: var(--nx-gold-soft);
+  border-color: var(--nx-gold-line-2);
+  color: var(--nx-amber);
+}
+
+
+/* ─── 2.W  SHEET — .nx-sheet ───────────────────────────────────────
+   Bottom-anchored modal sheet. Replaces the .eq-detail-bg pattern
+   used in equipment.js. On mobile it slides up from below; on
+   tablet/desktop it centers as a card. Token-driven styling so it
+   themes correctly.
+
+   Markup pattern:
+     <div class="nx-sheet-backdrop" data-dismiss>
+       <div class="nx-sheet" role="dialog" aria-modal="true">
+         <div class="nx-sheet-handle"></div>
+         <div class="nx-sheet-header">
+           <h2 class="nx-sheet-title">Title</h2>
+           <button class="nx-sheet-close" aria-label="Close">✕</button>
+         </div>
+         <div class="nx-sheet-body">
+           ...content...
+         </div>
+       </div>
+     </div>
+
+   Variants:
+     .nx-sheet--full       full-height
+     .nx-sheet--medium     ~70vh height with handle (default)
+     .nx-sheet--compact    fits content, centered on tablet+
+
+   Click the backdrop or any element with [data-dismiss] to close.
+   Wire dismissal in JS — this primitive handles only the visuals. */
+.nx-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: nxSheetBackdropIn var(--nx-flow);
+}
+@keyframes nxSheetBackdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.nx-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  max-height: calc(100dvh - 40px);
+  display: flex;
+  flex-direction: column;
+  background: var(--nx-surface-solid);
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  border: 1px solid var(--nx-border);
+  border-bottom: none;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.45);
+  animation: nxSheetIn var(--nx-flow);
+  overflow: hidden;
+}
+@keyframes nxSheetIn {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.nx-sheet-handle {
+  width: 40px; height: 4px;
+  background: var(--nx-border-strong);
+  border-radius: 2px;
+  margin: 8px auto 0;
+  flex-shrink: 0;
+}
+
+.nx-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--nx-border);
+  flex-shrink: 0;
+}
+.nx-sheet-title {
+  font-family: var(--nx-font-display);
+  font-weight: 500;
+  font-size: var(--nx-text-md);
+  color: var(--nx-text-strong);
+  margin: 0;
+}
+.nx-sheet-close {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--nx-surface-1);
+  color: var(--nx-faint);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--nx-press), color var(--nx-press);
+}
+.nx-sheet-close:hover {
+  background: var(--nx-surface-2);
+  color: var(--nx-text);
+}
+
+.nx-sheet-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 18px;
+  padding-bottom: max(16px, calc(env(safe-area-inset-bottom) + 16px));
+  scroll-padding-bottom: 80px;
+}
+
+/* Variants */
+.nx-sheet--full {
+  max-height: calc(100dvh - 20px);
+  height: calc(100dvh - 20px);
+}
+.nx-sheet--medium {
+  max-height: 70dvh;
+}
+.nx-sheet--compact {
+  max-height: max-content;
+}
+
+/* Tablet/desktop — center the sheet, drop the handle, soften the slide */
+@media (min-width: 720px) {
+  .nx-sheet-backdrop { align-items: center; }
+  .nx-sheet {
+    border-radius: 20px;
+    border-bottom: 1px solid var(--nx-border);
+    max-width: 600px;
+    width: calc(100% - 80px);
+    box-shadow: var(--nx-shadow-card);
+    animation: nxSheetFadeIn var(--nx-flow);
+  }
+  .nx-sheet-handle { display: none; }
+  @keyframes nxSheetFadeIn {
+    from { opacity: 0; transform: translateY(20px) scale(0.985); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+}
+
+
+/* ─── 2.U  SPEED DIAL ────────────────────────────────────────────────
+   An expanding floating-action menu that opens from a trigger button
+   (typically a bottom-nav tab) and reveals a vertical stack of
+   labeled icon-button options.
+
+   Markup pattern:
+
+     <div class="nx-speed-dial-backdrop" data-open>
+       <div class="nx-speed-dial">
+         <button class="nx-speed-dial-row">
+           <span class="nx-speed-dial-label">Cleaning</span>
+           <span class="nx-speed-dial-action"><i data-lucide="brush"></i></span>
+         </button>
+         <button class="nx-speed-dial-row">
+           <span class="nx-speed-dial-label">Ordering</span>
+           <span class="nx-speed-dial-action"><i data-lucide="package"></i></span>
+         </button>
+         <button class="nx-speed-dial-close" aria-label="Close">
+           <i data-lucide="x"></i>
+         </button>
+       </div>
+     </div>
+
+   The backdrop dims and dismisses on outside tap; the dial itself
+   anchors to the trigger and the rows stagger in from bottom-up so
+   the eye tracks the expansion. Layout positions the dial to the
+   LEFT of the bottom-nav button when the trigger is on the left
+   side of the nav (label on left, icon on right matches the
+   inspiration sketch); flip with .nx-speed-dial--right for triggers
+   on the right side. */
+
+.nx-speed-dial-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;                                     /* above bottom-nav (z:60) */
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 0 0 calc(var(--nx-bottom-nav-h, 64px) + var(--nx-space-3))
+           var(--nx-space-2);
+  padding-bottom: calc(var(--nx-bottom-nav-h, 64px)
+                        + env(safe-area-inset-bottom, 0px)
+                        + var(--nx-space-3));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--nx-flow) ease;
+}
+.nx-speed-dial-backdrop[data-open] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.nx-speed-dial {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--nx-space-2);
+  padding: var(--nx-space-3);
+  background: var(--nx-surface-solid);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 18px;
+  box-shadow: var(--nx-shadow-card);
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.nx-speed-dial-row {
+  /* The clickable row: label chip on the LEFT, circular icon on the
+     RIGHT. Looks like one button visually but is one big tap target. */
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nx-space-2);
+  cursor: pointer;
+
+  /* Stagger animation — each row slides up + fades in on open.
+     Index applied via inline style="--i: 0|1|2" by JS. */
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity var(--nx-flow) ease,
+    transform var(--nx-flow) ease;
+  transition-delay: calc(var(--i, 0) * 60ms + 40ms);
+}
+.nx-speed-dial-backdrop[data-open] .nx-speed-dial-row {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.nx-speed-dial-label {
+  /* The text chip — quiet pill, editorial type */
+  flex: 1;
+  font-family: var(--nx-font-body);
+  font-size: var(--nx-text-md);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--nx-text-strong);
+  text-align: left;
+  padding: 10px 14px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-border);
+  border-radius: 12px;
+  transition: background var(--nx-press), border-color var(--nx-press);
+}
+
+.nx-speed-dial-action {
+  /* The circular icon — gold-tinted, anchors the row visually */
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--nx-gold-soft);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 50%;
+  color: var(--nx-gold);
+  transition: background var(--nx-press), border-color var(--nx-press);
+}
+.nx-speed-dial-action i,
+.nx-speed-dial-action svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Pressed state — both halves of the row react together */
+.nx-speed-dial-row:active .nx-speed-dial-label {
+  background: var(--nx-surface-2);
+  border-color: var(--nx-gold-line);
+}
+.nx-speed-dial-row:active .nx-speed-dial-action {
+  background: var(--nx-gold-line);
+  color: var(--nx-gold-on);
+}
+@media (hover: hover) {
+  .nx-speed-dial-row:hover .nx-speed-dial-label {
+    border-color: var(--nx-gold-line);
+  }
+  .nx-speed-dial-row:hover .nx-speed-dial-action {
+    background: var(--nx-gold-line);
+  }
+}
+
+/* The X close at the bottom — same circle treatment as actions, but
+   self-aligned to the right so it visually closes the column. */
+.nx-speed-dial-close {
+  appearance: none;
+  align-self: flex-end;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-border);
+  border-radius: 50%;
+  color: var(--nx-faint);
+  cursor: pointer;
+  margin-top: var(--nx-space-1);
+  transition: background var(--nx-press), color var(--nx-press),
+              border-color var(--nx-press), transform var(--nx-press);
+
+  /* Match the row stagger so close appears last */
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity var(--nx-flow) ease,
+    transform var(--nx-flow) ease,
+    background var(--nx-press),
+    border-color var(--nx-press),
+    color var(--nx-press);
+  transition-delay: calc(var(--rows, 2) * 60ms + 40ms);
+}
+.nx-speed-dial-backdrop[data-open] .nx-speed-dial-close {
+  opacity: 1;
+  transform: translateY(0);
+}
+.nx-speed-dial-close i,
+.nx-speed-dial-close svg {
+  width: 18px;
+  height: 18px;
+}
+.nx-speed-dial-close:active {
+  background: var(--nx-surface-2);
+  color: var(--nx-text);
+  transform: scale(0.94);
+}
+@media (hover: hover) {
+  .nx-speed-dial-close:hover {
+    background: var(--nx-surface-2);
+    color: var(--nx-text);
+    border-color: var(--nx-border-strong);
+  }
+}
+
+/* Right-anchored variant — for triggers on the right side of bottom nav */
+.nx-speed-dial-backdrop.nx-speed-dial--right {
+  justify-content: flex-end;
+  padding-left: 0;
+  padding-right: var(--nx-space-2);
+}
+
+
+/* ─── 2.W  SPEED-DIAL (FAB-style action menu) ──────────────────────
+   Pattern: tap the Duties bottom-nav button, the screen dims and a
+   vertically-stacked list of labeled actions slides up from above
+   the nav. Each row is "label chip + circular icon button". Tap any
+   action to navigate, tap the backdrop or the rotated bnav button
+   to dismiss.
+
+   Used by: app.js to surface Duties → Cleaning / Ordering as direct
+   destinations rather than always landing on the last-used pane.
+
+   Markup:
+     <div class="nx-speed-dial" id="dutiesDial" aria-hidden="true">
+       <div class="nx-speed-dial-backdrop" data-dial-close></div>
+       <div class="nx-speed-dial-stack">
+         <button class="nx-speed-dial-action" data-target="cleaning">
+           <span class="nx-speed-dial-label">Cleaning</span>
+           <span class="nx-speed-dial-icon"><i data-lucide="..."></i></span>
+         </button>
+         ...
+       </div>
+     </div>
+*/
+
+.nx-speed-dial {
+  position: fixed;
+  inset: 0;
+  z-index: 950;          /* above content, below modals (1000+) */
+  pointer-events: none;
+  display: none;
+}
+.nx-speed-dial.is-open {
+  display: block;
+  pointer-events: auto;
+}
+
+.nx-speed-dial-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.50);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  opacity: 0;
+  animation: nxDialBackdropIn var(--nx-flow) cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.nx-speed-dial-stack {
+  position: absolute;
+  /* Sit above the bottom nav (which is ~64px + safe-area). The stack
+     centers horizontally so the whole row reads as a unit; users can
+     tap either the label chip or the icon button to fire the action. */
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-end;
+  padding: 0 16px;
+  max-width: calc(100% - 32px);
+}
+
+.nx-speed-dial-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font: inherit;
+  color: inherit;
+
+  /* Each item rises in sequence */
+  opacity: 0;
+  transform: translateY(20px);
+  animation: nxDialItemRise var(--nx-flow) cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+.nx-speed-dial.is-open .nx-speed-dial-action:nth-child(1) { animation-delay: 30ms; }
+.nx-speed-dial.is-open .nx-speed-dial-action:nth-child(2) { animation-delay: 80ms; }
+.nx-speed-dial.is-open .nx-speed-dial-action:nth-child(3) { animation-delay: 130ms; }
+.nx-speed-dial.is-open .nx-speed-dial-action:nth-child(4) { animation-delay: 180ms; }
+
+.nx-speed-dial-label {
+  background: var(--nx-surface-solid);
+  color: var(--nx-text-strong);
+  border: 1px solid var(--nx-border);
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-family: var(--nx-font-body);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  box-shadow: var(--nx-shadow-card);
+}
+
+.nx-speed-dial-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--nx-gold);
+  color: var(--nx-gold-on);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 16px var(--nx-gold-aura),
+              0 2px 6px rgba(0, 0, 0, 0.25);
+  transition: transform var(--nx-press), box-shadow var(--nx-press);
+}
+.nx-speed-dial-icon i,
+.nx-speed-dial-icon svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 2;
+}
+
+.nx-speed-dial-action:active .nx-speed-dial-icon {
+  transform: scale(0.94);
+  box-shadow: 0 2px 8px var(--nx-gold-haze);
+}
+.nx-speed-dial-action:active .nx-speed-dial-label {
+  background: var(--nx-surface-2);
+}
+
+/* When the dial is open, the duties bnav-btn crossfades from its
+   normal icon to a real X icon. The button has both SVGs in its
+   markup (.bnav-icon + .bnav-icon-alt) and we toggle opacity via
+   the .is-dial-open state class. */
+.bnav-btn-has-alt {
+  position: relative;
+}
+.bnav-btn-has-alt .bnav-icon-alt {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, calc(-50% - 9px));   /* match .bnav-icon's vertical position */
+  width: 24px;
+  height: 24px;
+  opacity: 0;
+  transition: opacity var(--nx-flow), transform var(--nx-flow);
+  pointer-events: none;
+}
+.bnav-btn-has-alt .bnav-icon {
+  transition: opacity var(--nx-flow);
+}
+.bnav-btn.is-dial-open {
+  color: var(--nx-gold);
+}
+.bnav-btn.is-dial-open .bnav-icon {
+  opacity: 0;
+}
+.bnav-btn.is-dial-open .bnav-icon-alt {
+  opacity: 1;
+  transform: translate(-50%, calc(-50% - 9px)) rotate(90deg);   /* tiny entrance flourish */
+}
+
+@keyframes nxDialBackdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes nxDialItemRise {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Reduced-motion users skip the entrance animations */
+@media (prefers-reduced-motion: reduce) {
+  .nx-speed-dial-backdrop,
+  .nx-speed-dial-action {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .bnav-btn-has-alt .bnav-icon,
+  .bnav-btn-has-alt .bnav-icon-alt {
+    transition: none;
+  }
+  .bnav-btn.is-dial-open .bnav-icon-alt {
+    transform: translate(-50%, calc(-50% - 9px));
+  }
+}
+
+
+/* ─── 2.V  EQ-MODAL VISUAL ALIASING ──────────────────────────────────
+   The equipment view has 13 separate modal instances (detail, edit,
+   service, parts, prepop, AI creator, describe, location prompt,
+   confirm, zebra print, full edit, plus two tiny dialogs). All use
+   the legacy markup pattern:
+
+     <div id="eqModal" class="eq-modal active">      ← fixed full-screen, centers panel
+       <div class="eq-detail-bg" onclick="..."></div> ← dark backdrop overlay
+       <div class="eq-detail">                       ← the panel itself
+         <div class="eq-detail-head">...</div>
+         <div class="eq-detail-tabs">...</div>       (some modals)
+         <div class="eq-detail-body">...</div>
+         <div class="eq-detail-actions">...</div>    (some modals)
+       </div>
+     </div>
+
+   Rather than migrating 13 markup sites to .nx-sheet (which would
+   change layout from centered-modal to bottom-sheet), this block
+   modernizes the existing pattern in place — token-driven surfaces,
+   modern radii, proper backdrop blur, theme-aware shadows. All 13
+   modals get the visual upgrade with zero markup changes.
+
+   Layout positioning (position:fixed, centered alignment, z-index)
+   stays in equipment.css. We only override visual properties here. */
+
+.eq-detail-bg {
+  /* The dark backdrop sibling — stays absolute-positioned by equipment.css.
+     Just modernize the backdrop tint and add a stronger blur. */
+  background: rgba(0, 0, 0, 0.58) !important;
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
+}
+
+.eq-detail {
+  /* The panel itself — token-driven surface, modern radii, soft shadow.
+     equipment.css sets max-width / max-height / display:flex / column —
+     those layout properties stay; we override appearance only. */
+  background: var(--nx-surface-solid) !important;
+  border: 1px solid var(--nx-border) !important;
+  border-radius: 18px !important;
+  box-shadow: var(--nx-shadow-card) !important;
+  overflow: hidden !important;
+}
+
+.eq-detail-head {
+  /* Header band — quieter divider, more breathing room */
+  background: transparent !important;
+  border-bottom: 1px solid var(--nx-border) !important;
+  padding: 14px 18px !important;
+  gap: 12px !important;
+}
+.eq-detail-head h2 {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-md) !important;
+  font-weight: 500 !important;
+  color: var(--nx-text-strong) !important;
+  letter-spacing: -0.01em !important;
+  margin: 0 !important;
+}
+.eq-detail-sub {
+  font-size: 12px !important;
+  color: var(--nx-faint) !important;
+  margin-top: 2px !important;
+}
+
+.eq-detail-body {
+  /* Scrolling content area */
+  padding: 16px 18px !important;
+  padding-bottom: max(16px, calc(env(safe-area-inset-bottom) + 16px)) !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+/* The tab strip in the detail modal */
+.eq-detail-tabs {
+  background: var(--nx-surface-1) !important;
+  border-bottom: 1px solid var(--nx-border) !important;
+  padding: 0 12px !important;
+  gap: 2px !important;
+}
+.eq-detail-tabs .eq-tab {
+  background: transparent !important;
+  color: var(--nx-faint) !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  padding: 10px 12px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.2px !important;
+  border-radius: 0 !important;
+  transition: color var(--nx-press), border-color var(--nx-press) !important;
+}
+.eq-detail-tabs .eq-tab.active {
+  color: var(--nx-gold) !important;
+  border-bottom-color: var(--nx-gold) !important;
+  background: transparent !important;
+}
+.eq-detail-tabs .eq-tab:active {
+  background: var(--nx-highlight-faint) !important;
+}
+
+/* The action bar at the bottom of some modals */
+.eq-detail-actions {
+  background: var(--nx-surface-1) !important;
+  border-top: 1px solid var(--nx-border) !important;
+  padding: 12px 16px !important;
+  padding-bottom: max(12px, calc(env(safe-area-inset-bottom) + 12px)) !important;
+  gap: 8px !important;
+}
+
+/* Close button (the ✕ in the top corner) — token-styled hover */
+.eq-modal .eq-close,
+.eq-detail .eq-close {
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 50% !important;
+  background: var(--nx-surface-1) !important;
+  border: 1px solid var(--nx-border) !important;
+  color: var(--nx-faint) !important;
+  transition: background var(--nx-press), color var(--nx-press), border-color var(--nx-press) !important;
+}
+.eq-modal .eq-close:hover,
+.eq-detail .eq-close:hover {
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-text) !important;
+  border-color: var(--nx-border-strong) !important;
+}
+
+/* On mobile, full-bleed the modal for native iOS feel */
+@media (max-width: 600px) {
+  .eq-detail {
+    border-radius: 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+  }
+}
+
+
 /* ═══ 3. UTILITIES ════════════════════════════════════════════════ */
 
 .nx-display { font-family: var(--nx-font-display); font-weight: 300; font-size: clamp(36px, 9vw, 56px); line-height: 1.04; letter-spacing: -0.025em; }
@@ -785,51 +1968,23 @@ html {
 
 
 /* ═══ 5. THEME AWARENESS ════════════════════════════════════════════
-   nx-system.css's default token values target dark theme. When
-   [data-theme="light"] is active, this block overrides the gold
-   shades, surface translucencies, and shadows for proper light-bg
-   contrast.
-   
-   The legacy --accent / --text / --muted / --faint / --bg / --red
-   tokens from nexus.css already swap automatically with theme; we
-   just rebind --nx-* to follow them where they map cleanly, and
-   recompute light-specific values where they don't (gold gradient
-   bottoms need to be darker on a linen background to stay readable). */
-[data-theme="light"] {
-  --nx-gold:        var(--accent);            /* #8B6914 from nexus.css */
-  --nx-gold-deep:   #6E5210;                  /* deeper for contrast */
-  --nx-gold-darker: #533D0C;
-  --nx-gold-on:     #FAFAF6;                  /* light text on dark-gold pill */
+   The canonical [data-theme="light"] block lives near the top of this
+   file, immediately after the :root token block. It overrides every
+   --nx-* token with its light-mode value (deeper olive-gold, warm
+   charcoal text, cream surfaces, softer shadows) so any component
+   using --nx-* tokens auto-corrects without per-selector edits.
 
-  --nx-text:        var(--text);
-  --nx-text-strong: #1A1612;
-  --nx-muted:       var(--muted);
-  --nx-faint:       var(--faint);
-  --nx-faintest:    rgba(133, 125, 114, 0.55);
-  --nx-bg:          var(--bg);
-  --nx-red:         var(--red);
-  --nx-amber:       var(--amber);
-  --nx-green:       var(--green);
+   The dependency direction is:
+     nx-system.css :root            ← dark hex source
+     nx-system.css [data-theme=light] ← light hex source
+     nexus.css     :root            ← legacy aliases (--accent: var(--nx-gold), etc.)
+     component CSS                  ← uses either --nx-* or legacy tokens
 
-  /* Surface translucency — barely-tinted brown on linen */
-  --nx-surface-0:   rgba(100, 85, 55, 0.04);
-  --nx-surface-1:   rgba(100, 85, 55, 0.06);
-  --nx-surface-2:   rgba(100, 85, 55, 0.10);
-  --nx-surface-3:   rgba(100, 85, 55, 0.14);
-  --nx-surface:     var(--nx-surface-1);
-
-  --nx-gold-faint:  rgba(139, 105, 20, 0.06);
-  --nx-gold-soft:   rgba(139, 105, 20, 0.15);
-  --nx-gold-line:   rgba(139, 105, 20, 0.22);
-  --nx-gold-line-2: rgba(139, 105, 20, 0.40);
-  --nx-gold-line-3: rgba(139, 105, 20, 0.60);
-
-  /* Shadows — softer on linen, less black */
-  --nx-shadow-soft: 0 1px 2px rgba(60, 50, 30, 0.08), 0 4px 12px rgba(60, 50, 30, 0.06);
-  --nx-shadow-card: 0 2px 4px rgba(60, 50, 30, 0.10), 0 8px 24px rgba(60, 50, 30, 0.10);
-  --nx-shadow-pill: 0 4px 14px rgba(139, 105, 20, 0.18);
-  --nx-shadow-fab:  0 8px 28px rgba(60, 50, 30, 0.18);
-}
+   This block used to alias --nx-* TO --accent / --text / --bg etc. (the
+   OPPOSITE direction). Removed because that produced circular references
+   once the alias layer was added to nexus.css. If you need a light-only
+   override for a property nx-system.css doesn't already cover, add it
+   to the canonical light block above, NOT here. */
 
 
 /* ═══ 6. UNIFIED MASTHEAD ═════════════════════════════════════════
@@ -934,7 +2089,7 @@ html {
   background:
     radial-gradient(circle at 35% 35%,
       #e9bf6c 0%,
-      #d4a44e 35%,
+      var(--accent) 35%,
       #a07a28 70%,
       #6a5018 100%);
   -webkit-tap-highlight-color: transparent;
