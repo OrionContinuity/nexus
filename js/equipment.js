@@ -127,12 +127,27 @@ function uiSvg(key, size = '1em') {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${path}</svg>`;
 }
 
+// All 8 equipment status states — matches what actually appears in the DB
+// across cards, scans, and historical rows. The UI dropdown for assigning
+// status is a SUBSET of these (see DROPDOWN_STATUSES below) — the other
+// states get assigned by other flows (loan tracking, relocation tooling,
+// QR-scan-with-not-found-here, etc).
 const STATUSES = [
-  { key: 'operational',   label: 'Operational',   color: 'var(--green)' },
-  { key: 'needs_service', label: 'Needs Service', color: 'var(--amber)' },
-  { key: 'down',          label: 'Down',          color: 'var(--red)' },
-  { key: 'retired',       label: 'Retired',       color: 'var(--muted)' }
+  { key: 'operational',   label: 'Operational',   color: 'var(--green)'  },
+  { key: 'needs_service', label: 'Needs Service', color: 'var(--amber)'  },
+  { key: 'down',          label: 'Down',          color: 'var(--red)'    },
+  { key: 'broken',        label: 'Broken',        color: 'var(--red)'    },
+  { key: 'missing',       label: 'Missing',       color: 'var(--purple)' },
+  { key: 'loaned',        label: 'Loaned Out',    color: 'var(--blue)'   },
+  { key: 'relocated',     label: 'Relocated',     color: 'var(--blue)'   },
+  { key: 'retired',       label: 'Retired',       color: 'var(--muted)'  }
 ];
+// What the dropdown selector shows when assigning status manually.
+// Other states (missing/loaned/relocated/broken) are set by domain flows
+// rather than being user-pickable from this dropdown.
+const DROPDOWN_STATUSES = STATUSES.filter(s =>
+  ['operational','needs_service','down','retired'].includes(s.key)
+);
 const RELATIONSHIP_TYPES = [
   { key: 'depends_on',     label: 'Depends on',     icon: '⬆' },
   { key: 'serves',         label: 'Serves',         icon: '⬇' },
@@ -179,7 +194,7 @@ async function init() {
       // v4: toast confirmation so the user sees the app is navigating to the
       // scanned item — silent navigation previously left people wondering if
       // the tap "did anything."
-      NX.toast && NX.toast(`📲 Opening ${eq.name}…`, 'info', 2200);
+      NX.toast && NX.toast(`Opening ${eq.name}…`, 'info', 2200);
       document.querySelector('.nav-tab[data-view="equipment"]')?.click();
       document.querySelector('.bnav-btn[data-view="equipment"]')?.click();
       setTimeout(() => openDetail(eq.id), 300);
@@ -625,12 +640,12 @@ function ensureBoardStyles() {
   s.id = 'eq-board-bridge-styles';
   s.textContent = `
     .eq-open-cards{background:rgba(200,164,78,0.05);border-top:1px solid rgba(200,164,78,0.12);border-bottom:1px solid rgba(200,164,78,0.12);padding:8px 14px;margin:0;display:flex;flex-direction:column;gap:6px}
-    .eq-open-cards-head{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:#c8a44e;display:flex;align-items:center;gap:6px}
-    .eq-open-card{background:rgba(20,18,14,0.6);border:1px solid rgba(255,255,255,0.06);border-left:3px solid var(--c,#a49c94);border-radius:6px;padding:7px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px}
+    .eq-open-cards-head{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);display:flex;align-items:center;gap:6px}
+    .eq-open-card{background:rgba(20,18,14,0.6);border:1px solid rgba(255,255,255,0.06);border-left:3px solid var(--c);border-radius:6px;padding:7px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px}
     .eq-open-card:active{background:rgba(20,18,14,0.85)}
-    .eq-open-card-title{flex:1;color:var(--text,#d4c8a5);font-weight:500}
-    .eq-open-card-meta{font-size:10px;color:var(--text-dim,#a49c94)}
-    .eq-open-card-overdue{color:#c8625e;font-weight:600;font-size:10px}
+    .eq-open-card-title{flex:1;color:var(--text);font-weight:500}
+    .eq-open-card-meta{font-size:10px;color:var(--text-dim)}
+    .eq-open-card-overdue{color:var(--red);font-weight:600;font-size:10px}
   `;
   document.head.appendChild(s);
 }
@@ -663,7 +678,7 @@ async function loadOpenCardsForEquipment(eq) {
     return;
   }
 
-  const PRI_COLOR = { urgent:'#a83e3e', high:'#d4a44e', normal:'#a49c94', low:'#5b9bd5' };
+  const PRI_COLOR = { urgent:'var(--red)', high:'var(--accent)', normal:'var(--muted)', low:'var(--blue)' };
   const today = new Date(new Date().toDateString()).getTime();
 
   container.innerHTML = `
@@ -679,7 +694,7 @@ async function loadOpenCardsForEquipment(eq) {
         <span class="eq-open-card-meta">${esc((c.status || '').replace(/_/g, ' '))}</span>
       </div>`;
     }).join('')}
-    ${openCards.length > 4 ? `<div style="font-size:10px;color:var(--text-dim,#a49c94);text-align:center">+ ${openCards.length - 4} more</div>` : ''}
+    ${openCards.length > 4 ? `<div style="font-size:10px;color:var(--text-dim);text-align:center">+ ${openCards.length - 4} more</div>` : ''}
   `;
   container.style.display = '';
 
@@ -1040,7 +1055,7 @@ function openEditModal(id) {
             <div class="eq-form-group">
               <label>Status</label>
               <select name="status">
-                ${STATUSES.map(s => `<option value="${s.key}" ${eq.status===s.key?'selected':''}>${s.label}</option>`).join('')}
+                ${DROPDOWN_STATUSES.map(s => `<option value="${s.key}" ${eq.status===s.key?'selected':''}>${s.label}</option>`).join('')}
               </select>
             </div>
           </div>
@@ -1528,7 +1543,7 @@ function wireVendorActions(container, part, vendors) {
       // Log the order action but let the link navigate naturally
       try {
         await NX.sb.from('daily_logs').insert({
-          entry: `🛒 [ORDER] ${NX.currentUser?.name || 'User'} opened ${vendors[idx].name} for "${part.part_name}" ($${vendors[idx].price || '?'})`
+          entry: `[ORDER] ${NX.currentUser?.name || 'User'} opened ${vendors[idx].name} for "${part.part_name}" ($${vendors[idx].price || '?'})`
         });
       } catch (_) {}
       return;
@@ -3400,10 +3415,10 @@ function printStickers(equipList, opts = {}) {
   // Palette-coherent status colors. Mirror nexus.css tokens but inlined
   // here because the print window has no access to the parent stylesheet.
   const STATUS_COLOR = {
-    operational:   '#9c8a3e',  // olive-bronze
-    needs_service: '#d4a44e',  // brand gold
-    down:          '#a83e3e',  // oxblood
-    retired:       '#6b6258',  // graphite
+    operational:   'var(--green)',  // olive-bronze
+    needs_service: 'var(--accent)',  // brand gold
+    down:          'var(--red)',  // oxblood
+    retired:       'var(--faint)',  // graphite
   };
   // Coin URL — absolute so the print window can load it. Falls back to
   // Providentia (the default daily advisor). The print preview will
@@ -3494,9 +3509,9 @@ function printStickers(equipList, opts = {}) {
   :root {
     --cream:  #fdf8ec;     /* sticker face — warm not white */
     --cream-deep: #f3ead4; /* slightly deeper for inner panels */
-    --ink:    #1c1408;     /* near-black, brown undertone */
-    --gold:   #c8a44e;     /* brand accent, print-safe */
-    --gold-deep: #8b6914;  /* gold-line color, deeper for paper */
+    --ink:    var(--nx-gold-on);     /* near-black, brown undertone */
+    --gold:   var(--accent);     /* brand accent, print-safe */
+    --gold-deep: var(--accent);  /* gold-line color, deeper for paper */
     --hairline: rgba(139, 105, 20, 0.22);
   }
 
@@ -3823,10 +3838,10 @@ async function printServiceLog(id) {
   } catch (e) { /* best-effort, continue with empty history */ }
 
   const STATUS_COLOR = {
-    operational:   '#9c8a3e',
-    needs_service: '#d4a44e',
-    down:          '#a83e3e',
-    retired:       '#6b6258',
+    operational:   'var(--green)',
+    needs_service: 'var(--accent)',
+    down:          'var(--red)',
+    retired:       'var(--faint)',
   };
   const STATUS_LABEL = {
     operational:   'Operational',
@@ -3942,11 +3957,11 @@ async function printServiceLog(id) {
   :root {
     --cream:      #fdf8ec;
     --cream-deep: #f3ead4;
-    --ink:        #1c1408;
+    --ink:        var(--nx-gold-on);
     --ink-soft:   rgba(28, 20, 8, 0.7);
     --ink-faint:  rgba(28, 20, 8, 0.45);
-    --gold:       #c8a44e;
-    --gold-deep:  #8b6914;
+    --gold:       var(--accent);
+    --gold-deep:  var(--accent);
     --hairline:   rgba(139, 105, 20, 0.22);
     --rule:       rgba(139, 105, 20, 0.45);
     --status:     ${stat};
@@ -4386,18 +4401,18 @@ function printQRSheet() {
     </div>
     <style>
       .eq-print-modal {
-        background: var(--surface, #1b1b24);
+        background: var(--surface);
         border: 1px solid rgba(212, 164, 78, 0.3);
         border-radius: 14px;
         max-width: 420px; width: 100%;
         padding: 28px 24px 22px;
-        color: var(--text, #ede9e0);
+        color: var(--text);
         box-shadow: 0 16px 40px rgba(0,0,0,.5);
       }
       .eq-print-eyebrow {
         font-family: 'JetBrains Mono', monospace;
         font-size: 9.5px; font-weight: 600; letter-spacing: 2.5px;
-        color: var(--accent, #d4a44e); margin-bottom: 6px;
+        color: var(--accent); margin-bottom: 6px;
       }
       .eq-print-title {
         font-family: 'Outfit', sans-serif;
@@ -4405,7 +4420,7 @@ function printQRSheet() {
         letter-spacing: -0.2px;
       }
       .eq-print-sub {
-        font-size: 13px; color: var(--muted, #a49c94);
+        font-size: 13px; color: var(--muted);
         margin: 0 0 20px; line-height: 1.5;
       }
       .eq-print-chips {
@@ -4417,7 +4432,7 @@ function printQRSheet() {
         background: transparent;
         border: 1px solid rgba(212, 164, 78, 0.18);
         border-radius: 12px;
-        color: var(--text, #ede9e0);
+        color: var(--text);
         font-family: inherit;
         font-size: 14px;
         cursor: pointer;
@@ -4438,7 +4453,7 @@ function printQRSheet() {
       }
       .eq-print-chip .chip-count {
         font-family: 'JetBrains Mono', monospace;
-        font-size: 11px; color: var(--accent, #d4a44e);
+        font-size: 11px; color: var(--accent);
         letter-spacing: 0.5px;
       }
       .eq-print-chip-all {
@@ -4454,13 +4469,13 @@ function printQRSheet() {
         background: transparent;
         border: 1px solid rgba(212, 164, 78, 0.18);
         border-radius: 10px;
-        color: var(--muted, #a49c94);
+        color: var(--muted);
         font-family: inherit; font-size: 13px;
         padding: 8px 16px; cursor: pointer;
         transition: color .15s, border-color .15s;
       }
       .eq-print-cancel:hover {
-        color: var(--accent, #d4a44e);
+        color: var(--accent);
         border-color: rgba(212, 164, 78, 0.4);
       }
       @media (prefers-color-scheme: light) {}
@@ -4925,11 +4940,11 @@ function renderPublicScanHTML(eq, maint) {
   // graphite (retired). Same family the equipment list uses
   // post-login, so the public scan reads consistent.
   const status = ({
-    operational:    { label: 'Operational',    color: 'var(--nx-green, #9c8a3e)' },
-    needs_service:  { label: 'Needs Service',  color: 'var(--nx-amber, #d4a44e)' },
-    down:           { label: 'Down',           color: 'var(--nx-red, #a83e3e)' },
-    retired:        { label: 'Retired',        color: 'var(--nx-faint, #6b6258)' },
-  })[eq.status] || { label: eq.status || 'Unknown', color: 'var(--nx-faint, #6b6258)' };
+    operational:    { label: 'Operational',    color: 'var(--nx-green)' },
+    needs_service:  { label: 'Needs Service',  color: 'var(--nx-amber)' },
+    down:           { label: 'Down',           color: 'var(--nx-red)' },
+    retired:        { label: 'Retired',        color: 'var(--nx-faint)' },
+  })[eq.status] || { label: eq.status || 'Unknown', color: 'var(--nx-faint)' };
 
   const pm = eq.next_pm_date ? new Date(eq.next_pm_date) : null;
   const pmStr = pm ? pm.toLocaleDateString() : 'Not scheduled';
@@ -5033,7 +5048,7 @@ function publicReportIssue(qrCode) {
       // often from staff in the field and managers need them fast
       if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
       await NX.sb.from('daily_logs').insert({
-        entry: `🚨 QR scan report - ${eq.name} at ${eq.location}: ${fd.get('description').slice(0, 120)}`,
+        entry: `[SCAN-REPORT] ${eq.name} at ${eq.location}: ${fd.get('description').slice(0, 120)}`,
         user_name: fd.get('reporter')
       });
       modal.innerHTML = `
@@ -5132,7 +5147,7 @@ async function openFullEditor(equipId) {
               <div class="eq-form-group">
                 <label>Status</label>
                 <select data-field="status">
-                  ${STATUSES.map(s => `<option value="${s.key}" ${eq.status===s.key?'selected':''}>${s.label}</option>`).join('')}
+                  ${DROPDOWN_STATUSES.map(s => `<option value="${s.key}" ${eq.status===s.key?'selected':''}>${s.label}</option>`).join('')}
                 </select>
               </div>
               <div class="eq-form-group">
@@ -5253,10 +5268,10 @@ async function openFullEditor(equipId) {
             External links — manufacturer website, manual URL, training video, etc. Clickable from the equipment detail.
           </div>
           
-          <div class="eq-form-group eq-service-contact" style="margin-bottom:18px;padding:14px;background:var(--elevated,#15151c);border:1px solid var(--border,#2a2a33);border-radius:10px">
+          <div class="eq-form-group eq-service-contact" style="margin-bottom:18px;padding:14px;background:var(--elevated);border:1px solid var(--border);border-radius:10px">
             <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
               ${uiSvg('phone', '14px')} Service Contact
-              <span style="font-weight:400;font-size:11px;color:var(--muted,#8a826f)">— Powers the "Call" button on QR scan</span>
+              <span style="font-weight:400;font-size:11px;color:var(--muted)">— Powers the "Call" button on QR scan</span>
             </label>
             <div class="eq-form-row">
               <div class="eq-form-group" style="flex:1">
@@ -5274,7 +5289,7 @@ async function openFullEditor(equipId) {
               </button>
               ${eq.service_phone ? `<a href="tel:${escAttr(eq.service_phone)}" class="eq-btn eq-btn-tiny" style="flex:0 0 auto">Test Call</a>` : ''}
             </div>
-            <div style="font-size:11px;color:var(--muted,#8a826f);margin-top:8px;line-height:1.4">
+            <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4">
               Leave blank to auto-fall-back to the preferred contractor's phone.
             </div>
           </div>
@@ -6661,7 +6676,7 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
       </div>
       <div class="eq-call-confirm-actions">
         <button class="eq-btn eq-btn-secondary" id="eqCallCancel">Cancel</button>
-        <a class="eq-btn eq-call-service-btn is-disabled" id="eqCallGo" href="tel:${esc(telHref)}" aria-disabled="true">📞 Call Now</a>
+        <a class="eq-btn eq-call-service-btn is-disabled" id="eqCallGo" href="tel:${esc(telHref)}" aria-disabled="true"><i data-lucide="phone" class="eq-btn-icon"></i> Call Now</a>
       </div>
     </div>
   `;
@@ -6689,12 +6704,12 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
     if (!issue || issue.length < 2) {
       e.preventDefault();
       issueEl.focus();
-      issueEl.style.borderColor = '#e07070';
+      issueEl.style.borderColor = 'var(--red)';
       setTimeout(() => { issueEl.style.borderColor = ''; }, 1200);
       return;
     }
     // Log to dispatch_events (structured audit trail).
-    // The Postgres trigger on dispatch_events INSERT writes a rich "[SYS] 📞 call_made"
+    // The Postgres trigger on dispatch_events INSERT writes a rich "[SYS] call_made"
     // entry to daily_logs automatically — no direct daily_logs insert needed.
     try {
       await NX.sb.from('dispatch_events').insert({
@@ -6916,7 +6931,7 @@ function openQuickStatusMenu(equipmentId, anchorBtn) {
   menu.className = 'eq-status-menu';
   menu.innerHTML = `
     <div class="eq-status-menu-head">Change status</div>
-    ${STATUSES.map(s => `
+    ${DROPDOWN_STATUSES.map(s => `
       <button class="eq-status-menu-item ${s.key === currentKey ? 'is-current' : ''}" data-key="${s.key}">
         <span class="eq-status-menu-dot" style="background:${s.color}"></span>
         <span>${s.label}</span>
