@@ -46,8 +46,8 @@ en:{
   contractor:'Contractor...',
   service:'Service...',
   schedule:'+ Schedule',
-  editNotes:'✏ Edit Notes',
-  addFilePhoto:'📎 Add File / Photo',
+  editNotes:'Edit Notes',
+  addFilePhoto:'Add File / Photo',
   noConnection:'No connection — check WiFi',
 
   // ── CLEANING ──
@@ -110,7 +110,7 @@ en:{
   notConnected:'Not connected',
   connectGmail:'Connect Gmail',
   reconnect:'Reconnect',
-  syncToBrain:'⚡ Sync to Brain',
+  syncToBrain:'Sync to Brain',
   reIngest:'↻ Re-ingest',
   dropFiles:'Drop files or',
   browse:'browse',
@@ -120,8 +120,8 @@ en:{
 
   // ── TOOLS ──
   toolsBackup:'Tools & Backup',
-  buildLinks:'🔗 Build Links',
-  privacyScan:'🔒 Privacy Scan',
+  buildLinks:'Build Links',
+  privacyScan:'Privacy Scan',
   exportBackup:'⬇ Export Backup',
   importBackup:'⬆ Import Backup',
   autoLink:'Auto-link on import',
@@ -200,8 +200,8 @@ es:{
   contractor:'Contratista...',
   service:'Servicio...',
   schedule:'+ Agendar',
-  editNotes:'✏ Editar Notas',
-  addFilePhoto:'📎 Agregar Archivo / Foto',
+  editNotes:'Editar Notas',
+  addFilePhoto:'Agregar Archivo / Foto',
   noConnection:'Sin conexión — revisa WiFi',
 
   // ── CLEANING ──
@@ -264,7 +264,7 @@ es:{
   notConnected:'No conectado',
   connectGmail:'Conectar Gmail',
   reconnect:'Reconectar',
-  syncToBrain:'⚡ Sincronizar al Cerebro',
+  syncToBrain:'Sincronizar al Cerebro',
   reIngest:'↻ Re-ingestar',
   dropFiles:'Arrastra archivos o',
   browse:'buscar',
@@ -274,8 +274,8 @@ es:{
 
   // ── TOOLS ──
   toolsBackup:'Herramientas y Respaldo',
-  buildLinks:'🔗 Crear Enlaces',
-  privacyScan:'🔒 Escaneo de Privacidad',
+  buildLinks:'Crear Enlaces',
+  privacyScan:'Escaneo de Privacidad',
   exportBackup:'⬇ Exportar Respaldo',
   importBackup:'⬆ Importar Respaldo',
   autoLink:'Auto-enlazar al importar',
