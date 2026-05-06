@@ -14,7 +14,7 @@
      → target defaults to current user's preferred language
 
    NX.tr.inline(element, opts)
-     → Appends a 🌐 button next to the element's text. First tap
+     → Appends a translate button next to the element's text. First tap
        translates + replaces the text, shows a "show original" link.
        Tap again to restore. Preserves innerHTML structure.
 
@@ -34,7 +34,7 @@
      The translate module renders a globe button next to dozens of
      pieces of user-generated content per page (vendor notes,
      ticket comments, chat replies). Previously rendered with the
-     🌐 emoji which falls back to a glossy color glyph on iOS (out
+     Lucide globe icon (no system-emoji fallback risk on iOS, out
      of place against the editorial monochrome line art).         */
   const TR_ICONS = {
     globe: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
@@ -145,7 +145,7 @@
     return h.toString(36);
   }
 
-  // Attach an inline 🌐 button to an element. The button toggles
+  // Attach an inline translate button to an element. The button toggles
   // between "show translation" and "show original". Preserves the
   // element's other children (badges, icons) by only swapping text
   // nodes. Idempotent — calling twice is a no-op.
@@ -171,7 +171,7 @@
     btn.style.cssText =
       'margin-left:6px;padding:2px 6px;font-size:11px;background:transparent;' +
       'border:1px solid rgba(212,164,78,0.3);border-radius:10px;cursor:pointer;' +
-      'color:#c8a44e;font-family:inherit;vertical-align:middle;';
+      'color:var(--accent);font-family:inherit;vertical-align:middle;';
     element.appendChild(document.createTextNode(' '));
     element.appendChild(btn);
 
@@ -242,11 +242,11 @@
     const badge = document.createElement('div');
     badge.className = 'nx-tr-badge';
     badge.style.cssText =
-      'font-size:10px;letter-spacing:0.5px;color:#857f75;margin-bottom:4px;' +
+      'font-size:10px;letter-spacing:0.5px;color:var(--faint);margin-bottom:4px;' +
       'text-transform:uppercase;font-weight:600;';
     badge.innerHTML =
       `Translated from ${LANG_NAMES[detected] || detected} ` +
-      `<button class="nx-tr-show-original" style="background:none;border:0;color:#c8a44e;cursor:pointer;font-size:10px;padding:0;margin-left:6px;font-family:inherit;">show original</button>`;
+      `<button class="nx-tr-show-original" style="background:none;border:0;color:var(--accent);cursor:pointer;font-size:10px;padding:0;margin-left:6px;font-family:inherit;">show original</button>`;
 
     try {
       const translated = await text(original, target);
@@ -292,7 +292,7 @@
 })();
 
 // ═════════════════════════════════════════════════════════════════════
-// PAGE-WIDE TRANSLATION — called via the floating 🌐 FAB
+// PAGE-WIDE TRANSLATION — called via the floating translate FAB
 // ═════════════════════════════════════════════════════════════════════
 (function(){
   'use strict';
