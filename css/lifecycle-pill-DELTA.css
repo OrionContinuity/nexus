@@ -1,0 +1,289 @@
+/* ════════════════════════════════════════════════════════════════════
+   LIFECYCLE PILL — LIGHTBULB METAPHOR
+   ════════════════════════════════════════════════════════════════════
+   Every state expressed in gold. Only the *intensity* and *animation*
+   distinguish the lifecycle. Reads like a row of bulbs across the
+   kitchen — bright ones are alive, faded ones are working through
+   something, struggling ones are dying.
+
+     operational      → BRIGHT steady glow, pulsing dot
+     reported         → urgent, moderately bright with quick pulse
+     contractor_called→ steady moderate glow (waiting)
+     eta_set          → moderate with subtle countdown blink
+     in_progress      → SIMPLE FADING — slow breathing, dimmer
+     awaiting_parts   → low background pulse (back-burner)
+     down / broken    → STRUGGLING — irregular dying-bulb flicker
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ─── State: Operational ─── BRIGHT GLOWING YELLOW (alive) ─── */
+.eq-lc-pill.is-operational {
+  background: rgba(212, 164, 78, 0.18);
+  color: var(--nx-gold);
+  border-color: rgba(212, 164, 78, 0.55);
+  box-shadow: 0 0 0 1px rgba(212, 164, 78, 0.22),
+              0 0 22px rgba(212, 164, 78, 0.45);
+  animation: eq-lc-glow 3.6s ease-in-out infinite;
+}
+[data-theme="light"] .eq-lc-pill.is-operational {
+  color: var(--nx-gold-deep, #8b6914);
+  background: rgba(139, 105, 20, 0.10);
+  border-color: rgba(139, 105, 20, 0.45);
+  box-shadow: 0 0 0 1px rgba(139, 105, 20, 0.15),
+              0 0 18px rgba(212, 164, 78, 0.28);
+}
+@keyframes eq-lc-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(212, 164, 78, 0.22),
+                         0 0 18px rgba(212, 164, 78, 0.4); }
+  50%      { box-shadow: 0 0 0 1px rgba(212, 164, 78, 0.32),
+                         0 0 32px rgba(212, 164, 78, 0.6); }
+}
+.eq-lc-pill.is-operational .eq-lc-pill-dot {
+  box-shadow: 0 0 6px currentColor, 0 0 14px currentColor;
+  animation: eq-lc-pulse-dot 2.4s ease-in-out infinite;
+}
+@keyframes eq-lc-pulse-dot {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%      { opacity: 0.7; transform: scale(1.15); }
+}
+
+/* ─── State: Down / Broken ─── THE LIGHT IS STRUGGLING 🥲 ─── */
+.eq-lc-pill.is-down {
+  background: rgba(212, 164, 78, 0.06);
+  color: var(--nx-gold);
+  border-color: rgba(212, 164, 78, 0.25);
+  box-shadow: 0 0 8px rgba(212, 164, 78, 0.15);
+  animation: eq-lc-struggle 5.2s steps(1, end) infinite;
+}
+[data-theme="light"] .eq-lc-pill.is-down {
+  color: var(--nx-gold-deep, #8b6914);
+  background: rgba(139, 105, 20, 0.04);
+  border-color: rgba(139, 105, 20, 0.2);
+}
+.eq-lc-pill.is-down .eq-lc-pill-dot {
+  box-shadow: 0 0 4px currentColor;
+  animation: eq-lc-struggle-dot 5.2s steps(1, end) infinite;
+}
+/* Dying-bulb flicker: irregular intensity drops, occasional near-blackout.
+   Long duration so the pattern reads as organic rather than jittery. */
+@keyframes eq-lc-struggle {
+  0%   { opacity: 0.55; }
+  4%   { opacity: 0.18; }   /* sharp drop */
+  6%   { opacity: 0.55; }
+  19%  { opacity: 0.55; }
+  21%  { opacity: 0.32; }   /* dim flutter */
+  23%  { opacity: 0.55; }
+  47%  { opacity: 0.55; }
+  49%  { opacity: 0.10; }   /* near-out */
+  50%  { opacity: 0.45; }
+  52%  { opacity: 0.55; }
+  73%  { opacity: 0.55; }
+  75%  { opacity: 0.22; }
+  77%  { opacity: 0.55; }
+  91%  { opacity: 0.55; }
+  93%  { opacity: 0.15; }   /* one more dip before reset */
+  95%  { opacity: 0.55; }
+  100% { opacity: 0.55; }
+}
+@keyframes eq-lc-struggle-dot {
+  0%   { opacity: 0.7; transform: scale(1); }
+  4%   { opacity: 0.2; transform: scale(0.85); }
+  6%   { opacity: 0.7; transform: scale(1); }
+  21%  { opacity: 0.4; transform: scale(0.92); }
+  23%  { opacity: 0.7; transform: scale(1); }
+  49%  { opacity: 0.1; transform: scale(0.8); }
+  52%  { opacity: 0.7; transform: scale(1); }
+  75%  { opacity: 0.3; transform: scale(0.88); }
+  77%  { opacity: 0.7; transform: scale(1); }
+  93%  { opacity: 0.2; transform: scale(0.85); }
+  95%  { opacity: 0.7; transform: scale(1); }
+  100% { opacity: 0.7; transform: scale(1); }
+}
+
+/* ─── State: Issue reported ─── medium-bright gold, urgent pulse ─── */
+.eq-lc-pill.is-reported {
+  background: rgba(212, 164, 78, 0.15);
+  color: var(--nx-gold);
+  border-color: rgba(212, 164, 78, 0.45);
+  box-shadow: 0 0 16px rgba(212, 164, 78, 0.35);
+  animation: eq-lc-glow-quick 1.6s ease-in-out infinite;
+}
+[data-theme="light"] .eq-lc-pill.is-reported {
+  color: var(--nx-gold-deep, #8b6914);
+  background: rgba(139, 105, 20, 0.08);
+  border-color: rgba(139, 105, 20, 0.4);
+}
+@keyframes eq-lc-glow-quick {
+  0%, 100% { box-shadow: 0 0 12px rgba(212, 164, 78, 0.3); }
+  50%      { box-shadow: 0 0 22px rgba(212, 164, 78, 0.55); }
+}
+
+/* ─── State: Contractor called ─── steady moderate glow (waiting) ─── */
+.eq-lc-pill.is-called {
+  background: rgba(212, 164, 78, 0.12);
+  color: var(--nx-gold);
+  border-color: rgba(212, 164, 78, 0.4);
+  box-shadow: 0 0 14px rgba(212, 164, 78, 0.28);
+}
+[data-theme="light"] .eq-lc-pill.is-called {
+  color: var(--nx-gold-deep, #8b6914);
+  background: rgba(139, 105, 20, 0.06);
+  border-color: rgba(139, 105, 20, 0.35);
+}
+
+/* ─── State: ETA set ─── moderate with subtle countdown blink ─── */
+.eq-lc-pill.is-eta {
+  background: rgba(212, 164, 78, 0.13);
+  color: var(--nx-gold);
+  border-color: rgba(212, 164, 78, 0.42);
+  box-shadow: 0 0 14px rgba(212, 164, 78, 0.3);
+  animation: eq-lc-eta-blink 2.8s ease-in-out infinite;
+}
+[data-theme="light"] .eq-lc-pill.is-eta {
+  color: var(--nx-gold-deep, #8b6914);
+  background: rgba(139, 105, 20, 0.07);
+  border-color: rgba(139, 105, 20, 0.36);
+}
+@keyframes eq-lc-eta-blink {
+  0%, 90%, 100% { box-shadow: 0 0 14px rgba(212, 164, 78, 0.3); }
+  93%, 96%      { box-shadow: 0 0 22px rgba(212, 164, 78, 0.5); }
+}
+
+/* ─── State: In progress ─── SIMPLE FADING YELLOW (slow breath) ─── */
+.eq-lc-pill.is-in-progress {
+  background: rgba(212, 164, 78, 0.10);
+  color: var(--nx-gold);
+  border-color: rgba(212, 164, 78, 0.35);
+  box-shadow: 0 0 12px rgba(212, 164, 78, 0.22);
+  animation: eq-lc-fading 4.4s ease-in-out infinite;
+}
+[data-theme="light"] .eq-lc-pill.is-in-progress {
+  color: var(--nx-gold-deep, #8b6914);
+  background: rgba(139, 105, 20, 0.05);
+  border-color: rgba(139, 105, 20, 0.3);
+}
+/* The "fading" feel — opacity breathes between full and ~half, slowly,
+   like a bulb whose energy is being drained by the work being done. */
+@keyframes eq-lc-fading {
+  0%, 100% { opacity: 0.95; box-shadow: 0 0 12px rgba(212, 164, 78, 0.22); }
+  50%      { opacity: 0.55; box-shadow: 0 0 6px  rgba(212, 164, 78, 0.10); }
+}
+.eq-lc-pill.is-in-progress .eq-lc-pill-dot {
+  box-shadow: 0 0 4px currentColor, 0 0 8px currentColor;
+  animation: eq-lc-fading-dot 4.4s ease-in-out infinite;
+}
+@keyframes eq-lc-fading-dot {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(0.92); }
+}
+
+/* ─── State: Awaiting parts ─── low background pulse (back-burner) ─── */
+.eq-lc-pill.is-awaiting {
+  background: rgba(212, 164, 78, 0.08);
+  color: var(--nx-gold);
+  border-color: rgba(212, 164, 78, 0.3);
+  box-shadow: 0 0 10px rgba(212, 164, 78, 0.18);
+  animation: eq-lc-fading 6.0s ease-in-out infinite;  /* slower = more dormant */
+  opacity: 0.85;
+}
+[data-theme="light"] .eq-lc-pill.is-awaiting {
+  color: var(--nx-gold-deep, #8b6914);
+  background: rgba(139, 105, 20, 0.04);
+  border-color: rgba(139, 105, 20, 0.25);
+}
+
+/* ─── States: muted / retired / missing / needs_service ─── */
+.eq-lc-pill.is-muted,
+.eq-lc-pill.is-retired {
+  background: transparent;
+  color: var(--nx-faintest);
+  border-color: var(--nx-gold-line);
+  box-shadow: none;
+  opacity: 0.65;
+}
+.eq-lc-pill.is-needs-service {
+  background: rgba(214, 145, 46, 0.1);
+  color: var(--nx-gold);
+  border-color: rgba(214, 145, 46, 0.3);
+}
+.eq-lc-pill.is-missing {
+  background: rgba(155, 110, 200, 0.14);
+  color: #b58fd6;
+  border-color: rgba(181, 143, 214, 0.4);
+}
+[data-theme="light"] .eq-lc-pill.is-missing {
+  color: #6b48a3;
+  background: rgba(107, 72, 163, 0.1);
+  border-color: rgba(107, 72, 163, 0.35);
+}
+
+
+/* ─── Compact dot for grid card corner ──────────────────────────── */
+
+.eq-lc-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: currentColor;
+  z-index: 2;
+}
+.eq-lc-dot.is-operational {
+  background: var(--nx-gold);
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 8px rgba(212, 164, 78, 0.7),
+              0 0 16px rgba(212, 164, 78, 0.45);
+  animation: eq-lc-pulse-dot 2.4s ease-in-out infinite;
+}
+[data-theme="light"] .eq-lc-dot.is-operational {
+  background: var(--nx-gold-deep, #8b6914);
+}
+.eq-lc-dot.is-down {
+  background: var(--nx-gold);
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 4px rgba(212, 164, 78, 0.4);
+  animation: eq-lc-struggle-dot 5.2s steps(1, end) infinite;
+}
+.eq-lc-dot.is-muted,
+.eq-lc-dot.is-retired {
+  background: var(--nx-faintest);
+  box-shadow: 0 0 0 2px var(--nx-bg);
+  opacity: 0.5;
+}
+.eq-lc-dot.is-reported {
+  background: var(--nx-gold);
+  box-shadow: 0 0 0 2px var(--nx-bg), 0 0 8px rgba(212, 164, 78, 0.6);
+  animation: eq-lc-glow-quick 1.6s ease-in-out infinite;
+}
+.eq-lc-dot.is-called {
+  background: var(--nx-gold);
+  box-shadow: 0 0 0 2px var(--nx-bg), 0 0 8px rgba(212, 164, 78, 0.5);
+}
+.eq-lc-dot.is-eta {
+  background: var(--nx-gold);
+  box-shadow: 0 0 0 2px var(--nx-bg), 0 0 8px rgba(212, 164, 78, 0.55);
+  animation: eq-lc-eta-blink 2.8s ease-in-out infinite;
+}
+.eq-lc-dot.is-in-progress {
+  background: var(--nx-gold);
+  box-shadow: 0 0 0 2px var(--nx-bg), 0 0 8px rgba(212, 164, 78, 0.45);
+  animation: eq-lc-fading-dot 4.4s ease-in-out infinite;
+}
+.eq-lc-dot.is-awaiting {
+  background: var(--nx-gold);
+  box-shadow: 0 0 0 2px var(--nx-bg), 0 0 6px rgba(212, 164, 78, 0.35);
+  animation: eq-lc-fading-dot 6.0s ease-in-out infinite;
+  opacity: 0.8;
+}
+.eq-lc-dot.is-needs-service {
+  background: var(--nx-gold);
+  box-shadow: 0 0 0 2px var(--nx-bg), 0 0 6px rgba(212, 164, 78, 0.45);
+}
+.eq-lc-dot.is-missing {
+  background: var(--nx-gold);
+  box-shadow: 0 0 0 2px var(--nx-bg);
+  opacity: 0.6;
+}
+
+
