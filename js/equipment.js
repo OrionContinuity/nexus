@@ -296,6 +296,23 @@ function buildUI() {
         </button>
       </div>
 
+      <!-- Location chips: top-priority filter for someone walking between 3
+           restaurants. Always visible, large tap targets, count badge per
+           location so you can see at a glance how much equipment lives where. -->
+      <div class="eq-location-bar" id="eqLocationBar">
+        ${['all', ...LOCATIONS].map(loc => {
+          const count = loc === 'all'
+            ? equipment.length
+            : equipment.filter(e => e.location === loc).length;
+          return `
+            <button class="eq-loc-chip ${activeFilter.location === loc ? 'active' : ''}" data-filter="location" data-value="${esc(loc)}">
+              <span class="eq-loc-chip-name">${loc === 'all' ? 'All locations' : esc(loc)}</span>
+              <span class="eq-loc-chip-count">${count}</span>
+            </button>
+          `;
+        }).join('')}
+      </div>
+
       <div class="eq-search-row">
         <input type="text" class="eq-search" id="eqSearch" placeholder="Search equipment, model, serial...">
         <div class="eq-view-toggle">
@@ -305,7 +322,7 @@ function buildUI() {
       </div>
 
       <div class="eq-filters">
-        <div class="eq-filter-group">
+        <div class="eq-filter-group" style="display:none">
           <span class="eq-filter-label">Location:</span>
           ${['all', ...LOCATIONS].map(loc => `
             <button class="eq-chip ${activeFilter.location===loc?'active':''}" data-filter="location" data-value="${loc}">
@@ -370,6 +387,14 @@ function buildUI() {
   });
 
   view.querySelectorAll('.eq-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      activeFilter[chip.dataset.filter] = chip.dataset.value;
+      buildUI();
+    });
+  });
+
+  // Wire the prominent top location chips (separate styling, same logic).
+  view.querySelectorAll('.eq-loc-chip').forEach(chip => {
     chip.addEventListener('click', () => {
       activeFilter[chip.dataset.filter] = chip.dataset.value;
       buildUI();
@@ -463,6 +488,16 @@ function renderList() {
   // Wire rows → detail
   list.querySelectorAll('[data-eq-id]').forEach(el => {
     el.addEventListener('click', (ev) => {
+      // Beacon tap → quick status menu. Intercept BEFORE the generic
+      // row-click that would open the detail view. The beacon is the
+      // most-frequent action target in the list — tapping it cycles
+      // status with one tap instead of three (row → edit → status).
+      const beaconTarget = ev.target.closest('.eq-col-status .eq-lc-pill');
+      if (beaconTarget && el.contains(beaconTarget)) {
+        ev.stopPropagation();
+        openQuickStatusMenuForRow(el.dataset.eqId, beaconTarget);
+        return;
+      }
       // Avatar tap → quick photo replace flow. Intercept BEFORE the
       // generic row-click that would open the detail view.
       const photoTarget = ev.target.closest('[data-action="quick-photo"]');
@@ -6024,6 +6059,110 @@ function replacePhoto(equipId, field) { uploadPhoto(equipId, field); }
  * equipment list inline so the new photo appears as the row avatar
  * immediately. The user stays in their list flow.
  */
+/**
+ * Quick status menu — opens a small popover anchored to the tapped
+ * beacon in the equipment list. The 4 most common statuses sit one
+ * tap away, with the current one highlighted. Picking a status
+ * updates the DB and re-renders the list inline.
+ *
+ * Intentionally minimal: only the four common operational states
+ * (Operational, Needs Service, Down, Retired). For the long-tail
+ * states (loaned, missing, relocated) the user opens Edit Everything.
+ */
+function openQuickStatusMenuForRow(equipId, anchorEl) {
+  if (!equipId) return;
+  const eq = equipment.find(x => x.id === equipId);
+  if (!eq) return;
+
+  // Tear down any existing popover so consecutive taps don't stack.
+  document.querySelectorAll('.eq-quick-status-pop').forEach(n => n.remove());
+
+  const STATES = [
+    { key: 'operational',   label: 'Operational',    cls: 'is-operational' },
+    { key: 'needs_service', label: 'Needs Service',  cls: 'is-needs-service' },
+    { key: 'down',          label: 'Down',           cls: 'is-down' },
+    { key: 'retired',       label: 'Retired',        cls: 'is-retired' },
+  ];
+
+  const cur = (eq.status || 'operational').toLowerCase();
+  const pop = document.createElement('div');
+  pop.className = 'eq-quick-status-pop';
+  pop.innerHTML = `
+    <div class="eq-quick-status-pop-arrow"></div>
+    <div class="eq-quick-status-pop-title">${esc(eq.name)}</div>
+    <div class="eq-quick-status-pop-options">
+      ${STATES.map(s => `
+        <button class="eq-quick-status-pop-btn ${s.cls} ${cur === s.key ? 'is-current' : ''}" data-status="${s.key}">
+          <span class="eq-quick-status-pop-dot"></span>
+          <span class="eq-quick-status-pop-label">${s.label}</span>
+          ${cur === s.key ? '<span class="eq-quick-status-pop-check">✓</span>' : ''}
+        </button>
+      `).join('')}
+    </div>
+    <button class="eq-quick-status-pop-more" data-action="more">More options →</button>
+  `;
+
+  // Anchor positioning — appear above the beacon, right-aligned to it.
+  document.body.appendChild(pop);
+  const aRect = anchorEl.getBoundingClientRect();
+  const pRect = pop.getBoundingClientRect();
+  let top  = aRect.top + window.scrollY - pRect.height - 12;
+  let left = aRect.right - pRect.width + (window.scrollX || 0);
+  // If popping above would clip top of viewport, flip below.
+  if (top < window.scrollY + 8) {
+    top = aRect.bottom + window.scrollY + 12;
+    pop.classList.add('is-below');
+  }
+  // Don't let it drift off the left edge.
+  if (left < 8) left = 8;
+  pop.style.top  = top  + 'px';
+  pop.style.left = left + 'px';
+
+  // Backdrop click to dismiss (clicking outside the pop closes it).
+  const dismiss = (e) => {
+    if (pop.contains(e.target)) return;
+    pop.remove();
+    document.removeEventListener('click', dismiss, true);
+  };
+  setTimeout(() => document.addEventListener('click', dismiss, true), 0);
+
+  // Wire the buttons.
+  pop.querySelectorAll('[data-status]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const newStatus = btn.dataset.status;
+      if (newStatus === cur) { pop.remove(); return; }
+      // Optimistic UI: update in-memory + re-render list.
+      eq.status = newStatus;
+      eq.updated_at = new Date().toISOString();
+      renderList();
+      pop.remove();
+      NX.toast && NX.toast(`${eq.name} → ${newStatus.replace('_', ' ')}`, 'info', 1400);
+
+      try {
+        const { error } = await NX.sb.from('equipment')
+          .update({ status: newStatus })
+          .eq('id', equipId);
+        if (error) throw error;
+        // Brain sync (best effort) so the AI knows about the state change.
+        if (NX.eqBrainSync?.syncOne) NX.eqBrainSync.syncOne(equipId);
+      } catch (err) {
+        // Rollback the optimistic update.
+        console.error('[quickStatus] save failed:', err);
+        NX.toast && NX.toast(`Could not save: ${err.message || ''}`, 'error', 3000);
+        // Reload from DB to repair any drift.
+        if (typeof loadEquipment === 'function') await loadEquipment();
+      }
+    });
+  });
+
+  pop.querySelector('[data-action="more"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    pop.remove();
+    if (typeof openFullEditor === 'function') openFullEditor(equipId);
+  });
+}
+
 function quickReplacePhoto(equipId) {
   const input = document.createElement('input');
   input.type = 'file';
@@ -9691,7 +9830,7 @@ async function openContractors() {
   // Hardcoded version stamp so the user can verify in a screenshot
   // exactly which JS code is running. If you don't see this toast,
   // the service worker is serving stale cached code.
-  NX.toast && NX.toast('NEXUS contractors v40 — opening…', 'info', 1400);
+  NX.toast && NX.toast('NEXUS contractors v41 — opening…', 'info', 1400);
 
   const overlay = document.createElement('div');
   overlay.className = 'eq-contractors-overlay';
@@ -10060,7 +10199,7 @@ function renderContractorsList() {
         <div class="eq-contractors-empty-title">No contractors yet</div>
         <div class="eq-contractors-empty-msg">Tap the <strong>+</strong> button at the top to add your first contractor.</div>
         <div style="margin-top:24px;padding:14px;background:rgba(212,164,78,0.05);border:1px dashed var(--nx-gold-line);border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--nx-faint);text-align:left;line-height:1.7">
-          <div style="color:var(--nx-gold);margin-bottom:6px;font-weight:600">DIAGNOSTIC v40</div>
+          <div style="color:var(--nx-gold);margin-bottom:6px;font-weight:600">DIAGNOSTIC v41</div>
           <div>NX.sb defined: <strong>${typeof NX !== 'undefined' && NX.sb ? 'YES' : 'NO'}</strong></div>
           <div>Query rows returned: <strong>${dbg.rowCount ?? '—'}</strong></div>
           <div>Query error: <strong>${dbg.errMsg ? esc(dbg.errMsg) : '(none)'}</strong></div>
@@ -10098,7 +10237,10 @@ function renderContractorsList() {
       </button>
       <div class="eq-contractors-head-text">
         <div class="eq-contractors-title">Contractors</div>
-        <div class="eq-contractors-sub">${list.length} ${list.length === 1 ? 'contractor' : 'contractors'} on file</div>
+        <div class="eq-contractors-sub">${list.length} ${list.length === 1 ? 'contractor' : 'contractors'} on file${(() => {
+          const dupGroups = findContractorDuplicateGroups();
+          return dupGroups.length ? ` · <span class="eq-contractors-dup-hint" data-action="dedupe">${dupGroups.length} duplicate ${dupGroups.length === 1 ? 'group' : 'groups'}</span>` : '';
+        })()}</div>
       </div>
       <button class="eq-contractors-add" data-action="add" aria-label="Add new contractor">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -10118,6 +10260,7 @@ function renderContractorsList() {
 
   overlay.querySelector('.eq-contractors-close').addEventListener('click', closeContractors);
   overlay.querySelector('[data-action="add"]').addEventListener('click', addNewContractor);
+  overlay.querySelector('[data-action="dedupe"]')?.addEventListener('click', openDuplicateMergeOverlay);
   const searchInput = overlay.querySelector('#eqContractorsSearch');
   if (searchInput) {
     searchInput.addEventListener('input', e => {
@@ -11130,6 +11273,306 @@ function schedulePmsForContractor(locationFilter) {
     ? `${ids.length} ${ids.length === 1 ? 'unit' : 'units'} at ${locationFilter}`
     : `${ids.length} ${ids.length === 1 ? 'unit' : 'units'} from ${c.name}`;
   NX.toast && NX.toast(`Pre-selected ${label}`, 'info', 1500);
+}
+
+/**
+ * Group contractors by case-insensitive name match. Returns groups of
+ * 2+ contractors that share a name. Used to surface duplicates so the
+ * user can merge them (combining phones/emails/notes/tags and
+ * reassigning equipment).
+ *
+ * Naming variation handling: we strip leading "+", trailing whitespace,
+ * collapse internal whitespace, and lowercase before matching. So
+ * "Austin Air and Ice", "austin air and ice ", and " Austin Air And Ice"
+ * all collapse to the same group.
+ */
+function findContractorDuplicateGroups() {
+  if (!contractorsState || !contractorsState.list) return [];
+  const groups = new Map();
+  for (const c of contractorsState.list) {
+    const key = (c.name || '')
+      .toLowerCase()
+      .replace(/^\+\s*/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+  // Only return groups with 2+ entries.
+  return Array.from(groups.values()).filter(g => g.length > 1);
+}
+
+/**
+ * Pick the canonical contractor from a duplicate group. Heuristic:
+ *   1. Most data (phones + emails + tags + notes length) — preserve work
+ *   2. Most recent activity — likely the "active" record
+ *   3. Oldest created_at — original record
+ * The canonical absorbs all data from the others and keeps its own ID.
+ */
+function pickCanonicalContractor(group) {
+  const score = (c) => {
+    const phones = extractContractorPhones(c).length;
+    const emails = extractContractorEmails(c).length;
+    const tags   = (c.tags || []).length;
+    const notes  = (c.notes || '').length;
+    const data   = phones * 5 + emails * 5 + tags * 3 + Math.min(notes / 20, 10);
+    const lastT  = c._lastActivity ? new Date(c._lastActivity).getTime() : 0;
+    const oldT   = c.created_at ? new Date(c.created_at).getTime() : Date.now();
+    // Higher score = better canonical.
+    return data * 1000 + (lastT / 1e10) - (oldT / 1e12);
+  };
+  return [...group].sort((a, b) => score(b) - score(a))[0];
+}
+
+/**
+ * Open the merge overlay. Lists every duplicate group with side-by-side
+ * preview of all entries. User taps "Merge" → we run the merge in DB
+ * and refresh.
+ */
+function openDuplicateMergeOverlay() {
+  const groups = findContractorDuplicateGroups();
+  if (!groups.length) {
+    NX.toast && NX.toast('No duplicates found', 'info', 1400);
+    return;
+  }
+
+  // Sort groups by size (most duplicates first), then by name.
+  groups.sort((a, b) => {
+    if (b.length !== a.length) return b.length - a.length;
+    return (a[0].name || '').localeCompare(b[0].name || '');
+  });
+
+  // Tear down any existing overlay so consecutive opens don't stack.
+  document.querySelectorAll('.eq-dedupe-overlay').forEach(n => n.remove());
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-dedupe-overlay';
+  overlay.innerHTML = `
+    <div class="eq-dedupe-backdrop"></div>
+    <div class="eq-dedupe-panel">
+      <div class="eq-dedupe-head">
+        <button class="eq-dedupe-close" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <div class="eq-dedupe-head-text">
+          <div class="eq-dedupe-title">Find duplicates</div>
+          <div class="eq-dedupe-sub">${groups.length} ${groups.length === 1 ? 'group' : 'groups'} · ${groups.reduce((s, g) => s + g.length, 0)} contractors total</div>
+        </div>
+      </div>
+      <div class="eq-dedupe-body">
+        ${groups.map((group, idx) => {
+          const canonical = pickCanonicalContractor(group);
+          const others = group.filter(c => c.id !== canonical.id);
+          return `
+            <div class="eq-dedupe-group" data-group-idx="${idx}">
+              <div class="eq-dedupe-group-name">${esc(group[0].name)}</div>
+              <div class="eq-dedupe-group-cards">
+                ${[canonical, ...others].map((c, ci) => {
+                  const isCanon = c.id === canonical.id;
+                  const phones  = extractContractorPhones(c);
+                  const emails  = extractContractorEmails(c);
+                  const tags    = (c.tags || []).filter(Boolean);
+                  const equipCount = (contractorsState.equipmentLite || [])
+                    .filter(e => e.service_contractor_node_id == c.id).length;
+                  return `
+                    <div class="eq-dedupe-card ${isCanon ? 'is-canonical' : ''}">
+                      <div class="eq-dedupe-card-head">
+                        <span class="eq-dedupe-card-id">#${c.id}</span>
+                        ${isCanon ? '<span class="eq-dedupe-card-keep">KEEP</span>' : '<span class="eq-dedupe-card-merge">MERGE IN</span>'}
+                      </div>
+                      <div class="eq-dedupe-card-stats">
+                        ${phones.length ? `<div>📞 ${phones.length} ${phones.length === 1 ? 'phone' : 'phones'}</div>` : ''}
+                        ${emails.length ? `<div>✉ ${emails.length} ${emails.length === 1 ? 'email' : 'emails'}</div>` : ''}
+                        ${tags.length   ? `<div>🏷 ${tags.slice(0, 3).map(esc).join(', ')}</div>` : ''}
+                        ${equipCount    ? `<div>🔧 ${equipCount} equipment linked</div>` : ''}
+                        ${c.notes       ? `<div>📝 has notes</div>` : ''}
+                        ${c._lastActivity ? `<div>🕒 active ${fmtContractorSince(c._lastActivity)}</div>` : ''}
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+              <button class="eq-dedupe-merge-btn" data-action="merge-group" data-group-idx="${idx}">
+                Merge ${group.length} into one
+              </button>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('.eq-dedupe-close').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('.eq-dedupe-backdrop').addEventListener('click', () => overlay.remove());
+
+  overlay.querySelectorAll('[data-action="merge-group"]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.groupIdx, 10);
+      const group = groups[idx];
+      if (!group) return;
+      const canonical = pickCanonicalContractor(group);
+      const others = group.filter(c => c.id !== canonical.id);
+      if (!confirm(
+        `Merge ${group.length} "${group[0].name}" records into one?\n\n` +
+        `• Phones, emails, tags, and notes from all ${group.length} records will be combined into the master record (#${canonical.id})\n` +
+        `• Equipment assigned to the duplicates will be reassigned to the master\n` +
+        `• The ${others.length} duplicate ${others.length === 1 ? 'record' : 'records'} will be deleted\n\n` +
+        `This can't be undone. Proceed?`
+      )) return;
+
+      btn.disabled = true;
+      btn.textContent = 'Merging…';
+      try {
+        await mergeContractorGroup(canonical, others);
+        NX.toast && NX.toast(`Merged ${group.length} → 1`, 'success', 1800);
+        // Remove this group's card from the overlay (or close if it was the last).
+        const groupEl = overlay.querySelector(`.eq-dedupe-group[data-group-idx="${idx}"]`);
+        if (groupEl) groupEl.remove();
+        const remaining = overlay.querySelectorAll('.eq-dedupe-group').length;
+        if (!remaining) {
+          overlay.remove();
+        }
+        // Reload list so the contractors view reflects the merged state.
+        contractorsState.loading = true;
+        renderContractors();
+        await loadContractorsList();
+        contractorsState.loading = false;
+        renderContractors();
+      } catch (err) {
+        console.error('[mergeContractorGroup] failed:', err);
+        NX.toast && NX.toast(`Merge failed: ${err.message || ''}`, 'error', 3500);
+        btn.disabled = false;
+        btn.textContent = `Merge ${group.length} into one`;
+      }
+    });
+  });
+}
+
+/**
+ * The actual merge — called per group. Steps:
+ *   1. Build combined links/tags/notes by deduping across all records
+ *   2. Update the canonical record with the merged data
+ *   3. Re-point any equipment.service_contractor_node_id from a dupe to canonical
+ *   4. Delete the duplicate records
+ *
+ * If any step fails, the canonical update may have already happened —
+ * but it's idempotent, so re-running the merge later is safe.
+ */
+async function mergeContractorGroup(canonical, others) {
+  if (!NX.sb || !canonical) throw new Error('No DB or canonical contractor');
+  if (!others.length) return;
+
+  const all = [canonical, ...others];
+
+  // ─── 1. Combine phones (dedupe by digits) ───────────────────────
+  const seenPhones = new Set();
+  const allPhones = [];
+  for (const c of all) {
+    for (const p of extractContractorPhones(c)) {
+      const key = (p.phone || '').replace(/\D/g, '');
+      if (!key || seenPhones.has(key)) continue;
+      seenPhones.add(key);
+      allPhones.push({ phone: p.phone, type: 'phone', label: p.label || null });
+    }
+  }
+
+  // ─── 2. Combine emails (dedupe by lowercased) ───────────────────
+  const seenEmails = new Set();
+  const allEmails = [];
+  for (const c of all) {
+    for (const e of extractContractorEmails(c)) {
+      const key = (e.email || '').toLowerCase().trim();
+      if (!key || seenEmails.has(key)) continue;
+      seenEmails.add(key);
+      allEmails.push({ email: e.email, type: 'email', role: e.role || 'to' });
+    }
+  }
+
+  // ─── 3. Combine non-phone/email links ───────────────────────────
+  const otherLinks = [];
+  for (const c of all) {
+    const links = Array.isArray(c.links) ? c.links : [];
+    for (const l of links) {
+      if (l && typeof l === 'object' && (l.phone || l.email)) continue; // already handled
+      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
+      if (/[\w.+-]+@[\w-]+\.[\w.-]+/.test(str)) continue;
+      if (/(?:tel:)?(\+?[\d\s().-]{10,})/.test(str)) continue;
+      otherLinks.push(l);
+    }
+  }
+
+  // ─── 4. Combine tags + notes ────────────────────────────────────
+  const tagSet = new Set();
+  for (const c of all) {
+    for (const t of (c.tags || [])) {
+      if (t && t.trim()) tagSet.add(t.trim());
+    }
+  }
+  const allTags = Array.from(tagSet);
+
+  const notesParts = all
+    .map(c => (c.notes || '').trim())
+    .filter(Boolean);
+  // Dedupe identical notes.
+  const seenNotes = new Set();
+  const uniqueNotes = notesParts.filter(n => {
+    if (seenNotes.has(n)) return false;
+    seenNotes.add(n);
+    return true;
+  });
+  const mergedNotes = uniqueNotes.length
+    ? uniqueNotes.join('\n\n— —\n\n')
+    : null;
+
+  // Pick the cleanest name (the canonical's, but stripped of leading +/digits
+  // if it's a phone-number-name from auto-creation).
+  let mergedName = canonical.name;
+  for (const c of all) {
+    const n = (c.name || '').trim();
+    // Prefer a name without a leading + or pure digits — that's a real
+    // company name vs an auto-created phone-only entry.
+    if (n && !/^\+?\d/.test(n) && /[a-zA-Z]/.test(n)) {
+      mergedName = n;
+      break;
+    }
+  }
+
+  const mergedLinks = [...otherLinks, ...allPhones, ...allEmails];
+
+  // ─── 5. Update the canonical record ─────────────────────────────
+  const { error: upErr } = await NX.sb.from('nodes').update({
+    name: mergedName,
+    notes: mergedNotes,
+    tags: allTags,
+    links: mergedLinks,
+  }).eq('id', canonical.id);
+  if (upErr) throw new Error('Update canonical failed: ' + upErr.message);
+
+  // ─── 6. Reassign equipment from duplicates to canonical ─────────
+  const dupIds = others.map(c => c.id);
+  if (dupIds.length) {
+    const { error: eqErr } = await NX.sb.from('equipment')
+      .update({ service_contractor_node_id: canonical.id })
+      .in('service_contractor_node_id', dupIds);
+    if (eqErr) {
+      // Non-fatal — log and continue. The canonical is already merged;
+      // worst case some equipment still points at the (about to be
+      // deleted) duplicate, which our SET NULL on delete would handle.
+      console.warn('[mergeContractor] equipment reassign failed:', eqErr);
+    }
+  }
+
+  // ─── 7. Delete the duplicates ───────────────────────────────────
+  if (dupIds.length) {
+    const { error: delErr } = await NX.sb.from('nodes')
+      .delete()
+      .in('id', dupIds);
+    if (delErr) throw new Error('Delete duplicates failed: ' + delErr.message);
+  }
 }
 
 async function addNewContractor() {
@@ -12674,6 +13117,7 @@ NX.modules.equipment = {
   uploadPhoto,
   replacePhoto,
   quickReplacePhoto,
+  openQuickStatusMenuForRow,
   removePhoto,
   deleteCustomField,
 
