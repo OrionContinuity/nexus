@@ -1,3 +1,4 @@
+ordering-2.js
 /* ═══════════════════════════════════════════════════════════════════
    ordering.js — vendor list + order entry + cart review + mailto
    ═══════════════════════════════════════════════════════════════════
@@ -73,6 +74,30 @@
   const RECENT_PAGE_SIZE       = 10;
   let   recentExpanded         = false;
   let   recentPage             = 0;     // 0-indexed
+
+  // Vendor sort state.
+  //   'alpha'   = alphabetical by name (default)
+  //   'custom'  = manual sort_order column from DB
+  //   'recent'  = most recently ordered/active first
+  //   'busiest' = most ordered (frequency over the last 30 orders)
+  // Persisted to localStorage. Pinned vendors always float to the top
+  // regardless of mode, in their own internal sort order.
+  const VENDOR_SORT_KEY = 'nexus_ordering_vendor_sort';
+  const VENDOR_SORT_MODES = ['alpha', 'custom', 'recent', 'busiest'];
+  const VENDOR_SORT_LABELS = {
+    alpha:   'Alphabetical',
+    custom:  'Custom order',
+    recent:  'Recently used',
+    busiest: 'Most ordered',
+  };
+  function readVendorSort() {
+    try {
+      const v = localStorage.getItem(VENDOR_SORT_KEY);
+      return VENDOR_SORT_MODES.includes(v) ? v : 'alpha';
+    } catch (_) { return 'alpha'; }
+  }
+  let   vendorSortMode = readVendorSort();
+  let   vendorReorderMode = false;     // true while user is dragging
 
   // ─── STATE (Phase 2 — entry overlay) ─────────────────────────────
   let entryState = null;
@@ -157,7 +182,7 @@
     // missing fields will just render as null/false everywhere.
     let { data, error } = await NX.sb
       .from('order_vendors')
-      .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, subject_template, body_template, notes, archived, image_url, avatar_hue, pinned')
+      .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, subject_template, body_template, notes, archived, image_url, avatar_hue, pinned, sort_order')
       .eq('archived', false)
       .order('pinned', { ascending: false, nullsFirst: false })
       .order('name', { ascending: true });
@@ -491,13 +516,56 @@
     //   - never ordered  → catalog summary fallback
     const latestByVendor = buildLatestOrderMap(recentOrders);
 
-    // Sort: pinned first, then alphabetical. The DB select already
-    // sorts this way, but we re-sort defensively in case the in-memory
-    // array has been mutated (e.g. after a vendor is created).
+    // Order frequency for the 'busiest' sort mode — count of orders
+    // per vendor in the recentOrders window (up to 30 orders).
+    const orderCountByVendor = {};
+    for (const o of recentOrders) {
+      orderCountByVendor[o.vendor_id] = (orderCountByVendor[o.vendor_id] || 0) + 1;
+    }
+
+    // Sort. Pinned vendors always float to the top regardless of mode.
+    // Within their group, pinned vendors sort by sort_order (custom-set
+    // order from the user, falling back to name). Within unpinned, the
+    // active sort mode applies.
     const sorted = vendors.slice().sort((a, b) => {
       const ap = a.pinned ? 1 : 0, bp = b.pinned ? 1 : 0;
       if (ap !== bp) return bp - ap;
-      return (a.name || '').localeCompare(b.name || '');
+
+      switch (vendorSortMode) {
+        case 'custom': {
+          // sort_order is a nullable int — vendors with no value sort to the
+          // bottom of their group. Within a tie, fall back to name.
+          const aSort = a.sort_order, bSort = b.sort_order;
+          if (aSort != null && bSort != null) {
+            if (aSort !== bSort) return aSort - bSort;
+          } else if (aSort != null) {
+            return -1;
+          } else if (bSort != null) {
+            return 1;
+          }
+          return (a.name || '').localeCompare(b.name || '');
+        }
+        case 'recent': {
+          // Most-recently-active first. Vendors with no activity sort to
+          // the bottom (alphabetical among themselves).
+          const aT = latestByVendor[a.id]?.updated_at || latestByVendor[a.id]?.created_at;
+          const bT = latestByVendor[b.id]?.updated_at || latestByVendor[b.id]?.created_at;
+          if (aT && bT) return new Date(bT) - new Date(aT);
+          if (aT) return -1;
+          if (bT) return 1;
+          return (a.name || '').localeCompare(b.name || '');
+        }
+        case 'busiest': {
+          // Highest order count first. Tie-break by name.
+          const aC = orderCountByVendor[a.id] || 0;
+          const bC = orderCountByVendor[b.id] || 0;
+          if (aC !== bC) return bC - aC;
+          return (a.name || '').localeCompare(b.name || '');
+        }
+        case 'alpha':
+        default:
+          return (a.name || '').localeCompare(b.name || '');
+      }
     });
 
     let html = '';
@@ -544,9 +612,23 @@
       if (isDraft)  rowClasses.push('has-draft');
       if (hasIssue) rowClasses.push('has-issue');
       if (v.pinned) rowClasses.push('is-pinned');
+      // Drag handles only render in custom-sort + reorder mode. The
+      // handle is a passive child div that the touch/pointer events
+      // hook into; the row button itself remains tappable for normal
+      // navigation when not in reorder mode.
+      const showDragHandle = vendorSortMode === 'custom' && vendorReorderMode;
+      if (showDragHandle) rowClasses.push('is-reordering');
 
       html += `
-        <div class="ord-vendor-row-wrap">
+        <div class="ord-vendor-row-wrap" data-vendor-id="${esc(v.id)}">
+          ${showDragHandle ? `
+            <div class="ord-vendor-drag-handle" data-vendor-id="${esc(v.id)}" aria-label="Drag to reorder ${esc(v.name)}">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="3" y1="8" x2="21" y2="8"/>
+                <line x1="3" y1="16" x2="21" y2="16"/>
+              </svg>
+            </div>
+          ` : ''}
           <button class="${rowClasses.join(' ')}" data-vendor-id="${esc(v.id)}" data-vendor-name="${esc(v.name).toLowerCase()}">
             <div class="ord-vendor-avatar-wrap">
               ${vendorAvatar(v.name, v.image_url, v.avatar_hue)}
@@ -565,14 +647,45 @@
             ${v.email ? '' : '<span class="ord-vendor-warn" title="No email set">!</span>'}
             <div class="ord-arrow" aria-hidden="true">›</div>
           </button>
-          <button class="ord-vendor-menu" data-vendor-id="${esc(v.id)}" aria-label="More options for ${esc(v.name)}">${dotsIcon()}</button>
+          ${!showDragHandle ? `<button class="ord-vendor-menu" data-vendor-id="${esc(v.id)}" aria-label="More options for ${esc(v.name)}">${dotsIcon()}</button>` : ''}
         </div>
       `;
     }
-    el.innerHTML = html;
-    // Tap row → open the new vendor detail view (history + start order CTA).
+    // Inject the sort header above the rows. The "Reorder" affordance
+    // only appears in custom-sort mode; tapping it flips reorder-mode
+    // which rotates the menu buttons out and drag handles in.
+    const sortHeaderHTML = `
+      <div class="ord-vendor-sort-bar">
+        <div class="ord-vendor-sort-pill" id="ordVendorSortPill" role="button" tabindex="0" aria-label="Change vendor sort">
+          <span class="ord-vendor-sort-label">Sort:</span>
+          <span class="ord-vendor-sort-value">${esc(VENDOR_SORT_LABELS[vendorSortMode] || vendorSortMode)}</span>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        ${vendorSortMode === 'custom' ? `
+          <button class="ord-vendor-reorder-btn ${vendorReorderMode ? 'is-active' : ''}" id="ordVendorReorderBtn" aria-pressed="${vendorReorderMode}">
+            ${vendorReorderMode ? 'Done' : 'Reorder'}
+          </button>
+        ` : ''}
+      </div>
+    `;
+    el.innerHTML = sortHeaderHTML + html;
+    // Sort pill — opens a tiny menu of sort modes.
+    el.querySelector('#ordVendorSortPill')?.addEventListener('click', showVendorSortMenu);
+    // Reorder toggle (custom mode only).
+    el.querySelector('#ordVendorReorderBtn')?.addEventListener('click', () => {
+      vendorReorderMode = !vendorReorderMode;
+      renderVendors();
+    });
+    // Tap row → open vendor detail (suppressed during reorder mode —
+    // the handle takes precedence and the row body becomes inert).
     el.querySelectorAll('.ord-vendor-row').forEach(b => {
-      b.addEventListener('click', () => openVendorDetail(b.dataset.vendorId));
+      b.addEventListener('click', e => {
+        if (vendorReorderMode) {
+          e.preventDefault();
+          return;
+        }
+        openVendorDetail(b.dataset.vendorId);
+      });
     });
     el.querySelectorAll('.ord-vendor-menu').forEach(b => {
       b.addEventListener('click', e => {
@@ -582,6 +695,209 @@
         if (v) showVendorMenu(v);
       });
     });
+    // Drag-to-reorder — only active in custom-sort + reorder mode.
+    if (vendorSortMode === 'custom' && vendorReorderMode) {
+      wireVendorDragHandlers(el);
+    }
+  }
+
+  /**
+   * Show a small floating menu for changing vendor sort mode. Modeled
+   * on the recent-orders pager — minimal, no extra layer of clicks.
+   */
+  function showVendorSortMenu() {
+    const existing = document.querySelector('.ord-vmenu-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'ord-vmenu-overlay';
+    overlay.innerHTML = `
+      <div class="ord-vmenu-backdrop"></div>
+      <div class="ord-vmenu-sheet">
+        <div class="ord-vmenu-handle"></div>
+        <div class="ord-vmenu-actions">
+          ${VENDOR_SORT_MODES.map(mode => `
+            <button class="ord-vmenu-action${mode === vendorSortMode ? ' is-active' : ''}" data-mode="${esc(mode)}">
+              <span class="ord-vmenu-action-text">
+                <span class="ord-vmenu-action-title">${esc(VENDOR_SORT_LABELS[mode])}</span>
+                <span class="ord-vmenu-action-sub">${esc(sortModeDescription(mode))}</span>
+              </span>
+              ${mode === vendorSortMode ? '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+            </button>
+          `).join('')}
+          <button class="ord-vmenu-action ord-vmenu-action-cancel" data-mode="cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('.ord-vmenu-backdrop').addEventListener('click', close);
+    overlay.querySelectorAll('[data-mode]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode;
+        if (mode !== 'cancel' && VENDOR_SORT_MODES.includes(mode)) {
+          vendorSortMode = mode;
+          try { localStorage.setItem(VENDOR_SORT_KEY, mode); } catch (_) {}
+          // Auto-exit reorder mode if we left custom.
+          if (mode !== 'custom') vendorReorderMode = false;
+          renderVendors();
+        }
+        close();
+      });
+    });
+  }
+
+  function sortModeDescription(mode) {
+    switch (mode) {
+      case 'alpha':   return 'A → Z by vendor name';
+      case 'custom':  return 'Manually arranged — tap Reorder to drag';
+      case 'recent':  return 'Most recent activity first';
+      case 'busiest': return 'Most-ordered vendors first';
+      default:        return '';
+    }
+  }
+
+  /**
+   * Bind pointer-event drag handlers to the vendor list. Touch and
+   * mouse both flow through the same path. The dragged row is given
+   * .is-dragging which lifts it visually; the row currently being
+   * hovered gets .is-drop-target (a thin gold line above or below).
+   * On pointerup, we compute the final ordering and persist via
+   * persistVendorSortOrder.
+   */
+  function wireVendorDragHandlers(listEl) {
+    let draggingId = null;
+    let startY = 0;
+    let placeholder = null;
+    let liveOrder = []; // current visual order during drag
+
+    const handles = listEl.querySelectorAll('.ord-vendor-drag-handle');
+    handles.forEach(handle => {
+      handle.addEventListener('pointerdown', onPointerDown);
+    });
+
+    function onPointerDown(e) {
+      e.preventDefault();
+      const handle = e.currentTarget;
+      const wrap = handle.closest('.ord-vendor-row-wrap');
+      if (!wrap) return;
+      draggingId = wrap.dataset.vendorId;
+      startY = e.clientY;
+      wrap.classList.add('is-dragging');
+      // Snapshot current visual order so we can mutate it as we drag.
+      liveOrder = Array.from(listEl.querySelectorAll('.ord-vendor-row-wrap'))
+                       .map(w => w.dataset.vendorId);
+      handle.setPointerCapture(e.pointerId);
+      handle.addEventListener('pointermove', onPointerMove);
+      handle.addEventListener('pointerup',   onPointerUp);
+      handle.addEventListener('pointercancel', onPointerUp);
+    }
+
+    function onPointerMove(e) {
+      if (!draggingId) return;
+      const wrap = listEl.querySelector(`.ord-vendor-row-wrap[data-vendor-id="${draggingId}"]`);
+      if (!wrap) return;
+      const dy = e.clientY - startY;
+      wrap.style.transform = `translateY(${dy}px)`;
+
+      // Find the row whose vertical center we're closest to and swap.
+      const others = Array.from(listEl.querySelectorAll('.ord-vendor-row-wrap'))
+                          .filter(w => w.dataset.vendorId !== draggingId);
+      const wrapRect = wrap.getBoundingClientRect();
+      const wrapCenter = wrapRect.top + wrapRect.height / 2;
+      for (const other of others) {
+        const r = other.getBoundingClientRect();
+        const otherCenter = r.top + r.height / 2;
+        if (wrapCenter > r.top && wrapCenter < r.bottom) {
+          // We've crossed over this row's center — swap positions.
+          const fromIdx = liveOrder.indexOf(draggingId);
+          const toIdx = liveOrder.indexOf(other.dataset.vendorId);
+          if (fromIdx !== -1 && toIdx !== -1) {
+            liveOrder.splice(fromIdx, 1);
+            liveOrder.splice(toIdx, 0, draggingId);
+            // Reflect the new order in the DOM (excluding the dragged
+            // row's transform — it stays under the user's finger).
+            applyDOMOrder(listEl, liveOrder);
+            // Reset the drag offset relative to the row's new position.
+            startY = e.clientY;
+            wrap.style.transform = 'translateY(0px)';
+          }
+          break;
+        }
+      }
+    }
+
+    async function onPointerUp(e) {
+      if (!draggingId) return;
+      const handle = e.currentTarget;
+      const wrap = listEl.querySelector(`.ord-vendor-row-wrap[data-vendor-id="${draggingId}"]`);
+      if (wrap) {
+        wrap.classList.remove('is-dragging');
+        wrap.style.transform = '';
+      }
+      handle.releasePointerCapture?.(e.pointerId);
+      handle.removeEventListener('pointermove', onPointerMove);
+      handle.removeEventListener('pointerup',   onPointerUp);
+      handle.removeEventListener('pointercancel', onPointerUp);
+      const finalOrder = liveOrder.slice();
+      draggingId = null;
+      liveOrder = [];
+      // Persist if order actually changed.
+      await persistVendorSortOrder(finalOrder);
+    }
+
+    function applyDOMOrder(container, order) {
+      // Re-append wraps in the new order. The browser handles repaints.
+      const wraps = {};
+      container.querySelectorAll('.ord-vendor-row-wrap').forEach(w => {
+        wraps[w.dataset.vendorId] = w;
+      });
+      order.forEach(id => {
+        if (wraps[id]) container.appendChild(wraps[id]);
+      });
+    }
+  }
+
+  /**
+   * Persist the user's manual sort order. Each visible vendor gets a
+   * sort_order value matching its position in the list. Pinned vendors
+   * stay separate (they always float top), so we track their ordering
+   * inside their own group.
+   */
+  async function persistVendorSortOrder(idOrder) {
+    if (!NX.sb || !idOrder || !idOrder.length) return;
+    // Build an update per vendor: sort_order = index. We only update
+    // the values that changed from the in-memory state to keep writes
+    // minimal.
+    const updates = [];
+    idOrder.forEach((id, idx) => {
+      const v = vendors.find(x => x.id === id);
+      if (v && v.sort_order !== idx) {
+        updates.push({ id, sort_order: idx });
+      }
+    });
+    if (!updates.length) return;
+    // Apply optimistically to in-memory state first so the UI matches
+    // even if a network failure delays the actual write.
+    updates.forEach(u => {
+      const v = vendors.find(x => x.id === u.id);
+      if (v) v.sort_order = u.sort_order;
+    });
+    // Run updates in parallel; tolerate per-row failures.
+    try {
+      await Promise.all(updates.map(u =>
+        NX.sb.from('order_vendors').update({ sort_order: u.sort_order }).eq('id', u.id)
+      ));
+      if (NX.toast) NX.toast(`Reordered ${updates.length} vendor${updates.length === 1 ? '' : 's'}`, 'info', 1100);
+    } catch (e) {
+      console.error('[ordering] persistVendorSortOrder:', e);
+      const msg = (e && e.message) || '';
+      if (/column|schema|does not exist|could not find/i.test(msg)) {
+        if (NX.toast) NX.toast('Reordering needs a DB migration — see notes', 'warn', 2400);
+      } else {
+        if (NX.toast) NX.toast('Could not save order: ' + msg, 'error');
+      }
+    }
   }
 
   /**
@@ -1582,7 +1898,7 @@ Thanks for your help sorting this out.`;
           <div class="ord-entry-vendor">${esc(vendor.name)}</div>
           <div class="ord-entry-sub">${esc(LOCS.find(l => l.id === location)?.label || location)}${readOnly ? ' · sent order' : ''}</div>
         </div>
-        ${readOnly ? '<div class="ord-entry-spacer"></div>' : `<button class="ord-entry-add" id="ordEntryAdd" aria-label="Add item to catalog">${plusIcon()}</button>`}
+        ${readOnly ? '<div class="ord-entry-spacer"></div>' : `<button class="ord-entry-add" id="ordEntryAdd" aria-label="Add item to catalog">${plusIcon(true)}</button>`}
       </div>
       <div class="ord-entry-meta">
         <label class="ord-meta-field">
@@ -2076,10 +2392,13 @@ Thanks for your help sorting this out.`;
     return body;
   }
 
-  function buildMailtoUrl(to, subject, body) {
+  function buildMailtoUrl(to, subject, body, cc, bcc) {
     // Manually construct — URLSearchParams uses + for spaces but mailto: needs %20.
     const enc = s => encodeURIComponent(s).replace(/\+/g, '%20');
-    return `mailto:${encodeURIComponent(to || '')}?subject=${enc(subject)}&body=${enc(body)}`;
+    const params = [`subject=${enc(subject)}`, `body=${enc(body)}`];
+    if (cc && cc.length)  params.push(`cc=${cc.map(e => encodeURIComponent(e)).join(',')}`);
+    if (bcc && bcc.length) params.push(`bcc=${bcc.map(e => encodeURIComponent(e)).join(',')}`);
+    return `mailto:${encodeURIComponent(to || '')}?${params.join('&')}`;
   }
 
   async function confirmAndSend() {
@@ -2142,8 +2461,12 @@ Thanks for your help sorting this out.`;
       if (NX.toast) NX.toast('Could not save order — sending email anyway', 'warn', 3000);
     }
 
-    // Open mailto:
-    const url = buildMailtoUrl(vendor.email, subject, body);
+    // Open mailto: with CC + BCC pulled from the vendor's recipient list.
+    // Recipients marked 'alt' are NOT auto-included (manual-only by design).
+    const recipients = parseAltEmails(vendor.alt_emails);
+    const ccList  = recipients.filter(r => r.kind === 'cc').map(r => r.email);
+    const bccList = recipients.filter(r => r.kind === 'bcc').map(r => r.email);
+    const url = buildMailtoUrl(vendor.email, subject, body, ccList, bccList);
     window.location.href = url;
 
     setTimeout(() => {
@@ -2198,7 +2521,7 @@ Thanks for your help sorting this out.`;
     editorState = {
       isNew,
       vendor: isNew
-        ? { name: '', email: '', image_url: '', avatar_hue: null, pinned: false, delivery_days: [], subject_template: '', body_template: '', notes: '' }
+        ? { name: '', email: '', alt_emails: [], image_url: '', avatar_hue: null, pinned: false, delivery_days: [], subject_template: '', body_template: '', notes: '' }
         : { ...vendor },
       items: [],
       editingItemId: null,
@@ -2297,10 +2620,20 @@ Thanks for your help sorting this out.`;
               <input type="text" class="ord-form-input" id="vedName" value="${esc(v.name)}" placeholder="e.g. Farm To Table" autocomplete="off">
             </div>
             <div class="ord-form-field">
-              <label class="ord-form-label" for="vedEmail">Email</label>
+              <label class="ord-form-label" for="vedEmail">Primary email <span class="ord-form-label-hint">— required for sending orders</span></label>
               <input type="email" class="ord-form-input" id="vedEmail" value="${esc(v.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
             </div>
           </div>
+        </div>
+        <div class="ord-form-field">
+          <label class="ord-form-label">Additional recipients <span class="ord-form-label-hint">— CC / BCC / alternate. Tap the badge to cycle.</span></label>
+          <div class="ved-recipients" id="vedRecipients">
+            ${renderRecipientRows(v.alt_emails || [])}
+          </div>
+          <button type="button" class="ved-recipient-add-btn" id="vedRecipientAdd">
+            ${plusIcon()}<span>Add another recipient</span>
+          </button>
+          <div class="ord-form-hint">Each row can be marked CC, BCC, or ALT. CC and BCC recipients are automatically included when you send an order. ALT recipients aren't auto-included — useful for storing backups or seasonal contacts.</div>
         </div>
         <div class="ord-form-field">
           <label class="ord-form-label">Photo <span class="ord-form-label-hint">— tap the circle to pick from your gallery, or paste a URL below</span></label>
@@ -2461,6 +2794,25 @@ Thanks for your help sorting this out.`;
 
     const arch = overlay.querySelector('#vedArchive');
     if (arch) arch.addEventListener('click', archiveVendor);
+
+    // Recipient list — wire kind-cycling and remove on existing rows,
+    // then bind the "Add another" button to append a new empty row.
+    const recipientsEl = overlay.querySelector('#vedRecipients');
+    const recipientAddBtn = overlay.querySelector('#vedRecipientAdd');
+    if (recipientsEl) wireRecipientRowsHandlers(recipientsEl);
+    if (recipientAddBtn && recipientsEl) {
+      recipientAddBtn.addEventListener('click', () => {
+        // Snapshot current rows, append a fresh empty CC row, re-render.
+        const current = readRecipientRows(recipientsEl);
+        current.push({ email: '', kind: 'cc' });
+        recipientsEl.innerHTML = renderRecipientRows(current);
+        wireRecipientRowsHandlers(recipientsEl);
+        // Focus the new row's input so the user can type immediately.
+        const lastInput = recipientsEl.querySelector('.ved-recipient-row:last-child .ved-recipient-email');
+        if (lastInput) lastInput.focus();
+      });
+    }
+
     const addItem = overlay.querySelector('#vedAddItem');
     if (addItem) addItem.addEventListener('click', () => {
       editorState.editingItemId = 'new';
@@ -2644,9 +2996,15 @@ Thanks for your help sorting this out.`;
     }
     const pinned = !!overlay.querySelector('#vedPinned')?.checked;
 
+    // Recipient list (alt_emails) — read from current DOM rows. Empty
+    // rows are filtered by readRecipientRows. Stored as JSON array of
+    // {email, kind} objects in the alt_emails column.
+    const altEmails = readRecipientRows(overlay.querySelector('#vedRecipients'));
+
     const payload = {
       name,
       email: email || null,
+      alt_emails: altEmails.length ? altEmails : null,
       image_url: imageUrl || null,
       avatar_hue: avatarHue,
       pinned,
@@ -2659,7 +3017,7 @@ Thanks for your help sorting this out.`;
     // Columns that may not exist if the DB migration hasn't been run.
     // If the save fails with a missing-column error, we strip them and
     // retry with the legacy set so the user's edits still land.
-    const optionalCols = ['image_url', 'avatar_hue', 'pinned'];
+    const optionalCols = ['image_url', 'avatar_hue', 'pinned', 'alt_emails'];
     const stripOptionalCols = (p) => {
       const o = { ...p };
       for (const k of optionalCols) delete o[k];
@@ -2979,8 +3337,16 @@ Thanks for your help sorting this out.`;
   function editIcon() {
     return `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
   }
-  function plusIcon() {
-    return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+  /**
+   * Render a plus icon. By default includes a 4px right margin which
+   * gives breathing room when paired with text (e.g. "+ Add item").
+   * Pass standalone=true to suppress the margin when the icon is used
+   * by itself inside a circular icon button — the margin would push
+   * the glyph off-center otherwise.
+   */
+  function plusIcon(standalone) {
+    const m = standalone ? '0' : '4px';
+    return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:${m}"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
   }
   function trashIcon() {
     return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
@@ -3081,6 +3447,107 @@ Thanks for your help sorting this out.`;
         <path d="M16 12V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
       </svg>
     </span>`;
+  }
+
+  /**
+   * Parse the alt_emails column from the DB into a normalized array of
+   * {email, kind} objects. Tolerant of three legacy formats:
+   *   - null / undefined  → []
+   *   - array of strings  → all marked 'cc'
+   *   - array of objects  → passed through (validated/defaulted)
+   * Unknown kinds default to 'cc' so they auto-include in sent orders.
+   */
+  function parseAltEmails(raw) {
+    if (!raw) return [];
+    if (!Array.isArray(raw)) return [];
+    return raw.map(r => {
+      if (typeof r === 'string') return { email: r.trim(), kind: 'cc' };
+      if (r && typeof r === 'object') {
+        const kind = ['cc', 'bcc', 'alt'].includes(r.kind) ? r.kind : 'cc';
+        return { email: (r.email || '').trim(), kind };
+      }
+      return { email: '', kind: 'cc' };
+    }).filter(r => r.email);  // drop empty rows
+  }
+
+  /**
+   * Render the editable rows of a recipient list. Each row has:
+   *   - a kind badge (CC / BCC / ALT) that cycles on tap
+   *   - an email input
+   *   - a remove (×) button
+   * Returns HTML for the list body. Wiring lives in
+   * wireRecipientRowsHandlers() below.
+   */
+  function renderRecipientRows(rawAltEmails) {
+    const rows = parseAltEmails(rawAltEmails);
+    if (!rows.length) {
+      return '<div class="ved-recipients-empty">No additional recipients yet.</div>';
+    }
+    return rows.map((r, i) => recipientRowHTML(r, i)).join('');
+  }
+
+  function recipientRowHTML(row, index) {
+    const kindLabel = (row.kind || 'cc').toUpperCase();
+    return `
+      <div class="ved-recipient-row" data-index="${index}">
+        <button type="button" class="ved-recipient-kind ved-recipient-kind-${esc(row.kind)}" data-action="cycle-kind" aria-label="Cycle recipient type (currently ${esc(kindLabel)})">${esc(kindLabel)}</button>
+        <input type="email" class="ved-recipient-email" value="${esc(row.email)}" placeholder="cc@vendor.com" autocomplete="off" inputmode="email">
+        <button type="button" class="ved-recipient-remove" data-action="remove" aria-label="Remove recipient">${closeIcon()}</button>
+      </div>
+    `;
+  }
+
+  /**
+   * Read the current state of recipient rows from the DOM. Used by
+   * saveVendor and by the "Add another" handler to preserve unsaved
+   * input when re-rendering the list.
+   */
+  function readRecipientRows(container) {
+    if (!container) return [];
+    const rows = container.querySelectorAll('.ved-recipient-row');
+    const out = [];
+    rows.forEach(row => {
+      const email = row.querySelector('.ved-recipient-email')?.value.trim() || '';
+      const kindBtn = row.querySelector('.ved-recipient-kind');
+      let kind = 'cc';
+      if (kindBtn) {
+        if (kindBtn.classList.contains('ved-recipient-kind-bcc')) kind = 'bcc';
+        else if (kindBtn.classList.contains('ved-recipient-kind-alt')) kind = 'alt';
+      }
+      if (email) out.push({ email, kind });
+    });
+    return out;
+  }
+
+  /** Bind click handlers for kind-cycling and row-removal. */
+  function wireRecipientRowsHandlers(container) {
+    if (!container) return;
+    container.querySelectorAll('[data-action="cycle-kind"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        // Cycle order: CC → BCC → ALT → CC
+        const current = btn.classList.contains('ved-recipient-kind-bcc') ? 'bcc'
+                      : btn.classList.contains('ved-recipient-kind-alt') ? 'alt'
+                      : 'cc';
+        const next = current === 'cc' ? 'bcc' : current === 'bcc' ? 'alt' : 'cc';
+        btn.classList.remove('ved-recipient-kind-cc', 'ved-recipient-kind-bcc', 'ved-recipient-kind-alt');
+        btn.classList.add(`ved-recipient-kind-${next}`);
+        btn.textContent = next.toUpperCase();
+        btn.setAttribute('aria-label', `Cycle recipient type (currently ${next.toUpperCase()})`);
+      });
+    });
+    container.querySelectorAll('[data-action="remove"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const row = btn.closest('.ved-recipient-row');
+        if (!row) return;
+        // Snapshot all rows except this one, then re-render.
+        const all = readRecipientRows(container);
+        const idx = parseInt(row.dataset.index, 10);
+        all.splice(idx, 1);
+        const fakeAlt = all.length ? all : [];
+        container.innerHTML = renderRecipientRows(fakeAlt);
+        wireRecipientRowsHandlers(container);
+      });
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════
