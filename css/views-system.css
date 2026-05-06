@@ -345,104 +345,123 @@
 .clean-due-soon { color: var(--nx-amber) !important; background: var(--nx-gold-mist) !important; }
 .clean-on-track { color: var(--nx-green) !important; background: rgba(156, 138, 62, 0.10) !important; }
 
-/* Footer (scan / export / submit) — rebalanced.
+/* Footer (Scan / Print / Submit) — v3 composition.
 
-   Previously all three buttons fought for horizontal space, with
-   Scan and Print getting truncated labels next to a giant Submit
-   Report. New approach: Scan and Print become compact 44px circular
-   icon-only secondaries (universally understood — camera and printer
-   glyphs need no labels); Submit Report fills the rest as the
-   unambiguous primary action. Cleaner, no truncation, clearer
-   hierarchy. */
+   v2 (38px) was too small and the visual weights were uneven: Submit
+   was a giant gold pill while Scan/Print were small fadable circles
+   that read as orphaned afterthoughts. Critique was "horrendous" —
+   correct.
+
+   v3 fixes the imbalance with three principles:
+
+   1.  Equal heights. Every button sits at 48px tall on the same
+       baseline, so the row reads as one cohesive control surface
+       rather than a primary + two strays.
+
+   2.  Earned hierarchy. Submit dominates by being filled gold and
+       taking flex space — that's the primary action. Scan QR is a
+       gold-tinted square (clearly tappable, clearly secondary).
+       Print is a transparent square with faint icon — same shape
+       and size as Scan, just lower visual weight, signaling it's
+       the rarely-needed admin action.
+
+   3.  Square corners on icons, pill on submit. Submit's pill shape
+       differentiates it as the commit action; the squarish radius
+       on icon buttons (var(--nx-radius-card)) rhymes with the
+       checklist cards above without screaming for attention. */
+
 .clean-footer {
-  /* Float above the bottom-nav. The bnav is position:fixed at viewport
-     bottom (min-height 56px + safe-area). A naive sticky:bottom:0 would
-     sit BEHIND the bnav and be invisible — that's the bug screenshots
-     showed. We anchor at calc(56px + safe-area-inset-bottom) instead so
-     the Submit / Scan / Print row floats just above the nav.
-
-     Tightened: 8px vertical padding + 38px buttons (was 14px + 44px),
-     reduces total bar height from ~76px → ~54px so more list visible. */
-  padding: 8px 14px !important;
+  /* Float above bottom-nav (bnav is fixed; min-height ~60px + safe-area).
+     Bumped padding to 12px vertical to give 48px buttons breathing room. */
+  padding: 12px 14px !important;
   border-top: 1px solid var(--nx-gold-line) !important;
   background: var(--nx-bg) !important;
   display: flex !important;
-  gap: 8px !important;
+  gap: 10px !important;
   align-items: center !important;
   position: sticky !important;
-  bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important;
+  bottom: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
   z-index: 6;
 }
-.clean-scan {
-  /* Compact circular icon button. font-size:0 hides the text node;
-     we re-inject the icon via ::before. Camera glyph is universal. */
+
+/* Shared icon-button base — both Scan and Print follow this geometry.
+   Square with rounded corners, 48×48 tap target, icon centered via
+   ::before with SVG mask. font-size:0 hides any stray text node. */
+.clean-scan,
+.clean-export {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 38px !important;
-  height: 38px !important;
-  min-width: 38px !important;
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
   padding: 0 !important;
-  border-radius: 50% !important;
-  border: 1px solid var(--nx-gold-line-2) !important;
-  background: var(--nx-gold-faint) !important;
-  color: var(--nx-gold) !important;
+  border-radius: var(--nx-radius-card) !important;
   font-size: 0 !important;
   cursor: pointer !important;
   flex-shrink: 0 !important;
-  transition: background var(--nx-press), transform var(--nx-press) !important;
+  transition:
+    background var(--nx-press),
+    color var(--nx-press),
+    border-color var(--nx-press),
+    transform var(--nx-press) !important;
+}
+.clean-scan::before,
+.clean-export::before {
+  content: '';
+  width: 20px;
+  height: 20px;
+  background-color: currentColor;
+}
+
+/* Scan QR — secondary action. Soft-gold filled background, gold icon.
+   Reads as "definitely a button, definitely useful." */
+.clean-scan {
+  border: 1px solid var(--nx-gold-line-2) !important;
+  background: var(--nx-gold-soft) !important;
+  color: var(--nx-gold) !important;
 }
 .clean-scan::before {
-  content: '';
-  width: 17px; height: 17px;
-  background-color: currentColor;
   -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z'/><circle cx='12' cy='13' r='3'/></svg>") no-repeat center;
-  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z'/><circle cx='12' cy='13' r='3'/></svg>") no-repeat center;
+          mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z'/><circle cx='12' cy='13' r='3'/></svg>") no-repeat center;
 }
-.clean-scan:active { background: var(--nx-gold-soft) !important; transform: scale(0.94); }
+.clean-scan:active {
+  background: var(--nx-gold-faint) !important;
+  border-color: var(--nx-gold-line-3) !important;
+  transform: scale(0.96);
+}
 
+/* Print — tertiary. Same shape as Scan but transparent bg + faint
+   icon, signaling "available but rarely needed." */
 .clean-export {
-  /* Same circular treatment, slightly less prominent (no fill bg). */
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  width: 38px !important;
-  height: 38px !important;
-  min-width: 38px !important;
-  padding: 0 !important;
-  border-radius: 50% !important;
   border: 1px solid var(--nx-gold-line) !important;
   background: transparent !important;
   color: var(--nx-faint) !important;
-  font-size: 0 !important;
-  cursor: pointer !important;
-  flex-shrink: 0 !important;
-  transition: color var(--nx-press), border-color var(--nx-press), transform var(--nx-press) !important;
 }
 .clean-export::before {
-  content: '';
-  width: 17px; height: 17px;
-  background-color: currentColor;
   -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 6 2 18 2 18 9'/><path d='M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2'/><rect x='6' y='14' width='12' height='8'/></svg>") no-repeat center;
-  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 6 2 18 2 18 9'/><path d='M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2'/><rect x='6' y='14' width='12' height='8'/></svg>") no-repeat center;
+          mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 6 2 18 2 18 9'/><path d='M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2'/><rect x='6' y='14' width='12' height='8'/></svg>") no-repeat center;
 }
 .clean-export:active {
   color: var(--nx-gold) !important;
   border-color: var(--nx-gold-line-2) !important;
-  transform: scale(0.94);
+  background: var(--nx-gold-mist) !important;
+  transform: scale(0.96);
 }
 
+/* Submit Report — primary action. Filled gold pill, dominates the
+   row by taking flex space and wearing the fill treatment. */
 .clean-submit {
   flex: 1 1 auto !important;
-  padding: 10px 18px !important;
-  min-height: 38px !important;
-  height: 38px !important;
+  padding: 0 22px !important;
+  height: 48px !important;
+  min-height: 48px !important;
   border-radius: var(--nx-radius-pill) !important;
   border: none !important;
   background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
   color: var(--nx-gold-on) !important;
   font-family: var(--nx-font-display) !important;
-  font-size: 13.5px !important;
+  font-size: 14px !important;
   font-weight: 700 !important;
   letter-spacing: 0.4px !important;
   cursor: pointer !important;
@@ -455,13 +474,13 @@
 }
 
 /* The cleaning content area must reserve space at the bottom so the
-   last task row isn't hidden under the sticky footer. The footer
-   sits 54px tall (8+38+8) over the 56px bnav; ~120px clearance. */
+   last task row isn't hidden under the sticky footer. v3 footer is
+   ~72px tall (12+48+12) over the 60px bnav; ~140px clearance. */
 .cl-content,
 #cleanScroll,
 [data-clean-scroll] {
-  padding-bottom: 120px !important;
-  scroll-padding-bottom: 120px !important;
+  padding-bottom: 140px !important;
+  scroll-padding-bottom: 140px !important;
 }
 
 /* ─── Inline camera button on each checklist row ────────────────────
