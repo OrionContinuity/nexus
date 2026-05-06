@@ -560,7 +560,7 @@ function renderExtras(list){
   const el=document.createElement('div');el.className='clean-sec';
   const extras=getExtrasToday();
   const h=document.createElement('div');h.className='clean-sec-head';
-  h.innerHTML=`<span class="clean-sec-check" style="color:#ffb020">+</span><span class="clean-sec-arrow">▼</span><span class="clean-sec-title">Extras</span><span class="clean-on-track" style="margin-left:auto;margin-right:8px">${extras.length} logged</span>`;
+  h.innerHTML=`<span class="clean-sec-check" style="color:var(--amber)">+</span><span class="clean-sec-arrow">▼</span><span class="clean-sec-title">Extras</span><span class="clean-on-track" style="margin-left:auto;margin-right:8px">${extras.length} logged</span>`;
   h.addEventListener('click',()=>el.classList.toggle('collapsed'));
   el.appendChild(h);
   const body=document.createElement('div');body.className='clean-sec-body';
