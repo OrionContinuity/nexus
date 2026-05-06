@@ -1,0 +1,745 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Home — v3 (UI/UX Criteria pass)
+   ─────────────────────────────────────
+   Built strictly against UI-UX-CRITERIA.md. Reads ONLY from --nx-* tokens
+   defined in nx-system.css. Zero hardcoded hex/rgba. Light/dark themes
+   follow the token cascade automatically.
+
+   What lives here:
+     - View shell (#homeView scroll behavior)
+     - Page wrapper (.home-page) with Ask-bar clearance
+     - Lede + intro (the "Morning, Orion." voice surface)
+     - Glance grid (4 .nx-stat tiles)
+     - Priority feed items (.home-item) with tone-tinted kickers
+     - Calm state (.home-feed-calm) — the editorial diamond
+     - Calendar strip (.home-cal-*)
+     - Skeletons (.home-skeleton) — pulse, not shimmer (per §12.1)
+     - Ask NEXUS sticky bar (.home-ask) with Lucide sparkles affordance
+
+   What does NOT live here:
+     - Pill / card / section / stat primitives → nx-system.css §8
+     - Coin masthead → app.js setupMasthead() + nx-system.css
+     - Theme tokens → nx-system.css
+
+   When changing button or card styling app-wide, edit nx-system.css.
+   When changing Home-specific layout, edit this file.
+
+   Section guide:
+     §1  View shell
+     §2  Page wrapper
+     §3  Lede + intro
+     §4  Glance grid
+     §5  Priority feed (.home-item)
+     §6  Calm state
+     §7  Error state
+     §8  Calendar strip
+     §9  Skeletons (loading)
+     §10 Ask NEXUS bar
+     §11 Responsive overrides
+   ═══════════════════════════════════════════════════════════════════════ */
+
+
+/* ═══ §1  VIEW SHELL ════════════════════════════════════════════════ */
+#homeView {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+#homeView::-webkit-scrollbar { display: none; }
+
+
+/* ═══ §2  PAGE WRAPPER ═════════════════════════════════════════════
+   Bottom padding clears the floating Ask bar (~64px) + bnav (56px) +
+   safe-area + visual breathing. Use a single calc so we have one
+   knob to adjust if the Ask bar height changes.                     */
+.home-page {
+  max-width: min(640px, 100vw);
+  margin: 0 auto;
+  padding:
+    var(--nx-space-6)
+    var(--nx-space-5)
+    calc(150px + env(safe-area-inset-bottom));
+  min-height: 100%;
+  font-family: var(--nx-font-body);
+  color: var(--nx-text);
+  overflow-x: hidden;
+}
+
+
+/* ═══ §3  LEDE + INTRO ═════════════════════════════════════════════
+   The lede is THE typographic moment of Home. Display weight, tight
+   letter-spacing, gold name. Don't decorate it further — restraint
+   is the brand. (criteria §5.1, §10.1)                              */
+.home-lede {
+  margin: var(--nx-space-5) 0 var(--nx-space-3);
+  font-family: var(--nx-font-display);
+  font-weight: 300;
+  font-size: clamp(30px, 7.5vw, 44px);
+  line-height: 1.06;
+  letter-spacing: -0.025em;
+  color: var(--nx-text);
+}
+.home-lede-comma {
+  color: var(--nx-muted);
+  font-weight: 300;
+}
+.home-lede-name {
+  color: var(--nx-gold);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+}
+
+/* The situation line ("X overdue PMs and Y new tickets…") — quiet
+   body copy that carries the intelligence behind the lede. */
+.home-intro {
+  font-size: var(--nx-text-md);
+  color: var(--nx-muted);
+  line-height: 1.55;
+  margin: 0 0 var(--nx-space-7);
+  max-width: 48ch;
+  letter-spacing: 0.05px;
+}
+.home-intro strong {
+  color: var(--nx-gold);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* ═══ §4  GLANCE GRID ══════════════════════════════════════════════
+   2x2 on phone, 4x1 on tablet+. Each tile is a .nx-stat primitive
+   from nx-system.css — we only define the grid container here.    */
+.home-glance {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--nx-space-3);
+  margin-bottom: 0;
+}
+@media (min-width: 480px) {
+  .home-glance { grid-template-columns: repeat(4, 1fr); }
+}
+
+
+/* ═══ §5  PRIORITY FEED — .home-item ═══════════════════════════════
+   Newspaper-broadsheet aesthetic. Numbered items, mono-caps kicker
+   in tone color, body copy, action link with arrow.
+
+   Tones: overdue (red) | reported (gold) | incoming (gold) | fyi (muted)
+   The kicker dot before the label IS the tone signal — color + bullet.
+   (criteria §6, §10.4)                                             */
+.home-feed { display: flex; flex-direction: column; gap: var(--nx-space-3); }
+
+.home-item {
+  position: relative;
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding:
+    var(--nx-space-5)
+    var(--nx-space-5)
+    var(--nx-space-5)
+    46px;
+  border: 1px solid var(--nx-gold-line);
+  border-radius: var(--nx-radius-card);
+  background: var(--nx-surface-1);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+  color: inherit;
+  transition:
+    border-color var(--nx-press),
+    background var(--nx-press),
+    transform var(--nx-press);
+}
+.home-item:hover  { border-color: var(--nx-gold-line-2); }
+.home-item:active {
+  transform: scale(0.995);
+  background: var(--nx-surface-press);
+}
+.home-item:focus-visible {
+  outline: 2px solid var(--nx-gold-line-3);
+  outline-offset: 2px;
+}
+
+/* Numbered marker, top-left — gives the feed editorial weight. */
+.home-item-num {
+  position: absolute;
+  top: var(--nx-space-5);
+  left: var(--nx-space-4);
+  font-family: var(--nx-font-mono);
+  font-size: var(--nx-text-xs);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: var(--nx-faint);
+}
+
+/* Kicker — mono caps, gets a colored bullet from currentColor. */
+.home-item-kicker {
+  font-family: var(--nx-font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: var(--nx-space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--nx-space-2);
+}
+.home-item-kicker::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.home-item[data-tone="overdue"]  .home-item-kicker { color: var(--nx-red); }
+.home-item[data-tone="incoming"] .home-item-kicker { color: var(--nx-gold); }
+.home-item[data-tone="reported"] .home-item-kicker { color: var(--nx-amber); }
+.home-item[data-tone="calm"]     .home-item-kicker { color: var(--nx-green); }
+.home-item[data-tone="fyi"]      .home-item-kicker { color: var(--nx-muted); }
+
+/* Mobile: drop the editorial "01" marker. On a 360px screen it sits
+   inline with the kicker label and reads as a typo ("01 REPORTED"
+   collapses visually). Newspapers had room for it; phones don't. */
+@media (max-width: 600px) {
+  .home-item-num { display: none; }
+  .home-item { padding-left: var(--nx-space-5); }
+}
+
+.home-item-title {
+  font-size: var(--nx-text-md);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--nx-text);
+  margin-bottom: var(--nx-space-2);
+  letter-spacing: -0.01em;
+}
+.home-item-body {
+  font-size: var(--nx-text-sm);
+  color: var(--nx-muted);
+  line-height: 1.55;
+  margin-bottom: var(--nx-space-3);
+}
+
+/* Action chip — gold text + animated arrow. Restrained. */
+.home-item-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nx-space-2);
+  font-family: inherit;
+  font-size: var(--nx-text-sm);
+  font-weight: 500;
+  color: var(--nx-gold);
+  letter-spacing: 0.3px;
+}
+.home-item-action::after {
+  content: '→';
+  font-family: var(--nx-font-mono);
+  transition: transform var(--nx-flow);
+}
+.home-item:hover .home-item-action::after { transform: translateX(3px); }
+
+
+/* ═══ §6  CALM STATE — the editorial diamond ═══════════════════════
+   When nothing's urgent, we say so. The diamond mark + declaration +
+   action is the canonical empty-state shape (criteria §10.4).      */
+.home-feed-calm {
+  display: block;
+  width: 100%;
+  text-align: center;
+  padding:
+    var(--nx-space-9)
+    var(--nx-space-5)
+    var(--nx-space-8);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: var(--nx-radius-card);
+  background: var(--nx-surface-1);
+  color: inherit;
+  cursor: pointer;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background var(--nx-press),
+    border-color var(--nx-press),
+    transform var(--nx-press);
+}
+.home-feed-calm:hover  { border-color: var(--nx-gold-line-2); }
+.home-feed-calm:active {
+  background: var(--nx-gold-faint);
+  border-color: var(--nx-gold);
+  transform: scale(0.995);
+}
+.home-feed-calm:focus-visible {
+  outline: 2px solid var(--nx-gold-line-3);
+  outline-offset: 2px;
+}
+.home-feed-calm-mark {
+  font-family: var(--nx-font-display);
+  font-weight: 300;
+  font-size: 32px;
+  color: var(--nx-gold);
+  margin-bottom: var(--nx-space-3);
+  display: block;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.home-feed-calm-text {
+  font-size: var(--nx-text-sm);
+  color: var(--nx-muted);
+  line-height: 1.55;
+  max-width: 34ch;
+  margin: 0 auto var(--nx-space-5);
+}
+
+
+/* ═══ §7  ERROR STATE ══════════════════════════════════════════════
+   Honest, never blamy. Oxblood-tinted card with a mono kicker so the
+   user knows it's a system condition, not their input. (criteria §10.5) */
+.home-feed-error {
+  width: 100%;
+  padding: var(--nx-space-5);
+  border: 1px solid var(--nx-red-line);
+  border-radius: var(--nx-radius-card);
+  background: var(--nx-red-soft);
+  text-align: left;
+}
+.home-feed-error-kicker {
+  font-family: var(--nx-font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--nx-red);
+  margin-bottom: var(--nx-space-2);
+}
+.home-feed-error-text {
+  font-size: var(--nx-text-sm);
+  color: var(--nx-muted);
+  line-height: 1.55;
+  margin-bottom: var(--nx-space-3);
+}
+.home-feed-error-retry {
+  font-family: inherit;
+  font-size: var(--nx-text-sm);
+  font-weight: 500;
+  color: var(--nx-gold);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+}
+.home-feed-error-retry::after {
+  content: ' →';
+  font-family: var(--nx-font-mono);
+}
+
+
+/* ═══ §8  CALENDAR STRIP — "On the books" ══════════════════════════ */
+.home-cal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nx-space-3);
+  margin-bottom: var(--nx-space-3);
+  overflow: hidden;
+  max-width: 100%;
+}
+
+.home-cal-day {
+  display: flex;
+  gap: var(--nx-space-4);
+  padding: 2px 0;
+  min-width: 0;
+}
+.home-cal-day.is-past  { opacity: 0.48; }
+.home-cal-day.is-today .home-cal-date { color: var(--nx-gold); }
+
+/* Date column — mono caps. Width tuned to fit "TODAY · MAY 3" without wrap. */
+.home-cal-date {
+  flex-shrink: 0;
+  width: 110px;
+  font-family: var(--nx-font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.4px;
+  color: var(--nx-faint);
+  text-transform: uppercase;
+  padding-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
+  gap: 3px 6px;
+  line-height: 1.3;
+}
+.home-cal-date-rel {
+  width: 100%;
+  color: var(--nx-gold);
+  opacity: 0.7;
+  font-size: 9px;
+  letter-spacing: 1.3px;
+  font-weight: 500;
+}
+
+/* Pulsing today-dot — the one motion flourish on the strip. Honors
+   prefers-reduced-motion. (criteria §9.4) */
+.home-cal-today-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--nx-gold);
+  display: inline-block;
+  margin-top: 7px;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px var(--nx-gold-glow);
+  animation: homeCalPulse 2.2s ease-in-out infinite;
+}
+@keyframes homeCalPulse {
+  0%, 100% { box-shadow: 0 0 8px var(--nx-gold-glow); }
+  50%      { box-shadow: 0 0 14px var(--nx-gold-line-2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-cal-today-dot { animation: none; }
+}
+
+/* Items column */
+.home-cal-items {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.home-cal-item {
+  display: flex;
+  gap: var(--nx-space-3);
+  padding: var(--nx-space-2) 0 var(--nx-space-2) var(--nx-space-3);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--nx-gold-line);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+  color: inherit;
+  transition:
+    transform var(--nx-press),
+    background var(--nx-press);
+  width: 100%;
+  min-width: 0;
+  position: relative;
+}
+.home-cal-item:last-child { border-bottom: none; }
+.home-cal-item:active     { transform: scale(0.99); }
+.home-cal-item:hover .home-cal-title-text { color: var(--nx-gold); }
+
+/* Vertical accent bar — color injected inline by JS via CSS var. */
+.home-cal-accent {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--cal-accent, var(--nx-gold-line-3));
+}
+
+/* Next-up badge (the very next future item across all days) */
+.home-cal-nextup {
+  display: inline-block;
+  font-family: var(--nx-font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 1.8px;
+  color: var(--nx-gold);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  padding: 2px 6px;
+  background: var(--nx-gold-faint);
+  border-radius: var(--nx-radius-tighter);
+  align-self: flex-start;
+}
+.home-cal-item.is-nextup {
+  background: linear-gradient(
+    90deg,
+    var(--nx-gold-faint) 0%,
+    transparent 50%
+  );
+}
+.home-cal-item.is-nextup .home-cal-accent {
+  width: 3px;
+  box-shadow: 0 0 8px var(--nx-gold-line-2);
+}
+
+.home-cal-time {
+  flex-shrink: 0;
+  font-family: var(--nx-font-mono);
+  font-size: 11.5px;
+  color: var(--nx-text);
+  font-variant-numeric: tabular-nums;
+  width: 64px;
+  padding-top: 1px;
+  letter-spacing: 0.3px;
+  font-weight: 500;
+}
+.home-cal-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+.home-cal-title {
+  font-size: var(--nx-text-sm);
+  color: var(--nx-text);
+  line-height: 1.4;
+  letter-spacing: 0.05px;
+  display: flex;
+  align-items: baseline;
+  gap: var(--nx-space-2);
+  min-width: 0;
+}
+.home-cal-title-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  transition: color var(--nx-press);
+}
+.home-cal-status {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--nx-gold);
+  opacity: 0.85;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.home-cal-desc {
+  font-size: 11.5px;
+  color: var(--nx-muted);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.home-cal-empty {
+  font-size: var(--nx-text-xs);
+  color: var(--nx-faint);
+  padding: 4px 0;
+  letter-spacing: 0.1px;
+  font-style: italic;
+}
+.home-cal-empty-all {
+  padding: var(--nx-space-6) var(--nx-space-5);
+  text-align: center;
+  font-size: var(--nx-text-xs);
+  color: var(--nx-muted);
+  line-height: 1.6;
+  border: 1px solid var(--nx-gold-line);
+  border-radius: var(--nx-radius-card);
+  background: var(--nx-surface-1);
+}
+
+/* "View full calendar →" — quiet pill aligned right */
+.home-cal-viewall-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 4px 0 0;
+}
+
+
+/* ═══ §9  SKELETONS — pulse, not shimmer ═══════════════════════════
+   Editorial restraint: a calm opacity pulse reads as "loading"
+   without the busy gradient sweep. (criteria §12.1)               */
+.home-skeleton {
+  height: 88px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: var(--nx-radius-card);
+  animation: homePulse 1.4s ease-in-out infinite;
+}
+.home-skeleton-cal { height: 44px; }
+
+@keyframes homePulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1.00; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-skeleton { animation: none; opacity: 0.7; }
+}
+
+
+/* ═══ §10  ASK NEXUS BAR ═══════════════════════════════════════════
+   The hero AI affordance. Frosted surface that sits softly above any
+   background. Sparkles SVG injected by JS. Themes via tokens.
+
+   Sticks above the bnav with breathing room — reads as a deliberate
+   floating control, not nav decoration.                            */
+.home-ask {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 28px);
+  max-width: 600px;
+  bottom: calc(56px + env(safe-area-inset-bottom) + 30px);
+  z-index: 40;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nx-space-2);
+  padding: var(--nx-space-4) var(--nx-space-6);
+  min-height: 54px;
+
+  border-radius: var(--nx-radius-pill);
+  background: var(--nx-surface-3);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--nx-gold-line-2);
+  color: var(--nx-gold);
+
+  font-family: var(--nx-font-display);
+  font-size: var(--nx-text-md);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: var(--nx-shadow-fab);
+  transition:
+    background var(--nx-press),
+    border-color var(--nx-press),
+    transform var(--nx-press);
+}
+.home-ask:active {
+  border-color: var(--nx-gold-line-3);
+  transform: translateX(-50%) scale(0.985);
+}
+.home-ask:focus-visible {
+  outline: 2px solid var(--nx-gold-line-3);
+  outline-offset: 3px;
+}
+
+.home-ask-prompt {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nx-space-2);
+  flex-shrink: 0;
+}
+
+/* Lucide sparkles SVG (injected by home.js wireAsk).
+   Sized via CSS so JS just drops the markup. */
+.home-ask-spark {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: currentColor;
+  opacity: 0.92;
+}
+
+/* Cycling hint text — quiet supporting context, not a competing label */
+.home-ask-hint {
+  display: inline-block;
+  color: var(--nx-faint);
+  font-weight: 400;
+  font-size: var(--nx-text-sm);
+  letter-spacing: 0.2px;
+  margin-left: var(--nx-space-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  animation: homeAskHintFade 4s ease-in-out infinite;
+}
+@keyframes homeAskHintFade {
+  0%, 8%   { opacity: 0; transform: translateY(2px); }
+  18%, 92% { opacity: 1; transform: translateY(0); }
+  100%     { opacity: 0; transform: translateY(-2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-ask-hint { animation: none; opacity: 1; transform: none; }
+}
+@media (max-width: 420px) {
+  .home-ask-hint { display: none; }
+}
+
+
+/* ═══ §11  RESPONSIVE OVERRIDES ════════════════════════════════════ */
+
+/* Narrow phones (iPhone SE, small Androids) */
+@media (max-width: 380px) {
+  .home-page {
+    padding:
+      var(--nx-space-5)
+      var(--nx-space-4)
+      calc(140px + env(safe-area-inset-bottom));
+  }
+  .home-lede   { margin: var(--nx-space-6) 0 var(--nx-space-3); }
+  .home-glance { gap: var(--nx-space-2); }
+  .home-ask {
+    font-size: var(--nx-text-base);
+    padding: var(--nx-space-3) var(--nx-space-5);
+    min-height: 48px;
+  }
+}
+
+/* Tablet+ — generous lede, roomier item padding */
+@media (min-width: 720px) {
+  .home-lede {
+    margin: var(--nx-space-10) 0 var(--nx-space-5);
+    font-size: 60px;
+  }
+  .home-item {
+    padding:
+      var(--nx-space-6)
+      var(--nx-space-6)
+      var(--nx-space-6)
+      54px;
+  }
+  .home-item-num {
+    top: var(--nx-space-6);
+    left: var(--nx-space-5);
+    font-size: var(--nx-text-xs);
+  }
+}
+
+/* Calendar reflow — below 440px, stack date label above items so
+   neither column gets squeezed. */
+@media (max-width: 440px) {
+  .home-cal-day {
+    flex-direction: column;
+    gap: 4px;
+    padding: var(--nx-space-2) 0;
+  }
+  .home-cal-date {
+    width: 100%;
+    padding-top: 0;
+    padding-bottom: 2px;
+    font-size: 10px;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: var(--nx-space-2);
+    border-bottom: 1px solid var(--nx-gold-line);
+  }
+  .home-cal-date-rel {
+    width: auto;
+    font-size: 9.5px;
+    margin-left: auto;
+  }
+  .home-cal-item { gap: var(--nx-space-3); padding-left: 4px; }
+  .home-cal-time { width: 56px; font-size: 11px; }
+  .home-cal-title { font-size: 13px; }
+  .home-cal-desc  { font-size: 11px; }
+}
