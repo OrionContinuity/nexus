@@ -23,7 +23,7 @@
    The legacy `equipment-public-pm-system.css` defines a complete
    light-mode palette via `--pm-*` tokens at `:root` scope. Those
    tokens are NOT theme-aware: `--pm-bg` is hardcoded `#faf7f0`
-   (cream linen), `--pm-surface` is `#ffffff` (white), etc. So even
+   (cream linen), `--pm-surface` is `var(--elevated)` (white), etc. So even
    when the rest of the app flips to dark theme, the PM logger modal
    stayed cream — the inputs went dark (those use `--nx-*`) but the
    surrounding card stayed light.
@@ -46,17 +46,17 @@ body.public-view {
   --pm-surface-2:    var(--nx-surface-1);   /* mass toggle row */
   --pm-surface-3:    var(--nx-surface-1);   /* equipment banner — same as card; tint comes from a CSS overlay below */
   --pm-border:       var(--nx-gold-line);
-  --pm-border-2:     var(--nx-gold-line-2, rgba(212, 164, 78, 0.22));
+  --pm-border-2:     var(--nx-gold-line-2, var(--nx-gold-line));
   --pm-gold:         var(--nx-gold);
   --pm-gold-on:      var(--nx-gold-on, #1c1408);
-  --pm-gold-soft:    var(--nx-gold-soft, rgba(212, 164, 78, 0.06));
+  --pm-gold-soft:    var(--nx-gold-soft, var(--nx-gold-faint));
   --pm-gold-line:    var(--nx-gold-line);
   --pm-text:         var(--nx-text);
   --pm-text-muted:   var(--nx-muted);
   --pm-text-faint:   var(--nx-faint);
-  --pm-red:          var(--nx-red, #a83e3e);
-  --pm-red-soft:     rgba(168, 62, 62, 0.08);
-  --pm-green:        var(--nx-green, #9c8a3e);
+  --pm-red:          var(--nx-red, var(--red));
+  --pm-red-soft:     var(--nx-red-faint);
+  --pm-green:        var(--nx-green, var(--green));
 }
 
 /* Light-theme override — when the coin is flipped to Trajan, the
@@ -78,13 +78,13 @@ body.public-view[data-theme="light"],
 [data-theme="light"] body.public-view,
 [data-theme="light"] .pm-logger-modal,
 [data-theme="light"] .pm-logger-card {
-  --pm-bg:           #F4F1EB !important;            /* opaque parchment */
+  --pm-bg:           var(--bg) !important;            /* opaque parchment */
   --pm-surface:      #FAF6EC !important;            /* slightly lighter than bg — the form sheet */
-  --pm-surface-2:    #F4F1EB !important;            /* mass toggle = bg */
+  --pm-surface-2:    var(--bg) !important;            /* mass toggle = bg */
   --pm-surface-3:    #F8F2DD !important;            /* equipment highlight — opaque gold-cream, no translucency */
   --pm-border:       rgba(139, 105, 20, 0.18) !important;
   --pm-border-2:     rgba(139, 105, 20, 0.30) !important;
-  --pm-gold:         #8b6914 !important;            /* deep gold for cream contrast */
+  --pm-gold:         var(--accent) !important;            /* deep gold for cream contrast */
   --pm-gold-soft:    #F8F2DD !important;
   --pm-gold-line:    rgba(139, 105, 20, 0.20) !important;
   --pm-text:         #1a1408 !important;            /* warm near-black */
@@ -300,7 +300,7 @@ body.public-view * { box-sizing: border-box; }
   color: var(--nx-text) !important;
   word-break: break-word;
 }
-.public-scan-overdue { color: var(--nx-red, #a83e3e) !important; font-weight: 600; }
+.public-scan-overdue { color: var(--nx-red, var(--red)) !important; font-weight: 600; }
 
 /* ─── Section heading ────────────────────────────────────────────── */
 .public-scan-section h3 {
@@ -429,7 +429,7 @@ body.public-view * { box-sizing: border-box; }
   cursor: pointer;
 }
 .public-scan-error button:hover {
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08));
+  background: var(--nx-gold-soft, var(--nx-gold-faint));
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -469,7 +469,7 @@ body.public-view * { box-sizing: border-box; }
   width: 40px; height: 40px;
   flex-shrink: 0;
   border-radius: 50%;
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08)) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
   color: var(--nx-gold) !important;
   font-size: 18px;
 }
@@ -507,8 +507,8 @@ body.public-view * { box-sizing: border-box; }
 [data-theme="light"] .pm-public-btn-primary .pm-public-btn-sub { color: rgba(255, 255, 255, 0.75) !important; }
 [data-theme="light"] .pm-public-btn-primary .pm-public-btn-icon { color: #fff !important; }
 
-.pm-public-btn-call .pm-public-btn-icon { color: var(--nx-green, #9c8a3e) !important; }
-.pm-public-btn-tertiary .pm-public-btn-icon { color: var(--nx-red, #a83e3e) !important; }
+.pm-public-btn-call .pm-public-btn-icon { color: var(--nx-green, var(--green)) !important; }
+.pm-public-btn-tertiary .pm-public-btn-icon { color: var(--nx-red, var(--red)) !important; }
 
 /* ─── PM Logger modal ────────────────────────────────────────────── */
 .pm-logger-modal {
@@ -548,7 +548,7 @@ body.public-view * { box-sizing: border-box; }
      band above didn't.
      
      We use --nx-bg directly (which is fully opaque in both themes:
-     dark charcoal #0a0a0c, light parchment #F4F1EB) and override the
+     dark charcoal #0a0a0c, light parchment var(--bg)) and override the
      legacy var(--pm-bg) with !important. */
   background: var(--nx-bg) !important;
   border-top: 1px solid var(--nx-gold) !important;
@@ -617,7 +617,7 @@ body.public-view * { box-sizing: border-box; }
   justify-content: center;
   width: 28px; height: 28px;
   border-radius: 50%;
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.1));
+  background: var(--nx-gold-soft, var(--nx-gold-mist));
   color: var(--nx-gold);
   font-size: 14px;
 }
@@ -635,7 +635,7 @@ body.public-view * { box-sizing: border-box; }
 }
 .pm-logger-close:hover {
   color: var(--nx-text) !important;
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08));
+  background: var(--nx-gold-soft, var(--nx-gold-faint));
 }
 
 .pm-logger-eq {
@@ -645,7 +645,7 @@ body.public-view * { box-sizing: border-box; }
      way the section reads as cream-with-a-warm-cast in light theme
      and charcoal-with-a-warm-cast in dark theme — never bleeding the
      backdrop blur through. */
-  background: rgba(212, 164, 78, 0.06) !important;
+  background: var(--nx-gold-faint) !important;
   border-bottom: 1px solid var(--nx-gold-line) !important;
 }
 [data-theme="light"] .pm-logger-eq {
@@ -720,7 +720,7 @@ body.public-view .pm-mass-all {
 }
 body.public-view .pm-mass-all:hover {
   border-color: var(--nx-gold) !important;
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06)) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
 }
 body.public-view .pm-mass-items {
   display: flex;
@@ -735,7 +735,7 @@ body.public-view .pm-mass-item {
   transition: border-color .15s, background .15s !important;
 }
 body.public-view .pm-mass-item:has(input:checked) {
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08)) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
   border-color: var(--nx-gold) !important;
 }
 body.public-view .pm-mass-item input[type="checkbox"] {
@@ -817,7 +817,7 @@ body.public-view .pm-mass-empty {
   padding: 11px 14px !important;
   /* Use --pm-surface (theme-aware via token redefinition above) so
      inputs blend with the modal sheet. Was --nx-bg which in light
-     theme resolves to opaque #F4F1EB and looked correct in dark mode
+     theme resolves to opaque var(--bg) and looked correct in dark mode
      but the legacy CSS at higher specificity uses --pm-surface, and
      in light theme --nx-surface-1 default was a translucent white
      that made inputs look like bright pure-white pills against the
@@ -845,7 +845,7 @@ body.public-view .pm-mass-empty {
   align-items: center;
   gap: 8px;
   padding: 10px 14px !important;
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06)) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
   border-left: 2px solid var(--nx-gold);
   border-radius: 8px;
   font-size: 12px !important;
@@ -899,8 +899,8 @@ body.public-view .pm-mass-empty {
   justify-content: center;
   width: 64px; height: 64px;
   border-radius: 50%;
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.1));
-  color: var(--nx-green, #9c8a3e);
+  background: var(--nx-gold-soft, var(--nx-gold-mist));
+  color: var(--nx-green, var(--green));
   margin-bottom: 16px;
 }
 .pm-success-title {
@@ -935,8 +935,8 @@ body.public-view .pm-mass-empty {
   font-size: 9.5px;
   letter-spacing: 1px;
   text-transform: uppercase;
-  background: rgba(168, 62, 62, 0.1);
-  color: var(--nx-red, #a83e3e);
+  background: var(--nx-red-soft);
+  color: var(--nx-red, var(--red));
   border-radius: 999px;
   margin-right: 6px;
 }
@@ -961,11 +961,11 @@ body.public-view .pm-mass-empty {
   cursor: pointer;
   transition: color .15s, border-color .15s, background .15s;
 }
-.pm-review-approve { color: var(--nx-green, #9c8a3e) !important; border-color: rgba(156, 138, 62, 0.4) !important; }
+.pm-review-approve { color: var(--nx-green, var(--green)) !important; border-color: rgba(156, 138, 62, 0.4) !important; }
 .pm-review-reject  { color: var(--nx-faint) !important; }
-.pm-review-spam    { color: var(--nx-red, #a83e3e) !important; border-color: rgba(168, 62, 62, 0.4) !important; }
+.pm-review-spam    { color: var(--nx-red, var(--red)) !important; border-color: var(--nx-red-line) !important; }
 .pm-review-actions button:hover {
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06));
+  background: var(--nx-gold-soft, var(--nx-gold-faint));
 }
 
 /* ─── Mobile tightening ──────────────────────────────────────────── */
