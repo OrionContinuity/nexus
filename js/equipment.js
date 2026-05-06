@@ -9691,7 +9691,7 @@ async function openContractors() {
   // Hardcoded version stamp so the user can verify in a screenshot
   // exactly which JS code is running. If you don't see this toast,
   // the service worker is serving stale cached code.
-  NX.toast && NX.toast('NEXUS contractors v37 — opening…', 'info', 1400);
+  NX.toast && NX.toast('NEXUS contractors v38 — opening…', 'info', 1400);
 
   const overlay = document.createElement('div');
   overlay.className = 'eq-contractors-overlay';
@@ -9752,7 +9752,7 @@ async function loadContractorsList() {
   // Fetch contractors + supporting data in parallel.
   const [nodesRes, maintRes, issuesRes, equipRes] = await Promise.all([
     NX.sb.from('nodes')
-      .select('id, name, notes, links, tags, category, created_at, updated_at')
+      .select('id, name, notes, links, tags, category, created_at')
       .eq('category', 'contractors')
       .order('name', { ascending: true }),
     NX.sb.from('equipment_maintenance')
@@ -10060,7 +10060,7 @@ function renderContractorsList() {
         <div class="eq-contractors-empty-title">No contractors yet</div>
         <div class="eq-contractors-empty-msg">Tap the <strong>+</strong> button at the top to add your first contractor.</div>
         <div style="margin-top:24px;padding:14px;background:rgba(212,164,78,0.05);border:1px dashed var(--nx-gold-line);border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--nx-faint);text-align:left;line-height:1.7">
-          <div style="color:var(--nx-gold);margin-bottom:6px;font-weight:600">DIAGNOSTIC v37</div>
+          <div style="color:var(--nx-gold);margin-bottom:6px;font-weight:600">DIAGNOSTIC v38</div>
           <div>NX.sb defined: <strong>${typeof NX !== 'undefined' && NX.sb ? 'YES' : 'NO'}</strong></div>
           <div>Query rows returned: <strong>${dbg.rowCount ?? '—'}</strong></div>
           <div>Query error: <strong>${dbg.errMsg ? esc(dbg.errMsg) : '(none)'}</strong></div>
