@@ -380,7 +380,7 @@
   gap: 10px !important;
   align-items: center !important;
   position: sticky !important;
-  bottom: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
+  bottom: calc(48px + env(safe-area-inset-bottom, 0px)) !important;
   z-index: 6;
 }
 
