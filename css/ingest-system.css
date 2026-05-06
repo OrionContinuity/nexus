@@ -34,7 +34,7 @@
 
 .ig-status {
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   border-radius: var(--nx-radius-card) !important;
   padding: 20px !important;
   margin: 0 0 var(--nx-space-4) !important;
@@ -55,9 +55,9 @@
     var(--nx-surface-1) !important;
 }
 .ig-status.is-error {
-  border-color: rgba(212, 88, 88, 0.30) !important;
+  border-color: var(--nx-red-aura) !important;
   background:
-    linear-gradient(135deg, rgba(212, 88, 88, 0.06), rgba(212, 88, 88, 0.01)),
+    linear-gradient(135deg, var(--nx-red-faint), rgba(212, 88, 88, 0.01)),
     var(--nx-surface-1) !important;
 }
 .ig-status-row {
@@ -85,7 +85,7 @@
 }
 .ig-status-dot.is-error {
   background: var(--nx-red) !important;
-  box-shadow: 0 0 10px rgba(212, 88, 88, 0.55) !important;
+  box-shadow: 0 0 10px var(--nx-red-line) !important;
 }
 @keyframes igStatusPulse {
   0%, 100% { opacity: 1; }
@@ -133,7 +133,7 @@
 
 .ig-today {
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--nx-highlight-tint) !important;
   border-radius: var(--nx-radius-card) !important;
   padding: var(--nx-space-4) var(--nx-space-4) !important;
   margin-bottom: var(--nx-space-4) !important;
@@ -181,7 +181,7 @@
 
 .ig-card {
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   border-radius: var(--nx-radius-card) !important;
   margin-bottom: var(--nx-space-2) !important;
   overflow: hidden !important;
@@ -242,7 +242,7 @@
 
 .ig-note {
   background: rgba(107, 122, 138, 0.06) !important;
-  border-left: 3px solid var(--nx-blue, #6b7a8a) !important;
+  border-left: 3px solid var(--nx-blue, var(--blue)) !important;
   border-radius: var(--nx-radius-tight) !important;
   padding: 12px 14px !important;
   font-family: var(--nx-font-body) !important;
@@ -581,7 +581,7 @@
   padding: 14px !important;
   min-height: var(--nx-touch-min) !important;
   border-radius: var(--nx-radius-tight) !important;
-  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   background: var(--nx-surface-2) !important;
   color: var(--nx-muted) !important;
   font-family: var(--nx-font-body) !important;
@@ -694,7 +694,7 @@
 .ingest-progress-bar {
   flex: 1 !important;
   height: 6px !important;
-  background: rgba(255, 255, 255, 0.05) !important;
+  background: var(--nx-highlight-faint) !important;
   border-radius: var(--nx-radius-pill) !important;
   overflow: hidden !important;
 }
@@ -804,7 +804,7 @@
 
 #ingestLog {
   background: var(--nx-surface-2) !important;
-  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--nx-highlight-tint) !important;
   border-radius: var(--nx-radius-tight) !important;
   padding: var(--nx-space-3) !important;
   max-height: 240px !important;
