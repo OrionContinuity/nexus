@@ -462,7 +462,16 @@ function renderList() {
 
   // Wire rows → detail
   list.querySelectorAll('[data-eq-id]').forEach(el => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (ev) => {
+      // Avatar tap → quick photo replace flow. Intercept BEFORE the
+      // generic row-click that would open the detail view.
+      const photoTarget = ev.target.closest('[data-action="quick-photo"]');
+      if (photoTarget && el.contains(photoTarget)) {
+        ev.stopPropagation();
+        const id = photoTarget.dataset.eqId || el.dataset.eqId;
+        if (id) quickReplacePhoto(id);
+        return;
+      }
       // Skip the click if a long-press just fired (touch ends fire a synthetic
       // click on some browsers right after the dial opened).
       if (longpressState && longpressState.fired) return;
@@ -500,12 +509,29 @@ function buildListRow(e) {
   // to scan to.
   const pmCls = pmOverdue ? 'eq-overdue' : pmSoon ? 'eq-soon' : (!pm ? 'eq-pm-empty' : '');
 
+  // Avatar priority: equipment photo > manufacturer logo > category icon.
+  // The equipment's actual photo is more recognizable than a colored
+  // letter circle — when the user uploads a photo it should immediately
+  // show up as the row's identifying mark. Falls back gracefully.
+  let avatar;
+  if (e.photo_url) {
+    avatar = `<span class="eq-cat-icon eq-cat-icon-photo" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to replace photo">
+      <img src="${escAttr(e.photo_url)}" alt="" onerror="this.parentElement.classList.add('photo-failed');this.remove()">
+    </span>`;
+  } else if (e.manufacturer) {
+    avatar = `<span class="eq-cat-icon eq-cat-icon-with-logo" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to add photo">
+      ${manufacturerLogo(e, 'sm')}
+    </span>`;
+  } else {
+    avatar = `<span class="eq-cat-icon eq-cat-icon-with-logo" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to add photo">
+      <span class="eq-cat-icon-fallback">${catIcon(e.category)}</span>
+    </span>`;
+  }
+
   return `
     <div class="eq-row" data-eq-id="${e.id}">
       <div class="eq-col eq-col-name">
-        <span class="eq-cat-icon eq-cat-icon-with-logo">
-          ${e.manufacturer ? manufacturerLogo(e, 'sm') : `<span class="eq-cat-icon-fallback">${catIcon(e.category)}</span>`}
-        </span>
+        ${avatar}
         <div style="min-width:0">
           <div class="eq-name">${esc(e.name)}</div>
           <div class="eq-sub">${sub}</div>
@@ -641,6 +667,7 @@ async function openDetail(id) {
             <div class="eq-overflow-section-label">Manage</div>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">${uiSvg('settings', '14px')}<span>Edit Everything</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.schedulePmFromOverflow('${eq.id}')">${uiSvg('clipboard', '14px')}<span>Schedule PM</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.quickReplacePhoto('${eq.id}')">${uiSvg('camera', '14px')}<span>${eq.photo_url ? 'Replace Photo' : 'Add Photo'}</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.quickPrint('${eq.id}')">${uiSvg('printer', '14px')}<span>Print Label</span></button>
             <div class="eq-overflow-divider"></div>
             <button class="eq-overflow-item eq-overflow-danger" onclick="NX.modules.equipment.deleteEquipment('${eq.id}')">${uiSvg('trash', '14px')}<span>Delete permanently</span></button>
@@ -5990,6 +6017,51 @@ function uploadPhoto(equipId, field) {
 
 function replacePhoto(equipId, field) { uploadPhoto(equipId, field); }
 
+/**
+ * Quick photo upload/replace — designed for the avatar tap on each
+ * equipment row. Same as uploadPhoto(equipId, 'photo_url') except it
+ * doesn't force-open the full editor on success; it refreshes the
+ * equipment list inline so the new photo appears as the row avatar
+ * immediately. The user stays in their list flow.
+ */
+function quickReplacePhoto(equipId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.capture = 'environment';
+
+  input.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    NX.toast && NX.toast('Uploading…', 'info', 5000);
+    try {
+      const fname = `${equipId}/photo_url-${Date.now()}.${file.type.split('/')[1] || 'jpg'}`;
+      const { error: upErr } = await NX.sb.storage
+        .from('equipment-photos')
+        .upload(fname, file, { upsert: false, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data: { publicUrl } } = NX.sb.storage.from('equipment-photos').getPublicUrl(fname);
+      const { error: dbErr } = await NX.sb.from('equipment').update({ photo_url: publicUrl }).eq('id', equipId);
+      if (dbErr) throw dbErr;
+
+      // Update in-memory equipment array so the next render shows the
+      // new photo without a network round-trip.
+      if (typeof equipment !== 'undefined' && Array.isArray(equipment)) {
+        const e = equipment.find(x => x.id === equipId);
+        if (e) e.photo_url = publicUrl;
+      }
+      // Re-render the list inline.
+      if (typeof renderList === 'function') renderList();
+      NX.toast && NX.toast('Photo updated ✓', 'success', 1400);
+    } catch (err) {
+      console.error('[equipment] quickReplacePhoto:', err);
+      NX.toast && NX.toast('Upload failed: ' + (err.message || ''), 'error');
+    }
+  });
+
+  input.click();
+}
+
 async function removePhoto(equipId, field) {
   if (!confirm('Remove this photo?')) return;
   await NX.sb.from('equipment').update({ [field]: null }).eq('id', equipId);
@@ -10249,6 +10321,14 @@ function renderContractorsDetail() {
       e.stopPropagation();
       schedulePmsForContractor();
     });
+    // Per-location PM scheduler — separate contracts per location, so
+    // separate PM rounds. Each location header has its own button.
+    overlay.querySelectorAll('[data-action="bulk-pm-loc"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        schedulePmsForContractor(btn.dataset.loc);
+      });
+    });
   } else if (detailTab === 'activity') {
     overlay.querySelectorAll('[data-event-eq-id]').forEach(card => {
       card.addEventListener('click', () => {
@@ -10320,21 +10400,16 @@ function renderContractorEquipmentTab() {
   const assigned = contractorsState.assignedEquipment || [];
   const historical = contractorsState.historicalEquipment || [];
 
-  // Two top-level actions: assign more equipment to this contractor, or
-  // schedule PMs across all the equipment they're already assigned to.
-  // Both are full-width gold pills sitting above the lists.
+  // Top-level actions: assign more equipment, or schedule PMs across
+  // ALL assigned (one button). Per-location PM scheduling lives inside
+  // each location group below — separate contracts per location, so
+  // separate PM rounds.
   const topActions = `
     <div class="eq-contractor-eq-actions">
       <button class="eq-contractor-eq-action-btn eq-contractor-eq-action-primary" data-action="assign-equipment">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Assign equipment to this contractor
       </button>
-      ${assigned.length ? `
-        <button class="eq-contractor-eq-action-btn eq-contractor-eq-action-secondary" data-action="bulk-pm">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          Schedule PMs for all ${assigned.length} assigned
-        </button>
-      ` : ''}
     </div>
   `;
 
@@ -10348,7 +10423,23 @@ function renderContractorEquipmentTab() {
     `;
   }
 
-  // Count loose name-matched links so we can offer a "Promote all" action.
+  // Group ASSIGNED equipment by location. With 3 restaurants (Suerte,
+  // Este, Bar Toti) the contractor likely has separate contracts per
+  // location, so we surface each location as its own group with its
+  // own bulk-PM trigger. The user can run a separate PM round at each
+  // restaurant in one tap.
+  const byLocation = new Map();
+  for (const e of assigned) {
+    const loc = (e.location || 'Unspecified').trim() || 'Unspecified';
+    if (!byLocation.has(loc)) byLocation.set(loc, []);
+    byLocation.get(loc).push(e);
+  }
+  // Sort locations alphabetically; within each, sort equipment by name.
+  const locationGroups = Array.from(byLocation.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([loc, items]) => [loc, items.sort((a, b) => (a.name || '').localeCompare(b.name || ''))]);
+
+  // Count loose name-matched links across the whole assigned set.
   const looseCount = assigned.filter(e => e._linkType === 'name').length;
 
   const renderEqRow = (e) => {
@@ -10360,7 +10451,7 @@ function renderContractorEquipmentTab() {
             ${esc(e.name)}
             ${isLoose ? '<span class="eq-contractor-eq-loose-chip" title="Linked by name only — tap to make permanent">↗ name only</span>' : ''}
           </div>
-          <div class="eq-contractor-eq-meta">${esc(e.location || '')}${e.area ? ' · ' + esc(e.area) : ''}${e.manufacturer ? ' · ' + esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}</div>
+          <div class="eq-contractor-eq-meta">${e.area ? esc(e.area) + ' · ' : ''}${e.manufacturer ? esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}</div>
         </div>
       </div>
     `;
@@ -10368,15 +10459,35 @@ function renderContractorEquipmentTab() {
 
   return `
     ${topActions}
-    ${assigned.length ? `
-      <div class="eq-contractor-eq-group-label">
-        Currently assigned · ${assigned.length}
-        ${looseCount > 0 ? `<button class="eq-contractor-eq-promote-btn" data-action="promote-all">Promote ${looseCount} name-only ${looseCount === 1 ? 'link' : 'links'} to permanent</button>` : ''}
+    ${locationGroups.length ? locationGroups.map(([loc, items]) => `
+      <div class="eq-contractor-loc-group">
+        <div class="eq-contractor-loc-header">
+          <div class="eq-contractor-loc-name">${esc(loc)}</div>
+          <div class="eq-contractor-loc-count">${items.length} ${items.length === 1 ? 'unit' : 'units'}</div>
+        </div>
+        <div class="eq-contractor-eq-list">${items.map(renderEqRow).join('')}</div>
+        <button class="eq-contractor-loc-pm-btn" data-action="bulk-pm-loc" data-loc="${esc(loc)}">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          Schedule PMs · ${esc(loc)} · ${items.length}
+        </button>
       </div>
-      <div class="eq-contractor-eq-list">${assigned.map(renderEqRow).join('')}</div>
+    `).join('') : ''}
+
+    ${looseCount > 0 ? `
+      <div class="eq-contractor-loc-promote">
+        <button class="eq-contractor-eq-promote-btn" data-action="promote-all">Promote ${looseCount} name-only ${looseCount === 1 ? 'link' : 'links'} to permanent</button>
+      </div>
     ` : ''}
+
+    ${assigned.length > 1 ? `
+      <button class="eq-contractor-eq-action-btn eq-contractor-eq-action-secondary" data-action="bulk-pm" style="margin-top:14px">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        Schedule PMs · all ${assigned.length} across all locations
+      </button>
+    ` : ''}
+
     ${historical.length ? `
-      <div class="eq-contractor-eq-group-label">Previously serviced · ${historical.length}</div>
+      <div class="eq-contractor-eq-group-label" style="margin-top:18px">Previously serviced · ${historical.length}</div>
       <div class="eq-contractor-eq-list">${historical.map(renderEqRow).join('')}</div>
     ` : ''}
   `;
@@ -10562,19 +10673,60 @@ function wireContractorEditForm() {
       }).eq('id', c.id).select('*').single();
       if (error) throw error;
 
-      // Update in-memory caches.
+      // Update in-memory caches. Wrap the derivation in try/catch so a
+      // downstream error (e.g. equipmentLite not yet loaded) doesn't
+      // swallow the success toast — the save itself succeeded.
       Object.assign(c, data);
-      // Re-derive activity since nothing about history changed but the tags
-      // could affect search filtering.
-      buildContractorDetailDerived();
+      try {
+        buildContractorDetailDerived();
+      } catch (deriveErr) {
+        console.warn('[equipment] derive after save failed (non-fatal):', deriveErr);
+      }
       contractorsState.detailTab = 'activity';
       renderContractors();
       NX.toast && NX.toast(`Saved · ${phones.length} ${phones.length === 1 ? 'phone' : 'phones'} · ${emails.length} ${emails.length === 1 ? 'email' : 'emails'}`, 'success', 1600);
+
+      // Force a fresh reload from the DB so the contractors list view
+      // is guaranteed to show the saved record next time it's opened.
+      // Without this, a closed → reopened Contractors view could fall
+      // back to a stale empty array if anything wiped local state.
+      try {
+        await loadContractorsList();
+        const refreshed = contractorsState.list.find(x => x.id === c.id);
+        if (refreshed) {
+          contractorsState.activeContractor = refreshed;
+          buildContractorDetailDerived();
+          renderContractors();
+        } else {
+          // The contractor isn't in the fresh list — DB row vanished.
+          console.warn('[equipment] saveContractor: row not found after reload', c.id);
+        }
+      } catch (reloadErr) {
+        console.warn('[equipment] reload after save failed (non-fatal):', reloadErr);
+      }
     } catch (err) {
       console.error('[equipment] saveContractor:', err);
       NX.toast && NX.toast('Could not save: ' + (err.message || ''), 'error');
     }
   });
+
+  // Backup: also wire a direct click on the save button. Some mobile
+  // browsers don't always fire form submit reliably (Chrome/iOS edge
+  // cases with virtual keyboard transitions). If submit didn't fire,
+  // the click handler will trigger the same save by dispatching submit.
+  const saveBtn = form.querySelector('button[type="submit"]');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', (e) => {
+      // If form submit will fire, this click is redundant; let it pass.
+      // If submit doesn't fire (mobile quirk), force it ourselves.
+      setTimeout(() => {
+        // If we're still on this tab in 50ms, submit didn't fire.
+        if (contractorsState && contractorsState.detailTab === 'edit' && document.body.contains(form)) {
+          form.requestSubmit?.() || form.dispatchEvent(new Event('submit', { cancelable: true }));
+        }
+      }, 50);
+    });
+  }
 
   form.querySelector('[data-action="delete"]')?.addEventListener('click', async () => {
     const c = contractorsState.activeContractor;
@@ -10798,15 +10950,30 @@ function openContractorAssignSheet() {
  * the existing scheduler sheet which lets the user pick a date and
  * apply it to all selected at once.
  *
+ * If a `locationFilter` string is passed, only equipment at that
+ * location is pre-selected — used by the per-location buttons in each
+ * location group. The user has 3 restaurants (Suerte, Este, Bar Toti)
+ * and each may run on its own PM cadence even with the same contractor.
+ *
  * The user's mental model: "schedule next PM for everything Austin
- * Air and Ice handles" → one tap.
+ * Air and Ice handles AT BAR TOTI" → one tap.
  */
-function schedulePmsForContractor() {
+function schedulePmsForContractor(locationFilter) {
   if (!contractorsState || !contractorsState.activeContractor) return;
   const c = contractorsState.activeContractor;
-  const assigned = contractorsState.assignedEquipment || [];
+  let assigned = contractorsState.assignedEquipment || [];
+  if (locationFilter) {
+    assigned = assigned.filter(e =>
+      ((e.location || '').trim() || 'Unspecified') === locationFilter
+    );
+  }
   if (!assigned.length) {
-    NX.toast && NX.toast('No equipment is assigned to this contractor yet', 'warn', 1800);
+    NX.toast && NX.toast(
+      locationFilter
+        ? `No equipment at ${locationFilter} for this contractor`
+        : 'No equipment is assigned to this contractor yet',
+      'warn', 1800
+    );
     return;
   }
   if (!bulkSelectionState) return;
@@ -10824,7 +10991,10 @@ function schedulePmsForContractor() {
   if (typeof openBulkPmSchedule === 'function') {
     openBulkPmSchedule();
   }
-  NX.toast && NX.toast(`Pre-selected ${ids.length} ${ids.length === 1 ? 'unit' : 'units'} from ${c.name}`, 'info', 1500);
+  const label = locationFilter
+    ? `${ids.length} ${ids.length === 1 ? 'unit' : 'units'} at ${locationFilter}`
+    : `${ids.length} ${ids.length === 1 ? 'unit' : 'units'} from ${c.name}`;
+  NX.toast && NX.toast(`Pre-selected ${label}`, 'info', 1500);
 }
 
 async function addNewContractor() {
@@ -12368,6 +12538,7 @@ NX.modules.equipment = {
   editAttachmentDesc,
   uploadPhoto,
   replacePhoto,
+  quickReplacePhoto,
   removePhoto,
   deleteCustomField,
 
