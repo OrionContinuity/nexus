@@ -44,7 +44,7 @@
   box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4);
   /* Subtle hairline at the top edge — keeps the sheet visually
      anchored without a heavy border */
-  border-top: 1px solid rgba(212, 164, 78, 0.18);
+  border-top: 1px solid var(--nx-gold-soft);
   overflow: hidden;
   transform: translateY(100%);
   opacity: 0;
@@ -81,7 +81,7 @@ body.chatview-open {
   padding: 10px 14px;
   height: 52px;
   flex-shrink: 0;
-  border-bottom: 1px solid rgba(212, 182, 138, 0.14);
+  border-bottom: 1px solid var(--nx-gold-mist);
   background: var(--bg);
   position: relative;
   z-index: 2;
@@ -103,7 +103,7 @@ body.chatview-open {
   transition: background 0.15s, color 0.15s;
 }
 .cv-back:active, .cv-icon-btn:active {
-  background: rgba(212, 182, 138, 0.08);
+  background: var(--nx-gold-faint);
   color: var(--accent);
 }
 .cv-back svg,
@@ -130,7 +130,7 @@ body.chatview-open {
   font-weight: 500;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #d4a44e;
+  color: var(--accent);
   opacity: 0.78;
   padding: 2px 8px 2px 4px;
   white-space: nowrap;
@@ -205,7 +205,7 @@ body.chatview-open {
   content: '';
   flex: 1;
   height: 1px;
-  background: rgba(212, 182, 138, 0.14);
+  background: var(--nx-gold-mist);
 }
 .cv-day:first-child { margin-top: 0; }
 
@@ -299,7 +299,7 @@ body.chatview-open {
 .cv-action-chip {
   padding: 9px 14px;
   border-radius: 2px;
-  border: 1px solid rgba(212, 182, 138, 0.28);
+  border: 1px solid var(--nx-gold-aura);
   background: transparent;
   color: var(--text);
   font-family: inherit;
@@ -323,9 +323,9 @@ body.chatview-open {
 .cv-inline-card {
   margin-top: 14px;
   padding: 14px 16px;
-  border: 1px solid rgba(212, 182, 138, 0.18);
+  border: 1px solid var(--nx-gold-soft);
   border-radius: 2px;
-  background: rgba(212, 182, 138, 0.025);
+  background: var(--nx-gold-tint);
 }
 .cv-inline-card-kicker {
   font-family: 'JetBrains Mono', monospace;
@@ -370,8 +370,8 @@ body.chatview-open {
   height: 280px;
   pointer-events: none;
   background:
-    radial-gradient(ellipse at 60% 20%, rgba(212, 164, 78, 0.10) 0%, transparent 60%),
-    radial-gradient(ellipse at 20% 0%, rgba(212, 164, 78, 0.05) 0%, transparent 55%);
+    radial-gradient(ellipse at 60% 20%, var(--nx-gold-mist) 0%, transparent 60%),
+    radial-gradient(ellipse at 20% 0%, var(--nx-gold-tint) 0%, transparent 55%);
   z-index: 0;
 }
 .cv-empty-inner {
@@ -458,7 +458,7 @@ body.chatview-open {
   padding: var(--nx-space-5);
   min-height: 92px;
   background: var(--nx-surface-1);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--nx-highlight-faint);
   border-radius: var(--nx-radius-card);
   color: var(--nx-text);
   font-family: var(--nx-font-body);
@@ -529,7 +529,7 @@ body.chatview-open {
   min-height: var(--nx-touch-min);
   background: transparent;
   border: none;
-  border-bottom: 1px solid rgba(212, 164, 78, 0.06);
+  border-bottom: 1px solid var(--nx-gold-faint);
   color: var(--nx-muted);
   cursor: pointer;
   font-family: inherit;
@@ -587,7 +587,7 @@ body.chatview-open {
   align-items: flex-end;
   gap: var(--nx-space-2);
   padding: 8px 8px 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--nx-highlight-faint);
   border-radius: 28px;
   background: var(--nx-surface-3);
   box-shadow: var(--nx-shadow-card);
@@ -685,7 +685,7 @@ body.chatview-open {
   animation: cvRecPulse 1s ease-in-out infinite;
 }
 @keyframes cvRecPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(212, 88, 88, 0.35); }
+  0%, 100% { box-shadow: 0 0 0 0 var(--nx-red-line); }
   50%      { box-shadow: 0 0 0 6px rgba(212, 88, 88, 0); }
 }
 
@@ -695,7 +695,7 @@ body.chatview-open {
   left: 14px;
   bottom: calc(100% + 10px);
   background: var(--surface);
-  border: 1px solid rgba(212, 182, 138, 0.28);
+  border: 1px solid var(--nx-gold-aura);
   border-radius: 2px;
   padding: 6px;
   display: none;
@@ -728,7 +728,7 @@ body.chatview-open {
   text-align: left;
   border-radius: 2px;
 }
-.cv-plus-item:hover  { background: rgba(212, 182, 138, 0.06); color: var(--text); }
+.cv-plus-item:hover  { background: var(--nx-gold-faint); color: var(--text); }
 .cv-plus-item.active { color: var(--accent); }
 .cv-plus-item svg { width: 16px; height: 16px; stroke-width: 1.8; flex-shrink: 0; }
 .cv-plus-item-dot {
@@ -763,7 +763,7 @@ body.chatview-open {
   width: min(320px, 85vw);
   z-index: 122;
   background: var(--surface);
-  border-right: 1px solid rgba(212, 182, 138, 0.14);
+  border-right: 1px solid var(--nx-gold-mist);
   display: flex;
   flex-direction: column;
   transform: translateX(-100%);
@@ -775,7 +775,7 @@ body.chatview-open {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid rgba(212, 182, 138, 0.14);
+  border-bottom: 1px solid var(--nx-gold-mist);
   flex-shrink: 0;
 }
 .cv-drawer-title {
@@ -806,7 +806,7 @@ body.chatview-open {
   width: 100%;
   text-align: left;
   -webkit-tap-highlight-color: transparent;
-  border-bottom: 1px solid rgba(212, 182, 138, 0.14);
+  border-bottom: 1px solid var(--nx-gold-mist);
 }
 .cv-drawer-new svg { width: 16px; height: 16px; stroke-width: 2; }
 .cv-drawer-item {
@@ -826,10 +826,10 @@ body.chatview-open {
   transition: background 0.12s, border-left-color 0.12s;
 }
 .cv-drawer-item:hover {
-  background: rgba(212, 182, 138, 0.03);
+  background: var(--nx-gold-tint);
 }
 .cv-drawer-item.is-active {
-  background: rgba(212, 182, 138, 0.06);
+  background: var(--nx-gold-faint);
   border-left-color: var(--accent);
 }
 .cv-drawer-item-title {
@@ -897,7 +897,7 @@ body.chatview-open {
   bottom: 0;
   z-index: 131;
   background: var(--surface);
-  border-top: 1px solid rgba(212, 182, 138, 0.28);
+  border-top: 1px solid var(--nx-gold-aura);
   border-radius: 2px 2px 0 0;
   padding: 18px 20px calc(20px + env(safe-area-inset-bottom));
   max-width: 640px;
@@ -908,7 +908,7 @@ body.chatview-open {
 .cv-persona-sheet.is-open { transform: translateY(0); }
 .cv-persona-grip {
   width: 36px; height: 3px;
-  background: rgba(212, 182, 138, 0.28);
+  background: var(--nx-gold-aura);
   border-radius: 2px;
   margin: -6px auto 14px;
 }
@@ -943,7 +943,7 @@ body.chatview-open {
 .cv-persona-opt {
   padding: 12px 14px;
   border-radius: 2px;
-  border: 1px solid rgba(212, 182, 138, 0.18);
+  border: 1px solid var(--nx-gold-soft);
   background: transparent;
   color: var(--text);
   font-family: inherit;
@@ -968,7 +968,7 @@ body.chatview-open {
 }
 .cv-persona-opt.is-active {
   border-color: var(--accent);
-  background: rgba(212, 182, 138, 0.06);
+  background: var(--nx-gold-faint);
 }
 .cv-persona-opt.is-active .cv-persona-opt-label {
   color: var(--accent);
@@ -982,7 +982,7 @@ body.chatview-open {
 .cv-persona-voice {
   padding: 7px 12px;
   border-radius: 2px;
-  border: 1px solid rgba(212, 182, 138, 0.18);
+  border: 1px solid var(--nx-gold-soft);
   background: transparent;
   color: var(--muted);
   font-family: 'JetBrains Mono', monospace;
@@ -1003,7 +1003,7 @@ body.chatview-open {
   width: 100%;
   padding: 13px;
   margin-top: 20px;
-  border: 1px solid rgba(212, 182, 138, 0.28);
+  border: 1px solid var(--nx-gold-aura);
   background: transparent;
   color: var(--muted);
   font-family: inherit;
@@ -1088,7 +1088,7 @@ body.chatview-open {
 }
 .chatview #chatMessages .chat-action-btn {
   background: transparent !important;
-  border: 1px solid rgba(212, 182, 138, 0.28) !important;
+  border: 1px solid var(--nx-gold-aura) !important;
   border-radius: 2px !important;
   padding: 10px 14px !important;
   font-size: 13px !important;
