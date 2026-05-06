@@ -237,7 +237,7 @@ async function init(){
   document.getElementById('bgProcessToggle')?.addEventListener('change',e=>{
     localStorage.setItem('nexus_bg_process',e.target.checked?'on':'off');
     if(e.target.checked)startBackgroundProcessor();
-    else if(bgInterval){clearInterval(bgInterval);bgInterval=null;log('⚙ Processor stopped');}
+    else if(bgInterval){clearInterval(bgInterval);bgInterval=null;log('Processor stopped');}
   });
 
   // Chip presets — generic handler
@@ -255,8 +255,8 @@ async function init(){
   setupChips('intervalPresets','nexus_bg_interval',()=>{if(bgInterval)startBackgroundProcessor();updateProcStatus();});
   setupChips('modePresets','nexus_bg_mode',val=>{
     updateProcStatus();
-    if(val==='rescan')log('♻ Re-scan mode — archive resets on next cycle');
-    if(val==='pull')log('📬 Pull+Process — fetches new Gmail each cycle');
+    if(val==='rescan')log('Re-scan mode — archive resets on next cycle');
+    if(val==='pull')log('Pull+Process — fetches new Gmail each cycle');
   });
 
   // Pause button
@@ -384,7 +384,7 @@ function initTC(){
     }
   });
 }
-function connectGmail(){const c=NX.getGoogleClientId();if(!c){log('No Google Client ID. Open Admin ⚙.','error');return;}if(!gisLoaded){loadGoogleAuth();setTimeout(connectGmail,1000);return;}if(tokenClient)tokenClient.requestCode();}
+function connectGmail(){const c=NX.getGoogleClientId();if(!c){log('No Google Client ID. Open Admin .','error');return;}if(!gisLoaded){loadGoogleAuth();setTimeout(connectGmail,1000);return;}if(tokenClient)tokenClient.requestCode();}
 
 async function autoRefreshGmail(){
   try{
@@ -411,7 +411,7 @@ async function autoRefreshGmail(){
 
 function showGmailConnected(permanent){
   const st=document.getElementById('gmailStatusText');
-  if(st){st.textContent=permanent?'✓ Working — auto-syncs new mail':'✓ Connected';st.style.color='#4ade80';}
+  if(st){st.textContent=permanent?'✓ Working — auto-syncs new mail':'✓ Connected';st.style.color='var(--green)';}
   const cb=document.getElementById('gmailConnectBtn');
   if(cb)cb.textContent='Reconnect if needed';
   const connectRow=document.getElementById('gmailStatus');
@@ -465,14 +465,14 @@ async function syncEmails(){if(!gmailToken){connectGmail();return;}if(NX.paused)
 isSyncing=true;
 const btn=document.getElementById('gmailSyncBtn'),pf=document.getElementById('gmailProgressFill'),pt=document.getElementById('gmailProgressText');document.getElementById('gmailProgress').style.display='flex';btn.disabled=true;btn.textContent='Syncing...';clearLog();log('Starting email sync...');
 const dv=document.getElementById('gmailDays').value,fl=document.getElementById('gmailFilter').value.trim();let q='';if(dv!=='all'){const a=new Date();a.setDate(a.getDate()-parseInt(dv));q=`after:${a.getFullYear()}/${a.getMonth()+1}/${a.getDate()}`;}if(fl)q+=(q?' ':'')+fl;
-try{let ids=[],npt=null;do{const u=new URL('https://www.googleapis.com/gmail/v1/users/me/messages');u.searchParams.set('maxResults','500');if(q)u.searchParams.set('q',q);if(npt)u.searchParams.set('pageToken',npt);const r=await fetch(u,{headers:{'Authorization':`Bearer ${gmailToken}`}});if(r.status===401){localStorage.removeItem('nexus_gmail_token');gmailToken=null;log('Token expired.','error');btn.disabled=false;btn.textContent='⚡ Sync';return;}const d=await r.json();if(d.messages)ids.push(...d.messages.map(m=>m.id));npt=d.nextPageToken;log(`${ids.length} IDs...`);}while(npt);
-if(!ids.length){log('No emails found.','warn');btn.disabled=false;btn.textContent='⚡ Sync';return;}
+try{let ids=[],npt=null;do{const u=new URL('https://www.googleapis.com/gmail/v1/users/me/messages');u.searchParams.set('maxResults','500');if(q)u.searchParams.set('q',q);if(npt)u.searchParams.set('pageToken',npt);const r=await fetch(u,{headers:{'Authorization':`Bearer ${gmailToken}`}});if(r.status===401){localStorage.removeItem('nexus_gmail_token');gmailToken=null;log('Token expired.','error');btn.disabled=false;btn.textContent='Sync';return;}const d=await r.json();if(d.messages)ids.push(...d.messages.map(m=>m.id));npt=d.nextPageToken;log(`${ids.length} IDs...`);}while(npt);
+if(!ids.length){log('No emails found.','warn');btn.disabled=false;btn.textContent='Sync';return;}
 
 // LAYER 1: Filter already-processed
 const newIds=ids.filter(id=>!processedIds.has(id));
 const skipped=ids.length-newIds.length;
 if(skipped)log(`Skipping ${skipped} already-processed`);
-if(!newIds.length){log('All processed. Nothing new.','success');btn.disabled=false;btn.textContent='⚡ Sync';pf.style.width='100%';return;}
+if(!newIds.length){log('All processed. Nothing new.','success');btn.disabled=false;btn.textContent='Sync';pf.style.width='100%';return;}
 
 // Cost estimate
 const estTokens=newIds.length*800;const estCost=(estTokens/1000*0.003).toFixed(3);
@@ -524,7 +524,7 @@ for(const email of allEmails){
     }catch(e){}
   }
 }
-if(attCount)log(`📎 Downloaded ${attCount} attachments`,'success');
+if(attCount)log(`Downloaded ${attCount} attachments`,'success');
 
 // Save raw emails for future re-ingestion — BATCHED
 let savedRaw=0;
@@ -546,17 +546,17 @@ for(let i=0;i<allEmails.length;i+=ARCHIVE_BATCH){
   }catch(e){log('Archive failed: '+e.message,'error');break;}
   if(i+ARCHIVE_BATCH<allEmails.length)await sleep(300); // Breathe between batches
 }
-log(`💾 ${savedRaw} emails archived`);
+log(`${savedRaw} emails archived`);
 
 // Queue info
 const unprocessed=allEmails.length; // All newly archived are unprocessed
-log(`📋 <b>${unprocessed} emails queued</b> for background AI processing (every 5 min, 3 at a time)`);
+log(`<b>${unprocessed} emails queued</b> for background AI processing (every 5 min, 3 at a time)`);
 log('Background processor will extract nodes automatically. No rate limits hit.');
 updateQueueStatus();
 
 pf.style.width='100%';pt.textContent='Archived!';
 log(`<b>Complete:</b> ${savedRaw} emails archived. Background AI will process them.`,'success');
-await NX.loadNodes();if(NX.brain)NX.brain.init();updateStats();}catch(e){log('FATAL: '+e.message,'error');}isSyncing=false;btn.disabled=false;btn.textContent='⚡ Sync Emails → Brain';}
+await NX.loadNodes();if(NX.brain)NX.brain.init();updateStats();}catch(e){log('FATAL: '+e.message,'error');}isSyncing=false;btn.disabled=false;btn.textContent='Sync Emails → Brain';}
 
 // ═══ BACKGROUND AI PROCESSOR — custom batch/interval ═══
 let bgInterval=null,isSyncing=false;
@@ -637,7 +637,7 @@ async function pullNewEmails(limit){
       }
       if(i+5<newIds.length)await sleep(200);
     }
-    if(archived)log(`📬 Pulled ${archived} new emails`,'success');
+    if(archived)log(`Pulled ${archived} new emails`,'success');
     return archived;
   }catch(e){log('Pull error: '+e.message,'error');return 0;}
 }
@@ -666,7 +666,7 @@ async function processNextBatch(){
       if(!count||count<1){
         setStage('init','resetting archive');
         await NX.sb.from('raw_emails').update({processed:false}).eq('processed',true);
-        log('♻ Archive reset for re-scan','success');
+        log('Archive reset for re-scan','success');
         localStorage.setItem('nexus_bg_mode','process');
         document.querySelectorAll('#modePresets .ig-chip').forEach(b=>{b.classList.toggle('active',b.dataset.val==='process');});
         updateQueueStatus();return;
@@ -677,7 +677,7 @@ async function processNextBatch(){
     if(mode==='pull'&&gmailToken){
       setStage('pull','fetching new emails');
       const pulled=await pullNewEmails(getBatchSize());
-      if(pulled){log(`📬 ${pulled} new emails pulled`);updateQueueStatus();}
+      if(pulled){log(`${pulled} new emails pulled`);updateQueueStatus();}
     }
 
     // ── STAGE: FETCH ──
@@ -686,7 +686,7 @@ async function processNextBatch(){
     const{data,error}=await NX.sb.from('raw_emails').select('*').eq('processed',false).order('ingested_at',{ascending:true}).limit(batchSize);
     if(error||!data||!data.length){setProcLive('active','Idle — queue empty');updateQueueStatus();return;}
     setStage('fetch',`${data.length} emails`);
-    log(`⚙ Batch: ${data.length} emails`);
+    log(`Batch: ${data.length} emails`);
 
     const emails=data.map(e=>({
       id:e.id,from:e.from_addr,to:e.to_addr,date:e.date,subject:e.subject,
@@ -729,12 +729,12 @@ async function processNextBatch(){
                   await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
                   const b64=cv.toDataURL('image/jpeg',0.85).split(',')[1];
                   const vt=await NX.askClaudeVision('Extract ALL text, numbers, dates, amounts, part numbers from this document page. Plain text.',b64,'image/jpeg');
-                  if(vt&&vt.length>20){pt+='\n[OCR p'+pn+'] '+vt+'\n';log(`  📖 OCR p${pn}: ${vt.length} chars`);}
+                  if(vt&&vt.length>20){pt+='\n[OCR p'+pn+'] '+vt+'\n';log(`  OCR p${pn}: ${vt.length} chars`);}
                 }catch(e){}
               }
             }
-            if(pt.length>50){email.body+='\n[PDF:'+att.filename+']\n'+pt.slice(0,5000);pdfCount++;log(`  📎 PDF ${att.filename}: ${pt.length} chars`);}
-          }catch(e){log(`  ⚠ PDF failed: ${att.filename}`,'warn');}
+            if(pt.length>50){email.body+='\n[PDF:'+att.filename+']\n'+pt.slice(0,5000);pdfCount++;log(`  PDF ${att.filename}: ${pt.length} chars`);}
+          }catch(e){log(`  PDF failed: ${att.filename}`,'warn');}
         }
 
         if(['jpg','jpeg','png','webp','gif'].includes(ext)&&shouldExtractImages()){
@@ -745,8 +745,8 @@ async function processNextBatch(){
             const b64=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result.split(',')[1]);fr.readAsDataURL(blob);});
             const mt=blob.type||'image/jpeg';
             const vr=await NX.askClaudeVision('Extract ALL text, numbers, items, prices, totals, dates, vendor names, part numbers, model numbers from this image. If equipment photo: brand, model, condition, serial numbers. Plain text only.',b64,mt);
-            if(vr&&vr.length>20){email.body+='\n[IMAGE:'+att.filename+']\n'+vr.slice(0,2000);imgCount++;log(`  🖼 Image ${att.filename}`);}
-          }catch(e){log(`  ⚠ Image failed: ${att.filename}`,'warn');}
+            if(vr&&vr.length>20){email.body+='\n[IMAGE:'+att.filename+']\n'+vr.slice(0,2000);imgCount++;log(`  Image ${att.filename}`);}
+          }catch(e){log(`  Image failed: ${att.filename}`,'warn');}
         }
 
         // ── MarkItDown: Word, Excel, PPT, HTML, CSV via Edge Function ──
@@ -772,15 +772,15 @@ async function processNextBatch(){
                 const mdResp=await NX.sb.functions.invoke('markitdown',{body:{content:rawText.slice(0,30000),filename:att.filename,mode:'extract'}});
                 if(mdResp.data?.markdown){
                   email.body+='\n[DOC:'+att.filename+']\n'+mdResp.data.markdown.slice(0,5000);
-                  docCount++;log(`  📄 MarkItDown ${att.filename}: ${mdResp.data.chars} chars`,'success');
+                  docCount++;log(`  MarkItDown ${att.filename}: ${mdResp.data.chars} chars`,'success');
                 }
               }catch(mdErr){
                 // Fallback: use raw text directly
                 email.body+='\n[DOC:'+att.filename+']\n'+rawText.slice(0,5000);
-                docCount++;log(`  📄 Raw extract ${att.filename}: ${rawText.length} chars`);
+                docCount++;log(`  Raw extract ${att.filename}: ${rawText.length} chars`);
               }
             }
-          }catch(e){log(`  ⚠ Doc failed: ${att.filename}`,'warn');}
+          }catch(e){log(`  Doc failed: ${att.filename}`,'warn');}
         }
       }
     }
@@ -812,7 +812,7 @@ async function processNextBatch(){
 
     for(const d of data){
       try{await NX.sb.from('raw_emails').update({processed:true}).eq('id',d.id);itemsProcessed++;}
-      catch(e){log(`  ⚠ Failed to mark processed: ${d.id}`,'warn');}
+      catch(e){log(`  Failed to mark processed: ${d.id}`,'warn');}
       await sleep(50);
     }
 
@@ -840,7 +840,7 @@ async function processNextBatch(){
       NX.homeGalaxyPulse();
     }
   }catch(e){
-    log(`⚙ Error at ${stage}: ${e.message}`,'error');
+    log(`Error at ${stage}: ${e.message}`,'error');
     setProcLive('',`Error: ${stage}`);
     if(NX.toast)NX.toast(`Pipeline failed at ${stage}`,'error');
   }
@@ -848,7 +848,7 @@ async function processNextBatch(){
 function startBackgroundProcessor(){
   if(bgInterval){clearInterval(bgInterval);bgInterval=null;}
   const ms=getIntervalMs();const batch=getBatchSize();
-  log(`⚙ Background processor: ${batch} emails every ${ms/1000}s`);
+  log(`Background processor: ${batch} emails every ${ms/1000}s`);
   setTimeout(()=>processNextBatch(),30000);
   bgInterval=setInterval(processNextBatch,ms);
   updateProcStatus();
@@ -1093,12 +1093,12 @@ async function updatePushStatus(){
     }
     if(st.permission==='denied'){
       sub.textContent='Blocked in browser';
-      sub.style.color='#e88';
+      sub.style.color='var(--red)';
       body.innerHTML=`
         <div class="ig-note">
           Notifications are blocked for this site in your browser settings. To fix:
           <ul style="margin:8px 0 0 16px;padding:0;line-height:1.7">
-            <li>Tap the padlock 🔒 in the address bar</li>
+            <li>Tap the padlock icon in the address bar</li>
             <li>Find <b>Notifications</b> and switch to <b>Allow</b></li>
             <li>Reload the page and come back here</li>
           </ul>
@@ -1107,7 +1107,7 @@ async function updatePushStatus(){
     }
     if(st.subscribed&&st.permission==='granted'){
       sub.textContent='✓ On — this device is receiving alerts';
-      sub.style.color='#5bba5f';
+      sub.style.color='var(--green)';
       body.innerHTML=`
         <div class="ig-note ig-note-good">
           ✓ You'll get a notification when tickets or cards are created. Urgent ones buzz louder.
@@ -1150,7 +1150,7 @@ async function updatePushStatus(){
         Get a notification on this device when ${NX.currentUser?.role==='staff'?'urgent':'any'} ticket or card is created.
         ${declinedBefore?'<br><br>You can change your mind anytime.':''}
       </div>
-      <button id="pushEnableBtn" class="ig-btn-primary ig-btn-wide" style="margin-top:12px">🔔 Turn on notifications</button>
+      <button id="pushEnableBtn" class="ig-btn-primary ig-btn-wide" style="margin-top:12px"><i data-lucide="bell" class="btn-icon"></i> Turn on notifications</button>
       <div id="pushEnableResult" class="ig-feedback"></div>`;
     const enableBtn=body.querySelector('#pushEnableBtn');
     const enableResult=body.querySelector('#pushEnableResult');
@@ -1167,7 +1167,7 @@ async function updatePushStatus(){
           enableBtn.textContent='Server not configured';
           if(enableResult)enableResult.textContent='Admin: add vapid_public_key to nexus_config.config';
         }else if(r.reason&&r.reason.startsWith('permission_')){
-          enableBtn.textContent='🔔 Turn on notifications';
+          enableBtn.textContent='Turn on notifications';
         }else{
           enableBtn.textContent='Failed — try again';
         }
@@ -1212,19 +1212,19 @@ function showGuide(pending,nodes,archived){
   // for onboarding (first-time user) or genuine "done" celebrations.
   if(nodes<5&&archived===0){
     el.style.display='';
-    el.innerHTML=`<div class="ig-guide-icon">👋</div>
+    el.innerHTML=`<div class="ig-guide-icon"><i data-lucide="hand"></i></div>
       <div class="ig-guide-body">
         <div class="ig-guide-title">Get started — feed your Brain</div>
         <div class="ig-guide-steps">
           <div class="ig-guide-step"><b>Gmail:</b> Connect below → server auto-syncs new emails in real time</div>
-          <div class="ig-guide-step"><b>WhatsApp/SMS:</b> Open the 📱 section → pick a .txt or .xml export</div>
+          <div class="ig-guide-step"><b>WhatsApp/SMS:</b> Open the messaging section → pick a .txt or .xml export</div>
           <div class="ig-guide-step"><b>Files:</b> Drop PDFs, Word, Excel into the upload zone</div>
           <div class="ig-guide-step"><b>Paste:</b> Any notes, transcripts, or vendor info</div>
         </div>
       </div>`;
   }else if(pending===0&&nodes>0){
     el.style.display='';
-    el.innerHTML=`<div class="ig-guide-icon">✅</div>
+    el.innerHTML=`<div class="ig-guide-icon"><i data-lucide="check-circle"></i></div>
       <div class="ig-guide-body">
         <div class="ig-guide-title">Queue clear — ${nodes} nodes in Brain</div>
         <div class="ig-guide-steps">
@@ -1282,13 +1282,13 @@ async function processEmailFiles(files){
       if(name.endsWith('.mbox')){
         const text=await file.text();
         const parsed=parseMbox(text);
-        log(`📂 ${file.name}: ${parsed.length} emails`);
+        log(`${file.name}: ${parsed.length} emails`);
         allEmails=allEmails.concat(parsed);
       }else if(name.endsWith('.eml')||name.endsWith('.txt')){
         const text=await file.text();
         const email=parseEml(text);
-        if(email){log(`📧 ${file.name}: ${email.subject||'(no subject)'}`);allEmails.push(email);}
-        else log(`⚠ Could not parse ${file.name}`,'warn');
+        if(email){log(`${file.name}: ${email.subject||'(no subject)'}`);allEmails.push(email);}
+        else log(`Could not parse ${file.name}`,'warn');
       }else if(name.endsWith('.msg')){
         // Outlook .msg — extract readable text from binary
         const buffer=await file.arrayBuffer();
@@ -1312,19 +1312,19 @@ async function processEmailFiles(files){
             body:cleanEmailBody(text),
             id:'msg_'+Date.now()+'_'+Math.random().toString(36).slice(2,8)
           };
-          log(`📧 ${file.name} (Outlook): ${email.subject||'parsed'}`);
+          log(`${file.name} (Outlook): ${email.subject||'parsed'}`);
           allEmails.push(email);
         }else{
-          log(`⚠ ${file.name}: couldn't extract text from .msg — try exporting as .eml from Outlook`,'warn');
+          log(`${file.name}: couldn't extract text from .msg — try exporting as .eml from Outlook`,'warn');
         }
       }else{
         const text=await file.text();
         const email=parseEml(text);
-        if(email&&email.from){allEmails.push(email);log(`📧 ${file.name}: parsed`);}
+        if(email&&email.from){allEmails.push(email);log(`${file.name}: parsed`);}
         else{
           // Treat as raw text to process
           allEmails.push({from:file.name,subject:file.name,body:cleanEmailBody(text),date:new Date().toISOString(),id:'file_'+Date.now()+'_'+Math.random().toString(36).slice(2,8)});
-          log(`📄 ${file.name}: imported as raw text`);
+          log(`${file.name}: imported as raw text`);
         }
       }
     }catch(e){log(`Error: ${file.name}: ${e.message}`,'error');}
@@ -1341,7 +1341,7 @@ async function processEmailFiles(files){
   for(const e of relevant){
     try{await NX.sb.from('raw_emails').upsert({id:e.id,from_addr:e.from,to_addr:e.to,date:e.date,subject:e.subject,body:e.body,snippet:(e.body||'').slice(0,200),attachment_count:0,attachments:[]},{onConflict:'id'});archived++;}catch(err){}
   }
-  log(`💾 ${archived} emails archived`);
+  log(`${archived} emails archived`);
 
   log(`<b>${relevant.length} emails</b> queued for background AI processing.`,'success');
   status.textContent=`✓ ${archived} emails queued`;
@@ -1368,7 +1368,7 @@ async function exportBackup(){
         }
         backup.tables[table]=all;
         log(`  ✓ ${table}: ${all.length} rows`);
-      }catch(e){log(`  ⚠ ${table}: ${e.message}`,'warn');backup.tables[table]=[];}
+      }catch(e){log(`  ${table}: ${e.message}`,'warn');backup.tables[table]=[];}
     }
     // Create downloadable file
     const json=JSON.stringify(backup,null,2);
@@ -1389,13 +1389,13 @@ async function exportBackup(){
 // ═══ BACKUP IMPORT — restore from JSON ═══
 async function importBackup(file){
   const status=document.getElementById('importStatus');
-  if(!confirm('⚠ This will MERGE data into your current database. Existing data with matching IDs will be overwritten. Continue?'))return;
+  if(!confirm('This will MERGE data into your current database. Existing data with matching IDs will be overwritten. Continue?'))return;
   status.textContent='Reading file...';clearLog();
   try{
     const text=await file.text();
     const backup=JSON.parse(text);
     if(!backup.tables){status.textContent='Invalid backup file.';return;}
-    log(`📦 Backup from ${backup.exported||'unknown'} (v${backup.version||1})`);
+    log(`Backup from ${backup.exported||'unknown'} (v${backup.version||1})`);
 
     // Import order matters — config first, then users, then data
     const order=['nexus_config','nexus_users','nodes','kanban_cards','cleaning_logs','daily_logs','contractor_events','chat_history','processed_ids','raw_emails','tickets'];
@@ -1412,7 +1412,7 @@ async function importBackup(file){
           const pk=table==='nexus_config'?'id':table==='raw_emails'?'id':'id';
           const{error}=await NX.sb.from(table).upsert(batch,{onConflict:pk,ignoreDuplicates:false});
           if(!error)imported+=batch.length;
-          else log(`  ⚠ ${table} batch: ${error.message}`,'warn');
+          else log(`  ${table} batch: ${error.message}`,'warn');
         }catch(e){}
         if(i+50<rows.length)await sleep(200);
       }
@@ -1455,7 +1455,7 @@ async function extractPdfText(file){
     // Pass 2: Render low-text pages as images → Claude Vision OCR
     if(lowTextPages.length>0&&NX.askClaudeVision){
       const pagesToScan=lowTextPages.slice(0,8); // Max 8 pages via Vision
-      log(`  🔍 ${pagesToScan.length} scanned/image pages detected — using Vision OCR`);
+      log(`  ${pagesToScan.length} scanned/image pages detected — using Vision OCR`);
       for(const pageNum of pagesToScan){
         try{
           const page=await pdf.getPage(pageNum);
@@ -1471,7 +1471,7 @@ async function extractPdfText(file){
           );
           if(visionText&&visionText.length>20){
             allText+=`[Page ${pageNum} — OCR]\n${visionText}\n\n`;
-            log(`  📖 Page ${pageNum}: ${visionText.length} chars via Vision`);
+            log(`  Page ${pageNum}: ${visionText.length} chars via Vision`);
           }
         }catch(e){}
       }
@@ -1512,7 +1512,7 @@ async function extractPdfText(file){
                   if(vt&&vt.length>15){
                     allText+=`[Embedded Image p${i}]\n${vt}\n\n`;
                     imageCount++;
-                    log(`  🖼 Embedded image p${i}: ${vt.length} chars`);
+                    log(`  Embedded image p${i}: ${vt.length} chars`);
                   }
                 }
               }catch(e){}
@@ -1605,16 +1605,16 @@ async function processDocFiles(files){
 
   for(const file of files){
     const ext=(file.name.split('.').pop()||'').toLowerCase();
-    log(`📄 ${file.name} (${(file.size/1024).toFixed(0)}KB)...`);
+    log(`${file.name} (${(file.size/1024).toFixed(0)}KB)...`);
     let text='';
 
     if(ext==='pdf')text=await extractPdfText(file);
     else if(ext==='docx')text=await extractDocxText(file);
     else if(ext==='xlsx'||ext==='xls')text=await extractXlsxText(file);
     else if(['csv','txt','md','json'].includes(ext))text=await file.text();
-    else{log(`  ⚠ Unsupported: .${ext}`,'warn');continue;}
+    else{log(`  Unsupported: .${ext}`,'warn');continue;}
 
-    if(!text||text.length<20){log(`  ⚠ No usable text`,'warn');continue;}
+    if(!text||text.length<20){log(`  No usable text`,'warn');continue;}
     log(`  ✓ ${text.length} chars extracted`);
 
     // Upload to Supabase Storage
@@ -1622,7 +1622,7 @@ async function processDocFiles(files){
     try{
       const path=`documents/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
       const{error}=await NX.sb.storage.from('nexus-files').upload(path,file,{contentType:file.type,upsert:true});
-      if(!error){const{data}=NX.sb.storage.from('nexus-files').getPublicUrl(path);fileUrl=data?.publicUrl||'';log('  📎 Uploaded');}
+      if(!error){const{data}=NX.sb.storage.from('nexus-files').getPublicUrl(path);fileUrl=data?.publicUrl||'';log('  Uploaded');}
     }catch(e){}
 
     // Archive for background AI processing
@@ -1640,7 +1640,7 @@ async function processDocFiles(files){
   }
 
   if(totalArchived){
-    log(`💾 ${totalArchived} docs queued for AI processing`,'success');
+    log(`${totalArchived} docs queued for AI processing`,'success');
     status.textContent=`✓ ${totalArchived} files queued`;
     updateQueueStatus();
   }else status.textContent='No content found.';
@@ -1677,7 +1677,7 @@ async function ingestWhatsApp(text,filename){
   if(!messages.length){log('No messages found in WhatsApp export.','warn');return;}
   const byContact={};
   messages.forEach(m=>{if(!byContact[m.sender])byContact[m.sender]=[];byContact[m.sender].push(m);});
-  log(`📱 WhatsApp: ${messages.length} messages, ${Object.keys(byContact).length} contacts`);
+  log(`WhatsApp: ${messages.length} messages, ${Object.keys(byContact).length} contacts`);
   showContactPicker(byContact,'whatsapp',filename);
 }
 
@@ -1686,7 +1686,7 @@ async function ingestWhatsApp(text,filename){
 async function ingestWhatsAppStreamed(file){
   clearLog();
   const sizeMB=(file.size/1024/1024).toFixed(0);
-  log(`📱 Reading WhatsApp export (${sizeMB} MB)...`);
+  log(`Reading WhatsApp export (${sizeMB} MB)...`);
   setProcLive('working',`Reading ${sizeMB} MB...`);
 
   const byContact={};
@@ -1747,7 +1747,7 @@ async function ingestWhatsAppStreamed(file){
 async function ingestSmsStreamed(file){
   clearLog();
   const sizeMB=(file.size/1024/1024).toFixed(0);
-  log(`📱 Reading SMS backup (${sizeMB} MB)...`);
+  log(`Reading SMS backup (${sizeMB} MB)...`);
   setProcLive('working',`Reading ${sizeMB} MB...`);
 
   const byContact={};
@@ -1828,7 +1828,7 @@ async function ingestSms(text,filename){
   if(!messages.length){log('No SMS messages found in XML.','warn');return;}
   const byContact={};
   messages.forEach(m=>{if(!byContact[m.sender])byContact[m.sender]=[];byContact[m.sender].push(m);});
-  log(`📱 SMS: ${messages.length} messages, ${Object.keys(byContact).length} contacts`);
+  log(`SMS: ${messages.length} messages, ${Object.keys(byContact).length} contacts`);
   showContactPicker(byContact,'sms',filename);
 }
 
@@ -1841,7 +1841,7 @@ function showContactPicker(byContact,source,filename){
   })).sort((a,b)=>b.count-a.count);
 
   const overlay=document.createElement('div');overlay.className='board-modal-overlay';
-  const icon=source==='whatsapp'?'📱':'💬';
+  const iconName=source==='whatsapp'?'message-circle':'message-square';const icon=`<i data-lucide="${iconName}"></i>`;
   overlay.innerHTML=`<div class="board-modal" style="max-height:85vh;overflow-y:auto;max-width:400px">
     <div class="board-modal-title">${icon} ${source==='whatsapp'?'WhatsApp':'SMS'} — Select Contacts</div>
     <div style="font-size:11px;color:var(--faint);margin-bottom:10px">${filename} · ${contacts.reduce((a,c)=>a+c.count,0)} total messages</div>
@@ -1945,7 +1945,7 @@ async function importFilteredMessages(byContact,source,filename){
       totalArchived++;
     }catch(e){log('Archive error: '+e.message,'error');}
   }
-  log(`💾 ${totalArchived} new chunks queued (${skipped} duplicates skipped)`,'success');
+  log(`${totalArchived} new chunks queued (${skipped} duplicates skipped)`,'success');
   if(NX.toast)NX.toast(`${totalArchived} new chunks imported${skipped?' · '+skipped+' skipped':''}`,'success');
   if(NX.syslog)NX.syslog('whatsapp_import',`${totalArchived} messages imported${skipped?' ('+skipped+' skipped)':''}`);
   NX.syslog&&NX.syslog(`${source}_import`,`${totalMsgs} msgs from ${contactNames.join(', ')} — ${skipped} dupes skipped`);
@@ -2042,7 +2042,7 @@ function parseContactsCsv(text){
 
 function showContactImportPicker(contacts){
   clearLog();
-  log(`👤 ${contacts.length} contacts found`);
+  log(`${contacts.length} contacts found`);
 
   // Check which already exist as nodes
   const existingNames=new Set((NX.nodes||[]).map(n=>n.name.toLowerCase()));
@@ -2053,7 +2053,7 @@ function showContactImportPicker(contacts){
 
   const overlay=document.createElement('div');overlay.className='board-modal-overlay';
   overlay.innerHTML=`<div class="board-modal" style="max-height:85vh;overflow-y:auto;max-width:440px">
-    <div class="board-modal-title">👤 Import Contacts (${newContacts.length} new${existCount?' · '+existCount+' existing':''})</div>
+    <div class="board-modal-title">Import Contacts (${newContacts.length} new${existCount?' · '+existCount+' existing':''})</div>
     <div style="display:flex;gap:6px;margin-bottom:8px">
       <select class="ig-select" id="ctCatSelect" style="flex:1">
         <option value="auto">Auto-categorize</option>
@@ -2147,7 +2147,7 @@ async function importSelectedContacts(contacts,catMode){
     }catch(e){errors++;}
   }
 
-  log(`✅ ${created} contacts imported as nodes${errors?' ('+errors+' failed)':''}`,'success');
+  log(`${created} contacts imported as nodes${errors?' ('+errors+' failed)':''}`,'success');
   if(NX.syslog)NX.syslog('contact_import',`${created} contacts imported`);
   if(NX.toast)NX.toast(`${created} contacts added to Brain`,'success');
   NX.syslog&&NX.syslog('contacts_imported',`${created} contacts`);
@@ -2164,13 +2164,13 @@ async function reIngestArchived(){
     if(error){log('Error: '+error.message,'error');}
     else{
       const{count}=await NX.sb.from('raw_emails').select('*',{count:'exact',head:true}).eq('processed',false);
-      log(`♻ <b>${count} emails</b> reset to unprocessed. Background AI will re-process them (3 every 5 min).`,'success');
+      log(`<b>${count} emails</b> reset to unprocessed. Background AI will re-process them (3 every 5 min).`,'success');
       log(`Estimated time: ~${Math.ceil((count||0)/3)*5} minutes`);
       updateQueueStatus();
       if(localStorage.getItem('nexus_bg_process')==='on')startBackgroundProcessor();
     }
   }catch(e){log('Error: '+e.message,'error');}
-  btn.disabled=false;btn.textContent='♻ Re-ingest Archive';
+  btn.disabled=false;btn.textContent='Re-ingest Archive';
 }
 
 // ═══ AI PROCESSING WITH SOURCES + LAYER 3 (existing nodes in prompt) ═══
@@ -2350,7 +2350,7 @@ for(const n of r.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2)continu
   let isSensitive=false;
   for(const pat of SENSITIVE_PATTERNS){
     if(pat.test(fullText)){
-      log(`🔒 Blocked: "${nm}" contains sensitive data (auto-redacted)`,'warn');
+      log(`Blocked: "${nm}" contains sensitive data (auto-redacted)`,'warn');
       isSensitive=true;break;
     }
   }
@@ -2393,7 +2393,7 @@ if(r.cards) {
     }
   }
   if (inserted > 0 || rejected > 0) {
-    log(`  📋 Cards: ${inserted} created, ${rejected} rejected (low confidence or weak evidence)`, inserted > 0 ? 'success' : 'info');
+    log(`  Cards: ${inserted} created, ${rejected} rejected (low confidence or weak evidence)`, inserted > 0 ? 'success' : 'info');
   }
 }
 // Save contractor events
@@ -2413,7 +2413,7 @@ if(r.contractor_events){
       evtCount++;
     }catch(e){}
   }
-  if(evtCount)log(`📅 ${evtCount} contractor visit(s) scheduled`,'success');
+  if(evtCount)log(`${evtCount} contractor visit(s) scheduled`,'success');
 }
 if(updated)log(`${updated} existing nodes enriched`,'success');
 if(er)log(`${er} inserts failed`,'error');
@@ -2424,16 +2424,16 @@ return c+updated;}
 
 // ═══ AUTO-TRIAGE — flag urgent items during pipeline ═══
 const URGENT_PATTERNS=[
-  {re:/health\s*(?:dept|department|inspector|inspection|violation)/i,label:'🏥 Health Dept'},
-  {re:/equipment\s*(?:failure|down|broken|not\s*working|malfunction)/i,label:'🔧 Equipment Down'},
-  {re:/\b(?:water\s*leak|flood|water\s*damage|burst\s*pipe)\b/i,label:'💧 Water/Leak'},
-  {re:/\b(?:fire\s*(?:alarm|damage|hazard)|smoke\s*(?:alarm|damage))\b/i,label:'🔥 Fire/Safety'},
-  {re:/\b(?:pest\s*(?:control|issue|problem|inspection|treatment|infestation)|cockroach|rodent|mice\b|mouse\s*trap|rat\s*trap)\b/i,label:'🐛 Pest Issue'},
-  {re:/\b(?:price\s*increase|rate\s*(?:increase|change)|cost\s*increase)\b/i,label:'💰 Price Change'},
-  {re:/\b(?:cancel|terminat|discontinue)\b/i,label:'⚠ Cancellation'},
+  {re:/health\s*(?:dept|department|inspector|inspection|violation)/i,label:'Health Dept'},
+  {re:/equipment\s*(?:failure|down|broken|not\s*working|malfunction)/i,label:'Equipment Down'},
+  {re:/\b(?:water\s*leak|flood|water\s*damage|burst\s*pipe)\b/i,label:'Water/Leak'},
+  {re:/\b(?:fire\s*(?:alarm|damage|hazard)|smoke\s*(?:alarm|damage))\b/i,label:'Fire/Safety'},
+  {re:/\b(?:pest\s*(?:control|issue|problem|inspection|treatment|infestation)|cockroach|rodent|mice\b|mouse\s*trap|rat\s*trap)\b/i,label:'Pest Issue'},
+  {re:/\b(?:price\s*increase|rate\s*(?:increase|change)|cost\s*increase)\b/i,label:'Price Change'},
+  {re:/\b(?:cancel|terminat|discontinue)\b/i,label:'Cancellation'},
   {re:/\b(?:expire|past\s*due|overdue\s*(?:invoice|payment|bill))\b/i,label:'⏰ Expiring/Overdue'},
-  {re:/\b(?:urgent|emergency|asap|immediately|critical)\b/i,label:'🚨 Urgent'},
-  {re:/\b(?:recall|safety\s*alert|warning\s*notice)\b/i,label:'⚠ Safety Alert'},
+  {re:/\b(?:urgent|emergency|asap|immediately|critical)\b/i,label:'Urgent'},
+  {re:/\b(?:recall|safety\s*alert|warning\s*notice)\b/i,label:'Safety Alert'},
 ];
 
 function triageNewNodes(nodes){
@@ -2452,7 +2452,7 @@ function triageNewNodes(nodes){
   alerts.forEach(a=>{
     if(NX.toast)NX.toast(`${a.label}: ${a.node}`,'error',8000);
   });
-  log(`🚨 <b>${alerts.length} URGENT</b> items detected:`,'error');
+  log(`<b>${alerts.length} URGENT</b> items detected:`,'error');
   alerts.forEach(a=>log(`  ${a.label} — ${a.node}: ${a.snippet}`,'error'));
   // Store for proactive chat
   NX._urgentAlerts=(NX._urgentAlerts||[]).concat(alerts).slice(-20);
@@ -2470,7 +2470,7 @@ function updateStats(){const el=document.getElementById('ingestStats');if(!el)re
 
 // ═══ WEEKLY DIGEST — generates operational report via Claude ═══
 async function generateDigest(){
-  clearLog();log('📊 Generating weekly digest...');
+  clearLog();log('Generating weekly digest...');
   // (api key check removed — edge function holds the key)
   try{
     const weekAgo=new Date(Date.now()-7*86400000).toISOString();
@@ -2556,7 +2556,7 @@ ${chats.slice(0,8).map(c=>`${c.user_name}: "${(c.question||'').slice(0,60)}"`).j
     // Save to daily_logs
     try{
       await NX.sb.from('daily_logs').insert({
-        entry:`📊 WEEKLY DIGEST (${today}):\n${digest}`,
+        entry:`WEEKLY DIGEST (${today}):\n${digest}`,
         user_id:NX.currentUser?.id||0,
         user_name:'NEXUS'
       });
@@ -2568,7 +2568,7 @@ ${chats.slice(0,8).map(c=>`${c.user_name}: "${(c.question||'').slice(0,60)}"`).j
 
 // ═══ SMART REMINDERS — find unresolved discussions ═══
 async function smartReminders(){
-  clearLog();log('🧠 Scanning for unresolved items...');
+  clearLog();log('Scanning for unresolved items...');
   // (api key check removed — edge function holds the key)
   try{
     const twoWeeks=new Date(Date.now()-14*86400000).toISOString();
@@ -2615,7 +2615,7 @@ If everything looks handled, say so. Be brief. JSON format:
       const clean=text.replace(/```json|```/g,'').trim();
       const parsed=JSON.parse(clean);
       if(parsed.all_clear||!parsed.items||!parsed.items.length){
-        log('✅ All clear — no unresolved items found','success');
+        log('All clear — no unresolved items found','success');
         return;
       }
       log(`Found ${parsed.items.length} unresolved items:`,'warn');
@@ -2638,7 +2638,7 @@ If everything looks handled, say so. Be brief. JSON format:
 // ═══ SENSITIVE DATA SCANNER — AI identifies and removes personal nodes ═══
 // ═══ NODE DEDUPLICATION TOOL ═══
 async function findDuplicates(){
-  clearLog();log('🔍 Scanning for duplicate nodes...');
+  clearLog();log('Scanning for duplicate nodes...');
   try{
     const{data}=await NX.sb.from('nodes').select('id,name,category,notes,tags');
     if(!data||data.length<2){log('Not enough nodes to check.','warn');return;}
@@ -2715,7 +2715,7 @@ If no duplicates found, return: {"duplicates":[]}`,
 async function scanSensitive(){
   const btn=document.getElementById('sensitiveBtn');if(!btn)return;
   btn.disabled=true;btn.textContent='Scanning...';clearLog();
-  log('🔒 Scanning nodes for sensitive/personal data...');
+  log('Scanning nodes for sensitive/personal data...');
 
   // Load learned rules from Supabase (persists across devices)
   let safePatterns=[];
@@ -2786,11 +2786,11 @@ If nothing sensitive: {"flagged":[]}`,
   }
 
   if(!flagged.length){
-    log('✅ <b>No sensitive data found.</b> Your brain is clean.','success');
+    log('<b>No sensitive data found.</b> Your brain is clean.','success');
     btn.disabled=false;btn.textContent='Scan & Remove Personal Data';return;
   }
 
-  log(`\n🔒 Found <b>${flagged.length} item(s)</b> to review.\n`,'warn');
+  log(`\nFound <b>${flagged.length} item(s)</b> to review.\n`,'warn');
 
   // Save learned rules back to Supabase
   async function savePrivacyRules(){
@@ -2909,7 +2909,7 @@ async function buildRelationships(auto=false){
   const btn=document.getElementById('relationshipBtn');
   if(btn){btn.disabled=true;btn.textContent=auto?'Auto-linking...':'Analyzing...';}
   if(!auto)clearLog();
-  log('🔗 AI scanning nodes for relationships...');
+  log('AI scanning nodes for relationships...');
 
   const nodes=NX.nodes.filter(n=>!n.is_private);
   if(nodes.length<2){log('Need 2+ nodes.','warn');if(btn){btn.disabled=false;btn.textContent='Build Relationships';}return;}
@@ -2964,7 +2964,7 @@ Only include strong, clear relationships. Max 20 links per batch.`,
               await NX.sb.from('nodes').update({links:bLinks}).eq('id',nodeB.id);
               nodeA.links=aLinks;nodeB.links=bLinks;
               batchLinks++;totalLinks++;
-              if(!auto)log(`🔗 ${nodeA.name} ↔ ${nodeB.name} — ${link.reason}`,'success');
+              if(!auto)log(`${nodeA.name} ↔ ${nodeB.name} — ${link.reason}`,'success');
             }
           }
           if(auto&&batchLinks)log(`Batch ${batchNum}: ${batchLinks} links`,'success');
@@ -2985,7 +2985,7 @@ async function autoLinkNewNodes(newNodeNames){
   if(!newNodeNames||!newNodeNames.length)return;
   const autoLink=localStorage.getItem('nexus_auto_link')!=='off';
   if(!autoLink)return;
-  log('🔗 Auto-linking new nodes...');
+  log('Auto-linking new nodes...');
   // Get the new nodes + a sample of existing ones for context
   const newNodes=NX.nodes.filter(n=>newNodeNames.includes(n.name));
   const existingSample=NX.nodes.filter(n=>!newNodeNames.includes(n.name)).slice(0,40);
@@ -3008,7 +3008,7 @@ async function autoLinkNewNodes(newNodeNames){
           if(!bL.includes(nA.id)){bL.push(nA.id);await NX.sb.from('nodes').update({links:bL}).eq('id',nB.id);nB.links=bL;}
           c++;
         }
-        if(c)log(`🔗 Auto-linked: ${c} relationships`,'success');
+        if(c)log(`Auto-linked: ${c} relationships`,'success');
       }
     }
   }catch(e){}
