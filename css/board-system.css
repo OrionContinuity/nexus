@@ -105,7 +105,7 @@
 /* Realtime presence pip */
 .b-rt-chip {
   background: var(--nx-surface-2) !important;
-  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   font-family: var(--nx-font-mono) !important;
   font-size: 10.5px !important;
   color: var(--nx-faint) !important;
@@ -115,7 +115,7 @@
 }
 .b-rt-dot.is-live {
   /* Was bright green — swapped to olive-bronze (--nx-green now resolves
-     to #9c8a3e), with palette-coherent glow. Reads as "active, healthy"
+     to var(--green)), with palette-coherent glow. Reads as "active, healthy"
      without the saturated medical-app green. */
   background: var(--nx-green) !important;
   box-shadow: 0 0 8px rgba(156, 138, 62, 0.55) !important;
@@ -148,7 +148,7 @@
 
 .board-tab {
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   color: var(--nx-muted) !important;
   padding: 8px 16px !important;
   min-height: 36px !important;
@@ -256,7 +256,7 @@
 .b-list {
   flex: 0 0 290px !important;
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--nx-highlight-tint) !important;
   border-radius: 14px !important;
   padding: 12px 8px 8px !important;
   display: flex !important;
@@ -316,11 +316,11 @@
   padding: 0 4px !important;
   margin: 0 -4px !important;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+  scrollbar-color: var(--nx-highlight-soft) transparent;
 }
 .b-list-cards::-webkit-scrollbar { width: 6px; }
 .b-list-cards::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--nx-highlight-soft);
   border-radius: 3px;
 }
 
@@ -342,7 +342,7 @@
   font-family: var(--nx-font-body);
   font-size: var(--nx-text-xs);
   font-style: italic;
-  border: 1.5px dashed rgba(255, 255, 255, 0.04);
+  border: 1.5px dashed var(--nx-highlight-tint);
   border-radius: 8px;
   margin: 4px 0;
 }
@@ -426,7 +426,7 @@
   opacity: 1 !important;  /* override the inline 0.5 we WERE setting */
   box-shadow:
     0 12px 32px rgba(0, 0, 0, 0.55),
-    0 2px 6px rgba(212, 164, 78, 0.20) !important;
+    0 2px 6px var(--nx-gold-haze) !important;
   z-index: 100;
 }
 
@@ -522,7 +522,7 @@
   font-weight: 700 !important;
 }
 .b-card-badge.pri-high {
-  background: rgba(212, 164, 78, 0.15) !important;
+  background: var(--nx-gold-soft) !important;
   color: var(--nx-amber) !important;
 }
 .b-card-badge.loc {
@@ -549,7 +549,7 @@
   color: var(--nx-faint) !important;
   margin-top: 6px !important;
   padding-top: 6px !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border-top: 1px solid var(--nx-highlight-tint) !important;
   align-items: center !important;
   flex-wrap: wrap !important;
   font-variant-numeric: tabular-nums;
@@ -635,7 +635,7 @@
 }
 .b-modal {
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   border-radius: var(--nx-radius-card) !important;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
   max-width: 600px !important;
@@ -746,7 +746,7 @@ textarea.b-field {
   border-radius: var(--nx-radius-tight) !important;
   cursor: pointer !important;
   background: var(--nx-surface-2) !important;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--nx-highlight-faint);
   transition: transform var(--nx-press), border-color var(--nx-press) !important;
 }
 .b-photo:hover {
@@ -1001,7 +1001,7 @@ textarea.b-field {
   padding: 5px 10px 5px 12px !important;
   min-height: 30px !important;
   background: var(--nx-surface-2) !important;
-  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   border-radius: var(--nx-radius-pill) !important;
   transition: border-color var(--nx-press) !important;
   flex: 1 1 180px !important;
@@ -1158,7 +1158,7 @@ textarea.b-field {
 .b-qa-pri:hover {
   background: var(--nx-surface-3) !important;
   color: var(--nx-text) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
+  border-color: var(--nx-highlight-soft) !important;
 }
 .b-qa-pri.active {
   background: color-mix(in oklab, var(--c) 16%, transparent) !important;
