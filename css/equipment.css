@@ -232,31 +232,41 @@
 .eq-col-services { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; padding-right: 4px; }
 
 @media (max-width: 600px) {
-  /* On mobile we hide PM and Services to save space, but we keep the
-     status column visible with enough width to show the lifecycle pill.
-     The pill is the visual heartbeat — it must always render. */
+  /* On mobile we hide PM and Services to save space. The status column
+     gets a FIXED width pinned to the right so every beacon aligns
+     vertically — the eye should run down the right edge and see the
+     row of bulbs at a glance.
+
+     Layout:  [ name (flex 1.6) | location (flex 1) | beacon (38px) ]
+  */
   .eq-row {
-    grid-template-columns: 1.6fr 0.9fr 0.9fr;
-    gap: 6px;
-    padding: 10px 14px 10px 12px;
+    grid-template-columns: 1.6fr 1fr 38px;
+    gap: 8px;
+    padding: 10px 12px;
+    align-items: center;
   }
   .eq-col-pm, .eq-col-services { display: none; }
 
   /* Hide the verbose pill label on mobile; the glowing dot + color is
      enough signal in the narrow row. The screen-reader label survives
      via the aria-label so accessibility is preserved. */
+  .eq-col-status {
+    justify-content: center;       /* center beacon in its 38px column */
+    padding: 0;
+  }
   .eq-col-status .eq-lc-pill-label { display: none; }
   .eq-col-status .eq-lc-pill-time  { display: none; }
   .eq-col-status .eq-lc-pill {
-    padding: 6px;
+    padding: 0;
     border-radius: 50%;
-    width: 22px;
-    height: 22px;
+    width: 28px;
+    height: 28px;
     justify-content: center;
+    flex-shrink: 0;
   }
   .eq-col-status .eq-lc-pill-dot {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     margin: 0;
   }
 }
@@ -906,8 +916,9 @@
   right: 8px;
   transform: none;
 }
-.eq-card-status-btn:active { transform: scale(0.92); }
-.eq-row { position: relative; padding-right: 52px; }
+.eq-card-status-btn { display: none; }
+.eq-row-status-btn { display: none; }
+.eq-row { position: relative; }
 
 /* ─── Quick status popup menu ─── */
 .eq-status-menu {
@@ -10089,4 +10100,367 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
      buttons across without truncation. */
   .eq-tool-btn { padding: 9px 11px; gap: 0; }
   .eq-tool-label { display: none; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   CONTRACTOR ↔ EQUIPMENT LINK CHIP
+   ═══════════════════════════════════════════════════════════════════
+   Shown in the equipment edit form when a contractor is FK-linked,
+   and as a chip on contractor's equipment tab when a unit is linked
+   by name only (so the user can promote it to a permanent link).
+   ═══════════════════════════════════════════════════════════════════ */
+
+.eq-contractor-link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 5px 10px 5px 8px;
+  background: rgba(212, 164, 78, 0.14);
+  border: 1px solid rgba(212, 164, 78, 0.4);
+  border-radius: 999px;
+  color: var(--nx-gold);
+  font-family: 'Outfit', sans-serif;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+.eq-contractor-link-chip-icon { font-size: 11px; }
+.eq-contractor-link-chip-text { color: var(--nx-text); }
+.eq-contractor-link-chip-unlink {
+  background: transparent;
+  border: 0;
+  color: var(--nx-faint);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  margin-left: 2px;
+}
+.eq-contractor-link-chip-unlink:hover { color: var(--nx-text); }
+
+/* Loose-link chip in the contractor's Equipment tab — yellow caution
+   styling so it's clear this link is informal and could be made stronger */
+.eq-contractor-eq-row.is-loose-link {
+  border-left: 3px solid rgba(212, 164, 78, 0.5);
+}
+.eq-contractor-eq-loose-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  background: rgba(212, 164, 78, 0.10);
+  border: 1px solid rgba(212, 164, 78, 0.3);
+  border-radius: 999px;
+  color: var(--nx-gold);
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  font-weight: 500;
+  vertical-align: middle;
+  text-transform: lowercase;
+}
+.eq-contractor-eq-promote-btn {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 10px;
+  padding: 4px 10px;
+  background: var(--nx-gold);
+  color: var(--nx-bg);
+  border: 0;
+  border-radius: 999px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  text-transform: none;
+}
+[data-theme="light"] .eq-contractor-eq-promote-btn { color: #fff; }
+.eq-contractor-eq-promote-btn:hover { filter: brightness(1.05); }
+.eq-contractor-eq-promote-btn:active { transform: scale(0.97); }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   CONTRACTOR EDIT — multi-phone / multi-email rows
+   ═══════════════════════════════════════════════════════════════════ */
+
+.eq-contractor-multi-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.eq-contractor-multi-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.eq-contractor-multi-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.eq-contractor-multi-label {
+  flex: 0 0 130px;
+  min-width: 80px;
+  font-size: 12.5px;
+  color: var(--nx-faint);
+}
+.eq-contractor-multi-role {
+  flex: 0 0 76px;
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--nx-gold);
+  cursor: pointer;
+}
+.eq-contractor-multi-remove {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--nx-gold-line);
+  background: transparent;
+  color: var(--nx-faint);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--nx-press), color var(--nx-press), border-color var(--nx-press);
+}
+.eq-contractor-multi-remove:hover {
+  background: rgba(180, 60, 60, 0.10);
+  border-color: rgba(180, 60, 60, 0.4);
+  color: var(--nx-red, #b43c3c);
+}
+.eq-contractor-multi-add {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px dashed var(--nx-gold-line);
+  border-radius: 999px;
+  color: var(--nx-gold);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--nx-press), border-color var(--nx-press);
+}
+.eq-contractor-multi-add:hover {
+  background: var(--nx-gold-mist);
+  border-color: var(--nx-gold);
+  border-style: solid;
+}
+
+@media (max-width: 480px) {
+  /* Stack the multi-row inputs on narrow phones — phone + label
+     side-by-side gets too cramped at <380px. */
+  .eq-contractor-multi-row {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .eq-contractor-multi-label,
+  .eq-contractor-multi-role {
+    flex: 1 1 calc(100% - 40px);
+  }
+  .eq-contractor-multi-remove {
+    flex: 0 0 32px;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   CONTRACTOR EQUIPMENT TAB — top actions (assign + bulk-PM)
+   ═══════════════════════════════════════════════════════════════════ */
+
+.eq-contractor-eq-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.eq-contractor-eq-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: filter var(--nx-press), transform var(--nx-press), background var(--nx-press), border-color var(--nx-press);
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-contractor-eq-action-btn:active { transform: scale(0.98); }
+.eq-contractor-eq-action-primary {
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
+  color: var(--nx-bg);
+  border-color: var(--nx-gold);
+}
+[data-theme="light"] .eq-contractor-eq-action-primary { color: #fff; }
+.eq-contractor-eq-action-primary:hover { filter: brightness(1.05); }
+.eq-contractor-eq-action-secondary {
+  background: var(--nx-gold-mist);
+  color: var(--nx-text);
+  border-color: var(--nx-gold-line);
+}
+.eq-contractor-eq-action-secondary:hover {
+  border-color: var(--nx-gold);
+  background: rgba(212, 164, 78, 0.18);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   PUBLIC SCAN — contact card with Call + Email actions
+   ═══════════════════════════════════════════════════════════════════
+   Sits between the equipment fields and the Service History section
+   on the public QR scan page. Big tappable Call button on top, Email
+   button below, with a roster of alternate phones if the contractor
+   has more than one number.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.public-scan-contact-card {
+  margin: 18px 0;
+  padding: 14px 14px 12px;
+  background: rgba(212, 164, 78, 0.06);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 14px;
+}
+.public-scan-contact-name {
+  font-family: 'Outfit', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--nx-text);
+  margin-bottom: 10px;
+  letter-spacing: 0.1px;
+}
+.public-scan-contact-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.public-scan-contact-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  text-decoration: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: filter var(--nx-press), transform var(--nx-press);
+}
+.public-scan-contact-btn:active { transform: scale(0.98); }
+.public-scan-contact-call {
+  background: linear-gradient(135deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
+  color: var(--nx-bg);
+  border-color: var(--nx-gold);
+  box-shadow: 0 6px 16px rgba(212, 164, 78, 0.3);
+}
+[data-theme="light"] .public-scan-contact-call { color: #fff; }
+.public-scan-contact-call:hover { filter: brightness(1.05); }
+.public-scan-contact-email {
+  background: var(--nx-gold-mist);
+  color: var(--nx-text);
+  border-color: var(--nx-gold-line);
+}
+.public-scan-contact-email:hover {
+  border-color: var(--nx-gold);
+}
+.public-scan-contact-icon {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.public-scan-contact-email .public-scan-contact-icon {
+  background: var(--nx-gold-mist);
+  color: var(--nx-gold);
+}
+.public-scan-contact-text {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  min-width: 0;
+}
+.public-scan-contact-label {
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+.public-scan-contact-value {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 11.5px;
+  letter-spacing: 0.3px;
+  opacity: 0.85;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.public-scan-contact-extra {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.public-scan-contact-email .public-scan-contact-extra {
+  background: var(--nx-gold);
+  color: var(--nx-bg);
+}
+[data-theme="light"] .public-scan-contact-email .public-scan-contact-extra { color: #fff; }
+
+.public-scan-contact-extras {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--nx-gold-line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.public-scan-contact-extra-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 6px 8px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--nx-text);
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 11.5px;
+  transition: background var(--nx-press);
+}
+.public-scan-contact-extra-row:hover {
+  background: var(--nx-gold-mist);
+}
+.public-scan-contact-extra-label {
+  color: var(--nx-faint);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+.public-scan-contact-extra-value {
+  color: var(--nx-gold);
+  font-weight: 500;
 }
