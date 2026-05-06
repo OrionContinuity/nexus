@@ -213,12 +213,19 @@ async function init() {
 
 async function loadEquipment() {
   try {
-    const { data, error } = await NX.sb.from('equipment_with_stats')
-      .select('*')
-      .order('location', { ascending: true })
-      .order('name', { ascending: true });
-    if (error) throw error;
-    equipment = data || [];
+    // Load equipment + manufacturers + open issues in parallel.
+    // The manufacturers and issues calls are best-effort: if the table
+    // doesn't exist yet (pre-migration) the function returns [] silently
+    // and rendering falls back to the legacy category-icon path.
+    const [equipResult] = await Promise.all([
+      NX.sb.from('equipment_with_stats')
+        .select('*')
+        .order('location', { ascending: true })
+        .order('name', { ascending: true }),
+      loadManufacturers(true).catch(() => []),
+    ]);
+    if (equipResult.error) throw equipResult.error;
+    equipment = equipResult.data || [];
   } catch (e) {
     console.error('[Equipment] Load failed, trying base table:', e);
     try {
@@ -228,6 +235,21 @@ async function loadEquipment() {
       console.error('[Equipment] Full load failed:', e2);
       equipment = [];
     }
+  }
+
+  // Attach the most recent open issue to each equipment row so the
+  // status pill can reflect lifecycle state. Done as a follow-up call
+  // so a missing equipment_issues table doesn't break the main load.
+  try {
+    if (equipment && equipment.length) {
+      const ids = equipment.map(e => e.id);
+      const issueMap = await loadOpenIssuesByEquipment(ids);
+      for (const eq of equipment) {
+        eq._openIssue = issueMap[eq.id] || null;
+      }
+    }
+  } catch (e) {
+    console.warn('[Equipment] Could not attach open issues:', e.message || e);
   }
 }
 
@@ -402,11 +424,25 @@ function renderList() {
 
   // Wire rows → detail
   list.querySelectorAll('[data-eq-id]').forEach(el => {
-    el.addEventListener('click', () => openDetail(el.dataset.eqId));
+    el.addEventListener('click', () => {
+      // Skip the click if a long-press just fired (touch ends fire a synthetic
+      // click on some browsers right after the dial opened).
+      if (longpressState && longpressState.fired) return;
+      // Skip if in bulk mode — clicks toggle selection there instead.
+      if (bulkSelectionState && bulkSelectionState.active) {
+        toggleBulkSelection(el.dataset.eqId);
+        return;
+      }
+      openDetail(el.dataset.eqId);
+    });
   });
 
   // Inject per-row/card Zebra quick-print buttons (was equipment-ux.js)
   injectRowPrintButtons();
+
+  // Wire long-press → expanding action dial. Idempotent — uses event
+  // delegation so re-renders don't double-bind.
+  wireEquipmentLongPress();
 }
 
 function buildListRow(e) {
@@ -429,7 +465,9 @@ function buildListRow(e) {
   return `
     <div class="eq-row" data-eq-id="${e.id}">
       <div class="eq-col eq-col-name">
-        <span class="eq-cat-icon">${catIcon(e.category)}</span>
+        <span class="eq-cat-icon eq-cat-icon-with-logo">
+          ${e.manufacturer ? manufacturerLogo(e, 'sm') : `<span class="eq-cat-icon-fallback">${catIcon(e.category)}</span>`}
+        </span>
         <div style="min-width:0">
           <div class="eq-name">${esc(e.name)}</div>
           <div class="eq-sub">${sub}</div>
@@ -437,8 +475,7 @@ function buildListRow(e) {
       </div>
       <div class="eq-col eq-col-loc">${esc(e.location)}${e.area ? ' · ' + esc(e.area) : ''}</div>
       <div class="eq-col eq-col-status">
-        <span class="eq-status-dot" style="background:${statusColor(e.status)};color:${statusColor(e.status)}"></span>
-        ${statusLabel(e.status)}
+        ${lifecycleStatusPill(e, 'sm')}
       </div>
       <div class="eq-col eq-col-pm ${pmCls}">${pmStr}</div>
       <div class="eq-col eq-col-services">${e.services_this_year || 0}</div>
@@ -456,8 +493,10 @@ function buildGridCard(e) {
       <div class="eq-card-top">
         ${e.photo_url
           ? `<img src="${e.photo_url}" class="eq-card-photo">`
-          : `<div class="eq-card-photo eq-card-photo-placeholder">${catIcon(e.category)}</div>`}
-        <span class="eq-card-status" style="background:${statusColor(e.status)}"></span>
+          : (e.manufacturer
+              ? `<div class="eq-card-photo eq-card-photo-mfg">${manufacturerLogo(e, 'md')}</div>`
+              : `<div class="eq-card-photo eq-card-photo-placeholder">${catIcon(e.category)}</div>`)}
+        ${lifecycleStatusDot(e)}
       </div>
       <div class="eq-card-body">
         <div class="eq-card-title">${esc(e.name)}</div>
@@ -515,8 +554,7 @@ async function openDetail(id) {
           </div>
         </div>
         <div class="eq-detail-status">
-          <span class="eq-status-dot" style="background:${statusColor(eq.status)}"></span>
-          ${statusLabel(eq.status)}
+          ${lifecycleStatusPill(eq, 'lg')}
         </div>
       </div>
 
@@ -550,11 +588,21 @@ async function openDetail(id) {
           <span class="eq-action-cta-icon">${uiSvg('ticket', '18px')}</span>
           <span class="eq-action-cta-label">Report Issue</span>
         </button>
+        <button class="eq-action-cta eq-action-cta-edit" onclick="NX.modules.equipment.openFullEditor('${eq.id}')" aria-label="Edit equipment">
+          <span class="eq-action-cta-icon">${uiSvg('pen', '18px')}</span>
+          <span class="eq-action-cta-label">Edit</span>
+        </button>
         <div class="eq-overflow-wrap">
           <button class="eq-overflow-btn-v2" onclick="NX.modules.equipment.toggleOverflow(event, '${eq.id}')" aria-label="More actions">${uiSvg('moreH', '20px')}</button>
           <div class="eq-overflow-menu" id="eqOverflow-${eq.id}" onclick="event.stopPropagation()">
+            <div class="eq-overflow-section-label">Operate</div>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.logService('${eq.id}')">${uiSvg('pen', '14px')}<span>Log Service</span></button>
-            <button class="eq-overflow-item" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">${uiSvg('settings', '14px')}<span>Edit Equipment</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.openIssueTracker('${eq.id}')">${uiSvg('alert', '14px')}<span>Issue Tracker</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.openPartsForEquipment('${eq.id}')">${uiSvg('settings', '14px')}<span>View Parts</span></button>
+            <div class="eq-overflow-divider"></div>
+            <div class="eq-overflow-section-label">Manage</div>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">${uiSvg('settings', '14px')}<span>Edit Everything</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.schedulePmFromOverflow('${eq.id}')">${uiSvg('clipboard', '14px')}<span>Schedule PM</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.quickPrint('${eq.id}')">${uiSvg('printer', '14px')}<span>Print Label</span></button>
             <div class="eq-overflow-divider"></div>
             <button class="eq-overflow-item eq-overflow-danger" onclick="NX.modules.equipment.deleteEquipment('${eq.id}')">${uiSvg('trash', '14px')}<span>Delete permanently</span></button>
@@ -713,37 +761,24 @@ async function loadOpenCardsForEquipment(eq) {
 }
 
 async function reportIssue(equipId) {
-  // Look up the equipment first so we can show its name in the dialog title
+  // Re-routed to the new issue lifecycle tracker. The legacy "create
+  // board card" behavior is preserved as a fallback if the tracker
+  // table doesn't exist yet (pre-migration).
   const { data: eq } = await NX.sb.from('equipment')
     .select('id, name, location').eq('id', equipId).single();
   if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
-  // Open the composer modal — gives a proper labeled dialog instead of
-  // the native browser prompt() popup. Composer fires the same logic
-  // path on submit (NX.modules.board.createFromEquipment).
-  if (!NX.composer?.modal) {
-    // Fallback if composer.js didn't load — keep the legacy path so
-    // the feature never breaks.
-    const issue = prompt(`What's the issue with "${eq.name}"?`);
-    if (!issue || !issue.trim()) return;
-    return commitIssue(eq, issue.trim());
-  }
-  NX.composer.modal({
-    title: 'Report an issue',
-    subtitle: `${eq.name}${eq.location ? ' · ' + eq.location : ''}`,
-    placeholder: 'What\'s wrong? Be specific — the next person reading this needs to know what to do.',
-    buttonLabel: 'Create card',
-    onSubmit: async (issue) => {
-      await commitIssue(eq, issue);
-    },
-  });
+  // Open the tracker — gives the full lifecycle UI with all open issues
+  // for this equipment, plus a "Report new" button at the bottom.
+  return openIssueTracker(equipId);
 }
 
-async function commitIssue(eq, issue) {
+// Legacy reporters that already used commitIssue (board card path) keep
+// working — kept as a private helper for fallback flows.
+async function _legacyCommitIssueAsBoardCard(eq, issue) {
   try {
     if (NX.modules?.board?.createFromEquipment) {
       await NX.modules.board.createFromEquipment(eq, issue);
     } else {
-      // Fallback — direct insert if board module not loaded yet
       await NX.sb.from('kanban_cards').insert({
         title: `${issue} — ${eq.name}`,
         description: issue,
@@ -757,7 +792,7 @@ async function commitIssue(eq, issue) {
       NX.toast && NX.toast('Card created on Board', 'success');
     }
   } catch (e) {
-    console.error('[equipment] reportIssue:', e);
+    console.error('[equipment] _legacyCommitIssueAsBoardCard:', e);
     NX.toast && NX.toast('Could not create card', 'error');
   }
 }
@@ -1123,6 +1158,16 @@ function openEditModal(id) {
     });
 
     try {
+      // Auto-link manufacturer text to a manufacturers row so the brand
+      // library populates organically. Fires whether new or existing.
+      if (data.manufacturer && data.manufacturer.trim()) {
+        const mfgId = await autoLinkManufacturer(data.manufacturer);
+        if (mfgId) data.manufacturer_id = mfgId;
+      } else if ('manufacturer' in data && !data.manufacturer) {
+        // User cleared the manufacturer field — null out the FK too.
+        data.manufacturer_id = null;
+      }
+
       if (id) {
         const { error } = await NX.sb.from('equipment').update(data).eq('id', id);
         if (error) throw error;
@@ -1165,6 +1210,21 @@ async function deleteEquipment(id) {
     console.error('[Equipment] Delete error:', err);
     NX.toast && NX.toast('Delete failed: ' + err.message, 'error');
   }
+}
+
+/**
+ * Pre-seed bulk selection with one piece of equipment and open the
+ * PM scheduler. Used by the overflow menu "Schedule PM" item so users
+ * can fire a single-equipment PM date without having to open bulk
+ * mode and tap the row first.
+ */
+function schedulePmFromOverflow(equipId) {
+  if (!bulkSelectionState) return;
+  bulkSelectionState.active = true;
+  bulkSelectionState.selected = new Set([equipId]);
+  document.body.classList.add('eq-bulk-mode');
+  if (typeof renderBulkToolbar === 'function') renderBulkToolbar();
+  if (typeof openBulkPmSchedule === 'function') openBulkPmSchedule();
 }
 
 function logService(equipId) {
@@ -1859,6 +1919,12 @@ Return null for any field not clearly visible. Do NOT guess.`;
         }
         if (dataPlateUrl) updates.data_plate_url = dataPlateUrl;
 
+        // Auto-link the scanned manufacturer to the brand library.
+        if (updates.manufacturer) {
+          const mfgId = await autoLinkManufacturer(updates.manufacturer);
+          if (mfgId) updates.manufacturer_id = mfgId;
+        }
+
         await NX.sb.from('equipment').update(updates).eq('id', existingId);
         NX.toast && NX.toast(`✓ Extracted: ${extracted.manufacturer || ''} ${extracted.model || ''}`, 'success');
         if (NX.syslog) NX.syslog('equipment_scanned', `${extracted.manufacturer} ${extracted.model}`);
@@ -1965,6 +2031,11 @@ function openPrepopulatedAddModal(data, dataPlateUrl) {
     if (dataPlateUrl) payload.data_plate_url = dataPlateUrl;
 
     try {
+      // Auto-link manufacturer to the brand library.
+      if (payload.manufacturer && payload.manufacturer.trim()) {
+        const mfgId = await autoLinkManufacturer(payload.manufacturer);
+        if (mfgId) payload.manufacturer_id = mfgId;
+      }
       const { data: created, error } = await NX.sb.from('equipment').insert(payload).select().single();
       if (error) throw error;
       NX.toast && NX.toast('Equipment created ✓', 'success');
@@ -3213,6 +3284,13 @@ async function commitEquipment(equipList, context) {
       if (eq.visible_details?.length) notes += (notes ? '\n' : '') + 'Observed: ' + eq.visible_details.join(', ');
       if (eq.confidence && eq.confidence !== 'high') notes += (notes ? '\n' : '') + `[AI confidence: ${eq.confidence}]`;
       if (notes) clean.notes = notes;
+
+      // Auto-link manufacturer to the brand library so AI-bulk-created
+      // equipment immediately benefits from logo coordination.
+      if (clean.manufacturer && clean.manufacturer.trim()) {
+        const mfgId = await autoLinkManufacturer(clean.manufacturer);
+        if (mfgId) clean.manufacturer_id = mfgId;
+      }
 
       const { data: created, error } = await NX.sb.from('equipment').insert(clean).select().single();
       if (error) {
@@ -5740,1589 +5818,3 @@ async function loadFamily(equipId) {
 }
 
 function renderFamilyTree(family, selfId) {
-  if (!family.length) return `<div class="eq-family-empty">No relationships yet.</div>`;
-  return `<div class="eq-family-tree">${
-    family.map(node => {
-      const isSelf = node.id === selfId;
-      const indent = '·'.repeat(Math.abs(node.depth) + 1);
-      const handler = isSelf ? '' : `onclick="NX.modules.equipment.openDetail('${node.id}')"`;
-      return `
-        <div class="eq-family-row ${isSelf ? 'is-self' : ''}" ${handler}>
-          <span class="eq-family-indent">${indent}</span>
-          <span class="eq-family-icon">${catIcon(node.category)}</span>
-          <span class="eq-family-name">${esc(node.name)}</span>
-          ${node.relationship_type && !isSelf
-            ? `<span class="eq-family-rel" title="${esc(relLabel(node.relationship_type))}">${relIcon(node.relationship_type)} ${esc(relLabel(node.relationship_type))}</span>`
-            : ''}
-          <span class="eq-family-status-dot" style="background:${statusDot(node.status)}" title="${esc(node.status || '')}"></span>
-        </div>
-      `;
-    }).join('')
-  }</div>`;
-}
-
-async function renderFamilySection(equipId) {
-  const modal = document.getElementById('eqModal');
-  if (!modal) return;
-  const overviewPanel = modal.querySelector('[data-panel="overview"]');
-  if (!overviewPanel) return;
-  // Remove existing family section if present (allows re-render after changes)
-  const existing = overviewPanel.querySelector('#eqFamilySection');
-  if (existing) existing.remove();
-
-  const family = await loadFamily(equipId);
-  const self = family.find(n => n.id === equipId) || { parent_equipment_id: null };
-  const hasParent = !!self.parent_equipment_id;
-
-  const section = document.createElement('div');
-  section.className = 'eq-family-section';
-  section.id = 'eqFamilySection';
-  section.innerHTML = `
-    <h4>${uiSvg('family', '14px')} Family</h4>
-    ${renderFamilyTree(family, equipId)}
-    <div class="eq-family-actions">
-      ${hasParent
-        ? `<button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.unsetParent('${equipId}')">Remove Parent</button>`
-        : `<button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.pickParent('${equipId}')">+ Set Parent</button>`}
-      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.pickChild('${equipId}')">+ Add Child</button>
-    </div>
-  `;
-  overviewPanel.appendChild(section);
-}
-
-async function pickParent(equipId) {
-  await openEquipmentPicker({
-    title: 'Set parent equipment',
-    excludeId: equipId,
-    excludeDescendantsOf: equipId,
-    showRelationship: true,
-    onPick: async (parentId, relationshipType) => {
-      try {
-        const { error } = await NX.sb.from('equipment')
-          .update({ parent_equipment_id: parentId, relationship_type: relationshipType })
-          .eq('id', equipId);
-        if (error) throw error;
-        NX.toast && NX.toast('Parent set ✓', 'success');
-        renderFamilySection(equipId);
-      } catch (e) {
-        const msg = String(e.message || e).includes('cycle')
-          ? 'That would create a loop in the family tree.'
-          : 'Could not set parent: ' + (e.message || e);
-        NX.toast && NX.toast(msg, 'error');
-      }
-    }
-  });
-}
-
-async function pickChild(equipId) {
-  await openEquipmentPicker({
-    title: 'Add child equipment',
-    excludeId: equipId,
-    excludeAncestorsOf: equipId,
-    showRelationship: true,
-    onPick: async (childId, relationshipType) => {
-      try {
-        const { error } = await NX.sb.from('equipment')
-          .update({ parent_equipment_id: equipId, relationship_type: relationshipType })
-          .eq('id', childId);
-        if (error) throw error;
-        NX.toast && NX.toast('Child added ✓', 'success');
-        renderFamilySection(equipId);
-      } catch (e) {
-        const msg = String(e.message || e).includes('cycle')
-          ? 'That would create a loop in the family tree.'
-          : 'Could not add child: ' + (e.message || e);
-        NX.toast && NX.toast(msg, 'error');
-      }
-    }
-  });
-}
-
-async function unsetParent(equipId) {
-  if (!confirm('Remove the parent relationship?')) return;
-  const { error } = await NX.sb.from('equipment')
-    .update({ parent_equipment_id: null, relationship_type: null })
-    .eq('id', equipId);
-  if (error) {
-    NX.toast && NX.toast('Failed: ' + error.message, 'error');
-    return;
-  }
-  NX.toast && NX.toast('Parent removed', 'info');
-  renderFamilySection(equipId);
-}
-
-async function openEquipmentPicker(opts) {
-  const { data: all } = await NX.sb.from('equipment')
-    .select('id, name, location, category, status, parent_equipment_id')
-    .neq('status', 'retired')
-    .order('location').order('name');
-  const candidates = all || [];
-
-  // Build exclusion set
-  const exclude = new Set();
-  if (opts.excludeId) exclude.add(opts.excludeId);
-  if (opts.excludeDescendantsOf) {
-    const queue = [opts.excludeDescendantsOf];
-    while (queue.length) {
-      const cur = queue.shift();
-      candidates.filter(c => c.parent_equipment_id === cur).forEach(c => {
-        if (!exclude.has(c.id)) { exclude.add(c.id); queue.push(c.id); }
-      });
-    }
-  }
-  if (opts.excludeAncestorsOf) {
-    let cur = opts.excludeAncestorsOf;
-    let hops = 0;
-    while (cur && hops < 20) {
-      const node = candidates.find(c => c.id === cur);
-      if (!node || !node.parent_equipment_id) break;
-      exclude.add(node.parent_equipment_id);
-      cur = node.parent_equipment_id;
-      hops++;
-    }
-  }
-
-  const filtered = candidates.filter(c => !exclude.has(c.id));
-
-  let overlay = document.getElementById('eqPickerOverlay');
-  const isFreshPicker = !overlay;
-  if (isFreshPicker) {
-    overlay = document.createElement('div');
-    overlay.id = 'eqPickerOverlay';
-    overlay.className = 'eq-picker-overlay';
-    document.body.appendChild(overlay);
-  }
-  let selectedRel = opts.showRelationship ? 'connected_to' : null;
-
-  const renderList = (query) => {
-    const q = (query || '').toLowerCase().trim();
-    const matches = q
-      ? filtered.filter(c => (c.name + ' ' + (c.location || '')).toLowerCase().includes(q))
-      : filtered;
-    if (!matches.length) return `<div class="eq-picker-empty">No equipment matches.</div>`;
-    return matches.map(c => `
-      <div class="eq-picker-item" data-id="${c.id}">
-        <span class="eq-picker-item-icon">${catIcon(c.category)}</span>
-        <div class="eq-picker-item-body">
-          <div class="eq-picker-item-name">${esc(c.name)}</div>
-          <div class="eq-picker-item-sub">${esc(c.location || '')}${c.status && c.status !== 'operational' ? ' · ' + esc(c.status) : ''}</div>
-        </div>
-      </div>
-    `).join('');
-  };
-
-  overlay.innerHTML = `
-    <div class="eq-picker">
-      <div class="eq-picker-head">
-        <h3>${esc(opts.title)}</h3>
-        <button class="eq-picker-close" id="eqPickerClose">${uiSvg("close", "13px")}</button>
-      </div>
-      <div class="eq-picker-search">
-        <input type="text" id="eqPickerSearch" placeholder="Search equipment…" autocomplete="off">
-      </div>
-      ${opts.showRelationship ? `
-        <div class="eq-picker-rel-row" id="eqPickerRelRow">
-          ${RELATIONSHIP_TYPES.map(r => `
-            <button class="eq-rel-chip ${r.key === selectedRel ? 'active' : ''}" data-rel="${r.key}">
-              ${r.icon} ${r.label}
-            </button>
-          `).join('')}
-        </div>` : ''}
-      <div class="eq-picker-list" id="eqPickerList">${renderList('')}</div>
-    </div>
-  `;
-  overlay.classList.add('active');
-
-  const close = () => { overlay.classList.remove('active'); overlay.innerHTML = ''; };
-  document.getElementById('eqPickerClose').addEventListener('click', close);
-  if (isFreshPicker) overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-
-  const searchInput = document.getElementById('eqPickerSearch');
-  searchInput.addEventListener('input', () => {
-    document.getElementById('eqPickerList').innerHTML = renderList(searchInput.value);
-    wireItems();
-  });
-  searchInput.focus();
-
-  if (opts.showRelationship) {
-    document.getElementById('eqPickerRelRow').addEventListener('click', e => {
-      const chip = e.target.closest('.eq-rel-chip');
-      if (!chip) return;
-      selectedRel = chip.dataset.rel;
-      document.querySelectorAll('#eqPickerRelRow .eq-rel-chip').forEach(c => c.classList.remove('active'));
-      chip.classList.add('active');
-    });
-  }
-
-  function wireItems() {
-    document.querySelectorAll('#eqPickerList .eq-picker-item').forEach(el => {
-      el.addEventListener('click', () => { close(); opts.onPick(el.dataset.id, selectedRel); });
-    });
-  }
-  wireItems();
-}
-
-
-/* ════════════════════════════════════════════════════════════════════════════
-   11. DISPATCH — contractor dispatch sheet, dispatch_log
-   ════════════════════════════════════════════════════════════════════════════ */
-
-function extractContact(node) {
-  const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
-  const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
-  const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-  const links = node.links || {};
-  return {
-    phone: links.phone || (phoneMatch ? phoneMatch[0].trim() : ''),
-    email: links.email || (emailMatch ? emailMatch[0].trim() : ''),
-  };
-}
-
-function normalizePhone(p) {
-  if (!p) return '';
-  const cleaned = p.replace(/[^\d+]/g, '');
-  if (cleaned.length === 10 && !cleaned.startsWith('+')) return '+1' + cleaned;
-  return cleaned;
-}
-
-async function loadContractors() {
-  let pool = NX.nodes || [];
-  if (!pool.length) {
-    const { data } = await NX.sb.from('nodes').select('*').limit(2000);
-    pool = data || [];
-  }
-  const isContractor = n => {
-    const cat = (n.category || '').toLowerCase();
-    if (cat === 'contractor' || cat === 'vendor' || cat === 'service' || cat === 'contractors') return true;
-    const tags = (n.tags || []).map(t => String(t).toLowerCase());
-    if (tags.some(t => /contract|vendor|service|hvac|plumb|electric|refriger/.test(t))) return true;
-    return false;
-  };
-  return pool
-    .filter(isContractor)
-    .map(n => ({ ...n, _contact: extractContact(n) }))
-    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-}
-
-async function loadEquipmentForDispatch(equipId) {
-  const { data: eq } = await NX.sb.from('equipment').select('*').eq('id', equipId).single();
-  if (!eq) return null;
-
-  let ticket = null;
-  try {
-    const { data: tickets } = await NX.sb.from('tickets')
-      .select('id, title, body, status, created_at')
-      .eq('equipment_id', equipId)
-      .neq('status', 'closed').neq('status', 'resolved')
-      .order('created_at', { ascending: false }).limit(1);
-    if (tickets?.length) ticket = tickets[0];
-  } catch (e) {}
-
-  return { eq, ticket };
-}
-
-async function loadRecentDispatches(equipId, limit = 3) {
-  try {
-    const { data } = await NX.sb.from('dispatch_log')
-      .select('*').eq('equipment_id', equipId)
-      .order('created_at', { ascending: false }).limit(limit);
-    return data || [];
-  } catch (e) { return []; }
-}
-
-function buildDispatchMessage(eq, ticket, contact, userName) {
-  const restaurant = eq.location || '';
-  const area = eq.area ? ` (${eq.area})` : '';
-  const equipName = eq.name;
-  const issue = ticket?.title || ticket?.body || '';
-  const who = userName || 'NEXUS';
-  const greeting = (contact.name || '').split(' ')[0] || 'there';
-
-  let body = `Hi ${greeting}, this is ${who} at ${restaurant}.\n\n`;
-  body += `We need service on: ${equipName}${area}\n`;
-  if (eq.manufacturer || eq.model) body += `Unit: ${[eq.manufacturer, eq.model].filter(Boolean).join(' ')}\n`;
-  if (eq.serial_number) body += `Serial: ${eq.serial_number}\n`;
-  if (issue) body += `\nIssue: ${issue}\n`;
-  body += `\nWhen can you take a look? Thanks.`;
-  return body;
-}
-
-/* ═════════════════════════════════════════════════════════════════════════
-   LOOKUP SERVICE PHONE FROM NODE
-   
-   Called from the Links tab in openFullEditor when user clicks "Look up
-   from preferred contractor." Reads the preferred contractor node, extracts
-   phone + name, and populates the service_contact_name and service_phone
-   form inputs.
-   
-   If no preferred contractor is set, falls back to scanning recent
-   maintenance records for the most-used contractor and grabbing theirs.
-   ═════════════════════════════════════════════════════════════════════════ */
-
-async function lookupServicePhoneFromNode(equipId) {
-  try {
-    const { data: eq } = await NX.sb.from('equipment')
-      .select('preferred_contractor_node_id, name')
-      .eq('id', equipId).single();
-    if (!eq) throw new Error('Equipment not found');
-
-    let node = null;
-    
-    // Primary: preferred contractor
-    if (eq.preferred_contractor_node_id) {
-      const { data } = await NX.sb.from('nodes')
-        .select('id, name, notes, tags, links')
-        .eq('id', eq.preferred_contractor_node_id).single();
-      node = data;
-    }
-    
-    // Fallback: find most recent maintenance record with a performed_by,
-    // then match that string against contractor nodes
-    if (!node) {
-      const { data: maint } = await NX.sb.from('equipment_maintenance')
-        .select('performed_by')
-        .eq('equipment_id', equipId)
-        .not('performed_by', 'is', null)
-        .order('event_date', { ascending: false })
-        .limit(5);
-      
-      if (maint?.length) {
-        // Get the most common contractor name
-        const counts = {};
-        maint.forEach(m => {
-          if (m.performed_by) counts[m.performed_by] = (counts[m.performed_by] || 0) + 1;
-        });
-        const topName = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
-        
-        // Search contractor nodes matching that name
-        const pool = NX.nodes || [];
-        node = pool.find(n => {
-          const cat = (n.category || '').toLowerCase();
-          if (cat !== 'contractor' && cat !== 'vendor' && cat !== 'service') return false;
-          return (n.name || '').toLowerCase().includes(topName.toLowerCase().split(/\s+/)[0]);
-        });
-      }
-    }
-    
-    if (!node) {
-      NX.toast && NX.toast('No contractor found. Set a preferred contractor first via the Dispatch sheet.', 'warning');
-      return;
-    }
-    
-    // Extract phone from node (links.phone OR regex from notes)
-    const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
-    const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
-    const links = node.links || {};
-    const phone = links.phone || (phoneMatch ? phoneMatch[0].trim() : '');
-    
-    if (!phone) {
-      NX.toast && NX.toast(`Found ${node.name} but no phone on file. Add one to their node in Brain first.`, 'warning');
-      return;
-    }
-    
-    // Populate form inputs
-    const modal = document.getElementById('eqFullEditModal');
-    if (!modal) return;
-    const nameInput = modal.querySelector('[data-field="service_contact_name"]');
-    const phoneInput = modal.querySelector('[data-field="service_phone"]');
-    if (nameInput && !nameInput.value) nameInput.value = node.name || '';
-    if (phoneInput) phoneInput.value = phone;
-    
-    NX.toast && NX.toast(`✓ Filled from ${node.name}`, 'success');
-  } catch (err) {
-    console.error('[lookupServicePhoneFromNode] failed:', err);
-    NX.toast && NX.toast('Lookup failed: ' + err.message, 'error');
-  }
-}
-
-async function openDispatchSheet(equipId, ticketId) {
-  const ctx = await loadEquipmentForDispatch(equipId);
-  if (!ctx) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
-  const { eq, ticket } = ctx;
-  const contractors = await loadContractors();
-
-  let activeTicket = ticket;
-  if (ticketId && (!ticket || ticket.id !== ticketId)) {
-    try {
-      const { data } = await NX.sb.from('tickets').select('*').eq('id', ticketId).single();
-      if (data) activeTicket = data;
-    } catch (e) {}
-  }
-
-  let overlay = document.getElementById('dispatchOverlay');
-  const isFreshOverlay = !overlay;
-  if (isFreshOverlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'dispatchOverlay';
-    overlay.className = 'dispatch-overlay';
-    document.body.appendChild(overlay);
-  }
-
-  let stage = 'contact';
-  let selectedContact = null;
-  let selectedMethod = null;
-  let composedMessage = '';
-  
-  // Auto-select preferred contractor if equipment has one set.
-  // Skips the contact picker entirely and jumps straight to the method stage.
-  // User can still tap "Back" to change contractor if needed.
-  if (eq.preferred_contractor_node_id) {
-    const preferred = contractors.find(c => c.id === eq.preferred_contractor_node_id);
-    if (preferred) {
-      selectedContact = preferred;
-      stage = 'method';
-    }
-  }
-  
-  // If no preferred contractor but the ticket has a recent dispatch to
-  // somebody, use them. This handles the "reopen last dispatch" case.
-  if (!selectedContact && activeTicket) {
-    try {
-      const { data: recent } = await NX.sb.from('dispatch_events')
-        .select('contractor_node_id')
-        .eq('ticket_id', activeTicket.id)
-        .not('contractor_node_id', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (recent?.contractor_node_id) {
-        const c = contractors.find(x => x.id === recent.contractor_node_id);
-        if (c) { selectedContact = c; stage = 'method'; }
-      }
-    } catch (e) {}
-  }
-
-  const close = () => { overlay.classList.remove('active'); overlay.innerHTML = ''; };
-  if (isFreshOverlay) overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-
-  const render = () => {
-    const headLine = stage === 'contact' ? 'Dispatch contractor'
-                  : stage === 'method'  ? `Contact ${selectedContact?.name || ''}`
-                                        : `Send ${selectedMethod}`;
-    overlay.innerHTML = `
-      <div class="dispatch-sheet">
-        <div class="dispatch-handle"></div>
-        <div class="dispatch-head">
-          <h3>${esc(headLine)}</h3>
-          <div class="dispatch-context">
-            <span class="ctx-tag">${catIcon(eq.category)} ${esc(eq.name)}</span>
-            <span class="ctx-tag">${esc(eq.location || '')}</span>
-            ${activeTicket ? `<span class="ctx-tag">${uiSvg("ticket","11px")} ${esc((activeTicket.title || '').slice(0, 40))}</span>` : ''}
-          </div>
-        </div>
-        <div class="dispatch-stage" id="dispatchStage">${renderStage()}</div>
-        ${renderActions()}
-      </div>
-    `;
-    overlay.classList.add('active');
-    wireStage();
-  };
-
-  const renderStage = () => {
-    if (stage === 'contact') return renderContactStage();
-    if (stage === 'method')  return renderMethodStage();
-    if (stage === 'compose') return renderComposeStage();
-    return '';
-  };
-
-  const renderContactStage = () => {
-    if (!contractors.length) {
-      return `
-        <div class="eq-picker-empty">
-          No contractors in your brain yet.<br>
-          Add them via Ingest, or tag any node as <b>contractor</b>.
-        </div>
-        <div class="dispatch-add-contact">
-          <input id="dispatchAddName"  placeholder="Name (e.g. Joe's Refrigeration)">
-          <input id="dispatchAddPhone" placeholder="Phone (optional)">
-          <input id="dispatchAddEmail" placeholder="Email (optional)">
-          <button class="eq-btn eq-btn-primary" id="dispatchAddBtn">+ Add & continue</button>
-        </div>
-      `;
-    }
-    const preferredId = eq.preferred_contractor_node_id;
-    const sorted = [...contractors].sort((a, b) => {
-      if (a.id === preferredId) return -1;
-      if (b.id === preferredId) return 1;
-      return 0;
-    });
-    return sorted.map(c => {
-      const ct = c._contact || {};
-      const isPref = c.id === preferredId;
-      const initials = (c.name || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
-      return `
-        <div class="dispatch-contact ${isPref ? 'is-preferred' : ''}" data-id="${c.id}">
-          <div class="dispatch-contact-avatar">${esc(initials)}</div>
-          <div class="dispatch-contact-body">
-            <div class="dispatch-contact-name">
-              ${esc(c.name)}
-              ${isPref ? `<span class="preferred-star" title="Preferred contractor">${uiSvg('filledStar', '11px')}</span>` : ''}
-            </div>
-            <div class="dispatch-contact-meta">
-              ${ct.phone ? esc(ct.phone) : ''}${ct.phone && ct.email ? ' · ' : ''}${ct.email ? esc(ct.email) : ''}
-              ${!ct.phone && !ct.email ? '<span style="color:var(--amber)">Tap to add contact info</span>' : ''}
-            </div>
-          </div>
-          <div class="dispatch-contact-methods">
-            ${ct.phone ? uiSvg('phone', '13px') : ''}${ct.phone ? uiSvg('message', '13px') : ''}${ct.email ? uiSvg('email', '13px') : ''}
-          </div>
-        </div>
-      `;
-    }).join('');
-  };
-
-  const renderMethodStage = () => {
-    const ct = selectedContact._contact || {};
-    return `
-      <div style="margin-bottom:6px">
-        <div style="font-size:13px;color:var(--text);font-weight:500">${esc(selectedContact.name)}</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:2px">
-          ${ct.phone ? esc(ct.phone) : ''}${ct.phone && ct.email ? ' · ' : ''}${ct.email ? esc(ct.email) : ''}
-        </div>
-      </div>
-      <div class="dispatch-method-row">
-        <button class="dispatch-method-btn" data-method="call"     ${!ct.phone ? 'disabled' : ''}>
-          <span class="method-icon">${uiSvg('phone', '18px')}</span><span>Call</span>
-        </button>
-        <button class="dispatch-method-btn" data-method="sms"      ${!ct.phone ? 'disabled' : ''}>
-          <span class="method-icon">${uiSvg('message', '18px')}</span><span>SMS</span>
-        </button>
-        <button class="dispatch-method-btn" data-method="whatsapp" ${!ct.phone ? 'disabled' : ''}>
-          <span class="method-icon">${uiSvg('whatsapp', '18px')}</span><span>WhatsApp</span>
-        </button>
-        <button class="dispatch-method-btn" data-method="email"    ${!ct.email ? 'disabled' : ''}>
-          <span class="method-icon">${uiSvg('email', '18px')}</span><span>Email</span>
-        </button>
-      </div>
-      ${(!ct.phone && !ct.email) ? `
-        <div class="dispatch-add-contact">
-          <div style="font-size:12px;color:var(--muted)">Add contact info for ${esc(selectedContact.name)}:</div>
-          <input id="dispatchEditPhone" placeholder="Phone" value="${escAttr(ct.phone || '')}">
-          <input id="dispatchEditEmail" placeholder="Email" value="${escAttr(ct.email || '')}">
-          <button class="eq-btn eq-btn-secondary" id="dispatchSaveContact">Save to ${esc(selectedContact.name)}</button>
-        </div>
-      ` : ''}
-    `;
-  };
-
-  const renderComposeStage = () => {
-    const ct = selectedContact._contact || {};
-    const target = selectedMethod === 'email' ? ct.email : normalizePhone(ct.phone);
-    composedMessage = composedMessage ||
-      buildDispatchMessage(eq, activeTicket, selectedContact, NX.currentUser?.name);
-    const isEmail = selectedMethod === 'email';
-    return `
-      <div class="dispatch-message">
-        <div class="dispatch-message-target">
-          <b>To:</b> ${esc(selectedContact.name)} <span style="color:var(--faint)">via ${esc(selectedMethod)}</span><br>
-          <b>${isEmail ? 'Email' : 'Phone'}:</b> ${esc(target || '—')}
-        </div>
-        ${selectedMethod === 'call' ? `
-          <div style="font-size:13px;color:var(--muted);text-align:center;padding:10px">
-            Tap "Place Call" to dial ${esc(target || '')}.<br>
-            <span style="font-size:11px;color:var(--faint)">A note will be logged for follow-up.</span>
-          </div>
-          <textarea id="dispatchNote" placeholder="Optional note about why you're calling…">${esc(composedMessage)}</textarea>
-        ` : `
-          <textarea id="dispatchBody">${esc(composedMessage)}</textarea>
-        `}
-      </div>
-    `;
-  };
-
-  const renderActions = () => {
-    if (stage === 'contact') return '';
-    if (stage === 'method') {
-      return `<div class="dispatch-actions">
-        <button class="eq-btn eq-btn-secondary" id="dispatchBack">← Back</button>
-      </div>`;
-    }
-    return `<div class="dispatch-actions">
-      <button class="eq-btn eq-btn-secondary" id="dispatchBack">← Back</button>
-      <button class="eq-btn eq-btn-primary" id="dispatchSend">
-        ${selectedMethod === 'call' ? `${uiSvg('phone', '14px')} Place Call` : `${uiSvg('send', '14px')} Send`}
-      </button>
-    </div>`;
-  };
-
-  const wireStage = () => {
-    if (stage === 'contact') {
-      overlay.querySelectorAll('.dispatch-contact').forEach(el => {
-        el.addEventListener('click', () => {
-          selectedContact = contractors.find(c => c.id === el.dataset.id);
-          if (!selectedContact) return;
-          stage = 'method';
-          render();
-        });
-      });
-      const addBtn = document.getElementById('dispatchAddBtn');
-      if (addBtn) {
-        addBtn.addEventListener('click', async () => {
-          const name = document.getElementById('dispatchAddName').value.trim();
-          if (!name) { NX.toast && NX.toast('Name required', 'error'); return; }
-          const phone = document.getElementById('dispatchAddPhone').value.trim();
-          const email = document.getElementById('dispatchAddEmail').value.trim();
-          const newNode = await createContractorNode(name, phone, email);
-          selectedContact = { ...newNode, _contact: { phone, email } };
-          stage = 'method';
-          render();
-        });
-      }
-    }
-
-    if (stage === 'method') {
-      overlay.querySelectorAll('.dispatch-method-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          if (btn.disabled) return;
-          selectedMethod = btn.dataset.method;
-          stage = 'compose';
-          render();
-        });
-      });
-      const saveBtn = document.getElementById('dispatchSaveContact');
-      if (saveBtn) {
-        saveBtn.addEventListener('click', async () => {
-          const phone = document.getElementById('dispatchEditPhone').value.trim();
-          const email = document.getElementById('dispatchEditEmail').value.trim();
-          await saveContactToNode(selectedContact.id, phone, email);
-          selectedContact._contact = { phone, email };
-          NX.toast && NX.toast('Contact saved ✓', 'success');
-          render();
-        });
-      }
-      document.getElementById('dispatchBack')?.addEventListener('click', () => {
-        stage = 'contact'; selectedContact = null; render();
-      });
-    }
-
-    if (stage === 'compose') {
-      document.getElementById('dispatchBack')?.addEventListener('click', () => {
-        stage = 'method'; selectedMethod = null; composedMessage = ''; render();
-      });
-      document.getElementById('dispatchSend')?.addEventListener('click', async () => {
-        const ta = document.getElementById('dispatchBody') || document.getElementById('dispatchNote');
-        composedMessage = ta ? ta.value : composedMessage;
-        await executeDispatch({
-          contact: selectedContact,
-          method: selectedMethod,
-          message: composedMessage,
-          equipId: eq.id,
-          ticketId: activeTicket?.id,
-        });
-        close();
-      });
-    }
-  };
-
-  render();
-}
-
-async function createContractorNode(name, phone, email) {
-  const links = {};
-  if (phone) links.phone = phone;
-  if (email) links.email = email;
-  const newNode = {
-    name,
-    category: 'contractor',
-    tags: ['contractor'],
-    notes: [phone ? `Phone: ${phone}` : '', email ? `Email: ${email}` : ''].filter(Boolean).join('\n'),
-    links,
-    owner_id: null,
-    access_count: 0,
-  };
-  try {
-    const { data, error } = await NX.sb.from('nodes').insert(newNode).select().single();
-    if (error) throw error;
-    if (NX.nodes) NX.nodes.push(data);
-    if (NX.allNodes) NX.allNodes.push(data);
-    return data;
-  } catch (e) {
-    console.warn('[Dispatch] Could not persist contractor node:', e);
-    return { id: 'ephemeral_' + Date.now(), ...newNode };
-  }
-}
-
-async function saveContactToNode(nodeId, phone, email) {
-  const { data: node } = await NX.sb.from('nodes').select('notes, links').eq('id', nodeId).single();
-  const links = { ...(node?.links || {}) };
-  if (phone) links.phone = phone;
-  if (email) links.email = email;
-  const noteAddenda = [];
-  if (phone && !(node?.notes || '').includes(phone)) noteAddenda.push(`Phone: ${phone}`);
-  if (email && !(node?.notes || '').includes(email)) noteAddenda.push(`Email: ${email}`);
-  const newNotes = noteAddenda.length
-    ? [(node?.notes || '').trim(), noteAddenda.join('\n')].filter(Boolean).join('\n')
-    : node?.notes;
-  await NX.sb.from('nodes').update({ links, notes: newNotes }).eq('id', nodeId);
-  if (NX.nodes) {
-    const cached = NX.nodes.find(n => n.id === nodeId);
-    if (cached) { cached.links = links; cached.notes = newNotes; }
-  }
-}
-
-async function executeDispatch({ contact, method, message, equipId, ticketId }) {
-  const ct = contact._contact || {};
-  const phone = normalizePhone(ct.phone);
-  const email = ct.email;
-  let url = '';
-  let opened = false;
-
-  if (method === 'call' && phone) {
-    url = `tel:${phone}`;
-  } else if (method === 'sms' && phone) {
-    url = `sms:${phone}?body=${encodeURIComponent(message)}`;
-  } else if (method === 'whatsapp' && phone) {
-    const waNum = phone.replace(/^\+/, '');
-    url = `https://wa.me/${waNum}?text=${encodeURIComponent(message)}`;
-  } else if (method === 'email' && email) {
-    url = `mailto:${email}?subject=${encodeURIComponent('Service request — NEXUS')}&body=${encodeURIComponent(message)}`;
-  }
-
-  if (url) {
-    try {
-      const a = document.createElement('a');
-      a.href = url;
-      if (method === 'whatsapp') a.target = '_blank';
-      a.rel = 'noopener';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      opened = true;
-    } catch (e) {
-      console.warn('[Dispatch] Native handler failed:', e);
-      try { window.open(url, '_blank'); opened = true; } catch {}
-    }
-  }
-
-  await logDispatch({
-    equipment_id: equipId,
-    contractor_node_id: String(contact.id).startsWith('ephemeral_') ? null : contact.id,
-    contractor_name: contact.name,
-    contractor_phone: phone || null,
-    contractor_email: email || null,
-    method,
-    ticket_id: ticketId || null,
-    message,
-    dispatched_by: NX.currentUser?.name || null,
-    outcome: 'pending',
-  });
-
-  if (NX.trackAccess && contact.id && !String(contact.id).startsWith('ephemeral_')) {
-    NX.trackAccess([contact.id]);
-  }
-
-  try {
-    await NX.sb.from('action_chains').insert({
-      trigger_text: `Dispatched ${contact.name} via ${method}`,
-      actions: [{ type: 'dispatch', equipment_id: equipId, contractor_node_id: contact.id, method }],
-      user_name: NX.currentUser?.name,
-    });
-  } catch (e) {}
-
-  NX.toast && NX.toast(
-    opened ? `Opened ${method} to ${contact.name} ✓` : `Logged ${method} attempt`,
-    'success'
-  );
-
-  refreshDispatchChips(equipId);
-}
-
-async function logDispatch(record) {
-  try {
-    const { error } = await NX.sb.from('dispatch_log').insert(record);
-    if (error) throw error;
-  } catch (e) {
-    console.warn('[Dispatch] Could not log to DB:', e);
-    if (window.OfflineQueue) {
-      try { await window.OfflineQueue.add({ type: 'dispatch_log', payload: record }); } catch {}
-    }
-  }
-}
-
-async function setOutcome(dispatchId, outcome, notes) {
-  const update = { outcome };
-  if (notes) update.outcome_notes = notes;
-  if (outcome !== 'pending') update.responded_at = new Date().toISOString();
-  await NX.sb.from('dispatch_log').update(update).eq('id', dispatchId);
-}
-
-async function refreshDispatchChips(equipId) {
-  const overviewPanel = document.querySelector('#eqModal [data-panel="overview"]');
-  if (!overviewPanel) return;
-  const existing = overviewPanel.querySelector('#eqDispatchRecent');
-  if (existing) existing.remove();
-  const recent = await loadRecentDispatches(equipId, 3);
-  if (!recent.length) return;
-
-  const section = document.createElement('div');
-  section.className = 'eq-family-section';
-  section.id = 'eqDispatchRecent';
-  section.innerHTML = `
-    <h4>${uiSvg("phone", "14px")} Recent Dispatches</h4>
-    <div class="eq-dispatch-recent">
-      ${recent.map(d => `
-        <div class="eq-dispatch-chip" data-id="${d.id}">
-          <span class="chip-method">${methodIcon(d.method)}</span>
-          <span class="chip-name">${esc(d.contractor_name || 'Unknown')}</span>
-          <span class="chip-outcome outcome-${esc(d.outcome || 'pending')}"
-                onclick="NX.modules.equipment.cycleDispatchOutcome('${d.id}', '${equipId}')"
-                title="Click to update status">
-            ${esc(d.outcome || 'pending')}
-          </span>
-          <span class="chip-when">${timeAgo(d.created_at)}</span>
-        </div>
-      `).join('')}
-    </div>
-  `;
-  overviewPanel.appendChild(section);
-}
-
-const OUTCOME_CYCLE = ['pending', 'acknowledged', 'scheduled', 'resolved', 'no_response'];
-
-async function cycleDispatchOutcome(dispatchId, equipId) {
-  const { data } = await NX.sb.from('dispatch_log').select('outcome').eq('id', dispatchId).single();
-  const cur = data?.outcome || 'pending';
-  const idx = OUTCOME_CYCLE.indexOf(cur);
-  const next = OUTCOME_CYCLE[(idx + 1) % OUTCOME_CYCLE.length];
-  await setOutcome(dispatchId, next);
-  NX.toast && NX.toast(`Marked: ${next}`, 'info');
-  refreshDispatchChips(equipId);
-}
-
-function dispatchFromTicket(equipId, ticketId) {
-  return openDispatchSheet(equipId, ticketId);
-}
-
-// Direct call to service contact. Shows a themed confirm modal before
-// dialing so the user sees WHO they're about to call.
-//
-// Priority for phone lookup:
-//   1. Use equipment.service_phone if set
-//   2. Fallback to preferred_contractor_node_id → nodes.links.phone
-//   3. If neither exists, prompt to set one up
-async function callService(equipId) {
-  try {
-    const { data: eq } = await NX.sb.from('equipment')
-      .select('id, name, service_phone, service_contact_name, preferred_contractor_node_id')
-      .eq('id', equipId).single();
-    if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
-    
-    let phone = eq.service_phone;
-    let name = eq.service_contact_name;
-    let source = phone ? 'direct' : null;
-    
-    // Fallback to contractor node
-    if (!phone && eq.preferred_contractor_node_id) {
-      const { data: node } = await NX.sb.from('nodes')
-        .select('name, notes, tags, links')
-        .eq('id', eq.preferred_contractor_node_id).single();
-      if (node) {
-        const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
-        const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
-        const links = node.links || {};
-        phone = links.phone || (phoneMatch ? phoneMatch[0].trim() : '');
-        name = name || node.name;
-        source = 'contractor';
-      }
-    }
-    
-    if (!phone) {
-      showNoServiceContactModal(equipId, eq.name);
-      return;
-    }
-    
-    showCallConfirmModal({
-      equipId,
-      equipName: eq.name,
-      contactName: name || 'Service',
-      phone,
-      contractorNodeId: eq.preferred_contractor_node_id,
-      source
-    });
-  } catch (err) {
-    console.error('[callService] failed:', err);
-    NX.toast && NX.toast('Call failed: ' + err.message, 'error');
-  }
-}
-
-// Confirmation modal before dialing
-function showCallConfirmModal({ equipId, equipName, contactName, phone, contractorNodeId, source }) {
-  // Normalize to tel: format
-  const cleaned = phone.replace(/[^\d+]/g, '');
-  const telHref = cleaned.length === 10 && !cleaned.startsWith('+') ? '+1' + cleaned : cleaned;
-  const prettyPhone = formatPhonePretty(phone);
-  const sourceLabel = source === 'direct' ? 'Service contact on file'
-                    : source === 'contractor' ? 'Preferred contractor'
-                    : 'Service contact';
-  
-  const existing = document.getElementById('eqCallConfirm');
-  if (existing) existing.remove();
-  
-  const modal = document.createElement('div');
-  modal.id = 'eqCallConfirm';
-  modal.className = 'eq-call-confirm';
-  modal.innerHTML = `
-    <div class="eq-call-confirm-bg"></div>
-    <div class="eq-call-confirm-card">
-      <div class="eq-call-confirm-icon">${uiSvg("phone", "32px")}</div>
-      <div class="eq-call-confirm-title">Call ${esc(contactName)}?</div>
-      <div class="eq-call-confirm-phone">${esc(prettyPhone)}</div>
-      <div class="eq-call-confirm-meta">${esc(sourceLabel)} · ${esc(equipName)}</div>
-      <div class="eq-call-confirm-issue-wrap">
-        <label class="eq-call-confirm-issue-label" for="eqCallIssue">
-          What's the issue? <span class="eq-optional-tag">(required — helps log the call)</span>
-        </label>
-        <textarea class="eq-call-confirm-issue" id="eqCallIssue" rows="2" placeholder="e.g., Compressor not cooling, freezing intermittently..."></textarea>
-      </div>
-      <div class="eq-call-confirm-actions">
-        <button class="eq-btn eq-btn-secondary" id="eqCallCancel">Cancel</button>
-        <a class="eq-btn eq-call-service-btn is-disabled" id="eqCallGo" href="tel:${esc(telHref)}" aria-disabled="true"><i data-lucide="phone" class="eq-btn-icon"></i> Call Now</a>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(modal);
-  requestAnimationFrame(() => modal.classList.add('active'));
-  
-  const close = () => { modal.classList.remove('active'); setTimeout(() => modal.remove(), 200); };
-  const issueEl = modal.querySelector('#eqCallIssue');
-  const callBtn = modal.querySelector('#eqCallGo');
-  
-  // Enable Call Now only when there's at least 2 chars in the textarea
-  issueEl.addEventListener('input', () => {
-    const hasText = issueEl.value.trim().length >= 2;
-    callBtn.classList.toggle('is-disabled', !hasText);
-    callBtn.setAttribute('aria-disabled', hasText ? 'false' : 'true');
-  });
-  // Autofocus so user can type right away on mobile
-  setTimeout(() => issueEl.focus(), 250);
-  
-  modal.querySelector('.eq-call-confirm-bg').addEventListener('click', close);
-  document.getElementById('eqCallCancel').addEventListener('click', close);
-  callBtn.addEventListener('click', async (e) => {
-    const issue = issueEl.value.trim();
-    // Guard — if somehow disabled state was bypassed
-    if (!issue || issue.length < 2) {
-      e.preventDefault();
-      issueEl.focus();
-      issueEl.style.borderColor = 'var(--red)';
-      setTimeout(() => { issueEl.style.borderColor = ''; }, 1200);
-      return;
-    }
-    // Log to dispatch_events (structured audit trail).
-    // The Postgres trigger on dispatch_events INSERT writes a rich "[SYS] call_made"
-    // entry to daily_logs automatically — no direct daily_logs insert needed.
-    try {
-      await NX.sb.from('dispatch_events').insert({
-        equipment_id: equipId,
-        contractor_node_id: contractorNodeId || null,
-        contractor_name: contactName,
-        contractor_phone: phone,
-        method: 'call',
-        issue_description: issue,
-        dispatched_by: NX.currentUser?.name || null,
-        outcome: 'pending',
-      });
-    } catch (err) { console.warn('dispatch_events log failed:', err); }
-    setTimeout(close, 100);
-  });
-}
-
-// Shown when no phone is on file anywhere
-function showNoServiceContactModal(equipId, equipName) {
-  const existing = document.getElementById('eqCallConfirm');
-  if (existing) existing.remove();
-  
-  const modal = document.createElement('div');
-  modal.id = 'eqCallConfirm';
-  modal.className = 'eq-call-confirm';
-  modal.innerHTML = `
-    <div class="eq-call-confirm-bg"></div>
-    <div class="eq-call-confirm-card">
-      <div class="eq-call-confirm-icon" style="color:var(--nx-gold)">${uiSvg("phone","32px")}</div>
-      <div class="eq-call-confirm-title">No service contact</div>
-      <div class="eq-call-confirm-meta">${esc(equipName)} doesn't have a phone number on file. Add one in the editor to enable quick calling.</div>
-      <div class="eq-call-confirm-actions">
-        <button class="eq-btn eq-btn-secondary" id="eqCallCancel">Close</button>
-        <button class="eq-btn eq-btn-primary" id="eqCallEdit">${uiSvg("settings", "14px")} Open Editor</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(modal);
-  requestAnimationFrame(() => modal.classList.add('active'));
-  
-  const close = () => { modal.classList.remove('active'); setTimeout(() => modal.remove(), 200); };
-  modal.querySelector('.eq-call-confirm-bg').addEventListener('click', close);
-  document.getElementById('eqCallCancel').addEventListener('click', close);
-  document.getElementById('eqCallEdit').addEventListener('click', () => {
-    close();
-    openFullEditor(equipId);
-  });
-}
-
-// Pretty-format a phone number for display
-function formatPhonePretty(p) {
-  if (!p) return '';
-  const cleaned = p.replace(/[^\d]/g, '');
-  // US 10-digit: (512) 555-1234
-  if (cleaned.length === 10) {
-    return `(${cleaned.slice(0,3)}) ${cleaned.slice(3,6)}-${cleaned.slice(6)}`;
-  }
-  // US 11-digit starting with 1: 1 (512) 555-1234
-  if (cleaned.length === 11 && cleaned.startsWith('1')) {
-    return `1 (${cleaned.slice(1,4)}) ${cleaned.slice(4,7)}-${cleaned.slice(7)}`;
-  }
-  return p; // Unknown format, return as-is
-}
-
-// Three-dot overflow menu in the equipment detail action bar.
-// Hides destructive actions (currently just Delete) behind a tap to prevent
-// accidental triggers. Auto-closes on outside tap.
-function toggleOverflow(event, equipId) {
-  event.stopPropagation();
-  const menu = document.getElementById('eqOverflow-' + equipId);
-  if (!menu) return;
-  const isOpen = menu.classList.contains('active');
-  // Close any other open overflows first
-  document.querySelectorAll('.eq-overflow-menu.active').forEach(m => m.classList.remove('active'));
-  if (!isOpen) {
-    menu.classList.add('active');
-    // Close on next outside click
-    setTimeout(() => {
-      document.addEventListener('click', function closeOverflow(e) {
-        if (!menu.contains(e.target)) {
-          menu.classList.remove('active');
-          document.removeEventListener('click', closeOverflow);
-        }
-      }, { once: true });
-    }, 0);
-  }
-}
-
-
-/* ════════════════════════════════════════════════════════════════════════════
-   12. UI INJECTION — per-row/card Zebra print buttons
-   (Was MutationObserver dance in equipment-ux.js; now called directly from renderList)
-   ════════════════════════════════════════════════════════════════════════════ */
-
-function injectRowPrintButtons() {
-  const list = document.getElementById('eqList');
-  if (!list) return;
-
-  // NOTE: Despite the legacy function name, this now injects a
-  // "quick status change" button on each row — admins can flip
-  // equipment status (Operational / Needs Service / Down / Retired)
-  // without opening the detail view. The old label-print icon was
-  // moved to the full editor's Print section (still accessible via
-  // Edit → Print on Zebra or Paper Sticker).
-  list.querySelectorAll('.eq-row[data-eq-id]').forEach(row => {
-    if (row.classList.contains('eq-row-head')) return;
-    if (row.querySelector('.eq-row-status-btn')) return;
-    const id = row.dataset.eqId;
-    const btn = document.createElement('button');
-    btn.className = 'eq-row-status-btn';
-    btn.innerHTML = '⟳';
-    btn.title = 'Change status';
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      openQuickStatusMenu(id, btn);
-    });
-    row.appendChild(btn);
-  });
-
-  list.querySelectorAll('.eq-card[data-eq-id]').forEach(card => {
-    if (card.querySelector('.eq-card-status-btn')) return;
-    const id = card.dataset.eqId;
-    const btn = document.createElement('button');
-    btn.className = 'eq-card-status-btn';
-    btn.innerHTML = '⟳';
-    btn.title = 'Change status';
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      openQuickStatusMenu(id, btn);
-    });
-    card.querySelector('.eq-card-top')?.appendChild(btn);
-  });
-}
-
-/* ═══ CROSS-SYSTEM CLOSE-OUT ═══════════════════════════════════════════
-   When equipment goes back to Operational, cards still open about it
-   are likely resolved. Show a compact modal offering to mark them Done
-   in one tap — so the user isn't left manually chasing every linked
-   ticket across Equip → Board → Calendar. Cards still LIVE in the Done
-   column (audit history); they just stop cluttering active workflows.
-   ═══════════════════════════════════════════════════════════════════════ */
-function offerCardCloseOut(cards, eq) {
-  // Remove any existing offer modal
-  document.querySelector('.eq-closeout-modal')?.remove();
-
-  const bg = document.createElement('div');
-  bg.className = 'eq-closeout-bg';
-
-  const modal = document.createElement('div');
-  modal.className = 'eq-closeout-modal';
-  const cardCount = cards.length;
-  modal.innerHTML = `
-    <div class="eq-closeout-head">
-      <div class="eq-closeout-icon" style="color:var(--nx-gold)">${uiSvg("check","32px")}</div>
-      <div>
-        <h3 class="eq-closeout-title">${esc(eq?.name || 'Equipment')} is back up</h3>
-        <p class="eq-closeout-sub">${cardCount} open card${cardCount === 1 ? ' is' : 's are'} linked to this equipment. Close ${cardCount === 1 ? 'it' : 'them'} out?</p>
-      </div>
-    </div>
-    <ul class="eq-closeout-cards">
-      ${cards.slice(0, 5).map(c => `<li>• ${esc(c.title || 'Untitled card')} <span class="eq-closeout-col">${esc((c.column_name || 'to_do').replace(/_/g, ' '))}</span></li>`).join('')}
-      ${cards.length > 5 ? `<li class="eq-closeout-more">+ ${cards.length - 5} more</li>` : ''}
-    </ul>
-    <p class="eq-closeout-note">Cards will move to Done on the Board — still searchable, but out of your active views and off the calendar.</p>
-    <div class="eq-closeout-actions">
-      <button class="eq-closeout-btn eq-closeout-btn-secondary" data-action="skip">Keep open</button>
-      <button class="eq-closeout-btn eq-closeout-btn-primary" data-action="move">
-        ${uiSvg('check', '12px')} Move ${cardCount === 1 ? 'card' : 'all ' + cardCount} to Done
-      </button>
-    </div>
-  `;
-
-  document.body.append(bg, modal);
-
-  const close = () => {
-    bg.remove();
-    modal.remove();
-  };
-
-  bg.addEventListener('click', close);
-  modal.querySelector('[data-action="skip"]').addEventListener('click', close);
-  modal.querySelector('[data-action="move"]').addEventListener('click', async () => {
-    try {
-      const ids = cards.map(c => c.id);
-      const { error } = await NX.sb.from('kanban_cards')
-        .update({ column_name: 'done', status: 'closed' })
-        .in('id', ids);
-      if (error) throw error;
-      NX.toast && NX.toast(`${ids.length} card${ids.length === 1 ? '' : 's'} moved to Done ✓`, 'success');
-      // Fire a home pulse so the galaxy/home reacts visually
-      if (NX.homeGalaxyPulse) try { NX.homeGalaxyPulse(); } catch (_) {}
-      close();
-    } catch (err) {
-      console.error('[closeout] move failed:', err);
-      NX.toast && NX.toast('Move failed: ' + err.message, 'error');
-    }
-  });
-}
-
-/* ═══ QUICK STATUS MENU ════════════════════════════════════════════════
-   Tap a row's status button → popup shows all 4 status options with
-   color dots. Tap one → writes to DB + reloads list. Admin-only writes
-   — for non-admin users, show a toast explaining the restriction.
-   Small, mobile-first, dismisses on outside tap. */
-function openQuickStatusMenu(equipmentId, anchorBtn) {
-  // Remove any existing menu
-  document.querySelector('.eq-status-menu')?.remove();
-
-  const isAdmin = NX.currentUser?.role === 'admin';
-  if (!isAdmin) {
-    NX.toast && NX.toast('Admins only. Report an issue via the detail page instead.', 'info', 3500);
-    return;
-  }
-
-  const eq = equipment.find(e => e.id === equipmentId);
-  const currentKey = eq?.status || 'operational';
-
-  const menu = document.createElement('div');
-  menu.className = 'eq-status-menu';
-  menu.innerHTML = `
-    <div class="eq-status-menu-head">Change status</div>
-    ${DROPDOWN_STATUSES.map(s => `
-      <button class="eq-status-menu-item ${s.key === currentKey ? 'is-current' : ''}" data-key="${s.key}">
-        <span class="eq-status-menu-dot" style="background:${s.color}"></span>
-        <span>${s.label}</span>
-        ${s.key === currentKey ? `<span class=\"eq-status-menu-check\">${uiSvg('check','11px')}</span>` : ''}
-      </button>
-    `).join('')}
-  `;
-  document.body.appendChild(menu);
-
-  // Position next to anchor button
-  const rect = anchorBtn.getBoundingClientRect();
-  const menuH = 200;
-  const top = (rect.bottom + menuH > window.innerHeight) ? rect.top - menuH - 6 : rect.bottom + 6;
-  menu.style.top = Math.max(10, top) + 'px';
-  menu.style.right = (window.innerWidth - rect.right) + 'px';
-
-  menu.querySelectorAll('.eq-status-menu-item').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const newKey = btn.dataset.key;
-      menu.remove();
-      if (newKey === currentKey) return;
-      try {
-        const { error } = await NX.sb.from('equipment')
-          .update({ status: newKey })
-          .eq('id', equipmentId);
-        if (error) throw error;
-        NX.toast && NX.toast(`Status → ${STATUSES.find(s => s.key === newKey)?.label || newKey}`, 'success');
-        if (eq) eq.status = newKey;  // optimistic local update
-        // Sync to brain so the galaxy/AI reflects the new status
-        // without waiting for next full refresh.
-        if (NX.eqBrainSync?.syncOne) {
-          try { await NX.eqBrainSync.syncOne(equipmentId); } catch (_) {}
-        }
-        buildUI();  // re-render list
-
-        // ── CROSS-SYSTEM CLOSE-OUT ────────────────────────────────────
-        // If equipment is back to Operational, any open card linked to
-        // it is likely resolved. Offer to move them to Done so the user
-        // doesn't have to manually close every related card.
-        if (newKey === 'operational') {
-          try {
-            const { data: linkedCards } = await NX.sb.from('kanban_cards')
-              .select('id, title, column_name, list_id')
-              .eq('equipment_id', equipmentId)
-              .neq('column_name', 'done')
-              .or('archived.is.null,archived.eq.false');
-            if (linkedCards && linkedCards.length) {
-              offerCardCloseOut(linkedCards, eq);
-            }
-          } catch (_) { /* non-blocking */ }
-        }
-      } catch (err) {
-        console.error('[status] update failed:', err);
-        NX.toast && NX.toast('Update failed: ' + err.message, 'error');
-      }
-    });
-  });
-
-  // Dismiss on outside tap (delay one tick so the opening tap doesn't close it)
-  setTimeout(() => {
-    document.addEventListener('click', function dismiss(e) {
-      if (!menu.contains(e.target)) {
-        menu.remove();
-        document.removeEventListener('click', dismiss);
-      }
-    });
-  }, 0);
-}
-
-
-/* ════════════════════════════════════════════════════════════════════════════
-   13. UTILITIES — single canonical copies of helpers used throughout
-   (Previously duplicated across 4+ files)
-   ════════════════════════════════════════════════════════════════════════════ */
-
-function esc(s) {
-  if (s == null) return '';
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function escAttr(s) {
-  if (s == null) return '';
-  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-function statusColor(s) { return STATUSES.find(x => x.key === s)?.color || 'var(--muted)'; }
-function statusLabel(s) { return STATUSES.find(x => x.key === s)?.label || s; }
-/* catIcon — emits a Lucide-style line-art SVG glyph for an equipment
-   category. Replaces the emoji approach (inconsistent rendering across
-   devices, off-aesthetic). The SVG sizes itself to the parent's
-   font-size via 1em width/height, and inherits color via currentColor —
-   so existing call sites that style .eq-cat-icon (font-size:22px) and
-   .eq-cat-icon-lg (font-size:32px) work without changes. */
-function catIcon(c) {
-  const path = ICON_PATHS[c] || ICON_PATHS.other;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">${path}</svg>`;
-}
-
-function statusDot(s) {
-  const dotColors = {
-    operational:   'var(--green)',
-    needs_service: 'var(--amber)',
-    down:          'var(--red)',
-    retired:       'var(--faint)',
-  };
-  return dotColors[s] || 'var(--muted)';
-}
-
-function relIcon(type) {
-  const r = RELATIONSHIP_TYPES.find(x => x.key === type);
-  return r ? r.icon : '·';
-}
-
-function relLabel(type) {
-  if (!type) return '';
-  const r = RELATIONSHIP_TYPES.find(x => x.key === type);
-  return r ? r.label : type.replace(/_/g, ' ');
-}
-
-function attachmentIcon(a) {
-  const isImage = (a.mime_type || '').startsWith('image/');
-  const isPDF   = (a.mime_type || '').includes('pdf');
-  return a.type === 'link'     ? uiSvg('link', '13px')
-       : a.type === 'note'     ? uiSvg('note', '13px')
-       : a.type === 'receipt'  ? uiSvg('receipt', '13px')
-       : a.type === 'invoice'  ? uiSvg('dollar', '13px')
-       : a.type === 'warranty' ? uiSvg('shield', '13px')
-       : a.type === 'photo'    ? uiSvg('camera', '13px')
-       : isImage               ? uiSvg('camera', '13px')
-       : isPDF                 ? uiSvg('document', '13px')
-       :                         uiSvg('paperclip', '13px');
-}
-
-function formatBytes(b) {
-  if (b < 1024) return b + 'B';
-  if (b < 1048576) return (b / 1024).toFixed(1) + 'KB';
-  return (b / 1048576).toFixed(1) + 'MB';
-}
-
-function methodIcon(m) {
-  return ({
-    call:     uiSvg('phone', '13px'),
-    sms:      uiSvg('message', '13px'),
-    whatsapp: uiSvg('whatsapp', '13px'),
-    email:    uiSvg('email', '13px'),
-  })[m] || uiSvg('message', '13px');
-}
-
-function timeAgo(iso) {
-  if (!iso) return '';
-  const ms = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(ms / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.floor(m / 60);
-  if (h < 24) return h + 'h ago';
-  const d = Math.floor(h / 24);
-  if (d < 30) return d + 'd ago';
-  return new Date(iso).toLocaleDateString();
-}
-
-
-/* ════════════════════════════════════════════════════════════════════════════
-   PM LOG INLINE REVIEW — approve/reject/spam from the Timeline tab
-   ════════════════════════════════════════════════════════════════════════════
-   Contractor submits a PM via the public QR form → row lands in pm_logs with
-   review_status='pending'. The Timeline tab surfaces pending logs for admins
-   with inline action buttons so they never have to hunt for a hidden review
-   dashboard.
-
-   Approve path: updates pm_logs.review_status, inserts a matching row into
-   equipment_maintenance (so the approved service appears as a "real" timeline
-   event), and triggers the brain sync so the node reflects the new service
-   history. Mirrors the existing updateReviewStatus() logic in
-   equipment-public-pm.js — single-sourced here so the timeline flow uses the
-   same code path as the standalone review dashboard.
-   ════════════════════════════════════════════════════════════════════════════ */
-
-async function approvePmLog(logId, equipmentId) {
-  if (!confirm('Approve this service log? It will be added to the equipment timeline.')) return;
-  try {
-    // 1. Update the pm_log review status
-    const reviewer = NX.currentUser?.name || 'Admin';
-    const { error: upErr } = await NX.sb.from('pm_logs').update({
-      review_status: 'approved',
-      reviewed_at: new Date().toISOString(),
-      reviewed_by: reviewer,
-    }).eq('id', logId);
-    if (upErr) throw upErr;
-
-    // 2. Fetch the full row to promote it
-    const { data: log, error: getErr } = await NX.sb.from('pm_logs').select('*').eq('id', logId).single();
-    if (getErr) throw getErr;
-
-    // 3. Insert matching equipment_maintenance row
-    const maintDesc = log.work_performed
-      + (log.parts_replaced ? '\n\nParts: ' + log.parts_replaced : '');
-    const performer = log.contractor_name
-      + (log.contractor_company ? ' (' + log.contractor_company + ')' : '');
-    const { error: insErr } = await NX.sb.from('equipment_maintenance').insert({
-      equipment_id: log.equipment_id,
-      event_date: log.service_date,
-      event_type: log.service_type || 'pm',
-      description: maintDesc,
-      performed_by: performer,
-      cost: log.cost_amount,
-      notes: `Submitted via QR scan${log.contractor_phone ? '. Phone: ' + log.contractor_phone : ''}.`,
-      pm_log_id: log.id,
-    });
-    if (insErr) throw insErr;
-
-    // 4. If this PM has a next_service_date, update equipment's next_pm_date
-    if (log.next_service_date) {
-      await NX.sb.from('equipment')
-        .update({ next_pm_date: log.next_service_date })
-        .eq('id', log.equipment_id);
-    }
-
-    // 5. Re-sync the equipment node in the knowledge graph (best effort)
-    if (NX.eqBrainSync?.syncOne) {
-      try { await NX.eqBrainSync.syncOne(log.equipment_id); } catch (_) {}
-    }
-
-    NX.toast?.('Service log approved ✓', 'success');
-    // 6. Reload the equipment detail to reflect the change
-    await openDetail(equipmentId);
-  } catch (err) {
-    console.error('[approvePmLog] failed:', err);
-    alert('Failed to approve: ' + err.message);
-  }
-}
-
-async function rejectPmLog(logId, equipmentId) {
-  if (!confirm('Reject this service log? It will be hidden from the timeline.')) return;
-  try {
-    const { error } = await NX.sb.from('pm_logs').update({
-      review_status: 'rejected',
-      reviewed_at: new Date().toISOString(),
-      reviewed_by: NX.currentUser?.name || 'Admin',
-    }).eq('id', logId);
-    if (error) throw error;
-    NX.toast?.('Log rejected', 'info');
-    await openDetail(equipmentId);
-  } catch (err) {
-    console.error('[rejectPmLog] failed:', err);
-    alert('Failed to reject: ' + err.message);
-  }
-}
-
-async function markPmSpam(logId, equipmentId) {
-  if (!confirm('Mark this log as spam? It will be hidden and the submitter flagged.')) return;
-  try {
-    const { error } = await NX.sb.from('pm_logs').update({
-      review_status: 'spam',
-      reviewed_at: new Date().toISOString(),
-      reviewed_by: NX.currentUser?.name || 'Admin',
-    }).eq('id', logId);
-    if (error) throw error;
-    NX.toast?.('Marked as spam', 'info');
-    await openDetail(equipmentId);
-  } catch (err) {
-    console.error('[markPmSpam] failed:', err);
-    alert('Failed: ' + err.message);
-  }
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   14. EXPORT — single flat namespace, no more Object.assign ceremony
-   ════════════════════════════════════════════════════════════════════════════ */
-
-if (!NX.modules) NX.modules = {};
-
-NX.modules.equipment = {
-  // Lifecycle
-  init,
-  show: buildUI,
-  add: () => openEditModal(null),
-  edit: openFullEditor,           // The canonical "edit" is the full 6-tab editor
-
-  // List/detail
-  openDetail,
-  closeDetail,
-  loadEquipment,
-  buildUI,
-  getFiltered,
-  reportIssue,       // Creates a board card prefilled with this equipment
-
-  // Add/edit modal (simple form)
-  closeEdit,
-  deleteEquipment,
-
-  // Service log + parts
-  logService,
-  closeService,
-  deleteMaintenance,
-  approvePmLog,
-  rejectPmLog,
-  markPmSpam,
-  addPart,
-  editPart,
-  deletePart,
-  closePart,
-
-  // Manual
-  removeManual,
-  uploadManual,
-  autoFetchManual,
-
-  // AI intelligence
-  scanDataPlate,
-  detectPatterns,
-  analyzeCost,
-  renderIntelligenceTab,
-  scanFleet,
-  suggestPMDate,
-  applyPredictivePM,
-  extractBOMFromManual,
-  exportPartsCart,
-  checkWarranties,
-
-  // AI create
-  openAICreator,
-  openDescribeDialog,
-  photoIdentify,
-  bulkIdentify,
-  createFromDescription,
-
-  // Full editor + attachments
-  openFullEditor,
-  closeFullEdit,
-  addAttachment,
-  deleteAttachment,
-  editAttachmentDesc,
-  uploadPhoto,
-  replacePhoto,
-  removePhoto,
-  deleteCustomField,
-
-  // Printing
-  generateZPL,
-  generateZPLBatch,
-  openZebraPrintDialog,
-  printZebraSingle,
-  printZebraBatch,
-  quickPrint,
-  printSingleQR,
-  printQRSheet,
-  printServiceLog,
-  copyQRLink,
-  printInventoryStickers,    // Phase C — inventory uses the same sticker engine
-
-  // Public scan (pre-auth)
-  renderPublicScanView,
-  publicReportIssue,
-
-  // Lineage
-  loadFamily,
-  pickParent,
-  pickChild,
-  unsetParent,
-
-  // Dispatch
-  openDispatchSheet,
-  loadContractors,
-  cycleDispatchOutcome,
-  dispatchFromTicket,
-  callService,
-  lookupServicePhoneFromNode,
-  toggleOverflow,
-  enhancePartsList,
-  enhanceManualPanel,
-};
-
-console.log('[Equipment] unified module loaded — ' + Object.keys(NX.modules.equipment).length + ' exports');
-
-})();
