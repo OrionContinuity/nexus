@@ -4580,3 +4580,211 @@ body.ord-overlay-open .bottom-nav {
   color: var(--faint);
   line-height: 1;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Catalog editor — section-card visual (round 2)
+   Each section is a self-contained card with its own border + shadow.
+   Drag handles are always-on (no reorder mode). Tap-to-edit and drag are
+   sibling controls inside each item row. These rules supersede the
+   earlier .ved-section-block / .ved-item-row rules for the catalog
+   overlay only — other surfaces still use the older styles.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.ord-catalog-overlay .ved-section-block {
+  background: var(--surface);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 12px;
+  margin: 0 0 14px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.05);
+  transition: transform 80ms ease, box-shadow .15s ease, border-color .15s ease;
+  position: relative;
+}
+[data-theme="dark"] .ord-catalog-overlay .ved-section-block {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+.ord-catalog-overlay .ved-section-block.is-dragging {
+  transition: none;
+  z-index: 12;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.30);
+  border-color: var(--accent);
+}
+
+/* Header — gold-tinted strip at top of the card */
+.ord-catalog-overlay .ved-section-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  margin: 0;
+  background: var(--nx-gold-faint);
+  border: 0;
+  border-bottom: 1px solid var(--nx-gold-line);
+  border-radius: 0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* Section drag handle — always visible, opacity hint that it's interactive */
+.ord-catalog-overlay .ved-section-drag {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  margin-left: -4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  cursor: grab;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  border-radius: 4px;
+  opacity: 0.75;
+}
+.ord-catalog-overlay .ved-section-drag:active {
+  opacity: 1;
+  cursor: grabbing;
+  background: var(--nx-gold-mist);
+}
+
+/* Items wrapper inside the card */
+.ord-catalog-overlay .ved-section-items {
+  display: block;
+  padding: 0;
+  background: transparent;
+}
+
+/* Item row — wrapper div containing drag handle + tap area.
+   Overrides the older .ved-item-row floating-chip styles. */
+.ord-catalog-overlay .ved-item-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  border-top: 1px solid var(--border);
+  transition: background .12s ease, transform 80ms ease, box-shadow .15s ease;
+}
+.ord-catalog-overlay .ved-section-items > .ved-item-row:first-child {
+  border-top: 0;
+}
+.ord-catalog-overlay .ved-item-row:hover {
+  background: var(--nx-gold-faint);
+}
+.ord-catalog-overlay .ved-item-row.is-dragging {
+  transition: none;
+  z-index: 11;
+  background: var(--nx-gold-mist);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+}
+.ord-catalog-overlay .ved-item-row.is-dragging:hover {
+  background: var(--nx-gold-mist);
+}
+
+/* Drag handle on each item — always present */
+.ord-catalog-overlay .ved-item-drag-handle {
+  flex-shrink: 0;
+  width: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+  cursor: grab;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  background: transparent;
+  border: 0;
+}
+.ord-catalog-overlay .ved-item-drag-handle:active {
+  cursor: grabbing;
+  color: var(--accent);
+}
+
+/* Tap area — fills the rest of the row, opens the edit form */
+.ord-catalog-overlay .ved-item-tap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 4px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  min-width: 0;
+}
+.ord-catalog-overlay .ved-item-tap:active {
+  background: var(--nx-gold-soft);
+}
+.ord-catalog-overlay .ved-item-tap .ved-item-main {
+  flex: 1;
+  min-width: 0;
+}
+.ord-catalog-overlay .ved-item-tap .ved-item-name {
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+  word-break: break-word;
+}
+.ord-catalog-overlay .ved-item-tap .ved-item-meta {
+  margin-top: 2px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.ord-catalog-overlay .ved-item-chevron {
+  flex-shrink: 0;
+  font-size: 18px;
+  color: var(--faint);
+  margin-right: 4px;
+}
+
+/* Empty-section placeholder lives inside the card */
+.ord-catalog-overlay .ved-section-empty {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.ord-catalog-overlay .ved-section-items > .ved-section-empty + .ved-item-row {
+  border-top: 1px solid var(--border);
+}
+
+/* Inline edit form — fit cleanly inside the card */
+.ord-catalog-overlay .ord-vitem-editing {
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  margin: 0;
+  background: var(--bg);
+}
+.ord-catalog-overlay .ved-section-items > .ord-vitem-editing:first-child {
+  border-top: 0;
+}
+
+/* Section rename pencil hover */
+.ord-catalog-overlay .ved-section-rename-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid transparent;
+}
+.ord-catalog-overlay .ved-section-rename-btn:hover {
+  background: var(--nx-gold-mist);
+  border-color: var(--nx-gold-line);
+}
