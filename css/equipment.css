@@ -1,25 +1,76 @@
+Try AI directly in your favorite apps … Use Gemini to generate drafts and refine content, plus get Gemini Pro with access to Google's next-gen AI for $19.99 $9.99 for 2 months
 /* ═══════════════════════════════════════════════════════════════════════════════
 
    NEXUS EQUIPMENT — unified styles
    ────────────────────────────────
-   This replaces: equipment.css, equipment-ai.css, equipment-p3.css,
-                  equipment-ux.css, equipment-ai-creator.css,
-                  equipment-full-editor.css, equipment-p4.css
+   Consolidated CSS for the entire equipment subsystem. This single file
+   merges what used to be three separate files loaded in cascade order:
 
-   Ordered by section matching equipment.js:
-     1. BASE (layout, list, grid, cards)
-     2. DETAIL MODAL
-     3. TABS & PANELS
-     4. FORMS
-     5. AI + PATTERN ALERTS
-     6. AI CREATE
-     7. FULL EDITOR
-     8. ATTACHMENTS
-     9. ZEBRA PRINT DIALOG
-    10. PUBLIC SCAN
-    11. LINEAGE / FAMILY TREE
-    12. DISPATCH SHEET
-    13. PER-ROW PRINT BUTTONS
+     · equipment.css         (PART 1 — base styles)
+     · equipment-fixes.css   (PART 2 — patches/overrides, merged 2026-05-06)
+     · equipment-context-menu.css (PART 3 — long-press context menu, merged 2026-05-06)
+
+   The 3-part order is preserved exactly so cascade behavior is identical
+   to the pre-merge state. Within each part, sections are roughly grouped
+   by feature area but the original authoring order is left intact (don't
+   reorder rules with the same selector — same-specificity rules get
+   resolved by document position).
+
+   ═══════════════════════════════════════════════════════════════════════════════
+   TABLE OF CONTENTS
+   ═══════════════════════════════════════════════════════════════════════════════
+
+   PART 1 — BASE (lines     1 –  2817)
+
+       29   Module styles (layout, list, grid, cards, detail modal, tabs)
+       908  Phase 2 AI additions (scan confidence, intelligence panels)
+      1010  Phase 3 (Zebra print dialog)
+      1158  PUBLIC SCAN VIEW (no-login, standalone page)
+      1502  AI CREATOR (text-based equipment generation flow)
+      1832  FULL EDITOR (large detail-edit modal with tabs)
+      2134  UX PATCHES (per-row print button, list-view tweaks)
+      2235  PHASE 4 (lineage tree + dispatch sheet)
+
+   PART 2 — FIXES (lines  2818 –  5235)
+
+      2839  CLEAN ACTION BAR (top filter chips + view toggle)
+      2999  DISPATCH MODAL (call service flow)
+      3236  MANUAL CARD (PDF/manual viewer in detail modal)
+      3330  MULTI-VENDOR PARTS (parts list with vendor expansion)
+      3718  EXTRACT FROM MANUAL (AI manual ingestion progress)
+      3887  COLLAPSIBLE PART ACCORDION (v2 parts design)
+      4046  DETAIL CLOSE BUTTON (mobile fix #1)
+      4107  CLOSE BUTTON FIX V1 (overrides)
+      4199  REPORT ISSUE BUTTON RESTYLE
+      4248  CLOSE BUTTON FIX V2 (more aggressive overrides)
+      4286  CALL CONTRACTOR BUTTON (public scan action card)
+      4350  DISPATCH SHEET (corrected to match actual JS class names)
+      4688  THREE-DOT OVERFLOW MENU (destructive-action gate)
+      4770  CALL SERVICE BUTTON (replaces old dispatch)
+      4793  CALL CONFIRM MODAL (pre-dial confirmation)
+      4970  DETAIL ACTION BAR (Stage Z unified treatment)
+      5082  PUBLIC SCAN BUTTON OVERHAUL
+      5193  PUBLIC SCAN iPhone scroll fix
+
+   PART 3 — CONTEXT MENU (lines  5236 –  end)
+
+      5247  CONTEXT MENU SYSTEM (long-press card menu — backdrop, items, animation)
+      5831  TIMELINE DETAIL MODAL (per-event detail view)
+
+   ═══════════════════════════════════════════════════════════════════════════════
+   AUDIT NOTES (current state)
+   ═══════════════════════════════════════════════════════════════════════════════
+
+     · 6,117 total lines, brace-balanced
+     · ~216 !important declarations, all in PART 2 (preserved verbatim from the
+       original equipment-fixes.css). Many are now redundant since both PART 1
+       and PART 2 live in the same file with deterministic order. A future
+       cleanup pass could remove them per-selector with visual testing.
+     · ~357 duplicate selectors across PART 1 + PART 2 (e.g. `.eq-card`
+       defined in both, with the PART 2 version winning). Same-selector
+       rules can be merged with no cascade change but each merge needs a
+       quick visual diff to confirm.
+     · All inline color literals tokenized to var(--token) form.
 
    ═══════════════════════════════════════════════════════════════════════════════ */
 
