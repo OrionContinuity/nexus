@@ -1,10 +1,10 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    NEXUS Badge Print Choice v1
    
-   Patches the inline 🏷 badge on each equipment row/card so tapping it
+   Patches the inline tag badge on each equipment row/card so tapping it
    pops up a small menu with two options:
-     • 🏷 Zebra     — print thermal sticker (if printer available)
-     • 📄 Paper     — print HTML/Avery sticker (any printer)
+     • Zebra        — print thermal sticker (if printer available)
+     • Paper        — print HTML/Avery sticker (any printer)
    
    This way when the Zebra is down, you still have a print path.
    
