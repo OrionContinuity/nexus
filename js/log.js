@@ -94,7 +94,10 @@ async function loadFeed() {
   (logsRes.data || []).forEach(r => {
     const entry = r.entry || '';
     const isClean = entry.startsWith('Cleaning Report') || entry.startsWith('[AUTO');
-    const isSys = entry.startsWith('[SYS]') || entry.startsWith('⚙') || entry.startsWith('📬') || entry.startsWith('🚨') || entry.startsWith('📷') || entry.startsWith('📞');
+    // Legacy daily_logs may have entries that start with an emoji prefix
+    // (from the pre-Lucide ICONS map). Match any non-word-leading entry that
+    // looks like a system event (event keyword in the body).
+    const isSys = entry.startsWith('[SYS]') || (/^[^\w\s]/.test(entry) && /(login|logout|clock|card|ticket|clean|chat|batch|notify|privacy|node|gmail|email|equipment|maintenance|call|dispatch|push|broadcast|pattern|capture|subscribed)/i.test(entry));
     const type = isClean ? 'clean' : isSys ? 'system' : 'log';
     feed.push({ type, ts: r.created_at, id: 'dl-' + r.id, data: r, src: 'daily_logs' });
   });
@@ -345,7 +348,8 @@ function buildTicketCard(r, pinned) {
 /* ═══ TASK CARD ═══ */
 function buildTaskCard(r) {
   const status = (r.column_name || r.status || 'todo').toLowerCase();
-  const icon = status === 'done' ? '✅' : status === 'doing' ? '🔄' : '📌';
+  const iconName = status === 'done' ? 'check-circle' : status === 'doing' ? 'circle-dashed' : 'circle';
+  const icon = `<i data-lucide="${iconName}" class="feed-task-icon"></i>`;
   const due = r.due_date
     ? '<span class="feed-due' + (new Date(r.due_date) < new Date() ? ' feed-overdue' : '') + '">Due ' +
       new Date(r.due_date).toLocaleDateString([], { month: 'short', day: 'numeric' }) + '</span>'
@@ -359,7 +363,7 @@ function buildTaskCard(r) {
 /* ═══ CLOCK CARD ═══ */
 function buildClockCard(r) {
   const hrs = r.hours ? parseFloat(r.hours).toFixed(1) + 'h' : 'active';
-  const dot = r.clock_out ? '🔴' : '🟢';
+  const dot = r.clock_out ? '<span class="feed-clock-dot feed-clock-out"></span>' : '<span class="feed-clock-dot feed-clock-in"></span>';
   return baseCard('clock',
     '<div class="feed-text">' + dot + ' ' + (r.clock_out ? 'Out' : 'In') + ' — ' + escHTML(r.user_name || '?') + '</div>' +
     '<div class="feed-who">' + escHTML(r.location || '') + ' · ' + hrs + '</div>',
@@ -403,7 +407,7 @@ function buildCleanReportCard(r) {
       '<div class="feed-head">' +
         (isAuto ? '<span class="feed-auto">AUTO</span>' : '') +
         '<span class="feed-ts">' + timeAgo(r.created_at) + '</span>' +
-        '<button class="feed-edit-btn" title="Edit report">✏</button>' +
+        '<button class="feed-edit-btn" title="Edit report"><i data-lucide="pencil"></i></button>' +
       '</div>' +
       '<div class="feed-content">' +
         '<div class="feed-text">Cleaning Report ' + reportDate + '</div>' +
@@ -478,15 +482,15 @@ function buildCleanTaskCard(r) {
 
 /* ═══ SYSTEM EVENT CARD ═══
    Parses [SYS] entries in either format:
-     New: "[SYS] 🧠 node_created: HVAC Unit"     (icon embedded, preferred)
+     New: "[SYS] node_created: HVAC Unit"        (icon inferred from event)
      Old: "[SYS] node_created: HVAC Unit"        (icon inferred from event)
-   Also recognizes legacy dispatch entries starting with 📞.
+   Also recognizes legacy dispatch entries with embedded prefixes.
 */
 function buildSystemCard(r) {
   const entry = r.entry || '';
   let clean = entry.replace(/^\[SYS\]\s*/, '');
 
-  let icon = '⚙';
+  let icon = 'settings';
   let label = clean;
   let event = '';
 
@@ -505,32 +509,44 @@ function buildSystemCard(r) {
       event = oldFmt[1];
       label = oldFmt[2];
       // Pick an icon from keyword matching
-      if      (event.includes('login') || event.includes('logout')) icon = '🔑';
-      else if (event.includes('clock')) icon = '⏱';
-      else if (event.includes('card'))  icon = '📋';
-      else if (event.includes('ticket')) icon = '🎫';
-      else if (event.includes('clean')) icon = '🧹';
-      else if (event.includes('chat'))  icon = '💬';
-      else if (event.includes('batch')) icon = '📥';
-      else if (event.includes('notify') || event.includes('capture')) icon = '📱';
-      else if (event.includes('privacy')) icon = '🔒';
-      else if (event.includes('node'))  icon = '🧠';
-      else if (event.includes('gmail') || event.includes('email')) icon = '✉';
-      else if (event.includes('equipment')) icon = '🔧';
-      else if (event.includes('maintenance')) icon = '🛠';
-      else if (event.includes('call') || event.includes('dispatch')) icon = '📞';
-      else if (event.includes('push') || event.includes('subscribed')) icon = '🔔';
-      else if (event.includes('broadcast')) icon = '📣';
-      else if (event.includes('pattern')) icon = '🔮';
+      if      (event.includes('login') || event.includes('logout')) icon = 'key';
+      else if (event.includes('clock')) icon = 'clock';
+      else if (event.includes('card'))  icon = 'clipboard-list';
+      else if (event.includes('ticket')) icon = 'ticket';
+      else if (event.includes('clean')) icon = 'sparkles';
+      else if (event.includes('chat'))  icon = 'message-square';
+      else if (event.includes('batch')) icon = 'inbox';
+      else if (event.includes('notify') || event.includes('capture')) icon = 'smartphone';
+      else if (event.includes('privacy')) icon = 'lock';
+      else if (event.includes('node'))  icon = 'brain';
+      else if (event.includes('gmail') || event.includes('email')) icon = 'mail';
+      else if (event.includes('equipment')) icon = 'wrench';
+      else if (event.includes('maintenance')) icon = 'hammer';
+      else if (event.includes('call') || event.includes('dispatch')) icon = 'phone';
+      else if (event.includes('push') || event.includes('subscribed')) icon = 'bell';
+      else if (event.includes('broadcast')) icon = 'megaphone';
+      else if (event.includes('pattern')) icon = 'sparkles';
     }
   }
 
-  // Non-[SYS] legacy prefixes that we still classify as system events
-  if (entry.startsWith('⚙')) { icon = '⚙'; label = entry.slice(2).trim(); event = ''; }
-  if (entry.startsWith('📬')) { icon = '📬'; label = entry.slice(2).trim(); event = ''; }
-  if (entry.startsWith('🚨')) { icon = '🚨'; label = entry.slice(2).trim(); event = ''; }
-  if (entry.startsWith('📷')) { icon = '📷'; label = entry.slice(2).trim(); event = ''; }
-  if (entry.startsWith('📞')) { icon = '📞'; label = entry.replace(/^📞\s*(\[DISPATCH\]\s*)?/, '').trim(); event = 'call_made'; }
+  // Legacy daily_logs may start with an emoji sentinel (pre-Lucide).
+  // We strip the sentinel and infer a Lucide icon from the body keyword
+  // so existing rows still display cleanly. New entries don't have these.
+  const LEGACY_PREFIX_MAP = [
+    [/^[\u2699\uFE0F]+\s*/u,            'settings'],       // gear
+    [/^[\uD83D][\uDCEC]\s*/u,            'inbox'],          // mailbox
+    [/^[\uD83D][\uDEA8]\s*/u,            'alert-octagon'],  // siren
+    [/^[\uD83D][\uDCF7]\s*/u,            'camera'],         // camera
+    [/^[\uD83D][\uDCDE]\s*(?:\[DISPATCH\]\s*)?/u, 'phone'], // phone (with optional dispatch tag)
+  ];
+  for (const [rx, ico] of LEGACY_PREFIX_MAP) {
+    if (rx.test(entry)) {
+      icon = ico;
+      label = entry.replace(rx, '').trim();
+      event = ico === 'phone' ? 'call_made' : '';
+      break;
+    }
+  }
 
   // Pretty event label — strip underscores for display
   const prettyEvent = event ? event.replace(/_/g, ' ') : '';
@@ -539,7 +555,7 @@ function buildSystemCard(r) {
     : '';
 
   const el = baseCard('system',
-    '<div class="feed-text"><span class="feed-sys-icon">' + icon + '</span> ' + eventBadge + escHTML(label) + '</div>' +
+    '<div class="feed-text"><span class="feed-sys-icon"><i data-lucide="' + icon + '"></i></span> ' + eventBadge + escHTML(label) + '</div>' +
     (r.user_name && r.user_name !== 'NEXUS' ? '<div class="feed-who">' + escHTML(r.user_name) + '</div>' : ''),
     r.created_at);
   if (r.id) addDeleteBtn(el, r.id, 'daily_logs');
