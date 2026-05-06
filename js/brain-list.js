@@ -347,3 +347,4 @@
   function initList(){setupSearch();setupListView();}
   NX.brain.initList=initList;
 })();
+ 
