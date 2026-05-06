@@ -9736,7 +9736,11 @@ function closeContractors() {
  * + equipment_issues so we avoid N+1 queries.
  */
 async function loadContractorsList() {
-  if (!NX.sb) return;
+  if (!NX.sb) {
+    NX.toast && NX.toast('🔴 NX.sb is not set — Supabase client missing', 'error', 5000);
+    return;
+  }
+  NX.toast && NX.toast('Step 1: querying nodes…', 'info', 1200);
 
   // Fetch contractors + supporting data in parallel.
   const [nodesRes, maintRes, issuesRes, equipRes] = await Promise.all([
@@ -9754,10 +9758,34 @@ async function loadContractorsList() {
     NX.sb.from('equipment').select('id, name, location, area, manufacturer, model, preferred_contractor_node_id, service_contact_name, service_phone'),
   ]);
 
-  const contractors = nodesRes.data || [];
-  const maint = maintRes.data || [];
+  // ─── Surface every error (this is the whole point of v33) ────────
+  const errs = [];
+  if (nodesRes?.error) errs.push('nodes: ' + (nodesRes.error.message || nodesRes.error.code));
+  if (maintRes?.error) errs.push('maint: ' + (maintRes.error.message || maintRes.error.code));
+  if (equipRes?.error) errs.push('equip: ' + (equipRes.error.message || equipRes.error.code));
+  if (errs.length) {
+    console.error('[loadContractorsList] errors:', errs);
+    NX.toast && NX.toast('🔴 Read errors: ' + errs.join(' | '), 'error', 7000);
+  }
+
+  const contractors = nodesRes?.data || [];
+  const maint = maintRes?.data || [];
   const issues = (issuesRes && issuesRes.data) || [];
-  const eqList = equipRes.data || [];
+  const eqList = equipRes?.data || [];
+
+  console.log('[loadContractorsList] counts:', {
+    contractors: contractors.length,
+    maint: maint.length,
+    issues: issues.length,
+    equipment: eqList.length,
+  });
+
+  // Loud success/failure toast so the user sees the count regardless.
+  NX.toast && NX.toast(
+    `Step 2: read ${contractors.length} contractors, ${eqList.length} equipment`,
+    contractors.length > 0 ? 'success' : 'warn',
+    2400
+  );
 
   const ytdCutoff = new Date(new Date().getFullYear(), 0, 1);
 
