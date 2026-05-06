@@ -1,3 +1,4 @@
+ordering-system.css
 /* ═══════════════════════════════════════════════════════════════════
    ordering-system.css — Duties tab strip + Ordering pane styles
    ═══════════════════════════════════════════════════════════════════
@@ -2064,9 +2065,13 @@ body.ord-overlay-open .bottom-nav {
 [data-theme="light"] .ord-entry-add:active { color: var(--surface); }
 .ord-entry-add:active { transform: scale(0.92); }
 .ord-entry-add svg {
-  width: 18px;
-  height: 18px;
-  margin: 0;
+  /* Bumped from 18→20px and overriding the inline 14px the SVG ships
+     with. The icon felt small + faint inside the 40px circle; bigger
+     glyph reads as a proper button affordance. */
+  width: 20px !important;
+  height: 20px !important;
+  margin: 0 !important;
+  stroke-width: 2.4;
 }
 
 /* ─── Quick-add modal (centered card with scrim) ────────────────── */
@@ -3739,4 +3744,273 @@ body.ord-overlay-open .bottom-nav {
    (drafts are routine; issues are exceptional and need the eye). */
 .ord-vendor-row.has-draft.has-issue {
   background: rgba(214, 145, 46, 0.05);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   PHASE 7 — VENDOR SORT + REORDER + RECIPIENT LIST
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Sort selector header ──────────────────────────────────────── */
+
+.ord-vendor-sort-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 16px 10px;
+  margin: 0;
+}
+.ord-vendor-sort-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: var(--nx-gold-mist);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: background var(--nx-press), border-color var(--nx-press);
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-vendor-sort-pill:hover {
+  background: var(--nx-gold-faint);
+  border-color: var(--nx-gold);
+}
+.ord-vendor-sort-label {
+  color: var(--nx-faint);
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.ord-vendor-sort-value {
+  color: var(--nx-gold);
+  font-weight: 600;
+}
+.ord-vendor-sort-pill svg {
+  color: var(--nx-faint);
+  margin-left: 2px;
+}
+
+.ord-vendor-reorder-btn {
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  color: var(--nx-gold);
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background var(--nx-press), border-color var(--nx-press), color var(--nx-press);
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-vendor-reorder-btn:hover {
+  background: var(--nx-gold-mist);
+  border-color: var(--nx-gold);
+}
+.ord-vendor-reorder-btn.is-active {
+  background: var(--nx-gold);
+  color: var(--nx-bg);
+  border-color: var(--nx-gold);
+}
+[data-theme="light"] .ord-vendor-reorder-btn.is-active {
+  color: #fff;
+}
+
+/* Visual change for active sort row in the bottom-sheet menu. */
+.ord-vmenu-action.is-active {
+  background: var(--nx-gold-mist);
+}
+.ord-vmenu-action.is-active svg {
+  color: var(--nx-gold);
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+/* ─── Drag handle + reorder visual state ─────────────────────────── */
+
+.ord-vendor-drag-handle {
+  /* Sits to the left of the vendor row in custom-sort + reorder mode.
+     Replaces the absent ⋮ menu button. Touch target 44x44 minimum.
+     Cursor + touch styling signal "drag me". */
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 14px;
+  color: var(--nx-faint);
+  cursor: grab;
+  touch-action: none;       /* prevents iOS scroll-while-drag conflicts */
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.ord-vendor-drag-handle:active {
+  cursor: grabbing;
+  color: var(--nx-gold);
+}
+
+/* When in reorder mode, the row button itself becomes inert — no hover,
+   no transform on tap. The drag handle is the only active control. */
+.ord-vendor-row.is-reordering {
+  pointer-events: none;
+  opacity: 0.92;
+  transition: none;
+}
+
+/* The wrapping row gets visual treatment when its handle is being held. */
+.ord-vendor-row-wrap {
+  transition: transform 80ms ease;
+  position: relative;
+}
+.ord-vendor-row-wrap.is-dragging {
+  transition: none;
+  z-index: 5;
+  /* Lift the dragged row visually — slight scale + shadow tells the
+     user "you've grabbed this". The transform from JS is additive. */
+}
+.ord-vendor-row-wrap.is-dragging .ord-vendor-row {
+  background: var(--nx-gold-mist);
+  border-color: var(--nx-gold);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
+}
+[data-theme="light"] .ord-vendor-row-wrap.is-dragging .ord-vendor-row {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .14);
+}
+
+/* ─── Recipient list (CC / BCC / ALT) ────────────────────────────── */
+
+.ved-recipients {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.ved-recipients-empty {
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  color: var(--nx-faint);
+  font-style: italic;
+  padding: 6px 2px;
+}
+.ved-recipient-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Kind badge — cycles between CC / BCC / ALT on tap. Color-coded so
+   the user can scan a long list at a glance. */
+.ved-recipient-kind {
+  flex-shrink: 0;
+  width: 52px;
+  height: 38px;
+  border-radius: 8px;
+  border: 1px solid var(--nx-gold-line);
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  cursor: pointer;
+  transition: background var(--nx-press), border-color var(--nx-press), color var(--nx-press);
+  -webkit-tap-highlight-color: transparent;
+}
+.ved-recipient-kind-cc {
+  background: var(--nx-gold-mist);
+  color: var(--nx-gold);
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line));
+}
+.ved-recipient-kind-bcc {
+  /* BCC = blind. Cooler tone, slightly muted, hints at "hidden". */
+  background: rgba(76, 122, 138, 0.14);
+  color: #4c7a8a;
+  border-color: rgba(76, 122, 138, 0.4);
+}
+[data-theme="light"] .ved-recipient-kind-bcc {
+  background: rgba(60, 102, 117, 0.12);
+  color: #3c6675;
+}
+.ved-recipient-kind-alt {
+  /* ALT = manual / not auto-included. Neutral gray. */
+  background: var(--nx-surface-2);
+  color: var(--nx-faint);
+}
+
+.ved-recipient-email {
+  flex: 1 1 auto;
+  height: 38px;
+  padding: 0 12px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 8px;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--nx-press);
+}
+.ved-recipient-email:focus {
+  border-color: var(--nx-gold);
+}
+
+.ved-recipient-remove {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--nx-faint);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--nx-press), color var(--nx-press), border-color var(--nx-press);
+  -webkit-tap-highlight-color: transparent;
+}
+.ved-recipient-remove:hover {
+  background: var(--nx-red-soft, rgba(180, 60, 60, 0.1));
+  color: var(--nx-red, #b43c3c);
+  border-color: var(--nx-red-soft, rgba(180, 60, 60, 0.3));
+}
+.ved-recipient-remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ved-recipient-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 11px 16px;
+  background: transparent;
+  border: 1px dashed var(--nx-gold-line);
+  border-radius: 10px;
+  color: var(--nx-gold);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: background var(--nx-press), border-color var(--nx-press);
+  -webkit-tap-highlight-color: transparent;
+}
+.ved-recipient-add-btn:hover {
+  background: var(--nx-gold-mist);
+  border-color: var(--nx-gold);
+  border-style: solid;
+}
+.ved-recipient-add-btn svg {
+  margin-right: 4px;
 }
