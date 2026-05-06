@@ -271,7 +271,7 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
       for(const action of parsed.actions.slice(0,3)){
         const btn=document.createElement('button');
         btn.className='chat-action-btn';
-        const icon=action.type==='ticket'?'⚠':action.type==='card'?'☑':action.type==='schedule'?'📅':'📝';
+        const iconName=action.type==='ticket'?'alert-triangle':action.type==='card'?'check-square':action.type==='schedule'?'calendar':'pencil';const icon=`<i data-lucide="${iconName}" class="action-icon"></i>`;
         btn.textContent=`${icon} ${action.type}: ${action.title}`;
         btn.addEventListener('click',async()=>{
           btn.disabled=true;btn.textContent+=' ✓';
@@ -378,14 +378,14 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
       if (!error && NX.notifyCardCreated) NX.notifyCardCreated(cardRow);
       return error?'Failed.':`Card created: "${task.content}"`;
     }
-    if(task.type==='digest'){addB('📊 Generating weekly digest...','ai');if(NX.modules.admin){const el=document.getElementById('ingestLog');if(el)el.innerHTML='';document.getElementById('digestBtn')?.click();}else{addB('Switch to Ingest tab and tap 📊 Weekly Digest','ai');}return null;}
-    if(task.type==='reminders'){addB('🧠 Scanning for unresolved items...','ai');if(NX.modules.admin){const el=document.getElementById('ingestLog');if(el)el.innerHTML='';document.getElementById('remindersBtn')?.click();}else{addB('Switch to Ingest tab and tap 🧠 Smart Reminders','ai');}return null;}
+    if(task.type==='digest'){addB('Generating weekly digest...','ai');if(NX.modules.admin){const el=document.getElementById('ingestLog');if(el)el.innerHTML='';document.getElementById('digestBtn')?.click();}else{addB('Switch to Ingest tab and tap Weekly Digest','ai');}return null;}
+    if(task.type==='reminders'){addB('Scanning for unresolved items...','ai');if(NX.modules.admin){const el=document.getElementById('ingestLog');if(el)el.innerHTML='';document.getElementById('remindersBtn')?.click();}else{addB('Switch to Ingest tab and tap Smart Reminders','ai');}return null;}
     return null;
   }
 
   async function handleResearch(topic){
-    const status=addB('🔍 '+tt('researchingWeb')+' "'+topic+'"...','ai thinking');
-    let dots=0;const dotTimer=setInterval(()=>{dots=(dots+1)%4;status.textContent='🔍 '+tt('researchingWeb')+' "'+topic+'"'+'.'.repeat(dots);},500);
+    const status=addB(tt('researchingWeb')+' "'+topic+'"...','ai thinking');
+    let dots=0;const dotTimer=setInterval(()=>{dots=(dots+1)%4;status.textContent=tt('researchingWeb')+' "'+topic+'"'+'.'.repeat(dots);},500);
     try{
       const webResult=await NX.askClaude('You are a research assistant for restaurant operations (Suerte, Este, Bar Toti — Austin TX). Search the web and provide detailed, factual information. Include specs, model numbers, pricing, warranty, dealer contacts.',[{role:'user',content:`Research: ${topic}`}],2000,true);
       clearInterval(dotTimer);
@@ -394,8 +394,8 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
       // Quality check — skip extraction if AI just asked for clarification
       const isVague=!webResult||webResult.length<100||/could you|please specify|what would you like|need more|which specific/i.test(webResult);
       if(!isVague){
-        const extractStatus=addB('⚙ '+tt('extractingKnowledge')+'...','ai thinking');
-        const extractDots=setInterval(()=>{dots=(dots+1)%4;extractStatus.textContent='⚙ '+tt('extractingKnowledge')+'.'.repeat(dots);},500);
+        const extractStatus=addB(tt('extractingKnowledge')+'...','ai thinking');
+        const extractDots=setInterval(()=>{dots=(dots+1)%4;extractStatus.textContent=tt('extractingKnowledge')+'.'.repeat(dots);},500);
       const extraction=await NX.askClaude('Extract ALL knowledge as nodes. RESPOND ONLY RAW JSON: {"nodes":[{"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"..."}]}',[{role:'user',content:webResult}],2000);
       let json=extraction.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
       const s=json.indexOf('{'),e=json.lastIndexOf('}');
@@ -405,7 +405,7 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
           const ex=new Set(NX.nodes.map(n=>(n.name||'').toLowerCase()));
           for(const n of parsed.nodes){const nm=(n.name||'').trim();if(!nm||nm.length<2||ex.has(nm.toLowerCase()))continue;
             const{error}=await NX.sb.from('nodes').insert({name:nm.slice(0,200),category:vc.includes(n.category)?n.category:'equipment',tags:Array.isArray(n.tags)?n.tags.filter(x=>typeof x==='string').slice(0,20):[],notes:(n.notes||'').slice(0,2000),links:[],access_count:1,source_emails:[{from:'Web Research',subject:topic,date:new Date().toISOString().split('T')[0]}]});
-            if(!error){created++;ex.add(nm.toLowerCase());}else{console.error('Node insert failed:',nm,error.message);addB(`⚠ Failed to save "${nm}": ${error.message}`,'ai');}}
+            if(!error){created++;ex.add(nm.toLowerCase());}else{console.error('Node insert failed:',nm,error.message);addB(`Failed to save "${nm}": ${error.message}`,'ai');}}
           addB(`✓ ${created} node${created!==1?'s':''} added to brain.`,'ai');
           clearInterval(extractDots);
           await NX.loadNodes();if(NX.brain)NX.brain.init();
@@ -418,7 +418,7 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
 
   // ═══ DIRECT NODE CREATION from chat ═══
   async function handleCreateNode(text){
-    addB('💾 Creating node...','ai thinking');
+    addB('Creating node...','ai thinking');
     try{
       const result=await NX.askClaude(
         'Extract ONE knowledge node from this text. Return ONLY raw JSON: {"name":"...","category":"equipment|contractors|vendors|procedure|projects|people|systems|parts|location","tags":["..."],"notes":"detailed notes with all info provided"}',
@@ -448,20 +448,20 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
         // Update existing node — append notes
         const newNotes=(existing.notes||'')+'\n\n[Updated '+new Date().toLocaleDateString()+']\n'+(node.notes||text);
         const{error}=await NX.sb.from('nodes').update({notes:newNotes.slice(0,4000)}).eq('id',existing.id);
-        if(error){addB('❌ Update failed: '+error.message,'ai');return;}
+        if(error){addB('Update failed: '+error.message,'ai');return;}
         existing.notes=newNotes;
         addB(`✓ Updated existing node "${nm}" with new info.`,'ai');
       }else{
         const{error}=await NX.sb.from('nodes').insert(row);
-        if(error){addB('❌ Insert failed: '+error.message,'ai');return;}
-        addB(`✓ Node created: "${nm}" (${row.category})\n📝 ${(row.notes||'').slice(0,150)}`,'ai');
+        if(error){addB('Insert failed: '+error.message,'ai');return;}
+        addB(`Node created: "${nm}" (${row.category})\n${(row.notes||'').slice(0,150)}`,'ai');
       }
 
       await NX.loadNodes();
       if(NX.brain)NX.brain.init();
       chatHistory.push({role:'assistant',content:`Created/updated node: ${nm}`});
     }catch(e){
-      addB('❌ Failed: '+e.message,'ai');
+      addB('Failed: '+e.message,'ai');
     }
   }
 
@@ -472,7 +472,7 @@ You CANNOT search the web yourself. User must type "look up" or "investigate".`;
     const userLoc=NX.currentUser?.location||'suerte';
 
     // Step 1: AI quick troubleshoot
-    addB(lang==='es'?'🔧 Analizando el problema...':'🔧 Analyzing the issue...','ai thinking');
+    addB(lang==='es'?'Analizando el problema...':'Analyzing the issue...','ai thinking');
     let troubleshoot='';
     try{
       troubleshoot=await NX.askClaude(
@@ -488,19 +488,19 @@ After the troubleshoot steps, ask the person to add more details and optionally 
     // Step 2: Show ticket form inline
     const form=document.createElement('div');form.className='ticket-form';
     form.innerHTML=`
-      <div class="ticket-form-title">📋 ${lang==='es'?'Crear Ticket':'Create Ticket'}</div>
+      <div class="ticket-form-title">${lang==='es'?'Crear Ticket':'Create Ticket'}</div>
       <div class="ticket-field-label">${lang==='es'?'Descripción':'Description'}</div>
       <textarea class="ticket-textarea" id="ticketNotes" rows="3" placeholder="${lang==='es'?'Describe el problema con más detalle...':'Describe the issue in more detail...'}">${issue}</textarea>
       <div class="ticket-field-label">${lang==='es'?'Prioridad':'Priority'}</div>
       <div class="ticket-priority-row">
-        <button class="ticket-pri-btn" data-pri="low">🟢 ${lang==='es'?'Baja':'Low'}</button>
-        <button class="ticket-pri-btn active" data-pri="normal">🟡 ${lang==='es'?'Normal':'Normal'}</button>
-        <button class="ticket-pri-btn" data-pri="urgent">🔴 ${lang==='es'?'Urgente':'Urgent'}</button>
+        <button class="ticket-pri-btn" data-pri="low"><span class="ticket-pri-dot"></span> ${lang==='es'?'Baja':'Low'}</button>
+        <button class="ticket-pri-btn active" data-pri="normal"><span class="ticket-pri-dot"></span> ${lang==='es'?'Normal':'Normal'}</button>
+        <button class="ticket-pri-btn" data-pri="urgent"><span class="ticket-pri-dot"></span> ${lang==='es'?'Urgente':'Urgent'}</button>
       </div>
       <div class="ticket-field-label">${lang==='es'?'Foto (opcional)':'Photo (optional)'}</div>
-      <label class="ticket-photo-btn"><input type="file" accept="image/*" capture="environment" hidden id="ticketPhoto">📷 ${lang==='es'?'Tomar Foto / Subir':'Take Photo / Upload'}</label>
+      <label class="ticket-photo-btn"><input type="file" accept="image/*" capture="environment" hidden id="ticketPhoto"><i data-lucide="camera" class="ticket-cam-icon"></i> ${lang==='es'?'Tomar Foto / Subir':'Take Photo / Upload'}</label>
       <div class="ticket-photo-preview" id="ticketPreview"></div>
-      <button class="ticket-submit-btn" id="ticketSubmitBtn">📋 ${lang==='es'?'Enviar Ticket':'Submit Ticket'}</button>
+      <button class="ticket-submit-btn" id="ticketSubmitBtn">${lang==='es'?'Enviar Ticket':'Submit Ticket'}</button>
       <div class="ticket-status" id="ticketStatus"></div>`;
 
     const msgs=document.getElementById('chatMessages');msgs.appendChild(form);
@@ -530,8 +530,8 @@ After the troubleshoot steps, ask the person to add more details and optionally 
           const{data}=NX.sb.storage.from('nexus-files').getPublicUrl(path);
           photoUrl=data?.publicUrl||'';
           preview.innerHTML=`<img src="${photoUrl}" class="ticket-photo-img">`;
-        }else{preview.innerHTML='<div style="color:#ff5533;font-size:11px">Upload failed</div>';}
-      }catch(e){preview.innerHTML='<div style="color:#ff5533;font-size:11px">Error</div>';}
+        }else{preview.innerHTML='<div style="color:var(--red);font-size:11px">Upload failed</div>';}
+      }catch(e){preview.innerHTML='<div style="color:var(--red);font-size:11px">Error</div>';}
     });
 
     // Submit
@@ -550,12 +550,12 @@ After the troubleshoot steps, ask the person to add more details and optionally 
         if(!error){
           submitBtn.textContent='✓';
           form.querySelector('#ticketStatus').textContent=lang==='es'?'✓ Ticket creado':'✓ Ticket submitted';
-          form.querySelector('#ticketStatus').style.color='#39ff14';
+          form.querySelector('#ticketStatus').style.color='var(--green)';
           addB(lang==='es'?`✓ Ticket registrado: "${notes.slice(0,60)}"`:`✓ Ticket logged: "${notes.slice(0,60)}"`,'ai');
           // Fire push to managers — fire and forget
           if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
           // Also log to daily log
-          await NX.sb.from('daily_logs').insert({entry:`🔧 TICKET [${priority.toUpperCase()}] by ${userName} @ ${userLoc}: ${notes.slice(0,200)}${photoUrl?' [photo attached]':''}`});
+          await NX.sb.from('daily_logs').insert({entry:`TICKET [${priority.toUpperCase()}] by ${userName} @ ${userLoc}: ${notes.slice(0,200)}${photoUrl?' [photo attached]':''}`});
           updateTicketBadge();
         }else{
           submitBtn.textContent=lang==='es'?'Error':'Error';
@@ -587,7 +587,7 @@ After the troubleshoot steps, ask the person to add more details and optionally 
           parsed.flagged.forEach(f=>{msg+=`• ${f.name} — ${f.reason}\n`;});
           msg+='\nGo to Ingest → "Scan & Remove Personal Data" to review and delete.';
           addB(msg,'ai');
-        }else addB('✅ No sensitive data found. Your brain is clean.','ai');
+        }else addB('No sensitive data found. Your brain is clean.','ai');
       }else addB('Scan complete — no issues found.','ai');
     }catch(e){addB('Scan error: '+e.message,'ai');}
   }
@@ -958,7 +958,7 @@ When you're ready to give your final answer, just respond normally (no JSON, no 
         const thinkEl=document.querySelector('.chat-thinking');
         if(thinkEl){
           const toolLabel=toolCall.tool.replace(/_/g,' ');
-          thinkEl.textContent=`🧠 Investigating: ${toolLabel}...`;
+          thinkEl.textContent=`Investigating: ${toolLabel}...`;
         }
       }else{
         // No tool call — this is the final answer
@@ -1331,18 +1331,18 @@ Keep it casual and warm. No markdown formatting.`;
       if(task.type==='removeClean'){await handleRemoveCleanTask(task.content);return;}
       try{const result=await handleTask(task);if(result){addB(result,'ai');chatHistory.push({role:'assistant',content:result});if(voiceOn)speak(result);try{await NX.sb.from('chat_history').insert({question:q,answer:result,session_id:SESSION_ID,user_name:(NX.currentUser?NX.currentUser.name:'Unknown')});}catch(e){}return;}}catch(e){addB('Task error: '+e.message,'ai');return;}
     }
-    const th=addB('🔍 '+tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'...','ai thinking');
-    let sd=0;let searchDots=setInterval(()=>{sd=(sd+1)%4;th.textContent='🔍 '+tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'.'.repeat(sd);},400);
+    const th=addB(tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'...','ai thinking');
+    let sd=0;let searchDots=setInterval(()=>{sd=(sd+1)%4;th.textContent=tt('searching')+' '+NX.nodes.length+' '+tt('nodes')+'.'.repeat(sd);},400);
     try{
       const complex=isComplex(q);
       let ctx;
 
       if(complex){
         // ═══ TIER 1: Query Decomposition ═══
-        th.textContent='🧠 Analyzing question...';
+        th.textContent='Analyzing question...';
         const subQueries=await decomposeQuery(q);
         if(subQueries.length>1){
-          th.textContent=`🔍 Searching ${subQueries.length} angles...`;
+          th.textContent=`Searching ${subQueries.length} angles...`;
         }
         // Multi-query retrieval — searches from each sub-question angle
         const multiNodes=await getCtxMulti(subQueries);
@@ -1378,7 +1378,7 @@ Keep it casual and warm. No markdown formatting.`;
       const persona=getPERSONA();
 
       if(complex){
-        th.textContent='🧠 Reasoning...';
+        th.textContent='Reasoning...';
         const{answer,toolsUsed}=await reactLoop(q,ctx,persona,3);
         cleanAns=(answer||'No response.');
         // Show tool usage indicator if tools were used
@@ -1432,7 +1432,7 @@ Keep it casual and warm. No markdown formatting.`;
       // Low confidence — suggest research
       if(confidence==='low'){
         const words=q.split(/\s+/).filter(w=>w.length>2).slice(0,3).join(' ');
-        addB(`💡 Low confidence. Try: "look up ${words}" for a web search.`,'ai');
+        addB(`Low confidence. Try: "look up ${words}" for a web search.`,'ai');
       }
       // Auto-create nodes if AI response has substantial NEW factual
       // info. The shouldExtractNodes gate filters out meta/conversational
@@ -1472,7 +1472,7 @@ Keep it casual and warm. No markdown formatting.`;
     requestAnimationFrame(()=>{c.scrollTop=c.scrollHeight;});
     // Offer inline translation on completed AI bubbles. Skip typing/
     // thinking indicators (they're transient) and skip user messages
-    // (user wrote them — no need). The button appears as a small 🌐
+    // (user wrote them — no need). The button appears as a small icon
     // at the end of the text; one tap translates to the user's
     // preferred language with a "show original" toggle.
     if(type.includes('ai') && !type.includes('thinking') && window.NX?.tr){
@@ -1498,7 +1498,7 @@ Keep it casual and warm. No markdown formatting.`;
       <h2 class="onboard-title">Welcome to NEXUS</h2>
       <p class="onboard-desc">Your AI-powered operations brain for Suerte, Este & Bar Toti.</p>
       <div class="onboard-steps">
-        <div class="onboard-step"><span class="onboard-num">1</span>Open <b>Admin ⚙</b> and add your Anthropic API key</div>
+        <div class="onboard-step"><span class="onboard-num">1</span>Open <b>Admin</b> and add your Anthropic API key</div>
         <div class="onboard-step"><span class="onboard-num">2</span>Ask NEXUS anything — or use <b>Ingest</b> to pull in emails</div>
         <div class="onboard-step"><span class="onboard-num">3</span>Try <b>"research [topic]"</b> for live web lookups</div>
       </div>
@@ -1791,7 +1791,7 @@ Return ONLY JSON.`,
         });
         if(!error){created++;existing.push(nm.toLowerCase());}
       }
-      if(created){await NX.loadNodes();addB(`💾 Auto-saved ${created} node${created>1?'s':''} from this conversation.`,'ai');}
+      if(created){await NX.loadNodes();addB(`Auto-saved ${created} node${created>1?'s':''} from this conversation.`,'ai');}
     }catch(e){}
   }
 
