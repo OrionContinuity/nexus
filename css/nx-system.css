@@ -1,4 +1,3 @@
-Try AI directly in your favorite apps … Use Gemini to generate drafts and refine content, plus get Gemini Pro with access to Google's next-gen AI for $19.99 $9.99 for 2 months
 /* ═══════════════════════════════════════════════════════════════════════
    NEXUS Design System  •  v2
    ───────────────────────────
@@ -112,6 +111,10 @@ Try AI directly in your favorite apps … Use Gemini to generate drafts and refi
   /* ─── Color: solid surfaces (for components that don't want translucency) ─── */
   --nx-surface-solid: #1b1b24;
   --nx-elevated:      #24242e;
+
+  /* Bottom nav bar — translucent so the masthead's gold halo bleeds
+     through. Dark warm to anchor the editorial × terminal feel. */
+  --nx-bottom-nav-bg: rgba(20, 18, 14, 0.92);
 
   /* ─── Color: borders ─── */
   --nx-border:        rgba(212, 182, 138, 0.07);
@@ -272,6 +275,10 @@ Try AI directly in your favorite apps … Use Gemini to generate drafts and refi
   /* Solid surfaces (non-translucent variant) */
   --nx-surface-solid: #FAFAF6;
   --nx-elevated:      #FFFFFF;
+
+  /* Bottom nav — cream-tinted to match the page so the bar feels
+     integrated with the daylit-ledger aesthetic, not pasted on. */
+  --nx-bottom-nav-bg: rgba(244, 241, 235, 0.92);
 
   /* Borders — warm brown-tinted, visible but gentle on cream */
   --nx-border:        rgba(100, 85, 55, 0.10);
@@ -2259,7 +2266,7 @@ html {
    Touch targets bumped to 60px tall, icons to 24px, label
    typography tightened. */
 .bottom-nav {
-  background: rgba(20, 18, 14, 0.92) !important;
+  background: var(--nx-bottom-nav-bg) !important;
   border-top: 1px solid var(--nx-gold-line) !important;
   backdrop-filter: blur(24px) saturate(1.4) !important;
   -webkit-backdrop-filter: blur(24px) saturate(1.4) !important;
@@ -2357,3 +2364,4 @@ html {
 .bnav-btn-home.active .bnav-icon {
   border-color: transparent !important;
 }
+
