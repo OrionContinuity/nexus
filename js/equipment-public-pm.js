@@ -625,7 +625,7 @@
       //     there with their phone/email filled in.
       //
       // Then we link each equipment that didn't already have a
-      // preferred_contractor_node_id to this contractor — closing the
+      // service_contractor_node_id to this contractor — closing the
       // loop so QR scans → contractor records → equipment all share
       // the same identity.
       try {
@@ -680,18 +680,18 @@
             for (const eqId of equipIds) {
               try {
                 const { data: eqRow } = await NX.sb.from('equipment')
-                  .select('preferred_contractor_node_id, service_phone, service_contact_name')
+                  .select('service_contractor_node_id, service_contractor_phone, service_contractor_name')
                   .eq('id', eqId).maybeSingle();
                 if (!eqRow) continue;
                 const update = {};
-                if (!eqRow.preferred_contractor_node_id) {
-                  update.preferred_contractor_node_id = contractorId;
+                if (!eqRow.service_contractor_node_id) {
+                  update.service_contractor_node_id = contractorId;
                 }
-                if (!eqRow.service_contact_name && company) {
-                  update.service_contact_name = company;
+                if (!eqRow.service_contractor_name && company) {
+                  update.service_contractor_name = company;
                 }
-                if (!eqRow.service_phone && data.contractor_phone) {
-                  update.service_phone = data.contractor_phone;
+                if (!eqRow.service_contractor_phone && data.contractor_phone) {
+                  update.service_contractor_phone = data.contractor_phone;
                 }
                 if (Object.keys(update).length) {
                   await NX.sb.from('equipment').update(update).eq('id', eqId);
