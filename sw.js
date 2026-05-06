@@ -1,7 +1,140 @@
-/* NEXUS Service Worker — v16
+/* NEXUS Service Worker — v25
    Strategy: network-first for JS/CSS/HTML (always fresh code),
              cache-first for fonts, images, icons, assets.
    Version bumped = full re-cache on next load.
+
+   What changed v24 → v25:
+   - OVERFLOW MENU enriched. The detail action bar's ⋯ overflow on
+     each piece of equipment now mirrors the long-press dial actions
+     plus the legacy management items, organized in two labeled
+     sections:
+       Operate — Log Service · Issue Tracker · View Parts
+       Manage  — Edit Everything · Schedule PM · Print Label
+       Danger  — Delete permanently
+     Section labels use the gold mono kicker style. Same Edit
+     Everything that lived there before is preserved alongside the
+     visible Edit pill in the action bar.
+   - schedulePmFromOverflow helper added to NX.modules.equipment so
+     a single equipment can have its PM scheduled without entering
+     bulk mode first.
+
+   What changed v23 → v24:
+   - PARTS COMPATIBILITY BULK-APPLY — the "this part fits 9 Zumex
+     units" use case. The compatibility tab gets a gold "Pick multiple
+     equipment" button alongside the existing one-at-a-time dropdown.
+     Opens a bottom sheet with checkboxes for every eligible unit.
+     Same-brand units float to the top with a SAME BRAND badge (most
+     likely candidates for sharing OEM parts). Multi-select + "Apply
+     to N equipment" updates compatible_equipment_ids in one go.
+
+   What changed v22 → v23:
+   - EDIT EQUIPMENT made discoverable. The full 6-tab editor (Basic /
+     Specs / Photos / Attachments / Links / Custom Fields) was always
+     wired but buried in the ⋯ overflow menu.
+       • Visible gold "Edit" pill in the detail action bar, between
+         Report Issue and the overflow disc — uses pen icon, gold-mist
+         tint, distinct from the primary Call Service gradient.
+       • At <420px width, secondary + edit CTAs collapse to icon-only
+         52px discs to fit alongside the primary on one row.
+       • Long-press dial gets a 6th action ("Edit equipment") so
+         editing is reachable in 2 taps from the equipment list
+         without drilling into detail first.
+
+   What changed v21 → v22:
+   - PARTS CATALOG OVERLAY — fleet-wide browsing of every replaceable
+     part across all equipment. Three-tab detail per part:
+       Overview — photo upload, name, OEM, qty, supplier + URL +
+                  price + lead time, replacement schedule with
+                  next-due banner, notes, delete
+       History — vertical timeline of every replacement event
+                  (date, cost, vendor, who) with "latest" badge
+       Compatibility — primary equipment + cross-equipment fit list,
+                        add/remove via dropdown
+     Schema additions (graceful degrade): photo_url, lead_time_days,
+     replacement_interval_months, last_replaced_at, replacement_history,
+     compatible_equipment_ids.
+   - Mark-replaced action stamps last_replaced_at, prompts cost +
+     supplier, appends to replacement_history, and auto-logs an
+     equipment_maintenance row for timeline visibility.
+   - Long-press dial gets a 5th action ("View parts") that opens the
+     parts catalog scoped to the held equipment.
+
+   What changed v20 → v21:
+   - LONG-PRESS ACTION DIAL — hold any equipment row for 1 second to
+     open an expanding speed-dial with bulk-select, report-issue,
+     schedule-PM, and email-contractor actions. Mirrors the duties
+     speed-dial visual idiom (stacked label-chip + 52px gold-circle
+     rows above the bottom nav, staggered slide-up animation).
+   - Visual feedback during the hold: gold progress ring fills around
+     the touch point, row visually compresses, haptic vibration when
+     threshold reached. Move >10px or release early to cancel.
+   - Bulk mode + tap-to-select wired into the existing row click
+     handler — once the dial enters bulk mode, taps toggle selection
+     instead of opening detail.
+   - LIFECYCLE STATUS PILL — replaces the static OPERATIONAL pill.
+     Glowing green when operational, ghost outline when down (no
+     color, dim). When an issue is logged, the lifecycle state
+     takes over the pill: REPORTED (amber), CONTRACTOR CALLED (gold),
+     ETA SET (cool blue with time), IN PROGRESS (vibrant green pulsing),
+     AWAITING PARTS (orange). Each equipment row's _openIssue is
+     attached at load time so list/grid/detail all reflect state
+     consistently.
+   - CONTRACTORS overlay — full management workspace. List view with
+     search + per-contractor cards showing phone, specialties, last
+     activity. Tap into detail view with stats strip (assigned,
+     calls YTD, avg response time, $YTD), three tabs:
+       Activity — chronological feed of every maintenance + issue
+                  this contractor has handled, grouped by month
+       Equipment — currently assigned + previously serviced
+       Edit — full form: name, phone, email, specialties, notes
+     Add/delete/save/call/email all wired. Stats derived from
+     equipment_maintenance + equipment_issues + nodes joins.
+
+   What changed v19 → v20:
+   - LIFECYCLE STATUS PILL — replaces the static OPERATIONAL pill.
+     Glowing green when operational, ghost outline when down. Issue
+     lifecycle states (REPORTED, CONTRACTOR CALLED, ETA SET, IN PROGRESS,
+     AWAITING PARTS) take over the pill with state-appropriate colors
+     and animations.
+   - CONTRACTORS — full management overlay with list view, search, and
+     three-tab detail (Activity feed, Equipment assignments, Edit form).
+     Single bulk fetch backs all views.
+
+   What changed v18 → v19:
+   - FLEET INTELLIGENCE ANALYTICS — 4-tab dashboard. Single
+     computeFleetSnapshot computation backs all four views.
+       • Brand Health — per-manufacturer dashboard with units, %
+         operational, $YTD spend, calls/unit, health bar
+       • Patterns — cross-fleet failure clustering. 50%+ of
+         brand+model cohort hit by same failure mode flags as a
+         pattern with avg-age-at-failure + recommended preventive
+         PM window. Tap "Schedule PM for all N units" pre-seeds bulk
+         selection and opens the bulk-PM sheet.
+       • Warranty — units expiring 0–90d (or just-expired last 30d),
+         bucketed by urgency with colored borders.
+       • Digest — Sunday-night-ready owner email with fleet stats,
+         open issues by status, warranty alerts, top patterns, and
+         brand-spend leaderboard. One-tap email or copy to clipboard.
+
+   What changed v17 → v18:
+   - Manufacturers / brand library: dedicated table, FK on equipment,
+     three-mode logo render (image, hue, hash-auto). One brand =
+     one logo applied across list view, grid view, brand library.
+   - Auto-link manufacturer text to brand record on every save path
+     (manual create, AI create, data plate scan, AI bulk extract).
+   - Brand library overlay with file picker, hue swatches, live preview.
+
+   What changed v16 → v17:
+   - Equipment Issue Tracker — full lifecycle (reported → contractor
+     called → ETA → in progress → repaired) with awaiting_parts side-
+     branch. Mirrors the order detail's lifecycle pattern.
+   - Auto-generated contractor emails — pulls preferred contractor's
+     email + builds structured request body. Auto-advances lifecycle
+     to "contractor called" on send.
+   - Bulk operations on equipment: enterBulkMode/exitBulkMode +
+     bottom toolbar with assign-contractor and schedule-PM bulk
+     actions. Selection mode toggles is-selected class with gold
+     checkmark, contractor sheet auto-fills phone from node record.
 
    What changed v15 → v16:
    - Vendor sort: Alphabetical / Custom / Recently used / Most ordered
@@ -15,6 +148,7 @@
    - Theme button icon fix: 'circle-half' → 'contrast' (Lucide name).
    - openVendorEditor bug fix: was being called with vendor.id from
      vendor-detail edit button, causing "undefined uuid" errors.
+*/
 
    What changed v10 → v15:
    - Ordering pane buildout: vendor detail overlay, recent-orders
@@ -36,7 +170,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v16';
+const CACHE_NAME = 'nexus-v25';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -114,11 +248,11 @@ const CDN_CACHE = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      console.log('[SW v16] Caching app shell');
+      console.log('[SW v25] Caching app shell');
       // Use allSettled so one bad file doesn't poison the whole install
       return Promise.allSettled(
         APP_SHELL.map(url => cache.add(url).catch(err => {
-          console.warn('[SW v16] Skip:', url, err.message);
+          console.warn('[SW v25] Skip:', url, err.message);
         }))
       ).then(() =>
         Promise.allSettled(
@@ -134,7 +268,7 @@ self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => {
-        console.log('[SW v16] Deleting old cache:', k);
+        console.log('[SW v25] Deleting old cache:', k);
         return caches.delete(k);
       }))
     ).then(() => self.clients.claim())
