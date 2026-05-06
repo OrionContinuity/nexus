@@ -604,7 +604,7 @@ const NX = {
       setTimeout(()=>clearInterval(waitLucide),5000);
     }
 
-    // Mount the floating 🌐 translation button. Stays visible on every
+    // Mount the floating translation button. Stays visible on every
     // view until logout. If the user's saved language is non-English,
     // mountFab() also kicks off a one-shot page translation ~800ms after
     // mount so what users see on first arrival is already in their lang.
@@ -808,12 +808,12 @@ const NX = {
     const scanBtn = document.getElementById('cleanScan');
     if (scanBtn) {
       scanBtn.addEventListener('click', async () => {
-        scanBtn.disabled = true; scanBtn.textContent = '📷...';
+        scanBtn.disabled = true; scanBtn.textContent = '...';
         try {
           if (NX.scanWeeklyChecklist) { await NX.scanWeeklyChecklist(); }
           else if (NX.scanChecklist) { await NX.scanChecklist(); }
         } catch(e) { NX.toast('Scan error: '+e.message, 'error'); }
-        scanBtn.disabled = false; scanBtn.textContent = '📷 Scan';
+        scanBtn.disabled = false; scanBtn.textContent = 'Scan';
       });
     }
     // Wire print/export checklist button
@@ -835,9 +835,9 @@ const NX = {
         let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>NEXUS — ${locName} Cleaning</title>
 <style>
 @page{size:legal landscape;margin:0.3in}
-body{font-family:Arial,sans-serif;color:#2A2520;margin:0;padding:20px;position:relative}
+body{font-family:Arial,sans-serif;color:var(--text);margin:0;padding:20px;position:relative}
 h1{font-size:24px;margin:0;color:#000}
-.sub{font-size:12px;color:#666;margin-bottom:4px}
+.sub{font-size:12px;color:var(--faint);margin-bottom:4px}
 .url{font-size:7px;color:#999}
 .qr{position:absolute;top:12px;right:20px;width:32px;height:32px}
 .gold-line{height:2px;background:#999;margin:6px 0}
@@ -847,12 +847,12 @@ th.day{width:42px;font-size:7px}
 .sec{background:#D9D9D9;font-size:14px;font-weight:bold;padding:10px;text-align:left}
 td{padding:8px;border:1px solid #BBB}
 td.task-es{font-size:13px;font-weight:500}
-td.task-en{font-size:10px;color:#666}
+td.task-en{font-size:10px;color:var(--faint)}
 td.check{text-align:center;font-size:18px;color:#CCC;background:#F5F5F5;width:38px}
-tr:nth-child(even) td{background:#FAFAF6}
-tr:nth-child(odd) td{background:#F4F1EB}
+tr:nth-child(even) td{background:var(--surface)}
+tr:nth-child(odd) td{background:var(--bg)}
 td.check{background:#F0EDE6 !important}
-.footer{margin-top:12px;font-size:10px;color:#635B50;display:flex;justify-content:space-between}
+.footer{margin-top:12px;font-size:10px;color:var(--muted);display:flex;justify-content:space-between}
 .custom-tag{font-size:8px;color:#999;margin-left:4px}
 </style></head><body>
 <h1>NEXUS — ${locName.toUpperCase()}</h1>
@@ -894,7 +894,7 @@ td.check{background:#F0EDE6 !important}
 
         html += `</table>
 <div class="footer"><span>Nombre / Name: __________________ Firma / Signature: __________________</span><span>Semana / Week: __________</span></div>
-<div style="text-align:center;font-size:7px;color:#857D72;margin-top:8px">NEXUS — Generated ${new Date().toLocaleDateString()} — Use dry-erase marker, scan with 📷 to log</div>
+<div style="text-align:center;font-size:7px;color:var(--faint);margin-top:8px">NEXUS — Generated ${new Date().toLocaleDateString()} — Use dry-erase marker, scan to log</div>
 </body></html>`;
 
         const printWin = window.open('', '_blank');
@@ -999,14 +999,77 @@ td.check{background:#F0EDE6 !important}
     };
     // Bind top nav tabs
     tabs.forEach(tab => tab.addEventListener('click', () => switchTo(tab.dataset.view)));
-    // Bind bottom nav buttons
-    bnavBtns.forEach(btn => btn.addEventListener('click', () => switchTo(btn.dataset.view)));
+    // Bind bottom nav buttons — EXCEPT duties (data-view="clean"), which
+    // is special-cased below to open the speed-dial instead of navigating.
+    bnavBtns.forEach(btn => {
+      if (btn.dataset.view === 'clean') return;     // skip — wired below
+      btn.addEventListener('click', () => switchTo(btn.dataset.view));
+    });
     // Wire NEXUS wordmark → go to brain
     nexusBtn.addEventListener('click', () => switchTo('brain'));
     // Expose switchTo globally — home.js stat tiles (tickets, overdue,
     // services, nodes) and other modules use NX.switchTo(view) to
     // navigate. Without this, every stat-tile tap is a silent no-op.
     NX.switchTo = switchTo;
+
+    // ─── DUTIES SPEED-DIAL ───────────────────────────────────────────
+    // The Duties bottom-nav button doesn't navigate directly anymore.
+    // Tapping it opens a vertical FAB-style action menu with two options
+    // (Cleaning / Ordering); the option's click then does the navigation
+    // AND activates the chosen pane. Tapping the duties button while the
+    // dial is open closes it. Tapping the backdrop also closes.
+    //
+    // Why this is in app.js (not duties.js): the dial is part of the
+    // bottom-nav UX (always-on chrome), whereas duties.js only loads on
+    // first navigation to the clean view. Wiring here means the dial
+    // works from cold start, no module-load race.
+    const dial      = document.getElementById('dutiesDial');
+    const dutiesBtn = document.querySelector('.bnav-btn[data-view="clean"]');
+    if (dial && dutiesBtn) {
+      const openDial  = () => {
+        dial.classList.add('is-open');
+        dial.setAttribute('aria-hidden', 'false');
+        dutiesBtn.classList.add('is-dial-open');
+      };
+      const closeDial = () => {
+        dial.classList.remove('is-open');
+        dial.setAttribute('aria-hidden', 'true');
+        dutiesBtn.classList.remove('is-dial-open');
+      };
+
+      // Tap duties bnav button → toggle dial
+      dutiesBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (dial.classList.contains('is-open')) closeDial(); else openDial();
+      });
+
+      // Tap backdrop → close
+      const backdrop = dial.querySelector('[data-dial-close]');
+      if (backdrop) backdrop.addEventListener('click', closeDial);
+
+      // Tap an action → close dial, switch to clean view, activate pane
+      dial.querySelectorAll('.nx-speed-dial-action').forEach(actionBtn => {
+        actionBtn.addEventListener('click', () => {
+          const target = actionBtn.dataset.target;
+          closeDial();
+          switchTo('clean');
+          // Defer activatePane until after switchTo's view-switch + lazy
+          // module load has settled. duties.js is loaded by activateModule
+          // during switchTo, so activatePane is available a tick later.
+          setTimeout(() => {
+            if (NX.modules && NX.modules.duties && NX.modules.duties.activatePane) {
+              NX.modules.duties.activatePane(target);
+            }
+          }, 80);
+        });
+      });
+
+      // ESC closes the dial (keyboard users + mouse users with a key)
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && dial.classList.contains('is-open')) closeDial();
+      });
+    }
+    // ──────────────────────────────────────────────────────────────────
     // ─── DEFAULT LANDING VIEW: Home ──────────────────────────────────
     // The first thing after login is the Home dashboard (mini-galaxy,
     // clock-in card, priority feed). The brain/galaxy full view is
@@ -1508,7 +1571,7 @@ td.check{background:#F0EDE6 !important}
     const userInfo = document.getElementById('adminUserInfo');
     if (this.currentUser) {
       const hasKey = this.getApiKey() ? '✓ API Key loaded' : '✗ No API Key';
-      const keyColor = this.getApiKey() ? '#9c8a3e' : '#a83e3e';
+      const keyColor = this.getApiKey() ? 'var(--green)' : 'var(--red)';
       const source = this.config?.anthropic_key ? 'Supabase' : (localStorage.getItem('nexus_api_key') ? 'localStorage' : 'none');
       userInfo.innerHTML = `<span class="admin-user-name">${this.currentUser.name}</span><span class="admin-user-role">${this.currentUser.role.toUpperCase()}</span><div style="font-size:11px;margin-top:6px;color:${keyColor}">${hasKey} (source: ${source})</div>`;
     }
@@ -1593,7 +1656,7 @@ td.check{background:#F0EDE6 !important}
                 name = name || ('Voice ' + idx);
               }
               const vs = document.getElementById('voiceTestStatus');
-              if (vs) { vs.textContent = `✓ ${name} selected & saved`; vs.style.color = '#9c8a3e'; }
+              if (vs) { vs.textContent = `✓ ${name} selected & saved`; vs.style.color = 'var(--green)'; }
             });
           } catch (e) { console.warn('[admin] adminVoice listener failed:', e); }
 
@@ -1728,7 +1791,7 @@ td.check{background:#F0EDE6 !important}
       const voiceNames=['Adam','Bella','Daniel','Charlotte','Liam','Emily','Sam','Dorothy','Arnold','Bill','Antoni','Domi','Fin','Freya','Gigi','Grace','Harry','James','Josh','Rachel'];
       const voiceIdx=updates.voice_idx||0;
       document.getElementById('adminKeyStatus').textContent = error ? 'Save failed: ' + error.message : `✓ Saved — Voice: ${voiceNames[voiceIdx]||'Unknown'}, Model: ${updates.model.includes('opus')?'Opus':'Sonnet'}`;
-      document.getElementById('adminKeyStatus').style.color = error ? '#a83e3e' : '#9c8a3e';
+      document.getElementById('adminKeyStatus').style.color = error ? 'var(--red)' : 'var(--green)';
       setTimeout(() => { document.getElementById('adminKeyStatus').textContent = ''; }, 5000);
     });
 
@@ -1764,8 +1827,8 @@ td.check{background:#F0EDE6 !important}
     document.getElementById('driveBackupBtn').addEventListener('click', async () => {
       const s = document.getElementById('driveStatus');
       try { s.textContent = 'Backing up...'; s.style.color = 'var(--muted)';
-        await this.driveBackupKeys(); s.textContent = '✓ Backed up to Drive'; s.style.color = '#9c8a3e';
-      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = '#a83e3e'; }
+        await this.driveBackupKeys(); s.textContent = '✓ Backed up to Drive'; s.style.color = 'var(--green)';
+      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = 'var(--red)'; }
     });
     document.getElementById('driveRestoreBtn').addEventListener('click', async () => {
       const s = document.getElementById('driveStatus');
@@ -1782,15 +1845,15 @@ td.check{background:#F0EDE6 !important}
           await this.sb.from('nexus_config').update(updates).eq('id', 1);
           Object.assign(this.config || {}, updates);
         }
-        s.textContent = '✓ Restored from Drive'; s.style.color = '#9c8a3e';
-      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = '#a83e3e'; }
+        s.textContent = '✓ Restored from Drive'; s.style.color = 'var(--green)';
+      } catch (e) { s.textContent = 'Failed: ' + e.message; s.style.color = 'var(--red)'; }
     });
 
     const driveToken = localStorage.getItem('nexus_drive_token');
     const driveExpiry = localStorage.getItem('nexus_drive_expiry');
     if (driveToken && driveExpiry && Date.now() < parseInt(driveExpiry)) {
       const ds = document.getElementById('driveStatus');
-      if (ds) { ds.textContent = '✓ Connected'; ds.style.color = '#9c8a3e'; }
+      if (ds) { ds.textContent = '✓ Connected'; ds.style.color = 'var(--green)'; }
     }
 
     // Add user
@@ -2304,7 +2367,7 @@ td.check{background:#F0EDE6 !important}
     try {
       const { data, error } = await this.sb.rpc('list_users_with_perms');
       if (error || !data) {
-        el.innerHTML = '<div style="color:#c8625e;font-size:11px;padding:12px">Could not load permissions. Did you run permissions_phase_d.sql?</div>';
+        el.innerHTML = '<div style="color:var(--red);font-size:11px;padding:12px">Could not load permissions. Did you run permissions_phase_d.sql?</div>';
         return;
       }
       const RESOURCES = this.PERM_RESOURCES;
@@ -2469,7 +2532,7 @@ td.check{background:#F0EDE6 !important}
         });
       });
     } catch (e) {
-      el.innerHTML = '<div style="color:#c8625e;font-size:11px;padding:12px">Matrix load error: ' + (e.message || e) + '</div>';
+      el.innerHTML = '<div style="color:var(--red);font-size:11px;padding:12px">Matrix load error: ' + (e.message || e) + '</div>';
     }
   },
 
@@ -2558,7 +2621,7 @@ td.check{background:#F0EDE6 !important}
             localStorage.setItem('nexus_drive_token', r.access_token);
             localStorage.setItem('nexus_drive_expiry', String(Date.now() + 55 * 60 * 1000));
             const s = document.getElementById('driveStatus');
-            if (s) { s.textContent = '✓ Connected'; s.style.color = '#9c8a3e'; }
+            if (s) { s.textContent = '✓ Connected'; s.style.color = 'var(--green)'; }
           }
         }
       });
@@ -2636,7 +2699,7 @@ td.check{background:#F0EDE6 !important}
         locTickets.forEach(t => {
           const el = document.createElement('div');
           el.className = 'agenda-item agenda-ticket' + (t.priority === 'urgent' ? ' urgent' : '');
-          el.innerHTML = `<div class="agenda-item-title">🔧 ${(t.title || t.notes || '').slice(0, 30)}</div><div class="agenda-item-meta">${t.reported_by || ''} · ${t.priority || ''}</div>`;
+          el.innerHTML = `<div class="agenda-item-title"><i data-lucide="wrench" class="agenda-icon"></i> ${(t.title || t.notes || '').slice(0, 30)}</div><div class="agenda-item-meta">${t.reported_by || ''} · ${t.priority || ''}</div>`;
           col.appendChild(el);
         });
 
@@ -2645,7 +2708,7 @@ td.check{background:#F0EDE6 !important}
         locEvents.forEach(e => {
           const el = document.createElement('div');
           el.className = 'agenda-item agenda-event';
-          el.innerHTML = `<div class="agenda-item-title">👷 ${e.contractor_name}</div><div class="agenda-item-meta">${e.event_date || ''} ${e.event_time || ''} · ${e.description || ''}</div><div class="agenda-actions"><button class="ag-btn ag-accept" data-action="accepted" title="Confirm">✓</button><button class="ag-btn ag-dismiss" data-action="dismissed" title="Dismiss">—</button><button class="ag-btn ag-disregard" data-action="disregarded" title="Disregard">✕</button></div>`;
+          el.innerHTML = `<div class="agenda-item-title"><i data-lucide="hard-hat" class="agenda-icon"></i> ${e.contractor_name}</div><div class="agenda-item-meta">${e.event_date || ''} ${e.event_time || ''} · ${e.description || ''}</div><div class="agenda-actions"><button class="ag-btn ag-accept" data-action="accepted" title="Confirm">✓</button><button class="ag-btn ag-dismiss" data-action="dismissed" title="Dismiss">—</button><button class="ag-btn ag-disregard" data-action="disregarded" title="Disregard">✕</button></div>`;
           el.querySelectorAll('.ag-btn').forEach(btn => {
             btn.addEventListener('click', async (ev) => {
               ev.stopPropagation();
@@ -2788,13 +2851,13 @@ td.check{background:#F0EDE6 !important}
       }
 
       status.textContent = '✓ Import complete';
-      status.style.color = '#9c8a3e';
+      status.style.color = 'var(--green)';
       this.toast('Imported: ' + summary.join(', '), 'success');
       await this.loadNodes();
       if (this.brain) this.brain.init();
     } catch (e) {
       status.textContent = 'Error: ' + e.message;
-      status.style.color = '#a83e3e';
+      status.style.color = 'var(--red)';
     }
   },
 
@@ -2894,26 +2957,9 @@ td.check{background:#F0EDE6 !important}
   // ─── Expanded System Logging ───
   // Auto-logs every system event to daily_logs
   async syslog(event,detail){
-    const ICONS={
-      login:'🔑',logout:'🔑',
-      clock_in:'⏱',clock_out:'⏱',
-      card_created:'📋',card_moved:'📋',card_closed:'📋',card_deleted:'📋',
-      clean_checked:'🧹',clean_unchecked:'🧹',clean_report:'🧹',
-      chat_ask:'💬',
-      batch_complete:'📥',
-      notify_captured:'📱',sms_captured:'📱',
-      privacy_delete:'🔒',privacy_keep:'🔒',privacy_private:'🔒',privacy_edit:'🔒',
-      node_created:'🧠',node_updated:'🧠',node_deleted:'🧠',
-      email_processed:'✉',gmail_refresh:'✉',
-      doc_scanned:'📷',
-      whatsapp_import:'📱',sms_import:'📱',contact_import:'👤',
-      digest_generated:'📊',
-      backup_exported:'⬇',backup_imported:'⬆',
-      link_built:'🔗',
-      theme_change:'🎨',
-      error:'❌'
-    };
-    const icon=ICONS[event]||'⚡';
+    // Icon prefixes on system log entries were dropped — log readers
+    // (Log view, admin Operations Log) rely on the [SYS] tag and event
+    // name for visual hierarchy now.
     const entry=`[SYS] ${event}: ${(detail||'').slice(0,200)}`;
     try{
       await this.sb.from('daily_logs').insert({
@@ -2941,7 +2987,7 @@ td.check{background:#F0EDE6 !important}
       if(briefing.contractors.length){
         const banner=document.getElementById('contractorBanner');
         if(banner&&!banner.dataset.dismissed){
-          banner.innerHTML='🔵 TODAY: '+briefing.contractors.map(e=>`<b>${e.contractor_name}</b>${e.event_time?' @ '+e.event_time:''}${e.location?' · '+e.location:''}`).join(' | ')+' <button class="alert-dismiss" onclick="this.parentElement.style.display=\'none\';this.parentElement.dataset.dismissed=\'1\'">✕</button>';
+          banner.innerHTML='<span class="alert-kicker">TODAY</span> '+briefing.contractors.map(e=>`<b>${e.contractor_name}</b>${e.event_time?' @ '+e.event_time:''}${e.location?' · '+e.location:''}`).join(' | ')+' <button class="alert-dismiss" onclick="this.parentElement.style.display=\'none\';this.parentElement.dataset.dismissed=\'1\'">✕</button>';
           banner.style.display='';
         }
       }
@@ -2963,7 +3009,7 @@ td.check{background:#F0EDE6 !important}
         const count=briefing.overdue.length>=20?'20+':briefing.overdue.length;
         const banner=document.getElementById('overdueBanner');
         if(banner&&!banner.dataset.dismissed){
-          banner.innerHTML=`⚠ ${count} OVERDUE: ${briefing.overdue.slice(0,3).map(c=>c.title).join(', ')}${briefing.overdue.length>3?' +more':''} <button class="alert-dismiss" onclick="this.parentElement.style.display='none';this.parentElement.dataset.dismissed='1'">✕</button>`;
+          banner.innerHTML=`<span class="alert-kicker">${count} OVERDUE</span> ${briefing.overdue.slice(0,3).map(c=>c.title).join(', ')}${briefing.overdue.length>3?' +more':''} <button class="alert-dismiss" onclick="this.parentElement.style.display='none';this.parentElement.dataset.dismissed='1'">✕</button>`;
           banner.style.display='';
         }
       }
@@ -3021,7 +3067,7 @@ td.check{background:#F0EDE6 !important}
           const briefEl=document.createElement('div');
           briefEl.id='morningBrief';
           briefEl.className='morning-brief';
-          briefEl.innerHTML=`<div class="brief-header">☀ Morning Brief</div><div class="brief-text">${brief[0].brief_text}</div><button class="brief-dismiss" onclick="this.parentElement.style.display='none';NX.trackBriefDismiss()">✕</button>`;
+          briefEl.innerHTML=`<div class="brief-header">Morning Brief</div><div class="brief-text">${brief[0].brief_text}</div><button class="brief-dismiss" onclick="this.parentElement.style.display='none';NX.trackBriefDismiss()">✕</button>`;
           briefEl.dataset.shownAt=Date.now();
           welcome.parentElement.insertBefore(briefEl,welcome.nextSibling);
         }
@@ -3033,9 +3079,9 @@ td.check{background:#F0EDE6 !important}
 
     // Quick toast summary
     const items=[];
-    if(briefing.tickets.length)items.push(`🔴 ${briefing.tickets.length} ticket${briefing.tickets.length>1?'s':''}`);
-    if(briefing.contractors.length)items.push(`🔵 ${briefing.contractors.map(e=>e.contractor_name).join(', ')} today`);
-    if(briefing.overdue.length>3)items.push(`⚠ ${briefing.overdue.length} overdue`);
+    if(briefing.tickets.length)items.push(`${briefing.tickets.length} ticket${briefing.tickets.length>1?'s':''}`);
+    if(briefing.contractors.length)items.push(`${briefing.contractors.map(e=>e.contractor_name).join(', ')} today`);
+    if(briefing.overdue.length>3)items.push(`${briefing.overdue.length} overdue`);
     if(!briefing.clockedIn){
       // Only remind during typical operating hours (10am-11pm). No point nagging at 3am.
       const hour=new Date().getHours();
@@ -3105,7 +3151,7 @@ td.check{background:#F0EDE6 !important}
   //  by a failed push.
   //
   //  Format:
-  //    Title: "🚨 New ticket · SUERTE" (icon varies by priority, location if known)
+  //    Title: "New ticket · SUERTE" (priority and location signaled in body, not title)
   //    Body:  "Hoshizaki KM-901MAJ: Ice not making — by Alfredo"
   //
   //  Audience routing:
@@ -3122,10 +3168,8 @@ td.check{background:#F0EDE6 !important}
     try {
       const priority = (ticket.priority || 'normal').toLowerCase();
       const locLabel = ticket.location ? ` · ${String(ticket.location).toUpperCase()}` : '';
-      const icon = priority === 'urgent' ? '🚨'
-                 : priority === 'high'   ? '⚠️'
-                 : '🎫';
-      const title = `${icon} New ticket${locLabel}`;
+      const icon = '';
+      const title = `New ticket${locLabel}`;
       let body = String(ticket.title || 'Untitled ticket').slice(0, 120);
       if (ticket.reported_by) body += ` — by ${ticket.reported_by}`;
       const pushPriority = (priority === 'urgent' || priority === 'high') ? 'high' : 'normal';
@@ -3173,10 +3217,8 @@ td.check{background:#F0EDE6 !important}
     try {
       const priority = String(card.priority || 'normal').toLowerCase();
       const locLabel = card.location ? ` · ${String(card.location).toUpperCase()}` : '';
-      const icon = priority === 'urgent' ? '🚨'
-                 : priority === 'high'   ? '⚠️'
-                 : '📋';
-      const title = `${icon} New card${locLabel}`;
+      const icon = '';
+      const title = `New card${locLabel}`;
       let body = String(card.title || 'Untitled card').slice(0, 120);
       if (card.reported_by) body += ` — by ${card.reported_by}`;
       const pushPriority = (priority === 'urgent' || priority === 'high') ? 'high' : 'normal';
@@ -3348,7 +3390,7 @@ if ('serviceWorker' in navigator) {
           const { error } = await NX.sb.functions.invoke('predictive-notify', {
             body: {
               broadcast: {
-                title: '🔔 Test notification',
+                title: 'Test notification',
                 body: 'If you see this, push is working for ' + (NX.currentUser.name || 'you') + '.',
                 audience: String(NX.currentUser.id),
                 priority: 'normal',
@@ -3543,7 +3585,7 @@ NX.timeClock = {
     const tcPanel = document.getElementById('tcPanel');
     if (tcPanel && tcPanel.style.display !== 'none') {
       document.getElementById('tcStatus').textContent = isIn ? 'CLOCKED IN' : 'NOT CLOCKED IN';
-      document.getElementById('tcStatus').style.color = isIn ? '#9c8a3e' : 'rgba(255,255,255,.4)';
+      document.getElementById('tcStatus').style.color = isIn ? 'var(--green)' : 'rgba(255,255,255,.4)';
       document.getElementById('tcTime').textContent = isIn ? this.getElapsed() || '0:00:00' : '';
       document.getElementById('tcClockIn').style.display = isIn ? 'none' : '';
       document.getElementById('tcClockOut').style.display = isIn ? '' : 'none';
@@ -3569,7 +3611,7 @@ NX.timeClock = {
     if (popup && popup.classList.contains('open')) {
       popup.querySelector('.tc-popup-status').textContent = isIn ? 'CLOCKED IN' : 'NOT CLOCKED IN';
       popup.querySelector('.tc-popup-time').textContent = isIn ? this.getElapsed() || '0:00:00' : '--:--';
-      popup.querySelector('.tc-popup-time').style.color = isIn ? '#9c8a3e' : 'var(--faint)';
+      popup.querySelector('.tc-popup-time').style.color = isIn ? 'var(--green)' : 'var(--faint)';
       const btn = popup.querySelector('.tc-popup-btn');
       if (btn) {
         btn.textContent = isIn ? 'Clock Out' : 'Clock In';
