@@ -175,7 +175,7 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
         if (!available) { NX.toast('Speech not available', 'error'); return null; }
         
         await SpeechRecognition.requestPermission();
-        NX.toast('🎤 Listening...', 'info', 10000);
+        NX.toast('Listening...', 'info', 10000);
         
         const result = await SpeechRecognition.start({
           language: 'en-US',
@@ -206,7 +206,7 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
       rec.interimResults = false;
       rec.maxAlternatives = 1;
       
-      NX.toast('🎤 Listening...', 'info', 10000);
+      NX.toast('Listening...', 'info', 10000);
       
       rec.onresult = async (e) => {
         const text = e.results[0][0].transcript;
@@ -229,13 +229,13 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
     if (mode === 'chat') {
       const input = document.getElementById('chatInput');
       if (input) { input.value = text; input.dispatchEvent(new Event('input')); }
-      NX.toast(`🎤 "${text.slice(0, 40)}..."`, 'success');
+      NX.toast(`"${text.slice(0, 40)}..."`, 'success');
       return text;
     }
     
     // Log mode — save to daily_logs
     const { error } = await NX.sb.from('daily_logs').insert({
-      entry: `🎤 ${text}`,
+      entry: `[VOICE] ${text}`,
       user_id: NX.currentUser?.id || 0,
       user_name: NX.currentUser?.name || 'Voice',
     });
@@ -279,8 +279,8 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
             const { LocalNotifications } = await import('@capacitor/local-notifications');
             await LocalNotifications.schedule({
               notifications: [{
-                title: '🚨 NEXUS Alert',
-                body: recentLogs[0].entry.replace(/🚨 AUTO-TRIAGE:\s*/, '').slice(0, 100),
+                title: 'NEXUS Alert',
+                body: recentLogs[0].entry.replace(/(?:[\uD83D][\uDEA8]|\u26A0)\s*AUTO-TRIAGE:\s*/, '').slice(0, 100),
                 id: Date.now(),
                 schedule: { at: new Date() },
               }]
@@ -324,7 +324,7 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
             processed: false
           }, { onConflict: 'id' });
           
-          NX.localNotify('📱 SMS captured', `${sender}: ${body.slice(0, 60)}`);
+          NX.localNotify('SMS captured', `${sender}: ${body.slice(0, 60)}`);
         } catch(e) {}
       });
       
@@ -455,7 +455,7 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
     const allResults = [];
 
     for (let pageNum = 0; pageNum < 2; pageNum++) {
-      NX.toast('📷 Foto ' + (pageNum + 1) + '/2: ' + pages[pageNum], 'info', 10000);
+      NX.toast('Foto ' + (pageNum + 1) + '/2: ' + pages[pageNum], 'info', 10000);
 
       let base64, mimeType = 'image/jpeg';
 
@@ -497,7 +497,7 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
         }
       }
 
-      NX.toast('🔍 Leyendo página ' + (pageNum + 1) + '...', 'info', 8000);
+      NX.toast('Leyendo página ' + (pageNum + 1) + '...', 'info', 8000);
 
       try {
         const data = await NX.callClaude({
@@ -585,7 +585,7 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
       if (daySummary[d] > 0) {
         try {
           await NX.sb.from('daily_logs').insert({
-            entry: '📷 Cleaning: ' + location + ' ' + dayNames[d] + ' — ' + daySummary[d] + ' tasks completed (scanned from weekly sheet)',
+            entry: '[SCAN] Cleaning: ' + location + ' ' + dayNames[d] + ' — ' + daySummary[d] + ' tasks completed (scanned from weekly sheet)',
             user_name: NX.currentUser?.name || location.toUpperCase(),
             created_at: weekDates[d] + 'T18:00:00.000Z',
           });
@@ -648,7 +648,7 @@ If not a receipt, describe what you see in "notes" and set vendor to "Unknown".`
     const apiKey = NX.getApiKey();
     if (!apiKey) { NX.toast('No API key', 'error'); return null; }
 
-    NX.toast('📷 Reading checklist...', 'info', 8000);
+    NX.toast('Reading checklist...', 'info', 8000);
 
     // Get the current location's task list for reference
     const cleanTasks = NX.cleaningTasks;
@@ -763,7 +763,7 @@ IMPORTANT:
       // Log to daily_logs
       try {
         await NX.sb.from('daily_logs').insert({
-          entry: `📷 Cleaning scan: ${location} — ${checked}/${total} (${pct}%) — scanned from photo`,
+          entry: `[SCAN] Cleaning scan: ${location} — ${checked}/${total} (${pct}%) — scanned from photo`,
           user_name: NX.currentUser?.name || 'Scanner',
         });
       } catch (e) {}
@@ -814,7 +814,7 @@ IMPORTANT:
             });
           } catch (e) {}
         }
-        NX.toast(`⚠ ${modifications.length} task modification${modifications.length > 1 ? 's' : ''} detected — logged for review`, 'warn', 4000);
+        NX.toast(`${modifications.length} task modification${modifications.length > 1 ? 's' : ''} detected — logged for review`, 'warn', 4000);
       }
 
       // Refresh the cleaning view
@@ -921,7 +921,7 @@ IMPORTANT:
           location: location || '',
           notes: notes || '',
         });
-        NX.toast(`📅 ${title} added to calendar`, 'success');
+        NX.toast(`${title} added to calendar`, 'success');
         if (isNative) {
           try { const{Haptics}=await import('@capacitor/haptics');Haptics.notification({type:'SUCCESS'}); } catch(e){}
         }
@@ -991,7 +991,7 @@ IMPORTANT:
     const apiKey = NX.getApiKey();
     if (!apiKey) { NX.toast('No API key', 'error'); return null; }
 
-    NX.toast('🔍 Analyzing...', 'info', 5000);
+    NX.toast('Analyzing...', 'info', 5000);
     try {
       const data = await NX.callClaude({
         model: 'claude-sonnet-4-20250514',
@@ -1271,7 +1271,7 @@ Be specific. If it's equipment, include the make/model. If it's a document, extr
     if (isNative) {
       import('@capacitor/status-bar').then(({ StatusBar, Style }) => {
         StatusBar.setStyle({ style: Style.Dark });
-        StatusBar.setBackgroundColor({ color: '#111116' });
+        StatusBar.setBackgroundColor({ color: 'var(--bg)' });
       }).catch(() => {});
       
       // Hide splash screen
