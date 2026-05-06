@@ -250,23 +250,23 @@
   // gold accent 10%. Semantic colors are used sparingly and desaturated.
   const UI_CSS = `
     :root {
-      --ps-bg: #111116;
-      --ps-surface: #1b1b24;
-      --ps-elevated: #24242e;
-      --ps-text: #ede9e0;
-      --ps-muted: #a49c94;
-      --ps-faint: #857f75;
-      --ps-accent: #d4a44e;
+      --ps-bg: var(--bg);
+      --ps-surface: var(--surface);
+      --ps-elevated: var(--elevated);
+      --ps-text: var(--text);
+      --ps-muted: var(--muted);
+      --ps-faint: var(--faint);
+      --ps-accent: var(--accent);
       --ps-border: rgba(212, 182, 138, 0.08);
       --ps-border-strong: rgba(212, 182, 138, 0.18);
       --ps-glow: rgba(212, 164, 78, 0.18);
       /* Palette-coherent status colors — no greens, no scarlets.
          Operational: olive-bronze. Needs service: brand gold (= accent).
          Down: oxblood. Retired: graphite. */
-      --ps-green: #9c8a3e;
-      --ps-amber: #d4a44e;
-      --ps-red:   #a83e3e;
-      --ps-blue:  #7a8db8;
+      --ps-green: var(--green);
+      --ps-amber: var(--accent);
+      --ps-red:   var(--red);
+      --ps-blue:  var(--blue);
       /* Per-page status tint — set inline on .nx-ps-page from JS. */
       --ps-status-tint: var(--ps-accent);
     }
@@ -281,15 +281,15 @@
       --ps-bg: #f4ecd8;          /* cream / parchment */
       --ps-surface: #ede2c8;
       --ps-elevated: #e2d4b3;
-      --ps-text: #2a2008;        /* deep brown-black, easier on eyes than pure black */
-      --ps-muted: #6b5f3e;
-      --ps-faint: #968864;
-      --ps-accent: #8b6914;      /* deep gold — readable on cream */
+      --ps-text: var(--nx-gold-on);        /* deep brown-black, easier on eyes than pure black */
+      --ps-muted: var(--accent);
+      --ps-faint: var(--accent);
+      --ps-accent: var(--accent);      /* deep gold — readable on cream */
       --ps-border: rgba(70, 50, 18, 0.12);
       --ps-border-strong: rgba(70, 50, 18, 0.22);
       --ps-glow: rgba(139, 105, 20, 0.16);
-      --ps-green: #6b6014;       /* desaturated olive */
-      --ps-amber: #8b6914;
+      --ps-green: var(--accent);       /* desaturated olive */
+      --ps-amber: var(--accent);
       --ps-red:   #7a2828;       /* deep oxblood */
       --ps-blue:  #4a5878;
     }
@@ -626,7 +626,7 @@
 
     /* Primary — the only place we go full gold */
     .nx-ps-btn-primary {
-      background: linear-gradient(135deg, #d4a44e 0%, #b88a38 100%);
+      background: linear-gradient(135deg, var(--accent) 0%, var(--nx-gold-deep) 100%);
       border-color: transparent;
       box-shadow: 0 6px 20px -4px rgba(212, 164, 78, 0.4),
                   0 1px 0 0 rgba(255, 230, 180, 0.18) inset;
@@ -635,8 +635,8 @@
     .nx-ps-btn-primary .nx-ps-btn-icon-wrap {
       background: rgba(26, 20, 8, 0.16);
     }
-    .nx-ps-btn-primary .nx-ps-btn-icon-wrap svg { color: #2a1f08; }
-    .nx-ps-btn-primary .nx-ps-btn-title { color: #1a1408; font-size: 15px; font-weight: 700; }
+    .nx-ps-btn-primary .nx-ps-btn-icon-wrap svg { color: var(--nx-gold-on); }
+    .nx-ps-btn-primary .nx-ps-btn-title { color: var(--nx-gold-on); font-size: 15px; font-weight: 700; }
     .nx-ps-btn-primary .nx-ps-btn-sub   { color: rgba(26, 20, 8, 0.68); }
     .nx-ps-btn-primary .nx-ps-btn-arrow { color: rgba(26, 20, 8, 0.55); }
 
@@ -646,7 +646,7 @@
 
     /* Issue — subtle red tint, not aggressive */
     .nx-ps-btn-issue .nx-ps-btn-icon-wrap { background: rgba(168, 62, 62, 0.1); }
-    .nx-ps-btn-issue .nx-ps-btn-icon-wrap svg { color: #e88080; }
+    .nx-ps-btn-issue .nx-ps-btn-icon-wrap svg { color: var(--red); }
 
     /* Login — neutral */
     .nx-ps-btn-login { background: transparent; }
@@ -696,7 +696,7 @@
     .nx-ps-error-btn {
       padding: 13px 28px;
       background: var(--ps-accent);
-      color: #1a1408;
+      color: var(--nx-gold-on);
       border: none;
       border-radius: 10px;
       font-weight: 700;
@@ -814,7 +814,7 @@
     .nx-ps-modal-chip.active {
       background: var(--ps-accent);
       border-color: var(--ps-accent);
-      color: #1a1408;
+      color: var(--nx-gold-on);
       font-weight: 700;
     }
     .nx-ps-modal-btns { display: flex; gap: 10px; margin-top: 6px; }
@@ -837,7 +837,7 @@
     .nx-ps-modal-btn-send {
       background: var(--ps-accent);
       border-color: var(--ps-accent);
-      color: #1a1408;
+      color: var(--nx-gold-on);
     }
     .nx-ps-modal-btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -862,7 +862,7 @@
     }
     .nx-ps-modal-header-icon.is-report {
       background: rgba(168, 62, 62, 0.12);
-      color: #e88080;
+      color: var(--red);
     }
 
     /* Priority pills */
@@ -898,7 +898,7 @@
     .nx-ps-modal-pri-btn[data-pri="urgent"].active {
       background: rgba(168, 62, 62, 0.14);
       border-color: var(--ps-red);
-      color: #e88080;
+      color: var(--red);
     }
 
     /* Success state inside modal */
@@ -1119,12 +1119,12 @@
     // (= brand accent, "look at me"), oxblood for down (authoritative,
     // not panicked), graphite for retired.
     const statusMap = {
-      operational:   { label: 'Operational',   color: '#9c8a3e' },
-      needs_service: { label: 'Needs Service', color: '#d4a44e' },
-      down:          { label: 'Down',          color: '#a83e3e' },
-      retired:       { label: 'Retired',       color: '#6b6258' },
+      operational:   { label: 'Operational',   color: 'var(--green)' },
+      needs_service: { label: 'Needs Service', color: 'var(--accent)' },
+      down:          { label: 'Down',          color: 'var(--red)' },
+      retired:       { label: 'Retired',       color: 'var(--faint)' },
     };
-    const status = statusMap[eq.status] || { label: eq.status || 'Unknown', color: '#857f75' };
+    const status = statusMap[eq.status] || { label: eq.status || 'Unknown', color: 'var(--faint)' };
 
     const pm = eq.next_pm_date ? new Date(eq.next_pm_date) : null;
     const pmStr = pm ? pm.toLocaleDateString() : 'Not scheduled';
@@ -1483,7 +1483,8 @@
           // QR reports STILL notify managers even without NX loaded.
           try {
             const priority_label = (priority || 'normal').toLowerCase();
-            const icon = priority_label === 'urgent' ? '🚨' : priority_label === 'high' ? '⚠️' : '🎫';
+            const iconName = priority_label === 'urgent' ? 'alert-octagon' : priority_label === 'high' ? 'alert-triangle' : 'ticket';
+        const icon = `<i data-lucide="${iconName}"></i>`;
             const locLabel = eq.location ? ` · ${eq.location.toUpperCase()}` : '';
             sb.functions.invoke('predictive-notify', {
               body: {
@@ -1502,7 +1503,8 @@
         // Also drop a line into daily_logs so it shows up on the log
         // view alongside everything else happening today. Non-fatal if fails.
         try {
-          const logIcon = isCall ? '📞' : '🔧';
+          const logIconName = isCall ? 'phone' : 'wrench';
+        const logIcon = `<i data-lucide="${logIconName}"></i>`;
           const logPrefix = isCall ? 'CONTRACTOR CALLED' : 'TICKET';
           const logLoc = eq.location || 'unknown';
           await sb.from('daily_logs').insert({
