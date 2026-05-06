@@ -614,6 +614,98 @@
       const { error } = await NX.sb.from('pm_logs').insert(rows);
       if (error) throw error;
 
+      // ─── Auto-create / auto-link the contractor node ──────────────
+      // When a technician submits a PM via QR scan, their company name
+      // (and contact info) is in the form. We use this as a signal to
+      // either:
+      //   • match an existing contractor record (by case-insensitive
+      //     company name), and update its phone/email if blank, OR
+      //   • create a new contractor record (category='contractors') so
+      //     the next time you open Contractors view, they're already
+      //     there with their phone/email filled in.
+      //
+      // Then we link each equipment that didn't already have a
+      // preferred_contractor_node_id to this contractor — closing the
+      // loop so QR scans → contractor records → equipment all share
+      // the same identity.
+      try {
+        const company = (data.contractor_company || '').trim();
+        if (company && NX.sb) {
+          // Look up by case-insensitive name match.
+          const { data: existing } = await NX.sb.from('nodes')
+            .select('id, name, links')
+            .eq('category', 'contractors')
+            .ilike('name', company)
+            .maybeSingle();
+
+          let contractorId = existing?.id;
+
+          if (existing) {
+            // Existing contractor — fold in any new phone/email if not
+            // already present in their links.
+            const links = Array.isArray(existing.links) ? [...existing.links] : [];
+            let mutated = false;
+            const hasPhone = links.some(l => l && typeof l === 'object' && l.phone);
+            const hasEmail = links.some(l => l && typeof l === 'object' && l.email);
+            if (data.contractor_phone && !hasPhone) {
+              links.push({ phone: data.contractor_phone, type: 'phone', label: 'from QR submit' });
+              mutated = true;
+            }
+            if (data.contractor_email && !hasEmail) {
+              links.push({ email: data.contractor_email, type: 'email', role: 'to', label: 'from QR submit' });
+              mutated = true;
+            }
+            if (mutated) {
+              await NX.sb.from('nodes').update({ links }).eq('id', existing.id);
+            }
+          } else {
+            // No matching contractor — create a new one. Tags empty so
+            // the user can fill in specialties later in Contractors view.
+            const links = [];
+            if (data.contractor_phone) links.push({ phone: data.contractor_phone, type: 'phone', label: 'from QR submit' });
+            if (data.contractor_email) links.push({ email: data.contractor_email, type: 'email', role: 'to', label: 'from QR submit' });
+            const { data: created, error: cErr } = await NX.sb.from('nodes').insert({
+              name: company,
+              category: 'contractors',
+              tags: [],
+              links,
+              notes: data.contractor_name ? `Tech: ${data.contractor_name}` : null,
+            }).select('id').single();
+            if (!cErr && created) contractorId = created.id;
+          }
+
+          // Link each equipment that doesn't already have a contractor
+          // FK to this one. We don't overwrite an existing assignment.
+          if (contractorId) {
+            for (const eqId of equipIds) {
+              try {
+                const { data: eqRow } = await NX.sb.from('equipment')
+                  .select('preferred_contractor_node_id, service_phone, service_contact_name')
+                  .eq('id', eqId).maybeSingle();
+                if (!eqRow) continue;
+                const update = {};
+                if (!eqRow.preferred_contractor_node_id) {
+                  update.preferred_contractor_node_id = contractorId;
+                }
+                if (!eqRow.service_contact_name && company) {
+                  update.service_contact_name = company;
+                }
+                if (!eqRow.service_phone && data.contractor_phone) {
+                  update.service_phone = data.contractor_phone;
+                }
+                if (Object.keys(update).length) {
+                  await NX.sb.from('equipment').update(update).eq('id', eqId);
+                }
+              } catch (_) { /* per-equipment errors are non-fatal */ }
+            }
+          }
+        }
+      } catch (linkErr) {
+        // Non-fatal — pm_logs insert already succeeded. Just log.
+        console.warn('[pm-logger] contractor auto-link failed (non-fatal):', linkErr);
+      }
+      // ──────────────────────────────────────────────────────────────
+
       // Sync each affected equipment's brain node so the AI is aware
       // a service submission exists even before admin approval. The
       // sync reads pm_logs to include "N pending review" in the
