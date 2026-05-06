@@ -1,26 +1,29 @@
-/* NEXUS Service Worker — v11
+/* NEXUS Service Worker — v15
    Strategy: network-first for JS/CSS/HTML (always fresh code),
              cache-first for fonts, images, icons, assets.
    Version bumped = full re-cache on next load.
 
-   What changed v10 → v11:
-   - CACHE_NAME bumped so browsers running old SW pick up fresh assets
-     after the constitution work (token migration, primitives, modal
-     visual aliasing, speed-dial, etc.).
-   - APP_SHELL list unchanged: the 3 CSS files that were merged into
-     other files (equipment-fixes.css, equipment-context-menu.css,
-     equipment-card-polish.css) still exist in the css/ directory as
-     orphans, so pre-cache still succeeds. They're not loaded at
-     runtime. Delete them when convenient and remove from APP_SHELL
-     in a future v12 bump.
-
-   What changed v9 → v10:
-   - Added all current JS modules (was missing 12 files)
-   - Added all current CSS files (was missing 8 files)
-   - Added coin assets so they're available offline
-   - Added manifest.json + icons to shell
+   What changed v10 → v15:
+   - Ordering pane buildout: vendor detail overlay, recent-orders
+     pagination (3 → 10 → paginate), date dividers, draft state
+     highlighting, brand-color picker, vendor pin, photo upload @ 384px,
+     order detail view (read-only) with REPORT ISSUES + Reorder.
+   - Order lifecycle state machine (draft → sent → confirmed →
+     delivered → closed) with timeline + transition buttons.
+   - Sender attribution: created_by_name + sent_by_name stamped on
+     every order, surfaced in detail header.
+   - Issue flag (orthogonal to status) with amber banner + ISSUE pill
+     on vendor cards.
+   - Activity preview lines on vendor cards distinguish all 5
+     lifecycle states + issue state.
+   - Theme bug fixes: bottom-nav theming, 10 hardcoded dark rgba
+     replaced with tokens, speed-dial render bug (dual conflicting
+     CSS blocks deleted).
+   - Cleaning view UX overhaul: top tabs removed, bottom action bar
+     redesigned (48px equal-height buttons), race condition fixed
+     in pane wiring.
 */
-const CACHE_NAME = 'nexus-v12';
+const CACHE_NAME = 'nexus-v15';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -98,11 +101,11 @@ const CDN_CACHE = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      console.log('[SW v10] Caching app shell');
+      console.log('[SW v15] Caching app shell');
       // Use allSettled so one bad file doesn't poison the whole install
       return Promise.allSettled(
         APP_SHELL.map(url => cache.add(url).catch(err => {
-          console.warn('[SW v10] Skip:', url, err.message);
+          console.warn('[SW v15] Skip:', url, err.message);
         }))
       ).then(() =>
         Promise.allSettled(
@@ -118,7 +121,7 @@ self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => {
-        console.log('[SW v10] Deleting old cache:', k);
+        console.log('[SW v15] Deleting old cache:', k);
         return caches.delete(k);
       }))
     ).then(() => self.clients.claim())
