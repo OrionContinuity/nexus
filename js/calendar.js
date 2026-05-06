@@ -21,30 +21,30 @@ let currentDate = new Date();
 let events = {};   // { 'YYYY-MM-DD': [ {type, title, ...} ] }
 
 const COLORS = {
-  contractor:  '#5b9bd5',   // blue
-  cleaning:    '#7eb87a',   // green
-  ticket:      '#d4785c',   // red-orange
-  card:        '#c8a44e',   // nexus gold
-  card_urgent: '#d45858',   // red
-  card_high:   '#e8a830',   // amber
-  log:         '#a89580',   // muted brown
-  pm:          '#e8a830',   // amber (preventative maintenance)
-  warranty:    '#d45858',   // red (warranty expiring)
-  service:     '#7eb87a',   // green (service completed)
-  dispatch:    '#5b9bd5',   // blue (call made)
-  pattern:     '#a88fd8',   // purple (AI-predicted)
+  contractor:  'var(--blue)',   // blue
+  cleaning:    'var(--green)',   // green
+  ticket:      'var(--red)',   // red-orange
+  card:        'var(--accent)',   // nexus gold
+  card_urgent: 'var(--red)',   // red
+  card_high:   'var(--accent)',   // amber
+  log:         'var(--muted)',   // muted brown
+  pm:          'var(--accent)',   // amber (preventative maintenance)
+  warranty:    'var(--red)',   // red (warranty expiring)
+  service:     'var(--green)',   // green (service completed)
+  dispatch:    'var(--blue)',   // blue (call made)
+  pattern:     'var(--purple)',   // purple (AI-predicted)
 };
 const TYPE_ICONS = {
-  contractor: '🔧',
-  cleaning:   '✨',
-  ticket:     '🎫',
-  card:       '📋',
-  log:        '📝',
-  pm:         '🔧',
-  warranty:   '🛡',
-  service:    '🛠',
-  dispatch:   '📞',
-  pattern:    '🔮',
+  contractor: 'wrench',
+  cleaning:   'sparkles',
+  ticket:     'ticket',
+  card:       'clipboard-list',
+  log:        'file-text',
+  pm:         'wrench',
+  warranty:   'shield',
+  service:    'hammer',
+  dispatch:   'phone-call',
+  pattern:    'sparkles',
 };
 const TYPE_LABELS = {
   contractor: 'Contractor',
@@ -146,7 +146,7 @@ async function loadDailyLogs(firstDay, lastDay) {
       // Skip [SYS] entries — they clutter the calendar; use the Log view for those
       if (entry.startsWith('[SYS]')) return;
       if (entry.includes('[DISREGARDED]')) {
-        push(d, { type: 'log', title: entry.replace('[DISREGARDED] ', '').slice(0, 60), time: fmtTime(time), color: '#9e8e7e', detail: entry, recoverable: true, logId: e.id });
+        push(d, { type: 'log', title: entry.replace('[DISREGARDED] ', '').slice(0, 60), time: fmtTime(time), color: 'var(--muted)', detail: entry, recoverable: true, logId: e.id });
         return;
       }
       if (entry.toLowerCase().includes('cleaning report')) {
@@ -220,7 +220,7 @@ async function loadBoardCards(firstDay, lastDay) {
       const metaBits = [];
       if (c.priority && c.priority !== 'normal') metaBits.push(c.priority.toUpperCase());
       if (c.location) metaBits.push(c.location);
-      if (c.equipment_id) metaBits.push('🔧 linked');
+      if (c.equipment_id) metaBits.push('linked');
       push(c.due_date, {
         type: 'card',
         title: c.title || 'Card due',
@@ -402,7 +402,7 @@ function render() {
         types.forEach(t => {
           const dot = document.createElement('span');
           dot.className = 'cal-dot';
-          dot.style.background = COLORS[t] || '#888';
+          dot.style.background = COLORS[t] || 'var(--muted)';
           dots.appendChild(dot);
         });
         cell.appendChild(dots);
@@ -482,7 +482,7 @@ function renderUpcoming() {
             <div class="cal-up-date">${label}</div>
             <div class="cal-up-events">
               ${top.map(e => {
-                const dot = `<span class="cal-up-dot" style="background:${e.color || '#888'}"></span>`;
+                const dot = `<span class="cal-up-dot" style="background:${e.color || 'var(--muted)'}"></span>`;
                 const time = e.time ? `<span class="cal-up-time">${esc(e.time)}</span>` : '';
                 const title = esc((e.title || '').slice(0, 64));
                 return `<div class="cal-up-event">${dot}${time}<span class="cal-up-title">${title}</span></div>`;
@@ -505,7 +505,7 @@ function renderLegend() {
   if (!legend) {
     legend = document.createElement('div');
     legend.id = 'calLegend';
-    legend.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;font-size:9px;padding:4px 8px;margin:-4px 0 8px;color:var(--text-dim,#a49c94)';
+    legend.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;font-size:9px;padding:4px 8px;margin:-4px 0 8px;color:var(--text-dim)';
     header.parentNode?.insertBefore(legend, header.nextSibling);
   }
   // Only show types actually present this month
@@ -526,7 +526,7 @@ function showDetail(dateStr, dayEvents) {
     detail.innerHTML =
       '<div class="cal-detail-date">' + fmtDate(dateStr) + '</div>' +
       '<div class="cal-detail-empty">Nothing scheduled</div>' +
-      `<button id="calQuickAdd" style="margin-top:10px;padding:8px 14px;background:rgba(200,164,78,0.15);border:1px solid rgba(200,164,78,0.3);color:#c8a44e;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit">+ Add board card due ${fmtDate(dateStr)}</button>`;
+      `<button id="calQuickAdd" style="margin-top:10px;padding:8px 14px;background:rgba(200,164,78,0.15);border:1px solid rgba(200,164,78,0.3);color:var(--accent);border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit">+ Add board card due ${fmtDate(dateStr)}</button>`;
     detail.querySelector('#calQuickAdd')?.addEventListener('click', () => quickAddCard(dateStr));
     return;
   }
@@ -538,7 +538,7 @@ function showDetail(dateStr, dayEvents) {
   detail.innerHTML =
     '<div class="cal-detail-date">' + fmtDate(dateStr) + ' · ' + dayEvents.length + ' event' + (dayEvents.length > 1 ? 's' : '') + '</div>' +
     dayEvents.map((e, i) => {
-      const icon = TYPE_ICONS[e.type] || '•';
+      const iconName = TYPE_ICONS[e.type] || '';const icon = iconName ? `<i data-lucide="${iconName}" class="cal-event-icon"></i>` : '<span class="cal-event-icon-fallback">·</span>';
       const label = TYPE_LABELS[e.type] || 'Event';
       const meta = [];
       if (e.time) meta.push(e.time);
@@ -553,17 +553,17 @@ function showDetail(dateStr, dayEvents) {
                  : e.status === 'done' || e.status === 'closed' || e.status === 'completed' ? 'cal-status-done' : '';
         statusBadge = '<span class="cal-event-status ' + sc + '">' + esc(e.status) + '</span>';
       }
-      if (e.priority === 'urgent') statusBadge = '<span class="cal-event-status cal-status-open" style="color:#e88;border-color:rgba(212,88,88,.4)">🚨 URGENT</span>' + statusBadge;
+      if (e.priority === 'urgent') statusBadge = '<span class="cal-event-status cal-status-urgent">URGENT</span>' + statusBadge;
 
       const recoverBtn = e.recoverable ? '<button class="cal-recover-btn" data-log-id="' + e.logId + '">↩ Restore</button>' : '';
       // Tap hint differs by event type:
       //   equipment/card-linked → "tap to open" (routes to that view)
-      //   contractor → "💬 notes" (expands in-place with the notes UI)
+      //   contractor → "notes" affordance (expands in-place with the notes UI)
       let tapHint = '';
       if (e.equipmentId || e.cardId) {
-        tapHint = '<span style="font-size:10px;color:var(--text-faint,#746c5e);margin-left:6px">tap to open</span>';
+        tapHint = '<span style="font-size:10px;color:var(--text-faint);margin-left:6px">tap to open</span>';
       } else if (e.type === 'contractor') {
-        tapHint = '<span class="cal-event-notes-hint">💬 notes</span>';
+        tapHint = '<span class="cal-event-notes-hint"><i data-lucide="message-square" class="hint-icon"></i> notes</span>';
       }
       const isFaded = e.recoverable || e.tentative;
 
