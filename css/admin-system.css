@@ -34,7 +34,7 @@
 
 .admin-box {
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   border-radius: var(--nx-radius-card) !important;
   padding: var(--nx-space-6) !important;
   width: 92% !important;
@@ -98,7 +98,7 @@
   gap: var(--nx-space-2) !important;
   padding: 10px 12px !important;
   background: var(--nx-surface-2) !important;
-  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--nx-highlight-tint) !important;
   border-radius: var(--nx-radius-tight) !important;
   font-size: var(--nx-text-sm) !important;
 }
@@ -220,7 +220,7 @@
 }
 .at-stat-card {
   background: var(--nx-surface-2) !important;
-  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   border-radius: var(--nx-radius-card) !important;
   padding: 12px 6px !important;
   text-align: center !important;
@@ -273,7 +273,7 @@
   padding: 6px 12px !important;
   border-radius: var(--nx-radius-pill) !important;
   background: var(--nx-surface-2) !important;
-  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   color: var(--nx-muted) !important;
   letter-spacing: 0.2px;
 }
@@ -346,7 +346,7 @@
   overflow-y: auto !important;
   border-radius: var(--nx-radius-tight) !important;
   background: var(--nx-surface-2) !important;
-  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--nx-highlight-tint) !important;
   padding: 4px 0 !important;
 }
 .at-activity-row {
@@ -354,7 +354,7 @@
   gap: var(--nx-space-2) !important;
   padding: 8px 12px !important;
   font-size: var(--nx-text-xs) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03) !important;
+  border-bottom: 1px solid var(--nx-highlight-tint) !important;
 }
 .at-activity-row:last-child { border-bottom: none; }
 .at-activity-time {
@@ -457,7 +457,7 @@
 }
 
 /* The "Open Activity Log" gold-gradient button uses inline style
-   "background:linear-gradient(135deg,#c8a44e,#d4b86a);color:#1a1408;"
+   "background:linear-gradient(135deg,var(--accent),#d4b86a);color:#1a1408;"
    — that's already gold-on-dark, so just round it correctly. */
 #adminOpenLog,
 #adminReviewPmLogs,
@@ -526,7 +526,7 @@
   gap: var(--nx-space-3) !important;
   margin-top: 10px !important;
   padding: 10px 12px !important;
-  background: rgba(200, 164, 78, 0.05) !important;
+  background: var(--nx-gold-tint) !important;
   border: 1px solid var(--nx-gold-line) !important;
   border-radius: 10px !important;
 }
@@ -544,7 +544,7 @@
   -webkit-appearance: none !important;
   appearance: none !important;
   height: 4px !important;
-  background: rgba(255, 255, 255, 0.08) !important;
+  background: var(--nx-highlight-soft) !important;
   border-radius: 2px !important;
   outline: none !important;
   cursor: pointer !important;
@@ -592,8 +592,8 @@
   margin-top: 14px !important;
   padding: 16px !important;
   background:
-    radial-gradient(circle at top right, rgba(200, 164, 78, 0.06), transparent 60%),
-    rgba(200, 164, 78, 0.03) !important;
+    radial-gradient(circle at top right, var(--nx-gold-faint), transparent 60%),
+    var(--nx-gold-tint) !important;
   border: 1px solid var(--nx-gold-line) !important;
   border-radius: 14px !important;
 }
@@ -630,7 +630,7 @@
   margin-bottom: 12px !important;
   padding: 14px !important;
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   border-radius: 12px !important;
   transition: border-color var(--nx-press) !important;
 }
@@ -716,7 +716,7 @@
   min-height: 70px !important;
   padding: 10px 12px !important;
   background: rgba(0, 0, 0, 0.20) !important;
-  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--nx-highlight-tint) !important;
   border-radius: 8px !important;
   font-family: 'Times New Roman', Georgia, serif !important;
   font-size: 12.5px !important;
@@ -828,7 +828,7 @@
   padding: 10px 12px !important;
   background: rgba(0, 0, 0, 0.15) !important;
   border-radius: 8px !important;
-  border: 1px dashed rgba(255, 255, 255, 0.04) !important;
+  border: 1px dashed var(--nx-highlight-tint) !important;
 }
 .admin-voices-howto strong {
   color: var(--nx-gold) !important;
@@ -910,7 +910,7 @@
 }
 .onboard-box {
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   border-radius: var(--nx-radius-card) !important;
   padding: var(--nx-space-7) var(--nx-space-6) !important;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
