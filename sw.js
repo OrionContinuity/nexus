@@ -1,4 +1,4 @@
-/* NEXUS Service Worker — v34
+/* NEXUS Service Worker — v36
    Strategy: network-first for JS/CSS/HTML (always fresh code),
              cache-first for fonts, images, icons, assets.
    Version bumped = full re-cache on next load.
@@ -183,7 +183,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v34';
+const CACHE_NAME = 'nexus-v36';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
