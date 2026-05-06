@@ -1,7 +1,21 @@
-/* NEXUS Service Worker — v15
+sw-1.js
+/* NEXUS Service Worker — v16
    Strategy: network-first for JS/CSS/HTML (always fresh code),
              cache-first for fonts, images, icons, assets.
    Version bumped = full re-cache on next load.
+
+   What changed v15 → v16:
+   - Vendor sort: Alphabetical / Custom / Recently used / Most ordered
+     with persisted localStorage preference.
+   - Custom drag-to-reorder vendors with pointer events, persisted to
+     new sort_order column.
+   - Multi-email recipients (CC / BCC / ALT) with kind-cycling badges
+     in vendor editor; CC/BCC auto-included in mailto: send URL.
+   - Fixed wonky + button — plusIcon(true) suppresses inline margin
+     when used standalone in circular buttons; SVG bumped to 20px.
+   - Theme button icon fix: 'circle-half' → 'contrast' (Lucide name).
+   - openVendorEditor bug fix: was being called with vendor.id from
+     vendor-detail edit button, causing "undefined uuid" errors.
 
    What changed v10 → v15:
    - Ordering pane buildout: vendor detail overlay, recent-orders
@@ -23,7 +37,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v15';
+const CACHE_NAME = 'nexus-v16';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -101,11 +115,11 @@ const CDN_CACHE = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      console.log('[SW v15] Caching app shell');
+      console.log('[SW v16] Caching app shell');
       // Use allSettled so one bad file doesn't poison the whole install
       return Promise.allSettled(
         APP_SHELL.map(url => cache.add(url).catch(err => {
-          console.warn('[SW v15] Skip:', url, err.message);
+          console.warn('[SW v16] Skip:', url, err.message);
         }))
       ).then(() =>
         Promise.allSettled(
@@ -121,7 +135,7 @@ self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => {
-        console.log('[SW v15] Deleting old cache:', k);
+        console.log('[SW v16] Deleting old cache:', k);
         return caches.delete(k);
       }))
     ).then(() => self.clients.claim())
