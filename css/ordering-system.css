@@ -4013,3 +4013,570 @@ body.ord-overlay-open .bottom-nav {
 .ved-recipient-add-btn svg {
   margin-right: 4px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Catalog reordering — vendor editor
+   Section grouping, drag handles for items + sections, inline rename.
+   Mirrors the vendor-list drag pattern (.ord-vendor-drag-handle, etc.).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Toolbar above the items list — holds Add item + Reorder toggle */
+.ved-items-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 4px;
+}
+.ved-items-toolbar .ved-add-item-primary {
+  flex: 1;
+  margin: 0;
+}
+.ved-items-toolbar .ved-add-item-primary[disabled] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Reorder toggle pill — mirrors .ord-vendor-reorder-btn styling */
+.ved-reorder-toggle {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-radius: var(--rp);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all .15s ease;
+  min-height: 36px;
+}
+.ved-reorder-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ved-reorder-toggle.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+/* While in reorder mode, the items card itself gets a subtle wash so
+   the user can tell at a glance the surface is in a different mode. */
+.ved-items-card.is-reordering {
+  background: var(--nx-gold-faint, transparent);
+  outline: 1px solid var(--nx-gold-line, var(--border));
+  outline-offset: 0;
+}
+
+/* ─── Section block (header + items wrap) ──────────────────────────── */
+.ved-section-block {
+  position: relative;
+  margin-top: 4px;
+  transition: transform 80ms ease;
+}
+.ved-section-block.is-dragging {
+  transition: none;
+  z-index: 10;
+  opacity: 0.95;
+}
+.ved-section-block.is-dragging .ved-section-row {
+  background: var(--nx-gold-mist, var(--surface));
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
+}
+[data-theme="light"] .ved-section-block.is-dragging .ved-section-row {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .14);
+}
+
+/* ─── Section header row ───────────────────────────────────────────── */
+.ved-section-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 8px 0 4px;
+  border-radius: var(--rs);
+  background: transparent;
+  border-bottom: 1px solid var(--nx-gold-line, var(--border));
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.ved-section-row.is-reordering {
+  border-bottom: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rs);
+}
+
+.ved-section-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ved-section-name[data-section] {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+.ved-section-name[data-section]:hover {
+  color: var(--text);
+}
+.ved-section-name[data-section]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.ved-section-name.is-uncat {
+  color: var(--faint);
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
+.ved-section-count {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--nx-gold-faint, var(--elevated));
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  min-width: 22px;
+  text-align: center;
+}
+
+/* Section drag handle (in reorder mode) */
+.ved-section-drag {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: -4px;
+  color: var(--accent);
+  cursor: grab;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  border-radius: 4px;
+}
+.ved-section-drag:active {
+  cursor: grabbing;
+  background: var(--nx-gold-faint, transparent);
+}
+
+/* Section pencil rename button — small, on the right of the header */
+.ved-section-rename-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 0;
+  transition: all .15s ease;
+}
+.ved-section-rename-btn:hover {
+  color: var(--accent);
+  border-color: var(--border);
+}
+.ved-section-rename-btn svg { width: 13px; height: 13px; }
+
+/* Inline rename form (replaces the header content while editing) */
+.ved-section-rename-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--rs);
+  color: var(--text);
+  font: inherit;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  outline: none;
+  min-width: 0;
+}
+.ved-section-rename-save,
+.ved-section-rename-cancel {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: var(--rs);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.ved-section-rename-save {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ved-section-rename-save:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+.ved-section-rename-cancel:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* ─── Item drag handle (in reorder mode) ──────────────────────────── */
+.ved-item-drag-handle {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px;
+  color: var(--faint);
+  cursor: grab;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  border-radius: 4px;
+}
+.ved-item-drag-handle:active {
+  cursor: grabbing;
+  color: var(--accent);
+}
+
+/* Item row treated as inert div in reorder mode (drag handle is the
+   only active control). Keeps tap-on-row from triggering edit. */
+.ved-item-row.is-reordering {
+  cursor: default;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 4px;
+}
+.ved-item-row.is-reordering:hover {
+  background: inherit;
+  transform: none;
+}
+.ved-item-row.is-dragging {
+  z-index: 9;
+  background: var(--nx-gold-mist, var(--elevated));
+  border-color: var(--accent);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .22);
+  transition: none;
+}
+[data-theme="light"] .ved-item-row.is-dragging {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .12);
+}
+
+/* The default item row is a button; ensure transform works on the
+   wrapper too without double-effects when not in reorder mode. */
+.ved-item-row {
+  transition: transform 80ms ease;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Catalog editor — full-screen overlay accessed from the vendor ⋮ menu
+   or from "Manage catalog" inside the vendor metadata editor. Mirrors
+   the .ord-entry-overlay positioning model so it slots in below the
+   masthead and above the now-hidden bottom-nav.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.ord-catalog-overlay {
+  position: fixed;
+  top: var(--nx-mast-h, 53px);
+  left: 0; right: 0; bottom: 0;
+  z-index: 41;       /* one above .ord-entry-overlay so it can stack
+                        if the user opens it from inside vendor editor */
+  background: var(--nx-bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: ordOverlayIn .18s ease-out;
+}
+
+/* Header reuses .ord-entry-head — modifier here in case we want to tune. */
+.ord-catalog-head {
+  /* No additional changes today; left as a stable hook for future tweaks. */
+}
+
+/* ─── Toolbar: + Section, + Item, Reorder ────────────────────────────── */
+.ord-cat-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--nx-gold-line);
+  background: var(--nx-bg);
+}
+.ord-cat-tool-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--rs);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-cat-tool-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ord-cat-tool-btn:active {
+  transform: translateY(1px);
+}
+.ord-cat-tool-btn[disabled] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.ord-cat-tool-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.ord-cat-tool-primary {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--nx-gold-faint);
+}
+.ord-cat-reorder {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ord-cat-reorder:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ord-cat-reorder.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+/* ─── Add-section inline form (between toolbar and search) ───────────── */
+.ord-cat-addsection {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--nx-gold-line);
+  background: var(--nx-gold-faint);
+}
+.ord-cat-addsection-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--rs);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+}
+.ord-cat-addsection-save,
+.ord-cat-addsection-cancel {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-radius: var(--rs);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all .15s ease;
+  min-height: 36px;
+}
+.ord-cat-addsection-save {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ord-cat-addsection-save:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+.ord-cat-addsection-cancel:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* ─── Search wrap inside catalog ─────────────────────────────────────── */
+.ord-cat-search-wrap {
+  flex: 0 0 auto;
+  padding: 10px 14px 6px;
+}
+
+/* ─── Items list ─────────────────────────────────────────────────────── */
+.ord-cat-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 14px calc(40px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ─── Empty section placeholder (pending sections + emptied groups) ── */
+.ved-section-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 12px;
+  margin: 4px 0 8px;
+  background: var(--nx-gold-faint);
+  border: 1px dashed var(--nx-gold-line);
+  border-radius: var(--rs);
+}
+.ved-section-empty-text {
+  flex: 1;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-style: italic;
+}
+.ved-section-empty-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ved-section-empty-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: var(--rs);
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.ved-section-empty-add:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+.ved-section-empty-add svg { width: 12px; height: 12px; }
+.ved-section-empty-remove {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--faint);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: all .15s ease;
+}
+.ved-section-empty-remove:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* ─── Manage Catalog CTA in vendor editor (replaces inline list) ─────── */
+.ved-catalog-cta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 16px;
+  background: var(--surface);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: var(--r);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text);
+  transition: all .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.ved-catalog-cta:hover {
+  border-color: var(--accent);
+  background: var(--nx-gold-faint);
+}
+.ved-catalog-cta:active {
+  transform: scale(0.997);
+}
+.ved-catalog-cta-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.ved-catalog-cta-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--nx-gold-faint);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ved-catalog-cta-icon svg { width: 18px; height: 18px; }
+.ved-catalog-cta-main {
+  flex: 1;
+  min-width: 0;
+}
+.ved-catalog-cta-title {
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ved-catalog-cta-sub {
+  margin-top: 2px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.ved-catalog-cta-arrow {
+  flex-shrink: 0;
+  font-size: 22px;
+  color: var(--faint);
+  line-height: 1;
+}
