@@ -5,8 +5,8 @@
    Replaces the "Sign In for Full Details" only path with a two-button
    landing screen:
    
-     [ 🔐 Login to view equipment ]   — existing login flow
-     [ 🔧 PM Logger (no login) ]      — contractor service log form
+     [ Login to view equipment ]      — existing login flow
+     [ PM Logger (no login) ]         — contractor service log form
    
    PM Logger features:
      • Pre-fills contractor name on subsequent visits (localStorage)
@@ -414,7 +414,7 @@
       ctx.lineWidth = 2;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      ctx.strokeStyle = '#1a1408';
+      ctx.strokeStyle = 'var(--nx-gold-on)';
     }
     setTimeout(resizeCanvas, 100);
     
@@ -902,7 +902,7 @@
         e.preventDefault();
         const target = !callerName || callerName.length < 2 ? nameEl : issueEl;
         target.focus();
-        target.style.borderColor = '#e07070';
+        target.style.borderColor = 'var(--red)';
         setTimeout(() => { target.style.borderColor = ''; }, 1200);
         return;
       }
