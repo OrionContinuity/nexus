@@ -5051,7 +5051,7 @@ function wirePublicCoin() {
 async function loadPublicScan(qrCode) {
   try {
     const { data, error } = await NX.sb.from('equipment')
-      .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contact_name, service_phone, preferred_contractor_node_id')
+      .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_name, service_contractor_phone, service_contractor_node_id')
       .eq('qr_code', qrCode)
       .single();
     if (error || !data) throw new Error('Equipment not found');
@@ -5067,11 +5067,11 @@ async function loadPublicScan(qrCode) {
     // — if the join fails we fall back to the equipment's own service
     // contact fields (which still work).
     let contractor = null;
-    if (data.preferred_contractor_node_id) {
+    if (data.service_contractor_node_id) {
       try {
         const { data: cnode } = await NX.sb.from('nodes')
           .select('id, name, links, notes')
-          .eq('id', data.preferred_contractor_node_id)
+          .eq('id', data.service_contractor_node_id)
           .maybeSingle();
         if (cnode) contractor = cnode;
       } catch (_) { /* ignore — fall back below */ }
@@ -5116,14 +5116,14 @@ function renderPublicScanHTML(eq, maint, contractor) {
 
   // Resolve contact channels: prefer the linked contractor's full set
   // (multi-phone, multi-email with TO/CC/BCC), fall back to the
-  // equipment's own service_phone + service_contact_name fields when
+  // equipment's own service_contractor_phone + service_contractor_name fields when
   // the FK isn't set yet.
   const phones = contractor ? extractContractorPhones(contractor) : [];
   const emails = contractor ? extractContractorEmails(contractor) : [];
-  if (!phones.length && eq.service_phone) {
-    phones.push({ phone: eq.service_phone, label: '' });
+  if (!phones.length && eq.service_contractor_phone) {
+    phones.push({ phone: eq.service_contractor_phone, label: '' });
   }
-  const contactName = (contractor && contractor.name) || eq.service_contact_name || '';
+  const contactName = (contractor && contractor.name) || eq.service_contractor_name || '';
 
   // Build the email mailto: link with primary in to:, others in cc:.
   let emailMailto = '';
@@ -5522,9 +5522,9 @@ async function openFullEditor(equipId) {
             <div class="eq-form-row">
               <div class="eq-form-group" style="flex:1">
                 <label style="font-size:11px">Contact Name <span style="color:var(--muted)">— pick existing to auto-link</span></label>
-                <input data-field="service_contact_name" id="eqServiceContactName-${eq.id}" value="${escAttr(eq.service_contact_name||'')}" placeholder="Austin Air and Ice" list="eqContractorOptions-${eq.id}" autocomplete="off">
+                <input data-field="service_contractor_name" id="eqServiceContactName-${eq.id}" value="${escAttr(eq.service_contractor_name||'')}" placeholder="Austin Air and Ice" list="eqContractorOptions-${eq.id}" autocomplete="off">
                 <datalist id="eqContractorOptions-${eq.id}"></datalist>
-                <input type="hidden" data-field="preferred_contractor_node_id" value="${escAttr(eq.preferred_contractor_node_id||'')}">
+                <input type="hidden" data-field="service_contractor_node_id" value="${escAttr(eq.service_contractor_node_id||'')}">
                 <div id="eqContractorLinkChip-${eq.id}" class="eq-contractor-link-chip" style="display:none">
                   <span class="eq-contractor-link-chip-icon">🔗</span>
                   <span class="eq-contractor-link-chip-text"></span>
@@ -5533,14 +5533,14 @@ async function openFullEditor(equipId) {
               </div>
               <div class="eq-form-group" style="flex:1">
                 <label style="font-size:11px">Phone Number</label>
-                <input type="tel" data-field="service_phone" id="eqServicePhone-${eq.id}" value="${escAttr(eq.service_phone||'')}" placeholder="(512) 555-1234">
+                <input type="tel" data-field="service_contractor_phone" id="eqServicePhone-${eq.id}" value="${escAttr(eq.service_contractor_phone||'')}" placeholder="(512) 555-1234">
               </div>
             </div>
             <div style="display:flex;gap:8px;margin-top:8px">
               <button type="button" class="eq-btn eq-btn-tiny eq-btn-secondary" onclick="NX.modules.equipment.lookupServicePhoneFromNode('${eq.id}')" style="flex:1">
                 ${uiSvg('search', '13px')} Look up from preferred contractor
               </button>
-              ${eq.service_phone ? `<a href="tel:${escAttr(eq.service_phone)}" class="eq-btn eq-btn-tiny" style="flex:0 0 auto">Test Call</a>` : ''}
+              ${eq.service_contractor_phone ? `<a href="tel:${escAttr(eq.service_contractor_phone)}" class="eq-btn eq-btn-tiny" style="flex:0 0 auto">Test Call</a>` : ''}
             </div>
             <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4">
               Type a contractor name to link this equipment. The contractor's phone will auto-fill and the contractor's Equipment tab will show this unit.
@@ -5598,14 +5598,14 @@ async function openFullEditor(equipId) {
 
   // Wire the Service Contact typeahead picker. Pulls all contractor nodes,
   // populates the datalist, and on selection auto-fills phone + sets the
-  // hidden preferred_contractor_node_id field. Without this wiring, the
+  // hidden service_contractor_node_id field. Without this wiring, the
   // equipment side and contractor side stay disconnected — the user has
   // to type the same name in two places and phones drift.
   (async () => {
     const dl    = modal.querySelector(`#eqContractorOptions-${eq.id}`);
     const nameI = modal.querySelector(`#eqServiceContactName-${eq.id}`);
     const phoneI = modal.querySelector(`#eqServicePhone-${eq.id}`);
-    const fkI   = modal.querySelector('input[data-field="preferred_contractor_node_id"]');
+    const fkI   = modal.querySelector('input[data-field="service_contractor_node_id"]');
     const chip  = modal.querySelector(`#eqContractorLinkChip-${eq.id}`);
     const chipText  = chip?.querySelector('.eq-contractor-link-chip-text');
     const unlinkBtn = chip?.querySelector('.eq-contractor-link-chip-unlink');
@@ -6424,7 +6424,7 @@ function buildDispatchMessage(eq, ticket, contact, userName) {
    
    Called from the Links tab in openFullEditor when user clicks "Look up
    from preferred contractor." Reads the preferred contractor node, extracts
-   phone + name, and populates the service_contact_name and service_phone
+   phone + name, and populates the service_contractor_name and service_contractor_phone
    form inputs.
    
    If no preferred contractor is set, falls back to scanning recent
@@ -6434,17 +6434,17 @@ function buildDispatchMessage(eq, ticket, contact, userName) {
 async function lookupServicePhoneFromNode(equipId) {
   try {
     const { data: eq } = await NX.sb.from('equipment')
-      .select('preferred_contractor_node_id, name')
+      .select('service_contractor_node_id, name')
       .eq('id', equipId).single();
     if (!eq) throw new Error('Equipment not found');
 
     let node = null;
     
     // Primary: preferred contractor
-    if (eq.preferred_contractor_node_id) {
+    if (eq.service_contractor_node_id) {
       const { data } = await NX.sb.from('nodes')
         .select('id, name, notes, tags, links')
-        .eq('id', eq.preferred_contractor_node_id).single();
+        .eq('id', eq.service_contractor_node_id).single();
       node = data;
     }
     
@@ -6495,8 +6495,8 @@ async function lookupServicePhoneFromNode(equipId) {
     // Populate form inputs
     const modal = document.getElementById('eqFullEditModal');
     if (!modal) return;
-    const nameInput = modal.querySelector('[data-field="service_contact_name"]');
-    const phoneInput = modal.querySelector('[data-field="service_phone"]');
+    const nameInput = modal.querySelector('[data-field="service_contractor_name"]');
+    const phoneInput = modal.querySelector('[data-field="service_contractor_phone"]');
     if (nameInput && !nameInput.value) nameInput.value = node.name || '';
     if (phoneInput) phoneInput.value = phone;
     
@@ -6538,8 +6538,8 @@ async function openDispatchSheet(equipId, ticketId) {
   // Auto-select preferred contractor if equipment has one set.
   // Skips the contact picker entirely and jumps straight to the method stage.
   // User can still tap "Back" to change contractor if needed.
-  if (eq.preferred_contractor_node_id) {
-    const preferred = contractors.find(c => c.id === eq.preferred_contractor_node_id);
+  if (eq.service_contractor_node_id) {
+    const preferred = contractors.find(c => c.id === eq.service_contractor_node_id);
     if (preferred) {
       selectedContact = preferred;
       stage = 'method';
@@ -6612,7 +6612,7 @@ async function openDispatchSheet(equipId, ticketId) {
         </div>
       `;
     }
-    const preferredId = eq.preferred_contractor_node_id;
+    const preferredId = eq.service_contractor_node_id;
     const sorted = [...contractors].sort((a, b) => {
       if (a.id === preferredId) return -1;
       if (b.id === preferredId) return 1;
@@ -6969,25 +6969,25 @@ function dispatchFromTicket(equipId, ticketId) {
 // dialing so the user sees WHO they're about to call.
 //
 // Priority for phone lookup:
-//   1. Use equipment.service_phone if set
-//   2. Fallback to preferred_contractor_node_id → nodes.links.phone
+//   1. Use equipment.service_contractor_phone if set
+//   2. Fallback to service_contractor_node_id → nodes.links.phone
 //   3. If neither exists, prompt to set one up
 async function callService(equipId) {
   try {
     const { data: eq } = await NX.sb.from('equipment')
-      .select('id, name, service_phone, service_contact_name, preferred_contractor_node_id')
+      .select('id, name, service_contractor_phone, service_contractor_name, service_contractor_node_id')
       .eq('id', equipId).single();
     if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
     
-    let phone = eq.service_phone;
-    let name = eq.service_contact_name;
+    let phone = eq.service_contractor_phone;
+    let name = eq.service_contractor_name;
     let source = phone ? 'direct' : null;
     
     // Fallback to contractor node
-    if (!phone && eq.preferred_contractor_node_id) {
+    if (!phone && eq.service_contractor_node_id) {
       const { data: node } = await NX.sb.from('nodes')
         .select('name, notes, tags, links')
-        .eq('id', eq.preferred_contractor_node_id).single();
+        .eq('id', eq.service_contractor_node_id).single();
       if (node) {
         const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
         const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
@@ -7008,7 +7008,7 @@ async function callService(equipId) {
       equipName: eq.name,
       contactName: name || 'Service',
       phone,
-      contractorNodeId: eq.preferred_contractor_node_id,
+      contractorNodeId: eq.service_contractor_node_id,
       source
     });
   } catch (err) {
@@ -8115,7 +8115,7 @@ async function promptIssueEta(issueId) {
 
 /**
  * Compose an email to the contractor about this issue. Pulls preferred
- * contractor from equipment.preferred_contractor_node_id (existing field).
+ * contractor from equipment.service_contractor_node_id (existing field).
  * Pre-fills subject + body modeled on the order REPORT ISSUES email.
  */
 async function emailContractorAboutIssue(equipment, issue) {
@@ -8123,10 +8123,10 @@ async function emailContractorAboutIssue(equipment, issue) {
 
   // Look up preferred contractor.
   let contractor = null;
-  if (equipment.preferred_contractor_node_id) {
+  if (equipment.service_contractor_node_id) {
     const { data } = await NX.sb.from('nodes')
       .select('id, name, links, notes')
-      .eq('id', equipment.preferred_contractor_node_id).maybeSingle();
+      .eq('id', equipment.service_contractor_node_id).maybeSingle();
     contractor = data;
   }
 
@@ -8337,10 +8337,10 @@ async function openBulkContractorAssign() {
       // Bulk update.
       const ids = Array.from(bulkSelectionState.selected);
       const update = {
-        preferred_contractor_node_id: contractorId,
+        service_contractor_node_id: contractorId,
       };
-      if (phone) update.service_phone = phone;
-      if (contractor.name) update.service_contact_name = contractor.name;
+      if (phone) update.service_contractor_phone = phone;
+      if (contractor.name) update.service_contractor_name = contractor.name;
 
       try {
         const { error } = await NX.sb.from('equipment')
@@ -9665,7 +9665,7 @@ function formatMoney(n) {
          Activity — chronological feed of every dispatch / maintenance /
                     issue this contractor has handled
          Equipment — list of equipment assigned to this contractor as
-                     preferred_contractor_node_id, plus equipment they've
+                     service_contractor_node_id, plus equipment they've
                      historically performed work on
          Edit — full editable form: name, phone, email, address, hours,
                 specialties (chip-input), notes
@@ -9691,7 +9691,7 @@ async function openContractors() {
   // Hardcoded version stamp so the user can verify in a screenshot
   // exactly which JS code is running. If you don't see this toast,
   // the service worker is serving stale cached code.
-  NX.toast && NX.toast('NEXUS contractors v35 — opening…', 'info', 1400);
+  NX.toast && NX.toast('NEXUS contractors v36 — opening…', 'info', 1400);
 
   const overlay = document.createElement('div');
   overlay.className = 'eq-contractors-overlay';
@@ -9762,7 +9762,7 @@ async function loadContractorsList() {
     NX.sb.from('equipment_issues')
       .select('id, equipment_id, status, contractor_node_id, contractor_name, reported_at, contractor_called_at, repaired_at')
       .order('reported_at', { ascending: false }).then(r => r).catch(() => ({ data: [] })),
-    NX.sb.from('equipment').select('id, name, location, area, manufacturer, model, preferred_contractor_node_id, service_contact_name, service_phone'),
+    NX.sb.from('equipment').select('id, name, location, area, manufacturer, model, service_contractor_node_id, service_contractor_name, service_contractor_phone'),
   ]);
 
   // ─── Surface every error (this is the whole point of v33) ────────
@@ -9836,13 +9836,13 @@ async function loadContractorsList() {
       : null;
 
     // Equipment they're linked to. Match by:
-    //   1. preferred_contractor_node_id FK (the strong link)
-    //   2. service_contact_name string (case-insensitive — handles equipment
+    //   1. service_contractor_node_id FK (the strong link)
+    //   2. service_contractor_name string (case-insensitive — handles equipment
     //      where the user typed the contractor name without picking from
     //      the dropdown, so it's not yet FK-linked)
     c._assignedCount = eqList.filter(e =>
-      e.preferred_contractor_node_id == c.id ||
-      ((e.service_contact_name || '').toLowerCase().trim() === nameLower && nameLower)
+      e.service_contractor_node_id == c.id ||
+      ((e.service_contractor_name || '').toLowerCase().trim() === nameLower && nameLower)
     ).length;
     // Unique equipment they've serviced historically.
     const servicedIds = new Set(myMaint.map(m => m.equipment_id));
@@ -10204,19 +10204,19 @@ function buildContractorDetailDerived() {
 
   // Equipment assignments + historical.
   // Two paths to "assigned":
-  //   1. preferred_contractor_node_id FK (proper link)
-  //   2. service_contact_name string match (informal link — typed name)
+  //   1. service_contractor_node_id FK (proper link)
+  //   2. service_contractor_name string match (informal link — typed name)
   // Equipment in the second bucket can be promoted to the first via a
   // one-tap action in the Equipment tab.
   const nameLower = (c.name || '').toLowerCase().trim();
   contractorsState.assignedEquipment = eqLite.filter(e =>
-    e.preferred_contractor_node_id == c.id ||
-    ((e.service_contact_name || '').toLowerCase().trim() === nameLower && nameLower)
+    e.service_contractor_node_id == c.id ||
+    ((e.service_contractor_name || '').toLowerCase().trim() === nameLower && nameLower)
   );
   // Mark which ones are "loose" links so the UI can show a chip and
   // offer to make the link permanent.
   for (const e of contractorsState.assignedEquipment) {
-    e._linkType = e.preferred_contractor_node_id == c.id ? 'fk' : 'name';
+    e._linkType = e.service_contractor_node_id == c.id ? 'fk' : 'name';
   }
   const assignedIds = new Set(contractorsState.assignedEquipment.map(e => e.id));
   const servicedIds = new Set(maint.map(m => m.equipment_id));
@@ -10848,9 +10848,9 @@ async function saveContractorChanges(form, saveBtn) {
 
 /**
  * Bulk-upgrade equipment that's "linked by name only" (matches the
- * contractor's name string in equipment.service_contact_name but has no
- * preferred_contractor_node_id FK) to a proper FK link. Also propagates
- * the contractor's phone to equipment.service_phone if the equipment
+ * contractor's name string in equipment.service_contractor_name but has no
+ * service_contractor_node_id FK) to a proper FK link. Also propagates
+ * the contractor's phone to equipment.service_contractor_phone if the equipment
  * row's phone is missing.
  *
  * This is the "the contractor and equipment now talk to each other" fix
@@ -10874,12 +10874,12 @@ async function promoteContractorNameLinks() {
 
   try {
     // Build update payload — set FK on every loose-linked equipment.
-    // We don't overwrite service_phone if the equipment already has one;
+    // We don't overwrite service_contractor_phone if the equipment already has one;
     // we just fill it from the contractor when blank.
     let updated = 0;
     for (const eq of loose) {
-      const update = { preferred_contractor_node_id: c.id };
-      if (!eq.service_phone && phone) update.service_phone = phone;
+      const update = { service_contractor_node_id: c.id };
+      if (!eq.service_contractor_phone && phone) update.service_contractor_phone = phone;
       const { error } = await NX.sb.from('equipment').update(update).eq('id', eq.id);
       if (error) throw error;
       updated++;
@@ -10912,7 +10912,7 @@ async function promoteContractorNameLinks() {
  * contractor. Same idiom as the parts-compatibility bulk-apply sheet:
  * checkbox row per eligible piece of equipment, same-category units
  * floated to top with a "MATCHES SPECIALTY" badge, single confirm
- * button does a batch update of preferred_contractor_node_id.
+ * button does a batch update of service_contractor_node_id.
  *
  * "Eligible" = equipment NOT already assigned to this contractor.
  * Equipment already assigned to a *different* contractor is included
@@ -10962,7 +10962,7 @@ function openContractorAssignSheet() {
           ${candidates.map(e => {
             const isSel = selected.has(e.id);
             const matches = matchesSpecialty(e);
-            const otherContractor = e.preferred_contractor_node_id && e.preferred_contractor_node_id !== c.id;
+            const otherContractor = e.service_contractor_node_id && e.service_contractor_node_id !== c.id;
             return `
               <button class="eq-bulk-sheet-item eq-bulk-apply-item ${isSel ? 'is-selected' : ''} ${matches ? 'is-same-brand' : ''}" data-id="${esc(e.id)}" type="button">
                 <div class="eq-bulk-apply-check">
@@ -11007,10 +11007,10 @@ function openContractorAssignSheet() {
       for (const id of ids) {
         const eq = candidates.find(e => e.id === id);
         const update = {
-          preferred_contractor_node_id: c.id,
-          service_contact_name: c.name,  // keep name in sync
+          service_contractor_node_id: c.id,
+          service_contractor_name: c.name,  // keep name in sync
         };
-        if (phone && eq && !eq.service_phone) update.service_phone = phone;
+        if (phone && eq && !eq.service_contractor_phone) update.service_contractor_phone = phone;
         const { error } = await NX.sb.from('equipment').update(update).eq('id', id);
         if (error) throw error;
         updated++;
