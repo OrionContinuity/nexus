@@ -2841,7 +2841,6 @@ Thanks for your help sorting this out.`;
   function renderItemsList() {
     if (!catalogState) return '';
     const allItems = catalogState.items;
-    const reorder = !!catalogState.reorderMode;
     const searchQ = (catalogState.searchQuery || '').trim().toLowerCase();
     const pending = catalogState.pendingSections || [];
     let html = '';
@@ -2857,8 +2856,8 @@ Thanks for your help sorting this out.`;
         })
       : allItems;
 
-    // "New item" form rendered at the top when adding (only when not in reorder mode)
-    if (catalogState.editingItemId === 'new' && !reorder) {
+    // "New item" form rendered at the top when adding
+    if (catalogState.editingItemId === 'new') {
       const defaultSec = catalogState._newItemDefaultSection || '';
       html += renderItemForm({
         id: '__new', item_name: '', vendor_sku: '',
@@ -2890,15 +2889,24 @@ Thanks for your help sorting this out.`;
       if (cur == null || mySort < cur) sectionMinSort.set(sec, mySort);
     }
 
-    // Pending (empty) sections appear after sections with items but
-    // before "Uncategorized". They have no items so no min sort_order.
+    // Pending (empty) sections — make sure they always appear in the list.
     for (const p of pending) {
       if (!groups.has(p)) groups.set(p, []);
     }
 
-    // Sort sections: by min sort_order, then alpha; pending-empty
-    // sections after real ones (they have Infinity min); '' always last.
+    // Sort sections:
+    //   1. PENDING (newly created, empty) sections come FIRST, in the order
+    //      they were added (most recent first — pendingSections[0]).
+    //   2. Then sections with items, ordered by min(sort_order).
+    //   3. Uncategorized ('') always last.
+    const pendingIdx = (s) => pending.indexOf(s);    // -1 if not pending
     const sections = Array.from(groups.keys()).sort((a, b) => {
+      const aP = pendingIdx(a), bP = pendingIdx(b);
+      const aIsPending = aP !== -1;
+      const bIsPending = bP !== -1;
+      if (aIsPending && !bIsPending) return -1;
+      if (bIsPending && !aIsPending) return 1;
+      if (aIsPending && bIsPending) return aP - bP;     // earlier in pending array = first
       if (a === '' && b !== '') return 1;
       if (b === '' && a !== '') return -1;
       const am = sectionMinSort.get(a);
@@ -2917,7 +2925,7 @@ Thanks for your help sorting this out.`;
     }
 
     for (const sec of sections) {
-      html += renderSectionGroup(sec, groups.get(sec), reorder);
+      html += renderSectionGroup(sec, groups.get(sec));
     }
 
     if (searchQ && !items.length) {
@@ -2931,9 +2939,9 @@ Thanks for your help sorting this out.`;
     return html;
   }
 
-  function renderSectionGroup(sec, items, reorder) {
+  function renderSectionGroup(sec, items) {
     const isUncat = sec === '';
-    const isRenaming = catalogState.renamingSection === sec && !reorder;
+    const isRenaming = catalogState.renamingSection === sec;
     const headerInner = isRenaming
       ? `
         <input type="text" class="ved-section-rename-input" value="${esc(sec)}" autocomplete="off" spellcheck="false" placeholder="Section name">
@@ -2941,79 +2949,77 @@ Thanks for your help sorting this out.`;
         <button class="ved-section-rename-cancel">Cancel</button>
       `
       : `
-        ${reorder ? `
-          <span class="ved-section-drag" data-section="${esc(sec)}" aria-label="Reorder section ${esc(sec || 'uncategorized')}">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <line x1="3" y1="8" x2="21" y2="8"/>
-              <line x1="3" y1="16" x2="21" y2="16"/>
-            </svg>
-          </span>
-        ` : ''}
-        <span class="ved-section-name${isUncat ? ' is-uncat' : ''}" ${!reorder && !isUncat ? `data-section="${esc(sec)}" role="button" tabindex="0"` : ''}>
+        <span class="ved-section-drag" data-section="${esc(sec)}" aria-label="Drag to reorder section ${esc(sec || 'uncategorized')}">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="3" y1="8" x2="21" y2="8"/>
+            <line x1="3" y1="16" x2="21" y2="16"/>
+          </svg>
+        </span>
+        <span class="ved-section-name${isUncat ? ' is-uncat' : ''}" ${!isUncat ? `data-section="${esc(sec)}" role="button" tabindex="0"` : ''}>
           ${esc(sec || 'Uncategorized')}
         </span>
         <span class="ved-section-count">${items.length}</span>
-        ${!reorder && !isUncat ? `
+        ${!isUncat ? `
           <button class="ved-section-rename-btn" data-section="${esc(sec)}" aria-label="Rename section ${esc(sec)}">${editIcon()}</button>
         ` : ''}
       `;
 
-    let inner = `<div class="ved-section-row${reorder ? ' is-reordering' : ''}" data-section="${esc(sec)}">${headerInner}</div>`;
+    let inner = `<div class="ved-section-row" data-section="${esc(sec)}">${headerInner}</div>`;
+
+    // Items wrapper — items live inside the section card
+    let itemsHTML = '';
 
     if (items.length === 0 && !isUncat) {
-      // Pending / emptied section — show placeholder with quick-add CTA
-      // and a small "remove" button (X) to clear the placeholder client-side.
-      inner += `
+      // Pending / emptied section — show placeholder with quick-add CTA.
+      itemsHTML += `
         <div class="ved-section-empty">
           <div class="ved-section-empty-text">No items in this section yet.</div>
           <div class="ved-section-empty-actions">
             <button class="ved-section-empty-add" type="button" data-section="${esc(sec)}">${plusIcon()}<span>Add to ${esc(sec)}</span></button>
-            ${!reorder ? `<button class="ved-section-empty-remove" type="button" data-section="${esc(sec)}" aria-label="Remove empty section">×</button>` : ''}
+            <button class="ved-section-empty-remove" type="button" data-section="${esc(sec)}" aria-label="Remove empty section">×</button>
           </div>
         </div>
       `;
     }
 
     for (const it of items) {
-      if (catalogState.editingItemId === it.id && !reorder) {
-        inner += renderItemForm(it, false);
+      if (catalogState.editingItemId === it.id) {
+        itemsHTML += renderItemForm(it, false);
       } else {
-        inner += renderItemRow(it, reorder);
+        itemsHTML += renderItemRow(it);
       }
     }
+
+    inner += `<div class="ved-section-items">${itemsHTML}</div>`;
 
     return `<div class="ved-section-block" data-section="${esc(sec)}">${inner}</div>`;
   }
 
-  function renderItemRow(item, reorder) {
-    // Build the meta line in the order: SKU · section · par. Use
-    // monospace (set in CSS) so numbers align across rows.
+  function renderItemRow(item) {
+    // Build the meta line: SKU · par. (Section is conveyed by the
+    // surrounding card so we don't repeat it here.)
     const meta = [];
     if (item.vendor_sku) meta.push(`<span class="ved-meta-sku">${esc(item.vendor_sku)}</span>`);
     if (item.default_par_qty != null) meta.push(`par ${item.default_par_qty} ${esc(item.unit || 'ea')}`);
-    // Section is now shown via the section header, so we omit it from the
-    // per-row meta line — keeps the row clean and emphasizes the grouping.
-    const handle = reorder ? `
-      <span class="ved-item-drag-handle" data-item-id="${esc(item.id)}" aria-label="Drag to reorder ${esc(item.item_name)}">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="3" y1="8" x2="21" y2="8"/>
-          <line x1="3" y1="16" x2="21" y2="16"/>
-        </svg>
-      </span>
-    ` : '';
-    const rowTag = reorder ? 'div' : 'button';
-    const rowAttrs = reorder
-      ? `class="ved-item-row is-reordering" data-item-id="${esc(item.id)}"`
-      : `class="ved-item-row" data-item-id="${esc(item.id)}" type="button"`;
+
+    // Always-on drag handle. The row body is a separate tap target so
+    // tap-to-edit still works without entering a "reorder mode".
     return `
-      <${rowTag} ${rowAttrs}>
-        ${handle}
-        <div class="ved-item-main">
-          <div class="ved-item-name">${esc(item.item_name)}</div>
-          ${meta.length ? `<div class="ved-item-meta">${meta.join('<span class="ved-meta-sep">·</span>')}</div>` : ''}
-        </div>
-        ${reorder ? '' : '<div class="ved-item-chevron" aria-hidden="true">›</div>'}
-      </${rowTag}>
+      <div class="ved-item-row" data-item-id="${esc(item.id)}">
+        <span class="ved-item-drag-handle" data-item-id="${esc(item.id)}" aria-label="Drag to reorder ${esc(item.item_name)}">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="3" y1="8" x2="21" y2="8"/>
+            <line x1="3" y1="16" x2="21" y2="16"/>
+          </svg>
+        </span>
+        <button class="ved-item-tap" data-item-id="${esc(item.id)}" type="button">
+          <div class="ved-item-main">
+            <div class="ved-item-name">${esc(item.item_name)}</div>
+            ${meta.length ? `<div class="ved-item-meta">${meta.join('<span class="ved-meta-sep">·</span>')}</div>` : ''}
+          </div>
+          <span class="ved-item-chevron" aria-hidden="true">›</span>
+        </button>
+      </div>
     `;
   }
 
@@ -3087,25 +3093,21 @@ Thanks for your help sorting this out.`;
   }
 
   function wireItemListHandlers() {
-    const list = document.getElementById('vedItemsList');
+    const list = document.getElementById('catItemsList');
     if (!list) return;
 
-    const reorder = !!(editorState && catalogState.reorderMode);
-
-    // Tap item row → enter edit mode (only when NOT in reorder mode)
-    if (!reorder) {
-      list.querySelectorAll('.ved-item-row').forEach(row => {
-        if (row.tagName !== 'BUTTON') return;
-        row.addEventListener('click', () => {
-          catalogState.editingItemId = row.dataset.itemId;
-          renderItemsAreaOnly();
-          setTimeout(() => {
-            const form = list.querySelector('.ord-vitem-editing');
-            if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }, 50);
-        });
+    // Tap item body → open edit form. The drag handle is a sibling
+    // of .ved-item-tap, so its events don't reach this listener.
+    list.querySelectorAll('.ved-item-tap').forEach(btn => {
+      btn.addEventListener('click', () => {
+        catalogState.editingItemId = btn.dataset.itemId;
+        renderItemsAreaOnly();
+        setTimeout(() => {
+          const form = list.querySelector('.ord-vitem-editing');
+          if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 50);
       });
-    }
+    });
 
     // Cancel
     list.querySelectorAll('.ord-vitem-cancel-btn').forEach(b => {
@@ -3123,93 +3125,89 @@ Thanks for your help sorting this out.`;
       b.addEventListener('click', () => deleteItem(b.dataset.itemId));
     });
 
-    // ─── Section rename — normal mode ──────────────────────────────
-    if (!reorder) {
-      // Tap section name → start inline rename
-      list.querySelectorAll('.ved-section-name[data-section]').forEach(el => {
-        el.addEventListener('click', () => {
+    // ─── Section rename ────────────────────────────────────────────
+    // Tap section name → start inline rename
+    list.querySelectorAll('.ved-section-name[data-section]').forEach(el => {
+      el.addEventListener('click', () => {
+        catalogState.renamingSection = el.dataset.section;
+        renderItemsAreaOnly();
+        setTimeout(() => {
+          const inp = list.querySelector('.ved-section-rename-input');
+          if (inp) { inp.focus(); inp.select(); }
+        }, 30);
+      });
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
           catalogState.renamingSection = el.dataset.section;
           renderItemsAreaOnly();
-          setTimeout(() => {
-            const inp = list.querySelector('.ved-section-rename-input');
-            if (inp) { inp.focus(); inp.select(); }
-          }, 30);
-        });
-        el.addEventListener('keydown', e => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            catalogState.renamingSection = el.dataset.section;
-            renderItemsAreaOnly();
-          }
-        });
+        }
       });
-      list.querySelectorAll('.ved-section-rename-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          catalogState.renamingSection = btn.dataset.section;
-          renderItemsAreaOnly();
-          setTimeout(() => {
-            const inp = list.querySelector('.ved-section-rename-input');
-            if (inp) { inp.focus(); inp.select(); }
-          }, 30);
-        });
+    });
+    list.querySelectorAll('.ved-section-rename-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        catalogState.renamingSection = btn.dataset.section;
+        renderItemsAreaOnly();
+        setTimeout(() => {
+          const inp = list.querySelector('.ved-section-rename-input');
+          if (inp) { inp.focus(); inp.select(); }
+        }, 30);
       });
-      list.querySelectorAll('.ved-section-rename-cancel').forEach(btn => {
-        btn.addEventListener('click', () => {
+    });
+    list.querySelectorAll('.ved-section-rename-cancel').forEach(btn => {
+      btn.addEventListener('click', () => {
+        catalogState.renamingSection = null;
+        renderItemsAreaOnly();
+      });
+    });
+    list.querySelectorAll('.ved-section-rename-save').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const inp = list.querySelector('.ved-section-rename-input');
+        if (!inp) return;
+        const next = inp.value.trim();
+        renameSection(btn.dataset.old, next);
+      });
+    });
+    list.querySelectorAll('.ved-section-rename-input').forEach(inp => {
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const btn = list.querySelector('.ved-section-rename-save');
+          if (btn) renameSection(btn.dataset.old, inp.value.trim());
+        } else if (e.key === 'Escape') {
           catalogState.renamingSection = null;
           renderItemsAreaOnly();
-        });
+        }
       });
-      list.querySelectorAll('.ved-section-rename-save').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const inp = list.querySelector('.ved-section-rename-input');
-          if (!inp) return;
-          const next = inp.value.trim();
-          renameSection(btn.dataset.old, next);
-        });
-      });
-      list.querySelectorAll('.ved-section-rename-input').forEach(inp => {
-        inp.addEventListener('keydown', e => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            const btn = list.querySelector('.ved-section-rename-save');
-            if (btn) renameSection(btn.dataset.old, inp.value.trim());
-          } else if (e.key === 'Escape') {
-            catalogState.renamingSection = null;
-            renderItemsAreaOnly();
-          }
-        });
-      });
+    });
 
-      // Empty-section "Add to <section>" — opens new-item form pre-filled
-      list.querySelectorAll('.ved-section-empty-add').forEach(btn => {
-        btn.addEventListener('click', () => {
-          if (!catalogState) return;
-          catalogState.editingItemId = 'new';
-          catalogState._newItemDefaultSection = btn.dataset.section || '';
-          renderItemsAreaOnly();
-          setTimeout(() => {
-            const form = list.querySelector('.ord-vitem-editing');
-            if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }, 50);
-        });
+    // Empty-section "Add to <section>" — opens new-item form pre-filled
+    list.querySelectorAll('.ved-section-empty-add').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!catalogState) return;
+        catalogState.editingItemId = 'new';
+        catalogState._newItemDefaultSection = btn.dataset.section || '';
+        renderItemsAreaOnly();
+        setTimeout(() => {
+          const form = list.querySelector('.ord-vitem-editing');
+          if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 50);
       });
+    });
 
-      // Empty-section "×" — drops the pending-section placeholder
-      list.querySelectorAll('.ved-section-empty-remove').forEach(btn => {
-        btn.addEventListener('click', () => {
-          if (!catalogState) return;
-          const sec = btn.dataset.section || '';
-          catalogState.pendingSections = (catalogState.pendingSections || []).filter(s => s !== sec);
-          renderItemsAreaOnly();
-        });
+    // Empty-section "×" — drops the pending-section placeholder
+    list.querySelectorAll('.ved-section-empty-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!catalogState) return;
+        const sec = btn.dataset.section || '';
+        catalogState.pendingSections = (catalogState.pendingSections || []).filter(s => s !== sec);
+        renderItemsAreaOnly();
       });
-    }
+    });
 
-    // ─── Drag handlers — reorder mode only ─────────────────────────
-    if (reorder) {
-      wireItemDragHandlers(list);
-      wireSectionDragHandlers(list);
-    }
+    // ─── Drag handlers (always active — no mode toggle) ────────────
+    wireItemDragHandlers(list);
+    wireSectionDragHandlers(list);
   }
 
   /* ── Section rename: bulk-update all items in the old section ────
@@ -3710,18 +3708,34 @@ Thanks for your help sorting this out.`;
 
     try {
       if (isNew) {
-        // Determine sort_order — append to end
-        const maxSort = catalogState.items.reduce((m, i) => Math.max(m, i.sort_order || 0), 0);
+        // Determine sort_order. By default, append to end. But if the
+        // section was a pending (newly-created) one, the user expects it
+        // at the TOP — so give the new item a sort_order one below the
+        // current minimum, which pulls its section to the front of the
+        // section sort.
+        const wasPending = sec && Array.isArray(catalogState.pendingSections)
+                              && catalogState.pendingSections.indexOf(sec) !== -1;
+        let newSortOrder;
+        if (wasPending && catalogState.items.length > 0) {
+          const minSort = catalogState.items.reduce(
+            (m, i) => Math.min(m, i.sort_order != null ? i.sort_order : 0), 0);
+          newSortOrder = minSort - 1;
+        } else if (wasPending) {
+          newSortOrder = 0;
+        } else {
+          const maxSort = catalogState.items.reduce(
+            (m, i) => Math.max(m, i.sort_order || 0), 0);
+          newSortOrder = maxSort + 1;
+        }
         const { data, error } = await NX.sb.from('order_guide_items')
-          .insert({ ...payload, vendor_id: catalogState.vendor.id, sort_order: maxSort + 1 })
+          .insert({ ...payload, vendor_id: catalogState.vendor.id, sort_order: newSortOrder })
           .select('*').single();
         if (error) throw error;
         catalogState.items.push(data);
         if (vendors._itemCounts) {
           vendors._itemCounts[catalogState.vendor.id] = (vendors._itemCounts[catalogState.vendor.id] || 0) + 1;
         }
-        // If the new item lives in a "newly-created empty section" placeholder,
-        // remove it from pendingSections (it's now backed by a real row).
+        // Section is now backed by a real row — drop it from pendingSections.
         if (sec && Array.isArray(catalogState.pendingSections)) {
           catalogState.pendingSections = catalogState.pendingSections.filter(s => s !== sec);
         }
@@ -3786,7 +3800,6 @@ Thanks for your help sorting this out.`;
       items: [],
       itemsLoading: true,
       editingItemId: null,           // 'new' | item.id | null
-      reorderMode: false,
       renamingSection: null,         // section name being inline-edited (null otherwise)
       addingSection: false,          // true while the "+ Section" inline form is open
       pendingSections: [],           // names of empty sections the user just created
@@ -3860,24 +3873,17 @@ Thanks for your help sorting this out.`;
     }
 
     const itemCount = catalogState.items.length;
-    const reorder = !!catalogState.reorderMode;
     const itemCountSub = `${itemCount} item${itemCount === 1 ? '' : 's'}`;
 
-    // Toolbar: + Section, + Item, Reorder/Done
-    const canReorder = itemCount >= 2 || (catalogState.pendingSections && catalogState.pendingSections.length >= 2);
+    // Toolbar: + Section, + Item. Drag is always available — no mode toggle.
     const toolbarHTML = `
       <div class="ord-cat-toolbar">
-        <button class="ord-cat-tool-btn" id="catAddSection" type="button" ${reorder ? 'disabled' : ''}>
+        <button class="ord-cat-tool-btn" id="catAddSection" type="button">
           ${plusIcon()}<span>Section</span>
         </button>
-        <button class="ord-cat-tool-btn ord-cat-tool-primary" id="catAddItem" type="button" ${reorder ? 'disabled' : ''}>
+        <button class="ord-cat-tool-btn ord-cat-tool-primary" id="catAddItem" type="button">
           ${plusIcon()}<span>Item</span>
         </button>
-        ${canReorder ? `
-          <button class="ord-cat-tool-btn ord-cat-reorder${reorder ? ' is-active' : ''}" id="catReorderToggle" type="button" aria-pressed="${reorder}">
-            ${reorder ? 'Done' : 'Reorder'}
-          </button>
-        ` : ''}
       </div>
     `;
 
@@ -3890,12 +3896,12 @@ Thanks for your help sorting this out.`;
       </div>
     ` : '';
 
-    // Search bar — hidden during reorder mode (less clutter)
-    const searchHTML = !reorder ? `
+    // Search bar
+    const searchHTML = `
       <div class="ord-entry-search-wrap ord-cat-search-wrap">
         <input type="search" class="ord-entry-search" id="catSearch" placeholder="Search items…" value="${esc(catalogState.searchQuery || '')}" autocomplete="off" spellcheck="false">
       </div>
-    ` : '';
+    `;
 
     overlay.innerHTML = `
       <div class="ord-entry-head ord-catalog-head">
@@ -3966,16 +3972,6 @@ Thanks for your help sorting this out.`;
         const form = overlay.querySelector('.ord-vitem-editing');
         if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 50);
-    });
-
-    // Reorder toggle
-    const reorderBtn = overlay.querySelector('#catReorderToggle');
-    if (reorderBtn) reorderBtn.addEventListener('click', () => {
-      catalogState.reorderMode = !catalogState.reorderMode;
-      catalogState.editingItemId = null;
-      catalogState.renamingSection = null;
-      catalogState.addingSection = false;
-      renderCatalog();
     });
 
     // Search
@@ -4055,7 +4051,7 @@ Thanks for your help sorting this out.`;
       return;
     }
     catalogState.pendingSections = catalogState.pendingSections || [];
-    catalogState.pendingSections.push(name);
+    catalogState.pendingSections.unshift(name);   // newest first → renders at top
     catalogState.addingSection = false;
     renderCatalog();
     if (NX.toast) NX.toast(`Section “${name}” created — add an item to keep it`, 'info', 1800);
