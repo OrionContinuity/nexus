@@ -1046,19 +1046,25 @@
 
   // ─── 8. FETCH EQUIPMENT + CONTACTS ──────────────────────────────────
   async function fetchScanData() {
-    // Full select — fallback if service_phone columns not migrated
+    // Try the full select. If it errors (e.g. a column doesn't exist
+    // because someone hasn't run migrations), fall back to a minimal
+    // select that only requests columns guaranteed to exist.
+    //
+    // Supabase JS DOES NOT throw on schema errors — it returns
+    // {data: null, error: {...}} — so we check error explicitly. The
+    // previous try/catch never fired and silently broke the page.
     let eq, eqErr;
-    try {
-      const res = await sb.from('equipment')
-        .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_phone, service_contact_name, preferred_contractor_node_id')
+    const fullRes = await sb.from('equipment')
+      .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_phone, service_contractor_name, service_contractor_node_id')
+      .eq('qr_code', qr).single();
+    if (fullRes.error && /column.+does not exist/i.test(fullRes.error.message || '')) {
+      console.warn('[scan] full select failed (column missing), falling back to minimal select:', fullRes.error.message);
+      const minRes = await sb.from('equipment')
+        .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code')
         .eq('qr_code', qr).single();
-      eq = res.data; eqErr = res.error;
-    } catch (e) {
-      console.warn('[scan] full select failed, fallback:', e?.message);
-      const res = await sb.from('equipment')
-        .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, preferred_contractor_node_id')
-        .eq('qr_code', qr).single();
-      eq = res.data; eqErr = res.error;
+      eq = minRes.data; eqErr = minRes.error;
+    } else {
+      eq = fullRes.data; eqErr = fullRes.error;
     }
     if (eqErr || !eq) throw new Error(eqErr?.message || 'Equipment not registered');
 
@@ -1076,19 +1082,19 @@
         .eq('equipment_id', eq.id)
         .order('event_date', { ascending: false })
         .limit(4),
-      (!eq.service_phone && eq.preferred_contractor_node_id)
+      (!eq.service_contractor_phone && eq.service_contractor_node_id)
         ? sb.from('nodes').select('id, name, notes, tags, links')
-            .eq('id', eq.preferred_contractor_node_id).single()
+            .eq('id', eq.service_contractor_node_id).single()
         : Promise.resolve({ data: null }),
     ]);
 
     // Build contact object
     let contact = null;
-    if (eq.service_phone) {
+    if (eq.service_contractor_phone) {
       contact = {
-        name: eq.service_contact_name || 'Service',
-        phone: eq.service_phone,
-        phoneHref: telHref(eq.service_phone),
+        name: eq.service_contractor_name || 'Service',
+        phone: eq.service_contractor_phone,
+        phoneHref: telHref(eq.service_contractor_phone),
       };
     } else if (contractorRes?.data) {
       const node = contractorRes.data;
