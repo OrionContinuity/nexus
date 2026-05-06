@@ -232,40 +232,56 @@
 .eq-col-services { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; padding-right: 4px; }
 
 @media (max-width: 600px) {
-  /* Mobile row layout. Two GRID columns (name + location), and the
-     status BEACON is absolutely positioned to the right edge of the
-     row so it ALWAYS sits at the same x-coordinate. This prevents
-     beacons from drifting horizontally when location text wraps to
-     multiple lines or when extra metadata chips push the row taller.
-  */
+  /* Mobile row layout — proper 2D grid:
+       ┌───────────────┬────────┐
+       │ name + avatar │        │
+       ├───────────────┤ beacon │
+       │ location      │        │
+       └───────────────┴────────┘
+     Name takes the full content width on row 1, location sits as a
+     muted caption on row 2 (indented to align past the avatar), and
+     the beacon lives in its own column spanning both rows so it
+     vertically centers cleanly with no overlap. */
   .eq-row {
     position: relative;
-    grid-template-columns: 1.6fr 1fr;
-    gap: 8px;
-    padding: 10px 56px 10px 12px;     /* right-pad reserves 56px for beacon */
+    display: grid;
+    grid-template-columns: 1fr 40px;
+    grid-template-areas:
+      "name   beacon"
+      "loc    beacon";
+    column-gap: 10px;
+    row-gap: 3px;
+    padding: 12px 14px;
     align-items: center;
   }
   .eq-col-pm, .eq-col-services { display: none; }
-
-  /* Status column → absolute, anchored to right edge */
-  .eq-col-status {
-    position: absolute;
-    right: 14px;
-    top: 50%;
-    transform: translateY(-50%);
-    padding: 0;
+  .eq-col-name { grid-area: name; }
+  .eq-col-loc {
+    grid-area: loc;
+    padding-left: 48px;        /* align under name text, past avatar */
+    font-family: 'Outfit', sans-serif;
+    font-size: 11.5px;
+    color: var(--nx-faint);
+    letter-spacing: 0.1px;
     margin: 0;
-    width: 32px;
-    height: 32px;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Beacon — own column, vertically centered across both rows */
+  .eq-col-status {
+    grid-area: beacon;
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 0;
+    margin: 0;
+    width: 40px;
+    height: 100%;
   }
-  /* Hide the verbose pill label on mobile; the glowing dot + color is
-     enough signal in the narrow row. The aria-label survives for screen
-     readers. */
-  .eq-col-status .eq-lc-pill-label { display: none; }
-  .eq-col-status .eq-lc-pill-time  { display: none; }
+  .eq-col-status .eq-lc-pill-label,
+  .eq-col-status .eq-lc-pill-time { display: none; }
   .eq-col-status .eq-lc-pill {
     padding: 0;
     border-radius: 50%;
@@ -279,13 +295,9 @@
     height: 10px;
     margin: 0;
   }
-
-  /* Same idea for the head row — hide its status column header so the
-     beacon column doesn't have a duplicate "Status" word floating
-     unmoored on the right edge. */
-  .eq-row-head .eq-col-status {
-    display: none;
-  }
+  /* Hide the head-row's status header — beacon column doesn't need a
+     "Status" word floating over it. */
+  .eq-row-head .eq-col-status { display: none; }
 }
 
 /* When all visible rows are Operational, the status column used to
@@ -10607,3 +10619,554 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   transform: scale(0.94);
   filter: brightness(1.12);
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   CONTRACTOR CARD v38 — tighter, no awkward wraps
+   ═══════════════════════════════════════════════════════════════════
+   Chevron-only right column instead of timestamp + chevron, so the
+   card body has full horizontal room. Last-seen timestamp merges into
+   the meta line as a final segment. Stats line stays single-row.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.eq-contractor-card-chev {
+  flex: 0 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--nx-faint);
+  align-self: center;
+}
+.eq-contractor-card-when-inline {
+  color: var(--nx-faint);
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.4px;
+  text-transform: lowercase;
+}
+.eq-contractor-card-stats {
+  margin-top: 4px;
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--nx-faint);
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eq-contractor-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 6px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--nx-faint);
+  line-height: 1.4;
+}
+.eq-contractor-card-meta .eq-contractor-card-sep {
+  color: var(--nx-fainter, rgba(255,255,255,0.18));
+}
+.eq-contractor-card-phone {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 11.5px;
+  letter-spacing: 0.3px;
+  color: var(--nx-text);
+}
+.eq-contractor-card-tags {
+  font-style: italic;
+  color: var(--nx-gold);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   BEACON HALO INTENSITY v40 — visual urgency
+   ═══════════════════════════════════════════════════════════════════
+   The lifecycle beacon is the visual heartbeat. Different states get
+   different intensities of glow + pulse so a quick scan of the list
+   tells you what needs attention.
+
+     OPERATIONAL        steady gold glow (calm)
+     PM SOON / NEEDS    breathing amber glow
+     DOWN / BROKEN      strong oxblood pulse (urgent)
+     OVERDUE PM         amber edge ring overlay
+     OPEN ISSUE         stronger halo regardless of base state
+
+   Note: respects prefers-reduced-motion — animations stop for users
+   who've opted out at the OS level.
+   ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes eq-pulse-urgent {
+  0%, 100% {
+    box-shadow:
+      0 0 0   0   rgba(180, 60, 60, 0.55),
+      0 0 12px 2px rgba(180, 60, 60, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0   8px rgba(180, 60, 60, 0.0),
+      0 0 18px 4px rgba(180, 60, 60, 0.55);
+  }
+}
+@keyframes eq-pulse-warn {
+  0%, 100% { box-shadow: 0 0 8px  1px rgba(212, 164, 78, 0.30); }
+  50%      { box-shadow: 0 0 14px 3px rgba(212, 164, 78, 0.55); }
+}
+@keyframes eq-pulse-soft {
+  0%, 100% { box-shadow: 0 0 6px  1px rgba(212, 164, 78, 0.25); }
+  50%      { box-shadow: 0 0 10px 2px rgba(212, 164, 78, 0.40); }
+}
+
+.eq-col-status .eq-lc-pill.is-operational {
+  animation: eq-pulse-soft 4s ease-in-out infinite;
+}
+.eq-col-status .eq-lc-pill.is-needs-service,
+.eq-col-status .eq-lc-pill.is-reported,
+.eq-col-status .eq-lc-pill.is-contractor-called,
+.eq-col-status .eq-lc-pill.is-eta-set,
+.eq-col-status .eq-lc-pill.is-awaiting-parts {
+  animation: eq-pulse-warn 2.4s ease-in-out infinite;
+  border-color: rgba(212, 164, 78, 0.55);
+}
+.eq-col-status .eq-lc-pill.is-down,
+.eq-col-status .eq-lc-pill.is-broken {
+  animation: eq-pulse-urgent 1.6s ease-in-out infinite;
+  border-color: rgba(180, 60, 60, 0.7);
+}
+.eq-col-status .eq-lc-pill.is-retired,
+.eq-col-status .eq-lc-pill.is-muted {
+  /* No animation for retired/muted — calm and final */
+  opacity: 0.6;
+}
+
+/* Overdue PM ring overlay — amber edge ring on top of whatever the
+   underlying status is. Used for equipment with status=operational
+   but next_pm_date in the past. Adds the visual cue without changing
+   the base color. */
+.eq-col-status .eq-lc-pill.is-overdue-pm {
+  outline: 2px solid rgba(212, 164, 78, 0.7);
+  outline-offset: 2px;
+}
+
+/* Open issue (independent of status) — boosts the halo */
+.eq-col-status .eq-lc-pill.has-open-issue {
+  box-shadow: 0 0 18px 4px rgba(212, 164, 78, 0.5) !important;
+}
+
+/* Tappable hint — beacon is interactive on mobile (tap to change
+   status). Subtle press feedback. */
+.eq-col-status .eq-lc-pill {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--nx-press, 120ms ease-out);
+}
+.eq-col-status .eq-lc-pill:active {
+  transform: scale(0.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eq-col-status .eq-lc-pill {
+    animation: none !important;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   QUICK STATUS POPOVER v40 — tap beacon to change status
+   ═══════════════════════════════════════════════════════════════════
+   Anchored to the tapped lifecycle pill in the equipment list. Four
+   common statuses one tap away, current state shown with a checkmark.
+   "More options" punches through to the full editor for the long-tail
+   states (loaned, missing, relocated).
+   ═══════════════════════════════════════════════════════════════════ */
+
+.eq-quick-status-pop {
+  position: absolute;
+  z-index: 10000;
+  min-width: 200px;
+  max-width: 260px;
+  padding: 12px 12px 10px;
+  background: var(--elevated, #15161a);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  animation: eq-pop-in 140ms ease-out;
+}
+@keyframes eq-pop-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+.eq-quick-status-pop-arrow {
+  position: absolute;
+  bottom: -7px;
+  right: 16px;
+  width: 12px;
+  height: 12px;
+  background: var(--elevated, #15161a);
+  border-right: 1px solid var(--nx-gold-line);
+  border-bottom: 1px solid var(--nx-gold-line);
+  transform: rotate(45deg);
+}
+.eq-quick-status-pop.is-below .eq-quick-status-pop-arrow {
+  top: -7px;
+  bottom: auto;
+  border-right: 0;
+  border-bottom: 0;
+  border-top: 1px solid var(--nx-gold-line);
+  border-left: 1px solid var(--nx-gold-line);
+}
+.eq-quick-status-pop-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--nx-gold);
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eq-quick-status-pop-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.eq-quick-status-pop-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--nx-press, 120ms ease-out);
+}
+.eq-quick-status-pop-btn:hover,
+.eq-quick-status-pop-btn:active {
+  background: rgba(212, 164, 78, 0.08);
+}
+.eq-quick-status-pop-btn.is-current {
+  background: rgba(212, 164, 78, 0.12);
+}
+.eq-quick-status-pop-dot {
+  flex: 0 0 9px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--nx-faint, #555);
+}
+.eq-quick-status-pop-btn.is-operational   .eq-quick-status-pop-dot { background: var(--nx-green, #6a9b5e); box-shadow: 0 0 6px rgba(106,155,94,0.55); }
+.eq-quick-status-pop-btn.is-needs-service .eq-quick-status-pop-dot { background: var(--nx-amber, #d4a44e); box-shadow: 0 0 6px rgba(212,164,78,0.55); }
+.eq-quick-status-pop-btn.is-down          .eq-quick-status-pop-dot { background: var(--nx-red,   #b43c3c); box-shadow: 0 0 6px rgba(180,60,60,0.55); }
+.eq-quick-status-pop-btn.is-retired       .eq-quick-status-pop-dot { background: var(--nx-faint); opacity: 0.5; }
+.eq-quick-status-pop-label { flex: 1 1 auto; }
+.eq-quick-status-pop-check {
+  color: var(--nx-gold);
+  font-weight: 700;
+}
+.eq-quick-status-pop-more {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--nx-gold-line);
+  color: var(--nx-faint);
+  font-family: 'Outfit', sans-serif;
+  font-size: 11.5px;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  text-align: center;
+}
+.eq-quick-status-pop-more:hover {
+  color: var(--nx-gold);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   PROMINENT LOCATION BAR v40
+   ═══════════════════════════════════════════════════════════════════
+   Top-priority filter — when you're walking between 3 restaurants
+   and need to see "what's at Bar Toti only", this is the fastest
+   tap. Each chip shows the equipment count for that location.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.eq-location-bar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 0 12px;
+  margin: 4px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.eq-location-bar::-webkit-scrollbar { display: none; }
+
+.eq-loc-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 8px 14px;
+  background: var(--elevated, #15161a);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background var(--nx-press, 120ms ease-out),
+    border-color var(--nx-press, 120ms ease-out),
+    transform var(--nx-press, 120ms ease-out);
+}
+.eq-loc-chip:active { transform: scale(0.96); }
+.eq-loc-chip:hover {
+  border-color: var(--nx-gold);
+  background: rgba(212, 164, 78, 0.06);
+}
+.eq-loc-chip.active {
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
+  border-color: var(--nx-gold);
+  color: var(--nx-bg, #0a0a0a);
+}
+[data-theme="light"] .eq-loc-chip.active { color: #fff; }
+
+.eq-loc-chip-name {
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+.eq-loc-chip-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 1px 6px;
+  background: rgba(212, 164, 78, 0.18);
+  color: var(--nx-gold);
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border-radius: 999px;
+}
+.eq-loc-chip.active .eq-loc-chip-count {
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--nx-bg, #0a0a0a);
+}
+[data-theme="light"] .eq-loc-chip.active .eq-loc-chip-count { color: #fff; background: rgba(255,255,255,0.25); }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   DUPLICATE CONTRACTOR MERGE TOOL v40
+   ═══════════════════════════════════════════════════════════════════
+   Overlay listing groups of contractors with the same name. Each
+   group shows side-by-side cards: the canonical (KEEP) and the
+   duplicates (MERGE IN), with quick stats so the user can sanity-check
+   before tapping Merge.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.eq-contractors-dup-hint {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 8px;
+  background: rgba(212, 164, 78, 0.18);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  color: var(--nx-gold);
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--nx-press, 120ms);
+}
+.eq-contractors-dup-hint:hover {
+  background: rgba(212, 164, 78, 0.28);
+}
+
+.eq-dedupe-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 11000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.eq-dedupe-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  animation: eq-fade-in 200ms ease-out;
+}
+@keyframes eq-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.eq-dedupe-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 720px;
+  max-height: 92vh;
+  background: var(--bg, #0a0a0a);
+  border-top: 1px solid var(--nx-gold-line);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -12px 48px rgba(0, 0, 0, 0.5);
+  animation: eq-slide-up 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes eq-slide-up {
+  from { transform: translateY(40px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+.eq-dedupe-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--border, #2a2a2a);
+}
+.eq-dedupe-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line);
+  color: var(--nx-faint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-dedupe-head-text { flex: 1 1 auto; }
+.eq-dedupe-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  color: var(--nx-text);
+}
+.eq-dedupe-sub {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  color: var(--nx-faint);
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.eq-dedupe-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 14px 24px;
+}
+.eq-dedupe-group {
+  background: var(--elevated, #15161a);
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.eq-dedupe-group-name {
+  font-family: 'Outfit', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--nx-text);
+  margin-bottom: 10px;
+}
+.eq-dedupe-group-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+@media (min-width: 540px) {
+  .eq-dedupe-group-cards {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  }
+}
+.eq-dedupe-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 10px;
+  padding: 10px;
+}
+.eq-dedupe-card.is-canonical {
+  border-color: var(--nx-gold);
+  background: rgba(212, 164, 78, 0.06);
+}
+.eq-dedupe-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.eq-dedupe-card-id {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  color: var(--nx-faint);
+  letter-spacing: 0.5px;
+}
+.eq-dedupe-card-keep,
+.eq-dedupe-card-merge {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.eq-dedupe-card-keep {
+  background: var(--nx-gold);
+  color: var(--bg, #0a0a0a);
+}
+[data-theme="light"] .eq-dedupe-card-keep { color: #fff; }
+.eq-dedupe-card-merge {
+  background: rgba(180, 60, 60, 0.18);
+  color: var(--nx-red, #b43c3c);
+  border: 1px solid rgba(180, 60, 60, 0.3);
+}
+.eq-dedupe-card-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 11.5px;
+  color: var(--nx-faint);
+  line-height: 1.4;
+}
+.eq-dedupe-merge-btn {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
+  color: var(--bg, #0a0a0a);
+  border: 0;
+  border-radius: 10px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: filter 120ms, transform 120ms;
+}
+[data-theme="light"] .eq-dedupe-merge-btn { color: #fff; }
+.eq-dedupe-merge-btn:hover { filter: brightness(1.05); }
+.eq-dedupe-merge-btn:active { transform: scale(0.98); }
+.eq-dedupe-merge-btn:disabled { opacity: 0.6; cursor: progress; }
