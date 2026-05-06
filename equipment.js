@@ -1,0 +1,12730 @@
+/* ═══════════════════════════════════════════════════════════════════════════════
+
+   NEXUS EQUIPMENT — unified module
+   ────────────────────────────────
+   One file. Everything equipment-related lives here.
+
+   This replaces:
+     equipment.js, equipment-ai.js, equipment-p3.js, equipment-ux.js,
+     equipment-ai-creator.js, equipment-full-editor.js, equipment-p4.js
+
+   Structure:
+     1. CONSTANTS & STATE
+     2. CORE            — CRUD, filtering, list/grid render
+     3. DETAIL          — the detail modal (overview/timeline/parts/manual/qr + intel + family + dispatch)
+     4. EDIT            — full editor (6 tabs), add/edit modal, service log, parts
+     5. AI              — data plate scanner, manual fetch, BOM extract, pattern detect, cost
+     6. AI CREATE       — describe/photo/bulk/dataplate entry points
+     7. PRINTING        — QR paper stickers + Zebra ZPL + Labelary preview
+     8. PUBLIC SCAN     — no-auth QR view + report issue
+     9. ATTACHMENTS     — files, photos, links, notes, custom fields
+    10. LINEAGE         — family tree (parent/child equipment)
+    11. DISPATCH        — contractor dispatch sheet, dispatch_log
+    12. UI INJECTION    — header buttons, detail actions, per-row buttons
+    13. UTILITIES       — esc, escAttr, fileToBase64, catIcon, etc.
+    14. EXPORT          — NX.modules.equipment
+
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+(function(){
+
+/* ════════════════════════════════════════════════════════════════════════════
+   1. CONSTANTS & STATE
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const LOCATIONS = ['Suerte', 'Este', 'Bar Toti'];
+const CATEGORIES = [
+  /* Note: the visual icons for these come from ICON_PATHS below
+     (Lucide-derived SVG line art). The previous .icon emoji fields
+     were dead code — never read by any render path — so they've
+     been dropped to keep the data definition clean. */
+  { key: 'refrigeration', label: 'Refrigeration' },
+  { key: 'cooking',       label: 'Cooking'       },
+  { key: 'ice',           label: 'Ice'           },
+  { key: 'hvac',          label: 'HVAC'          },
+  { key: 'dish',          label: 'Dishwashing'   },
+  { key: 'bev',           label: 'Beverage'      },
+  { key: 'smallware',     label: 'Smallware'     },
+  { key: 'furniture',     label: 'Furniture'     },
+  { key: 'other',         label: 'Other'         },
+];
+
+/* ─── Category icon SVG paths ───────────────────────────────────────
+   Replaces the emoji icons with clean Lucide-based line art that
+   matches the rest of the NEXUS visual language (used elsewhere in
+   the public scan and on the QR sticker pages). Emojis render
+   inconsistently across devices and feel out-of-place against the
+   editorial typography. SVG glyphs scale with parent font-size and
+   inherit currentColor, so they pick up the gold accent automatically.
+   Paths are lifted from lucide-static (MIT). 24×24 viewBox. */
+const ICON_PATHS = {
+  refrigeration: '<path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M3 10h18"/><path d="M8 6v0"/><path d="M8 14v0"/>',
+  cooking:       '<path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/>',
+  ice:           '<path d="M2 12h20"/><path d="M12 2v20"/><path d="m4.93 4.93 14.14 14.14"/><path d="m19.07 4.93-14.14 14.14"/>',
+  hvac:          '<path d="M12 12v9"/><path d="M12 3v3"/><path d="m4.93 4.93 2.12 2.12"/><path d="m16.95 16.95 2.12 2.12"/><path d="M3 12h3"/><path d="M18 12h3"/><path d="m4.93 19.07 2.12-2.12"/><path d="m16.95 7.05 2.12-2.12"/><circle cx="12" cy="12" r="3"/>',
+  dish:          '<path d="M3 12c.5-2 1.5-3 3-3 1.5 0 2.5 1 3 3"/><path d="M9 12c.5-2 1.5-3 3-3 1.5 0 2.5 1 3 3"/><path d="M15 12c.5-2 1.5-3 3-3 1.5 0 2.5 1 3 3"/><path d="M3 18h18"/><path d="M5 18l1 3h12l1-3"/>',
+  bev:           '<path d="M8 2h8"/><path d="M9 2v2.789a4 4 0 0 1-.672 2.219l-.656.984A4 4 0 0 0 7 10.212V20a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-9.789a4 4 0 0 0-.672-2.219l-.656-.984A4 4 0 0 1 15 4.788V2"/>',
+  smallware:     '<path d="M8 7V2"/><path d="M11 4V2"/><path d="M5 4V2"/><path d="M5 7c0 4 1 6 3 6h0c2 0 3-2 3-6"/><path d="M8 13v9"/><path d="M16 22V2c2 0 3 1 3 4v7h-3"/>',
+  furniture:     '<path d="M2 9V5a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v4"/><path d="M2 11v5a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H6v-2a2 2 0 0 0-4 0z"/><path d="M4 18v2"/><path d="M20 18v2"/>',
+  other:         '<circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/>',
+};
+
+/* ─── Action / UI icons — Lucide line art ─────────────────────────────
+   Used wherever the equipment module rendered emoji glyphs in UI
+   chrome (bottom action bar, tab strip, page header). Emojis render
+   as glossy raster on iOS, flat color on Android, monochrome on
+   desktop — fights the editorial line-art family used everywhere
+   else in NEXUS. SVG paths inherit currentColor and the parent's
+   font-size, so they pick up theme accents automatically.
+   
+   Use via uiSvg('keyName', '1em') or uiSvg('keyName', '18px').      */
+const ACTION_ICONS = {
+  printer:    '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
+  phone:      '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  ticket:     '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/>',
+  settings:   '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  pen:        '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+  brain:      '<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/>',
+  sparkles:   '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
+  camera:     '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+  qr:         '<rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/>',
+  star:       '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+  filledStar: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill="currentColor"/>',
+  document:   '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+  documents:  '<path d="M14 4.272A2 2 0 0 1 13 6h-3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3a2 2 0 0 1-1-1.728"/><path d="M16 2H8a2 2 0 0 0-2 2v16"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="15" y2="15"/>',
+  arrowRight: '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
+  close:      '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  trash:      '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>',
+  wrench:     '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.121 2.121 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  user:       '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  dollar:     '<line x1="12" y1="2" x2="12" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  alert:      '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  check:      '<polyline points="20 6 9 17 4 12"/>',
+  ban:        '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+  clock:      '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  hourglass:  '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
+  paperclip:  '<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  link:       '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  note:       '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+  receipt:    '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  shield:     '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+  family:     '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  search:     '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  message:    '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  send:       '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+  email:      '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>',
+  building:   '<rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/>',
+  crystal:    '<path d="M6 3h12l4 6-10 13L2 9Z"/><path d="M11 3 8 9l4 13 4-13-3-6"/><path d="M2 9h20"/>',
+  rocket:     '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
+  whatsapp:   '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+  arrowDown:  '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>',
+  arrowUp:    '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>',
+  refresh:    '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>',
+  moreH:      '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+};
+function uiSvg(key, size = '1em') {
+  const path = ACTION_ICONS[key] || '';
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${path}</svg>`;
+}
+
+// All 8 equipment status states — matches what actually appears in the DB
+// across cards, scans, and historical rows. The UI dropdown for assigning
+// status is a SUBSET of these (see DROPDOWN_STATUSES below) — the other
+// states get assigned by other flows (loan tracking, relocation tooling,
+// QR-scan-with-not-found-here, etc).
+const STATUSES = [
+  { key: 'operational',   label: 'Operational',   color: 'var(--green)'  },
+  { key: 'needs_service', label: 'Needs Service', color: 'var(--amber)'  },
+  { key: 'down',          label: 'Down',          color: 'var(--red)'    },
+  { key: 'broken',        label: 'Broken',        color: 'var(--red)'    },
+  { key: 'missing',       label: 'Missing',       color: 'var(--purple)' },
+  { key: 'loaned',        label: 'Loaned Out',    color: 'var(--blue)'   },
+  { key: 'relocated',     label: 'Relocated',     color: 'var(--blue)'   },
+  { key: 'retired',       label: 'Retired',       color: 'var(--muted)'  }
+];
+// What the dropdown selector shows when assigning status manually.
+// Other states (missing/loaned/relocated/broken) are set by domain flows
+// rather than being user-pickable from this dropdown.
+const DROPDOWN_STATUSES = STATUSES.filter(s =>
+  ['operational','needs_service','down','retired'].includes(s.key)
+);
+const RELATIONSHIP_TYPES = [
+  { key: 'depends_on',     label: 'Depends on',     icon: '⬆' },
+  { key: 'serves',         label: 'Serves',         icon: '⬇' },
+  { key: 'connected_to',   label: 'Connected to',   icon: '⇄' },
+  { key: 'feeds',          label: 'Feeds',          icon: '→' },
+  { key: 'pairs_with',     label: 'Pairs with',     icon: '⇋' },
+  { key: 'shares_circuit', label: 'Shares circuit', icon: '±' },
+];
+const ZEBRA_CONFIG = {
+  dpi: 203,
+  labelSizes: {
+    '2x1': { width: 2, height: 1, widthDots: 406, heightDots: 203 },
+    '2x2': { width: 2, height: 2, widthDots: 406, heightDots: 406 },
+    '3x2': { width: 3, height: 2, widthDots: 609, heightDots: 406 },
+    '4x2': { width: 4, height: 2, widthDots: 812, heightDots: 406 }
+  }
+};
+const ZEBRA_BP_URL = 'http://localhost:9100';
+
+// Module state
+let equipment = [];
+let activeFilter = { location: 'all', status: 'all', category: 'all', pm: 'all' };
+let viewMode = 'list';          // 'list' | 'grid'
+let currentEquipId = null;
+let searchQuery = '';
+let zebraBrowserPrintLoaded = false;
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   2. CORE — init, load, UI skeleton, list/grid render
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function init() {
+  // Check for QR scan on load (?equip=eq_xxxxx)
+  const params = new URLSearchParams(window.location.search);
+  const equipParam = params.get('equip');
+
+  await loadEquipment();
+  buildUI();
+
+  if (equipParam) {
+    const eq = equipment.find(e => e.qr_code === equipParam);
+    if (eq) {
+      // v4: toast confirmation so the user sees the app is navigating to the
+      // scanned item — silent navigation previously left people wondering if
+      // the tap "did anything."
+      NX.toast && NX.toast(`Opening ${eq.name}…`, 'info', 2200);
+      document.querySelector('.nav-tab[data-view="equipment"]')?.click();
+      document.querySelector('.bnav-btn[data-view="equipment"]')?.click();
+      setTimeout(() => openDetail(eq.id), 300);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('equip');
+      window.history.replaceState({}, '', url);
+    } else {
+      // v4: equipment with that QR code not found — surface rather than silently ignoring
+      NX.toast && NX.toast(`QR code ${equipParam} not recognized`, 'warn', 4000);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('equip');
+      window.history.replaceState({}, '', url);
+    }
+  }
+}
+
+async function loadEquipment() {
+  try {
+    // Load equipment + manufacturers + open issues in parallel.
+    // The manufacturers and issues calls are best-effort: if the table
+    // doesn't exist yet (pre-migration) the function returns [] silently
+    // and rendering falls back to the legacy category-icon path.
+    const [equipResult] = await Promise.all([
+      NX.sb.from('equipment_with_stats')
+        .select('*')
+        .order('location', { ascending: true })
+        .order('name', { ascending: true }),
+      loadManufacturers(true).catch(() => []),
+    ]);
+    if (equipResult.error) throw equipResult.error;
+    equipment = equipResult.data || [];
+  } catch (e) {
+    console.error('[Equipment] Load failed, trying base table:', e);
+    try {
+      const { data } = await NX.sb.from('equipment').select('*').order('name');
+      equipment = data || [];
+    } catch (e2) {
+      console.error('[Equipment] Full load failed:', e2);
+      equipment = [];
+    }
+  }
+
+  // Attach the most recent open issue to each equipment row so the
+  // status pill can reflect lifecycle state. Done as a follow-up call
+  // so a missing equipment_issues table doesn't break the main load.
+  try {
+    if (equipment && equipment.length) {
+      const ids = equipment.map(e => e.id);
+      const issueMap = await loadOpenIssuesByEquipment(ids);
+      for (const eq of equipment) {
+        eq._openIssue = issueMap[eq.id] || null;
+      }
+    }
+  } catch (e) {
+    console.warn('[Equipment] Could not attach open issues:', e.message || e);
+  }
+}
+
+function buildUI() {
+  const view = document.getElementById('equipmentView');
+  if (!view) return;
+
+  // Apply pending filter intent from elsewhere (e.g., home dashboard
+  // PM-Due stat tap). Cleared after apply so it doesn't stick between
+  // view switches.
+  if (NX.equipmentFilterIntent) {
+    Object.assign(activeFilter, NX.equipmentFilterIntent);
+    NX.equipmentFilterIntent = null;
+  }
+
+  view.innerHTML = `
+    <div class="eq-header">
+      <div class="eq-title-row">
+        <h2 class="eq-title"><span class="eq-title-icon">${uiSvg('wrench', '20px')}</span> Equipment</h2>
+        <div class="eq-actions">
+          <button class="eq-btn eq-btn-primary eq-ai-create-btn" id="eqAiCreateBtn" title="AI create equipment from photo or description"><span class="eq-action-icon">${uiSvg('sparkles', '14px')}</span> AI Create</button>
+          <button class="eq-btn eq-btn-secondary eq-zebra-header-btn" id="eqZebraHeaderBtn" title="Print labels on Zebra printer">Zebra</button>
+          <button class="eq-btn eq-btn-secondary" id="eqPrintQRs" title="Print QR sticker sheet">${uiSvg('qr', '14px')} QR Sheet</button>
+          <button class="eq-btn eq-btn-secondary" id="eqAddBtn">+ Manual</button>
+        </div>
+      </div>
+
+      <div class="eq-tools-row" id="eqToolsRow">
+        <button class="eq-tool-btn" id="eqToolContractors" title="Manage contractors">
+          <span class="eq-tool-icon">${uiSvg('user', '14px')}</span>
+          <span class="eq-tool-label">Contractors</span>
+        </button>
+        <button class="eq-tool-btn" id="eqToolParts" title="Browse parts library">
+          <span class="eq-tool-icon">${uiSvg('settings', '14px')}</span>
+          <span class="eq-tool-label">Parts</span>
+        </button>
+        <button class="eq-tool-btn" id="eqToolAnalytics" title="Fleet intelligence">
+          <span class="eq-tool-icon">${uiSvg('brain', '14px')}</span>
+          <span class="eq-tool-label">Analytics</span>
+        </button>
+        <button class="eq-tool-btn" id="eqToolBrands" title="Brand library">
+          <span class="eq-tool-icon">${uiSvg('star', '14px')}</span>
+          <span class="eq-tool-label">Brands</span>
+        </button>
+      </div>
+
+      <div class="eq-search-row">
+        <input type="text" class="eq-search" id="eqSearch" placeholder="Search equipment, model, serial...">
+        <div class="eq-view-toggle">
+          <button class="eq-view-btn ${viewMode==='list'?'active':''}" data-mode="list" title="List view">${uiSvg("documents","16px")}</button>
+          <button class="eq-view-btn ${viewMode==='grid'?'active':''}" data-mode="grid" title="Grid view"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
+        </div>
+      </div>
+
+      <div class="eq-filters">
+        <div class="eq-filter-group">
+          <span class="eq-filter-label">Location:</span>
+          ${['all', ...LOCATIONS].map(loc => `
+            <button class="eq-chip ${activeFilter.location===loc?'active':''}" data-filter="location" data-value="${loc}">
+              ${loc === 'all' ? 'All' : loc}
+            </button>
+          `).join('')}
+        </div>
+        <div class="eq-filter-group">
+          <span class="eq-filter-label">Status:</span>
+          ${['all', ...STATUSES.map(s=>s.key)].map(s => {
+            const label = s === 'all' ? 'All' : STATUSES.find(x=>x.key===s).label;
+            return `<button class="eq-chip ${activeFilter.status===s?'active':''}" data-filter="status" data-value="${s}">${label}</button>`;
+          }).join('')}
+        </div>
+        <div class="eq-filter-group">
+          <span class="eq-filter-label">PM:</span>
+          <button class="eq-chip ${activeFilter.pm==='all'?'active':''}" data-filter="pm" data-value="all">All</button>
+          <button class="eq-chip ${activeFilter.pm==='overdue'?'active':''}" data-filter="pm" data-value="overdue">Overdue</button>
+          <button class="eq-chip ${activeFilter.pm==='soon'?'active':''}" data-filter="pm" data-value="soon">Due ≤14d</button>
+        </div>
+      </div>
+
+      <div class="eq-stats" id="eqStats"></div>
+    </div>
+
+    <div class="eq-list" id="eqList"></div>
+  `;
+
+  // Wire header buttons
+  document.getElementById('eqAiCreateBtn').addEventListener('click', openAICreator);
+  document.getElementById('eqZebraHeaderBtn').addEventListener('click', printZebraBatch);
+  document.getElementById('eqAddBtn').addEventListener('click', () => openEditModal(null));
+  document.getElementById('eqPrintQRs').addEventListener('click', printQRSheet);
+
+  // Wire Tools row — workspaces for fleet-wide management
+  document.getElementById('eqToolContractors')?.addEventListener('click', () => {
+    if (typeof openContractors === 'function') openContractors();
+    else NX.toast && NX.toast('Contractors not loaded yet', 'warn');
+  });
+  document.getElementById('eqToolParts')?.addEventListener('click', () => {
+    if (typeof openParts === 'function') openParts();
+    else NX.toast && NX.toast('Parts library not loaded yet', 'warn');
+  });
+  document.getElementById('eqToolAnalytics')?.addEventListener('click', () => {
+    if (typeof openAnalytics === 'function') openAnalytics();
+    else NX.toast && NX.toast('Analytics not loaded yet', 'warn');
+  });
+  document.getElementById('eqToolBrands')?.addEventListener('click', () => {
+    if (typeof openBrandLibrary === 'function') openBrandLibrary();
+    else NX.toast && NX.toast('Brand library not loaded yet', 'warn');
+  });
+  document.getElementById('eqSearch').addEventListener('input', e => {
+    searchQuery = e.target.value.toLowerCase();
+    renderList();
+  });
+
+  view.querySelectorAll('.eq-view-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      viewMode = btn.dataset.mode;
+      buildUI();
+    });
+  });
+
+  view.querySelectorAll('.eq-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      activeFilter[chip.dataset.filter] = chip.dataset.value;
+      buildUI();
+    });
+  });
+
+  renderList();
+  renderStats();
+}
+
+function renderStats() {
+  const el = document.getElementById('eqStats');
+  if (!el) return;
+  const filtered = getFiltered();
+  const down   = filtered.filter(e => e.status === 'down').length;
+  const needs  = filtered.filter(e => e.status === 'needs_service').length;
+  const pmDue  = filtered.filter(e => e.next_pm_date && new Date(e.next_pm_date) <= new Date(Date.now() + 14*86400000)).length;
+  const totalCost = filtered.reduce((s, e) => s + (parseFloat(e.cost_this_year) || 0), 0);
+
+  el.innerHTML = `
+    <div class="eq-stat"><span class="eq-stat-v">${filtered.length}</span><span class="eq-stat-l">Units</span></div>
+    ${down ? `<div class="eq-stat eq-stat-red"><span class="eq-stat-v">${down}</span><span class="eq-stat-l">Down</span></div>` : ''}
+    ${needs ? `<div class="eq-stat eq-stat-amber"><span class="eq-stat-v">${needs}</span><span class="eq-stat-l">Needs Service</span></div>` : ''}
+    ${pmDue ? `<div class="eq-stat eq-stat-blue"><span class="eq-stat-v">${pmDue}</span><span class="eq-stat-l">PM Due (14d)</span></div>` : ''}
+    ${totalCost > 0 ? `<div class="eq-stat"><span class="eq-stat-v">$${Math.round(totalCost).toLocaleString()}</span><span class="eq-stat-l">YTD Repairs</span></div>` : ''}
+  `;
+}
+
+function getFiltered() {
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
+  const in14d = new Date(now.getTime() + 14 * 86400000).toISOString().slice(0, 10);
+  return equipment.filter(e => {
+    if (activeFilter.location !== 'all' && e.location !== activeFilter.location) return false;
+    if (activeFilter.status !== 'all' && e.status !== activeFilter.status) return false;
+    if (activeFilter.category !== 'all' && e.category !== activeFilter.category) return false;
+    if (activeFilter.pm === 'overdue') {
+      if (!e.next_pm_date) return false;
+      if (e.next_pm_date >= todayIso) return false; // not overdue
+    } else if (activeFilter.pm === 'soon') {
+      if (!e.next_pm_date) return false;
+      if (e.next_pm_date > in14d) return false;     // too far out
+    }
+    if (searchQuery) {
+      const hay = [e.name, e.model, e.serial_number, e.manufacturer, e.area, e.notes].join(' ').toLowerCase();
+      if (!hay.includes(searchQuery)) return false;
+    }
+    return true;
+  });
+}
+
+function renderList() {
+  const list = document.getElementById('eqList');
+  if (!list) return;
+  const filtered = getFiltered();
+  renderStats();
+
+  if (!filtered.length) {
+    list.innerHTML = `
+      <div class="eq-empty">
+        <div class="eq-empty-icon">${uiSvg("wrench", "32px")}</div>
+        <div class="eq-empty-title">No equipment yet</div>
+        <div class="eq-empty-sub">Add your first piece of equipment to get started.</div>
+        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.openAICreator()">${uiSvg("sparkles", "13px")} AI Create</button>
+        <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.add()">+ Manual Add</button>
+      </div>`;
+    return;
+  }
+
+  list.className = 'eq-list eq-list-' + viewMode;
+
+  if (viewMode === 'grid') {
+    list.innerHTML = filtered.map(e => buildGridCard(e)).join('');
+  } else {
+    // Lifecycle pills must always render — they're the visual heartbeat
+    // of the operation. Even when every unit is operational, the gold
+    // glow tells the operator at a glance that the fleet is alive.
+    list.innerHTML = `
+      <div class="eq-table">
+        <div class="eq-row eq-row-head">
+          <div class="eq-col eq-col-name">Equipment</div>
+          <div class="eq-col eq-col-loc">Location</div>
+          <div class="eq-col eq-col-status">Status</div>
+          <div class="eq-col eq-col-pm">Next PM</div>
+          <div class="eq-col eq-col-services">Svcs</div>
+        </div>
+        ${filtered.map(e => buildListRow(e)).join('')}
+      </div>`;
+  }
+
+  // Wire rows → detail
+  list.querySelectorAll('[data-eq-id]').forEach(el => {
+    el.addEventListener('click', (ev) => {
+      // Avatar tap → quick photo replace flow. Intercept BEFORE the
+      // generic row-click that would open the detail view.
+      const photoTarget = ev.target.closest('[data-action="quick-photo"]');
+      if (photoTarget && el.contains(photoTarget)) {
+        ev.stopPropagation();
+        const id = photoTarget.dataset.eqId || el.dataset.eqId;
+        if (id) quickReplacePhoto(id);
+        return;
+      }
+      // Skip the click if a long-press just fired (touch ends fire a synthetic
+      // click on some browsers right after the dial opened).
+      if (longpressState && longpressState.fired) return;
+      // Skip if in bulk mode — clicks toggle selection there instead.
+      if (bulkSelectionState && bulkSelectionState.active) {
+        toggleBulkSelection(el.dataset.eqId);
+        return;
+      }
+      openDetail(el.dataset.eqId);
+    });
+  });
+
+  // Inject per-row/card Zebra quick-print buttons (was equipment-ux.js)
+  injectRowPrintButtons();
+
+  // Wire long-press → expanding action dial. Idempotent — uses event
+  // delegation so re-renders don't double-bind.
+  wireEquipmentLongPress();
+}
+
+function buildListRow(e) {
+  const pm = e.next_pm_date ? new Date(e.next_pm_date) : null;
+  const pmOverdue = pm && pm < new Date();
+  const pmSoon = pm && pm < new Date(Date.now() + 14*86400000);
+  const pmStr = pm ? pm.toLocaleDateString([], { month:'short', day:'numeric' }) : '—';
+  // Model number is what techs and parts orderers actually search for.
+  // Brand is context. Showing model first/bigger and brand subdued reads
+  // faster and reduces eye work when scanning a long list. Falls back
+  // gracefully if either field is missing.
+  const sub = e.model
+    ? `${esc(e.model)}${e.manufacturer ? ` · ${esc(e.manufacturer)}` : ''}`
+    : esc(e.manufacturer || '');
+  // Empty-PM gets a class so CSS can mute the dash to near-invisible.
+  // A bright '—' fights for attention with the real dates we want users
+  // to scan to.
+  const pmCls = pmOverdue ? 'eq-overdue' : pmSoon ? 'eq-soon' : (!pm ? 'eq-pm-empty' : '');
+
+  // Avatar priority: equipment photo > manufacturer logo > category icon.
+  // The equipment's actual photo is more recognizable than a colored
+  // letter circle — when the user uploads a photo it should immediately
+  // show up as the row's identifying mark. Falls back gracefully.
+  let avatar;
+  if (e.photo_url) {
+    avatar = `<span class="eq-cat-icon eq-cat-icon-photo" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to replace photo">
+      <img src="${escAttr(e.photo_url)}" alt="" onerror="this.parentElement.classList.add('photo-failed');this.remove()">
+    </span>`;
+  } else if (e.manufacturer) {
+    avatar = `<span class="eq-cat-icon eq-cat-icon-with-logo" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to add photo">
+      ${manufacturerLogo(e, 'sm')}
+    </span>`;
+  } else {
+    avatar = `<span class="eq-cat-icon eq-cat-icon-with-logo" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to add photo">
+      <span class="eq-cat-icon-fallback">${catIcon(e.category)}</span>
+    </span>`;
+  }
+
+  return `
+    <div class="eq-row" data-eq-id="${e.id}">
+      <div class="eq-col eq-col-name">
+        ${avatar}
+        <div style="min-width:0">
+          <div class="eq-name">${esc(e.name)}</div>
+          <div class="eq-sub">${sub}</div>
+        </div>
+      </div>
+      <div class="eq-col eq-col-loc">${esc(e.location)}${e.area ? ' · ' + esc(e.area) : ''}</div>
+      <div class="eq-col eq-col-status">
+        ${lifecycleStatusPill(e, 'sm')}
+      </div>
+      <div class="eq-col eq-col-pm ${pmCls}">${pmStr}</div>
+      <div class="eq-col eq-col-services">${e.services_this_year || 0}</div>
+    </div>`;
+}
+
+function buildGridCard(e) {
+  const pm = e.next_pm_date ? new Date(e.next_pm_date) : null;
+  const pmStr = pm ? pm.toLocaleDateString([], { month:'short', day:'numeric' }) : 'Not set';
+  const health = e.health_score ?? 100;
+  const healthColor = health >= 80 ? 'var(--green)' : health >= 50 ? 'var(--amber)' : 'var(--red)';
+
+  return `
+    <div class="eq-card" data-eq-id="${e.id}">
+      <div class="eq-card-top">
+        ${e.photo_url
+          ? `<img src="${e.photo_url}" class="eq-card-photo">`
+          : (e.manufacturer
+              ? `<div class="eq-card-photo eq-card-photo-mfg">${manufacturerLogo(e, 'md')}</div>`
+              : `<div class="eq-card-photo eq-card-photo-placeholder">${catIcon(e.category)}</div>`)}
+        ${lifecycleStatusDot(e)}
+      </div>
+      <div class="eq-card-body">
+        <div class="eq-card-title">${esc(e.name)}</div>
+        <div class="eq-card-sub">${esc(e.location)}${e.area ? ' · ' + esc(e.area) : ''}</div>
+        <div class="eq-card-meta">
+          <span>${esc(e.manufacturer || '—')}</span>
+          <span class="eq-health" style="color:${healthColor}">${health}%</span>
+        </div>
+        <div class="eq-card-pm">Next PM: ${pmStr}</div>
+      </div>
+    </div>`;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   3. DETAIL — the one and only openDetail
+   Combines what was in 4 separate wrappers (ai, p3, full-editor, p4) into
+   a single linear function with clear sections.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function openDetail(id) {
+  const eq = equipment.find(e => e.id === id);
+  if (!eq) return;
+  currentEquipId = id;
+
+  // Parallel load: parts, maintenance, attachments, custom fields,
+  // plus pending pm_logs (QR-submitted service logs awaiting admin
+  // review). We fold pending logs into the timeline so they're
+  // discoverable — admin can approve/reject inline instead of
+  // hunting for a hidden review dashboard.
+  const [partsRes, maintRes, attachRes, customRes, pendingRes] = await Promise.all([
+    NX.sb.from('equipment_parts').select('*').eq('equipment_id', id).order('assembly_path'),
+    NX.sb.from('equipment_maintenance').select('*').eq('equipment_id', id).order('event_date', { ascending: false }),
+    NX.sb.from('equipment_attachments').select('*').eq('equipment_id', id).order('created_at', { ascending: false }),
+    NX.sb.from('equipment_custom_fields').select('*').eq('equipment_id', id).order('created_at'),
+    NX.sb.from('pm_logs').select('*').eq('equipment_id', id).eq('review_status', 'pending').order('submitted_at', { ascending: false }),
+  ]);
+  const parts        = partsRes.data   || [];
+  const maintenance  = maintRes.data   || [];
+  const attachments  = attachRes.data  || [];
+  const customFields = customRes.data  || [];
+  const pendingLogs  = pendingRes.data || [];
+
+  const modal = document.getElementById('eqModal') || createDetailModal();
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="NX.modules.equipment.closeDetail()"></div>
+    <div class="eq-detail">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="NX.modules.equipment.closeDetail()">${uiSvg("close", "16px")}</button>
+        <div class="eq-detail-title">
+          <span class="eq-cat-icon-lg">${catIcon(eq.category)}</span>
+          <div>
+            <h2>${esc(eq.name)}</h2>
+            <div class="eq-detail-sub">${esc(eq.location)}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
+          </div>
+        </div>
+        <div class="eq-detail-status">
+          ${lifecycleStatusPill(eq, 'lg')}
+        </div>
+      </div>
+
+      <!-- Open cards from the Board, populated async after render -->
+      <div id="eqOpenCards-${eq.id}" class="eq-open-cards" style="display:none"></div>
+
+      <div class="eq-detail-tabs">
+        <button class="eq-tab active" data-tab="overview">Overview</button>
+        <button class="eq-tab" data-tab="timeline">Timeline (${maintenance.length}${pendingLogs.length ? ` <span class="eq-tab-pending-dot" title="${pendingLogs.length} pending review">+${pendingLogs.length}</span>` : ''})</button>
+        <button class="eq-tab" data-tab="parts">Parts (${parts.length})</button>
+        <button class="eq-tab" data-tab="manual">Manual</button>
+        <button class="eq-tab" data-tab="intel">${uiSvg('brain', '14px')} AI</button>
+        <button class="eq-tab" data-tab="qr">QR</button>
+      </div>
+
+      <div class="eq-detail-body">
+        <div class="eq-tab-panel active" data-panel="overview">${renderOverview(eq, attachments, customFields)}</div>
+        <div class="eq-tab-panel" data-panel="timeline">${renderTimeline(eq, maintenance, pendingLogs)}</div>
+        <div class="eq-tab-panel" data-panel="parts">${renderParts(eq, parts)}</div>
+        <div class="eq-tab-panel" data-panel="manual">${renderManual(eq)}</div>
+        <div class="eq-tab-panel" data-panel="intel"><div class="eq-empty-small">Loading intelligence…</div></div>
+        <div class="eq-tab-panel" data-panel="qr">${renderQR(eq)}</div>
+      </div>
+
+      <div class="eq-detail-actions eq-detail-actions-v2">
+        <button class="eq-action-cta" onclick="NX.modules.equipment.callService('${eq.id}')">
+          <span class="eq-action-cta-icon">${uiSvg('phone', '18px')}</span>
+          <span class="eq-action-cta-label">Call Service</span>
+        </button>
+        <button class="eq-action-cta eq-action-cta-secondary" onclick="NX.modules.equipment.reportIssue('${eq.id}')">
+          <span class="eq-action-cta-icon">${uiSvg('ticket', '18px')}</span>
+          <span class="eq-action-cta-label">Report Issue</span>
+        </button>
+        <button class="eq-action-cta eq-action-cta-edit" onclick="NX.modules.equipment.openFullEditor('${eq.id}')" aria-label="Edit equipment">
+          <span class="eq-action-cta-icon">${uiSvg('pen', '18px')}</span>
+          <span class="eq-action-cta-label">Edit</span>
+        </button>
+        <div class="eq-overflow-wrap">
+          <button class="eq-overflow-btn-v2" onclick="NX.modules.equipment.toggleOverflow(event, '${eq.id}')" aria-label="More actions">${uiSvg('moreH', '20px')}</button>
+          <div class="eq-overflow-menu" id="eqOverflow-${eq.id}" onclick="event.stopPropagation()">
+            <div class="eq-overflow-section-label">Operate</div>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.logService('${eq.id}')">${uiSvg('pen', '14px')}<span>Log Service</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.openIssueTracker('${eq.id}')">${uiSvg('alert', '14px')}<span>Issue Tracker</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.openPartsForEquipment('${eq.id}')">${uiSvg('settings', '14px')}<span>View Parts</span></button>
+            <div class="eq-overflow-divider"></div>
+            <div class="eq-overflow-section-label">Manage</div>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">${uiSvg('settings', '14px')}<span>Edit Everything</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.schedulePmFromOverflow('${eq.id}')">${uiSvg('clipboard', '14px')}<span>Schedule PM</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.quickReplacePhoto('${eq.id}')">${uiSvg('camera', '14px')}<span>${eq.photo_url ? 'Replace Photo' : 'Add Photo'}</span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.quickPrint('${eq.id}')">${uiSvg('printer', '14px')}<span>Print Label</span></button>
+            <div class="eq-overflow-divider"></div>
+            <button class="eq-overflow-item eq-overflow-danger" onclick="NX.modules.equipment.deleteEquipment('${eq.id}')">${uiSvg('trash', '14px')}<span>Delete permanently</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+
+  // Load open cards linked to this equipment (async — doesn't block initial render)
+  loadOpenCardsForEquipment(eq);
+
+  // Wire tabs — lazy-render the Intelligence panel on first click
+  modal.querySelectorAll('.eq-tab').forEach(tab => {
+    tab.addEventListener('click', async () => {
+      modal.querySelectorAll('.eq-tab').forEach(t => t.classList.remove('active'));
+      modal.querySelectorAll('.eq-tab-panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      const panel = modal.querySelector(`[data-panel="${tab.dataset.tab}"]`);
+      panel.classList.add('active');
+      if (tab.dataset.tab === 'intel' && !panel.dataset.loaded) {
+        panel.dataset.loaded = '1';
+        panel.innerHTML = await renderIntelligenceTab(id);
+      }
+      if (tab.dataset.tab === 'parts') {
+        const list = panel.querySelector('.eq-parts-list');
+        if (list) enhancePartsList(list);
+      }
+      if (tab.dataset.tab === 'manual') {
+        enhanceManualPanel(panel, id);
+      }
+    });
+  });
+
+  // If Parts panel is already open (tab state), enhance immediately
+  const partsPanelInitial = modal.querySelector('[data-panel="parts"].active .eq-parts-list');
+  if (partsPanelInitial) enhancePartsList(partsPanelInitial);
+  const manualPanelInitial = modal.querySelector('[data-panel="manual"].active');
+  if (manualPanelInitial) enhanceManualPanel(manualPanelInitial, id);
+
+  // Wire QR download
+  const qrImg = modal.querySelector('.eq-qr-img');
+  if (qrImg) generateQRImage(eq.qr_code, qrImg);
+
+  // Render family tree + recent dispatches into the overview panel
+  // (these need to run after the HTML is in the DOM)
+  renderFamilySection(id);
+  refreshDispatchChips(id);
+
+  // Auto-translate the equipment Notes block (free-form field often
+  // containing service history written by whichever tech was on shift).
+  // Kept after the async tabs finish rendering because we don't want
+  // to translate the skeleton loading states.
+  if (window.NX?.tr) {
+    const notesP = modal.querySelector('.eq-notes p');
+    if (notesP) { try { NX.tr.auto(notesP); } catch(_) {} }
+  }
+}
+
+function closeDetail() {
+  const modal = document.getElementById('eqModal');
+  if (modal) modal.classList.remove('active');
+  currentEquipId = null;
+}
+
+function createDetailModal() {
+  const m = document.createElement('div');
+  m.id = 'eqModal';
+  m.className = 'eq-modal';
+  document.body.appendChild(m);
+  return m;
+}
+
+/* ─── Board integration: Open Cards strip + Report Issue ────────────
+   These connect the equipment detail modal to the Board module:
+     • loadOpenCardsForEquipment — fills the "Open cards" strip after render
+     • reportIssue — prompts for an issue, creates a prefilled board card
+*/
+function ensureBoardStyles() {
+  if (document.getElementById('eq-board-bridge-styles')) return;
+  const s = document.createElement('style');
+  s.id = 'eq-board-bridge-styles';
+  s.textContent = `
+    .eq-open-cards{background:rgba(200,164,78,0.05);border-top:1px solid rgba(200,164,78,0.12);border-bottom:1px solid rgba(200,164,78,0.12);padding:8px 14px;margin:0;display:flex;flex-direction:column;gap:6px}
+    .eq-open-cards-head{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);display:flex;align-items:center;gap:6px}
+    .eq-open-card{background:rgba(20,18,14,0.6);border:1px solid rgba(255,255,255,0.06);border-left:3px solid var(--c);border-radius:6px;padding:7px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px}
+    .eq-open-card:active{background:rgba(20,18,14,0.85)}
+    .eq-open-card-title{flex:1;color:var(--text);font-weight:500}
+    .eq-open-card-meta{font-size:10px;color:var(--text-dim)}
+    .eq-open-card-overdue{color:var(--red);font-weight:600;font-size:10px}
+  `;
+  document.head.appendChild(s);
+}
+
+async function loadOpenCardsForEquipment(eq) {
+  ensureBoardStyles();
+  const container = document.getElementById(`eqOpenCards-${eq.id}`);
+  if (!container) return;
+
+  // Fetch via the board module's API if present, otherwise query directly
+  let openCards = [];
+  try {
+    if (NX.modules?.board?.getOpenCardsForEquipment) {
+      openCards = await NX.modules.board.getOpenCardsForEquipment(eq.id);
+    } else {
+      const { data } = await NX.sb.from('kanban_cards')
+        .select('id, title, priority, status, due_date, created_at')
+        .eq('equipment_id', eq.id)
+        .eq('archived', false)
+        .order('created_at', { ascending: false });
+      openCards = (data || []).filter(c => !['closed', 'done'].includes((c.status || '').toLowerCase()));
+    }
+  } catch (e) {
+    console.warn('[equipment] open cards load failed:', e);
+    return;
+  }
+
+  if (!openCards.length) {
+    container.style.display = 'none';
+    return;
+  }
+
+  const PRI_COLOR = { urgent:'var(--red)', high:'var(--accent)', normal:'var(--muted)', low:'var(--blue)' };
+  const today = new Date(new Date().toDateString()).getTime();
+
+  container.innerHTML = `
+    <div class="eq-open-cards-head">
+      ${uiSvg("ticket","13px")} ${openCards.length} open card${openCards.length !== 1 ? 's' : ''} on the board
+    </div>
+    ${openCards.slice(0, 4).map(c => {
+      const overdue = c.due_date && new Date(c.due_date).getTime() < today;
+      const color = PRI_COLOR[c.priority] || PRI_COLOR.normal;
+      return `<div class="eq-open-card" data-card="${c.id}" style="--c:${color}">
+        <div class="eq-open-card-title">${esc(c.title || '(untitled)')}</div>
+        ${overdue ? '<span class="eq-open-card-overdue">OVERDUE</span>' : ''}
+        <span class="eq-open-card-meta">${esc((c.status || '').replace(/_/g, ' '))}</span>
+      </div>`;
+    }).join('')}
+    ${openCards.length > 4 ? `<div style="font-size:10px;color:var(--text-dim);text-align:center">+ ${openCards.length - 4} more</div>` : ''}
+  `;
+  container.style.display = '';
+
+  container.querySelectorAll('.eq-open-card').forEach(el => {
+    el.addEventListener('click', () => {
+      // Jump to Board view, then scroll-focus or open the card
+      closeDetail();
+      document.querySelector('.nav-tab[data-view="board"]')?.click();
+      document.querySelector('.bnav-btn[data-view="board"]')?.click();
+      // Reload board and open the card
+      setTimeout(async () => {
+        if (NX.modules?.board?.reload) await NX.modules.board.reload();
+      }, 300);
+    });
+  });
+}
+
+async function reportIssue(equipId) {
+  // Re-routed to the new issue lifecycle tracker. The legacy "create
+  // board card" behavior is preserved as a fallback if the tracker
+  // table doesn't exist yet (pre-migration).
+  const { data: eq } = await NX.sb.from('equipment')
+    .select('id, name, location').eq('id', equipId).single();
+  if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
+  // Open the tracker — gives the full lifecycle UI with all open issues
+  // for this equipment, plus a "Report new" button at the bottom.
+  return openIssueTracker(equipId);
+}
+
+// Legacy reporters that already used commitIssue (board card path) keep
+// working — kept as a private helper for fallback flows.
+async function _legacyCommitIssueAsBoardCard(eq, issue) {
+  try {
+    if (NX.modules?.board?.createFromEquipment) {
+      await NX.modules.board.createFromEquipment(eq, issue);
+    } else {
+      await NX.sb.from('kanban_cards').insert({
+        title: `${issue} — ${eq.name}`,
+        description: issue,
+        priority: 'high',
+        location: eq.location || null,
+        equipment_id: eq.id,
+        reported_by: NX.currentUser?.name || null,
+        checklist: [], comments: [], labels: [], photo_urls: [],
+        archived: false,
+      });
+      NX.toast && NX.toast('Card created on Board', 'success');
+    }
+  } catch (e) {
+    console.error('[equipment] _legacyCommitIssueAsBoardCard:', e);
+    NX.toast && NX.toast('Could not create card', 'error');
+  }
+}
+
+/* ═══ OVERVIEW TAB (merges base + full-editor enhancements) ═══ */
+
+function renderOverview(eq, attachments, customFields) {
+  const specs = eq.specs || {};
+  const specKeys = Object.keys(specs).filter(k => specs[k]);
+
+  // Links block (manual_source_url + manual_url + attachment links)
+  const linkAttachments = attachments.filter(a => a.type === 'link' || a.external_url);
+  const hasLinks = eq.manual_source_url || eq.manual_url || linkAttachments.length;
+
+  return `
+    ${eq.photo_url ? `<img src="${eq.photo_url}" class="eq-detail-photo">` : ''}
+    <div class="eq-fields">
+      <div class="eq-field"><label>Manufacturer</label><div>${esc(eq.manufacturer || '—')}</div></div>
+      <div class="eq-field"><label>Model</label><div>${esc(eq.model || '—')}</div></div>
+      <div class="eq-field"><label>Serial Number</label><div>${esc(eq.serial_number || '—')}</div></div>
+      <div class="eq-field"><label>Category</label><div>${catIcon(eq.category)} ${esc(eq.category || '—')}</div></div>
+      <div class="eq-field"><label>Install Date</label><div>${eq.install_date ? new Date(eq.install_date).toLocaleDateString() : '—'}</div></div>
+      <div class="eq-field"><label>Warranty Until</label><div>${eq.warranty_until ? new Date(eq.warranty_until).toLocaleDateString() : '—'}</div></div>
+      <div class="eq-field"><label>Purchase Price</label><div>${eq.purchase_price ? '$' + parseFloat(eq.purchase_price).toLocaleString() : '—'}</div></div>
+      <div class="eq-field"><label>Health Score</label><div>${eq.health_score ?? 100}%</div></div>
+      <div class="eq-field"><label>Next PM</label><div>${eq.next_pm_date ? new Date(eq.next_pm_date).toLocaleDateString() : 'Not scheduled'}</div></div>
+      <div class="eq-field"><label>Services (YTD)</label><div>${eq.services_this_year || 0}${eq.cost_this_year ? ' · $' + Math.round(eq.cost_this_year).toLocaleString() : ''}</div></div>
+    </div>
+
+    ${specKeys.length ? `
+      <div class="eq-specs">
+        <h4>Specs</h4>
+        <div class="eq-fields">
+          ${specKeys.map(k => `<div class="eq-field"><label>${esc(k)}</label><div>${esc(String(specs[k]))}</div></div>`).join('')}
+        </div>
+      </div>
+    ` : ''}
+
+    ${eq.notes ? `<div class="eq-notes"><h4>Notes</h4><p>${esc(eq.notes)}</p></div>` : ''}
+
+    <div class="eq-overview-section">
+      <div class="eq-overview-head">
+        <h4>${uiSvg('paperclip', '14px')} Attachments${attachments.length ? ` (${attachments.length})` : ''}</h4>
+      </div>
+      ${attachments.length ? `
+        <div class="eq-overview-attachments">
+          ${attachments.map(a => `
+            <a ${a.file_url || a.external_url ? `href="${a.file_url || a.external_url}" target="_blank"` : ''}
+               class="eq-attach-badge">
+              ${attachmentIcon(a)} ${esc(a.title)}
+            </a>
+          `).join('')}
+        </div>
+      ` : '<div class="eq-empty-small">No attachments yet. Add receipts, invoices, warranty cards, installation photos, or anything else.</div>'}
+      <div class="eq-attach-add-row">
+        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'photo', 'detail')">${uiSvg('camera', '13px')} Photo</button>
+        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'file', 'detail')">${uiSvg('document', '13px')} File</button>
+        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'link', 'detail')">${uiSvg('link', '13px')} Link</button>
+        <button class="eq-attach-add-btn" onclick="NX.modules.equipment.addAttachment('${eq.id}', 'note', 'detail')">${uiSvg('note', '13px')} Note</button>
+      </div>
+    </div>
+
+    ${customFields.length ? `
+      <div class="eq-overview-section">
+        <h4>Custom Fields</h4>
+        <div class="eq-fields">
+          ${customFields.map(f => `
+            <div class="eq-field">
+              <label>${esc(f.field_name)}</label>
+              <div>${f.field_type === 'url' && f.field_value ? `<a href="${escAttr(f.field_value)}" target="_blank">${esc(f.field_value)} ↗</a>` :
+                    f.field_type === 'boolean' ? (f.field_value === 'true' ? `${uiSvg('check', '12px')} Yes` : `${uiSvg('close', '12px')} No`) :
+                    esc(f.field_value || '—')}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>` : ''}
+
+    ${hasLinks ? `
+      <div class="eq-overview-section">
+        <h4>${uiSvg('link', '14px')} Links</h4>
+        <div class="eq-overview-links">
+          ${eq.manual_source_url ? `<a href="${escAttr(eq.manual_source_url)}" target="_blank" class="eq-link-btn">${uiSvg('document', '13px')} Manual (source) ↗</a>` : ''}
+          ${eq.manual_url ? `<a href="${escAttr(eq.manual_url)}" target="_blank" class="eq-link-btn">${uiSvg('document', '13px')} Manual PDF ↗</a>` : ''}
+        </div>
+      </div>` : ''}
+
+    <div class="eq-overview-section">
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.scanDataPlate('${eq.id}')">${uiSvg('camera', '14px')} Scan Data Plate (auto-fill)</button>
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.applyPredictivePM('${eq.id}')" title="Auto-schedule next PM based on repair patterns">${uiSvg('crystal', '14px')} Predictive PM</button>
+    </div>
+
+    <!-- Family section gets injected here by renderFamilySection() -->
+    <!-- Recent dispatches gets injected here by refreshDispatchChips() -->
+  `;
+}
+
+function renderTimeline(eq, maint, pending) {
+  pending = pending || [];
+  const isAdmin = NX.currentUser?.role === 'admin';
+  const totalItems = maint.length + pending.length;
+
+  if (!totalItems) {
+    return `<div class="eq-empty-small">No service history yet.<br>
+      <button class="eq-btn eq-btn-primary eq-mt" onclick="NX.modules.equipment.logService('${eq.id}')">+ Log First Service</button></div>`;
+  }
+
+  // Combine pending + approved into one chronological list.
+  // Pending entries appear at the top with a distinct "pending review"
+  // treatment; approved entries below in their original order.
+  const pendingHtml = pending.map(p => {
+    const photos = Array.isArray(p.photo_urls) ? p.photo_urls : [];
+    return `
+      <div class="eq-timeline-item eq-timeline-pending" data-pending-id="${p.id}">
+        <div class="eq-timeline-date">
+          ${new Date(p.service_date).toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'})}
+          <div class="eq-timeline-pending-badge">${uiSvg('hourglass', '11px')} PENDING REVIEW</div>
+        </div>
+        <div class="eq-timeline-body">
+          <div class="eq-timeline-type eq-type-${p.service_type || 'pm'}">${(p.service_type || 'service').toUpperCase()}</div>
+          <div class="eq-timeline-desc">${esc(p.work_performed || '')}</div>
+          <div class="eq-timeline-who">${uiSvg('user', '12px')} ${esc(p.contractor_name || 'Anonymous')}${p.contractor_company ? ' · ' + esc(p.contractor_company) : ''}</div>
+          ${p.contractor_phone ? `<div class="eq-timeline-detail"><b>Phone:</b> ${esc(p.contractor_phone)}</div>` : ''}
+          ${p.cost_amount ? `<div class="eq-timeline-cost">${uiSvg('dollar', '12px')} $${parseFloat(p.cost_amount).toLocaleString()}</div>` : ''}
+          ${p.parts_replaced ? `<div class="eq-timeline-detail"><b>Parts:</b> ${esc(p.parts_replaced)}</div>` : ''}
+          ${p.next_service_date ? `<div class="eq-timeline-detail"><b>Next service:</b> ${esc(p.next_service_date)}</div>` : ''}
+          ${photos.length ? `
+            <div class="eq-timeline-photos">
+              ${photos.map(u => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" class="eq-timeline-photo" onerror="this.style.display='none'"></a>`).join('')}
+            </div>
+          ` : ''}
+          ${p.pdf_url ? `<div class="eq-timeline-detail"><a href="${esc(p.pdf_url)}" target="_blank">${uiSvg('document', '12px')} View PDF invoice</a></div>` : ''}
+          ${p.signature_data ? `<img src="${esc(p.signature_data)}" class="eq-timeline-signature">` : ''}
+          ${p.flagged_spam ? `<div class="eq-timeline-spam-flag">${uiSvg('alert', '12px')} Honeypot tripped — likely spam</div>` : ''}
+          <div class="eq-timeline-submitted-at">Submitted ${new Date(p.submitted_at || p.created_at).toLocaleString()}</div>
+          ${isAdmin ? `
+            <div class="eq-timeline-review-actions">
+              <button class="eq-btn eq-btn-approve" onclick="NX.modules.equipment.approvePmLog('${p.id}', '${eq.id}')">${uiSvg('check', '12px')} Approve</button>
+              <button class="eq-btn eq-btn-reject"  onclick="NX.modules.equipment.rejectPmLog('${p.id}', '${eq.id}')">${uiSvg('close', '12px')} Reject</button>
+              ${p.flagged_spam ? '' : `<button class="eq-btn eq-btn-spam" onclick="NX.modules.equipment.markPmSpam('${p.id}', '${eq.id}')">${uiSvg('ban', '12px')} Spam</button>`}
+            </div>
+          ` : '<div class="eq-timeline-review-hint">Awaiting admin review.</div>'}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const approvedHtml = maint.map(m => `
+    <div class="eq-timeline-item">
+      <div class="eq-timeline-date">${new Date(m.event_date).toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'})}</div>
+      <div class="eq-timeline-body">
+        <div class="eq-timeline-type eq-type-${m.event_type}">${(m.event_type || 'service').toUpperCase()}</div>
+        <div class="eq-timeline-desc">${esc(m.description)}</div>
+        ${m.performed_by ? `<div class="eq-timeline-who">${uiSvg('user', '12px')} ${esc(m.performed_by)}</div>` : ''}
+        ${m.cost ? `<div class="eq-timeline-cost">${uiSvg('dollar', '12px')} $${parseFloat(m.cost).toLocaleString()}</div>` : ''}
+        ${m.downtime_hours ? `<div class="eq-timeline-dt">${uiSvg('clock', '12px')} ${m.downtime_hours}h downtime</div>` : ''}
+        ${m.symptoms ? `<div class="eq-timeline-detail"><b>Symptoms:</b> ${esc(m.symptoms)}</div>` : ''}
+        ${m.root_cause ? `<div class="eq-timeline-detail"><b>Root cause:</b> ${esc(m.root_cause)}</div>` : ''}
+      </div>
+      <button class="eq-timeline-del" onclick="NX.modules.equipment.deleteMaintenance('${m.id}', '${eq.id}')" title="Delete">${uiSvg('close', '14px')}</button>
+    </div>
+  `).join('');
+
+  return `
+    <div class="eq-timeline">
+      ${pendingHtml}
+      ${approvedHtml}
+    </div>`;
+}
+
+function renderParts(eq, parts) {
+  return `
+    <div class="eq-parts-head">
+      <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.extractBOMFromManual('${eq.id}')" style="margin-right:6px">${uiSvg("sparkles", "13px")} Extract from Manual</button>
+      <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.exportPartsCart('${eq.id}')" style="margin-right:6px">Shopping List</button>
+      <h4>Bill of Materials</h4>
+      <button class="eq-btn eq-btn-small eq-btn-primary" onclick="NX.modules.equipment.addPart('${eq.id}')">+ Add Part</button>
+    </div>
+    ${!parts.length ? '<div class="eq-empty-small">No parts cataloged yet.</div>' : `
+      <div class="eq-parts-list" data-multi-vendor="1">
+        ${parts.map(p => `
+          <div class="eq-part" data-part-id="${p.id}">
+            <div class="eq-part-main">
+              <div class="eq-part-name">${esc(p.part_name)}</div>
+              <div class="eq-part-sub">
+                ${p.oem_part_number ? `OEM: ${esc(p.oem_part_number)}` : ''}
+                ${p.quantity > 1 ? ` · Qty: ${p.quantity}` : ''}
+              </div>
+              ${p.assembly_path ? `<div class="eq-part-path">${esc(p.assembly_path)}</div>` : ''}
+            </div>
+            <div class="eq-part-actions">
+              <button class="eq-btn eq-btn-tiny" onclick="NX.modules.equipment.editPart('${p.id}')">${uiSvg("pen", "13px")}</button>
+              <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="NX.modules.equipment.deletePart('${p.id}', '${eq.id}')">${uiSvg("close", "13px")}</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `}`;
+}
+
+function renderManual(eq) {
+  return `
+    <div class="eq-manual" data-eq-id="${eq.id}" data-manual-url="${escAttr(eq.manual_url || '')}">
+      ${eq.manual_url ? `
+        <iframe src="${eq.manual_url}" class="eq-manual-iframe"></iframe>
+        <div class="eq-manual-actions">
+          <a href="${eq.manual_url}" target="_blank" class="eq-btn eq-btn-secondary">Open in new tab</a>
+          <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.removeManual('${eq.id}')">Remove</button>
+        </div>
+      ` : `
+        <div class="eq-empty-small">
+          <p>No manual uploaded.</p>
+          ${eq.manual_source_url ? `<p class="eq-mt"><a href="${eq.manual_source_url}" target="_blank">Original source ↗</a></p>` : ''}
+        </div>
+      `}
+      <div class="eq-manual-upgrade">
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadManual('${eq.id}')">${uiSvg("document", "13px")} Upload PDF</button>
+          <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${eq.id}')">${uiSvg("link", "13px")} Find Online</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderQR(eq) {
+  const scanURL = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
+  return `
+    <div class="eq-qr-section">
+      <div class="eq-qr-label">${esc(eq.name)}</div>
+      <div class="eq-qr-sub">${esc(eq.location)}</div>
+      <canvas class="eq-qr-img" width="220" height="220"></canvas>
+      <div class="eq-qr-code">${esc(eq.qr_code)}</div>
+      <div class="eq-qr-url">${scanURL}</div>
+      <div class="eq-qr-actions">
+        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.printZebraSingle('${eq.id}')">Print on Zebra</button>
+        <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.printSingleQR('${eq.id}')">Paper Sticker</button>
+        <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.printServiceLog('${eq.id}')">Service Log Sheet</button>
+        <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.copyQRLink('${eq.qr_code}')">Copy Link</button>
+      </div>
+    </div>`;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   4. EDIT — simple add/edit, service log, parts, delete
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function openEditModal(id) {
+  const eq = id ? equipment.find(e => e.id === id) : {
+    name: '', location: 'Suerte', area: '', category: 'refrigeration',
+    manufacturer: '', model: '', serial_number: '', status: 'operational',
+    install_date: '', warranty_until: '', purchase_price: '',
+    pm_interval_days: '', next_pm_date: '', notes: ''
+  };
+
+  const modal = document.getElementById('eqEditModal') || (() => {
+    const m = document.createElement('div');
+    m.id = 'eqEditModal';
+    m.className = 'eq-modal';
+    document.body.appendChild(m);
+    return m;
+  })();
+
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="NX.modules.equipment.closeEdit()"></div>
+    <div class="eq-detail eq-edit">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="NX.modules.equipment.closeEdit()">${uiSvg("close", "16px")}</button>
+        <h2>${id ? 'Edit' : 'Add'} Equipment</h2>
+      </div>
+      <div class="eq-detail-body">
+        <form class="eq-form" id="eqForm">
+          <div class="eq-form-group">
+            <label>Name *</label>
+            <input name="name" value="${esc(eq.name)}" required placeholder="Walk-In Cooler, Kitchen South">
+          </div>
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>Location *</label>
+              <select name="location" required>
+                ${LOCATIONS.map(l => `<option value="${l}" ${eq.location===l?'selected':''}>${l}</option>`).join('')}
+              </select>
+            </div>
+            <div class="eq-form-group">
+              <label>Area</label>
+              <input name="area" value="${esc(eq.area||'')}" placeholder="Kitchen, Bar, Dining">
+            </div>
+          </div>
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>Category</label>
+              <select name="category">
+                ${CATEGORIES.map(c => `<option value="${c.key}" ${eq.category===c.key?'selected':''}>${c.label}</option>`).join('')}
+              </select>
+            </div>
+            <div class="eq-form-group">
+              <label>Status</label>
+              <select name="status">
+                ${DROPDOWN_STATUSES.map(s => `<option value="${s.key}" ${eq.status===s.key?'selected':''}>${s.label}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>Manufacturer</label>
+              <input name="manufacturer" value="${esc(eq.manufacturer||'')}" placeholder="Hoshizaki">
+            </div>
+            <div class="eq-form-group">
+              <label>Model</label>
+              <input name="model" value="${esc(eq.model||'')}" placeholder="KM-320MAH-E">
+            </div>
+          </div>
+          <div class="eq-form-group">
+            <label>Serial Number</label>
+            <input name="serial_number" value="${esc(eq.serial_number||'')}" placeholder="240317001">
+          </div>
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>Install Date</label>
+              <input type="date" name="install_date" value="${eq.install_date||''}">
+            </div>
+            <div class="eq-form-group">
+              <label>Warranty Until</label>
+              <input type="date" name="warranty_until" value="${eq.warranty_until||''}">
+            </div>
+          </div>
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>Purchase Price ($)</label>
+              <input type="number" step="0.01" name="purchase_price" value="${eq.purchase_price||''}">
+            </div>
+            <div class="eq-form-group">
+              <label>PM Interval (days)</label>
+              <input type="number" name="pm_interval_days" value="${eq.pm_interval_days||''}" placeholder="90">
+            </div>
+          </div>
+          <div class="eq-form-group">
+            <label>Next PM Date</label>
+            <input type="date" name="next_pm_date" value="${eq.next_pm_date||''}">
+          </div>
+          <div class="eq-form-group">
+            <label>Notes</label>
+            <textarea name="notes" rows="3" placeholder="Any special notes, quirks, service tips...">${esc(eq.notes||'')}</textarea>
+          </div>
+          <div class="eq-form-actions">
+            <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeEdit()">Cancel</button>
+            <button type="submit" class="eq-btn eq-btn-primary">${id ? 'Save Changes' : 'Create Equipment'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+
+  document.getElementById('eqForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const data = {};
+    for (const [k, v] of fd.entries()) {
+      if (v !== '' && v != null) data[k] = v;
+    }
+    ['purchase_price', 'pm_interval_days'].forEach(k => {
+      if (data[k] != null) data[k] = parseFloat(data[k]);
+    });
+
+    try {
+      // Auto-link manufacturer text to a manufacturers row so the brand
+      // library populates organically. Fires whether new or existing.
+      if (data.manufacturer && data.manufacturer.trim()) {
+        const mfgId = await autoLinkManufacturer(data.manufacturer);
+        if (mfgId) data.manufacturer_id = mfgId;
+      } else if ('manufacturer' in data && !data.manufacturer) {
+        // User cleared the manufacturer field — null out the FK too.
+        data.manufacturer_id = null;
+      }
+
+      if (id) {
+        const { error } = await NX.sb.from('equipment').update(data).eq('id', id);
+        if (error) throw error;
+        NX.toast && NX.toast('Equipment updated ✓', 'success');
+      } else {
+        const { data: created, error } = await NX.sb.from('equipment').insert(data).select().single();
+        if (error) throw error;
+        NX.toast && NX.toast('Equipment created ✓', 'success');
+        // equipment_created syslog → now handled by Postgres trigger on equipment INSERT
+      }
+      closeEdit();
+      await loadEquipment();
+      renderList();
+      if (id) openDetail(id);
+    } catch (err) {
+      console.error('[Equipment] Save error:', err);
+      NX.toast && NX.toast('Save failed: ' + err.message, 'error');
+    }
+  });
+}
+
+function closeEdit() {
+  const m = document.getElementById('eqEditModal');
+  if (m) m.classList.remove('active');
+}
+
+async function deleteEquipment(id) {
+  const eq = equipment.find(e => e.id === id);
+  if (!eq) return;
+  if (!confirm(`Delete "${eq.name}"? This will also delete all parts and service history. Cannot be undone.`)) return;
+  try {
+    const { error } = await NX.sb.from('equipment').delete().eq('id', id);
+    if (error) throw error;
+    NX.toast && NX.toast('Deleted ✓', 'success');
+    // equipment_deleted syslog → now handled by Postgres trigger on equipment DELETE
+    closeDetail();
+    await loadEquipment();
+    renderList();
+  } catch (err) {
+    console.error('[Equipment] Delete error:', err);
+    NX.toast && NX.toast('Delete failed: ' + err.message, 'error');
+  }
+}
+
+/**
+ * Pre-seed bulk selection with one piece of equipment and open the
+ * PM scheduler. Used by the overflow menu "Schedule PM" item so users
+ * can fire a single-equipment PM date without having to open bulk
+ * mode and tap the row first.
+ */
+function schedulePmFromOverflow(equipId) {
+  if (!bulkSelectionState) return;
+  bulkSelectionState.active = true;
+  bulkSelectionState.selected = new Set([equipId]);
+  document.body.classList.add('eq-bulk-mode');
+  if (typeof renderBulkToolbar === 'function') renderBulkToolbar();
+  if (typeof openBulkPmSchedule === 'function') openBulkPmSchedule();
+}
+
+function logService(equipId) {
+  const eq = equipment.find(e => e.id === equipId);
+  if (!eq) return;
+
+  const modal = document.getElementById('eqServiceModal') || (() => {
+    const m = document.createElement('div');
+    m.id = 'eqServiceModal';
+    m.className = 'eq-modal';
+    document.body.appendChild(m);
+    return m;
+  })();
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="NX.modules.equipment.closeService()"></div>
+    <div class="eq-detail eq-edit">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="NX.modules.equipment.closeService()">${uiSvg("close", "16px")}</button>
+        <h2>Log Service — ${esc(eq.name)}</h2>
+      </div>
+      <div class="eq-detail-body">
+        <form class="eq-form" id="eqServiceForm">
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>Type</label>
+              <select name="event_type">
+                <option value="repair">Repair</option>
+                <option value="pm">Preventive Maintenance</option>
+                <option value="inspection">Inspection</option>
+                <option value="install">Install</option>
+                <option value="recall">Recall</option>
+              </select>
+            </div>
+            <div class="eq-form-group">
+              <label>Date *</label>
+              <input type="date" name="event_date" value="${today}" required>
+            </div>
+          </div>
+          <div class="eq-form-group">
+            <label>What was done? *</label>
+            <textarea name="description" rows="3" required placeholder="Replaced condenser fan motor..."></textarea>
+          </div>
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>Performed By</label>
+              <input name="performed_by" placeholder="Austin Air & Ice / Tyler">
+            </div>
+            <div class="eq-form-group">
+              <label>Cost ($)</label>
+              <input type="number" step="0.01" name="cost" placeholder="450.00">
+            </div>
+          </div>
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>Downtime (hours)</label>
+              <input type="number" step="0.5" name="downtime_hours">
+            </div>
+            <div class="eq-form-group">
+              <label>Labor Hours</label>
+              <input type="number" step="0.5" name="labor_hours">
+            </div>
+          </div>
+          <div class="eq-form-group">
+            <label>Symptoms</label>
+            <textarea name="symptoms" rows="2" placeholder="What was wrong?"></textarea>
+          </div>
+          <div class="eq-form-group">
+            <label>Root Cause</label>
+            <textarea name="root_cause" rows="2" placeholder="What did they find?"></textarea>
+          </div>
+          <div class="eq-form-group">
+            <label>Next PM Due (optional)</label>
+            <input type="date" name="next_pm_due">
+          </div>
+          <div class="eq-form-group">
+            <label><input type="checkbox" name="warranty_claim"> Warranty claim</label>
+          </div>
+          <div class="eq-form-actions">
+            <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeService()">Cancel</button>
+            <button type="submit" class="eq-btn eq-btn-primary">Log Service</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+
+  document.getElementById('eqServiceForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const data = { equipment_id: equipId };
+    for (const [k, v] of fd.entries()) {
+      if (v !== '' && v != null) {
+        if (k === 'warranty_claim') data[k] = true;
+        else if (['cost', 'downtime_hours', 'labor_hours'].includes(k)) data[k] = parseFloat(v);
+        else data[k] = v;
+      }
+    }
+
+    // ─── Inventory Phase C hook: PM parts consumption ─────────────
+    // Before logging the maintenance event, if this is a PM and the
+    // inventory module is loaded, show the parts-used modal. Stock
+    // counts are decremented and reorder cards are auto-created.
+    const persistMaintenance = async () => {
+      try {
+        const { error } = await NX.sb.from('equipment_maintenance').insert(data);
+        if (error) throw error;
+        if (data.next_pm_due) {
+          await NX.sb.from('equipment').update({ next_pm_date: data.next_pm_due }).eq('id', equipId);
+        }
+        try { await NX.sb.rpc('recompute_health_score', { eq_id: equipId }); } catch(e){}
+
+        NX.toast && NX.toast('Service logged ✓', 'success');
+        // equipment_service syslog → now handled by Postgres trigger on equipment_maintenance INSERT
+
+        closeService();
+        await loadEquipment();
+        openDetail(equipId);
+      } catch (err) {
+        console.error('[Equipment] Service log error:', err);
+        NX.toast && NX.toast('Save failed: ' + err.message, 'error');
+      }
+    };
+
+    if (data.event_type === 'pm' && NX.modules?.inventory?.openPmCompletionModal) {
+      const eqRow = equipment.find(e => e.id === equipId);
+      const eqName = eqRow?.name || 'Equipment';
+      NX.modules.inventory.openPmCompletionModal(equipId, eqName, () => {
+        // Whether the user confirmed parts or skipped, proceed to log the PM.
+        persistMaintenance();
+      });
+    } else {
+      await persistMaintenance();
+    }
+  });
+}
+
+function closeService() {
+  const m = document.getElementById('eqServiceModal');
+  if (m) m.classList.remove('active');
+}
+
+async function deleteMaintenance(id, equipId) {
+  if (!confirm('Delete this service record?')) return;
+  try {
+    await NX.sb.from('equipment_maintenance').delete().eq('id', id);
+    NX.toast && NX.toast('Deleted ✓', 'success');
+    openDetail(equipId);
+  } catch(e) { console.error(e); }
+}
+
+/* ─── Parts CRUD ─── */
+
+function addPart(equipId) { openPartModal(null, equipId); }
+
+async function editPart(partId) {
+  const { data } = await NX.sb.from('equipment_parts').select('*').eq('id', partId).single();
+  if (!data) return;
+  openPartModal(data, data.equipment_id);
+}
+
+function openPartModal(part, equipId) {
+  const p = part || { part_name:'', oem_part_number:'', quantity:1, supplier:'', last_price:'', supplier_url:'', assembly_path:'', notes:'' };
+
+  const modal = document.getElementById('eqPartModal') || (() => {
+    const m = document.createElement('div');
+    m.id = 'eqPartModal';
+    m.className = 'eq-modal';
+    document.body.appendChild(m);
+    return m;
+  })();
+
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="NX.modules.equipment.closePart()"></div>
+    <div class="eq-detail eq-edit">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="NX.modules.equipment.closePart()">${uiSvg("close", "16px")}</button>
+        <h2>${part ? 'Edit' : 'Add'} Part</h2>
+      </div>
+      <div class="eq-detail-body">
+        <form class="eq-form" id="eqPartForm">
+          <div class="eq-form-group">
+            <label>Part Name *</label>
+            <input name="part_name" value="${esc(p.part_name)}" required placeholder="Evaporator fan motor">
+          </div>
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>OEM Part Number</label>
+              <input name="oem_part_number" value="${esc(p.oem_part_number||'')}">
+            </div>
+            <div class="eq-form-group">
+              <label>Quantity</label>
+              <input type="number" name="quantity" value="${p.quantity||1}" min="1">
+            </div>
+          </div>
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>Supplier</label>
+              <input name="supplier" value="${esc(p.supplier||'')}" placeholder="Parts Town">
+            </div>
+            <div class="eq-form-group">
+              <label>Last Price ($)</label>
+              <input type="number" step="0.01" name="last_price" value="${p.last_price||''}">
+            </div>
+          </div>
+          <div class="eq-form-group">
+            <label>Supplier URL</label>
+            <input type="url" name="supplier_url" value="${esc(p.supplier_url||'')}" placeholder="https://partstown.com/...">
+          </div>
+          <div class="eq-form-group">
+            <label>Assembly Path</label>
+            <input name="assembly_path" value="${esc(p.assembly_path||'')}" placeholder="compressor > refrigeration > fan">
+          </div>
+          <div class="eq-form-group">
+            <label>Notes</label>
+            <textarea name="notes" rows="2">${esc(p.notes||'')}</textarea>
+          </div>
+          <div class="eq-form-actions">
+            <button type="button" class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closePart()">Cancel</button>
+            <button type="submit" class="eq-btn eq-btn-primary">${part ? 'Save' : 'Add Part'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+
+  document.getElementById('eqPartForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const data = { equipment_id: equipId };
+    for (const [k, v] of fd.entries()) {
+      if (v !== '' && v != null) {
+        if (['quantity'].includes(k)) data[k] = parseInt(v);
+        else if (['last_price'].includes(k)) data[k] = parseFloat(v);
+        else data[k] = v;
+      }
+    }
+    try {
+      if (part) {
+        await NX.sb.from('equipment_parts').update(data).eq('id', part.id);
+      } else {
+        await NX.sb.from('equipment_parts').insert(data);
+      }
+      NX.toast && NX.toast('Saved ✓', 'success');
+      closePart();
+      openDetail(equipId);
+    } catch (err) {
+      console.error(err);
+      NX.toast && NX.toast('Save failed: ' + err.message, 'error');
+    }
+  });
+}
+
+function closePart() {
+  const m = document.getElementById('eqPartModal');
+  if (m) m.classList.remove('active');
+}
+
+async function deletePart(id, equipId) {
+  if (!confirm('Delete this part?')) return;
+  try {
+    await NX.sb.from('equipment_parts').delete().eq('id', id);
+    NX.toast && NX.toast('Deleted ✓', 'success');
+    openDetail(equipId);
+  } catch(e) { console.error(e); }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   MULTI-VENDOR PARTS
+   
+   Each part has a `vendors` JSONB column on equipment_parts. Each vendor:
+     { name, url, oem_number, price, in_stock, notes, last_checked_at, is_preferred }
+   
+   After renderParts() inserts the .eq-parts-list into the DOM, the tab
+   switcher calls enhancePartsList() which finds each .eq-part[data-part-id]
+   row, loads its full record, and appends a vendor accordion below.
+   
+   Legacy data (parts with supplier/supplier_url/last_price but no vendors[])
+   auto-migrates to a single preferred vendor.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function enhancePartsList(list) {
+  if (!list || list.dataset.enhanced === '1') return;
+  list.dataset.enhanced = '1';
+  const rows = list.querySelectorAll('.eq-part[data-part-id]');
+  for (const partEl of rows) {
+    const partId = partEl.dataset.partId;
+    if (!partId) continue;
+    await renderVendorsUnderPart(partEl, partId);
+  }
+}
+
+async function renderVendorsUnderPart(partEl, partId) {
+  let part;
+  try {
+    const { data } = await NX.sb.from('equipment_parts').select('*').eq('id', partId).single();
+    part = data;
+  } catch (e) {
+    console.warn('[parts] could not load', partId, e);
+    return;
+  }
+  if (!part) return;
+
+  // Migrate legacy single-vendor fields to vendors[] if empty
+  let vendors = Array.isArray(part.vendors) ? part.vendors.slice() : [];
+  if (!vendors.length && (part.supplier || part.supplier_url || part.last_price)) {
+    vendors = [{
+      name: part.supplier || 'Unknown vendor',
+      url: part.supplier_url || null,
+      oem_number: part.oem_part_number || null,
+      price: part.last_price || null,
+      in_stock: null,
+      notes: null,
+      last_checked_at: null,
+      is_preferred: true
+    }];
+  }
+
+  const container = document.createElement('div');
+  container.className = 'eq-part-vendors';
+  container.innerHTML = `
+    <div class="eq-part-vendors-header">
+      <span class="eq-part-vendors-label">Vendors (${vendors.length})</span>
+      <button class="eq-part-add-vendor-btn" data-part-id="${partId}">+ Vendor</button>
+    </div>
+    <div class="eq-part-vendors-list" id="eqVendList-${partId}">
+      ${renderVendorsListHTML(vendors, partId)}
+    </div>
+  `;
+  partEl.appendChild(container);
+  wireVendorActions(container, part, vendors);
+}
+
+function renderVendorsListHTML(vendors, partId) {
+  if (!vendors.length) {
+    return '<div class="eq-part-vendors-empty">No vendors yet. Tap + Vendor to add one.</div>';
+  }
+  return vendors.map((v, idx) => `
+    <div class="eq-part-vendor${v.is_preferred ? ' is-preferred' : ''}" data-vendor-idx="${idx}">
+      <div class="eq-part-vendor-main">
+        <div class="eq-part-vendor-row1">
+          ${v.is_preferred ? `<span class="eq-part-vendor-star">${uiSvg('filledStar', '11px')} PREFERRED</span>` : ''}
+          <span class="eq-part-vendor-name">${esc(v.name || 'Unnamed')}</span>
+        </div>
+        <div class="eq-part-vendor-row2">
+          ${v.oem_number ? `<span class="eq-part-vendor-oem">${esc(v.oem_number)}</span>` : ''}
+          ${v.in_stock === true ? '<span class="eq-part-vendor-stock in">In stock</span>' : ''}
+          ${v.in_stock === false ? '<span class="eq-part-vendor-stock out">Out</span>' : ''}
+          ${v.last_checked_at ? `<span class="eq-part-vendor-checked">${formatVendorRelative(v.last_checked_at)}</span>` : ''}
+        </div>
+        ${v.notes ? `<div class="eq-part-vendor-notes">${esc(v.notes)}</div>` : ''}
+      </div>
+      <div class="eq-part-vendor-price">${v.price ? `$${parseFloat(v.price).toFixed(2)}` : ''}</div>
+      <div class="eq-part-vendor-actions">
+        ${v.url ? `<a href="${esc(v.url)}" target="_blank" rel="noopener" class="eq-part-vendor-btn order" data-action="order" data-vendor-idx="${idx}">Order</a>` : ''}
+        ${!v.is_preferred ? `<button class="eq-part-vendor-btn star-btn" data-action="prefer" data-vendor-idx="${idx}" title="Mark preferred" aria-label="Mark preferred">${uiSvg('star', '14px')}</button>` : ''}
+        <button class="eq-part-vendor-btn edit-btn" data-action="edit" data-vendor-idx="${idx}" title="Edit" aria-label="Edit">${uiSvg('pen', '14px')}</button>
+        <button class="eq-part-vendor-btn remove-btn" data-action="remove" data-vendor-idx="${idx}" title="Remove" aria-label="Remove">${uiSvg('close', '14px')}</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function wireVendorActions(container, part, vendors) {
+  container.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const idx = parseInt(btn.dataset.vendorIdx, 10);
+
+    if (action === 'order') {
+      // Log the order action but let the link navigate naturally
+      try {
+        await NX.sb.from('daily_logs').insert({
+          entry: `[ORDER] ${NX.currentUser?.name || 'User'} opened ${vendors[idx].name} for "${part.part_name}" ($${vendors[idx].price || '?'})`
+        });
+      } catch (_) {}
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (action === 'prefer') {
+      vendors.forEach((v, i) => v.is_preferred = (i === idx));
+      await saveVendors(part.id, vendors);
+      rerenderVendorList(container, part.id, vendors);
+    } else if (action === 'edit') {
+      openVendorEditor(vendors[idx], async (updated) => {
+        vendors[idx] = updated;
+        await saveVendors(part.id, vendors);
+        rerenderVendorList(container, part.id, vendors);
+      });
+    } else if (action === 'remove') {
+      if (!confirm(`Remove vendor "${vendors[idx].name}"?`)) return;
+      vendors.splice(idx, 1);
+      await saveVendors(part.id, vendors);
+      rerenderVendorList(container, part.id, vendors);
+    }
+  });
+
+  const addBtn = container.querySelector('.eq-part-add-vendor-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => {
+      openVendorEditor(null, async (newVendor) => {
+        if (!vendors.length) newVendor.is_preferred = true;
+        vendors.push(newVendor);
+        await saveVendors(part.id, vendors);
+        rerenderVendorList(container, part.id, vendors);
+      });
+    });
+  }
+}
+
+function rerenderVendorList(container, partId, vendors) {
+  const list = container.querySelector(`#eqVendList-${partId}`);
+  if (list) list.innerHTML = renderVendorsListHTML(vendors, partId);
+  const label = container.querySelector('.eq-part-vendors-label');
+  if (label) label.textContent = `Vendors (${vendors.length})`;
+}
+
+async function saveVendors(partId, vendors) {
+  try {
+    await NX.sb.from('equipment_parts').update({ vendors }).eq('id', partId);
+    // Keep legacy single-vendor fields in sync with the preferred vendor
+    const preferred = vendors.find(v => v.is_preferred) || vendors[0];
+    if (preferred) {
+      await NX.sb.from('equipment_parts').update({
+        supplier: preferred.name,
+        supplier_url: preferred.url,
+        oem_part_number: preferred.oem_number,
+        last_price: preferred.price
+      }).eq('id', partId);
+    }
+  } catch (e) {
+    NX.toast && NX.toast('Save vendors failed: ' + e.message, 'error');
+  }
+}
+
+function openVendorEditor(existing, onSave) {
+  const v = existing || { name: '', url: '', oem_number: '', price: '', in_stock: null, notes: '', is_preferred: false };
+  const modal = document.createElement('div');
+  modal.className = 'eq-vendor-modal';
+  modal.innerHTML = `
+    <div class="eq-vendor-bg"></div>
+    <div class="eq-vendor-card">
+      <div class="eq-vendor-header">
+        <div class="eq-vendor-title">${existing ? 'Edit Vendor' : 'Add Vendor'}</div>
+        <button class="eq-vendor-close">${uiSvg("close", "13px")}</button>
+      </div>
+      <div class="eq-vendor-body">
+        <label class="eq-vendor-label">Vendor Name</label>
+        <input type="text" id="vendName" class="eq-vendor-input" value="${escAttr(v.name)}" placeholder="Parts Town">
+        <label class="eq-vendor-label">Order URL</label>
+        <input type="url" id="vendUrl" class="eq-vendor-input" value="${escAttr(v.url || '')}" placeholder="https://...">
+        <div class="eq-vendor-row">
+          <div class="eq-vendor-half">
+            <label class="eq-vendor-label">OEM Number</label>
+            <input type="text" id="vendOem" class="eq-vendor-input" value="${escAttr(v.oem_number || '')}" placeholder="1701514">
+          </div>
+          <div class="eq-vendor-half">
+            <label class="eq-vendor-label">Price ($)</label>
+            <input type="number" step="0.01" id="vendPrice" class="eq-vendor-input" value="${v.price || ''}" placeholder="105.00">
+          </div>
+        </div>
+        <label class="eq-vendor-label">Availability</label>
+        <select id="vendStock" class="eq-vendor-input">
+          <option value="">Unknown</option>
+          <option value="true" ${v.in_stock === true ? 'selected' : ''}>In stock</option>
+          <option value="false" ${v.in_stock === false ? 'selected' : ''}>Out of stock</option>
+        </select>
+        <label class="eq-vendor-label">Notes</label>
+        <textarea id="vendNotes" class="eq-vendor-input" rows="2" placeholder="Free shipping over $100">${esc(v.notes || '')}</textarea>
+      </div>
+      <div class="eq-vendor-actions">
+        <button class="eq-vendor-cancel-btn">Cancel</button>
+        <button class="eq-vendor-save-btn">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const close = () => modal.remove();
+  modal.querySelector('.eq-vendor-close').addEventListener('click', close);
+  modal.querySelector('.eq-vendor-bg').addEventListener('click', close);
+  modal.querySelector('.eq-vendor-cancel-btn').addEventListener('click', close);
+  modal.querySelector('.eq-vendor-save-btn').addEventListener('click', () => {
+    const stockVal = modal.querySelector('#vendStock').value;
+    const updated = {
+      ...v,
+      name: modal.querySelector('#vendName').value.trim(),
+      url: modal.querySelector('#vendUrl').value.trim() || null,
+      oem_number: modal.querySelector('#vendOem').value.trim() || null,
+      price: parseFloat(modal.querySelector('#vendPrice').value) || null,
+      in_stock: stockVal === 'true' ? true : stockVal === 'false' ? false : null,
+      notes: modal.querySelector('#vendNotes').value.trim() || null,
+      last_checked_at: new Date().toISOString()
+    };
+    if (!updated.name) { NX.toast && NX.toast('Vendor name required', 'info'); return; }
+    onSave(updated);
+    close();
+  });
+}
+
+function formatVendorRelative(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return days + 'd ago';
+  if (days < 30) return Math.floor(days / 7) + 'w ago';
+  if (days < 365) return Math.floor(days / 30) + 'mo ago';
+  return Math.floor(days / 365) + 'y ago';
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   MANUAL VIEWER — PDF card with first-page thumbnail
+   
+   Called by the tabs wiring when the Manual panel becomes active. Finds the
+   iframe that renderManual() rendered, replaces it with a styled card,
+   and renders page 1 of the PDF as a thumbnail using window.pdfjsLib.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function enhanceManualPanel(panel, equipId) {
+  const root = panel.querySelector('.eq-manual');
+  if (!root || root.dataset.enhanced === '1') return;
+  const iframe = root.querySelector('.eq-manual-iframe');
+  if (!iframe) return;
+  root.dataset.enhanced = '1';
+  
+  const url = iframe.src;
+  if (!url) return;
+  let fileName = url.split('/').pop().split('?')[0];
+  try { fileName = decodeURIComponent(fileName); } catch (_) {}
+
+  const card = document.createElement('div');
+  card.className = 'eq-manual-card';
+  card.innerHTML = `
+    <div class="eq-manual-card-thumb" id="eqManualThumb">
+      <div class="eq-manual-card-loading">Loading preview…</div>
+    </div>
+    <div class="eq-manual-card-info">
+      <div class="eq-manual-card-icon">${uiSvg("document", "32px")}</div>
+      <div class="eq-manual-card-meta">
+        <div class="eq-manual-card-name">${esc(fileName)}</div>
+        <div class="eq-manual-card-pages" id="eqManualPages">PDF Document</div>
+      </div>
+    </div>
+    <div class="eq-manual-card-actions">
+      <a href="${esc(url)}" target="_blank" rel="noopener" class="eq-manual-card-open-btn">Open Manual ↗</a>
+      <button class="eq-manual-card-secondary-btn" id="eqManualRemoveBtn">Remove</button>
+    </div>
+  `;
+  iframe.replaceWith(card);
+  
+  // Hide the old "Open in new tab / Remove" actions row
+  const oldActions = root.querySelector('.eq-manual-actions');
+  if (oldActions) oldActions.style.display = 'none';
+
+  // Wire remove
+  card.querySelector('#eqManualRemoveBtn').addEventListener('click', () => {
+    if (confirm('Remove the manual?')) removeManual(equipId);
+  });
+
+  // Render PDF thumbnail in background
+  renderPdfThumbnail(url, card.querySelector('#eqManualThumb'), card.querySelector('#eqManualPages'));
+}
+
+async function renderPdfThumbnail(url, thumbContainer, pagesEl) {
+  if (!window.pdfjsLib) {
+    thumbContainer.innerHTML = `<div class=\"eq-manual-card-thumb-fallback\">${uiSvg('document','32px')}</div>`;
+    return;
+  }
+  try {
+    const loadingTask = window.pdfjsLib.getDocument(url);
+    const pdf = await loadingTask.promise;
+    if (pagesEl) pagesEl.textContent = `PDF · ${pdf.numPages} page${pdf.numPages === 1 ? '' : 's'}`;
+
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 1.0 });
+    const targetWidth = 240;
+    const scale = targetWidth / viewport.width;
+    const scaledViewport = page.getViewport({ scale });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = scaledViewport.width;
+    canvas.height = scaledViewport.height;
+    canvas.className = 'eq-manual-card-thumb-canvas';
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+
+    thumbContainer.innerHTML = '';
+    thumbContainer.appendChild(canvas);
+  } catch (err) {
+    console.warn('[manual] PDF thumbnail failed:', err);
+    thumbContainer.innerHTML = `<div class=\"eq-manual-card-thumb-fallback\">${uiSvg('document','32px')}</div>`;
+  }
+}
+
+async function removeManual(id) {
+  if (!confirm('Remove manual from this equipment?')) return;
+  await NX.sb.from('equipment').update({ manual_url: null }).eq('id', id);
+  NX.toast && NX.toast('Manual removed', 'success');
+  await loadEquipment();
+  openDetail(id);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   5. AI — data plate scanner, manual fetch/upload, pattern detect, cost
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Data plate scanner ─── */
+
+async function scanDataPlate(existingId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.capture = 'environment';
+
+  input.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    NX.toast && NX.toast('Reading data plate…', 'info', 8000);
+
+    try {
+      const base64 = await fileToBase64(file);
+      const mimeType = file.type;
+
+      // Upload photo to storage
+      let dataPlateUrl = null;
+      try {
+        const fname = `data-plate-${Date.now()}.${file.type.split('/')[1] || 'jpg'}`;
+        const { data: upload } = await NX.sb.storage
+          .from('equipment-photos')
+          .upload(fname, file, { upsert: false, contentType: file.type });
+        if (upload) {
+          const { data: { publicUrl } } = NX.sb.storage.from('equipment-photos').getPublicUrl(fname);
+          dataPlateUrl = publicUrl;
+        }
+      } catch(e) { console.warn('[DataPlate] Upload skipped:', e.message); }
+
+      const prompt = `You are reading a commercial kitchen or HVAC equipment data plate.
+Extract ONLY what you can clearly see. Return raw JSON, no markdown:
+{
+  "manufacturer": "...",
+  "model": "...",
+  "serial_number": "...",
+  "year_manufactured": null or YYYY,
+  "specs": {
+    "voltage": null or "115V" etc,
+    "amperage": null or "10A",
+    "hz": null or 60,
+    "phase": null or "1" or "3",
+    "refrigerant_type": null or "R-290",
+    "refrigerant_amount": null or "3.5 oz",
+    "btu": null or number,
+    "capacity": null or "12 cu ft",
+    "max_pressure_psi": null or number,
+    "wattage": null or "1500W",
+    "gas_type": null or "NG" or "LP"
+  },
+  "likely_category": "refrigeration | cooking | ice | hvac | dish | bev | smallware | other",
+  "confidence": "high | medium | low"
+}
+Decode year from serial if manufacturer uses a known format (e.g. Hoshizaki: 3rd-4th chars = year).
+Return null for any field not clearly visible. Do NOT guess.`;
+
+      const answer = await NX.askClaudeVision(prompt, base64, mimeType);
+      const jsonStart = answer.indexOf('{');
+      const jsonEnd = answer.lastIndexOf('}');
+      if (jsonStart === -1 || jsonEnd === -1) throw new Error('No JSON in response');
+      const extracted = JSON.parse(answer.slice(jsonStart, jsonEnd + 1));
+
+      if (existingId) {
+        // Merge into existing equipment
+        const updates = {};
+        if (extracted.manufacturer) updates.manufacturer = extracted.manufacturer;
+        if (extracted.model) updates.model = extracted.model;
+        if (extracted.serial_number) updates.serial_number = extracted.serial_number;
+        if (extracted.specs && Object.keys(extracted.specs).length) {
+          const clean = {};
+          for (const [k, v] of Object.entries(extracted.specs)) {
+            if (v != null && v !== '') clean[k] = v;
+          }
+          if (Object.keys(clean).length) updates.specs = clean;
+        }
+        if (dataPlateUrl) updates.data_plate_url = dataPlateUrl;
+
+        // Auto-link the scanned manufacturer to the brand library.
+        if (updates.manufacturer) {
+          const mfgId = await autoLinkManufacturer(updates.manufacturer);
+          if (mfgId) updates.manufacturer_id = mfgId;
+        }
+
+        await NX.sb.from('equipment').update(updates).eq('id', existingId);
+        NX.toast && NX.toast(`✓ Extracted: ${extracted.manufacturer || ''} ${extracted.model || ''}`, 'success');
+        if (NX.syslog) NX.syslog('equipment_scanned', `${extracted.manufacturer} ${extracted.model}`);
+        closeDetail();
+        await loadEquipment();
+        openDetail(existingId);
+      } else {
+        openPrepopulatedAddModal(extracted, dataPlateUrl);
+      }
+    } catch (err) {
+      console.error('[DataPlate] Extraction failed:', err);
+      NX.toast && NX.toast('Could not read plate — try better lighting/angle', 'error', 5000);
+    }
+  });
+
+  input.click();
+}
+
+function openPrepopulatedAddModal(data, dataPlateUrl) {
+  const modal = document.getElementById('eqPrepopModal') || (() => {
+    const m = document.createElement('div');
+    m.id = 'eqPrepopModal';
+    m.className = 'eq-modal';
+    document.body.appendChild(m);
+    return m;
+  })();
+
+  const catGuess = data.likely_category || 'other';
+  const specsStr = data.specs ? JSON.stringify(data.specs, null, 2) : '{}';
+
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="document.getElementById('eqPrepopModal').classList.remove('active')"></div>
+    <div class="eq-detail eq-edit">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="document.getElementById('eqPrepopModal').classList.remove('active')">${uiSvg("close", "16px")}</button>
+        <h2>${uiSvg("sparkles", "16px")} Scanned — Confirm Details</h2>
+      </div>
+      <div class="eq-detail-body">
+        ${dataPlateUrl ? `<img src="${dataPlateUrl}" class="eq-detail-photo" style="max-height:150px">` : ''}
+        <div class="eq-scan-conf">Confidence: <b>${data.confidence || 'medium'}</b></div>
+        <form class="eq-form" id="eqPrepopForm">
+          <div class="eq-form-group">
+            <label>Name * (you name it)</label>
+            <input name="name" required placeholder="e.g. Walk-In Cooler Kitchen">
+          </div>
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>Location *</label>
+              <select name="location" required>
+                ${LOCATIONS.map(l => `<option value="${l}">${l}</option>`).join('')}
+              </select>
+            </div>
+            <div class="eq-form-group">
+              <label>Category</label>
+              <select name="category">
+                ${CATEGORIES.map(c => `<option value="${c.key}" ${catGuess===c.key?'selected':''}>${c.label}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>Manufacturer (from plate)</label>
+              <input name="manufacturer" value="${escAttr(data.manufacturer||'')}">
+            </div>
+            <div class="eq-form-group">
+              <label>Model (from plate)</label>
+              <input name="model" value="${escAttr(data.model||'')}">
+            </div>
+          </div>
+          <div class="eq-form-group">
+            <label>Serial Number (from plate)</label>
+            <input name="serial_number" value="${escAttr(data.serial_number||'')}">
+          </div>
+          ${data.year_manufactured ? `
+          <div class="eq-form-group">
+            <label>Install Date (year extracted: ${data.year_manufactured})</label>
+            <input type="date" name="install_date" value="${data.year_manufactured}-01-01">
+          </div>` : ''}
+          <div class="eq-form-group">
+            <label>Extracted Specs (auto-filled, edit if needed)</label>
+            <textarea name="_specs_json" rows="5" style="font-family:monospace;font-size:12px">${esc(specsStr)}</textarea>
+          </div>
+          <div class="eq-form-actions">
+            <button type="button" class="eq-btn eq-btn-secondary" onclick="document.getElementById('eqPrepopModal').classList.remove('active')">Cancel</button>
+            <button type="submit" class="eq-btn eq-btn-primary">Create Equipment</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+
+  document.getElementById('eqPrepopForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = {};
+    for (const [k, v] of fd.entries()) {
+      if (v !== '' && v != null && !k.startsWith('_')) payload[k] = v;
+    }
+    try {
+      const specsJson = fd.get('_specs_json');
+      if (specsJson) payload.specs = JSON.parse(specsJson);
+    } catch(e) { console.warn('Invalid specs JSON, skipping'); }
+    if (dataPlateUrl) payload.data_plate_url = dataPlateUrl;
+
+    try {
+      // Auto-link manufacturer to the brand library.
+      if (payload.manufacturer && payload.manufacturer.trim()) {
+        const mfgId = await autoLinkManufacturer(payload.manufacturer);
+        if (mfgId) payload.manufacturer_id = mfgId;
+      }
+      const { data: created, error } = await NX.sb.from('equipment').insert(payload).select().single();
+      if (error) throw error;
+      NX.toast && NX.toast('Equipment created ✓', 'success');
+      // equipment_scanned_created syslog → covered by Postgres trigger on equipment INSERT
+      modal.classList.remove('active');
+      await loadEquipment();
+      openDetail(created.id);
+      if (created.manufacturer && created.model) {
+        setTimeout(() => autoFetchManual(created.id), 500);
+      }
+    } catch (err) {
+      console.error('[DataPlate] Create failed:', err);
+      NX.toast && NX.toast('Save failed: ' + err.message, 'error');
+    }
+  });
+}
+
+/* ─── Manual upload ─── */
+
+async function uploadManual(equipId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/pdf';
+
+  input.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      NX.toast && NX.toast('PDF too large (max 50MB)', 'error');
+      return;
+    }
+
+    NX.toast && NX.toast('Uploading manual…', 'info', 5000);
+
+    try {
+      const fname = `${equipId}/${Date.now()}-${file.name.replace(/[^a-z0-9.]/gi, '_')}`;
+      const { error } = await NX.sb.storage
+        .from('equipment-manuals')
+        .upload(fname, file, { upsert: false, contentType: 'application/pdf' });
+      if (error) throw error;
+
+      const { data: { publicUrl } } = NX.sb.storage.from('equipment-manuals').getPublicUrl(fname);
+      await NX.sb.from('equipment').update({ manual_url: publicUrl }).eq('id', equipId);
+
+      NX.toast && NX.toast('Manual uploaded ✓', 'success');
+      if (NX.syslog) NX.syslog('manual_uploaded', `equipment ${equipId}`);
+      await loadEquipment();
+      openDetail(equipId);
+    } catch (err) {
+      console.error('[Manual] Upload failed:', err);
+      NX.toast && NX.toast('Upload failed: ' + err.message, 'error');
+    }
+  });
+
+  input.click();
+}
+
+/* ─── Auto-fetch manual from the web ─── */
+
+async function autoFetchManual(equipId) {
+  const eq = (await NX.sb.from('equipment').select('*').eq('id', equipId).single()).data;
+  if (!eq) return;
+  if (!eq.manufacturer || !eq.model) {
+    NX.toast && NX.toast('Add manufacturer and model first', 'info');
+    return;
+  }
+
+  NX.toast && NX.toast(`Searching web for ${eq.manufacturer} ${eq.model} manual…`, 'info', 6000);
+
+  try {
+    const prompt = `Find the official service/owner manual PDF URL for this commercial kitchen equipment:
+Manufacturer: ${eq.manufacturer}
+Model: ${eq.model}
+
+Prefer in this order:
+1. Manufacturer's official website (e.g. hoshizakiamerica.com, vulcanequipment.com)
+2. partstown.com resource center
+3. manualslib.com
+
+Return raw JSON, no markdown:
+{
+  "manual_url": "direct PDF URL or webpage containing manual",
+  "source": "manufacturer | partstown | manualslib | other",
+  "confidence": "high | medium | low",
+  "notes": "brief note about what was found"
+}
+If nothing found, return {"manual_url": null, "source": null, "confidence": "low", "notes": "..."}`;
+
+    const answer = await NX.askClaude(prompt, [{ role: 'user', content: 'Search now.' }], 800, true);
+
+    const jsonStart = answer.indexOf('{');
+    const jsonEnd = answer.lastIndexOf('}');
+    if (jsonStart === -1) throw new Error('No JSON found');
+    const result = JSON.parse(answer.slice(jsonStart, jsonEnd + 1));
+
+    if (result.manual_url) {
+      await NX.sb.from('equipment').update({
+        manual_source_url: result.manual_url
+      }).eq('id', equipId);
+      NX.toast && NX.toast(`Found manual (${result.confidence} confidence) — saved link`, 'success', 5000);
+      await loadEquipment();
+      openDetail(equipId);
+    } else {
+      NX.toast && NX.toast(`No manual found. Try uploading a PDF directly.`, 'info', 5000);
+    }
+  } catch (err) {
+    console.error('[Manual] Auto-fetch failed:', err);
+    NX.toast && NX.toast('Search failed — try uploading manually', 'error');
+  }
+}
+
+/* ─── Pattern detection + cost analysis ─── */
+
+async function detectPatterns(equipId) {
+  const { data: maint } = await NX.sb.from('equipment_maintenance')
+    .select('*')
+    .eq('equipment_id', equipId)
+    .eq('event_type', 'repair')
+    .order('event_date', { ascending: true });
+
+  if (!maint || maint.length < 2) {
+    return { hasPattern: false, reason: 'Not enough history (need 2+ repairs)' };
+  }
+
+  const intervals = [];
+  for (let i = 1; i < maint.length; i++) {
+    const a = new Date(maint[i - 1].event_date);
+    const b = new Date(maint[i].event_date);
+    intervals.push(Math.round((b - a) / 86400000));
+  }
+
+  const avgInterval = intervals.reduce((s, d) => s + d, 0) / intervals.length;
+  const variance = intervals.reduce((s, d) => s + Math.pow(d - avgInterval, 2), 0) / intervals.length;
+  const stdDev = Math.sqrt(variance);
+  const relStdDev = stdDev / avgInterval;
+
+  const lastRepair = new Date(maint[maint.length - 1].event_date);
+  const daysSinceLastRepair = Math.round((new Date() - lastRepair) / 86400000);
+
+  const allSymptoms = maint.map(m => (m.symptoms || m.description || '').toLowerCase()).join(' ');
+  const keywords = ['compressor', 'fan', 'thermostat', 'refrigerant', 'drain', 'seal', 'gasket', 'motor', 'valve', 'pilot', 'igniter'];
+  const topSymptom = keywords.find(k => (allSymptoms.match(new RegExp(k, 'g')) || []).length >= 2);
+
+  const hasPattern = relStdDev < 0.4 && maint.length >= 3;
+  const predictedDate = new Date(lastRepair.getTime() + avgInterval * 86400000);
+  const daysUntilPredicted = Math.round((predictedDate - new Date()) / 86400000);
+
+  return {
+    hasPattern,
+    totalRepairs: maint.length,
+    avgInterval: Math.round(avgInterval),
+    relStdDev: relStdDev.toFixed(2),
+    daysSinceLastRepair,
+    daysUntilPredicted,
+    predictedDate: predictedDate.toISOString().slice(0, 10),
+    topSymptom,
+    alertLevel: daysUntilPredicted <= 14 && hasPattern ? 'urgent' :
+                daysUntilPredicted <= 30 && hasPattern ? 'warning' : 'none'
+  };
+}
+
+function analyzeCost(eq) {
+  const yearlyCost = parseFloat(eq.cost_this_year) || 0;
+  const purchasePrice = parseFloat(eq.purchase_price) || 0;
+  const servicesThisYear = eq.services_this_year || 0;
+
+  if (purchasePrice > 0 && yearlyCost > purchasePrice * 0.4) {
+    return {
+      yearlyCost,
+      projectedNextYear: Math.round(yearlyCost * 1.3),
+      recommendation: 'replace',
+      reasoning: `Repairs (${Math.round(yearlyCost / purchasePrice * 100)}% of purchase price) exceed the 40% replacement threshold. A new unit likely pays back within a year.`
+    };
+  }
+
+  if (servicesThisYear >= 3) {
+    return {
+      yearlyCost,
+      recommendation: 'monitor',
+      reasoning: `${servicesThisYear} services this year suggests increasing failure rate. Watch for escalation.`
+    };
+  }
+
+  return {
+    yearlyCost,
+    recommendation: 'healthy',
+    reasoning: servicesThisYear === 0
+      ? 'No repairs this year — running well.'
+      : `Only ${servicesThisYear} service${servicesThisYear>1?'s':''} this year — normal maintenance profile.`
+  };
+}
+
+async function renderIntelligenceTab(equipId) {
+  const eq = equipment.find(e => e.id === equipId) ||
+             (await NX.sb.from('equipment_with_stats').select('*').eq('id', equipId).single()).data;
+  if (!eq) return '<div class="eq-empty-small">Not found</div>';
+
+  const pattern = await detectPatterns(equipId);
+  const costAnalysis = analyzeCost(eq);
+
+  let html = '<div class="eq-ai-panel">';
+
+  html += `<div class="eq-ai-card"><h4>${uiSvg('crystal', '14px')} Failure Pattern Analysis</h4>`;
+  if (pattern.hasPattern) {
+    const color = pattern.alertLevel === 'urgent' ? 'var(--red)' : pattern.alertLevel === 'warning' ? 'var(--amber)' : 'var(--green)';
+    html += `
+      <div class="eq-ai-alert" style="border-color:${color}">
+        <div class="eq-ai-big" style="color:${color}">
+          ${pattern.daysUntilPredicted < 0
+            ? `${uiSvg('alert', '14px')} Overdue by ${-pattern.daysUntilPredicted} days`
+            : pattern.daysUntilPredicted <= 14
+            ? `${uiSvg('alert', '14px')} Service needed in ~${pattern.daysUntilPredicted} days`
+            : `${pattern.daysUntilPredicted} days until predicted service`}
+        </div>
+        <div class="eq-ai-detail">
+          Based on ${pattern.totalRepairs} past repairs averaging every ${pattern.avgInterval} days.
+          ${pattern.topSymptom ? `<br><b>Common issue:</b> ${pattern.topSymptom}` : ''}
+          <br>Last repair: ${pattern.daysSinceLastRepair} days ago
+          <br>Predicted next: ${new Date(pattern.predictedDate).toLocaleDateString()}
+        </div>
+      </div>`;
+  } else {
+    html += `<div class="eq-ai-neutral">${pattern.reason || `Need more repair history to detect patterns (${pattern.totalRepairs || 0} recorded).`}</div>`;
+  }
+  html += '</div>';
+
+  html += `<div class="eq-ai-card"><h4>${uiSvg('dollar', '14px')} Cost Intelligence</h4>`;
+  if (costAnalysis.recommendation === 'replace') {
+    html += `
+      <div class="eq-ai-alert" style="border-color:var(--red)">
+        <div class="eq-ai-big" style="color:var(--red)">${uiSvg('refresh', '14px')} Consider Replacement</div>
+        <div class="eq-ai-detail">
+          Total repairs last 12mo: <b>$${costAnalysis.yearlyCost.toLocaleString()}</b><br>
+          ${costAnalysis.projectedNextYear ? `Projected next year: <b>$${costAnalysis.projectedNextYear.toLocaleString()}</b><br>` : ''}
+          ${eq.purchase_price ? `Original cost: $${Math.round(eq.purchase_price).toLocaleString()}<br>` : ''}
+          <i>${costAnalysis.reasoning}</i>
+        </div>
+      </div>`;
+  } else if (costAnalysis.recommendation === 'monitor') {
+    html += `
+      <div class="eq-ai-alert" style="border-color:var(--amber)">
+        <div class="eq-ai-big" style="color:var(--amber)">${uiSvg('alert', '14px')} Monitor Costs</div>
+        <div class="eq-ai-detail">
+          YTD repair cost: <b>$${costAnalysis.yearlyCost.toLocaleString()}</b><br>
+          <i>${costAnalysis.reasoning}</i>
+        </div>
+      </div>`;
+  } else {
+    html += `
+      <div class="eq-ai-neutral">
+        YTD repair cost: $${costAnalysis.yearlyCost.toLocaleString()}<br>
+        <i>${costAnalysis.reasoning}</i>
+      </div>`;
+  }
+  html += '</div>';
+
+  html += `
+    <div class="eq-ai-actions">
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.scanDataPlate('${equipId}')">${uiSvg("camera", "13px")} Re-scan Data Plate</button>
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${equipId}')">${uiSvg("link", "13px")} Find Manual Online</button>
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.uploadManual('${equipId}')">${uiSvg("document", "13px")} Upload Manual PDF</button>
+    </div>
+  `;
+  html += '</div>';
+  return html;
+}
+
+/* ─── Fleet-wide scan for the morning brief ─── */
+
+async function scanFleet() {
+  const { data: allEq } = await NX.sb.from('equipment').select('id, name, location')
+    .not('status', 'eq', 'retired');
+  if (!allEq || !allEq.length) return [];
+
+  const urgent = [];
+  for (const eq of allEq) {
+    const p = await detectPatterns(eq.id);
+    if (p.hasPattern && p.alertLevel !== 'none') {
+      urgent.push({
+        id: eq.id, name: eq.name, location: eq.location,
+        days: p.daysUntilPredicted, level: p.alertLevel, symptom: p.topSymptom
+      });
+    }
+  }
+  return urgent.sort((a, b) => a.days - b.days);
+}
+
+/* ─── Predictive PM ─── */
+
+async function suggestPMDate(equipId) {
+  const pattern = await detectPatterns(equipId);
+  if (!pattern.hasPattern) return null;
+  const predicted = new Date(pattern.predictedDate);
+  const pmDate = new Date(predicted.getTime() - 14 * 86400000);
+  return pmDate.toISOString().slice(0, 10);
+}
+
+async function applyPredictivePM(equipId) {
+  const suggested = await suggestPMDate(equipId);
+  if (!suggested) {
+    NX.toast && NX.toast('Not enough history for prediction', 'info');
+    return;
+  }
+  if (!confirm(`Set next PM to ${new Date(suggested).toLocaleDateString()}?\n\nBased on repair pattern, this is 2 weeks before predicted next failure.`)) return;
+
+  await NX.sb.from('equipment').update({ next_pm_date: suggested }).eq('id', equipId);
+  NX.toast && NX.toast('Predictive PM scheduled ✓', 'success');
+  await loadEquipment();
+  openDetail(equipId);
+}
+
+/* ─── BOM extraction from manual ─── */
+
+async function extractBOMFromManual(equipId) {
+  // Build progress modal so user sees each step
+  const modal = document.createElement('div');
+  modal.className = 'eq-extract-modal';
+  modal.innerHTML = `
+    <div class="eq-extract-bg"></div>
+    <div class="eq-extract-card">
+      <div class="eq-extract-header">
+        <div class="eq-extract-title">${uiSvg("sparkles", "16px")} Extracting Parts from Manual</div>
+      </div>
+      <div class="eq-extract-body" id="eqExtractBody">
+        <div class="eq-extract-step" id="eqExtractStep">Starting…</div>
+        <div class="eq-extract-spinner"></div>
+      </div>
+      <div class="eq-extract-actions">
+        <button class="eq-extract-cancel-btn" id="eqExtractCancel">Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  let cancelled = false;
+  modal.querySelector('#eqExtractCancel').addEventListener('click', () => { cancelled = true; modal.remove(); });
+  const setStep = (t) => { const el = modal.querySelector('#eqExtractStep'); if (el) el.textContent = t; };
+  const showError = (msg) => {
+    modal.querySelector('#eqExtractBody').innerHTML = `
+      <div class="eq-extract-error">
+        <div class="eq-extract-error-icon">${uiSvg("alert", "32px")}</div>
+        <div class="eq-extract-error-msg">${esc(msg)}</div>
+      </div>`;
+    modal.querySelector('#eqExtractCancel').textContent = 'Close';
+  };
+
+  try {
+    setStep('Loading equipment details…');
+    const { data: eq, error: eqErr } = await NX.sb.from('equipment').select('*').eq('id', equipId).single();
+    if (eqErr) throw new Error('Equipment not found: ' + eqErr.message);
+    if (cancelled) return;
+
+    if (!eq.manual_url) { showError('No manual uploaded yet. Go to the Manual tab and upload a PDF first.'); return; }
+
+    const apiKey = NX.getApiKey?.() || NX.config?.api_key;
+    if (!apiKey) { showError('No Anthropic API key configured. Set it in Admin → API Keys.'); return; }
+
+    setStep('Downloading manual PDF…');
+    let pdfRes;
+    try { pdfRes = await fetch(eq.manual_url); }
+    catch (e) { showError('Could not fetch manual: ' + e.message); return; }
+    if (!pdfRes.ok) { showError(`Manual returned HTTP ${pdfRes.status}. The file may have been moved or deleted.`); return; }
+    if (cancelled) return;
+
+    setStep('Preparing PDF for analysis…');
+    const pdfBlob = await pdfRes.blob();
+    const sizeMB = (pdfBlob.size / 1048576).toFixed(2);
+    if (pdfBlob.size > 32 * 1048576) { showError(`Manual is ${sizeMB}MB. Claude PDF input is limited to ~32MB.`); return; }
+    const pdfBase64 = await blobToBase64(pdfBlob);
+    if (cancelled) return;
+
+    setStep(`Sending ${sizeMB}MB PDF to Claude (20–60 seconds)…`);
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: NX.getModel?.() || 'claude-sonnet-4-5',
+        max_tokens: 4096,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } },
+            { type: 'text', text: `You are reading a service/parts manual for commercial kitchen equipment:
+Equipment: ${eq.manufacturer || 'Unknown'} ${eq.model || ''}
+Name: ${eq.name || ''}
+
+Extract all SERVICEABLE PARTS from the parts list / exploded diagram sections.
+Focus on parts someone might need to order (compressors, fans, motors, thermostats, gaskets, filters, valves, pumps, igniters, thermocouples, heating elements, belts, bearings, seals, pilot assemblies, switches, knobs, doors, hinges, lights, drip pans, racks).
+
+Skip: screws, bolts, generic fasteners, cosmetic-only pieces.
+
+Return raw JSON array (no markdown, no preamble):
+[
+  {
+    "part_name": "Evaporator Fan Motor",
+    "oem_part_number": "2A1540-00",
+    "mfr_part_number": null,
+    "quantity": 1,
+    "assembly_path": "Refrigeration > Condenser",
+    "diagram_page": 24,
+    "notes": "Any service note mentioned"
+  }
+]
+
+If no parts are found, return [].` }
+          ]
+        }]
+      })
+    });
+    if (cancelled) return;
+
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      showError(`Claude API error (${resp.status}): ${errBody.slice(0, 300)}`);
+      return;
+    }
+    const data = await resp.json();
+    if (data.error) { showError('Claude returned error: ' + data.error.message); return; }
+
+    setStep('Parsing parts list…');
+    const answer = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+    const arrStart = answer.indexOf('['), arrEnd = answer.lastIndexOf(']');
+    if (arrStart === -1 || arrEnd <= arrStart) { showError('Claude did not return a valid parts list. Response started: ' + answer.slice(0, 200)); return; }
+    let parts;
+    try { parts = JSON.parse(answer.slice(arrStart, arrEnd + 1)); }
+    catch (e) { showError('Could not parse response as JSON: ' + e.message); return; }
+    if (!Array.isArray(parts) || !parts.length) { showError('No serviceable parts found in this manual.'); return; }
+
+    showExtractionConfirmation(modal, equipId, parts);
+  } catch (err) {
+    console.error('[extractBOM] failed:', err);
+    showError('Unexpected error: ' + err.message);
+  }
+}
+
+function showExtractionConfirmation(modal, equipId, parts) {
+  modal.querySelector('#eqExtractBody').innerHTML = `
+    <div class="eq-extract-success">
+      <div class="eq-extract-success-icon">${uiSvg("check", "32px")}</div>
+      <div class="eq-extract-success-count">Found ${parts.length} part${parts.length === 1 ? '' : 's'}</div>
+    </div>
+    <div class="eq-extract-parts-list">
+      ${parts.map((p, i) => `
+        <label class="eq-extract-part">
+          <input type="checkbox" checked data-part-idx="${i}">
+          <div class="eq-extract-part-info">
+            <div class="eq-extract-part-name">${esc(p.part_name)}</div>
+            <div class="eq-extract-part-meta">
+              ${p.oem_part_number ? `OEM: ${esc(p.oem_part_number)}` : ''}
+              ${p.assembly_path ? ` · ${esc(p.assembly_path)}` : ''}
+              ${p.quantity > 1 ? ` · Qty: ${p.quantity}` : ''}
+            </div>
+          </div>
+        </label>
+      `).join('')}
+    </div>
+  `;
+  modal.querySelector('.eq-extract-actions').innerHTML = `
+    <button class="eq-extract-cancel-btn" id="eqExtractCancel2">Cancel</button>
+    <button class="eq-extract-save-btn" id="eqExtractSave">Save Selected Parts</button>
+  `;
+  modal.querySelector('#eqExtractCancel2').addEventListener('click', () => modal.remove());
+  modal.querySelector('#eqExtractSave').addEventListener('click', async () => {
+    const selectedIdxs = Array.from(modal.querySelectorAll('input[type=checkbox]:checked')).map(cb => parseInt(cb.dataset.partIdx, 10));
+    const selectedParts = selectedIdxs.map(i => parts[i]);
+    if (!selectedParts.length) { NX.toast && NX.toast('No parts selected', 'info'); return; }
+    try {
+      const rows = selectedParts.map(p => ({
+        equipment_id: equipId,
+        part_name: p.part_name,
+        oem_part_number: p.oem_part_number || null,
+        quantity: p.quantity || 1,
+        assembly_path: p.assembly_path || null,
+        notes: p.notes || null,
+        vendors: []
+      }));
+      const { error } = await NX.sb.from('equipment_parts').insert(rows);
+      if (error) throw error;
+      NX.toast && NX.toast(`Saved ${rows.length} part${rows.length === 1 ? '' : 's'}`, 'success');
+      modal.remove();
+      openDetail(equipId);
+    } catch (e) {
+      NX.toast && NX.toast('Save failed: ' + e.message, 'error');
+    }
+  });
+}
+
+async function extractBOMFromManual_LEGACY(equipId) {
+  const { data: eq } = await NX.sb.from('equipment').select('*').eq('id', equipId).single();
+  if (!eq || !eq.manual_url) {
+    NX.toast && NX.toast('Upload a manual first', 'info');
+    return;
+  }
+
+  NX.toast && NX.toast('Reading manual and extracting parts…', 'info', 10000);
+
+  try {
+    const pdfRes = await fetch(eq.manual_url);
+    if (!pdfRes.ok) throw new Error('Could not fetch manual');
+    const pdfBlob = await pdfRes.blob();
+    const pdfBase64 = await blobToBase64(pdfBlob);
+
+    const key = NX.getApiKey();
+    if (!key) throw new Error('No API key configured');
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: NX.getModel(),
+        max_tokens: 4000,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } },
+            { type: 'text', text: `You are reading a service/parts manual for commercial kitchen equipment:
+Equipment: ${eq.manufacturer} ${eq.model}
+
+Extract all SERVICEABLE PARTS from the parts list / exploded diagram sections.
+Focus on parts someone might need to order (compressors, fans, motors, thermostats, gaskets, filters, valves, pumps, igniters, thermocouples, heating elements, belts, bearings, seals, pilot assemblies).
+
+Skip: screws, bolts, generic fasteners, cosmetic pieces.
+
+Return raw JSON array (no markdown):
+[
+  {
+    "part_name": "Evaporator Fan Motor",
+    "oem_part_number": "2A1540-00",
+    "mfr_part_number": null,
+    "quantity": 1,
+    "assembly_path": "Refrigeration > Condenser",
+    "diagram_page": 24,
+    "notes": "Any service note mentioned"
+  }
+]
+
+If no parts are found, return []. Extract only what's explicitly listed.` }
+          ]
+        }]
+      })
+    });
+
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message);
+    const answer = data.content?.filter(b => b.type === 'text').map(b => b.text).join('\n') || '';
+
+    const arrStart = answer.indexOf('[');
+    const arrEnd = answer.lastIndexOf(']');
+    if (arrStart === -1) throw new Error('No parts array in response');
+    const parts = JSON.parse(answer.slice(arrStart, arrEnd + 1));
+
+    if (!parts.length) {
+      NX.toast && NX.toast('No serviceable parts found in manual', 'info');
+      return;
+    }
+
+    showBOMConfirmation(equipId, parts);
+  } catch (err) {
+    console.error('[BOM] Extraction failed:', err);
+    NX.toast && NX.toast('Extraction failed: ' + err.message, 'error', 8000);
+  }
+}
+
+function showBOMConfirmation(equipId, parts) {
+  const modal = document.createElement('div');
+  modal.className = 'eq-modal active';
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="this.parentElement.remove()"></div>
+    <div class="eq-detail eq-edit">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="this.closest('.eq-modal').remove()">${uiSvg("close", "16px")}</button>
+        <h2>${uiSvg("sparkles", "16px")} Extracted ${parts.length} Parts</h2>
+      </div>
+      <div class="eq-detail-body">
+        <p>Review and deselect any parts you don't want to add:</p>
+        <div class="eq-bom-list">
+          ${parts.map((p, i) => `
+            <label class="eq-bom-item">
+              <input type="checkbox" checked data-idx="${i}">
+              <div>
+                <div class="eq-bom-name">${esc(p.part_name)}</div>
+                <div class="eq-bom-sub">
+                  ${p.oem_part_number ? 'OEM: ' + esc(p.oem_part_number) : ''}
+                  ${p.assembly_path ? ' · ' + esc(p.assembly_path) : ''}
+                  ${p.diagram_page ? ' · p.' + p.diagram_page : ''}
+                </div>
+              </div>
+            </label>
+          `).join('')}
+        </div>
+        <div class="eq-form-actions">
+          <button class="eq-btn eq-btn-secondary" onclick="this.closest('.eq-modal').remove()">Cancel</button>
+          <button class="eq-btn eq-btn-primary" id="bomConfirmBtn">Add Selected Parts</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  modal.querySelector('#bomConfirmBtn').addEventListener('click', async () => {
+    const checked = modal.querySelectorAll('input[type="checkbox"]:checked');
+    const selected = Array.from(checked).map(c => parts[parseInt(c.dataset.idx)]);
+    if (!selected.length) { modal.remove(); return; }
+
+    const toInsert = selected.map(p => ({
+      equipment_id: equipId,
+      part_name: p.part_name || 'Unknown',
+      oem_part_number: p.oem_part_number || null,
+      mfr_part_number: p.mfr_part_number || null,
+      quantity: p.quantity || 1,
+      assembly_path: p.assembly_path || null,
+      diagram_page: p.diagram_page || null,
+      notes: p.notes || null,
+      supplier: 'Parts Town',
+      supplier_url: `https://www.partstown.com/search?searchterm=${encodeURIComponent((p.oem_part_number || p.part_name || '').trim())}`
+    }));
+
+    try {
+      const { error } = await NX.sb.from('equipment_parts').insert(toInsert);
+      if (error) throw error;
+      NX.toast && NX.toast(`Added ${toInsert.length} parts ✓`, 'success');
+      if (NX.syslog) NX.syslog('bom_extracted', `${toInsert.length} parts from manual`);
+      modal.remove();
+      openDetail(equipId);
+    } catch (err) {
+      NX.toast && NX.toast('Insert failed: ' + err.message, 'error');
+    }
+  });
+}
+
+async function exportPartsCart(equipId) {
+  const { data: parts } = await NX.sb.from('equipment_parts')
+    .select('part_name, oem_part_number, quantity, supplier_url')
+    .eq('equipment_id', equipId);
+
+  if (!parts || !parts.length) {
+    NX.toast && NX.toast('No parts to export', 'info');
+    return;
+  }
+
+  const list = parts.map(p => {
+    const searchTerm = p.oem_part_number || p.part_name;
+    const url = p.supplier_url || `https://www.partstown.com/search?searchterm=${encodeURIComponent(searchTerm)}`;
+    return { name: p.part_name, pn: p.oem_part_number || 'N/A', qty: p.quantity || 1, url };
+  });
+
+  const modal = document.createElement('div');
+  modal.className = 'eq-modal active';
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="this.parentElement.remove()"></div>
+    <div class="eq-detail eq-edit">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="this.closest('.eq-modal').remove()">${uiSvg("close", "16px")}</button>
+        <h2>Parts Shopping List</h2>
+      </div>
+      <div class="eq-detail-body">
+        <p>Click each link to open the part on Parts Town. Each opens in a new tab so you can build your cart there.</p>
+        <div class="eq-parts-cart">
+          ${list.map(p => `
+            <div class="eq-cart-item">
+              <div class="eq-cart-info">
+                <div class="eq-cart-name">${esc(p.name)}</div>
+                <div class="eq-cart-pn">PN: ${esc(p.pn)} · Qty: ${p.qty}</div>
+              </div>
+              <a href="${p.url}" target="_blank" class="eq-btn eq-btn-primary eq-btn-small">Shop →</a>
+            </div>
+          `).join('')}
+        </div>
+        <div class="eq-form-actions">
+          <button class="eq-btn eq-btn-secondary" onclick="
+            const text = ${JSON.stringify(list.map(p => `${p.name} | PN: ${p.pn} | Qty: ${p.qty} | ${p.url}`).join('\n'))};
+            navigator.clipboard.writeText(text);
+            NX.toast && NX.toast('List copied ✓', 'success');
+          ">Copy List</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+async function checkWarranties() {
+  const soon = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const { data } = await NX.sb.from('equipment')
+    .select('id, name, location, warranty_until')
+    .not('warranty_until', 'is', null)
+    .gte('warranty_until', today)
+    .lte('warranty_until', soon);
+  return data || [];
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   6. AI CREATE — describe / photo / bulk / dataplate
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function openAICreator() {
+  const modal = document.getElementById('eqAICreatorModal') || (() => {
+    const m = document.createElement('div');
+    m.id = 'eqAICreatorModal';
+    m.className = 'eq-modal';
+    document.body.appendChild(m);
+    return m;
+  })();
+
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="document.getElementById('eqAICreatorModal').classList.remove('active')"></div>
+    <div class="eq-detail eq-edit">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="document.getElementById('eqAICreatorModal').classList.remove('active')">${uiSvg('close', '16px')}</button>
+        <h2>${uiSvg("sparkles", "16px")} AI Create Equipment</h2>
+      </div>
+      <div class="eq-detail-body">
+        <div class="eq-ai-intro">Let AI handle the data entry. Pick your method:</div>
+        <div class="eq-ai-methods">
+          <button class="eq-ai-method" data-method="describe">
+            <div class="eq-ai-method-icon">${uiSvg('message', '28px')}</div>
+            <div class="eq-ai-method-title">Describe It</div>
+            <div class="eq-ai-method-desc">Type or paste details in natural language. AI extracts everything and auto-links contractors, parts, locations.</div>
+          </button>
+          <button class="eq-ai-method" data-method="photo">
+            <div class="eq-ai-method-icon">${uiSvg('camera', '28px')}</div>
+            <div class="eq-ai-method-title">Photo of Unit</div>
+            <div class="eq-ai-method-desc">Take a picture of the equipment. AI identifies make/model from visible details.</div>
+          </button>
+          <button class="eq-ai-method" data-method="bulk">
+            <div class="eq-ai-method-icon">${uiSvg('building', '28px')}</div>
+            <div class="eq-ai-method-title">Scan Whole Room</div>
+            <div class="eq-ai-method-desc">Take a photo of your kitchen or bar. AI identifies every piece it sees and adds all of them at once.</div>
+          </button>
+          <button class="eq-ai-method" data-method="dataplate">
+            <div class="eq-ai-method-icon">${uiSvg('qr', '28px')}</div>
+            <div class="eq-ai-method-title">Scan Data Plate</div>
+            <div class="eq-ai-method-desc">Photograph the metal/plastic data plate. AI extracts exact model/serial/specs.</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+
+  modal.querySelectorAll('.eq-ai-method').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const method = btn.dataset.method;
+      modal.classList.remove('active');
+      if (method === 'describe') openDescribeDialog();
+      else if (method === 'photo') photoIdentify();
+      else if (method === 'bulk') bulkIdentify();
+      else if (method === 'dataplate') scanDataPlate(null);
+    });
+  });
+}
+
+function openDescribeDialog() {
+  const modal = document.getElementById('eqDescribeModal') || (() => {
+    const m = document.createElement('div');
+    m.id = 'eqDescribeModal';
+    m.className = 'eq-modal';
+    document.body.appendChild(m);
+    return m;
+  })();
+
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="document.getElementById('eqDescribeModal').classList.remove('active')"></div>
+    <div class="eq-detail eq-edit">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="document.getElementById('eqDescribeModal').classList.remove('active')">${uiSvg('close', '16px')}</button>
+        <h2>${uiSvg('message', '18px')} Describe Equipment</h2>
+      </div>
+      <div class="eq-detail-body">
+        <div class="eq-ai-intro">
+          Describe the equipment in your own words. AI extracts everything, auto-links contractors and parts from your existing data.
+        </div>
+        <div class="eq-ai-examples">
+          <div class="eq-ai-examples-title">Examples:</div>
+          <div class="eq-ai-example" data-fill="Hoshizaki KM-320MAH ice machine at Suerte kitchen, installed March 2023, serial 240317001, Tyler from Austin Air & Ice services it quarterly">Single equipment with contractor</div>
+          <div class="eq-ai-example" data-fill="Walk-in cooler at Este, True Manufacturing T-49, bought 2022, warranty until 2027, uses condenser fan 800-5016 and evaporator coil 800-1402. Last serviced by Juan in January">Equipment with parts and history</div>
+          <div class="eq-ai-example" data-fill="Vulcan 6-burner range at Bar Toti, gas, natural gas hookup, bought used in 2021. Has pilot issues every few months">Minimal info with issues</div>
+        </div>
+        <div class="eq-form-group">
+          <label>Description (as much or little as you want)</label>
+          <textarea id="eqDescribeInput" rows="6" placeholder="e.g. Hoshizaki ice machine at Suerte, installed last year, Tyler services it..."></textarea>
+        </div>
+        <div class="eq-form-actions">
+          <button class="eq-btn eq-btn-secondary" onclick="document.getElementById('eqDescribeModal').classList.remove('active')">Cancel</button>
+          <button class="eq-btn eq-btn-primary" id="eqDescribeGo">${uiSvg("sparkles", "13px")} Create with AI</button>
+        </div>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+
+  modal.querySelectorAll('.eq-ai-example').forEach(ex => {
+    ex.addEventListener('click', () => {
+      document.getElementById('eqDescribeInput').value = ex.dataset.fill;
+      document.getElementById('eqDescribeInput').focus();
+    });
+  });
+
+  document.getElementById('eqDescribeGo').addEventListener('click', async () => {
+    const text = document.getElementById('eqDescribeInput').value.trim();
+    if (!text) return;
+    const btn = document.getElementById('eqDescribeGo');
+    btn.disabled = true;
+    btn.innerHTML = uiSvg('sparkles','13px') + ' Thinking…';
+    try {
+      await createFromDescription(text);
+      modal.classList.remove('active');
+    } catch (err) {
+      console.error('[AI-Create] Describe failed:', err);
+      NX.toast && NX.toast('Creation failed: ' + err.message, 'error', 6000);
+      btn.disabled = false;
+      btn.innerHTML = uiSvg('sparkles','13px') + ' Create with AI';
+    }
+  });
+}
+
+async function createFromDescription(text) {
+  const context = await loadExistingContext();
+  const system = `You are creating equipment records for a restaurant management system.
+Given a natural language description, extract structured data AND identify any references
+to existing people, contractors, parts, or locations from this list:
+
+EXISTING CONTRACTORS: ${context.contractors.map(c => c.name).join(', ') || 'none'}
+EXISTING PEOPLE: ${context.people.map(p => p.name).join(', ') || 'none'}
+EXISTING PARTS: ${context.parts.slice(0, 30).map(p => p.name).join(', ') || 'none'}
+LOCATIONS: Suerte, Este, Bar Toti
+
+Extract and return raw JSON (no markdown), can include multiple equipment if described:
+{
+  "equipment": [
+    {
+      "name": "descriptive name",
+      "location": "Suerte" | "Este" | "Bar Toti",
+      "area": "Kitchen" | "Bar" | "Dining" etc or null,
+      "category": "refrigeration" | "cooking" | "ice" | "hvac" | "dish" | "bev" | "smallware" | "other",
+      "manufacturer": "...",
+      "model": "...",
+      "serial_number": "...",
+      "install_date": "YYYY-MM-DD" or null,
+      "warranty_until": "YYYY-MM-DD" or null,
+      "status": "operational" | "needs_service" | "down",
+      "notes": "any other details like issues, quirks, etc",
+      "linked_contractors": ["exact name from EXISTING CONTRACTORS list"],
+      "linked_people": ["exact name from EXISTING PEOPLE list"],
+      "linked_parts": ["exact name from EXISTING PARTS list"],
+      "mentioned_parts_new": [
+        {"name": "Condenser Fan", "oem_part_number": "800-5016"}
+      ],
+      "mentioned_issues": ["pilot issues", "runs warm"]
+    }
+  ],
+  "interpretation_notes": "brief note about what you understood or assumed"
+}
+
+If a contractor or person is mentioned but not in the existing list, include their name in linked_contractors anyway — we'll auto-create them.
+If the text mentions parts with part numbers, add them to mentioned_parts_new.
+Infer reasonable defaults only when obvious.
+Return null for fields where info isn't provided. DON'T HALLUCINATE data.`;
+
+  const answer = await NX.askClaude(system, [{ role: 'user', content: text }], 3000);
+  const jsonStart = answer.indexOf('{');
+  const jsonEnd = answer.lastIndexOf('}');
+  if (jsonStart === -1) throw new Error('No JSON in AI response');
+  const parsed = JSON.parse(answer.slice(jsonStart, jsonEnd + 1));
+
+  if (!parsed.equipment || !parsed.equipment.length) {
+    throw new Error('No equipment could be extracted');
+  }
+  showCreationConfirmation(parsed, context);
+}
+
+async function photoIdentify() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.capture = 'environment';
+
+  input.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    NX.toast && NX.toast('AI identifying equipment…', 'info', 10000);
+
+    try {
+      const base64 = await fileToBase64(file);
+      const prompt = `You are looking at a photo of commercial restaurant/kitchen equipment.
+Identify it as best you can. Return raw JSON (no markdown):
+{
+  "equipment": [{
+    "name": "descriptive name — be specific about what you see",
+    "category": "refrigeration | cooking | ice | hvac | dish | bev | smallware | other",
+    "subcategory": "walk_in | reach_in | fryer | combi | range | hood | ice_machine | etc",
+    "manufacturer": "... (only if visible/identifiable from badges/design)" or null,
+    "model": "... (only if readable)" or null,
+    "approximate_size": "small | medium | large",
+    "condition": "new | good | fair | needs_attention",
+    "visible_details": ["any notable features you see"],
+    "confidence": "high | medium | low",
+    "notes": "what you observed"
+  }],
+  "scene_description": "brief description of what's in the photo"
+}
+If you can't identify it clearly, still return a best-guess entry with low confidence.`;
+
+      const answer = await NX.askClaudeVision(prompt, base64, file.type);
+      const jsonStart = answer.indexOf('{');
+      const jsonEnd = answer.lastIndexOf('}');
+      if (jsonStart === -1) throw new Error('No JSON in response');
+      const parsed = JSON.parse(answer.slice(jsonStart, jsonEnd + 1));
+
+      const photoUrl = await uploadCreatePhoto(file, parsed.equipment[0]);
+      if (photoUrl) parsed.equipment[0].photo_url = photoUrl;
+
+      const context = await loadExistingContext();
+      showCreationConfirmation(parsed, context, 'photo');
+    } catch (err) {
+      console.error('[AI-Create] Photo failed:', err);
+      NX.toast && NX.toast('Identification failed: ' + err.message, 'error', 6000);
+    }
+  });
+
+  input.click();
+}
+
+async function bulkIdentify() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.capture = 'environment';
+
+  input.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const location = await askLocation();
+    if (!location) return;
+
+    NX.toast && NX.toast('AI scanning the room…', 'info', 15000);
+
+    try {
+      const base64 = await fileToBase64(file);
+      const prompt = `You are looking at a wide-angle photo of a commercial restaurant space (${location}).
+Identify EVERY piece of equipment visible in the photo.
+
+Return raw JSON (no markdown):
+{
+  "equipment": [
+    {
+      "name": "descriptive name",
+      "category": "refrigeration | cooking | ice | hvac | dish | bev | smallware | other",
+      "subcategory": "walk_in | reach_in | fryer | combi | range | hood | ice_machine | prep_table | etc",
+      "manufacturer": "..." or null (only if visible),
+      "model": "..." or null (only if readable),
+      "approximate_size": "small | medium | large",
+      "location_in_frame": "left | center | right | back | foreground",
+      "condition": "new | good | fair | needs_attention",
+      "confidence": "high | medium | low",
+      "notes": "what you see"
+    }
+  ],
+  "scene_description": "brief description"
+}
+
+List EVERY distinct piece of equipment. Even small items like microwaves, coffee makers, prep tables.
+Skip: utensils, small hand tools, food, decor items.`;
+
+      const answer = await NX.askClaudeVision(prompt, base64, file.type);
+      const jsonStart = answer.indexOf('{');
+      const jsonEnd = answer.lastIndexOf('}');
+      if (jsonStart === -1) throw new Error('No JSON in response');
+      const parsed = JSON.parse(answer.slice(jsonStart, jsonEnd + 1));
+
+      parsed.equipment.forEach(eq => eq.location = location);
+      const photoUrl = await uploadCreatePhoto(file, { name: 'bulk-scan' });
+      parsed.equipment.forEach(eq => eq.photo_url = photoUrl);
+
+      const context = await loadExistingContext();
+      showCreationConfirmation(parsed, context, 'bulk');
+    } catch (err) {
+      console.error('[AI-Create] Bulk failed:', err);
+      NX.toast && NX.toast('Scan failed: ' + err.message, 'error', 6000);
+    }
+  });
+
+  input.click();
+}
+
+function askLocation() {
+  return new Promise(resolve => {
+    const modal = document.createElement('div');
+    modal.className = 'eq-modal active';
+    modal.innerHTML = `
+      <div class="eq-detail-bg"></div>
+      <div class="eq-detail eq-edit">
+        <div class="eq-detail-head"><h2>Which location?</h2></div>
+        <div class="eq-detail-body">
+          <div class="eq-loc-picker">
+            <button class="eq-loc-btn" data-loc="Suerte">Suerte</button>
+            <button class="eq-loc-btn" data-loc="Este">Este</button>
+            <button class="eq-loc-btn" data-loc="Bar Toti">Bar Toti</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelectorAll('.eq-loc-btn').forEach(btn => {
+      btn.addEventListener('click', () => { resolve(btn.dataset.loc); modal.remove(); });
+    });
+    modal.querySelector('.eq-detail-bg').addEventListener('click', () => { resolve(null); modal.remove(); });
+  });
+}
+
+function showCreationConfirmation(parsed, context, source = 'describe') {
+  const modal = document.getElementById('eqConfirmModal') || (() => {
+    const m = document.createElement('div');
+    m.id = 'eqConfirmModal';
+    m.className = 'eq-modal';
+    document.body.appendChild(m);
+    return m;
+  })();
+
+  const equipList = parsed.equipment || [];
+  const multi = equipList.length > 1;
+
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="document.getElementById('eqConfirmModal').classList.remove('active')"></div>
+    <div class="eq-detail">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="document.getElementById('eqConfirmModal').classList.remove('active')">${uiSvg("close", "16px")}</button>
+        <h2>${uiSvg("sparkles","16px")} AI Found ${equipList.length} ${multi ? 'Pieces' : 'Piece'}</h2>
+      </div>
+      <div class="eq-detail-body">
+        ${parsed.interpretation_notes || parsed.scene_description ? `
+          <div class="eq-ai-interp">
+            <b>AI's interpretation:</b> ${esc(parsed.interpretation_notes || parsed.scene_description)}
+          </div>
+        ` : ''}
+        ${multi ? `
+          <div class="eq-ai-bulk-actions">
+            <button class="eq-btn eq-btn-tiny" onclick="document.querySelectorAll('[data-eq-confirm]').forEach(c => c.checked = true)">Select All</button>
+            <button class="eq-btn eq-btn-tiny" onclick="document.querySelectorAll('[data-eq-confirm]').forEach(c => c.checked = false)">Deselect All</button>
+          </div>
+        ` : ''}
+        <div class="eq-confirm-list">
+          ${equipList.map((eq, i) => `
+            <div class="eq-confirm-card">
+              <label class="eq-confirm-head">
+                <input type="checkbox" checked data-eq-confirm="${i}">
+                <div class="eq-confirm-icon">${catIcon(eq.category)}</div>
+                <div class="eq-confirm-title">
+                  <div class="eq-confirm-name" contenteditable="true" data-eq-field="name" data-idx="${i}">${esc(eq.name || 'Unnamed')}</div>
+                  <div class="eq-confirm-sub">
+                    ${esc(eq.manufacturer || '')} ${esc(eq.model || '')}
+                    ${eq.confidence ? `<span class="eq-conf eq-conf-${eq.confidence}">${eq.confidence}</span>` : ''}
+                  </div>
+                </div>
+              </label>
+              <div class="eq-confirm-details">
+                <div class="eq-confirm-field">
+                  <label>Location</label>
+                  <select data-eq-field="location" data-idx="${i}">
+                    ${LOCATIONS.map(l => `<option ${eq.location===l?'selected':''}>${l}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="eq-confirm-field">
+                  <label>Area</label>
+                  <input data-eq-field="area" data-idx="${i}" value="${esc(eq.area || '')}">
+                </div>
+                <div class="eq-confirm-field">
+                  <label>Category</label>
+                  <select data-eq-field="category" data-idx="${i}">
+                    ${CATEGORIES.map(c => `<option value="${c.key}" ${eq.category===c.key?'selected':''}>${c.key}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="eq-confirm-field">
+                  <label>Status</label>
+                  <select data-eq-field="status" data-idx="${i}">
+                    <option value="operational" ${eq.status==='operational'?'selected':''}>Operational</option>
+                    <option value="needs_service" ${eq.status==='needs_service'?'selected':''}>Needs Service</option>
+                    <option value="down" ${eq.status==='down'?'selected':''}>Down</option>
+                  </select>
+                </div>
+              </div>
+              ${eq.linked_contractors?.length || eq.linked_people?.length ? `
+                <div class="eq-confirm-links">
+                  <div class="eq-confirm-links-label">${uiSvg("link", "13px")} Will link to:</div>
+                  ${(eq.linked_contractors || []).map(name => {
+                    const existing = context.contractors.find(c => c.name.toLowerCase() === name.toLowerCase());
+                    return `<span class="eq-link-chip ${existing?'eq-link-existing':'eq-link-new'}">
+                      ${existing ? uiSvg('check', '11px') : '+'} ${esc(name)} ${existing ? '' : '(new)'}
+                    </span>`;
+                  }).join('')}
+                  ${(eq.linked_people || []).map(name => {
+                    const existing = context.people.find(p => p.name.toLowerCase() === name.toLowerCase());
+                    return `<span class="eq-link-chip ${existing?'eq-link-existing':'eq-link-new'}">
+                      ${existing ? uiSvg('check', '11px') : '+'} ${esc(name)} ${existing ? '' : '(new)'}
+                    </span>`;
+                  }).join('')}
+                </div>
+              ` : ''}
+              ${eq.linked_parts?.length || eq.mentioned_parts_new?.length ? `
+                <div class="eq-confirm-links">
+                  <div class="eq-confirm-links-label">${uiSvg("wrench", "13px")} Parts:</div>
+                  ${(eq.linked_parts || []).map(name => `<span class="eq-link-chip eq-link-existing">${uiSvg("check","11px")} ${esc(name)}</span>`).join('')}
+                  ${(eq.mentioned_parts_new || []).map(p => `<span class="eq-link-chip eq-link-new">+ ${esc(p.name)} ${p.oem_part_number ? '('+esc(p.oem_part_number)+')' : ''}</span>`).join('')}
+                </div>
+              ` : ''}
+              ${eq.notes ? `<div class="eq-confirm-notes">${uiSvg("note","12px")} ${esc(eq.notes)}</div>` : ''}
+              ${eq.mentioned_issues?.length ? `
+                <div class="eq-confirm-issues">
+                  ${uiSvg("alert", "13px")} Issues mentioned — ticket will be created:
+                  ${eq.mentioned_issues.map(i => `<div class="eq-issue">${esc(i)}</div>`).join('')}
+                </div>
+              ` : ''}
+            </div>
+          `).join('')}
+        </div>
+        <div class="eq-form-actions">
+          <button class="eq-btn eq-btn-secondary" onclick="document.getElementById('eqConfirmModal').classList.remove('active')">Cancel</button>
+          <button class="eq-btn eq-btn-primary" id="eqConfirmCommit">${uiSvg("check", "13px")} Create ${multi ? 'Selected' : ''}</button>
+        </div>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+
+  modal._parsed = parsed;
+  modal._context = context;
+
+  document.getElementById('eqConfirmCommit').addEventListener('click', async () => {
+    const btn = document.getElementById('eqConfirmCommit');
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+
+    try {
+      modal.querySelectorAll('[data-eq-field]').forEach(el => {
+        const idx = parseInt(el.dataset.idx);
+        const field = el.dataset.field;
+        const val = el.tagName === 'DIV' ? el.textContent.trim() : el.value;
+        if (parsed.equipment[idx]) parsed.equipment[idx][field] = val;
+      });
+
+      const checked = [];
+      modal.querySelectorAll('[data-eq-confirm]').forEach(c => {
+        if (c.checked) checked.push(parsed.equipment[parseInt(c.dataset.eqConfirm)]);
+      });
+
+      if (!checked.length) {
+        NX.toast && NX.toast('Nothing selected', 'info');
+        btn.disabled = false;
+        btn.innerHTML = uiSvg('check','13px') + ' Create';
+        return;
+      }
+
+      const results = await commitEquipment(checked, context);
+      modal.classList.remove('active');
+      
+      if (results.created > 0) {
+        NX.toast && NX.toast(`✓ Created ${results.created} equipment ${results.created > 1 ? 'pieces' : 'piece'}${results.failed ? ` (${results.failed} failed)` : ''}`, results.failed ? 'warning' : 'success', 6000);
+      }
+      if (results.failed > 0 && results.created === 0) {
+        NX.toast && NX.toast(`Failed to create equipment: ${results.errors[0] || 'unknown error'}`, 'error', 10000);
+        console.error('[AI-Create] All failures:', results.errors);
+      } else if (results.failed > 0) {
+        console.warn('[AI-Create] Partial failure:', results.errors);
+      }
+
+      await loadEquipment();
+      buildUI();
+    } catch (err) {
+      console.error('[AI-Create] Commit failed:', err);
+      NX.toast && NX.toast('Create failed: ' + err.message, 'error', 8000);
+      btn.disabled = false;
+      btn.innerHTML = uiSvg('check','13px') + ' Create';
+    }
+  });
+}
+
+async function commitEquipment(equipList, context) {
+  const results = { created: 0, failed: 0, errors: [] };
+  
+  for (const eq of equipList) {
+    try {
+      const allowed = ['name','location','area','category','subcategory','manufacturer','model',
+                       'serial_number','status','install_date','warranty_until','purchase_price',
+                       'specs','photo_url','notes','pm_interval_days','next_pm_date'];
+      const clean = {};
+      for (const f of allowed) {
+        if (eq[f] != null && eq[f] !== '') clean[f] = eq[f];
+      }
+      
+      // Sanitize date fields — Postgres rejects empty strings and bad formats
+      const dateFields = ['install_date', 'warranty_until', 'next_pm_date'];
+      for (const df of dateFields) {
+        if (clean[df] != null) {
+          const v = String(clean[df]).trim();
+          if (!v || v === 'N/A' || v === 'n/a' || v === 'null' || v === 'undefined' || v === 'unknown') {
+            delete clean[df];
+          } else {
+            // Validate it's parseable as a date
+            const d = new Date(v);
+            if (isNaN(d.getTime())) {
+              console.warn(`[AI-Create] Dropping invalid ${df}:`, v);
+              delete clean[df];
+            } else {
+              // Normalize to YYYY-MM-DD
+              clean[df] = d.toISOString().slice(0, 10);
+            }
+          }
+        }
+      }
+      
+      // Sanitize numeric fields
+      if (clean.purchase_price != null) {
+        const n = parseFloat(String(clean.purchase_price).replace(/[^\d.]/g, ''));
+        if (isNaN(n)) delete clean.purchase_price;
+        else clean.purchase_price = n;
+      }
+      if (clean.pm_interval_days != null) {
+        const n = parseInt(clean.pm_interval_days, 10);
+        if (isNaN(n)) delete clean.pm_interval_days;
+        else clean.pm_interval_days = n;
+      }
+      
+      // Required: name + location + category + status. If missing, skip.
+      if (!clean.name || !clean.location) {
+        results.failed++;
+        results.errors.push(`Missing name or location on: ${JSON.stringify(eq).slice(0, 80)}`);
+        continue;
+      }
+      clean.status = clean.status || 'operational';
+      clean.category = clean.category || 'equipment';
+
+      let notes = eq.notes || '';
+      if (eq.visible_details?.length) notes += (notes ? '\n' : '') + 'Observed: ' + eq.visible_details.join(', ');
+      if (eq.confidence && eq.confidence !== 'high') notes += (notes ? '\n' : '') + `[AI confidence: ${eq.confidence}]`;
+      if (notes) clean.notes = notes;
+
+      // Auto-link manufacturer to the brand library so AI-bulk-created
+      // equipment immediately benefits from logo coordination.
+      if (clean.manufacturer && clean.manufacturer.trim()) {
+        const mfgId = await autoLinkManufacturer(clean.manufacturer);
+        if (mfgId) clean.manufacturer_id = mfgId;
+      }
+
+      const { data: created, error } = await NX.sb.from('equipment').insert(clean).select().single();
+      if (error) {
+        console.error('[AI-Create] Equipment insert failed:', { clean, error });
+        results.failed++;
+        results.errors.push(`${clean.name}: ${error.message}`);
+        continue;
+      }
+      results.created++;
+
+      // Graph linking — don't let failures here abort the main create
+      try {
+        const { data: eqNode } = await NX.sb.from('nodes').insert({
+          name: clean.name,
+          category: 'equipment',
+          tags: [clean.location, clean.category, clean.manufacturer].filter(Boolean),
+          notes: `${clean.manufacturer || ''} ${clean.model || ''}${clean.serial_number ? '\nSN: ' + clean.serial_number : ''}`.trim(),
+          links: [], access_count: 1, source_emails: []
+        }).select().single();
+
+        if (eqNode) {
+          await NX.sb.from('equipment').update({ node_id: eqNode.id }).eq('id', created.id);
+          for (const name of (eq.linked_contractors || [])) await linkOrCreateNode(name, 'contractors', eqNode.id);
+          for (const name of (eq.linked_people || []))      await linkOrCreateNode(name, 'people', eqNode.id);
+          for (const name of (eq.linked_parts || [])) {
+            const partNode = context.parts.find(p => p.name.toLowerCase() === name.toLowerCase());
+            if (partNode) await linkNodes(eqNode.id, partNode.id);
+          }
+        }
+      } catch(e) { console.warn('[AI-Create] Graph link error (non-fatal):', e); }
+
+      if (eq.mentioned_parts_new?.length) {
+        try {
+          const partsData = eq.mentioned_parts_new.map(p => ({
+            equipment_id: created.id,
+            part_name: p.name,
+            oem_part_number: p.oem_part_number || null,
+            supplier: 'Parts Town',
+            supplier_url: `https://www.partstown.com/search?searchterm=${encodeURIComponent(p.oem_part_number || p.name)}`
+          }));
+          await NX.sb.from('equipment_parts').insert(partsData);
+        } catch(e) { console.warn('[AI-Create] Parts insert error (non-fatal):', e); }
+      }
+
+      if (eq.mentioned_issues?.length) {
+        try {
+          for (const issue of eq.mentioned_issues) {
+            const ticketData = {
+              title: `[${clean.name}] ${issue}`,
+              notes: `Issue mentioned during AI equipment creation:\n${issue}\n\nEquipment: ${clean.name}`,
+              priority: 'normal',
+              location: clean.location,
+              status: 'open',
+              reported_by: 'AI Create'
+            };
+            await NX.sb.from('tickets').insert(ticketData);
+            // Stage S: push notification. AI-discovered issues are
+            // surfacing problems nobody specifically reported, so
+            // managers should know about them.
+            if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
+          }
+        } catch(e) { console.warn('[AI-Create] Tickets insert error (non-fatal):', e); }
+      }
+
+      // equipment_created_ai syslog → covered by Postgres trigger on equipment INSERT
+    } catch (err) {
+      console.error('[AI-Create] Unexpected error on item:', err, eq);
+      results.failed++;
+      results.errors.push(`${eq.name || 'Unknown'}: ${err.message}`);
+    }
+  }
+  
+  return results;
+}
+
+async function linkOrCreateNode(name, category, equipNodeId) {
+  const { data: existing } = await NX.sb.from('nodes')
+    .select('id').ilike('name', name).eq('category', category).limit(1);
+
+  let nodeId;
+  if (existing?.length) {
+    nodeId = existing[0].id;
+  } else {
+    const { data: newNode } = await NX.sb.from('nodes').insert({
+      name, category,
+      tags: ['auto-created-by-ai'],
+      notes: `Auto-created from equipment AI`,
+      links: [], access_count: 1, source_emails: []
+    }).select().single();
+    if (newNode) nodeId = newNode.id;
+  }
+
+  if (nodeId && equipNodeId) await linkNodes(equipNodeId, nodeId);
+}
+
+async function linkNodes(a, b) {
+  try {
+    const [{ data: nodeA }, { data: nodeB }] = await Promise.all([
+      NX.sb.from('nodes').select('links').eq('id', a).single(),
+      NX.sb.from('nodes').select('links').eq('id', b).single()
+    ]);
+    const aLinks = Array.isArray(nodeA?.links) ? nodeA.links : [];
+    const bLinks = Array.isArray(nodeB?.links) ? nodeB.links : [];
+    if (!aLinks.includes(b)) aLinks.push(b);
+    if (!bLinks.includes(a)) bLinks.push(a);
+    await Promise.all([
+      NX.sb.from('nodes').update({ links: aLinks }).eq('id', a),
+      NX.sb.from('nodes').update({ links: bLinks }).eq('id', b)
+    ]);
+  } catch(e) { console.warn('Link nodes error:', e); }
+}
+
+async function loadExistingContext() {
+  const [contractors, people, parts] = await Promise.all([
+    NX.sb.from('nodes').select('id, name').eq('category', 'contractors').limit(100),
+    NX.sb.from('nodes').select('id, name').eq('category', 'people').limit(100),
+    NX.sb.from('nodes').select('id, name').eq('category', 'parts').limit(200)
+  ]);
+  return {
+    contractors: contractors.data || [],
+    people: people.data || [],
+    parts: parts.data || []
+  };
+}
+
+async function uploadCreatePhoto(file, eq) {
+  try {
+    const fname = `${Date.now()}-${(eq.name || 'equip').slice(0, 20).replace(/[^a-z0-9]/gi, '_')}.${(file.type.split('/')[1] || 'jpg')}`;
+    const { data } = await NX.sb.storage.from('equipment-photos').upload(fname, file, { upsert: false, contentType: file.type });
+    if (data) {
+      const { data: { publicUrl } } = NX.sb.storage.from('equipment-photos').getPublicUrl(fname);
+      return publicUrl;
+    }
+  } catch(e) { console.warn('Photo upload:', e); }
+  return null;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   7. PRINTING — QR paper stickers + Zebra ZPL
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ─── QR generation ─── */
+
+function generateQRImage(qrCode, canvas) {
+  const scanURL = `${window.location.origin}${window.location.pathname}?equip=${qrCode}`;
+  if (typeof QRious !== 'undefined') {
+    try {
+      new QRious({ element: canvas, value: scanURL, size: 220, foreground: '#000', background: '#fff', level: 'H' });
+      return;
+    } catch(e) {}
+  }
+  drawQRFallback(canvas, scanURL);
+}
+
+function drawQRFallback(canvas, text) {
+  const ctx = canvas.getContext('2d');
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  };
+  img.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(text)}`;
+}
+
+function copyQRLink(qrCode) {
+  const url = `${window.location.origin}${window.location.pathname}?equip=${qrCode}`;
+  navigator.clipboard.writeText(url);
+  NX.toast && NX.toast('Link copied ✓', 'success');
+}
+
+/* ─── Paper sticker printing ─── */
+
+function printSingleQR(id) {
+  const eq = equipment.find(e => e.id === id);
+  if (!eq) return;
+  printStickers([eq], { variant: 'single' });
+}
+
+/* ─── Sticker print engine — shared by single + sheet + per-location.
+   Editorial design: coin wordmark at top, QR center, equipment name
+   in Outfit display, status stripe down the left edge, trilingual
+   "scan to view" instruction at bottom. SVG-clean for sign-shop output.
+   Cream background (not white) to match NEXUS palette and to feel
+   like a typeset edition rather than a CMMS dump.
+   ─────────────────────────────────────────────────────────────────── */
+function printStickers(equipList, opts = {}) {
+  if (!equipList || !equipList.length) {
+    NX.toast && NX.toast('No equipment to print', 'info');
+    return;
+  }
+  const variant = opts.variant || 'sheet';   // 'single' | 'sheet'
+  const labelTitle = opts.title || (
+    variant === 'single' ? `QR — ${equipList[0].name}` :
+    `NEXUS Equipment QR — ${equipList.length} item${equipList.length===1?'':'s'}`
+  );
+
+  // Palette-coherent status colors. Mirror nexus.css tokens but inlined
+  // here because the print window has no access to the parent stylesheet.
+  const STATUS_COLOR = {
+    operational:   'var(--green)',  // olive-bronze
+    needs_service: 'var(--accent)',  // brand gold
+    down:          'var(--red)',  // oxblood
+    retired:       'var(--faint)',  // graphite
+  };
+  // Coin URL — absolute so the print window can load it. Falls back to
+  // Providentia (the default daily advisor). The print preview will
+  // briefly show a placeholder until the coin loads from the same origin.
+  const coinUrl = `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, '')}assets/coin-providentia.png`;
+
+  // Compose each sticker as a self-contained block. Internal layout uses
+  // CSS grid so every element has a fixed slot — sign shops can rely on
+  // consistent placement when they generate plates from the PDF.
+  const stickerHTML = (eq) => {
+    const url = opts.urlBuilder
+      ? opts.urlBuilder(eq)
+      : `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
+    // SVG QR — scales infinitely without raster artifacts. Sign shops
+    // love SVG because they can pull it directly into Illustrator.
+    const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&format=svg&ecc=H&margin=0&data=${encodeURIComponent(url)}`;
+    const stat = STATUS_COLOR[eq.status] || STATUS_COLOR.operational;
+    const stationLine = [eq.location, eq.area].filter(Boolean).join(' · ');
+    const modelLine = [eq.manufacturer, eq.model].filter(Boolean).join(' ');
+
+    return `
+      <div class="sticker" data-eq="${esc(eq.qr_code)}">
+        <!-- Status stripe — left edge, vertical band of palette-coherent color -->
+        <div class="status-stripe" style="background:${stat}"></div>
+
+        <!-- Top: coin wordmark (replaces "NEXUS" text) — the strongest
+             brand statement. Coin is the seal; nothing else needs to say it. -->
+        <div class="head">
+          <img class="coin" src="${coinUrl}" alt="NEXUS" crossorigin="anonymous">
+          <div class="brand-line">N · E · X · U · S</div>
+        </div>
+
+        <!-- Middle: equipment identity — name in display face, station + model muted -->
+        <div class="title-block">
+          <div class="eq-name">${esc(eq.name)}</div>
+          ${stationLine ? `<div class="eq-station">${esc(stationLine)}</div>` : ''}
+          ${modelLine   ? `<div class="eq-model">${esc(modelLine)}</div>`     : ''}
+        </div>
+
+        <!-- QR — clean, full-contrast, no overlay. Critical: must scan from
+             4ft away across a kitchen, so we keep it pure black on cream. -->
+        <div class="qr-wrap">
+          <img class="qr" src="${qrSrc}" alt="QR code">
+          <div class="qr-id">${esc(eq.qr_code)}</div>
+        </div>
+
+        <!-- Footer: trilingual scan instruction. English / Spanish for
+             your kitchens; Korean intentionally added because Orion
+             noted bilingual+ teams. Tiny mono caps so it reads as
+             instructional metadata, not body copy. -->
+        <div class="foot">
+          <div class="instr">SCAN TO VIEW · ESCANEAR PARA VER · 스캔하여 보기</div>
+          <div class="cornerpiece tl"></div>
+          <div class="cornerpiece tr"></div>
+          <div class="cornerpiece bl"></div>
+          <div class="cornerpiece br"></div>
+        </div>
+      </div>
+    `;
+  };
+
+  const allStickers = equipList.map(stickerHTML).join('');
+  // For sheet mode, group into pages of 12 (4 rows × 3 cols on letter)
+  // so page breaks land cleanly. CSS handles the actual paging via
+  // page-break-inside: avoid on each .sticker.
+  const wrapClass = variant === 'single' ? 'single-wrap' : 'sheet-wrap';
+
+  const w = window.open('', '_blank');
+  if (!w) { NX.toast && NX.toast('Popup blocked — allow popups to print', 'warn'); return; }
+
+  w.document.write(`<!DOCTYPE html>
+<html><head>
+<title>${esc(labelTitle)}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ═══ Print sheet — palette + page setup ═══ */
+  @page {
+    size: letter portrait;
+    /* Sign shops need bleed margins. 6mm is generous and matches
+       common cutting tolerances. Background extends fully to the edge
+       so cuts don't reveal white paper underneath. */
+    margin: 6mm;
+  }
+
+  :root {
+    --cream:  #fdf8ec;     /* sticker face — warm not white */
+    --cream-deep: #f3ead4; /* slightly deeper for inner panels */
+    --ink:    var(--nx-gold-on);     /* near-black, brown undertone */
+    --gold:   var(--accent);     /* brand accent, print-safe */
+    --gold-deep: var(--accent);  /* gold-line color, deeper for paper */
+    --hairline: rgba(139, 105, 20, 0.22);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #f1ead7;
+    font-family: 'DM Sans', system-ui, sans-serif;
+    color: var(--ink);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* ═══ Layout — single vs sheet ═══ */
+  .single-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 12mm;
+  }
+  .single-wrap .sticker {
+    /* Single mode: standard ~3.5" × 5" portrait sticker, suitable
+       for 4×6 thermal label printers OR cut-from-letter. */
+    width: 90mm;
+    height: 130mm;
+  }
+
+  .sheet-wrap {
+    display: grid;
+    /* 3 cols × 4 rows = 12 per letter page. Each sticker ~60mm × 60mm
+       finished. Sign shops can guillotine on the dotted lines. */
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: 88mm;
+    gap: 4mm;
+    padding: 0;
+  }
+  .sheet-wrap .sticker {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ═══ Sticker base — used by both modes ═══ */
+  .sticker {
+    position: relative;
+    background: var(--cream);
+    border: 1px solid var(--gold-deep);
+    border-radius: 6px;
+    overflow: hidden;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    display: grid;
+    grid-template-rows: auto 1fr auto auto;
+    padding: 5mm 5mm 4mm 8mm;   /* extra left padding for status stripe */
+    color: var(--ink);
+    /* Subtle paper-grain feel via two layered radial gradients —
+       prints faithfully on both inkjet and offset. */
+    background-image:
+      radial-gradient(1200px 600px at 30% -10%, rgba(200, 164, 78, 0.06) 0%, transparent 60%),
+      radial-gradient(800px 400px at 80% 110%, rgba(139, 105, 20, 0.05) 0%, transparent 60%);
+  }
+
+  /* Vertical status stripe down the left edge — visible from across
+     the kitchen, palette-coherent (gold/olive/oxblood/graphite, no
+     scarlet/green). This is the "from across the room" tell. */
+  .status-stripe {
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    width: 4mm;
+  }
+
+  /* Decorative corner pieces — small gold L-shapes in each corner.
+     Editorial flourish; reads as "deliberate" rather than utility. */
+  .cornerpiece {
+    position: absolute;
+    width: 4mm; height: 4mm;
+    border: 0.4mm solid var(--gold);
+    pointer-events: none;
+  }
+  .cornerpiece.tl { top: 1.5mm; left: 5.5mm;  border-right: none; border-bottom: none; }
+  .cornerpiece.tr { top: 1.5mm; right: 1.5mm; border-left:  none; border-bottom: none; }
+  .cornerpiece.bl { bottom: 1.5mm; left: 5.5mm;  border-right: none; border-top: none; }
+  .cornerpiece.br { bottom: 1.5mm; right: 1.5mm; border-left:  none; border-top: none; }
+
+  /* ═══ Head — coin in place of "NEXUS" wordmark ═══ */
+  .head {
+    text-align: center;
+    padding-bottom: 2mm;
+    border-bottom: 0.3mm solid var(--hairline);
+    margin-bottom: 3mm;
+  }
+  .coin {
+    width: 14mm;
+    height: 14mm;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto 1mm;
+  }
+  .single-wrap .coin { width: 22mm; height: 22mm; margin-bottom: 1.5mm; }
+  .brand-line {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    font-size: 7pt;
+    font-weight: 600;
+    letter-spacing: 2pt;
+    color: var(--gold-deep);
+    text-transform: uppercase;
+  }
+  .single-wrap .brand-line { font-size: 9pt; letter-spacing: 3pt; }
+
+  /* ═══ Title block — equipment identity ═══ */
+  .title-block {
+    text-align: center;
+    margin-bottom: 2mm;
+    padding: 0 2mm;
+  }
+  .eq-name {
+    font-family: 'Outfit', 'DM Sans', system-ui, sans-serif;
+    font-size: 11pt;
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.2pt;
+    color: var(--ink);
+    /* Truncate gracefully for very long names */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .single-wrap .eq-name { font-size: 18pt; -webkit-line-clamp: 3; }
+  .eq-station {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    font-size: 6.5pt;
+    font-weight: 500;
+    letter-spacing: 1.5pt;
+    color: var(--gold-deep);
+    text-transform: uppercase;
+    margin-top: 1mm;
+  }
+  .single-wrap .eq-station { font-size: 9pt; letter-spacing: 2pt; margin-top: 2mm; }
+  .eq-model {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-size: 6.5pt;
+    color: rgba(28, 20, 8, 0.55);
+    margin-top: 0.8mm;
+  }
+  .single-wrap .eq-model { font-size: 9pt; margin-top: 1mm; }
+
+  /* ═══ QR — black on cream, clean and full contrast ═══ */
+  .qr-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5mm;
+    margin: 1mm 0;
+  }
+  .qr {
+    /* Square aspect, sized by container. SVG output scales infinitely. */
+    width: 38mm;
+    height: 38mm;
+    /* Wrap in a tiny gold frame — editorial, not utility */
+    border: 0.3mm solid var(--gold);
+    padding: 1.5mm;
+    background: white;
+  }
+  .single-wrap .qr { width: 60mm; height: 60mm; padding: 2.5mm; }
+  .qr-id {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    font-size: 5.5pt;
+    font-weight: 600;
+    letter-spacing: 0.8pt;
+    color: var(--gold-deep);
+  }
+  .single-wrap .qr-id { font-size: 8pt; letter-spacing: 1.2pt; }
+
+  /* ═══ Footer — trilingual scan instruction ═══ */
+  .foot {
+    text-align: center;
+    padding-top: 2mm;
+    border-top: 0.3mm solid var(--hairline);
+  }
+  .instr {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    font-size: 5pt;
+    font-weight: 500;
+    letter-spacing: 0.5pt;
+    color: rgba(28, 20, 8, 0.6);
+    /* The Korean glyphs need slightly more room — give the line a touch
+       of breathing space top to bottom. */
+    line-height: 1.5;
+  }
+  .single-wrap .instr { font-size: 7pt; letter-spacing: 0.7pt; }
+
+  /* ═══ Sheet-mode-only utility ═══ */
+  /* Tiny tear-off line between rows — visual cue for guillotine cuts. */
+  @media print {
+    body { background: var(--cream); }
+    .sheet-wrap { gap: 4mm; }
+    .sticker {
+      box-shadow: none;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="${wrapClass}">${allStickers}</div>
+  <script>
+    // Wait for fonts AND coin AND first QR image to load before printing.
+    // Sign shops printing the resulting PDF expect everything resolved.
+    Promise.all([
+      document.fonts ? document.fonts.ready : Promise.resolve(),
+      ...Array.from(document.images).map(img => img.complete
+        ? Promise.resolve()
+        : new Promise(r => { img.onload = img.onerror = r; })
+      )
+    ]).then(() => setTimeout(() => window.print(), 250));
+  </script>
+</body></html>`);
+  w.document.close();
+}
+
+/* ─── Inventory sticker wrapper ─────────────────────────────────────
+   Reuses the same editorial sticker template (coin, status stripe,
+   trilingual scan footer) for inventory assets and stock parts.
+   Adapts the inventory data shape into the equipment shape that
+   printStickers expects, and supplies a custom URL builder so the
+   QR points at ?inv-asset=XXX or ?inv-stock=XXX instead of ?equip=.
+
+   Inventory items don't have status_color states like equipment does,
+   so we map the inventory status to a single sane default (gold for
+   in-flight, olive-bronze for stable, oxblood for problems).
+*/
+function printInventoryStickers(items, type /* 'asset' | 'stock' */) {
+  if (!items || !items.length) {
+    NX.toast && NX.toast('No items to print', 'info');
+    return;
+  }
+  const param = type === 'asset' ? 'inv-asset' : 'inv-stock';
+
+  // Adapt inventory shape → equipment shape that stickerHTML expects.
+  // Pre-color via a synthetic 'status' that maps into STATUS_COLOR.
+  const adapted = items.map(item => {
+    let synthStatus = 'operational';  // → olive-bronze
+    if (type === 'asset') {
+      if (item.status === 'broken' || item.status === 'missing') synthStatus = 'down';
+      else if (item.status === 'loaned' || item.status === 'relocated') synthStatus = 'needs_service';
+      else if (item.status === 'retired') synthStatus = 'retired';
+    } else {
+      // Stock — coloring by PAR is more useful than a single status
+      if (item.is_below_threshold || item.count_on_hand < (item.reorder_threshold ?? 1)) synthStatus = 'down';
+      else if (item.is_below_par || item.count_on_hand < (item.par_level ?? 1)) synthStatus = 'needs_service';
+    }
+    return {
+      qr_code:      item.qr_code,
+      name:         item.name,
+      manufacturer: item.manufacturer,
+      model:        item.model || item.manufacturer_pn,  // stock uses OEM PN here
+      location:     item.home_location || item.location,
+      area:         item.bin_hint,                        // stock bin shown like an "area"
+      status:       synthStatus,
+    };
+  });
+
+  printStickers(adapted, {
+    variant: items.length === 1 ? 'single' : 'sheet',
+    title: items.length === 1
+      ? `QR — ${items[0].name}`
+      : `NEXUS Inventory QR — ${items.length} ${type}${items.length === 1 ? '' : 's'}`,
+    urlBuilder: (eq) => `${window.location.origin}${window.location.pathname}?${param}=${eq.qr_code}`,
+  });
+}
+
+/* ─── Service Log Sheet — single-page printable history + handwritten
+   future-entries form. Goes in a binder near the equipment, or on a
+   clipboard nearby. Editorial design matches the QR sticker aesthetic
+   so binders/walls feel like a unified system, not parts from
+   different tools.
+
+   Layout (US Letter portrait):
+     ┌──────────────────────────────────────────┐
+     │  [coin]  N · E · X · U · S    [QR]      │
+     │  ─────────────────────────────────────   │
+     │  Equipment identity block (specs grid)   │
+     │  Status + warranty banner                │
+     │  ─────────────────────────────────────   │
+     │  Recent service history (last 5)         │
+     │  ─────────────────────────────────────   │
+     │  Future entries form (12 blank rows)     │
+     │  ─────────────────────────────────────   │
+     │  Footer: location, print date, scan note │
+     └──────────────────────────────────────────┘
+
+   The pre-printed history at the top gives contractors context they
+   need before touching the equipment. The blank-row table at the
+   bottom is for analog-trusting techs who want to write before they
+   sync. The QR at the top right links back to the digital record so
+   anything they wrote down can be reconciled with NEXUS later.
+   ─────────────────────────────────────────────────────────────── */
+async function printServiceLog(id) {
+  const eq = equipment.find(e => e.id === id);
+  if (!eq) return;
+
+  // Fetch the last 5 service events and the most recent few open
+  // tickets (if any). Both are best-effort — a missing table doesn't
+  // block the print, the relevant section just renders empty.
+  let maint = [];
+  let openTicket = null;
+  try {
+    if (NX.sb) {
+      const { data } = await NX.sb.from('equipment_maintenance')
+        .select('event_date, event_type, description, performed_by, cost, parts_replaced, next_pm_due')
+        .eq('equipment_id', id)
+        .order('event_date', { ascending: false })
+        .limit(5);
+      if (data) maint = data;
+
+      // Latest open ticket (issue) for this equipment, if any
+      const { data: tk } = await NX.sb.from('tickets')
+        .select('title, created_at, reported_by')
+        .contains('linked_equipment_ids', [id])
+        .neq('status', 'closed')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (tk && tk.length) openTicket = tk[0];
+    }
+  } catch (e) { /* best-effort, continue with empty history */ }
+
+  const STATUS_COLOR = {
+    operational:   'var(--green)',
+    needs_service: 'var(--accent)',
+    down:          'var(--red)',
+    retired:       'var(--faint)',
+  };
+  const STATUS_LABEL = {
+    operational:   'Operational',
+    needs_service: 'Needs Service',
+    down:          'Down',
+    retired:       'Retired',
+  };
+  const stat   = STATUS_COLOR[eq.status]   || STATUS_COLOR.operational;
+  const statL  = STATUS_LABEL[eq.status]   || (eq.status || 'Unknown');
+
+  // Warranty calc — drives the warranty banner color and message.
+  const today = new Date();
+  const warrantyDate = eq.warranty_until ? new Date(eq.warranty_until) : null;
+  const warrantyValid = warrantyDate && warrantyDate > today;
+  const warrantyDays = warrantyValid
+    ? Math.floor((warrantyDate.getTime() - today.getTime()) / 86400000)
+    : 0;
+
+  const nextPM = eq.next_pm_date ? new Date(eq.next_pm_date) : null;
+  const pmOverdue = nextPM && nextPM < today;
+  const pmDays = pmOverdue ? Math.floor((today.getTime() - nextPM.getTime()) / 86400000) : 0;
+
+  // QR for the small corner code (links back to digital)
+  const scanURL = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&format=svg&ecc=H&margin=0&data=${encodeURIComponent(scanURL)}`;
+  // Coin URL — same one used on the QR sticker
+  const coinUrl = `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, '')}assets/coin-providentia.png`;
+
+  // Format helpers
+  const fmtDate = (d) => {
+    if (!d) return '—';
+    const dt = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(dt)) return '—';
+    return dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+  const fmtDateShort = (d) => {
+    if (!d) return '—';
+    const dt = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(dt)) return '—';
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+  };
+  const fmtCost = (c) => {
+    if (c == null || c === '') return '';
+    const n = parseFloat(c);
+    if (isNaN(n)) return '';
+    return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  };
+
+  // Pre-printed history rows. If none exist, we leave the section header
+  // visible but show a "No service events recorded yet" line so the page
+  // doesn't look broken — and the contractor knows they're at zero.
+  const historyRows = maint.length ? maint.map(m => {
+    const eventLabel = (m.event_type || 'service').replace(/_/g, ' ').toUpperCase();
+    return `
+      <tr>
+        <td class="hist-date">${esc(fmtDateShort(m.event_date))}</td>
+        <td class="hist-type">${esc(eventLabel)}</td>
+        <td class="hist-desc">
+          ${esc(m.description || '—')}
+          ${m.parts_replaced ? `<div class="hist-parts"><span class="hist-parts-label">Parts:</span> ${esc(m.parts_replaced)}</div>` : ''}
+        </td>
+        <td class="hist-by">${esc(m.performed_by || '—')}</td>
+        <td class="hist-cost">${esc(fmtCost(m.cost))}</td>
+      </tr>
+    `;
+  }).join('') : `
+    <tr><td colspan="5" class="hist-empty">No service events recorded in NEXUS yet.</td></tr>
+  `;
+
+  // 12 blank entry rows for handwritten future logs. Slightly tall
+  // (8mm) so a contractor can write comfortably with a regular pen.
+  const blankRows = Array.from({ length: 12 }, () => `
+    <tr class="blank-row">
+      <td class="blank-date"></td>
+      <td class="blank-work"></td>
+      <td class="blank-tech"></td>
+      <td class="blank-cost"></td>
+      <td class="blank-sign"></td>
+    </tr>
+  `).join('');
+
+  // Status of the equipment as a discrete band — uses the same
+  // palette-coherent color as everywhere else (no scarlets, no greens).
+  const statusBanner = `
+    <div class="status-banner">
+      <span class="status-dot" style="background:${stat}"></span>
+      <span class="status-label" style="color:${stat}">${esc(statL)}</span>
+      ${pmOverdue ? `<span class="status-meta">PM ${pmDays} day${pmDays===1?'':'s'} overdue</span>` :
+        nextPM ?    `<span class="status-meta">Next PM ${fmtDate(nextPM)}</span>` : ''}
+      ${warrantyValid ? `<span class="status-meta status-warranty">Under warranty — ${warrantyDays} day${warrantyDays===1?'':'s'} left</span>` : ''}
+      ${openTicket ? `<span class="status-meta status-issue">Open issue: ${esc((openTicket.title||'').slice(0,40))}</span>` : ''}
+    </div>
+  `;
+
+  const w = window.open('', '_blank');
+  if (!w) { NX.toast && NX.toast('Popup blocked — allow popups to print', 'warn'); return; }
+
+  w.document.write(`<!DOCTYPE html>
+<html><head>
+<title>Service Log — ${esc(eq.name)}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ═══════════════════════════════════════════════════════════════
+     Service Log Sheet — single page, US Letter portrait.
+     Editorial palette matches the QR sticker so binders feel unified.
+     Print-color-adjust:exact preserves cream + gold + status tint.
+     ═══════════════════════════════════════════════════════════════ */
+  @page { size: letter portrait; margin: 12mm; }
+
+  :root {
+    --cream:      #fdf8ec;
+    --cream-deep: #f3ead4;
+    --ink:        var(--nx-gold-on);
+    --ink-soft:   rgba(28, 20, 8, 0.7);
+    --ink-faint:  rgba(28, 20, 8, 0.45);
+    --gold:       var(--accent);
+    --gold-deep:  var(--accent);
+    --hairline:   rgba(139, 105, 20, 0.22);
+    --rule:       rgba(139, 105, 20, 0.45);
+    --status:     ${stat};
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--cream);
+    font-family: 'DM Sans', system-ui, sans-serif;
+    color: var(--ink);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-size: 10pt;
+    line-height: 1.4;
+  }
+  .page {
+    /* Letter page minus print margins. Single page; nothing should
+       overflow or paginate. The blank-row table is sized so 12 rows
+       fit comfortably on the same sheet. */
+    width: 100%;
+    max-width: 186mm;   /* letter width minus 12mm × 2 margins */
+    margin: 0 auto;
+    padding: 0;
+    /* Subtle paper grain — same as sticker */
+    background-image:
+      radial-gradient(1200px 600px at 30% -10%, rgba(200, 164, 78, 0.05) 0%, transparent 60%),
+      radial-gradient(800px 400px at 80% 110%, rgba(139, 105, 20, 0.04) 0%, transparent 60%);
+  }
+
+  /* ═══ HEADER — coin + brand line + small QR top-right ═══ */
+  .header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 10mm;
+    padding-bottom: 4mm;
+    border-bottom: 0.5mm solid var(--gold-deep);
+  }
+  .header-coin {
+    width: 18mm; height: 18mm;
+    object-fit: contain;
+  }
+  .header-brand {
+    text-align: center;
+  }
+  .brand-mark {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10pt;
+    font-weight: 600;
+    letter-spacing: 4pt;
+    color: var(--gold-deep);
+    margin: 0;
+  }
+  .doc-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 18pt;
+    font-weight: 500;
+    letter-spacing: -0.3pt;
+    color: var(--ink);
+    margin: 1mm 0 0;
+    line-height: 1.1;
+  }
+  .doc-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8pt;
+    letter-spacing: 1.5pt;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    margin-top: 1mm;
+  }
+  .header-qr-block {
+    text-align: center;
+  }
+  .header-qr {
+    width: 18mm; height: 18mm;
+    border: 0.3mm solid var(--gold);
+    padding: 1mm;
+    background: white;
+    display: block;
+  }
+  .header-qr-id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 6.5pt;
+    font-weight: 600;
+    letter-spacing: 0.5pt;
+    color: var(--gold-deep);
+    margin-top: 1mm;
+  }
+
+  /* ═══ EQUIPMENT IDENTITY — the spec grid ═══ */
+  .identity {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 3mm 6mm;
+    padding: 5mm 0;
+  }
+  .spec-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7pt;
+    font-weight: 600;
+    letter-spacing: 1.2pt;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    margin-bottom: 0.5mm;
+  }
+  .spec-value {
+    font-size: 10pt;
+    color: var(--ink);
+    font-weight: 500;
+    line-height: 1.3;
+    word-break: break-word;
+  }
+  .spec-value.dim { color: var(--ink-faint); }
+
+  /* ═══ STATUS BANNER — current state at a glance ═══ */
+  .status-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8pt;
+    padding: 3mm 4mm;
+    border: 0.3mm solid var(--hairline);
+    border-left: 1.5mm solid var(--status);
+    background: rgba(212, 164, 78, 0.04);
+    border-radius: 1.5mm;
+    font-size: 9pt;
+    margin-bottom: 5mm;
+  }
+  .status-dot {
+    width: 8pt; height: 8pt; border-radius: 50%;
+    display: inline-block;
+  }
+  .status-label {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 11pt;
+    letter-spacing: 0.2pt;
+  }
+  .status-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8pt;
+    letter-spacing: 0.5pt;
+    color: var(--ink-soft);
+    padding-left: 8pt;
+    border-left: 0.2mm solid var(--hairline);
+  }
+  .status-meta.status-warranty { color: var(--gold-deep); font-weight: 600; }
+  .status-meta.status-issue { color: var(--status); font-weight: 600; }
+
+  /* ═══ SECTION TITLE — gold caps with ruled line below ═══ */
+  .section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9pt;
+    font-weight: 600;
+    letter-spacing: 2.5pt;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    margin: 2mm 0 2mm;
+    padding-bottom: 1mm;
+    border-bottom: 0.4mm solid var(--rule);
+  }
+
+  /* ═══ HISTORY TABLE — pre-printed last 5 events ═══ */
+  .history-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 4mm;
+    font-size: 9pt;
+  }
+  .history-table th {
+    text-align: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7pt;
+    font-weight: 600;
+    letter-spacing: 1pt;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    padding: 1.5mm 2mm;
+    border-bottom: 0.3mm solid var(--rule);
+  }
+  .history-table td {
+    padding: 2mm;
+    border-bottom: 0.2mm solid var(--hairline);
+    vertical-align: top;
+  }
+  .hist-date { width: 18mm; font-family: 'JetBrains Mono', monospace; font-size: 8pt; color: var(--ink-soft); }
+  .hist-type { width: 22mm; font-family: 'JetBrains Mono', monospace; font-size: 7pt; font-weight: 600; letter-spacing: 0.8pt; color: var(--gold-deep); }
+  .hist-desc { font-size: 9pt; }
+  .hist-parts { font-size: 8pt; color: var(--ink-soft); margin-top: 1mm; }
+  .hist-parts-label { font-family: 'JetBrains Mono', monospace; font-size: 7pt; letter-spacing: 0.5pt; text-transform: uppercase; color: var(--gold-deep); }
+  .hist-by   { width: 32mm; font-size: 9pt; color: var(--ink-soft); }
+  .hist-cost { width: 16mm; font-family: 'JetBrains Mono', monospace; font-size: 9pt; text-align: right; color: var(--ink-soft); }
+  .hist-empty { color: var(--ink-faint); font-style: italic; padding: 4mm 2mm; text-align: center; }
+
+  /* ═══ FUTURE ENTRIES — 12 blank rows for handwriting ═══ */
+  .blank-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1mm;
+  }
+  .blank-table th {
+    text-align: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7pt;
+    font-weight: 600;
+    letter-spacing: 1pt;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    padding: 1.5mm 2mm;
+    border-bottom: 0.4mm solid var(--rule);
+  }
+  .blank-table td {
+    border-bottom: 0.2mm solid var(--hairline);
+    height: 8mm;             /* generous writing room */
+    padding: 0 2mm;
+  }
+  .blank-date { width: 22mm; }
+  .blank-work { /* takes the rest */ }
+  .blank-tech { width: 32mm; }
+  .blank-cost { width: 18mm; }
+  .blank-sign { width: 26mm; }
+
+  /* ═══ FOOTER — print metadata + scan-to-update note ═══ */
+  .foot {
+    margin-top: 6mm;
+    padding-top: 3mm;
+    border-top: 0.4mm solid var(--rule);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7pt;
+    letter-spacing: 0.8pt;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .foot strong { color: var(--gold-deep); font-weight: 600; }
+  .foot-note { text-align: right; }
+  .foot-note .lang {
+    display: block;
+    font-size: 6.5pt;
+    line-height: 1.5;
+  }
+
+  /* Decorative gold corner ornaments — same flourish as sticker. */
+  .page { position: relative; }
+  .corner {
+    position: absolute;
+    width: 6mm; height: 6mm;
+    border: 0.4mm solid var(--gold);
+    pointer-events: none;
+  }
+  .corner.tl { top: 0; left: 0; border-right: none; border-bottom: none; }
+  .corner.tr { top: 0; right: 0; border-left: none; border-bottom: none; }
+  .corner.bl { bottom: 0; left: 0; border-right: none; border-top: none; }
+  .corner.br { bottom: 0; right: 0; border-left: none; border-top: none; }
+</style>
+</head>
+<body>
+<div class="page">
+  <span class="corner tl"></span>
+  <span class="corner tr"></span>
+  <span class="corner bl"></span>
+  <span class="corner br"></span>
+
+  <!-- Header: coin / title block / QR -->
+  <header class="header">
+    <img class="header-coin" src="${coinUrl}" alt="NEXUS" crossorigin="anonymous">
+    <div class="header-brand">
+      <div class="brand-mark">N · E · X · U · S</div>
+      <h1 class="doc-title">${esc(eq.name)}</h1>
+      <div class="doc-sub">SERVICE LOG · ${esc((eq.location || '').toUpperCase())}${eq.area ? ' · ' + esc(eq.area.toUpperCase()) : ''}</div>
+    </div>
+    <div class="header-qr-block">
+      <img class="header-qr" src="${qrSrc}" alt="QR">
+      <div class="header-qr-id">${esc(eq.qr_code)}</div>
+    </div>
+  </header>
+
+  <!-- Identity grid: 8 spec fields, 4 columns × 2 rows -->
+  <div class="identity">
+    <div>
+      <div class="spec-label">Manufacturer</div>
+      <div class="spec-value">${esc(eq.manufacturer || '—')}</div>
+    </div>
+    <div>
+      <div class="spec-label">Model</div>
+      <div class="spec-value">${esc(eq.model || '—')}</div>
+    </div>
+    <div>
+      <div class="spec-label">Serial Number</div>
+      <div class="spec-value">${esc(eq.serial_number || '—')}</div>
+    </div>
+    <div>
+      <div class="spec-label">Category</div>
+      <div class="spec-value">${esc((eq.category || '—').replace(/^\w/, c => c.toUpperCase()))}</div>
+    </div>
+    <div>
+      <div class="spec-label">Installed</div>
+      <div class="spec-value">${esc(fmtDate(eq.install_date))}</div>
+    </div>
+    <div>
+      <div class="spec-label">Warranty Until</div>
+      <div class="spec-value ${warrantyValid ? '' : 'dim'}">${esc(fmtDate(eq.warranty_until))}${warrantyValid ? '' : eq.warranty_until ? ' (expired)' : ''}</div>
+    </div>
+    <div>
+      <div class="spec-label">Next PM Due</div>
+      <div class="spec-value ${pmOverdue ? '' : 'dim'}">${esc(fmtDate(eq.next_pm_date))}${pmOverdue ? ' (overdue)' : ''}</div>
+    </div>
+    <div>
+      <div class="spec-label">Asset ID</div>
+      <div class="spec-value">${esc(eq.qr_code)}</div>
+    </div>
+  </div>
+
+  <!-- Status banner — palette-coherent stripe + condition meta -->
+  ${statusBanner}
+
+  <!-- Recent service history (last 5 from equipment_maintenance) -->
+  <h2 class="section-title">Recent Service History</h2>
+  <table class="history-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Type</th>
+        <th>Work Performed</th>
+        <th>Technician</th>
+        <th style="text-align:right">Cost</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${historyRows}
+    </tbody>
+  </table>
+
+  <!-- Future entries — handwritten log -->
+  <h2 class="section-title">Future Service Entries</h2>
+  <table class="blank-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Work Performed / Notes</th>
+        <th>Technician / Company</th>
+        <th style="text-align:right">Cost</th>
+        <th>Signature</th>
+      </tr>
+    </thead>
+    <tbody>${blankRows}</tbody>
+  </table>
+
+  <!-- Footer: print metadata + reconciliation note -->
+  <div class="foot">
+    <div>
+      Printed <strong>${esc(fmtDate(today))}</strong>
+      &nbsp;·&nbsp; Sheet: ${esc(eq.qr_code)}
+    </div>
+    <div class="foot-note">
+      <span class="lang">SCAN QR ABOVE TO RECONCILE WITH NEXUS</span>
+      <span class="lang">ESCANEE EL CÓDIGO PARA SINCRONIZAR</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Wait for fonts + coin + QR to fully resolve before triggering print.
+  Promise.all([
+    document.fonts ? document.fonts.ready : Promise.resolve(),
+    ...Array.from(document.images).map(img => img.complete
+      ? Promise.resolve()
+      : new Promise(r => { img.onload = img.onerror = r; })
+    )
+  ]).then(() => setTimeout(() => window.print(), 250));
+</script>
+</body></html>`);
+  w.document.close();
+}
+
+/* ─── Mass-print sheet — picks restaurant first, then prints all
+   equipment for that location (or "all" across locations).
+   Designed for sign-shop output: produces a clean printable PDF the
+   shop can pull into Illustrator and run on aluminum or vinyl.
+   ─────────────────────────────────────────────────────────────── */
+function printQRSheet() {
+  // Build a small modal with location chips + "all locations" + a count
+  // preview per location. No heavy modal infra — vanilla overlay.
+  const all = equipment.filter(e => !e.archived && e.qr_code);
+  if (!all.length) {
+    NX.toast && NX.toast('No equipment to print', 'info');
+    return;
+  }
+
+  // Pre-count per location so the user sees "Suerte (47)" not just "Suerte".
+  const counts = LOCATIONS.reduce((m, loc) => {
+    m[loc] = all.filter(e => (e.location || '') === loc).length;
+    return m;
+  }, {});
+  const totalCount = all.length;
+
+  // Use the existing modal helper if available; otherwise build inline.
+  const overlay = document.createElement('div');
+  overlay.id = 'eqPrintLocationOverlay';
+  overlay.style.cssText = `
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(8, 6, 4, 0.7);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+    font-family: 'DM Sans', system-ui, sans-serif;
+  `;
+
+  // Location chip helper — same look as the rest of NEXUS.
+  const chip = (label, count, value) => `
+    <button class="eq-print-chip" data-loc="${esc(value)}" type="button"
+      ${count === 0 ? 'disabled' : ''}>
+      <span class="chip-label">${esc(label)}</span>
+      <span class="chip-count">${count} item${count===1?'':'s'}</span>
+    </button>
+  `;
+
+  overlay.innerHTML = `
+    <div class="eq-print-modal">
+      <div class="eq-print-head">
+        <div class="eq-print-eyebrow">MASS PRINT · QR STICKERS</div>
+        <h2 class="eq-print-title">Which location?</h2>
+        <p class="eq-print-sub">Pick a restaurant — every active piece of equipment there gets its own sticker. Send the resulting PDF to your sign shop.</p>
+      </div>
+      <div class="eq-print-chips">
+        ${LOCATIONS.map(loc => chip(loc, counts[loc] || 0, loc)).join('')}
+        <button class="eq-print-chip eq-print-chip-all" data-loc="__all__" type="button">
+          <span class="chip-label">All locations</span>
+          <span class="chip-count">${totalCount} items</span>
+        </button>
+      </div>
+      <div class="eq-print-foot">
+        <button class="eq-print-cancel" type="button">Cancel</button>
+      </div>
+    </div>
+    <style>
+      .eq-print-modal {
+        background: var(--surface);
+        border: 1px solid rgba(212, 164, 78, 0.3);
+        border-radius: 14px;
+        max-width: 420px; width: 100%;
+        padding: 28px 24px 22px;
+        color: var(--text);
+        box-shadow: 0 16px 40px rgba(0,0,0,.5);
+      }
+      .eq-print-eyebrow {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9.5px; font-weight: 600; letter-spacing: 2.5px;
+        color: var(--accent); margin-bottom: 6px;
+      }
+      .eq-print-title {
+        font-family: 'Outfit', sans-serif;
+        font-size: 22px; font-weight: 500; margin: 0 0 6px;
+        letter-spacing: -0.2px;
+      }
+      .eq-print-sub {
+        font-size: 13px; color: var(--muted);
+        margin: 0 0 20px; line-height: 1.5;
+      }
+      .eq-print-chips {
+        display: grid; gap: 8px;
+      }
+      .eq-print-chip {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 12px 16px;
+        background: transparent;
+        border: 1px solid rgba(212, 164, 78, 0.18);
+        border-radius: 12px;
+        color: var(--text);
+        font-family: inherit;
+        font-size: 14px;
+        cursor: pointer;
+        transition: background .15s, border-color .15s, transform .15s;
+        -webkit-tap-highlight-color: transparent;
+        text-align: left;
+      }
+      .eq-print-chip:hover:not(:disabled) {
+        background: rgba(212, 164, 78, 0.08);
+        border-color: rgba(212, 164, 78, 0.4);
+      }
+      .eq-print-chip:active:not(:disabled) { transform: scale(.98); }
+      .eq-print-chip:disabled {
+        opacity: 0.35; cursor: not-allowed;
+      }
+      .eq-print-chip .chip-label {
+        font-weight: 500; letter-spacing: 0.1px;
+      }
+      .eq-print-chip .chip-count {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px; color: var(--accent);
+        letter-spacing: 0.5px;
+      }
+      .eq-print-chip-all {
+        margin-top: 4px;
+        background: rgba(212, 164, 78, 0.08);
+        border-color: rgba(212, 164, 78, 0.4);
+      }
+      .eq-print-foot {
+        margin-top: 20px;
+        display: flex; justify-content: flex-end;
+      }
+      .eq-print-cancel {
+        background: transparent;
+        border: 1px solid rgba(212, 164, 78, 0.18);
+        border-radius: 10px;
+        color: var(--muted);
+        font-family: inherit; font-size: 13px;
+        padding: 8px 16px; cursor: pointer;
+        transition: color .15s, border-color .15s;
+      }
+      .eq-print-cancel:hover {
+        color: var(--accent);
+        border-color: rgba(212, 164, 78, 0.4);
+      }
+      @media (prefers-color-scheme: light) {}
+    </style>
+  `;
+
+  const close = () => overlay.remove();
+
+  overlay.addEventListener('click', e => {
+    // Click on backdrop closes
+    if (e.target === overlay) close();
+  });
+  overlay.querySelector('.eq-print-cancel').addEventListener('click', close);
+
+  overlay.querySelectorAll('.eq-print-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const loc = btn.getAttribute('data-loc');
+      const list = loc === '__all__'
+        ? all
+        : all.filter(e => (e.location || '') === loc);
+      if (!list.length) {
+        NX.toast && NX.toast(`No equipment for ${loc}`, 'info');
+        return;
+      }
+      // Sort: by location → area → name. Within a sheet, items group
+      // visually by station, so the print matches a physical walkthrough.
+      list.sort((a, b) =>
+        (a.location || '').localeCompare(b.location || '') ||
+        (a.area     || '').localeCompare(b.area     || '') ||
+        (a.name     || '').localeCompare(b.name     || '')
+      );
+      close();
+      const title = loc === '__all__'
+        ? `NEXUS QR Sheet — All locations (${list.length})`
+        : `NEXUS QR Sheet — ${loc} (${list.length})`;
+      printStickers(list, { variant: 'sheet', title });
+    });
+  });
+
+  // Esc to close
+  const onKey = (e) => {
+    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
+  };
+  document.addEventListener('keydown', onKey);
+
+  document.body.appendChild(overlay);
+}
+
+/* ─── Zebra ZPL generation ─── */
+
+function generateZPL(eq, size = '2x2') {
+  const cfg = ZEBRA_CONFIG.labelSizes[size];
+  if (!cfg) throw new Error('Invalid label size: ' + size);
+
+  const scanURL = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
+  const name = (eq.name || '').replace(/[\^~]/g, '').slice(0, 30);
+  const location = (eq.location || '').replace(/[\^~]/g, '');
+  const model = `${eq.manufacturer || ''} ${eq.model || ''}`.trim().replace(/[\^~]/g, '').slice(0, 28);
+
+  let zpl = '';
+  if (size === '2x2') {
+    zpl = `^XA
+^PW${cfg.widthDots}
+^LL${cfg.heightDots}
+^LH0,0
+^FO20,30^BQN,2,5^FDQA,${scanURL}^FS
+^FO200,40^A0N,28,28^FD${name}^FS
+^FO200,80^A0N,22,22^FD${location}^FS
+^FO200,130^A0N,18,18^FD${model}^FS
+^FO200,170^A0N,14,14^FDScan for details^FS
+^FO200,200^A0N,14,14^FD${eq.qr_code}^FS
+^PQ1,0,1,Y
+^XZ`;
+  } else if (size === '2x1') {
+    zpl = `^XA
+^PW${cfg.widthDots}
+^LL${cfg.heightDots}
+^LH0,0
+^FO15,20^BQN,2,3^FDQA,${scanURL}^FS
+^FO120,25^A0N,22,22^FD${name}^FS
+^FO120,55^A0N,16,16^FD${location}^FS
+^FO120,80^A0N,14,14^FD${model}^FS
+^FO120,105^A0N,12,12^FD${eq.qr_code}^FS
+^PQ1,0,1,Y
+^XZ`;
+  } else if (size === '3x2' || size === '4x2') {
+    zpl = `^XA
+^PW${cfg.widthDots}
+^LL${cfg.heightDots}
+^LH0,0
+^FO20,40^BQN,2,6^FDQA,${scanURL}^FS
+^FO230,40^A0N,32,32^FD${name}^FS
+^FO230,85^A0N,24,24^FD${location}^FS
+^FO230,130^A0N,20,20^FD${model}^FS
+^FO230,170^A0N,16,16^FDSN: ${(eq.serial_number || '—').slice(0, 20)}^FS
+^FO230,210^A0N,16,16^FDNEXUS: ${eq.qr_code}^FS
+^FO230,250^A0N,14,14^FDScan for full details^FS
+^PQ1,0,1,Y
+^XZ`;
+  }
+  return zpl.replace(/\n\s*/g, '\n').trim();
+}
+
+function generateZPLBatch(equipmentList, size = '2x2') {
+  return equipmentList.map(eq => generateZPL(eq, size)).join('\n');
+}
+
+async function loadZebraBrowserPrint() {
+  if (zebraBrowserPrintLoaded) return true;
+  try {
+    await new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/gh/gtomasevic/browser-print-js@master/BrowserPrint-3.0.216.min.js';
+      script.onload = resolve;
+      script.onerror = resolve;
+      document.head.appendChild(script);
+    });
+    zebraBrowserPrintLoaded = true;
+    return true;
+  } catch (e) { return false; }
+}
+
+async function printZebraBrowserPrint(zpl) {
+  try {
+    const devRes = await fetch(ZEBRA_BP_URL + '/default?type=printer');
+    if (!devRes.ok) throw new Error('Browser Print not running');
+    const device = await devRes.json();
+
+    const printRes = await fetch(ZEBRA_BP_URL + '/write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device, data: zpl })
+    });
+    if (!printRes.ok) throw new Error('Print failed: ' + printRes.status);
+    return { success: true, device: device.name };
+  } catch (err) {
+    console.error('[Zebra] Browser Print error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+function openZebraPrintDialog(equipmentList, preselectedSize) {
+  const modal = document.getElementById('zebraPrintModal') || (() => {
+    const m = document.createElement('div');
+    m.id = 'zebraPrintModal';
+    m.className = 'eq-modal';
+    document.body.appendChild(m);
+    return m;
+  })();
+
+  const count = equipmentList.length;
+  const defaultSize = preselectedSize || '2x2';
+
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="document.getElementById('zebraPrintModal').classList.remove('active')"></div>
+    <div class="eq-detail eq-edit">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="document.getElementById('zebraPrintModal').classList.remove('active')">${uiSvg("close", "16px")}</button>
+        <h2>Print Zebra Labels (${count})</h2>
+      </div>
+      <div class="eq-detail-body">
+        <div class="eq-zebra-tabs">
+          <button class="eq-zebra-tab active" data-method="direct">Direct to Printer</button>
+          <button class="eq-zebra-tab" data-method="download">Download ZPL</button>
+          <button class="eq-zebra-tab" data-method="preview">Preview</button>
+        </div>
+
+        <div class="eq-zebra-panel active" data-panel="direct">
+          <div class="eq-zebra-note">
+            Requires <a href="https://www.zebra.com/us/en/software/printer-software/browser-print.html" target="_blank">Zebra Browser Print</a>
+            installed on this computer with your ZD421 connected via USB or network.
+          </div>
+          <div id="zebraPrinterStatus" class="eq-zebra-status">Checking printer…</div>
+          <div class="eq-form-group">
+            <label>Label Size</label>
+            <select id="zebraLabelSize">
+              <option value="2x2" ${defaultSize==='2x2'?'selected':''}>2" × 2" (recommended for equipment)</option>
+              <option value="2x1" ${defaultSize==='2x1'?'selected':''}>2" × 1" (compact)</option>
+              <option value="3x2" ${defaultSize==='3x2'?'selected':''}>3" × 2" (large with details)</option>
+              <option value="4x2" ${defaultSize==='4x2'?'selected':''}>4" × 2" (extra large)</option>
+            </select>
+          </div>
+          <div class="eq-form-actions">
+            <button class="eq-btn eq-btn-primary" id="zebraPrintBtn">Print ${count} Label${count > 1 ? 's' : ''}</button>
+          </div>
+        </div>
+
+        <div class="eq-zebra-panel" data-panel="download">
+          <div class="eq-zebra-note">
+            Download the ZPL file and send to any Zebra printer via Zebra Setup Utilities,
+            USB transfer, or email to a network-connected printer.
+          </div>
+          <div class="eq-form-group">
+            <label>Label Size</label>
+            <select id="zebraDownloadSize">
+              <option value="2x2">2" × 2"</option>
+              <option value="2x1">2" × 1"</option>
+              <option value="3x2">3" × 2"</option>
+              <option value="4x2">4" × 2"</option>
+            </select>
+          </div>
+          <div class="eq-form-actions">
+            <button class="eq-btn eq-btn-primary" id="zebraDownloadBtn">${uiSvg("arrowDown", "14px")} Download ZPL File</button>
+            <button class="eq-btn eq-btn-secondary" id="zebraCopyBtn">Copy ZPL</button>
+          </div>
+        </div>
+
+        <div class="eq-zebra-panel" data-panel="preview">
+          <div class="eq-zebra-note">Preview rendered via Labelary.com — shows roughly what the Zebra will print.</div>
+          <div class="eq-form-group">
+            <label>Size</label>
+            <select id="zebraPreviewSize">
+              <option value="2x2">2" × 2"</option>
+              <option value="2x1">2" × 1"</option>
+              <option value="3x2">3" × 2"</option>
+              <option value="4x2">4" × 2"</option>
+            </select>
+          </div>
+          <div id="zebraPreview" class="eq-zebra-preview"></div>
+        </div>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+
+  modal.querySelectorAll('.eq-zebra-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      modal.querySelectorAll('.eq-zebra-tab').forEach(t => t.classList.remove('active'));
+      modal.querySelectorAll('.eq-zebra-panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      modal.querySelector(`[data-panel="${tab.dataset.method}"]`).classList.add('active');
+      if (tab.dataset.method === 'preview') {
+        renderZebraPreview(equipmentList[0], document.getElementById('zebraPreviewSize').value);
+      }
+    });
+  });
+
+  checkZebraPrinter();
+
+  document.getElementById('zebraPrintBtn').addEventListener('click', async () => {
+    const size = document.getElementById('zebraLabelSize').value;
+    const btn = document.getElementById('zebraPrintBtn');
+    btn.disabled = true;
+    btn.textContent = 'Printing…';
+
+    const zpl = generateZPLBatch(equipmentList, size);
+    const result = await printZebraBrowserPrint(zpl);
+
+    if (result.success) {
+      NX.toast && NX.toast(`Printed ${count} label${count>1?'s':''} to ${result.device} ✓`, 'success', 5000);
+      if (NX.syslog) NX.syslog('zebra_print', `${count} labels (${size})`);
+      modal.classList.remove('active');
+    } else {
+      NX.toast && NX.toast('Print failed: ' + result.error, 'error', 8000);
+      btn.disabled = false;
+      btn.textContent = `Print ${count} Label${count > 1 ? 's' : ''}`;
+    }
+  });
+
+  document.getElementById('zebraDownloadBtn').addEventListener('click', () => {
+    const size = document.getElementById('zebraDownloadSize').value;
+    const zpl = generateZPLBatch(equipmentList, size);
+    const blob = new Blob([zpl], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nexus-labels-${size}-${new Date().toISOString().slice(0,10)}.zpl`;
+    a.click();
+    URL.revokeObjectURL(url);
+    NX.toast && NX.toast('ZPL file downloaded ✓', 'success');
+  });
+
+  document.getElementById('zebraCopyBtn').addEventListener('click', () => {
+    const size = document.getElementById('zebraDownloadSize').value;
+    const zpl = generateZPLBatch(equipmentList, size);
+    navigator.clipboard.writeText(zpl);
+    NX.toast && NX.toast('ZPL copied to clipboard ✓', 'success');
+  });
+
+  document.getElementById('zebraPreviewSize').addEventListener('change', e => {
+    renderZebraPreview(equipmentList[0], e.target.value);
+  });
+}
+
+async function checkZebraPrinter() {
+  const el = document.getElementById('zebraPrinterStatus');
+  if (!el) return;
+  try {
+    const res = await fetch(ZEBRA_BP_URL + '/available', { signal: AbortSignal.timeout(2000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.printer && data.printer.length) {
+        el.innerHTML = `<span class="eq-zebra-ok">${uiSvg("check","13px")} ${data.printer.length} printer${data.printer.length>1?'s':''} connected: ${data.printer.map(p=>p.name).join(', ')}</span>`;
+      } else {
+        el.innerHTML = `<span class="eq-zebra-warn">${uiSvg('alert','13px')} Browser Print running but no printer connected. Plug in your Zebra via USB.</span>`;
+      }
+    } else throw new Error('Not running');
+  } catch (e) {
+    el.innerHTML = `<span class="eq-zebra-err">${uiSvg('close','13px')} Zebra Browser Print not running. <a href="https://www.zebra.com/us/en/software/printer-software/browser-print.html" target="_blank">Install it</a> then refresh.</span>`;
+  }
+}
+
+function renderZebraPreview(eq, size) {
+  const el = document.getElementById('zebraPreview');
+  if (!el || !eq) return;
+  const zpl = generateZPL(eq, size);
+  const cfg = ZEBRA_CONFIG.labelSizes[size];
+  const apiURL = `https://api.labelary.com/v1/printers/8dpmm/labels/${cfg.width}x${cfg.height}/0/`;
+
+  el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">Rendering…</div>';
+
+  fetch(apiURL, { method: 'POST', headers: { 'Accept': 'image/png' }, body: zpl })
+    .then(r => { if (!r.ok) throw new Error('Preview API error'); return r.blob(); })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      el.innerHTML = `
+        <div class="eq-zebra-preview-img-wrap">
+          <img src="${url}" class="eq-zebra-preview-img" alt="Label preview">
+          <div class="eq-zebra-preview-cap">${size}" label · ${eq.name}</div>
+        </div>`;
+    })
+    .catch(() => {
+      el.innerHTML = '<div class="eq-zebra-err">Preview unavailable. The ZPL is still valid and will print correctly.</div>';
+    });
+}
+
+function printZebraBatch() {
+  const filtered = getFiltered();
+  if (!filtered.length) {
+    NX.toast && NX.toast('No equipment to print', 'info');
+    return;
+  }
+  openZebraPrintDialog(filtered);
+}
+
+function printZebraSingle(equipId) {
+  const eq = equipment.find(e => e.id === equipId);
+  if (!eq) return;
+  openZebraPrintDialog([eq]);
+}
+
+/* Prefer Zebra if Browser Print available, else fall back to paper sticker */
+function quickPrint(equipId) {
+  printZebraSingle(equipId);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   8. PUBLIC SCAN — no-auth QR view
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function renderPublicScanView(qrCode) {
+  // Apply theme-from-coin BEFORE first paint so the user sees the right
+  // theme on initial render. Same logic as the main app's IIFE in
+  // index.html — read nexus_theme_pref + nexus_active_persona, default
+  // to dark + Providentia for new visitors.
+  try {
+    let pref = localStorage.getItem('nexus_theme_pref');
+    if (!pref) {
+      const legacy = localStorage.getItem('nexus_theme');
+      pref = (legacy === 'dark' || legacy === 'light') ? legacy : 'auto';
+    }
+    let theme;
+    if (pref === 'dark' || pref === 'light') theme = pref;
+    else {
+      const persona = localStorage.getItem('nexus_active_persona') || 'providentia';
+      theme = persona === 'trajan' ? 'light' : 'dark';
+    }
+    document.documentElement.setAttribute('data-theme', theme);
+  } catch (_) { /* no localStorage — defaults to dark via attribute below */ }
+
+  // Mark body so the public-views.css can scope its overrides without
+  // affecting the main app surface.
+  document.body.classList.add('public-view');
+
+  const persona = localStorage.getItem('nexus_active_persona') || 'providentia';
+  const coinSrc = persona === 'trajan'
+    ? 'assets/coin-trajan.png'
+    : 'assets/coin-providentia.png';
+  const coinName = persona === 'trajan' ? 'Trajan' : 'Providentia';
+
+  document.body.innerHTML = `
+    <div class="public-scan-container">
+      <header class="public-scan-masthead">
+        <button class="public-coin" id="publicCoin" type="button" aria-label="Flip coin — change theme">
+          <img src="${coinSrc}" alt="${coinName}" draggable="false">
+          <span class="public-coin-name">${coinName}</span>
+        </button>
+        <div class="public-scan-brand">NEXUS</div>
+      </header>
+      <div class="public-scan-body" id="publicScanBody">
+        <div class="public-scan-loading">
+          <div class="public-scan-loader"></div>
+          <div>Loading…</div>
+        </div>
+      </div>
+    </div>
+  `;
+  wirePublicCoin();
+  loadPublicScan(qrCode);
+}
+
+// Mounted on every public view. Tap → flip persona + theme. Persists
+// to the same localStorage keys the main app reads, so the choice
+// follows the user when they log in.
+function wirePublicCoin() {
+  const coin = document.getElementById('publicCoin');
+  if (!coin) return;
+  coin.addEventListener('click', () => {
+    const cur = localStorage.getItem('nexus_active_persona') || 'providentia';
+    const next = cur === 'trajan' ? 'providentia' : 'trajan';
+    const newTheme = next === 'trajan' ? 'light' : 'dark';
+    localStorage.setItem('nexus_active_persona', next);
+    localStorage.setItem('nexus_theme_pref', 'auto');
+    document.documentElement.setAttribute('data-theme', newTheme);
+    const img = coin.querySelector('img');
+    const lbl = coin.querySelector('.public-coin-name');
+    if (img) {
+      img.src = next === 'trajan'
+        ? 'assets/coin-trajan.png'
+        : 'assets/coin-providentia.png';
+      img.alt = next === 'trajan' ? 'Trajan' : 'Providentia';
+    }
+    if (lbl) lbl.textContent = next === 'trajan' ? 'Trajan' : 'Providentia';
+    coin.classList.add('public-coin-flipped');
+    setTimeout(() => coin.classList.remove('public-coin-flipped'), 600);
+  });
+}
+
+async function loadPublicScan(qrCode) {
+  try {
+    const { data, error } = await NX.sb.from('equipment')
+      .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contact_name, service_phone, preferred_contractor_node_id')
+      .eq('qr_code', qrCode)
+      .single();
+    if (error || !data) throw new Error('Equipment not found');
+
+    const { data: maint } = await NX.sb.from('equipment_maintenance')
+      .select('event_type, event_date, description, performed_by')
+      .eq('equipment_id', data.id)
+      .order('event_date', { ascending: false })
+      .limit(5);
+
+    // Pull the linked contractor node (if any) so the public scan can
+    // surface every phone + email the contractor has on file. Best-effort
+    // — if the join fails we fall back to the equipment's own service
+    // contact fields (which still work).
+    let contractor = null;
+    if (data.preferred_contractor_node_id) {
+      try {
+        const { data: cnode } = await NX.sb.from('nodes')
+          .select('id, name, links, notes')
+          .eq('id', data.preferred_contractor_node_id)
+          .maybeSingle();
+        if (cnode) contractor = cnode;
+      } catch (_) { /* ignore — fall back below */ }
+    }
+
+    renderPublicScanHTML(data, maint || [], contractor);
+  } catch (err) {
+    document.getElementById('publicScanBody').innerHTML = `
+      <div class="public-scan-error">
+        <h2>Equipment Not Found</h2>
+        <p>This QR code isn't registered or has been removed.</p>
+        <button onclick="window.location.href='${window.location.origin}${window.location.pathname}'">Go to NEXUS</button>
+      </div>`;
+  }
+}
+
+function _publicSvg(path, size) {
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">${path}</svg>`;
+}
+
+function renderPublicScanHTML(eq, maint, contractor) {
+  // Status palette — tokens, no raw web colors. Editorial set:
+  // olive (operational), gold (needs service), oxblood (down),
+  // graphite (retired). Same family the equipment list uses
+  // post-login, so the public scan reads consistent.
+  const status = ({
+    operational:    { label: 'Operational',    color: 'var(--nx-green)' },
+    needs_service:  { label: 'Needs Service',  color: 'var(--nx-amber)' },
+    down:           { label: 'Down',           color: 'var(--nx-red)' },
+    retired:        { label: 'Retired',        color: 'var(--nx-faint)' },
+  })[eq.status] || { label: eq.status || 'Unknown', color: 'var(--nx-faint)' };
+
+  const pm = eq.next_pm_date ? new Date(eq.next_pm_date) : null;
+  const pmStr = pm ? pm.toLocaleDateString() : 'Not scheduled';
+  const pmOverdue = pm && pm < new Date();
+
+  const PIN_ICON   = '<path d="M20 10c0 7-8 13-8 13s-8-6-8-13a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>';
+  const ALERT_ICON = '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>';
+  const LOGIN_ICON = '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>';
+  const PHONE_ICON = '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>';
+  const MAIL_ICON  = '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>';
+
+  // Resolve contact channels: prefer the linked contractor's full set
+  // (multi-phone, multi-email with TO/CC/BCC), fall back to the
+  // equipment's own service_phone + service_contact_name fields when
+  // the FK isn't set yet.
+  const phones = contractor ? extractContractorPhones(contractor) : [];
+  const emails = contractor ? extractContractorEmails(contractor) : [];
+  if (!phones.length && eq.service_phone) {
+    phones.push({ phone: eq.service_phone, label: '' });
+  }
+  const contactName = (contractor && contractor.name) || eq.service_contact_name || '';
+
+  // Build the email mailto: link with primary in to:, others in cc:.
+  let emailMailto = '';
+  let emailLabel = '';
+  if (emails.length) {
+    const toAddrs   = emails.filter(e => e.role === 'to' || !e.role).map(e => e.email);
+    const ccAddrs   = emails.filter(e => e.role === 'cc').map(e => e.email);
+    const bccAddrs  = emails.filter(e => e.role === 'bcc').map(e => e.email);
+    // If no explicit TOs (everything was marked CC), promote the first
+    // entry to TO so the email is deliverable.
+    const finalTos  = toAddrs.length ? toAddrs : (emails[0] ? [emails[0].email] : []);
+    const finalCcs  = toAddrs.length ? ccAddrs : ccAddrs.concat(emails.slice(1).filter(e => e.role !== 'bcc').map(e => e.email));
+
+    const subject = encodeURIComponent(`${eq.name} — service request`);
+    const body = encodeURIComponent(
+      `Hi${contactName ? ' ' + contactName : ''},\n\n` +
+      `We need service on the following equipment:\n\n` +
+      `  ${eq.name}\n` +
+      `  Location: ${eq.location}${eq.area ? ' · ' + eq.area : ''}\n` +
+      (eq.manufacturer || eq.model ? `  ${[eq.manufacturer, eq.model].filter(Boolean).join(' · ')}\n` : '') +
+      (eq.serial_number ? `  Serial: ${eq.serial_number}\n` : '') +
+      `\nPlease let us know your earliest availability.\n\nThanks.`
+    );
+    const params = [`subject=${subject}`, `body=${body}`];
+    if (finalCcs.length)  params.push(`cc=${encodeURIComponent(finalCcs.join(','))}`);
+    if (bccAddrs.length)  params.push(`bcc=${encodeURIComponent(bccAddrs.join(','))}`);
+    emailMailto = `mailto:${finalTos.join(',')}?${params.join('&')}`;
+    emailLabel  = finalTos[0] || emails[0].email;
+  }
+
+  // Build the Call button. If multiple phones, the primary is the tap
+  // target and a small "+N" chip hints at additional numbers (the
+  // user can long-press / tap-and-hold to pick — handled by browser).
+  const primaryPhone = phones[0]?.phone || '';
+  const primaryLabel = phones[0]?.label || '';
+  const extraPhoneCount = Math.max(0, phones.length - 1);
+
+  document.getElementById('publicScanBody').innerHTML = `
+    <div class="public-scan-card">
+      ${eq.photo_url ? `<img src="${esc(eq.photo_url)}" class="public-scan-photo" onerror="this.style.display='none'">` : ''}
+      <h1 class="public-scan-name">${esc(eq.name)}</h1>
+      <div class="public-scan-loc">${_publicSvg(PIN_ICON, '14')} ${esc(eq.location)}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
+      <div class="public-scan-status" style="--pill-c:${status.color}">
+        <span class="public-scan-dot"></span>
+        <span class="public-scan-status-label">${status.label}</span>
+      </div>
+      <div class="public-scan-fields">
+        ${eq.manufacturer ? `<div><label>Manufacturer</label><div>${esc(eq.manufacturer)}</div></div>` : ''}
+        ${eq.model ? `<div><label>Model</label><div>${esc(eq.model)}</div></div>` : ''}
+        ${eq.serial_number ? `<div><label>Serial Number</label><div>${esc(eq.serial_number)}</div></div>` : ''}
+        ${eq.install_date ? `<div><label>Installed</label><div>${new Date(eq.install_date).toLocaleDateString()}</div></div>` : ''}
+        ${eq.warranty_until ? `<div><label>Warranty</label><div>${new Date(eq.warranty_until).toLocaleDateString()}</div></div>` : ''}
+        <div><label>Next PM</label><div${pmOverdue ? ' class="public-scan-overdue"' : ''}>${pmStr}${pmOverdue ? ' (overdue)' : ''}</div></div>
+      </div>
+
+      ${(primaryPhone || emailMailto) ? `
+        <div class="public-scan-contact-card">
+          ${contactName ? `<div class="public-scan-contact-name">${esc(contactName)}</div>` : ''}
+          <div class="public-scan-contact-actions">
+            ${primaryPhone ? `
+              <a class="public-scan-contact-btn public-scan-contact-call" href="tel:${esc(primaryPhone.replace(/\s+/g, ''))}">
+                <span class="public-scan-contact-icon">${_publicSvg(PHONE_ICON, '18')}</span>
+                <span class="public-scan-contact-text">
+                  <span class="public-scan-contact-label">Call ${primaryLabel ? esc(primaryLabel) : 'service'}</span>
+                  <span class="public-scan-contact-value">${esc(primaryPhone)}</span>
+                </span>
+                ${extraPhoneCount > 0 ? `<span class="public-scan-contact-extra">+${extraPhoneCount}</span>` : ''}
+              </a>
+            ` : ''}
+            ${emailMailto ? `
+              <a class="public-scan-contact-btn public-scan-contact-email" href="${esc(emailMailto)}">
+                <span class="public-scan-contact-icon">${_publicSvg(MAIL_ICON, '18')}</span>
+                <span class="public-scan-contact-text">
+                  <span class="public-scan-contact-label">Email service request</span>
+                  <span class="public-scan-contact-value">${esc(emailLabel)}</span>
+                </span>
+                ${emails.length > 1 ? `<span class="public-scan-contact-extra">+${emails.length - 1}</span>` : ''}
+              </a>
+            ` : ''}
+          </div>
+          ${phones.length > 1 ? `
+            <div class="public-scan-contact-extras">
+              ${phones.slice(1).map(p => `
+                <a class="public-scan-contact-extra-row" href="tel:${esc(p.phone.replace(/\s+/g, ''))}">
+                  <span class="public-scan-contact-extra-label">${p.label ? esc(p.label) : 'alt'}</span>
+                  <span class="public-scan-contact-extra-value">${esc(p.phone)}</span>
+                </a>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      ` : ''}
+
+      ${maint.length ? `
+        <div class="public-scan-section">
+          <h3>Recent Service History</h3>
+          ${maint.map(m => `
+            <div class="public-scan-history">
+              <div class="public-scan-hist-date">${new Date(m.event_date).toLocaleDateString()}</div>
+              <div>
+                <div class="public-scan-hist-type">${(m.event_type || 'service').toUpperCase()}</div>
+                <div class="public-scan-hist-desc">${esc(m.description || '')}</div>
+                ${m.performed_by ? `<div class="public-scan-hist-who">${esc(m.performed_by)}</div>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>` : ''}
+      <div class="public-scan-actions" id="publicScanActions">
+        <button class="public-scan-btn public-scan-btn-primary" onclick="NX.modules.equipment.publicReportIssue('${eq.qr_code}')">${_publicSvg(ALERT_ICON, '16')} Report Issue</button>
+        <button class="public-scan-btn" onclick="window.location.href='${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}&login=1'">${_publicSvg(LOGIN_ICON, '16')} Sign In</button>
+      </div>
+      <div class="public-scan-footer">Restaurant Operations · NEXUS</div>
+    </div>
+  `;
+}
+
+function publicReportIssue(qrCode) {
+  const modal = document.createElement('div');
+  modal.className = 'public-report-modal';
+  modal.innerHTML = `
+    <div class="public-report-bg" onclick="this.parentElement.remove()"></div>
+    <div class="public-report">
+      <button class="public-report-close" onclick="this.parentElement.parentElement.remove()">${uiSvg("close", "13px")}</button>
+      <h2>Report Issue</h2>
+      <form id="publicReportForm">
+        <div class="public-report-field">
+          <label>Your Name</label>
+          <input name="reporter" required placeholder="Your name">
+        </div>
+        <div class="public-report-field">
+          <label>What's wrong?</label>
+          <textarea name="description" rows="4" required placeholder="Describe the problem..."></textarea>
+        </div>
+        <div class="public-report-field">
+          <label>Priority</label>
+          <select name="priority">
+            <option value="low">Low - Not urgent</option>
+            <option value="normal" selected>Normal</option>
+            <option value="urgent">Urgent - Not working</option>
+          </select>
+        </div>
+        <div class="public-report-actions">
+          <button type="button" class="public-scan-btn" onclick="this.parentElement.parentElement.parentElement.parentElement.remove()">Cancel</button>
+          <button type="submit" class="public-scan-btn public-scan-btn-primary">Submit Report</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  modal.querySelector('#publicReportForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const { data: eq } = await NX.sb.from('equipment').select('id, name, location').eq('qr_code', qrCode).single();
+    if (!eq) return;
+
+    try {
+      const ticketData = {
+        title: `[Equipment] ${eq.name}: ${fd.get('description').slice(0, 60)}`,
+        notes: `Reported via QR scan by ${fd.get('reporter')}\n\nEquipment: ${eq.name}\nLocation: ${eq.location}\n\nIssue: ${fd.get('description')}`,
+        priority: fd.get('priority'),
+        location: eq.location,
+        status: 'open',
+        reported_by: fd.get('reporter') + ' (QR scan)'
+      };
+      await NX.sb.from('tickets').insert(ticketData);
+      // Stage S: push notification to managers — QR reports are
+      // often from staff in the field and managers need them fast
+      if (NX.notifyTicketCreated) NX.notifyTicketCreated(ticketData);
+      await NX.sb.from('daily_logs').insert({
+        entry: `[SCAN-REPORT] ${eq.name} at ${eq.location}: ${fd.get('description').slice(0, 120)}`,
+        user_name: fd.get('reporter')
+      });
+      modal.innerHTML = `
+        <div class="public-report-bg" onclick="this.parentElement.remove()"></div>
+        <div class="public-report public-report-success">
+          <div style="margin-bottom:12px;color:var(--nx-gold)">${uiSvg("check","48px")}</div>
+          <h2>Report Sent</h2>
+          <p>Thanks! The team has been notified and will address this shortly.</p>
+          <button class="public-scan-btn public-scan-btn-primary" onclick="this.parentElement.parentElement.remove()">Done</button>
+        </div>
+      `;
+    } catch (err) {
+      console.error('[Public] Report failed:', err);
+      alert('Failed to submit report: ' + err.message);
+    }
+  });
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   9. ATTACHMENTS & FULL EDITOR — 6-tab editor, custom fields, photo mgmt
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function openFullEditor(equipId) {
+  const { data: eq } = await NX.sb.from('equipment').select('*').eq('id', equipId).single();
+  if (!eq) return;
+
+  const [attachRes, customRes] = await Promise.all([
+    NX.sb.from('equipment_attachments').select('*').eq('equipment_id', equipId).order('created_at', { ascending: false }),
+    NX.sb.from('equipment_custom_fields').select('*').eq('equipment_id', equipId).order('created_at')
+  ]);
+  const attachments = attachRes.data || [];
+  const customFields = customRes.data || [];
+
+  const modal = document.getElementById('eqFullEditModal') || (() => {
+    const m = document.createElement('div');
+    m.id = 'eqFullEditModal';
+    m.className = 'eq-modal';
+    document.body.appendChild(m);
+    return m;
+  })();
+
+  const specs = eq.specs || {};
+  const tags = eq.tags || [];
+
+  modal.innerHTML = `
+    <div class="eq-detail-bg" onclick="NX.modules.equipment.closeFullEdit()"></div>
+    <div class="eq-detail eq-edit-full">
+      <div class="eq-detail-head">
+        <button class="eq-close" onclick="NX.modules.equipment.closeFullEdit()">${uiSvg("close", "16px")}</button>
+        <h2>${uiSvg("pen","16px")} Edit Everything — ${esc(eq.name)}</h2>
+      </div>
+
+      <div class="eq-detail-tabs">
+        <button class="eq-tab active" data-tab="basic">Basic</button>
+        <button class="eq-tab" data-tab="specs">Specs</button>
+        <button class="eq-tab" data-tab="photo">Photos</button>
+        <button class="eq-tab" data-tab="attach">Attachments (${attachments.length})</button>
+        <button class="eq-tab" data-tab="links">Links</button>
+        <button class="eq-tab" data-tab="custom">Custom Fields (${customFields.length})</button>
+      </div>
+
+      <div class="eq-detail-body">
+
+        <div class="eq-tab-panel active" data-panel="basic">
+          <div class="eq-form">
+            <div class="eq-form-group">
+              <label>Name</label>
+              <input data-field="name" value="${escAttr(eq.name)}">
+            </div>
+            <div class="eq-form-row">
+              <div class="eq-form-group">
+                <label>Location</label>
+                <select data-field="location">
+                  ${LOCATIONS.map(l => `<option ${eq.location===l?'selected':''}>${l}</option>`).join('')}
+                </select>
+              </div>
+              <div class="eq-form-group">
+                <label>Area</label>
+                <input data-field="area" value="${escAttr(eq.area||'')}">
+              </div>
+            </div>
+            <div class="eq-form-row">
+              <div class="eq-form-group">
+                <label>Category</label>
+                <select data-field="category">
+                  ${CATEGORIES.map(c => `<option value="${c.key}" ${eq.category===c.key?'selected':''}>${c.key}</option>`).join('')}
+                </select>
+              </div>
+              <div class="eq-form-group">
+                <label>Subcategory</label>
+                <input data-field="subcategory" value="${escAttr(eq.subcategory||'')}" placeholder="walk_in, fryer, range, etc">
+              </div>
+            </div>
+            <div class="eq-form-row">
+              <div class="eq-form-group">
+                <label>Status</label>
+                <select data-field="status">
+                  ${DROPDOWN_STATUSES.map(s => `<option value="${s.key}" ${eq.status===s.key?'selected':''}>${s.label}</option>`).join('')}
+                </select>
+              </div>
+              <div class="eq-form-group">
+                <label>Health Score (0-100)</label>
+                <input type="number" min="0" max="100" data-field="health_score" value="${eq.health_score ?? 100}">
+              </div>
+            </div>
+            <div class="eq-form-row">
+              <div class="eq-form-group">
+                <label>Manufacturer</label>
+                <input data-field="manufacturer" value="${escAttr(eq.manufacturer||'')}">
+              </div>
+              <div class="eq-form-group">
+                <label>Model</label>
+                <input data-field="model" value="${escAttr(eq.model||'')}">
+              </div>
+            </div>
+            <div class="eq-form-group">
+              <label>Serial Number</label>
+              <input data-field="serial_number" value="${escAttr(eq.serial_number||'')}">
+            </div>
+            <div class="eq-form-row">
+              <div class="eq-form-group">
+                <label>Install Date</label>
+                <input type="date" data-field="install_date" value="${eq.install_date||''}">
+              </div>
+              <div class="eq-form-group">
+                <label>Warranty Until</label>
+                <input type="date" data-field="warranty_until" value="${eq.warranty_until||''}">
+              </div>
+            </div>
+            <div class="eq-form-row">
+              <div class="eq-form-group">
+                <label>Purchase Price ($)</label>
+                <input type="number" step="0.01" data-field="purchase_price" value="${eq.purchase_price||''}">
+              </div>
+              <div class="eq-form-group">
+                <label>PM Interval (days)</label>
+                <input type="number" data-field="pm_interval_days" value="${eq.pm_interval_days||''}">
+              </div>
+            </div>
+            <div class="eq-form-group">
+              <label>Next PM Date</label>
+              <input type="date" data-field="next_pm_date" value="${eq.next_pm_date||''}">
+            </div>
+            <div class="eq-form-group">
+              <label>Tags (comma-separated)</label>
+              <input data-field="_tags" value="${escAttr((tags||[]).join(', '))}" placeholder="critical, backup, rental, etc">
+            </div>
+            <div class="eq-form-group">
+              <label>Notes</label>
+              <textarea data-field="notes" rows="4">${esc(eq.notes||'')}</textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="eq-tab-panel" data-panel="specs">
+          <div class="eq-specs-help">
+            Structured specs. Common: voltage, amperage, hz, phase, refrigerant_type, refrigerant_amount, btu, capacity, wattage, gas_type.
+          </div>
+          <div class="eq-specs-list" id="eqSpecsList">
+            ${Object.entries(specs).map(([k, v]) => `
+              <div class="eq-spec-row" data-spec="${escAttr(k)}">
+                <input class="eq-spec-key" value="${escAttr(k)}">
+                <input class="eq-spec-val" value="${escAttr(String(v||''))}">
+                <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="this.parentElement.remove()">${uiSvg("close", "13px")}</button>
+              </div>
+            `).join('')}
+          </div>
+          <button class="eq-btn eq-btn-secondary" id="eqAddSpec">+ Add Spec</button>
+        </div>
+
+        <div class="eq-tab-panel" data-panel="photo">
+          <div class="eq-photo-section">
+            <h4>Main Photo</h4>
+            ${eq.photo_url ? `
+              <div class="eq-photo-wrap">
+                <img src="${eq.photo_url}" class="eq-photo-main">
+                <div class="eq-photo-actions">
+                  <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.replacePhoto('${equipId}', 'photo_url')">Replace</button>
+                  <button class="eq-btn eq-btn-danger" onclick="NX.modules.equipment.removePhoto('${equipId}', 'photo_url')">Remove</button>
+                </div>
+              </div>
+            ` : `
+              <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadPhoto('${equipId}', 'photo_url')">${uiSvg("camera", "13px")} Upload Photo</button>
+            `}
+          </div>
+          <div class="eq-photo-section">
+            <h4>Data Plate Photo</h4>
+            ${eq.data_plate_url ? `
+              <div class="eq-photo-wrap">
+                <img src="${eq.data_plate_url}" class="eq-photo-main">
+                <div class="eq-photo-actions">
+                  <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.replacePhoto('${equipId}', 'data_plate_url')">Replace</button>
+                  <button class="eq-btn eq-btn-danger" onclick="NX.modules.equipment.removePhoto('${equipId}', 'data_plate_url')">Remove</button>
+                </div>
+              </div>
+            ` : `
+              <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadPhoto('${equipId}', 'data_plate_url')">${uiSvg("camera","13px")} Upload Data Plate</button>
+            `}
+          </div>
+        </div>
+
+        <div class="eq-tab-panel" data-panel="attach">
+          <div class="eq-attach-actions">
+            <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.addAttachment('${equipId}', 'file')">${uiSvg("document","13px")} Upload File</button>
+            <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.addAttachment('${equipId}', 'photo')">${uiSvg("camera","13px")} Add Photo</button>
+            <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.addAttachment('${equipId}', 'link')">${uiSvg("link", "13px")} Add Link</button>
+            <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.addAttachment('${equipId}', 'note')">${uiSvg("note","13px")} Add Note</button>
+          </div>
+          <div class="eq-attach-list" id="eqAttachList">
+            ${attachments.length ? attachments.map(a => renderAttachment(a)).join('') : '<div class="eq-empty-small">No attachments yet. Upload receipts, invoices, warranty cards, installation docs, videos, or anything else.</div>'}
+          </div>
+        </div>
+
+        <div class="eq-tab-panel" data-panel="links">
+          <div class="eq-specs-help">
+            External links — manufacturer website, manual URL, training video, etc. Clickable from the equipment detail.
+          </div>
+          
+          <div class="eq-form-group eq-service-contact" style="margin-bottom:18px;padding:14px;background:var(--elevated);border:1px solid var(--border);border-radius:10px">
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              ${uiSvg('phone', '14px')} Service Contact
+              <span style="font-weight:400;font-size:11px;color:var(--muted)">— Powers the "Call" button on QR scan</span>
+            </label>
+            <div class="eq-form-row">
+              <div class="eq-form-group" style="flex:1">
+                <label style="font-size:11px">Contact Name <span style="color:var(--muted)">— pick existing to auto-link</span></label>
+                <input data-field="service_contact_name" id="eqServiceContactName-${eq.id}" value="${escAttr(eq.service_contact_name||'')}" placeholder="Austin Air and Ice" list="eqContractorOptions-${eq.id}" autocomplete="off">
+                <datalist id="eqContractorOptions-${eq.id}"></datalist>
+                <input type="hidden" data-field="preferred_contractor_node_id" value="${escAttr(eq.preferred_contractor_node_id||'')}">
+                <div id="eqContractorLinkChip-${eq.id}" class="eq-contractor-link-chip" style="display:none">
+                  <span class="eq-contractor-link-chip-icon">🔗</span>
+                  <span class="eq-contractor-link-chip-text"></span>
+                  <button type="button" class="eq-contractor-link-chip-unlink" title="Unlink (keep name as plain text)">×</button>
+                </div>
+              </div>
+              <div class="eq-form-group" style="flex:1">
+                <label style="font-size:11px">Phone Number</label>
+                <input type="tel" data-field="service_phone" id="eqServicePhone-${eq.id}" value="${escAttr(eq.service_phone||'')}" placeholder="(512) 555-1234">
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button type="button" class="eq-btn eq-btn-tiny eq-btn-secondary" onclick="NX.modules.equipment.lookupServicePhoneFromNode('${eq.id}')" style="flex:1">
+                ${uiSvg('search', '13px')} Look up from preferred contractor
+              </button>
+              ${eq.service_phone ? `<a href="tel:${escAttr(eq.service_phone)}" class="eq-btn eq-btn-tiny" style="flex:0 0 auto">Test Call</a>` : ''}
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4">
+              Type a contractor name to link this equipment. The contractor's phone will auto-fill and the contractor's Equipment tab will show this unit.
+            </div>
+          </div>
+
+          <div class="eq-form-group">
+            <label>Manual Source URL</label>
+            <div class="eq-url-field">
+              <input type="url" data-field="manual_source_url" value="${escAttr(eq.manual_source_url||'')}" placeholder="https://www.hoshizakiamerica.com/...">
+              ${eq.manual_source_url ? `<a href="${eq.manual_source_url}" target="_blank" class="eq-btn eq-btn-tiny">Open ↗</a>` : ''}
+            </div>
+          </div>
+          <div class="eq-form-group">
+            <label>Manual PDF URL (uploaded)</label>
+            <div class="eq-url-field">
+              <input type="url" data-field="manual_url" value="${escAttr(eq.manual_url||'')}">
+              ${eq.manual_url ? `<a href="${eq.manual_url}" target="_blank" class="eq-btn eq-btn-tiny">Open ↗</a>` : ''}
+            </div>
+          </div>
+        </div>
+
+        <div class="eq-tab-panel" data-panel="custom">
+          <div class="eq-specs-help">
+            Add any custom fields you need. Perfect for: rental contract #, asset tag #, last inspection ID, accounting code, anything specific to your operation.
+          </div>
+          <div class="eq-custom-list" id="eqCustomList">
+            ${customFields.map(f => `
+              <div class="eq-custom-row" data-custom-id="${f.id}">
+                <input class="eq-custom-name" value="${escAttr(f.field_name)}" placeholder="Field name">
+                <select class="eq-custom-type">
+                  <option value="text" ${f.field_type==='text'?'selected':''}>Text</option>
+                  <option value="number" ${f.field_type==='number'?'selected':''}>Number</option>
+                  <option value="date" ${f.field_type==='date'?'selected':''}>Date</option>
+                  <option value="url" ${f.field_type==='url'?'selected':''}>URL</option>
+                  <option value="boolean" ${f.field_type==='boolean'?'selected':''}>Yes/No</option>
+                </select>
+                <input class="eq-custom-val" value="${escAttr(f.field_value||'')}" placeholder="Value">
+                <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="NX.modules.equipment.deleteCustomField('${f.id}', '${equipId}')">${uiSvg("close", "13px")}</button>
+              </div>
+            `).join('')}
+          </div>
+          <button class="eq-btn eq-btn-secondary" id="eqAddCustom">+ Add Custom Field</button>
+        </div>
+
+      </div>
+
+      <div class="eq-detail-actions">
+        <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.closeFullEdit()">Cancel</button>
+        <button class="eq-btn eq-btn-primary" id="eqFullSave">${uiSvg("check", "14px")} Save All Changes</button>
+      </div>
+    </div>
+  `;
+  modal.classList.add('active');
+
+  // Wire the Service Contact typeahead picker. Pulls all contractor nodes,
+  // populates the datalist, and on selection auto-fills phone + sets the
+  // hidden preferred_contractor_node_id field. Without this wiring, the
+  // equipment side and contractor side stay disconnected — the user has
+  // to type the same name in two places and phones drift.
+  (async () => {
+    const dl    = modal.querySelector(`#eqContractorOptions-${eq.id}`);
+    const nameI = modal.querySelector(`#eqServiceContactName-${eq.id}`);
+    const phoneI = modal.querySelector(`#eqServicePhone-${eq.id}`);
+    const fkI   = modal.querySelector('input[data-field="preferred_contractor_node_id"]');
+    const chip  = modal.querySelector(`#eqContractorLinkChip-${eq.id}`);
+    const chipText  = chip?.querySelector('.eq-contractor-link-chip-text');
+    const unlinkBtn = chip?.querySelector('.eq-contractor-link-chip-unlink');
+    if (!dl || !nameI) return;
+
+    let contractorCache = [];
+    try {
+      const { data } = await NX.sb.from('nodes')
+        .select('id, name, links, notes, tags')
+        .eq('category', 'contractors')
+        .order('name', { ascending: true });
+      contractorCache = data || [];
+      // Populate datalist for native typeahead.
+      dl.innerHTML = contractorCache.map(c =>
+        `<option value="${escAttr(c.name)}"></option>`
+      ).join('');
+    } catch (err) {
+      console.warn('[full-editor] contractor lookup failed:', err);
+    }
+
+    // Show "linked" chip if equipment already has FK set.
+    const refreshChip = () => {
+      if (!chip) return;
+      if (fkI && fkI.value && contractorCache.length) {
+        const linked = contractorCache.find(c => c.id === fkI.value);
+        if (linked) {
+          chip.style.display = 'inline-flex';
+          chipText.textContent = `Linked to ${linked.name}`;
+          return;
+        }
+      }
+      chip.style.display = 'none';
+    };
+    refreshChip();
+
+    // When user types or picks, try to match name to a contractor.
+    // If exact match (case-insensitive) → set FK + auto-fill phone if blank.
+    // If no match → clear FK (leaves it as a free-text name).
+    nameI.addEventListener('input', () => {
+      const typed = (nameI.value || '').trim().toLowerCase();
+      const match = contractorCache.find(c => (c.name || '').toLowerCase() === typed);
+      if (match) {
+        fkI.value = match.id;
+        // Auto-fill phone if equipment doesn't have one yet.
+        if (phoneI && !phoneI.value) {
+          const cphone = extractContractorPhone(match);
+          if (cphone) phoneI.value = cphone;
+        }
+        refreshChip();
+      } else {
+        // Loose name — keep typing, no FK linked.
+        if (fkI.value) {
+          fkI.value = '';
+          refreshChip();
+        }
+      }
+    });
+
+    // Unlink button: keep the typed name, but drop the FK.
+    unlinkBtn?.addEventListener('click', () => {
+      fkI.value = '';
+      refreshChip();
+      NX.toast && NX.toast('Unlinked — name kept as plain text', 'info', 1400);
+    });
+  })();
+  modal.querySelectorAll('.eq-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      modal.querySelectorAll('.eq-tab').forEach(t => t.classList.remove('active'));
+      modal.querySelectorAll('.eq-tab-panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      modal.querySelector(`[data-panel="${tab.dataset.tab}"]`).classList.add('active');
+    });
+  });
+
+  // Add spec / custom rows
+  document.getElementById('eqAddSpec').addEventListener('click', () => {
+    const list = document.getElementById('eqSpecsList');
+    const row = document.createElement('div');
+    row.className = 'eq-spec-row';
+    row.innerHTML = `
+      <input class="eq-spec-key" placeholder="key (e.g. voltage)">
+      <input class="eq-spec-val" placeholder="value (e.g. 115V)">
+      <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="this.parentElement.remove()">${uiSvg("close", "13px")}</button>
+    `;
+    list.appendChild(row);
+    row.querySelector('.eq-spec-key').focus();
+  });
+
+  document.getElementById('eqAddCustom').addEventListener('click', () => {
+    const list = document.getElementById('eqCustomList');
+    const row = document.createElement('div');
+    row.className = 'eq-custom-row';
+    row.innerHTML = `
+      <input class="eq-custom-name" placeholder="Field name">
+      <select class="eq-custom-type">
+        <option value="text">Text</option>
+        <option value="number">Number</option>
+        <option value="date">Date</option>
+        <option value="url">URL</option>
+        <option value="boolean">Yes/No</option>
+      </select>
+      <input class="eq-custom-val" placeholder="Value">
+      <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="this.parentElement.remove()">${uiSvg("close", "13px")}</button>
+    `;
+    list.appendChild(row);
+    row.querySelector('.eq-custom-name').focus();
+  });
+
+  document.getElementById('eqFullSave').addEventListener('click', async () => {
+    const btn = document.getElementById('eqFullSave');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    try {
+      const updates = {};
+      modal.querySelectorAll('[data-field]').forEach(el => {
+        const field = el.dataset.field;
+        let val = el.value;
+        if (val === '') val = null;
+        if (field === '_tags') {
+          updates.tags = val ? val.split(',').map(t => t.trim()).filter(Boolean) : [];
+          return;
+        }
+        if (['purchase_price', 'pm_interval_days', 'health_score'].includes(field) && val != null) {
+          val = parseFloat(val);
+          if (isNaN(val)) val = null;
+        }
+        updates[field] = val;
+      });
+
+      const newSpecs = {};
+      modal.querySelectorAll('#eqSpecsList .eq-spec-row').forEach(row => {
+        const k = row.querySelector('.eq-spec-key').value.trim();
+        const v = row.querySelector('.eq-spec-val').value.trim();
+        if (k) newSpecs[k] = v;
+      });
+      updates.specs = newSpecs;
+
+      const { error } = await NX.sb.from('equipment').update(updates).eq('id', equipId);
+      if (error) throw error;
+
+      const customOps = [];
+      modal.querySelectorAll('#eqCustomList .eq-custom-row').forEach(row => {
+        const name = row.querySelector('.eq-custom-name').value.trim();
+        const val  = row.querySelector('.eq-custom-val').value.trim();
+        const type = row.querySelector('.eq-custom-type').value;
+        const existingId = row.dataset.customId;
+        if (!name) return;
+        if (existingId) {
+          customOps.push(NX.sb.from('equipment_custom_fields').update({
+            field_name: name, field_value: val, field_type: type
+          }).eq('id', existingId));
+        } else {
+          customOps.push(NX.sb.from('equipment_custom_fields').insert({
+            equipment_id: equipId, field_name: name, field_value: val, field_type: type
+          }));
+        }
+      });
+      await Promise.all(customOps);
+
+      NX.toast && NX.toast('All changes saved ✓', 'success');
+      // equipment_edited syslog → covered by Postgres trigger on equipment UPDATE
+      closeFullEdit();
+      await loadEquipment();
+      openDetail(equipId);
+    } catch (err) {
+      console.error('[FullEdit] Save failed:', err);
+      NX.toast && NX.toast('Save failed: ' + err.message, 'error');
+      btn.disabled = false;
+      btn.innerHTML = uiSvg('check','13px') + ' Save All Changes';
+    }
+  });
+}
+
+function closeFullEdit() {
+  const m = document.getElementById('eqFullEditModal');
+  if (m) m.classList.remove('active');
+}
+
+/* ─── Attachments ─── */
+
+function renderAttachment(a) {
+  const isImage = (a.mime_type || '').startsWith('image/');
+  const url = a.file_url || a.external_url;
+
+  return `
+    <div class="eq-attach-item" data-id="${a.id}">
+      <div class="eq-attach-icon">${attachmentIcon(a)}</div>
+      <div class="eq-attach-info">
+        <div class="eq-attach-title-row">
+          <input class="eq-attach-title" value="${escAttr(a.title)}" data-attach-id="${a.id}" data-attach-field="title">
+          <select class="eq-attach-type" data-attach-id="${a.id}" data-attach-field="type">
+            ${['file','photo','receipt','invoice','warranty','manual','link','note'].map(t =>
+              `<option value="${t}" ${a.type===t?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        ${a.description ? `<div class="eq-attach-desc">${esc(a.description)}</div>` : ''}
+        ${isImage && url ? `<img src="${url}" class="eq-attach-preview">` : ''}
+        <div class="eq-attach-meta">
+          ${url ? `<a href="${url}" target="_blank" class="eq-attach-link">↗ Open</a>` : ''}
+          ${a.file_size ? ` · ${formatBytes(a.file_size)}` : ''}
+          · ${new Date(a.created_at).toLocaleDateString()}
+          ${a.uploaded_by ? ` · ${esc(a.uploaded_by)}` : ''}
+        </div>
+      </div>
+      <div class="eq-attach-actions">
+        <button class="eq-btn eq-btn-tiny" onclick="NX.modules.equipment.editAttachmentDesc('${a.id}')">${uiSvg("pen", "13px")}</button>
+        <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="NX.modules.equipment.deleteAttachment('${a.id}')">${uiSvg("close", "13px")}</button>
+      </div>
+    </div>
+  `;
+}
+
+async function addAttachment(equipId, type, returnTo) {
+  // returnTo: 'detail' reloads the equipment detail view after adding
+  //           'fullEditor' (default) reloads the full 6-tab editor
+  // Overview-tab buttons pass 'detail' so users stay where they are.
+  const reopen = () => {
+    if (returnTo === 'detail') openDetail(equipId);
+    else openFullEditor(equipId);
+  };
+
+  if (type === 'link') {
+    if (NX.composer?.modal) {
+      NX.composer.modal({
+        title: 'Add a link',
+        subtitle: 'External resource for this equipment',
+        buttonLabel: 'Add link',
+        fields: [
+          { name: 'title', label: 'Link title', placeholder: 'e.g. Manufacturer manual', autofocus: true },
+          { name: 'url',   label: 'URL', placeholder: 'https://…' },
+        ],
+        onSubmit: async ({ title, url }) => {
+          if (!title || !url) {
+            NX.toast && NX.toast('Both title and URL are required', 'warn');
+            throw new Error('missing fields');
+          }
+          await NX.sb.from('equipment_attachments').insert({
+            equipment_id: equipId, type: 'link',
+            title: title.slice(0, 200), external_url: url,
+            uploaded_by: NX.currentUser?.name || 'user'
+          });
+          NX.toast && NX.toast('Link added ✓', 'success');
+          reopen();
+        },
+      });
+      return;
+    }
+    // Fallback if composer.js didn't load
+    const title = prompt('Link title:');
+    if (!title) return;
+    const url = prompt('URL:');
+    if (!url) return;
+    await NX.sb.from('equipment_attachments').insert({
+      equipment_id: equipId, type: 'link',
+      title: title.slice(0, 200), external_url: url,
+      uploaded_by: NX.currentUser?.name || 'user'
+    });
+    NX.toast && NX.toast('Link added ✓', 'success');
+    reopen();
+    return;
+  }
+
+  if (type === 'note') {
+    if (NX.composer?.modal) {
+      NX.composer.modal({
+        title: 'Add a note',
+        subtitle: 'Notes stay attached to this equipment',
+        buttonLabel: 'Add note',
+        fields: [
+          { name: 'title', label: 'Note title', placeholder: 'Short heading', autofocus: true },
+          { name: 'desc',  label: 'Content', placeholder: 'Details…', multiline: true, rows: 4 },
+        ],
+        onSubmit: async ({ title, desc }) => {
+          if (!title || !desc) {
+            NX.toast && NX.toast('Both title and content are required', 'warn');
+            throw new Error('missing fields');
+          }
+          await NX.sb.from('equipment_attachments').insert({
+            equipment_id: equipId, type: 'note',
+            title: title.slice(0, 200), description: desc,
+            uploaded_by: NX.currentUser?.name || 'user'
+          });
+          NX.toast && NX.toast('Note added ✓', 'success');
+          reopen();
+        },
+      });
+      return;
+    }
+    // Fallback
+    const title = prompt('Note title:');
+    if (!title) return;
+    const desc = prompt('Note content:');
+    if (!desc) return;
+    await NX.sb.from('equipment_attachments').insert({
+      equipment_id: equipId, type: 'note',
+      title: title.slice(0, 200), description: desc,
+      uploaded_by: NX.currentUser?.name || 'user'
+    });
+    NX.toast && NX.toast('Note added ✓', 'success');
+    reopen();
+    return;
+  }
+
+  const input = document.createElement('input');
+  input.type = 'file';
+  if (type === 'photo') {
+    input.accept = 'image/*';
+    input.capture = 'environment';
+  } else {
+    input.accept = '*/*';
+  }
+
+  input.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 100 * 1024 * 1024) {
+      NX.toast && NX.toast('File too large (max 100MB)', 'error');
+      return;
+    }
+    const title = prompt('Title for this attachment:', file.name) || file.name;
+    NX.toast && NX.toast('Uploading…', 'info', 8000);
+
+    try {
+      const fname = `${equipId}/${Date.now()}-${file.name.replace(/[^a-z0-9.]/gi, '_')}`;
+      const { error: upErr } = await NX.sb.storage
+        .from('equipment-attachments')
+        .upload(fname, file, { upsert: false, contentType: file.type });
+      if (upErr) throw upErr;
+
+      const { data: { publicUrl } } = NX.sb.storage.from('equipment-attachments').getPublicUrl(fname);
+      await NX.sb.from('equipment_attachments').insert({
+        equipment_id: equipId, type,
+        title: title.slice(0, 200),
+        file_url: publicUrl,
+        mime_type: file.type,
+        file_size: file.size,
+        uploaded_by: NX.currentUser?.name || 'user'
+      });
+      NX.toast && NX.toast('Uploaded ✓', 'success');
+      reopen();
+    } catch (err) {
+      console.error('[Attach] Upload error:', err);
+      NX.toast && NX.toast('Upload failed: ' + err.message, 'error');
+    }
+  });
+
+  input.click();
+}
+
+async function deleteAttachment(id) {
+  if (!confirm('Delete this attachment?')) return;
+  try {
+    const { data: a } = await NX.sb.from('equipment_attachments').select('*').eq('id', id).single();
+    if (a && a.file_url) {
+      const match = a.file_url.match(/equipment-attachments\/(.+)$/);
+      if (match) await NX.sb.storage.from('equipment-attachments').remove([match[1]]);
+    }
+    await NX.sb.from('equipment_attachments').delete().eq('id', id);
+    NX.toast && NX.toast('Deleted ✓', 'success');
+    if (a?.equipment_id) openFullEditor(a.equipment_id);
+  } catch (err) {
+    console.error(err);
+    NX.toast && NX.toast('Delete failed', 'error');
+  }
+}
+
+async function editAttachmentDesc(id) {
+  const { data: a } = await NX.sb.from('equipment_attachments').select('*').eq('id', id).single();
+  if (!a) return;
+  const desc = prompt('Description:', a.description || '');
+  if (desc == null) return;
+  await NX.sb.from('equipment_attachments').update({ description: desc }).eq('id', id);
+  NX.toast && NX.toast('Updated ✓', 'success');
+  if (a.equipment_id) openFullEditor(a.equipment_id);
+}
+
+/* ─── Photo management ─── */
+
+function uploadPhoto(equipId, field) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.capture = 'environment';
+
+  input.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    NX.toast && NX.toast('Uploading…', 'info', 5000);
+
+    try {
+      const fname = `${equipId}/${field}-${Date.now()}.${file.type.split('/')[1] || 'jpg'}`;
+      const { error } = await NX.sb.storage
+        .from('equipment-photos')
+        .upload(fname, file, { upsert: false, contentType: file.type });
+      if (error) throw error;
+
+      const { data: { publicUrl } } = NX.sb.storage.from('equipment-photos').getPublicUrl(fname);
+      await NX.sb.from('equipment').update({ [field]: publicUrl }).eq('id', equipId);
+      NX.toast && NX.toast('Photo uploaded ✓', 'success');
+      openFullEditor(equipId);
+    } catch (err) {
+      console.error(err);
+      NX.toast && NX.toast('Upload failed', 'error');
+    }
+  });
+
+  input.click();
+}
+
+function replacePhoto(equipId, field) { uploadPhoto(equipId, field); }
+
+/**
+ * Quick photo upload/replace — designed for the avatar tap on each
+ * equipment row. Same as uploadPhoto(equipId, 'photo_url') except it
+ * doesn't force-open the full editor on success; it refreshes the
+ * equipment list inline so the new photo appears as the row avatar
+ * immediately. The user stays in their list flow.
+ */
+function quickReplacePhoto(equipId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.capture = 'environment';
+
+  input.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    NX.toast && NX.toast('Uploading…', 'info', 5000);
+    try {
+      const fname = `${equipId}/photo_url-${Date.now()}.${file.type.split('/')[1] || 'jpg'}`;
+      const { error: upErr } = await NX.sb.storage
+        .from('equipment-photos')
+        .upload(fname, file, { upsert: false, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data: { publicUrl } } = NX.sb.storage.from('equipment-photos').getPublicUrl(fname);
+      const { error: dbErr } = await NX.sb.from('equipment').update({ photo_url: publicUrl }).eq('id', equipId);
+      if (dbErr) throw dbErr;
+
+      // Update in-memory equipment array so the next render shows the
+      // new photo without a network round-trip.
+      if (typeof equipment !== 'undefined' && Array.isArray(equipment)) {
+        const e = equipment.find(x => x.id === equipId);
+        if (e) e.photo_url = publicUrl;
+      }
+      // Re-render the list inline.
+      if (typeof renderList === 'function') renderList();
+      NX.toast && NX.toast('Photo updated ✓', 'success', 1400);
+    } catch (err) {
+      console.error('[equipment] quickReplacePhoto:', err);
+      NX.toast && NX.toast('Upload failed: ' + (err.message || ''), 'error');
+    }
+  });
+
+  input.click();
+}
+
+async function removePhoto(equipId, field) {
+  if (!confirm('Remove this photo?')) return;
+  await NX.sb.from('equipment').update({ [field]: null }).eq('id', equipId);
+  NX.toast && NX.toast('Removed ✓', 'success');
+  openFullEditor(equipId);
+}
+
+async function deleteCustomField(id, equipId) {
+  if (!confirm('Delete this custom field?')) return;
+  await NX.sb.from('equipment_custom_fields').delete().eq('id', id);
+  NX.toast && NX.toast('Deleted ✓', 'success');
+  openFullEditor(equipId);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   10. LINEAGE — parent/child equipment, family tree
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function loadFamily(equipId) {
+  try {
+    const { data, error } = await NX.sb.rpc('get_family_tree', { eq_id: equipId });
+    if (!error && data) return data;
+  } catch (e) { /* fall through */ }
+
+  // Fallback: self + parent + direct children (no recursion)
+  const { data: self } = await NX.sb.from('equipment')
+    .select('id, name, location, category, status, qr_code, parent_equipment_id, relationship_type')
+    .eq('id', equipId).single();
+  if (!self) return [];
+
+  const out = [{ ...self, depth: 0, branch: 'self' }];
+
+  if (self.parent_equipment_id) {
+    const { data: parent } = await NX.sb.from('equipment')
+      .select('id, name, location, category, status, qr_code, parent_equipment_id, relationship_type')
+      .eq('id', self.parent_equipment_id).single();
+    if (parent) out.unshift({ ...parent, depth: -1, branch: 'ancestor' });
+  }
+
+  const { data: children } = await NX.sb.from('equipment')
+    .select('id, name, location, category, status, qr_code, parent_equipment_id, relationship_type')
+    .eq('parent_equipment_id', equipId);
+  if (children?.length) {
+    children.forEach(c => out.push({ ...c, depth: 1, branch: 'descendant' }));
+  }
+  return out;
+}
+
+function renderFamilyTree(family, selfId) {
+  if (!family.length) return `<div class="eq-family-empty">No relationships yet.</div>`;
+  return `<div class="eq-family-tree">${
+    family.map(node => {
+      const isSelf = node.id === selfId;
+      const indent = '·'.repeat(Math.abs(node.depth) + 1);
+      const handler = isSelf ? '' : `onclick="NX.modules.equipment.openDetail('${node.id}')"`;
+      return `
+        <div class="eq-family-row ${isSelf ? 'is-self' : ''}" ${handler}>
+          <span class="eq-family-indent">${indent}</span>
+          <span class="eq-family-icon">${catIcon(node.category)}</span>
+          <span class="eq-family-name">${esc(node.name)}</span>
+          ${node.relationship_type && !isSelf
+            ? `<span class="eq-family-rel" title="${esc(relLabel(node.relationship_type))}">${relIcon(node.relationship_type)} ${esc(relLabel(node.relationship_type))}</span>`
+            : ''}
+          <span class="eq-family-status-dot" style="background:${statusDot(node.status)}" title="${esc(node.status || '')}"></span>
+        </div>
+      `;
+    }).join('')
+  }</div>`;
+}
+
+async function renderFamilySection(equipId) {
+  const modal = document.getElementById('eqModal');
+  if (!modal) return;
+  const overviewPanel = modal.querySelector('[data-panel="overview"]');
+  if (!overviewPanel) return;
+  // Remove existing family section if present (allows re-render after changes)
+  const existing = overviewPanel.querySelector('#eqFamilySection');
+  if (existing) existing.remove();
+
+  const family = await loadFamily(equipId);
+  const self = family.find(n => n.id === equipId) || { parent_equipment_id: null };
+  const hasParent = !!self.parent_equipment_id;
+
+  const section = document.createElement('div');
+  section.className = 'eq-family-section';
+  section.id = 'eqFamilySection';
+  section.innerHTML = `
+    <h4>${uiSvg('family', '14px')} Family</h4>
+    ${renderFamilyTree(family, equipId)}
+    <div class="eq-family-actions">
+      ${hasParent
+        ? `<button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.unsetParent('${equipId}')">Remove Parent</button>`
+        : `<button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.pickParent('${equipId}')">+ Set Parent</button>`}
+      <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.pickChild('${equipId}')">+ Add Child</button>
+    </div>
+  `;
+  overviewPanel.appendChild(section);
+}
+
+async function pickParent(equipId) {
+  await openEquipmentPicker({
+    title: 'Set parent equipment',
+    excludeId: equipId,
+    excludeDescendantsOf: equipId,
+    showRelationship: true,
+    onPick: async (parentId, relationshipType) => {
+      try {
+        const { error } = await NX.sb.from('equipment')
+          .update({ parent_equipment_id: parentId, relationship_type: relationshipType })
+          .eq('id', equipId);
+        if (error) throw error;
+        NX.toast && NX.toast('Parent set ✓', 'success');
+        renderFamilySection(equipId);
+      } catch (e) {
+        const msg = String(e.message || e).includes('cycle')
+          ? 'That would create a loop in the family tree.'
+          : 'Could not set parent: ' + (e.message || e);
+        NX.toast && NX.toast(msg, 'error');
+      }
+    }
+  });
+}
+
+async function pickChild(equipId) {
+  await openEquipmentPicker({
+    title: 'Add child equipment',
+    excludeId: equipId,
+    excludeAncestorsOf: equipId,
+    showRelationship: true,
+    onPick: async (childId, relationshipType) => {
+      try {
+        const { error } = await NX.sb.from('equipment')
+          .update({ parent_equipment_id: equipId, relationship_type: relationshipType })
+          .eq('id', childId);
+        if (error) throw error;
+        NX.toast && NX.toast('Child added ✓', 'success');
+        renderFamilySection(equipId);
+      } catch (e) {
+        const msg = String(e.message || e).includes('cycle')
+          ? 'That would create a loop in the family tree.'
+          : 'Could not add child: ' + (e.message || e);
+        NX.toast && NX.toast(msg, 'error');
+      }
+    }
+  });
+}
+
+async function unsetParent(equipId) {
+  if (!confirm('Remove the parent relationship?')) return;
+  const { error } = await NX.sb.from('equipment')
+    .update({ parent_equipment_id: null, relationship_type: null })
+    .eq('id', equipId);
+  if (error) {
+    NX.toast && NX.toast('Failed: ' + error.message, 'error');
+    return;
+  }
+  NX.toast && NX.toast('Parent removed', 'info');
+  renderFamilySection(equipId);
+}
+
+async function openEquipmentPicker(opts) {
+  const { data: all } = await NX.sb.from('equipment')
+    .select('id, name, location, category, status, parent_equipment_id')
+    .neq('status', 'retired')
+    .order('location').order('name');
+  const candidates = all || [];
+
+  // Build exclusion set
+  const exclude = new Set();
+  if (opts.excludeId) exclude.add(opts.excludeId);
+  if (opts.excludeDescendantsOf) {
+    const queue = [opts.excludeDescendantsOf];
+    while (queue.length) {
+      const cur = queue.shift();
+      candidates.filter(c => c.parent_equipment_id === cur).forEach(c => {
+        if (!exclude.has(c.id)) { exclude.add(c.id); queue.push(c.id); }
+      });
+    }
+  }
+  if (opts.excludeAncestorsOf) {
+    let cur = opts.excludeAncestorsOf;
+    let hops = 0;
+    while (cur && hops < 20) {
+      const node = candidates.find(c => c.id === cur);
+      if (!node || !node.parent_equipment_id) break;
+      exclude.add(node.parent_equipment_id);
+      cur = node.parent_equipment_id;
+      hops++;
+    }
+  }
+
+  const filtered = candidates.filter(c => !exclude.has(c.id));
+
+  let overlay = document.getElementById('eqPickerOverlay');
+  const isFreshPicker = !overlay;
+  if (isFreshPicker) {
+    overlay = document.createElement('div');
+    overlay.id = 'eqPickerOverlay';
+    overlay.className = 'eq-picker-overlay';
+    document.body.appendChild(overlay);
+  }
+  let selectedRel = opts.showRelationship ? 'connected_to' : null;
+
+  const renderList = (query) => {
+    const q = (query || '').toLowerCase().trim();
+    const matches = q
+      ? filtered.filter(c => (c.name + ' ' + (c.location || '')).toLowerCase().includes(q))
+      : filtered;
+    if (!matches.length) return `<div class="eq-picker-empty">No equipment matches.</div>`;
+    return matches.map(c => `
+      <div class="eq-picker-item" data-id="${c.id}">
+        <span class="eq-picker-item-icon">${catIcon(c.category)}</span>
+        <div class="eq-picker-item-body">
+          <div class="eq-picker-item-name">${esc(c.name)}</div>
+          <div class="eq-picker-item-sub">${esc(c.location || '')}${c.status && c.status !== 'operational' ? ' · ' + esc(c.status) : ''}</div>
+        </div>
+      </div>
+    `).join('');
+  };
+
+  overlay.innerHTML = `
+    <div class="eq-picker">
+      <div class="eq-picker-head">
+        <h3>${esc(opts.title)}</h3>
+        <button class="eq-picker-close" id="eqPickerClose">${uiSvg("close", "13px")}</button>
+      </div>
+      <div class="eq-picker-search">
+        <input type="text" id="eqPickerSearch" placeholder="Search equipment…" autocomplete="off">
+      </div>
+      ${opts.showRelationship ? `
+        <div class="eq-picker-rel-row" id="eqPickerRelRow">
+          ${RELATIONSHIP_TYPES.map(r => `
+            <button class="eq-rel-chip ${r.key === selectedRel ? 'active' : ''}" data-rel="${r.key}">
+              ${r.icon} ${r.label}
+            </button>
+          `).join('')}
+        </div>` : ''}
+      <div class="eq-picker-list" id="eqPickerList">${renderList('')}</div>
+    </div>
+  `;
+  overlay.classList.add('active');
+
+  const close = () => { overlay.classList.remove('active'); overlay.innerHTML = ''; };
+  document.getElementById('eqPickerClose').addEventListener('click', close);
+  if (isFreshPicker) overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+  const searchInput = document.getElementById('eqPickerSearch');
+  searchInput.addEventListener('input', () => {
+    document.getElementById('eqPickerList').innerHTML = renderList(searchInput.value);
+    wireItems();
+  });
+  searchInput.focus();
+
+  if (opts.showRelationship) {
+    document.getElementById('eqPickerRelRow').addEventListener('click', e => {
+      const chip = e.target.closest('.eq-rel-chip');
+      if (!chip) return;
+      selectedRel = chip.dataset.rel;
+      document.querySelectorAll('#eqPickerRelRow .eq-rel-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+    });
+  }
+
+  function wireItems() {
+    document.querySelectorAll('#eqPickerList .eq-picker-item').forEach(el => {
+      el.addEventListener('click', () => { close(); opts.onPick(el.dataset.id, selectedRel); });
+    });
+  }
+  wireItems();
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   11. DISPATCH — contractor dispatch sheet, dispatch_log
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function extractContact(node) {
+  const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
+  const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+  const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  const links = node.links || {};
+  return {
+    phone: links.phone || (phoneMatch ? phoneMatch[0].trim() : ''),
+    email: links.email || (emailMatch ? emailMatch[0].trim() : ''),
+  };
+}
+
+function normalizePhone(p) {
+  if (!p) return '';
+  const cleaned = p.replace(/[^\d+]/g, '');
+  if (cleaned.length === 10 && !cleaned.startsWith('+')) return '+1' + cleaned;
+  return cleaned;
+}
+
+async function loadContractors() {
+  let pool = NX.nodes || [];
+  if (!pool.length) {
+    const { data } = await NX.sb.from('nodes').select('*').limit(2000);
+    pool = data || [];
+  }
+  const isContractor = n => {
+    const cat = (n.category || '').toLowerCase();
+    if (cat === 'contractor' || cat === 'vendor' || cat === 'service' || cat === 'contractors') return true;
+    const tags = (n.tags || []).map(t => String(t).toLowerCase());
+    if (tags.some(t => /contract|vendor|service|hvac|plumb|electric|refriger/.test(t))) return true;
+    return false;
+  };
+  return pool
+    .filter(isContractor)
+    .map(n => ({ ...n, _contact: extractContact(n) }))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
+async function loadEquipmentForDispatch(equipId) {
+  const { data: eq } = await NX.sb.from('equipment').select('*').eq('id', equipId).single();
+  if (!eq) return null;
+
+  let ticket = null;
+  try {
+    const { data: tickets } = await NX.sb.from('tickets')
+      .select('id, title, body, status, created_at')
+      .eq('equipment_id', equipId)
+      .neq('status', 'closed').neq('status', 'resolved')
+      .order('created_at', { ascending: false }).limit(1);
+    if (tickets?.length) ticket = tickets[0];
+  } catch (e) {}
+
+  return { eq, ticket };
+}
+
+async function loadRecentDispatches(equipId, limit = 3) {
+  try {
+    const { data } = await NX.sb.from('dispatch_log')
+      .select('*').eq('equipment_id', equipId)
+      .order('created_at', { ascending: false }).limit(limit);
+    return data || [];
+  } catch (e) { return []; }
+}
+
+function buildDispatchMessage(eq, ticket, contact, userName) {
+  const restaurant = eq.location || '';
+  const area = eq.area ? ` (${eq.area})` : '';
+  const equipName = eq.name;
+  const issue = ticket?.title || ticket?.body || '';
+  const who = userName || 'NEXUS';
+  const greeting = (contact.name || '').split(' ')[0] || 'there';
+
+  let body = `Hi ${greeting}, this is ${who} at ${restaurant}.\n\n`;
+  body += `We need service on: ${equipName}${area}\n`;
+  if (eq.manufacturer || eq.model) body += `Unit: ${[eq.manufacturer, eq.model].filter(Boolean).join(' ')}\n`;
+  if (eq.serial_number) body += `Serial: ${eq.serial_number}\n`;
+  if (issue) body += `\nIssue: ${issue}\n`;
+  body += `\nWhen can you take a look? Thanks.`;
+  return body;
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+   LOOKUP SERVICE PHONE FROM NODE
+   
+   Called from the Links tab in openFullEditor when user clicks "Look up
+   from preferred contractor." Reads the preferred contractor node, extracts
+   phone + name, and populates the service_contact_name and service_phone
+   form inputs.
+   
+   If no preferred contractor is set, falls back to scanning recent
+   maintenance records for the most-used contractor and grabbing theirs.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+async function lookupServicePhoneFromNode(equipId) {
+  try {
+    const { data: eq } = await NX.sb.from('equipment')
+      .select('preferred_contractor_node_id, name')
+      .eq('id', equipId).single();
+    if (!eq) throw new Error('Equipment not found');
+
+    let node = null;
+    
+    // Primary: preferred contractor
+    if (eq.preferred_contractor_node_id) {
+      const { data } = await NX.sb.from('nodes')
+        .select('id, name, notes, tags, links')
+        .eq('id', eq.preferred_contractor_node_id).single();
+      node = data;
+    }
+    
+    // Fallback: find most recent maintenance record with a performed_by,
+    // then match that string against contractor nodes
+    if (!node) {
+      const { data: maint } = await NX.sb.from('equipment_maintenance')
+        .select('performed_by')
+        .eq('equipment_id', equipId)
+        .not('performed_by', 'is', null)
+        .order('event_date', { ascending: false })
+        .limit(5);
+      
+      if (maint?.length) {
+        // Get the most common contractor name
+        const counts = {};
+        maint.forEach(m => {
+          if (m.performed_by) counts[m.performed_by] = (counts[m.performed_by] || 0) + 1;
+        });
+        const topName = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+        
+        // Search contractor nodes matching that name
+        const pool = NX.nodes || [];
+        node = pool.find(n => {
+          const cat = (n.category || '').toLowerCase();
+          if (cat !== 'contractor' && cat !== 'vendor' && cat !== 'service') return false;
+          return (n.name || '').toLowerCase().includes(topName.toLowerCase().split(/\s+/)[0]);
+        });
+      }
+    }
+    
+    if (!node) {
+      NX.toast && NX.toast('No contractor found. Set a preferred contractor first via the Dispatch sheet.', 'warning');
+      return;
+    }
+    
+    // Extract phone from node (links.phone OR regex from notes)
+    const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
+    const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+    const links = node.links || {};
+    const phone = links.phone || (phoneMatch ? phoneMatch[0].trim() : '');
+    
+    if (!phone) {
+      NX.toast && NX.toast(`Found ${node.name} but no phone on file. Add one to their node in Brain first.`, 'warning');
+      return;
+    }
+    
+    // Populate form inputs
+    const modal = document.getElementById('eqFullEditModal');
+    if (!modal) return;
+    const nameInput = modal.querySelector('[data-field="service_contact_name"]');
+    const phoneInput = modal.querySelector('[data-field="service_phone"]');
+    if (nameInput && !nameInput.value) nameInput.value = node.name || '';
+    if (phoneInput) phoneInput.value = phone;
+    
+    NX.toast && NX.toast(`✓ Filled from ${node.name}`, 'success');
+  } catch (err) {
+    console.error('[lookupServicePhoneFromNode] failed:', err);
+    NX.toast && NX.toast('Lookup failed: ' + err.message, 'error');
+  }
+}
+
+async function openDispatchSheet(equipId, ticketId) {
+  const ctx = await loadEquipmentForDispatch(equipId);
+  if (!ctx) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
+  const { eq, ticket } = ctx;
+  const contractors = await loadContractors();
+
+  let activeTicket = ticket;
+  if (ticketId && (!ticket || ticket.id !== ticketId)) {
+    try {
+      const { data } = await NX.sb.from('tickets').select('*').eq('id', ticketId).single();
+      if (data) activeTicket = data;
+    } catch (e) {}
+  }
+
+  let overlay = document.getElementById('dispatchOverlay');
+  const isFreshOverlay = !overlay;
+  if (isFreshOverlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'dispatchOverlay';
+    overlay.className = 'dispatch-overlay';
+    document.body.appendChild(overlay);
+  }
+
+  let stage = 'contact';
+  let selectedContact = null;
+  let selectedMethod = null;
+  let composedMessage = '';
+  
+  // Auto-select preferred contractor if equipment has one set.
+  // Skips the contact picker entirely and jumps straight to the method stage.
+  // User can still tap "Back" to change contractor if needed.
+  if (eq.preferred_contractor_node_id) {
+    const preferred = contractors.find(c => c.id === eq.preferred_contractor_node_id);
+    if (preferred) {
+      selectedContact = preferred;
+      stage = 'method';
+    }
+  }
+  
+  // If no preferred contractor but the ticket has a recent dispatch to
+  // somebody, use them. This handles the "reopen last dispatch" case.
+  if (!selectedContact && activeTicket) {
+    try {
+      const { data: recent } = await NX.sb.from('dispatch_events')
+        .select('contractor_node_id')
+        .eq('ticket_id', activeTicket.id)
+        .not('contractor_node_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (recent?.contractor_node_id) {
+        const c = contractors.find(x => x.id === recent.contractor_node_id);
+        if (c) { selectedContact = c; stage = 'method'; }
+      }
+    } catch (e) {}
+  }
+
+  const close = () => { overlay.classList.remove('active'); overlay.innerHTML = ''; };
+  if (isFreshOverlay) overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+  const render = () => {
+    const headLine = stage === 'contact' ? 'Dispatch contractor'
+                  : stage === 'method'  ? `Contact ${selectedContact?.name || ''}`
+                                        : `Send ${selectedMethod}`;
+    overlay.innerHTML = `
+      <div class="dispatch-sheet">
+        <div class="dispatch-handle"></div>
+        <div class="dispatch-head">
+          <h3>${esc(headLine)}</h3>
+          <div class="dispatch-context">
+            <span class="ctx-tag">${catIcon(eq.category)} ${esc(eq.name)}</span>
+            <span class="ctx-tag">${esc(eq.location || '')}</span>
+            ${activeTicket ? `<span class="ctx-tag">${uiSvg("ticket","11px")} ${esc((activeTicket.title || '').slice(0, 40))}</span>` : ''}
+          </div>
+        </div>
+        <div class="dispatch-stage" id="dispatchStage">${renderStage()}</div>
+        ${renderActions()}
+      </div>
+    `;
+    overlay.classList.add('active');
+    wireStage();
+  };
+
+  const renderStage = () => {
+    if (stage === 'contact') return renderContactStage();
+    if (stage === 'method')  return renderMethodStage();
+    if (stage === 'compose') return renderComposeStage();
+    return '';
+  };
+
+  const renderContactStage = () => {
+    if (!contractors.length) {
+      return `
+        <div class="eq-picker-empty">
+          No contractors in your brain yet.<br>
+          Add them via Ingest, or tag any node as <b>contractor</b>.
+        </div>
+        <div class="dispatch-add-contact">
+          <input id="dispatchAddName"  placeholder="Name (e.g. Joe's Refrigeration)">
+          <input id="dispatchAddPhone" placeholder="Phone (optional)">
+          <input id="dispatchAddEmail" placeholder="Email (optional)">
+          <button class="eq-btn eq-btn-primary" id="dispatchAddBtn">+ Add & continue</button>
+        </div>
+      `;
+    }
+    const preferredId = eq.preferred_contractor_node_id;
+    const sorted = [...contractors].sort((a, b) => {
+      if (a.id === preferredId) return -1;
+      if (b.id === preferredId) return 1;
+      return 0;
+    });
+    return sorted.map(c => {
+      const ct = c._contact || {};
+      const isPref = c.id === preferredId;
+      const initials = (c.name || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+      return `
+        <div class="dispatch-contact ${isPref ? 'is-preferred' : ''}" data-id="${c.id}">
+          <div class="dispatch-contact-avatar">${esc(initials)}</div>
+          <div class="dispatch-contact-body">
+            <div class="dispatch-contact-name">
+              ${esc(c.name)}
+              ${isPref ? `<span class="preferred-star" title="Preferred contractor">${uiSvg('filledStar', '11px')}</span>` : ''}
+            </div>
+            <div class="dispatch-contact-meta">
+              ${ct.phone ? esc(ct.phone) : ''}${ct.phone && ct.email ? ' · ' : ''}${ct.email ? esc(ct.email) : ''}
+              ${!ct.phone && !ct.email ? '<span style="color:var(--amber)">Tap to add contact info</span>' : ''}
+            </div>
+          </div>
+          <div class="dispatch-contact-methods">
+            ${ct.phone ? uiSvg('phone', '13px') : ''}${ct.phone ? uiSvg('message', '13px') : ''}${ct.email ? uiSvg('email', '13px') : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  };
+
+  const renderMethodStage = () => {
+    const ct = selectedContact._contact || {};
+    return `
+      <div style="margin-bottom:6px">
+        <div style="font-size:13px;color:var(--text);font-weight:500">${esc(selectedContact.name)}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">
+          ${ct.phone ? esc(ct.phone) : ''}${ct.phone && ct.email ? ' · ' : ''}${ct.email ? esc(ct.email) : ''}
+        </div>
+      </div>
+      <div class="dispatch-method-row">
+        <button class="dispatch-method-btn" data-method="call"     ${!ct.phone ? 'disabled' : ''}>
+          <span class="method-icon">${uiSvg('phone', '18px')}</span><span>Call</span>
+        </button>
+        <button class="dispatch-method-btn" data-method="sms"      ${!ct.phone ? 'disabled' : ''}>
+          <span class="method-icon">${uiSvg('message', '18px')}</span><span>SMS</span>
+        </button>
+        <button class="dispatch-method-btn" data-method="whatsapp" ${!ct.phone ? 'disabled' : ''}>
+          <span class="method-icon">${uiSvg('whatsapp', '18px')}</span><span>WhatsApp</span>
+        </button>
+        <button class="dispatch-method-btn" data-method="email"    ${!ct.email ? 'disabled' : ''}>
+          <span class="method-icon">${uiSvg('email', '18px')}</span><span>Email</span>
+        </button>
+      </div>
+      ${(!ct.phone && !ct.email) ? `
+        <div class="dispatch-add-contact">
+          <div style="font-size:12px;color:var(--muted)">Add contact info for ${esc(selectedContact.name)}:</div>
+          <input id="dispatchEditPhone" placeholder="Phone" value="${escAttr(ct.phone || '')}">
+          <input id="dispatchEditEmail" placeholder="Email" value="${escAttr(ct.email || '')}">
+          <button class="eq-btn eq-btn-secondary" id="dispatchSaveContact">Save to ${esc(selectedContact.name)}</button>
+        </div>
+      ` : ''}
+    `;
+  };
+
+  const renderComposeStage = () => {
+    const ct = selectedContact._contact || {};
+    const target = selectedMethod === 'email' ? ct.email : normalizePhone(ct.phone);
+    composedMessage = composedMessage ||
+      buildDispatchMessage(eq, activeTicket, selectedContact, NX.currentUser?.name);
+    const isEmail = selectedMethod === 'email';
+    return `
+      <div class="dispatch-message">
+        <div class="dispatch-message-target">
+          <b>To:</b> ${esc(selectedContact.name)} <span style="color:var(--faint)">via ${esc(selectedMethod)}</span><br>
+          <b>${isEmail ? 'Email' : 'Phone'}:</b> ${esc(target || '—')}
+        </div>
+        ${selectedMethod === 'call' ? `
+          <div style="font-size:13px;color:var(--muted);text-align:center;padding:10px">
+            Tap "Place Call" to dial ${esc(target || '')}.<br>
+            <span style="font-size:11px;color:var(--faint)">A note will be logged for follow-up.</span>
+          </div>
+          <textarea id="dispatchNote" placeholder="Optional note about why you're calling…">${esc(composedMessage)}</textarea>
+        ` : `
+          <textarea id="dispatchBody">${esc(composedMessage)}</textarea>
+        `}
+      </div>
+    `;
+  };
+
+  const renderActions = () => {
+    if (stage === 'contact') return '';
+    if (stage === 'method') {
+      return `<div class="dispatch-actions">
+        <button class="eq-btn eq-btn-secondary" id="dispatchBack">← Back</button>
+      </div>`;
+    }
+    return `<div class="dispatch-actions">
+      <button class="eq-btn eq-btn-secondary" id="dispatchBack">← Back</button>
+      <button class="eq-btn eq-btn-primary" id="dispatchSend">
+        ${selectedMethod === 'call' ? `${uiSvg('phone', '14px')} Place Call` : `${uiSvg('send', '14px')} Send`}
+      </button>
+    </div>`;
+  };
+
+  const wireStage = () => {
+    if (stage === 'contact') {
+      overlay.querySelectorAll('.dispatch-contact').forEach(el => {
+        el.addEventListener('click', () => {
+          selectedContact = contractors.find(c => c.id === el.dataset.id);
+          if (!selectedContact) return;
+          stage = 'method';
+          render();
+        });
+      });
+      const addBtn = document.getElementById('dispatchAddBtn');
+      if (addBtn) {
+        addBtn.addEventListener('click', async () => {
+          const name = document.getElementById('dispatchAddName').value.trim();
+          if (!name) { NX.toast && NX.toast('Name required', 'error'); return; }
+          const phone = document.getElementById('dispatchAddPhone').value.trim();
+          const email = document.getElementById('dispatchAddEmail').value.trim();
+          const newNode = await createContractorNode(name, phone, email);
+          selectedContact = { ...newNode, _contact: { phone, email } };
+          stage = 'method';
+          render();
+        });
+      }
+    }
+
+    if (stage === 'method') {
+      overlay.querySelectorAll('.dispatch-method-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (btn.disabled) return;
+          selectedMethod = btn.dataset.method;
+          stage = 'compose';
+          render();
+        });
+      });
+      const saveBtn = document.getElementById('dispatchSaveContact');
+      if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+          const phone = document.getElementById('dispatchEditPhone').value.trim();
+          const email = document.getElementById('dispatchEditEmail').value.trim();
+          await saveContactToNode(selectedContact.id, phone, email);
+          selectedContact._contact = { phone, email };
+          NX.toast && NX.toast('Contact saved ✓', 'success');
+          render();
+        });
+      }
+      document.getElementById('dispatchBack')?.addEventListener('click', () => {
+        stage = 'contact'; selectedContact = null; render();
+      });
+    }
+
+    if (stage === 'compose') {
+      document.getElementById('dispatchBack')?.addEventListener('click', () => {
+        stage = 'method'; selectedMethod = null; composedMessage = ''; render();
+      });
+      document.getElementById('dispatchSend')?.addEventListener('click', async () => {
+        const ta = document.getElementById('dispatchBody') || document.getElementById('dispatchNote');
+        composedMessage = ta ? ta.value : composedMessage;
+        await executeDispatch({
+          contact: selectedContact,
+          method: selectedMethod,
+          message: composedMessage,
+          equipId: eq.id,
+          ticketId: activeTicket?.id,
+        });
+        close();
+      });
+    }
+  };
+
+  render();
+}
+
+async function createContractorNode(name, phone, email) {
+  const links = {};
+  if (phone) links.phone = phone;
+  if (email) links.email = email;
+  const newNode = {
+    name,
+    category: 'contractor',
+    tags: ['contractor'],
+    notes: [phone ? `Phone: ${phone}` : '', email ? `Email: ${email}` : ''].filter(Boolean).join('\n'),
+    links,
+    owner_id: null,
+    access_count: 0,
+  };
+  try {
+    const { data, error } = await NX.sb.from('nodes').insert(newNode).select().single();
+    if (error) throw error;
+    if (NX.nodes) NX.nodes.push(data);
+    if (NX.allNodes) NX.allNodes.push(data);
+    return data;
+  } catch (e) {
+    console.warn('[Dispatch] Could not persist contractor node:', e);
+    return { id: 'ephemeral_' + Date.now(), ...newNode };
+  }
+}
+
+async function saveContactToNode(nodeId, phone, email) {
+  const { data: node } = await NX.sb.from('nodes').select('notes, links').eq('id', nodeId).single();
+  const links = { ...(node?.links || {}) };
+  if (phone) links.phone = phone;
+  if (email) links.email = email;
+  const noteAddenda = [];
+  if (phone && !(node?.notes || '').includes(phone)) noteAddenda.push(`Phone: ${phone}`);
+  if (email && !(node?.notes || '').includes(email)) noteAddenda.push(`Email: ${email}`);
+  const newNotes = noteAddenda.length
+    ? [(node?.notes || '').trim(), noteAddenda.join('\n')].filter(Boolean).join('\n')
+    : node?.notes;
+  await NX.sb.from('nodes').update({ links, notes: newNotes }).eq('id', nodeId);
+  if (NX.nodes) {
+    const cached = NX.nodes.find(n => n.id === nodeId);
+    if (cached) { cached.links = links; cached.notes = newNotes; }
+  }
+}
+
+async function executeDispatch({ contact, method, message, equipId, ticketId }) {
+  const ct = contact._contact || {};
+  const phone = normalizePhone(ct.phone);
+  const email = ct.email;
+  let url = '';
+  let opened = false;
+
+  if (method === 'call' && phone) {
+    url = `tel:${phone}`;
+  } else if (method === 'sms' && phone) {
+    url = `sms:${phone}?body=${encodeURIComponent(message)}`;
+  } else if (method === 'whatsapp' && phone) {
+    const waNum = phone.replace(/^\+/, '');
+    url = `https://wa.me/${waNum}?text=${encodeURIComponent(message)}`;
+  } else if (method === 'email' && email) {
+    url = `mailto:${email}?subject=${encodeURIComponent('Service request — NEXUS')}&body=${encodeURIComponent(message)}`;
+  }
+
+  if (url) {
+    try {
+      const a = document.createElement('a');
+      a.href = url;
+      if (method === 'whatsapp') a.target = '_blank';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      opened = true;
+    } catch (e) {
+      console.warn('[Dispatch] Native handler failed:', e);
+      try { window.open(url, '_blank'); opened = true; } catch {}
+    }
+  }
+
+  await logDispatch({
+    equipment_id: equipId,
+    contractor_node_id: String(contact.id).startsWith('ephemeral_') ? null : contact.id,
+    contractor_name: contact.name,
+    contractor_phone: phone || null,
+    contractor_email: email || null,
+    method,
+    ticket_id: ticketId || null,
+    message,
+    dispatched_by: NX.currentUser?.name || null,
+    outcome: 'pending',
+  });
+
+  if (NX.trackAccess && contact.id && !String(contact.id).startsWith('ephemeral_')) {
+    NX.trackAccess([contact.id]);
+  }
+
+  try {
+    await NX.sb.from('action_chains').insert({
+      trigger_text: `Dispatched ${contact.name} via ${method}`,
+      actions: [{ type: 'dispatch', equipment_id: equipId, contractor_node_id: contact.id, method }],
+      user_name: NX.currentUser?.name,
+    });
+  } catch (e) {}
+
+  NX.toast && NX.toast(
+    opened ? `Opened ${method} to ${contact.name} ✓` : `Logged ${method} attempt`,
+    'success'
+  );
+
+  refreshDispatchChips(equipId);
+}
+
+async function logDispatch(record) {
+  try {
+    const { error } = await NX.sb.from('dispatch_log').insert(record);
+    if (error) throw error;
+  } catch (e) {
+    console.warn('[Dispatch] Could not log to DB:', e);
+    if (window.OfflineQueue) {
+      try { await window.OfflineQueue.add({ type: 'dispatch_log', payload: record }); } catch {}
+    }
+  }
+}
+
+async function setOutcome(dispatchId, outcome, notes) {
+  const update = { outcome };
+  if (notes) update.outcome_notes = notes;
+  if (outcome !== 'pending') update.responded_at = new Date().toISOString();
+  await NX.sb.from('dispatch_log').update(update).eq('id', dispatchId);
+}
+
+async function refreshDispatchChips(equipId) {
+  const overviewPanel = document.querySelector('#eqModal [data-panel="overview"]');
+  if (!overviewPanel) return;
+  const existing = overviewPanel.querySelector('#eqDispatchRecent');
+  if (existing) existing.remove();
+  const recent = await loadRecentDispatches(equipId, 3);
+  if (!recent.length) return;
+
+  const section = document.createElement('div');
+  section.className = 'eq-family-section';
+  section.id = 'eqDispatchRecent';
+  section.innerHTML = `
+    <h4>${uiSvg("phone", "14px")} Recent Dispatches</h4>
+    <div class="eq-dispatch-recent">
+      ${recent.map(d => `
+        <div class="eq-dispatch-chip" data-id="${d.id}">
+          <span class="chip-method">${methodIcon(d.method)}</span>
+          <span class="chip-name">${esc(d.contractor_name || 'Unknown')}</span>
+          <span class="chip-outcome outcome-${esc(d.outcome || 'pending')}"
+                onclick="NX.modules.equipment.cycleDispatchOutcome('${d.id}', '${equipId}')"
+                title="Click to update status">
+            ${esc(d.outcome || 'pending')}
+          </span>
+          <span class="chip-when">${timeAgo(d.created_at)}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+  overviewPanel.appendChild(section);
+}
+
+const OUTCOME_CYCLE = ['pending', 'acknowledged', 'scheduled', 'resolved', 'no_response'];
+
+async function cycleDispatchOutcome(dispatchId, equipId) {
+  const { data } = await NX.sb.from('dispatch_log').select('outcome').eq('id', dispatchId).single();
+  const cur = data?.outcome || 'pending';
+  const idx = OUTCOME_CYCLE.indexOf(cur);
+  const next = OUTCOME_CYCLE[(idx + 1) % OUTCOME_CYCLE.length];
+  await setOutcome(dispatchId, next);
+  NX.toast && NX.toast(`Marked: ${next}`, 'info');
+  refreshDispatchChips(equipId);
+}
+
+function dispatchFromTicket(equipId, ticketId) {
+  return openDispatchSheet(equipId, ticketId);
+}
+
+// Direct call to service contact. Shows a themed confirm modal before
+// dialing so the user sees WHO they're about to call.
+//
+// Priority for phone lookup:
+//   1. Use equipment.service_phone if set
+//   2. Fallback to preferred_contractor_node_id → nodes.links.phone
+//   3. If neither exists, prompt to set one up
+async function callService(equipId) {
+  try {
+    const { data: eq } = await NX.sb.from('equipment')
+      .select('id, name, service_phone, service_contact_name, preferred_contractor_node_id')
+      .eq('id', equipId).single();
+    if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
+    
+    let phone = eq.service_phone;
+    let name = eq.service_contact_name;
+    let source = phone ? 'direct' : null;
+    
+    // Fallback to contractor node
+    if (!phone && eq.preferred_contractor_node_id) {
+      const { data: node } = await NX.sb.from('nodes')
+        .select('name, notes, tags, links')
+        .eq('id', eq.preferred_contractor_node_id).single();
+      if (node) {
+        const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
+        const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+        const links = node.links || {};
+        phone = links.phone || (phoneMatch ? phoneMatch[0].trim() : '');
+        name = name || node.name;
+        source = 'contractor';
+      }
+    }
+    
+    if (!phone) {
+      showNoServiceContactModal(equipId, eq.name);
+      return;
+    }
+    
+    showCallConfirmModal({
+      equipId,
+      equipName: eq.name,
+      contactName: name || 'Service',
+      phone,
+      contractorNodeId: eq.preferred_contractor_node_id,
+      source
+    });
+  } catch (err) {
+    console.error('[callService] failed:', err);
+    NX.toast && NX.toast('Call failed: ' + err.message, 'error');
+  }
+}
+
+// Confirmation modal before dialing
+function showCallConfirmModal({ equipId, equipName, contactName, phone, contractorNodeId, source }) {
+  // Normalize to tel: format
+  const cleaned = phone.replace(/[^\d+]/g, '');
+  const telHref = cleaned.length === 10 && !cleaned.startsWith('+') ? '+1' + cleaned : cleaned;
+  const prettyPhone = formatPhonePretty(phone);
+  const sourceLabel = source === 'direct' ? 'Service contact on file'
+                    : source === 'contractor' ? 'Preferred contractor'
+                    : 'Service contact';
+  
+  const existing = document.getElementById('eqCallConfirm');
+  if (existing) existing.remove();
+  
+  const modal = document.createElement('div');
+  modal.id = 'eqCallConfirm';
+  modal.className = 'eq-call-confirm';
+  modal.innerHTML = `
+    <div class="eq-call-confirm-bg"></div>
+    <div class="eq-call-confirm-card">
+      <div class="eq-call-confirm-icon">${uiSvg("phone", "32px")}</div>
+      <div class="eq-call-confirm-title">Call ${esc(contactName)}?</div>
+      <div class="eq-call-confirm-phone">${esc(prettyPhone)}</div>
+      <div class="eq-call-confirm-meta">${esc(sourceLabel)} · ${esc(equipName)}</div>
+      <div class="eq-call-confirm-issue-wrap">
+        <label class="eq-call-confirm-issue-label" for="eqCallIssue">
+          What's the issue? <span class="eq-optional-tag">(required — helps log the call)</span>
+        </label>
+        <textarea class="eq-call-confirm-issue" id="eqCallIssue" rows="2" placeholder="e.g., Compressor not cooling, freezing intermittently..."></textarea>
+      </div>
+      <div class="eq-call-confirm-actions">
+        <button class="eq-btn eq-btn-secondary" id="eqCallCancel">Cancel</button>
+        <a class="eq-btn eq-call-service-btn is-disabled" id="eqCallGo" href="tel:${esc(telHref)}" aria-disabled="true"><i data-lucide="phone" class="eq-btn-icon"></i> Call Now</a>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  requestAnimationFrame(() => modal.classList.add('active'));
+  
+  const close = () => { modal.classList.remove('active'); setTimeout(() => modal.remove(), 200); };
+  const issueEl = modal.querySelector('#eqCallIssue');
+  const callBtn = modal.querySelector('#eqCallGo');
+  
+  // Enable Call Now only when there's at least 2 chars in the textarea
+  issueEl.addEventListener('input', () => {
+    const hasText = issueEl.value.trim().length >= 2;
+    callBtn.classList.toggle('is-disabled', !hasText);
+    callBtn.setAttribute('aria-disabled', hasText ? 'false' : 'true');
+  });
+  // Autofocus so user can type right away on mobile
+  setTimeout(() => issueEl.focus(), 250);
+  
+  modal.querySelector('.eq-call-confirm-bg').addEventListener('click', close);
+  document.getElementById('eqCallCancel').addEventListener('click', close);
+  callBtn.addEventListener('click', async (e) => {
+    const issue = issueEl.value.trim();
+    // Guard — if somehow disabled state was bypassed
+    if (!issue || issue.length < 2) {
+      e.preventDefault();
+      issueEl.focus();
+      issueEl.style.borderColor = 'var(--red)';
+      setTimeout(() => { issueEl.style.borderColor = ''; }, 1200);
+      return;
+    }
+    // Log to dispatch_events (structured audit trail).
+    // The Postgres trigger on dispatch_events INSERT writes a rich "[SYS] call_made"
+    // entry to daily_logs automatically — no direct daily_logs insert needed.
+    try {
+      await NX.sb.from('dispatch_events').insert({
+        equipment_id: equipId,
+        contractor_node_id: contractorNodeId || null,
+        contractor_name: contactName,
+        contractor_phone: phone,
+        method: 'call',
+        issue_description: issue,
+        dispatched_by: NX.currentUser?.name || null,
+        outcome: 'pending',
+      });
+    } catch (err) { console.warn('dispatch_events log failed:', err); }
+    setTimeout(close, 100);
+  });
+}
+
+// Shown when no phone is on file anywhere
+function showNoServiceContactModal(equipId, equipName) {
+  const existing = document.getElementById('eqCallConfirm');
+  if (existing) existing.remove();
+  
+  const modal = document.createElement('div');
+  modal.id = 'eqCallConfirm';
+  modal.className = 'eq-call-confirm';
+  modal.innerHTML = `
+    <div class="eq-call-confirm-bg"></div>
+    <div class="eq-call-confirm-card">
+      <div class="eq-call-confirm-icon" style="color:var(--nx-gold)">${uiSvg("phone","32px")}</div>
+      <div class="eq-call-confirm-title">No service contact</div>
+      <div class="eq-call-confirm-meta">${esc(equipName)} doesn't have a phone number on file. Add one in the editor to enable quick calling.</div>
+      <div class="eq-call-confirm-actions">
+        <button class="eq-btn eq-btn-secondary" id="eqCallCancel">Close</button>
+        <button class="eq-btn eq-btn-primary" id="eqCallEdit">${uiSvg("settings", "14px")} Open Editor</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  requestAnimationFrame(() => modal.classList.add('active'));
+  
+  const close = () => { modal.classList.remove('active'); setTimeout(() => modal.remove(), 200); };
+  modal.querySelector('.eq-call-confirm-bg').addEventListener('click', close);
+  document.getElementById('eqCallCancel').addEventListener('click', close);
+  document.getElementById('eqCallEdit').addEventListener('click', () => {
+    close();
+    openFullEditor(equipId);
+  });
+}
+
+// Pretty-format a phone number for display
+function formatPhonePretty(p) {
+  if (!p) return '';
+  const cleaned = p.replace(/[^\d]/g, '');
+  // US 10-digit: (512) 555-1234
+  if (cleaned.length === 10) {
+    return `(${cleaned.slice(0,3)}) ${cleaned.slice(3,6)}-${cleaned.slice(6)}`;
+  }
+  // US 11-digit starting with 1: 1 (512) 555-1234
+  if (cleaned.length === 11 && cleaned.startsWith('1')) {
+    return `1 (${cleaned.slice(1,4)}) ${cleaned.slice(4,7)}-${cleaned.slice(7)}`;
+  }
+  return p; // Unknown format, return as-is
+}
+
+// Three-dot overflow menu in the equipment detail action bar.
+// Hides destructive actions (currently just Delete) behind a tap to prevent
+// accidental triggers. Auto-closes on outside tap.
+function toggleOverflow(event, equipId) {
+  event.stopPropagation();
+  const menu = document.getElementById('eqOverflow-' + equipId);
+  if (!menu) return;
+  const isOpen = menu.classList.contains('active');
+  // Close any other open overflows first
+  document.querySelectorAll('.eq-overflow-menu.active').forEach(m => m.classList.remove('active'));
+  if (!isOpen) {
+    menu.classList.add('active');
+    // Close on next outside click
+    setTimeout(() => {
+      document.addEventListener('click', function closeOverflow(e) {
+        if (!menu.contains(e.target)) {
+          menu.classList.remove('active');
+          document.removeEventListener('click', closeOverflow);
+        }
+      }, { once: true });
+    }, 0);
+  }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   12. UI INJECTION — per-row/card Zebra print buttons
+   (Was MutationObserver dance in equipment-ux.js; now called directly from renderList)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function injectRowPrintButtons() {
+  // Deprecated as of v27. The legacy quick-status ⟳ button on each row
+  // (and on each grid card) is removed — the lifecycle beacon now
+  // carries the visual signal, and status changes are accessible via:
+  //   • long-press dial → no direct status change there, but → tap to detail
+  //   • detail's overflow ⋯ → Edit Everything → Status field
+  //   • the detail header pill (in the future, this could be made tappable)
+  //
+  // Function kept as a no-op so any other call sites that still invoke
+  // it don't break. Safe to remove the call site and this function in a
+  // future cleanup pass.
+  return;
+}
+
+/* ═══ CROSS-SYSTEM CLOSE-OUT ═══════════════════════════════════════════
+   When equipment goes back to Operational, cards still open about it
+   are likely resolved. Show a compact modal offering to mark them Done
+   in one tap — so the user isn't left manually chasing every linked
+   ticket across Equip → Board → Calendar. Cards still LIVE in the Done
+   column (audit history); they just stop cluttering active workflows.
+   ═══════════════════════════════════════════════════════════════════════ */
+function offerCardCloseOut(cards, eq) {
+  // Remove any existing offer modal
+  document.querySelector('.eq-closeout-modal')?.remove();
+
+  const bg = document.createElement('div');
+  bg.className = 'eq-closeout-bg';
+
+  const modal = document.createElement('div');
+  modal.className = 'eq-closeout-modal';
+  const cardCount = cards.length;
+  modal.innerHTML = `
+    <div class="eq-closeout-head">
+      <div class="eq-closeout-icon" style="color:var(--nx-gold)">${uiSvg("check","32px")}</div>
+      <div>
+        <h3 class="eq-closeout-title">${esc(eq?.name || 'Equipment')} is back up</h3>
+        <p class="eq-closeout-sub">${cardCount} open card${cardCount === 1 ? ' is' : 's are'} linked to this equipment. Close ${cardCount === 1 ? 'it' : 'them'} out?</p>
+      </div>
+    </div>
+    <ul class="eq-closeout-cards">
+      ${cards.slice(0, 5).map(c => `<li>• ${esc(c.title || 'Untitled card')} <span class="eq-closeout-col">${esc((c.column_name || 'to_do').replace(/_/g, ' '))}</span></li>`).join('')}
+      ${cards.length > 5 ? `<li class="eq-closeout-more">+ ${cards.length - 5} more</li>` : ''}
+    </ul>
+    <p class="eq-closeout-note">Cards will move to Done on the Board — still searchable, but out of your active views and off the calendar.</p>
+    <div class="eq-closeout-actions">
+      <button class="eq-closeout-btn eq-closeout-btn-secondary" data-action="skip">Keep open</button>
+      <button class="eq-closeout-btn eq-closeout-btn-primary" data-action="move">
+        ${uiSvg('check', '12px')} Move ${cardCount === 1 ? 'card' : 'all ' + cardCount} to Done
+      </button>
+    </div>
+  `;
+
+  document.body.append(bg, modal);
+
+  const close = () => {
+    bg.remove();
+    modal.remove();
+  };
+
+  bg.addEventListener('click', close);
+  modal.querySelector('[data-action="skip"]').addEventListener('click', close);
+  modal.querySelector('[data-action="move"]').addEventListener('click', async () => {
+    try {
+      const ids = cards.map(c => c.id);
+      const { error } = await NX.sb.from('kanban_cards')
+        .update({ column_name: 'done', status: 'closed' })
+        .in('id', ids);
+      if (error) throw error;
+      NX.toast && NX.toast(`${ids.length} card${ids.length === 1 ? '' : 's'} moved to Done ✓`, 'success');
+      // Fire a home pulse so the galaxy/home reacts visually
+      if (NX.homeGalaxyPulse) try { NX.homeGalaxyPulse(); } catch (_) {}
+      close();
+    } catch (err) {
+      console.error('[closeout] move failed:', err);
+      NX.toast && NX.toast('Move failed: ' + err.message, 'error');
+    }
+  });
+}
+
+/* ═══ QUICK STATUS MENU ════════════════════════════════════════════════
+   Tap a row's status button → popup shows all 4 status options with
+   color dots. Tap one → writes to DB + reloads list. Admin-only writes
+   — for non-admin users, show a toast explaining the restriction.
+   Small, mobile-first, dismisses on outside tap. */
+function openQuickStatusMenu(equipmentId, anchorBtn) {
+  // Remove any existing menu
+  document.querySelector('.eq-status-menu')?.remove();
+
+  const isAdmin = NX.currentUser?.role === 'admin';
+  if (!isAdmin) {
+    NX.toast && NX.toast('Admins only. Report an issue via the detail page instead.', 'info', 3500);
+    return;
+  }
+
+  const eq = equipment.find(e => e.id === equipmentId);
+  const currentKey = eq?.status || 'operational';
+
+  const menu = document.createElement('div');
+  menu.className = 'eq-status-menu';
+  menu.innerHTML = `
+    <div class="eq-status-menu-head">Change status</div>
+    ${DROPDOWN_STATUSES.map(s => `
+      <button class="eq-status-menu-item ${s.key === currentKey ? 'is-current' : ''}" data-key="${s.key}">
+        <span class="eq-status-menu-dot" style="background:${s.color}"></span>
+        <span>${s.label}</span>
+        ${s.key === currentKey ? `<span class=\"eq-status-menu-check\">${uiSvg('check','11px')}</span>` : ''}
+      </button>
+    `).join('')}
+  `;
+  document.body.appendChild(menu);
+
+  // Position next to anchor button
+  const rect = anchorBtn.getBoundingClientRect();
+  const menuH = 200;
+  const top = (rect.bottom + menuH > window.innerHeight) ? rect.top - menuH - 6 : rect.bottom + 6;
+  menu.style.top = Math.max(10, top) + 'px';
+  menu.style.right = (window.innerWidth - rect.right) + 'px';
+
+  menu.querySelectorAll('.eq-status-menu-item').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const newKey = btn.dataset.key;
+      menu.remove();
+      if (newKey === currentKey) return;
+      try {
+        const { error } = await NX.sb.from('equipment')
+          .update({ status: newKey })
+          .eq('id', equipmentId);
+        if (error) throw error;
+        NX.toast && NX.toast(`Status → ${STATUSES.find(s => s.key === newKey)?.label || newKey}`, 'success');
+        if (eq) eq.status = newKey;  // optimistic local update
+        // Sync to brain so the galaxy/AI reflects the new status
+        // without waiting for next full refresh.
+        if (NX.eqBrainSync?.syncOne) {
+          try { await NX.eqBrainSync.syncOne(equipmentId); } catch (_) {}
+        }
+        buildUI();  // re-render list
+
+        // ── CROSS-SYSTEM CLOSE-OUT ────────────────────────────────────
+        // If equipment is back to Operational, any open card linked to
+        // it is likely resolved. Offer to move them to Done so the user
+        // doesn't have to manually close every related card.
+        if (newKey === 'operational') {
+          try {
+            const { data: linkedCards } = await NX.sb.from('kanban_cards')
+              .select('id, title, column_name, list_id')
+              .eq('equipment_id', equipmentId)
+              .neq('column_name', 'done')
+              .or('archived.is.null,archived.eq.false');
+            if (linkedCards && linkedCards.length) {
+              offerCardCloseOut(linkedCards, eq);
+            }
+          } catch (_) { /* non-blocking */ }
+        }
+      } catch (err) {
+        console.error('[status] update failed:', err);
+        NX.toast && NX.toast('Update failed: ' + err.message, 'error');
+      }
+    });
+  });
+
+  // Dismiss on outside tap (delay one tick so the opening tap doesn't close it)
+  setTimeout(() => {
+    document.addEventListener('click', function dismiss(e) {
+      if (!menu.contains(e.target)) {
+        menu.remove();
+        document.removeEventListener('click', dismiss);
+      }
+    });
+  }, 0);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   13. UTILITIES — single canonical copies of helpers used throughout
+   (Previously duplicated across 4+ files)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function escAttr(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function statusColor(s) { return STATUSES.find(x => x.key === s)?.color || 'var(--muted)'; }
+function statusLabel(s) { return STATUSES.find(x => x.key === s)?.label || s; }
+
+/* ════════════════════════════════════════════════════════════════════
+   LIFECYCLE-AWARE STATUS PILL
+   ════════════════════════════════════════════════════════════════════
+   Replaces the static status pill with one that surfaces the current
+   "state of work" on the equipment. Three layers of priority:
+
+     1. Open issue → lifecycle state colors the pill (reported, called,
+        ETA, in progress, awaiting parts).
+     2. No open issue, status = operational → glowing gold pill.
+     3. No open issue, status = down/broken → ghost outline with no fill.
+     4. Other states (needs_service, retired, etc.) → muted pill.
+
+   The pill is a visual signal, not just a label — operators standing
+   at the equipment know its state from across the kitchen.
+   ════════════════════════════════════════════════════════════════════ */
+
+const LIFECYCLE_PILL_MAP = {
+  reported: {
+    label: 'REPORTED',
+    cls: 'is-reported',
+  },
+  contractor_called: {
+    label: 'CONTRACTOR CALLED',
+    cls: 'is-called',
+  },
+  eta_set: {
+    label: 'ETA SET',
+    cls: 'is-eta',
+  },
+  in_progress: {
+    label: 'IN PROGRESS',
+    cls: 'is-in-progress',
+  },
+  awaiting_parts: {
+    label: 'AWAITING PARTS',
+    cls: 'is-awaiting',
+  },
+};
+
+/**
+ * Choose the lifecycle pill state for an equipment row.
+ * Returns { label, cls, time? } where time is an optional sub-line
+ * (ETA datetime when applicable, etc.).
+ */
+function pickLifecyclePillState(eq) {
+  const issue = eq && eq._openIssue;
+  if (issue) {
+    const map = LIFECYCLE_PILL_MAP[issue.status] || LIFECYCLE_PILL_MAP.reported;
+    let time = null;
+    if (issue.status === 'eta_set' && issue.eta_at) {
+      const d = new Date(issue.eta_at);
+      const now = new Date();
+      const sameDay = d.toDateString() === now.toDateString();
+      time = sameDay
+        ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+        : d.toLocaleDateString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+    }
+    return { label: map.label, cls: map.cls, time };
+  }
+  // No open issue — fall back to equipment.status semantics.
+  const s = (eq.status || 'operational').toLowerCase();
+  if (s === 'operational')              return { label: 'OPERATIONAL',   cls: 'is-operational' };
+  if (s === 'down' || s === 'broken')   return { label: s.toUpperCase(), cls: 'is-down' };
+  if (s === 'needs_service')            return { label: 'NEEDS SERVICE', cls: 'is-needs-service' };
+  if (s === 'missing')                  return { label: 'MISSING',       cls: 'is-missing' };
+  if (s === 'loaned')                   return { label: 'LOANED',        cls: 'is-muted' };
+  if (s === 'relocated')                return { label: 'RELOCATED',     cls: 'is-muted' };
+  if (s === 'retired')                  return { label: 'RETIRED',       cls: 'is-retired' };
+  return { label: (s || 'unknown').toUpperCase(), cls: 'is-muted' };
+}
+
+/**
+ * Render the lifecycle pill HTML. Three sizes for use in different
+ * contexts: 'lg' (detail header), 'md' (grid card), 'sm' (list row).
+ */
+function lifecycleStatusPill(eq, size) {
+  const state = pickLifecyclePillState(eq);
+  const sizeCls = size === 'lg' ? 'eq-lc-pill-lg'
+                : size === 'sm' ? 'eq-lc-pill-sm'
+                : 'eq-lc-pill-md';
+  return `
+    <span class="eq-lc-pill ${sizeCls} ${state.cls}">
+      <span class="eq-lc-pill-dot" aria-hidden="true"></span>
+      <span class="eq-lc-pill-label">${esc(state.label)}</span>
+      ${state.time ? `<span class="eq-lc-pill-time">${esc(state.time)}</span>` : ''}
+    </span>
+  `;
+}
+
+/**
+ * A bare-dot indicator for compact contexts (list-row column where
+ * space is precious). Same color rules as the pill but no label.
+ */
+function lifecycleStatusDot(eq) {
+  const state = pickLifecyclePillState(eq);
+  return `<span class="eq-lc-dot ${state.cls}" aria-label="${esc(state.label)}"></span>`;
+}
+/* catIcon — emits a Lucide-style line-art SVG glyph for an equipment
+   category. Replaces the emoji approach (inconsistent rendering across
+   devices, off-aesthetic). The SVG sizes itself to the parent's
+   font-size via 1em width/height, and inherits color via currentColor —
+   so existing call sites that style .eq-cat-icon (font-size:22px) and
+   .eq-cat-icon-lg (font-size:32px) work without changes. */
+function catIcon(c) {
+  const path = ICON_PATHS[c] || ICON_PATHS.other;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">${path}</svg>`;
+}
+
+function statusDot(s) {
+  const dotColors = {
+    operational:   'var(--green)',
+    needs_service: 'var(--amber)',
+    down:          'var(--red)',
+    retired:       'var(--faint)',
+  };
+  return dotColors[s] || 'var(--muted)';
+}
+
+function relIcon(type) {
+  const r = RELATIONSHIP_TYPES.find(x => x.key === type);
+  return r ? r.icon : '·';
+}
+
+function relLabel(type) {
+  if (!type) return '';
+  const r = RELATIONSHIP_TYPES.find(x => x.key === type);
+  return r ? r.label : type.replace(/_/g, ' ');
+}
+
+function attachmentIcon(a) {
+  const isImage = (a.mime_type || '').startsWith('image/');
+  const isPDF   = (a.mime_type || '').includes('pdf');
+  return a.type === 'link'     ? uiSvg('link', '13px')
+       : a.type === 'note'     ? uiSvg('note', '13px')
+       : a.type === 'receipt'  ? uiSvg('receipt', '13px')
+       : a.type === 'invoice'  ? uiSvg('dollar', '13px')
+       : a.type === 'warranty' ? uiSvg('shield', '13px')
+       : a.type === 'photo'    ? uiSvg('camera', '13px')
+       : isImage               ? uiSvg('camera', '13px')
+       : isPDF                 ? uiSvg('document', '13px')
+       :                         uiSvg('paperclip', '13px');
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + 'B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + 'KB';
+  return (b / 1048576).toFixed(1) + 'MB';
+}
+
+function methodIcon(m) {
+  return ({
+    call:     uiSvg('phone', '13px'),
+    sms:      uiSvg('message', '13px'),
+    whatsapp: uiSvg('whatsapp', '13px'),
+    email:    uiSvg('email', '13px'),
+  })[m] || uiSvg('message', '13px');
+}
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  const d = Math.floor(h / 24);
+  if (d < 30) return d + 'd ago';
+  return new Date(iso).toLocaleDateString();
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PM LOG INLINE REVIEW — approve/reject/spam from the Timeline tab
+   ════════════════════════════════════════════════════════════════════════════
+   Contractor submits a PM via the public QR form → row lands in pm_logs with
+   review_status='pending'. The Timeline tab surfaces pending logs for admins
+   with inline action buttons so they never have to hunt for a hidden review
+   dashboard.
+
+   Approve path: updates pm_logs.review_status, inserts a matching row into
+   equipment_maintenance (so the approved service appears as a "real" timeline
+   event), and triggers the brain sync so the node reflects the new service
+   history. Mirrors the existing updateReviewStatus() logic in
+   equipment-public-pm.js — single-sourced here so the timeline flow uses the
+   same code path as the standalone review dashboard.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function approvePmLog(logId, equipmentId) {
+  if (!confirm('Approve this service log? It will be added to the equipment timeline.')) return;
+  try {
+    // 1. Update the pm_log review status
+    const reviewer = NX.currentUser?.name || 'Admin';
+    const { error: upErr } = await NX.sb.from('pm_logs').update({
+      review_status: 'approved',
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: reviewer,
+    }).eq('id', logId);
+    if (upErr) throw upErr;
+
+    // 2. Fetch the full row to promote it
+    const { data: log, error: getErr } = await NX.sb.from('pm_logs').select('*').eq('id', logId).single();
+    if (getErr) throw getErr;
+
+    // 3. Insert matching equipment_maintenance row
+    const maintDesc = log.work_performed
+      + (log.parts_replaced ? '\n\nParts: ' + log.parts_replaced : '');
+    const performer = log.contractor_name
+      + (log.contractor_company ? ' (' + log.contractor_company + ')' : '');
+    const { error: insErr } = await NX.sb.from('equipment_maintenance').insert({
+      equipment_id: log.equipment_id,
+      event_date: log.service_date,
+      event_type: log.service_type || 'pm',
+      description: maintDesc,
+      performed_by: performer,
+      cost: log.cost_amount,
+      notes: `Submitted via QR scan${log.contractor_phone ? '. Phone: ' + log.contractor_phone : ''}.`,
+      pm_log_id: log.id,
+    });
+    if (insErr) throw insErr;
+
+    // 4. If this PM has a next_service_date, update equipment's next_pm_date
+    if (log.next_service_date) {
+      await NX.sb.from('equipment')
+        .update({ next_pm_date: log.next_service_date })
+        .eq('id', log.equipment_id);
+    }
+
+    // 5. Re-sync the equipment node in the knowledge graph (best effort)
+    if (NX.eqBrainSync?.syncOne) {
+      try { await NX.eqBrainSync.syncOne(log.equipment_id); } catch (_) {}
+    }
+
+    NX.toast?.('Service log approved ✓', 'success');
+    // 6. Reload the equipment detail to reflect the change
+    await openDetail(equipmentId);
+  } catch (err) {
+    console.error('[approvePmLog] failed:', err);
+    alert('Failed to approve: ' + err.message);
+  }
+}
+
+async function rejectPmLog(logId, equipmentId) {
+  if (!confirm('Reject this service log? It will be hidden from the timeline.')) return;
+  try {
+    const { error } = await NX.sb.from('pm_logs').update({
+      review_status: 'rejected',
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: NX.currentUser?.name || 'Admin',
+    }).eq('id', logId);
+    if (error) throw error;
+    NX.toast?.('Log rejected', 'info');
+    await openDetail(equipmentId);
+  } catch (err) {
+    console.error('[rejectPmLog] failed:', err);
+    alert('Failed to reject: ' + err.message);
+  }
+}
+
+async function markPmSpam(logId, equipmentId) {
+  if (!confirm('Mark this log as spam? It will be hidden and the submitter flagged.')) return;
+  try {
+    const { error } = await NX.sb.from('pm_logs').update({
+      review_status: 'spam',
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: NX.currentUser?.name || 'Admin',
+    }).eq('id', logId);
+    if (error) throw error;
+    NX.toast?.('Marked as spam', 'info');
+    await openDetail(equipmentId);
+  } catch (err) {
+    console.error('[markPmSpam] failed:', err);
+    alert('Failed: ' + err.message);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   14. EXPORT — single flat namespace, no more Object.assign ceremony
+   ════════════════════════════════════════════════════════════════════════════ */
+
+if (!NX.modules) NX.modules = {};
+
+/* ════════════════════════════════════════════════════════════════════════════
+   15. ISSUE TRACKER — lifecycle (reported → contractor called → eta set →
+                       in progress → repaired) + auto-generated emails
+   ════════════════════════════════════════════════════════════════════════════
+   Mirrors the order detail / lifecycle pattern from the ordering pane.
+   Where ordering tracks an order from draft → closed, this tracks an
+   equipment issue from "I noticed something's wrong" through "the
+   contractor came and fixed it."
+
+   States:
+     reported        — chef noticed, logged. Not yet escalated.
+     contractor_called — phone call made, voicemail or live conversation.
+     eta_set         — contractor has committed to a window.
+     in_progress     — contractor is on-site OR has started repairs.
+     awaiting_parts  — repair stalled pending part delivery (optional branch)
+     repaired        — fixed and verified.
+
+   Each transition stamps a timestamp column. The state machine is
+   forward-only EXCEPT awaiting_parts which can return to in_progress
+   when parts arrive.
+
+   The tracker is per-issue, not per-equipment. One piece of equipment
+   can have multiple open issues (e.g. ice maker has both a slow-fill
+   complaint AND a noisy compressor). They each track independently.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const ISSUE_LIFECYCLE = ['reported', 'contractor_called', 'eta_set', 'in_progress', 'awaiting_parts', 'repaired'];
+const ISSUE_LIFECYCLE_LABELS = {
+  reported:           'Reported',
+  contractor_called:  'Contractor called',
+  eta_set:            'ETA set',
+  in_progress:        'In progress',
+  awaiting_parts:     'Awaiting parts',
+  repaired:           'Repaired',
+};
+// Display order in the timeline omits awaiting_parts because it's a
+// side-branch off in_progress, not a normal-flow step.
+const ISSUE_TIMELINE_STEPS = ['reported', 'contractor_called', 'eta_set', 'in_progress', 'repaired'];
+
+function eqIssueTsForStatus(issue, status) {
+  if (!issue) return null;
+  switch (status) {
+    case 'reported':           return issue.reported_at;
+    case 'contractor_called':  return issue.contractor_called_at;
+    case 'eta_set':            return issue.eta_set_at;
+    case 'in_progress':        return issue.in_progress_at;
+    case 'awaiting_parts':     return issue.awaiting_parts_at;
+    case 'repaired':           return issue.repaired_at;
+    default:                   return null;
+  }
+}
+
+function eqIssueFmtTs(ts) {
+  if (!ts) return '';
+  const d = new Date(ts), now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const diff = (now - d) / 86400000;
+  if (diff < 1.5) return 'yesterday';
+  if (diff < 7)   return d.toLocaleDateString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+/** Load all open issues (status != 'repaired') for a given equipment. */
+async function loadEquipmentIssues(equipmentId, opts) {
+  const includeRepaired = opts && opts.includeRepaired;
+  if (!NX.sb || !equipmentId) return [];
+  let query = NX.sb.from('equipment_issues')
+    .select('*')
+    .eq('equipment_id', equipmentId)
+    .order('reported_at', { ascending: false });
+  if (!includeRepaired) {
+    query = query.neq('status', 'repaired');
+  }
+  const { data, error } = await query;
+  if (error) {
+    console.warn('[equipment] loadEquipmentIssues:', error.message || error);
+    return [];
+  }
+  return data || [];
+}
+
+/** Load latest open issue per equipment id (for list-view badges). */
+async function loadOpenIssuesByEquipment(equipmentIds) {
+  if (!NX.sb || !equipmentIds || !equipmentIds.length) return {};
+  const { data, error } = await NX.sb.from('equipment_issues')
+    .select('id, equipment_id, status, title, reported_at, eta_at')
+    .in('equipment_id', equipmentIds)
+    .neq('status', 'repaired')
+    .order('reported_at', { ascending: false });
+  if (error) {
+    console.warn('[equipment] loadOpenIssuesByEquipment:', error.message || error);
+    return {};
+  }
+  const map = {};
+  for (const i of (data || [])) {
+    if (!map[i.equipment_id]) map[i.equipment_id] = i;
+  }
+  return map;
+}
+
+/**
+ * Open the issue tracker overlay for an equipment item. Loads existing
+ * open issues and renders them in a stack. New-issue button at top
+ * creates a fresh issue at status 'reported'.
+ */
+let issueTrackerState = null;
+
+async function openIssueTracker(equipmentId) {
+  if (!equipmentId || !NX.sb) return;
+  closeIssueTracker();
+
+  const { data: eq, error } = await NX.sb.from('equipment')
+    .select('*').eq('id', equipmentId).single();
+  if (error || !eq) {
+    NX.toast && NX.toast('Equipment not found', 'error');
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-itracker-overlay';
+  document.body.appendChild(overlay);
+
+  issueTrackerState = { equipment: eq, issues: [], loading: true, overlay };
+  renderIssueTracker();
+
+  try {
+    const issues = await loadEquipmentIssues(equipmentId, { includeRepaired: true });
+    if (!issueTrackerState || issueTrackerState.overlay !== overlay) return;
+    issueTrackerState.issues = issues;
+    issueTrackerState.loading = false;
+    renderIssueTracker();
+  } catch (e) {
+    console.error('[equipment] openIssueTracker:', e);
+    if (issueTrackerState) {
+      issueTrackerState.loading = false;
+      renderIssueTracker();
+    }
+  }
+}
+
+function closeIssueTracker() {
+  if (!issueTrackerState) return;
+  if (issueTrackerState.overlay && issueTrackerState.overlay.parentNode) {
+    issueTrackerState.overlay.parentNode.removeChild(issueTrackerState.overlay);
+  }
+  issueTrackerState = null;
+}
+
+function renderIssueTracker() {
+  if (!issueTrackerState || !issueTrackerState.overlay) return;
+  const { equipment, issues, loading, overlay } = issueTrackerState;
+
+  const open = issues.filter(i => i.status !== 'repaired');
+  const repaired = issues.filter(i => i.status === 'repaired');
+
+  let bodyHTML;
+  if (loading) {
+    bodyHTML = `<div class="eq-itracker-loading">Loading issues…</div>`;
+  } else if (!issues.length) {
+    bodyHTML = `
+      <div class="eq-itracker-empty">
+        <div class="eq-itracker-empty-title">No issues logged</div>
+        <div class="eq-itracker-empty-msg">Tap the button below to report a new issue. The tracker will follow it from "Reported" through to "Repaired."</div>
+      </div>`;
+  } else {
+    bodyHTML = `
+      ${open.length ? `<div class="eq-itracker-section-label">Open · ${open.length}</div>` : ''}
+      ${open.map(renderIssueCard).join('')}
+      ${repaired.length ? `<div class="eq-itracker-section-label eq-itracker-section-faded">Repaired · ${repaired.length}</div>` : ''}
+      ${repaired.map(renderIssueCard).join('')}
+    `;
+  }
+
+  overlay.innerHTML = `
+    <div class="eq-itracker-head">
+      <button class="eq-itracker-close" aria-label="Close issue tracker">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <div class="eq-itracker-head-text">
+        <div class="eq-itracker-vendor">${esc(equipment.name)}</div>
+        <div class="eq-itracker-id">${esc(equipment.location || '—')}${equipment.area ? ' · ' + esc(equipment.area) : ''}</div>
+      </div>
+    </div>
+
+    <div class="eq-itracker-body">
+      ${bodyHTML}
+    </div>
+
+    <div class="eq-itracker-foot">
+      <button class="eq-itracker-action eq-itracker-action-primary" data-action="new-issue">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>Report a new issue</span>
+      </button>
+    </div>
+  `;
+
+  overlay.querySelector('.eq-itracker-close').addEventListener('click', closeIssueTracker);
+  overlay.querySelector('[data-action="new-issue"]').addEventListener('click', () => {
+    promptNewIssue(equipment);
+  });
+  overlay.querySelectorAll('.eq-itracker-issue-card').forEach(card => {
+    const issueId = card.dataset.issueId;
+    card.querySelector('[data-action="advance"]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      const target = e.currentTarget.dataset.target;
+      transitionIssueTo(issueId, target);
+    });
+    card.querySelector('[data-action="email-contractor"]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      const issue = issues.find(i => i.id === issueId);
+      if (issue) emailContractorAboutIssue(equipment, issue);
+    });
+    card.querySelector('[data-action="set-eta"]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      promptIssueEta(issueId);
+    });
+    card.querySelector('[data-action="awaiting-parts"]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      transitionIssueTo(issueId, 'awaiting_parts');
+    });
+  });
+}
+
+function renderIssueCard(issue) {
+  const status = issue.status || 'reported';
+  const currentIdx = ISSUE_TIMELINE_STEPS.indexOf(status);
+  const isAwaitingParts = status === 'awaiting_parts';
+  const isRepaired = status === 'repaired';
+
+  // Timeline: 5 steps. Awaiting parts is a side-branch shown as a
+  // tag below the timeline, not as a step in it.
+  const timelineHTML = `
+    <div class="eq-itracker-timeline">
+      ${ISSUE_TIMELINE_STEPS.map((s, i) => {
+        const reached = isRepaired ? true : (i <= currentIdx);
+        const isCurrent = i === currentIdx && !isRepaired;
+        const ts = reached ? eqIssueFmtTs(eqIssueTsForStatus(issue, s)) : '';
+        const cls = ['eq-itracker-tl-step'];
+        if (reached) cls.push('is-reached');
+        if (isCurrent) cls.push('is-current');
+        return `
+          <div class="${cls.join(' ')}">
+            <div class="eq-itracker-tl-marker" aria-hidden="true">
+              ${reached
+                ? '<svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+                : ''}
+            </div>
+            <div class="eq-itracker-tl-text">
+              <div class="eq-itracker-tl-label">${esc(ISSUE_LIFECYCLE_LABELS[s])}</div>
+              ${ts ? `<div class="eq-itracker-tl-ts">${esc(ts)}</div>` : ''}
+            </div>
+          </div>
+          ${i < ISSUE_TIMELINE_STEPS.length - 1 ? `<div class="eq-itracker-tl-bar ${i < currentIdx || isRepaired ? 'is-reached' : ''}"></div>` : ''}
+        `;
+      }).join('')}
+    </div>
+    ${isAwaitingParts ? `
+      <div class="eq-itracker-side-tag">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span>Awaiting parts since ${esc(eqIssueFmtTs(issue.awaiting_parts_at))}</span>
+      </div>
+    ` : ''}
+  `;
+
+  // Action buttons depend on current state.
+  let actionsHTML = '';
+  if (!isRepaired) {
+    const nextStep = ISSUE_TIMELINE_STEPS[currentIdx + 1];
+    const buttons = [];
+
+    if (nextStep) {
+      buttons.push(`<button class="eq-itracker-act-btn eq-itracker-act-advance" data-action="advance" data-target="${esc(nextStep)}">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><polyline points="20 6 9 17 4 12"/></svg>
+        Mark ${esc(ISSUE_LIFECYCLE_LABELS[nextStep].toLowerCase())}
+      </button>`);
+    }
+
+    // ETA button — only meaningful at contractor_called or eta_set.
+    if (status === 'contractor_called' || status === 'eta_set') {
+      buttons.push(`<button class="eq-itracker-act-btn eq-itracker-act-eta" data-action="set-eta">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        ${issue.eta_at ? 'Update ETA' : 'Set ETA'}
+      </button>`);
+    }
+
+    // Awaiting-parts toggle — available once in_progress.
+    if (status === 'in_progress' && !isAwaitingParts) {
+      buttons.push(`<button class="eq-itracker-act-btn eq-itracker-act-parts" data-action="awaiting-parts">
+        Mark awaiting parts
+      </button>`);
+    }
+    if (status === 'awaiting_parts') {
+      buttons.push(`<button class="eq-itracker-act-btn eq-itracker-act-advance" data-action="advance" data-target="in_progress">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><polyline points="20 6 9 17 4 12"/></svg>
+        Parts arrived — resume
+      </button>`);
+      // Also allow direct → repaired from awaiting_parts
+      buttons.push(`<button class="eq-itracker-act-btn eq-itracker-act-advance" data-action="advance" data-target="repaired">
+        Mark repaired
+      </button>`);
+    }
+
+    // Email contractor — always available unless repaired.
+    buttons.push(`<button class="eq-itracker-act-btn eq-itracker-act-email" data-action="email-contractor">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      Email contractor
+    </button>`);
+
+    actionsHTML = `<div class="eq-itracker-actions">${buttons.join('')}</div>`;
+  }
+
+  // ETA display (if set and not repaired).
+  const etaHTML = (issue.eta_at && !isRepaired) ? `
+    <div class="eq-itracker-eta">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <span>ETA: ${esc(eqIssueFmtTs(issue.eta_at))}</span>
+    </div>
+  ` : '';
+
+  // Contractor name pill (if assigned).
+  const contractorHTML = issue.contractor_name ? `
+    <div class="eq-itracker-contractor">
+      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span>${esc(issue.contractor_name)}</span>
+    </div>
+  ` : '';
+
+  return `
+    <div class="eq-itracker-issue-card${isRepaired ? ' is-repaired' : ''}" data-issue-id="${esc(issue.id)}">
+      <div class="eq-itracker-issue-head">
+        <div class="eq-itracker-issue-title">${esc(issue.title || '(untitled issue)')}</div>
+        <div class="eq-itracker-issue-when">${esc(eqIssueFmtTs(issue.reported_at))}</div>
+      </div>
+      ${issue.description ? `<div class="eq-itracker-issue-desc">${esc(issue.description)}</div>` : ''}
+      ${contractorHTML}
+      ${etaHTML}
+      ${timelineHTML}
+      ${actionsHTML}
+    </div>
+  `;
+}
+
+/** Prompt for a new issue title + description, then insert at status 'reported'. */
+async function promptNewIssue(equipment) {
+  const title = prompt(`What's wrong with ${equipment.name}?\n\n(Brief title — e.g. "won't cool below 45°F")`);
+  if (!title || !title.trim()) return;
+  const description = prompt('More details? (Optional — leave blank to skip)\n\nWhat were you doing when it started? Any error codes or sounds?');
+
+  const payload = {
+    equipment_id:    equipment.id,
+    title:           title.trim(),
+    description:     description ? description.trim() : null,
+    status:          'reported',
+    reported_at:     new Date().toISOString(),
+    reported_by:     NX.user && NX.user.id ? NX.user.id : null,
+    reported_by_name: NX.user && NX.user.name ? NX.user.name : null,
+  };
+
+  try {
+    const { data, error } = await NX.sb.from('equipment_issues')
+      .insert(payload).select('*').single();
+    if (error) throw error;
+    if (issueTrackerState) {
+      issueTrackerState.issues.unshift(data);
+      renderIssueTracker();
+    }
+    NX.toast && NX.toast('Issue reported', 'info', 1200);
+  } catch (e) {
+    console.error('[equipment] promptNewIssue:', e);
+    const msg = (e.message || '') + '';
+    if (/relation.*does not exist|table.*does not exist/i.test(msg)) {
+      NX.toast && NX.toast('Issue tracker needs a DB migration — see notes', 'warn', 3000);
+    } else {
+      NX.toast && NX.toast('Could not save: ' + msg, 'error');
+    }
+  }
+}
+
+/** Transition an issue forward in the lifecycle. */
+async function transitionIssueTo(issueId, newStatus) {
+  if (!NX.sb || !issueId) return;
+  if (!ISSUE_LIFECYCLE.includes(newStatus)) return;
+
+  const stamp = new Date().toISOString();
+  const update = { status: newStatus };
+  switch (newStatus) {
+    case 'contractor_called': update.contractor_called_at = stamp; break;
+    case 'eta_set':           update.eta_set_at           = stamp; break;
+    case 'in_progress':       update.in_progress_at       = stamp; break;
+    case 'awaiting_parts':    update.awaiting_parts_at    = stamp; break;
+    case 'repaired':          update.repaired_at          = stamp; break;
+  }
+
+  const { error } = await NX.sb.from('equipment_issues')
+    .update(update).eq('id', issueId);
+  if (error) {
+    console.error('[equipment] transitionIssueTo:', error);
+    NX.toast && NX.toast('Could not update: ' + (error.message || ''), 'error');
+    return;
+  }
+  if (issueTrackerState) {
+    const i = issueTrackerState.issues.find(x => x.id === issueId);
+    if (i) Object.assign(i, update);
+    renderIssueTracker();
+  }
+  NX.toast && NX.toast(`Marked ${ISSUE_LIFECYCLE_LABELS[newStatus]}`, 'info', 1100);
+}
+
+/** Prompt for ETA datetime then save it on the issue. */
+async function promptIssueEta(issueId) {
+  // Native datetime prompt is gross but fine for v1. Future: bottom-sheet
+  // with a proper datetime picker.
+  const raw = prompt('When is the contractor coming? (e.g. "tomorrow 2pm" or "5/8 9am")');
+  if (!raw || !raw.trim()) return;
+  // Try Date constructor first, then a few common formats.
+  let parsed = new Date(raw);
+  if (isNaN(parsed.getTime())) {
+    // Last-ditch: assume time-only and use today.
+    const today = new Date();
+    parsed = new Date(`${today.toLocaleDateString()} ${raw}`);
+  }
+  if (isNaN(parsed.getTime())) {
+    NX.toast && NX.toast('Could not parse that time', 'warn');
+    return;
+  }
+
+  const update = { eta_at: parsed.toISOString() };
+  // If currently at contractor_called, also advance to eta_set.
+  const issue = issueTrackerState?.issues.find(i => i.id === issueId);
+  if (issue && issue.status === 'contractor_called') {
+    update.status = 'eta_set';
+    update.eta_set_at = new Date().toISOString();
+  }
+
+  const { error } = await NX.sb.from('equipment_issues')
+    .update(update).eq('id', issueId);
+  if (error) {
+    console.error('[equipment] promptIssueEta:', error);
+    NX.toast && NX.toast('Could not save ETA: ' + (error.message || ''), 'error');
+    return;
+  }
+  if (issue) Object.assign(issue, update);
+  renderIssueTracker();
+  NX.toast && NX.toast('ETA saved', 'info', 1100);
+}
+
+/**
+ * Compose an email to the contractor about this issue. Pulls preferred
+ * contractor from equipment.preferred_contractor_node_id (existing field).
+ * Pre-fills subject + body modeled on the order REPORT ISSUES email.
+ */
+async function emailContractorAboutIssue(equipment, issue) {
+  if (!NX.sb) return;
+
+  // Look up preferred contractor.
+  let contractor = null;
+  if (equipment.preferred_contractor_node_id) {
+    const { data } = await NX.sb.from('nodes')
+      .select('id, name, links, notes')
+      .eq('id', equipment.preferred_contractor_node_id).maybeSingle();
+    contractor = data;
+  }
+
+  // Extract email from contractor's links field. Links shape varies;
+  // tolerate string and array forms.
+  let contractorEmail = '';
+  let contractorName = contractor?.name || '';
+  if (contractor?.links) {
+    const links = Array.isArray(contractor.links) ? contractor.links : [contractor.links];
+    for (const l of links) {
+      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
+      const match = str.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+      if (match) { contractorEmail = match[0]; break; }
+    }
+  }
+  // Fallback: try to find an email pattern in the notes field too.
+  if (!contractorEmail && contractor?.notes) {
+    const match = contractor.notes.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+    if (match) contractorEmail = match[0];
+  }
+
+  const restaurant = equipment.location || '';
+  const area = equipment.area ? ` (${equipment.area})` : '';
+  const userName = NX.user?.name || NX.currentUser?.name || '';
+  const greeting = (contractorName || '').split(' ')[0] || 'there';
+
+  const subject = `Service request — ${equipment.name}${restaurant ? ' at ' + restaurant : ''}${issue.title ? ' (' + issue.title + ')' : ''}`;
+  const body =
+`Hi ${greeting},
+
+${userName ? `${userName} here from ` : ''}${restaurant}. We have an issue with our ${equipment.name}${area}.
+
+  • Issue: ${issue.title || '(see details below)'}
+${issue.description ? `  • Details: ${issue.description}\n` : ''}${equipment.manufacturer || equipment.model ? `  • Unit: ${[equipment.manufacturer, equipment.model].filter(Boolean).join(' ')}\n` : ''}${equipment.serial_number ? `  • Serial: ${equipment.serial_number}\n` : ''}
+Reported: ${new Date(issue.reported_at).toLocaleString()}
+
+When can you take a look? Reply with an ETA and we'll be ready for you.
+
+Thanks for your help.`;
+
+  // Build mailto: URL — handle empty contractor email gracefully.
+  const enc = s => encodeURIComponent(s || '').replace(/\+/g, '%20');
+  const url = `mailto:${enc(contractorEmail)}?subject=${enc(subject)}&body=${enc(body)}`;
+
+  if (!contractorEmail) {
+    NX.toast && NX.toast(contractorName
+      ? `No email on file for ${contractorName} — opening blank compose`
+      : 'No preferred contractor set — opening blank compose', 'warn', 2200);
+  }
+
+  // Auto-advance status to contractor_called if at reported.
+  if (issue.status === 'reported') {
+    transitionIssueTo(issue.id, 'contractor_called');
+  }
+
+  window.location.href = url;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   16. BULK OPERATIONS — assign contractor / PM date to many at once
+   ════════════════════════════════════════════════════════════════════════════
+   Multi-select toolbar that appears at the bottom of the equipment list
+   when one or more items are selected. From there:
+
+     • "Assign contractor"  — pick a contractor, autofills phone too
+     • "Schedule PM"        — pick a date, applies to all selected
+     • "Set status"         — quick batch status change
+
+   Selection mode is entered via long-press on a row (mobile-friendly)
+   or a "Select" button in the equipment header. Once in selection mode,
+   tapping rows toggles their inclusion. The list rows show a checkbox
+   marker on the left.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+let bulkSelectionState = {
+  active: false,
+  selected: new Set(),  // equipment ids
+};
+
+function toggleBulkSelection(equipmentId) {
+  if (!equipmentId) return;
+  if (bulkSelectionState.selected.has(equipmentId)) {
+    bulkSelectionState.selected.delete(equipmentId);
+  } else {
+    bulkSelectionState.selected.add(equipmentId);
+  }
+  renderBulkToolbar();
+  // Mark the row visually (the renderList path doesn't know about
+  // selection, so we toggle a class manually).
+  const row = document.querySelector(`[data-eq-id="${equipmentId}"]`);
+  if (row) row.classList.toggle('is-selected', bulkSelectionState.selected.has(equipmentId));
+}
+
+function enterBulkMode() {
+  bulkSelectionState.active = true;
+  bulkSelectionState.selected = new Set();
+  document.body.classList.add('eq-bulk-mode');
+  renderBulkToolbar();
+}
+
+function exitBulkMode() {
+  bulkSelectionState.active = false;
+  bulkSelectionState.selected = new Set();
+  document.body.classList.remove('eq-bulk-mode');
+  // Drop is-selected classes from any rows that had them.
+  document.querySelectorAll('[data-eq-id].is-selected').forEach(el => {
+    el.classList.remove('is-selected');
+  });
+  const tb = document.getElementById('eqBulkToolbar');
+  if (tb) tb.remove();
+}
+
+function renderBulkToolbar() {
+  const existing = document.getElementById('eqBulkToolbar');
+  const count = bulkSelectionState.selected.size;
+  if (!bulkSelectionState.active) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing) existing.remove();
+
+  const tb = document.createElement('div');
+  tb.id = 'eqBulkToolbar';
+  tb.className = 'eq-bulk-toolbar';
+  tb.innerHTML = `
+    <div class="eq-bulk-toolbar-count">
+      <strong>${count}</strong> selected
+    </div>
+    <div class="eq-bulk-toolbar-actions">
+      <button class="eq-bulk-btn eq-bulk-btn-secondary" data-action="contractor" ${count === 0 ? 'disabled' : ''}>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        Assign contractor
+      </button>
+      <button class="eq-bulk-btn eq-bulk-btn-secondary" data-action="pm" ${count === 0 ? 'disabled' : ''}>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        Schedule PM
+      </button>
+      <button class="eq-bulk-btn eq-bulk-btn-cancel" data-action="exit">Done</button>
+    </div>
+  `;
+  document.body.appendChild(tb);
+
+  tb.querySelector('[data-action="exit"]').addEventListener('click', exitBulkMode);
+  tb.querySelector('[data-action="contractor"]').addEventListener('click', () => {
+    if (count > 0) openBulkContractorAssign();
+  });
+  tb.querySelector('[data-action="pm"]').addEventListener('click', () => {
+    if (count > 0) openBulkPmSchedule();
+  });
+}
+
+/** Bottom sheet listing all contractor nodes; tap one to assign to the selected equipment. */
+async function openBulkContractorAssign() {
+  if (!NX.sb || !bulkSelectionState.selected.size) return;
+
+  // Load contractor nodes.
+  const { data: contractors } = await NX.sb.from('nodes')
+    .select('id, name, links, notes')
+    .eq('category', 'contractors')
+    .order('name', { ascending: true });
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  overlay.innerHTML = `
+    <div class="eq-bulk-sheet-backdrop"></div>
+    <div class="eq-bulk-sheet">
+      <div class="eq-bulk-sheet-handle"></div>
+      <div class="eq-bulk-sheet-title">Assign contractor to ${bulkSelectionState.selected.size} equipment</div>
+      <div class="eq-bulk-sheet-sub">This will also auto-fill the service phone from the contractor's record.</div>
+      <div class="eq-bulk-sheet-list">
+        ${(contractors || []).map(c => `
+          <button class="eq-bulk-sheet-item" data-id="${esc(c.id)}">
+            <div class="eq-bulk-sheet-item-name">${esc(c.name)}</div>
+            ${c.notes ? `<div class="eq-bulk-sheet-item-sub">${esc((c.notes || '').slice(0, 60))}</div>` : ''}
+          </button>
+        `).join('') || '<div class="eq-bulk-sheet-empty">No contractors saved yet. Add some via the Address Book first.</div>'}
+      </div>
+      <button class="eq-bulk-sheet-cancel" data-action="cancel">Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', close);
+  overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+
+  overlay.querySelectorAll('[data-id]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const contractorId = btn.dataset.id;
+      const contractor = contractors.find(c => c.id == contractorId);
+      if (!contractor) return;
+
+      // Extract phone from contractor record.
+      let phone = '';
+      if (contractor.links) {
+        const links = Array.isArray(contractor.links) ? contractor.links : [contractor.links];
+        for (const l of links) {
+          const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
+          const match = str.match(/(?:tel:)?(\+?[\d\s().-]{7,})/);
+          if (match) { phone = match[1].trim(); break; }
+        }
+      }
+      if (!phone && contractor.notes) {
+        const match = contractor.notes.match(/(\+?[\d\s().-]{10,})/);
+        if (match) phone = match[1].trim();
+      }
+
+      // Bulk update.
+      const ids = Array.from(bulkSelectionState.selected);
+      const update = {
+        preferred_contractor_node_id: contractorId,
+      };
+      if (phone) update.service_phone = phone;
+      if (contractor.name) update.service_contact_name = contractor.name;
+
+      try {
+        const { error } = await NX.sb.from('equipment')
+          .update(update).in('id', ids);
+        if (error) throw error;
+        NX.toast && NX.toast(`Assigned ${contractor.name} to ${ids.length} equipment`, 'success', 1800);
+        close();
+        exitBulkMode();
+        // Refresh the list view if the equipment module exposes loadEquipment.
+        if (typeof loadEquipment === 'function') await loadEquipment();
+        if (typeof renderList === 'function') renderList();
+      } catch (e) {
+        console.error('[equipment] bulkContractorAssign:', e);
+        NX.toast && NX.toast('Could not update: ' + (e.message || ''), 'error');
+      }
+    });
+  });
+}
+
+/** Bottom sheet with date picker for bulk PM scheduling. */
+function openBulkPmSchedule() {
+  if (!bulkSelectionState.selected.size) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  // Default suggested date: 90 days from today.
+  const defaultDate = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
+  overlay.innerHTML = `
+    <div class="eq-bulk-sheet-backdrop"></div>
+    <div class="eq-bulk-sheet">
+      <div class="eq-bulk-sheet-handle"></div>
+      <div class="eq-bulk-sheet-title">Schedule PM for ${bulkSelectionState.selected.size} equipment</div>
+      <div class="eq-bulk-sheet-sub">All selected equipment will get this same next-PM date. Use the bulk-contractor option separately to assign who's doing the work.</div>
+      <div class="eq-bulk-pm-form">
+        <label class="eq-bulk-pm-label" for="eqBulkPmDate">Next PM date</label>
+        <input type="date" class="eq-bulk-pm-input" id="eqBulkPmDate" value="${defaultDate}">
+        <div class="eq-bulk-pm-presets">
+          <button class="eq-bulk-pm-preset" data-days="30">30 days</button>
+          <button class="eq-bulk-pm-preset" data-days="60">60 days</button>
+          <button class="eq-bulk-pm-preset" data-days="90">90 days</button>
+          <button class="eq-bulk-pm-preset" data-days="180">6 months</button>
+          <button class="eq-bulk-pm-preset" data-days="365">1 year</button>
+        </div>
+      </div>
+      <button class="eq-bulk-sheet-confirm" data-action="confirm">Apply to ${bulkSelectionState.selected.size} equipment</button>
+      <button class="eq-bulk-sheet-cancel" data-action="cancel">Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', close);
+  overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+
+  // Preset chips just adjust the date input.
+  const dateInput = overlay.querySelector('#eqBulkPmDate');
+  overlay.querySelectorAll('.eq-bulk-pm-preset').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const days = parseInt(btn.dataset.days, 10);
+      const d = new Date(Date.now() + days * 86400000);
+      dateInput.value = d.toISOString().slice(0, 10);
+    });
+  });
+
+  overlay.querySelector('[data-action="confirm"]').addEventListener('click', async () => {
+    const date = dateInput.value;
+    if (!date) {
+      NX.toast && NX.toast('Pick a date first', 'warn');
+      return;
+    }
+    const ids = Array.from(bulkSelectionState.selected);
+    try {
+      const { error } = await NX.sb.from('equipment')
+        .update({ next_pm_date: date }).in('id', ids);
+      if (error) throw error;
+      NX.toast && NX.toast(`PM scheduled for ${ids.length} equipment`, 'success', 1800);
+      close();
+      exitBulkMode();
+      if (typeof loadEquipment === 'function') await loadEquipment();
+      if (typeof renderList === 'function') renderList();
+    } catch (e) {
+      console.error('[equipment] bulkPmSchedule:', e);
+      NX.toast && NX.toast('Could not update: ' + (e.message || ''), 'error');
+    }
+  });
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   17. MANUFACTURERS — brand library with shared logos across equipment
+   ════════════════════════════════════════════════════════════════════════════
+   One manufacturer record per brand (Hoshizaki, True, Vulcan, Welbilt, etc.)
+   carrying name, logo, and avatar hue. All equipment sharing that brand
+   render the same logo — change the logo once, every Hoshizaki unit in the
+   fleet updates.
+
+   Mirrors the vendor avatar pattern from ordering.js exactly. Three render
+   modes, in priority order:
+     1. Image-mode  — manufacturer.logo_url is set, render as background-image
+     2. Hue mode    — manufacturer.avatar_hue is set, render colored initial
+     3. Auto mode   — hash the brand name to derive a deterministic color
+
+   Auto-link on save:
+     When equipment is saved with a manufacturer text value that doesn't
+     match an existing manufacturer record, auto-create a record. Returns
+     the manufacturer_id which gets stamped onto the equipment row. This
+     means the user gets brand-coherent rendering automatically without
+     having to populate a brand library upfront.
+
+   Brand library UI:
+     Accessed via a button in the equipment header. Lists all manufacturers
+     with their logos + names, lets the user upload/replace logos and pick
+     hue overrides. Same patterns as the vendor editor.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+let manufacturersCache = null;
+let manufacturersCacheById = {};
+let manufacturersCacheByName = {};
+
+/**
+ * Load all manufacturers and warm caches. Returns the array. Idempotent —
+ * subsequent calls return the cached array unless force=true.
+ */
+async function loadManufacturers(force) {
+  if (manufacturersCache && !force) return manufacturersCache;
+  if (!NX.sb) return [];
+  const { data, error } = await NX.sb.from('manufacturers')
+    .select('id, name, logo_url, avatar_hue, notes')
+    .order('name', { ascending: true });
+  if (error) {
+    console.warn('[equipment] loadManufacturers:', error.message || error);
+    manufacturersCache = [];
+    return [];
+  }
+  manufacturersCache = data || [];
+  manufacturersCacheById = {};
+  manufacturersCacheByName = {};
+  for (const m of manufacturersCache) {
+    manufacturersCacheById[m.id] = m;
+    manufacturersCacheByName[(m.name || '').toLowerCase()] = m;
+  }
+  return manufacturersCache;
+}
+
+/**
+ * Resolve an equipment row's manufacturer record. Tries (in order):
+ *   1. equipment.manufacturer_id → cache lookup
+ *   2. equipment.manufacturer text → name-match in cache
+ * Returns null if nothing matches.
+ */
+function resolveManufacturer(equipmentRow) {
+  if (!equipmentRow) return null;
+  if (equipmentRow.manufacturer_id && manufacturersCacheById[equipmentRow.manufacturer_id]) {
+    return manufacturersCacheById[equipmentRow.manufacturer_id];
+  }
+  const text = (equipmentRow.manufacturer || '').toLowerCase().trim();
+  if (text && manufacturersCacheByName[text]) {
+    return manufacturersCacheByName[text];
+  }
+  return null;
+}
+
+/**
+ * Render a manufacturer logo (or fallback initial avatar). Mirrors the
+ * vendorAvatar pattern from ordering.js. Three sizes via the size param:
+ *   'sm' → 28px (used in list rows)
+ *   'md' → 48px (used in grid cards)
+ *   'lg' → 96px (used in equipment detail)
+ */
+function manufacturerLogo(equipmentRow, size) {
+  const m = resolveManufacturer(equipmentRow);
+  const name = (m ? m.name : equipmentRow.manufacturer) || '';
+  const logoUrl = m?.logo_url || '';
+  const hueOverride = (typeof m?.avatar_hue === 'number') ? m.avatar_hue : null;
+  const sizeCls = size === 'lg' ? 'eq-mfg-logo-lg'
+                : size === 'md' ? 'eq-mfg-logo-md'
+                : 'eq-mfg-logo-sm';
+
+  if (logoUrl) {
+    const safeAttr = logoUrl.replace(/"/g, '%22');
+    return `<div class="eq-mfg-logo eq-mfg-logo-img ${sizeCls}" style="background-image:url(&quot;${safeAttr}&quot;)" role="img" aria-label="${esc(name)}"></div>`;
+  }
+
+  const clean = name.trim();
+  const initial = clean.charAt(0).toUpperCase() || '?';
+  let hue;
+  if (typeof hueOverride === 'number') {
+    hue = hueOverride;
+  } else {
+    let hash = 0;
+    for (let i = 0; i < clean.length; i++) {
+      hash = ((hash << 5) - hash + clean.charCodeAt(i)) | 0;
+    }
+    hue = Math.abs(hash) % 360;
+  }
+  return `<div class="eq-mfg-logo ${sizeCls}" style="--mfg-hue:${hue}">${esc(initial)}</div>`;
+}
+
+/**
+ * Auto-link an equipment row's manufacturer text to a manufacturers
+ * record, creating one if needed. Returns the manufacturer_id (or null
+ * if creation failed / no manufacturer text was set).
+ *
+ * Called from save paths in the equipment editor so the brand library
+ * gets populated organically as the user adds equipment, without them
+ * having to manage it explicitly.
+ */
+async function autoLinkManufacturer(name) {
+  if (!name || !name.trim() || !NX.sb) return null;
+  const clean = name.trim();
+  const key = clean.toLowerCase();
+
+  // Make sure the cache is warm.
+  if (!manufacturersCache) await loadManufacturers();
+
+  // Existing match?
+  if (manufacturersCacheByName[key]) {
+    return manufacturersCacheByName[key].id;
+  }
+
+  // Create a fresh row.
+  try {
+    const { data, error } = await NX.sb.from('manufacturers')
+      .insert({ name: clean })
+      .select('*').single();
+    if (error) throw error;
+    if (data) {
+      manufacturersCache.push(data);
+      manufacturersCacheById[data.id] = data;
+      manufacturersCacheByName[(data.name || '').toLowerCase()] = data;
+      return data.id;
+    }
+  } catch (e) {
+    console.warn('[equipment] autoLinkManufacturer:', e.message || e);
+  }
+  return null;
+}
+
+/* ─── Brand Library — manage logos for every manufacturer ────────── */
+
+let brandLibraryState = null;
+
+async function openBrandLibrary() {
+  closeBrandLibrary();
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-brand-lib-overlay';
+  document.body.appendChild(overlay);
+  brandLibraryState = { overlay, manufacturers: [], loading: true, editingId: null };
+  renderBrandLibrary();
+
+  try {
+    const list = await loadManufacturers(true);
+    if (!brandLibraryState || brandLibraryState.overlay !== overlay) return;
+    brandLibraryState.manufacturers = list;
+    brandLibraryState.loading = false;
+    renderBrandLibrary();
+  } catch (e) {
+    console.error('[equipment] openBrandLibrary:', e);
+    if (brandLibraryState) {
+      brandLibraryState.loading = false;
+      renderBrandLibrary();
+    }
+  }
+}
+
+function closeBrandLibrary() {
+  if (!brandLibraryState) return;
+  if (brandLibraryState.overlay && brandLibraryState.overlay.parentNode) {
+    brandLibraryState.overlay.parentNode.removeChild(brandLibraryState.overlay);
+  }
+  brandLibraryState = null;
+}
+
+function renderBrandLibrary() {
+  if (!brandLibraryState || !brandLibraryState.overlay) return;
+  const { overlay, manufacturers, loading, editingId } = brandLibraryState;
+
+  let bodyHTML;
+  if (loading) {
+    bodyHTML = `<div class="eq-brand-lib-loading">Loading brand library…</div>`;
+  } else if (!manufacturers.length) {
+    bodyHTML = `
+      <div class="eq-brand-lib-empty">
+        <div class="eq-brand-lib-empty-title">No brands yet</div>
+        <div class="eq-brand-lib-empty-msg">Add equipment with a manufacturer name and they'll show up here automatically.</div>
+      </div>`;
+  } else {
+    bodyHTML = manufacturers.map(m => renderBrandLibraryRow(m, m.id === editingId)).join('');
+  }
+
+  overlay.innerHTML = `
+    <div class="eq-brand-lib-head">
+      <button class="eq-brand-lib-close" aria-label="Close brand library">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <div class="eq-brand-lib-head-text">
+        <div class="eq-brand-lib-title">Brand Library</div>
+        <div class="eq-brand-lib-sub">${manufacturers.length} ${manufacturers.length === 1 ? 'brand' : 'brands'} · upload logos to coordinate equipment cards</div>
+      </div>
+      <button class="eq-brand-lib-add" data-action="add-new" aria-label="Add new brand">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+    </div>
+    <div class="eq-brand-lib-body">
+      ${bodyHTML}
+    </div>
+  `;
+
+  overlay.querySelector('.eq-brand-lib-close').addEventListener('click', closeBrandLibrary);
+  overlay.querySelector('[data-action="add-new"]').addEventListener('click', addNewBrand);
+
+  manufacturers.forEach(m => {
+    const row = overlay.querySelector(`[data-mfg-id="${m.id}"]`);
+    if (!row) return;
+    row.querySelector('[data-action="edit"]')?.addEventListener('click', () => {
+      brandLibraryState.editingId = (editingId === m.id) ? null : m.id;
+      renderBrandLibrary();
+    });
+    if (m.id === editingId) {
+      wireBrandRowEditor(row, m);
+    }
+  });
+}
+
+function renderBrandLibraryRow(m, isEditing) {
+  const equipmentForBrand = equipment ? equipment.filter(e =>
+    e.manufacturer_id === m.id ||
+    (e.manufacturer || '').toLowerCase() === (m.name || '').toLowerCase()
+  ).length : 0;
+
+  const summary = `
+    <div class="eq-brand-lib-row" data-mfg-id="${esc(m.id)}">
+      <div class="eq-brand-lib-row-summary">
+        ${manufacturerLogo({ manufacturer_id: m.id, manufacturer: m.name }, 'md')}
+        <div class="eq-brand-lib-row-text">
+          <div class="eq-brand-lib-row-name">${esc(m.name)}</div>
+          <div class="eq-brand-lib-row-meta">${equipmentForBrand} ${equipmentForBrand === 1 ? 'unit' : 'units'} in fleet${m.logo_url ? ' · logo set' : ' · no logo'}</div>
+        </div>
+        <button class="eq-brand-lib-edit-btn" data-action="edit" aria-label="${isEditing ? 'Close editor' : 'Edit logo'}">
+          ${isEditing
+            ? '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>'
+            : '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>'}
+        </button>
+      </div>
+      ${isEditing ? renderBrandRowEditor(m) : ''}
+    </div>
+  `;
+  return summary;
+}
+
+function renderBrandRowEditor(m) {
+  return `
+    <div class="eq-brand-lib-editor">
+      <div class="eq-brand-lib-editor-photo">
+        <button class="eq-brand-lib-photo-btn" data-action="upload" aria-label="Upload logo">
+          ${manufacturerLogo({ manufacturer_id: m.id, manufacturer: m.name }, 'lg')}
+          <span class="eq-brand-lib-photo-badge" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </span>
+        </button>
+        <input type="file" class="eq-brand-lib-file" accept="image/*" hidden>
+      </div>
+      <div class="eq-brand-lib-editor-fields">
+        <label class="eq-brand-lib-label">Logo URL <span class="eq-brand-lib-label-hint">— or upload via the photo button</span></label>
+        <input type="url" class="eq-brand-lib-input eq-brand-lib-url" value="${esc(m.logo_url || '')}" placeholder="https://example.com/logo.png">
+        <label class="eq-brand-lib-label">Avatar color <span class="eq-brand-lib-label-hint">— used when no logo is set</span></label>
+        <div class="eq-brand-lib-hue-picker" data-selected="${typeof m.avatar_hue === 'number' ? m.avatar_hue : 'auto'}">
+          <button type="button" class="eq-brand-lib-hue-swatch eq-brand-lib-hue-auto${typeof m.avatar_hue !== 'number' ? ' active' : ''}" data-hue="auto" aria-label="Auto">A</button>
+          ${[15, 35, 55, 90, 130, 165, 200, 230, 265, 295, 325, 355].map(h =>
+            `<button type="button" class="eq-brand-lib-hue-swatch${m.avatar_hue === h ? ' active' : ''}" data-hue="${h}" style="--mfg-hue:${h}" aria-label="Hue ${h}"></button>`
+          ).join('')}
+        </div>
+        <div class="eq-brand-lib-editor-actions">
+          <button class="eq-brand-lib-save-btn" data-action="save">Save</button>
+          <button class="eq-brand-lib-remove-btn" data-action="remove-photo" ${m.logo_url ? '' : 'disabled'}>Remove logo</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function wireBrandRowEditor(row, m) {
+  const photoBtn = row.querySelector('.eq-brand-lib-photo-btn');
+  const fileInput = row.querySelector('.eq-brand-lib-file');
+  const urlInput = row.querySelector('.eq-brand-lib-url');
+  const huePicker = row.querySelector('.eq-brand-lib-hue-picker');
+  const saveBtn = row.querySelector('[data-action="save"]');
+  const removeBtn = row.querySelector('[data-action="remove-photo"]');
+  const previewImg = row.querySelector('.eq-brand-lib-photo-btn .eq-mfg-logo');
+
+  // Tap photo button → file picker.
+  photoBtn?.addEventListener('click', () => fileInput?.click());
+
+  // File picker change → downscale + set URL.
+  fileInput?.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type || !file.type.startsWith('image/')) {
+      NX.toast && NX.toast('Please pick an image file', 'warn');
+      return;
+    }
+    if (file.size > 12 * 1024 * 1024) {
+      NX.toast && NX.toast('Image too large (12 MB max)', 'warn');
+      return;
+    }
+    try {
+      // Use the same downscale function the vendor editor uses, exposed
+      // via the ordering module if available; otherwise inline a copy.
+      const dataUrl = await downscaleEquipmentImage(file, 384, 0.85);
+      urlInput.value = dataUrl;
+      // Live preview update.
+      if (previewImg) {
+        previewImg.style.backgroundImage = `url("${dataUrl}")`;
+        previewImg.classList.add('eq-mfg-logo-img');
+        previewImg.textContent = '';
+      }
+      NX.toast && NX.toast('Logo set — tap Save to apply', 'info', 1500);
+    } catch (err) {
+      console.warn('[equipment] brand logo upload failed:', err);
+      NX.toast && NX.toast('Could not process that image', 'error');
+    }
+  });
+
+  // URL input live preview.
+  urlInput?.addEventListener('input', () => {
+    const url = urlInput.value.trim();
+    if (previewImg) {
+      if (url) {
+        previewImg.style.backgroundImage = `url("${url.replace(/"/g, '%22')}")`;
+        previewImg.classList.add('eq-mfg-logo-img');
+        previewImg.textContent = '';
+      } else {
+        previewImg.style.backgroundImage = '';
+        previewImg.classList.remove('eq-mfg-logo-img');
+        previewImg.textContent = (m.name || '?').charAt(0).toUpperCase();
+      }
+    }
+  });
+
+  // Hue picker.
+  huePicker?.querySelectorAll('.eq-brand-lib-hue-swatch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      huePicker.querySelectorAll('.eq-brand-lib-hue-swatch').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      huePicker.dataset.selected = btn.dataset.hue;
+      // Live preview if no logo is set.
+      if (!urlInput.value.trim() && previewImg) {
+        const hue = btn.dataset.hue === 'auto' ? null : parseInt(btn.dataset.hue, 10);
+        if (typeof hue === 'number') {
+          previewImg.style.setProperty('--mfg-hue', hue);
+        } else {
+          let h = 0;
+          for (let i = 0; i < (m.name || '').length; i++) h = ((h << 5) - h + m.name.charCodeAt(i)) | 0;
+          previewImg.style.setProperty('--mfg-hue', Math.abs(h) % 360);
+        }
+      }
+    });
+  });
+
+  saveBtn?.addEventListener('click', () => saveBrandRow(m, row));
+  removeBtn?.addEventListener('click', () => removeBrandLogo(m));
+}
+
+async function saveBrandRow(m, row) {
+  if (!NX.sb) return;
+  const urlInput = row.querySelector('.eq-brand-lib-url');
+  const huePicker = row.querySelector('.eq-brand-lib-hue-picker');
+  const url = urlInput?.value.trim() || null;
+  let avatarHue = null;
+  if (huePicker) {
+    const sel = huePicker.dataset.selected;
+    if (sel && sel !== 'auto') {
+      const n = Number(sel);
+      if (Number.isFinite(n) && n >= 0 && n < 360) avatarHue = n;
+    }
+  }
+  try {
+    const { error } = await NX.sb.from('manufacturers')
+      .update({ logo_url: url, avatar_hue: avatarHue })
+      .eq('id', m.id);
+    if (error) throw error;
+    Object.assign(m, { logo_url: url, avatar_hue: avatarHue });
+    manufacturersCacheById[m.id] = m;
+    manufacturersCacheByName[(m.name || '').toLowerCase()] = m;
+    NX.toast && NX.toast('Brand updated — equipment cards will reflect on next refresh', 'success', 1800);
+    brandLibraryState.editingId = null;
+    renderBrandLibrary();
+    // Refresh the equipment list if visible.
+    if (typeof renderList === 'function') renderList();
+  } catch (e) {
+    console.error('[equipment] saveBrandRow:', e);
+    NX.toast && NX.toast('Could not save: ' + (e.message || ''), 'error');
+  }
+}
+
+async function removeBrandLogo(m) {
+  if (!NX.sb) return;
+  if (!confirm(`Remove logo for ${m.name}?`)) return;
+  try {
+    const { error } = await NX.sb.from('manufacturers')
+      .update({ logo_url: null }).eq('id', m.id);
+    if (error) throw error;
+    m.logo_url = null;
+    manufacturersCacheById[m.id] = m;
+    manufacturersCacheByName[(m.name || '').toLowerCase()] = m;
+    NX.toast && NX.toast('Logo removed', 'info', 1100);
+    renderBrandLibrary();
+    if (typeof renderList === 'function') renderList();
+  } catch (e) {
+    console.error('[equipment] removeBrandLogo:', e);
+    NX.toast && NX.toast('Could not remove: ' + (e.message || ''), 'error');
+  }
+}
+
+async function addNewBrand() {
+  const name = prompt('Manufacturer name:');
+  if (!name || !name.trim()) return;
+  try {
+    const { data, error } = await NX.sb.from('manufacturers')
+      .insert({ name: name.trim() }).select('*').single();
+    if (error) throw error;
+    if (data) {
+      manufacturersCache.push(data);
+      manufacturersCacheById[data.id] = data;
+      manufacturersCacheByName[(data.name || '').toLowerCase()] = data;
+      brandLibraryState.manufacturers = manufacturersCache.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      brandLibraryState.editingId = data.id;     // open the editor immediately
+      renderBrandLibrary();
+      NX.toast && NX.toast('Brand added — upload a logo now', 'info', 1500);
+    }
+  } catch (e) {
+    console.error('[equipment] addNewBrand:', e);
+    NX.toast && NX.toast('Could not add brand: ' + (e.message || ''), 'error');
+  }
+}
+
+/**
+ * Same downscale-to-square algorithm as the vendor editor uses. Inlined
+ * here so equipment doesn't have to depend on the ordering module.
+ */
+function downscaleEquipmentImage(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const sz = Math.min(img.width, img.height);
+          const sx = (img.width  - sz) / 2;
+          const sy = (img.height - sz) / 2;
+          const canvas = document.createElement('canvas');
+          canvas.width = canvas.height = maxDim;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, maxDim, maxDim);
+          ctx.drawImage(img, sx, sy, sz, sz, 0, 0, maxDim, maxDim);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } catch (e) { reject(e); }
+      };
+      img.onerror = () => reject(new Error('Image decode failed'));
+      img.src = reader.result;
+    };
+    reader.onerror = () => reject(new Error('File read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   18. ANALYTICS — brand health, failure patterns, warranty roster, digest
+   ════════════════════════════════════════════════════════════════════════════
+   The "best-in-market" pillar. Four cohesive subsystems sharing data:
+
+     1. BRAND HEALTH   — per-manufacturer dashboard (units, %op, $YTD, MTBF)
+     2. FAILURE PATTERNS — cross-fleet failure clustering with PM nudges
+     3. WARRANTY ROSTER — units with warranty expiring in 30/60/90 days
+     4. WEEKLY DIGEST  — owner-ready summary email of the operation
+
+   All four share a single "fleet snapshot" computation that runs once
+   per analytics open. Sub-views render off the same data — no
+   redundant queries, no inconsistency between views.
+
+   Open via: NX.modules.equipment.openAnalytics()
+   Subnav:   Brand Health · Patterns · Warranty · Digest
+   ════════════════════════════════════════════════════════════════════════════ */
+
+let analyticsState = null;
+
+const ANALYTICS_TABS = [
+  { key: 'brand-health',  label: 'Brand Health' },
+  { key: 'patterns',      label: 'Patterns'     },
+  { key: 'warranty',      label: 'Warranty'     },
+  { key: 'digest',        label: 'Digest'       },
+];
+
+async function openAnalytics(initialTab) {
+  closeAnalytics();
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-analytics-overlay';
+  document.body.appendChild(overlay);
+
+  analyticsState = {
+    overlay,
+    activeTab: initialTab && ANALYTICS_TABS.find(t => t.key === initialTab) ? initialTab : 'brand-health',
+    snapshot: null,
+    loading: true,
+  };
+  renderAnalytics();
+
+  try {
+    const snapshot = await computeFleetSnapshot();
+    if (!analyticsState || analyticsState.overlay !== overlay) return;
+    analyticsState.snapshot = snapshot;
+    analyticsState.loading = false;
+    renderAnalytics();
+  } catch (e) {
+    console.error('[equipment] openAnalytics:', e);
+    if (analyticsState) {
+      analyticsState.loading = false;
+      analyticsState.error = e.message || String(e);
+      renderAnalytics();
+    }
+  }
+}
+
+function closeAnalytics() {
+  if (!analyticsState) return;
+  if (analyticsState.overlay && analyticsState.overlay.parentNode) {
+    analyticsState.overlay.parentNode.removeChild(analyticsState.overlay);
+  }
+  analyticsState = null;
+}
+
+function renderAnalytics() {
+  if (!analyticsState || !analyticsState.overlay) return;
+  const { overlay, activeTab, snapshot, loading, error } = analyticsState;
+
+  let bodyHTML;
+  if (loading) {
+    bodyHTML = `<div class="eq-analytics-loading">Crunching fleet data…</div>`;
+  } else if (error) {
+    bodyHTML = `<div class="eq-analytics-error">Couldn't load analytics: ${esc(error)}</div>`;
+  } else if (!snapshot) {
+    bodyHTML = `<div class="eq-analytics-empty">No fleet data yet.</div>`;
+  } else {
+    switch (activeTab) {
+      case 'brand-health':  bodyHTML = renderBrandHealthTab(snapshot);  break;
+      case 'patterns':      bodyHTML = renderPatternsTab(snapshot);     break;
+      case 'warranty':      bodyHTML = renderWarrantyTab(snapshot);     break;
+      case 'digest':        bodyHTML = renderDigestTab(snapshot);       break;
+      default:              bodyHTML = `<div class="eq-analytics-empty">Unknown tab.</div>`;
+    }
+  }
+
+  overlay.innerHTML = `
+    <div class="eq-analytics-head">
+      <button class="eq-analytics-close" aria-label="Close analytics">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <div class="eq-analytics-head-text">
+        <div class="eq-analytics-title">Fleet Intelligence</div>
+        <div class="eq-analytics-sub">${snapshot ? `${snapshot.units.length} units · ${Object.keys(snapshot.byBrand).length} brands` : ''}</div>
+      </div>
+    </div>
+
+    <div class="eq-analytics-tabs" role="tablist">
+      ${ANALYTICS_TABS.map(t => `
+        <button class="eq-analytics-tab${t.key === activeTab ? ' is-active' : ''}" data-tab="${esc(t.key)}" role="tab" aria-selected="${t.key === activeTab}">${esc(t.label)}</button>
+      `).join('')}
+    </div>
+
+    <div class="eq-analytics-body">
+      ${bodyHTML}
+    </div>
+  `;
+
+  overlay.querySelector('.eq-analytics-close').addEventListener('click', closeAnalytics);
+  overlay.querySelectorAll('[data-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      analyticsState.activeTab = btn.dataset.tab;
+      renderAnalytics();
+    });
+  });
+
+  // Tab-specific interactions
+  if (activeTab === 'digest' && snapshot) {
+    overlay.querySelector('[data-action="copy-digest"]')?.addEventListener('click', () => copyDigestToClipboard(snapshot));
+    overlay.querySelector('[data-action="email-digest"]')?.addEventListener('click', () => emailDigest(snapshot));
+  }
+  if (activeTab === 'brand-health' && snapshot) {
+    overlay.querySelectorAll('[data-brand-id]').forEach(card => {
+      card.addEventListener('click', () => {
+        const brandId = card.dataset.brandId;
+        const brandName = card.dataset.brandName;
+        // Filter equipment list to this brand and close.
+        if (typeof filterToBrand === 'function') {
+          filterToBrand(brandId, brandName);
+        }
+        closeAnalytics();
+      });
+    });
+  }
+  if (activeTab === 'warranty' && snapshot) {
+    overlay.querySelectorAll('[data-eq-id]').forEach(card => {
+      card.addEventListener('click', () => {
+        const id = card.dataset.eqId;
+        closeAnalytics();
+        if (typeof openDetail === 'function') openDetail(id);
+      });
+    });
+  }
+  if (activeTab === 'patterns' && snapshot) {
+    overlay.querySelectorAll('[data-action="schedule-pm-batch"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const ids = (btn.dataset.eqIds || '').split(',').filter(Boolean);
+        if (!ids.length) return;
+        // Pre-seed bulk selection and open the schedule sheet.
+        bulkSelectionState.active = true;
+        bulkSelectionState.selected = new Set(ids);
+        document.body.classList.add('eq-bulk-mode');
+        renderBulkToolbar();
+        closeAnalytics();
+        // Slight delay so the overlay close completes first.
+        setTimeout(() => openBulkPmSchedule(), 150);
+      });
+    });
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Fleet snapshot — single computation backing all four tabs.
+   Runs once per openAnalytics() to amortize the work.
+   ────────────────────────────────────────────────────────────────── */
+
+async function computeFleetSnapshot() {
+  // Make sure manufacturers cache is warm (analytics relies on it).
+  if (!manufacturersCache) await loadManufacturers(true);
+
+  // Pull all maintenance records for analysis. We fetch enough to cover
+  // 24 months — patterns need history. If the list is huge (>5k rows)
+  // a future enhancement could partition by date or stream.
+  const cutoff = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10);
+  let maintenance = [];
+  try {
+    const { data } = await NX.sb.from('equipment_maintenance')
+      .select('id, equipment_id, event_date, event_type, description, performed_by, cost, parts_replaced, next_pm_due')
+      .gte('event_date', cutoff)
+      .order('event_date', { ascending: true });
+    maintenance = data || [];
+  } catch (e) {
+    console.warn('[equipment] computeFleetSnapshot maintenance load:', e.message || e);
+  }
+
+  // Pull open issues for cross-reference (warranty roster, digest).
+  let openIssues = [];
+  try {
+    const { data } = await NX.sb.from('equipment_issues')
+      .select('id, equipment_id, status, title, reported_at, eta_at')
+      .neq('status', 'repaired')
+      .order('reported_at', { ascending: false });
+    openIssues = data || [];
+  } catch (e) {
+    console.warn('[equipment] computeFleetSnapshot issues load:', e.message || e);
+  }
+
+  // Use the in-memory equipment array — already loaded by buildUI.
+  const units = (typeof equipment !== 'undefined' && equipment) ? equipment : [];
+
+  // Bucket maintenance by equipment_id for fast lookup.
+  const maintByEq = {};
+  for (const m of maintenance) {
+    if (!maintByEq[m.equipment_id]) maintByEq[m.equipment_id] = [];
+    maintByEq[m.equipment_id].push(m);
+  }
+  // Bucket open issues by equipment_id.
+  const issuesByEq = {};
+  for (const i of openIssues) {
+    if (!issuesByEq[i.equipment_id]) issuesByEq[i.equipment_id] = [];
+    issuesByEq[i.equipment_id].push(i);
+  }
+
+  // Per-brand aggregation.
+  const byBrand = {};
+  for (const u of units) {
+    const m = resolveManufacturer(u);
+    const brandId = m ? m.id : null;
+    const brandName = m ? m.name : (u.manufacturer || '(no brand)');
+    const key = brandId || '__nobrand_' + brandName.toLowerCase();
+    if (!byBrand[key]) {
+      byBrand[key] = {
+        id: brandId,
+        name: brandName,
+        record: m,
+        units: [],
+        operationalCount: 0,
+        ytdSpend: 0,
+        servicesYTD: 0,
+        servicesAllTime: 0,
+        totalServiceMonths: 0,
+      };
+    }
+    byBrand[key].units.push(u);
+    if ((u.status || 'operational').toLowerCase() === 'operational') {
+      byBrand[key].operationalCount += 1;
+    }
+    const myMaint = maintByEq[u.id] || [];
+    const ytdCutoff = new Date(new Date().getFullYear(), 0, 1);
+    for (const ev of myMaint) {
+      const cost = parseFloat(ev.cost) || 0;
+      const evDate = new Date(ev.event_date);
+      byBrand[key].servicesAllTime += 1;
+      if (evDate >= ytdCutoff) {
+        byBrand[key].ytdSpend += cost;
+        byBrand[key].servicesYTD += 1;
+      }
+    }
+  }
+
+  // Failure pattern detection — group by (manufacturer, model) and count
+  // recurring repair events. A "pattern" is 3+ equipment units of the
+  // same model with the same repair type within similar age windows.
+  const patterns = detectFailurePatterns(units, maintByEq);
+
+  // Warranty roster — units with warranty_until set, expiring 0–90 days.
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const warrantyRoster = units
+    .filter(u => u.warranty_until)
+    .map(u => {
+      const until = new Date(u.warranty_until);
+      const daysLeft = Math.floor((until - today) / 86400000);
+      return { equipment: u, until, daysLeft };
+    })
+    .filter(w => w.daysLeft >= -30 && w.daysLeft <= 90)  // include just-expired (last 30d)
+    .sort((a, b) => a.daysLeft - b.daysLeft);
+
+  // Counts for header.
+  const totalUnits = units.length;
+  const operational = units.filter(u => (u.status || 'operational').toLowerCase() === 'operational').length;
+  const totalYtd = Object.values(byBrand).reduce((s, b) => s + b.ytdSpend, 0);
+
+  return {
+    units,
+    maintenance,
+    maintByEq,
+    issuesByEq,
+    openIssues,
+    byBrand,
+    patterns,
+    warrantyRoster,
+    totalUnits,
+    operational,
+    operationalPct: totalUnits ? Math.round((operational / totalUnits) * 100) : 0,
+    totalYtd,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Detect failure patterns across the fleet. Returns a list of patterns,
+ * each describing a recurring failure mode in a brand+model cohort.
+ * Heuristic — refines as more data lands.
+ *
+ * Algorithm:
+ *   1. Group equipment by (manufacturer, model)
+ *   2. For each group with 3+ units, examine maintenance events
+ *   3. If 50%+ of units in the cohort had a similar event description
+ *      (matching keywords), flag it as a pattern
+ *   4. Compute average age-at-failure for the cohort to recommend
+ *      preventive PM timing
+ */
+function detectFailurePatterns(units, maintByEq) {
+  // Group by (manufacturer, model). Skip rows missing either field.
+  const groups = {};
+  for (const u of units) {
+    if (!u.manufacturer || !u.model) continue;
+    const key = (u.manufacturer + '|' + u.model).toLowerCase();
+    if (!groups[key]) groups[key] = { manufacturer: u.manufacturer, model: u.model, units: [] };
+    groups[key].units.push(u);
+  }
+
+  const patterns = [];
+  const KEYWORDS = [
+    { tag: 'compressor', words: ['compressor', 'compress'], pmHint: 'coil cleaning + compressor amperage check' },
+    { tag: 'condenser',  words: ['condenser', 'coil', 'condense'], pmHint: 'condenser coil cleaning' },
+    { tag: 'thermostat', words: ['thermostat', 'thermo', 'temp control', 'controller'], pmHint: 'thermostat calibration check' },
+    { tag: 'gasket',     words: ['gasket', 'door seal', 'seal'], pmHint: 'door gasket inspection' },
+    { tag: 'fan',        words: ['fan', 'evap', 'evaporator'], pmHint: 'evaporator fan motor check' },
+    { tag: 'ice-build',  words: ['ice build', 'frost', 'icing'], pmHint: 'defrost cycle adjustment' },
+    { tag: 'water-leak', words: ['leak', 'water'], pmHint: 'water line + drain inspection' },
+    { tag: 'filter',     words: ['filter'], pmHint: 'filter replacement' },
+    { tag: 'belt',       words: ['belt'], pmHint: 'belt tension + wear check' },
+    { tag: 'igniter',    words: ['igniter', 'ignition', 'pilot'], pmHint: 'igniter cleaning + pilot check' },
+  ];
+
+  for (const key of Object.keys(groups)) {
+    const g = groups[key];
+    if (g.units.length < 3) continue;
+
+    // For each keyword set, count units that have a matching maintenance event.
+    for (const kw of KEYWORDS) {
+      const affected = [];
+      const ages = [];
+      for (const u of g.units) {
+        const events = maintByEq[u.id] || [];
+        const match = events.find(ev => {
+          const text = (ev.description || ev.event_type || '').toLowerCase();
+          return kw.words.some(w => text.includes(w));
+        });
+        if (match) {
+          affected.push(u);
+          if (u.install_date) {
+            const ageMonths = Math.round((new Date(match.event_date) - new Date(u.install_date)) / (30 * 86400000));
+            if (ageMonths > 0) ages.push(ageMonths);
+          }
+        }
+      }
+      // Pattern threshold: 50%+ of cohort affected, minimum 3 units.
+      if (affected.length >= 3 && (affected.length / g.units.length) >= 0.5) {
+        const avgAge = ages.length ? Math.round(ages.reduce((s, a) => s + a, 0) / ages.length) : null;
+        const minAge = ages.length ? Math.min(...ages) : null;
+        const recommendAt = avgAge ? Math.max(6, avgAge - 3) : null;
+        patterns.push({
+          manufacturer: g.manufacturer,
+          model: g.model,
+          tag: kw.tag,
+          pmHint: kw.pmHint,
+          cohortSize: g.units.length,
+          affectedCount: affected.length,
+          avgAgeMonths: avgAge,
+          minAgeMonths: minAge,
+          recommendAtMonths: recommendAt,
+          affectedIds: affected.map(u => u.id),
+          allCohortIds: g.units.map(u => u.id),
+        });
+      }
+    }
+  }
+
+  // Sort by impact: highest affected fraction first.
+  patterns.sort((a, b) => (b.affectedCount / b.cohortSize) - (a.affectedCount / a.cohortSize));
+  return patterns;
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   TAB 1: BRAND HEALTH
+   ────────────────────────────────────────────────────────────────── */
+
+function renderBrandHealthTab(snap) {
+  const brands = Object.values(snap.byBrand)
+    .filter(b => b.units.length > 0)
+    .sort((a, b) => b.units.length - a.units.length);
+
+  if (!brands.length) {
+    return `<div class="eq-analytics-empty">No equipment with manufacturers yet. Add some equipment to see brand-level analytics here.</div>`;
+  }
+
+  // Top-line summary tiles.
+  const summaryHTML = `
+    <div class="eq-analytics-summary">
+      <div class="eq-analytics-stat">
+        <div class="eq-analytics-stat-value">${snap.totalUnits}</div>
+        <div class="eq-analytics-stat-label">Total Units</div>
+      </div>
+      <div class="eq-analytics-stat">
+        <div class="eq-analytics-stat-value eq-analytics-stat-pct">${snap.operationalPct}<span>%</span></div>
+        <div class="eq-analytics-stat-label">Operational</div>
+      </div>
+      <div class="eq-analytics-stat">
+        <div class="eq-analytics-stat-value">${formatMoney(snap.totalYtd)}</div>
+        <div class="eq-analytics-stat-label">Service YTD</div>
+      </div>
+      <div class="eq-analytics-stat">
+        <div class="eq-analytics-stat-value">${snap.openIssues.length}</div>
+        <div class="eq-analytics-stat-label">Open Issues</div>
+      </div>
+    </div>
+  `;
+
+  const cardsHTML = brands.map(b => {
+    const opPct = Math.round((b.operationalCount / b.units.length) * 100);
+    const opCls = opPct >= 90 ? 'is-good' : opPct >= 70 ? 'is-caution' : 'is-bad';
+    const avgServicesPerUnit = b.units.length > 0 ? (b.servicesYTD / b.units.length).toFixed(1) : '0';
+    const fakeUnit = { manufacturer_id: b.id, manufacturer: b.name };
+
+    return `
+      <div class="eq-brand-health-card" data-brand-id="${esc(b.id || '')}" data-brand-name="${esc(b.name)}">
+        <div class="eq-brand-health-head">
+          ${manufacturerLogo(fakeUnit, 'md')}
+          <div class="eq-brand-health-head-text">
+            <div class="eq-brand-health-name">${esc(b.name)}</div>
+            <div class="eq-brand-health-meta">${b.units.length} ${b.units.length === 1 ? 'unit' : 'units'}</div>
+          </div>
+        </div>
+        <div class="eq-brand-health-stats">
+          <div class="eq-brand-health-stat">
+            <div class="eq-brand-health-stat-label">Operational</div>
+            <div class="eq-brand-health-stat-value eq-brand-health-pct ${opCls}">${opPct}%</div>
+          </div>
+          <div class="eq-brand-health-stat">
+            <div class="eq-brand-health-stat-label">Spend YTD</div>
+            <div class="eq-brand-health-stat-value">${formatMoney(b.ytdSpend)}</div>
+          </div>
+          <div class="eq-brand-health-stat">
+            <div class="eq-brand-health-stat-label">Calls YTD</div>
+            <div class="eq-brand-health-stat-value">${b.servicesYTD} <span class="eq-brand-health-stat-sub">(${avgServicesPerUnit}/unit)</span></div>
+          </div>
+        </div>
+        <div class="eq-brand-health-bar">
+          <div class="eq-brand-health-bar-fill ${opCls}" style="width:${opPct}%"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    ${summaryHTML}
+    <div class="eq-analytics-section-label">By manufacturer · sorted by fleet size</div>
+    <div class="eq-brand-health-list">${cardsHTML}</div>
+  `;
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   TAB 2: PATTERNS
+   ────────────────────────────────────────────────────────────────── */
+
+function renderPatternsTab(snap) {
+  if (!snap.patterns.length) {
+    return `
+      <div class="eq-analytics-empty">
+        <div class="eq-analytics-empty-title">No failure patterns detected yet</div>
+        <div class="eq-analytics-empty-msg">Patterns surface when 3+ units of the same brand+model show a recurring repair type. Keep logging service work — patterns will appear as your dataset grows.</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="eq-analytics-intro">
+      Cross-fleet analysis. Each pattern below means 50% or more of your <strong>brand+model</strong> cohort had a similar repair. Use the recommended PM windows to catch the issue before it breaks the next one.
+    </div>
+    <div class="eq-pattern-list">
+      ${snap.patterns.map(p => {
+        const pct = Math.round((p.affectedCount / p.cohortSize) * 100);
+        const ageMsg = p.avgAgeMonths
+          ? `Avg age at failure: <strong>${p.avgAgeMonths} months</strong>`
+          : 'Install dates not set — age unknown';
+        const recommendMsg = p.recommendAtMonths
+          ? `Recommend preventive ${p.pmHint} at <strong>${p.recommendAtMonths} months</strong>`
+          : `Recommend regular ${p.pmHint}`;
+        return `
+          <div class="eq-pattern-card">
+            <div class="eq-pattern-head">
+              <div class="eq-pattern-tag eq-pattern-tag-${esc(p.tag)}">${esc(p.tag.replace('-', ' ').toUpperCase())}</div>
+              <div class="eq-pattern-cohort">${p.affectedCount} of ${p.cohortSize}</div>
+            </div>
+            <div class="eq-pattern-title">${esc(p.manufacturer)} ${esc(p.model)}</div>
+            <div class="eq-pattern-stat">
+              <div class="eq-pattern-pct-bar">
+                <div class="eq-pattern-pct-fill" style="width:${pct}%"></div>
+              </div>
+              <div class="eq-pattern-pct-label">${pct}% of cohort affected</div>
+            </div>
+            <div class="eq-pattern-meta">${ageMsg}</div>
+            <div class="eq-pattern-recommendation">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+              <span>${recommendMsg}</span>
+            </div>
+            <button class="eq-pattern-cta" data-action="schedule-pm-batch" data-eq-ids="${esc((p.allCohortIds || []).join(','))}">
+              Schedule PM for all ${p.cohortSize} ${esc(p.manufacturer)} ${esc(p.model)} units
+            </button>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   TAB 3: WARRANTY
+   ────────────────────────────────────────────────────────────────── */
+
+function renderWarrantyTab(snap) {
+  if (!snap.warrantyRoster.length) {
+    return `
+      <div class="eq-analytics-empty">
+        <div class="eq-analytics-empty-title">Nothing on the warranty roster</div>
+        <div class="eq-analytics-empty-msg">Equipment with a Warranty Until date set, expiring in the next 90 days (or just-expired in the last 30), will appear here. Set warranty dates in the equipment editor to populate the roster.</div>
+      </div>
+    `;
+  }
+
+  // Bucket by urgency.
+  const expired   = snap.warrantyRoster.filter(w => w.daysLeft < 0);
+  const urgent    = snap.warrantyRoster.filter(w => w.daysLeft >= 0  && w.daysLeft <= 30);
+  const upcoming  = snap.warrantyRoster.filter(w => w.daysLeft > 30  && w.daysLeft <= 60);
+  const watching  = snap.warrantyRoster.filter(w => w.daysLeft > 60  && w.daysLeft <= 90);
+
+  const renderBucket = (bucket, title, cls) => {
+    if (!bucket.length) return '';
+    return `
+      <div class="eq-analytics-section-label eq-analytics-section-label-${cls}">${esc(title)} · ${bucket.length}</div>
+      <div class="eq-warranty-list">
+        ${bucket.map(w => {
+          const daysLabel = w.daysLeft < 0
+            ? `Expired ${Math.abs(w.daysLeft)}d ago`
+            : w.daysLeft === 0
+              ? 'Expires today'
+              : `${w.daysLeft} days left`;
+          return `
+            <div class="eq-warranty-card eq-warranty-card-${cls}" data-eq-id="${esc(w.equipment.id)}">
+              <div class="eq-warranty-card-icon">
+                ${w.equipment.manufacturer ? manufacturerLogo(w.equipment, 'sm') : `<span class="eq-cat-icon-fallback">${catIcon(w.equipment.category)}</span>`}
+              </div>
+              <div class="eq-warranty-card-body">
+                <div class="eq-warranty-card-name">${esc(w.equipment.name)}</div>
+                <div class="eq-warranty-card-meta">${esc(w.equipment.location || '—')}${w.equipment.manufacturer ? ' · ' + esc(w.equipment.manufacturer) : ''}${w.equipment.model ? ' ' + esc(w.equipment.model) : ''}</div>
+              </div>
+              <div class="eq-warranty-card-days">
+                <div class="eq-warranty-card-days-num">${daysLabel}</div>
+                <div class="eq-warranty-card-days-date">${esc(w.until.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }))}</div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  };
+
+  return `
+    <div class="eq-analytics-intro">
+      Equipment with warranty windows expiring soon. <strong>Schedule any pending service before the warranty drops</strong> — manufacturer covers the labor and parts under warranty.
+    </div>
+    ${renderBucket(expired,  'Just expired (last 30d)', 'expired')}
+    ${renderBucket(urgent,   'Expiring in 30 days',     'urgent')}
+    ${renderBucket(upcoming, 'Expiring in 60 days',     'upcoming')}
+    ${renderBucket(watching, 'Expiring in 90 days',     'watching')}
+  `;
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   TAB 4: WEEKLY DIGEST
+   ────────────────────────────────────────────────────────────────── */
+
+function buildDigestText(snap) {
+  const todayStr = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+  const lines = [];
+  lines.push(`NEXUS Fleet Digest — ${todayStr}`);
+  lines.push('');
+  lines.push(`Fleet at a glance:`);
+  lines.push(`  • ${snap.totalUnits} total units across ${Object.keys(snap.byBrand).length} brands`);
+  lines.push(`  • ${snap.operational} operational (${snap.operationalPct}%)`);
+  lines.push(`  • ${formatMoney(snap.totalYtd)} in service spend YTD`);
+  lines.push(`  • ${snap.openIssues.length} open issues`);
+  lines.push('');
+
+  // Open issues by status
+  if (snap.openIssues.length) {
+    lines.push(`Open issues:`);
+    const byStatus = {};
+    for (const i of snap.openIssues) {
+      const s = i.status || 'reported';
+      if (!byStatus[s]) byStatus[s] = [];
+      byStatus[s].push(i);
+    }
+    const statusOrder = ['reported', 'contractor_called', 'eta_set', 'in_progress', 'awaiting_parts'];
+    for (const s of statusOrder) {
+      if (!byStatus[s]) continue;
+      lines.push(`  ${ISSUE_LIFECYCLE_LABELS[s] || s} (${byStatus[s].length}):`);
+      for (const issue of byStatus[s]) {
+        const eq = snap.units.find(u => u.id === issue.equipment_id);
+        const eqLabel = eq ? `${eq.name}${eq.location ? ' @ ' + eq.location : ''}` : 'Unknown unit';
+        const reportedAgo = Math.floor((Date.now() - new Date(issue.reported_at).getTime()) / 86400000);
+        const ageStr = reportedAgo === 0 ? 'today' : reportedAgo === 1 ? 'yesterday' : `${reportedAgo}d ago`;
+        const etaStr = issue.eta_at ? ` (ETA: ${new Date(issue.eta_at).toLocaleString()})` : '';
+        lines.push(`    - ${issue.title} — ${eqLabel} (reported ${ageStr})${etaStr}`);
+      }
+    }
+    lines.push('');
+  }
+
+  // Warranty alerts
+  const warrantyExpiring = snap.warrantyRoster.filter(w => w.daysLeft >= 0 && w.daysLeft <= 30);
+  if (warrantyExpiring.length) {
+    lines.push(`Warranty alerts (expiring ≤30 days):`);
+    for (const w of warrantyExpiring) {
+      lines.push(`  • ${w.equipment.name}${w.equipment.location ? ' @ ' + w.equipment.location : ''} — ${w.daysLeft}d left (until ${w.until.toLocaleDateString()})`);
+    }
+    lines.push('');
+  }
+
+  // Top failure patterns
+  if (snap.patterns.length) {
+    lines.push(`Failure patterns detected:`);
+    for (const p of snap.patterns.slice(0, 3)) {
+      lines.push(`  • ${p.manufacturer} ${p.model}: ${p.affectedCount}/${p.cohortSize} units affected by ${p.tag.replace('-', ' ')}${p.avgAgeMonths ? ` (avg ${p.avgAgeMonths}mo old)` : ''}`);
+      lines.push(`      Recommend: ${p.pmHint}${p.recommendAtMonths ? ` at ${p.recommendAtMonths}mo` : ''}`);
+    }
+    lines.push('');
+  }
+
+  // Brand spend leaderboard
+  const topSpend = Object.values(snap.byBrand)
+    .filter(b => b.ytdSpend > 0)
+    .sort((a, b) => b.ytdSpend - a.ytdSpend)
+    .slice(0, 5);
+  if (topSpend.length) {
+    lines.push(`Brand spend YTD (top ${topSpend.length}):`);
+    for (const b of topSpend) {
+      lines.push(`  ${b.name}: ${formatMoney(b.ytdSpend)} across ${b.servicesYTD} service calls (${b.units.length} units in fleet)`);
+    }
+    lines.push('');
+  }
+
+  lines.push('— Generated by NEXUS');
+  return lines.join('\n');
+}
+
+function renderDigestTab(snap) {
+  const text = buildDigestText(snap);
+  return `
+    <div class="eq-analytics-intro">
+      Sunday-night-ready summary. Copy or send via email to anyone who needs the operational pulse.
+    </div>
+    <div class="eq-digest-actions">
+      <button class="eq-digest-btn eq-digest-btn-primary" data-action="email-digest">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        <span>Email this digest</span>
+      </button>
+      <button class="eq-digest-btn eq-digest-btn-secondary" data-action="copy-digest">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <span>Copy to clipboard</span>
+      </button>
+    </div>
+    <pre class="eq-digest-preview">${esc(text)}</pre>
+  `;
+}
+
+async function copyDigestToClipboard(snap) {
+  const text = buildDigestText(snap);
+  try {
+    await navigator.clipboard.writeText(text);
+    NX.toast && NX.toast('Digest copied to clipboard', 'success', 1400);
+  } catch (e) {
+    // Clipboard API can fail on insecure contexts or certain mobile browsers.
+    // Fall back to a textarea select-and-copy maneuver.
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      NX.toast && NX.toast('Digest copied to clipboard', 'success', 1400);
+    } catch (_) {
+      NX.toast && NX.toast('Could not copy — long-press the text to copy manually', 'warn', 2200);
+    }
+    document.body.removeChild(ta);
+  }
+}
+
+function emailDigest(snap) {
+  const text = buildDigestText(snap);
+  const todayStr = new Date().toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const subject = `NEXUS Fleet Digest — ${todayStr}`;
+  const enc = s => encodeURIComponent(s).replace(/\+/g, '%20');
+  const url = `mailto:?subject=${enc(subject)}&body=${enc(text)}`;
+  window.location.href = url;
+  NX.toast && NX.toast('Opening email…', 'info', 1100);
+}
+
+/**
+ * Apply a brand filter to the equipment list view. Sets a global
+ * filter state that the existing filter pipeline picks up and re-
+ * renders the list. If the user already has a different filter
+ * mode active, this overrides it.
+ */
+function filterToBrand(brandId, brandName) {
+  // The simplest path that won't fight with the existing filter UI:
+  // jam the brand name into the search input. This works because
+  // getFiltered already searches manufacturer text. Crude but robust.
+  const search = document.getElementById('eqSearch');
+  if (search) {
+    search.value = brandName || '';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+  } else if (typeof renderList === 'function') {
+    // Fallback: just re-render. Future enhancement: add a proper
+    // brand-filter chip to the equipment list filter bar.
+    renderList();
+  }
+  NX.toast && NX.toast(`Showing ${brandName} only — clear search to reset`, 'info', 1800);
+}
+
+/** Compact money formatter — $1,234 / $1,234.56 / $12.3K. */
+function formatMoney(n) {
+  const v = parseFloat(n) || 0;
+  if (v === 0) return '$0';
+  if (Math.abs(v) >= 10000) {
+    return '$' + (v / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  }
+  return '$' + v.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   19. CONTRACTORS — full management overlay
+   ════════════════════════════════════════════════════════════════════════════
+   Dedicated workspace for managing the people who service your equipment.
+   Mirrors the brand library + analytics overlay pattern: full-screen, two
+   modes (list + detail), shared state object.
+
+   List view:
+     • Cards for each contractor with avatar/initials, name, primary
+       phone, last activity date.
+     • Search bar filters by name or specialty tag.
+     • "+ Add contractor" button at top-right of header.
+
+   Detail view (per contractor):
+     • Header: avatar + name + edit/done button
+     • Stats strip: equipment serviced, calls YTD, avg response time, $YTD
+     • Three tabs:
+         Activity — chronological feed of every dispatch / maintenance /
+                    issue this contractor has handled
+         Equipment — list of equipment assigned to this contractor as
+                     preferred_contractor_node_id, plus equipment they've
+                     historically performed work on
+         Edit — full editable form: name, phone, email, address, hours,
+                specialties (chip-input), notes
+     • Sticky footer with "Email" and "Call" actions
+
+   Data model:
+     Contractors live in the `nodes` table with category='contractors'.
+     Their fields are loose — name + notes + links (jsonb) + tags (jsonb).
+     We also write a structured `phone` and `email` to nodes.links so the
+     dispatch sheet and bulk-assign helpers can find them deterministically.
+
+   Activity sources:
+     • equipment_maintenance.performed_by — string match by contractor name
+     • equipment_issues — contractor_node_id (FK) + contractor_name fallback
+     • dispatch_log — when available, joined by node_id
+   ════════════════════════════════════════════════════════════════════════════ */
+
+let contractorsState = null;
+
+async function openContractors() {
+  closeContractors();
+  // ─── DIAGNOSTIC v35 ────────────────────────────────────────────────
+  // Hardcoded version stamp so the user can verify in a screenshot
+  // exactly which JS code is running. If you don't see this toast,
+  // the service worker is serving stale cached code.
+  NX.toast && NX.toast('NEXUS contractors v35 — opening…', 'info', 1400);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-contractors-overlay';
+  document.body.appendChild(overlay);
+
+  contractorsState = {
+    overlay,
+    mode: 'list',        // 'list' | 'detail'
+    list: [],
+    activeId: null,
+    activeContractor: null,
+    activity: [],
+    assignedEquipment: [],
+    historicalEquipment: [],
+    detailTab: 'activity',
+    editing: false,
+    loading: true,
+    search: '',
+  };
+  renderContractors();
+
+  try {
+    await loadContractorsList();
+    if (!contractorsState || contractorsState.overlay !== overlay) return;
+    contractorsState.loading = false;
+    renderContractors();
+  } catch (e) {
+    console.error('[equipment] openContractors:', e);
+    NX.toast && NX.toast(`🔴 Crashed: ${e.message || e}`, 'error', 6000);
+    if (contractorsState) {
+      contractorsState.loading = false;
+      contractorsState.error = e.message || String(e);
+      renderContractors();
+    }
+  }
+}
+
+function closeContractors() {
+  if (!contractorsState) return;
+  if (contractorsState.overlay && contractorsState.overlay.parentNode) {
+    contractorsState.overlay.parentNode.removeChild(contractorsState.overlay);
+  }
+  contractorsState = null;
+}
+
+/**
+ * Load all contractor nodes with derived summary stats. The stats are
+ * computed in JS from one bulk fetch of equipment_maintenance + equipment
+ * + equipment_issues so we avoid N+1 queries.
+ */
+async function loadContractorsList() {
+  if (!NX.sb) {
+    NX.toast && NX.toast('🔴 NX.sb is not set — Supabase client missing', 'error', 5000);
+    return;
+  }
+  NX.toast && NX.toast('Step 1: querying nodes…', 'info', 1200);
+
+  // Fetch contractors + supporting data in parallel.
+  const [nodesRes, maintRes, issuesRes, equipRes] = await Promise.all([
+    NX.sb.from('nodes')
+      .select('id, name, notes, links, tags, category, created_at, updated_at')
+      .eq('category', 'contractors')
+      .order('name', { ascending: true }),
+    NX.sb.from('equipment_maintenance')
+      .select('id, equipment_id, event_date, event_type, description, performed_by, cost')
+      .gte('event_date', new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10))
+      .order('event_date', { ascending: false }),
+    NX.sb.from('equipment_issues')
+      .select('id, equipment_id, status, contractor_node_id, contractor_name, reported_at, contractor_called_at, repaired_at')
+      .order('reported_at', { ascending: false }).then(r => r).catch(() => ({ data: [] })),
+    NX.sb.from('equipment').select('id, name, location, area, manufacturer, model, preferred_contractor_node_id, service_contact_name, service_phone'),
+  ]);
+
+  // ─── Surface every error (this is the whole point of v33) ────────
+  const errs = [];
+  if (nodesRes?.error) errs.push('nodes: ' + (nodesRes.error.message || nodesRes.error.code));
+  if (maintRes?.error) errs.push('maint: ' + (maintRes.error.message || maintRes.error.code));
+  if (equipRes?.error) errs.push('equip: ' + (equipRes.error.message || equipRes.error.code));
+  if (errs.length) {
+    console.error('[loadContractorsList] errors:', errs);
+    NX.toast && NX.toast('🔴 Read errors: ' + errs.join(' | '), 'error', 7000);
+  }
+
+  const contractors = nodesRes?.data || [];
+  const maint = maintRes?.data || [];
+  const issues = (issuesRes && issuesRes.data) || [];
+  const eqList = equipRes?.data || [];
+
+  console.log('[loadContractorsList] counts:', {
+    contractors: contractors.length,
+    maint: maint.length,
+    issues: issues.length,
+    equipment: eqList.length,
+  });
+
+  // Loud success/failure toast so the user sees the count regardless.
+  NX.toast && NX.toast(
+    `Step 2: read ${contractors.length} contractors, ${eqList.length} equipment`,
+    contractors.length > 0 ? 'success' : 'warn',
+    2400
+  );
+
+  const ytdCutoff = new Date(new Date().getFullYear(), 0, 1);
+
+  for (const c of contractors) {
+    // Match maintenance records by performed_by string (case-insensitive
+    // includes match — handles "Tyler from Austin Air & Ice" matching
+    // contractor named "Austin Air & Ice").
+    const nameLower = (c.name || '').toLowerCase();
+    const myMaint = maint.filter(m => {
+      const pb = (m.performed_by || '').toLowerCase();
+      return pb && (pb.includes(nameLower) || nameLower.includes(pb));
+    });
+    const myIssues = issues.filter(i =>
+      i.contractor_node_id == c.id ||
+      ((i.contractor_name || '').toLowerCase() === nameLower && nameLower)
+    );
+
+    // Stats.
+    c._maint = myMaint;
+    c._issues = myIssues;
+    c._callsYtd = myMaint.filter(m => new Date(m.event_date) >= ytdCutoff).length;
+    c._ytdSpend = myMaint
+      .filter(m => new Date(m.event_date) >= ytdCutoff)
+      .reduce((s, m) => s + (parseFloat(m.cost) || 0), 0);
+    c._totalCalls = myMaint.length;
+
+    // Average response time across resolved issues.
+    const responses = myIssues
+      .filter(i => i.contractor_called_at && i.reported_at)
+      .map(i => (new Date(i.contractor_called_at) - new Date(i.reported_at)) / (3600 * 1000)); // hours
+    c._avgResponseHrs = responses.length
+      ? Math.round(responses.reduce((s, r) => s + r, 0) / responses.length * 10) / 10
+      : null;
+
+    // Last activity (most recent maintenance, issue contact, or assignment).
+    let lastDates = [];
+    if (myMaint.length) lastDates.push(myMaint[0].event_date);
+    if (myIssues.length) lastDates.push(myIssues[0].reported_at);
+    c._lastActivity = lastDates.length
+      ? lastDates.sort().reverse()[0]
+      : null;
+
+    // Equipment they're linked to. Match by:
+    //   1. preferred_contractor_node_id FK (the strong link)
+    //   2. service_contact_name string (case-insensitive — handles equipment
+    //      where the user typed the contractor name without picking from
+    //      the dropdown, so it's not yet FK-linked)
+    c._assignedCount = eqList.filter(e =>
+      e.preferred_contractor_node_id == c.id ||
+      ((e.service_contact_name || '').toLowerCase().trim() === nameLower && nameLower)
+    ).length;
+    // Unique equipment they've serviced historically.
+    const servicedIds = new Set(myMaint.map(m => m.equipment_id));
+    c._historicalCount = servicedIds.size;
+  }
+
+  // Sort: most-active first, then alphabetical.
+  contractors.sort((a, b) => {
+    const aA = a._lastActivity ? new Date(a._lastActivity).getTime() : 0;
+    const bA = b._lastActivity ? new Date(b._lastActivity).getTime() : 0;
+    if (aA !== bA) return bA - aA;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  contractorsState.list = contractors;
+  contractorsState.maint = maint;
+  contractorsState.issues = issues;
+  contractorsState.equipmentLite = eqList;
+}
+
+/**
+ * Extract a phone number from a contractor node's links/notes blob.
+ * Returns the first phone-shaped string found, or empty.
+ */
+function extractContractorPhone(c) {
+  if (!c) return '';
+  if (c.links) {
+    const links = Array.isArray(c.links) ? c.links : [c.links];
+    for (const l of links) {
+      // Support {phone: "..."} structured form first.
+      if (l && typeof l === 'object' && l.phone) return l.phone;
+      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
+      const m = str.match(/(?:tel:)?(\+?[\d\s().-]{10,})/);
+      if (m) return m[1].trim();
+    }
+  }
+  if (c.notes) {
+    const m = c.notes.match(/(\+?[\d\s().-]{10,})/);
+    if (m) return m[1].trim();
+  }
+  return '';
+}
+
+/**
+ * Extract ALL phones from a contractor's links + notes. Returns an
+ * array of `{phone, label}` objects. The first entry is treated as
+ * primary by callers (Call button, public scan). Used by the public
+ * scan, the email/call buttons in contractor detail, and bulk
+ * propagation when a contractor is assigned to equipment.
+ */
+function extractContractorPhones(c) {
+  if (!c) return [];
+  const out = [];
+  const seen = new Set();
+  const add = (phone, label) => {
+    const norm = (phone || '').trim();
+    if (!norm) return;
+    const key = norm.replace(/\D/g, '');
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ phone: norm, label: label || '' });
+  };
+  if (c.links) {
+    const links = Array.isArray(c.links) ? c.links : [c.links];
+    for (const l of links) {
+      if (l && typeof l === 'object' && l.phone) {
+        add(l.phone, l.label || '');
+        continue;
+      }
+      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
+      const m = str.match(/(?:tel:)?(\+?[\d\s().-]{10,})/);
+      if (m) add(m[1], '');
+    }
+  }
+  if (c.notes) {
+    const matches = c.notes.match(/(\+?[\d\s().-]{10,})/g) || [];
+    matches.forEach(m => add(m, ''));
+  }
+  return out;
+}
+
+function extractContractorEmail(c) {
+  if (!c) return '';
+  if (c.links) {
+    const links = Array.isArray(c.links) ? c.links : [c.links];
+    for (const l of links) {
+      if (l && typeof l === 'object' && l.email) return l.email;
+      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
+      const m = str.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+      if (m) return m[0];
+    }
+  }
+  if (c.notes) {
+    const m = c.notes.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+    if (m) return m[0];
+  }
+  return '';
+}
+
+/**
+ * Extract ALL emails from a contractor's links + notes, with their role
+ * (to/cc/bcc). Returns an array of `{email, role, label}` where role
+ * defaults to 'to' (primary recipient). Drives the public scan's email
+ * button — primary in to:, others in cc:.
+ */
+function extractContractorEmails(c) {
+  if (!c) return [];
+  const out = [];
+  const seen = new Set();
+  const add = (email, role, label) => {
+    const norm = (email || '').trim().toLowerCase();
+    if (!norm || !/[\w.+-]+@[\w-]+\.[\w.-]+/.test(norm)) return;
+    if (seen.has(norm)) return;
+    seen.add(norm);
+    out.push({ email: norm, role: role || 'to', label: label || '' });
+  };
+  if (c.links) {
+    const links = Array.isArray(c.links) ? c.links : [c.links];
+    for (const l of links) {
+      if (l && typeof l === 'object' && l.email) {
+        add(l.email, l.role || 'to', l.label || '');
+        continue;
+      }
+      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
+      const m = str.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+      if (m) add(m[0], 'to', '');
+    }
+  }
+  if (c.notes) {
+    const matches = c.notes.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || [];
+    matches.forEach(m => add(m, 'to', ''));
+  }
+  return out;
+}
+
+function extractContractorTags(c) {
+  if (!c || !c.tags) return [];
+  if (Array.isArray(c.tags)) return c.tags;
+  if (typeof c.tags === 'string') return c.tags.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+  return [];
+}
+
+/**
+ * Build a deterministic colored-initial avatar for contractors.
+ * Mirrors the manufacturer logo helper but with a distinct CSS class
+ * so we can tune contractor avatars separately.
+ */
+function contractorAvatar(c, size) {
+  const name = (c && c.name) || '';
+  const initial = name.trim().charAt(0).toUpperCase() || '?';
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
+  }
+  const hue = Math.abs(hash) % 360;
+  const sizeCls = size === 'lg' ? 'eq-contractor-avatar-lg'
+                : size === 'md' ? 'eq-contractor-avatar-md'
+                : 'eq-contractor-avatar-sm';
+  return `<div class="eq-contractor-avatar ${sizeCls}" style="--mfg-hue:${hue}">${esc(initial)}</div>`;
+}
+
+function fmtContractorSince(ts) {
+  if (!ts) return 'No activity yet';
+  const d = new Date(ts);
+  const diffDays = Math.round((Date.now() - d.getTime()) / 86400000);
+  if (diffDays < 1) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.round(diffDays / 7)}w ago`;
+  if (diffDays < 365) return `${Math.round(diffDays / 30)}mo ago`;
+  return `${Math.round(diffDays / 365)}y ago`;
+}
+
+function renderContractors() {
+  if (!contractorsState || !contractorsState.overlay) return;
+  const { overlay, mode } = contractorsState;
+  if (mode === 'detail') {
+    renderContractorsDetail();
+  } else {
+    renderContractorsList();
+  }
+}
+
+/* ─── List view ──────────────────────────────────────────────────── */
+
+function renderContractorsList() {
+  const { overlay, list, loading, error, search } = contractorsState;
+
+  let bodyHTML;
+  if (loading) {
+    bodyHTML = `<div class="eq-contractors-loading">Loading contractors…</div>`;
+  } else if (error) {
+    bodyHTML = `<div class="eq-contractors-error">Couldn't load: ${esc(error)}</div>`;
+  } else if (!list.length) {
+    bodyHTML = `
+      <div class="eq-contractors-empty">
+        <div class="eq-contractors-empty-title">No contractors yet</div>
+        <div class="eq-contractors-empty-msg">Tap the <strong>+</strong> button at the top to add your first contractor. Or import them by linking equipment to existing contractor records.</div>
+      </div>`;
+  } else {
+    const q = (search || '').toLowerCase().trim();
+    const filtered = q
+      ? list.filter(c => {
+          if ((c.name || '').toLowerCase().includes(q)) return true;
+          const tags = extractContractorTags(c).map(t => t.toLowerCase());
+          return tags.some(t => t.includes(q));
+        })
+      : list;
+
+    if (!filtered.length) {
+      bodyHTML = `<div class="eq-contractors-empty"><div class="eq-contractors-empty-msg">No contractors match "${esc(q)}".</div></div>`;
+    } else {
+      bodyHTML = `
+        <div class="eq-contractors-list">
+          ${filtered.map(renderContractorListCard).join('')}
+        </div>
+      `;
+    }
+  }
+
+  overlay.innerHTML = `
+    <div class="eq-contractors-head">
+      <button class="eq-contractors-close" aria-label="Close contractors">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <div class="eq-contractors-head-text">
+        <div class="eq-contractors-title">Contractors</div>
+        <div class="eq-contractors-sub">${list.length} ${list.length === 1 ? 'contractor' : 'contractors'} on file</div>
+      </div>
+      <button class="eq-contractors-add" data-action="add" aria-label="Add new contractor">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+    </div>
+
+    ${list.length > 4 ? `
+      <div class="eq-contractors-search-wrap">
+        <input type="search" class="eq-contractors-search" id="eqContractorsSearch" placeholder="Search by name or specialty…" value="${esc(search || '')}" autocomplete="off">
+      </div>
+    ` : ''}
+
+    <div class="eq-contractors-body">
+      ${bodyHTML}
+    </div>
+  `;
+
+  overlay.querySelector('.eq-contractors-close').addEventListener('click', closeContractors);
+  overlay.querySelector('[data-action="add"]').addEventListener('click', addNewContractor);
+  const searchInput = overlay.querySelector('#eqContractorsSearch');
+  if (searchInput) {
+    searchInput.addEventListener('input', e => {
+      contractorsState.search = e.target.value;
+      // Re-render only the list portion so the input doesn't lose focus.
+      const body = overlay.querySelector('.eq-contractors-body');
+      if (!body) return;
+      const q = (contractorsState.search || '').toLowerCase().trim();
+      const filtered = q
+        ? list.filter(c => {
+            if ((c.name || '').toLowerCase().includes(q)) return true;
+            const tags = extractContractorTags(c).map(t => t.toLowerCase());
+            return tags.some(t => t.includes(q));
+          })
+        : list;
+      body.innerHTML = filtered.length
+        ? `<div class="eq-contractors-list">${filtered.map(renderContractorListCard).join('')}</div>`
+        : `<div class="eq-contractors-empty"><div class="eq-contractors-empty-msg">No contractors match "${esc(q)}".</div></div>`;
+      // Re-wire the row clicks.
+      body.querySelectorAll('[data-contractor-id]').forEach(card => {
+        card.addEventListener('click', () => openContractorDetail(card.dataset.contractorId));
+      });
+    });
+  }
+
+  overlay.querySelectorAll('[data-contractor-id]').forEach(card => {
+    card.addEventListener('click', () => openContractorDetail(card.dataset.contractorId));
+  });
+}
+
+function renderContractorListCard(c) {
+  const phone = extractContractorPhone(c);
+  const tags = extractContractorTags(c);
+  const lastSeen = c._lastActivity ? fmtContractorSince(c._lastActivity) : 'No activity yet';
+  const stats = [];
+  if (c._assignedCount)   stats.push(`${c._assignedCount} assigned`);
+  if (c._historicalCount) stats.push(`${c._historicalCount} serviced`);
+  if (c._callsYtd)        stats.push(`${c._callsYtd} call${c._callsYtd === 1 ? '' : 's'} YTD`);
+
+  return `
+    <div class="eq-contractor-card" data-contractor-id="${esc(c.id)}">
+      ${contractorAvatar(c, 'md')}
+      <div class="eq-contractor-card-body">
+        <div class="eq-contractor-card-name">${esc(c.name)}</div>
+        <div class="eq-contractor-card-meta">
+          ${phone ? `<span class="eq-contractor-card-phone">${esc(phone)}</span>` : ''}
+          ${phone && tags.length ? `<span class="eq-contractor-card-sep">·</span>` : ''}
+          ${tags.length ? `<span class="eq-contractor-card-tags">${tags.slice(0, 3).map(t => esc(t)).join(' · ')}</span>` : ''}
+        </div>
+        ${stats.length ? `<div class="eq-contractor-card-stats">${stats.join(' · ')}</div>` : ''}
+      </div>
+      <div class="eq-contractor-card-when">
+        <div class="eq-contractor-card-when-text">${esc(lastSeen)}</div>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+  `;
+}
+
+/* ─── Detail view ────────────────────────────────────────────────── */
+
+async function openContractorDetail(contractorId) {
+  if (!contractorsState) return;
+  const c = contractorsState.list.find(x => x.id == contractorId);
+  if (!c) return;
+
+  contractorsState.mode = 'detail';
+  contractorsState.activeId = contractorId;
+  contractorsState.activeContractor = c;
+  contractorsState.detailTab = 'activity';
+  contractorsState.editing = false;
+
+  // Build the activity feed and equipment lists from already-loaded data.
+  buildContractorDetailDerived();
+  renderContractors();
+}
+
+function buildContractorDetailDerived() {
+  const c = contractorsState.activeContractor;
+  if (!c) return;
+
+  const eqLite = contractorsState.equipmentLite || [];
+  const issues = c._issues || [];
+  const maint = c._maint || [];
+
+  // Activity feed — interleave maintenance + issues, sort desc by date.
+  const events = [];
+  for (const m of maint) {
+    events.push({
+      type: 'maintenance',
+      date: m.event_date,
+      title: m.event_type ? m.event_type.replace(/_/g, ' ') : 'Service',
+      description: m.description || '',
+      cost: parseFloat(m.cost) || 0,
+      equipment: eqLite.find(e => e.id === m.equipment_id),
+      raw: m,
+    });
+  }
+  for (const i of issues) {
+    events.push({
+      type: 'issue',
+      date: i.reported_at,
+      title: 'Issue assigned',
+      description: i.contractor_name || c.name,
+      status: i.status,
+      equipment: eqLite.find(e => e.id === i.equipment_id),
+      raw: i,
+    });
+  }
+  events.sort((a, b) => new Date(b.date) - new Date(a.date));
+  contractorsState.activity = events;
+
+  // Equipment assignments + historical.
+  // Two paths to "assigned":
+  //   1. preferred_contractor_node_id FK (proper link)
+  //   2. service_contact_name string match (informal link — typed name)
+  // Equipment in the second bucket can be promoted to the first via a
+  // one-tap action in the Equipment tab.
+  const nameLower = (c.name || '').toLowerCase().trim();
+  contractorsState.assignedEquipment = eqLite.filter(e =>
+    e.preferred_contractor_node_id == c.id ||
+    ((e.service_contact_name || '').toLowerCase().trim() === nameLower && nameLower)
+  );
+  // Mark which ones are "loose" links so the UI can show a chip and
+  // offer to make the link permanent.
+  for (const e of contractorsState.assignedEquipment) {
+    e._linkType = e.preferred_contractor_node_id == c.id ? 'fk' : 'name';
+  }
+  const assignedIds = new Set(contractorsState.assignedEquipment.map(e => e.id));
+  const servicedIds = new Set(maint.map(m => m.equipment_id));
+  contractorsState.historicalEquipment = eqLite.filter(e =>
+    servicedIds.has(e.id) && !assignedIds.has(e.id)
+  );
+}
+
+function renderContractorsDetail() {
+  const { overlay, activeContractor: c, detailTab, editing } = contractorsState;
+  if (!c) {
+    contractorsState.mode = 'list';
+    renderContractors();
+    return;
+  }
+
+  const phone = extractContractorPhone(c);
+  const email = extractContractorEmail(c);
+  const tags = extractContractorTags(c);
+
+  let tabBody;
+  if (detailTab === 'activity') {
+    tabBody = renderContractorActivityTab();
+  } else if (detailTab === 'equipment') {
+    tabBody = renderContractorEquipmentTab();
+  } else if (detailTab === 'edit') {
+    tabBody = renderContractorEditTab();
+  }
+
+  overlay.innerHTML = `
+    <div class="eq-contractors-head">
+      <button class="eq-contractors-back" aria-label="Back to contractors list">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div class="eq-contractors-head-text">
+        <div class="eq-contractors-title">${esc(c.name)}</div>
+        <div class="eq-contractors-sub">
+          ${tags.length
+            ? tags.slice(0, 3).map(t => esc(t)).join(' · ')
+            : 'Contractor'}
+        </div>
+      </div>
+      ${phone ? `
+        <a class="eq-contractors-call" href="tel:${esc(phone.replace(/\s+/g, ''))}" aria-label="Call ${esc(c.name)}">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        </a>
+      ` : ''}
+    </div>
+
+    <div class="eq-contractor-summary">
+      ${contractorAvatar(c, 'lg')}
+      <div class="eq-contractor-summary-stats">
+        <div class="eq-contractor-stat">
+          <div class="eq-contractor-stat-value">${c._assignedCount || 0}</div>
+          <div class="eq-contractor-stat-label">Assigned</div>
+        </div>
+        <div class="eq-contractor-stat">
+          <div class="eq-contractor-stat-value">${c._callsYtd || 0}</div>
+          <div class="eq-contractor-stat-label">Calls YTD</div>
+        </div>
+        <div class="eq-contractor-stat">
+          <div class="eq-contractor-stat-value">${c._avgResponseHrs != null ? fmtResponseHrs(c._avgResponseHrs) : '—'}</div>
+          <div class="eq-contractor-stat-label">Avg Response</div>
+        </div>
+        <div class="eq-contractor-stat">
+          <div class="eq-contractor-stat-value">${formatMoney(c._ytdSpend || 0)}</div>
+          <div class="eq-contractor-stat-label">Spend YTD</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="eq-contractors-tabs" role="tablist">
+      <button class="eq-contractors-tab${detailTab === 'activity' ? ' is-active' : ''}" data-detail-tab="activity">Activity</button>
+      <button class="eq-contractors-tab${detailTab === 'equipment' ? ' is-active' : ''}" data-detail-tab="equipment">Equipment</button>
+      <button class="eq-contractors-tab${detailTab === 'edit' ? ' is-active' : ''}" data-detail-tab="edit">Edit</button>
+    </div>
+
+    <div class="eq-contractors-body">
+      ${tabBody}
+    </div>
+
+    ${(phone || email) && detailTab !== 'edit' ? `
+      <div class="eq-contractors-foot">
+        ${email ? `
+          <a class="eq-contractors-foot-btn eq-contractors-foot-btn-secondary" href="mailto:${esc(email)}">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            Email
+          </a>
+        ` : ''}
+        ${phone ? `
+          <a class="eq-contractors-foot-btn eq-contractors-foot-btn-primary" href="tel:${esc(phone.replace(/\s+/g, ''))}">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            Call ${esc(phone)}
+          </a>
+        ` : ''}
+      </div>
+    ` : ''}
+  `;
+
+  overlay.querySelector('.eq-contractors-back').addEventListener('click', () => {
+    contractorsState.mode = 'list';
+    contractorsState.activeId = null;
+    contractorsState.activeContractor = null;
+    contractorsState.editing = false;
+    renderContractors();
+  });
+  overlay.querySelectorAll('[data-detail-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      contractorsState.detailTab = btn.dataset.detailTab;
+      renderContractors();
+    });
+  });
+
+  // Tab-specific wiring.
+  if (detailTab === 'edit') {
+    wireContractorEditForm();
+  } else if (detailTab === 'equipment') {
+    overlay.querySelectorAll('[data-eq-id]').forEach(card => {
+      card.addEventListener('click', () => {
+        const id = card.dataset.eqId;
+        closeContractors();
+        if (typeof openDetail === 'function') openDetail(id);
+      });
+    });
+    // Promote name-only links to proper FK links.
+    overlay.querySelector('[data-action="promote-all"]')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await promoteContractorNameLinks();
+    });
+    // Open assign-equipment multi-select sheet.
+    overlay.querySelector('[data-action="assign-equipment"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openContractorAssignSheet();
+    });
+    // Open the bulk-PM scheduler with all currently-assigned equipment.
+    overlay.querySelector('[data-action="bulk-pm"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      schedulePmsForContractor();
+    });
+    // Per-location PM scheduler — separate contracts per location, so
+    // separate PM rounds. Each location header has its own button.
+    overlay.querySelectorAll('[data-action="bulk-pm-loc"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        schedulePmsForContractor(btn.dataset.loc);
+      });
+    });
+  } else if (detailTab === 'activity') {
+    overlay.querySelectorAll('[data-event-eq-id]').forEach(card => {
+      card.addEventListener('click', () => {
+        const id = card.dataset.eventEqId;
+        if (!id) return;
+        closeContractors();
+        if (typeof openDetail === 'function') openDetail(id);
+      });
+    });
+  }
+}
+
+function fmtResponseHrs(hrs) {
+  if (hrs == null) return '—';
+  if (hrs < 1) return `${Math.round(hrs * 60)}m`;
+  if (hrs < 24) return `${hrs}h`;
+  return `${Math.round(hrs / 24 * 10) / 10}d`;
+}
+
+function renderContractorActivityTab() {
+  const events = contractorsState.activity || [];
+  if (!events.length) {
+    return `
+      <div class="eq-contractors-empty">
+        <div class="eq-contractors-empty-title">No activity yet</div>
+        <div class="eq-contractors-empty-msg">Once this contractor logs service calls or gets assigned to issues, the work history will populate here.</div>
+      </div>
+    `;
+  }
+
+  // Group by month for visual scannability.
+  const groups = {};
+  for (const ev of events) {
+    const d = new Date(ev.date);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (!groups[key]) groups[key] = { label: d.toLocaleDateString([], { month: 'long', year: 'numeric' }), events: [] };
+    groups[key].events.push(ev);
+  }
+
+  return Object.keys(groups).sort().reverse().map(key => {
+    const g = groups[key];
+    return `
+      <div class="eq-contractor-activity-group">
+        <div class="eq-contractor-activity-month">${esc(g.label)}</div>
+        ${g.events.map(ev => {
+          const dt = new Date(ev.date);
+          const dateStr = dt.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          const eqId = ev.equipment ? ev.equipment.id : '';
+          const eqName = ev.equipment ? ev.equipment.name : '(equipment removed)';
+          const eqLoc = ev.equipment ? ev.equipment.location : '';
+          const cls = ev.type === 'issue' ? 'eq-contractor-event-issue' : 'eq-contractor-event-maintenance';
+          return `
+            <div class="eq-contractor-activity-row ${cls}" ${eqId ? `data-event-eq-id="${esc(eqId)}"` : ''}>
+              <div class="eq-contractor-activity-date">${esc(dateStr)}</div>
+              <div class="eq-contractor-activity-body">
+                <div class="eq-contractor-activity-title">${esc(ev.title)}${ev.cost ? ` · ${formatMoney(ev.cost)}` : ''}</div>
+                <div class="eq-contractor-activity-eq">${esc(eqName)}${eqLoc ? ` · ${esc(eqLoc)}` : ''}</div>
+                ${ev.description ? `<div class="eq-contractor-activity-desc">${esc(ev.description)}</div>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderContractorEquipmentTab() {
+  const assigned = contractorsState.assignedEquipment || [];
+  const historical = contractorsState.historicalEquipment || [];
+
+  // Top-level actions: assign more equipment, or schedule PMs across
+  // ALL assigned (one button). Per-location PM scheduling lives inside
+  // each location group below — separate contracts per location, so
+  // separate PM rounds.
+  const topActions = `
+    <div class="eq-contractor-eq-actions">
+      <button class="eq-contractor-eq-action-btn eq-contractor-eq-action-primary" data-action="assign-equipment">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Assign equipment to this contractor
+      </button>
+    </div>
+  `;
+
+  if (!assigned.length && !historical.length) {
+    return `
+      ${topActions}
+      <div class="eq-contractors-empty">
+        <div class="eq-contractors-empty-title">No equipment linked yet</div>
+        <div class="eq-contractors-empty-msg">Tap <strong>Assign equipment</strong> above to multi-pick units this contractor is in charge of, or set the contractor on a piece of equipment via its editor's Links tab.</div>
+      </div>
+    `;
+  }
+
+  // Group ASSIGNED equipment by location. With 3 restaurants (Suerte,
+  // Este, Bar Toti) the contractor likely has separate contracts per
+  // location, so we surface each location as its own group with its
+  // own bulk-PM trigger. The user can run a separate PM round at each
+  // restaurant in one tap.
+  const byLocation = new Map();
+  for (const e of assigned) {
+    const loc = (e.location || 'Unspecified').trim() || 'Unspecified';
+    if (!byLocation.has(loc)) byLocation.set(loc, []);
+    byLocation.get(loc).push(e);
+  }
+  // Sort locations alphabetically; within each, sort equipment by name.
+  const locationGroups = Array.from(byLocation.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([loc, items]) => [loc, items.sort((a, b) => (a.name || '').localeCompare(b.name || ''))]);
+
+  // Count loose name-matched links across the whole assigned set.
+  const looseCount = assigned.filter(e => e._linkType === 'name').length;
+
+  const renderEqRow = (e) => {
+    const isLoose = e._linkType === 'name';
+    return `
+      <div class="eq-contractor-eq-row${isLoose ? ' is-loose-link' : ''}" data-eq-id="${esc(e.id)}">
+        <div class="eq-contractor-eq-body-text">
+          <div class="eq-contractor-eq-name">
+            ${esc(e.name)}
+            ${isLoose ? '<span class="eq-contractor-eq-loose-chip" title="Linked by name only — tap to make permanent">↗ name only</span>' : ''}
+          </div>
+          <div class="eq-contractor-eq-meta">${e.area ? esc(e.area) + ' · ' : ''}${e.manufacturer ? esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}</div>
+        </div>
+      </div>
+    `;
+  };
+
+  return `
+    ${topActions}
+    ${locationGroups.length ? locationGroups.map(([loc, items]) => `
+      <div class="eq-contractor-loc-group">
+        <div class="eq-contractor-loc-header">
+          <div class="eq-contractor-loc-name">${esc(loc)}</div>
+          <div class="eq-contractor-loc-count">${items.length} ${items.length === 1 ? 'unit' : 'units'}</div>
+        </div>
+        <div class="eq-contractor-eq-list">${items.map(renderEqRow).join('')}</div>
+        <button class="eq-contractor-loc-pm-btn" data-action="bulk-pm-loc" data-loc="${esc(loc)}">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          Schedule PMs · ${esc(loc)} · ${items.length}
+        </button>
+      </div>
+    `).join('') : ''}
+
+    ${looseCount > 0 ? `
+      <div class="eq-contractor-loc-promote">
+        <button class="eq-contractor-eq-promote-btn" data-action="promote-all">Promote ${looseCount} name-only ${looseCount === 1 ? 'link' : 'links'} to permanent</button>
+      </div>
+    ` : ''}
+
+    ${assigned.length > 1 ? `
+      <button class="eq-contractor-eq-action-btn eq-contractor-eq-action-secondary" data-action="bulk-pm" style="margin-top:14px">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        Schedule PMs · all ${assigned.length} across all locations
+      </button>
+    ` : ''}
+
+    ${historical.length ? `
+      <div class="eq-contractor-eq-group-label" style="margin-top:18px">Previously serviced · ${historical.length}</div>
+      <div class="eq-contractor-eq-list">${historical.map(renderEqRow).join('')}</div>
+    ` : ''}
+  `;
+}
+
+function renderContractorEditTab() {
+  const c = contractorsState.activeContractor;
+  if (!c) return '';
+  const phones = extractContractorPhones(c);
+  const emails = extractContractorEmails(c);
+  const tags = extractContractorTags(c);
+
+  // Ensure at least one row of each so the form is fillable from empty.
+  const phoneRows = phones.length ? phones : [{ phone: '', label: '' }];
+  const emailRows = emails.length ? emails : [{ email: '', role: 'to', label: '' }];
+
+  return `
+    <form class="eq-contractor-edit-form" id="eqContractorEditForm">
+      <div class="eq-contractor-edit-field">
+        <label class="eq-contractor-edit-label" for="ccName">Name</label>
+        <input class="eq-contractor-edit-input" id="ccName" name="name" type="text" value="${esc(c.name || '')}" required>
+      </div>
+
+      <div class="eq-contractor-edit-field">
+        <label class="eq-contractor-edit-label">
+          Phones
+          <span class="eq-contractor-edit-hint">— first one powers the Call button on QR scan</span>
+        </label>
+        <div class="eq-contractor-multi-list" id="ccPhoneList">
+          ${phoneRows.map((p, i) => `
+            <div class="eq-contractor-multi-row" data-multi="phone">
+              <input class="eq-contractor-edit-input eq-contractor-multi-input" name="phone[]" type="tel" value="${esc(p.phone || '')}" placeholder="(512) 800-2228">
+              <input class="eq-contractor-edit-input eq-contractor-multi-label" name="phone_label[]" type="text" value="${esc(p.label || '')}" placeholder="${i === 0 ? 'main · dispatch · cell' : 'after-hours · cell · etc'}" maxlength="20">
+              <button type="button" class="eq-contractor-multi-remove" data-action="remove" aria-label="Remove">×</button>
+            </div>
+          `).join('')}
+        </div>
+        <button type="button" class="eq-contractor-multi-add" data-add="phone">+ Add another phone</button>
+      </div>
+
+      <div class="eq-contractor-edit-field">
+        <label class="eq-contractor-edit-label">
+          Emails
+          <span class="eq-contractor-edit-hint">— first one is the recipient; mark others as CC to send copies</span>
+        </label>
+        <div class="eq-contractor-multi-list" id="ccEmailList">
+          ${emailRows.map((e, i) => `
+            <div class="eq-contractor-multi-row" data-multi="email">
+              <input class="eq-contractor-edit-input eq-contractor-multi-input" name="email[]" type="email" value="${esc(e.email || '')}" placeholder="dispatch@vendor.com">
+              <select class="eq-contractor-edit-input eq-contractor-multi-role" name="email_role[]">
+                <option value="to" ${e.role === 'to' || !e.role ? 'selected' : ''}>TO</option>
+                <option value="cc" ${e.role === 'cc' ? 'selected' : ''}>CC</option>
+                <option value="bcc" ${e.role === 'bcc' ? 'selected' : ''}>BCC</option>
+              </select>
+              <button type="button" class="eq-contractor-multi-remove" data-action="remove" aria-label="Remove">×</button>
+            </div>
+          `).join('')}
+        </div>
+        <button type="button" class="eq-contractor-multi-add" data-add="email">+ Add another email</button>
+      </div>
+
+      <div class="eq-contractor-edit-field">
+        <label class="eq-contractor-edit-label" for="ccTags">In charge of <span class="eq-contractor-edit-hint">— comma-separated specialties (refrigeration, HVAC, plumbing)</span></label>
+        <input class="eq-contractor-edit-input" id="ccTags" name="tags" type="text" value="${esc(tags.join(', '))}" placeholder="refrigeration, ice machines, walk-ins">
+      </div>
+      <div class="eq-contractor-edit-field">
+        <label class="eq-contractor-edit-label" for="ccNotes">Notes <span class="eq-contractor-edit-hint">— hours, address, billing rate, anything else</span></label>
+        <textarea class="eq-contractor-edit-textarea" id="ccNotes" name="notes" rows="5" placeholder="M-F 8a-6p · Saturdays after-hours · $125/hr labor + parts at cost · Service area: Austin metro">${esc(c.notes || '')}</textarea>
+      </div>
+      <div class="eq-contractor-edit-actions">
+        <button type="button" class="eq-contractor-edit-btn eq-contractor-edit-btn-danger" data-action="delete">
+          Delete contractor
+        </button>
+        <button type="submit" class="eq-contractor-edit-btn eq-contractor-edit-btn-primary">
+          Save changes
+        </button>
+      </div>
+    </form>
+  `;
+}
+
+function wireContractorEditForm() {
+  const overlay = contractorsState.overlay;
+  const form = overlay.querySelector('#eqContractorEditForm');
+  if (!form) return;
+
+  // Wire + Add and × Remove buttons for the multi-row phone/email lists.
+  const wireMultiRow = (row) => {
+    row.querySelector('[data-action="remove"]')?.addEventListener('click', () => {
+      const list = row.parentElement;
+      // Don't allow removing the last row — keep at least one for the
+      // user to type into. Just clear its values instead.
+      if (list && list.children.length === 1) {
+        row.querySelectorAll('input, select').forEach(el => {
+          if (el.tagName === 'SELECT') el.selectedIndex = 0;
+          else el.value = '';
+        });
+        return;
+      }
+      row.remove();
+    });
+  };
+  form.querySelectorAll('.eq-contractor-multi-row').forEach(wireMultiRow);
+
+  form.querySelectorAll('[data-add]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const kind = btn.dataset.add;
+      const list = form.querySelector(kind === 'phone' ? '#ccPhoneList' : '#ccEmailList');
+      if (!list) return;
+      const row = document.createElement('div');
+      row.className = 'eq-contractor-multi-row';
+      row.dataset.multi = kind;
+      if (kind === 'phone') {
+        row.innerHTML = `
+          <input class="eq-contractor-edit-input eq-contractor-multi-input" name="phone[]" type="tel" value="" placeholder="(512) 555-1234">
+          <input class="eq-contractor-edit-input eq-contractor-multi-label" name="phone_label[]" type="text" value="" placeholder="after-hours · cell" maxlength="20">
+          <button type="button" class="eq-contractor-multi-remove" data-action="remove" aria-label="Remove">×</button>
+        `;
+      } else {
+        row.innerHTML = `
+          <input class="eq-contractor-edit-input eq-contractor-multi-input" name="email[]" type="email" value="" placeholder="dispatch@vendor.com">
+          <select class="eq-contractor-edit-input eq-contractor-multi-role" name="email_role[]">
+            <option value="to">TO</option>
+            <option value="cc" selected>CC</option>
+            <option value="bcc">BCC</option>
+          </select>
+          <button type="button" class="eq-contractor-multi-remove" data-action="remove" aria-label="Remove">×</button>
+        `;
+      }
+      list.appendChild(row);
+      wireMultiRow(row);
+      row.querySelector('input')?.focus();
+    });
+  });
+
+  // ─── PRIMARY SAVE PATH: direct click on the save button ──────────
+  // We DO NOT rely on form submit because mobile browsers + virtual
+  // keyboards drop submit events unpredictably. Instead, we hook the
+  // button click directly. The form submit handler (below) is just a
+  // fallback for keyboard-Enter and ensures e.preventDefault()
+  // protects against the page navigating away.
+  const saveBtn = form.querySelector('button[type="submit"]');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await saveContractorChanges(form, saveBtn);
+    });
+  }
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (saveBtn && !saveBtn.disabled) {
+      await saveContractorChanges(form, saveBtn);
+    }
+  });
+
+  form.querySelector('[data-action="delete"]')?.addEventListener('click', async () => {
+    const c = contractorsState.activeContractor;
+    if (!confirm(`Delete ${c.name}? This will not affect existing equipment assignments — they'll just lose the link.`)) return;
+    try {
+      const { error } = await NX.sb.from('nodes').delete().eq('id', c.id);
+      if (error) throw error;
+      contractorsState.list = contractorsState.list.filter(x => x.id !== c.id);
+      contractorsState.mode = 'list';
+      contractorsState.activeId = null;
+      contractorsState.activeContractor = null;
+      renderContractors();
+      NX.toast && NX.toast('Contractor deleted', 'info', 1200);
+    } catch (err) {
+      console.error('[equipment] deleteContractor:', err);
+      NX.toast && NX.toast('Could not delete: ' + (err.message || ''), 'error');
+    }
+  });
+}
+
+/**
+ * Standalone contractor save function. Called by both the click handler
+ * on the save button (primary path) and the form submit (Enter-key
+ * fallback). Heavily instrumented — every step shows a diagnostic
+ * toast or surfaces a clear error so a stuck save can be debugged
+ * from the UI without opening DevTools.
+ */
+async function saveContractorChanges(form, saveBtn) {
+  if (!form || !contractorsState) {
+    NX.toast && NX.toast('Form vanished — try reopening the contractor', 'error', 2400);
+    return;
+  }
+  const c = contractorsState.activeContractor;
+  if (!c || !c.id) {
+    NX.toast && NX.toast('No contractor loaded — try reopening', 'error', 2400);
+    return;
+  }
+  if (!NX.sb) {
+    NX.toast && NX.toast('Supabase not connected', 'error', 2400);
+    return;
+  }
+
+  // Disable the button while we save so double-taps don't fire twice.
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.dataset.origLabel = saveBtn.textContent;
+    saveBtn.textContent = 'Saving…';
+  }
+
+  try {
+    // ─── Collect form values ────────────────────────────────────────
+    const name = (form.querySelector('[name="name"]')?.value || '').trim();
+    if (!name) {
+      NX.toast && NX.toast('Name is required', 'warn', 1800);
+      return;
+    }
+    const tagsRaw = form.querySelector('[name="tags"]')?.value || '';
+    const notes = (form.querySelector('[name="notes"]')?.value || '').trim();
+    const tags = tagsRaw.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+
+    const phones = [];
+    form.querySelectorAll('.eq-contractor-multi-row[data-multi="phone"]').forEach(row => {
+      const phone = (row.querySelector('[name="phone[]"]')?.value || '').trim();
+      const label = (row.querySelector('[name="phone_label[]"]')?.value || '').trim();
+      if (phone) phones.push({ phone, type: 'phone', label: label || null });
+    });
+
+    const emails = [];
+    form.querySelectorAll('.eq-contractor-multi-row[data-multi="email"]').forEach(row => {
+      const email = (row.querySelector('[name="email[]"]')?.value || '').trim();
+      const role = row.querySelector('[name="email_role[]"]')?.value || 'to';
+      if (email) emails.push({ email, type: 'email', role });
+    });
+
+    const existingLinks = (c.links && Array.isArray(c.links)) ? c.links : [];
+    const otherLinks = existingLinks.filter(l => {
+      if (l && typeof l === 'object' && (l.phone || l.email)) return false;
+      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
+      if (/[\w.+-]+@[\w-]+\.[\w.-]+/.test(str)) return false;
+      if (/(?:tel:)?(\+?[\d\s().-]{10,})/.test(str)) return false;
+      return true;
+    });
+    const newLinks = [...otherLinks, ...phones, ...emails];
+
+    const payload = { name, notes: notes || null, tags, links: newLinks };
+    console.log('[saveContractor] id=%s payload=', c.id, payload);
+
+    // ─── Verify auth before write — if not signed in, RLS will block ──
+    let authUser = null;
+    try {
+      const { data: { user } } = await NX.sb.auth.getUser();
+      authUser = user;
+    } catch (_) {}
+    console.log('[saveContractor] auth user:', authUser?.id, authUser?.email);
+    if (!authUser) {
+      NX.toast && NX.toast('Not signed in — sign back in then try saving', 'error', 3000);
+      return;
+    }
+
+    // ─── Do the update ──────────────────────────────────────────────
+    const { data, error, status, statusText } = await NX.sb.from('nodes')
+      .update(payload)
+      .eq('id', c.id)
+      .select('*');
+
+    console.log('[saveContractor] response:', { status, statusText, error, returnedRows: data?.length });
+
+    if (error) {
+      console.error('[saveContractor] DB error:', error);
+      NX.toast && NX.toast(
+        `DB error: ${error.message || error.code || 'unknown'}`,
+        'error',
+        4000
+      );
+      return;
+    }
+
+    if (!data || !data.length) {
+      // Update succeeded but returned no rows. Most common cause: RLS
+      // SELECT policy doesn't let this user read the row they just
+      // updated. The data was written but the round-trip can't return.
+      // We trust the write succeeded and update local state anyway.
+      console.warn('[saveContractor] update returned 0 rows — likely RLS SELECT policy missing');
+      NX.toast && NX.toast(
+        'Saved (but RLS may be blocking reads — check Supabase policies)',
+        'warn',
+        3500
+      );
+      Object.assign(c, payload);
+    } else {
+      Object.assign(c, data[0]);
+      NX.toast && NX.toast(
+        `Saved · ${phones.length} ${phones.length === 1 ? 'phone' : 'phones'} · ${emails.length} ${emails.length === 1 ? 'email' : 'emails'}`,
+        'success',
+        1800
+      );
+    }
+
+    // Re-derive UI state (best-effort).
+    try { buildContractorDetailDerived(); } catch (e) { console.warn(e); }
+    contractorsState.detailTab = 'activity';
+    renderContractors();
+
+    // Reload list from DB so the next list render is fresh.
+    try {
+      await loadContractorsList();
+      const refreshed = contractorsState.list.find(x => x.id == c.id);
+      if (refreshed) {
+        contractorsState.activeContractor = refreshed;
+        buildContractorDetailDerived();
+        renderContractors();
+      } else {
+        console.warn('[saveContractor] row not found in fresh list — RLS SELECT may be blocking');
+      }
+    } catch (reloadErr) {
+      console.warn('[saveContractor] reload failed (non-fatal):', reloadErr);
+    }
+  } catch (err) {
+    console.error('[saveContractor] unexpected:', err);
+    NX.toast && NX.toast(`Save crashed: ${err.message || err}`, 'error', 4000);
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = saveBtn.dataset.origLabel || 'Save changes';
+    }
+  }
+}
+
+/**
+ * Bulk-upgrade equipment that's "linked by name only" (matches the
+ * contractor's name string in equipment.service_contact_name but has no
+ * preferred_contractor_node_id FK) to a proper FK link. Also propagates
+ * the contractor's phone to equipment.service_phone if the equipment
+ * row's phone is missing.
+ *
+ * This is the "the contractor and equipment now talk to each other" fix
+ * — once promoted, both sides carry the same identity and changing the
+ * contractor's phone in one place will be picked up everywhere via the
+ * existing lookupServicePhoneFromNode helper.
+ */
+async function promoteContractorNameLinks() {
+  if (!contractorsState || !contractorsState.activeContractor) return;
+  const c = contractorsState.activeContractor;
+  const loose = (contractorsState.assignedEquipment || []).filter(e => e._linkType === 'name');
+  if (!loose.length) return;
+
+  if (!confirm(
+    `Link ${loose.length} equipment ${loose.length === 1 ? 'unit' : 'units'} to ${c.name} permanently?\n\n` +
+    `This sets the FK on each equipment row so the contractor's contact info syncs automatically. The equipment's typed name + phone stays as-is.`
+  )) return;
+
+  const phone = extractContractorPhone(c);
+  const ids = loose.map(e => e.id);
+
+  try {
+    // Build update payload — set FK on every loose-linked equipment.
+    // We don't overwrite service_phone if the equipment already has one;
+    // we just fill it from the contractor when blank.
+    let updated = 0;
+    for (const eq of loose) {
+      const update = { preferred_contractor_node_id: c.id };
+      if (!eq.service_phone && phone) update.service_phone = phone;
+      const { error } = await NX.sb.from('equipment').update(update).eq('id', eq.id);
+      if (error) throw error;
+      updated++;
+    }
+
+    NX.toast && NX.toast(`Linked ${updated} equipment to ${c.name}`, 'success', 1800);
+
+    // Refresh: rebuild assignment derivations against the updated FK values.
+    // The simplest path is to reload the contractor list which re-derives
+    // all the assignment data.
+    contractorsState.loading = true;
+    renderContractors();
+    await loadContractorsList();
+    // Re-resolve the active contractor (its underlying ref may be stale).
+    const refreshed = contractorsState.list.find(x => x.id == c.id);
+    if (refreshed) {
+      contractorsState.activeContractor = refreshed;
+      buildContractorDetailDerived();
+    }
+    contractorsState.loading = false;
+    renderContractors();
+  } catch (e) {
+    console.error('[equipment] promoteContractorNameLinks:', e);
+    NX.toast && NX.toast('Could not promote: ' + (e.message || ''), 'error');
+  }
+}
+
+/**
+ * Multi-select bottom sheet — pick equipment to assign to the active
+ * contractor. Same idiom as the parts-compatibility bulk-apply sheet:
+ * checkbox row per eligible piece of equipment, same-category units
+ * floated to top with a "MATCHES SPECIALTY" badge, single confirm
+ * button does a batch update of preferred_contractor_node_id.
+ *
+ * "Eligible" = equipment NOT already assigned to this contractor.
+ * Equipment already assigned to a *different* contractor is included
+ * but with a warning chip — assigning steals it from the other.
+ */
+function openContractorAssignSheet() {
+  if (!contractorsState || !contractorsState.activeContractor) return;
+  const c = contractorsState.activeContractor;
+  const eqList = (typeof equipment !== 'undefined' && equipment) ? equipment : (contractorsState.equipmentLite || []);
+  // Already assigned (FK-linked) IDs to exclude.
+  const assignedIds = new Set((contractorsState.assignedEquipment || [])
+    .filter(e => e._linkType === 'fk')
+    .map(e => e.id));
+  const candidates = eqList.filter(e => !assignedIds.has(e.id));
+
+  if (!candidates.length) {
+    NX.toast && NX.toast('All equipment is already assigned to this contractor', 'info', 1800);
+    return;
+  }
+
+  // Sort: equipment whose category matches one of the contractor's
+  // specialties floats to the top (most likely candidates).
+  const tags = extractContractorTags(c).map(t => t.toLowerCase());
+  const matchesSpecialty = (e) => {
+    const cat = (e.category || '').toLowerCase();
+    return tags.some(t => t.includes(cat) || cat.includes(t));
+  };
+  candidates.sort((a, b) => {
+    const aM = matchesSpecialty(a) ? 1 : 0;
+    const bM = matchesSpecialty(b) ? 1 : 0;
+    if (aM !== bM) return bM - aM;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  const selected = new Set();
+
+  const renderSheet = () => {
+    overlay.innerHTML = `
+      <div class="eq-bulk-sheet-backdrop"></div>
+      <div class="eq-bulk-sheet">
+        <div class="eq-bulk-sheet-handle"></div>
+        <div class="eq-bulk-sheet-title">Assign equipment to ${esc(c.name)}</div>
+        <div class="eq-bulk-sheet-sub">Pick the units this contractor is in charge of. We'll set the FK link on each selected piece, and fill in the contractor's primary phone where the equipment doesn't have one yet.</div>
+        <div class="eq-bulk-sheet-list">
+          ${candidates.map(e => {
+            const isSel = selected.has(e.id);
+            const matches = matchesSpecialty(e);
+            const otherContractor = e.preferred_contractor_node_id && e.preferred_contractor_node_id !== c.id;
+            return `
+              <button class="eq-bulk-sheet-item eq-bulk-apply-item ${isSel ? 'is-selected' : ''} ${matches ? 'is-same-brand' : ''}" data-id="${esc(e.id)}" type="button">
+                <div class="eq-bulk-apply-check">
+                  ${isSel ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+                </div>
+                <div class="eq-bulk-sheet-item-text">
+                  <div class="eq-bulk-sheet-item-name">${esc(e.name)}</div>
+                  <div class="eq-bulk-sheet-item-sub">${esc(e.location || '')}${e.manufacturer ? ' · ' + esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}${otherContractor ? ' · ⚠ already assigned to another contractor' : ''}</div>
+                </div>
+                ${matches ? '<span class="eq-bulk-apply-badge">MATCHES</span>' : ''}
+              </button>
+            `;
+          }).join('')}
+        </div>
+        <button class="eq-bulk-sheet-confirm" data-action="confirm" ${selected.size === 0 ? 'disabled' : ''} type="button">
+          Assign ${selected.size} ${selected.size === 1 ? 'unit' : 'units'} to ${esc(c.name)}
+        </button>
+        <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Cancel</button>
+      </div>
+    `;
+    overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', close);
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+    overlay.querySelectorAll('[data-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        if (selected.has(id)) selected.delete(id);
+        else                  selected.add(id);
+        renderSheet();
+      });
+    });
+    overlay.querySelector('[data-action="confirm"]').addEventListener('click', applyConfirm);
+  };
+
+  const close = () => overlay.remove();
+
+  const applyConfirm = async () => {
+    if (!selected.size) return;
+    const ids = Array.from(selected);
+    const phone = extractContractorPhone(c);
+    try {
+      let updated = 0;
+      for (const id of ids) {
+        const eq = candidates.find(e => e.id === id);
+        const update = {
+          preferred_contractor_node_id: c.id,
+          service_contact_name: c.name,  // keep name in sync
+        };
+        if (phone && eq && !eq.service_phone) update.service_phone = phone;
+        const { error } = await NX.sb.from('equipment').update(update).eq('id', id);
+        if (error) throw error;
+        updated++;
+      }
+      NX.toast && NX.toast(`${updated} ${updated === 1 ? 'unit' : 'units'} assigned to ${c.name}`, 'success', 1800);
+      close();
+
+      // Refresh — reload contractor list so derivations update.
+      contractorsState.loading = true;
+      renderContractors();
+      // Also reload the global equipment array so the new FK reflects in the
+      // main equipment list view next time it's opened.
+      if (typeof loadEquipment === 'function') await loadEquipment();
+      await loadContractorsList();
+      const refreshed = contractorsState.list.find(x => x.id == c.id);
+      if (refreshed) {
+        contractorsState.activeContractor = refreshed;
+        buildContractorDetailDerived();
+      }
+      contractorsState.loading = false;
+      renderContractors();
+    } catch (err) {
+      console.error('[equipment] openContractorAssignSheet:', err);
+      NX.toast && NX.toast('Could not assign: ' + (err.message || ''), 'error');
+    }
+  };
+
+  document.body.appendChild(overlay);
+  renderSheet();
+}
+
+/**
+ * Pre-seed the bulk-PM scheduler with every piece of equipment currently
+ * assigned to the active contractor (FK-linked or name-linked). Opens
+ * the existing scheduler sheet which lets the user pick a date and
+ * apply it to all selected at once.
+ *
+ * If a `locationFilter` string is passed, only equipment at that
+ * location is pre-selected — used by the per-location buttons in each
+ * location group. The user has 3 restaurants (Suerte, Este, Bar Toti)
+ * and each may run on its own PM cadence even with the same contractor.
+ *
+ * The user's mental model: "schedule next PM for everything Austin
+ * Air and Ice handles AT BAR TOTI" → one tap.
+ */
+function schedulePmsForContractor(locationFilter) {
+  if (!contractorsState || !contractorsState.activeContractor) return;
+  const c = contractorsState.activeContractor;
+  let assigned = contractorsState.assignedEquipment || [];
+  if (locationFilter) {
+    assigned = assigned.filter(e =>
+      ((e.location || '').trim() || 'Unspecified') === locationFilter
+    );
+  }
+  if (!assigned.length) {
+    NX.toast && NX.toast(
+      locationFilter
+        ? `No equipment at ${locationFilter} for this contractor`
+        : 'No equipment is assigned to this contractor yet',
+      'warn', 1800
+    );
+    return;
+  }
+  if (!bulkSelectionState) return;
+
+  const ids = assigned.map(e => e.id);
+  bulkSelectionState.active = true;
+  bulkSelectionState.selected = new Set(ids);
+  document.body.classList.add('eq-bulk-mode');
+  // Close the contractor overlay so the bulk PM sheet has the surface.
+  closeContractors();
+  // Re-render the equipment list to show selection highlights.
+  if (typeof renderList === 'function') renderList();
+  if (typeof renderBulkToolbar === 'function') renderBulkToolbar();
+  // Open the scheduler sheet.
+  if (typeof openBulkPmSchedule === 'function') {
+    openBulkPmSchedule();
+  }
+  const label = locationFilter
+    ? `${ids.length} ${ids.length === 1 ? 'unit' : 'units'} at ${locationFilter}`
+    : `${ids.length} ${ids.length === 1 ? 'unit' : 'units'} from ${c.name}`;
+  NX.toast && NX.toast(`Pre-selected ${label}`, 'info', 1500);
+}
+
+async function addNewContractor() {
+  const name = prompt('New contractor name:');
+  if (!name || !name.trim()) return;
+  try {
+    const { data, error } = await NX.sb.from('nodes').insert({
+      name: name.trim(),
+      category: 'contractors',
+      tags: [],
+      links: [],
+    }).select('*').single();
+    if (error) throw error;
+
+    // Stamp derived fields to zero so the rest of the UI doesn't choke.
+    Object.assign(data, {
+      _maint: [], _issues: [],
+      _callsYtd: 0, _ytdSpend: 0, _totalCalls: 0,
+      _avgResponseHrs: null, _lastActivity: null,
+      _assignedCount: 0, _historicalCount: 0,
+    });
+    contractorsState.list.unshift(data);
+    NX.toast && NX.toast('Contractor added — fill in their details', 'info', 1500);
+    openContractorDetail(data.id);
+    contractorsState.detailTab = 'edit';
+    renderContractors();
+  } catch (e) {
+    console.error('[equipment] addNewContractor:', e);
+    NX.toast && NX.toast('Could not add: ' + (e.message || ''), 'error');
+  }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   20. LONG-PRESS ACTIONS — expanding dial on equipment rows
+   ════════════════════════════════════════════════════════════════════════════
+   Long-press an equipment row for 2 seconds → expanding action dial
+   slides up with bulk-mode entry, contractor email, issue tracker, and
+   schedule PM. Mirrors the duties speed-dial visual idiom (stacked
+   label-chip + gold-circle rows above the bottom nav, with staggered
+   slide-up animation and dimming backdrop blur).
+
+   While holding:
+     • A radial progress ring fills around the touch point
+     • Subtle haptic vibration when the threshold is reached (iOS/Android)
+     • The row visually compresses (scale 0.985) to give tactile feedback
+
+   On release before 2s: timer cancels, ring fades, no action.
+   Significant finger movement (>10px): timer cancels (it was a scroll).
+   At 2s: dial opens. The row that was held becomes the active selection.
+
+   Wired into both list rows (.eq-row) and grid cards (.eq-card).
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const LONGPRESS_DURATION_MS = 1000;          // 1.0s hold to trigger
+const LONGPRESS_MOVE_TOLERANCE = 10;         // pixels of movement that cancels
+let longpressState = null;
+
+/**
+ * Wire long-press handlers onto the equipment list container. Called
+ * once after each renderList() so newly-rendered rows pick up the
+ * handlers. Idempotent — uses event delegation so we only attach
+ * one listener to the container regardless of row count.
+ */
+function wireEquipmentLongPress() {
+  const list = document.getElementById('eqList');
+  if (!list) return;
+  // Avoid double-binding on re-renders.
+  if (list.__longpressBound) return;
+  list.__longpressBound = true;
+
+  list.addEventListener('pointerdown', onLongPressStart, { passive: false });
+  list.addEventListener('pointermove', onLongPressMove,  { passive: true  });
+  list.addEventListener('pointerup',   onLongPressEnd,   { passive: true  });
+  list.addEventListener('pointercancel', onLongPressCancel, { passive: true });
+  list.addEventListener('pointerleave',  onLongPressCancel, { passive: true });
+  // Suppress the iOS/Android context menu that long-press triggers natively
+  // — it would compete with our dial.
+  list.addEventListener('contextmenu', e => {
+    if (longpressState && longpressState.active) e.preventDefault();
+  });
+}
+
+function onLongPressStart(e) {
+  // Skip if already in bulk mode (different gesture set applies).
+  if (bulkSelectionState && bulkSelectionState.active) return;
+  // Only react to primary pointer (touch finger or left mouse button).
+  if (e.button !== undefined && e.button !== 0) return;
+
+  // Find the equipment row/card under the pointer.
+  const row = e.target.closest('[data-eq-id]');
+  if (!row) return;
+  const equipId = row.dataset.eqId;
+  if (!equipId) return;
+
+  // Cancel any active timer first.
+  cancelLongPress();
+
+  longpressState = {
+    active: true,
+    fired: false,
+    equipId,
+    row,
+    startX: e.clientX,
+    startY: e.clientY,
+    pointerId: e.pointerId,
+    timerId: null,
+    progressEl: null,
+  };
+
+  // Build a progress ring overlay positioned at the touch point.
+  // SVG circle that fills its stroke-dasharray over LONGPRESS_DURATION_MS.
+  const ring = document.createElement('div');
+  ring.className = 'eq-longpress-ring';
+  ring.style.left = `${e.clientX}px`;
+  ring.style.top = `${e.clientY}px`;
+  ring.innerHTML = `
+    <svg viewBox="0 0 60 60" width="60" height="60" aria-hidden="true">
+      <circle class="eq-longpress-ring-track" cx="30" cy="30" r="26"/>
+      <circle class="eq-longpress-ring-fill"  cx="30" cy="30" r="26"/>
+    </svg>
+  `;
+  document.body.appendChild(ring);
+  longpressState.progressEl = ring;
+
+  // Visual compression on the row.
+  row.classList.add('eq-longpress-active');
+
+  // Schedule the trigger.
+  longpressState.timerId = setTimeout(() => onLongPressFire(), LONGPRESS_DURATION_MS);
+
+  // Force the ring fill animation by toggling a class on the next frame.
+  requestAnimationFrame(() => {
+    if (longpressState && longpressState.progressEl) {
+      longpressState.progressEl.classList.add('is-running');
+    }
+  });
+}
+
+function onLongPressMove(e) {
+  if (!longpressState || !longpressState.active) return;
+  const dx = Math.abs(e.clientX - longpressState.startX);
+  const dy = Math.abs(e.clientY - longpressState.startY);
+  if (dx > LONGPRESS_MOVE_TOLERANCE || dy > LONGPRESS_MOVE_TOLERANCE) {
+    cancelLongPress();
+  }
+}
+
+function onLongPressEnd(e) {
+  if (!longpressState || !longpressState.active) return;
+  // If the timer already fired and opened the dial, don't cancel.
+  if (longpressState.fired) {
+    cleanupLongPressVisual();
+    return;
+  }
+  cancelLongPress();
+}
+
+function onLongPressCancel() {
+  if (!longpressState || !longpressState.active) return;
+  cancelLongPress();
+}
+
+function cancelLongPress() {
+  if (!longpressState) return;
+  if (longpressState.timerId) {
+    clearTimeout(longpressState.timerId);
+    longpressState.timerId = null;
+  }
+  cleanupLongPressVisual();
+  longpressState = null;
+}
+
+function cleanupLongPressVisual() {
+  if (!longpressState) return;
+  if (longpressState.row) {
+    longpressState.row.classList.remove('eq-longpress-active');
+  }
+  if (longpressState.progressEl && longpressState.progressEl.parentNode) {
+    longpressState.progressEl.classList.add('is-completing');
+    const el = longpressState.progressEl;
+    setTimeout(() => {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }, 200);
+  }
+}
+
+function onLongPressFire() {
+  if (!longpressState || !longpressState.active) return;
+  longpressState.fired = true;
+
+  // Haptic feedback if available.
+  if (navigator.vibrate) {
+    try { navigator.vibrate(15); } catch (_) {}
+  }
+
+  // Pulse the ring to confirm completion.
+  if (longpressState.progressEl) {
+    longpressState.progressEl.classList.add('is-fired');
+  }
+
+  const equipId = longpressState.equipId;
+  // Slight delay so the user sees the ring complete before the dial opens.
+  setTimeout(() => {
+    cleanupLongPressVisual();
+    longpressState = null;
+    openEquipmentActionsDial(equipId);
+  }, 120);
+}
+
+/* ─── The dial itself — duties-style speed-dial with equipment actions ─── */
+
+function openEquipmentActionsDial(equipId) {
+  closeEquipmentActionsDial();
+
+  const eq = (typeof equipment !== 'undefined' && equipment) ? equipment.find(e => e.id === equipId) : null;
+  if (!eq) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-actions-dial';
+  overlay.setAttribute('role', 'menu');
+  overlay.setAttribute('aria-hidden', 'false');
+
+  // The "current selection" pill at the top of the stack — shows what's
+  // about to be acted on, so the dial is unambiguous.
+  const pill = `
+    <div class="eq-actions-dial-target">
+      <div class="eq-actions-dial-target-name">${esc(eq.name)}</div>
+      <div class="eq-actions-dial-target-loc">${esc(eq.location || '')}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
+    </div>
+  `;
+
+  // Action rows. Order matters — most-likely-action first (closest to thumb).
+  const actions = [
+    {
+      key: 'select-multi',
+      label: 'Bulk select',
+      sub:   'Tap more rows to select',
+      iconSvg: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+    },
+    {
+      key: 'report-issue',
+      label: 'Report issue',
+      sub:   'Open issue tracker',
+      iconSvg: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+    },
+    {
+      key: 'view-parts',
+      label: 'View parts',
+      sub:   'Browse + replace components',
+      iconSvg: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+    },
+    {
+      key: 'edit-equipment',
+      label: 'Edit equipment',
+      sub:   'Name, photo, SN, specs — all of it',
+      iconSvg: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    },
+    {
+      key: 'schedule-pm',
+      label: 'Schedule PM',
+      sub:   'Set next maintenance date',
+      iconSvg: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+    },
+    {
+      key: 'email-contractor',
+      label: 'Email contractor',
+      sub:   'Compose service request',
+      iconSvg: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>',
+    },
+  ];
+
+  overlay.innerHTML = `
+    <div class="eq-actions-dial-backdrop" data-dial-close></div>
+    <div class="eq-actions-dial-stack">
+      ${pill}
+      ${actions.map(a => `
+        <button class="eq-actions-dial-action" data-target="${esc(a.key)}" role="menuitem">
+          <span class="eq-actions-dial-text">
+            <span class="eq-actions-dial-label">${esc(a.label)}</span>
+            <span class="eq-actions-dial-sub">${esc(a.sub)}</span>
+          </span>
+          <span class="eq-actions-dial-icon">${a.iconSvg}</span>
+        </button>
+      `).join('')}
+      <button class="eq-actions-dial-cancel" data-target="cancel" role="menuitem">Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Trigger the slide-up animation on next frame.
+  requestAnimationFrame(() => overlay.classList.add('is-open'));
+
+  // Wire actions.
+  const close = closeEquipmentActionsDial;
+  overlay.querySelector('[data-dial-close]').addEventListener('click', close);
+  overlay.querySelector('[data-target="cancel"]').addEventListener('click', close);
+  overlay.querySelectorAll('.eq-actions-dial-action').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const target = btn.dataset.target;
+      close();
+      // Slight delay so the close animation completes before action UI opens.
+      setTimeout(() => handleEquipmentDialAction(target, eq), 120);
+    });
+  });
+
+  // ESC to close on desktop.
+  const onEsc = (e) => {
+    if (e.key === 'Escape') {
+      close();
+      document.removeEventListener('keydown', onEsc);
+    }
+  };
+  document.addEventListener('keydown', onEsc);
+}
+
+function closeEquipmentActionsDial() {
+  const existing = document.querySelector('.eq-actions-dial');
+  if (!existing) return;
+  existing.classList.remove('is-open');
+  existing.classList.add('is-closing');
+  setTimeout(() => {
+    if (existing.parentNode) existing.parentNode.removeChild(existing);
+  }, 220);
+}
+
+async function handleEquipmentDialAction(action, eq) {
+  switch (action) {
+    case 'select-multi': {
+      // Enter bulk mode and pre-select the equipment that was held.
+      if (typeof enterBulkMode === 'function') {
+        enterBulkMode();
+        if (typeof toggleBulkSelection === 'function') {
+          toggleBulkSelection(eq.id);
+        }
+      }
+      break;
+    }
+    case 'report-issue': {
+      if (typeof openIssueTracker === 'function') {
+        openIssueTracker(eq.id);
+      } else if (typeof reportIssue === 'function') {
+        reportIssue(eq.id);
+      }
+      break;
+    }
+    case 'view-parts': {
+      // Open the parts overlay scoped to this equipment.
+      if (typeof openPartsForEquipment === 'function') {
+        openPartsForEquipment(eq.id);
+      }
+      break;
+    }
+    case 'edit-equipment': {
+      // Open the full 6-tab editor (Basic / Specs / Photos / Attachments / Links / Custom Fields).
+      if (typeof openFullEditor === 'function') {
+        openFullEditor(eq.id);
+      }
+      break;
+    }
+    case 'schedule-pm': {
+      // Pre-seed bulk selection with just this one and open the schedule sheet.
+      if (typeof enterBulkMode === 'function' && typeof openBulkPmSchedule === 'function') {
+        bulkSelectionState.active = true;
+        bulkSelectionState.selected = new Set([eq.id]);
+        document.body.classList.add('eq-bulk-mode');
+        renderBulkToolbar();
+        // Mark the row visually so the user knows what they're scheduling for.
+        const row = document.querySelector(`[data-eq-id="${eq.id}"]`);
+        if (row) row.classList.add('is-selected');
+        openBulkPmSchedule();
+      }
+      break;
+    }
+    case 'email-contractor': {
+      // We need an open issue to attach the email to. If there isn't one,
+      // create a placeholder issue first so the email has a thread to track
+      // against.
+      if (typeof loadEquipmentIssues === 'function' && typeof emailContractorAboutIssue === 'function') {
+        const open = await loadEquipmentIssues(eq.id, { includeRepaired: false });
+        if (open && open.length) {
+          emailContractorAboutIssue(eq, open[0]);
+        } else {
+          // No open issue — create a quick one then email.
+          const title = prompt(`What's the issue with ${eq.name}?\n\nBrief title (e.g. "won't cool below 45°F")`);
+          if (!title || !title.trim()) return;
+          try {
+            const { data, error } = await NX.sb.from('equipment_issues').insert({
+              equipment_id:    eq.id,
+              title:           title.trim(),
+              status:          'reported',
+              reported_at:     new Date().toISOString(),
+              reported_by:     NX.user?.id || null,
+              reported_by_name: NX.user?.name || null,
+            }).select('*').single();
+            if (error) throw error;
+            // Fire the email — it will auto-advance to contractor_called.
+            emailContractorAboutIssue(eq, data);
+          } catch (err) {
+            console.error('[equipment] long-press email-contractor:', err);
+            NX.toast && NX.toast('Could not log issue: ' + (err.message || ''), 'error');
+          }
+        }
+      }
+      break;
+    }
+  }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   21. PARTS — fleet-wide management overlay
+   ════════════════════════════════════════════════════════════════════════════
+   Standalone workspace for browsing every replaceable part across the
+   entire fleet. The existing per-equipment Parts tab still works — this
+   adds a higher-altitude view that lets you:
+
+     • Browse all parts at once, grouped by parent equipment
+     • Search by part name, OEM number, or supplier
+     • Open any part for full-detail editing with photo + replacement
+       history + cross-equipment compatibility
+     • See "Used by N equipment" badges on parts that fit multiple units
+     • Mark a part as replaced — auto-stamps last_replaced_at, prompts
+       cost + supplier, optionally creates an equipment_maintenance row
+     • Calculate next-due-by-interval from replacement_interval_months
+
+   Schema additions (best-effort — gracefully degrades if missing):
+     photo_url                  text
+     lead_time_days             int
+     replacement_interval_months int
+     last_replaced_at           timestamptz
+     replacement_history        jsonb     [{date, cost, vendor, by}]
+     compatible_equipment_ids   jsonb     [uuid, uuid, ...]
+     manufacturer_id            uuid      FK to manufacturers (optional)
+
+   Open via:
+     NX.modules.equipment.openParts()              — fleet-wide
+     NX.modules.equipment.openPartsForEquipment(id) — filtered to one unit
+     NX.modules.equipment.openPartDetail(partId)    — straight to detail
+
+   Long-press dial gets a 5th action that takes the held equipment as
+   the filter context.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+let partsState = null;
+
+const PARTS_TABS = [
+  { key: 'overview',     label: 'Overview' },
+  { key: 'history',      label: 'Replacement History' },
+  { key: 'compatibility', label: 'Compatibility' },
+];
+
+async function openParts(opts) {
+  closeParts();
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-parts-overlay';
+  document.body.appendChild(overlay);
+
+  partsState = {
+    overlay,
+    mode: 'list',                 // 'list' | 'detail'
+    list: [],
+    activeId: null,
+    activePart: null,
+    detailTab: 'overview',
+    loading: true,
+    search: '',
+    filterEquipId: (opts && opts.equipmentId) || null,
+    filterEquipName: (opts && opts.equipmentName) || null,
+  };
+  renderParts2();
+
+  try {
+    await loadPartsList();
+    if (!partsState || partsState.overlay !== overlay) return;
+    partsState.loading = false;
+
+    // If opts.partId is set, jump straight to that part's detail.
+    if (opts && opts.partId) {
+      const p = partsState.list.find(x => x.id === opts.partId);
+      if (p) {
+        partsState.mode = 'detail';
+        partsState.activeId = p.id;
+        partsState.activePart = p;
+      }
+    }
+    renderParts2();
+  } catch (e) {
+    console.error('[equipment] openParts:', e);
+    if (partsState) {
+      partsState.loading = false;
+      partsState.error = e.message || String(e);
+      renderParts2();
+    }
+  }
+}
+
+function openPartsForEquipment(equipmentId) {
+  const eq = (typeof equipment !== 'undefined' && equipment) ? equipment.find(e => e.id === equipmentId) : null;
+  return openParts({
+    equipmentId,
+    equipmentName: eq ? eq.name : null,
+  });
+}
+
+function openPartDetail(partId) {
+  return openParts({ partId });
+}
+
+function closeParts() {
+  if (!partsState) return;
+  if (partsState.overlay && partsState.overlay.parentNode) {
+    partsState.overlay.parentNode.removeChild(partsState.overlay);
+  }
+  partsState = null;
+}
+
+/**
+ * Load every part across the fleet plus a lite equipment lookup so we
+ * can render parent-equipment context on each card. Single bulk fetch.
+ */
+async function loadPartsList() {
+  if (!NX.sb) return;
+  const [partsRes, equipRes] = await Promise.all([
+    NX.sb.from('equipment_parts')
+      .select('*')
+      .order('part_name', { ascending: true }),
+    NX.sb.from('equipment').select('id, name, location, area, manufacturer, model'),
+  ]);
+
+  const parts = partsRes.data || [];
+  const eqList = equipRes.data || [];
+  const eqById = {};
+  for (const e of eqList) eqById[e.id] = e;
+
+  // Annotate each part with its parent equipment + compatible equipment.
+  for (const p of parts) {
+    p._equipment = eqById[p.equipment_id] || null;
+    const compatIds = Array.isArray(p.compatible_equipment_ids) ? p.compatible_equipment_ids : [];
+    p._compatible = compatIds.map(id => eqById[id]).filter(Boolean);
+
+    // Compute "used by" — primary equipment + compatibles, deduped.
+    const usedBy = new Set();
+    if (p.equipment_id) usedBy.add(p.equipment_id);
+    for (const id of compatIds) usedBy.add(id);
+    p._usedByCount = usedBy.size;
+
+    // Next-due calc if we have last_replaced_at + interval.
+    if (p.last_replaced_at && p.replacement_interval_months) {
+      const last = new Date(p.last_replaced_at);
+      const next = new Date(last);
+      next.setMonth(next.getMonth() + (parseInt(p.replacement_interval_months, 10) || 0));
+      p._nextDue = next;
+      const daysLeft = Math.floor((next - Date.now()) / 86400000);
+      p._nextDueDaysLeft = daysLeft;
+    } else {
+      p._nextDue = null;
+      p._nextDueDaysLeft = null;
+    }
+  }
+
+  partsState.list = parts;
+  partsState.equipmentLookup = eqById;
+}
+
+function renderParts2() {
+  if (!partsState || !partsState.overlay) return;
+  if (partsState.mode === 'detail') {
+    renderPartsDetail();
+  } else {
+    renderPartsList();
+  }
+}
+
+/* ─── List view ──────────────────────────────────────────────────── */
+
+function renderPartsList() {
+  const { overlay, list, loading, error, search, filterEquipId, filterEquipName } = partsState;
+
+  let filtered = list;
+  if (filterEquipId) {
+    filtered = filtered.filter(p =>
+      p.equipment_id === filterEquipId ||
+      (Array.isArray(p.compatible_equipment_ids) && p.compatible_equipment_ids.includes(filterEquipId))
+    );
+  }
+  const q = (search || '').toLowerCase().trim();
+  if (q) {
+    filtered = filtered.filter(p => {
+      if ((p.part_name || '').toLowerCase().includes(q)) return true;
+      if ((p.oem_part_number || '').toLowerCase().includes(q)) return true;
+      if ((p.supplier || '').toLowerCase().includes(q)) return true;
+      if ((p.assembly_path || '').toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }
+
+  // Group by parent equipment for visual clarity.
+  const groups = {};
+  for (const p of filtered) {
+    const eqId = p.equipment_id || '__unassigned';
+    if (!groups[eqId]) {
+      groups[eqId] = {
+        equipment: p._equipment,
+        equipmentId: eqId,
+        parts: [],
+      };
+    }
+    groups[eqId].parts.push(p);
+  }
+  const orderedKeys = Object.keys(groups).sort((a, b) => {
+    const aN = (groups[a].equipment?.name || '').toLowerCase();
+    const bN = (groups[b].equipment?.name || '').toLowerCase();
+    return aN.localeCompare(bN);
+  });
+
+  let bodyHTML;
+  if (loading) {
+    bodyHTML = `<div class="eq-parts-loading">Loading parts catalog…</div>`;
+  } else if (error) {
+    bodyHTML = `<div class="eq-parts-error">Couldn't load: ${esc(error)}</div>`;
+  } else if (!filtered.length) {
+    if (q) {
+      bodyHTML = `<div class="eq-parts-empty"><div class="eq-parts-empty-msg">No parts match "${esc(q)}".</div></div>`;
+    } else if (filterEquipId) {
+      bodyHTML = `
+        <div class="eq-parts-empty">
+          <div class="eq-parts-empty-title">No parts logged for this equipment yet</div>
+          <div class="eq-parts-empty-msg">Tap the <strong>+</strong> button at top to add the first part — name, OEM number, supplier, and you're set.</div>
+        </div>
+      `;
+    } else {
+      bodyHTML = `
+        <div class="eq-parts-empty">
+          <div class="eq-parts-empty-title">No parts in the catalog yet</div>
+          <div class="eq-parts-empty-msg">Add parts from each equipment's detail view, or use AI to extract a bill-of-materials from the manual.</div>
+        </div>
+      `;
+    }
+  } else {
+    bodyHTML = orderedKeys.map(eqId => {
+      const g = groups[eqId];
+      const eqLabel = g.equipment
+        ? `${esc(g.equipment.name)}${g.equipment.location ? ' · ' + esc(g.equipment.location) : ''}`
+        : 'Unassigned parts';
+      const subtitle = g.equipment
+        ? [g.equipment.manufacturer, g.equipment.model].filter(Boolean).map(esc).join(' ')
+        : '';
+      return `
+        <div class="eq-parts-group">
+          <div class="eq-parts-group-head">
+            <div class="eq-parts-group-title">${eqLabel}</div>
+            ${subtitle ? `<div class="eq-parts-group-sub">${subtitle}</div>` : ''}
+            <div class="eq-parts-group-count">${g.parts.length} ${g.parts.length === 1 ? 'part' : 'parts'}</div>
+          </div>
+          <div class="eq-parts-group-list">
+            ${g.parts.map(renderPartListCard).join('')}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Filter chip if we're scoped to one equipment.
+  const filterChipHTML = filterEquipId ? `
+    <div class="eq-parts-filter-chip">
+      <span class="eq-parts-filter-chip-label">Filtered by:</span>
+      <span class="eq-parts-filter-chip-name">${esc(filterEquipName || 'equipment')}</span>
+      <button class="eq-parts-filter-chip-clear" data-action="clear-filter" aria-label="Clear filter">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+  ` : '';
+
+  overlay.innerHTML = `
+    <div class="eq-parts-head">
+      <button class="eq-parts-close" aria-label="Close parts catalog">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <div class="eq-parts-head-text">
+        <div class="eq-parts-title">Parts Catalog</div>
+        <div class="eq-parts-sub">${list.length} ${list.length === 1 ? 'part' : 'parts'} across ${Object.keys(groups).length} ${Object.keys(groups).length === 1 ? 'unit' : 'units'}</div>
+      </div>
+      <button class="eq-parts-add" data-action="add" aria-label="Add new part">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+    </div>
+
+    <div class="eq-parts-search-wrap">
+      <input type="search" class="eq-parts-search" id="eqPartsSearch" placeholder="Search by name, OEM number, supplier…" value="${esc(search || '')}" autocomplete="off">
+    </div>
+
+    ${filterChipHTML}
+
+    <div class="eq-parts-body">
+      ${bodyHTML}
+    </div>
+  `;
+
+  overlay.querySelector('.eq-parts-close').addEventListener('click', closeParts);
+  overlay.querySelector('[data-action="add"]').addEventListener('click', () => addNewPart(filterEquipId));
+  overlay.querySelector('[data-action="clear-filter"]')?.addEventListener('click', () => {
+    partsState.filterEquipId = null;
+    partsState.filterEquipName = null;
+    renderParts2();
+  });
+  const searchInput = overlay.querySelector('#eqPartsSearch');
+  searchInput?.addEventListener('input', e => {
+    partsState.search = e.target.value;
+    // Re-render the body only to preserve focus on the search input.
+    const body = overlay.querySelector('.eq-parts-body');
+    if (!body) return;
+    // Recompute filtered + groups inline (mirror of above).
+    let f = list;
+    if (filterEquipId) f = f.filter(p =>
+      p.equipment_id === filterEquipId ||
+      (Array.isArray(p.compatible_equipment_ids) && p.compatible_equipment_ids.includes(filterEquipId))
+    );
+    const q2 = (e.target.value || '').toLowerCase().trim();
+    if (q2) f = f.filter(p =>
+      (p.part_name || '').toLowerCase().includes(q2) ||
+      (p.oem_part_number || '').toLowerCase().includes(q2) ||
+      (p.supplier || '').toLowerCase().includes(q2) ||
+      (p.assembly_path || '').toLowerCase().includes(q2)
+    );
+    const g2 = {};
+    for (const p of f) {
+      const k = p.equipment_id || '__unassigned';
+      if (!g2[k]) g2[k] = { equipment: p._equipment, parts: [] };
+      g2[k].parts.push(p);
+    }
+    const keys = Object.keys(g2).sort((a, b) => (g2[a].equipment?.name || '').toLowerCase().localeCompare((g2[b].equipment?.name || '').toLowerCase()));
+    body.innerHTML = f.length
+      ? keys.map(k => `
+          <div class="eq-parts-group">
+            <div class="eq-parts-group-head">
+              <div class="eq-parts-group-title">${g2[k].equipment ? esc(g2[k].equipment.name) : 'Unassigned parts'}</div>
+              <div class="eq-parts-group-count">${g2[k].parts.length} ${g2[k].parts.length === 1 ? 'part' : 'parts'}</div>
+            </div>
+            <div class="eq-parts-group-list">${g2[k].parts.map(renderPartListCard).join('')}</div>
+          </div>
+        `).join('')
+      : `<div class="eq-parts-empty"><div class="eq-parts-empty-msg">No parts match "${esc(q2)}".</div></div>`;
+    body.querySelectorAll('[data-part-id]').forEach(card => {
+      card.addEventListener('click', () => openPartDetailById(card.dataset.partId));
+    });
+  });
+
+  overlay.querySelectorAll('[data-part-id]').forEach(card => {
+    card.addEventListener('click', () => openPartDetailById(card.dataset.partId));
+  });
+}
+
+function renderPartListCard(p) {
+  const photo = p.photo_url
+    ? `<div class="eq-part-card-photo" style="background-image:url('${esc((p.photo_url || '').replace(/'/g, '%27'))}')"></div>`
+    : `<div class="eq-part-card-photo eq-part-card-photo-empty">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </div>`;
+
+  const subBits = [];
+  if (p.oem_part_number) subBits.push(`<span class="eq-part-card-oem">${esc(p.oem_part_number)}</span>`);
+  if (p.supplier) subBits.push(`<span>${esc(p.supplier)}</span>`);
+  if (p.last_price) subBits.push(`<span>$${parseFloat(p.last_price).toFixed(2)}</span>`);
+
+  // Status badges.
+  const badges = [];
+  if (p._usedByCount > 1) {
+    badges.push(`<span class="eq-part-card-badge eq-part-card-badge-shared">Used by ${p._usedByCount} units</span>`);
+  }
+  if (p._nextDueDaysLeft != null) {
+    if (p._nextDueDaysLeft < 0) {
+      badges.push(`<span class="eq-part-card-badge eq-part-card-badge-overdue">Replace overdue (${Math.abs(p._nextDueDaysLeft)}d)</span>`);
+    } else if (p._nextDueDaysLeft <= 30) {
+      badges.push(`<span class="eq-part-card-badge eq-part-card-badge-soon">Replace in ${p._nextDueDaysLeft}d</span>`);
+    }
+  }
+
+  return `
+    <div class="eq-part-card" data-part-id="${esc(p.id)}">
+      ${photo}
+      <div class="eq-part-card-body">
+        <div class="eq-part-card-name">${esc(p.part_name || '(unnamed part)')}${p.quantity && p.quantity > 1 ? ` <span class="eq-part-card-qty">×${p.quantity}</span>` : ''}</div>
+        ${subBits.length ? `<div class="eq-part-card-sub">${subBits.join(' · ')}</div>` : ''}
+        ${p.assembly_path ? `<div class="eq-part-card-path">${esc(p.assembly_path)}</div>` : ''}
+        ${badges.length ? `<div class="eq-part-card-badges">${badges.join('')}</div>` : ''}
+      </div>
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="eq-part-card-arrow" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+  `;
+}
+
+/* ─── Detail view ────────────────────────────────────────────────── */
+
+function openPartDetailById(partId) {
+  if (!partsState) return;
+  const p = partsState.list.find(x => x.id === partId);
+  if (!p) return;
+  partsState.mode = 'detail';
+  partsState.activeId = partId;
+  partsState.activePart = p;
+  partsState.detailTab = 'overview';
+  renderParts2();
+}
+
+function renderPartsDetail() {
+  const { overlay, activePart: p, detailTab } = partsState;
+  if (!p) {
+    partsState.mode = 'list';
+    renderParts2();
+    return;
+  }
+
+  let tabBody;
+  if (detailTab === 'overview')           tabBody = renderPartOverviewTab(p);
+  else if (detailTab === 'history')       tabBody = renderPartHistoryTab(p);
+  else if (detailTab === 'compatibility') tabBody = renderPartCompatibilityTab(p);
+
+  overlay.innerHTML = `
+    <div class="eq-parts-head">
+      <button class="eq-parts-back" aria-label="Back to parts list">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div class="eq-parts-head-text">
+        <div class="eq-parts-title">${esc(p.part_name || '(unnamed part)')}</div>
+        <div class="eq-parts-sub">
+          ${p.oem_part_number ? `OEM ${esc(p.oem_part_number)}` : 'No OEM number'}
+          ${p._equipment ? ` · ${esc(p._equipment.name)}` : ''}
+        </div>
+      </div>
+      ${p.supplier_url ? `
+        <a class="eq-parts-link" href="${esc(p.supplier_url)}" target="_blank" rel="noopener" aria-label="Open supplier page">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </a>
+      ` : ''}
+    </div>
+
+    <div class="eq-parts-tabs" role="tablist">
+      ${PARTS_TABS.map(t => `
+        <button class="eq-parts-tab${t.key === detailTab ? ' is-active' : ''}" data-detail-tab="${esc(t.key)}">${esc(t.label)}</button>
+      `).join('')}
+    </div>
+
+    <div class="eq-parts-body">
+      ${tabBody}
+    </div>
+
+    ${detailTab === 'overview' ? `
+      <div class="eq-parts-foot">
+        <button class="eq-parts-foot-btn eq-parts-foot-btn-secondary" data-action="mark-replaced">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><polyline points="20 6 9 17 4 12"/></svg>
+          Mark replaced
+        </button>
+        <button class="eq-parts-foot-btn eq-parts-foot-btn-primary" data-action="save">
+          Save changes
+        </button>
+      </div>
+    ` : ''}
+  `;
+
+  overlay.querySelector('.eq-parts-back').addEventListener('click', () => {
+    partsState.mode = 'list';
+    partsState.activeId = null;
+    partsState.activePart = null;
+    renderParts2();
+  });
+  overlay.querySelectorAll('[data-detail-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      partsState.detailTab = btn.dataset.detailTab;
+      renderParts2();
+    });
+  });
+
+  if (detailTab === 'overview') {
+    wirePartOverviewForm(p);
+    overlay.querySelector('[data-action="save"]').addEventListener('click', () => savePartOverview(p));
+    overlay.querySelector('[data-action="mark-replaced"]').addEventListener('click', () => markPartReplaced(p));
+  } else if (detailTab === 'compatibility') {
+    wirePartCompatibilityTab(p);
+  } else if (detailTab === 'history') {
+    overlay.querySelectorAll('[data-event-eq-id]').forEach(row => {
+      row.addEventListener('click', () => {
+        const id = row.dataset.eventEqId;
+        if (!id) return;
+        closeParts();
+        if (typeof openDetail === 'function') openDetail(id);
+      });
+    });
+  }
+}
+
+/* ─── Overview tab ───────────────────────────────────────────────── */
+
+function renderPartOverviewTab(p) {
+  return `
+    <div class="eq-part-overview">
+      <div class="eq-part-photo-wrap">
+        <button class="eq-part-photo-btn" data-action="upload-photo" aria-label="Upload part photo">
+          ${p.photo_url
+            ? `<img src="${esc(p.photo_url)}" class="eq-part-photo-img" alt="">`
+            : `<div class="eq-part-photo-placeholder">
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              </div>`}
+          <span class="eq-part-photo-badge" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </span>
+        </button>
+        <input type="file" class="eq-part-photo-file" accept="image/*" hidden>
+      </div>
+
+      <form class="eq-part-form">
+        <div class="eq-part-form-field">
+          <label class="eq-part-form-label" for="ppName">Part name</label>
+          <input class="eq-part-form-input" id="ppName" name="part_name" value="${esc(p.part_name || '')}" required>
+        </div>
+
+        <div class="eq-part-form-row">
+          <div class="eq-part-form-field">
+            <label class="eq-part-form-label" for="ppOem">OEM number</label>
+            <input class="eq-part-form-input" id="ppOem" name="oem_part_number" value="${esc(p.oem_part_number || '')}">
+          </div>
+          <div class="eq-part-form-field">
+            <label class="eq-part-form-label" for="ppQty">Quantity</label>
+            <input class="eq-part-form-input" id="ppQty" name="quantity" type="number" min="1" value="${p.quantity || 1}">
+          </div>
+        </div>
+
+        <div class="eq-part-form-field">
+          <label class="eq-part-form-label" for="ppPath">Assembly path <span class="eq-part-form-hint">— how to find it ("compressor → fan motor")</span></label>
+          <input class="eq-part-form-input" id="ppPath" name="assembly_path" value="${esc(p.assembly_path || '')}" placeholder="compressor → refrigeration → fan">
+        </div>
+
+        <div class="eq-part-form-section">Sourcing</div>
+        <div class="eq-part-form-row">
+          <div class="eq-part-form-field">
+            <label class="eq-part-form-label" for="ppSupplier">Supplier</label>
+            <input class="eq-part-form-input" id="ppSupplier" name="supplier" value="${esc(p.supplier || '')}" placeholder="Parts Town">
+          </div>
+          <div class="eq-part-form-field">
+            <label class="eq-part-form-label" for="ppPrice">Last price ($)</label>
+            <input class="eq-part-form-input" id="ppPrice" name="last_price" type="number" step="0.01" value="${p.last_price || ''}">
+          </div>
+        </div>
+        <div class="eq-part-form-field">
+          <label class="eq-part-form-label" for="ppSupUrl">Supplier URL</label>
+          <input class="eq-part-form-input" id="ppSupUrl" name="supplier_url" type="url" value="${esc(p.supplier_url || '')}" placeholder="https://partstown.com/...">
+        </div>
+        <div class="eq-part-form-field">
+          <label class="eq-part-form-label" for="ppLead">Lead time (days)</label>
+          <input class="eq-part-form-input" id="ppLead" name="lead_time_days" type="number" min="0" value="${p.lead_time_days || ''}" placeholder="3">
+        </div>
+
+        <div class="eq-part-form-section">Replacement schedule</div>
+        <div class="eq-part-form-row">
+          <div class="eq-part-form-field">
+            <label class="eq-part-form-label" for="ppInterval">Interval (months)</label>
+            <input class="eq-part-form-input" id="ppInterval" name="replacement_interval_months" type="number" min="0" value="${p.replacement_interval_months || ''}" placeholder="12">
+          </div>
+          <div class="eq-part-form-field">
+            <label class="eq-part-form-label" for="ppLastReplaced">Last replaced</label>
+            <input class="eq-part-form-input" id="ppLastReplaced" name="last_replaced_at" type="date" value="${p.last_replaced_at ? new Date(p.last_replaced_at).toISOString().slice(0,10) : ''}">
+          </div>
+        </div>
+        ${p._nextDue ? `
+          <div class="eq-part-due-banner ${p._nextDueDaysLeft < 0 ? 'is-overdue' : p._nextDueDaysLeft <= 30 ? 'is-soon' : ''}">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span>
+              Next replacement
+              ${p._nextDueDaysLeft < 0
+                ? `<strong>${Math.abs(p._nextDueDaysLeft)} days overdue</strong>`
+                : p._nextDueDaysLeft === 0
+                  ? `<strong>today</strong>`
+                  : `due in <strong>${p._nextDueDaysLeft} days</strong>`}
+              · ${p._nextDue.toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' })}
+            </span>
+          </div>
+        ` : ''}
+
+        <div class="eq-part-form-section">Notes</div>
+        <div class="eq-part-form-field">
+          <textarea class="eq-part-form-textarea" id="ppNotes" name="notes" rows="4" placeholder="Tools needed, common gotchas, where it sits…">${esc(p.notes || '')}</textarea>
+        </div>
+
+        <button type="button" class="eq-part-form-delete" data-action="delete">Delete this part</button>
+      </form>
+    </div>
+  `;
+}
+
+function wirePartOverviewForm(p) {
+  const overlay = partsState.overlay;
+  const photoBtn = overlay.querySelector('[data-action="upload-photo"]');
+  const fileInput = overlay.querySelector('.eq-part-photo-file');
+
+  photoBtn?.addEventListener('click', () => fileInput?.click());
+  fileInput?.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type || !file.type.startsWith('image/')) {
+      NX.toast && NX.toast('Please pick an image file', 'warn');
+      return;
+    }
+    if (file.size > 12 * 1024 * 1024) {
+      NX.toast && NX.toast('Image too large (12 MB max)', 'warn');
+      return;
+    }
+    try {
+      // Reuse the equipment-side downscaler (added in the brand-library batch).
+      const dataUrl = await downscaleEquipmentImage(file, 512, 0.85);
+      // Live preview.
+      const wrap = overlay.querySelector('.eq-part-photo-btn');
+      if (wrap) {
+        wrap.querySelector('.eq-part-photo-placeholder')?.remove();
+        let img = wrap.querySelector('.eq-part-photo-img');
+        if (!img) {
+          img = document.createElement('img');
+          img.className = 'eq-part-photo-img';
+          wrap.insertBefore(img, wrap.firstChild);
+        }
+        img.src = dataUrl;
+      }
+      // Stash the new URL on the active part so saveOverview picks it up.
+      p._pendingPhotoUrl = dataUrl;
+      NX.toast && NX.toast('Photo set — tap Save to apply', 'info', 1400);
+    } catch (err) {
+      console.error('[equipment] part photo upload:', err);
+      NX.toast && NX.toast('Could not process that image', 'error');
+    }
+  });
+
+  overlay.querySelector('[data-action="delete"]')?.addEventListener('click', async () => {
+    if (!confirm(`Delete "${p.part_name}" from the catalog? This can't be undone.`)) return;
+    try {
+      const { error } = await NX.sb.from('equipment_parts').delete().eq('id', p.id);
+      if (error) throw error;
+      partsState.list = partsState.list.filter(x => x.id !== p.id);
+      partsState.mode = 'list';
+      partsState.activeId = null;
+      partsState.activePart = null;
+      renderParts2();
+      NX.toast && NX.toast('Part deleted', 'info', 1100);
+    } catch (e) {
+      console.error('[equipment] deletePart:', e);
+      NX.toast && NX.toast('Could not delete: ' + (e.message || ''), 'error');
+    }
+  });
+}
+
+async function savePartOverview(p) {
+  const overlay = partsState.overlay;
+  const form = overlay.querySelector('.eq-part-form');
+  if (!form) return;
+
+  const fd = new FormData(form);
+  const update = {};
+  // String fields.
+  for (const key of ['part_name', 'oem_part_number', 'assembly_path', 'supplier', 'supplier_url', 'notes']) {
+    const v = (fd.get(key) || '').toString().trim();
+    update[key] = v || null;
+  }
+  // Numeric fields.
+  for (const key of ['quantity', 'lead_time_days', 'replacement_interval_months']) {
+    const v = (fd.get(key) || '').toString().trim();
+    update[key] = v ? parseInt(v, 10) : null;
+  }
+  const price = (fd.get('last_price') || '').toString().trim();
+  update.last_price = price ? parseFloat(price) : null;
+  // Date.
+  const lastRepl = (fd.get('last_replaced_at') || '').toString().trim();
+  update.last_replaced_at = lastRepl ? new Date(lastRepl).toISOString() : null;
+  // Photo.
+  if (p._pendingPhotoUrl) update.photo_url = p._pendingPhotoUrl;
+
+  try {
+    const { data, error } = await NX.sb.from('equipment_parts')
+      .update(update).eq('id', p.id).select('*').single();
+    if (error) {
+      // If a column doesn't exist, retry with only the always-existing columns.
+      if (/column.*does not exist/i.test(error.message || '')) {
+        const safe = {};
+        for (const k of ['part_name', 'oem_part_number', 'quantity', 'supplier', 'supplier_url', 'last_price', 'assembly_path', 'notes']) {
+          if (k in update) safe[k] = update[k];
+        }
+        const retry = await NX.sb.from('equipment_parts').update(safe).eq('id', p.id).select('*').single();
+        if (retry.error) throw retry.error;
+        Object.assign(p, retry.data);
+        NX.toast && NX.toast('Saved — some new fields need a DB migration', 'warn', 2400);
+      } else {
+        throw error;
+      }
+    } else {
+      Object.assign(p, data);
+    }
+    delete p._pendingPhotoUrl;
+    // Recompute next-due hints.
+    if (p.last_replaced_at && p.replacement_interval_months) {
+      const last = new Date(p.last_replaced_at);
+      const next = new Date(last);
+      next.setMonth(next.getMonth() + (parseInt(p.replacement_interval_months, 10) || 0));
+      p._nextDue = next;
+      p._nextDueDaysLeft = Math.floor((next - Date.now()) / 86400000);
+    }
+    renderParts2();
+    NX.toast && NX.toast('Part saved', 'success', 1400);
+  } catch (e) {
+    console.error('[equipment] savePartOverview:', e);
+    NX.toast && NX.toast('Could not save: ' + (e.message || ''), 'error');
+  }
+}
+
+async function markPartReplaced(p) {
+  const cost = prompt(`Replacement cost for ${p.part_name}? (leave blank to skip)`);
+  const supplier = cost != null ? prompt(`Supplier this time? (default: ${p.supplier || 'unknown'})`) : null;
+
+  const now = new Date().toISOString();
+  const update = { last_replaced_at: now };
+  if (cost && parseFloat(cost) > 0) update.last_price = parseFloat(cost);
+  if (supplier && supplier.trim()) update.supplier = supplier.trim();
+
+  // Append to replacement_history (best-effort — column may not exist).
+  const history = Array.isArray(p.replacement_history) ? p.replacement_history.slice() : [];
+  history.unshift({
+    date: now,
+    cost: update.last_price || null,
+    vendor: update.supplier || p.supplier || null,
+    by: NX.user?.name || NX.currentUser?.name || null,
+  });
+  update.replacement_history = history;
+
+  try {
+    const { data, error } = await NX.sb.from('equipment_parts')
+      .update(update).eq('id', p.id).select('*').single();
+    if (error) {
+      // Try without replacement_history if the column doesn't exist.
+      if (/column.*does not exist/i.test(error.message || '')) {
+        delete update.replacement_history;
+        const retry = await NX.sb.from('equipment_parts').update(update).eq('id', p.id).select('*').single();
+        if (retry.error) throw retry.error;
+        Object.assign(p, retry.data);
+      } else throw error;
+    } else {
+      Object.assign(p, data);
+    }
+
+    // Optionally log a maintenance event so the timeline reflects it.
+    if (p.equipment_id) {
+      try {
+        await NX.sb.from('equipment_maintenance').insert({
+          equipment_id: p.equipment_id,
+          event_date: now.slice(0, 10),
+          event_type: 'part_replacement',
+          description: `Replaced ${p.part_name}${p.oem_part_number ? ` (OEM ${p.oem_part_number})` : ''}`,
+          performed_by: NX.user?.name || null,
+          cost: update.last_price || null,
+        });
+      } catch (mE) {
+        console.warn('[equipment] could not log maintenance for part replacement:', mE.message || mE);
+      }
+    }
+
+    // Recompute next-due.
+    if (p.last_replaced_at && p.replacement_interval_months) {
+      const last = new Date(p.last_replaced_at);
+      const next = new Date(last);
+      next.setMonth(next.getMonth() + (parseInt(p.replacement_interval_months, 10) || 0));
+      p._nextDue = next;
+      p._nextDueDaysLeft = Math.floor((next - Date.now()) / 86400000);
+    }
+    renderParts2();
+    NX.toast && NX.toast('Replacement logged ✓', 'success', 1500);
+  } catch (e) {
+    console.error('[equipment] markPartReplaced:', e);
+    NX.toast && NX.toast('Could not log: ' + (e.message || ''), 'error');
+  }
+}
+
+/* ─── History tab ────────────────────────────────────────────────── */
+
+function renderPartHistoryTab(p) {
+  const history = Array.isArray(p.replacement_history) ? p.replacement_history : [];
+  if (!history.length) {
+    return `
+      <div class="eq-parts-empty">
+        <div class="eq-parts-empty-title">No replacement history yet</div>
+        <div class="eq-parts-empty-msg">Tap <strong>Mark replaced</strong> at the bottom when this part gets swapped — the date, cost, and supplier get logged here.</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="eq-part-history">
+      ${history.map((h, i) => {
+        const d = new Date(h.date);
+        const isLatest = i === 0;
+        return `
+          <div class="eq-part-history-row ${isLatest ? 'is-latest' : ''}">
+            <div class="eq-part-history-marker">
+              <div class="eq-part-history-dot"></div>
+              ${i < history.length - 1 ? '<div class="eq-part-history-line"></div>' : ''}
+            </div>
+            <div class="eq-part-history-body">
+              <div class="eq-part-history-date">${esc(d.toLocaleDateString([], { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' }))}${isLatest ? ' <span class="eq-part-history-badge">latest</span>' : ''}</div>
+              <div class="eq-part-history-meta">
+                ${h.cost ? `<span class="eq-part-history-cost">$${parseFloat(h.cost).toFixed(2)}</span>` : ''}
+                ${h.cost && h.vendor ? ` · ` : ''}
+                ${h.vendor ? `<span>${esc(h.vendor)}</span>` : ''}
+                ${(h.cost || h.vendor) && h.by ? ` · ` : ''}
+                ${h.by ? `<span class="eq-part-history-by">by ${esc(h.by)}</span>` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+/* ─── Compatibility tab ──────────────────────────────────────────── */
+
+function renderPartCompatibilityTab(p) {
+  const allEquip = (typeof equipment !== 'undefined' && equipment) ? equipment : [];
+  const compatIds = new Set(Array.isArray(p.compatible_equipment_ids) ? p.compatible_equipment_ids : []);
+
+  const primary = p._equipment;
+  const linked = allEquip.filter(e => compatIds.has(e.id));
+  const candidates = allEquip.filter(e => !compatIds.has(e.id) && e.id !== p.equipment_id);
+
+  return `
+    <div class="eq-parts-intro">
+      <strong>Cross-equipment compatibility.</strong> Mark every piece of equipment this part fits — when one breaks, you'll know if a spare from a different unit can be cannibalized, and bulk PM scheduling can include all units that need this part replaced.
+    </div>
+
+    ${primary ? `
+      <div class="eq-parts-section-label">Primary equipment</div>
+      <div class="eq-part-compat-list">
+        <div class="eq-part-compat-row is-primary">
+          <div class="eq-part-compat-name">${esc(primary.name)}</div>
+          <div class="eq-part-compat-meta">${esc(primary.location || '')}${primary.area ? ' · ' + esc(primary.area) : ''}${primary.manufacturer ? ' · ' + esc(primary.manufacturer) : ''}${primary.model ? ' ' + esc(primary.model) : ''}</div>
+        </div>
+      </div>
+    ` : ''}
+
+    ${linked.length ? `
+      <div class="eq-parts-section-label">Also fits · ${linked.length}</div>
+      <div class="eq-part-compat-list">
+        ${linked.map(e => `
+          <div class="eq-part-compat-row" data-equip-id="${esc(e.id)}">
+            <div class="eq-part-compat-info">
+              <div class="eq-part-compat-name">${esc(e.name)}</div>
+              <div class="eq-part-compat-meta">${esc(e.location || '')}${e.area ? ' · ' + esc(e.area) : ''}${e.manufacturer ? ' · ' + esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}</div>
+            </div>
+            <button class="eq-part-compat-remove" data-remove-equip="${esc(e.id)}" aria-label="Remove">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
+
+    ${candidates.length ? `
+      <div class="eq-parts-section-label">Add to more equipment</div>
+      <button class="eq-part-compat-bulk-btn" data-action="open-bulk-compat" type="button">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        <span>Pick multiple equipment at once</span>
+      </button>
+      <div class="eq-part-compat-or">— or pick one —</div>
+      <select class="eq-part-compat-add" id="ppCompatAdd">
+        <option value="">— pick equipment to link —</option>
+        ${candidates.map(e => `
+          <option value="${esc(e.id)}">${esc(e.name)}${e.location ? ' (' + esc(e.location) + ')' : ''}${e.manufacturer ? ' — ' + esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}</option>
+        `).join('')}
+      </select>
+    ` : ''}
+  `;
+}
+
+function wirePartCompatibilityTab(p) {
+  const overlay = partsState.overlay;
+  const select = overlay.querySelector('#ppCompatAdd');
+  select?.addEventListener('change', async (e) => {
+    const eqId = e.target.value;
+    if (!eqId) return;
+    const compatIds = new Set(Array.isArray(p.compatible_equipment_ids) ? p.compatible_equipment_ids : []);
+    compatIds.add(eqId);
+    await persistPartCompatibility(p, Array.from(compatIds));
+  });
+
+  // Bulk-pick button → opens a multi-select sheet.
+  const bulkBtn = overlay.querySelector('[data-action="open-bulk-compat"]');
+  bulkBtn?.addEventListener('click', () => openBulkCompatibilitySheet(p));
+
+  overlay.querySelectorAll('[data-remove-equip]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const eqId = btn.dataset.removeEquip;
+      const compatIds = new Set(Array.isArray(p.compatible_equipment_ids) ? p.compatible_equipment_ids : []);
+      compatIds.delete(eqId);
+      await persistPartCompatibility(p, Array.from(compatIds));
+    });
+  });
+}
+
+/**
+ * Open a bottom sheet with checkboxes for every piece of equipment NOT
+ * already linked to this part. Equipment of the same manufacturer
+ * floats to the top — most likely candidates for sharing the OEM part.
+ *
+ * The Zumex use case in one screen: the Versatile, Speed Pro, and
+ * Essential all use the same OEM filter. From the part's compat tab,
+ * tap "Pick multiple", check all 3, hit "Apply to 3 equipment".
+ */
+function openBulkCompatibilitySheet(p) {
+  const allEquip = (typeof equipment !== 'undefined' && equipment) ? equipment : [];
+  const compatIds = new Set(Array.isArray(p.compatible_equipment_ids) ? p.compatible_equipment_ids : []);
+  // Eligible: not already linked AND not the primary equipment.
+  const candidates = allEquip.filter(e => !compatIds.has(e.id) && e.id !== p.equipment_id);
+
+  // Sort by same-manufacturer-first.
+  const primary = p._equipment;
+  const primaryMfg = (primary?.manufacturer || '').toLowerCase();
+  candidates.sort((a, b) => {
+    const aMatch = primaryMfg && (a.manufacturer || '').toLowerCase() === primaryMfg ? 1 : 0;
+    const bMatch = primaryMfg && (b.manufacturer || '').toLowerCase() === primaryMfg ? 1 : 0;
+    if (aMatch !== bMatch) return bMatch - aMatch;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  if (!candidates.length) {
+    NX.toast && NX.toast('All equipment is already linked to this part', 'info', 1800);
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  const selected = new Set();
+
+  const renderSheet = () => {
+    overlay.innerHTML = `
+      <div class="eq-bulk-sheet-backdrop"></div>
+      <div class="eq-bulk-sheet">
+        <div class="eq-bulk-sheet-handle"></div>
+        <div class="eq-bulk-sheet-title">Mark this part compatible with which equipment?</div>
+        <div class="eq-bulk-sheet-sub">${primaryMfg ? `Same-brand units (${esc(primary.manufacturer)}) are listed first — most likely to share OEM parts.` : 'Pick every piece of equipment this part fits.'}</div>
+        <div class="eq-bulk-sheet-list">
+          ${candidates.map(e => {
+            const isSel = selected.has(e.id);
+            const sameBrand = primaryMfg && (e.manufacturer || '').toLowerCase() === primaryMfg;
+            return `
+              <button class="eq-bulk-sheet-item eq-bulk-apply-item ${isSel ? 'is-selected' : ''} ${sameBrand ? 'is-same-brand' : ''}" data-id="${esc(e.id)}" type="button">
+                <div class="eq-bulk-apply-check">
+                  ${isSel ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+                </div>
+                <div class="eq-bulk-sheet-item-text">
+                  <div class="eq-bulk-sheet-item-name">${esc(e.name)}</div>
+                  <div class="eq-bulk-sheet-item-sub">${esc(e.location || '')}${e.manufacturer ? ' · ' + esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}</div>
+                </div>
+                ${sameBrand ? '<span class="eq-bulk-apply-badge">SAME BRAND</span>' : ''}
+              </button>
+            `;
+          }).join('')}
+        </div>
+        <button class="eq-bulk-sheet-confirm" data-action="confirm" ${selected.size === 0 ? 'disabled' : ''} type="button">
+          Apply to ${selected.size} equipment
+        </button>
+        <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Cancel</button>
+      </div>
+    `;
+    overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', close);
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+    overlay.querySelectorAll('[data-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        if (selected.has(id)) selected.delete(id);
+        else                  selected.add(id);
+        renderSheet();
+      });
+    });
+    overlay.querySelector('[data-action="confirm"]').addEventListener('click', applyConfirm);
+  };
+
+  const close = () => overlay.remove();
+
+  const applyConfirm = async () => {
+    if (!selected.size) return;
+    // Add all selected ids to the existing compatibility array.
+    const newIds = Array.from(new Set([...compatIds, ...selected]));
+    close();
+    await persistPartCompatibility(p, newIds);
+    NX.toast && NX.toast(`Linked to ${selected.size} more equipment`, 'success', 1800);
+  };
+
+  document.body.appendChild(overlay);
+  renderSheet();
+}
+
+async function persistPartCompatibility(p, ids) {
+  try {
+    const { data, error } = await NX.sb.from('equipment_parts')
+      .update({ compatible_equipment_ids: ids }).eq('id', p.id).select('*').single();
+    if (error) throw error;
+    Object.assign(p, data);
+    // Re-derive _compatible from the in-memory equipment list.
+    const eqList = (typeof equipment !== 'undefined' && equipment) ? equipment : [];
+    p._compatible = ids.map(id => eqList.find(e => e.id === id)).filter(Boolean);
+    p._usedByCount = (p.equipment_id ? 1 : 0) + ids.filter(id => id !== p.equipment_id).length;
+    renderParts2();
+    NX.toast && NX.toast('Compatibility updated', 'success', 1100);
+  } catch (e) {
+    console.error('[equipment] persistPartCompatibility:', e);
+    const msg = (e.message || '') + '';
+    if (/column.*does not exist/i.test(msg)) {
+      NX.toast && NX.toast('Compatibility needs a DB migration — see notes', 'warn', 2400);
+    } else {
+      NX.toast && NX.toast('Could not save: ' + msg, 'error');
+    }
+  }
+}
+
+/* ─── Add new part ───────────────────────────────────────────────── */
+
+async function addNewPart(prefilledEquipId) {
+  // Need an equipment to attach to. If we're in a filtered view, use that.
+  // Otherwise prompt-pick from the equipment list.
+  let equipId = prefilledEquipId;
+  if (!equipId) {
+    const eqList = (typeof equipment !== 'undefined' && equipment) ? equipment : [];
+    if (!eqList.length) {
+      NX.toast && NX.toast('No equipment yet — add equipment first', 'warn');
+      return;
+    }
+    // Quick-and-dirty: prompt with a numbered list. Future: bottom-sheet picker.
+    const lines = eqList.slice(0, 30).map((e, i) => `${i + 1}. ${e.name}${e.location ? ' — ' + e.location : ''}`).join('\n');
+    const choice = prompt(`Which equipment owns this part?\n\n${lines}${eqList.length > 30 ? `\n\n…and ${eqList.length - 30} more (type the name to search)` : ''}\n\nType a number or name:`);
+    if (!choice) return;
+    let pick = null;
+    const idx = parseInt(choice, 10);
+    if (Number.isFinite(idx) && idx > 0 && idx <= eqList.length) {
+      pick = eqList[idx - 1];
+    } else {
+      const lower = choice.toLowerCase();
+      pick = eqList.find(e => (e.name || '').toLowerCase().includes(lower));
+    }
+    if (!pick) {
+      NX.toast && NX.toast('Could not match that equipment', 'warn');
+      return;
+    }
+    equipId = pick.id;
+  }
+
+  const name = prompt('Part name:');
+  if (!name || !name.trim()) return;
+
+  try {
+    const { data, error } = await NX.sb.from('equipment_parts').insert({
+      equipment_id: equipId,
+      part_name: name.trim(),
+      quantity: 1,
+    }).select('*').single();
+    if (error) throw error;
+    // Annotate the new row with derived fields and open detail.
+    const eqLookup = partsState.equipmentLookup || {};
+    data._equipment = eqLookup[equipId] || null;
+    data._compatible = [];
+    data._usedByCount = 1;
+    data._nextDue = null;
+    data._nextDueDaysLeft = null;
+    partsState.list.unshift(data);
+    partsState.mode = 'detail';
+    partsState.activeId = data.id;
+    partsState.activePart = data;
+    partsState.detailTab = 'overview';
+    renderParts2();
+    NX.toast && NX.toast('Part created — fill in the details', 'info', 1500);
+  } catch (e) {
+    console.error('[equipment] addNewPart:', e);
+    NX.toast && NX.toast('Could not add: ' + (e.message || ''), 'error');
+  }
+}
+
+
+NX.modules.equipment = {
+  // Lifecycle
+  init,
+  show: buildUI,
+  add: () => openEditModal(null),
+  edit: openFullEditor,           // The canonical "edit" is the full 6-tab editor
+
+  // List/detail
+  openDetail,
+  closeDetail,
+  loadEquipment,
+  buildUI,
+  getFiltered,
+  reportIssue,       // Creates a board card prefilled with this equipment
+
+  // Add/edit modal (simple form)
+  closeEdit,
+  deleteEquipment,
+
+  // Service log + parts
+  logService,
+  closeService,
+  deleteMaintenance,
+  approvePmLog,
+  rejectPmLog,
+  markPmSpam,
+  addPart,
+  editPart,
+  deletePart,
+  closePart,
+
+  // Manual
+  removeManual,
+  uploadManual,
+  autoFetchManual,
+
+  // AI intelligence
+  scanDataPlate,
+  detectPatterns,
+  analyzeCost,
+  renderIntelligenceTab,
+  scanFleet,
+  suggestPMDate,
+  applyPredictivePM,
+  extractBOMFromManual,
+  exportPartsCart,
+  checkWarranties,
+
+  // AI create
+  openAICreator,
+  openDescribeDialog,
+  photoIdentify,
+  bulkIdentify,
+  createFromDescription,
+
+  // Full editor + attachments
+  openFullEditor,
+  closeFullEdit,
+  addAttachment,
+  deleteAttachment,
+  editAttachmentDesc,
+  uploadPhoto,
+  replacePhoto,
+  quickReplacePhoto,
+  removePhoto,
+  deleteCustomField,
+
+  // Printing
+  generateZPL,
+  generateZPLBatch,
+  openZebraPrintDialog,
+  printZebraSingle,
+  printZebraBatch,
+  quickPrint,
+  printSingleQR,
+  printQRSheet,
+  printServiceLog,
+  copyQRLink,
+  printInventoryStickers,    // Phase C — inventory uses the same sticker engine
+
+  // Public scan (pre-auth)
+  renderPublicScanView,
+  publicReportIssue,
+
+  // Lineage
+  loadFamily,
+  pickParent,
+  pickChild,
+  unsetParent,
+
+  // Dispatch
+  openDispatchSheet,
+  loadContractors,
+  cycleDispatchOutcome,
+  dispatchFromTicket,
+  callService,
+  lookupServicePhoneFromNode,
+  toggleOverflow,
+  enhancePartsList,
+  enhanceManualPanel,
+
+  // Issue tracker (lifecycle)
+  openIssueTracker,
+  closeIssueTracker,
+  loadEquipmentIssues,
+  loadOpenIssuesByEquipment,
+  transitionIssueTo,
+  emailContractorAboutIssue,
+
+  // Bulk operations
+  enterBulkMode,
+  exitBulkMode,
+  toggleBulkSelection,
+  openBulkContractorAssign,
+  openBulkPmSchedule,
+  schedulePmFromOverflow,
+
+  // Manufacturers / brand library
+  loadManufacturers,
+  resolveManufacturer,
+  manufacturerLogo,
+  autoLinkManufacturer,
+  openBrandLibrary,
+  closeBrandLibrary,
+
+  // Fleet Intelligence — analytics
+  openAnalytics,
+  closeAnalytics,
+  computeFleetSnapshot,
+  buildDigestText,
+  detectFailurePatterns,
+
+  // Contractors — full management overlay
+  openContractors,
+  closeContractors,
+  openContractorDetail,
+  addNewContractor,
+
+  // Long-press action dial
+  wireEquipmentLongPress,
+  openEquipmentActionsDial,
+  closeEquipmentActionsDial,
+
+  // Parts catalog (fleet-wide)
+  openParts,
+  openPartsForEquipment,
+  openPartDetail,
+  closeParts,
+  loadPartsList,
+  markPartReplaced,
+};
+
+console.log('[Equipment] unified module loaded — ' + Object.keys(NX.modules.equipment).length + ' exports');
+
+})();
