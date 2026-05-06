@@ -898,7 +898,7 @@
                    <button class="ord-recipient-edit" id="ordRecipientEdit">Change</button>
                  </div>`
               : `<div class="ord-recipient-missing">
-                   <div class="ord-recipient-warn">⚠ No email set for ${esc(vendor.name)}</div>
+                   <div class="ord-recipient-warn"><i data-lucide="alert-triangle" class="ord-warn-icon"></i> No email set for ${esc(vendor.name)}</div>
                    <input type="email" class="ord-recipient-input" id="ordRecipientInput" placeholder="vendor@example.com">
                    <button class="ord-recipient-save" id="ordRecipientSave">Save email</button>
                  </div>`
