@@ -1019,9 +1019,10 @@ IMPORTANT:
                                         : 'error');
     card.dataset.actionId = logged.id || '';
 
-    const icon = logged.result_status === 'success' ? '⚡'
-               : logged.result_status === 'blocked' ? '🔒'
-               : '⚠';
+    const iconName = logged.result_status === 'success' ? 'zap'
+               : logged.result_status === 'blocked' ? 'lock'
+               : 'alert-triangle';
+    const icon = `<i data-lucide="${iconName}"></i>`;
     const statusColor = logged.result_status === 'success' ? 'var(--accent)'
                       : logged.result_status === 'blocked' ? 'var(--muted)'
                       : 'var(--red)';
