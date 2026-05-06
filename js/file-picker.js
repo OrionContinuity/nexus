@@ -2,9 +2,9 @@
    NEXUS Universal File Picker v1
    
    One consistent file-picker popup used across the entire app:
-     📷 Take Photo       (opens camera, single photo)
-     🖼 Photo Library    (device gallery, supports multi-select)
-     📎 Files            (any file type — PDFs, docs, etc)
+     • Take Photo       (opens camera, single photo)
+     • Photo Library    (device gallery, supports multi-select)
+     • Files            (any file type — PDFs, docs, etc)
    
    Usage:
      NX.filePicker.open({
@@ -76,7 +76,7 @@
     if (sources.includes('camera') && (acceptsImage || acceptsAny)) {
       buttons.push({
         key: 'camera',
-        icon: '📷',
+        icon: 'camera',
         name: 'Take Photo',
         sub: 'Use rear camera'
       });
@@ -86,7 +86,7 @@
     if (sources.includes('library') && (acceptsImage || acceptsAny)) {
       buttons.push({
         key: 'library',
-        icon: '🖼️',
+        icon: 'image',
         name: 'Photo Library',
         sub: multiple ? 'Choose one or many' : 'Choose one'
       });
@@ -96,7 +96,7 @@
     if (sources.includes('files')) {
       buttons.push({
         key: 'files',
-        icon: '📎',
+        icon: 'paperclip',
         name: 'Files',
         sub: fileTypesLabel(accept)
       });
