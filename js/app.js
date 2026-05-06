@@ -1,3 +1,4 @@
+Try AI directly in your favorite apps … Use Gemini to generate drafts and refine content, plus get Gemini Pro with access to Google's next-gen AI for $19.99 $9.99 for 2 months
 /* ═══════════════════════════════════════════
    NEXUS v10 — PIN Auth + Supabase Config
    Keys in DB, not localStorage. PIN login.
@@ -1012,63 +1013,85 @@ td.check{background:#F0EDE6 !important}
     // navigate. Without this, every stat-tile tap is a silent no-op.
     NX.switchTo = switchTo;
 
-    // ─── DUTIES SPEED-DIAL ───────────────────────────────────────────
-    // The Duties bottom-nav button doesn't navigate directly anymore.
-    // Tapping it opens a vertical FAB-style action menu with two options
-    // (Cleaning / Ordering); the option's click then does the navigation
-    // AND activates the chosen pane. Tapping the duties button while the
-    // dial is open closes it. Tapping the backdrop also closes.
+    // ─── SPEED-DIAL HELPER (reusable) ────────────────────────────────
+    // Wires a `.nx-speed-dial` overlay to a trigger button. Generic enough
+    // to be reused: a single helper owns the open/close/toggle/dismiss
+    // behavior, and you pass a callback for what to do when an action
+    // is picked.
     //
-    // Why this is in app.js (not duties.js): the dial is part of the
-    // bottom-nav UX (always-on chrome), whereas duties.js only loads on
-    // first navigation to the clean view. Wiring here means the dial
-    // works from cold start, no module-load race.
-    const dial      = document.getElementById('dutiesDial');
-    const dutiesBtn = document.querySelector('.bnav-btn[data-view="clean"]');
-    if (dial && dutiesBtn) {
-      const openDial  = () => {
-        dial.classList.add('is-open');
-        dial.setAttribute('aria-hidden', 'false');
-        dutiesBtn.classList.add('is-dial-open');
-      };
-      const closeDial = () => {
-        dial.classList.remove('is-open');
-        dial.setAttribute('aria-hidden', 'true');
-        dutiesBtn.classList.remove('is-dial-open');
-      };
+    //   NX.bindSpeedDial(triggerEl, dialEl, onAction)
+    //
+    // - triggerEl: the button that toggles the dial (gets `.is-dial-open`)
+    // - dialEl:    the `<div class="nx-speed-dial">` overlay element
+    // - onAction:  function(target, actionEl) called when an action is tapped
+    //
+    // Returns { open, close, toggle, isOpen }.
+    //
+    // The helper handles: backdrop dismiss, ESC-to-close, click on action
+    // buttons, ARIA aria-hidden, and the state class on the trigger.
+    function bindSpeedDial(triggerEl, dialEl, onAction) {
+      if (!triggerEl || !dialEl) return null;
 
-      // Tap duties bnav button → toggle dial
-      dutiesBtn.addEventListener('click', (e) => {
+      const open = () => {
+        dialEl.classList.add('is-open');
+        dialEl.setAttribute('aria-hidden', 'false');
+        triggerEl.classList.add('is-dial-open');
+      };
+      const close = () => {
+        dialEl.classList.remove('is-open');
+        dialEl.setAttribute('aria-hidden', 'true');
+        triggerEl.classList.remove('is-dial-open');
+      };
+      const isOpen = () => dialEl.classList.contains('is-open');
+      const toggle = () => { isOpen() ? close() : open(); };
+
+      // Trigger toggle
+      triggerEl.addEventListener('click', (e) => {
         e.preventDefault();
-        if (dial.classList.contains('is-open')) closeDial(); else openDial();
+        toggle();
       });
 
-      // Tap backdrop → close
-      const backdrop = dial.querySelector('[data-dial-close]');
-      if (backdrop) backdrop.addEventListener('click', closeDial);
+      // Backdrop dismiss
+      const backdrop = dialEl.querySelector('[data-dial-close]');
+      if (backdrop) backdrop.addEventListener('click', close);
 
-      // Tap an action → close dial, switch to clean view, activate pane
-      dial.querySelectorAll('.nx-speed-dial-action').forEach(actionBtn => {
-        actionBtn.addEventListener('click', () => {
-          const target = actionBtn.dataset.target;
-          closeDial();
-          switchTo('clean');
-          // Defer activatePane until after switchTo's view-switch + lazy
-          // module load has settled. duties.js is loaded by activateModule
-          // during switchTo, so activatePane is available a tick later.
-          setTimeout(() => {
-            if (NX.modules && NX.modules.duties && NX.modules.duties.activatePane) {
-              NX.modules.duties.activatePane(target);
-            }
-          }, 80);
+      // Action buttons
+      dialEl.querySelectorAll('.nx-speed-dial-action').forEach(actionEl => {
+        actionEl.addEventListener('click', () => {
+          const target = actionEl.dataset.target;
+          close();
+          if (typeof onAction === 'function') {
+            try { onAction(target, actionEl); }
+            catch (err) { console.error('[speed-dial] action handler failed:', err); }
+          }
         });
       });
 
-      // ESC closes the dial (keyboard users + mouse users with a key)
+      // ESC key (global — closes whichever dial is open)
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && dial.classList.contains('is-open')) closeDial();
+        if (e.key === 'Escape' && isOpen()) close();
       });
+
+      return { open, close, toggle, isOpen };
     }
+    NX.bindSpeedDial = bindSpeedDial;
+
+    // ─── DUTIES SPEED-DIAL (uses the helper above) ──────────────────
+    // Tap Duties → opens speed-dial with Cleaning + Ordering.
+    // Pick one → dial closes, view switches to clean, pane activates.
+    const dutiesDial = document.getElementById('dutiesDial');
+    const dutiesBtn  = document.querySelector('.bnav-btn[data-view="clean"]');
+    bindSpeedDial(dutiesBtn, dutiesDial, (target) => {
+      switchTo('clean');
+      // Defer activatePane until after switchTo's view-switch + lazy
+      // module load has settled. duties.js is loaded by activateModule
+      // during switchTo, so activatePane is available a tick later.
+      setTimeout(() => {
+        if (NX.modules && NX.modules.duties && NX.modules.duties.activatePane) {
+          NX.modules.duties.activatePane(target);
+        }
+      }, 80);
+    });
     // ──────────────────────────────────────────────────────────────────
     // ─── DEFAULT LANDING VIEW: Home ──────────────────────────────────
     // The first thing after login is the Home dashboard (mini-galaxy,
