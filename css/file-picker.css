@@ -35,7 +35,7 @@
   width: 100%;
   max-width: 420px;
   background: rgba(18, 15, 22, 0.98);
-  border: 1px solid rgba(200, 164, 78, 0.35);
+  border: 1px solid var(--nx-gold-line-2);
   border-radius: 20px 20px 0 0;
   padding: 16px 14px max(16px, env(safe-area-inset-bottom));
   margin: 0 auto;
@@ -55,7 +55,7 @@
   text-align: center;
   font-size: 12px;
   font-weight: 700;
-  color: var(--accent, #c8a44e);
+  color: var(--accent, var(--accent));
   margin-bottom: 14px;
   text-transform: uppercase;
   letter-spacing: 0.8px;
@@ -75,7 +75,7 @@
   width: 100%;
   padding: 16px 18px;
   background: rgba(20, 18, 26, 0.8);
-  border: 1.5px solid rgba(200, 164, 78, 0.25);
+  border: 1.5px solid var(--nx-gold-line);
   border-radius: 14px;
   color: var(--text, #e6dccc);
   font-family: inherit;
@@ -85,12 +85,12 @@
   -webkit-tap-highlight-color: transparent;
 }
 .nx-fp-btn:active {
-  background: rgba(200, 164, 78, 0.15);
-  border-color: var(--accent, #c8a44e);
+  background: var(--nx-gold-soft);
+  border-color: var(--accent, var(--accent));
   transform: scale(0.98);
 }
 .nx-fp-btn:hover {
-  border-color: rgba(200, 164, 78, 0.5);
+  border-color: var(--nx-gold-line-3);
 }
 
 .nx-fp-icon {
@@ -105,7 +105,7 @@
   flex: 1;
   font-size: 15px;
   font-weight: 700;
-  color: var(--accent, #c8a44e);
+  color: var(--accent, var(--accent));
 }
 
 .nx-fp-sub {
@@ -155,7 +155,7 @@
   width: 100%;
   padding: 13px;
   background: transparent;
-  border: 1px solid rgba(200, 164, 78, 0.22);
+  border: 1px solid var(--nx-gold-line);
   border-radius: 12px;
   color: var(--muted, #8a826f);
   font-family: inherit;
@@ -166,7 +166,7 @@
   -webkit-tap-highlight-color: transparent;
 }
 .nx-fp-cancel:active {
-  background: rgba(200, 164, 78, 0.08);
+  background: var(--nx-gold-faint);
   color: var(--text, #e6dccc);
 }
 
@@ -176,7 +176,7 @@
 }
 [data-theme="light"] .nx-fp-btn {
   background: white;
-  border-color: rgba(200, 164, 78, 0.3);
+  border-color: var(--nx-gold-aura);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -199,7 +199,7 @@
 .btn-mic-float,
 .btn-voice-float {
   position: relative;
-  border: 1.5px solid rgba(200, 164, 78, 0.3) !important;
+  border: 1.5px solid var(--nx-gold-aura) !important;
   background: rgba(20, 18, 26, 0.85) !important;
   color: var(--muted, #8a826f) !important;
   transition: all 0.18s ease-out !important;
@@ -248,31 +248,31 @@
    with subtle glow so user knows responses will be spoken. */
 .btn-voice.on,
 .btn-voice-float.on {
-  background: var(--accent, #c8a44e) !important;
-  border-color: var(--accent, #c8a44e) !important;
+  background: var(--accent, var(--accent)) !important;
+  border-color: var(--accent, var(--accent)) !important;
   color: #1a1408 !important;
   box-shadow:
-    0 0 0 3px rgba(200, 164, 78, 0.2),
-    0 2px 12px rgba(200, 164, 78, 0.35) !important;
+    0 0 0 3px var(--nx-gold-haze),
+    0 2px 12px var(--nx-gold-line-2) !important;
 }
 
 /* ─── CAMERA BUTTON — subtle hover/active to signal interactivity ───────── */
 .hud-tool-btn:hover {
-  border-color: var(--accent, #c8a44e) !important;
-  color: var(--accent, #c8a44e) !important;
+  border-color: var(--accent, var(--accent)) !important;
+  color: var(--accent, var(--accent)) !important;
 }
 
 /* ─── SEND BUTTON — ENABLED vs DISABLED ─────────────────────────────────── */
 /* Send button is ALWAYS amber (it's the primary action) but clearly
    disabled when input is empty. */
 .btn-send {
-  background: var(--accent, #c8a44e) !important;
+  background: var(--accent, var(--accent)) !important;
   color: #1a1408 !important;
   border: none !important;
   transition: all 0.18s !important;
 }
 .btn-send:not(:disabled) {
-  box-shadow: 0 2px 10px rgba(200, 164, 78, 0.35) !important;
+  box-shadow: 0 2px 10px var(--nx-gold-line-2) !important;
 }
 .btn-send:disabled {
   opacity: 0.3 !important;
@@ -283,7 +283,7 @@
 /* ─── LABELED PILLS UNDER BUTTONS (tooltips visible always on focus) ────── */
 /* Optional tiny label that appears on active state so meaning is obvious */
 .btn-voice.on::after {
-  content: '🔊 ON';
+  content: 'ON';
   position: absolute;
   top: calc(100% + 4px);
   left: 50%;
@@ -291,7 +291,7 @@
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.6px;
-  color: var(--accent, #c8a44e);
+  color: var(--accent, var(--accent));
   background: rgba(20, 18, 26, 0.95);
   padding: 2px 6px;
   border-radius: 3px;
