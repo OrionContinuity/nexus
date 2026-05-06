@@ -141,7 +141,7 @@
   width: 100% !important;
   max-width: 460px !important;
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   border-radius: var(--nx-radius-card) !important;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
   overflow: hidden !important;
