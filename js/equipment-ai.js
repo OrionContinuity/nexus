@@ -703,7 +703,7 @@ function injectScanButton() {
   if (!actions || actions.querySelector('.eq-scan-btn')) return;
   const btn = document.createElement('button');
   btn.className = 'eq-btn eq-btn-secondary eq-scan-btn';
-  // SVG camera icon (Lucide path) instead of 📷 emoji to match the
+  // SVG camera icon (Lucide path) instead of an emoji glyph to match the
   // editorial line-art family used everywhere else in the app.
   btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0;margin-right:4px"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Scan Plate';
   btn.title = 'Scan equipment data plate with camera';
