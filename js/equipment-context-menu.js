@@ -560,7 +560,7 @@
         // Log the deletion event to daily_logs for audit
         try {
           await NX.sb.from('daily_logs').insert({
-            entry: `🗑 [DELETE] ${userName()} moved ${meta.label} "${name}" to trash${reason ? ' — ' + reason : ''}`
+            entry: `[DELETE] ${userName()} moved ${meta.label} "${name}" to trash${reason ? ' — ' + reason : ''}`
           });
         } catch (_) {}
 
@@ -591,7 +591,7 @@
       if (error) throw error;
       try {
         await NX.sb.from('daily_logs').insert({
-          entry: `♻ [RESTORE] ${userName()} restored "${name}" from trash`
+          entry: `[RESTORE] ${userName()} restored "${name}" from trash`
         });
       } catch (_) {}
       toast('Restored ✓', 'success');
@@ -1079,7 +1079,7 @@
     font-size: 8pt;
     text-transform: uppercase;
     letter-spacing: 0.5pt;
-    color: #666;
+    color: var(--faint);
   }
   .lbl-footer {
     margin-top: auto;
@@ -1089,14 +1089,14 @@
   .lbl-id {
     font-family: 'JetBrains Mono', 'Courier New', monospace;
     font-size: 7pt;
-    color: #888;
+    color: var(--muted);
   }
   
   /* Print toolbar — visible on screen, hidden on print */
   .print-toolbar {
     position: fixed;
     top: 0; left: 0; right: 0;
-    background: #1a1a1a;
+    background: var(--bg);
     color: white;
     padding: 12px 16px;
     display: flex;
@@ -1107,8 +1107,8 @@
   }
   .print-toolbar h1 { font-size: 14px; font-weight: 600; }
   .print-toolbar button {
-    background: #c8a44e;
-    color: #1a1408;
+    background: var(--accent);
+    color: var(--nx-gold-on);
     border: none;
     padding: 8px 16px;
     border-radius: 6px;
@@ -1296,33 +1296,33 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
-         padding: 0.6in 0.7in; background: white; color: #1a1408; line-height: 1.4; }
+         padding: 0.6in 0.7in; background: white; color: var(--nx-gold-on); line-height: 1.4; }
   @page { size: letter portrait; margin: 0.5in; }
   
-  .rpt-title { font-size: 22pt; font-weight: 700; color: #1a1408; margin-bottom: 4pt; }
-  .rpt-sub { font-size: 11pt; color: #666; margin-bottom: 18pt; padding-bottom: 10pt; border-bottom: 2pt solid #c8a44e; }
-  .rpt-section { font-size: 13pt; font-weight: 700; margin-top: 18pt; margin-bottom: 8pt; color: #1a1408; }
-  .rpt-notes { font-size: 11pt; padding: 10pt 14pt; background: #faf6ec; border-left: 3pt solid #c8a44e; border-radius: 4pt; white-space: pre-wrap; }
-  .rpt-link { font-size: 10pt; font-family: 'Courier New', monospace; color: #555; word-break: break-all; }
-  .rpt-empty { padding: 30pt 0; text-align: center; color: #888; font-style: italic; }
+  .rpt-title { font-size: 22pt; font-weight: 700; color: var(--nx-gold-on); margin-bottom: 4pt; }
+  .rpt-sub { font-size: 11pt; color: var(--faint); margin-bottom: 18pt; padding-bottom: 10pt; border-bottom: 2pt solid var(--accent); }
+  .rpt-section { font-size: 13pt; font-weight: 700; margin-top: 18pt; margin-bottom: 8pt; color: var(--nx-gold-on); }
+  .rpt-notes { font-size: 11pt; padding: 10pt 14pt; background: #faf6ec; border-left: 3pt solid var(--accent); border-radius: 4pt; white-space: pre-wrap; }
+  .rpt-link { font-size: 10pt; font-family: 'Courier New', monospace; color: var(--faint); word-break: break-all; }
+  .rpt-empty { padding: 30pt 0; text-align: center; color: var(--muted); font-style: italic; }
   
   .rpt-grid { width: 100%; border-collapse: collapse; margin-top: 8pt; }
   .rpt-grid th, .rpt-grid td { padding: 8pt 10pt; border-bottom: 1pt solid #eee; vertical-align: top; }
-  .rpt-grid th { background: #faf6ec; text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5pt; color: #666; font-weight: 600; width: 18%; }
+  .rpt-grid th { background: #faf6ec; text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5pt; color: var(--faint); font-weight: 600; width: 18%; }
   .rpt-grid td { font-size: 11pt; width: 32%; }
   
   .rpt-table { width: 100%; border-collapse: collapse; margin-top: 12pt; font-size: 10pt; }
-  .rpt-table th { background: #1a1408; color: #c8a44e; padding: 8pt 10pt; text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5pt; }
+  .rpt-table th { background: var(--nx-gold-on); color: var(--accent); padding: 8pt 10pt; text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5pt; }
   .rpt-table td { padding: 8pt 10pt; border-bottom: 1pt solid #eee; vertical-align: top; }
   .rpt-table tr.rpt-dispatch td { background: #fff7e6; }
   .mono { font-family: 'Courier New', monospace; }
   
   .print-toolbar { position: fixed; top: 0; left: 0; right: 0;
-    background: #1a1a1a; color: white; padding: 12px 16px;
+    background: var(--bg); color: white; padding: 12px 16px;
     display: flex; align-items: center; justify-content: space-between;
     box-shadow: 0 2px 8px rgba(0,0,0,0.3); z-index: 100; }
-  .print-toolbar h1 { font-size: 14px; font-weight: 600; color: #c8a44e; }
-  .print-toolbar button { background: #c8a44e; color: #1a1408; border: none;
+  .print-toolbar h1 { font-size: 14px; font-weight: 600; color: var(--accent); }
+  .print-toolbar button { background: var(--accent); color: var(--nx-gold-on); border: none;
     padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
   body { padding-top: 70px; }
   @media print { .print-toolbar { display: none; } body { padding-top: 0.6in; } }
@@ -1427,18 +1427,18 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-         padding: 0.5in 0.6in; background: white; color: #1a1408; line-height: 1.45; font-size: 10.5pt; }
+         padding: 0.5in 0.6in; background: white; color: var(--nx-gold-on); line-height: 1.45; font-size: 10.5pt; }
   @page { size: letter portrait; margin: 0.4in; }
   
   /* Cover header */
   .dos-cover {
     padding-bottom: 14pt;
-    border-bottom: 3pt solid #c8a44e;
+    border-bottom: 3pt solid var(--accent);
     margin-bottom: 20pt;
   }
   .dos-cover-meta {
     font-size: 9pt;
-    color: #888;
+    color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 0.6pt;
     margin-bottom: 4pt;
@@ -1446,13 +1446,13 @@
   .dos-title {
     font-size: 26pt;
     font-weight: 800;
-    color: #1a1408;
+    color: var(--nx-gold-on);
     line-height: 1.1;
     margin-bottom: 4pt;
   }
   .dos-subtitle {
     font-size: 13pt;
-    color: #666;
+    color: var(--faint);
     margin-bottom: 8pt;
   }
   .dos-status-pill {
@@ -1464,8 +1464,8 @@
     letter-spacing: 0.6pt;
     font-weight: 600;
     background: #fff8e8;
-    color: #b89342;
-    border: 1pt solid #c8a44e;
+    color: var(--accent);
+    border: 1pt solid var(--accent);
   }
   .dos-status-pill.operational { background: #e8f5e9; color: #2e7d32; border-color: #4caf50; }
   .dos-status-pill.needs_service { background: #fff3e0; color: #e65100; border-color: #ff9800; }
@@ -1481,7 +1481,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.8pt;
-    color: #c8a44e;
+    color: var(--accent);
     margin-bottom: 10pt;
     padding-bottom: 4pt;
     border-bottom: 1pt solid #e8e2d4;
@@ -1504,14 +1504,14 @@
   .dos-spec:nth-child(even) { border-right: none; }
   .dos-spec-label {
     font-size: 8pt;
-    color: #888;
+    color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 0.4pt;
     margin-bottom: 2pt;
   }
   .dos-spec-value {
     font-size: 11pt;
-    color: #1a1408;
+    color: var(--nx-gold-on);
     font-weight: 500;
     word-break: break-word;
   }
@@ -1521,7 +1521,7 @@
   .dos-notes {
     padding: 12pt 14pt;
     background: #fff8e8;
-    border-left: 3pt solid #c8a44e;
+    border-left: 3pt solid var(--accent);
     border-radius: 4pt;
     white-space: pre-wrap;
     font-size: 10.5pt;
@@ -1539,7 +1539,7 @@
   .dos-family-label {
     font-size: 8pt;
     text-transform: uppercase;
-    color: #888;
+    color: var(--muted);
     letter-spacing: 0.4pt;
     margin-right: 6pt;
   }
@@ -1551,8 +1551,8 @@
     font-size: 9.5pt;
   }
   .dos-parts-table th {
-    background: #1a1408;
-    color: #c8a44e;
+    background: var(--nx-gold-on);
+    color: var(--accent);
     padding: 7pt 8pt;
     text-align: left;
     font-size: 8pt;
@@ -1565,10 +1565,10 @@
     vertical-align: top;
   }
   .dos-parts-table tr:nth-child(even) td { background: #faf8f5; }
-  .dos-parts-table strong { color: #1a1408; }
+  .dos-parts-table strong { color: var(--nx-gold-on); }
   .dos-parts-vendors {
     font-size: 8.5pt;
-    color: #666;
+    color: var(--faint);
     line-height: 1.4;
   }
   .dos-parts-vendor-row {
@@ -1577,7 +1577,7 @@
   }
   .dos-parts-vendor-preferred {
     font-weight: 600;
-    color: #b89342;
+    color: var(--accent);
   }
   .mono { font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 9pt; }
   
@@ -1587,17 +1587,17 @@
     gap: 12pt;
     padding: 10pt 12pt;
     background: #faf8f5;
-    border-left: 3pt solid #c8a44e;
+    border-left: 3pt solid var(--accent);
     border-radius: 4pt;
     margin-bottom: 6pt;
     page-break-inside: avoid;
   }
-  .dos-timeline-entry.service { border-left-color: #c8a44e; }
-  .dos-timeline-entry.dispatch { border-left-color: #6db2e0; }
-  .dos-timeline-entry.pmlog { border-left-color: #5cb377; background: #f0f8f2; }
+  .dos-timeline-entry.service { border-left-color: var(--accent); }
+  .dos-timeline-entry.dispatch { border-left-color: var(--blue); }
+  .dos-timeline-entry.pmlog { border-left-color: var(--green); background: #f0f8f2; }
   .dos-tl-date {
     font-size: 9pt;
-    color: #888;
+    color: var(--muted);
     font-weight: 600;
     flex-shrink: 0;
     width: 70pt;
@@ -1608,19 +1608,19 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5pt;
-    color: #c8a44e;
+    color: var(--accent);
     margin-bottom: 3pt;
   }
   .dos-tl-detail {
     font-size: 10pt;
-    color: #1a1408;
+    color: var(--nx-gold-on);
     line-height: 1.4;
     white-space: pre-wrap;
     margin-bottom: 3pt;
   }
   .dos-tl-footer {
     font-size: 8.5pt;
-    color: #888;
+    color: var(--muted);
   }
   
   /* Contractors */
@@ -1634,7 +1634,7 @@
   }
   .dos-contractor-label {
     font-size: 8pt;
-    color: #888;
+    color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 0.4pt;
     width: 60pt;
@@ -1643,14 +1643,14 @@
   .dos-contractor-info {
     flex: 1;
     font-size: 10pt;
-    color: #1a1408;
+    color: var(--nx-gold-on);
   }
   
   /* Empty state */
   .dos-empty {
     padding: 18pt;
     text-align: center;
-    color: #888;
+    color: var(--muted);
     font-style: italic;
     background: #faf8f5;
     border-radius: 6pt;
@@ -1661,8 +1661,8 @@
   .dos-totals {
     margin-top: 10pt;
     padding: 10pt 14pt;
-    background: #1a1408;
-    color: #c8a44e;
+    background: var(--nx-gold-on);
+    color: var(--accent);
     border-radius: 6pt;
     display: flex;
     justify-content: space-between;
@@ -1685,7 +1685,7 @@
   .print-toolbar {
     position: fixed;
     top: 0; left: 0; right: 0;
-    background: #1a1a1a;
+    background: var(--bg);
     color: white;
     padding: 12px 16px;
     display: flex;
@@ -1694,10 +1694,10 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     z-index: 100;
   }
-  .print-toolbar h1 { font-size: 14px; font-weight: 600; color: #c8a44e; }
+  .print-toolbar h1 { font-size: 14px; font-weight: 600; color: var(--accent); }
   .print-toolbar button {
-    background: #c8a44e;
-    color: #1a1408;
+    background: var(--accent);
+    color: var(--nx-gold-on);
     border: none;
     padding: 8px 16px;
     border-radius: 6px;
@@ -1970,27 +1970,27 @@
 <html><head><meta charset="utf-8"><title>Shopping List — ${esc(eq.name)}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, sans-serif; padding: 0.6in 0.7in; color: #1a1408; }
+  body { font-family: -apple-system, sans-serif; padding: 0.6in 0.7in; color: var(--nx-gold-on); }
   @page { size: letter; margin: 0.5in; }
   h1 { font-size: 22pt; margin-bottom: 4pt; }
-  .sl-sub { color: #666; margin-bottom: 20pt; padding-bottom: 10pt; border-bottom: 2pt solid #c8a44e; }
+  .sl-sub { color: var(--faint); margin-bottom: 20pt; padding-bottom: 10pt; border-bottom: 2pt solid var(--accent); }
   .sl-vendor { margin-bottom: 24pt; page-break-inside: avoid; }
-  .sl-vendor-name { font-size: 14pt; padding: 6pt 10pt; background: #1a1408; color: #c8a44e; border-radius: 4pt 4pt 0 0; }
+  .sl-vendor-name { font-size: 14pt; padding: 6pt 10pt; background: var(--nx-gold-on); color: var(--accent); border-radius: 4pt 4pt 0 0; }
   .sl-table { width: 100%; border-collapse: collapse; font-size: 10pt; }
   .sl-table th { background: #faf6ec; padding: 6pt 8pt; text-align: left; font-size: 8pt; text-transform: uppercase; }
   .sl-table td { padding: 8pt; border-bottom: 1pt solid #eee; vertical-align: top; }
   .sl-table .sl-check { width: 24pt; text-align: center; font-size: 14pt; }
-  .sl-table .sl-total td { background: #faf6ec; border-top: 2pt solid #c8a44e; }
+  .sl-table .sl-total td { background: #faf6ec; border-top: 2pt solid var(--accent); }
   .mono { font-family: 'Courier New', monospace; }
-  small { color: #888; font-size: 8pt; }
-  .print-toolbar { position: fixed; top: 0; left: 0; right: 0; background: #1a1a1a; color: white; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
-  .print-toolbar button { background: #c8a44e; color: #1a1408; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; }
+  small { color: var(--muted); font-size: 8pt; }
+  .print-toolbar { position: fixed; top: 0; left: 0; right: 0; background: var(--bg); color: white; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
+  .print-toolbar button { background: var(--accent); color: var(--nx-gold-on); border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; }
   body { padding-top: 70px; }
   @media print { .print-toolbar { display: none; } body { padding-top: 0.6in; } }
 </style>
 </head>
 <body>
-  <div class="print-toolbar"><h1 style="font-size:14px;color:#c8a44e">Shopping List — ${esc(eq.name)}</h1><button onclick="window.print()">Print →</button></div>
+  <div class="print-toolbar"><h1 style="font-size:14px;color:var(--accent)">Shopping List — ${esc(eq.name)}</h1><button onclick="window.print()">Print →</button></div>
   <h1>Shopping List</h1>
   <div class="sl-sub">${esc(eq.name)}${eq.location ? ' · ' + esc(eq.location) : ''} · ${new Date().toLocaleDateString()}</div>
   ${sections}
@@ -2043,13 +2043,13 @@
       <div class="ctx-confirm-bg"></div>
       <div class="ctx-confirm-card" style="max-width:480px;text-align:left;padding:20px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-          <div style="font-size:15px;font-weight:600;color:var(--accent,#c8a44e);">${cmSvg("family","14px")} Equipment Family</div>
+          <div style="font-size:15px;font-weight:600;color:var(--accent);">${cmSvg("family","14px")} Equipment Family</div>
           <button class="ctx-audit-close" id="famClose">${cmSvg("close", "14px")}</button>
         </div>
-        <div style="font-size:13px;color:var(--text,#e6dccc);margin-bottom:14px;">
+        <div style="font-size:13px;color:var(--text);margin-bottom:14px;">
           ${esc(equipName)}
         </div>
-        <div style="font-size:11px;color:var(--muted,#8a826f);margin-bottom:12px;line-height:1.5;">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5;">
           Use this to link related equipment — e.g., a walk-in cooler is the <strong>parent</strong>
           of multiple condenser units (<strong>children</strong>). Helps you find sub-components fast.
         </div>
@@ -2058,7 +2058,7 @@
           <label class="ctx-confirm-reason-label">Parent Equipment</label>
           ${currentParent ? `
             <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(200,164,78,0.08);border-radius:8px;margin-bottom:6px;">
-              <span style="flex:1;color:var(--text,#e6dccc);font-size:13px;">${esc(currentParent.name)}</span>
+              <span style="flex:1;color:var(--text);font-size:13px;">${esc(currentParent.name)}</span>
               <button class="ctx-confirm-cancel" style="padding:5px 10px;font-size:11px;" id="famClearParent">Remove</button>
             </div>
           ` : ''}
@@ -2074,12 +2074,12 @@
             <div style="max-height:160px;overflow-y:auto;margin-bottom:8px;">
               ${currentChildren.map(c => `
                 <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(200,164,78,0.05);border-radius:6px;margin-bottom:4px;">
-                  <span style="flex:1;color:var(--text,#e6dccc);font-size:12.5px;">${esc(c.name)}</span>
+                  <span style="flex:1;color:var(--text);font-size:12.5px;">${esc(c.name)}</span>
                   <button class="ctx-confirm-cancel" style="padding:4px 8px;font-size:10px;" data-unlink="${esc(c.id)}">Unlink</button>
                 </div>
               `).join('')}
             </div>
-          ` : '<div style="font-size:11px;color:var(--muted,#8a826f);font-style:italic;margin-bottom:8px;">No children yet.</div>'}
+          ` : '<div style="font-size:11px;color:var(--muted);font-style:italic;margin-bottom:8px;">No children yet.</div>'}
           <select class="ctx-confirm-reason" id="famChildSelect">
             <option value="">— Add a child equipment —</option>
             ${candidates.filter(c => c.parent_equipment_id !== equipId && c.id !== eq.parent_equipment_id).map(c => 
@@ -2090,7 +2090,7 @@
         
         <div class="ctx-confirm-actions">
           <button class="ctx-confirm-cancel" id="famCancel">Close</button>
-          <button class="ctx-confirm-delete" style="background:linear-gradient(135deg,#5cb377,#4ea866);" id="famSave">Save</button>
+          <button class="ctx-confirm-delete" style="background:linear-gradient(135deg,var(--green),#4ea866);" id="famSave">Save</button>
         </div>
       </div>
     `;
