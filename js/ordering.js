@@ -65,6 +65,15 @@
   let activeLoc    = null;
   let initialized  = false;
 
+  // Recent-orders pagination state.
+  //   Default: collapsed → 3 most recent.
+  //   Expanded: 10 per page, prev/next paging through all loaded orders.
+  // Server fetches up to 30 (3 pages of 10) so this is a client-only slice.
+  const RECENT_COLLAPSED_COUNT = 3;
+  const RECENT_PAGE_SIZE       = 10;
+  let   recentExpanded         = false;
+  let   recentPage             = 0;     // 0-indexed
+
   // ─── STATE (Phase 2 — entry overlay) ─────────────────────────────
   let entryState = null;
   /* shape:
@@ -151,7 +160,7 @@
     return data || [];
   }
 
-  async function loadRecentOrders(location, limit = 8) {
+  async function loadRecentOrders(location, limit = 30) {
     if (!NX.sb) return [];
     const { data, error } = await NX.sb
       .from('orders')
@@ -285,9 +294,44 @@
       if (diff < 7) return d.toLocaleDateString([], { weekday: 'short' });
       return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
     };
+
+    // Slice the list based on collapsed / expanded mode.
+    //   Collapsed: first 3.
+    //   Expanded:  page-windowed slice of 10.
+    let visible, totalPages, controlsHTML;
+    if (!recentExpanded) {
+      visible = list.slice(0, RECENT_COLLAPSED_COUNT);
+      const hidden = list.length - visible.length;
+      controlsHTML = hidden > 0
+        ? `<button class="ord-recent-more" id="ordRecentMore" type="button" aria-label="Show more orders">
+             <span>${hidden} more</span>
+             <span class="ord-recent-more-arrow" aria-hidden="true">↓</span>
+           </button>`
+        : '';
+    } else {
+      const start = recentPage * RECENT_PAGE_SIZE;
+      visible = list.slice(start, start + RECENT_PAGE_SIZE);
+      totalPages = Math.ceil(list.length / RECENT_PAGE_SIZE);
+      const showPaging = totalPages > 1;
+      controlsHTML = `
+        <div class="ord-recent-foot">
+          <button class="ord-recent-collapse" id="ordRecentCollapse" type="button" aria-label="Show less">
+            <span class="ord-recent-collapse-arrow" aria-hidden="true">↑</span>
+            <span>Show less</span>
+          </button>
+          ${showPaging ? `
+            <div class="ord-recent-pager" role="group" aria-label="Order history pages">
+              <button class="ord-recent-page-btn" id="ordRecentPrev" ${recentPage === 0 ? 'disabled' : ''} aria-label="Previous page">‹</button>
+              <span class="ord-recent-page-label">${recentPage + 1} / ${totalPages}</span>
+              <button class="ord-recent-page-btn" id="ordRecentNext" ${recentPage >= totalPages - 1 ? 'disabled' : ''} aria-label="Next page">›</button>
+            </div>
+          ` : ''}
+        </div>`;
+    }
+
     el.innerHTML = `
       <div class="ord-section-label">Recent</div>
-      ${list.map(o => {
+      ${visible.map(o => {
         const v = vendorMap[o.vendor_id];
         const status = o.status || 'draft';
         const when = fmtRel(o.updated_at || o.created_at);
@@ -304,10 +348,44 @@
             </div>
             <div class="ord-arrow" aria-hidden="true">›</div>
           </button>`;
-      }).join('')}`;
+      }).join('')}
+      ${controlsHTML}
+    `;
+
     el.querySelectorAll('.ord-recent-row').forEach(b => {
       b.addEventListener('click', () => openExistingOrder(b.dataset.orderId));
     });
+
+    const moreBtn = el.querySelector('#ordRecentMore');
+    if (moreBtn) {
+      moreBtn.addEventListener('click', () => {
+        recentExpanded = true;
+        recentPage = 0;
+        renderRecent(recentOrders, vendorMap);
+      });
+    }
+
+    const collapseBtn = el.querySelector('#ordRecentCollapse');
+    if (collapseBtn) {
+      collapseBtn.addEventListener('click', () => {
+        recentExpanded = false;
+        recentPage = 0;
+        renderRecent(recentOrders, vendorMap);
+      });
+    }
+
+    const prevBtn = el.querySelector('#ordRecentPrev');
+    if (prevBtn) {
+      prevBtn.addEventListener('click', () => {
+        if (recentPage > 0) { recentPage -= 1; renderRecent(recentOrders, vendorMap); }
+      });
+    }
+    const nextBtn = el.querySelector('#ordRecentNext');
+    if (nextBtn) {
+      nextBtn.addEventListener('click', () => {
+        if (recentPage < totalPages - 1) { recentPage += 1; renderRecent(recentOrders, vendorMap); }
+      });
+    }
   }
 
   function renderVendors() {
@@ -330,7 +408,7 @@
       html += `
         <div class="ord-vendor-row-wrap">
           <button class="ord-vendor-row" data-vendor-id="${esc(v.id)}" data-vendor-name="${esc(v.name).toLowerCase()}">
-            ${vendorAvatar(v.name)}
+            ${vendorAvatar(v.name, v.image_url)}
             <div class="ord-vendor-main">
               <div class="ord-vendor-name">${esc(v.name)}</div>
               <div class="ord-vendor-meta">${meta.join(' · ')}</div>
@@ -373,7 +451,7 @@
       <div class="ord-vmenu-sheet">
         <div class="ord-vmenu-handle"></div>
         <div class="ord-vmenu-header">
-          ${vendorAvatar(vendor.name)}
+          ${vendorAvatar(vendor.name, vendor.image_url)}
           <div class="ord-vmenu-header-text">
             <div class="ord-vmenu-title">${esc(vendor.name)}</div>
             ${vendor.email ? `<div class="ord-vmenu-sub">${esc(vendor.email)}</div>` : '<div class="ord-vmenu-sub ord-vmenu-sub-warn">No email set</div>'}
@@ -1198,7 +1276,7 @@
     editorState = {
       isNew,
       vendor: isNew
-        ? { name: '', email: '', delivery_days: [], subject_template: '', body_template: '', notes: '' }
+        ? { name: '', email: '', image_url: '', delivery_days: [], subject_template: '', body_template: '', notes: '' }
         : { ...vendor },
       items: [],
       editingItemId: null,
@@ -1283,13 +1361,25 @@
       <div class="ord-veditor-body">
 
         <div class="ved-section-divider"><span>Vendor</span></div>
-        <div class="ord-form-field">
-          <label class="ord-form-label" for="vedName">Name</label>
-          <input type="text" class="ord-form-input" id="vedName" value="${esc(v.name)}" placeholder="e.g. Farm To Table" autocomplete="off">
+        <div class="ved-vendor-head">
+          <div class="ved-avatar-preview" id="vedAvatarPreview" aria-hidden="true">
+            ${vendorAvatar(v.name, v.image_url)}
+          </div>
+          <div class="ved-vendor-head-fields">
+            <div class="ord-form-field">
+              <label class="ord-form-label" for="vedName">Name</label>
+              <input type="text" class="ord-form-input" id="vedName" value="${esc(v.name)}" placeholder="e.g. Farm To Table" autocomplete="off">
+            </div>
+            <div class="ord-form-field">
+              <label class="ord-form-label" for="vedEmail">Email</label>
+              <input type="email" class="ord-form-input" id="vedEmail" value="${esc(v.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
+            </div>
+          </div>
         </div>
         <div class="ord-form-field">
-          <label class="ord-form-label" for="vedEmail">Email</label>
-          <input type="email" class="ord-form-input" id="vedEmail" value="${esc(v.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
+          <label class="ord-form-label" for="vedImageUrl">Logo URL <span class="ord-form-label-hint">— optional, paste a link to the vendor's logo image</span></label>
+          <input type="url" class="ord-form-input" id="vedImageUrl" value="${esc(v.image_url || '')}" placeholder="https://example.com/logo.png" autocomplete="off" inputmode="url">
+          <div class="ord-form-hint">Leave blank to use the colored-letter avatar. Right-click a vendor logo on their website and copy the image address.</div>
         </div>
 
         ${itemsHTML}
@@ -1341,6 +1431,19 @@
     overlay.querySelectorAll('.ord-day-pill').forEach(btn => {
       btn.addEventListener('click', () => btn.classList.toggle('active'));
     });
+
+    // Live avatar preview — re-renders when name or image URL changes so
+    // the user can see what the card will look like before saving.
+    const previewEl = overlay.querySelector('#vedAvatarPreview');
+    const updatePreview = () => {
+      if (!previewEl) return;
+      const nm = overlay.querySelector('#vedName')?.value.trim() || '';
+      const url = overlay.querySelector('#vedImageUrl')?.value.trim() || '';
+      previewEl.innerHTML = vendorAvatar(nm, url);
+    };
+    overlay.querySelector('#vedName')?.addEventListener('input', updatePreview);
+    overlay.querySelector('#vedImageUrl')?.addEventListener('input', updatePreview);
+
     const arch = overlay.querySelector('#vedArchive');
     if (arch) arch.addEventListener('click', archiveVendor);
     const addItem = overlay.querySelector('#vedAddItem');
@@ -1502,6 +1605,7 @@
     const overlay = editorState.overlay;
     const name = overlay.querySelector('#vedName').value.trim();
     const email = overlay.querySelector('#vedEmail').value.trim();
+    const imageUrl = overlay.querySelector('#vedImageUrl')?.value.trim() || '';
     const subject = overlay.querySelector('#vedSubject').value.trim();
     const body = overlay.querySelector('#vedBody').value;
     const notes = overlay.querySelector('#vedNotes').value;
@@ -1515,6 +1619,7 @@
     const payload = {
       name,
       email: email || null,
+      image_url: imageUrl || null,
       delivery_days: days,
       subject_template: subject || null,
       body_template: body.trim() || null,
@@ -1840,7 +1945,16 @@
    * Visual: 44px circle, dark surface with a colored letter on top,
    * subtle gold outline. Reads cleanly in both light and dark themes.
    */
-  function vendorAvatar(name) {
+  function vendorAvatar(name, imageUrl) {
+    // If the vendor has a custom image URL set, render it as a background-image
+    // so it crops gracefully and stays within the rounded shape. Falls back to
+    // the deterministic colored-initial avatar when no image is set.
+    const safeUrl = (imageUrl || '').trim();
+    if (safeUrl) {
+      // attr-style escape: backslash-escape any " in the URL so it can't break out
+      const safeAttr = safeUrl.replace(/"/g, '%22');
+      return `<div class="ord-vendor-avatar ord-vendor-avatar-img" style="background-image:url(&quot;${safeAttr}&quot;)" role="img" aria-label="${esc(name || '')}"></div>`;
+    }
     const clean = (name || '').trim();
     const initial = clean.charAt(0).toUpperCase() || '?';
     let hash = 0;
