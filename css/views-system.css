@@ -154,7 +154,7 @@
   padding: var(--nx-space-3) var(--nx-space-4) var(--nx-space-9) !important;
 }
 .clean-sec {
-  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   border-radius: var(--nx-radius-card) !important;
   margin-bottom: var(--nx-space-3) !important;
   overflow: hidden !important;
@@ -269,7 +269,7 @@
   align-items: flex-start !important;
   gap: var(--nx-space-3) !important;
   padding: 14px var(--nx-space-2) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border-bottom: 1px solid var(--nx-highlight-tint) !important;
   cursor: pointer !important;
   transition: opacity 0.2s, background var(--nx-press) !important;
   min-height: var(--nx-touch-min) !important;
@@ -341,8 +341,8 @@
   font-weight: 600 !important;
   text-transform: uppercase;
 }
-.clean-overdue { color: var(--nx-red) !important; background: rgba(168, 62, 62, 0.12) !important; }
-.clean-due-soon { color: var(--nx-amber) !important; background: rgba(212, 164, 78, 0.12) !important; }
+.clean-overdue { color: var(--nx-red) !important; background: var(--nx-red-soft) !important; }
+.clean-due-soon { color: var(--nx-amber) !important; background: var(--nx-gold-mist) !important; }
 .clean-on-track { color: var(--nx-green) !important; background: rgba(156, 138, 62, 0.10) !important; }
 
 /* Footer (scan / export / submit) — rebalanced.
@@ -467,7 +467,7 @@
 /* ─── Inline camera button on each checklist row ────────────────────
    The little camera that sits at the right edge of each task row,
    used to upload a "proof" photo of work done. Replaces the previous
-   emoji (📷/⏳/✅/❌) with a single ::before mask icon driven by a
+   emoji (camera/clock/check/cross) with a single ::before mask icon driven by a
    `data-state` attribute. Same line-art family as the footer Scan
    icon — keeps the visual vocabulary consistent across the screen. */
 .clean-cam {
@@ -512,14 +512,14 @@
 @keyframes clean-spin { to { transform: rotate(360deg); } }
 
 /* Success — check mark in olive-bronze (success without scarlet/screaming green) */
-.clean-cam[data-state="ok"] { color: var(--nx-green, #9c8a3e); opacity: 1; border-color: currentColor !important; background: rgba(156,138,62,0.08) !important; }
+.clean-cam[data-state="ok"] { color: var(--nx-green, var(--green)); opacity: 1; border-color: currentColor !important; background: rgba(156,138,62,0.08) !important; }
 .clean-cam[data-state="ok"]::before {
   -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") no-repeat center / 14px 14px;
   mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") no-repeat center / 14px 14px;
 }
 
 /* Error — X in oxblood */
-.clean-cam[data-state="err"] { color: var(--nx-red, #a83e3e); opacity: 1; border-color: currentColor !important; background: rgba(168,62,62,0.06) !important; }
+.clean-cam[data-state="err"] { color: var(--nx-red, var(--red)); opacity: 1; border-color: currentColor !important; background: var(--nx-red-faint) !important; }
 .clean-cam[data-state="err"]::before {
   -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'/><line x1='6' y1='6' x2='18' y2='18'/></svg>") no-repeat center / 14px 14px;
   mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'/><line x1='6' y1='6' x2='18' y2='18'/></svg>") no-repeat center / 14px 14px;
@@ -651,7 +651,7 @@
   border-radius: var(--nx-radius-card) !important;
   overflow: hidden !important;
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   cursor: pointer !important;
   transition: border-color var(--nx-press), background var(--nx-press) !important;
   box-shadow: var(--nx-shadow-soft) !important;
@@ -727,7 +727,7 @@
   margin-bottom: var(--nx-space-4) !important;
 }
 .cal-up-empty {
-  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--nx-highlight-tint) !important;
   border-radius: var(--nx-radius-card) !important;
   background: var(--nx-surface-1) !important;
 }
@@ -784,7 +784,7 @@
 /* Lists */
 .board-list {
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--nx-highlight-tint) !important;
   border-radius: var(--nx-radius-card) !important;
   box-shadow: var(--nx-shadow-soft) !important;
 }
@@ -880,7 +880,7 @@
 }
 .card-detail {
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   border-radius: var(--nx-radius-card) !important;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
 }
@@ -1106,7 +1106,7 @@
 /* Events panel */
 .events-panel {
   background: var(--nx-surface-1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
   border-radius: var(--nx-radius-card) !important;
   box-shadow: var(--nx-shadow-card) !important;
 }
@@ -1219,18 +1219,18 @@
    ════════════════════════════════════════════════════════════════════ */
 
 .eq-part-vendor-stock.in {
-  color: var(--nx-green, #9c8a3e) !important;       /* olive bronze */
+  color: var(--nx-green, var(--green)) !important;       /* olive bronze */
   background: rgba(156, 138, 62, 0.10) !important;
 }
 .eq-part-vendor-stock.in::before {
-  color: var(--nx-green, #9c8a3e) !important;
+  color: var(--nx-green, var(--green)) !important;
 }
 .eq-part-vendor-stock.out {
-  color: var(--nx-red, #a83e3e) !important;         /* oxblood */
-  background: rgba(168, 62, 62, 0.10) !important;
+  color: var(--nx-red, var(--red)) !important;         /* oxblood */
+  background: var(--nx-red-soft) !important;
 }
 .eq-part-vendor-stock.out::before {
-  color: var(--nx-red, #a83e3e) !important;
+  color: var(--nx-red, var(--red)) !important;
 }
 
 /* PREFERRED tag — gold pill with leading filled-star (replaces
@@ -1241,8 +1241,8 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px !important;
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.10)) !important;
-  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.30)) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-mist)) !important;
+  border: 1px solid var(--nx-gold-line, var(--nx-gold-aura)) !important;
   color: var(--nx-gold) !important;
   font-family: 'JetBrains Mono', monospace !important;
   font-size: 9.5px !important;
@@ -1253,7 +1253,7 @@
 .eq-part-vendor-star svg { color: var(--nx-gold); }
 
 /* Vendor row action icons — small circular line-art buttons. The
-   legacy treatment was the raw character glyph (☆ ✎ ✕). Now they
+   legacy treatment was the raw character glyph (e.g. star, pencil, cross). Now they
    render as 28×28 circles with SVG icons and a hover tint. */
 .eq-part-vendor-btn {
   display: inline-flex !important;
@@ -1272,8 +1272,8 @@
 }
 .eq-part-vendor-btn:hover {
   color: var(--nx-gold) !important;
-  border-color: var(--nx-gold-line-2, rgba(212, 164, 78, 0.40)) !important;
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06)) !important;
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line-2)) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
 }
 .eq-part-vendor-btn.order {
   background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e)) !important;
@@ -1323,8 +1323,8 @@
    theme and a desaturated equivalent in light. */
 .eq-status-pill[data-status="operational"] .eq-status-dot,
 .eq-status-pill.operational .eq-status-dot {
-  background: var(--nx-green, #9c8a3e) !important;
-  box-shadow: 0 0 8px color-mix(in srgb, var(--nx-green, #9c8a3e) 50%, transparent);
+  background: var(--nx-green, var(--green)) !important;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--nx-green, var(--green)) 50%, transparent);
 }
 
 /* Equipment list filter chip row overflow — same pattern as inventory.
@@ -1428,7 +1428,7 @@
 
 /* Print EVERYTHING banner — gold tint, document icon visible */
 .eq-print-everything-btn {
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06)) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
   border: 1px solid var(--nx-gold-line) !important;
 }
 .eq-pe-icon, .eq-pe-arrow { color: var(--nx-gold); }
@@ -1518,7 +1518,7 @@
   letter-spacing: 0.2px;
   cursor: pointer;
   transition: transform .12s, box-shadow .15s, opacity .15s !important;
-  box-shadow: 0 2px 10px rgba(212, 164, 78, 0.18);
+  box-shadow: 0 2px 10px var(--nx-gold-soft);
   -webkit-tap-highlight-color: transparent;
   white-space: nowrap;
   overflow: hidden;
@@ -1528,7 +1528,7 @@
 .eq-action-cta:disabled { opacity: 0.5; cursor: not-allowed; }
 
 [data-theme="light"] .eq-action-cta {
-  color: #FAFAF6 !important;
+  color: var(--surface) !important;
   box-shadow: 0 2px 10px rgba(139, 105, 20, 0.22);
 }
 
@@ -1542,7 +1542,7 @@
 }
 .eq-action-cta.eq-action-cta-secondary:hover {
   border-color: var(--nx-gold) !important;
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06)) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
 }
 [data-theme="light"] .eq-action-cta.eq-action-cta-secondary { color: var(--nx-text) !important; }
 
@@ -1579,7 +1579,7 @@
 .eq-overflow-btn-v2:hover {
   color: var(--nx-gold) !important;
   border-color: var(--nx-gold) !important;
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06)) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
 }
 
 /* Overflow menu — re-styled to feel like a proper editorial sheet
@@ -1636,7 +1636,7 @@
   -webkit-tap-highlight-color: transparent;
 }
 .eq-detail-actions-v2 .eq-overflow-item:hover {
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08)) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
 }
 .eq-detail-actions-v2 .eq-overflow-item svg {
   color: var(--nx-faint);
@@ -1647,13 +1647,13 @@
 }
 
 .eq-detail-actions-v2 .eq-overflow-item.eq-overflow-danger {
-  color: var(--nx-red, #a83e3e) !important;
+  color: var(--nx-red, var(--red)) !important;
 }
 .eq-detail-actions-v2 .eq-overflow-item.eq-overflow-danger svg {
-  color: var(--nx-red, #a83e3e);
+  color: var(--nx-red, var(--red));
 }
 .eq-detail-actions-v2 .eq-overflow-item.eq-overflow-danger:hover {
-  background: var(--nx-red-soft, rgba(168, 62, 62, 0.08)) !important;
+  background: var(--nx-red-soft, var(--nx-red-faint)) !important;
 }
 
 .eq-detail-actions-v2 .eq-overflow-divider {
@@ -1677,7 +1677,7 @@
 .b-parts-bom {
   margin: 6px 0 8px;
   padding: 10px 12px;
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.05));
+  background: var(--nx-gold-soft, var(--nx-gold-tint));
   border: 1px solid var(--nx-gold-line);
   border-radius: 10px;
 }
@@ -1712,7 +1712,7 @@
 }
 .b-parts-bom-chip:hover {
   border-color: var(--nx-gold-line-2, var(--nx-gold-line));
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08));
+  background: var(--nx-gold-soft, var(--nx-gold-faint));
 }
 .b-parts-bom-chip:active { transform: scale(0.97); }
 .b-parts-bom-chip.is-selected {
@@ -1720,7 +1720,7 @@
   border-color: var(--nx-gold);
   color: var(--nx-gold-on, #1c1408);
 }
-[data-theme="light"] .b-parts-bom-chip.is-selected { color: #FAFAF6; }
+[data-theme="light"] .b-parts-bom-chip.is-selected { color: var(--surface); }
 
 .b-parts-bom-chip-name {
   font-weight: 500;
