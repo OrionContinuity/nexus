@@ -182,13 +182,55 @@
     wireChipGroup(root, kind, state, opts);
   }
 
+  /* Smoothly add a single chip without re-rendering the whole group.
+     The previous approach (call _refreshChipGroup → replaceWith) caused
+     a noticeable layout flash on every Add: the entire chip-group node
+     was destroyed and a new one inserted, which forces the browser to
+     recompute layout, repaint backgrounds, re-run focus management,
+     etc. The user experiences this as a "bounce".
+     
+     This helper inserts the new chip element directly before the
+     "+ Add ..." button inside the existing chip-list, wires its remove
+     button, and leaves everything else (input wrap, cancel button,
+     focus, scroll position) untouched. No bounce. */
+  function _appendChipInPlace(root, kind, value, state, opts) {
+    if (!root) return;
+    const groupEl = root.querySelector(`[data-rx-chip-group="${kind}"]`);
+    if (!groupEl) return;
+    const list = groupEl.querySelector('.rx-chip-list');
+    const addBtn = groupEl.querySelector(`[data-rx-chip-add="${kind}"]`);
+    if (!list) return;
+    const chipHTML = buildChipHTML(value, kind, {});
+    const tmp = document.createElement('div');
+    tmp.innerHTML = chipHTML;
+    const chipEl = tmp.firstElementChild;
+    if (!chipEl) return;
+    if (addBtn) list.insertBefore(chipEl, addBtn); else list.appendChild(chipEl);
+    // Wire the new chip's remove button (only the new one — existing
+    // chips already have their handlers from the earlier wireChipGroup
+    // pass).
+    const rmBtn = chipEl.querySelector('.rx-chip-remove');
+    if (rmBtn) {
+      rmBtn._rxBound = true;
+      rmBtn.addEventListener('click', () => {
+        state.chips[kind] = (state.chips[kind] || []).filter(v => {
+          const vv = (typeof v === 'string') ? v : (v && v.value);
+          return vv !== value;
+        });
+        if (opts && opts.onChange) opts.onChange(state.chips[kind]);
+        if (opts && opts.onRemove) opts.onRemove(value);
+        chipEl.remove();
+      });
+    }
+  }
+
   function wireChipGroup(root, kind, state, opts) {
     opts = opts || {};
     if (!root) return;
     state.chips = state.chips || {};
     state.chips[kind] = state.chips[kind] || [];
 
-    // Remove (×) on chips
+    // Remove (×) on chips — in-place removal, no full re-render
     root.querySelectorAll(`.rx-chip[data-kind="${kind}"] .rx-chip-remove`).forEach(btn => {
       if (btn._rxBound) return;
       btn._rxBound = true;
@@ -202,7 +244,9 @@
         });
         if (opts.onChange) opts.onChange(state.chips[kind]);
         if (opts.onRemove) opts.onRemove(value);
-        _refreshChipGroup(root, kind, state, opts);
+        // Remove just THIS chip element instead of re-rendering the whole
+        // group — keeps the input wrap/focus/scroll untouched.
+        chip.remove();
       });
     });
 
@@ -264,24 +308,16 @@
       state.chips[kind].push(raw);
       if (opts.onChange) opts.onChange(state.chips[kind]);
       if (opts.onAdd) opts.onAdd(raw);
-      _refreshChipGroup(root, kind, state, opts);
-      // After the refresh the chip-group DOM is brand new, including the
-      // input wrap which renders `hidden` by default. Re-show it and
-      // refocus the input so the user can keep adding emails without
-      // having to re-tap the "+ Add" button each time. iOS keyboards
-      // stay open when focus moves to a freshly inserted input.
-      const newWrap   = root.querySelector(`[data-rx-chip-group="${esc(kind)}"] .rx-chip-input-wrap`);
-      const newInput  = root.querySelector(`[data-rx-chip-input="${esc(kind)}"]`);
-      const newAddBtn = root.querySelector(`[data-rx-chip-add="${esc(kind)}"]`);
-      if (newWrap)   newWrap.hidden = false;
-      if (newAddBtn) newAddBtn.style.display = 'none';
-      if (newInput) {
-        newInput.value = '';
-        // rAF so focus lands after the browser settles the new layout
-        requestAnimationFrame(() => {
-          try { newInput.focus(); } catch (_) {}
-        });
-      }
+      // Append the new chip in place — NO full re-render.
+      // This is the difference between a smooth UX and the previous
+      // "bouncing" behavior where the entire chip group was destroyed
+      // and rebuilt on every Add.
+      _appendChipInPlace(root, kind, raw, state, opts);
+      // Clear input + keep wrap open + refocus so the user can keep
+      // typing the next email without re-tapping "+ Add".
+      input.value = '';
+      input.placeholder = opts.placeholder || '';   // reset any "Already added" placeholder from a previous dedup miss
+      try { input.focus(); } catch (_) {}
     };
 
     const saveBtn = root.querySelector(`[data-rx-chip-save="${kind}"]`);
