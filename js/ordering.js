@@ -3246,10 +3246,23 @@ Thanks for your help sorting this out.`;
 
     if (!allItems.length && !pending.length && catalogState.editingItemId !== 'new') {
       html += `
-        <div class="ved-items-empty">
+        <div class="ved-items-empty ved-items-empty-cta">
           <div class="ved-items-empty-icon">${listIcon()}</div>
           <div class="ved-items-empty-title">No items yet</div>
-          <div class="ved-items-empty-msg">Tap <b>+ Section</b> or <b>+ Item</b> above to start the catalog.</div>
+          <div class="ved-items-empty-msg">Get started fast — import a list, or add items one by one.</div>
+          <div class="ved-items-empty-actions">
+            <button type="button" class="ved-items-empty-btn ved-items-empty-btn-primary" id="vedEmptyImport">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span>Upload spreadsheet</span>
+            </button>
+            <button type="button" class="ved-items-empty-btn ved-items-empty-btn-secondary" id="vedEmptyDownload">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>Download blank template</span>
+            </button>
+            <button type="button" class="ved-items-empty-btn ved-items-empty-btn-tertiary" id="vedEmptyManual">
+              <span>+ Add first item manually</span>
+            </button>
+          </div>
         </div>
       `;
       return html;
@@ -4335,6 +4348,560 @@ Thanks for your help sorting this out.`;
     catalogState = null;
   }
 
+  /* ════════════════════════════════════════════════════════════════════
+     CATALOG BULK IMPORT
+     ──────────────────────────────────────────────────────────────────
+     Lets admin replace/refresh a vendor's catalog from a spreadsheet
+     instead of typing items one by one. Flow:
+
+       1. Pick file (.xlsx, .xls, .csv) — uses SheetJS already in NEXUS
+       2. Parse — header-row tolerant; recognized columns:
+            section / item name / vendor sku / unit / pack size /
+            default par / note. First row is the header; everything
+            below is data. Empty rows skipped.
+       3. Preview — diff against current vendor catalog by SKU:
+            • match by SKU → UPDATE in place (preserves item_id so
+              old order_lines.item_id still resolves)
+            • new SKU → INSERT
+            • current SKU not in upload → ARCHIVE (NOT delete; history
+              stays linked, items just hide from active picker)
+       4. Confirm → execute → close → reload catalog
+     ════════════════════════════════════════════════════════════════════ */
+
+  /* Generate a downloadable .xlsx file for this vendor's catalog and
+     trigger a browser download. Two modes:
+       - generateBlank=true (no items arg): 3 sample rows + Instructions
+         sheet so a vendor can fill it in
+       - items provided: current catalog exported, columns match what
+         the importer expects so it round-trips back in cleanly
+     Filename: "<vendor>_catalog.xlsx" or "<vendor>_template.xlsx" */
+  function downloadCatalogTemplate(vendor, items) {
+    if (!window.XLSX) {
+      if (NX.toast) NX.toast('Spreadsheet engine not loaded — refresh page', 'error');
+      return;
+    }
+    const generateBlank = !items || !items.length;
+    const wb = window.XLSX.utils.book_new();
+
+    // ── Items sheet ─────────────────────────────────────────────────
+    const headers = ['Section', 'Item Name', 'Vendor SKU', 'Unit', 'Default Par', 'Note'];
+    let dataRows;
+    if (generateBlank) {
+      dataRows = [
+        ['Produce', 'Romaine Hearts, 24ct', 'PFG-12345', '1 CS', 2, 'Tribe — pre-washed'],
+        ['Produce', 'Tomatoes, slicing',     'PFG-67890', 'lb',  30, ''],
+        ['Dairy',   'Whole Milk',            'PFG-22100', '1 GA', 4, 'Lactaid alt available'],
+      ];
+    } else {
+      // Sort by section then sort_order so the export matches what the
+      // user sees in the editor — easier to scan and edit.
+      const sorted = items.slice().sort((a, b) => {
+        const sa = (a.section || '').toLowerCase();
+        const sb = (b.section || '').toLowerCase();
+        if (sa !== sb) return sa.localeCompare(sb);
+        return (a.sort_order || 0) - (b.sort_order || 0);
+      });
+      dataRows = sorted.map(it => [
+        it.section || '',
+        it.item_name || '',
+        it.vendor_sku || '',
+        it.unit || '',
+        it.default_par_qty != null ? it.default_par_qty : '',
+        it.note || '',
+      ]);
+    }
+
+    const itemsSheet = window.XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    // Column widths so the file opens nicely in Excel/Google Sheets
+    itemsSheet['!cols'] = [
+      { wch: 22 }, { wch: 36 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 32 },
+    ];
+    // Freeze header row
+    itemsSheet['!freeze'] = { xSplit: 0, ySplit: 1 };
+    window.XLSX.utils.book_append_sheet(wb, itemsSheet, 'Items');
+
+    // ── Instructions sheet (always — keeps the file self-explanatory) ──
+    const instRows = [
+      ['NEXUS Vendor Catalog'],
+      [`For: ${vendor.name || 'Unknown vendor'}`],
+      [generateBlank ? 'Blank template — fill in below, then upload.' : 'Current catalog export. Edit and re-upload to update.'],
+      [],
+      ['HOW IT WORKS'],
+      ['1. Edit the "Items" sheet — one row per item. First row stays as the header.'],
+      ['2. In NEXUS: open this vendor\'s Catalog → Import → pick this file.'],
+      ['3. Preview shows what will change. Confirm to apply.'],
+      ['Items match by Vendor SKU. Items not in the file get archived (not deleted).'],
+      [],
+      ['COLUMN REFERENCE'],
+      ['Section',     'Required',     'Group header. Items group by this. Examples: Produce, Dairy, Disposables.'],
+      ['Item Name',   'Required',     'What you\'d write on a paper order. Keep concise.'],
+      ['Vendor SKU',  'Recommended',  'Vendor\'s product code. Used to match items on re-import — without it, every re-import duplicates rows.'],
+      ['Unit',        'Required',     'Pack size: case, lb, 24/12 OZ, etc.'],
+      ['Default Par', 'Optional',     'Default order quantity. Per-location pars set inside NEXUS.'],
+      ['Note',        'Optional',     'Brand, allergen, prep notes — anything that helps.'],
+      [],
+      ['TIPS'],
+      ['• Re-importing the same file is safe — items match on Vendor SKU and update rather than duplicate.'],
+      ['• Items removed from the file get archived in NEXUS (history preserved, just hidden).'],
+      ['• Empty rows are skipped.'],
+      ['• Sections are case-sensitive: "Produce" and "PRODUCE" become two sections.'],
+      ['• One catalog covers all locations. Per-location pars (Este orders 5, Suerte orders 3) live inside NEXUS, not this file.'],
+    ];
+    const instSheet = window.XLSX.utils.aoa_to_sheet(instRows);
+    instSheet['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 60 }];
+    window.XLSX.utils.book_append_sheet(wb, instSheet, 'Instructions');
+
+    // ── Trigger download ─────────────────────────────────────────────
+    const safeName = (vendor.name || 'vendor').replace(/[^a-z0-9_-]+/gi, '_').toLowerCase();
+    const suffix = generateBlank ? 'template' : 'catalog';
+    const filename = `${safeName}_${suffix}.xlsx`;
+    try {
+      window.XLSX.writeFile(wb, filename);
+      if (NX.toast) NX.toast(generateBlank
+        ? `Template downloaded — ${filename}`
+        : `Exported ${dataRows.length} items — ${filename}`, 'info', 2500);
+    } catch (e) {
+      console.error('[ordering] xlsx download failed:', e);
+      if (NX.toast) NX.toast('Download failed: ' + (e.message || ''), 'error');
+    }
+  }
+
+  function openCatalogImport(vendor) {
+    if (!vendor || !vendor.id) return;
+    if (!window.XLSX) {
+      if (NX.toast) NX.toast('Spreadsheet engine not loaded — refresh page', 'error');
+      return;
+    }
+    // Strip any leftover modal first
+    document.querySelector('.ord-cat-import-overlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'ord-cat-import-overlay';
+    const hasItems = !!(catalogState && catalogState.items && catalogState.items.length);
+    overlay.innerHTML = `
+      <div class="ord-cat-import-backdrop"></div>
+      <div class="ord-cat-import-modal" role="dialog" aria-label="Catalog spreadsheet sync">
+        <div class="ord-cat-import-head">
+          <div class="ord-cat-import-title">Catalog &middot; spreadsheet</div>
+          <button class="ord-cat-import-close" type="button" aria-label="Close">×</button>
+        </div>
+        <div class="ord-cat-import-body" id="catImpBody">
+          <div class="ord-cat-import-step">
+            <div class="ord-cat-import-step-head">Upload a filled spreadsheet</div>
+            <div class="ord-cat-import-step-sub">
+              Replace <strong>${esc(vendor.name)}</strong>'s catalog with what's in the file. Existing items match on Vendor SKU and update in place — order history stays linked. Items missing from your file get archived (not deleted).
+            </div>
+            <label class="ord-cat-import-filebtn">
+              <input type="file" accept=".xlsx,.xls,.csv" id="catImpFile" hidden>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span>Pick file (.xlsx · .csv)</span>
+            </label>
+
+            <div class="ord-cat-import-divider"><span>or</span></div>
+
+            <div class="ord-cat-import-downloads">
+              <button type="button" class="ord-cat-import-dlbtn" id="catImpDlBlank">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>Download blank template</span>
+              </button>
+              ${hasItems ? `
+                <button type="button" class="ord-cat-import-dlbtn" id="catImpDlCurrent">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  <span>Download current catalog (${catalogState.items.length} items)</span>
+                </button>
+              ` : ''}
+            </div>
+
+            <div class="ord-cat-import-tips">
+              <strong>Expected columns</strong> (header row, any order):
+              Section · Item Name · Vendor SKU · Unit · Default Par · Note
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.querySelector('.ord-cat-import-backdrop').addEventListener('click', close);
+    overlay.querySelector('.ord-cat-import-close').addEventListener('click', close);
+
+    overlay.querySelector('#catImpFile').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      await handleCatalogFilePicked(file, vendor, overlay);
+    });
+
+    // Download buttons — both call the same generator, current-mode
+    // includes existing rows, blank-mode just sample/header.
+    const dlBlank = overlay.querySelector('#catImpDlBlank');
+    if (dlBlank) dlBlank.addEventListener('click', () => downloadCatalogTemplate(vendor));
+    const dlCurrent = overlay.querySelector('#catImpDlCurrent');
+    if (dlCurrent) dlCurrent.addEventListener('click', () => downloadCatalogTemplate(vendor, catalogState.items));
+  }
+
+  async function handleCatalogFilePicked(file, vendor, overlay) {
+    const body = overlay.querySelector('#catImpBody');
+    body.innerHTML = `<div class="ord-cat-import-loading">Reading ${esc(file.name)}…</div>`;
+    let rows;
+    try {
+      rows = await parseCatalogFile(file);
+    } catch (e) {
+      console.error('[ordering] parseCatalogFile:', e);
+      body.innerHTML = `
+        <div class="ord-cat-import-error">
+          <div><strong>Couldn't read that file.</strong></div>
+          <div>${esc(e.message || 'Unknown error')}</div>
+          <button type="button" class="ord-cat-import-retry">Try again</button>
+        </div>`;
+      body.querySelector('.ord-cat-import-retry').addEventListener('click', () => {
+        overlay.remove();
+        openCatalogImport(vendor);
+      });
+      return;
+    }
+    if (!rows.length) {
+      body.innerHTML = `
+        <div class="ord-cat-import-error">
+          <div><strong>No items found in that file.</strong></div>
+          <div>Check that the first row is a header (Section, Item Name, etc.) and at least one item row follows.</div>
+          <button type="button" class="ord-cat-import-retry">Try again</button>
+        </div>`;
+      body.querySelector('.ord-cat-import-retry').addEventListener('click', () => {
+        overlay.remove();
+        openCatalogImport(vendor);
+      });
+      return;
+    }
+    renderCatalogImportPreview(rows, vendor, overlay);
+  }
+
+  /* Read the file with SheetJS, normalize headers, return an array of
+     {section, item_name, vendor_sku, unit, default_par_qty, note}.
+     Header matching is fuzzy (lowercase, trim, ignore underscores) so
+     "Item Name" / "item_name" / "ITEM" all map to the same field. */
+  async function parseCatalogFile(file) {
+    const buf = await file.arrayBuffer();
+    const wb = window.XLSX.read(buf, { type: 'array', cellDates: false });
+    // Pick the first non-empty sheet (skips an "Instructions" sheet
+    // that might be sheet 0 in the template).
+    let sheet;
+    for (const name of wb.SheetNames) {
+      const s = wb.Sheets[name];
+      // Skip if name is "Instructions" or "README"
+      if (/^(instructions?|readme|notes?)$/i.test(name)) continue;
+      sheet = s;
+      break;
+    }
+    if (!sheet) sheet = wb.Sheets[wb.SheetNames[0]];
+    if (!sheet) throw new Error('Workbook is empty');
+
+    const aoa = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    if (!aoa.length) throw new Error('Sheet is empty');
+
+    // Find the header row — first row containing both an "item" word
+    // and a "name|description|sku" word. Skips merged-cell metadata at
+    // the top of vendor-supplied files.
+    let headerIdx = -1;
+    for (let i = 0; i < Math.min(aoa.length, 30); i++) {
+      const cells = (aoa[i] || []).map(c => String(c || '').toLowerCase());
+      const hasItem = cells.some(c => /\b(item|product|description)\b/.test(c));
+      const hasIdent = cells.some(c => /\b(sku|name|description|product)\b/.test(c));
+      if (hasItem && hasIdent) { headerIdx = i; break; }
+    }
+    if (headerIdx === -1) throw new Error("Couldn't find a header row (Item Name / SKU / etc.)");
+
+    const headers = (aoa[headerIdx] || []).map(c => String(c || '').toLowerCase().replace(/[_\s]+/g, ''));
+    const colIdx = (matchers) => {
+      for (let i = 0; i < headers.length; i++) {
+        if (matchers.some(m => headers[i].includes(m))) return i;
+      }
+      return -1;
+    };
+    const idx = {
+      section:    colIdx(['section', 'category', 'group', 'productclass']),
+      item_name:  colIdx(['itemname', 'item', 'product', 'description', 'name']),
+      vendor_sku: colIdx(['sku', 'productcode', 'itemcode', 'productnumber', 'productid']),
+      unit:       colIdx(['unit', 'pack', 'size', 'uom']),
+      default_par_qty: colIdx(['par', 'qty', 'quantity']),
+      note:       colIdx(['note', 'comment', 'brand']),
+    };
+    if (idx.item_name === -1 && idx.vendor_sku === -1) {
+      throw new Error('No Item Name or Vendor SKU column found');
+    }
+
+    const rows = [];
+    let lastSection = '';
+    for (let i = headerIdx + 1; i < aoa.length; i++) {
+      const row = aoa[i] || [];
+      const get = (k) => idx[k] >= 0 ? String(row[idx[k]] == null ? '' : row[idx[k]]).trim() : '';
+      const item_name = get('item_name');
+      const vendor_sku = get('vendor_sku');
+      // Skip blank rows
+      if (!item_name && !vendor_sku) continue;
+      // Section: explicit value wins, else inherit last (handles
+      // section-header rows that only have section filled).
+      const section = get('section') || lastSection || 'Uncategorized';
+      if (get('section')) lastSection = section;
+
+      const parRaw = get('default_par_qty');
+      const par = parRaw && !isNaN(parseFloat(parRaw)) ? parseFloat(parRaw) : null;
+
+      rows.push({
+        section,
+        item_name: item_name || vendor_sku,
+        vendor_sku: vendor_sku || null,
+        unit: get('unit') || null,
+        default_par_qty: par,
+        note: get('note') || null,
+      });
+    }
+    return rows;
+  }
+
+  function renderCatalogImportPreview(rows, vendor, overlay) {
+    const body = overlay.querySelector('#catImpBody');
+    body.innerHTML = `<div class="ord-cat-import-loading">Comparing against current catalog…</div>`;
+
+    // Diff against current catalog. Match by SKU when present; if no
+    // SKU, match by (section + name) lowercased — that's the only way
+    // to identify a SKU-less item across imports.
+    NX.sb.from('order_guide_items')
+      .select('id, item_name, vendor_sku, section, unit, note, archived')
+      .eq('vendor_id', vendor.id)
+      .then(({ data: existing, error }) => {
+        if (error) {
+          body.innerHTML = `<div class="ord-cat-import-error"><div>Database read failed: ${esc(error.message)}</div></div>`;
+          return;
+        }
+        const cur = existing || [];
+        const curBySku  = new Map();
+        const curByName = new Map();
+        for (const c of cur) {
+          if (c.vendor_sku) curBySku.set(String(c.vendor_sku).trim().toLowerCase(), c);
+          const k = (c.section || '').toLowerCase() + '|' + (c.item_name || '').toLowerCase();
+          curByName.set(k, c);
+        }
+
+        const inserts = [], updates = [], unchanged = [];
+        const matchedIds = new Set();
+        for (const r of rows) {
+          let m = null;
+          if (r.vendor_sku) m = curBySku.get(String(r.vendor_sku).trim().toLowerCase());
+          if (!m) {
+            const k = (r.section || '').toLowerCase() + '|' + (r.item_name || '').toLowerCase();
+            m = curByName.get(k);
+          }
+          if (m) {
+            matchedIds.add(m.id);
+            // Was anything actually different?
+            const changed = (
+              (m.item_name || '') !== (r.item_name || '') ||
+              (m.section || '')   !== (r.section || '') ||
+              (m.unit || '')      !== (r.unit || '') ||
+              (m.note || '')      !== (r.note || '') ||
+              ((m.vendor_sku || '') !== (r.vendor_sku || ''))
+            );
+            if (changed) updates.push({ id: m.id, ...r });
+            else unchanged.push(m);
+          } else {
+            inserts.push(r);
+          }
+        }
+        // Items in current but NOT in upload → will be archived
+        const toArchive = cur.filter(c => !c.archived && !matchedIds.has(c.id));
+
+        // Render the preview screen
+        body.innerHTML = `
+          <div class="ord-cat-import-preview">
+            <div class="ord-cat-import-summary">
+              <div class="ord-cat-import-stat ord-cat-import-stat-add">
+                <div class="ord-cat-import-stat-num">${inserts.length}</div>
+                <div class="ord-cat-import-stat-lbl">to add</div>
+              </div>
+              <div class="ord-cat-import-stat ord-cat-import-stat-update">
+                <div class="ord-cat-import-stat-num">${updates.length}</div>
+                <div class="ord-cat-import-stat-lbl">to update</div>
+              </div>
+              <div class="ord-cat-import-stat ord-cat-import-stat-keep">
+                <div class="ord-cat-import-stat-num">${unchanged.length}</div>
+                <div class="ord-cat-import-stat-lbl">unchanged</div>
+              </div>
+              <div class="ord-cat-import-stat ord-cat-import-stat-archive">
+                <div class="ord-cat-import-stat-num">${toArchive.length}</div>
+                <div class="ord-cat-import-stat-lbl">to archive</div>
+              </div>
+            </div>
+            <div class="ord-cat-import-summary-note">
+              <strong>${rows.length}</strong> rows in your file · vendor catalog will end with <strong>${inserts.length + updates.length + unchanged.length}</strong> active items.
+            </div>
+
+            ${inserts.length ? `
+              <details class="ord-cat-import-group" open>
+                <summary>Add (${inserts.length})</summary>
+                <div class="ord-cat-import-list">
+                  ${inserts.slice(0, 50).map(r => `
+                    <div class="ord-cat-import-row ord-cat-import-row-add">
+                      <span class="ord-cat-import-row-sec">${esc(r.section)}</span>
+                      <span class="ord-cat-import-row-name">${esc(r.item_name)}</span>
+                      ${r.vendor_sku ? `<span class="ord-cat-import-row-sku">${esc(r.vendor_sku)}</span>` : ''}
+                      ${r.unit ? `<span class="ord-cat-import-row-unit">${esc(r.unit)}</span>` : ''}
+                    </div>
+                  `).join('')}
+                  ${inserts.length > 50 ? `<div class="ord-cat-import-more">…and ${inserts.length - 50} more</div>` : ''}
+                </div>
+              </details>
+            ` : ''}
+
+            ${updates.length ? `
+              <details class="ord-cat-import-group">
+                <summary>Update (${updates.length})</summary>
+                <div class="ord-cat-import-list">
+                  ${updates.slice(0, 50).map(r => `
+                    <div class="ord-cat-import-row ord-cat-import-row-update">
+                      <span class="ord-cat-import-row-sec">${esc(r.section)}</span>
+                      <span class="ord-cat-import-row-name">${esc(r.item_name)}</span>
+                      ${r.vendor_sku ? `<span class="ord-cat-import-row-sku">${esc(r.vendor_sku)}</span>` : ''}
+                    </div>
+                  `).join('')}
+                  ${updates.length > 50 ? `<div class="ord-cat-import-more">…and ${updates.length - 50} more</div>` : ''}
+                </div>
+              </details>
+            ` : ''}
+
+            ${toArchive.length ? `
+              <details class="ord-cat-import-group">
+                <summary>Archive (${toArchive.length}) — won't be deleted, just hidden from order picker</summary>
+                <div class="ord-cat-import-list">
+                  ${toArchive.slice(0, 50).map(c => `
+                    <div class="ord-cat-import-row ord-cat-import-row-archive">
+                      <span class="ord-cat-import-row-sec">${esc(c.section || '')}</span>
+                      <span class="ord-cat-import-row-name">${esc(c.item_name || '')}</span>
+                      ${c.vendor_sku ? `<span class="ord-cat-import-row-sku">${esc(c.vendor_sku)}</span>` : ''}
+                    </div>
+                  `).join('')}
+                  ${toArchive.length > 50 ? `<div class="ord-cat-import-more">…and ${toArchive.length - 50} more</div>` : ''}
+                </div>
+              </details>
+            ` : ''}
+
+            <div class="ord-cat-import-actions">
+              <button type="button" class="ord-cat-import-cancel">Cancel</button>
+              <button type="button" class="ord-cat-import-confirm">Apply changes</button>
+            </div>
+          </div>
+        `;
+        body.querySelector('.ord-cat-import-cancel').addEventListener('click', () => overlay.remove());
+        body.querySelector('.ord-cat-import-confirm').addEventListener('click', async () => {
+          await executeCatalogImport({ inserts, updates, toArchive }, vendor, overlay);
+        });
+      });
+  }
+
+  async function executeCatalogImport({ inserts, updates, toArchive }, vendor, overlay) {
+    const body = overlay.querySelector('#catImpBody');
+    body.innerHTML = `<div class="ord-cat-import-loading">Applying changes — don't close…</div>`;
+    const errors = [];
+
+    // Compute next sort_order — append new items after current max so
+    // they don't shuffle existing ordering. Group by section and offset
+    // within so they cluster sensibly.
+    let maxSort = 0;
+    try {
+      const { data } = await NX.sb.from('order_guide_items')
+        .select('sort_order').eq('vendor_id', vendor.id)
+        .order('sort_order', { ascending: false }).limit(1);
+      if (data && data[0]) maxSort = data[0].sort_order || 0;
+    } catch (_) {}
+
+    // 1) Archive
+    if (toArchive.length) {
+      try {
+        const ids = toArchive.map(c => c.id);
+        const { error } = await NX.sb.from('order_guide_items')
+          .update({ archived: true }).in('id', ids);
+        if (error) errors.push('archive: ' + error.message);
+      } catch (e) { errors.push('archive: ' + e.message); }
+    }
+
+    // 2) Update (one row at a time to keep error messages traceable)
+    for (const u of updates) {
+      try {
+        const { error } = await NX.sb.from('order_guide_items').update({
+          item_name: u.item_name,
+          vendor_sku: u.vendor_sku,
+          section: u.section,
+          unit: u.unit,
+          note: u.note,
+          archived: false,
+        }).eq('id', u.id);
+        if (error) errors.push(`update ${u.item_name}: ${error.message}`);
+      } catch (e) { errors.push(`update ${u.item_name}: ${e.message}`); }
+    }
+
+    // 3) Insert (batch — Supabase handles arrays)
+    if (inserts.length) {
+      const rows = inserts.map((r, i) => ({
+        vendor_id: vendor.id,
+        item_name: r.item_name,
+        vendor_sku: r.vendor_sku,
+        section: r.section,
+        unit: r.unit,
+        note: r.note,
+        default_par_qty: r.default_par_qty,
+        sort_order: maxSort + 10 + (i * 10),
+        archived: false,
+      }));
+      // Some columns may not exist on the schema (note, default_par_qty
+      // are older additions). Retry without them on column-missing
+      // errors so the import still mostly works.
+      let res = await NX.sb.from('order_guide_items').insert(rows);
+      if (res.error && /column.*does not exist/i.test(res.error.message || '')) {
+        const safe = rows.map(r => {
+          const { note, default_par_qty, ...rest } = r;
+          return rest;
+        });
+        res = await NX.sb.from('order_guide_items').insert(safe);
+      }
+      if (res.error) errors.push('insert: ' + res.error.message);
+    }
+
+    // Done — show result and reload catalog
+    if (errors.length) {
+      body.innerHTML = `
+        <div class="ord-cat-import-error">
+          <div><strong>Finished with ${errors.length} error${errors.length === 1 ? '' : 's'}.</strong></div>
+          <ul>${errors.slice(0, 6).map(e => `<li>${esc(e)}</li>`).join('')}</ul>
+          ${errors.length > 6 ? `<div>…and ${errors.length - 6} more (check console).</div>` : ''}
+          <button type="button" class="ord-cat-import-retry">Close</button>
+        </div>`;
+      console.error('[ordering] catalog import errors:', errors);
+      body.querySelector('.ord-cat-import-retry').addEventListener('click', () => overlay.remove());
+    } else {
+      body.innerHTML = `
+        <div class="ord-cat-import-success">
+          <div class="ord-cat-import-success-icon">✓</div>
+          <div class="ord-cat-import-success-title">Catalog updated</div>
+          <div class="ord-cat-import-success-sub">
+            ${inserts.length} added · ${updates.length} updated · ${toArchive.length} archived
+          </div>
+          <button type="button" class="ord-cat-import-done">Done</button>
+        </div>`;
+      body.querySelector('.ord-cat-import-done').addEventListener('click', () => {
+        overlay.remove();
+        // Reload catalog so the editor shows the new state
+        if (catalogState && catalogState.vendor && catalogState.vendor.id === vendor.id) {
+          (async () => {
+            const cat = await loadVendorCatalog(vendor.id);
+            catalogState.items = cat;
+            renderCatalog();
+          })();
+        }
+      });
+      if (NX.toast) NX.toast(`Catalog imported — ${inserts.length + updates.length} items active`, 'info', 2500);
+    }
+  }
+
   function renderCatalog() {
     if (!catalogState || !catalogState.overlay) return;
     const v = catalogState.vendor;
@@ -4359,7 +4926,7 @@ Thanks for your help sorting this out.`;
     const itemCount = catalogState.items.length;
     const itemCountSub = `${itemCount} item${itemCount === 1 ? '' : 's'}`;
 
-    // Toolbar: + Section, + Item. Drag is always available — no mode toggle.
+    // Toolbar: + Section, + Item, Import (bulk).
     const toolbarHTML = `
       <div class="ord-cat-toolbar">
         <button class="ord-cat-tool-btn" id="catAddSection" type="button">
@@ -4367,6 +4934,10 @@ Thanks for your help sorting this out.`;
         </button>
         <button class="ord-cat-tool-btn ord-cat-tool-primary" id="catAddItem" type="button">
           ${plusIcon()}<span>Item</span>
+        </button>
+        <button class="ord-cat-tool-btn ord-cat-tool-import" id="catImport" type="button" title="Bulk import from spreadsheet">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span>Import</span>
         </button>
       </div>
     `;
@@ -4464,6 +5035,32 @@ Thanks for your help sorting this out.`;
     if (addItem) addItem.addEventListener('click', () => {
       catalogState.editingItemId = 'new';
       // Inject suggested default section into the new-item form via state
+      catalogState._newItemDefaultSection = pickDefaultNewItemSection();
+      renderItemsAreaOnly();
+      setTimeout(() => {
+        const form = overlay.querySelector('.ord-vitem-editing');
+        if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 50);
+    });
+
+    // Bulk import — opens the spreadsheet import modal. Sits next to
+    // Add Item so it's discoverable but visually less prominent (admin
+    // power-user action). The modal handles file picker, parse, preview,
+    // and confirm/execute.
+    const importBtn = overlay.querySelector('#catImport');
+    if (importBtn) importBtn.addEventListener('click', () => openCatalogImport(catalogState.vendor));
+
+    // Empty-state CTAs — same flows as the toolbar buttons, just in a
+    // friendlier place when the catalog is brand new.
+    const emptyImport = overlay.querySelector('#vedEmptyImport');
+    if (emptyImport) emptyImport.addEventListener('click', () => openCatalogImport(catalogState.vendor));
+
+    const emptyDownload = overlay.querySelector('#vedEmptyDownload');
+    if (emptyDownload) emptyDownload.addEventListener('click', () => downloadCatalogTemplate(catalogState.vendor));
+
+    const emptyManual = overlay.querySelector('#vedEmptyManual');
+    if (emptyManual) emptyManual.addEventListener('click', () => {
+      catalogState.editingItemId = 'new';
       catalogState._newItemDefaultSection = pickDefaultNewItemSection();
       renderItemsAreaOnly();
       setTimeout(() => {
