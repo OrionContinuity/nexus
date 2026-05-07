@@ -3415,6 +3415,18 @@ Thanks for your help sorting this out.`;
           <label class="ord-form-label">Note (optional)</label>
           <input type="text" class="ord-form-input ied-note" value="${esc(item.note || '')}" placeholder="e.g. 'up to 10' or 'bag'" autocomplete="off">
         </div>
+        ${!isNew ? `
+          <div class="ord-vitem-move-row" role="group" aria-label="Reorder this item">
+            <button type="button" class="ord-vitem-move-btn" data-move="up" data-item-id="${esc(item.id)}" aria-label="Move up one position">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
+              Move up
+            </button>
+            <button type="button" class="ord-vitem-move-btn" data-move="down" data-item-id="${esc(item.id)}" aria-label="Move down one position">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+              Move down
+            </button>
+          </div>
+        ` : ''}
         <div class="ord-vitem-edit-actions">
           ${!isNew ? `<button class="ord-vitem-delete-btn" data-item-id="${esc(item.id)}">${trashIcon()} Delete</button>` : '<div></div>'}
           <button class="ord-vitem-cancel-btn">Cancel</button>
@@ -3455,6 +3467,19 @@ Thanks for your help sorting this out.`;
     // Delete
     list.querySelectorAll('.ord-vitem-delete-btn').forEach(b => {
       b.addEventListener('click', () => deleteItem(b.dataset.itemId));
+    });
+
+    // ─── Move up / Move down ───────────────────────────────────────
+    // Explicit reorder fallback for users who can't / don't want to
+    // long-press drag. Each click swaps the item with its neighbor in
+    // the same section. If the item is already at the top/bottom of
+    // its section, the click is a no-op (we shake the button briefly).
+    list.querySelectorAll('.ord-vitem-move-btn[data-move]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const itemId = btn.dataset.itemId;
+        const dir = btn.dataset.move; // 'up' or 'down'
+        await moveItemByOne(itemId, dir);
+      });
     });
 
     // ─── Section collapse / expand ─────────────────────────────────
@@ -3605,8 +3630,12 @@ Thanks for your help sorting this out.`;
    *     cross-center, auto-scroll near edges, persist on drop.
    * ───────────────────────────────────────────────────────────────────── */
   function wireDragHandlers(listEl) {
-    const LONG_PRESS_MS  = 3000;       // Orion's spec — accidental holds don't reach 3s
-    const MOVE_THRESH_PX = 10;         // tolerate up to this much wiggle during the hold
+    const LONG_PRESS_MS  = 500;        // 500ms = standard mobile long-press feel.
+                                       // Was 3000ms — too long to be usable in practice.
+                                       // Half a second is the sweet spot: deliberate
+                                       // enough to not trigger from a scroll, fast
+                                       // enough that the user doesn't think it's broken.
+    const MOVE_THRESH_PX = 12;         // tolerate a bit more finger wiggle on iOS
     const SCROLL_ZONE    = 90;         // px from container edge that triggers auto-scroll
     const SCROLL_MAX     = 14;         // max scroll px per RAF tick
 
@@ -3872,6 +3901,65 @@ Thanks for your help sorting this out.`;
    * Walks the final liveOrder and writes the new sort_order (and
    * section, if it changed) for any row that differs from in-memory state.
    * Optimistically updates catalogState.items first so the UI is stable. */
+  /* ── Move a single item up or down by one position ──────────────────
+   * Used by the ↑/↓ buttons in the item edit form. Builds the same
+   * shape persistItemReorder expects (an array of {id, section}) so
+   * the swap goes through the same DB write path the drag does.
+   * Items only move within their current section — to change sections
+   * the user types in the Section field of the edit form. */
+  async function moveItemByOne(itemId, dir) {
+    if (!catalogState || !Array.isArray(catalogState.items)) return;
+    const it = catalogState.items.find(x => String(x.id) === String(itemId));
+    if (!it) return;
+    const sec = it.section || '';
+    // Build current ordered list of items in this section
+    const sectionItems = catalogState.items
+      .filter(x => (x.section || '') === sec)
+      .slice()
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    const idx = sectionItems.findIndex(x => String(x.id) === String(itemId));
+    if (idx === -1) return;
+    const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= sectionItems.length) {
+      // Already at the edge — quick toast so the user knows it tried
+      if (NX.toast) NX.toast(dir === 'up' ? 'Already at top of section' : 'Already at bottom of section', 'info', 1200);
+      return;
+    }
+    // Swap them in the local section list
+    [sectionItems[idx], sectionItems[swapIdx]] = [sectionItems[swapIdx], sectionItems[idx]];
+    // Build full liveOrder for ALL sections — persistItemReorder rewrites
+    // sort_order based on global index, so we need every item present.
+    const allSectionsInOrder = [];
+    const seenSec = new Set();
+    catalogState.items
+      .slice()
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+      .forEach(x => {
+        const s = x.section || '';
+        if (!seenSec.has(s)) { allSectionsInOrder.push(s); seenSec.add(s); }
+      });
+    const finalOrder = [];
+    for (const s of allSectionsInOrder) {
+      const items = (s === sec)
+        ? sectionItems
+        : catalogState.items
+            .filter(x => (x.section || '') === s)
+            .slice()
+            .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      items.forEach(x => finalOrder.push({ id: x.id, section: s }));
+    }
+    await persistItemReorder(finalOrder);
+    // Re-render so the item visibly moves while staying in edit mode.
+    if (typeof renderItemsAreaOnly === 'function') renderItemsAreaOnly();
+    // Re-scroll to keep the item in view.
+    setTimeout(() => {
+      const list = document.getElementById('catItemsList');
+      const form = list && list.querySelector('.ord-vitem-editing');
+      if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  }
+
+
   async function persistItemReorder(finalOrder) {
     if (!catalogState || !NX.sb || !finalOrder.length) return;
     const updates = [];
