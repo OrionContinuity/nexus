@@ -265,6 +265,23 @@
       if (opts.onChange) opts.onChange(state.chips[kind]);
       if (opts.onAdd) opts.onAdd(raw);
       _refreshChipGroup(root, kind, state, opts);
+      // After the refresh the chip-group DOM is brand new, including the
+      // input wrap which renders `hidden` by default. Re-show it and
+      // refocus the input so the user can keep adding emails without
+      // having to re-tap the "+ Add" button each time. iOS keyboards
+      // stay open when focus moves to a freshly inserted input.
+      const newWrap   = root.querySelector(`[data-rx-chip-group="${esc(kind)}"] .rx-chip-input-wrap`);
+      const newInput  = root.querySelector(`[data-rx-chip-input="${esc(kind)}"]`);
+      const newAddBtn = root.querySelector(`[data-rx-chip-add="${esc(kind)}"]`);
+      if (newWrap)   newWrap.hidden = false;
+      if (newAddBtn) newAddBtn.style.display = 'none';
+      if (newInput) {
+        newInput.value = '';
+        // rAF so focus lands after the browser settles the new layout
+        requestAnimationFrame(() => {
+          try { newInput.focus(); } catch (_) {}
+        });
+      }
     };
 
     const saveBtn = root.querySelector(`[data-rx-chip-save="${kind}"]`);
