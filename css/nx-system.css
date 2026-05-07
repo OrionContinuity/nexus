@@ -2379,7 +2379,12 @@ html {
 .rx-overlay-spacer { flex-shrink: 0; width: 36px; }
 
 .rx-overlay-body {
-  flex: 1 1 auto;
+  /* iOS Safari quirk: flex: 1 1 auto + overflow-y: auto in a column-flex
+     parent can let the body grow past the viewport instead of scrolling
+     internally. Explicit flex: 1 1 0 + min-height: 0 forces the body to
+     constrain to the available flex space and lets overflow-y do its job. */
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   /* Generous padding + 20px gap between cards. Whitespace is the
@@ -2431,6 +2436,12 @@ html {
   border: 1px solid var(--border);
   border-radius: var(--r);
   overflow: hidden;
+  /* In a column-flex parent (.rx-overlay-body), the default flex-shrink: 1
+     can compress card bodies down to nothing — visible as the body
+     content getting clipped at a fixed small height. Pinning flex-shrink
+     to 0 keeps every card at its natural content height; the parent
+     handles scrolling when total height exceeds the viewport. */
+  flex-shrink: 0;
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 [data-theme="dark"] .rx-card { box-shadow: 0 1px 3px rgba(0,0,0,0.18); }
