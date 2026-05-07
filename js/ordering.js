@@ -1882,6 +1882,10 @@ Thanks for your help sorting this out.`;
     const overlay = entryState.overlay;
     if (!overlay) return;
 
+    // Lazy-init collapsedSections — used by the new section-card UI to
+    // remember which sections the user has collapsed during this session.
+    if (!entryState.collapsedSections) entryState.collapsedSections = new Set();
+
     // Group catalog by section (preserve sort_order within)
     const groups = new Map();
     for (const it of catalog) {
@@ -1916,12 +1920,25 @@ Thanks for your help sorting this out.`;
         <input type="search" class="ord-entry-search" id="ordEntrySearch" placeholder="Search items…" autocomplete="off" spellcheck="false">
       </div>
       <div class="ord-entry-list" id="ordEntryList">
-        ${sections.map(sec => `
-          <div class="ord-entry-section">
-            ${sec ? `<div class="ord-entry-section-label">${esc(sec)}</div>` : ''}
-            ${groups.get(sec).map(it => itemRowHtml(it, lines[it.id], delivery_date, location, readOnly)).join('')}
+        ${sections.map(sec => {
+          const groupItems = groups.get(sec);
+          const isCollapsed = entryState.collapsedSections && entryState.collapsedSections.has(sec);
+          return `
+          <div class="ord-entry-section${isCollapsed ? ' is-collapsed' : ''}" data-section="${esc(sec || '')}">
+            <div class="ord-entry-section-head" data-section="${esc(sec || '')}">
+              <span class="ord-entry-section-name">${esc(sec || 'Uncategorized')}</span>
+              <span class="ord-entry-section-count">${groupItems.length}</span>
+              <button type="button" class="ord-entry-section-collapse" data-section="${esc(sec || '')}" aria-expanded="${!isCollapsed}" aria-label="${isCollapsed ? 'Expand' : 'Collapse'} section">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+            </div>
+            <div class="ord-entry-section-items">
+              ${groupItems.map(it => itemRowHtml(it, lines[it.id], delivery_date, location, readOnly)).join('')}
+            </div>
           </div>
-        `).join('')}
+        `;}).join('')}
         ${catalog.length === 0 ? `
           <div class="ord-empty">
             This vendor has no catalog yet.<br>
@@ -1958,6 +1975,29 @@ Thanks for your help sorting this out.`;
       if (countItemsInOrder() > 0) openReview();
     });
     overlay.querySelectorAll('.ord-item-row').forEach(row => wireItemRow(row));
+
+    // ─── Order-entry section collapse ─────────────────────────────────
+    // Tap the chevron (or anywhere on the section head) to collapse/expand.
+    // Collapsed sections hide their items but stay in the DOM so quantity
+    // state isn't lost when the user collapses then expands.
+    overlay.querySelectorAll('.ord-entry-section-head').forEach(head => {
+      head.addEventListener('click', (e) => {
+        // Don't toggle if the tap landed on something interactive
+        // (currently nothing else, but defensive for future additions).
+        const sec = head.dataset.section || '';
+        if (entryState.collapsedSections.has(sec)) {
+          entryState.collapsedSections.delete(sec);
+        } else {
+          entryState.collapsedSections.add(sec);
+        }
+        // Just toggle the class on the parent — no full re-render needed,
+        // the items are already in the DOM and CSS handles the hide.
+        const block = head.closest('.ord-entry-section');
+        if (block) block.classList.toggle('is-collapsed');
+        const btn = head.querySelector('.ord-entry-section-collapse');
+        if (btn) btn.setAttribute('aria-expanded', String(!entryState.collapsedSections.has(sec)));
+      });
+    });
 
     if (!entryState._escWired) {
       const escHandler = e => {
@@ -3350,6 +3390,14 @@ Thanks for your help sorting this out.`;
           ${esc(sec || 'Uncategorized')}
         </span>
         <span class="ved-section-count">${items.length}</span>
+        <div class="ved-section-move-stack" role="group" aria-label="Reorder this section">
+          <button type="button" class="ved-section-move-btn" data-section-move="up" data-section="${esc(sec)}" aria-label="Move section up">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
+          </button>
+          <button type="button" class="ved-section-move-btn" data-section-move="down" data-section="${esc(sec)}" aria-label="Move section down">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+        </div>
         ${!isUncat ? `
           <button class="ved-section-rename-btn" data-section="${esc(sec)}" aria-label="Rename section ${esc(sec)}">${editIcon()}</button>
         ` : ''}
@@ -3400,9 +3448,12 @@ Thanks for your help sorting this out.`;
     if (item.vendor_sku) meta.push(`<span class="ved-meta-sku">${esc(item.vendor_sku)}</span>`);
     if (item.default_par_qty != null) meta.push(`par ${item.default_par_qty} ${esc(item.unit || 'ea')}`);
 
-    // No always-on drag handle anymore. The whole row accepts a 3-second
-    // long-press to enter drag mode (see wireDragHandlers). The button
-    // inside is the tap target for opening the edit form.
+    // Up/down arrows are always visible — Orion wants single-tap reordering
+    // without the long-press dance. The buttons stopPropagation so they
+    // don't open the edit form (which is what tapping the rest of the row
+    // does). Order on this catalog screen IS the order on the order-entry
+    // screen, so reordering here is the way to organize what cooks see
+    // when placing an order.
     return `
       <div class="ved-item-row" data-item-id="${esc(item.id)}">
         <button class="ved-item-tap" data-item-id="${esc(item.id)}" type="button">
@@ -3410,8 +3461,16 @@ Thanks for your help sorting this out.`;
             <div class="ved-item-name">${esc(item.item_name)}</div>
             ${meta.length ? `<div class="ved-item-meta">${meta.join('<span class="ved-meta-sep">·</span>')}</div>` : ''}
           </div>
-          <span class="ved-item-chevron" aria-hidden="true">›</span>
         </button>
+        <div class="ved-item-move-stack" role="group" aria-label="Reorder this item">
+          <button type="button" class="ved-item-move-btn" data-row-move="up" data-item-id="${esc(item.id)}" aria-label="Move up">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
+          </button>
+          <button type="button" class="ved-item-move-btn" data-row-move="down" data-item-id="${esc(item.id)}" aria-label="Move down">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+        </div>
+        <span class="ved-item-chevron" aria-hidden="true">›</span>
       </div>
     `;
   }
@@ -3557,6 +3616,30 @@ Thanks for your help sorting this out.`;
     });
     list.querySelectorAll('.ved-section-collapse').forEach(btn => {
       btn.addEventListener('click', () => toggleCollapseSection(btn.dataset.section));
+    });
+
+    // ─── Item move (up/down arrows on each row) ───────────────────────
+    // Always-visible reorder controls. Stop propagation so these don't
+    // also fire the ved-item-tap edit handler.
+    list.querySelectorAll('.ved-item-move-btn[data-row-move]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const dir = btn.dataset.rowMove;
+        const itemId = btn.dataset.itemId;
+        if (itemId && (dir === 'up' || dir === 'down')) moveItemByOne(itemId, dir);
+      });
+    });
+
+    // ─── Section move (up/down arrows in section header) ──────────────
+    list.querySelectorAll('.ved-section-move-btn[data-section-move]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const dir = btn.dataset.sectionMove;
+        const sec = btn.dataset.section;
+        if (sec != null && (dir === 'up' || dir === 'down')) moveSectionByOne(sec, dir);
+      });
     });
 
     // ─── Section rename ────────────────────────────────────────────
@@ -3731,7 +3814,7 @@ Thanks for your help sorting this out.`;
     function onPointerDown(e) {
       // Skip pointers landing inside the editing form, controls, or interactive widgets —
       // those handle their own interactions.
-      if (e.target.closest('input, textarea, select, .ord-vitem-editing, .ved-section-rename-btn, .ved-section-collapse, .ved-section-rename-input')) {
+      if (e.target.closest('input, textarea, select, .ord-vitem-editing, .ved-section-rename-btn, .ved-section-collapse, .ved-section-rename-input, .ved-item-move-btn, .ved-section-move-btn, .ved-item-move-stack, .ved-section-move-stack')) {
         return;
       }
 
@@ -4018,6 +4101,42 @@ Thanks for your help sorting this out.`;
       const form = list && list.querySelector('.ord-vitem-editing');
       if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 50);
+  }
+
+  /* Move an entire SECTION up or down by one position. Mirrors moveItemByOne
+     for items. The section ordering is determined by the sort_order of the
+     FIRST item in each section (sections don't have their own sort_order in
+     this schema), so persistSectionReorder rewrites every item's sort_order
+     to put the sections in the requested sequence. */
+  async function moveSectionByOne(sectionName, dir) {
+    if (!catalogState || !Array.isArray(catalogState.items)) return;
+    const sec = sectionName || '';
+    // Build current ordered list of sections by first-item sort_order
+    const sectionsInOrder = [];
+    const seen = new Set();
+    catalogState.items
+      .slice()
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+      .forEach(x => {
+        const s = x.section || '';
+        if (!seen.has(s)) { sectionsInOrder.push(s); seen.add(s); }
+      });
+    // Include any pending (empty) sections at the front, matching the
+    // existing renderCatalog logic.
+    if (Array.isArray(catalogState.pendingSections)) {
+      catalogState.pendingSections.forEach(s => {
+        if (!seen.has(s)) { sectionsInOrder.unshift(s); seen.add(s); }
+      });
+    }
+    const idx = sectionsInOrder.indexOf(sec);
+    if (idx === -1) return;
+    const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= sectionsInOrder.length) {
+      if (NX.toast) NX.toast(dir === 'up' ? 'Already at top' : 'Already at bottom', 'info', 1200);
+      return;
+    }
+    [sectionsInOrder[idx], sectionsInOrder[swapIdx]] = [sectionsInOrder[swapIdx], sectionsInOrder[idx]];
+    await persistSectionReorder(sectionsInOrder);
   }
 
 
