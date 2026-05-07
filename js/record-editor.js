@@ -287,18 +287,44 @@
     const saveBtn = root.querySelector(`[data-rx-chip-save="${kind}"]`);
     if (saveBtn && !saveBtn._rxBound) {
       saveBtn._rxBound = true;
-      saveBtn.addEventListener('click', commitAdd);
+      saveBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        commitAdd();
+      });
     }
     const input = root.querySelector(`[data-rx-chip-input="${kind}"]`);
     if (input && !input._rxBound) {
       input._rxBound = true;
+      // keydown — primary path, fires on Enter on most platforms
       input.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); commitAdd(); }
-        else if (e.key === 'Escape') {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+          commitAdd();
+        } else if (e.key === 'Escape') {
           const wrap = root.querySelector(`[data-rx-chip-group="${kind}"] .rx-chip-input-wrap`);
           if (wrap) wrap.hidden = true;
           if (addBtn) addBtn.style.display = '';
         }
+      });
+      // keyup as a backup (some iOS/Android keyboards swallow keydown
+      // for the Go/Done key but still emit keyup).
+      input.addEventListener('keyup', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          // commitAdd is idempotent (early-return if input is empty),
+          // so calling it twice does nothing harmful.
+          commitAdd();
+        }
+      });
+      // blur — if the user types an email and just taps elsewhere
+      // (or hits Save without committing), commit on focus loss.
+      input.addEventListener('blur', () => {
+        // Tiny delay so a click on the Add button still routes there
+        // first (otherwise we double-add).
+        setTimeout(() => {
+          if (input.value && input.value.trim()) commitAdd();
+        }, 100);
       });
     }
   }
@@ -636,4 +662,15 @@
     // Helpers (exposed for callers that want them)
     _utils: { esc, hashHue, getInitials, ICON },
   };
-})(window.NX = window.NX || {});
+})(typeof NX !== 'undefined' ? NX : (window.NX = window.NX || {}));
+/*
+ * NOTE on the NX reference above:
+ * app.js declares `const NX = {...}` at top level — a LEXICAL binding
+ * visible to subsequent non-module scripts, but NOT a property on
+ * window. So we must attach to that lexical NX (the one ordering.js
+ * and equipment.js see) — not to window.NX, which would be a
+ * different object. The ternary picks the lexical one if app.js
+ * has loaded first; otherwise we create window.NX as a fallback.
+ * This means record-editor.js MUST be loaded AFTER app.js in
+ * index.html for the engine path to be reachable.
+ */
