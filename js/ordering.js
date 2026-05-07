@@ -2921,7 +2921,6 @@ Thanks for your help sorting this out.`;
           : `${editorState.itemCount} item${editorState.itemCount === 1 ? '' : 's'}`);
     const itemsHTML = isNew
       ? `
-        <div class="ved-section-divider"><span>Catalog</span></div>
         <div class="ved-catalog-cta ved-catalog-cta-disabled">
           <div class="ved-catalog-cta-icon">${listIcon()}</div>
           <div class="ved-catalog-cta-main">
@@ -2931,10 +2930,6 @@ Thanks for your help sorting this out.`;
         </div>
       `
       : `
-        <div class="ved-section-divider">
-          <span>Catalog</span>
-          ${editorState.itemCount != null ? `<span class="ved-section-divider-count">${editorState.itemCount}</span>` : ''}
-        </div>
         <button class="ved-catalog-cta" id="vedManageCatalog" type="button">
           <div class="ved-catalog-cta-icon">${listIcon()}</div>
           <div class="ved-catalog-cta-main">
@@ -3290,12 +3285,6 @@ Thanks for your help sorting this out.`;
         <button class="ved-section-rename-cancel">Cancel</button>
       `
       : `
-        <span class="ved-section-drag" data-section="${esc(sec)}" aria-label="Drag to reorder section ${esc(sec || 'uncategorized')}">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <line x1="3" y1="8" x2="21" y2="8"/>
-            <line x1="3" y1="16" x2="21" y2="16"/>
-          </svg>
-        </span>
         <span class="ved-section-name${isUncat ? ' is-uncat' : ''}" data-section="${esc(sec)}" role="button" tabindex="0">
           ${esc(sec || 'Uncategorized')}
         </span>
@@ -3350,16 +3339,11 @@ Thanks for your help sorting this out.`;
     if (item.vendor_sku) meta.push(`<span class="ved-meta-sku">${esc(item.vendor_sku)}</span>`);
     if (item.default_par_qty != null) meta.push(`par ${item.default_par_qty} ${esc(item.unit || 'ea')}`);
 
-    // Always-on drag handle. The row body is a separate tap target so
-    // tap-to-edit still works without entering a "reorder mode".
+    // No always-on drag handle anymore. The whole row accepts a 3-second
+    // long-press to enter drag mode (see wireDragHandlers). The button
+    // inside is the tap target for opening the edit form.
     return `
       <div class="ved-item-row" data-item-id="${esc(item.id)}">
-        <span class="ved-item-drag-handle" data-item-id="${esc(item.id)}" aria-label="Drag to reorder ${esc(item.item_name)}">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <line x1="3" y1="8" x2="21" y2="8"/>
-            <line x1="3" y1="16" x2="21" y2="16"/>
-          </svg>
-        </span>
         <button class="ved-item-tap" data-item-id="${esc(item.id)}" type="button">
           <div class="ved-item-main">
             <div class="ved-item-name">${esc(item.item_name)}</div>
@@ -3553,9 +3537,8 @@ Thanks for your help sorting this out.`;
       });
     });
 
-    // ─── Drag handlers (always active — no mode toggle) ────────────
-    wireItemDragHandlers(list);
-    wireSectionDragHandlers(list);
+    // ─── Drag handlers (long-press to activate, single delegated listener) ──
+    wireDragHandlers(list);
   }
 
   /* ── Section rename: bulk-update all items in the old section ────
@@ -3603,23 +3586,47 @@ Thanks for your help sorting this out.`;
     if (NX.toast) NX.toast(`Renamed “${old || 'Uncategorized'}” → “${next}”`, 'info', 1400);
   }
 
-  /* ── Item drag handlers: reorder within section, or drag across
-   * boundaries to change section. Mirrors the vendor-list drag pattern
-   * but adds section detection on drop AND auto-scroll when the pointer
-   * is near the top/bottom edge of the list container. */
-  function wireItemDragHandlers(listEl) {
-    const SCROLL_ZONE = 90;       // px from edge that triggers auto-scroll
-    const SCROLL_MAX  = 14;       // max px per RAF tick
-    let draggingId = null;
-    let startY = 0;
-    let liveOrder = [];           // [{id, section, el}, ...] reflecting current visual order
+  /* ─────────────────────────────────────────────────────────────────────
+   * Drag handlers — long-press to activate, delegated listener pattern.
+   *
+   * Replaces the previous always-on drag handles (≡ icons on every row +
+   * every section). With 95+ items, that meant 100+ listeners and a
+   * visually noisy UI. New model:
+   *   - ONE pointerdown listener on the items list (event delegation).
+   *   - Long-press for LONG_PRESS_MS on a row or section header arms the
+   *     drag. During the hold, a thin gold progress bar sweeps across
+   *     the card so the user knows something's happening.
+   *   - If the pointer moves > MOVE_THRESH_PX before the timer fires,
+   *     the press is cancelled (so vertical scrolling works normally).
+   *   - If the pointer is released before the timer fires, the press
+   *     ends silently and the natural click event proceeds (tap-to-edit
+   *     for items, tap-to-collapse for section names).
+   *   - Once activated, drag mechanics work as before — swap on
+   *     cross-center, auto-scroll near edges, persist on drop.
+   * ───────────────────────────────────────────────────────────────────── */
+  function wireDragHandlers(listEl) {
+    const LONG_PRESS_MS  = 3000;       // Orion's spec — accidental holds don't reach 3s
+    const MOVE_THRESH_PX = 10;         // tolerate up to this much wiggle during the hold
+    const SCROLL_ZONE    = 90;         // px from container edge that triggers auto-scroll
+    const SCROLL_MAX     = 14;         // max scroll px per RAF tick
+
+    // ─── Press state (before drag activates) ────────────────────────
+    let pressTimer = null;
+    let pressTarget = null;            // .ved-item-row or .ved-section-block being held
+    let pressMode = null;              // 'item' | 'section'
+    let pressStartX = 0;
+    let pressStartY = 0;
+    let pressPointerId = null;
+
+    // ─── Drag state (after activation) ──────────────────────────────
+    let dragging = null;               // null when not dragging; else { mode, id, startY, liveOrder }
     let lastPointerY = 0;
     let scrollRAF = null;
 
-    const handles = listEl.querySelectorAll('.ved-item-drag-handle');
-    handles.forEach(h => h.addEventListener('pointerdown', onPointerDown));
+    // Single delegated listener — no per-row listeners regardless of list size
+    listEl.addEventListener('pointerdown', onPointerDown);
 
-    function snapshot() {
+    function snapshotItems() {
       const rows = listEl.querySelectorAll('.ved-section-block');
       const out = [];
       rows.forEach(block => {
@@ -3632,71 +3639,175 @@ Thanks for your help sorting this out.`;
     }
 
     function onPointerDown(e) {
-      e.preventDefault();
-      const handle = e.currentTarget;
-      const row = handle.closest('.ved-item-row');
-      if (!row) return;
-      draggingId = row.dataset.itemId;
-      startY = e.clientY;
-      lastPointerY = e.clientY;
-      row.classList.add('is-dragging');
-      liveOrder = snapshot();
-      handle.setPointerCapture(e.pointerId);
-      handle.addEventListener('pointermove', onPointerMove);
-      handle.addEventListener('pointerup', onPointerUp);
-      handle.addEventListener('pointercancel', onPointerUp);
-    }
-
-    /* Pure positioning + swap logic — called from pointermove AND from
-     * the auto-scroll RAF loop (so swaps still register while the user
-     * holds finger still and the list is auto-scrolling under them). */
-    function performMove(clientY) {
-      if (!draggingId) return;
-      const draggedRow = listEl.querySelector('.ved-item-row.is-dragging');
-      if (!draggedRow) return;
-      const dy = clientY - startY;
-      draggedRow.style.transform = `translateY(${dy}px)`;
-
-      const draggedRect = draggedRow.getBoundingClientRect();
-      const draggedCenter = draggedRect.top + draggedRect.height / 2;
-      const allRows = Array.from(listEl.querySelectorAll('.ved-item-row[data-item-id]'))
-                           .filter(r => r.dataset.itemId !== draggingId);
-      for (const other of allRows) {
-        const r = other.getBoundingClientRect();
-        // Skip rows with zero height (collapsed sections hide their items)
-        if (r.height === 0) continue;
-        if (draggedCenter > r.top && draggedCenter < r.bottom) {
-          const targetSecBlock = other.closest('.ved-section-block');
-          const otherIdInOrder = other.dataset.itemId;
-          const fromIdx = liveOrder.findIndex(x => x.id === draggingId);
-          const toIdx   = liveOrder.findIndex(x => x.id === otherIdInOrder);
-          if (fromIdx === -1 || toIdx === -1 || !targetSecBlock) break;
-
-          const newSection = targetSecBlock.dataset.section || '';
-          const moved = liveOrder.splice(fromIdx, 1)[0];
-          moved.section = newSection;
-          const newToIdx = liveOrder.findIndex(x => x.id === otherIdInOrder);
-          const insertBefore = (fromIdx > toIdx);
-          liveOrder.splice(insertBefore ? newToIdx : newToIdx + 1, 0, moved);
-
-          // Move into target section's items wrapper if available
-          const targetItemsWrap = targetSecBlock.querySelector('.ved-section-items');
-          if (insertBefore) {
-            (targetItemsWrap || targetSecBlock).insertBefore(draggedRow, other);
-          } else {
-            other.after(draggedRow);
-          }
-          startY = clientY;
-          draggedRow.style.transform = 'translateY(0px)';
-          break;
-        }
+      // Skip pointers landing inside the editing form, controls, or interactive widgets —
+      // those handle their own interactions.
+      if (e.target.closest('input, textarea, select, .ord-vitem-editing, .ved-section-rename-btn, .ved-section-collapse, .ved-section-rename-input')) {
+        return;
       }
+
+      // Determine what kind of card was pressed. Items take priority since they're
+      // nested inside section blocks.
+      const itemRow = e.target.closest('.ved-item-row[data-item-id]');
+      const sectionRow = e.target.closest('.ved-section-row');
+
+      if (itemRow) {
+        pressTarget = itemRow;
+        pressMode = 'item';
+      } else if (sectionRow) {
+        pressTarget = sectionRow.closest('.ved-section-block');
+        pressMode = 'section';
+        if (!pressTarget) return;
+      } else {
+        return;
+      }
+
+      pressStartX = e.clientX;
+      pressStartY = e.clientY;
+      pressPointerId = e.pointerId;
+      pressTarget.classList.add('is-pressing');
+
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        activateDrag();
+      }, LONG_PRESS_MS);
+
+      listEl.addEventListener('pointermove', onPointerMove);
+      listEl.addEventListener('pointerup', onPointerEnd);
+      listEl.addEventListener('pointercancel', onPointerEnd);
     }
 
     function onPointerMove(e) {
-      lastPointerY = e.clientY;
-      performMove(e.clientY);
-      maybeStartAutoScroll();
+      // After drag is active, this is the regular drag-move path
+      if (dragging) {
+        lastPointerY = e.clientY;
+        performMove(e.clientY);
+        maybeStartAutoScroll();
+        return;
+      }
+      // During the hold (pre-drag), wiggle beyond threshold cancels —
+      // this is the user trying to scroll, not arm a drag.
+      if (!pressTarget) return;
+      const dx = Math.abs(e.clientX - pressStartX);
+      const dy = Math.abs(e.clientY - pressStartY);
+      if (dx > MOVE_THRESH_PX || dy > MOVE_THRESH_PX) {
+        cancelPress();
+      }
+    }
+
+    function onPointerEnd(e) {
+      if (dragging) {
+        finishDrag(e);
+      } else {
+        cancelPress();
+      }
+    }
+
+    function cancelPress() {
+      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+      if (pressTarget) {
+        pressTarget.classList.remove('is-pressing');
+        pressTarget = null;
+        pressMode = null;
+      }
+      listEl.removeEventListener('pointermove', onPointerMove);
+      listEl.removeEventListener('pointerup', onPointerEnd);
+      listEl.removeEventListener('pointercancel', onPointerEnd);
+    }
+
+    function activateDrag() {
+      if (!pressTarget) return;
+      pressTarget.classList.remove('is-pressing');
+      pressTarget.classList.add('is-dragging');
+      // Haptic feedback on devices that support it — confirms the
+      // long-press fired without the user having to look.
+      if (navigator.vibrate) {
+        try { navigator.vibrate(25); } catch (_) {}
+      }
+
+      lastPointerY = pressStartY;
+      if (pressMode === 'item') {
+        dragging = {
+          mode: 'item',
+          id: pressTarget.dataset.itemId,
+          startY: pressStartY,
+          liveOrder: snapshotItems(),
+        };
+      } else {
+        dragging = {
+          mode: 'section',
+          id: pressTarget.dataset.section || '',
+          startY: pressStartY,
+          liveOrder: Array.from(listEl.querySelectorAll('.ved-section-block')).map(b => b.dataset.section || ''),
+        };
+      }
+
+      // Capture pointer so all subsequent move/up events route to listEl
+      try { listEl.setPointerCapture(pressPointerId); } catch (_) {}
+    }
+
+    function performMove(clientY) {
+      if (!dragging || !pressTarget) return;
+      const dy = clientY - dragging.startY;
+      pressTarget.style.transform = `translateY(${dy}px)`;
+
+      if (dragging.mode === 'item') {
+        // Find a sibling row whose vertical center we've crossed; swap.
+        const draggedRect = pressTarget.getBoundingClientRect();
+        const draggedCenter = draggedRect.top + draggedRect.height / 2;
+        const allRows = Array.from(listEl.querySelectorAll('.ved-item-row[data-item-id]'))
+                             .filter(r => r.dataset.itemId !== dragging.id);
+        for (const other of allRows) {
+          const r = other.getBoundingClientRect();
+          if (r.height === 0) continue;       // collapsed-section items: skip
+          if (draggedCenter > r.top && draggedCenter < r.bottom) {
+            const targetSecBlock = other.closest('.ved-section-block');
+            const otherIdInOrder = other.dataset.itemId;
+            const fromIdx = dragging.liveOrder.findIndex(x => x.id === dragging.id);
+            const toIdx   = dragging.liveOrder.findIndex(x => x.id === otherIdInOrder);
+            if (fromIdx === -1 || toIdx === -1 || !targetSecBlock) break;
+            const newSection = targetSecBlock.dataset.section || '';
+            const moved = dragging.liveOrder.splice(fromIdx, 1)[0];
+            moved.section = newSection;
+            const newToIdx = dragging.liveOrder.findIndex(x => x.id === otherIdInOrder);
+            const insertBefore = (fromIdx > toIdx);
+            dragging.liveOrder.splice(insertBefore ? newToIdx : newToIdx + 1, 0, moved);
+            const targetItemsWrap = targetSecBlock.querySelector('.ved-section-items');
+            if (insertBefore) {
+              (targetItemsWrap || targetSecBlock).insertBefore(pressTarget, other);
+            } else {
+              other.after(pressTarget);
+            }
+            dragging.startY = clientY;
+            pressTarget.style.transform = 'translateY(0px)';
+            break;
+          }
+        }
+      } else {
+        // Section drag — swap with another section block whose center we cross.
+        const blockRect = pressTarget.getBoundingClientRect();
+        const blockCenter = blockRect.top + blockRect.height / 2;
+        const others = Array.from(listEl.querySelectorAll('.ved-section-block'))
+                            .filter(b => (b.dataset.section || '') !== dragging.id);
+        for (const other of others) {
+          const r = other.getBoundingClientRect();
+          if (r.height === 0) continue;
+          if (blockCenter > r.top && blockCenter < r.bottom) {
+            const fromIdx = dragging.liveOrder.indexOf(dragging.id);
+            const toIdx   = dragging.liveOrder.indexOf(other.dataset.section || '');
+            if (fromIdx === -1 || toIdx === -1) break;
+            dragging.liveOrder.splice(fromIdx, 1);
+            dragging.liveOrder.splice(toIdx, 0, dragging.id);
+            if (fromIdx > toIdx) {
+              other.parentNode.insertBefore(pressTarget, other);
+            } else {
+              other.after(pressTarget);
+            }
+            dragging.startY = clientY;
+            pressTarget.style.transform = 'translateY(0px)';
+            break;
+          }
+        }
+      }
     }
 
     function maybeStartAutoScroll() {
@@ -3708,7 +3819,7 @@ Thanks for your help sorting this out.`;
     }
 
     function autoScrollFrame() {
-      if (!draggingId) { scrollRAF = null; return; }
+      if (!dragging) { scrollRAF = null; return; }
       const rect = listEl.getBoundingClientRect();
       let delta = 0;
       if (lastPointerY < rect.top + SCROLL_ZONE) {
@@ -3717,158 +3828,36 @@ Thanks for your help sorting this out.`;
         delta = Math.min(SCROLL_MAX, (lastPointerY - (rect.bottom - SCROLL_ZONE)) / 6);
       }
       if (delta === 0) { scrollRAF = null; return; }
-
       const before = listEl.scrollTop;
       listEl.scrollTop += delta;
       const actualDelta = listEl.scrollTop - before;
       if (actualDelta !== 0) {
-        // Compensate so the dragged element stays under the finger
-        startY -= actualDelta;
+        dragging.startY -= actualDelta;
         performMove(lastPointerY);
       }
       scrollRAF = requestAnimationFrame(autoScrollFrame);
     }
 
-    async function onPointerUp(e) {
-      if (!draggingId) return;
-      const handle = e.currentTarget;
-      const draggedRow = listEl.querySelector('.ved-item-row.is-dragging');
-      if (draggedRow) {
-        draggedRow.classList.remove('is-dragging');
-        draggedRow.style.transform = '';
-      }
+    async function finishDrag(e) {
+      if (!dragging || !pressTarget) return;
+      pressTarget.classList.remove('is-dragging');
+      pressTarget.style.transform = '';
       if (scrollRAF) {
         cancelAnimationFrame(scrollRAF);
         scrollRAF = null;
       }
-      handle.releasePointerCapture?.(e.pointerId);
-      handle.removeEventListener('pointermove', onPointerMove);
-      handle.removeEventListener('pointerup', onPointerUp);
-      handle.removeEventListener('pointercancel', onPointerUp);
-      const finalOrder = liveOrder.slice();
-      draggingId = null;
-      liveOrder = [];
-      await persistItemReorder(finalOrder);
-    }
-  }
+      try { listEl.releasePointerCapture(pressPointerId); } catch (_) {}
 
-  /* ── Section drag: pickup the whole section block, drop relative
-   * to other section blocks. Auto-scroll while dragging too. */
-  function wireSectionDragHandlers(listEl) {
-    const SCROLL_ZONE = 90;
-    const SCROLL_MAX  = 14;
-    let draggingSec = null;
-    let startY = 0;
-    let liveOrder = [];
-    let lastPointerY = 0;
-    let scrollRAF = null;
+      const finalOrder = dragging.liveOrder.slice();
+      const mode = dragging.mode;
+      dragging = null;
+      cancelPress();
 
-    const handles = listEl.querySelectorAll('.ved-section-drag');
-    handles.forEach(h => h.addEventListener('pointerdown', onPointerDown));
-
-    function onPointerDown(e) {
-      e.preventDefault();
-      const handle = e.currentTarget;
-      const block = handle.closest('.ved-section-block');
-      if (!block) return;
-      draggingSec = block.dataset.section || '';
-      startY = e.clientY;
-      lastPointerY = e.clientY;
-      block.classList.add('is-dragging');
-      liveOrder = Array.from(listEl.querySelectorAll('.ved-section-block')).map(b => b.dataset.section || '');
-      handle.setPointerCapture(e.pointerId);
-      handle.addEventListener('pointermove', onPointerMove);
-      handle.addEventListener('pointerup', onPointerUp);
-      handle.addEventListener('pointercancel', onPointerUp);
-    }
-
-    function performMove(clientY) {
-      if (draggingSec == null) return;
-      const block = listEl.querySelector('.ved-section-block.is-dragging');
-      if (!block) return;
-      const dy = clientY - startY;
-      block.style.transform = `translateY(${dy}px)`;
-
-      const blockRect = block.getBoundingClientRect();
-      const blockCenter = blockRect.top + blockRect.height / 2;
-      const others = Array.from(listEl.querySelectorAll('.ved-section-block'))
-                          .filter(b => (b.dataset.section || '') !== draggingSec);
-      for (const other of others) {
-        const r = other.getBoundingClientRect();
-        if (r.height === 0) continue;
-        if (blockCenter > r.top && blockCenter < r.bottom) {
-          const fromIdx = liveOrder.indexOf(draggingSec);
-          const toIdx = liveOrder.indexOf(other.dataset.section || '');
-          if (fromIdx === -1 || toIdx === -1) break;
-          liveOrder.splice(fromIdx, 1);
-          liveOrder.splice(toIdx, 0, draggingSec);
-          if (fromIdx > toIdx) {
-            other.parentNode.insertBefore(block, other);
-          } else {
-            other.after(block);
-          }
-          startY = clientY;
-          block.style.transform = 'translateY(0px)';
-          break;
-        }
+      if (mode === 'item') {
+        await persistItemReorder(finalOrder);
+      } else {
+        await persistSectionReorder(finalOrder);
       }
-    }
-
-    function onPointerMove(e) {
-      lastPointerY = e.clientY;
-      performMove(e.clientY);
-      maybeStartAutoScroll();
-    }
-
-    function maybeStartAutoScroll() {
-      if (scrollRAF) return;
-      const rect = listEl.getBoundingClientRect();
-      if (lastPointerY < rect.top + SCROLL_ZONE || lastPointerY > rect.bottom - SCROLL_ZONE) {
-        scrollRAF = requestAnimationFrame(autoScrollFrame);
-      }
-    }
-
-    function autoScrollFrame() {
-      if (draggingSec == null) { scrollRAF = null; return; }
-      const rect = listEl.getBoundingClientRect();
-      let delta = 0;
-      if (lastPointerY < rect.top + SCROLL_ZONE) {
-        delta = -Math.min(SCROLL_MAX, (rect.top + SCROLL_ZONE - lastPointerY) / 6);
-      } else if (lastPointerY > rect.bottom - SCROLL_ZONE) {
-        delta = Math.min(SCROLL_MAX, (lastPointerY - (rect.bottom - SCROLL_ZONE)) / 6);
-      }
-      if (delta === 0) { scrollRAF = null; return; }
-
-      const before = listEl.scrollTop;
-      listEl.scrollTop += delta;
-      const actualDelta = listEl.scrollTop - before;
-      if (actualDelta !== 0) {
-        startY -= actualDelta;
-        performMove(lastPointerY);
-      }
-      scrollRAF = requestAnimationFrame(autoScrollFrame);
-    }
-
-    async function onPointerUp(e) {
-      if (draggingSec == null) return;
-      const handle = e.currentTarget;
-      const block = listEl.querySelector('.ved-section-block.is-dragging');
-      if (block) {
-        block.classList.remove('is-dragging');
-        block.style.transform = '';
-      }
-      if (scrollRAF) {
-        cancelAnimationFrame(scrollRAF);
-        scrollRAF = null;
-      }
-      handle.releasePointerCapture?.(e.pointerId);
-      handle.removeEventListener('pointermove', onPointerMove);
-      handle.removeEventListener('pointerup', onPointerUp);
-      handle.removeEventListener('pointercancel', onPointerUp);
-      const finalSectionOrder = liveOrder.slice();
-      draggingSec = null;
-      liveOrder = [];
-      await persistSectionReorder(finalSectionOrder);
     }
   }
 
