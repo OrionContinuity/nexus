@@ -481,18 +481,11 @@ function renderList() {
   if (viewMode === 'grid') {
     list.innerHTML = filtered.map(e => buildGridCard(e)).join('');
   } else {
-    // Lifecycle pills must always render — they're the visual heartbeat
-    // of the operation. Even when every unit is operational, the gold
-    // glow tells the operator at a glance that the fleet is alive.
+    // Card-list layout: each equipment is its own card with breathing
+    // room and visual containment. Mirrors the ordering vendor card
+    // pattern so the whole app feels visually consistent.
     list.innerHTML = `
-      <div class="eq-table">
-        <div class="eq-row eq-row-head">
-          <div class="eq-col eq-col-name">Equipment</div>
-          <div class="eq-col eq-col-loc">Location</div>
-          <div class="eq-col eq-col-status">Status</div>
-          <div class="eq-col eq-col-pm">Next PM</div>
-          <div class="eq-col eq-col-services">Svcs</div>
-        </div>
+      <div class="eq-rows">
         ${filtered.map(e => buildListRow(e)).join('')}
       </div>`;
   }
@@ -504,7 +497,7 @@ function renderList() {
       // row-click that would open the detail view. The beacon is the
       // most-frequent action target in the list — tapping it cycles
       // status with one tap instead of three (row → edit → status).
-      const beaconTarget = ev.target.closest('.eq-col-status .eq-lc-pill');
+      const beaconTarget = ev.target.closest('.eq-lc-pill');
       if (beaconTarget && el.contains(beaconTarget)) {
         ev.stopPropagation();
         openQuickStatusMenuForRow(el.dataset.eqId, beaconTarget);
@@ -542,54 +535,67 @@ function renderList() {
 function buildListRow(e) {
   const pm = e.next_pm_date ? new Date(e.next_pm_date) : null;
   const pmOverdue = pm && pm < new Date();
-  const pmSoon = pm && pm < new Date(Date.now() + 14*86400000);
-  const pmStr = pm ? pm.toLocaleDateString([], { month:'short', day:'numeric' }) : '—';
-  // Model number is what techs and parts orderers actually search for.
-  // Brand is context. Showing model first/bigger and brand subdued reads
-  // faster and reduces eye work when scanning a long list. Falls back
-  // gracefully if either field is missing.
-  const sub = e.model
-    ? `${esc(e.model)}${e.manufacturer ? ` · ${esc(e.manufacturer)}` : ''}`
-    : esc(e.manufacturer || '');
-  // Empty-PM gets a class so CSS can mute the dash to near-invisible.
-  // A bright '—' fights for attention with the real dates we want users
-  // to scan to.
-  const pmCls = pmOverdue ? 'eq-overdue' : pmSoon ? 'eq-soon' : (!pm ? 'eq-pm-empty' : '');
+  const pmSoon = pm && !pmOverdue && pm < new Date(Date.now() + 14 * 86400000);
+
+  // PM date label — short form so it fits on the right edge of the
+  // top line. "—" when no date is set; gold tint when soon; red when
+  // overdue. Empty PM state is muted via a class so the dash doesn't
+  // fight for attention with real dates.
+  let pmLabel = '';
+  let pmCls = 'eq-row-when-empty';
+  if (pm) {
+    pmLabel = pm.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    if (pmOverdue) pmCls = 'is-overdue';
+    else if (pmSoon) pmCls = 'is-soon';
+    else pmCls = '';
+  }
+
+  // Sub line: model + manufacturer + location/area, all consolidated into
+  // one mono-formatted line below the name. Gracefully degrades when any
+  // field is missing.
+  const subParts = [];
+  if (e.model) subParts.push(esc(e.model));
+  if (e.manufacturer && e.manufacturer !== e.model) subParts.push(esc(e.manufacturer));
+  if (e.location) subParts.push(esc(e.location) + (e.area ? ' · ' + esc(e.area) : ''));
+  const sub = subParts.join(' · ');
 
   // Avatar priority: equipment photo > manufacturer logo > category icon.
   // The equipment's actual photo is more recognizable than a colored
-  // letter circle — when the user uploads a photo it should immediately
-  // show up as the row's identifying mark. Falls back gracefully.
+  // letter circle — when the user uploads a photo it shows up
+  // immediately as the row's identifying mark. Falls back gracefully.
   let avatar;
   if (e.photo_url) {
-    avatar = `<span class="eq-cat-icon eq-cat-icon-photo" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to replace photo">
+    avatar = `<span class="eq-row-avatar eq-row-avatar-photo" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to replace photo">
       <img src="${escAttr(e.photo_url)}" alt="" onerror="this.parentElement.classList.add('photo-failed');this.remove()">
     </span>`;
   } else if (e.manufacturer) {
-    avatar = `<span class="eq-cat-icon eq-cat-icon-with-logo" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to add photo">
+    avatar = `<span class="eq-row-avatar eq-row-avatar-logo" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to add photo">
       ${manufacturerLogo(e, 'sm')}
     </span>`;
   } else {
-    avatar = `<span class="eq-cat-icon eq-cat-icon-with-logo" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to add photo">
-      <span class="eq-cat-icon-fallback">${catIcon(e.category)}</span>
+    avatar = `<span class="eq-row-avatar eq-row-avatar-icon" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to add photo">
+      ${catIcon(e.category)}
     </span>`;
   }
 
   return `
     <div class="eq-row" data-eq-id="${e.id}">
-      <div class="eq-col eq-col-name">
-        ${avatar}
-        <div style="min-width:0">
-          <div class="eq-name">${esc(e.name)}</div>
-          <div class="eq-sub">${sub}</div>
+      ${avatar}
+      <div class="eq-row-main">
+        <div class="eq-row-top">
+          <div class="eq-row-name">${esc(e.name)}</div>
+          ${pmLabel ? `
+            <div class="eq-row-when ${pmCls}">${esc(pmLabel)}</div>
+          ` : `
+            <div class="eq-row-when ${pmCls}">—</div>
+          `}
+        </div>
+        <div class="eq-row-bottom">
+          ${lifecycleStatusPill(e, 'sm')}
+          ${sub ? `<span class="eq-row-sub">${sub}</span>` : ''}
         </div>
       </div>
-      <div class="eq-col eq-col-loc">${esc(e.location)}${e.area ? ' · ' + esc(e.area) : ''}</div>
-      <div class="eq-col eq-col-status">
-        ${lifecycleStatusPill(e, 'sm')}
-      </div>
-      <div class="eq-col eq-col-pm ${pmCls}">${pmStr}</div>
-      <div class="eq-col eq-col-services">${e.services_this_year || 0}</div>
+      <div class="eq-row-arrow" aria-hidden="true">›</div>
     </div>`;
 }
 
@@ -1021,36 +1027,81 @@ function renderOverview(eq, attachments, customFields) {
     `;
   }
 
+  // Card-based layout: each logical group lives in its own gold-line
+  // bordered card with a monospace header. Mirrors the order-detail
+  // pattern from ordering. Empty groups render an em-dash so the user
+  // can see at a glance what's blank vs missing.
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+  const identityFields = [
+    ['Manufacturer', esc(eq.manufacturer || '—')],
+    ['Model',        esc(eq.model || '—')],
+    ['Serial',       esc(eq.serial_number || '—')],
+    ['Category',     `${catIcon(eq.category)} <span style="margin-left:4px">${esc(eq.category || '—')}</span>`],
+  ];
+  const lifecycleFields = [
+    ['Install date',    fmtDate(eq.install_date)],
+    ['Warranty until',  fmtDate(eq.warranty_until)],
+    ['Health score',    `${eq.health_score ?? 100}<span class="eq-detail-card-unit">%</span>`],
+    ['Next PM',         eq.next_pm_date ? fmtDate(eq.next_pm_date) : 'Not scheduled'],
+    ['Services (YTD)',  `${eq.services_this_year || 0}${eq.cost_this_year ? ` <span class="eq-detail-card-unit">· $${Math.round(eq.cost_this_year).toLocaleString()}</span>` : ''}`],
+    ['Purchase price',  eq.purchase_price ? `$${parseFloat(eq.purchase_price).toLocaleString()}` : '—'],
+  ];
+
+  const fieldsHTML = (rows) => `
+    <div class="eq-detail-card-grid">
+      ${rows.map(([label, value]) => `
+        <div class="eq-detail-card-field">
+          <div class="eq-detail-card-field-label">${label}</div>
+          <div class="eq-detail-card-field-value">${value}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
   return `
     ${eq.photo_url ? `<img src="${eq.photo_url}" class="eq-detail-photo">` : ''}
     ${servicedByHTML}
-    <div class="eq-fields">
-      <div class="eq-field"><label>Manufacturer</label><div>${esc(eq.manufacturer || '—')}</div></div>
-      <div class="eq-field"><label>Model</label><div>${esc(eq.model || '—')}</div></div>
-      <div class="eq-field"><label>Serial Number</label><div>${esc(eq.serial_number || '—')}</div></div>
-      <div class="eq-field"><label>Category</label><div>${catIcon(eq.category)} ${esc(eq.category || '—')}</div></div>
-      <div class="eq-field"><label>Install Date</label><div>${eq.install_date ? new Date(eq.install_date).toLocaleDateString() : '—'}</div></div>
-      <div class="eq-field"><label>Warranty Until</label><div>${eq.warranty_until ? new Date(eq.warranty_until).toLocaleDateString() : '—'}</div></div>
-      <div class="eq-field"><label>Purchase Price</label><div>${eq.purchase_price ? '$' + parseFloat(eq.purchase_price).toLocaleString() : '—'}</div></div>
-      <div class="eq-field"><label>Health Score</label><div>${eq.health_score ?? 100}%</div></div>
-      <div class="eq-field"><label>Next PM</label><div>${eq.next_pm_date ? new Date(eq.next_pm_date).toLocaleDateString() : 'Not scheduled'}</div></div>
-      <div class="eq-field"><label>Services (YTD)</label><div>${eq.services_this_year || 0}${eq.cost_this_year ? ' · $' + Math.round(eq.cost_this_year).toLocaleString() : ''}</div></div>
+
+    <div class="eq-detail-card">
+      <div class="eq-detail-card-head">
+        ${uiSvg('tag', '12px')}
+        <span>Identity</span>
+      </div>
+      ${fieldsHTML(identityFields)}
+    </div>
+
+    <div class="eq-detail-card">
+      <div class="eq-detail-card-head">
+        ${uiSvg('clipboard', '12px')}
+        <span>Lifecycle &amp; Service</span>
+      </div>
+      ${fieldsHTML(lifecycleFields)}
     </div>
 
     ${specKeys.length ? `
-      <div class="eq-specs">
-        <h4>Specs</h4>
-        <div class="eq-fields">
-          ${specKeys.map(k => `<div class="eq-field"><label>${esc(k)}</label><div>${esc(String(specs[k]))}</div></div>`).join('')}
+      <div class="eq-detail-card">
+        <div class="eq-detail-card-head">
+          ${uiSvg('settings', '12px')}
+          <span>Specs</span>
         </div>
+        ${fieldsHTML(specKeys.map(k => [esc(k), esc(String(specs[k]))]))}
       </div>
     ` : ''}
 
-    ${eq.notes ? `<div class="eq-notes"><h4>Notes</h4><p>${esc(eq.notes)}</p></div>` : ''}
+    ${eq.notes ? `
+      <div class="eq-detail-card">
+        <div class="eq-detail-card-head">
+          ${uiSvg('note', '12px')}
+          <span>Notes</span>
+        </div>
+        <p class="eq-detail-card-prose">${esc(eq.notes)}</p>
+      </div>
+    ` : ''}
 
-    <div class="eq-overview-section">
-      <div class="eq-overview-head">
-        <h4>${uiSvg('paperclip', '14px')} Attachments${attachments.length ? ` (${attachments.length})` : ''}</h4>
+    <div class="eq-detail-card">
+      <div class="eq-detail-card-head">
+        ${uiSvg('paperclip', '12px')}
+        <span>Attachments${attachments.length ? ` · ${attachments.length}` : ''}</span>
       </div>
       ${attachments.length ? `
         <div class="eq-overview-attachments">
@@ -1071,23 +1122,28 @@ function renderOverview(eq, attachments, customFields) {
     </div>
 
     ${customFields.length ? `
-      <div class="eq-overview-section">
-        <h4>Custom Fields</h4>
-        <div class="eq-fields">
-          ${customFields.map(f => `
-            <div class="eq-field">
-              <label>${esc(f.field_name)}</label>
-              <div>${f.field_type === 'url' && f.field_value ? `<a href="${escAttr(f.field_value)}" target="_blank">${esc(f.field_value)} ↗</a>` :
-                    f.field_type === 'boolean' ? (f.field_value === 'true' ? `${uiSvg('check', '12px')} Yes` : `${uiSvg('close', '12px')} No`) :
-                    esc(f.field_value || '—')}</div>
-            </div>
-          `).join('')}
+      <div class="eq-detail-card">
+        <div class="eq-detail-card-head">
+          ${uiSvg('star', '12px')}
+          <span>Custom Fields</span>
         </div>
-      </div>` : ''}
+        ${fieldsHTML(customFields.map(f => [
+          esc(f.field_name),
+          f.field_type === 'url' && f.field_value
+            ? `<a href="${escAttr(f.field_value)}" target="_blank">${esc(f.field_value)} ↗</a>`
+            : f.field_type === 'boolean'
+              ? (f.field_value === 'true' ? `${uiSvg('check', '12px')} Yes` : `${uiSvg('close', '12px')} No`)
+              : esc(f.field_value || '—')
+        ]))}
+      </div>
+    ` : ''}
 
     ${hasLinks ? `
-      <div class="eq-overview-section">
-        <h4>${uiSvg('link', '14px')} Links</h4>
+      <div class="eq-detail-card">
+        <div class="eq-detail-card-head">
+          ${uiSvg('link', '12px')}
+          <span>Links</span>
+        </div>
         <div class="eq-overview-links">
           ${eq.manual_source_url ? `<a href="${escAttr(eq.manual_source_url)}" target="_blank" class="eq-link-btn">${uiSvg('document', '13px')} Manual (source) ↗</a>` : ''}
           ${eq.manual_url ? `<a href="${escAttr(eq.manual_url)}" target="_blank" class="eq-link-btn">${uiSvg('document', '13px')} Manual PDF ↗</a>` : ''}
