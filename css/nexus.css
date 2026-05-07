@@ -47,7 +47,7 @@ body::-webkit-scrollbar{display:none}
 @keyframes toastOut{from{transform:translateY(0);opacity:1}to{transform:translateY(100%);opacity:0}}
 
 /* Toast container is positioning-only; the .toast styling now lives in nx-system.css */
-.toast-container{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
+.toast-container{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
 .toast.out{animation:toastOut .3s ease forwards}
 
 /* Brain category filters */
@@ -2705,4 +2705,67 @@ body.no-galaxy-access #homeMiniGalaxy {
 .popover,
 .tooltip {
   border-radius: 12px !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   APP-SHELL LAYOUT — masthead anchoring
+   ─────────────────────────────────────────────────────────────────────
+   Problem: .nav was position:sticky;top:0 but its sticky context was
+   broken because body has overflow:hidden and the actual scrolling
+   happens INSIDE .view (a descendant of .main, sibling of .nav). Sticky
+   needs a scrolling ancestor — there isn't one — so the nav was falling
+   back to position:relative. On mobile, URL-bar collapse and overscroll
+   made the nav drift up off the visible viewport, clipping the Trajan
+   coin and NEXUS wordmark.
+   
+   Fix: make #appWrap a fixed-height flex column. The nav becomes the
+   first non-flexible item, .main fills the remaining space, and only
+   .view scrolls (internally). The masthead is now structurally locked
+   to the top of the viewport — it can't scroll away because there's
+   nothing scrolling at its level.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body {
+  /* Body already has min-height:100vh + overflow:hidden. Pin a hard
+     height so #appWrap (height:100%) gets a definite container. dvh
+     unit accounts for mobile URL bar collapse. */
+  height: 100vh;
+  height: 100dvh;
+}
+
+#appWrap {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* establish a containing block for any position:fixed children
+     declared elsewhere (overlays, etc.) */
+  position: relative;
+}
+
+/* The masthead — first flex item, never compresses, no longer sticky
+   (sticky was the previous attempt; with the flex shell it's redundant
+   and slightly worse because the persona label can change height). */
+#appWrap > .nav {
+  flex: 0 0 auto;
+  position: relative !important;
+  top: auto !important;
+  z-index: 50;
+}
+
+/* The view container — fills remaining space; views inside it scroll.
+   Override .main's hard-coded calc(100vh - 53px) which assumed the old
+   53-px masthead height (it's ~85-90px now with the persona label). */
+#appWrap > .main {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+}
+
+/* Banners (offline / contractor / overdue alerts) sit between nav and
+   main when shown. Already display:none most of the time; just make
+   sure they don't claim flex space when hidden. */
+#appWrap > .offline-banner[style*="display:none"],
+#appWrap > .alert-banner[style*="display:none"] {
+  display: none !important;
 }
