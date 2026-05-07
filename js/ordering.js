@@ -37,6 +37,15 @@
   if (window.NX && window.NX.modules && window.NX.modules.ordering) return;
   window.NX = window.NX || {}; NX.modules = NX.modules || {};
 
+  // ─── DEBUG HELPERS ────────────────────────────────────────────────
+  // Gate verbose console output behind NX.debug so production is quiet
+  // by default. Errors always fire — they're the signal that survives
+  // through the noise. Flip `NX.debug = true` in DevTools to turn the
+  // log/info/warn channels back on for postmortem investigation.
+  const dlog  = (...a) => { if (window.NX && NX.debug) dlog(...a);  };
+  const dinfo = (...a) => { if (window.NX && NX.debug) dinfo(...a); };
+  const dwarn = (...a) => { if (window.NX && NX.debug) dwarn(...a); };
+
   // ─── CONSTANTS ────────────────────────────────────────────────────
   const PANE_SEL    = '#dutiesOrderingPane';
   const LOC_KEY     = 'nexus_order_location';
@@ -73,6 +82,14 @@
   const RECENT_PAGE_SIZE       = 10;
   let   recentExpanded         = false;
   let   recentPage             = 0;     // 0-indexed
+
+  // Recent list filter state — applied client-side to recentOrders before
+  // pagination. recentStatusFilter is one of: 'all', 'draft', 'sent',
+  // 'confirmed', 'delivered'. recentSearchQuery is a free-text vendor-name
+  // match. Both are kept across re-renders so flipping a filter while
+  // scrolling pages doesn't lose state.
+  let recentStatusFilter = 'all';
+  let recentSearchQuery  = '';
 
   // Vendor sort state.
   //   'alpha'   = alphabetical by name (default)
@@ -192,7 +209,7 @@
       .order('name', { ascending: true });
     if (error) {
       // Most likely cause: a missing column. Log and retry without it.
-      console.warn('[ordering] loadVendors with new columns failed, falling back:', error.message || error);
+      dwarn('[ordering] loadVendors with new columns failed, falling back:', error.message || error);
       const fallback = await NX.sb
         .from('order_vendors')
         .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, subject_template, body_template, notes, archived')
@@ -243,7 +260,7 @@
     if (error) {
       // Fallback: new lifecycle columns may not exist yet. Retry with the
       // legacy SELECT so the activity preview still works pre-migration.
-      console.warn('[ordering] loadRecentOrders new cols failed, falling back:', error.message || error);
+      dwarn('[ordering] loadRecentOrders new cols failed, falling back:', error.message || error);
       const fb = await NX.sb
         .from('orders')
         .select('id, vendor_id, location, delivery_date, status, email_sent_at, created_at, updated_at')
@@ -365,10 +382,96 @@
   function renderRecent(list, vendorMap) {
     const el = document.getElementById('ordRecent');
     if (!el) return;
+
+    // ── Apply filters BEFORE slicing/pagination ─────────────────────
+    // Status chip filters by exact order.status. Search matches vendor
+    // name OR status label, case-insensitive. Filters compose: a search
+    // for "PFG" with status="sent" only shows sent PFG orders.
+    const filtered = (list || []).filter(o => {
+      if (recentStatusFilter !== 'all') {
+        if ((o.status || 'draft') !== recentStatusFilter) return false;
+      }
+      if (recentSearchQuery) {
+        const q = recentSearchQuery.toLowerCase();
+        const v = vendorMap[o.vendor_id];
+        const vendorName = (v && v.name || '').toLowerCase();
+        const status = (o.status || '').toLowerCase();
+        if (!vendorName.includes(q) && !status.includes(q)) return false;
+      }
+      return true;
+    });
+
+    // ── Sticky header: search + status chips ─────────────────────────
+    // Even when there are zero orders we still render the header so the
+    // user can clear filters that may be hiding everything. The chip
+    // counts (e.g. "All 12") help the user understand the filter is
+    // doing something — without a count, "0 results" is confusing.
+    const filterCounts = (list || []).reduce((acc, o) => {
+      const s = o.status || 'draft';
+      acc.all = (acc.all || 0) + 1;
+      acc[s]  = (acc[s]  || 0) + 1;
+      return acc;
+    }, {});
+    const chipDef = [
+      { key: 'all',       label: 'All' },
+      { key: 'draft',     label: 'Drafts' },
+      { key: 'sent',      label: 'Sent' },
+      { key: 'confirmed', label: 'Confirmed' },
+      { key: 'delivered', label: 'Delivered' },
+    ];
+    const chipsHTML = chipDef.map(c => {
+      const count = filterCounts[c.key] || 0;
+      const active = recentStatusFilter === c.key;
+      return `
+        <button type="button" class="ord-recent-chip${active ? ' is-active' : ''}" data-status="${esc(c.key)}" aria-pressed="${active}">
+          <span class="ord-recent-chip-label">${esc(c.label)}</span>
+          ${count > 0 ? `<span class="ord-recent-chip-count">${count}</span>` : ''}
+        </button>`;
+    }).join('');
+    const searchHasValue = !!recentSearchQuery;
+    const headerHTML = `
+      <div class="ord-section-label">Recent</div>
+      <div class="ord-recent-controls">
+        <div class="ord-recent-search-wrap">
+          <svg class="ord-recent-search-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="search" class="ord-recent-search" id="ordRecentSearch" placeholder="Search orders…" value="${esc(recentSearchQuery)}" autocomplete="off" spellcheck="false" inputmode="search">
+          ${searchHasValue ? `<button type="button" class="ord-recent-search-clear" id="ordRecentSearchClear" aria-label="Clear search">×</button>` : ''}
+        </div>
+        <div class="ord-recent-chips" role="group" aria-label="Filter by status">
+          ${chipsHTML}
+        </div>
+      </div>
+    `;
+
+    // ── Empty states ─────────────────────────────────────────────────
+    // Zero overall: vendor-list-aware CTA so the user knows the next
+    // step. Zero after filter: "clear filters" affordance instead of a
+    // dead end.
     if (!list.length) {
-      el.innerHTML = `<div class="ord-section-label">Recent</div><div class="ord-empty">No recent orders for ${esc(activeLoc)}.</div>`;
+      el.innerHTML = `
+        ${headerHTML}
+        <div class="ord-empty ord-empty-cta">
+          <div class="ord-empty-msg">No orders yet for ${esc(activeLoc)}.</div>
+          <div class="ord-empty-hint-row">${vendors && vendors.length
+            ? 'Pick a vendor below to start your first order →'
+            : 'Add a vendor first to start ordering.'}</div>
+        </div>
+      `;
+      wireRecentControls(el, vendorMap);
       return;
     }
+    if (!filtered.length) {
+      el.innerHTML = `
+        ${headerHTML}
+        <div class="ord-empty ord-empty-filtered">
+          <div class="ord-empty-msg">No orders match these filters.</div>
+          <button type="button" class="ord-empty-clear-btn" id="ordEmptyClear">Clear filters</button>
+        </div>
+      `;
+      wireRecentControls(el, vendorMap);
+      return;
+    }
+
     const fmtRel = ts => {
       if (!ts) return '';
       const d = new Date(ts), now = new Date();
@@ -379,13 +482,11 @@
       return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
     };
 
-    // Slice the list based on collapsed / expanded mode.
-    //   Collapsed: first 3.
-    //   Expanded:  page-windowed slice of 10.
+    // Slice the filtered list based on collapsed / expanded mode.
     let visible, totalPages, controlsHTML;
     if (!recentExpanded) {
-      visible = list.slice(0, RECENT_COLLAPSED_COUNT);
-      const hidden = list.length - visible.length;
+      visible = filtered.slice(0, RECENT_COLLAPSED_COUNT);
+      const hidden = filtered.length - visible.length;
       controlsHTML = hidden > 0
         ? `<button class="ord-recent-more" id="ordRecentMore" type="button" aria-label="Show more orders">
              <span>${hidden} more</span>
@@ -394,8 +495,8 @@
         : '';
     } else {
       const start = recentPage * RECENT_PAGE_SIZE;
-      visible = list.slice(start, start + RECENT_PAGE_SIZE);
-      totalPages = Math.ceil(list.length / RECENT_PAGE_SIZE);
+      visible = filtered.slice(start, start + RECENT_PAGE_SIZE);
+      totalPages = Math.ceil(filtered.length / RECENT_PAGE_SIZE);
       const showPaging = totalPages > 1;
       controlsHTML = `
         <div class="ord-recent-foot">
@@ -414,10 +515,7 @@
     }
 
     // Bucket each visible row by date so we can insert dividers as the
-    // date changes. Buckets, in order: today, yesterday, this-week, older.
-    // The divider is only rendered when the bucket changes from the row
-    // above — if every row is in "older", you get one "OLDER" header at
-    // the top and no further dividers below.
+    // date changes.
     const bucketOf = ts => {
       if (!ts) return 'older';
       const d = new Date(ts), now = new Date();
@@ -448,8 +546,16 @@
         dividerHTML = `<div class="ord-recent-divider">${bucketLabel[bucket]}</div>`;
         lastBucket = bucket;
       }
+      // Avatar — uses vendor's stored hue + image_url so it matches the
+      // vendor list, vendor detail, and order entry header. Visual
+      // continuity makes scanning the recent list MUCH faster: you
+      // recognize "PFG" by its color before reading the text.
+      const avatarHTML = v
+        ? vendorAvatar(v.name, v.image_url, v.avatar_hue)
+        : `<div class="ord-vendor-avatar ord-vendor-avatar-unknown">?</div>`;
       return `${dividerHTML}
-        <button class="ord-recent-row" data-order-id="${esc(o.id)}">
+        <button class="ord-recent-row ord-recent-row--with-avatar" data-order-id="${esc(o.id)}">
+          <div class="ord-recent-row-avatar">${avatarHTML}</div>
           <div class="ord-recent-main">
             <div class="ord-recent-vendor">${esc(v ? v.name : 'Unknown vendor')}</div>
             <div class="ord-recent-meta">
@@ -463,14 +569,70 @@
     }).join('');
 
     el.innerHTML = `
-      <div class="ord-section-label">Recent</div>
+      ${headerHTML}
       ${rowsHTML}
       ${controlsHTML}
     `;
 
+    wireRecentControls(el, vendorMap, totalPages);
+  }
+
+  /* Wire all recent-list interactions in one place — the search input,
+     status chips, more/collapse buttons, paging, and the "Clear
+     filters" button shown in the empty-filtered state. Pulled out of
+     renderRecent so the early-return empty paths can reuse it. */
+  function wireRecentControls(el, vendorMap, totalPages) {
     el.querySelectorAll('.ord-recent-row').forEach(b => {
       b.addEventListener('click', () => openExistingOrder(b.dataset.orderId));
     });
+
+    // Search — debounce-light: re-render on every input but state is
+    // pure render-side so the cost is small. Resets pagination so a
+    // search after page 3 doesn't show page 3 of the new filtered set.
+    const searchInput = el.querySelector('#ordRecentSearch');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        recentSearchQuery = searchInput.value.trim();
+        recentPage = 0;
+        renderRecent(recentOrders, vendorMap);
+        // Keep focus on the input so typing flows naturally.
+        const next = document.getElementById('ordRecentSearch');
+        if (next) {
+          next.focus();
+          // Restore caret to end (innerHTML re-render moves it).
+          const len = next.value.length;
+          try { next.setSelectionRange(len, len); } catch (_) {}
+        }
+      });
+    }
+    const clearBtn = el.querySelector('#ordRecentSearchClear');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        recentSearchQuery = '';
+        recentPage = 0;
+        renderRecent(recentOrders, vendorMap);
+      });
+    }
+
+    // Chips — also reset paging on filter change.
+    el.querySelectorAll('[data-status]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        recentStatusFilter = chip.dataset.status;
+        recentPage = 0;
+        renderRecent(recentOrders, vendorMap);
+      });
+    });
+
+    // "Clear filters" inside the empty-filtered state.
+    const emptyClear = el.querySelector('#ordEmptyClear');
+    if (emptyClear) {
+      emptyClear.addEventListener('click', () => {
+        recentSearchQuery  = '';
+        recentStatusFilter = 'all';
+        recentPage         = 0;
+        renderRecent(recentOrders, vendorMap);
+      });
+    }
 
     const moreBtn = el.querySelector('#ordRecentMore');
     if (moreBtn) {
@@ -499,7 +661,7 @@
     const nextBtn = el.querySelector('#ordRecentNext');
     if (nextBtn) {
       nextBtn.addEventListener('click', () => {
-        if (recentPage < totalPages - 1) { recentPage += 1; renderRecent(recentOrders, vendorMap); }
+        if (totalPages && recentPage < totalPages - 1) { recentPage += 1; renderRecent(recentOrders, vendorMap); }
       });
     }
   }
@@ -508,7 +670,12 @@
     const el = document.getElementById('ordVendors');
     if (!el) return;
     if (!vendors.length) {
-      el.innerHTML = `<div class="ord-empty">No vendors yet. Tap + to add your first one.</div>`;
+      el.innerHTML = `
+        <div class="ord-empty ord-empty-cta">
+          <div class="ord-empty-msg">No vendors yet.</div>
+          <div class="ord-empty-hint-row">Tap the <strong>+</strong> button above to add your first one →</div>
+        </div>
+      `;
       return;
     }
 
@@ -1012,7 +1179,7 @@
       .order('updated_at', { ascending: false })
       .limit(limit);
     if (error) {
-      console.warn('[ordering] loadVendorOrders new cols failed, falling back:', error.message || error);
+      dwarn('[ordering] loadVendorOrders new cols failed, falling back:', error.message || error);
       const fb = await NX.sb
         .from('orders')
         .select('id, vendor_id, location, delivery_date, status, email_sent_at, created_at, updated_at')
@@ -1803,7 +1970,7 @@ Thanks for your help sorting this out.`;
     if (error) {
       // Silent fail — the email's already gone, the issue exists, we
       // just couldn't flag it. Log and move on.
-      console.warn('[ordering] flagOrderIssue:', error.message || error);
+      dwarn('[ordering] flagOrderIssue:', error.message || error);
       return;
     }
     Object.assign(order, update);
@@ -2038,7 +2205,7 @@ Thanks for your help sorting this out.`;
         ${catalog.length === 0 ? `
           <div class="ord-empty">
             This vendor has no catalog yet.<br>
-            <span style="font-size:11px;opacity:0.7">Items can be added from the vendor editor (coming soon).</span>
+            <span class="ord-empty-hint">Items can be added from the vendor editor (coming soon).</span>
           </div>
         ` : ''}
       </div>
@@ -2669,16 +2836,12 @@ Thanks for your help sorting this out.`;
    * engine. This function only wires vendor-specific bits (delivery
    * day pills, catalog CTA, archive) and the save payload that writes
    * to order_vendors.
-   *
-   * The legacy renderVendorEditor + mountVendorEditor + saveVendor
-   * below are now unreachable from this function; left in place for
-   * the moment to avoid a giant deletion. They'll be removed once the
-   * engine path proves stable.
    * ───────────────────────────────────────────────────────────────────── */
   async function openVendorEditor(vendor) {
     if (!window.NX || !NX.recordEditor) {
-      console.error('[ordering] NX.recordEditor not loaded — falling back to legacy editor');
-      return openVendorEditor_legacy(vendor);
+      console.error('[ordering] NX.recordEditor is required but not loaded — check script load order in index.html');
+      if (NX.toast) NX.toast('Editor failed to load — refresh the page', 'error', 4000);
+      return;
     }
     const isNew = !vendor;
     const v = isNew
@@ -2703,7 +2866,7 @@ Thanks for your help sorting this out.`;
           .eq('archived', false);
         itemCount = count || 0;
       } catch (e) {
-        console.warn('[ordering] count items for editor:', e);
+        dwarn('[ordering] count items for editor:', e);
       }
     }
 
@@ -2777,7 +2940,7 @@ Thanks for your help sorting this out.`;
         </div>
         <div class="rx-form-field">
           <label class="rx-form-label">Body template</label>
-          <textarea class="rx-form-input" data-rx-body rows="6" placeholder="Leave blank to use the standard format. If you set this, your text replaces the body — use {lines} where the item list should appear." style="height:auto;min-height:120px;padding:10px 12px;resize:vertical">${esc(v.body_template || '')}</textarea>
+          <textarea class="rx-form-input rx-form-textarea" data-rx-body rows="6" placeholder="Leave blank to use the standard format. If you set this, your text replaces the body — use {lines} where the item list should appear.">${esc(v.body_template || '')}</textarea>
           <div class="rx-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date_long}</code> <code>{lines}</code> <code>{notes}</code></div>
         </div>
       `,
@@ -2790,7 +2953,7 @@ Thanks for your help sorting this out.`;
       expanded: false,
       body: `
         <div class="rx-form-field">
-          <textarea class="rx-form-input" data-rx-notes rows="3" placeholder="Anything to remember about this vendor — only you see this" style="height:auto;min-height:80px;padding:10px 12px;resize:vertical">${esc(v.notes || '')}</textarea>
+          <textarea class="rx-form-input rx-form-textarea rx-form-textarea-sm" data-rx-notes rows="3" placeholder="Anything to remember about this vendor — only you see this">${esc(v.notes || '')}</textarea>
         </div>
       `,
     });
@@ -2823,7 +2986,7 @@ Thanks for your help sorting this out.`;
         danger: true,
         body: `
           <button class="ord-veditor-archive-btn" type="button" data-rx-archive>${trashIcon()}<span>Archive vendor</span></button>
-          <div class="rx-form-hint" style="text-align:center">Archived vendors are hidden from the list. Order history is preserved.</div>
+          <div class="rx-form-hint rx-form-hint--center">Archived vendors are hidden from the list. Order history is preserved.</div>
         `,
       });
     }
@@ -2957,7 +3120,7 @@ Thanks for your help sorting this out.`;
         // the data doesn't persist, the bug is downstream (DB).
         const ccCount = (state.chips.cc || []).length;
         const bccCount = (state.chips.bcc || []).length;
-        console.info('[ordering] saveVendor about to persist', {
+        dinfo('[ordering] saveVendor about to persist', {
           ccCount, bccCount, altCount: (state.chips.alt || []).length,
           alt_emails: altEmails,
         });
@@ -2991,7 +3154,7 @@ Thanks for your help sorting this out.`;
           if (isNew) {
             let res = await NX.sb.from('order_vendors').insert(payload).select('*').single();
             if (res.error && isMissingColumnError(res.error)) {
-              console.warn('[ordering] saveVendor insert: retry without new columns', res.error);
+              dwarn('[ordering] saveVendor insert: retry without new columns', res.error);
               altEmailsStripped = true;
               res = await NX.sb.from('order_vendors').insert(stripOptionalCols(payload)).select('*').single();
             }
@@ -3006,7 +3169,7 @@ Thanks for your help sorting this out.`;
             // doesn't return data, and we can't verify alt_emails persisted.
             let res = await NX.sb.from('order_vendors').update(payload).eq('id', vendorId).select('*').single();
             if (res.error && isMissingColumnError(res.error)) {
-              console.warn('[ordering] saveVendor update: retry without new columns', res.error);
+              dwarn('[ordering] saveVendor update: retry without new columns', res.error);
               altEmailsStripped = true;
               res = await NX.sb.from('order_vendors').update(stripOptionalCols(payload)).eq('id', vendorId).select('*').single();
             }
@@ -3016,7 +3179,7 @@ Thanks for your help sorting this out.`;
             // Verify what came back. If we sent CCs but the saved row has
             // no alt_emails, something's wrong — surface it.
             if (altEmails.length && (!res.data || res.data.alt_emails == null) && !altEmailsStripped) {
-              console.warn('[ordering] saveVendor: sent', altEmails.length, 'alt_emails but server returned null', res.data);
+              dwarn('[ordering] saveVendor: sent', altEmails.length, 'alt_emails but server returned null', res.data);
             }
           }
           if (altEmailsStripped && (ccCount || bccCount || (state.chips.alt || []).length)) {
@@ -3038,323 +3201,6 @@ Thanks for your help sorting this out.`;
           return false;    // keep open so user can retry
         }
       },
-    });
-  }
-
-  /* ─── Legacy entry point — used as fallback if the engine isn't loaded.
-   * Same body as the original openVendorEditor; renamed so the engine
-   * version above can take its name. ───────────────────────────────────── */
-  async function openVendorEditor_legacy(vendor) {
-    const isNew = !vendor;
-    const initialRecipients = parseAltEmails((vendor && vendor.alt_emails) || []);
-    editorState = {
-      isNew,
-      vendor: isNew
-        ? { name: '', email: '', alt_emails: [], image_url: '', avatar_hue: null, pinned: false, delivery_days: [], subject_template: '', body_template: '', notes: '' }
-        : { ...vendor },
-      // Live working copy of recipients — mutated by the chip add/remove
-      // handlers so they stay separate from the vendor object until save.
-      recipients: initialRecipients,
-      // Card collapse state. Identity + Recipients open by default; the
-      // rest fold up so the screen isn't a wall of fields. User toggles
-      // are CSS-only (no re-render) so input state in collapsed cards
-      // is preserved across opens/closes.
-      expandedCards: new Set(['identity', 'recipients']),
-      itemCount: null,           // count for the "Manage catalog" CTA — fetched async
-      overlay: null,
-    };
-    mountVendorEditor();
-    renderVendorEditor();             // render immediately — no blank flash
-    if (!isNew) {
-      // Just fetch the count for the CTA chip; full catalog is loaded
-      // by the dedicated catalog editor.
-      try {
-        const { count } = await NX.sb
-          .from('order_guide_items')
-          .select('id', { count: 'exact', head: true })
-          .eq('vendor_id', vendor.id)
-          .eq('archived', false);
-        editorState.itemCount = count || 0;
-      } catch (e) {
-        console.error('[ordering] count items for editor:', e);
-        editorState.itemCount = null;
-      }
-      renderVendorEditor();
-    }
-  }
-
-  function mountVendorEditor() {
-    let el = document.querySelector('.ord-veditor-overlay');
-    if (!el) {
-      syncMastheadHeight();         // re-measure right before positioning
-      el = document.createElement('div');
-      el.className = 'ord-veditor-overlay';
-      document.body.appendChild(el);
-      document.body.classList.add('ord-overlay-open');
-    }
-    editorState.overlay = el;
-  }
-
-  function renderVendorEditor() {
-    if (!editorState || !editorState.overlay) return;
-    const v = editorState.vendor;
-    const isNew = editorState.isNew;
-    const days = Array.isArray(v.delivery_days) ? v.delivery_days : [];
-    // Card collapse state — defaults to {identity, recipients} if missing
-    if (!editorState.expandedCards) editorState.expandedCards = new Set(['identity', 'recipients']);
-    const isExp = (key) => editorState.expandedCards.has(key);
-    // Recipients: ensure the working copy exists (may be missing if state
-    // was constructed before openVendorEditor — defensive)
-    if (!Array.isArray(editorState.recipients)) {
-      editorState.recipients = parseAltEmails(v.alt_emails || []);
-    }
-
-    // Items section is now its own dedicated editor. Vendor editor only
-    // surfaces a button to open it + a quick item count.
-    const itemCountLabel = isNew
-      ? null
-      : (editorState.itemCount == null
-          ? 'Loading…'
-          : `${editorState.itemCount} item${editorState.itemCount === 1 ? '' : 's'}`);
-    const itemsHTML = isNew
-      ? `
-        <div class="ved-catalog-cta ved-catalog-cta-disabled">
-          <div class="ved-catalog-cta-icon">${listIcon()}</div>
-          <div class="ved-catalog-cta-main">
-            <div class="ved-catalog-cta-title">Catalog comes after</div>
-            <div class="ved-catalog-cta-sub">Save the vendor first, then manage its catalog.</div>
-          </div>
-        </div>
-      `
-      : `
-        <button class="ved-catalog-cta" id="vedManageCatalog" type="button">
-          <div class="ved-catalog-cta-icon">${listIcon()}</div>
-          <div class="ved-catalog-cta-main">
-            <div class="ved-catalog-cta-title">Manage catalog</div>
-            <div class="ved-catalog-cta-sub">${esc(itemCountLabel || '')} · sections, items, reorder</div>
-          </div>
-          <div class="ved-catalog-cta-arrow" aria-hidden="true">›</div>
-        </button>
-      `;
-
-    editorState.overlay.innerHTML = `
-      <div class="ord-veditor-head">
-        <button class="ord-veditor-close" aria-label="Close">${arrowLeftIcon()}</button>
-        <div class="ord-veditor-title-block">
-          <div class="ord-veditor-title">${isNew ? 'New vendor' : esc(v.name) || 'Edit vendor'}</div>
-          ${!isNew && v.email ? `<div class="ord-veditor-subtitle">${esc(v.email)}</div>` : ''}
-          ${!isNew && !v.email ? '<div class="ord-veditor-subtitle ord-veditor-subtitle-warn">No email set</div>' : ''}
-        </div>
-        ${!isNew && editorState.itemCount != null ? `<div class="ord-veditor-count-chip">${editorState.itemCount}<span>${editorState.itemCount === 1 ? 'item' : 'items'}</span></div>` : '<div class="ord-veditor-spacer"></div>'}
-      </div>
-      <div class="ord-veditor-body">
-
-        ${itemsHTML}
-
-        ${renderVendorCard('identity', 'Identity', isExp('identity'), `
-          <div class="ved-vendor-head">
-            <button type="button" class="ved-avatar-btn" id="vedAvatarBtn" aria-label="Upload vendor photo from device">
-              <div class="ved-avatar-preview" id="vedAvatarPreview" aria-hidden="true">
-                ${vendorAvatar(v.name, v.image_url, v.avatar_hue)}
-              </div>
-              <span class="ved-avatar-badge" aria-hidden="true">${cameraIcon()}</span>
-            </button>
-            <input type="file" id="vedImageFile" accept="image/*" hidden>
-            <div class="ved-vendor-head-fields">
-              <div class="ord-form-field">
-                <label class="ord-form-label" for="vedName">Name</label>
-                <input type="text" class="ord-form-input" id="vedName" value="${esc(v.name)}" placeholder="e.g. Farm To Table" autocomplete="off">
-              </div>
-            </div>
-          </div>
-          <div class="ord-form-field">
-            <label class="ord-form-label">Photo <span class="ord-form-label-hint">— tap the circle or paste a URL</span></label>
-            <div class="ved-photo-actions">
-              <button type="button" class="ved-photo-action-btn" id="vedPhotoUpload">${cameraIcon()}<span>Upload</span></button>
-              <button type="button" class="ved-photo-action-btn ved-photo-action-clear" id="vedPhotoClear">${trashIcon()}<span>Remove</span></button>
-            </div>
-            <input type="url" class="ord-form-input" id="vedImageUrl" value="${esc(v.image_url || '')}" placeholder="https://example.com/logo.png  (optional URL)" autocomplete="off" inputmode="url" style="margin-top:8px">
-          </div>
-          <div class="ord-form-field">
-            <label class="ord-form-label">Avatar color <span class="ord-form-label-hint">— only matters when there's no photo</span></label>
-            <div class="ved-hue-picker" id="vedHuePicker" data-selected="${typeof v.avatar_hue === 'number' ? v.avatar_hue : 'auto'}">
-              <button type="button" class="ved-hue-swatch ved-hue-auto${typeof v.avatar_hue !== 'number' ? ' active' : ''}" data-hue="auto" aria-label="Auto (hash from name)">A</button>
-              ${[15, 35, 55, 90, 130, 165, 200, 230, 265, 295, 325, 355].map(h =>
-                `<button type="button" class="ved-hue-swatch${v.avatar_hue === h ? ' active' : ''}" data-hue="${h}" style="--avatar-hue:${h}" aria-label="Hue ${h}"></button>`
-              ).join('')}
-            </div>
-          </div>
-          <label class="ord-form-toggle">
-            <input type="checkbox" id="vedPinned" ${v.pinned ? 'checked' : ''}>
-            <span class="ord-form-toggle-track"><span class="ord-form-toggle-thumb"></span></span>
-            <span class="ord-form-toggle-text">
-              <span class="ord-form-toggle-title">Pin to top of vendor list</span>
-              <span class="ord-form-toggle-sub">Pinned vendors always sort first.</span>
-            </span>
-          </label>
-        `)}
-
-        ${renderVendorCard('recipients', 'Recipients', isExp('recipients'), renderRecipientCardBody(v, editorState.recipients))}
-
-        ${renderVendorCard('schedule', 'Schedule', isExp('schedule'), `
-          <div class="ord-form-field">
-            <label class="ord-form-label">Delivery days <span class="ord-form-label-hint">— used when scheduling new orders</span></label>
-            <div class="ord-day-pills" id="vedDays">
-              ${WEEKDAY_KEYS.map((k, i) => `
-                <button type="button" class="ord-day-pill${days.includes(k) ? ' active' : ''}" data-day="${k}">${WEEKDAY_LBL[i]}</button>
-              `).join('')}
-            </div>
-            <div class="ord-form-hint">Tap to toggle. Used to pick the next delivery date when starting an order.</div>
-          </div>
-        `)}
-
-        ${renderVendorCard('templates', 'Email templates', isExp('templates'), `
-          <div class="ord-form-field">
-            <label class="ord-form-label" for="vedSubject">Subject line</label>
-            <input type="text" class="ord-form-input" id="vedSubject" value="${esc(v.subject_template || '')}" placeholder="${esc(v.name || 'Vendor')} order — {location} for {delivery_date}" autocomplete="off">
-            <div class="ord-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date}</code></div>
-          </div>
-          <div class="ord-form-field">
-            <label class="ord-form-label" for="vedBody">Body template</label>
-            <textarea class="ord-form-textarea" id="vedBody" rows="6" placeholder="Leave blank to use the standard format. If you set this, your text replaces the body — use {lines} where the item list should appear.">${esc(v.body_template || '')}</textarea>
-            <div class="ord-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date_long}</code> <code>{lines}</code> <code>{notes}</code></div>
-          </div>
-        `)}
-
-        ${renderVendorCard('notes', 'Internal notes', isExp('notes'), `
-          <div class="ord-form-field">
-            <textarea class="ord-form-textarea" id="vedNotes" rows="3" placeholder="Anything to remember about this vendor — only you see this">${esc(v.notes || '')}</textarea>
-          </div>
-        `)}
-
-        ${!isNew ? renderVendorCard('danger', 'Danger zone', isExp('danger'), `
-          <button class="ord-veditor-archive-btn" id="vedArchive">${trashIcon()}<span>Archive vendor</span></button>
-          <div class="ord-form-hint" style="text-align:center">Archived vendors are hidden from the list. Order history is preserved.</div>
-        `, true) : ''}
-
-      </div>
-      <div class="ord-veditor-foot">
-        <button class="ord-veditor-cancel" id="vedCancel">Cancel</button>
-        <button class="ord-veditor-save" id="vedSave">${isNew ? 'Create vendor' : 'Save changes'}</button>
-      </div>
-    `;
-
-    // Wire all handlers
-    const overlay = editorState.overlay;
-    overlay.querySelector('.ord-veditor-close').addEventListener('click', closeVendorEditor);
-    overlay.querySelector('#vedCancel').addEventListener('click', closeVendorEditor);
-    overlay.querySelector('#vedSave').addEventListener('click', saveVendor);
-    overlay.querySelectorAll('.ord-day-pill').forEach(btn => {
-      btn.addEventListener('click', () => btn.classList.toggle('active'));
-    });
-
-    // Live avatar preview — re-renders when name or image URL changes so
-    // the user can see what the card will look like before saving.
-    const previewEl = overlay.querySelector('#vedAvatarPreview');
-    const huePicker = overlay.querySelector('#vedHuePicker');
-    const readSelectedHue = () => {
-      if (!huePicker) return undefined;
-      const sel = huePicker.dataset.selected;
-      if (!sel || sel === 'auto') return undefined;
-      const n = Number(sel);
-      return Number.isFinite(n) ? n : undefined;
-    };
-    const updatePreview = () => {
-      if (!previewEl) return;
-      const nm = overlay.querySelector('#vedName')?.value.trim() || '';
-      const url = overlay.querySelector('#vedImageUrl')?.value.trim() || '';
-      previewEl.innerHTML = vendorAvatar(nm, url, readSelectedHue());
-    };
-    overlay.querySelector('#vedName')?.addEventListener('input', updatePreview);
-    overlay.querySelector('#vedImageUrl')?.addEventListener('input', updatePreview);
-
-    // Hue swatch picker — tapping a swatch flips the .active state and
-    // stores the choice on the picker's data-selected attribute, then
-    // refreshes the preview. "auto" means hash-from-name (no override).
-    if (huePicker) {
-      huePicker.querySelectorAll('.ved-hue-swatch').forEach(btn => {
-        btn.addEventListener('click', () => {
-          huePicker.querySelectorAll('.ved-hue-swatch').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          huePicker.dataset.selected = btn.dataset.hue;
-          updatePreview();
-        });
-      });
-    }
-
-    // Photo upload from device — file picker, downscale to a 256px JPEG,
-    // store as a data URL in the same #vedImageUrl input so save logic
-    // doesn't need to change. Avatar tap and "Upload from device" both
-    // trigger the picker; "Remove photo" clears the URL.
-    const fileInput  = overlay.querySelector('#vedImageFile');
-    const urlInput   = overlay.querySelector('#vedImageUrl');
-    const avatarBtn  = overlay.querySelector('#vedAvatarBtn');
-    const uploadBtn  = overlay.querySelector('#vedPhotoUpload');
-    const clearBtn   = overlay.querySelector('#vedPhotoClear');
-    if (fileInput && urlInput) {
-      const triggerPicker = () => fileInput.click();
-      avatarBtn?.addEventListener('click', triggerPicker);
-      uploadBtn?.addEventListener('click', triggerPicker);
-      clearBtn?.addEventListener('click', () => {
-        urlInput.value = '';
-        urlInput.dispatchEvent(new Event('input', { bubbles: true }));
-        if (window.NX?.toast) NX.toast('Photo removed');
-      });
-      fileInput.addEventListener('change', async (e) => {
-        const file = e.target.files && e.target.files[0];
-        e.target.value = '';   // allow re-picking the same file later
-        if (!file) return;
-        if (!file.type || !file.type.startsWith('image/')) {
-          if (window.NX?.toast) NX.toast('Please pick an image file', 'warn');
-          return;
-        }
-        if (file.size > 12 * 1024 * 1024) {
-          if (window.NX?.toast) NX.toast('Image too large (12 MB max)', 'warn');
-          return;
-        }
-        try {
-          const dataUrl = await downscaleImageToDataUrl(file, 384, 0.85);
-          urlInput.value = dataUrl;
-          urlInput.dispatchEvent(new Event('input', { bubbles: true }));
-          if (window.NX?.toast) NX.toast('Photo set — save to apply');
-        } catch (err) {
-          console.warn('[ordering] photo upload failed:', err);
-          if (window.NX?.toast) NX.toast('Could not process that image', 'error');
-        }
-      });
-    }
-
-    const arch = overlay.querySelector('#vedArchive');
-    if (arch) arch.addEventListener('click', archiveVendor);
-
-    // ─── Card chevron toggle ─────────────────────────────────────────
-    // Tapping the card head toggles the .is-collapsed class only — no
-    // re-render — so any half-typed input inside the card body keeps its
-    // value across collapse/expand.
-    overlay.querySelectorAll('[data-card-toggle]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const key = btn.dataset.cardToggle;
-        const card = overlay.querySelector(`.ved-card[data-card="${key}"]`);
-        if (!card) return;
-        if (editorState.expandedCards.has(key)) {
-          editorState.expandedCards.delete(key);
-          card.classList.add('is-collapsed');
-          btn.setAttribute('aria-expanded', 'false');
-        } else {
-          editorState.expandedCards.add(key);
-          card.classList.remove('is-collapsed');
-          btn.setAttribute('aria-expanded', 'true');
-        }
-      });
-    });
-
-    // ─── Recipient chips: add + remove ───────────────────────────────
-    wireRecipientChipHandlers(overlay);
-
-    const manageCatalog = overlay.querySelector('#vedManageCatalog');
-    if (manageCatalog) manageCatalog.addEventListener('click', () => {
-      if (!editorState || !editorState.vendor || !editorState.vendor.id) return;
-      openCatalogEditor(editorState.vendor);
     });
   }
 
@@ -4275,106 +4121,6 @@ Thanks for your help sorting this out.`;
     renderItemsAreaOnly();
   }
 
-  async function saveVendor() {
-    if (!editorState) return;
-    const overlay = editorState.overlay;
-    const name = overlay.querySelector('#vedName').value.trim();
-    const email = overlay.querySelector('#vedEmail').value.trim();
-    const imageUrl = overlay.querySelector('#vedImageUrl')?.value.trim() || '';
-    const subject = overlay.querySelector('#vedSubject').value.trim();
-    const body = overlay.querySelector('#vedBody').value;
-    const notes = overlay.querySelector('#vedNotes').value;
-    if (!name) {
-      if (NX.toast) NX.toast('Name is required', 'warn');
-      return;
-    }
-    const dayBtns = overlay.querySelectorAll('.ord-day-pill.active');
-    const days = Array.from(dayBtns).map(b => b.dataset.day);
-
-    // Avatar hue: data-selected on the picker holds the value. "auto" or
-    // missing means no override (null in DB → hash-from-name at render).
-    let avatarHue = null;
-    const huePicker = overlay.querySelector('#vedHuePicker');
-    if (huePicker) {
-      const sel = huePicker.dataset.selected;
-      if (sel && sel !== 'auto') {
-        const n = Number(sel);
-        if (Number.isFinite(n) && n >= 0 && n < 360) avatarHue = n;
-      }
-    }
-    const pinned = !!overlay.querySelector('#vedPinned')?.checked;
-
-    // Recipient list (alt_emails) — read straight from state, the chip
-    // handlers keep editorState.recipients in sync. Empty / blank entries
-    // are filtered out at save time so we never persist `[{email:''}]`.
-    const altEmails = Array.isArray(editorState.recipients)
-      ? editorState.recipients.filter(r => r && (r.email || '').trim())
-      : [];
-
-    const payload = {
-      name,
-      email: email || null,
-      alt_emails: altEmails.length ? altEmails : null,
-      image_url: imageUrl || null,
-      avatar_hue: avatarHue,
-      pinned,
-      delivery_days: days,
-      subject_template: subject || null,
-      body_template: body.trim() || null,
-      notes: notes.trim() || null,
-    };
-
-    // Columns that may not exist if the DB migration hasn't been run.
-    // If the save fails with a missing-column error, we strip them and
-    // retry with the legacy set so the user's edits still land.
-    const optionalCols = ['image_url', 'avatar_hue', 'pinned', 'alt_emails'];
-    const stripOptionalCols = (p) => {
-      const o = { ...p };
-      for (const k of optionalCols) delete o[k];
-      return o;
-    };
-    const isMissingColumnError = (err) => {
-      const msg = (err && (err.message || err.toString())) || '';
-      return /column|schema|does not exist|could not find/i.test(msg);
-    };
-
-    try {
-      if (editorState.isNew) {
-        let res = await NX.sb.from('order_vendors').insert(payload).select('*').single();
-        if (res.error && isMissingColumnError(res.error)) {
-          console.warn('[ordering] saveVendor insert: retry without new columns');
-          res = await NX.sb.from('order_vendors').insert(stripOptionalCols(payload)).select('*').single();
-        }
-        if (res.error) throw res.error;
-        vendors.push(res.data);
-        vendors.sort((a, b) => a.name.localeCompare(b.name));
-        vendors._itemCounts[res.data.id] = 0;
-      } else {
-        // Defensive: editorState.vendor.id MUST be a real UUID for the
-        // update path. If it's missing (caller passed wrong shape), bail
-        // with a clear error rather than letting Postgres reject "undefined".
-        const vendorId = editorState.vendor && editorState.vendor.id;
-        if (!vendorId) {
-          throw new Error('Editor state missing vendor.id — cannot update');
-        }
-        let res = await NX.sb.from('order_vendors').update(payload).eq('id', vendorId);
-        if (res.error && isMissingColumnError(res.error)) {
-          console.warn('[ordering] saveVendor update: retry without new columns');
-          res = await NX.sb.from('order_vendors').update(stripOptionalCols(payload)).eq('id', vendorId);
-        }
-        if (res.error) throw res.error;
-        const cached = vendors.find(x => x.id === vendorId);
-        if (cached) Object.assign(cached, payload);
-      }
-      if (NX.toast) NX.toast('Saved', 'info', 1200);
-      closeVendorEditor();
-      renderVendors();
-    } catch (e) {
-      console.error('[ordering] saveVendor:', e);
-      if (NX.toast) NX.toast('Failed to save: ' + (e.message || ''), 'error');
-    }
-  }
-
   /**
    * Archive any vendor by id. Shared by the editor's Archive button and
    * the vendor row's overflow menu. Surfaces the actual failure
@@ -4399,7 +4145,7 @@ Thanks for your help sorting this out.`;
         return false;
       }
       if (!data || data.length === 0) {
-        console.warn('[ordering] archive returned no rows — likely RLS denial or stale id');
+        dwarn('[ordering] archive returned no rows — likely RLS denial or stale id');
         if (NX.toast) NX.toast('Archive failed: no rows updated (check Supabase logs)', 'error', 4000);
         return false;
       }
@@ -4418,14 +4164,6 @@ Thanks for your help sorting this out.`;
       if (NX.toast) NX.toast('Archive failed: ' + (e.message || 'network error'), 'error', 4000);
       return false;
     }
-  }
-
-  async function archiveVendor() {
-    if (!editorState || editorState.isNew) return;
-    const id = editorState.vendor.id;
-    const name = editorState.vendor.name;
-    const ok = await archiveVendorById(id, name);
-    if (ok) closeVendorEditor();
   }
 
   async function saveItemFromForm(itemId) {
@@ -4534,13 +4272,6 @@ Thanks for your help sorting this out.`;
     }
   }
 
-  function closeVendorEditor() {
-    const overlay = document.querySelector('.ord-veditor-overlay');
-    if (overlay) overlay.remove();
-    document.body.classList.remove('ord-overlay-open');
-    editorState = null;
-  }
-
   // ═══════════════════════════════════════════════════════════════════
   // CATALOG EDITOR — full-screen overlay, looks like the order-entry
   // screen. Manages sections + items for a single vendor: add, edit,
@@ -4600,11 +4331,6 @@ Thanks for your help sorting this out.`;
     if (!document.querySelector('.ord-veditor-overlay') &&
         !document.querySelector('.ord-entry-overlay')) {
       document.body.classList.remove('ord-overlay-open');
-    }
-    // Refresh the vendor editor's count chip if it's open
-    if (editorState && catalogState) {
-      editorState.itemCount = catalogState.items.length;
-      try { renderVendorEditor(); } catch (_) { /* ignore — editor may have closed */ }
     }
     catalogState = null;
   }
@@ -5459,7 +5185,7 @@ Thanks for your help sorting this out.`;
 
   NX.modules.ordering = {
     init, show, setLocation, openVendor, openExistingOrder, closeEntry,
-    openVendorEditor, closeVendorEditor,
+    openVendorEditor,
     openVendorDetail, closeVendorDetail,
     openOrderDetail, closeOrderDetail, reorderFromOrder, reportIssuesOnOrder,
   };
