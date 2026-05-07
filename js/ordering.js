@@ -1577,6 +1577,12 @@ Thanks for your help sorting this out.`;
               <span class="ord-vmenu-action-sub">View this order with par hints + catalog context</span>
             </span>
           </button>
+          <button class="ord-vmenu-action ord-vmenu-action-danger" data-action="delete">
+            <span class="ord-vmenu-action-text">
+              <span class="ord-vmenu-action-title">Delete order</span>
+              <span class="ord-vmenu-action-sub">Permanent — removes the order + its line items from the database</span>
+            </span>
+          </button>
           <button class="ord-vmenu-action ord-vmenu-action-cancel" data-action="cancel">Cancel</button>
         </div>
       </div>
@@ -1590,6 +1596,96 @@ Thanks for your help sorting this out.`;
       closeOrderDetail();
       openOrderInEntry(order);
     });
+    overlay.querySelector('[data-action="delete"]').addEventListener('click', () => {
+      close();
+      confirmDeleteOrder(order);
+    });
+  }
+
+  /* Two-step delete with an explicit confirmation modal. The kebab menu
+     itself is one tap, so there's no "muscle memory" guard against
+     bumping it accidentally — the confirm modal forces a deliberate
+     choice with the order's short-id shown so the user sees exactly
+     what's being deleted. The action is destructive + irreversible
+     (no soft-delete column on orders right now), so we err heavily
+     toward "are you sure". */
+  function confirmDeleteOrder(order) {
+    const existing = document.querySelector('.ord-confirm-overlay');
+    if (existing) existing.remove();
+
+    const vendor = vendors.find(v => v.id === order.vendor_id);
+    const vendorName = vendor ? vendor.name : 'this vendor';
+    const orderShortId = order.id ? order.id.slice(0, 8).toUpperCase() : '—';
+    const lineCount = (order.lines || []).length;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'ord-confirm-overlay';
+    overlay.innerHTML = `
+      <div class="ord-confirm-backdrop"></div>
+      <div class="ord-confirm-modal" role="dialog" aria-label="Confirm delete">
+        <div class="ord-confirm-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </div>
+        <div class="ord-confirm-title">Delete this order?</div>
+        <div class="ord-confirm-body">
+          <div class="ord-confirm-line"><strong>${esc(vendorName)}</strong> · order ${esc(orderShortId)}</div>
+          <div class="ord-confirm-sub">${lineCount} item${lineCount === 1 ? '' : 's'} · ${esc((order.status || 'sent').toUpperCase())}</div>
+          <div class="ord-confirm-warn">This is permanent. The order row and all its line items will be deleted from the database. There is no undo.</div>
+        </div>
+        <div class="ord-confirm-actions">
+          <button class="ord-confirm-cancel" type="button">Cancel</button>
+          <button class="ord-confirm-delete" type="button">Delete order</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('.ord-confirm-backdrop').addEventListener('click', close);
+    overlay.querySelector('.ord-confirm-cancel').addEventListener('click', close);
+    overlay.querySelector('.ord-confirm-delete').addEventListener('click', async () => {
+      const btn = overlay.querySelector('.ord-confirm-delete');
+      btn.disabled = true;
+      btn.textContent = 'Deleting…';
+      try {
+        await deleteOrder(order.id);
+        close();
+        closeOrderDetail();
+        if (NX.toast) NX.toast(`Deleted order ${orderShortId}`, 'info', 1800);
+      } catch (e) {
+        console.error('[ordering] deleteOrder:', e);
+        btn.disabled = false;
+        btn.textContent = 'Delete order';
+        if (NX.toast) NX.toast('Could not delete: ' + ((e && e.message) || ''), 'error', 4000);
+      }
+    });
+  }
+
+  /* Hard-delete an order. We delete order_lines first to be safe in
+     case the FK isn't cascade-on-delete; if it IS cascade, deleting
+     them explicitly is a harmless no-op (zero rows match after the
+     parent is gone — but we delete lines BEFORE the parent so the
+     FK direction is fine either way). After DB is clear, refresh
+     the in-memory orders cache so the home screen no longer shows it. */
+  async function deleteOrder(orderId) {
+    if (!NX.sb || !orderId) throw new Error('Missing Supabase client or order id');
+    const linesRes = await NX.sb.from('order_lines').delete().eq('order_id', orderId);
+    if (linesRes.error) throw linesRes.error;
+    const orderRes = await NX.sb.from('orders').delete().eq('id', orderId);
+    if (orderRes.error) throw orderRes.error;
+    // Refresh in-memory state so list views update immediately. Mirrors
+    // the same refresh pattern used by advanceOrderStatus / flagOrderIssue.
+    if (initialized) {
+      try {
+        recentOrders = await loadRecentOrders(activeLoc);
+        const vmap = {}; vendors.forEach(v => vmap[v.id] = v);
+        renderRecent(recentOrders, vmap);
+        renderVendors();
+      } catch (_) {}
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
