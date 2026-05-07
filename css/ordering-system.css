@@ -1160,13 +1160,16 @@ body.ord-overlay-open .bottom-nav {
 
 .ord-veditor-overlay {
   position: fixed;
-  /* Same positioning model as .ord-entry-overlay — sized against
-     the live masthead height via --nx-mast-h. */
-  top: var(--nx-mast-h, 53px);
+  /* Covers the masthead too — the underlying view (vendor list) was
+     bleeding through above the overlay because top was offset by the
+     masthead height. Full-bleed instead, with safe-area-inset-top
+     padding on the head so the close button isn't behind the iOS
+     status bar / browser chrome. */
+  top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 40;
+  z-index: 250;
   background: var(--nx-bg);
   display: flex;
   flex-direction: column;
@@ -1178,7 +1181,7 @@ body.ord-overlay-open .bottom-nav {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
+  padding: max(12px, calc(env(safe-area-inset-top, 0) + 6px)) 14px 12px;
   border-bottom: 1px solid var(--nx-gold-line);
   flex-shrink: 0;
 }
@@ -1220,11 +1223,12 @@ body.ord-overlay-open .bottom-nav {
 .ord-veditor-body {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 16px;
+  /* More breathing room — content was crammed at 16/16. */
+  padding: 20px 16px calc(28px + env(safe-area-inset-bottom, 0px));
   -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
 
 .ord-veditor-foot {
@@ -4896,7 +4900,9 @@ body.ord-overlay-open .bottom-nav {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
-  margin: 0 0 14px;
+  /* Margin handled by parent's gap now (.ord-veditor-body gap: 20px),
+     so individual margin would double-count. Keep zero here. */
+  margin: 0;
   overflow: hidden;
   box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 14px rgba(0,0,0,0.06);
   transition: box-shadow .18s ease, border-color .18s ease;
@@ -4905,16 +4911,20 @@ body.ord-overlay-open .bottom-nav {
   box-shadow: 0 2px 10px rgba(0,0,0,0.30);
 }
 .ord-veditor-overlay .ved-card-danger {
-  border-color: var(--red, #b3534a);
+  border-color: rgba(179, 83, 74, 0.35);    /* softened — was solid red */
 }
 
-/* Card head — full-width tappable bar with title + chevron */
+/* Card head — full-width tappable bar with title + chevron.
+   Min-height 56px = comfortable tap target (Apple HIG: 44pt). When
+   the card is COLLAPSED we drop the gold tint so a stack of closed
+   cards feels quiet; the active (expanded) card pops via its tint. */
 .ord-veditor-overlay .ved-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 14px 16px;
+  padding: 16px 18px;
+  min-height: 56px;
   background: var(--nx-gold-faint);
   border: 0;
   border-bottom: 1px solid var(--nx-gold-line);
@@ -4927,7 +4937,11 @@ body.ord-overlay-open .bottom-nav {
   letter-spacing: 0.18em;
   text-transform: uppercase;
   text-align: left;
-  transition: background .15s ease;
+  transition: background .15s ease, border-color .15s ease;
+}
+.ord-veditor-overlay .ved-card.is-collapsed .ved-card-head {
+  background: transparent;
+  border-bottom-color: transparent;
 }
 .ord-veditor-overlay .ved-card-head:hover {
   background: var(--nx-gold-mist);
@@ -4939,6 +4953,10 @@ body.ord-overlay-open .bottom-nav {
   background: rgba(179, 83, 74, 0.07);
   border-bottom-color: rgba(179, 83, 74, 0.25);
   color: var(--red, #b3534a);
+}
+.ord-veditor-overlay .ved-card-danger.is-collapsed .ved-card-head {
+  background: transparent;
+  color: rgba(179, 83, 74, 0.85);
 }
 
 .ord-veditor-overlay .ved-card-title {
@@ -4961,9 +4979,9 @@ body.ord-overlay-open .bottom-nav {
   transform: rotate(-90deg);
 }
 
-/* Card body */
+/* Card body — generous padding so labels + inputs aren't pinched. */
 .ord-veditor-overlay .ved-card-body {
-  padding: 14px 16px 16px;
+  padding: 18px;
   display: block;
 }
 .ord-veditor-overlay .ved-card.is-collapsed > .ved-card-body {
@@ -4973,9 +4991,9 @@ body.ord-overlay-open .bottom-nav {
   border-bottom: 0;
 }
 
-/* Inside a card, fields stack tighter (the card itself frames them) */
+/* Inside a card, fields stack with consistent rhythm. */
 .ord-veditor-overlay .ved-card-body .ord-form-field {
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 .ord-veditor-overlay .ved-card-body .ord-form-field:last-child {
   margin-bottom: 0;
@@ -5198,3 +5216,70 @@ body.ord-overlay-open .bottom-nav {
 .ord-catalog-overlay .ved-section-block.is-collapsed .ved-section-collapse svg {
   transform: rotate(-90deg);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Catalog editor — long-press drag (round 5)
+   Replaces the always-on ≡ drag handles. The whole row/section card
+   accepts a 3-second long-press to enter drag mode.
+
+   Visual contract:
+   - During the hold (.is-pressing): a thin gold progress bar sweeps
+     across the bottom edge of the card over 3s. The card itself is
+     unchanged so the user can see what they're holding.
+   - On activation (.is-dragging): the card lifts with a stronger
+     shadow + accent border. The progress bar disappears.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Hide any leftover drag-handle markup if it ever renders (defense in depth) */
+.ord-catalog-overlay .ved-item-drag-handle,
+.ord-catalog-overlay .ved-section-drag {
+  display: none !important;
+}
+
+/* Item row + section block: position relative so we can layer a
+   progress bar on top, and add a ::before pseudo-element that grows
+   from 0% → 100% width over 3s when .is-pressing is active. */
+.ord-catalog-overlay .ved-item-row,
+.ord-catalog-overlay .ved-section-block {
+  position: relative;
+}
+.ord-catalog-overlay .ved-item-row::before,
+.ord-catalog-overlay .ved-section-block::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: 0;
+  background: var(--accent);
+  pointer-events: none;
+  opacity: 0;
+  border-radius: 1px;
+}
+/* When the user is holding, sweep the bar across over 3s */
+.ord-catalog-overlay .ved-item-row.is-pressing::before,
+.ord-catalog-overlay .ved-section-block.is-pressing::before {
+  width: 100%;
+  opacity: 1;
+  transition: width 3s linear, opacity 0.15s ease;
+}
+/* Slight visual cue on the card itself during the hold — soft gold
+   tint so the user sees something IS happening even before drag fires */
+.ord-catalog-overlay .ved-item-row.is-pressing {
+  background: var(--nx-gold-faint);
+}
+.ord-catalog-overlay .ved-section-block.is-pressing {
+  border-color: var(--nx-gold-line);
+}
+
+/* Drag-active state — overrides the press state. Stronger lift +
+   accent border so the user knows drag has begun. */
+.ord-catalog-overlay .ved-item-row.is-dragging::before,
+.ord-catalog-overlay .ved-section-block.is-dragging::before {
+  display: none;
+}
+
+/* Tap the row body anywhere — the whole row is now the tap target
+   (no separate ≡ handle), so make the cursor a pointer for clarity. */
+.ord-catalog-overlay .ved-item-row { cursor: pointer; }
+.ord-catalog-overlay .ved-section-row { cursor: pointer; }
