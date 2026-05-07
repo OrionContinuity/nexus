@@ -2297,64 +2297,43 @@ html {
 /* ── overlay shell ───────────────────────────────────────────────────── */
 .rx-overlay {
   position: fixed;
+  /* Use dynamic viewport units (dvh) so when the iOS keyboard opens,
+     the overlay shrinks to fit the visible viewport — content stays
+     accessible above the keyboard. The inset:0 is fallback for older
+     browsers without dvh support. */
   inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 100dvh;
+  width: 100dvw;
   z-index: 300;
   background: var(--bg);
-  /* No flex, no grid — head/body/foot are positioned absolutely
-     inside this container. position:absolute is the most reliable
-     way to make a scrollable middle section on iOS Safari, period.
-     It doesn't depend on flex/grid math which iOS gets wrong. */
-  overflow: hidden;
+  /* CSS Grid is more reliable on iOS Safari than nested flex for the
+     classic "header / scrollable body / footer" layout. The 1fr middle
+     row gets exactly the space left over after head + foot, and the
+     body's overflow-y: auto + min-height: 0 below scrolls internally. */
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  /* Top padding respects status-bar safe area on iOS PWA */
+  padding-top: env(safe-area-inset-top, 0);
   animation: rx-overlay-in .22s ease;
-}
-.rx-overlay-head {
-  position: absolute;
-  top: env(safe-area-inset-top, 0);
-  left: 0;
-  right: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-  /* Expose the rendered height as a CSS variable so the body knows
-     where to start. Browsers don't compute this for us — we set a
-     reasonable default and live with rounding. */
-  min-height: 60px;
-}
-.rx-overlay-body {
-  /* Absolutely positioned between head and foot. Plenty of margin so
-     even if head/foot are taller than expected, content isn't covered. */
-  position: absolute;
-  top: calc(env(safe-area-inset-top, 0) + 60px);
-  left: 0;
-  right: 0;
-  bottom: 64px;
-  overflow-y: scroll;             /* explicit scroll — never "auto" */
-  -webkit-overflow-scrolling: touch;
-  /* Block layout — cards stack naturally with margin-bottom. No flex
-     math means no flex bugs on iOS. */
-  padding: 20px 16px calc(28px + env(safe-area-inset-bottom, 0));
-}
-.rx-overlay-foot {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  display: flex;
-  gap: 10px;
-  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0));
-  border-top: 1px solid var(--border);
-  background: var(--surface);
 }
 @keyframes rx-overlay-in {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
+.rx-overlay-head {
+  /* Grid row 1 (auto). Internal layout uses flex for the title block. */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
 .rx-overlay-close {
   flex-shrink: 0;
   width: 36px; height: 36px;
@@ -2413,6 +2392,30 @@ html {
 }
 .rx-overlay-spacer { flex-shrink: 0; width: 36px; }
 
+.rx-overlay-body {
+  /* Grid row 2 (1fr — fills remaining space between head and foot).
+     min-height: 0 is critical for grid items that are also overflow
+     containers — without it, the item refuses to shrink below its
+     content size, so overflow: auto can never trigger. */
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Generous padding + 20px gap between cards. Whitespace is the
+     visual rhythm — cards crammed at 12px read as one long blob. */
+  padding: 20px 16px calc(28px + env(safe-area-inset-bottom, 0)) ;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.rx-overlay-foot {
+  /* Grid row 3 (auto). */
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
 .rx-overlay-cancel,
 .rx-overlay-save {
   flex: 1;
@@ -2445,17 +2448,14 @@ html {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r);
-  /* No flex-shrink concerns — body uses block layout now (each card
-     stacks via margin-bottom rather than flex-gap). overflow: clip is
-     the modern alternative to overflow: hidden — it clips visually
-     for the rounded corners but does NOT establish a scroll containment
-     context, so it never accidentally constrains child heights. */
-  overflow: clip;
-  margin-bottom: 20px;
+  overflow: hidden;
+  /* In a column-flex parent (.rx-overlay-body), the default flex-shrink: 1
+     can compress card bodies down to nothing — visible as the body
+     content getting clipped at a fixed small height. Pinning flex-shrink
+     to 0 keeps every card at its natural content height; the parent
+     handles scrolling when total height exceeds the viewport. */
+  flex-shrink: 0;
   transition: border-color .15s ease, box-shadow .15s ease;
-}
-.rx-card:last-child {
-  margin-bottom: 0;
 }
 [data-theme="dark"] .rx-card { box-shadow: 0 1px 3px rgba(0,0,0,0.18); }
 .rx-card-danger { border-color: rgba(190, 60, 60, 0.35); }
@@ -2913,31 +2913,44 @@ html {
   transform: scale(0.98);
 }
 
-/* ── Photo upload status pill ──────────────────────────────────────────
-   Shown when photo is stored as a base64 data URL — prevents the giant
-   data URL string from being dumped into a visible input field, which
-   was causing layout chaos on iOS Safari. The original data is held
-   in a sibling hidden input so it still saves correctly. */
-.rx-photo-status {
+/* ── day-of-week pills (Schedule card delivery_days) ──────────────────
+   Used by the vendor editor's Schedule card. Without these rules the
+   .rx-day-pill buttons render as raw <button>s — that's the "compressed
+   / cards look wrong" symptom in the vendor editor. Spacing is a touch
+   more generous than the legacy .ord-day-pill (in ordering-system.css)
+   so the row breathes inside the card-body's 18px padding. */
+.rx-day-pills {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  margin-top: 8px;
-  background: rgba(212, 164, 78, 0.08);
-  border: 1px solid var(--nx-gold-line);
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rx-day-pill {
+  flex: 1 1 0;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 10px 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
   border-radius: var(--rs);
-  font-size: 12px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.rx-day-pill:hover {
+  border-color: var(--accent);
   color: var(--text);
-  line-height: 1.35;
 }
-.rx-photo-status-dot {
-  flex-shrink: 0;
-  width: 8px; height: 8px;
-  border-radius: 50%;
+.rx-day-pill.active {
   background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
 }
-.rx-photo-status-text {
-  flex: 1;
-  min-width: 0;
+.rx-day-pill:active {
+  transform: scale(0.97);
 }
