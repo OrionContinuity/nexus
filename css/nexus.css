@@ -2754,12 +2754,20 @@ body {
 }
 
 /* The view container — fills remaining space; views inside it scroll.
-   Override .main's hard-coded calc(100vh - 53px) which assumed the old
-   53-px masthead height (it's ~85-90px now with the persona label). */
+   .main has `height: calc(100vh - 53px)` in the base CSS — a DEFINITE
+   height that the children rely on for `height: 100%` to resolve. The
+   previous version of this rule tried to replace that with `flex: 1 1 0;
+   height: auto` to make the masthead anchor cleanly via flex. That
+   broke every view: `auto` is not a definite height, so `.view {
+   height: 100% }` collapsed to 0 and the entire app went blank.
+
+   Fix: use `flex: 1 1 auto` so the calc() height becomes the flex-basis
+   (preserving definite-height semantics for descendants) AND the element
+   still grows/shrinks inside the flex column. min-height: 0 stays —
+   it's needed for proper shrinking inside flex containers. */
 #appWrap > .main {
-  flex: 1 1 0 !important;
+  flex: 1 1 auto !important;
   min-height: 0 !important;
-  height: auto !important;
 }
 
 /* Banners (offline / contractor / overdue alerts) sit between nav and
