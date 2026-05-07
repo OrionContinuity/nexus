@@ -296,6 +296,23 @@ function buildUI() {
         </button>
       </div>
 
+      <!-- Location chips: top-priority filter for someone walking between 3
+           restaurants. Always visible, large tap targets, count badge per
+           location so you can see at a glance how much equipment lives where. -->
+      <div class="eq-location-bar" id="eqLocationBar">
+        ${['all', ...LOCATIONS].map(loc => {
+          const count = loc === 'all'
+            ? equipment.length
+            : equipment.filter(e => e.location === loc).length;
+          return `
+            <button class="eq-loc-chip ${activeFilter.location === loc ? 'active' : ''}" data-filter="location" data-value="${esc(loc)}">
+              <span class="eq-loc-chip-name">${loc === 'all' ? 'All locations' : esc(loc)}</span>
+              <span class="eq-loc-chip-count">${count}</span>
+            </button>
+          `;
+        }).join('')}
+      </div>
+
       <div class="eq-search-row">
         <input type="text" class="eq-search" id="eqSearch" placeholder="Search equipment, model, serial...">
         <div class="eq-view-toggle">
@@ -305,7 +322,7 @@ function buildUI() {
       </div>
 
       <div class="eq-filters">
-        <div class="eq-filter-group">
+        <div class="eq-filter-group" style="display:none">
           <span class="eq-filter-label">Location:</span>
           ${['all', ...LOCATIONS].map(loc => `
             <button class="eq-chip ${activeFilter.location===loc?'active':''}" data-filter="location" data-value="${loc}">
@@ -370,6 +387,14 @@ function buildUI() {
   });
 
   view.querySelectorAll('.eq-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      activeFilter[chip.dataset.filter] = chip.dataset.value;
+      buildUI();
+    });
+  });
+
+  // Wire the prominent top location chips (separate styling, same logic).
+  view.querySelectorAll('.eq-loc-chip').forEach(chip => {
     chip.addEventListener('click', () => {
       activeFilter[chip.dataset.filter] = chip.dataset.value;
       buildUI();
@@ -463,6 +488,16 @@ function renderList() {
   // Wire rows → detail
   list.querySelectorAll('[data-eq-id]').forEach(el => {
     el.addEventListener('click', (ev) => {
+      // Beacon tap → quick status menu. Intercept BEFORE the generic
+      // row-click that would open the detail view. The beacon is the
+      // most-frequent action target in the list — tapping it cycles
+      // status with one tap instead of three (row → edit → status).
+      const beaconTarget = ev.target.closest('.eq-col-status .eq-lc-pill');
+      if (beaconTarget && el.contains(beaconTarget)) {
+        ev.stopPropagation();
+        openQuickStatusMenuForRow(el.dataset.eqId, beaconTarget);
+        return;
+      }
       // Avatar tap → quick photo replace flow. Intercept BEFORE the
       // generic row-click that would open the detail view.
       const photoTarget = ev.target.closest('[data-action="quick-photo"]');
@@ -5051,7 +5086,7 @@ function wirePublicCoin() {
 async function loadPublicScan(qrCode) {
   try {
     const { data, error } = await NX.sb.from('equipment')
-      .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contact_name, service_phone, preferred_contractor_node_id')
+      .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_name, service_contractor_phone, service_contractor_node_id')
       .eq('qr_code', qrCode)
       .single();
     if (error || !data) throw new Error('Equipment not found');
@@ -5067,11 +5102,11 @@ async function loadPublicScan(qrCode) {
     // — if the join fails we fall back to the equipment's own service
     // contact fields (which still work).
     let contractor = null;
-    if (data.preferred_contractor_node_id) {
+    if (data.service_contractor_node_id) {
       try {
         const { data: cnode } = await NX.sb.from('nodes')
           .select('id, name, links, notes')
-          .eq('id', data.preferred_contractor_node_id)
+          .eq('id', data.service_contractor_node_id)
           .maybeSingle();
         if (cnode) contractor = cnode;
       } catch (_) { /* ignore — fall back below */ }
@@ -5116,14 +5151,14 @@ function renderPublicScanHTML(eq, maint, contractor) {
 
   // Resolve contact channels: prefer the linked contractor's full set
   // (multi-phone, multi-email with TO/CC/BCC), fall back to the
-  // equipment's own service_phone + service_contact_name fields when
+  // equipment's own service_contractor_phone + service_contractor_name fields when
   // the FK isn't set yet.
   const phones = contractor ? extractContractorPhones(contractor) : [];
   const emails = contractor ? extractContractorEmails(contractor) : [];
-  if (!phones.length && eq.service_phone) {
-    phones.push({ phone: eq.service_phone, label: '' });
+  if (!phones.length && eq.service_contractor_phone) {
+    phones.push({ phone: eq.service_contractor_phone, label: '' });
   }
-  const contactName = (contractor && contractor.name) || eq.service_contact_name || '';
+  const contactName = (contractor && contractor.name) || eq.service_contractor_name || '';
 
   // Build the email mailto: link with primary in to:, others in cc:.
   let emailMailto = '';
@@ -5522,9 +5557,9 @@ async function openFullEditor(equipId) {
             <div class="eq-form-row">
               <div class="eq-form-group" style="flex:1">
                 <label style="font-size:11px">Contact Name <span style="color:var(--muted)">— pick existing to auto-link</span></label>
-                <input data-field="service_contact_name" id="eqServiceContactName-${eq.id}" value="${escAttr(eq.service_contact_name||'')}" placeholder="Austin Air and Ice" list="eqContractorOptions-${eq.id}" autocomplete="off">
+                <input data-field="service_contractor_name" id="eqServiceContactName-${eq.id}" value="${escAttr(eq.service_contractor_name||'')}" placeholder="Austin Air and Ice" list="eqContractorOptions-${eq.id}" autocomplete="off">
                 <datalist id="eqContractorOptions-${eq.id}"></datalist>
-                <input type="hidden" data-field="preferred_contractor_node_id" value="${escAttr(eq.preferred_contractor_node_id||'')}">
+                <input type="hidden" data-field="service_contractor_node_id" value="${escAttr(eq.service_contractor_node_id||'')}">
                 <div id="eqContractorLinkChip-${eq.id}" class="eq-contractor-link-chip" style="display:none">
                   <span class="eq-contractor-link-chip-icon">🔗</span>
                   <span class="eq-contractor-link-chip-text"></span>
@@ -5533,14 +5568,14 @@ async function openFullEditor(equipId) {
               </div>
               <div class="eq-form-group" style="flex:1">
                 <label style="font-size:11px">Phone Number</label>
-                <input type="tel" data-field="service_phone" id="eqServicePhone-${eq.id}" value="${escAttr(eq.service_phone||'')}" placeholder="(512) 555-1234">
+                <input type="tel" data-field="service_contractor_phone" id="eqServicePhone-${eq.id}" value="${escAttr(eq.service_contractor_phone||'')}" placeholder="(512) 555-1234">
               </div>
             </div>
             <div style="display:flex;gap:8px;margin-top:8px">
               <button type="button" class="eq-btn eq-btn-tiny eq-btn-secondary" onclick="NX.modules.equipment.lookupServicePhoneFromNode('${eq.id}')" style="flex:1">
                 ${uiSvg('search', '13px')} Look up from preferred contractor
               </button>
-              ${eq.service_phone ? `<a href="tel:${escAttr(eq.service_phone)}" class="eq-btn eq-btn-tiny" style="flex:0 0 auto">Test Call</a>` : ''}
+              ${eq.service_contractor_phone ? `<a href="tel:${escAttr(eq.service_contractor_phone)}" class="eq-btn eq-btn-tiny" style="flex:0 0 auto">Test Call</a>` : ''}
             </div>
             <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4">
               Type a contractor name to link this equipment. The contractor's phone will auto-fill and the contractor's Equipment tab will show this unit.
@@ -5598,14 +5633,14 @@ async function openFullEditor(equipId) {
 
   // Wire the Service Contact typeahead picker. Pulls all contractor nodes,
   // populates the datalist, and on selection auto-fills phone + sets the
-  // hidden preferred_contractor_node_id field. Without this wiring, the
+  // hidden service_contractor_node_id field. Without this wiring, the
   // equipment side and contractor side stay disconnected — the user has
   // to type the same name in two places and phones drift.
   (async () => {
     const dl    = modal.querySelector(`#eqContractorOptions-${eq.id}`);
     const nameI = modal.querySelector(`#eqServiceContactName-${eq.id}`);
     const phoneI = modal.querySelector(`#eqServicePhone-${eq.id}`);
-    const fkI   = modal.querySelector('input[data-field="preferred_contractor_node_id"]');
+    const fkI   = modal.querySelector('input[data-field="service_contractor_node_id"]');
     const chip  = modal.querySelector(`#eqContractorLinkChip-${eq.id}`);
     const chipText  = chip?.querySelector('.eq-contractor-link-chip-text');
     const unlinkBtn = chip?.querySelector('.eq-contractor-link-chip-unlink');
@@ -6024,6 +6059,110 @@ function replacePhoto(equipId, field) { uploadPhoto(equipId, field); }
  * equipment list inline so the new photo appears as the row avatar
  * immediately. The user stays in their list flow.
  */
+/**
+ * Quick status menu — opens a small popover anchored to the tapped
+ * beacon in the equipment list. The 4 most common statuses sit one
+ * tap away, with the current one highlighted. Picking a status
+ * updates the DB and re-renders the list inline.
+ *
+ * Intentionally minimal: only the four common operational states
+ * (Operational, Needs Service, Down, Retired). For the long-tail
+ * states (loaned, missing, relocated) the user opens Edit Everything.
+ */
+function openQuickStatusMenuForRow(equipId, anchorEl) {
+  if (!equipId) return;
+  const eq = equipment.find(x => x.id === equipId);
+  if (!eq) return;
+
+  // Tear down any existing popover so consecutive taps don't stack.
+  document.querySelectorAll('.eq-quick-status-pop').forEach(n => n.remove());
+
+  const STATES = [
+    { key: 'operational',   label: 'Operational',    cls: 'is-operational' },
+    { key: 'needs_service', label: 'Needs Service',  cls: 'is-needs-service' },
+    { key: 'down',          label: 'Down',           cls: 'is-down' },
+    { key: 'retired',       label: 'Retired',        cls: 'is-retired' },
+  ];
+
+  const cur = (eq.status || 'operational').toLowerCase();
+  const pop = document.createElement('div');
+  pop.className = 'eq-quick-status-pop';
+  pop.innerHTML = `
+    <div class="eq-quick-status-pop-arrow"></div>
+    <div class="eq-quick-status-pop-title">${esc(eq.name)}</div>
+    <div class="eq-quick-status-pop-options">
+      ${STATES.map(s => `
+        <button class="eq-quick-status-pop-btn ${s.cls} ${cur === s.key ? 'is-current' : ''}" data-status="${s.key}">
+          <span class="eq-quick-status-pop-dot"></span>
+          <span class="eq-quick-status-pop-label">${s.label}</span>
+          ${cur === s.key ? '<span class="eq-quick-status-pop-check">✓</span>' : ''}
+        </button>
+      `).join('')}
+    </div>
+    <button class="eq-quick-status-pop-more" data-action="more">More options →</button>
+  `;
+
+  // Anchor positioning — appear above the beacon, right-aligned to it.
+  document.body.appendChild(pop);
+  const aRect = anchorEl.getBoundingClientRect();
+  const pRect = pop.getBoundingClientRect();
+  let top  = aRect.top + window.scrollY - pRect.height - 12;
+  let left = aRect.right - pRect.width + (window.scrollX || 0);
+  // If popping above would clip top of viewport, flip below.
+  if (top < window.scrollY + 8) {
+    top = aRect.bottom + window.scrollY + 12;
+    pop.classList.add('is-below');
+  }
+  // Don't let it drift off the left edge.
+  if (left < 8) left = 8;
+  pop.style.top  = top  + 'px';
+  pop.style.left = left + 'px';
+
+  // Backdrop click to dismiss (clicking outside the pop closes it).
+  const dismiss = (e) => {
+    if (pop.contains(e.target)) return;
+    pop.remove();
+    document.removeEventListener('click', dismiss, true);
+  };
+  setTimeout(() => document.addEventListener('click', dismiss, true), 0);
+
+  // Wire the buttons.
+  pop.querySelectorAll('[data-status]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const newStatus = btn.dataset.status;
+      if (newStatus === cur) { pop.remove(); return; }
+      // Optimistic UI: update in-memory + re-render list.
+      eq.status = newStatus;
+      eq.updated_at = new Date().toISOString();
+      renderList();
+      pop.remove();
+      NX.toast && NX.toast(`${eq.name} → ${newStatus.replace('_', ' ')}`, 'info', 1400);
+
+      try {
+        const { error } = await NX.sb.from('equipment')
+          .update({ status: newStatus })
+          .eq('id', equipId);
+        if (error) throw error;
+        // Brain sync (best effort) so the AI knows about the state change.
+        if (NX.eqBrainSync?.syncOne) NX.eqBrainSync.syncOne(equipId);
+      } catch (err) {
+        // Rollback the optimistic update.
+        console.error('[quickStatus] save failed:', err);
+        NX.toast && NX.toast(`Could not save: ${err.message || ''}`, 'error', 3000);
+        // Reload from DB to repair any drift.
+        if (typeof loadEquipment === 'function') await loadEquipment();
+      }
+    });
+  });
+
+  pop.querySelector('[data-action="more"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    pop.remove();
+    if (typeof openFullEditor === 'function') openFullEditor(equipId);
+  });
+}
+
 function quickReplacePhoto(equipId) {
   const input = document.createElement('input');
   input.type = 'file';
@@ -6424,7 +6563,7 @@ function buildDispatchMessage(eq, ticket, contact, userName) {
    
    Called from the Links tab in openFullEditor when user clicks "Look up
    from preferred contractor." Reads the preferred contractor node, extracts
-   phone + name, and populates the service_contact_name and service_phone
+   phone + name, and populates the service_contractor_name and service_contractor_phone
    form inputs.
    
    If no preferred contractor is set, falls back to scanning recent
@@ -6434,17 +6573,17 @@ function buildDispatchMessage(eq, ticket, contact, userName) {
 async function lookupServicePhoneFromNode(equipId) {
   try {
     const { data: eq } = await NX.sb.from('equipment')
-      .select('preferred_contractor_node_id, name')
+      .select('service_contractor_node_id, name')
       .eq('id', equipId).single();
     if (!eq) throw new Error('Equipment not found');
 
     let node = null;
     
     // Primary: preferred contractor
-    if (eq.preferred_contractor_node_id) {
+    if (eq.service_contractor_node_id) {
       const { data } = await NX.sb.from('nodes')
         .select('id, name, notes, tags, links')
-        .eq('id', eq.preferred_contractor_node_id).single();
+        .eq('id', eq.service_contractor_node_id).single();
       node = data;
     }
     
@@ -6495,8 +6634,8 @@ async function lookupServicePhoneFromNode(equipId) {
     // Populate form inputs
     const modal = document.getElementById('eqFullEditModal');
     if (!modal) return;
-    const nameInput = modal.querySelector('[data-field="service_contact_name"]');
-    const phoneInput = modal.querySelector('[data-field="service_phone"]');
+    const nameInput = modal.querySelector('[data-field="service_contractor_name"]');
+    const phoneInput = modal.querySelector('[data-field="service_contractor_phone"]');
     if (nameInput && !nameInput.value) nameInput.value = node.name || '';
     if (phoneInput) phoneInput.value = phone;
     
@@ -6538,8 +6677,8 @@ async function openDispatchSheet(equipId, ticketId) {
   // Auto-select preferred contractor if equipment has one set.
   // Skips the contact picker entirely and jumps straight to the method stage.
   // User can still tap "Back" to change contractor if needed.
-  if (eq.preferred_contractor_node_id) {
-    const preferred = contractors.find(c => c.id === eq.preferred_contractor_node_id);
+  if (eq.service_contractor_node_id) {
+    const preferred = contractors.find(c => c.id === eq.service_contractor_node_id);
     if (preferred) {
       selectedContact = preferred;
       stage = 'method';
@@ -6612,7 +6751,7 @@ async function openDispatchSheet(equipId, ticketId) {
         </div>
       `;
     }
-    const preferredId = eq.preferred_contractor_node_id;
+    const preferredId = eq.service_contractor_node_id;
     const sorted = [...contractors].sort((a, b) => {
       if (a.id === preferredId) return -1;
       if (b.id === preferredId) return 1;
@@ -6969,25 +7108,25 @@ function dispatchFromTicket(equipId, ticketId) {
 // dialing so the user sees WHO they're about to call.
 //
 // Priority for phone lookup:
-//   1. Use equipment.service_phone if set
-//   2. Fallback to preferred_contractor_node_id → nodes.links.phone
+//   1. Use equipment.service_contractor_phone if set
+//   2. Fallback to service_contractor_node_id → nodes.links.phone
 //   3. If neither exists, prompt to set one up
 async function callService(equipId) {
   try {
     const { data: eq } = await NX.sb.from('equipment')
-      .select('id, name, service_phone, service_contact_name, preferred_contractor_node_id')
+      .select('id, name, service_contractor_phone, service_contractor_name, service_contractor_node_id')
       .eq('id', equipId).single();
     if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
     
-    let phone = eq.service_phone;
-    let name = eq.service_contact_name;
+    let phone = eq.service_contractor_phone;
+    let name = eq.service_contractor_name;
     let source = phone ? 'direct' : null;
     
     // Fallback to contractor node
-    if (!phone && eq.preferred_contractor_node_id) {
+    if (!phone && eq.service_contractor_node_id) {
       const { data: node } = await NX.sb.from('nodes')
         .select('name, notes, tags, links')
-        .eq('id', eq.preferred_contractor_node_id).single();
+        .eq('id', eq.service_contractor_node_id).single();
       if (node) {
         const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
         const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
@@ -7008,7 +7147,7 @@ async function callService(equipId) {
       equipName: eq.name,
       contactName: name || 'Service',
       phone,
-      contractorNodeId: eq.preferred_contractor_node_id,
+      contractorNodeId: eq.service_contractor_node_id,
       source
     });
   } catch (err) {
@@ -8115,7 +8254,7 @@ async function promptIssueEta(issueId) {
 
 /**
  * Compose an email to the contractor about this issue. Pulls preferred
- * contractor from equipment.preferred_contractor_node_id (existing field).
+ * contractor from equipment.service_contractor_node_id (existing field).
  * Pre-fills subject + body modeled on the order REPORT ISSUES email.
  */
 async function emailContractorAboutIssue(equipment, issue) {
@@ -8123,30 +8262,27 @@ async function emailContractorAboutIssue(equipment, issue) {
 
   // Look up preferred contractor.
   let contractor = null;
-  if (equipment.preferred_contractor_node_id) {
+  if (equipment.service_contractor_node_id) {
     const { data } = await NX.sb.from('nodes')
       .select('id, name, links, notes')
-      .eq('id', equipment.preferred_contractor_node_id).maybeSingle();
+      .eq('id', equipment.service_contractor_node_id).maybeSingle();
     contractor = data;
   }
 
-  // Extract email from contractor's links field. Links shape varies;
-  // tolerate string and array forms.
-  let contractorEmail = '';
+  // Pull all emails with their roles. Falls back to extracting from notes
+  // if the structured links column has no email entries.
+  const emailRows = extractContractorEmails(contractor || {});
+  let toList  = emailRows.filter(e => e.role === 'to').map(e => e.email);
+  const ccList  = emailRows.filter(e => e.role === 'cc').map(e => e.email);
+  const bccList = emailRows.filter(e => e.role === 'bcc').map(e => e.email);
+
+  // If no emails are explicitly tagged TO but at least one email exists,
+  // promote the first one — better than sending to nobody.
+  if (!toList.length && emailRows.length) {
+    toList = [emailRows[0].email];
+  }
+  const contractorEmail = toList[0] || '';
   let contractorName = contractor?.name || '';
-  if (contractor?.links) {
-    const links = Array.isArray(contractor.links) ? contractor.links : [contractor.links];
-    for (const l of links) {
-      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
-      const match = str.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
-      if (match) { contractorEmail = match[0]; break; }
-    }
-  }
-  // Fallback: try to find an email pattern in the notes field too.
-  if (!contractorEmail && contractor?.notes) {
-    const match = contractor.notes.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
-    if (match) contractorEmail = match[0];
-  }
 
   const restaurant = equipment.location || '';
   const area = equipment.area ? ` (${equipment.area})` : '';
@@ -8167,9 +8303,16 @@ When can you take a look? Reply with an ETA and we'll be ready for you.
 
 Thanks for your help.`;
 
-  // Build mailto: URL — handle empty contractor email gracefully.
+  // Build mailto: URL — handle multiple TO + CC + BCC. Empty contractor
+  // email still opens compose so the user can paste an address.
   const enc = s => encodeURIComponent(s || '').replace(/\+/g, '%20');
-  const url = `mailto:${enc(contractorEmail)}?subject=${enc(subject)}&body=${enc(body)}`;
+  const params = [];
+  if (ccList.length)  params.push(`cc=${enc(ccList.join(','))}`);
+  if (bccList.length) params.push(`bcc=${enc(bccList.join(','))}`);
+  params.push(`subject=${enc(subject)}`);
+  params.push(`body=${enc(body)}`);
+  const toRecipients = toList.length ? toList.join(',') : '';
+  const url = `mailto:${enc(toRecipients)}?${params.join('&')}`;
 
   if (!contractorEmail) {
     NX.toast && NX.toast(contractorName
@@ -8337,10 +8480,10 @@ async function openBulkContractorAssign() {
       // Bulk update.
       const ids = Array.from(bulkSelectionState.selected);
       const update = {
-        preferred_contractor_node_id: contractorId,
+        service_contractor_node_id: contractorId,
       };
-      if (phone) update.service_phone = phone;
-      if (contractor.name) update.service_contact_name = contractor.name;
+      if (phone) update.service_contractor_phone = phone;
+      if (contractor.name) update.service_contractor_name = contractor.name;
 
       try {
         const { error } = await NX.sb.from('equipment')
@@ -9665,7 +9808,7 @@ function formatMoney(n) {
          Activity — chronological feed of every dispatch / maintenance /
                     issue this contractor has handled
          Equipment — list of equipment assigned to this contractor as
-                     preferred_contractor_node_id, plus equipment they've
+                     service_contractor_node_id, plus equipment they've
                      historically performed work on
          Edit — full editable form: name, phone, email, address, hours,
                 specialties (chip-input), notes
@@ -9691,7 +9834,7 @@ async function openContractors() {
   // Hardcoded version stamp so the user can verify in a screenshot
   // exactly which JS code is running. If you don't see this toast,
   // the service worker is serving stale cached code.
-  NX.toast && NX.toast('NEXUS contractors v35 — opening…', 'info', 1400);
+  NX.toast && NX.toast('NEXUS contractors v41 — opening…', 'info', 1400);
 
   const overlay = document.createElement('div');
   overlay.className = 'eq-contractors-overlay';
@@ -9752,7 +9895,7 @@ async function loadContractorsList() {
   // Fetch contractors + supporting data in parallel.
   const [nodesRes, maintRes, issuesRes, equipRes] = await Promise.all([
     NX.sb.from('nodes')
-      .select('id, name, notes, links, tags, category, created_at, updated_at')
+      .select('id, name, notes, links, tags, category, created_at')
       .eq('category', 'contractors')
       .order('name', { ascending: true }),
     NX.sb.from('equipment_maintenance')
@@ -9762,10 +9905,10 @@ async function loadContractorsList() {
     NX.sb.from('equipment_issues')
       .select('id, equipment_id, status, contractor_node_id, contractor_name, reported_at, contractor_called_at, repaired_at')
       .order('reported_at', { ascending: false }).then(r => r).catch(() => ({ data: [] })),
-    NX.sb.from('equipment').select('id, name, location, area, manufacturer, model, preferred_contractor_node_id, service_contact_name, service_phone'),
+    NX.sb.from('equipment').select('id, name, location, area, manufacturer, model, service_contractor_node_id, service_contractor_name, service_contractor_phone'),
   ]);
 
-  // ─── Surface every error (this is the whole point of v33) ────────
+  // ─── Surface every error (this is the whole point of v37) ────────
   const errs = [];
   if (nodesRes?.error) errs.push('nodes: ' + (nodesRes.error.message || nodesRes.error.code));
   if (maintRes?.error) errs.push('maint: ' + (maintRes.error.message || maintRes.error.code));
@@ -9779,6 +9922,19 @@ async function loadContractorsList() {
   const maint = maintRes?.data || [];
   const issues = (issuesRes && issuesRes.data) || [];
   const eqList = equipRes?.data || [];
+
+  // Stash diagnostic info that the empty-state box will display.
+  // This is the whole bug-finding strategy in v37: if the list ends
+  // up empty, the user can SEE exactly why right inside the overlay
+  // — no devtools, no console, no relying on toasts being noticed.
+  contractorsState._debug = {
+    rowCount: contractors.length,
+    errMsg: nodesRes?.error?.message || (errs.length ? errs.join(' | ') : null),
+    status: nodesRes?.status,
+    eqCount: eqList.length,
+    maintCount: maint.length,
+    timestamp: new Date().toLocaleTimeString(),
+  };
 
   console.log('[loadContractorsList] counts:', {
     contractors: contractors.length,
@@ -9836,13 +9992,13 @@ async function loadContractorsList() {
       : null;
 
     // Equipment they're linked to. Match by:
-    //   1. preferred_contractor_node_id FK (the strong link)
-    //   2. service_contact_name string (case-insensitive — handles equipment
+    //   1. service_contractor_node_id FK (the strong link)
+    //   2. service_contractor_name string (case-insensitive — handles equipment
     //      where the user typed the contractor name without picking from
     //      the dropdown, so it's not yet FK-linked)
     c._assignedCount = eqList.filter(e =>
-      e.preferred_contractor_node_id == c.id ||
-      ((e.service_contact_name || '').toLowerCase().trim() === nameLower && nameLower)
+      e.service_contractor_node_id == c.id ||
+      ((e.service_contractor_name || '').toLowerCase().trim() === nameLower && nameLower)
     ).length;
     // Unique equipment they've serviced historically.
     const servicedIds = new Set(myMaint.map(m => m.equipment_id));
@@ -9990,6 +10146,264 @@ function extractContractorTags(c) {
  * Mirrors the manufacturer logo helper but with a distinct CSS class
  * so we can tune contractor avatars separately.
  */
+/* ──────────────────────────────────────────────────────────────────────
+ * openContractorEditor — engine-based contractor edit overlay
+ *
+ * Uses the shared NX.recordEditor (js/record-editor.js) — same engine
+ * as the vendor editor in ordering.js. Opens cards for Identity, Contacts
+ * (TO / CC / BCC email chip groups + phone numbers), Specialties (tag
+ * chips), Notes, and a Danger zone. Save writes back to the nodes table.
+ *
+ * The PM "Email contractor" flow (emailContractorAboutIssue) reads the
+ * same role-tagged emails this editor stores, so CC/BCC contacts set
+ * here will be pre-filled when the user opens a service-request email.
+ * ────────────────────────────────────────────────────────────────────── */
+async function openContractorEditor(contractor) {
+  if (!window.NX || !NX.recordEditor) {
+    if (NX.toast) NX.toast('Editor engine not loaded — refresh the page', 'error', 3000);
+    return;
+  }
+  const RX = NX.recordEditor;
+  const c = contractor || {};
+  const isNew = !c.id;
+
+  // Bucket existing email rows by role into separate chip arrays.
+  const emailRows = extractContractorEmails(c);
+  const toArr  = emailRows.filter(e => e.role === 'to').map(e => e.email);
+  const ccArr  = emailRows.filter(e => e.role === 'cc').map(e => e.email);
+  const bccArr = emailRows.filter(e => e.role === 'bcc').map(e => e.email);
+
+  // Phones: chip values look like "(512) 555-1234" — labels are stored
+  // as meta on each chip ("dispatch", "after-hours", etc.).
+  const phoneRows = extractContractorPhones(c);
+  const phoneArr  = phoneRows.map(p => p.phone);
+  // Keep a side-map of phone → label so we can reconstruct on save.
+  const phoneLabels = Object.create(null);
+  phoneRows.forEach(p => { if (p.phone) phoneLabels[p.phone] = p.label || ''; });
+
+  const tagsArr = extractContractorTags(c);
+
+  const emailValidator = (e) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? null : 'Invalid email';
+  };
+  const phoneValidator = (p) => {
+    // Allow "+1 512 555 1234", "(512) 555-1234", etc. — at least 7 digits.
+    const digits = (p.match(/\d/g) || []).length;
+    return digits >= 7 ? null : 'Need at least 7 digits';
+  };
+
+  const cards = [];
+
+  // ─── Identity (just name — contractors don't have photos in current schema) ──
+  cards.push({
+    key: 'identity',
+    title: 'Identity',
+    expanded: true,
+    body: `
+      <div class="rx-form-field">
+        <label class="rx-form-label">Contractor name</label>
+        <input type="text" class="rx-form-input" data-rx-cc-name value="${esc(c.name || '')}" placeholder="e.g. Austin Air & Ice" autocomplete="off">
+      </div>
+    `,
+  });
+
+  // ─── Contacts (TO / CC / BCC emails + phones) ──
+  cards.push({
+    key: 'contacts',
+    title: 'Contacts',
+    expanded: true,
+    body: `
+      ${RX.buildChipGroupHTML(toArr,  'to',  { label: 'TO',    hint: 'primary recipient(s) — service request goes here', inputType: 'email', inputMode: 'email', placeholder: 'dispatch@vendor.com',     addLabel: 'Add TO' })}
+      ${RX.buildChipGroupHTML(ccArr,  'cc',  { label: 'CC',    hint: 'always copied on every PM email',                  inputType: 'email', inputMode: 'email', placeholder: 'cc@vendor.com',           addLabel: 'Add CC' })}
+      ${RX.buildChipGroupHTML(bccArr, 'bcc', { label: 'BCC',   hint: "silent copies — others can't see them",            inputType: 'email', inputMode: 'email', placeholder: 'bcc@vendor.com',          addLabel: 'Add BCC' })}
+      ${RX.buildChipGroupHTML(phoneArr, 'phone', { label: 'PHONE', hint: 'first one powers the Call button on QR scan',    inputType: 'tel',   inputMode: 'tel',   placeholder: '(512) 555-1234',          addLabel: 'Add phone' })}
+    `,
+  });
+
+  // ─── Specialties (tag chips) ──
+  cards.push({
+    key: 'tags',
+    title: 'In charge of',
+    expanded: false,
+    body: `
+      <div class="rx-form-field">
+        <label class="rx-form-label">Specialties <span class="rx-form-hint">— what they cover</span></label>
+        ${RX.buildChipGroupHTML(tagsArr, 'tags', { placeholder: 'e.g. refrigeration', addLabel: 'Add specialty' })}
+      </div>
+    `,
+  });
+
+  // ─── Notes ──
+  cards.push({
+    key: 'notes',
+    title: 'Notes',
+    expanded: false,
+    body: `
+      <div class="rx-form-field">
+        <textarea class="rx-form-input" data-rx-cc-notes rows="4" placeholder="Hours, address, billing rate, anything else — only you see this" style="height:auto;min-height:96px;padding:10px 12px;resize:vertical">${esc(c.notes || '')}</textarea>
+      </div>
+    `,
+  });
+
+  // ─── Danger zone (existing contractors only) ──
+  if (!isNew) {
+    cards.push({
+      key: 'danger',
+      title: 'Danger zone',
+      expanded: false,
+      danger: true,
+      body: `
+        <button class="ord-veditor-archive-btn" type="button" data-rx-cc-delete>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          </svg>
+          <span>Delete contractor</span>
+        </button>
+        <div class="rx-form-hint" style="text-align:center">Deleting a contractor unlinks them from all equipment but does not affect service history.</div>
+      `,
+    });
+  }
+
+  RX.openOverlay({
+    title:    isNew ? 'New contractor' : (c.name || 'Contractor'),
+    subtitle: isNew ? null : ((tagsArr || []).slice(0, 3).join(' · ') || null),
+    cards,
+    saveLabel:   isNew ? 'Create contractor' : 'Save changes',
+    cancelLabel: 'Cancel',
+    state: {
+      chips: { to: toArr, cc: ccArr, bcc: bccArr, phone: phoneArr, tags: tagsArr },
+    },
+
+    onMount: (overlay, state) => {
+      // Email chip groups — same email validator across to/cc/bcc.
+      ['to', 'cc', 'bcc'].forEach(kind => {
+        RX.wireChipGroup(overlay, kind, state, {
+          label: kind.toUpperCase(),
+          inputType: 'email',
+          inputMode: 'email',
+          placeholder: 'email@example.com',
+          addLabel: `Add ${kind.toUpperCase()}`,
+          validate: emailValidator,
+        });
+      });
+      // Phone chip group — different validator + input type.
+      RX.wireChipGroup(overlay, 'phone', state, {
+        label: 'PHONE',
+        inputType: 'tel',
+        inputMode: 'tel',
+        placeholder: '(512) 555-1234',
+        addLabel: 'Add phone',
+        validate: phoneValidator,
+      });
+      // Tag chip group — no validator, free text.
+      RX.wireChipGroup(overlay, 'tags', state, {
+        placeholder: 'e.g. HVAC',
+        addLabel: 'Add specialty',
+      });
+
+      // Delete button — confirm + delete + close
+      const delBtn = overlay.querySelector('[data-rx-cc-delete]');
+      if (delBtn) {
+        delBtn.addEventListener('click', async () => {
+          if (!confirm(`Delete ${c.name}? This unlinks them from all equipment.`)) return;
+          try {
+            const { error } = await NX.sb.from('nodes').delete().eq('id', c.id);
+            if (error) throw error;
+            if (NX.toast) NX.toast('Contractor deleted', 'info', 1400);
+            RX.close();
+            // Refresh the contractors list view if it's open.
+            if (typeof contractorsState !== 'undefined' && contractorsState && contractorsState.overlay) {
+              contractorsState.mode = 'list';
+              contractorsState.activeId = null;
+              contractorsState.activeContractor = null;
+              if (typeof loadContractors === 'function') {
+                await loadContractors();
+              }
+              if (typeof renderContractors === 'function') renderContractors();
+            }
+          } catch (err) {
+            console.error('[contractor] delete failed:', err);
+            if (NX.toast) NX.toast('Failed to delete: ' + (err.message || ''), 'error', 3000);
+          }
+        });
+      }
+    },
+
+    onSave: async (overlay, state) => {
+      const name = (overlay.querySelector('[data-rx-cc-name]') || {}).value || '';
+      if (!name.trim()) {
+        if (NX.toast) NX.toast('Name is required', 'warn', 1800);
+        return false;
+      }
+      const notes = (overlay.querySelector('[data-rx-cc-notes]') || {}).value || '';
+
+      // Reconstruct nodes.links from the four chip groups.
+      // Schema convention (matches existing extract* helpers):
+      //   { phone, type:'phone', label }
+      //   { email, type:'email', role: 'to'|'cc'|'bcc', label }
+      const links = [];
+      // Preserve any non-phone/email links already on the contractor
+      // (URLs, etc.) so saving doesn't blow them away.
+      const existingLinks = Array.isArray(c.links) ? c.links : [];
+      for (const l of existingLinks) {
+        if (!l) continue;
+        const isPhone = (typeof l === 'object' && l.phone) || (typeof l === 'string' && /(?:tel:)?(\+?[\d\s().-]{7,})/.test(l));
+        const isEmail = (typeof l === 'object' && l.email) || (typeof l === 'string' && /[\w.+-]+@[\w-]+\.[\w.-]+/.test(l));
+        if (isPhone || isEmail) continue;
+        links.push(l);
+      }
+      for (const ph of (state.chips.phone || [])) {
+        const t = String(ph).trim();
+        if (!t) continue;
+        links.push({ phone: t, type: 'phone', label: phoneLabels[t] || null });
+      }
+      for (const em of (state.chips.to  || [])) { const t = String(em).trim(); if (t) links.push({ email: t, type: 'email', role: 'to'  }); }
+      for (const em of (state.chips.cc  || [])) { const t = String(em).trim(); if (t) links.push({ email: t, type: 'email', role: 'cc'  }); }
+      for (const em of (state.chips.bcc || [])) { const t = String(em).trim(); if (t) links.push({ email: t, type: 'email', role: 'bcc' }); }
+
+      const tags = Array.from(new Set((state.chips.tags || []).map(t => String(t).trim()).filter(Boolean)));
+
+      const payload = {
+        name: name.trim(),
+        notes: notes.trim() || null,
+        tags,
+        links,
+      };
+
+      try {
+        if (isNew) {
+          // Insert as a new node with category='contractors'.
+          const insertPayload = { ...payload, category: 'contractors', kind: 'org' };
+          const { data, error } = await NX.sb.from('nodes').insert(insertPayload).select('*').single();
+          if (error) throw error;
+          if (NX.toast) NX.toast('Contractor created', 'info', 1400);
+          // Refresh list + open detail
+          if (typeof loadContractors === 'function') await loadContractors();
+          if (typeof renderContractors === 'function') renderContractors();
+        } else {
+          const { error } = await NX.sb.from('nodes').update(payload).eq('id', c.id);
+          if (error) throw error;
+          // Update the in-memory copy so subsequent reads (e.g. the email
+          // PM flow) see the new roles immediately.
+          Object.assign(c, payload);
+          if (NX.toast) NX.toast('Saved', 'info', 1200);
+          // Refresh the detail view if it's currently rendered.
+          if (typeof contractorsState !== 'undefined' && contractorsState && contractorsState.activeContractor && contractorsState.activeContractor.id === c.id) {
+            Object.assign(contractorsState.activeContractor, payload);
+            if (typeof renderContractors === 'function') renderContractors();
+          }
+        }
+        return true;
+      } catch (err) {
+        console.error('[contractor] save failed:', err);
+        if (NX.toast) NX.toast('Failed to save: ' + (err.message || ''), 'error', 3000);
+        return false;
+      }
+    },
+  });
+}
+
+
 function contractorAvatar(c, size) {
   const name = (c && c.name) || '';
   const initial = name.trim().charAt(0).toUpperCase() || '?';
@@ -10037,10 +10451,25 @@ function renderContractorsList() {
   } else if (error) {
     bodyHTML = `<div class="eq-contractors-error">Couldn't load: ${esc(error)}</div>`;
   } else if (!list.length) {
+    // ─── DIAGNOSTIC EMPTY STATE ────────────────────────────────────
+    // We don't just say "no contractors yet" — we expose every fact
+    // we can pull about the load attempt so the user can SEE why the
+    // list is empty without devtools.
+    const dbg = contractorsState._debug || {};
     bodyHTML = `
       <div class="eq-contractors-empty">
         <div class="eq-contractors-empty-title">No contractors yet</div>
-        <div class="eq-contractors-empty-msg">Tap the <strong>+</strong> button at the top to add your first contractor. Or import them by linking equipment to existing contractor records.</div>
+        <div class="eq-contractors-empty-msg">Tap the <strong>+</strong> button at the top to add your first contractor.</div>
+        <div style="margin-top:24px;padding:14px;background:rgba(212,164,78,0.05);border:1px dashed var(--nx-gold-line);border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--nx-faint);text-align:left;line-height:1.7">
+          <div style="color:var(--nx-gold);margin-bottom:6px;font-weight:600">DIAGNOSTIC v41</div>
+          <div>NX.sb defined: <strong>${typeof NX !== 'undefined' && NX.sb ? 'YES' : 'NO'}</strong></div>
+          <div>Query rows returned: <strong>${dbg.rowCount ?? '—'}</strong></div>
+          <div>Query error: <strong>${dbg.errMsg ? esc(dbg.errMsg) : '(none)'}</strong></div>
+          <div>Query status: <strong>${dbg.status ?? '—'}</strong></div>
+          <div>Equipment rows: <strong>${dbg.eqCount ?? '—'}</strong></div>
+          <div>Maint rows: <strong>${dbg.maintCount ?? '—'}</strong></div>
+          <div>Run at: <strong>${dbg.timestamp ?? '—'}</strong></div>
+        </div>
       </div>`;
   } else {
     const q = (search || '').toLowerCase().trim();
@@ -10070,7 +10499,10 @@ function renderContractorsList() {
       </button>
       <div class="eq-contractors-head-text">
         <div class="eq-contractors-title">Contractors</div>
-        <div class="eq-contractors-sub">${list.length} ${list.length === 1 ? 'contractor' : 'contractors'} on file</div>
+        <div class="eq-contractors-sub">${list.length} ${list.length === 1 ? 'contractor' : 'contractors'} on file${(() => {
+          const dupGroups = findContractorDuplicateGroups();
+          return dupGroups.length ? ` · <span class="eq-contractors-dup-hint" data-action="dedupe">${dupGroups.length} duplicate ${dupGroups.length === 1 ? 'group' : 'groups'}</span>` : '';
+        })()}</div>
       </div>
       <button class="eq-contractors-add" data-action="add" aria-label="Add new contractor">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -10090,6 +10522,7 @@ function renderContractorsList() {
 
   overlay.querySelector('.eq-contractors-close').addEventListener('click', closeContractors);
   overlay.querySelector('[data-action="add"]').addEventListener('click', addNewContractor);
+  overlay.querySelector('[data-action="dedupe"]')?.addEventListener('click', openDuplicateMergeOverlay);
   const searchInput = overlay.querySelector('#eqContractorsSearch');
   if (searchInput) {
     searchInput.addEventListener('input', e => {
@@ -10123,26 +10556,32 @@ function renderContractorsList() {
 function renderContractorListCard(c) {
   const phone = extractContractorPhone(c);
   const tags = extractContractorTags(c);
-  const lastSeen = c._lastActivity ? fmtContractorSince(c._lastActivity) : 'No activity yet';
+  const lastSeen = c._lastActivity ? fmtContractorSince(c._lastActivity) : null;
+  // Stats — compact mono format. No "YTD" suffix; the year context is
+  // implied. Helps the line fit on one row even when chevron + lastSeen
+  // are eating the right edge.
   const stats = [];
   if (c._assignedCount)   stats.push(`${c._assignedCount} assigned`);
   if (c._historicalCount) stats.push(`${c._historicalCount} serviced`);
-  if (c._callsYtd)        stats.push(`${c._callsYtd} call${c._callsYtd === 1 ? '' : 's'} YTD`);
+  if (c._callsYtd)        stats.push(`${c._callsYtd} call${c._callsYtd === 1 ? '' : 's'}`);
+
+  // Meta line bundles phone + tags + "last seen" in one row. This keeps
+  // the right column reserved JUST for the chevron, giving the card
+  // body the full width without awkward two-line wraps.
+  const metaParts = [];
+  if (phone)        metaParts.push(`<span class="eq-contractor-card-phone">${esc(phone)}</span>`);
+  if (tags.length)  metaParts.push(`<span class="eq-contractor-card-tags">${tags.slice(0, 3).map(t => esc(t)).join(' · ')}</span>`);
+  if (lastSeen)     metaParts.push(`<span class="eq-contractor-card-when-inline">${esc(lastSeen)}</span>`);
 
   return `
     <div class="eq-contractor-card" data-contractor-id="${esc(c.id)}">
       ${contractorAvatar(c, 'md')}
       <div class="eq-contractor-card-body">
         <div class="eq-contractor-card-name">${esc(c.name)}</div>
-        <div class="eq-contractor-card-meta">
-          ${phone ? `<span class="eq-contractor-card-phone">${esc(phone)}</span>` : ''}
-          ${phone && tags.length ? `<span class="eq-contractor-card-sep">·</span>` : ''}
-          ${tags.length ? `<span class="eq-contractor-card-tags">${tags.slice(0, 3).map(t => esc(t)).join(' · ')}</span>` : ''}
-        </div>
+        ${metaParts.length ? `<div class="eq-contractor-card-meta">${metaParts.join('<span class="eq-contractor-card-sep">·</span>')}</div>` : ''}
         ${stats.length ? `<div class="eq-contractor-card-stats">${stats.join(' · ')}</div>` : ''}
       </div>
-      <div class="eq-contractor-card-when">
-        <div class="eq-contractor-card-when-text">${esc(lastSeen)}</div>
+      <div class="eq-contractor-card-chev">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
       </div>
     </div>
@@ -10204,19 +10643,19 @@ function buildContractorDetailDerived() {
 
   // Equipment assignments + historical.
   // Two paths to "assigned":
-  //   1. preferred_contractor_node_id FK (proper link)
-  //   2. service_contact_name string match (informal link — typed name)
+  //   1. service_contractor_node_id FK (proper link)
+  //   2. service_contractor_name string match (informal link — typed name)
   // Equipment in the second bucket can be promoted to the first via a
   // one-tap action in the Equipment tab.
   const nameLower = (c.name || '').toLowerCase().trim();
   contractorsState.assignedEquipment = eqLite.filter(e =>
-    e.preferred_contractor_node_id == c.id ||
-    ((e.service_contact_name || '').toLowerCase().trim() === nameLower && nameLower)
+    e.service_contractor_node_id == c.id ||
+    ((e.service_contractor_name || '').toLowerCase().trim() === nameLower && nameLower)
   );
   // Mark which ones are "loose" links so the UI can show a chip and
   // offer to make the link permanent.
   for (const e of contractorsState.assignedEquipment) {
-    e._linkType = e.preferred_contractor_node_id == c.id ? 'fk' : 'name';
+    e._linkType = e.service_contractor_node_id == c.id ? 'fk' : 'name';
   }
   const assignedIds = new Set(contractorsState.assignedEquipment.map(e => e.id));
   const servicedIds = new Set(maint.map(m => m.equipment_id));
@@ -10325,6 +10764,38 @@ function renderContractorsDetail() {
   });
   overlay.querySelectorAll('[data-detail-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
+      // Edit tab → open the shared NX.recordEditor overlay instead of
+      // re-rendering an inline form. The detail view (Activity / Equipment
+      // tabs) stays underneath; engine slides over it. Save in the engine
+      // refreshes the detail in place.
+      if (btn.dataset.detailTab === 'edit') {
+        // Diagnostic — if the engine isn't loaded or the click doesn't
+        // reach the function for some reason, the user gets a visible
+        // signal instead of a silent no-op.
+        if (!window.NX || !NX.recordEditor) {
+          if (NX.toast) NX.toast('Editor engine not loaded — refresh the page', 'error', 3000);
+          console.error('[contractors] Edit tap: NX.recordEditor missing');
+          return;
+        }
+        if (typeof openContractorEditor !== 'function') {
+          if (NX.toast) NX.toast('openContractorEditor not defined — please refresh', 'error', 3000);
+          console.error('[contractors] Edit tap: openContractorEditor missing');
+          return;
+        }
+        const c = contractorsState.activeContractor;
+        if (!c) {
+          if (NX.toast) NX.toast('No contractor selected — try reopening the contractor', 'warn', 2200);
+          console.warn('[contractors] Edit tap: activeContractor is null');
+          return;
+        }
+        try {
+          openContractorEditor(c);
+        } catch (err) {
+          console.error('[contractors] openContractorEditor threw:', err);
+          if (NX.toast) NX.toast('Could not open editor: ' + (err && err.message), 'error', 3000);
+        }
+        return;
+      }
       contractorsState.detailTab = btn.dataset.detailTab;
       renderContractors();
     });
@@ -10658,26 +11129,41 @@ function wireContractorEditForm() {
     });
   });
 
-  // ─── PRIMARY SAVE PATH: direct click on the save button ──────────
-  // We DO NOT rely on form submit because mobile browsers + virtual
-  // keyboards drop submit events unpredictably. Instead, we hook the
-  // button click directly. The form submit handler (below) is just a
-  // fallback for keyboard-Enter and ensures e.preventDefault()
-  // protects against the page navigating away.
+  // ─── SAVE WIRING (v40) — proof-of-life on click ──────────────────
+  // Aggressive instrumentation: we wire BOTH click AND pointerdown
+  // AND touchend to the save button. The very first thing each handler
+  // does is change the button text to "Saving…" — visible proof the
+  // event fired. If you tap save and the button text doesn't change,
+  // NO event handler is firing at all, which points to a blocker
+  // (z-index, pointer-events, an overlay capturing the touch).
   const saveBtn = form.querySelector('button[type="submit"]');
   if (saveBtn) {
-    saveBtn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      await saveContractorChanges(form, saveBtn);
-    });
+    let saveInFlight = false;
+    const handleSave = async (e, source) => {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      if (saveInFlight) return;
+      saveInFlight = true;
+      // INSTANT visible feedback so you know the event fired.
+      saveBtn.textContent = `Saving… (${source})`;
+      saveBtn.disabled = true;
+      try {
+        await saveContractorChanges(form, saveBtn);
+      } finally {
+        // Reset only if we're still on this form — otherwise the form
+        // may have been torn down by a re-render during save success.
+        if (saveBtn.isConnected) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = saveBtn.dataset.origLabel || 'Save changes';
+        }
+        saveInFlight = false;
+      }
+    };
+    saveBtn.dataset.origLabel = saveBtn.textContent || 'Save changes';
+    saveBtn.addEventListener('click',     (e) => handleSave(e, 'click'));
+    saveBtn.addEventListener('pointerdown', (e) => handleSave(e, 'pointer'));
+    // Form submit (Enter key) as a final fallback
+    form.addEventListener('submit', (e) => handleSave(e, 'submit'));
   }
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (saveBtn && !saveBtn.disabled) {
-      await saveContractorChanges(form, saveBtn);
-    }
-  });
 
   form.querySelector('[data-action="delete"]')?.addEventListener('click', async () => {
     const c = contractorsState.activeContractor;
@@ -10706,25 +11192,23 @@ function wireContractorEditForm() {
  * from the UI without opening DevTools.
  */
 async function saveContractorChanges(form, saveBtn) {
+  // Loud first-line toast — proves saveContractorChanges actually ran.
+  // If you don't see this toast when you tap Save, the button click
+  // isn't reaching this function and we have a wiring problem upstream.
+  NX.toast && NX.toast('💾 Save fired — building payload…', 'info', 1400);
+
   if (!form || !contractorsState) {
-    NX.toast && NX.toast('Form vanished — try reopening the contractor', 'error', 2400);
+    NX.toast && NX.toast('Form vanished — try reopening the contractor', 'error', 3000);
     return;
   }
   const c = contractorsState.activeContractor;
   if (!c || !c.id) {
-    NX.toast && NX.toast('No contractor loaded — try reopening', 'error', 2400);
+    NX.toast && NX.toast('No contractor loaded — try reopening', 'error', 3000);
     return;
   }
   if (!NX.sb) {
-    NX.toast && NX.toast('Supabase not connected', 'error', 2400);
+    NX.toast && NX.toast('Supabase not connected', 'error', 3000);
     return;
-  }
-
-  // Disable the button while we save so double-taps don't fire twice.
-  if (saveBtn) {
-    saveBtn.disabled = true;
-    saveBtn.dataset.origLabel = saveBtn.textContent;
-    saveBtn.textContent = 'Saving…';
   }
 
   try {
@@ -10765,17 +11249,10 @@ async function saveContractorChanges(form, saveBtn) {
     const payload = { name, notes: notes || null, tags, links: newLinks };
     console.log('[saveContractor] id=%s payload=', c.id, payload);
 
-    // ─── Verify auth before write — if not signed in, RLS will block ──
-    let authUser = null;
-    try {
-      const { data: { user } } = await NX.sb.auth.getUser();
-      authUser = user;
-    } catch (_) {}
-    console.log('[saveContractor] auth user:', authUser?.id, authUser?.email);
-    if (!authUser) {
-      NX.toast && NX.toast('Not signed in — sign back in then try saving', 'error', 3000);
-      return;
-    }
+    // No auth gate here — NEXUS uses PIN auth, not Supabase Auth, so
+    // auth.getUser() always returns null. Authorization is handled
+    // entirely by the nodes_anon_all RLS policy (USING=true,
+    // WITH_CHECK=true) which lets the anon role write.
 
     // ─── Do the update ──────────────────────────────────────────────
     const { data, error, status, statusText } = await NX.sb.from('nodes')
@@ -10838,19 +11315,16 @@ async function saveContractorChanges(form, saveBtn) {
   } catch (err) {
     console.error('[saveContractor] unexpected:', err);
     NX.toast && NX.toast(`Save crashed: ${err.message || err}`, 'error', 4000);
-  } finally {
-    if (saveBtn) {
-      saveBtn.disabled = false;
-      saveBtn.textContent = saveBtn.dataset.origLabel || 'Save changes';
-    }
   }
+  // Note: button label/disabled state is reset by the wrapper handler
+  // in wireContractorEditForm.handleSave's finally block, not here.
 }
 
 /**
  * Bulk-upgrade equipment that's "linked by name only" (matches the
- * contractor's name string in equipment.service_contact_name but has no
- * preferred_contractor_node_id FK) to a proper FK link. Also propagates
- * the contractor's phone to equipment.service_phone if the equipment
+ * contractor's name string in equipment.service_contractor_name but has no
+ * service_contractor_node_id FK) to a proper FK link. Also propagates
+ * the contractor's phone to equipment.service_contractor_phone if the equipment
  * row's phone is missing.
  *
  * This is the "the contractor and equipment now talk to each other" fix
@@ -10874,12 +11348,12 @@ async function promoteContractorNameLinks() {
 
   try {
     // Build update payload — set FK on every loose-linked equipment.
-    // We don't overwrite service_phone if the equipment already has one;
+    // We don't overwrite service_contractor_phone if the equipment already has one;
     // we just fill it from the contractor when blank.
     let updated = 0;
     for (const eq of loose) {
-      const update = { preferred_contractor_node_id: c.id };
-      if (!eq.service_phone && phone) update.service_phone = phone;
+      const update = { service_contractor_node_id: c.id };
+      if (!eq.service_contractor_phone && phone) update.service_contractor_phone = phone;
       const { error } = await NX.sb.from('equipment').update(update).eq('id', eq.id);
       if (error) throw error;
       updated++;
@@ -10912,7 +11386,7 @@ async function promoteContractorNameLinks() {
  * contractor. Same idiom as the parts-compatibility bulk-apply sheet:
  * checkbox row per eligible piece of equipment, same-category units
  * floated to top with a "MATCHES SPECIALTY" badge, single confirm
- * button does a batch update of preferred_contractor_node_id.
+ * button does a batch update of service_contractor_node_id.
  *
  * "Eligible" = equipment NOT already assigned to this contractor.
  * Equipment already assigned to a *different* contractor is included
@@ -10962,7 +11436,7 @@ function openContractorAssignSheet() {
           ${candidates.map(e => {
             const isSel = selected.has(e.id);
             const matches = matchesSpecialty(e);
-            const otherContractor = e.preferred_contractor_node_id && e.preferred_contractor_node_id !== c.id;
+            const otherContractor = e.service_contractor_node_id && e.service_contractor_node_id !== c.id;
             return `
               <button class="eq-bulk-sheet-item eq-bulk-apply-item ${isSel ? 'is-selected' : ''} ${matches ? 'is-same-brand' : ''}" data-id="${esc(e.id)}" type="button">
                 <div class="eq-bulk-apply-check">
@@ -11007,10 +11481,10 @@ function openContractorAssignSheet() {
       for (const id of ids) {
         const eq = candidates.find(e => e.id === id);
         const update = {
-          preferred_contractor_node_id: c.id,
-          service_contact_name: c.name,  // keep name in sync
+          service_contractor_node_id: c.id,
+          service_contractor_name: c.name,  // keep name in sync
         };
-        if (phone && eq && !eq.service_phone) update.service_phone = phone;
+        if (phone && eq && !eq.service_contractor_phone) update.service_contractor_phone = phone;
         const { error } = await NX.sb.from('equipment').update(update).eq('id', id);
         if (error) throw error;
         updated++;
@@ -11095,7 +11569,316 @@ function schedulePmsForContractor(locationFilter) {
   NX.toast && NX.toast(`Pre-selected ${label}`, 'info', 1500);
 }
 
+/**
+ * Group contractors by case-insensitive name match. Returns groups of
+ * 2+ contractors that share a name. Used to surface duplicates so the
+ * user can merge them (combining phones/emails/notes/tags and
+ * reassigning equipment).
+ *
+ * Naming variation handling: we strip leading "+", trailing whitespace,
+ * collapse internal whitespace, and lowercase before matching. So
+ * "Austin Air and Ice", "austin air and ice ", and " Austin Air And Ice"
+ * all collapse to the same group.
+ */
+function findContractorDuplicateGroups() {
+  if (!contractorsState || !contractorsState.list) return [];
+  const groups = new Map();
+  for (const c of contractorsState.list) {
+    const key = (c.name || '')
+      .toLowerCase()
+      .replace(/^\+\s*/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+  // Only return groups with 2+ entries.
+  return Array.from(groups.values()).filter(g => g.length > 1);
+}
+
+/**
+ * Pick the canonical contractor from a duplicate group. Heuristic:
+ *   1. Most data (phones + emails + tags + notes length) — preserve work
+ *   2. Most recent activity — likely the "active" record
+ *   3. Oldest created_at — original record
+ * The canonical absorbs all data from the others and keeps its own ID.
+ */
+function pickCanonicalContractor(group) {
+  const score = (c) => {
+    const phones = extractContractorPhones(c).length;
+    const emails = extractContractorEmails(c).length;
+    const tags   = (c.tags || []).length;
+    const notes  = (c.notes || '').length;
+    const data   = phones * 5 + emails * 5 + tags * 3 + Math.min(notes / 20, 10);
+    const lastT  = c._lastActivity ? new Date(c._lastActivity).getTime() : 0;
+    const oldT   = c.created_at ? new Date(c.created_at).getTime() : Date.now();
+    // Higher score = better canonical.
+    return data * 1000 + (lastT / 1e10) - (oldT / 1e12);
+  };
+  return [...group].sort((a, b) => score(b) - score(a))[0];
+}
+
+/**
+ * Open the merge overlay. Lists every duplicate group with side-by-side
+ * preview of all entries. User taps "Merge" → we run the merge in DB
+ * and refresh.
+ */
+function openDuplicateMergeOverlay() {
+  const groups = findContractorDuplicateGroups();
+  if (!groups.length) {
+    NX.toast && NX.toast('No duplicates found', 'info', 1400);
+    return;
+  }
+
+  // Sort groups by size (most duplicates first), then by name.
+  groups.sort((a, b) => {
+    if (b.length !== a.length) return b.length - a.length;
+    return (a[0].name || '').localeCompare(b[0].name || '');
+  });
+
+  // Tear down any existing overlay so consecutive opens don't stack.
+  document.querySelectorAll('.eq-dedupe-overlay').forEach(n => n.remove());
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-dedupe-overlay';
+  overlay.innerHTML = `
+    <div class="eq-dedupe-backdrop"></div>
+    <div class="eq-dedupe-panel">
+      <div class="eq-dedupe-head">
+        <button class="eq-dedupe-close" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <div class="eq-dedupe-head-text">
+          <div class="eq-dedupe-title">Find duplicates</div>
+          <div class="eq-dedupe-sub">${groups.length} ${groups.length === 1 ? 'group' : 'groups'} · ${groups.reduce((s, g) => s + g.length, 0)} contractors total</div>
+        </div>
+      </div>
+      <div class="eq-dedupe-body">
+        ${groups.map((group, idx) => {
+          const canonical = pickCanonicalContractor(group);
+          const others = group.filter(c => c.id !== canonical.id);
+          return `
+            <div class="eq-dedupe-group" data-group-idx="${idx}">
+              <div class="eq-dedupe-group-name">${esc(group[0].name)}</div>
+              <div class="eq-dedupe-group-cards">
+                ${[canonical, ...others].map((c, ci) => {
+                  const isCanon = c.id === canonical.id;
+                  const phones  = extractContractorPhones(c);
+                  const emails  = extractContractorEmails(c);
+                  const tags    = (c.tags || []).filter(Boolean);
+                  const equipCount = (contractorsState.equipmentLite || [])
+                    .filter(e => e.service_contractor_node_id == c.id).length;
+                  return `
+                    <div class="eq-dedupe-card ${isCanon ? 'is-canonical' : ''}">
+                      <div class="eq-dedupe-card-head">
+                        <span class="eq-dedupe-card-id">#${c.id}</span>
+                        ${isCanon ? '<span class="eq-dedupe-card-keep">KEEP</span>' : '<span class="eq-dedupe-card-merge">MERGE IN</span>'}
+                      </div>
+                      <div class="eq-dedupe-card-stats">
+                        ${phones.length ? `<div>📞 ${phones.length} ${phones.length === 1 ? 'phone' : 'phones'}</div>` : ''}
+                        ${emails.length ? `<div>✉ ${emails.length} ${emails.length === 1 ? 'email' : 'emails'}</div>` : ''}
+                        ${tags.length   ? `<div>🏷 ${tags.slice(0, 3).map(esc).join(', ')}</div>` : ''}
+                        ${equipCount    ? `<div>🔧 ${equipCount} equipment linked</div>` : ''}
+                        ${c.notes       ? `<div>📝 has notes</div>` : ''}
+                        ${c._lastActivity ? `<div>🕒 active ${fmtContractorSince(c._lastActivity)}</div>` : ''}
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+              <button class="eq-dedupe-merge-btn" data-action="merge-group" data-group-idx="${idx}">
+                Merge ${group.length} into one
+              </button>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('.eq-dedupe-close').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('.eq-dedupe-backdrop').addEventListener('click', () => overlay.remove());
+
+  overlay.querySelectorAll('[data-action="merge-group"]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.groupIdx, 10);
+      const group = groups[idx];
+      if (!group) return;
+      const canonical = pickCanonicalContractor(group);
+      const others = group.filter(c => c.id !== canonical.id);
+      if (!confirm(
+        `Merge ${group.length} "${group[0].name}" records into one?\n\n` +
+        `• Phones, emails, tags, and notes from all ${group.length} records will be combined into the master record (#${canonical.id})\n` +
+        `• Equipment assigned to the duplicates will be reassigned to the master\n` +
+        `• The ${others.length} duplicate ${others.length === 1 ? 'record' : 'records'} will be deleted\n\n` +
+        `This can't be undone. Proceed?`
+      )) return;
+
+      btn.disabled = true;
+      btn.textContent = 'Merging…';
+      try {
+        await mergeContractorGroup(canonical, others);
+        NX.toast && NX.toast(`Merged ${group.length} → 1`, 'success', 1800);
+        // Remove this group's card from the overlay (or close if it was the last).
+        const groupEl = overlay.querySelector(`.eq-dedupe-group[data-group-idx="${idx}"]`);
+        if (groupEl) groupEl.remove();
+        const remaining = overlay.querySelectorAll('.eq-dedupe-group').length;
+        if (!remaining) {
+          overlay.remove();
+        }
+        // Reload list so the contractors view reflects the merged state.
+        contractorsState.loading = true;
+        renderContractors();
+        await loadContractorsList();
+        contractorsState.loading = false;
+        renderContractors();
+      } catch (err) {
+        console.error('[mergeContractorGroup] failed:', err);
+        NX.toast && NX.toast(`Merge failed: ${err.message || ''}`, 'error', 3500);
+        btn.disabled = false;
+        btn.textContent = `Merge ${group.length} into one`;
+      }
+    });
+  });
+}
+
+/**
+ * The actual merge — called per group. Steps:
+ *   1. Build combined links/tags/notes by deduping across all records
+ *   2. Update the canonical record with the merged data
+ *   3. Re-point any equipment.service_contractor_node_id from a dupe to canonical
+ *   4. Delete the duplicate records
+ *
+ * If any step fails, the canonical update may have already happened —
+ * but it's idempotent, so re-running the merge later is safe.
+ */
+async function mergeContractorGroup(canonical, others) {
+  if (!NX.sb || !canonical) throw new Error('No DB or canonical contractor');
+  if (!others.length) return;
+
+  const all = [canonical, ...others];
+
+  // ─── 1. Combine phones (dedupe by digits) ───────────────────────
+  const seenPhones = new Set();
+  const allPhones = [];
+  for (const c of all) {
+    for (const p of extractContractorPhones(c)) {
+      const key = (p.phone || '').replace(/\D/g, '');
+      if (!key || seenPhones.has(key)) continue;
+      seenPhones.add(key);
+      allPhones.push({ phone: p.phone, type: 'phone', label: p.label || null });
+    }
+  }
+
+  // ─── 2. Combine emails (dedupe by lowercased) ───────────────────
+  const seenEmails = new Set();
+  const allEmails = [];
+  for (const c of all) {
+    for (const e of extractContractorEmails(c)) {
+      const key = (e.email || '').toLowerCase().trim();
+      if (!key || seenEmails.has(key)) continue;
+      seenEmails.add(key);
+      allEmails.push({ email: e.email, type: 'email', role: e.role || 'to' });
+    }
+  }
+
+  // ─── 3. Combine non-phone/email links ───────────────────────────
+  const otherLinks = [];
+  for (const c of all) {
+    const links = Array.isArray(c.links) ? c.links : [];
+    for (const l of links) {
+      if (l && typeof l === 'object' && (l.phone || l.email)) continue; // already handled
+      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
+      if (/[\w.+-]+@[\w-]+\.[\w.-]+/.test(str)) continue;
+      if (/(?:tel:)?(\+?[\d\s().-]{10,})/.test(str)) continue;
+      otherLinks.push(l);
+    }
+  }
+
+  // ─── 4. Combine tags + notes ────────────────────────────────────
+  const tagSet = new Set();
+  for (const c of all) {
+    for (const t of (c.tags || [])) {
+      if (t && t.trim()) tagSet.add(t.trim());
+    }
+  }
+  const allTags = Array.from(tagSet);
+
+  const notesParts = all
+    .map(c => (c.notes || '').trim())
+    .filter(Boolean);
+  // Dedupe identical notes.
+  const seenNotes = new Set();
+  const uniqueNotes = notesParts.filter(n => {
+    if (seenNotes.has(n)) return false;
+    seenNotes.add(n);
+    return true;
+  });
+  const mergedNotes = uniqueNotes.length
+    ? uniqueNotes.join('\n\n— —\n\n')
+    : null;
+
+  // Pick the cleanest name (the canonical's, but stripped of leading +/digits
+  // if it's a phone-number-name from auto-creation).
+  let mergedName = canonical.name;
+  for (const c of all) {
+    const n = (c.name || '').trim();
+    // Prefer a name without a leading + or pure digits — that's a real
+    // company name vs an auto-created phone-only entry.
+    if (n && !/^\+?\d/.test(n) && /[a-zA-Z]/.test(n)) {
+      mergedName = n;
+      break;
+    }
+  }
+
+  const mergedLinks = [...otherLinks, ...allPhones, ...allEmails];
+
+  // ─── 5. Update the canonical record ─────────────────────────────
+  const { error: upErr } = await NX.sb.from('nodes').update({
+    name: mergedName,
+    notes: mergedNotes,
+    tags: allTags,
+    links: mergedLinks,
+  }).eq('id', canonical.id);
+  if (upErr) throw new Error('Update canonical failed: ' + upErr.message);
+
+  // ─── 6. Reassign equipment from duplicates to canonical ─────────
+  const dupIds = others.map(c => c.id);
+  if (dupIds.length) {
+    const { error: eqErr } = await NX.sb.from('equipment')
+      .update({ service_contractor_node_id: canonical.id })
+      .in('service_contractor_node_id', dupIds);
+    if (eqErr) {
+      // Non-fatal — log and continue. The canonical is already merged;
+      // worst case some equipment still points at the (about to be
+      // deleted) duplicate, which our SET NULL on delete would handle.
+      console.warn('[mergeContractor] equipment reassign failed:', eqErr);
+    }
+  }
+
+  // ─── 7. Delete the duplicates ───────────────────────────────────
+  if (dupIds.length) {
+    const { error: delErr } = await NX.sb.from('nodes')
+      .delete()
+      .in('id', dupIds);
+    if (delErr) throw new Error('Delete duplicates failed: ' + delErr.message);
+  }
+}
+
 async function addNewContractor() {
+  // Open the shared editor with an empty contractor. The engine's
+  // onSave handler runs the actual INSERT once the user fills in name
+  // (and any contacts they want pre-set). Avoids the old two-step flow:
+  // prompt for name → DB insert → open detail → switch to edit tab.
+  if (typeof openContractorEditor === 'function') {
+    openContractorEditor(null);
+    return;
+  }
+  // Legacy fallback if the editor function isn't loaded for some reason.
   const name = prompt('New contractor name:');
   if (!name || !name.trim()) return;
   try {
@@ -11106,8 +11889,6 @@ async function addNewContractor() {
       links: [],
     }).select('*').single();
     if (error) throw error;
-
-    // Stamp derived fields to zero so the rest of the UI doesn't choke.
     Object.assign(data, {
       _maint: [], _issues: [],
       _callsYtd: 0, _ytdSpend: 0, _totalCalls: 0,
@@ -12637,6 +13418,7 @@ NX.modules.equipment = {
   uploadPhoto,
   replacePhoto,
   quickReplacePhoto,
+  openQuickStatusMenuForRow,
   removePhoto,
   deleteCustomField,
 
