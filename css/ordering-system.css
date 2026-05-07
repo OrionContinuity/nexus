@@ -6958,3 +6958,354 @@ body.ord-overlay-open .bottom-nav {
   font-style: italic;
   color: var(--nx-faint, var(--muted));
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PAR-AWARE FILTER PILLS
+   ─────────────────────────────────────────────────────────────────────
+   Two-pill segmented control above the items list: "My items" (default,
+   shows only what this location actually orders) vs "All" (full catalog).
+   Active state is gold-filled, inactive is outlined. The "X hidden"
+   hint after them gives the user a way to discover the toggle without
+   wondering why their catalog looks shorter than they remember.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.ord-entry-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 16px 8px;
+  flex-wrap: wrap;
+}
+.ord-entry-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.3));
+  color: var(--nx-muted, var(--muted));
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.ord-entry-filter-pill.is-active {
+  background: var(--nx-gold);
+  color: var(--nx-bg);
+  border-color: var(--nx-gold);
+  font-weight: 600;
+}
+.ord-entry-filter-pill:not(.is-active):hover,
+.ord-entry-filter-pill:not(.is-active):active {
+  border-color: var(--nx-gold);
+  color: var(--nx-text);
+}
+.ord-entry-filter-hint {
+  font-size: 11px;
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  margin-left: 4px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   RESOLUTION-NOTE TEXTAREA inside confirm modal
+   ═══════════════════════════════════════════════════════════════════════ */
+.ord-confirm-textarea {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--nx-bg);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 8px;
+  color: var(--nx-text);
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.4;
+  resize: vertical;
+  min-height: 70px;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-confirm-textarea:focus {
+  outline: none;
+  border-color: var(--nx-gold);
+  background: var(--nx-bg);
+}
+.ord-confirm-textarea::placeholder {
+  color: var(--nx-faint, var(--muted));
+}
+
+/* The resolve variant of the destructive button uses gold instead of red,
+   since this isn't destructive — it's a positive completion action. */
+.ord-confirm-delete.ord-confirm-resolve {
+  background: var(--nx-gold);
+  border-color: var(--nx-gold);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   TIMELINE STEP PRESSING STATE — visual feedback during long-press
+   ═══════════════════════════════════════════════════════════════════════ */
+.ord-odetail-tl-step.is-pressing {
+  transform: scale(0.97);
+  transition: transform 120ms ease;
+}
+.ord-odetail-tl-step[data-revert-status] {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  border-radius: 8px;
+  transition: background 120ms ease;
+}
+.ord-odetail-tl-step[data-revert-status]:hover {
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.04));
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   UNDO-SEND BANNER — snackbar after order sends
+   ─────────────────────────────────────────────────────────────────────
+   Slides up from bottom-right. 10-second countdown gives a window to
+   undo if the user spots a mistake (wrong email, wrong qty, wrong date)
+   when their mail app pops open. After 10s it auto-dismisses.
+   Sized for mobile: full-width less margins on small viewports, capped
+   width on larger.
+   ═══════════════════════════════════════════════════════════════════════ */
+.ord-undo-banner {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--nx-surface-solid, var(--surface, #15110a));
+  border: 1px solid var(--nx-gold);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.55), 0 0 0 1px rgba(212, 164, 78, 0.1);
+  transform: translateY(120%);
+  transition: transform 280ms cubic-bezier(.2,.9,.3,1);
+}
+.ord-undo-banner.is-shown { transform: translateY(0); }
+@media (min-width: 600px) {
+  .ord-undo-banner {
+    left: auto;
+    right: 24px;
+    bottom: 24px;
+    max-width: 380px;
+    width: auto;
+    min-width: 340px;
+  }
+}
+
+.ord-undo-banner-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.12));
+  color: var(--nx-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ord-undo-banner-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ord-undo-banner-title {
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--nx-text);
+}
+.ord-undo-banner-sub {
+  font-size: 11.5px;
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.04em;
+}
+.ord-undo-banner-btn {
+  flex-shrink: 0;
+  background: var(--nx-gold);
+  color: var(--nx-bg);
+  border: none;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+.ord-undo-banner-btn:active { transform: scale(0.96); filter: brightness(0.95); }
+.ord-undo-banner-btn:disabled { opacity: 0.6; cursor: wait; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   DELIVERY-DAY MISMATCH HINT — order entry date field
+   ─────────────────────────────────────────────────────────────────────
+   Subtle inline note that surfaces when the user picks a date the
+   vendor doesn't normally deliver on. Informational rather than
+   blocking — vendors do special deliveries, holiday weeks, etc. We
+   don't want to be overbearing, just helpful enough to catch a real
+   mistake (Sun selected when vendor delivers Mon/Wed/Fri).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.ord-meta-warn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 0;
+  font-size: 11.5px;
+  color: var(--nx-gold, #d4a44e);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.02em;
+}
+.ord-meta-warn svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   VENDOR EDITOR — cutoff time + days picker
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.rx-cutoff-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rx-cutoff-time {
+  flex: 0 0 110px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+.rx-cutoff-days {
+  flex: 1 1 auto;
+}
+.rx-cutoff-conn {
+  font-size: 12px;
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ORDER ENTRY — cutoff banner (countdown)
+   ─────────────────────────────────────────────────────────────────────
+   Three states, color-coded by urgency:
+     default → quiet gold (plenty of time)
+     .is-soon → emphasized (within 4h)
+     .is-past → warning red-toned (cutoff passed, soft block on send)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.ord-meta-cutoff {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 0;
+  font-size: 11.5px;
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.02em;
+}
+.ord-meta-cutoff strong {
+  color: var(--nx-text);
+  font-weight: 600;
+}
+.ord-meta-cutoff svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+.ord-meta-cutoff.is-soon {
+  color: var(--nx-gold, #d4a44e);
+}
+.ord-meta-cutoff.is-soon strong {
+  color: var(--nx-gold, #d4a44e);
+}
+.ord-meta-cutoff.is-soon svg { opacity: 1; }
+.ord-meta-cutoff.is-past {
+  color: #d35454;
+}
+.ord-meta-cutoff.is-past strong {
+  color: #d35454;
+}
+.ord-meta-cutoff.is-past svg { opacity: 1; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   VENDOR CARD — "needs ordering" pip
+   ─────────────────────────────────────────────────────────────────────
+   Small gold dot in the top-right of the vendor avatar wrap, visible
+   only when delivery is imminent (today/tomorrow) and there's no
+   active order yet. Subtle pulse draws attention without nagging.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.ord-vendor-row.needs-ordering .ord-vendor-avatar-wrap::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--nx-gold, #d4a44e);
+  box-shadow: 0 0 0 2px var(--nx-bg), 0 0 8px rgba(212, 164, 78, 0.65);
+  animation: ord-vendor-pip-pulse 2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes ord-vendor-pip-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.18); opacity: 0.85; }
+}
+.ord-vendor-avatar-wrap {
+  position: relative;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   VENDOR MENU — "Reorder last" primary item with title + sub
+   ─────────────────────────────────────────────────────────────────────
+   The reorder action gets a slightly different visual treatment than
+   plain menu items: gold-tinted background + bold title + muted sub
+   line ("from 4 days ago" / "no past orders found"). Disabled state
+   greys the whole row when there's nothing to reorder.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.ord-vmenu-item.ord-vmenu-item-primary {
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.08));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.3));
+  border-radius: 10px;
+  margin: 0 4px 6px;
+  align-items: flex-start;
+}
+.ord-vmenu-item.ord-vmenu-item-primary:not(.is-disabled):hover,
+.ord-vmenu-item.ord-vmenu-item-primary:not(.is-disabled):active {
+  background: var(--nx-gold-mist, rgba(212, 164, 78, 0.14));
+  border-color: var(--nx-gold);
+}
+.ord-vmenu-item.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ord-vmenu-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-items: flex-start;
+  flex: 1;
+}
+.ord-vmenu-item-title {
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nx-text);
+}
+.ord-vmenu-item-primary .ord-vmenu-item-title {
+  color: var(--nx-gold);
+}
+.ord-vmenu-item-sub {
+  font-size: 11.5px;
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
