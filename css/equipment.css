@@ -11170,3 +11170,71 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
 .eq-dedupe-merge-btn:hover { filter: brightness(1.05); }
 .eq-dedupe-merge-btn:active { transform: scale(0.98); }
 .eq-dedupe-merge-btn:disabled { opacity: 0.6; cursor: progress; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Equipment row beacon alignment fix (2026-05-06)
+
+   Problem: equipment-system.css forces `#equipmentView .eq-row { display:
+   flex !important }`, which kills the mobile grid layout in this file
+   (lines ~245-301). With flex packing, the lifecycle beacon ends up
+   wherever the location text happens to end — column position varies row
+   by row, looking ragged.
+
+   Fix: a higher-specificity `#equipmentView .eq-list .eq-row` grid rule
+   with !important that wins by specificity (1,2,0 > 1,1,0). Beacon lives
+   in a fixed-width rightmost column that doesn't move regardless of how
+   long or short the location text is.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 600px) {
+  #equipmentView .eq-list .eq-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto) 36px !important;
+    grid-template-areas: "name loc beacon" !important;
+    align-items: center !important;
+    column-gap: 12px !important;
+  }
+  #equipmentView .eq-list .eq-row > .eq-col-name   { grid-area: name; min-width: 0; }
+  #equipmentView .eq-list .eq-row > .eq-col-loc {
+    grid-area: loc;
+    text-align: right;
+    max-width: 33vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 11.5px;
+    color: var(--nx-faint, var(--faint));
+    padding: 0 !important;
+  }
+  #equipmentView .eq-list .eq-row > .eq-col-status {
+    grid-area: beacon;
+    width: 36px;
+    height: 100%;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 0 !important;
+  }
+  #equipmentView .eq-list .eq-row > .eq-col-pm,
+  #equipmentView .eq-list .eq-row > .eq-col-services { display: none !important; }
+  /* The list head row uses the same layout — keep header labels lined up */
+  #equipmentView .eq-list .eq-row.eq-row-head > .eq-col-status { display: none !important; }
+}
+
+/* Desktop layout — restore the multi-column grid (otherwise the !important
+   flex would still apply on wider screens). */
+@media (min-width: 601px) {
+  #equipmentView .eq-list .eq-row {
+    display: grid !important;
+    grid-template-columns: 2.4fr 1.2fr 1fr 0.9fr 0.5fr !important;
+    grid-template-areas: "name loc beacon pm services" !important;
+    align-items: center !important;
+    gap: 14px !important;
+  }
+  #equipmentView .eq-list .eq-row > .eq-col-name     { grid-area: name; min-width: 0; }
+  #equipmentView .eq-list .eq-row > .eq-col-loc      { grid-area: loc; }
+  #equipmentView .eq-list .eq-row > .eq-col-status   { grid-area: beacon; }
+  #equipmentView .eq-list .eq-row > .eq-col-pm       { grid-area: pm; }
+  #equipmentView .eq-list .eq-row > .eq-col-services { grid-area: services; }
+}
