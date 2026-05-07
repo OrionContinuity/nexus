@@ -7956,21 +7956,27 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
 .eq-lc-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 14px;
+  gap: 7px;
+  padding: 6px 12px;
   border-radius: 999px;
   border: 1px solid transparent;
   font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
   font-weight: 600;
-  letter-spacing: 1.4px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
   white-space: nowrap;
   vertical-align: middle;
-  transition: background 200ms ease, color 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+  /* Subtle inner highlight — sells the "bulb glass" feel without
+     departing from the gold-only color scheme. The radial-gradient
+     creates a soft top-left shine like light catching on glass. */
+  background-image: radial-gradient(ellipse at 30% 20%,
+    rgba(255, 220, 160, 0.12) 0%,
+    rgba(255, 220, 160, 0) 60%);
+  transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
 }
-.eq-lc-pill-lg { padding: 8px 16px; font-size: 11.5px; gap: 8px; }
-.eq-lc-pill-md { padding: 6px 12px; font-size: 10px;   gap: 6px; }
-.eq-lc-pill-sm { padding: 4px 10px; font-size: 9.5px;  gap: 6px; }
+.eq-lc-pill-lg { padding: 9px 18px; font-size: 11.5px; gap: 9px; letter-spacing: 1.8px; }
+.eq-lc-pill-md { padding: 6px 13px; font-size: 10px;   gap: 7px; letter-spacing: 1.5px; }
+.eq-lc-pill-sm { padding: 4px 10px; font-size: 9px;    gap: 6px; letter-spacing: 1.3px; }
 
 .eq-lc-pill-dot {
   display: inline-block;
@@ -7982,7 +7988,13 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   position: relative;
 }
 .eq-lc-pill-sm .eq-lc-pill-dot { width: 6px;  height: 6px;  }
-.eq-lc-pill-lg .eq-lc-pill-dot { width: 9px;  height: 9px;  }
+.eq-lc-pill-lg .eq-lc-pill-dot { width: 10px; height: 10px; }
+
+.eq-lc-pill-label {
+  /* Slight optical adjustment: drop the trailing letter-spacing so the
+     pill doesn't feel right-padded weirdly when there's no time chip. */
+  margin-right: -1.6px;
+}
 
 .eq-lc-pill-time {
   font-family: 'Outfit', sans-serif;
@@ -7990,11 +8002,11 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   font-weight: 500;
   letter-spacing: 0.2px;
   text-transform: none;
-  opacity: 0.85;
-  margin-left: 2px;
-  padding-left: 8px;
+  opacity: 0.8;
+  margin-left: 1px;
+  padding-left: 9px;
   border-left: 1px solid currentColor;
-  border-color: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.16);
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -8016,33 +8028,33 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
 
 /* ─── State: Operational ─── BRIGHT GLOWING YELLOW (alive) ─── */
 .eq-lc-pill.is-operational {
-  background: rgba(212, 164, 78, 0.18);
+  background-color: rgba(212, 164, 78, 0.16);
   color: var(--nx-gold);
-  border-color: rgba(212, 164, 78, 0.55);
-  box-shadow: 0 0 0 1px rgba(212, 164, 78, 0.22),
-              0 0 22px rgba(212, 164, 78, 0.45);
+  border-color: rgba(212, 164, 78, 0.5);
+  box-shadow: 0 0 0 1px rgba(212, 164, 78, 0.18),
+              0 0 14px rgba(212, 164, 78, 0.32);
   animation: eq-lc-glow 3.6s ease-in-out infinite;
 }
 [data-theme="light"] .eq-lc-pill.is-operational {
   color: var(--nx-gold-deep, #8b6914);
-  background: rgba(139, 105, 20, 0.10);
-  border-color: rgba(139, 105, 20, 0.45);
-  box-shadow: 0 0 0 1px rgba(139, 105, 20, 0.15),
-              0 0 18px rgba(212, 164, 78, 0.28);
+  background-color: rgba(139, 105, 20, 0.08);
+  border-color: rgba(139, 105, 20, 0.42);
+  box-shadow: 0 0 0 1px rgba(139, 105, 20, 0.12),
+              0 0 12px rgba(212, 164, 78, 0.22);
 }
 @keyframes eq-lc-glow {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(212, 164, 78, 0.22),
-                         0 0 18px rgba(212, 164, 78, 0.4); }
-  50%      { box-shadow: 0 0 0 1px rgba(212, 164, 78, 0.32),
-                         0 0 32px rgba(212, 164, 78, 0.6); }
+  0%, 100% { box-shadow: 0 0 0 1px rgba(212, 164, 78, 0.18),
+                         0 0 12px rgba(212, 164, 78, 0.28); }
+  50%      { box-shadow: 0 0 0 1px rgba(212, 164, 78, 0.28),
+                         0 0 20px rgba(212, 164, 78, 0.45); }
 }
 .eq-lc-pill.is-operational .eq-lc-pill-dot {
-  box-shadow: 0 0 6px currentColor, 0 0 14px currentColor;
+  box-shadow: 0 0 5px currentColor, 0 0 11px currentColor;
   animation: eq-lc-pulse-dot 2.4s ease-in-out infinite;
 }
 @keyframes eq-lc-pulse-dot {
   0%, 100% { opacity: 1;   transform: scale(1); }
-  50%      { opacity: 0.7; transform: scale(1.15); }
+  50%      { opacity: 0.72; transform: scale(1.12); }
 }
 
 /* ─── State: Down / Broken ─── THE LIGHT IS STRUGGLING 🥲 ─── */
@@ -11734,3 +11746,307 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
 }
 .eq-undo-banner-btn:active { transform: scale(0.96); filter: brightness(0.95); }
 .eq-undo-banner-btn:disabled { opacity: 0.6; cursor: wait; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EQUIPMENT DETAIL CARDS — mirrors ordering's card pattern
+   ─────────────────────────────────────────────────────────────────────
+   Each logical group inside the equipment detail (identity, lifecycle,
+   specs, notes, attachments, custom fields, links) lives in its own
+   gold-line bordered card with a monospace small-caps header. Replaces
+   the old flat eq-fields grid pattern that floated values in space
+   without containment.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.eq-detail-card {
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.04));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.16));
+  border-radius: 12px;
+  padding: 14px 16px 16px;
+  margin: 0 0 12px;
+  position: relative;
+}
+.eq-detail-card:last-child { margin-bottom: 16px; }
+
+.eq-detail-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e);
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.14));
+}
+.eq-detail-card-head svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.eq-detail-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px 18px;
+}
+.eq-detail-card-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.eq-detail-card-field-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--nx-faint, var(--faint));
+  font-weight: 500;
+}
+.eq-detail-card-field-value {
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--nx-text, var(--text));
+  line-height: 1.35;
+  font-weight: 500;
+  word-break: break-word;
+}
+.eq-detail-card-field-value a {
+  color: var(--nx-gold);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(212, 164, 78, 0.3);
+}
+.eq-detail-card-field-value a:hover {
+  border-bottom-color: var(--nx-gold);
+}
+.eq-detail-card-unit {
+  color: var(--nx-faint, var(--faint));
+  font-weight: 400;
+  font-size: 13px;
+}
+
+.eq-detail-card-prose {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--nx-text, var(--text));
+  white-space: pre-wrap;
+}
+
+/* Override the old .eq-overview-section pattern so it inherits the
+   card look automatically — any remaining call sites still styled
+   consistently (e.g. the bottom button row uses eq-overview-section
+   without an h4). For these residual cases we keep them sectioned
+   but without the heavy top border the old pattern had. */
+.eq-overview-section {
+  margin-top: 16px;
+  padding-top: 0;
+  border-top: 0;
+}
+.eq-overview-section h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e);
+  margin: 0 0 10px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EQUIPMENT LIST — card-row layout (mirrors ordering vendor cards)
+   ─────────────────────────────────────────────────────────────────────
+   Replaces the old 5-column table. Each equipment is its own card with
+   the same visual language as ordering's vendor rows: avatar on left,
+   two-line content stack in the middle, chevron on right. Top line:
+   name + PM date. Bottom line: beacon + sub.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.eq-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+}
+
+.eq-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px 12px 12px;
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.04));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.14));
+  border-radius: 12px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
+  position: relative;
+}
+.eq-row:hover,
+.eq-row:active {
+  background: var(--nx-gold-mist, rgba(212, 164, 78, 0.09));
+  border-color: var(--nx-gold-line, rgba(212, 164, 78, 0.28));
+}
+.eq-row:active { transform: scale(0.995); }
+
+/* Avatar — circular, photo or logo or category icon. Slightly larger
+   than the previous square thumb so it has presence on the card. */
+.eq-row-avatar {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--nx-bg, #0c0905);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--nx-gold);
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+}
+.eq-row-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.eq-row-avatar.eq-row-avatar-logo,
+.eq-row-avatar.eq-row-avatar-icon {
+  font-size: 18px;
+}
+.eq-row-avatar.eq-row-avatar-icon svg {
+  width: 22px;
+  height: 22px;
+  opacity: 0.85;
+}
+.eq-row-avatar.photo-failed {
+  /* Fallback when image fails to load — shows the gold ring on the bg */
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.06));
+}
+
+/* Main column — two-line stack of name+date and beacon+sub. */
+.eq-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* Top line: equipment name (left) + PM date (right). */
+.eq-row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.eq-row-name {
+  flex: 1;
+  min-width: 0;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--nx-text, var(--text));
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eq-row-when {
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--nx-faint, var(--faint));
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+.eq-row-when.eq-row-when-empty {
+  color: var(--nx-faintest, rgba(255, 255, 255, 0.18));
+  font-weight: 400;
+}
+.eq-row-when.is-soon {
+  color: var(--nx-gold);
+}
+.eq-row-when.is-overdue {
+  color: #d35454;
+  font-weight: 600;
+}
+
+/* Bottom line: beacon + sub. */
+.eq-row-bottom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.eq-row-bottom .eq-lc-pill {
+  flex-shrink: 0;
+}
+.eq-row-sub {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--nx-faint, var(--faint));
+  letter-spacing: 0.3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Chevron — muted gold, slightly larger than ordering's since
+   equipment cards are a bit taller. */
+.eq-row-arrow {
+  flex-shrink: 0;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 300;
+  color: var(--nx-faintest, rgba(212, 164, 78, 0.4));
+  line-height: 1;
+  padding-right: 2px;
+  user-select: none;
+}
+
+/* Bulk-selection mode adds a checkbox affordance — keep it positioned
+   absolutely so the row layout doesn't reflow when entering bulk mode. */
+body.eq-bulk-mode .eq-row {
+  padding-left: 42px;
+}
+body.eq-bulk-mode .eq-row::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1.5px solid var(--nx-gold-line);
+  background: var(--nx-bg);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+body.eq-bulk-mode .eq-row.is-selected::before {
+  background: var(--nx-gold);
+  border-color: var(--nx-gold);
+}
+body.eq-bulk-mode .eq-row.is-selected::after {
+  content: '✓';
+  position: absolute;
+  left: 17px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--nx-bg);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
