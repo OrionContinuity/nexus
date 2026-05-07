@@ -367,7 +367,15 @@
           <button type="button" class="rx-photo-action" data-rx-photo-upload>${ICON.camera}<span>Upload</span></button>
           <button type="button" class="rx-photo-action rx-photo-action-clear" data-rx-photo-clear>${ICON.trash}<span>Remove</span></button>
         </div>
-        <input type="url" class="rx-form-input" data-rx-photo-url value="${esc(photoUrl)}" placeholder="https://example.com/logo.png  (optional URL)" autocomplete="off" inputmode="url" style="margin-top:8px">
+        ${photoUrl && photoUrl.startsWith('data:')
+          ? `<div class="rx-photo-status" data-rx-photo-status>
+               <span class="rx-photo-status-dot"></span>
+               <span class="rx-photo-status-text">Image uploaded — tap Remove to clear, or paste a URL below to replace</span>
+             </div>
+             <input type="url" class="rx-form-input" data-rx-photo-url value="" placeholder="…or paste an https:// URL to use instead" autocomplete="off" inputmode="url" style="margin-top:8px">
+             <input type="hidden" data-rx-photo-data value="${esc(photoUrl)}">`
+          : `<input type="url" class="rx-form-input" data-rx-photo-url value="${esc(photoUrl)}" placeholder="https://example.com/logo.png  (optional URL)" autocomplete="off" inputmode="url" style="margin-top:8px">`
+        }
       </div>
       <div class="rx-form-field">
         <label class="rx-form-label">Avatar color <span class="rx-form-hint">— only when there's no photo</span></label>
@@ -457,6 +465,13 @@
         state._photoDataUrl = null;
         state._photoFile = null;
         if (urlInput) urlInput.value = '';
+        // Also nuke the hidden base64 holder so a previously-uploaded
+        // image doesn't sneak back in on save.
+        const dataInput = root.querySelector('[data-rx-photo-data]');
+        if (dataInput) dataInput.value = '';
+        // Hide the "Image uploaded" status pill if it was showing.
+        const statusEl = root.querySelector('[data-rx-photo-status]');
+        if (statusEl) statusEl.style.display = 'none';
         _refreshAvatarPreview(root, state);
       });
     }
@@ -535,12 +550,20 @@
     if (!root) return null;
     const nameEl = root.querySelector('[data-rx-name]');
     const urlEl  = root.querySelector('[data-rx-photo-url]');
+    const dataEl = root.querySelector('[data-rx-photo-data]');
     const picker = root.querySelector('[data-rx-hue-picker]');
     const pinEl  = root.querySelector('[data-rx-pinned]');
     const sel = picker ? picker.dataset.selected : 'auto';
+    // Photo URL precedence:
+    //   1. Visible URL input (if user typed/pasted a real URL)
+    //   2. Hidden data field (preserved base64 from earlier upload)
+    //   3. Empty string (user cleared via Remove)
+    const visibleUrl = urlEl ? urlEl.value.trim() : '';
+    const hiddenData = dataEl ? (dataEl.value || '') : '';
+    const photoUrl = visibleUrl || hiddenData;
     return {
       name: nameEl ? nameEl.value.trim() : '',
-      photoUrl: urlEl ? urlEl.value.trim() : '',
+      photoUrl,
       photoFile: (state && state._photoFile) || null,
       photoDataUrl: (state && state._photoDataUrl) || null,
       avatarHue: (sel === 'auto') ? null : Number(sel),
