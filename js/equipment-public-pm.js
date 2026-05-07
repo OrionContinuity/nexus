@@ -126,6 +126,46 @@
     } catch (_) {}
   }
 
+  /* Pull the first phone number out of a contractor node's links.
+     Same shape the staff app uses: links is an array of objects with
+     `phone`/`email` keys plus role metadata. Falls back to scraping
+     a phone-shaped substring out of the notes field if links is
+     empty (handles legacy free-text contact entries). */
+  function extractFirstPhoneFromNode(node) {
+    if (!node) return '';
+    const links = Array.isArray(node.links) ? node.links : [];
+    for (const l of links) {
+      if (l && typeof l === 'object' && l.phone) return l.phone;
+      if (typeof l === 'string') {
+        const m = l.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+        if (m) return m[0].trim();
+      }
+    }
+    if (typeof node.links === 'object' && node.links && node.links.phone) return node.links.phone;
+    const text = node.notes || '';
+    const m = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+    return m ? m[0].trim() : '';
+  }
+
+  /* First email from links — prefers role='to' (primary recipient) so
+     the pre-fill matches who the contractor template would actually
+     be addressed to. */
+  function extractFirstEmailFromNode(node) {
+    if (!node) return '';
+    const links = Array.isArray(node.links) ? node.links : [];
+    let firstAny = '';
+    for (const l of links) {
+      if (l && typeof l === 'object' && l.email) {
+        if (l.role === 'to') return l.email;        // best match
+        if (!firstAny) firstAny = l.email;
+      } else if (typeof l === 'string') {
+        const m = l.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+        if (m && !firstAny) firstAny = m[0];
+      }
+    }
+    return firstAny;
+  }
+
   /* ═════════════════════════════════════════════════════════════════════════
      PATCH THE PUBLIC SCAN VIEW
      
@@ -238,14 +278,44 @@
      ═════════════════════════════════════════════════════════════════════════ */
 
   async function openLoggerForm(qrCode) {
-    // Resolve the equipment from QR code
+    // Resolve the equipment from QR code. Also pull the assigned
+    // contractor's record (if any) so we can pre-fill the form with
+    // the contractor we already have on file — saving the tech the
+    // typing on a fresh device.
     const { data: eq, error } = await NX.sb.from('equipment')
-      .select('id, name, location, area, category, manufacturer, model, next_pm_date')
+      .select('id, name, location, area, category, manufacturer, model, next_pm_date, service_contractor_node_id, service_contractor_name, service_contractor_phone')
       .eq('qr_code', qrCode)
       .single();
     if (error || !eq) { alert('Equipment not found'); return; }
 
+    // Fetch contractor (if assigned). Async but lightweight — we
+    // continue even if it fails so the form still opens.
+    let assignedContractor = null;
+    if (eq.service_contractor_node_id) {
+      try {
+        const { data } = await NX.sb.from('nodes')
+          .select('id, name, links, notes, tags')
+          .eq('id', eq.service_contractor_node_id)
+          .maybeSingle();
+        assignedContractor = data;
+      } catch (_) {}
+    }
+
+    // Build pre-fill values. Order of precedence:
+    //   1. localStorage (this same tech used this device before)
+    //   2. equipment.service_contractor_* (denormalized fallback)
+    //   3. assignedContractor (the FK'd record — has email + tags)
+    //   4. blank
+    // The third source is what makes the public PM "populated by the
+    // contractor when assigned to the equipment" that Orion asked for.
     const stored = getStoredContractor() || {};
+    const preFill = {
+      name:    stored.name    || '',
+      company: stored.company || eq.service_contractor_name || (assignedContractor && assignedContractor.name) || '',
+      phone:   stored.phone   || eq.service_contractor_phone || extractFirstPhoneFromNode(assignedContractor) || '',
+      email:   stored.email   || extractFirstEmailFromNode(assignedContractor) || '',
+    };
+
     const today = new Date().toISOString().slice(0, 10);
     
     const modal = document.createElement('div');
@@ -280,22 +350,22 @@
             <h3>Your Info</h3>
             <label class="pm-label">Name *</label>
             <input type="text" id="pmName" class="pm-input" required 
-              value="${esc(stored.name || '')}" placeholder="Your full name">
+              value="${esc(preFill.name)}" placeholder="Your full name">
             
             <label class="pm-label">Company</label>
             <input type="text" id="pmCompany" class="pm-input" 
-              value="${esc(stored.company || '')}" placeholder="Austin Air and Ice">
+              value="${esc(preFill.company)}" placeholder="Austin Air and Ice">
             
             <div class="pm-form-row">
               <div class="pm-form-half">
                 <label class="pm-label">Phone</label>
                 <input type="tel" id="pmPhone" class="pm-input" 
-                  value="${esc(stored.phone || '')}" placeholder="(512) 555-1234">
+                  value="${esc(preFill.phone)}" placeholder="(512) 555-1234">
               </div>
               <div class="pm-form-half">
                 <label class="pm-label">Email</label>
                 <input type="email" id="pmEmail" class="pm-input" 
-                  value="${esc(stored.email || '')}" placeholder="optional">
+                  value="${esc(preFill.email)}" placeholder="optional">
               </div>
             </div>
           </div>
