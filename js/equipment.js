@@ -716,6 +716,27 @@ async function openDetail(id) {
   // Load open cards linked to this equipment (async — doesn't block initial render)
   loadOpenCardsForEquipment(eq);
 
+  // Detail header beacon → quick status menu. Mirrors the list-row
+  // beacon behavior so the same affordance works everywhere a status
+  // pill appears. The small gold pill in the top-right of the detail
+  // is the most prominent representation of the equipment's state, so
+  // it's the most natural place to tap to change it.
+  const detailBeacon = modal.querySelector('.eq-detail-status .eq-lc-pill');
+  if (detailBeacon) {
+    detailBeacon.setAttribute('role', 'button');
+    detailBeacon.setAttribute('tabindex', '0');
+    detailBeacon.setAttribute('aria-label', 'Change equipment status');
+    const fire = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      openQuickStatusMenuForRow(eq.id, detailBeacon);
+    };
+    detailBeacon.addEventListener('click', fire);
+    detailBeacon.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') fire(ev);
+    });
+  }
+
   // Wire tabs — lazy-render the Intelligence panel on first click
   modal.querySelectorAll('.eq-tab').forEach(tab => {
     tab.addEventListener('click', async () => {
@@ -1491,6 +1512,7 @@ async function editPart(partId) {
 
 function openPartModal(part, equipId) {
   const p = part || { part_name:'', oem_part_number:'', quantity:1, supplier:'', last_price:'', supplier_url:'', assembly_path:'', notes:'' };
+  const isNew = !part;
 
   const modal = document.getElementById('eqPartModal') || (() => {
     const m = document.createElement('div');
@@ -1500,6 +1522,18 @@ function openPartModal(part, equipId) {
     return m;
   })();
 
+  // Picker block — only shown when adding a new part. Lets the user pick
+  // from already-cataloged parts (deduped by name+OEM across all
+  // equipment) instead of retyping everything. Picking pre-fills the
+  // form including vendors[] so the new row inherits all known sources.
+  const pickerHTML = isNew ? `
+    <div class="eq-part-picker">
+      <label class="eq-part-picker-label">Pick from existing parts <span class="eq-part-form-hint">— or fill in below for a brand-new part</span></label>
+      <input type="text" class="eq-part-picker-input" id="eqPartPickerSearch" placeholder="Search by name or OEM…" autocomplete="off">
+      <div class="eq-part-picker-results" id="eqPartPickerResults" hidden></div>
+    </div>
+  ` : '';
+
   modal.innerHTML = `
     <div class="eq-detail-bg" onclick="NX.modules.equipment.closePart()"></div>
     <div class="eq-detail eq-edit">
@@ -1508,6 +1542,7 @@ function openPartModal(part, equipId) {
         <h2>${part ? 'Edit' : 'Add'} Part</h2>
       </div>
       <div class="eq-detail-body">
+        ${pickerHTML}
         <form class="eq-form" id="eqPartForm">
           <div class="eq-form-group">
             <label>Part Name *</label>
@@ -1555,6 +1590,9 @@ function openPartModal(part, equipId) {
   `;
   modal.classList.add('active');
 
+  // Wire up the picker for new-part mode.
+  if (isNew) wirePartLibraryPicker(modal);
+
   document.getElementById('eqPartForm').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -1565,6 +1603,11 @@ function openPartModal(part, equipId) {
         else if (['last_price'].includes(k)) data[k] = parseFloat(v);
         else data[k] = v;
       }
+    }
+    // If the picker pre-loaded vendors[], pass them through so the new
+    // part row starts with all the sources from the existing record.
+    if (Array.isArray(modal._pickedVendors) && modal._pickedVendors.length) {
+      data.vendors = modal._pickedVendors;
     }
     try {
       if (part) {
@@ -1578,6 +1621,131 @@ function openPartModal(part, equipId) {
     } catch (err) {
       console.error(err);
       NX.toast && NX.toast('Save failed: ' + err.message, 'error');
+    }
+  });
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   Parts library picker
+   ────────────────────────────────────────────────────────────────────
+   On open, fetch every part across all equipment, dedupe by
+   (name|oem) so each unique part appears once. As user types in the
+   search box, filter and show top matches. Tap a match → pre-fill all
+   the form fields with its data (and stash its vendors[] so the new
+   row inherits sources too).
+   ──────────────────────────────────────────────────────────────────── */
+async function wirePartLibraryPicker(modal) {
+  const searchInput = modal.querySelector('#eqPartPickerSearch');
+  const resultsBox  = modal.querySelector('#eqPartPickerResults');
+  const form        = modal.querySelector('#eqPartForm');
+  if (!searchInput || !resultsBox || !form) return;
+
+  // Pull the catalog. Failure is non-fatal — picker just stays empty.
+  let catalog = [];
+  try {
+    const { data, error } = await NX.sb.from('equipment_parts')
+      .select('id, part_name, oem_part_number, supplier, supplier_url, last_price, assembly_path, notes, lead_time_days, replacement_interval_months, vendors')
+      .order('part_name', { ascending: true });
+    if (error) throw error;
+    // Dedupe by lowercase(name)+oem so we don't show the same part 6
+    // times because it lives on 6 different units. Keep the most-
+    // recently-touched record (assumed first since we ordered by name —
+    // but we could refine by created_at/updated_at if needed).
+    const seen = new Map();
+    for (const row of (data || [])) {
+      const key = (row.part_name || '').toLowerCase().trim() + '|' + (row.oem_part_number || '').toLowerCase().trim();
+      if (!seen.has(key)) seen.set(key, row);
+    }
+    catalog = Array.from(seen.values());
+  } catch (e) {
+    console.warn('[parts] picker catalog load failed:', e);
+    return;
+  }
+
+  // Render top matches for the current query. Empty query → top 8 by name.
+  const renderResults = (q) => {
+    const query = (q || '').toLowerCase().trim();
+    let matches;
+    if (!query) {
+      matches = catalog.slice(0, 8);
+    } else {
+      matches = catalog.filter(row => {
+        const n = (row.part_name || '').toLowerCase();
+        const o = (row.oem_part_number || '').toLowerCase();
+        return n.includes(query) || o.includes(query);
+      }).slice(0, 8);
+    }
+
+    if (!matches.length) {
+      resultsBox.innerHTML = `<div class="eq-part-picker-empty">No matches — fill the form below for a new part.</div>`;
+      resultsBox.hidden = false;
+      return;
+    }
+
+    resultsBox.innerHTML = matches.map((row, idx) => {
+      const vendorCount = Array.isArray(row.vendors) ? row.vendors.length : (row.supplier ? 1 : 0);
+      const sourcesHint = vendorCount
+        ? `${vendorCount} source${vendorCount === 1 ? '' : 's'}`
+        : 'no sources yet';
+      return `
+        <button type="button" class="eq-part-picker-result" data-idx="${idx}">
+          <div class="eq-part-picker-result-name">${esc(row.part_name || '(unnamed)')}</div>
+          <div class="eq-part-picker-result-meta">
+            ${row.oem_part_number ? `<span class="eq-part-picker-result-oem">${esc(row.oem_part_number)}</span>` : ''}
+            <span class="eq-part-picker-result-sources">${esc(sourcesHint)}</span>
+          </div>
+        </button>
+      `;
+    }).join('');
+    resultsBox.hidden = false;
+
+    resultsBox.querySelectorAll('[data-idx]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const row = matches[parseInt(btn.dataset.idx, 10)];
+        if (row) applyPickedPart(row);
+      });
+    });
+  };
+
+  // Pour the picked record into the form fields. Strips id + equipment_id
+  // so the saved row is brand-new for THIS equipment, not a clone of the
+  // source equipment's part.
+  const applyPickedPart = (row) => {
+    const setVal = (name, val) => {
+      const el = form.querySelector(`[name="${name}"]`);
+      if (el && val != null) el.value = val;
+    };
+    setVal('part_name',        row.part_name);
+    setVal('oem_part_number',  row.oem_part_number);
+    setVal('assembly_path',    row.assembly_path);
+    setVal('notes',            row.notes);
+    // Source fields: prefer vendors[] preferred entry if present,
+    // fall back to legacy single-supplier fields.
+    let preferred = null;
+    if (Array.isArray(row.vendors) && row.vendors.length) {
+      preferred = row.vendors.find(v => v.is_preferred) || row.vendors[0];
+      modal._pickedVendors = row.vendors.slice();
+    } else if (row.supplier || row.supplier_url || row.last_price) {
+      preferred = { name: row.supplier, url: row.supplier_url, price: row.last_price };
+    }
+    if (preferred) {
+      setVal('supplier',     preferred.name  || '');
+      setVal('supplier_url', preferred.url   || '');
+      setVal('last_price',   preferred.price || '');
+    }
+    // Hide picker after selection — the form is now pre-filled.
+    resultsBox.hidden = true;
+    searchInput.value = '';
+    NX.toast && NX.toast(`Loaded "${row.part_name}" — review and save`, 'info', 1800);
+  };
+
+  // Show on focus, filter on input, hide on outside click.
+  searchInput.addEventListener('focus', () => renderResults(searchInput.value));
+  searchInput.addEventListener('input', () => renderResults(searchInput.value));
+  document.addEventListener('click', (e) => {
+    if (!modal.contains(e.target)) return;
+    if (!resultsBox.contains(e.target) && e.target !== searchInput) {
+      resultsBox.hidden = true;
     }
   });
 }
@@ -8263,10 +8431,16 @@ async function emailContractorAboutIssue(equipment, issue) {
   // Look up preferred contractor.
   let contractor = null;
   if (equipment.service_contractor_node_id) {
-    const { data } = await NX.sb.from('nodes')
-      .select('id, name, links, notes')
+    // Try fetching with the template columns; fall back if they don't exist.
+    let res = await NX.sb.from('nodes')
+      .select('id, name, links, notes, subject_template, body_template')
       .eq('id', equipment.service_contractor_node_id).maybeSingle();
-    contractor = data;
+    if (res.error && /column.*(subject_template|body_template).*does not exist/i.test(res.error.message || '')) {
+      res = await NX.sb.from('nodes')
+        .select('id, name, links, notes')
+        .eq('id', equipment.service_contractor_node_id).maybeSingle();
+    }
+    contractor = res.data;
   }
 
   // Pull all emails with their roles. Falls back to extracting from notes
@@ -8288,16 +8462,43 @@ async function emailContractorAboutIssue(equipment, issue) {
   const area = equipment.area ? ` (${equipment.area})` : '';
   const userName = NX.user?.name || NX.currentUser?.name || '';
   const greeting = (contractorName || '').split(' ')[0] || 'there';
+  const unitLine = [equipment.manufacturer, equipment.model].filter(Boolean).join(' ');
+  const reported = new Date(issue.reported_at).toLocaleString();
 
-  const subject = `Service request — ${equipment.name}${restaurant ? ' at ' + restaurant : ''}${issue.title ? ' (' + issue.title + ')' : ''}`;
-  const body =
+  // Token substitution table — used if the contractor has a saved template.
+  // Tokens are case-sensitive and use {curly_braces} so they're easy to
+  // spot in a saved template and don't collide with email punctuation.
+  const tokens = {
+    contractor:    contractorName || 'there',
+    greeting,
+    equipment:     equipment.name || '',
+    location:      restaurant,
+    area:          equipment.area || '',
+    issue:         issue.title || '',
+    issue_details: issue.description || '',
+    unit:          unitLine,
+    serial:        equipment.serial_number || '',
+    me:            userName,
+    reported,
+  };
+  const applyTokens = (s) => String(s || '').replace(/\{(\w+)\}/g, (_, k) => (tokens[k] != null ? tokens[k] : ''));
+
+  // Subject: use saved template if present, otherwise the built-in default.
+  const subject = contractor?.subject_template
+    ? applyTokens(contractor.subject_template)
+    : `Service request — ${equipment.name}${restaurant ? ' at ' + restaurant : ''}${issue.title ? ' (' + issue.title + ')' : ''}`;
+
+  // Body: use saved template if present, otherwise the built-in default.
+  const body = contractor?.body_template
+    ? applyTokens(contractor.body_template)
+    :
 `Hi ${greeting},
 
 ${userName ? `${userName} here from ` : ''}${restaurant}. We have an issue with our ${equipment.name}${area}.
 
   • Issue: ${issue.title || '(see details below)'}
-${issue.description ? `  • Details: ${issue.description}\n` : ''}${equipment.manufacturer || equipment.model ? `  • Unit: ${[equipment.manufacturer, equipment.model].filter(Boolean).join(' ')}\n` : ''}${equipment.serial_number ? `  • Serial: ${equipment.serial_number}\n` : ''}
-Reported: ${new Date(issue.reported_at).toLocaleString()}
+${issue.description ? `  • Details: ${issue.description}\n` : ''}${equipment.manufacturer || equipment.model ? `  • Unit: ${unitLine}\n` : ''}${equipment.serial_number ? `  • Serial: ${equipment.serial_number}\n` : ''}
+Reported: ${reported}
 
 When can you take a look? Reply with an ETA and we'll be ready for you.
 
@@ -9896,11 +10097,25 @@ async function loadContractorsList() {
   console.log('[loadContractorsList] querying nodes…');
 
   // Fetch contractors + supporting data in parallel.
-  const [nodesRes, maintRes, issuesRes, equipRes] = await Promise.all([
-    NX.sb.from('nodes')
-      .select('id, name, notes, links, tags, category, created_at')
+  // The select includes subject_template + body_template; if those columns
+  // don't exist yet on the nodes table, the query fails and we retry without.
+  let nodesRes;
+  {
+    const tryFull = await NX.sb.from('nodes')
+      .select('id, name, notes, links, tags, category, created_at, subject_template, body_template')
       .eq('category', 'contractors')
-      .order('name', { ascending: true }),
+      .order('name', { ascending: true });
+    if (tryFull.error && /column.*(subject_template|body_template).*does not exist/i.test(tryFull.error.message || '')) {
+      console.warn('[contractors] template columns missing, falling back');
+      nodesRes = await NX.sb.from('nodes')
+        .select('id, name, notes, links, tags, category, created_at')
+        .eq('category', 'contractors')
+        .order('name', { ascending: true });
+    } else {
+      nodesRes = tryFull;
+    }
+  }
+  const [maintRes, issuesRes, equipRes] = await Promise.all([
     NX.sb.from('equipment_maintenance')
       .select('id, equipment_id, event_date, event_type, description, performed_by, cost')
       .gte('event_date', new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10))
@@ -10227,10 +10442,34 @@ async function openContractorEditor(contractor) {
     title: 'Contacts',
     expanded: true,
     body: `
-      ${RX.buildChipGroupHTML(toArr,  'to',  { label: 'TO',    hint: 'primary recipient(s) — service request goes here', inputType: 'email', inputMode: 'email', placeholder: 'dispatch@vendor.com',     addLabel: 'Add TO' })}
-      ${RX.buildChipGroupHTML(ccArr,  'cc',  { label: 'CC',    hint: 'always copied on every PM email',                  inputType: 'email', inputMode: 'email', placeholder: 'cc@vendor.com',           addLabel: 'Add CC' })}
-      ${RX.buildChipGroupHTML(bccArr, 'bcc', { label: 'BCC',   hint: "silent copies — others can't see them",            inputType: 'email', inputMode: 'email', placeholder: 'bcc@vendor.com',          addLabel: 'Add BCC' })}
+      ${RX.buildChipGroupHTML(toArr,  'to',  { label: 'TO',    hint: 'primary recipient(s) — service request goes here', inputType: 'email', inputMode: 'email', placeholder: 'dispatch@example.com',    addLabel: 'Add TO' })}
+      ${RX.buildChipGroupHTML(ccArr,  'cc',  { label: 'CC',    hint: 'always copied on every service email',             inputType: 'email', inputMode: 'email', placeholder: 'cc@example.com',          addLabel: 'Add CC' })}
+      ${RX.buildChipGroupHTML(bccArr, 'bcc', { label: 'BCC',   hint: "silent copies — others can't see them",            inputType: 'email', inputMode: 'email', placeholder: 'bcc@example.com',         addLabel: 'Add BCC' })}
       ${RX.buildChipGroupHTML(phoneArr, 'phone', { label: 'PHONE', hint: 'first one powers the Call button on QR scan',    inputType: 'tel',   inputMode: 'tel',   placeholder: '(512) 555-1234',          addLabel: 'Add phone' })}
+    `,
+  });
+
+  // ─── Email template ──
+  // Per-contractor service-request template. Tokens get substituted at
+  // send time in emailContractorAboutIssue. Empty values fall back to
+  // the standard built-in template — the editor doesn't force the user
+  // to fill these in, they're an override for contractors who need a
+  // specific tone/format (e.g. "Tyler — emergency at {location}, ETA?").
+  cards.push({
+    key: 'templates',
+    title: 'Email template',
+    expanded: false,
+    body: `
+      <div class="rx-form-field">
+        <label class="rx-form-label">Subject line</label>
+        <input type="text" class="rx-form-input" data-rx-cc-subject value="${esc(c.subject_template || '')}" placeholder="Service request — {equipment} at {location}" autocomplete="off">
+        <div class="rx-form-hint">Tokens: <code>{equipment}</code> <code>{location}</code> <code>{area}</code> <code>{issue}</code> <code>{contractor}</code></div>
+      </div>
+      <div class="rx-form-field">
+        <label class="rx-form-label">Body template</label>
+        <textarea class="rx-form-input" data-rx-cc-body rows="6" placeholder="Leave blank to use the standard format. If you set this, your text replaces the body." style="height:auto;min-height:120px;padding:10px 12px;resize:vertical">${esc(c.body_template || '')}</textarea>
+        <div class="rx-form-hint">Tokens: <code>{greeting}</code> <code>{equipment}</code> <code>{location}</code> <code>{area}</code> <code>{issue}</code> <code>{issue_details}</code> <code>{unit}</code> <code>{serial}</code> <code>{me}</code> <code>{reported}</code></div>
+      </div>
     `,
   });
 
@@ -10377,30 +10616,61 @@ async function openContractorEditor(contractor) {
 
       const tags = Array.from(new Set((state.chips.tags || []).map(t => String(t).trim()).filter(Boolean)));
 
+      // Email template (subject + body). Empty strings → null so the
+      // send flow knows to fall back to the standard built-in template.
+      const subjectTpl = (overlay.querySelector('[data-rx-cc-subject]') || {}).value || '';
+      const bodyTpl    = (overlay.querySelector('[data-rx-cc-body]')    || {}).value || '';
+
       const payload = {
         name: name.trim(),
         notes: notes.trim() || null,
         tags,
         links,
+        subject_template: subjectTpl.trim() || null,
+        body_template:    bodyTpl.trim()    || null,
       };
+
+      // If the new template columns don't exist yet on the nodes table,
+      // strip them and retry. The user can run the migration later
+      // (`alter table nodes add column subject_template text`,
+      //  `alter table nodes add column body_template text`) — until then,
+      // every other field still saves cleanly.
+      const stripTplCols = (p) => {
+        const { subject_template, body_template, ...rest } = p;
+        return rest;
+      };
+      let templatesStripped = false;
 
       try {
         if (isNew) {
           // Insert as a new node with category='contractors'.
           const insertPayload = { ...payload, category: 'contractors', kind: 'org' };
-          const { data, error } = await NX.sb.from('nodes').insert(insertPayload).select('*').single();
-          if (error) throw error;
-          if (NX.toast) NX.toast('Contractor created', 'info', 1400);
+          let res = await NX.sb.from('nodes').insert(insertPayload).select('*').single();
+          // If the template columns aren't on the schema yet, strip + retry
+          if (res.error && /column.*(subject_template|body_template).*does not exist/i.test(res.error.message || '')) {
+            templatesStripped = true;
+            res = await NX.sb.from('nodes').insert({ ...stripTplCols(insertPayload), category: 'contractors', kind: 'org' }).select('*').single();
+          }
+          if (res.error) throw res.error;
+          if (NX.toast) NX.toast(templatesStripped
+            ? 'Created — but email template not saved (run the SQL migration to enable)'
+            : 'Contractor created', templatesStripped ? 'warn' : 'info', templatesStripped ? 5000 : 1400);
           // Refresh list + open detail
           if (typeof loadContractors === 'function') await loadContractors();
           if (typeof renderContractors === 'function') renderContractors();
         } else {
-          const { error } = await NX.sb.from('nodes').update(payload).eq('id', c.id);
-          if (error) throw error;
+          let res = await NX.sb.from('nodes').update(payload).eq('id', c.id);
+          if (res.error && /column.*(subject_template|body_template).*does not exist/i.test(res.error.message || '')) {
+            templatesStripped = true;
+            res = await NX.sb.from('nodes').update(stripTplCols(payload)).eq('id', c.id);
+          }
+          if (res.error) throw res.error;
           // Update the in-memory copy so subsequent reads (e.g. the email
           // PM flow) see the new roles immediately.
           Object.assign(c, payload);
-          if (NX.toast) NX.toast('Saved', 'info', 1200);
+          if (NX.toast) NX.toast(templatesStripped
+            ? 'Saved — but email template not saved (DB columns missing)'
+            : 'Saved', templatesStripped ? 'warn' : 'info', templatesStripped ? 5000 : 1200);
           // Refresh the detail view if it's currently rendered.
           if (typeof contractorsState !== 'undefined' && contractorsState && contractorsState.activeContractor && contractorsState.activeContractor.id === c.id) {
             Object.assign(contractorsState.activeContractor, payload);
@@ -12867,20 +13137,9 @@ function renderPartOverviewTab(p) {
           <input class="eq-part-form-input" id="ppPath" name="assembly_path" value="${esc(p.assembly_path || '')}" placeholder="compressor → refrigeration → fan">
         </div>
 
-        <div class="eq-part-form-section">Sourcing</div>
-        <div class="eq-part-form-row">
-          <div class="eq-part-form-field">
-            <label class="eq-part-form-label" for="ppSupplier">Supplier</label>
-            <input class="eq-part-form-input" id="ppSupplier" name="supplier" value="${esc(p.supplier || '')}" placeholder="Parts Town">
-          </div>
-          <div class="eq-part-form-field">
-            <label class="eq-part-form-label" for="ppPrice">Last price ($)</label>
-            <input class="eq-part-form-input" id="ppPrice" name="last_price" type="number" step="0.01" value="${p.last_price || ''}">
-          </div>
-        </div>
-        <div class="eq-part-form-field">
-          <label class="eq-part-form-label" for="ppSupUrl">Supplier URL</label>
-          <input class="eq-part-form-input" id="ppSupUrl" name="supplier_url" type="url" value="${esc(p.supplier_url || '')}" placeholder="https://partstown.com/...">
+        <div class="eq-part-form-section">Sourcing <span class="eq-part-form-hint">— add as many sources as you like, mark one preferred</span></div>
+        <div class="eq-part-vendors-inline" data-part-id="${esc(p.id || '')}" id="eqPartVendorsInline-${esc(p.id || 'new')}">
+          <div class="eq-part-vendors-loading">Loading sources…</div>
         </div>
         <div class="eq-part-form-field">
           <label class="eq-part-form-label" for="ppLead">Lead time (days)</label>
@@ -12982,6 +13241,52 @@ function wirePartOverviewForm(p) {
       NX.toast && NX.toast('Could not delete: ' + (e.message || ''), 'error');
     }
   });
+
+  // ── Inline multi-source list ─────────────────────────────────────────
+  // Surface the existing vendors[] JSONB editor here, the same one shown
+  // as an accordion under each part on the list view. Reuses
+  // renderVendorsListHTML + wireVendorActions so the data shape stays
+  // consistent with the rest of the system.
+  const inlineHost = overlay.querySelector(`#eqPartVendorsInline-${p.id || 'new'}`);
+  if (inlineHost) {
+    // Migrate legacy single-vendor fields → vendors[] when empty.
+    let vendors = Array.isArray(p.vendors) ? p.vendors.slice() : [];
+    if (!vendors.length && (p.supplier || p.supplier_url || p.last_price)) {
+      vendors = [{
+        name: p.supplier || 'Unknown source',
+        url: p.supplier_url || null,
+        oem_number: p.oem_part_number || null,
+        price: p.last_price || null,
+        in_stock: null,
+        notes: null,
+        last_checked_at: null,
+        is_preferred: true,
+      }];
+    }
+
+    // Replace the loading placeholder with the live list + add button.
+    inlineHost.innerHTML = `
+      <div class="eq-part-vendors-header">
+        <span class="eq-part-vendors-label">Sources (${vendors.length})</span>
+        <button type="button" class="eq-part-add-vendor-btn" data-part-id="${p.id}">+ Source</button>
+      </div>
+      <div class="eq-part-vendors-list" id="eqVendList-${p.id}">
+        ${vendors.length
+          ? renderVendorsListHTML(vendors, p.id)
+          : '<div class="eq-part-vendors-empty">No sources yet. Tap "+ Source" to add the first one.</div>'}
+      </div>
+    `;
+
+    // Wire actions (edit, remove, prefer, add). The handler closes over
+    // `vendors` so subsequent edits see the current array; saveVendors
+    // also keeps the legacy supplier/last_price/supplier_url columns in
+    // sync with the preferred vendor for back-compat.
+    wireVendorActions(inlineHost, p, vendors);
+
+    // Mirror updates back into the part object so savePartOverview's
+    // legacy-column writes don't clobber what the vendor editor wrote.
+    p._vendorsRef = vendors;
+  }
 }
 
 async function savePartOverview(p) {
@@ -12991,8 +13296,10 @@ async function savePartOverview(p) {
 
   const fd = new FormData(form);
   const update = {};
-  // String fields.
-  for (const key of ['part_name', 'oem_part_number', 'assembly_path', 'supplier', 'supplier_url', 'notes']) {
+  // Part-level string fields. Note that supplier/supplier_url no longer
+  // live on the form — they're managed inside the inline sources list,
+  // and saveVendors() syncs the legacy columns from the preferred vendor.
+  for (const key of ['part_name', 'oem_part_number', 'assembly_path', 'notes']) {
     const v = (fd.get(key) || '').toString().trim();
     update[key] = v || null;
   }
@@ -13001,8 +13308,9 @@ async function savePartOverview(p) {
     const v = (fd.get(key) || '').toString().trim();
     update[key] = v ? parseInt(v, 10) : null;
   }
-  const price = (fd.get('last_price') || '').toString().trim();
-  update.last_price = price ? parseFloat(price) : null;
+  // last_price is now managed per-source inside the vendors[] JSONB.
+  // saveVendors() syncs the legacy last_price column from the preferred
+  // source, so we deliberately don't write it from the part-level form.
   // Date.
   const lastRepl = (fd.get('last_replaced_at') || '').toString().trim();
   update.last_replaced_at = lastRepl ? new Date(lastRepl).toISOString() : null;
