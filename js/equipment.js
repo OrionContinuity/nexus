@@ -551,8 +551,8 @@ function buildListRow(e) {
   }
 
   // Sub line: model + manufacturer + location/area, all consolidated into
-  // one mono-formatted line below the name. Gracefully degrades when any
-  // field is missing.
+  // one mono-formatted line. Gracefully degrades when any field is
+  // missing.
   const subParts = [];
   if (e.model) subParts.push(esc(e.model));
   if (e.manufacturer && e.manufacturer !== e.model) subParts.push(esc(e.manufacturer));
@@ -584,15 +584,11 @@ function buildListRow(e) {
       <div class="eq-row-main">
         <div class="eq-row-top">
           <div class="eq-row-name">${esc(e.name)}</div>
-          ${pmLabel ? `
-            <div class="eq-row-when ${pmCls}">${esc(pmLabel)}</div>
-          ` : `
-            <div class="eq-row-when ${pmCls}">—</div>
-          `}
+          <div class="eq-row-when ${pmCls}">${esc(pmLabel || '—')}</div>
         </div>
-        <div class="eq-row-bottom">
+        ${sub ? `<div class="eq-row-sub">${sub}</div>` : ''}
+        <div class="eq-row-beacon-line">
           ${lifecycleStatusPill(e, 'sm')}
-          ${sub ? `<span class="eq-row-sub">${sub}</span>` : ''}
         </div>
       </div>
       <div class="eq-row-arrow" aria-hidden="true">›</div>
@@ -729,13 +725,11 @@ async function openDetail(id) {
           <span class="eq-action-cta-icon">${uiSvg('ticket', '18px')}</span>
           <span class="eq-action-cta-label">Report Issue</span>
         </button>
-        <button class="eq-action-cta eq-action-cta-edit" onclick="NX.modules.equipment.openFullEditor('${eq.id}')" aria-label="Edit equipment">
-          <span class="eq-action-cta-icon">${uiSvg('pen', '18px')}</span>
-          <span class="eq-action-cta-label">Edit</span>
-        </button>
         <div class="eq-overflow-wrap">
           <button class="eq-overflow-btn-v2" onclick="NX.modules.equipment.toggleOverflow(event, '${eq.id}')" aria-label="More actions">${uiSvg('moreH', '20px')}</button>
           <div class="eq-overflow-menu" id="eqOverflow-${eq.id}" onclick="event.stopPropagation()">
+            <button class="eq-overflow-item eq-overflow-item-primary" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">${uiSvg('pen', '14px')}<span>Edit equipment</span></button>
+            <div class="eq-overflow-divider"></div>
             <div class="eq-overflow-section-label">Operate</div>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.logService('${eq.id}')">${uiSvg('pen', '14px')}<span>Log Service</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.openIssueTracker('${eq.id}')">${uiSvg('alert', '14px')}<span>Issue Tracker</span></button>
