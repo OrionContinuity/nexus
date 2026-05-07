@@ -288,12 +288,26 @@
 
   async function loadVendorCatalog(vendorId) {
     if (!NX.sb) return [];
-    const { data, error } = await NX.sb
+    // Try the full SELECT first (with house_name). If the column
+    // doesn't exist yet (pre-migration), fall back to legacy SELECT.
+    const fullSelect = 'id, item_name, house_name, vendor_sku, section, unit, default_par_qty, pars_by_day, note, sort_order';
+    const legacySelect = 'id, item_name, vendor_sku, section, unit, default_par_qty, pars_by_day, note, sort_order';
+    let { data, error } = await NX.sb
       .from('order_guide_items')
-      .select('id, item_name, vendor_sku, section, unit, default_par_qty, pars_by_day, note, sort_order')
+      .select(fullSelect)
       .eq('vendor_id', vendorId)
       .eq('archived', false)
       .order('sort_order', { ascending: true });
+    if (error && /house_name|column.*does not exist|schema cache/i.test(error.message || '')) {
+      const fb = await NX.sb
+        .from('order_guide_items')
+        .select(legacySelect)
+        .eq('vendor_id', vendorId)
+        .eq('archived', false)
+        .order('sort_order', { ascending: true });
+      if (fb.error) { console.error('[ordering] loadVendorCatalog:', fb.error); return []; }
+      data = fb.data; error = null;
+    }
     if (error) { console.error('[ordering] loadVendorCatalog:', error); return []; }
     return data || [];
   }
@@ -1568,13 +1582,21 @@
           const qty = parseFloat(l.qty);
           const qtyDisplay = (qty && qty > 0) ? (Number.isInteger(qty) ? String(qty) : qty.toFixed(2).replace(/\.?0+$/, '')) : '0';
           const unit = (l.unit || '').toLowerCase();
-          const name = l.item_name || '(unnamed item)';
+          // Display name precedence: team's name (house_name) when set,
+          // else vendor's name. Vendor name shows as an alias when both
+          // exist and differ — gives the team a fast cross-check against
+          // what the vendor will see on their end.
+          const houseName  = (l.house_name || '').trim();
+          const vendorName = (l.item_name  || '').trim();
+          const name = houseName || vendorName || '(unnamed item)';
+          const showAlias = houseName && vendorName && houseName !== vendorName;
           const note = l.note ? `<div class="ord-odetail-line-note">${esc(l.note)}</div>` : '';
           return `
             <div class="ord-odetail-line">
               <div class="ord-odetail-line-qty">${esc(qtyDisplay)}</div>
               <div class="ord-odetail-line-body">
                 <div class="ord-odetail-line-name">${esc(name)}</div>
+                ${showAlias ? `<div class="ord-odetail-line-alias">${esc(vendorName)}</div>` : ''}
                 <div class="ord-odetail-line-unit">${esc(unit)}</div>
                 ${note}
               </div>
@@ -2440,25 +2462,39 @@ Thanks for your help sorting this out.`;
   }
 
   function itemRowHtml(item, line, deliveryDate, location, readOnly) {
+    // Display name precedence: house_name (team's nickname) wins when set,
+    // otherwise vendor's catalog name. The OTHER name moves to the meta
+    // line so it stays visible (e.g. team sees "Big Foil" up top, with
+    // "FOIL HD 18\" ROLL · SKU 157549" right below for SKU verification).
+    const houseName  = (item.house_name || '').trim();
+    const vendorName = (item.item_name  || '').trim();
+    const primary    = houseName || vendorName;
+    const showVendorAlias = houseName && vendorName && houseName !== vendorName;
+
+    // Search-match attribute: combine both names lowercased so search
+    // hits regardless of which one the user typed.
+    const searchKey = `${houseName} ${vendorName}`.toLowerCase().trim();
+
     const hint = parHintFor(item, deliveryDate, location);
     if (hint.disabled) {
       return `
-        <div class="ord-item-row is-disabled" data-item-id="${esc(item.id)}" data-item-name="${esc(item.item_name).toLowerCase()}">
+        <div class="ord-item-row is-disabled" data-item-id="${esc(item.id)}" data-item-name="${esc(searchKey)}">
           <div class="ord-item-main">
-            <div class="ord-item-name">${esc(item.item_name)}</div>
+            <div class="ord-item-name">${esc(primary)}</div>
             <div class="ord-item-meta">not stocked at ${esc(location)}</div>
           </div>
         </div>`;
     }
     const qty = (line && line.qty) || 0;
     const meta = [];
-    if (item.vendor_sku) meta.push(`SKU ${esc(item.vendor_sku)}`);
-    if (hint.label) meta.push(esc(hint.label));
-    if (item.note) meta.push(esc(item.note));
+    if (showVendorAlias)  meta.push(esc(vendorName));
+    if (item.vendor_sku)  meta.push(`SKU ${esc(item.vendor_sku)}`);
+    if (hint.label)       meta.push(esc(hint.label));
+    if (item.note)        meta.push(esc(item.note));
     return `
-      <div class="ord-item-row${qty > 0 ? ' has-qty' : ''}" data-item-id="${esc(item.id)}" data-item-name="${esc(item.item_name).toLowerCase()}">
+      <div class="ord-item-row${qty > 0 ? ' has-qty' : ''}" data-item-id="${esc(item.id)}" data-item-name="${esc(searchKey)}">
         <div class="ord-item-main">
-          <div class="ord-item-name">${esc(item.item_name)}</div>
+          <div class="ord-item-name">${esc(primary)}</div>
           ${meta.length ? `<div class="ord-item-meta">${meta.join(' · ')}</div>` : ''}
         </div>
         <div class="ord-qty">
@@ -2490,6 +2526,7 @@ Thanks for your help sorting this out.`;
           qty,
           unit: item.unit || 'ea',
           item_name: item.item_name,
+          house_name: item.house_name || null,
           vendor_sku: item.vendor_sku,
           note: item.note,
         };
@@ -2585,12 +2622,17 @@ Thanks for your help sorting this out.`;
         .filter(([_id, l]) => l && l.qty > 0)
         .map(([item_id, l], i) => ({
           order_id: orderId, item_id,
-          item_name: l.item_name, vendor_sku: l.vendor_sku,
+          item_name: l.item_name, house_name: l.house_name || null, vendor_sku: l.vendor_sku,
           qty: l.qty, unit: l.unit, note: l.note, sort_order: i,
         }));
       if (lineRows.length) {
-        const { error: insErr } = await NX.sb.from('order_lines').insert(lineRows);
-        if (insErr) throw insErr;
+        let res = await NX.sb.from('order_lines').insert(lineRows);
+        // Retry without house_name if the column doesn't exist yet
+        if (res.error && /house_name|column.*does not exist|schema cache/i.test(res.error.message || '')) {
+          const fb = lineRows.map(r => { const { house_name, ...rest } = r; return rest; });
+          res = await NX.sb.from('order_lines').insert(fb);
+        }
+        if (res.error) throw res.error;
       }
       setSaveStatus('saved');
     } catch (e) {
@@ -2704,15 +2746,23 @@ Thanks for your help sorting this out.`;
           <div class="ord-section-label">${linesArr.length} item${linesArr.length === 1 ? '' : 's'}</div>
           ${Array.from(grouped.entries()).map(([sec, list]) => `
             ${sec ? `<div class="ord-review-section-head">${esc(sec)}</div>` : ''}
-            ${list.map(l => `
+            ${list.map(l => {
+              // Team name when set, vendor name as alias when both exist.
+              const houseName  = (l.house_name || '').trim();
+              const vendorName = (l.item_name  || '').trim();
+              const primary    = houseName || vendorName;
+              const showAlias  = houseName && vendorName && houseName !== vendorName;
+              return `
               <div class="ord-review-line">
                 <div class="ord-review-qty">${esc(l.qty)} ${esc(l.unit || 'ea')}</div>
                 <div class="ord-review-name">
-                  ${esc(l.item_name)}
+                  ${esc(primary)}
+                  ${showAlias ? `<span class="ord-review-alias">${esc(vendorName)}</span>` : ''}
                   ${l.vendor_sku ? `<span class="ord-review-sku">${esc(l.vendor_sku)}</span>` : ''}
                 </div>
               </div>
-            `).join('')}
+              `;
+            }).join('')}
           `).join('')}
         </div>
 
@@ -3032,10 +3082,17 @@ Thanks for your help sorting this out.`;
           .filter(([_id, l]) => l && l.qty > 0)
           .map(([item_id, l], i) => ({
             order_id: data.id, item_id,
-            item_name: l.item_name, vendor_sku: l.vendor_sku,
+            item_name: l.item_name, house_name: l.house_name || null, vendor_sku: l.vendor_sku,
             qty: l.qty, unit: l.unit, note: l.note, sort_order: i,
           }));
-        if (lineRows.length) await NX.sb.from('order_lines').insert(lineRows);
+        if (lineRows.length) {
+          let res = await NX.sb.from('order_lines').insert(lineRows);
+          if (res.error && /house_name|column.*does not exist|schema cache/i.test(res.error.message || '')) {
+            const fb = lineRows.map(r => { const { house_name, ...rest } = r; return rest; });
+            res = await NX.sb.from('order_lines').insert(fb);
+          }
+          if (res.error) throw res.error;
+        }
       }
     } catch (e) {
       console.error('[ordering] mark sent:', e);
@@ -3560,9 +3617,12 @@ Thanks for your help sorting this out.`;
     // sections are always shown (so you can still find them while filtering).
     const items = searchQ
       ? allItems.filter(i => {
-          const name = (i.item_name || '').toLowerCase();
-          const sku  = (i.vendor_sku || '').toLowerCase();
-          return name.indexOf(searchQ) !== -1 || sku.indexOf(searchQ) !== -1;
+          const name  = (i.item_name  || '').toLowerCase();
+          const house = (i.house_name || '').toLowerCase();
+          const sku   = (i.vendor_sku || '').toLowerCase();
+          return name.indexOf(searchQ) !== -1
+              || house.indexOf(searchQ) !== -1
+              || sku.indexOf(searchQ) !== -1;
         })
       : allItems;
 
@@ -3729,9 +3789,19 @@ Thanks for your help sorting this out.`;
   }
 
   function renderItemRow(item) {
-    // Build the meta line: SKU · par. (Section is conveyed by the
-    // surrounding card so we don't repeat it here.)
+    // Display name precedence: team's name when set, else vendor's name.
+    // Vendor name shows in the meta line as an alias when both exist —
+    // mirrors the order entry display so the catalog editor reads the
+    // same way as where the team actually places orders.
+    const houseName  = (item.house_name || '').trim();
+    const vendorName = (item.item_name  || '').trim();
+    const primary    = houseName || vendorName;
+    const showVendorAlias = houseName && vendorName && houseName !== vendorName;
+
+    // Build the meta line: vendor-alias · SKU · par. (Section is conveyed
+    // by the surrounding card so we don't repeat it here.)
     const meta = [];
+    if (showVendorAlias) meta.push(`<span class="ved-meta-alias">${esc(vendorName)}</span>`);
     if (item.vendor_sku) meta.push(`<span class="ved-meta-sku">${esc(item.vendor_sku)}</span>`);
     if (item.default_par_qty != null) meta.push(`par ${item.default_par_qty} ${esc(item.unit || 'ea')}`);
 
@@ -3745,7 +3815,7 @@ Thanks for your help sorting this out.`;
       <div class="ved-item-row" data-item-id="${esc(item.id)}">
         <button class="ved-item-tap" data-item-id="${esc(item.id)}" type="button">
           <div class="ved-item-main">
-            <div class="ved-item-name">${esc(item.item_name)}</div>
+            <div class="ved-item-name">${esc(primary)}</div>
             ${meta.length ? `<div class="ved-item-meta">${meta.join('<span class="ved-meta-sep">·</span>')}</div>` : ''}
           </div>
           <span class="ved-item-chevron" aria-hidden="true">›</span>
@@ -3783,8 +3853,12 @@ Thanks for your help sorting this out.`;
     return `
       <div class="ord-vitem-row ord-vitem-editing" data-item-id="${esc(item.id)}">
         <div class="ord-form-field">
-          <label class="ord-form-label">Item name</label>
-          <input type="text" class="ord-form-input ied-name" value="${esc(item.item_name || '')}" placeholder="e.g. milk" autocomplete="off">
+          <label class="ord-form-label">Item name <span class="ord-form-label-hint">(vendor's name — what they see in email)</span></label>
+          <input type="text" class="ord-form-input ied-name" value="${esc(item.item_name || '')}" placeholder="e.g. FOIL HD 18&quot; ROLL" autocomplete="off">
+        </div>
+        <div class="ord-form-field">
+          <label class="ord-form-label">Team name <span class="ord-form-label-hint">(optional — what your team calls it)</span></label>
+          <input type="text" class="ord-form-input ied-house" value="${esc(item.house_name || '')}" placeholder="e.g. Big Foil" autocomplete="off">
         </div>
         <div class="ord-form-row-2">
           <div class="ord-form-field">
@@ -4189,7 +4263,7 @@ Thanks for your help sorting this out.`;
         <div class="ord-pick-head">
           <div class="ord-pick-title">
             <div class="ord-pick-eyebrow">Move to section</div>
-            <div class="ord-pick-name">${esc(item.item_name)}</div>
+            <div class="ord-pick-name">${esc((item.house_name || '').trim() || item.item_name)}</div>
           </div>
           <button class="ord-pick-close" aria-label="Cancel">×</button>
         </div>
@@ -4524,6 +4598,7 @@ Thanks for your help sorting this out.`;
       return;
     }
     const sku  = formRow.querySelector('.ied-sku').value.trim();
+    const house = (formRow.querySelector('.ied-house')?.value || '').trim();
     const sec  = formRow.querySelector('.ied-section').value.trim();
     const unit = formRow.querySelector('.ied-unit').value.trim() || 'ea';
     const parRaw = formRow.querySelector('.ied-par').value.trim();
@@ -4538,12 +4613,21 @@ Thanks for your help sorting this out.`;
 
     const payload = {
       item_name: name,
+      house_name: house || null,
       vendor_sku: sku || null,
       section: sec || null,
       unit,
       default_par_qty: par,
       pars_by_day: days,
       note: note || null,
+    };
+
+    // Helper: if the DB write fails because house_name column doesn't
+    // exist (pre-migration), strip it and retry. Keeps saves working
+    // until the user runs the migration SQL.
+    const stripHouseName = (p) => {
+      const { house_name, ...rest } = p;
+      return rest;
     };
 
     try {
@@ -4567,11 +4651,15 @@ Thanks for your help sorting this out.`;
             (m, i) => Math.max(m, i.sort_order || 0), 0);
           newSortOrder = maxSort + 1;
         }
-        const { data, error } = await NX.sb.from('order_guide_items')
-          .insert({ ...payload, vendor_id: catalogState.vendor.id, sort_order: newSortOrder })
-          .select('*').single();
-        if (error) throw error;
-        catalogState.items.push(data);
+        const insertPayload = { ...payload, vendor_id: catalogState.vendor.id, sort_order: newSortOrder };
+        let res = await NX.sb.from('order_guide_items')
+          .insert(insertPayload).select('*').single();
+        if (res.error && /house_name|column.*does not exist|schema cache/i.test(res.error.message || '')) {
+          res = await NX.sb.from('order_guide_items')
+            .insert(stripHouseName(insertPayload)).select('*').single();
+        }
+        if (res.error) throw res.error;
+        catalogState.items.push(res.data);
         if (vendors._itemCounts) {
           vendors._itemCounts[catalogState.vendor.id] = (vendors._itemCounts[catalogState.vendor.id] || 0) + 1;
         }
@@ -4580,9 +4668,11 @@ Thanks for your help sorting this out.`;
           catalogState.pendingSections = catalogState.pendingSections.filter(s => s !== sec);
         }
       } else {
-        const { error } = await NX.sb.from('order_guide_items')
-          .update(payload).eq('id', itemId);
-        if (error) throw error;
+        let res = await NX.sb.from('order_guide_items').update(payload).eq('id', itemId);
+        if (res.error && /house_name|column.*does not exist|schema cache/i.test(res.error.message || '')) {
+          res = await NX.sb.from('order_guide_items').update(stripHouseName(payload)).eq('id', itemId);
+        }
+        if (res.error) throw res.error;
         const it = catalogState.items.find(i => i.id === itemId);
         if (it) Object.assign(it, payload);
       }
