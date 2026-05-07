@@ -693,7 +693,7 @@ body.ord-overlay-open .bottom-nav {
 .ord-entry-section {
   background: var(--nx-surface, var(--surface));
   border: 1px solid var(--nx-gold-line, var(--border));
-  border-radius: 14px;
+  border-radius: 12px;                                          /* matches catalog .ved-section-block */
   margin-bottom: 14px;
   overflow: hidden;
   transition: border-color .15s ease;
@@ -707,11 +707,12 @@ body.ord-overlay-open .bottom-nav {
   align-items: center;
   gap: 10px;
   padding: 12px 14px;
-  background: linear-gradient(
-    to bottom,
-    var(--nx-gold-soft, var(--nx-gold-faint)) 0%,
-    transparent 100%
-  );
+  /* Flat gold-tint matches catalog editor's section-row treatment.
+     The previous gradient (gold-soft → transparent) read fine in
+     isolation but didn't tie visually with the catalog editor — when
+     flipping between catalog → ordering the section heads looked like
+     two different design systems. Flat tint is consistent + softer. */
+  background: var(--nx-gold-faint, var(--elevated));
   border-bottom: 1px solid var(--nx-gold-line, var(--border));
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -727,8 +728,8 @@ body.ord-overlay-open .bottom-nav {
   min-width: 0;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1.6px;
+  font-weight: 600;                              /* softened from 700 — matches catalog */
+  letter-spacing: 0.16em;                        /* same em-based value as catalog .ved-section-row */
   text-transform: uppercase;
   color: var(--nx-gold, var(--accent));
   overflow: hidden;
@@ -737,20 +738,23 @@ body.ord-overlay-open .bottom-nav {
 }
 
 .ord-entry-section-count {
+  /* Matches .ved-section-count — same gold-on-gold pill so flipping
+     between catalog editor and order entry doesn't read as two
+     different design systems. */
   flex-shrink: 0;
-  min-width: 28px;
-  height: 22px;
-  padding: 0 8px;
+  min-width: 24px;
+  padding: 2px 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--nx-bg, var(--bg));
-  border: 1px solid var(--nx-gold-line, var(--border));
-  border-radius: 11px;
+  background: var(--nx-gold-faint, var(--elevated));
+  border: 0;
+  border-radius: 999px;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--nx-text, var(--text));
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--nx-gold, var(--accent));
 }
 
 .ord-entry-section-collapse {
@@ -4796,18 +4800,18 @@ body.ord-overlay-open .bottom-nav {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 12px 12px 4px;
+  padding: 14px 12px 14px 4px;
   background: transparent;
   border: 0;
   text-align: left;
   cursor: pointer;
   font-family: inherit;
-  color: var(--text);
+  color: var(--nx-text, var(--text));
   -webkit-tap-highlight-color: transparent;
   min-width: 0;
 }
 .ord-catalog-overlay .ved-item-tap:active {
-  background: var(--nx-gold-soft);
+  background: var(--nx-gold-faint, var(--nx-gold-soft));
 }
 .ord-catalog-overlay .ved-item-tap .ved-item-main {
   flex: 1;
@@ -4815,24 +4819,36 @@ body.ord-overlay-open .bottom-nav {
 }
 .ord-catalog-overlay .ved-item-tap .ved-item-name {
   font-family: inherit;
-  font-weight: 600;
-  font-size: 15px;
-  color: var(--text);
+  font-weight: 500;                              /* softened from 600 — less visual shouting */
+  font-size: 14px;                               /* down from 15px so meta breathes */
+  color: var(--nx-text, var(--text));            /* warm off-white instead of pure --text */
   letter-spacing: -0.005em;
-  line-height: 1.3;
+  line-height: 1.35;
   word-break: break-word;
 }
 .ord-catalog-overlay .ved-item-tap .ved-item-meta {
-  margin-top: 2px;
+  margin-top: 3px;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11px;
-  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--nx-faint, var(--muted));          /* one step softer than --muted */
 }
-.ord-catalog-overlay .ved-item-chevron {
+.ord-catalog-overlay .ved-item-tap .ved-meta-sep {
+  margin: 0 6px;
+  opacity: 0.5;
+}
+.ord-catalog-overlay .ved-item-tap .ved-item-chevron {
   flex-shrink: 0;
   font-size: 18px;
-  color: var(--faint);
+  line-height: 1;
+  color: var(--nx-faintest, var(--faint));       /* very subtle — purely a visual cue, not noise */
+  margin-left: 8px;
   margin-right: 4px;
+  transition: color .12s ease, transform .12s ease;
+}
+.ord-catalog-overlay .ved-item-tap:active .ved-item-chevron {
+  color: var(--nx-gold, var(--accent));
+  transform: translateX(2px);
 }
 
 /* Empty-section placeholder lives inside the card */
@@ -5526,4 +5542,201 @@ body.ord-overlay-open .bottom-nav {
 @media (max-width: 480px) {
   .ved-item-move-btn { width: 28px; height: 20px; }
   .ved-section-move-btn { width: 26px; height: 26px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Catalog "Move to section" picker
+   ─────────────────────────────────────────────────────────────────────
+   Triggered by long-press on a catalog item row. Mimics the board.js
+   move-picker pattern — modal with a list of destination sections,
+   tap one to move. Cross-section moves only; within-section ordering
+   uses the always-visible ↑/↓ arrows.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.ord-pick-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 400;                          /* above .rx-overlay (300) and .ord-veditor-overlay (250) */
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: flex-end;                 /* anchor to bottom on mobile — keyboard-safe + thumb-reachable */
+  justify-content: center;
+  padding: 0;
+  animation: ord-pick-fade .15s ease;
+}
+@keyframes ord-pick-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ord-pick-modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--nx-gold-line, var(--border));
+  border-bottom: 0;
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -16px 48px rgba(0, 0, 0, 0.4);
+  animation: ord-pick-slide .22s cubic-bezier(.2, .9, .3, 1);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+@keyframes ord-pick-slide {
+  from { transform: translateY(24px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+.ord-pick-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--nx-gold-line, var(--border));
+}
+
+.ord-pick-title {
+  flex: 1;
+  min-width: 0;
+}
+.ord-pick-eyebrow {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.ord-pick-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ord-pick-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+}
+.ord-pick-close:active {
+  background: var(--surface);
+  transform: scale(0.94);
+}
+
+.ord-pick-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px;
+}
+
+.ord-pick-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 12px;
+  min-height: 48px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .12s ease, border-color .12s ease;
+}
+.ord-pick-item:hover {
+  background: var(--nx-gold-faint, var(--elevated));
+}
+.ord-pick-item:active {
+  background: var(--nx-gold-soft, var(--nx-gold-faint));
+  border-color: var(--accent);
+  transform: scale(0.99);
+}
+.ord-pick-item.is-current {
+  opacity: 0.55;
+  cursor: default;
+}
+.ord-pick-item.is-current:hover {
+  background: transparent;
+}
+
+.ord-pick-check {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  color: var(--accent);
+  font-weight: 600;
+}
+.ord-pick-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.ord-pick-meta {
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ord-pick-foot {
+  flex-shrink: 0;
+  padding: 10px 14px 14px;
+  border-top: 1px solid var(--nx-gold-line, var(--border));
+}
+.ord-pick-new {
+  width: 100%;
+  padding: 12px;
+  min-height: 44px;
+  background: transparent;
+  border: 1px dashed var(--nx-gold-line, var(--border));
+  border-radius: 10px;
+  color: var(--accent);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-pick-new:active {
+  background: var(--nx-gold-faint);
+  border-color: var(--accent);
+}
+
+/* Long-press visual feedback. The progress bar sweep is handled by
+   the older `::before` rule earlier in this file (lines ~5337) — same
+   500ms timing, same gold accent. Below is just the brief flash that
+   confirms the press fired and the picker is about to open. */
+.ord-catalog-overlay .ved-item-row.is-press-fired {
+  background: var(--nx-gold-soft, var(--nx-gold-faint));
 }
