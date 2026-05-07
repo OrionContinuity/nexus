@@ -3461,6 +3461,7 @@ Thanks for your help sorting this out.`;
             <div class="ved-item-name">${esc(item.item_name)}</div>
             ${meta.length ? `<div class="ved-item-meta">${meta.join('<span class="ved-meta-sep">·</span>')}</div>` : ''}
           </div>
+          <span class="ved-item-chevron" aria-hidden="true">›</span>
         </button>
         <div class="ved-item-move-stack" role="group" aria-label="Reorder this item">
           <button type="button" class="ved-item-move-btn" data-row-move="up" data-item-id="${esc(item.id)}" aria-label="Move up">
@@ -3470,7 +3471,6 @@ Thanks for your help sorting this out.`;
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
         </div>
-        <span class="ved-item-chevron" aria-hidden="true">›</span>
       </div>
     `;
   }
@@ -3756,283 +3756,256 @@ Thanks for your help sorting this out.`;
   }
 
   /* ─────────────────────────────────────────────────────────────────────
-   * Drag handlers — long-press to activate, delegated listener pattern.
+   * Long-press → "Move to section" picker (board.js pattern).
    *
-   * Replaces the previous always-on drag handles (≡ icons on every row +
-   * every section). With 95+ items, that meant 100+ listeners and a
-   * visually noisy UI. New model:
-   *   - ONE pointerdown listener on the items list (event delegation).
-   *   - Long-press for LONG_PRESS_MS on a row or section header arms the
-   *     drag. During the hold, a thin gold progress bar sweeps across
-   *     the card so the user knows something's happening.
-   *   - If the pointer moves > MOVE_THRESH_PX before the timer fires,
-   *     the press is cancelled (so vertical scrolling works normally).
-   *   - If the pointer is released before the timer fires, the press
-   *     ends silently and the natural click event proceeds (tap-to-edit
-   *     for items, tap-to-collapse for section names).
-   *   - Once activated, drag mechanics work as before — swap on
-   *     cross-center, auto-scroll near edges, persist on drop.
+   * The previous implementation tried to do real drag-and-drop on touch:
+   * long-press to activate, then track pointermove to swap rows, with
+   * auto-scroll near container edges. It worked in theory but was
+   * fragile in practice — the pointer-move tracking fights the scroll
+   * container, the activation threshold was hard to tune (too short →
+   * fires on scroll attempts; too long → user thinks it's broken), and
+   * even when it activated cleanly, the cross-section drop math was
+   * unreliable.
+   *
+   * The board (board.js) has the same problem and solves it better:
+   * long-press a card → the press timer fires → instead of trying to
+   * drag, OPEN A "MOVE TO …" PICKER. User taps the destination, we
+   * persist optimistically, done. Reliable on every browser, every
+   * input modality, no scroll-container conflicts. Orion confirmed
+   * this works well on the board, so we copy that pattern here.
+   *
+   * Within-section ordering uses the always-visible ↑/↓ buttons on
+   * each row (those still work fine — they're plain click handlers).
+   * The picker is for cross-section moves (the operation the arrows
+   * can't do).
    * ───────────────────────────────────────────────────────────────────── */
   function wireDragHandlers(listEl) {
-    const LONG_PRESS_MS  = 500;        // 500ms = standard mobile long-press feel.
-                                       // Was 3000ms — too long to be usable in practice.
-                                       // Half a second is the sweet spot: deliberate
-                                       // enough to not trigger from a scroll, fast
-                                       // enough that the user doesn't think it's broken.
-    const MOVE_THRESH_PX = 12;         // tolerate a bit more finger wiggle on iOS
-    const SCROLL_ZONE    = 90;         // px from container edge that triggers auto-scroll
-    const SCROLL_MAX     = 14;         // max scroll px per RAF tick
+    const LONG_PRESS_MS  = 500;          // standard mobile long-press feel
+    const MOVE_THRESH_PX = 12;            // tolerate a bit of finger wiggle
 
-    // ─── Press state (before drag activates) ────────────────────────
     let pressTimer = null;
-    let pressTarget = null;            // .ved-item-row or .ved-section-block being held
-    let pressMode = null;              // 'item' | 'section'
+    let pressTarget = null;               // .ved-item-row currently being held
     let pressStartX = 0;
     let pressStartY = 0;
-    let pressPointerId = null;
+    let pressFired = false;
 
-    // ─── Drag state (after activation) ──────────────────────────────
-    let dragging = null;               // null when not dragging; else { mode, id, startY, liveOrder }
-    let lastPointerY = 0;
-    let scrollRAF = null;
+    const cancelPress = () => {
+      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+      if (pressTarget) {
+        pressTarget.classList.remove('is-pressing');
+        pressTarget = null;
+      }
+    };
 
-    // Single delegated listener — no per-row listeners regardless of list size
-    listEl.addEventListener('pointerdown', onPointerDown);
-
-    function snapshotItems() {
-      const rows = listEl.querySelectorAll('.ved-section-block');
-      const out = [];
-      rows.forEach(block => {
-        const sec = block.dataset.section || '';
-        block.querySelectorAll('.ved-item-row[data-item-id]').forEach(r => {
-          out.push({ id: r.dataset.itemId, section: sec, el: r });
-        });
-      });
-      return out;
-    }
-
-    function onPointerDown(e) {
-      // Skip pointers landing inside the editing form, controls, or interactive widgets —
-      // those handle their own interactions.
-      if (e.target.closest('input, textarea, select, .ord-vitem-editing, .ved-section-rename-btn, .ved-section-collapse, .ved-section-rename-input, .ved-item-move-btn, .ved-section-move-btn, .ved-item-move-stack, .ved-section-move-stack')) {
+    listEl.addEventListener('pointerdown', (e) => {
+      // Skip if the press lands on a control that needs its own handling —
+      // up/down arrows (independent click), section rename input, the
+      // inline edit form, etc. Notably we do NOT exclude every <button>:
+      // the item row's whole content is wrapped in a .ved-item-tap button
+      // so tapping the chevron also opens the edit form, and that button
+      // IS the long-press target. The specific selectors below cover the
+      // controls that genuinely need their own click semantics.
+      if (e.target.closest('input, textarea, select, .ord-vitem-editing, .ved-section-rename-input, .ved-section-rename-btn, .ved-section-collapse, .ved-item-move-stack, .ved-section-move-stack')) {
         return;
       }
+      // Only items get the picker; sections already have rename + ↑/↓
+      // arrows + the items-area inside, so a long-press menu there would
+      // conflict with the section name's own click-to-collapse.
+      const itemRow = e.target.closest('.ved-item-row');
+      if (!itemRow) return;
 
-      // Determine what kind of card was pressed. Items take priority since they're
-      // nested inside section blocks.
-      const itemRow = e.target.closest('.ved-item-row[data-item-id]');
-      const sectionRow = e.target.closest('.ved-section-row');
-
-      if (itemRow) {
-        pressTarget = itemRow;
-        pressMode = 'item';
-      } else if (sectionRow) {
-        pressTarget = sectionRow.closest('.ved-section-block');
-        pressMode = 'section';
-        if (!pressTarget) return;
-      } else {
-        return;
-      }
-
+      pressTarget = itemRow;
       pressStartX = e.clientX;
       pressStartY = e.clientY;
-      pressPointerId = e.pointerId;
-      pressTarget.classList.add('is-pressing');
+      pressFired = false;
+      itemRow.classList.add('is-pressing');
 
       pressTimer = setTimeout(() => {
         pressTimer = null;
-        activateDrag();
+        if (!pressTarget) return;
+        pressFired = true;
+
+        // Haptic confirmation (Android Chrome supports navigator.vibrate;
+        // iOS Safari ignores it silently — fine, no error)
+        try { navigator.vibrate?.(15); } catch (_) {}
+
+        pressTarget.classList.remove('is-pressing');
+        pressTarget.classList.add('is-press-fired');
+        const fired = pressTarget;
+        setTimeout(() => fired.classList.remove('is-press-fired'), 220);
+
+        const itemId = pressTarget.dataset.itemId;
+        pressTarget = null;
+        if (itemId) openItemMovePicker(itemId);
       }, LONG_PRESS_MS);
+    });
 
-      listEl.addEventListener('pointermove', onPointerMove);
-      listEl.addEventListener('pointerup', onPointerEnd);
-      listEl.addEventListener('pointercancel', onPointerEnd);
-    }
-
-    function onPointerMove(e) {
-      // After drag is active, this is the regular drag-move path
-      if (dragging) {
-        lastPointerY = e.clientY;
-        performMove(e.clientY);
-        maybeStartAutoScroll();
-        return;
-      }
-      // During the hold (pre-drag), wiggle beyond threshold cancels —
-      // this is the user trying to scroll, not arm a drag.
-      if (!pressTarget) return;
+    listEl.addEventListener('pointermove', (e) => {
+      if (!pressTimer) return;
       const dx = Math.abs(e.clientX - pressStartX);
       const dy = Math.abs(e.clientY - pressStartY);
       if (dx > MOVE_THRESH_PX || dy > MOVE_THRESH_PX) {
         cancelPress();
       }
+    });
+
+    // Suppress the natural click that follows pointerup if the long-press
+    // fired — otherwise the row's tap-to-edit handler would trigger right
+    // after the picker opens, which feels broken.
+    listEl.addEventListener('click', (e) => {
+      if (pressFired) {
+        e.stopPropagation();
+        e.preventDefault();
+        pressFired = false;
+      }
+    }, true);
+
+    listEl.addEventListener('pointerup', cancelPress);
+    listEl.addEventListener('pointercancel', cancelPress);
+    listEl.addEventListener('pointerleave', cancelPress);
+  }
+
+  /* Open the "Move to section…" picker for a given item. Same UX as the
+     board's openMovePicker — modal background, one button per section,
+     tap to commit. Doesn't try to be clever about creating new sections
+     inline; if the user wants a new section, they tap the
+     "+ New section…" footer button which prompts for a name. */
+  function openItemMovePicker(itemId) {
+    if (!catalogState || !Array.isArray(catalogState.items)) return;
+    const item = catalogState.items.find(x => String(x.id) === String(itemId));
+    if (!item) return;
+
+    // Gather sections in their canonical order (by first item's sort_order),
+    // matching how the catalog list renders them. This way the picker lists
+    // sections in the same order the user sees them — no surprise.
+    const sectionsInOrder = [];
+    const seen = new Set();
+    catalogState.items
+      .slice()
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+      .forEach(x => {
+        const s = x.section || '';
+        if (!seen.has(s)) { sectionsInOrder.push(s); seen.add(s); }
+      });
+    if (Array.isArray(catalogState.pendingSections)) {
+      catalogState.pendingSections.forEach(s => {
+        if (!seen.has(s)) { sectionsInOrder.unshift(s); seen.add(s); }
+      });
     }
 
-    function onPointerEnd(e) {
-      if (dragging) {
-        finishDrag(e);
-      } else {
-        cancelPress();
+    const currentSection = item.section || '';
+
+    const bg = document.createElement('div');
+    bg.className = 'ord-pick-bg';
+    bg.innerHTML = `
+      <div class="ord-pick-modal" role="dialog" aria-label="Move item">
+        <div class="ord-pick-head">
+          <div class="ord-pick-title">
+            <div class="ord-pick-eyebrow">Move to section</div>
+            <div class="ord-pick-name">${esc(item.item_name)}</div>
+          </div>
+          <button class="ord-pick-close" aria-label="Cancel">×</button>
+        </div>
+        <div class="ord-pick-list">
+          ${sectionsInOrder.map(s => {
+            const isCurrent = s === currentSection;
+            const label = s || 'Uncategorized';
+            return `
+              <button class="ord-pick-item${isCurrent ? ' is-current' : ''}" data-section="${esc(s)}" ${isCurrent ? 'disabled' : ''}>
+                <span class="ord-pick-check" aria-hidden="true">${isCurrent ? '✓' : ''}</span>
+                <span class="ord-pick-label">${esc(label)}</span>
+                ${isCurrent ? '<span class="ord-pick-meta">current</span>' : ''}
+              </button>
+            `;
+          }).join('')}
+        </div>
+        <div class="ord-pick-foot">
+          <button class="ord-pick-new" type="button">+ New section…</button>
+        </div>
+      </div>
+    `;
+
+    const close = () => bg.remove();
+    bg.addEventListener('click', e => { if (e.target === bg) close(); });
+    bg.querySelector('.ord-pick-close').addEventListener('click', close);
+
+    bg.querySelectorAll('.ord-pick-item:not(.is-current)').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const targetSection = btn.dataset.section || '';
+        close();
+        await moveItemToSection(itemId, targetSection);
+      });
+    });
+
+    bg.querySelector('.ord-pick-new').addEventListener('click', () => {
+      const raw = prompt('New section name:');
+      if (!raw) return;
+      const name = raw.trim();
+      if (!name) return;
+      // Add to pendingSections so the section appears even before the
+      // first item is moved into it (matches existing addSection flow).
+      if (!Array.isArray(catalogState.pendingSections)) catalogState.pendingSections = [];
+      if (!catalogState.pendingSections.includes(name) &&
+          !catalogState.items.some(x => (x.section || '') === name)) {
+        catalogState.pendingSections.unshift(name);
       }
+      close();
+      moveItemToSection(itemId, name);
+    });
+
+    document.body.appendChild(bg);
+  }
+
+  /* Move an item to a different section. Sets sort_order to "end of new
+     section" so it lands at the bottom — caller can then use ↑/↓ to
+     fine-tune. Optimistic: updates in-memory state + re-renders first,
+     then fires the DB write in the background. On error, toasts; the
+     in-memory state is already consistent because that's where we
+     persisted to first. */
+  async function moveItemToSection(itemId, newSection) {
+    if (!catalogState || !Array.isArray(catalogState.items) || !NX.sb) return;
+    const it = catalogState.items.find(x => String(x.id) === String(itemId));
+    if (!it) return;
+    const newSec = newSection || '';
+    if ((it.section || '') === newSec) return;
+
+    // Place at end of target section. Find max sort_order in that section
+    // and add 1. If the section is empty (e.g. just-created via picker),
+    // fall back to the global max + 1 so we don't collide with existing rows.
+    const sectionRows = catalogState.items.filter(x =>
+      (x.section || '') === newSec && String(x.id) !== String(itemId)
+    );
+    let newSort;
+    if (sectionRows.length) {
+      newSort = Math.max(...sectionRows.map(x => x.sort_order || 0)) + 1;
+    } else {
+      const allSorts = catalogState.items.map(x => x.sort_order || 0);
+      newSort = (allSorts.length ? Math.max(...allSorts) : 0) + 1;
     }
 
-    function cancelPress() {
-      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-      if (pressTarget) {
-        pressTarget.classList.remove('is-pressing');
-        pressTarget = null;
-        pressMode = null;
-      }
-      listEl.removeEventListener('pointermove', onPointerMove);
-      listEl.removeEventListener('pointerup', onPointerEnd);
-      listEl.removeEventListener('pointercancel', onPointerEnd);
-    }
+    // Optimistic: update local state + re-render immediately
+    const prevSection = it.section;
+    const prevSort = it.sort_order;
+    it.section = newSec;
+    it.sort_order = newSort;
+    renderItemsAreaOnly();
 
-    function activateDrag() {
-      if (!pressTarget) return;
-      pressTarget.classList.remove('is-pressing');
-      pressTarget.classList.add('is-dragging');
-      // Haptic feedback on devices that support it — confirms the
-      // long-press fired without the user having to look.
-      if (navigator.vibrate) {
-        try { navigator.vibrate(25); } catch (_) {}
-      }
-
-      lastPointerY = pressStartY;
-      if (pressMode === 'item') {
-        dragging = {
-          mode: 'item',
-          id: pressTarget.dataset.itemId,
-          startY: pressStartY,
-          liveOrder: snapshotItems(),
-        };
-      } else {
-        dragging = {
-          mode: 'section',
-          id: pressTarget.dataset.section || '',
-          startY: pressStartY,
-          liveOrder: Array.from(listEl.querySelectorAll('.ved-section-block')).map(b => b.dataset.section || ''),
-        };
-      }
-
-      // Capture pointer so all subsequent move/up events route to listEl
-      try { listEl.setPointerCapture(pressPointerId); } catch (_) {}
-    }
-
-    function performMove(clientY) {
-      if (!dragging || !pressTarget) return;
-      const dy = clientY - dragging.startY;
-      pressTarget.style.transform = `translateY(${dy}px)`;
-
-      if (dragging.mode === 'item') {
-        // Find a sibling row whose vertical center we've crossed; swap.
-        const draggedRect = pressTarget.getBoundingClientRect();
-        const draggedCenter = draggedRect.top + draggedRect.height / 2;
-        const allRows = Array.from(listEl.querySelectorAll('.ved-item-row[data-item-id]'))
-                             .filter(r => r.dataset.itemId !== dragging.id);
-        for (const other of allRows) {
-          const r = other.getBoundingClientRect();
-          if (r.height === 0) continue;       // collapsed-section items: skip
-          if (draggedCenter > r.top && draggedCenter < r.bottom) {
-            const targetSecBlock = other.closest('.ved-section-block');
-            const otherIdInOrder = other.dataset.itemId;
-            const fromIdx = dragging.liveOrder.findIndex(x => x.id === dragging.id);
-            const toIdx   = dragging.liveOrder.findIndex(x => x.id === otherIdInOrder);
-            if (fromIdx === -1 || toIdx === -1 || !targetSecBlock) break;
-            const newSection = targetSecBlock.dataset.section || '';
-            const moved = dragging.liveOrder.splice(fromIdx, 1)[0];
-            moved.section = newSection;
-            const newToIdx = dragging.liveOrder.findIndex(x => x.id === otherIdInOrder);
-            const insertBefore = (fromIdx > toIdx);
-            dragging.liveOrder.splice(insertBefore ? newToIdx : newToIdx + 1, 0, moved);
-            const targetItemsWrap = targetSecBlock.querySelector('.ved-section-items');
-            if (insertBefore) {
-              (targetItemsWrap || targetSecBlock).insertBefore(pressTarget, other);
-            } else {
-              other.after(pressTarget);
-            }
-            dragging.startY = clientY;
-            pressTarget.style.transform = 'translateY(0px)';
-            break;
-          }
-        }
-      } else {
-        // Section drag — swap with another section block whose center we cross.
-        const blockRect = pressTarget.getBoundingClientRect();
-        const blockCenter = blockRect.top + blockRect.height / 2;
-        const others = Array.from(listEl.querySelectorAll('.ved-section-block'))
-                            .filter(b => (b.dataset.section || '') !== dragging.id);
-        for (const other of others) {
-          const r = other.getBoundingClientRect();
-          if (r.height === 0) continue;
-          if (blockCenter > r.top && blockCenter < r.bottom) {
-            const fromIdx = dragging.liveOrder.indexOf(dragging.id);
-            const toIdx   = dragging.liveOrder.indexOf(other.dataset.section || '');
-            if (fromIdx === -1 || toIdx === -1) break;
-            dragging.liveOrder.splice(fromIdx, 1);
-            dragging.liveOrder.splice(toIdx, 0, dragging.id);
-            if (fromIdx > toIdx) {
-              other.parentNode.insertBefore(pressTarget, other);
-            } else {
-              other.after(pressTarget);
-            }
-            dragging.startY = clientY;
-            pressTarget.style.transform = 'translateY(0px)';
-            break;
-          }
-        }
-      }
-    }
-
-    function maybeStartAutoScroll() {
-      if (scrollRAF) return;
-      const rect = listEl.getBoundingClientRect();
-      if (lastPointerY < rect.top + SCROLL_ZONE || lastPointerY > rect.bottom - SCROLL_ZONE) {
-        scrollRAF = requestAnimationFrame(autoScrollFrame);
-      }
-    }
-
-    function autoScrollFrame() {
-      if (!dragging) { scrollRAF = null; return; }
-      const rect = listEl.getBoundingClientRect();
-      let delta = 0;
-      if (lastPointerY < rect.top + SCROLL_ZONE) {
-        delta = -Math.min(SCROLL_MAX, (rect.top + SCROLL_ZONE - lastPointerY) / 6);
-      } else if (lastPointerY > rect.bottom - SCROLL_ZONE) {
-        delta = Math.min(SCROLL_MAX, (lastPointerY - (rect.bottom - SCROLL_ZONE)) / 6);
-      }
-      if (delta === 0) { scrollRAF = null; return; }
-      const before = listEl.scrollTop;
-      listEl.scrollTop += delta;
-      const actualDelta = listEl.scrollTop - before;
-      if (actualDelta !== 0) {
-        dragging.startY -= actualDelta;
-        performMove(lastPointerY);
-      }
-      scrollRAF = requestAnimationFrame(autoScrollFrame);
-    }
-
-    async function finishDrag(e) {
-      if (!dragging || !pressTarget) return;
-      pressTarget.classList.remove('is-dragging');
-      pressTarget.style.transform = '';
-      if (scrollRAF) {
-        cancelAnimationFrame(scrollRAF);
-        scrollRAF = null;
-      }
-      try { listEl.releasePointerCapture(pressPointerId); } catch (_) {}
-
-      const finalOrder = dragging.liveOrder.slice();
-      const mode = dragging.mode;
-      dragging = null;
-      cancelPress();
-
-      if (mode === 'item') {
-        await persistItemReorder(finalOrder);
-      } else {
-        await persistSectionReorder(finalOrder);
-      }
+    try {
+      const { error } = await NX.sb.from('order_guide_items')
+        .update({ section: newSec, sort_order: newSort })
+        .eq('id', it.id);
+      if (error) throw error;
+      if (NX.toast) NX.toast(`Moved to “${newSec || 'Uncategorized'}”`, 'info', 1400);
+    } catch (e) {
+      // Roll back on error
+      it.section = prevSection;
+      it.sort_order = prevSort;
+      renderItemsAreaOnly();
+      console.error('[ordering] moveItemToSection:', e);
+      if (NX.toast) NX.toast('Could not move: ' + ((e && e.message) || ''), 'error', 3000);
     }
   }
+
 
   /* CSS.escape polyfill — kept for any future selector that needs the
    * actual section name. Not used by the simplified .is-dragging path. */
