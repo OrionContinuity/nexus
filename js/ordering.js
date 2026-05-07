@@ -184,6 +184,68 @@
     return addDays(todayISO(), 1);
   }
 
+  /** Short label for the vendor's next delivery, used in cards and hints.
+      Returns "today" / "tomorrow" / "Wed" / "Mon Aug 5" depending on
+      how far out the next delivery falls. Returns null if the vendor
+      has no delivery_days set so callers can choose to show nothing. */
+  function nextDeliveryLabel(vendor) {
+    const days = Array.isArray(vendor && vendor.delivery_days) ? vendor.delivery_days : [];
+    if (!days.length) return null;
+    const iso = nextDeliveryDate(vendor);
+    if (!iso) return null;
+    const today = todayISO();
+    const tomorrow = addDays(today, 1);
+    if (iso === today) return 'today';
+    if (iso === tomorrow) return 'tomorrow';
+    const d = new Date(iso + 'T00:00:00');
+    const wkLbl = WEEKDAY_LBL[d.getDay()];
+    // If within next 7 days, just the weekday is enough. Otherwise add date.
+    const diffDays = Math.round((new Date(iso) - new Date(today)) / 86400000);
+    if (diffDays < 7) return wkLbl;
+    const month = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+    return `${wkLbl} ${month} ${d.getDate()}`;
+  }
+
+  /** Check if a date (ISO yyyy-mm-dd) falls on a vendor's delivery day.
+      Returns false when vendor has no delivery_days configured (no
+      basis to flag a mismatch — the user gets a free pass). */
+  function isVendorDeliveryDay(vendor, isoDate) {
+    const days = Array.isArray(vendor && vendor.delivery_days) ? vendor.delivery_days : [];
+    if (!days.length || !isoDate) return true;
+    return days.includes(weekdayOf(isoDate));
+  }
+
+  /** When does the vendor's order cutoff for `deliveryDateIso` land?
+      Returns a Date object (local time) or null if the vendor has no
+      cutoff configured. Used to surface countdown banners and "past
+      cutoff" warnings on send. */
+  function vendorCutoffMoment(vendor, deliveryDateIso) {
+    if (!vendor || !vendor.cutoff_time || !deliveryDateIso) return null;
+    const daysBefore = vendor.cutoff_days_before == null ? 1 : vendor.cutoff_days_before;
+    // Walk back from delivery date by N days (calendar days, not
+    // business days — restaurant kitchens think in calendar terms).
+    const cutoffDateIso = addDays(deliveryDateIso, -daysBefore);
+    // cutoff_time is "HH:MM" — parse it onto cutoffDateIso in local TZ.
+    const [hh, mm] = String(vendor.cutoff_time).split(':').map(s => parseInt(s, 10));
+    if (isNaN(hh) || isNaN(mm)) return null;
+    const d = new Date(cutoffDateIso + 'T00:00:00');
+    d.setHours(hh, mm, 0, 0);
+    return d;
+  }
+
+  /** Format a duration in ms as a friendly countdown like "2h 14m" or
+      "32m" or "1d 4h". Used in the entry-screen cutoff banner. */
+  function fmtCountdown(ms) {
+    if (ms <= 0) return 'past cutoff';
+    const totalMin = Math.floor(ms / 60000);
+    const days = Math.floor(totalMin / (60 * 24));
+    const hours = Math.floor((totalMin % (60 * 24)) / 60);
+    const mins = totalMin % 60;
+    if (days >= 1) return `${days}d ${hours}h`;
+    if (hours >= 1) return `${hours}h ${mins}m`;
+    return `${mins}m`;
+  }
+
   function resolveLocation() {
     const ls = localStorage.getItem(LOC_KEY);
     if (ls && LOCS.some(l => l.id === ls)) return ls;
@@ -203,7 +265,7 @@
     // missing fields will just render as null/false everywhere.
     let { data, error } = await NX.sb
       .from('order_vendors')
-      .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, subject_template, body_template, notes, archived, image_url, avatar_hue, pinned, sort_order')
+      .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, cutoff_time, cutoff_days_before, subject_template, body_template, notes, archived, image_url, avatar_hue, pinned, sort_order')
       .eq('archived', false)
       .order('pinned', { ascending: false, nullsFirst: false })
       .order('name', { ascending: true });
@@ -791,13 +853,50 @@
           preview = `${esc(latest.status || 'order')} · ${itemCount} item${itemCount === 1 ? '' : 's'} in catalog`;
         }
       } else {
-        preview = itemCount ? `${itemCount} item${itemCount === 1 ? '' : 's'} in catalog` : 'No catalog yet';
+        // No recent activity — surface the catalog size + next delivery
+        // day if known, so the user can see "this vendor delivers Wed,
+        // I should think about ordering soon" at a glance.
+        const nextLbl = nextDeliveryLabel(v);
+        if (itemCount && nextLbl) {
+          preview = `${itemCount} item${itemCount === 1 ? '' : 's'} · next delivery ${nextLbl}`;
+        } else if (itemCount) {
+          preview = `${itemCount} item${itemCount === 1 ? '' : 's'} in catalog`;
+        } else {
+          preview = 'No catalog yet';
+        }
       }
 
       const rowClasses = ['ord-vendor-row'];
       if (isDraft)  rowClasses.push('has-draft');
       if (hasIssue) rowClasses.push('has-issue');
       if (v.pinned) rowClasses.push('is-pinned');
+
+      // "Needs ordering" indicator. Surfaces when delivery is imminent
+      // (today or tomorrow per vendor.delivery_days) AND there's no
+      // active order yet covering that delivery. The signal is "you
+      // should probably draft an order for this vendor now."
+      // Skipped for vendors with no delivery_days (no schedule) or
+      // when there's already a non-archived order in progress.
+      let needsOrdering = false;
+      if (Array.isArray(v.delivery_days) && v.delivery_days.length) {
+        const nextIso = nextDeliveryDate(v);
+        const today = todayISO();
+        const tomorrow = addDays(today, 1);
+        const isImminent = nextIso === today || nextIso === tomorrow;
+        if (isImminent) {
+          // Check the recent orders cache for any active (non-archived,
+          // non-closed) order for this vendor at this location with a
+          // matching delivery date.
+          const hasActiveForNext = (recentOrders || []).some(o =>
+            o.vendor_id === v.id
+            && o.location === activeLoc
+            && !o.archived_at
+            && o.delivery_date === nextIso
+          );
+          needsOrdering = !hasActiveForNext;
+        }
+      }
+      if (needsOrdering) rowClasses.push('needs-ordering');
       // Drag handles only render in custom-sort + reorder mode. The
       // handle is a passive child div that the touch/pointer events
       // hook into; the row button itself remains tappable for normal
@@ -1096,6 +1195,20 @@
     const existing = document.querySelector('.ord-vmenu-overlay');
     if (existing) existing.remove();
 
+    // Look up the most recent non-archived sent/closed order at the
+    // active location BEFORE rendering, so we can show the "Reorder
+    // last" item with helpful context ("from 4 days ago") and disable
+    // it correctly when there's nothing to reorder.
+    const recentForVendor = (recentOrders || [])
+      .filter(o => o.vendor_id === vendor.id
+                && o.location === activeLoc
+                && !o.archived_at
+                && o.status !== 'draft');
+    const lastSent = recentForVendor[0];
+    const lastSentLabel = lastSent && lastSent.updated_at
+      ? `from ${fmtActivityWhen(lastSent.updated_at)}`
+      : 'no past orders found';
+
     const overlay = document.createElement('div');
     overlay.className = 'ord-vmenu-overlay';
     overlay.innerHTML = `
@@ -1110,6 +1223,12 @@
           </div>
         </div>
         <div class="ord-vmenu-divider"></div>
+        <button class="ord-vmenu-item ord-vmenu-item-primary${lastSent ? '' : ' is-disabled'}" data-action="reorder-last"${lastSent ? '' : ' disabled'}>
+          ${reorderIcon()}<span class="ord-vmenu-item-text">
+            <span class="ord-vmenu-item-title">Reorder last</span>
+            <span class="ord-vmenu-item-sub">${esc(lastSentLabel)}</span>
+          </span>
+        </button>
         <button class="ord-vmenu-item" data-action="catalog">${listIcon()}<span>Edit catalog</span></button>
         <button class="ord-vmenu-item" data-action="edit">${editIcon()}<span>Edit details</span></button>
         <button class="ord-vmenu-item ord-vmenu-danger" data-action="archive">${trashIcon()}<span>Archive vendor</span></button>
@@ -1123,14 +1242,28 @@
     overlay.querySelector('.ord-vmenu-cancel').addEventListener('click', close);
     overlay.querySelectorAll('.ord-vmenu-item').forEach(btn => {
       btn.addEventListener('click', async () => {
+        if (btn.classList.contains('is-disabled')) return;
         const action = btn.dataset.action;
         close();
-        if (action === 'edit')         openVendorEditor(vendor);
-        else if (action === 'catalog') openCatalogEditor(vendor);
-        else if (action === 'order')   openVendor(vendor.id);
-        else if (action === 'archive') archiveVendorById(vendor.id, vendor.name);
+        if (action === 'edit')              openVendorEditor(vendor);
+        else if (action === 'catalog')      openCatalogEditor(vendor);
+        else if (action === 'order')        openVendor(vendor.id);
+        else if (action === 'archive')      archiveVendorById(vendor.id, vendor.name);
+        else if (action === 'reorder-last' && lastSent) {
+          duplicateOrderAsDraft(lastSent);
+        }
       });
     });
+  }
+
+  /* Inline-rendered SVG used by the Reorder action — circular arrow
+     suggesting "do this again." Defined here because it's used only
+     in this menu. */
+  function reorderIcon() {
+    return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polyline points="23 4 23 10 17 10"/>
+      <path d="M20.49 15A9 9 0 1 1 18.36 5.64L23 10"/>
+    </svg>`;
   }
 
   function filterVendors(query) {
@@ -1629,7 +1762,7 @@
           if (reached) cls.push('is-reached');
           if (isCurrent) cls.push('is-current');
           return `
-            <div class="${cls.join(' ')}">
+            <div class="${cls.join(' ')}"${reached && i > 0 ? ` data-revert-status="${esc(s)}"` : ''}${reached && i > 0 ? ' role="button" aria-label="Long-press to revert to this step"' : ''}>
               <div class="ord-odetail-tl-marker" aria-hidden="true">
                 ${reached
                   ? '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
@@ -1753,6 +1886,41 @@
       transitionOrderTo(order, target);
     });
     overlay.querySelector('[data-action="resolve-issue"]')?.addEventListener('click', () => resolveOrderIssue(order));
+
+    // Long-press a reached timeline step to revert the order back to
+    // that status. Forward-only is the default lifecycle, but mistakes
+    // happen — clicked Confirmed too early, accidentally tapped
+    // Delivered. 600ms touch-and-hold gives an explicit, deliberate
+    // gesture that won't fire from incidental taps.
+    overlay.querySelectorAll('[data-revert-status]').forEach(step => {
+      let pressTimer = null;
+      let pressed = false;
+      const start = (e) => {
+        // Only respond to primary button on mouse; touch always starts
+        if (e.type === 'mousedown' && e.button !== 0) return;
+        pressed = true;
+        step.classList.add('is-pressing');
+        pressTimer = setTimeout(() => {
+          if (!pressed) return;
+          step.classList.remove('is-pressing');
+          // Provide haptic if available — telegraphs that the action was triggered
+          if (navigator.vibrate) try { navigator.vibrate(30); } catch (_) {}
+          confirmRevertTo(order, step.dataset.revertStatus);
+        }, 600);
+      };
+      const cancel = () => {
+        pressed = false;
+        step.classList.remove('is-pressing');
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+      };
+      step.addEventListener('touchstart', start, { passive: true });
+      step.addEventListener('mousedown',  start);
+      step.addEventListener('touchend',   cancel);
+      step.addEventListener('touchcancel',cancel);
+      step.addEventListener('touchmove',  cancel, { passive: true });
+      step.addEventListener('mouseup',    cancel);
+      step.addEventListener('mouseleave', cancel);
+    });
   }
 
   /**
@@ -1885,6 +2053,12 @@ Thanks for your help sorting this out.`;
               <span class="ord-vmenu-action-sub">View this order with par hints + catalog context</span>
             </span>
           </button>
+          <button class="ord-vmenu-action" data-action="duplicate">
+            <span class="ord-vmenu-action-text">
+              <span class="ord-vmenu-action-title">Duplicate as draft</span>
+              <span class="ord-vmenu-action-sub">Copy the line items into a new draft for tomorrow</span>
+            </span>
+          </button>
           <button class="ord-vmenu-action ord-vmenu-action-danger" data-action="delete">
             <span class="ord-vmenu-action-text">
               <span class="ord-vmenu-action-title">Archive order</span>
@@ -1904,10 +2078,103 @@ Thanks for your help sorting this out.`;
       closeOrderDetail();
       openOrderInEntry(order);
     });
+    overlay.querySelector('[data-action="duplicate"]').addEventListener('click', () => {
+      close();
+      duplicateOrderAsDraft(order);
+    });
     overlay.querySelector('[data-action="delete"]').addEventListener('click', () => {
       close();
       confirmDeleteOrder(order);
     });
+  }
+
+  /* Clone the order's line items into a brand-new draft order. The new
+     draft uses tomorrow's date by default (since most reorders are
+     "send the same thing for next delivery") but the user can change
+     it in the entry editor. The original order is untouched.
+
+     Why a real DB insert vs. just opening the entry editor with cloned
+     state: persistDraft already handles the in-progress save flow, so
+     creating the order row + lines explicitly here avoids a race where
+     the user closes before persistDraft fires. The new draft is then
+     opened in the entry editor for further edits. */
+  async function duplicateOrderAsDraft(order) {
+    if (!order || !NX.sb) return;
+    if (NX.toast) NX.toast('Duplicating…', 'info', 1200);
+    try {
+      // 1. Load the source order's line items so we can clone them
+      const linesRes = await NX.sb.from('order_lines')
+        .select('item_id, item_name, house_name, vendor_sku, qty, unit, note, sort_order')
+        .eq('order_id', order.id)
+        .order('sort_order', { ascending: true });
+      // house_name might not exist pre-migration — retry without if so
+      let sourceLines = linesRes.data;
+      if (linesRes.error && /house_name|column.*does not exist|schema cache/i.test(linesRes.error.message || '')) {
+        const fb = await NX.sb.from('order_lines')
+          .select('item_id, item_name, vendor_sku, qty, unit, note, sort_order')
+          .eq('order_id', order.id)
+          .order('sort_order', { ascending: true });
+        if (fb.error) throw fb.error;
+        sourceLines = fb.data;
+      } else if (linesRes.error) {
+        throw linesRes.error;
+      }
+      sourceLines = sourceLines || [];
+
+      // 2. Compute a sensible default delivery date — tomorrow.
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const ymd = tomorrow.toISOString().slice(0, 10);
+
+      // 3. Insert the new draft order row
+      const newOrderPayload = {
+        vendor_id: order.vendor_id,
+        location: order.location,
+        delivery_date: ymd,
+        status: 'draft',
+        created_by:      NX.user && NX.user.id   ? NX.user.id   : null,
+        created_by_name: NX.user && NX.user.name ? NX.user.name : null,
+      };
+      const { data: newOrder, error: oErr } = await NX.sb.from('orders')
+        .insert(newOrderPayload).select('*').single();
+      if (oErr) throw oErr;
+
+      // 4. Copy lines into the new order
+      if (sourceLines.length) {
+        const newLines = sourceLines.map((l, i) => ({
+          order_id: newOrder.id,
+          item_id: l.item_id,
+          item_name: l.item_name,
+          house_name: l.house_name || null,
+          vendor_sku: l.vendor_sku,
+          qty: l.qty,
+          unit: l.unit,
+          note: l.note,
+          sort_order: i,
+        }));
+        let insRes = await NX.sb.from('order_lines').insert(newLines);
+        if (insRes.error && /house_name|column.*does not exist|schema cache/i.test(insRes.error.message || '')) {
+          const fb = newLines.map(r => { const { house_name, ...rest } = r; return rest; });
+          insRes = await NX.sb.from('order_lines').insert(fb);
+        }
+        if (insRes.error) throw insRes.error;
+      }
+
+      // 5. Open the new draft in the entry editor for review/edit
+      closeOrderDetail();
+      // Refresh state then open
+      if (initialized) {
+        recentOrders = await loadRecentOrders(activeLoc);
+        const vmap = {}; vendors.forEach(v => vmap[v.id] = v);
+        renderRecent(recentOrders, vmap);
+        renderVendors();
+      }
+      openExistingOrder(newOrder.id);
+      if (NX.toast) NX.toast(`Duplicated as draft for ${ymd}`, 'info', 2200);
+    } catch (e) {
+      console.error('[ordering] duplicateOrderAsDraft:', e);
+      if (NX.toast) NX.toast('Could not duplicate: ' + ((e && e.message) || ''), 'error', 4000);
+    }
   }
 
   /* Two-step archive with an explicit confirmation modal. The kebab menu
@@ -2169,15 +2436,172 @@ Thanks for your help sorting this out.`;
   /** Clear an outstanding issue once the user marks it resolved. */
   async function resolveOrderIssue(order) {
     if (!order || !NX.sb) return;
-    const update = { issue_at: null, issue_note: null };
-    const { error } = await NX.sb.from('orders').update(update).eq('id', order.id);
-    if (error) {
-      console.error('[ordering] resolveOrderIssue:', error);
-      if (NX.toast) NX.toast('Could not clear issue: ' + (error.message || ''), 'error');
-      return;
+    confirmResolveIssue(order);
+  }
+
+  /* Long-press revert flow: confirm modal explains what's about to
+     happen (status moves back, later timestamps clear), then applies
+     it. Reverting BACK PAST 'sent' also clears email_sent_at since
+     conceptually the order is no longer "sent" — it's a draft again.
+     Same for confirmed/delivered/closed. */
+  function confirmRevertTo(order, targetStatus) {
+    document.querySelector('.ord-confirm-overlay')?.remove();
+
+    const targetLabel = ORDER_LIFECYCLE_LABELS[targetStatus] || targetStatus;
+    const currentLabel = ORDER_LIFECYCLE_LABELS[order.status] || order.status;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'ord-confirm-overlay';
+    overlay.innerHTML = `
+      <div class="ord-confirm-backdrop"></div>
+      <div class="ord-confirm-modal" role="dialog" aria-label="Revert status">
+        <div class="ord-confirm-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="1 4 1 10 7 10"/>
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+          </svg>
+        </div>
+        <div class="ord-confirm-title">Revert to ${esc(targetLabel.toLowerCase())}?</div>
+        <div class="ord-confirm-body">
+          <div class="ord-confirm-line">Status will move from <strong>${esc(currentLabel)}</strong> back to <strong>${esc(targetLabel)}</strong>.</div>
+          <div class="ord-confirm-warn">Timestamps for the steps after ${esc(targetLabel.toLowerCase())} will clear. The order returns to that point in its lifecycle.</div>
+        </div>
+        <div class="ord-confirm-actions">
+          <button class="ord-confirm-cancel" type="button">Cancel</button>
+          <button class="ord-confirm-delete" type="button">Revert</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('.ord-confirm-backdrop').addEventListener('click', close);
+    overlay.querySelector('.ord-confirm-cancel').addEventListener('click', close);
+    overlay.querySelector('.ord-confirm-delete').addEventListener('click', async () => {
+      const btn = overlay.querySelector('.ord-confirm-delete');
+      btn.disabled = true;
+      btn.textContent = 'Reverting…';
+      try {
+        await revertOrderTo(order, targetStatus);
+        close();
+        if (NX.toast) NX.toast(`Reverted to ${targetLabel.toLowerCase()}`, 'info', 1800);
+      } catch (e) {
+        console.error('[ordering] revertOrderTo:', e);
+        btn.disabled = false;
+        btn.textContent = 'Revert';
+        if (NX.toast) NX.toast('Could not revert: ' + ((e && e.message) || ''), 'error', 3000);
+      }
+    });
+  }
+
+  async function revertOrderTo(order, targetStatus) {
+    if (!order || !NX.sb || !targetStatus) throw new Error('Missing order or target');
+    const targetIdx = ORDER_LIFECYCLE.indexOf(targetStatus);
+    if (targetIdx < 0) throw new Error('Invalid target status');
+
+    // Build the update: set status, clear timestamps for steps AFTER target.
+    // Map of status → timestamp column. Draft has no ts (it's the
+    // initial state), so it's not in the map but is handled by the index.
+    const STATUS_TS = {
+      sent:      'email_sent_at',
+      confirmed: 'confirmed_at',
+      delivered: 'delivered_at',
+      closed:    'closed_at',
+    };
+    const update = { status: targetStatus };
+    for (let i = targetIdx + 1; i < ORDER_LIFECYCLE.length; i++) {
+      const col = STATUS_TS[ORDER_LIFECYCLE[i]];
+      if (col) update[col] = null;
     }
+    const { error } = await NX.sb.from('orders').update(update).eq('id', order.id);
+    if (error) throw error;
     Object.assign(order, update);
-    if (NX.toast) NX.toast('Issue cleared', 'info', 1200);
+    // Refresh in-memory cache so list views update
+    if (initialized) {
+      try {
+        recentOrders = await loadRecentOrders(activeLoc);
+        const vmap = {}; vendors.forEach(v => vmap[v.id] = v);
+        renderRecent(recentOrders, vmap);
+        renderVendors();
+      } catch (_) {}
+    }
+    renderOrderDetail();
+  }
+
+  /* Modal: capture a resolution note on issue clearance. The original
+     issue_note shows in the modal as context so the user remembers what
+     was reported. The resolution note saves to issue_resolution_note
+     (via migration); if that column doesn't exist, the issue still clears
+     but the resolution note is dropped silently so legacy DBs keep
+     working. */
+  function confirmResolveIssue(order) {
+    document.querySelector('.ord-confirm-overlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'ord-confirm-overlay';
+    overlay.innerHTML = `
+      <div class="ord-confirm-backdrop"></div>
+      <div class="ord-confirm-modal" role="dialog" aria-label="Resolve issue">
+        <div class="ord-confirm-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        </div>
+        <div class="ord-confirm-title">Resolve issue</div>
+        <div class="ord-confirm-body">
+          ${order.issue_note ? `
+            <div class="ord-confirm-line">
+              <strong>Reported:</strong> ${esc(order.issue_note)}
+            </div>
+          ` : ''}
+          <div class="ord-confirm-sub">What was the resolution? Optional, but helps future you.</div>
+          <textarea class="ord-confirm-textarea" id="ordResolveNote" rows="3"
+            placeholder="e.g. Vendor delivered 4 cases instead of 6 — credited difference"></textarea>
+        </div>
+        <div class="ord-confirm-actions">
+          <button class="ord-confirm-cancel" type="button">Cancel</button>
+          <button class="ord-confirm-delete ord-confirm-resolve" type="button">Mark resolved</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('.ord-confirm-backdrop').addEventListener('click', close);
+    overlay.querySelector('.ord-confirm-cancel').addEventListener('click', close);
+    setTimeout(() => overlay.querySelector('#ordResolveNote')?.focus(), 100);
+    overlay.querySelector('.ord-confirm-resolve').addEventListener('click', async () => {
+      const noteEl = overlay.querySelector('#ordResolveNote');
+      const note = (noteEl && noteEl.value || '').trim();
+      const btn = overlay.querySelector('.ord-confirm-resolve');
+      btn.disabled = true;
+      btn.textContent = 'Resolving…';
+      try {
+        await applyIssueResolution(order, note);
+        close();
+        if (NX.toast) NX.toast('Issue cleared', 'info', 1200);
+      } catch (e) {
+        console.error('[ordering] applyIssueResolution:', e);
+        btn.disabled = false;
+        btn.textContent = 'Mark resolved';
+        if (NX.toast) NX.toast('Could not clear: ' + ((e && e.message) || ''), 'error', 3000);
+      }
+    });
+  }
+
+  async function applyIssueResolution(order, resolutionNote) {
+    const update = {
+      issue_at: null,
+      issue_note: null,
+      issue_resolved_at: new Date().toISOString(),
+      issue_resolution_note: resolutionNote || null,
+    };
+    let res = await NX.sb.from('orders').update(update).eq('id', order.id);
+    // Pre-migration: drop new columns and retry so it still clears
+    if (res.error && /issue_resolved_at|issue_resolution_note|column.*does not exist|schema cache/i.test(res.error.message || '')) {
+      const { issue_resolved_at, issue_resolution_note, ...legacy } = update;
+      res = await NX.sb.from('orders').update(legacy).eq('id', order.id);
+    }
+    if (res.error) throw res.error;
+    Object.assign(order, update);
     renderOrderDetail();
   }
 
@@ -2338,9 +2762,30 @@ Thanks for your help sorting this out.`;
     // remember which sections the user has collapsed during this session.
     if (!entryState.collapsedSections) entryState.collapsedSections = new Set();
 
+    // Par filter: "mine" (only items this location actually orders, via
+    // parHint) or "all" (full vendor catalog). Per-location preference
+    // sticks in localStorage so each restaurant remembers its own view.
+    const parFilterKey = `nexus.parFilter.${vendor.id}.${location}`;
+    if (!entryState.parFilter) {
+      entryState.parFilter = (typeof localStorage !== 'undefined' && localStorage.getItem(parFilterKey)) || 'mine';
+    }
+    const parFilter = entryState.parFilter;
+
+    // Determine which items to show. "mine" = parHint says we order this
+    // (any par configured) OR user has already typed a qty (don't hide
+    // active edits). "all" = full catalog.
+    const isMine = (item) => {
+      if (lines[item.id] && lines[item.id].qty > 0) return true;  // never hide an item the user is editing
+      const hint = parHintFor(item, delivery_date, location);
+      if (hint.disabled) return false;
+      return hint.qty != null;
+    };
+    const visibleCatalog = parFilter === 'mine' ? catalog.filter(isMine) : catalog;
+    const hiddenByFilter = catalog.length - visibleCatalog.length;
+
     // Group catalog by section (preserve sort_order within)
     const groups = new Map();
-    for (const it of catalog) {
+    for (const it of visibleCatalog) {
       const sec = it.section || '';
       if (!groups.has(sec)) groups.set(sec, []);
       groups.get(sec).push(it);
@@ -2367,9 +2812,75 @@ Thanks for your help sorting this out.`;
           <span class="ord-meta-label">Delivery</span>
           <input type="date" id="ordDeliveryDate" value="${esc(delivery_date || '')}" ${readOnly ? 'disabled' : ''}>
         </label>
+        ${(() => {
+          // Mismatch hint: only render when vendor has delivery_days
+          // configured AND the picked date isn't one of them. Silent
+          // when delivery_days is empty (no basis to flag) or when
+          // the date matches.
+          if (readOnly || !delivery_date) return '';
+          if (!Array.isArray(vendor.delivery_days) || !vendor.delivery_days.length) return '';
+          if (isVendorDeliveryDay(vendor, delivery_date)) return '';
+          const dayLbls = vendor.delivery_days.map(k => WEEKDAY_LBL[WEEKDAY_KEYS.indexOf(k)]).filter(Boolean).join(', ');
+          return `
+            <div class="ord-meta-warn">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <span>${esc(vendor.name)} usually delivers ${esc(dayLbls)}</span>
+            </div>
+          `;
+        })()}
+        ${(() => {
+          // Cutoff banner. Three states:
+          //   • > 4h until cutoff → quiet "send by X" reminder
+          //   • ≤ 4h until cutoff → emphasized "running out" banner
+          //   • past cutoff       → "cutoff passed" warning (still allows send)
+          if (readOnly || !delivery_date) return '';
+          const cutoff = vendorCutoffMoment(vendor, delivery_date);
+          if (!cutoff) return '';
+          const now = new Date();
+          const ms = cutoff.getTime() - now.getTime();
+          const cutoffStr = cutoff.toLocaleString([], {
+            weekday: 'short', month: 'short', day: 'numeric',
+            hour: 'numeric', minute: '2-digit', hour12: true
+          });
+          let cls = 'ord-meta-cutoff';
+          let body = '';
+          if (ms <= 0) {
+            cls += ' is-past';
+            body = `<strong>Past cutoff</strong> — ${esc(vendor.name)} typically stops accepting orders ${esc(cutoffStr)}`;
+          } else if (ms <= 4 * 3600 * 1000) {
+            cls += ' is-soon';
+            body = `<strong>${esc(fmtCountdown(ms))} until cutoff</strong> — send by ${esc(cutoffStr)}`;
+          } else {
+            body = `Cutoff in ${esc(fmtCountdown(ms))} — by ${esc(cutoffStr)}`;
+          }
+          return `
+            <div class="${cls}">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <span>${body}</span>
+            </div>
+          `;
+        })()}
       </div>
       <div class="ord-entry-search-wrap">
         <input type="search" class="ord-entry-search" id="ordEntrySearch" placeholder="Search items…" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="ord-entry-filter">
+        <button type="button" class="ord-entry-filter-pill${parFilter === 'mine' ? ' is-active' : ''}" data-filter="mine">
+          My items
+        </button>
+        <button type="button" class="ord-entry-filter-pill${parFilter === 'all' ? ' is-active' : ''}" data-filter="all">
+          All
+        </button>
+        ${parFilter === 'mine' && hiddenByFilter > 0 ? `
+          <span class="ord-entry-filter-hint">${hiddenByFilter} hidden — tap All to see full catalog</span>
+        ` : ''}
       </div>
       <div class="ord-entry-list" id="ordEntryList">
         ${sections.map(sec => {
@@ -2407,6 +2918,17 @@ Thanks for your help sorting this out.`;
     overlay.querySelector('.ord-entry-close').addEventListener('click', closeEntry);
     const addBtn = overlay.querySelector('#ordEntryAdd');
     if (addBtn) addBtn.addEventListener('click', () => openQuickAddItem(vendor));
+
+    // Par filter pills — set the mode + persist per-location preference
+    overlay.querySelectorAll('[data-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.filter;
+        if (mode === entryState.parFilter) return;
+        entryState.parFilter = mode;
+        try { localStorage.setItem(parFilterKey, mode); } catch (_) {}
+        renderEntryItems();
+      });
+    });
     overlay.querySelector('#ordDeliveryDate').addEventListener('change', e => {
       entryState.delivery_date = e.target.value;
       renderEntryItems();
@@ -3044,6 +3566,22 @@ Thanks for your help sorting this out.`;
       return;
     }
 
+    // Cutoff check — soft block. If the cutoff for this delivery has
+    // passed, surface a confirm so the user explicitly acknowledges
+    // they're sending late. Vendors do accept late orders sometimes,
+    // so we don't hard-block, just slow them down for one extra tap.
+    const cutoff = vendorCutoffMoment(vendor, delivery_date);
+    if (cutoff && cutoff.getTime() <= Date.now()) {
+      const cutoffStr = cutoff.toLocaleString([], {
+        weekday: 'short', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true
+      });
+      const ok = confirm(
+        `${vendor.name}'s order cutoff was ${cutoffStr}. They may not accept this for ${fmtDateLong(delivery_date)}. Send anyway?`
+      );
+      if (!ok) return;
+    }
+
     const subject = buildSubject(vendor, location, delivery_date);
     const body    = buildBody(vendor, location, delivery_date, lines, notes);
 
@@ -3107,11 +3645,84 @@ Thanks for your help sorting this out.`;
     const url = buildMailtoUrl(vendor.email, subject, body, ccList, bccList);
     window.location.href = url;
 
+    // Capture the order ID before closeEntry() clears entryState
+    const sentOrderId = entryState && entryState.draftOrderId;
     setTimeout(() => {
       closeEntry();
       show().catch(() => {});
-      if (NX.toast) NX.toast('Order sent — check your mail app', 'info', 3000);
+      // Undo banner with 10s window — handles "wrong email", "missed item",
+      // "wrong delivery date" mistakes that you only realize once the
+      // mail app pops up. Tapping Undo reverts the order to draft and
+      // clears email_sent_at; the email might have already been sent
+      // from the user's mail app, but at least the NEXUS state matches
+      // the user's intent so they can reopen the draft and try again.
+      if (sentOrderId) showUndoSendBanner(sentOrderId, vendor.name);
+      else if (NX.toast) NX.toast('Order sent — check your mail app', 'info', 3000);
     }, 600);
+  }
+
+  /* Snackbar-style banner that slides up from bottom-right with a
+     countdown + Undo button. Lives 10 seconds then auto-dismisses.
+     Stacks with NX.toast (which doesn't support actions) — this is
+     a separate UI element since revert is a deliberate action that
+     needs its own affordance. */
+  function showUndoSendBanner(orderId, vendorName) {
+    document.querySelector('.ord-undo-banner')?.remove();
+    const banner = document.createElement('div');
+    banner.className = 'ord-undo-banner';
+    banner.innerHTML = `
+      <div class="ord-undo-banner-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </div>
+      <div class="ord-undo-banner-text">
+        <div class="ord-undo-banner-title">Sent to ${esc(vendorName)}</div>
+        <div class="ord-undo-banner-sub" data-undo-countdown>10s to undo</div>
+      </div>
+      <button class="ord-undo-banner-btn" type="button">Undo</button>
+    `;
+    document.body.appendChild(banner);
+    requestAnimationFrame(() => banner.classList.add('is-shown'));
+
+    let remaining = 10;
+    const sub = banner.querySelector('[data-undo-countdown]');
+    const tick = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) { clearInterval(tick); return; }
+      if (sub) sub.textContent = `${remaining}s to undo`;
+    }, 1000);
+    const dismissTimer = setTimeout(() => {
+      banner.classList.remove('is-shown');
+      setTimeout(() => banner.remove(), 250);
+      clearInterval(tick);
+    }, 10000);
+
+    banner.querySelector('.ord-undo-banner-btn').addEventListener('click', async () => {
+      clearTimeout(dismissTimer);
+      clearInterval(tick);
+      banner.querySelector('.ord-undo-banner-btn').disabled = true;
+      banner.querySelector('.ord-undo-banner-btn').textContent = 'Undoing…';
+      try {
+        const update = { status: 'draft', email_sent_at: null };
+        const { error } = await NX.sb.from('orders').update(update).eq('id', orderId);
+        if (error) throw error;
+        if (initialized) {
+          recentOrders = await loadRecentOrders(activeLoc);
+          const vmap = {}; vendors.forEach(v => vmap[v.id] = v);
+          renderRecent(recentOrders, vmap);
+          renderVendors();
+        }
+        banner.classList.remove('is-shown');
+        setTimeout(() => banner.remove(), 250);
+        if (NX.toast) NX.toast('Reverted to draft. Email may have already gone — reopen and resend if needed.', 'warn', 4000);
+      } catch (e) {
+        console.error('[ordering] undo send:', e);
+        banner.querySelector('.ord-undo-banner-btn').disabled = false;
+        banner.querySelector('.ord-undo-banner-btn').textContent = 'Undo';
+        if (NX.toast) NX.toast('Could not undo: ' + ((e && e.message) || ''), 'error', 3000);
+      }
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -3239,7 +3850,7 @@ Thanks for your help sorting this out.`;
       `,
     });
 
-    // ─── Schedule (delivery days) ──
+    // ─── Schedule (delivery days + cutoff) ──
     cards.push({
       key: 'schedule',
       title: 'Schedule',
@@ -3252,6 +3863,20 @@ Thanks for your help sorting this out.`;
               <button type="button" class="rx-day-pill${(v.delivery_days || []).includes(k) ? ' active' : ''}" data-day="${esc(k)}">${esc(WEEKDAY_LBL[i])}</button>
             `).join('')}
           </div>
+        </div>
+        <div class="rx-form-field">
+          <label class="rx-form-label">Order cutoff <span class="rx-form-hint">— last time you can send before they stop accepting</span></label>
+          <div class="rx-cutoff-row">
+            <input type="time" class="rx-form-input rx-cutoff-time" data-rx-cutoff-time value="${esc(v.cutoff_time || '')}">
+            <span class="rx-cutoff-conn">on</span>
+            <select class="rx-form-input rx-cutoff-days" data-rx-cutoff-days>
+              <option value="0"${(v.cutoff_days_before === 0) ? ' selected' : ''}>delivery day</option>
+              <option value="1"${(v.cutoff_days_before == null || v.cutoff_days_before === 1) ? ' selected' : ''}>day before</option>
+              <option value="2"${(v.cutoff_days_before === 2) ? ' selected' : ''}>2 days before</option>
+              <option value="3"${(v.cutoff_days_before === 3) ? ' selected' : ''}>3 days before</option>
+            </select>
+          </div>
+          <div class="rx-form-hint">Leave time blank if this vendor has no firm cutoff.</div>
         </div>
       `,
     });
@@ -3496,6 +4121,16 @@ Thanks for your help sorting this out.`;
         const days = Array.from(overlay.querySelectorAll('[data-rx-days] .rx-day-pill.active'))
                           .map(b => b.dataset.day);
 
+        // Cutoff fields. Empty time = no cutoff configured (vendor with
+        // flexible deadlines). Days defaults to "1 day before" since
+        // that's the common pattern (orders by 4pm for next-day delivery).
+        const cutoffTimeRaw = ((overlay.querySelector('[data-rx-cutoff-time]') || {}).value || '').trim();
+        const cutoffDaysRaw = ((overlay.querySelector('[data-rx-cutoff-days]') || {}).value || '').trim();
+        const cutoffTime = cutoffTimeRaw || null;
+        const cutoffDaysBefore = cutoffTime
+          ? (cutoffDaysRaw === '' ? 1 : parseInt(cutoffDaysRaw, 10))
+          : null;
+
         // Build alt_emails from the three chip groups
         const altEmails = [];
         for (const e of (state.chips.cc  || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'cc'  }); }
@@ -3522,12 +4157,14 @@ Thanks for your help sorting this out.`;
           avatar_hue: id.avatarHue,
           pinned: id.pinned,
           delivery_days: days,
+          cutoff_time: cutoffTime,
+          cutoff_days_before: cutoffDaysBefore,
           subject_template: subject.trim() || null,
           body_template:    body.trim()    || null,
           notes:            notes.trim()   || null,
         };
 
-        const optionalCols = ['image_url', 'avatar_hue', 'pinned', 'alt_emails'];
+        const optionalCols = ['image_url', 'avatar_hue', 'pinned', 'alt_emails', 'cutoff_time', 'cutoff_days_before'];
         const stripOptionalCols = (p) => {
           const o = { ...p };
           for (const k of optionalCols) delete o[k];
@@ -4806,39 +5443,24 @@ Thanks for your help sorting this out.`;
     const wb = window.XLSX.utils.book_new();
 
     // ── Items sheet ─────────────────────────────────────────────────
-    // Layout (top-down):
-    //   Row 1: NEXUS title banner
-    //   Row 2: vendor name
-    //   Row 3: brief instruction line
-    //   Row 4: blank
-    //   Row 5: column headers (the ones the importer reads)
-    //   Row 6: blank (so headers visually breathe)
-    //   Row 7+: data
-    //
-    // The importer's parseCatalogFile() looks for the header row by
-    // scanning for one with both "item|product" and "sku|name|description"
-    // — so it doesn't matter that the data starts on row 7 instead of
-    // row 2. Round-trips clean.
-    const headers = ['Section', 'Item Name', 'Vendor SKU', 'Unit', 'Default Par', 'Note'];
-    const titleBanner   = ['NEXUS Vendor Catalog', '', '', '', '', ''];
-    const vendorBanner  = [`For: ${vendor.name || 'Unknown vendor'}`, '', '', '', '', ''];
+    const headers = ['Section', 'Item Name', 'Team Name', 'Vendor SKU', 'Unit', 'Default Par', 'Note'];
+    const titleBanner   = ['NEXUS Vendor Catalog', '', '', '', '', '', ''];
+    const vendorBanner  = [`For: ${vendor.name || 'Unknown vendor'}`, '', '', '', '', '', ''];
     const instrBanner   = [
       generateBlank
         ? 'Fill in below. Re-upload via Catalog → Import. Items match by Vendor SKU.'
         : `Current catalog snapshot. Edit and re-upload to update — matches by SKU.`,
-      '', '', '', '', ''
+      '', '', '', '', '', ''
     ];
 
     let dataRows;
     if (generateBlank) {
       dataRows = [
-        ['Produce', 'Romaine Hearts, 24ct', 'PFG-12345', '1 CS', 2, 'Tribe — pre-washed'],
-        ['Produce', 'Tomatoes, slicing',     'PFG-67890', 'lb',  30, ''],
-        ['Dairy',   'Whole Milk',            'PFG-22100', '1 GA', 4, 'Lactaid alt available'],
+        ['Produce', 'Romaine Hearts, 24ct', 'Romaine',    'PFG-12345', '1 CS', 2, 'Tribe — pre-washed'],
+        ['Produce', 'Tomatoes, slicing',     '',           'PFG-67890', 'lb',  30, ''],
+        ['Dairy',   'Whole Milk',            'Whole Milk', 'PFG-22100', '1 GA', 4, 'Lactaid alt available'],
       ];
     } else {
-      // Sort by section then sort_order so the export matches what the
-      // user sees in the editor — easier to scan and edit.
       const sorted = items.slice().sort((a, b) => {
         const sa = (a.section || '').toLowerCase();
         const sb = (b.section || '').toLowerCase();
@@ -4848,6 +5470,7 @@ Thanks for your help sorting this out.`;
       dataRows = sorted.map(it => [
         it.section || '',
         it.item_name || '',
+        it.house_name || '',
         it.vendor_sku || '',
         it.unit || '',
         it.default_par_qty != null ? it.default_par_qty : '',
@@ -4872,9 +5495,9 @@ Thanks for your help sorting this out.`;
     // column widths + merged cells DO survive — and those are the four
     // visual cues that matter most for "this looks polished."
     itemsSheet['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }, // title row
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } }, // vendor row
-      { s: { r: 2, c: 0 }, e: { r: 2, c: 5 } }, // instruction row
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } }, // title row
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } }, // vendor row
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 6 } }, // instruction row
     ];
     // Cell styles via the .s property — supported by recent SheetJS
     // builds and gracefully ignored otherwise.
@@ -4886,7 +5509,7 @@ Thanks for your help sorting this out.`;
     setStyle('A2', { font: { name: 'Arial', sz: 11, italic: true, color: { rgb: '6B6258' } } });
     setStyle('A3', { font: { name: 'Arial', sz: 10, italic: true, color: { rgb: '8B6914' } } });
     // Header row at index 4 (zero-based), so cells A5..F5
-    ['A5','B5','C5','D5','E5','F5'].forEach(addr => setStyle(addr, {
+    ['A5','B5','C5','D5','E5','F5','G5'].forEach(addr => setStyle(addr, {
       font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '1A1408' } },
       fill: { fgColor: { rgb: 'D4A44E' }, patternType: 'solid' },
       alignment: { horizontal: 'left', vertical: 'center' },
@@ -4894,7 +5517,7 @@ Thanks for your help sorting this out.`;
     // Sample rows in italic gray when blank template
     if (generateBlank) {
       [7, 8, 9].forEach(rowNum => {
-        ['A','B','C','D','E','F'].forEach(col => {
+        ['A','B','C','D','E','F','G'].forEach(col => {
           setStyle(`${col}${rowNum}`, {
             font: { name: 'Arial', sz: 10, italic: true, color: { rgb: '999999' } }
           });
@@ -4904,7 +5527,13 @@ Thanks for your help sorting this out.`;
 
     // Column widths so the file opens nicely in Excel/Google Sheets
     itemsSheet['!cols'] = [
-      { wch: 22 }, { wch: 36 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 32 },
+      { wch: 22 },  // Section
+      { wch: 32 },  // Item Name
+      { wch: 22 },  // Team Name
+      { wch: 16 },  // SKU
+      { wch: 14 },  // Unit
+      { wch: 12 },  // Default Par
+      { wch: 32 },  // Note
     ];
     // Row heights for the title block
     itemsSheet['!rows'] = [
@@ -4931,7 +5560,8 @@ Thanks for your help sorting this out.`;
       ['COLUMN REFERENCE', '', ''],
       ['Column',     'Required?',   'What it means'],
       ['Section',     'Required',    'Group header. Items group by this. Examples: Produce, Dairy, Disposables.'],
-      ['Item Name',   'Required',    "What you'd write on a paper order. Keep concise."],
+      ['Item Name',   'Required',    "Vendor's name — what they see in the email."],
+      ['Team Name',   'Optional',    "Your team's nickname for the item. Shown in the order screen instead of the vendor name. Vendor never sees this."],
       ['Vendor SKU',  'Recommended', "Vendor's product code. Used to match items on re-import — without it, every re-import duplicates."],
       ['Unit',        'Required',    'Pack size: case, lb, 24/12 OZ, etc.'],
       ['Default Par', 'Optional',    'Default order quantity. Per-location pars set inside NEXUS.'],
@@ -4956,7 +5586,7 @@ Thanks for your help sorting this out.`;
     setStyleOn(instSheet, 'A3', { font: { name: 'Arial', sz: 10, italic: true, color: { rgb: '8B6914' } } });
     setStyleOn(instSheet, 'A5',  { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '8B6914' } } });
     setStyleOn(instSheet, 'A11', { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '8B6914' } } });
-    setStyleOn(instSheet, 'A20', { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '8B6914' } } });
+    setStyleOn(instSheet, 'A21', { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '8B6914' } } });
     // Column-reference table header row
     ['A12','B12','C12'].forEach(addr => setStyleOn(instSheet, addr, {
       font: { name: 'Arial', sz: 10, bold: true, color: { rgb: '1A1408' } },
@@ -5179,11 +5809,25 @@ Thanks for your help sorting this out.`;
     const idx = {
       section:    colIdx(['section', 'category', 'group', 'productclass']),
       item_name:  colIdx(['itemname', 'item', 'product', 'description', 'name']),
+      house_name: colIdx(['teamname', 'housename', 'displayname', 'ourname', 'nickname']),
       vendor_sku: colIdx(['sku', 'productcode', 'itemcode', 'productnumber', 'productid']),
       unit:       colIdx(['unit', 'pack', 'size', 'uom']),
       default_par_qty: colIdx(['par', 'qty', 'quantity']),
       note:       colIdx(['note', 'comment', 'brand']),
     };
+    // Item Name and Team Name use overlapping keywords ("name") — if the
+    // header has both columns, item_name will match first and house_name's
+    // resolver might land on the wrong column. Rerun house_name's resolver
+    // EXCLUDING the column item_name claimed.
+    if (idx.item_name >= 0 && idx.house_name === idx.item_name) {
+      idx.house_name = -1;
+      for (let i = 0; i < headers.length; i++) {
+        if (i === idx.item_name) continue;
+        if (['teamname','housename','displayname','ourname','nickname'].some(m => headers[i].includes(m))) {
+          idx.house_name = i; break;
+        }
+      }
+    }
     if (idx.item_name === -1 && idx.vendor_sku === -1) {
       throw new Error('No Item Name or Vendor SKU column found');
     }
@@ -5208,6 +5852,7 @@ Thanks for your help sorting this out.`;
       rows.push({
         section,
         item_name: item_name || vendor_sku,
+        house_name: get('house_name') || null,
         vendor_sku: vendor_sku || null,
         unit: get('unit') || null,
         default_par_qty: par,
@@ -5254,10 +5899,11 @@ Thanks for your help sorting this out.`;
             matchedIds.add(m.id);
             // Was anything actually different?
             const changed = (
-              (m.item_name || '') !== (r.item_name || '') ||
-              (m.section || '')   !== (r.section || '') ||
-              (m.unit || '')      !== (r.unit || '') ||
-              (m.note || '')      !== (r.note || '') ||
+              (m.item_name || '')  !== (r.item_name || '')  ||
+              (m.house_name || '') !== (r.house_name || '') ||
+              (m.section || '')    !== (r.section || '')    ||
+              (m.unit || '')       !== (r.unit || '')       ||
+              (m.note || '')       !== (r.note || '')       ||
               ((m.vendor_sku || '') !== (r.vendor_sku || ''))
             );
             if (changed) updates.push({ id: m.id, ...r });
@@ -5385,15 +6031,21 @@ Thanks for your help sorting this out.`;
     // 2) Update (one row at a time to keep error messages traceable)
     for (const u of updates) {
       try {
-        const { error } = await NX.sb.from('order_guide_items').update({
+        const fullPayload = {
           item_name: u.item_name,
+          house_name: u.house_name || null,
           vendor_sku: u.vendor_sku,
           section: u.section,
           unit: u.unit,
           note: u.note,
           archived: false,
-        }).eq('id', u.id);
-        if (error) errors.push(`update ${u.item_name}: ${error.message}`);
+        };
+        let res = await NX.sb.from('order_guide_items').update(fullPayload).eq('id', u.id);
+        if (res.error && /house_name|column.*does not exist|schema cache/i.test(res.error.message || '')) {
+          const { house_name, ...fb } = fullPayload;
+          res = await NX.sb.from('order_guide_items').update(fb).eq('id', u.id);
+        }
+        if (res.error) errors.push(`update ${u.item_name}: ${res.error.message}`);
       } catch (e) { errors.push(`update ${u.item_name}: ${e.message}`); }
     }
 
@@ -5402,6 +6054,7 @@ Thanks for your help sorting this out.`;
       const rows = inserts.map((r, i) => ({
         vendor_id: vendor.id,
         item_name: r.item_name,
+        house_name: r.house_name || null,
         vendor_sku: r.vendor_sku,
         section: r.section,
         unit: r.unit,
@@ -5410,13 +6063,13 @@ Thanks for your help sorting this out.`;
         sort_order: maxSort + 10 + (i * 10),
         archived: false,
       }));
-      // Some columns may not exist on the schema (note, default_par_qty
-      // are older additions). Retry without them on column-missing
-      // errors so the import still mostly works.
+      // Some columns may not exist on the schema (note, default_par_qty,
+      // house_name are newer additions). Retry without them on column-
+      // missing errors so the import still mostly works pre-migration.
       let res = await NX.sb.from('order_guide_items').insert(rows);
-      if (res.error && /column.*does not exist/i.test(res.error.message || '')) {
+      if (res.error && /column.*does not exist|schema cache/i.test(res.error.message || '')) {
         const safe = rows.map(r => {
-          const { note, default_par_qty, ...rest } = r;
+          const { note, default_par_qty, house_name, ...rest } = r;
           return rest;
         });
         res = await NX.sb.from('order_guide_items').insert(safe);
