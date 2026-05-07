@@ -5740,3 +5740,162 @@ body.ord-overlay-open .bottom-nav {
 .ord-catalog-overlay .ved-item-row.is-press-fired {
   background: var(--nx-gold-soft, var(--nx-gold-faint));
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Order kebab — danger action + confirm modal
+   ─────────────────────────────────────────────────────────────────────
+   Adds a destructive "Delete order" item to the existing kebab sheet,
+   plus a centered confirm modal that surfaces before the actual delete
+   call. The two-step gate is deliberate — the kebab itself is one tap
+   so we want a meaningful pause before we wipe the row.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.ord-vmenu-action.ord-vmenu-action-danger {
+  /* Same shape as the regular menu item but with a red wash so it reads
+     as destructive on first glance. We don't make the entire button
+     red-filled — that's screaming. A subtle tint + red text/icon is
+     enough; the confirm modal does the heavy lifting on intent. */
+}
+.ord-vmenu-action.ord-vmenu-action-danger .ord-vmenu-action-title {
+  color: #d35454;                                  /* warm red, not the cyber-red */
+}
+.ord-vmenu-action.ord-vmenu-action-danger:hover,
+.ord-vmenu-action.ord-vmenu-action-danger:active {
+  background: rgba(211, 84, 84, 0.10);
+}
+[data-theme="light"] .ord-vmenu-action.ord-vmenu-action-danger .ord-vmenu-action-title {
+  color: #b8423f;
+}
+[data-theme="light"] .ord-vmenu-action.ord-vmenu-action-danger:hover,
+[data-theme="light"] .ord-vmenu-action.ord-vmenu-action-danger:active {
+  background: rgba(184, 66, 63, 0.08);
+}
+
+/* Confirm modal — centered, focused on the destructive choice. The
+   Cancel button is the visually-prominent one (gold-lined), the
+   Delete button is red-filled and second so the user has to reach
+   for it. Both are full-width on mobile for big tap targets. */
+.ord-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;                                    /* above kebab sheet (80) and engine overlay (300) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: ord-confirm-fade .15s ease;
+}
+@keyframes ord-confirm-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.ord-confirm-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.ord-confirm-modal {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  background: var(--nx-surface-solid, var(--surface));
+  border: 1px solid rgba(211, 84, 84, 0.32);      /* red border telegraphs danger */
+  border-radius: 16px;
+  padding: 22px 22px 18px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  animation: ord-confirm-pop .22s cubic-bezier(.2, .9, .3, 1);
+}
+@keyframes ord-confirm-pop {
+  from { transform: scale(0.92); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+.ord-confirm-icon {
+  width: 48px; height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(211, 84, 84, 0.12);
+  border-radius: 50%;
+  color: #d35454;
+  margin-bottom: 14px;
+}
+.ord-confirm-title {
+  font-family: 'Outfit', 'Libre Franklin', system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--nx-text, var(--text));
+  margin-bottom: 12px;
+}
+.ord-confirm-body {
+  width: 100%;
+  margin-bottom: 18px;
+}
+.ord-confirm-line {
+  font-size: 14px;
+  color: var(--nx-text, var(--text));
+  margin-bottom: 4px;
+}
+.ord-confirm-line strong {
+  font-weight: 600;
+}
+.ord-confirm-sub {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--nx-faint, var(--muted));
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.ord-confirm-warn {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--nx-faint, var(--muted));
+  padding: 10px 12px;
+  background: var(--nx-gold-tint, rgba(0, 0, 0, 0.15));
+  border-radius: 8px;
+}
+.ord-confirm-actions {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+}
+.ord-confirm-cancel,
+.ord-confirm-delete {
+  flex: 1;
+  height: 46px;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .12s ease, border-color .12s ease;
+}
+.ord-confirm-cancel {
+  background: transparent;
+  border: 1px solid var(--nx-gold-line, var(--border));
+  color: var(--nx-text, var(--text));
+}
+.ord-confirm-cancel:hover {
+  background: var(--nx-gold-faint);
+  border-color: var(--nx-gold);
+}
+.ord-confirm-delete {
+  background: #d35454;
+  border: 1px solid #d35454;
+  color: #fff;
+}
+.ord-confirm-delete:hover {
+  background: #c14545;
+  border-color: #c14545;
+}
+.ord-confirm-delete:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
