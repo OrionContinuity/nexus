@@ -2772,6 +2772,24 @@ Thanks for your help sorting this out.`;
           return false;
         }
 
+        // ─── Auto-commit ANY pending chip input values ────────────────
+        // The user might have typed an email and tapped Save WITHOUT
+        // first pressing Enter or the Add button. Without this rescue,
+        // that email vanishes silently. Walk every visible chip input;
+        // if the value is non-empty + valid + not already in state, push
+        // it. This is the single biggest source of "CC didn't save."
+        const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        ['cc', 'bcc', 'alt'].forEach(kind => {
+          const inp = overlay.querySelector(`[data-rx-chip-input="${kind}"]`);
+          if (!inp) return;
+          const v = (inp.value || '').trim();
+          if (!v) return;
+          if (!emailRe.test(v)) return;
+          state.chips[kind] = state.chips[kind] || [];
+          if (state.chips[kind].includes(v)) return;
+          state.chips[kind].push(v);
+        });
+
         const email = (overlay.querySelector('[data-rx-vendor-email]') || {}).value || '';
         const subject = (overlay.querySelector('[data-rx-subject]') || {}).value || '';
         const body    = (overlay.querySelector('[data-rx-body]')    || {}).value || '';
@@ -2784,6 +2802,18 @@ Thanks for your help sorting this out.`;
         for (const e of (state.chips.cc  || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'cc'  }); }
         for (const e of (state.chips.bcc || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'bcc' }); }
         for (const e of (state.chips.alt || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'alt' }); }
+
+        // Diagnostic — surface exactly what we're about to save so we
+        // can see whether CC values reached this point. If the toast
+        // shows "0 CC" but you typed CCs, the bug is upstream (input
+        // never made it into state). If it shows the right counts but
+        // the data doesn't persist, the bug is downstream (DB).
+        const ccCount = (state.chips.cc || []).length;
+        const bccCount = (state.chips.bcc || []).length;
+        console.info('[ordering] saveVendor about to persist', {
+          ccCount, bccCount, altCount: (state.chips.alt || []).length,
+          alt_emails: altEmails,
+        });
 
         const payload = {
           name: id.name,
@@ -2808,12 +2838,14 @@ Thanks for your help sorting this out.`;
           const msg = (err && (err.message || err.toString())) || '';
           return /column|schema|does not exist|could not find/i.test(msg);
         };
+        let altEmailsStripped = false;
 
         try {
           if (isNew) {
             let res = await NX.sb.from('order_vendors').insert(payload).select('*').single();
             if (res.error && isMissingColumnError(res.error)) {
-              console.warn('[ordering] saveVendor insert: retry without new columns');
+              console.warn('[ordering] saveVendor insert: retry without new columns', res.error);
+              altEmailsStripped = true;
               res = await NX.sb.from('order_vendors').insert(stripOptionalCols(payload)).select('*').single();
             }
             if (res.error) throw res.error;
@@ -2823,16 +2855,34 @@ Thanks for your help sorting this out.`;
           } else {
             const vendorId = v.id;
             if (!vendorId) throw new Error('Missing vendor.id — cannot update');
-            let res = await NX.sb.from('order_vendors').update(payload).eq('id', vendorId);
+            // .select('*') so we get the saved row back; without it Supabase
+            // doesn't return data, and we can't verify alt_emails persisted.
+            let res = await NX.sb.from('order_vendors').update(payload).eq('id', vendorId).select('*').single();
             if (res.error && isMissingColumnError(res.error)) {
-              console.warn('[ordering] saveVendor update: retry without new columns');
-              res = await NX.sb.from('order_vendors').update(stripOptionalCols(payload)).eq('id', vendorId);
+              console.warn('[ordering] saveVendor update: retry without new columns', res.error);
+              altEmailsStripped = true;
+              res = await NX.sb.from('order_vendors').update(stripOptionalCols(payload)).eq('id', vendorId).select('*').single();
             }
             if (res.error) throw res.error;
             const cached = vendors.find(x => x.id === vendorId);
-            if (cached) Object.assign(cached, payload);
+            if (cached) Object.assign(cached, res.data || payload);
+            // Verify what came back. If we sent CCs but the saved row has
+            // no alt_emails, something's wrong — surface it.
+            if (altEmails.length && (!res.data || res.data.alt_emails == null) && !altEmailsStripped) {
+              console.warn('[ordering] saveVendor: sent', altEmails.length, 'alt_emails but server returned null', res.data);
+            }
           }
-          if (NX.toast) NX.toast('Saved', 'info', 1200);
+          if (altEmailsStripped && (ccCount || bccCount || (state.chips.alt || []).length)) {
+            // The DB doesn't have an alt_emails column. CC/BCC/Other
+            // were silently dropped. Tell the user what happened.
+            if (NX.toast) NX.toast('Saved name + email, but CC/BCC could not save — order_vendors.alt_emails column missing in DB', 'error', 5000);
+          } else if (NX.toast) {
+            const parts = [];
+            if (ccCount) parts.push(`${ccCount} CC`);
+            if (bccCount) parts.push(`${bccCount} BCC`);
+            const suffix = parts.length ? ` (${parts.join(', ')})` : '';
+            NX.toast('Saved' + suffix, 'info', 1400);
+          }
           renderVendors();
           return true;     // engine closes the overlay
         } catch (err) {
