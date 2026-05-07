@@ -626,18 +626,42 @@ async function openDetail(id) {
   // review). We fold pending logs into the timeline so they're
   // discoverable — admin can approve/reject inline instead of
   // hunting for a hidden review dashboard.
-  const [partsRes, maintRes, attachRes, customRes, pendingRes] = await Promise.all([
+  // Also: if equipment has a service_contractor_node_id, pull the
+  // contractor record so the overview can show "SERVICED BY" with
+  // their specialty tags and template status. Avoids a second round
+  // trip after the modal renders.
+  const [partsRes, maintRes, attachRes, customRes, pendingRes, contractorRes] = await Promise.all([
     NX.sb.from('equipment_parts').select('*').eq('equipment_id', id).order('assembly_path'),
     NX.sb.from('equipment_maintenance').select('*').eq('equipment_id', id).order('event_date', { ascending: false }),
     NX.sb.from('equipment_attachments').select('*').eq('equipment_id', id).order('created_at', { ascending: false }),
     NX.sb.from('equipment_custom_fields').select('*').eq('equipment_id', id).order('created_at'),
     NX.sb.from('pm_logs').select('*').eq('equipment_id', id).eq('review_status', 'pending').order('submitted_at', { ascending: false }),
+    eq.service_contractor_node_id
+      ? NX.sb.from('nodes')
+          .select('id, name, links, notes, tags, subject_template, body_template')
+          .eq('id', eq.service_contractor_node_id)
+          .maybeSingle()
+          .then(r => {
+            // Graceful fallback if the template columns don't exist yet
+            if (r.error && /column.*(subject_template|body_template).*does not exist/i.test(r.error.message || '')) {
+              return NX.sb.from('nodes')
+                .select('id, name, links, notes, tags')
+                .eq('id', eq.service_contractor_node_id)
+                .maybeSingle();
+            }
+            return r;
+          })
+      : Promise.resolve({ data: null }),
   ]);
   const parts        = partsRes.data   || [];
   const maintenance  = maintRes.data   || [];
   const attachments  = attachRes.data  || [];
   const customFields = customRes.data  || [];
   const pendingLogs  = pendingRes.data || [];
+  // Attach the contractor record to eq so renderOverview can use it.
+  // Don't store on the cached `equipment` array — that's shared state
+  // and other views shouldn't see this hydration.
+  eq._contractor = contractorRes && contractorRes.data || null;
 
   const modal = document.getElementById('eqModal') || createDetailModal();
   modal.innerHTML = `
@@ -928,8 +952,61 @@ function renderOverview(eq, attachments, customFields) {
   const linkAttachments = attachments.filter(a => a.type === 'link' || a.external_url);
   const hasLinks = eq.manual_source_url || eq.manual_url || linkAttachments.length;
 
+  // ── SERVICED BY block ──────────────────────────────────────────
+  // Surfaces the assigned contractor + their specialty tags ("duties")
+  // right at the top of the overview. The relationship is stored as a
+  // FK (service_contractor_node_id) — this block hydrates from the
+  // contractor record fetched alongside equipment in openDetail.
+  // When no contractor is assigned, render an empty CTA pointing to
+  // Edit Everything → Links so the user knows where to set it up.
+  let servicedByHTML = '';
+  const c = eq._contractor;
+  if (c) {
+    const phone = extractContractorPhone(c) || eq.service_contractor_phone || '';
+    const tags  = Array.isArray(c.tags) ? c.tags.filter(Boolean) : [];
+    const hasTemplate = !!(c.subject_template || c.body_template);
+    const emails = extractContractorEmails(c);
+    const hasEmail = emails && emails.length > 0;
+    servicedByHTML = `
+      <div class="eq-serviced-by">
+        <div class="eq-serviced-by-head">
+          <div class="eq-serviced-by-label">Serviced by</div>
+          <div class="eq-serviced-by-name">${esc(c.name || 'Unnamed contractor')}</div>
+        </div>
+        ${tags.length ? `
+          <div class="eq-serviced-by-tags">
+            ${tags.slice(0, 6).map(t => `<span class="eq-serviced-by-tag">${esc(t)}</span>`).join('')}
+          </div>
+        ` : ''}
+        <div class="eq-serviced-by-actions">
+          ${phone ? `
+            <a href="tel:${escAttr(phone)}" class="eq-serviced-by-call">
+              ${uiSvg('phone', '14px')}<span>${esc(phone)}</span>
+            </a>
+          ` : `<span class="eq-serviced-by-nophone">No phone on file</span>`}
+        </div>
+        <div class="eq-serviced-by-status">
+          <span class="eq-serviced-by-pip ${hasEmail ? 'is-on' : ''}" title="Email on file">
+            ${uiSvg('mail', '11px')}<span>${hasEmail ? 'Email ready' : 'No email'}</span>
+          </span>
+          <span class="eq-serviced-by-pip ${hasTemplate ? 'is-on' : ''}" title="Custom email template configured">
+            ${uiSvg('document', '11px')}<span>${hasTemplate ? 'Template set' : 'Default template'}</span>
+          </span>
+        </div>
+      </div>
+    `;
+  } else {
+    servicedByHTML = `
+      <div class="eq-serviced-by eq-serviced-by-empty">
+        <div class="eq-serviced-by-empty-msg">No service contractor assigned.</div>
+        <div class="eq-serviced-by-empty-hint">Edit Everything → Links → Service Contact</div>
+      </div>
+    `;
+  }
+
   return `
     ${eq.photo_url ? `<img src="${eq.photo_url}" class="eq-detail-photo">` : ''}
+    ${servicedByHTML}
     <div class="eq-fields">
       <div class="eq-field"><label>Manufacturer</label><div>${esc(eq.manufacturer || '—')}</div></div>
       <div class="eq-field"><label>Model</label><div>${esc(eq.model || '—')}</div></div>
