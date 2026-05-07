@@ -2297,7 +2297,17 @@ html {
 /* ── overlay shell ───────────────────────────────────────────────────── */
 .rx-overlay {
   position: fixed;
+  /* Use dynamic viewport units (dvh) so when the iOS keyboard opens,
+     the overlay shrinks to fit the visible viewport — content stays
+     accessible above the keyboard. The inset:0 is fallback for older
+     browsers without dvh support. */
   inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 100dvh;
+  width: 100dvw;
   z-index: 300;
   background: var(--bg);
   /* CSS Grid is more reliable on iOS Safari than nested flex for the
@@ -2832,22 +2842,41 @@ html {
 .rx-chip-add:hover { border-color: var(--accent); border-style: solid; background: var(--nx-gold-faint); }
 .rx-chip-add svg { width: 12px; height: 12px; }
 
+/* ── Chip input wrap — shown when user taps "+ Add CC" etc.
+   Re-designed as a clearly labeled mini-card so it's obvious to the
+   user what they're looking at. The previous flex-row layout caused
+   the input to stretch and squash the Add/Cancel buttons off-screen
+   on narrow viewports + iOS keyboard up — this wrap now uses
+   flex-wrap so the input takes its own row and buttons stay sized. */
 .rx-chip-input-wrap {
   display: flex;
-  gap: 6px;
-  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-top: 6px;
+  background: var(--surface);
+  border: 1.5px solid var(--accent);
+  border-radius: var(--rs);
+  /* iOS Safari: when this is the focused element area, scroll-margin-bottom
+     reserves space below it when scrolled into view, so the keyboard
+     doesn't cover it. */
+  scroll-margin-bottom: 120px;
 }
 .rx-chip-input {
-  flex: 1;
-  height: 36px;
-  padding: 0 10px;
-  background: var(--surface);
-  border: 1px solid var(--accent);
+  flex: 1 1 100%;       /* full width on its own row */
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
   border-radius: var(--rs);
   color: var(--text);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   outline: none;
+}
+.rx-chip-input:focus {
+  border-color: var(--accent);
 }
 .rx-chip-input.rx-input-error {
   border-color: var(--red, #c44);
@@ -2855,11 +2884,15 @@ html {
 }
 .rx-chip-input-save,
 .rx-chip-input-cancel {
-  height: 36px;
+  flex: 1 1 calc(50% - 4px);   /* two buttons side-by-side, equal width */
+  flex-shrink: 0;              /* don't compress on narrow */
+  min-width: 88px;
+  height: 38px;
   padding: 0 12px;
   border-radius: var(--rs);
   font-family: inherit;
   font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
@@ -2867,10 +2900,15 @@ html {
   background: var(--accent);
   color: var(--bg);
   border: 1px solid var(--accent);
-  font-weight: 600;
+}
+.rx-chip-input-save:active {
+  transform: scale(0.98);
 }
 .rx-chip-input-cancel {
   background: transparent;
   color: var(--muted);
   border: 1px solid var(--border);
+}
+.rx-chip-input-cancel:active {
+  transform: scale(0.98);
 }
