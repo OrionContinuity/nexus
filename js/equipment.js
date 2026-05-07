@@ -13570,65 +13570,6 @@ NX.modules.equipment = {
 
 console.log('[Equipment] unified module loaded — ' + Object.keys(NX.modules.equipment).length + ' exports');
 
-// ─── Global fail-safe delegate for the contractor Edit tab ────────────
-// Belt-and-suspenders: even if the local button wiring inside
-// renderContractorsDetail breaks (stale handler, DOM rebuilt mid-tap,
-// etc.), this delegate at document.body in the CAPTURE phase fires
-// before any other click handler can swallow the event. It runs the
-// exact same diagnostic chain as the local handler.
-document.body.addEventListener('click', function (e) {
-  const editBtn = e.target.closest && e.target.closest('[data-detail-tab="edit"]');
-  if (!editBtn) return;
-  // Only fire when we're inside a CONTRACTORS overlay (not the parts/
-  // equipment ones, which also use data-detail-tab).
-  if (!editBtn.closest('.eq-contractors-overlay')) return;
-  // Mark this event so the local handler doesn't re-fire — we'll do
-  // the diagnostic + open here.
-  if (editBtn._rxEditFiredOnce) return;
-  editBtn._rxEditFiredOnce = true;
-  setTimeout(() => { editBtn._rxEditFiredOnce = false; }, 800);
-
-  if (NX.toast) NX.toast('[GLOBAL] Edit tap captured at body level', 'info', 1200);
-  console.log('[contractors:edit:global] capture-phase delegate fired');
-
-  if (!window.NX || !NX.recordEditor) {
-    if (NX.toast) NX.toast('[GLOBAL] FAIL: NX.recordEditor missing', 'error', 5000);
-    return;
-  }
-  if (typeof openContractorEditor !== 'function') {
-    if (NX.toast) NX.toast('[GLOBAL] FAIL: openContractorEditor undefined', 'error', 5000);
-    return;
-  }
-  const c = (typeof contractorsState !== 'undefined' && contractorsState && contractorsState.activeContractor) || null;
-  if (!c) {
-    if (NX.toast) NX.toast('[GLOBAL] FAIL: activeContractor null', 'warn', 5000);
-    return;
-  }
-  try {
-    openContractorEditor(c);
-  } catch (err) {
-    if (NX.toast) NX.toast('[GLOBAL] THREW: ' + (err && err.message), 'error', 6000);
-    console.error('[contractors:edit:global] threw', err);
-    return;
-  }
-  setTimeout(() => {
-    const rx = document.querySelector('.rx-overlay');
-    if (!rx) {
-      if (NX.toast) NX.toast('[GLOBAL] FAIL: no .rx-overlay in DOM after openContractorEditor', 'error', 6000);
-      return;
-    }
-    const rect = rx.getBoundingClientRect();
-    const cs = getComputedStyle(rx);
-    if (rect.width === 0 || rect.height === 0 || cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') {
-      if (NX.toast) NX.toast(`[GLOBAL] FAIL: overlay invisible w=${Math.round(rect.width)} h=${Math.round(rect.height)} z=${cs.zIndex}`, 'error', 6000);
-      return;
-    }
-    if (NX.toast) NX.toast(`[GLOBAL] ✓ overlay visible (z=${cs.zIndex})`, 'success', 1500);
-  }, 250);
-}, true /* capture phase — runs BEFORE bubble-phase handlers */);
-
-console.log('[Equipment] global Edit-tap fail-safe delegate installed');
-
 // ─── Self-test: contractor editor wiring ──────────────────────────────
 // Runs once shortly after equipment.js loads. If any required piece is
 // missing (engine not loaded, function not defined, etc.) we log loudly
