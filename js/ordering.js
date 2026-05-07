@@ -4384,7 +4384,29 @@ Thanks for your help sorting this out.`;
     const wb = window.XLSX.utils.book_new();
 
     // ── Items sheet ─────────────────────────────────────────────────
+    // Layout (top-down):
+    //   Row 1: NEXUS title banner
+    //   Row 2: vendor name
+    //   Row 3: brief instruction line
+    //   Row 4: blank
+    //   Row 5: column headers (the ones the importer reads)
+    //   Row 6: blank (so headers visually breathe)
+    //   Row 7+: data
+    //
+    // The importer's parseCatalogFile() looks for the header row by
+    // scanning for one with both "item|product" and "sku|name|description"
+    // — so it doesn't matter that the data starts on row 7 instead of
+    // row 2. Round-trips clean.
     const headers = ['Section', 'Item Name', 'Vendor SKU', 'Unit', 'Default Par', 'Note'];
+    const titleBanner   = ['NEXUS Vendor Catalog', '', '', '', '', ''];
+    const vendorBanner  = [`For: ${vendor.name || 'Unknown vendor'}`, '', '', '', '', ''];
+    const instrBanner   = [
+      generateBlank
+        ? 'Fill in below. Re-upload via Catalog → Import. Items match by Vendor SKU.'
+        : `Current catalog snapshot. Edit and re-upload to update — matches by SKU.`,
+      '', '', '', '', ''
+    ];
+
     let dataRows;
     if (generateBlank) {
       dataRows = [
@@ -4411,44 +4433,114 @@ Thanks for your help sorting this out.`;
       ]);
     }
 
-    const itemsSheet = window.XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    const aoa = [
+      titleBanner,
+      vendorBanner,
+      instrBanner,
+      ['', '', '', '', '', ''],
+      headers,
+      ['', '', '', '', '', ''],
+      ...dataRows,
+    ];
+
+    const itemsSheet = window.XLSX.utils.aoa_to_sheet(aoa);
+
+    // Style the title block + header row. SheetJS community ignores
+    // most cell styles in writeFile, but font weight + freeze panes +
+    // column widths + merged cells DO survive — and those are the four
+    // visual cues that matter most for "this looks polished."
+    itemsSheet['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }, // title row
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } }, // vendor row
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 5 } }, // instruction row
+    ];
+    // Cell styles via the .s property — supported by recent SheetJS
+    // builds and gracefully ignored otherwise.
+    const setStyle = (addr, style) => {
+      if (!itemsSheet[addr]) return;
+      itemsSheet[addr].s = style;
+    };
+    setStyle('A1', { font: { name: 'Arial', sz: 16, bold: true, color: { rgb: '8B6914' } } });
+    setStyle('A2', { font: { name: 'Arial', sz: 11, italic: true, color: { rgb: '6B6258' } } });
+    setStyle('A3', { font: { name: 'Arial', sz: 10, italic: true, color: { rgb: '8B6914' } } });
+    // Header row at index 4 (zero-based), so cells A5..F5
+    ['A5','B5','C5','D5','E5','F5'].forEach(addr => setStyle(addr, {
+      font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '1A1408' } },
+      fill: { fgColor: { rgb: 'D4A44E' }, patternType: 'solid' },
+      alignment: { horizontal: 'left', vertical: 'center' },
+    }));
+    // Sample rows in italic gray when blank template
+    if (generateBlank) {
+      [7, 8, 9].forEach(rowNum => {
+        ['A','B','C','D','E','F'].forEach(col => {
+          setStyle(`${col}${rowNum}`, {
+            font: { name: 'Arial', sz: 10, italic: true, color: { rgb: '999999' } }
+          });
+        });
+      });
+    }
+
     // Column widths so the file opens nicely in Excel/Google Sheets
     itemsSheet['!cols'] = [
       { wch: 22 }, { wch: 36 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 32 },
     ];
-    // Freeze header row
-    itemsSheet['!freeze'] = { xSplit: 0, ySplit: 1 };
+    // Row heights for the title block
+    itemsSheet['!rows'] = [
+      { hpt: 24 }, { hpt: 18 }, { hpt: 16 }, { hpt: 8 }, { hpt: 22 }, { hpt: 8 },
+    ];
+    // Freeze the header row + first column so scrolling stays oriented
+    itemsSheet['!freeze'] = { xSplit: 0, ySplit: 5 };
     window.XLSX.utils.book_append_sheet(wb, itemsSheet, 'Items');
 
-    // ── Instructions sheet (always — keeps the file self-explanatory) ──
-    const instRows = [
-      ['NEXUS Vendor Catalog'],
-      [`For: ${vendor.name || 'Unknown vendor'}`],
-      [generateBlank ? 'Blank template — fill in below, then upload.' : 'Current catalog export. Edit and re-upload to update.'],
-      [],
-      ['HOW IT WORKS'],
-      ['1. Edit the "Items" sheet — one row per item. First row stays as the header.'],
-      ['2. In NEXUS: open this vendor\'s Catalog → Import → pick this file.'],
-      ['3. Preview shows what will change. Confirm to apply.'],
-      ['Items match by Vendor SKU. Items not in the file get archived (not deleted).'],
-      [],
-      ['COLUMN REFERENCE'],
-      ['Section',     'Required',     'Group header. Items group by this. Examples: Produce, Dairy, Disposables.'],
-      ['Item Name',   'Required',     'What you\'d write on a paper order. Keep concise.'],
-      ['Vendor SKU',  'Recommended',  'Vendor\'s product code. Used to match items on re-import — without it, every re-import duplicates rows.'],
-      ['Unit',        'Required',     'Pack size: case, lb, 24/12 OZ, etc.'],
-      ['Default Par', 'Optional',     'Default order quantity. Per-location pars set inside NEXUS.'],
-      ['Note',        'Optional',     'Brand, allergen, prep notes — anything that helps.'],
-      [],
-      ['TIPS'],
-      ['• Re-importing the same file is safe — items match on Vendor SKU and update rather than duplicate.'],
-      ['• Items removed from the file get archived in NEXUS (history preserved, just hidden).'],
-      ['• Empty rows are skipped.'],
-      ['• Sections are case-sensitive: "Produce" and "PRODUCE" become two sections.'],
-      ['• One catalog covers all locations. Per-location pars (Este orders 5, Suerte orders 3) live inside NEXUS, not this file.'],
+    // ── Instructions sheet ─────────────────────────────────────────
+    // Reads as a one-pager: title, "how it works" steps, column
+    // reference table, and tips.
+    const instAoa = [
+      ['NEXUS Vendor Catalog Template', '', ''],
+      [`For: ${vendor.name || 'Unknown vendor'}`, '', ''],
+      [generateBlank ? 'Blank template — fill in the Items sheet, then upload.' : 'Catalog export. Edit and re-upload to update.', '', ''],
+      ['', '', ''],
+      ['HOW IT WORKS', '', ''],
+      ['1.', 'Edit the "Items" sheet — one row per item. First-row header stays as-is.', ''],
+      ['2.', "In NEXUS: open this vendor's Catalog → Import → pick this file.", ''],
+      ['3.', 'Preview shows what will change. Confirm to apply.', ''],
+      ['',   'Items match by Vendor SKU. Items not in the file get archived (not deleted).', ''],
+      ['', '', ''],
+      ['COLUMN REFERENCE', '', ''],
+      ['Column',     'Required?',   'What it means'],
+      ['Section',     'Required',    'Group header. Items group by this. Examples: Produce, Dairy, Disposables.'],
+      ['Item Name',   'Required',    "What you'd write on a paper order. Keep concise."],
+      ['Vendor SKU',  'Recommended', "Vendor's product code. Used to match items on re-import — without it, every re-import duplicates."],
+      ['Unit',        'Required',    'Pack size: case, lb, 24/12 OZ, etc.'],
+      ['Default Par', 'Optional',    'Default order quantity. Per-location pars set inside NEXUS.'],
+      ['Note',        'Optional',    'Brand, allergen, prep notes.'],
+      ['', '', ''],
+      ['TIPS', '', ''],
+      ['•', 'Re-importing the same file is safe — items match on Vendor SKU and update rather than duplicate.', ''],
+      ['•', 'Items removed from the file get archived in NEXUS (history preserved, just hidden).', ''],
+      ['•', 'Empty rows are skipped.', ''],
+      ['•', 'Sections are case-sensitive: "Produce" and "PRODUCE" become two separate sections.', ''],
+      ['•', 'One catalog covers all locations. Per-location pars (Este orders 5, Suerte orders 3) live inside NEXUS, not this file.', ''],
     ];
-    const instSheet = window.XLSX.utils.aoa_to_sheet(instRows);
-    instSheet['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 60 }];
+    const instSheet = window.XLSX.utils.aoa_to_sheet(instAoa);
+    instSheet['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 64 }];
+    instSheet['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 2 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 2 } },
+    ];
+    setStyleOn(instSheet, 'A1', { font: { name: 'Arial', sz: 16, bold: true, color: { rgb: '8B6914' } } });
+    setStyleOn(instSheet, 'A2', { font: { name: 'Arial', sz: 11, italic: true, color: { rgb: '6B6258' } } });
+    setStyleOn(instSheet, 'A3', { font: { name: 'Arial', sz: 10, italic: true, color: { rgb: '8B6914' } } });
+    setStyleOn(instSheet, 'A5',  { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '8B6914' } } });
+    setStyleOn(instSheet, 'A11', { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '8B6914' } } });
+    setStyleOn(instSheet, 'A20', { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: '8B6914' } } });
+    // Column-reference table header row
+    ['A12','B12','C12'].forEach(addr => setStyleOn(instSheet, addr, {
+      font: { name: 'Arial', sz: 10, bold: true, color: { rgb: '1A1408' } },
+      fill: { fgColor: { rgb: 'D4A44E' }, patternType: 'solid' },
+    }));
+
     window.XLSX.utils.book_append_sheet(wb, instSheet, 'Instructions');
 
     // ── Trigger download ─────────────────────────────────────────────
@@ -4456,7 +4548,9 @@ Thanks for your help sorting this out.`;
     const suffix = generateBlank ? 'template' : 'catalog';
     const filename = `${safeName}_${suffix}.xlsx`;
     try {
-      window.XLSX.writeFile(wb, filename);
+      // bookSST + cellStyles options preserve the .s style metadata
+      // when SheetJS supports it; harmless otherwise.
+      window.XLSX.writeFile(wb, filename, { bookSST: false, cellStyles: true });
       if (NX.toast) NX.toast(generateBlank
         ? `Template downloaded — ${filename}`
         : `Exported ${dataRows.length} items — ${filename}`, 'info', 2500);
@@ -4464,6 +4558,14 @@ Thanks for your help sorting this out.`;
       console.error('[ordering] xlsx download failed:', e);
       if (NX.toast) NX.toast('Download failed: ' + (e.message || ''), 'error');
     }
+  }
+
+  // Helper: set a style on a cell only if the cell exists. Used inside
+  // downloadCatalogTemplate to avoid undefined-cell errors when the AOA
+  // shape changes.
+  function setStyleOn(sheet, addr, style) {
+    if (!sheet || !sheet[addr]) return;
+    sheet[addr].s = style;
   }
 
   function openCatalogImport(vendor) {
@@ -4482,39 +4584,59 @@ Thanks for your help sorting this out.`;
       <div class="ord-cat-import-backdrop"></div>
       <div class="ord-cat-import-modal" role="dialog" aria-label="Catalog spreadsheet sync">
         <div class="ord-cat-import-head">
-          <div class="ord-cat-import-title">Catalog &middot; spreadsheet</div>
+          <div class="ord-cat-import-title">Catalog spreadsheet</div>
           <button class="ord-cat-import-close" type="button" aria-label="Close">×</button>
         </div>
         <div class="ord-cat-import-body" id="catImpBody">
           <div class="ord-cat-import-step">
-            <div class="ord-cat-import-step-head">Upload a filled spreadsheet</div>
-            <div class="ord-cat-import-step-sub">
-              Replace <strong>${esc(vendor.name)}</strong>'s catalog with what's in the file. Existing items match on Vendor SKU and update in place — order history stays linked. Items missing from your file get archived (not deleted).
-            </div>
-            <label class="ord-cat-import-filebtn">
-              <input type="file" accept=".xlsx,.xls,.csv" id="catImpFile" hidden>
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              <span>Pick file (.xlsx · .csv)</span>
-            </label>
+            <!-- Hidden file input — clicked programmatically by the upload button.
+                 The "hidden" HTML attribute caused tap failures on some
+                 Android Chrome builds, so we use display:none CSS instead. -->
+            <input type="file" accept=".xlsx,.xls,.csv" id="catImpFile" style="display:none">
 
-            <div class="ord-cat-import-divider"><span>or</span></div>
+            <button type="button" class="ord-cat-import-upload" id="catImpUploadBtn">
+              <div class="ord-cat-import-upload-icon">
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </div>
+              <div class="ord-cat-import-upload-title">Upload spreadsheet</div>
+              <div class="ord-cat-import-upload-sub">.xlsx, .xls, or .csv</div>
+            </button>
+
+            <div class="ord-cat-import-step-sub">
+              Replaces <strong>${esc(vendor.name)}</strong>'s catalog with what's in the file. Items match by Vendor SKU and update in place — order history stays linked. Items missing from your file get archived, not deleted.
+            </div>
+
+            <div class="ord-cat-import-divider"><span>or download a sheet to edit</span></div>
 
             <div class="ord-cat-import-downloads">
-              <button type="button" class="ord-cat-import-dlbtn" id="catImpDlBlank">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                <span>Download blank template</span>
+              <button type="button" class="ord-cat-import-dllink" id="catImpDlBlank">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="12" y1="18" x2="12" y2="12"/>
+                  <polyline points="9 15 12 18 15 15"/>
+                </svg>
+                <span>Blank template</span>
               </button>
               ${hasItems ? `
-                <button type="button" class="ord-cat-import-dlbtn" id="catImpDlCurrent">
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                  <span>Download current catalog (${catalogState.items.length} items)</span>
+                <button type="button" class="ord-cat-import-dllink" id="catImpDlCurrent">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="12" y1="18" x2="12" y2="12"/>
+                    <polyline points="9 15 12 18 15 15"/>
+                  </svg>
+                  <span>Current catalog <span class="ord-cat-import-dllink-count">(${catalogState.items.length})</span></span>
                 </button>
               ` : ''}
             </div>
 
             <div class="ord-cat-import-tips">
-              <strong>Expected columns</strong> (header row, any order):
-              Section · Item Name · Vendor SKU · Unit · Default Par · Note
+              <strong>Expected columns</strong>: Section · Item Name · Vendor SKU · Unit · Default Par · Note
             </div>
           </div>
         </div>
@@ -4526,11 +4648,25 @@ Thanks for your help sorting this out.`;
     overlay.querySelector('.ord-cat-import-backdrop').addEventListener('click', close);
     overlay.querySelector('.ord-cat-import-close').addEventListener('click', close);
 
-    overlay.querySelector('#catImpFile').addEventListener('change', async (e) => {
-      const file = e.target.files && e.target.files[0];
-      if (!file) return;
-      await handleCatalogFilePicked(file, vendor, overlay);
-    });
+    // Upload — explicitly trigger the hidden input on tap. Without this
+    // dispatch, mobile browsers don't always associate a label/input
+    // pair when the input is display:none.
+    const fileInput = overlay.querySelector('#catImpFile');
+    const uploadBtn = overlay.querySelector('#catImpUploadBtn');
+    if (uploadBtn && fileInput) {
+      uploadBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        fileInput.click();
+      });
+    }
+    if (fileInput) {
+      fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        await handleCatalogFilePicked(file, vendor, overlay);
+      });
+    }
 
     // Download buttons — both call the same generator, current-mode
     // includes existing rows, blank-mode just sample/header.
