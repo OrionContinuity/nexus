@@ -2846,8 +2846,14 @@
 <script src="js/i18n.js"></script>
 <script src="js/translate.js"></script>
 <script src="js/composer.js"></script>
-<script src="js/record-editor.js"></script>
+<!-- LOAD ORDER NOTE: record-editor.js MUST come AFTER app.js. The engine
+     attaches to the lexical `const NX` declared at the top of app.js, which
+     is NOT a property on window. If record-editor.js loads first, it falls
+     back to attaching itself to window.NX — a different object that nothing
+     else uses — and every Edit button silently fails with "NX.recordEditor
+     missing". Don't move this back above app.js. -->
 <script src="js/app.js"></script>
+<script src="js/record-editor.js"></script>
 <script src="js/daily-card.js"></script>
 <script src="js/home.js"></script>
 <script src="js/native-bridge.js"></script>
