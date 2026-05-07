@@ -4788,3 +4788,98 @@ body.ord-overlay-open .bottom-nav {
   background: var(--nx-gold-mist);
   border-color: var(--nx-gold-line);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Catalog editor — collapse + search row (round 3)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Search row — search field + collapse-all toggle side-by-side */
+.ord-cat-search-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 6px;
+}
+.ord-cat-search-row .ord-cat-search-wrap {
+  flex: 1;
+  padding: 0;             /* parent row provides outer padding now */
+}
+
+.ord-cat-collapse-all {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--rs);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-cat-collapse-all:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ord-cat-collapse-all[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--nx-gold-faint);
+  border-color: var(--accent);
+}
+
+/* ─── Section collapse mechanics ─────────────────────────────────────── */
+
+/* Collapse chevron in section header — sits left of the section name */
+.ord-catalog-overlay .ved-section-collapse {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  opacity: 0.75;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  border-radius: 4px;
+  padding: 0;
+  margin-left: -2px;
+}
+.ord-catalog-overlay .ved-section-collapse:hover {
+  opacity: 1;
+  background: var(--nx-gold-mist);
+}
+.ord-catalog-overlay .ved-section-collapse svg {
+  transition: transform .18s ease;
+}
+
+/* Section name now toggles collapse on tap — give it a clear hover */
+.ord-catalog-overlay .ved-section-name[data-section] {
+  cursor: pointer;
+  user-select: none;
+}
+.ord-catalog-overlay .ved-section-name[data-section]:hover {
+  color: var(--text);
+}
+
+/* Collapsed state — hide the items wrapper. Keep DOM intact so drag
+   snapshots still see all rows (collapsed items have height 0 and are
+   filtered out of swap detection). */
+.ord-catalog-overlay .ved-section-block.is-collapsed .ved-section-items {
+  display: none;
+}
+
+/* Visually compress collapsed cards a touch — header alone, no extra
+   padding under it. The header already has its bottom border. */
+.ord-catalog-overlay .ved-section-block.is-collapsed {
+  margin-bottom: 8px;
+}
+.ord-catalog-overlay .ved-section-block.is-collapsed .ved-section-row {
+  border-bottom: 0;
+}
