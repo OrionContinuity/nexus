@@ -343,6 +343,12 @@ function buildUI() {
           <button class="eq-chip ${activeFilter.pm==='overdue'?'active':''}" data-filter="pm" data-value="overdue">Overdue</button>
           <button class="eq-chip ${activeFilter.pm==='soon'?'active':''}" data-filter="pm" data-value="soon">Due ≤14d</button>
         </div>
+        <div class="eq-filter-group">
+          <span class="eq-filter-label">Show:</span>
+          <button class="eq-chip ${(activeFilter.archived||'active')==='active'?'active':''}" data-filter="archived" data-value="active">Active</button>
+          <button class="eq-chip ${activeFilter.archived==='only'?'active':''}" data-filter="archived" data-value="only">Archived</button>
+          <button class="eq-chip ${activeFilter.archived==='all'?'active':''}" data-filter="archived" data-value="all">All</button>
+        </div>
       </div>
 
       <div class="eq-stats" id="eqStats"></div>
@@ -428,6 +434,12 @@ function getFiltered() {
   const todayIso = now.toISOString().slice(0, 10);
   const in14d = new Date(now.getTime() + 14 * 86400000).toISOString().slice(0, 10);
   return equipment.filter(e => {
+    // Archive scope: default hides archived; "only" shows only archived;
+    // other special values can extend later. Without this filter, soft-
+    // deleted equipment stays mixed with active inventory.
+    const archScope = (activeFilter.archived || 'active');
+    if (archScope === 'active' && (e.archived_at || e.archived)) return false;
+    if (archScope === 'only'   && !(e.archived_at || e.archived)) return false;
     if (activeFilter.location !== 'all' && e.location !== activeFilter.location) return false;
     if (activeFilter.status !== 'all' && e.status !== activeFilter.status) return false;
     if (activeFilter.category !== 'all' && e.category !== activeFilter.category) return false;
@@ -729,7 +741,12 @@ async function openDetail(id) {
             <button class="eq-overflow-item" onclick="NX.modules.equipment.quickReplacePhoto('${eq.id}')">${uiSvg('camera', '14px')}<span>${eq.photo_url ? 'Replace Photo' : 'Add Photo'}</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.quickPrint('${eq.id}')">${uiSvg('printer', '14px')}<span>Print Label</span></button>
             <div class="eq-overflow-divider"></div>
-            <button class="eq-overflow-item eq-overflow-danger" onclick="NX.modules.equipment.deleteEquipment('${eq.id}')">${uiSvg('trash', '14px')}<span>Delete permanently</span></button>
+            ${(eq.archived_at || eq.archived) ? `
+              <button class="eq-overflow-item" onclick="NX.modules.equipment.restoreEquipment('${eq.id}')">${uiSvg('check', '14px')}<span>Restore equipment</span></button>
+              <button class="eq-overflow-item eq-overflow-danger" onclick="NX.modules.equipment.deleteEquipment('${eq.id}')">${uiSvg('trash', '14px')}<span>Delete forever</span></button>
+            ` : `
+              <button class="eq-overflow-item eq-overflow-danger" onclick="NX.modules.equipment.archiveEquipment('${eq.id}')">${uiSvg('trash', '14px')}<span>Archive equipment</span></button>
+            `}
           </div>
         </div>
       </div>
@@ -1392,15 +1409,133 @@ function closeEdit() {
   if (m) m.classList.remove('active');
 }
 
+/* Archive (soft-delete) equipment. Hides from main list while preserving
+   all related records (parts, service history, attachments). Restorable
+   from the archived view. Run this instead of deleteEquipment for the
+   common case — true permanent deletion is now gated behind the archived
+   list so the user has to find it twice over before losing data forever.
+
+   Pre-migration safe: if the archived_at column doesn't exist yet, falls
+   back to setting the legacy archived=true flag if that column exists. */
+async function archiveEquipment(id) {
+  const eq = equipment.find(e => e.id === id);
+  if (!eq) return;
+  confirmArchiveEquipment(eq);
+}
+
+function confirmArchiveEquipment(eq) {
+  document.querySelectorAll('.eq-confirm-overlay').forEach(n => n.remove());
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-confirm-overlay';
+  overlay.innerHTML = `
+    <div class="eq-confirm-backdrop"></div>
+    <div class="eq-confirm-modal" role="dialog" aria-label="Archive equipment">
+      <div class="eq-confirm-icon">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="21 8 21 21 3 21 3 8"/>
+          <rect x="1" y="3" width="22" height="5"/>
+          <line x1="10" y1="12" x2="14" y2="12"/>
+        </svg>
+      </div>
+      <div class="eq-confirm-title">Archive this equipment?</div>
+      <div class="eq-confirm-body">
+        <div class="eq-confirm-line"><strong>${esc(eq.name || 'Unnamed')}</strong></div>
+        <div class="eq-confirm-sub">${esc(eq.location || '')}${eq.model ? ' · ' + esc(eq.model) : ''}</div>
+        <div class="eq-confirm-warn">It will be hidden from the main list. Parts, service history, and attachments are preserved. You can restore it any time from the <strong>Archived</strong> filter.</div>
+      </div>
+      <div class="eq-confirm-actions">
+        <button class="eq-confirm-cancel" type="button">Cancel</button>
+        <button class="eq-confirm-archive" type="button">Archive</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.querySelector('.eq-confirm-backdrop').addEventListener('click', close);
+  overlay.querySelector('.eq-confirm-cancel').addEventListener('click', close);
+  overlay.querySelector('.eq-confirm-archive').addEventListener('click', async () => {
+    const btn = overlay.querySelector('.eq-confirm-archive');
+    btn.disabled = true;
+    btn.textContent = 'Archiving…';
+    try {
+      await applyArchiveEquipment(eq.id);
+      close();
+      closeDetail();
+      NX.toast && NX.toast(`Archived ${eq.name}`, 'info', 1800);
+    } catch (err) {
+      console.error('[Equipment] archive failed:', err);
+      btn.disabled = false;
+      btn.textContent = 'Archive';
+      NX.toast && NX.toast('Could not archive: ' + (err.message || ''), 'error', 3000);
+    }
+  });
+}
+
+async function applyArchiveEquipment(id) {
+  // Try modern archived_at column first; fall back to boolean archived
+  // for legacy schemas. Either way the in-memory record is updated so
+  // the list filters it out without a full reload.
+  const eq = equipment.find(e => e.id === id);
+  const stamp = new Date().toISOString();
+  let res = await NX.sb.from('equipment')
+    .update({ archived_at: stamp })
+    .eq('id', id);
+  if (res.error && /archived_at|column.*does not exist|schema cache/i.test(res.error.message || '')) {
+    res = await NX.sb.from('equipment')
+      .update({ archived: true })
+      .eq('id', id);
+  }
+  if (res.error) throw res.error;
+  if (eq) {
+    eq.archived_at = stamp;
+    eq.archived = true;
+  }
+  renderList();
+}
+
+async function restoreEquipment(id) {
+  const eq = equipment.find(e => e.id === id);
+  if (!eq) return;
+  try {
+    let res = await NX.sb.from('equipment')
+      .update({ archived_at: null })
+      .eq('id', id);
+    if (res.error && /archived_at|column.*does not exist|schema cache/i.test(res.error.message || '')) {
+      res = await NX.sb.from('equipment')
+        .update({ archived: false })
+        .eq('id', id);
+    }
+    if (res.error) throw res.error;
+    eq.archived_at = null;
+    eq.archived = false;
+    renderList();
+    NX.toast && NX.toast(`Restored ${eq.name}`, 'info', 1800);
+  } catch (err) {
+    console.error('[Equipment] restore failed:', err);
+    NX.toast && NX.toast('Could not restore: ' + (err.message || ''), 'error', 3000);
+  }
+}
+
+/* Hard delete — kept for the rare "I really mean it" case, surfaced only
+   from the archived view (so you have to archive first, then choose to
+   remove forever from there). The old name stays so existing call sites
+   still work, but the user-facing path is now archive. */
 async function deleteEquipment(id) {
   const eq = equipment.find(e => e.id === id);
   if (!eq) return;
-  if (!confirm(`Delete "${eq.name}"? This will also delete all parts and service history. Cannot be undone.`)) return;
+  // Already-archived: this is the permanent-delete path
+  const isArchived = !!(eq.archived_at || eq.archived);
+  const promptText = isArchived
+    ? `Delete ${eq.name} forever? Parts, service history, and attachments will all be erased. Cannot be undone.`
+    : `Archive ${eq.name}? Hidden from list, restorable later.`;
+  if (!isArchived) {
+    return archiveEquipment(id);
+  }
+  if (!confirm(promptText)) return;
   try {
     const { error } = await NX.sb.from('equipment').delete().eq('id', id);
     if (error) throw error;
     NX.toast && NX.toast('Deleted ✓', 'success');
-    // equipment_deleted syslog → now handled by Postgres trigger on equipment DELETE
     closeDetail();
     await loadEquipment();
     renderList();
@@ -6314,6 +6449,81 @@ function replacePhoto(equipId, field) { uploadPhoto(equipId, field); }
  * (Operational, Needs Service, Down, Retired). For the long-tail
  * states (loaned, missing, relocated) the user opens Edit Everything.
  */
+
+/* Snackbar that slides up after a quick status change, offering an
+   Undo button for 6 seconds. Tapping Undo reverts both the DB row
+   and the in-memory state and re-renders the list. After 6s the
+   banner auto-dismisses and the change is permanent.
+
+   This protects against muscle-memory mistakes (tap "Down" when you
+   meant "Needs Service") which are by far the most common error
+   pattern for quick-status changes. */
+function showStatusUndoBanner(eq, priorStatus, newStatus) {
+  document.querySelectorAll('.eq-undo-banner').forEach(n => n.remove());
+  const labels = {
+    operational: 'Operational',
+    needs_service: 'Needs Service',
+    down: 'Down',
+    retired: 'Retired',
+  };
+  const newLbl = labels[newStatus] || newStatus.replace('_', ' ');
+  const priorLbl = labels[priorStatus] || priorStatus.replace('_', ' ');
+  const banner = document.createElement('div');
+  banner.className = 'eq-undo-banner';
+  banner.innerHTML = `
+    <div class="eq-undo-banner-icon">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+    </div>
+    <div class="eq-undo-banner-text">
+      <div class="eq-undo-banner-title">${esc(eq.name)} → ${esc(newLbl)}</div>
+      <div class="eq-undo-banner-sub" data-eq-undo-countdown>6s to undo</div>
+    </div>
+    <button class="eq-undo-banner-btn" type="button">Undo</button>
+  `;
+  document.body.appendChild(banner);
+  requestAnimationFrame(() => banner.classList.add('is-shown'));
+
+  let remaining = 6;
+  const sub = banner.querySelector('[data-eq-undo-countdown]');
+  const tick = setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) { clearInterval(tick); return; }
+    if (sub) sub.textContent = `${remaining}s to undo`;
+  }, 1000);
+  const dismissTimer = setTimeout(() => {
+    banner.classList.remove('is-shown');
+    setTimeout(() => banner.remove(), 250);
+    clearInterval(tick);
+  }, 6000);
+
+  banner.querySelector('.eq-undo-banner-btn').addEventListener('click', async () => {
+    clearTimeout(dismissTimer);
+    clearInterval(tick);
+    const undoBtn = banner.querySelector('.eq-undo-banner-btn');
+    undoBtn.disabled = true;
+    undoBtn.textContent = 'Undoing…';
+    try {
+      const { error } = await NX.sb.from('equipment')
+        .update({ status: priorStatus })
+        .eq('id', eq.id);
+      if (error) throw error;
+      eq.status = priorStatus;
+      eq.updated_at = new Date().toISOString();
+      renderList();
+      banner.classList.remove('is-shown');
+      setTimeout(() => banner.remove(), 250);
+      NX.toast && NX.toast(`Reverted to ${priorLbl}`, 'info', 1400);
+    } catch (err) {
+      console.error('[Equipment] undo status:', err);
+      undoBtn.disabled = false;
+      undoBtn.textContent = 'Undo';
+      NX.toast && NX.toast('Could not undo: ' + (err.message || ''), 'error', 3000);
+    }
+  });
+}
+
 function openQuickStatusMenuForRow(equipId, anchorEl) {
   if (!equipId) return;
   const eq = equipment.find(x => x.id === equipId);
@@ -6378,11 +6588,12 @@ function openQuickStatusMenuForRow(equipId, anchorEl) {
       const newStatus = btn.dataset.status;
       if (newStatus === cur) { pop.remove(); return; }
       // Optimistic UI: update in-memory + re-render list.
+      const priorStatus = cur;
       eq.status = newStatus;
       eq.updated_at = new Date().toISOString();
       renderList();
       pop.remove();
-      NX.toast && NX.toast(`${eq.name} → ${newStatus.replace('_', ' ')}`, 'info', 1400);
+      showStatusUndoBanner(eq, priorStatus, newStatus);
 
       try {
         const { error } = await NX.sb.from('equipment')
@@ -13818,6 +14029,8 @@ NX.modules.equipment = {
   // Add/edit modal (simple form)
   closeEdit,
   deleteEquipment,
+  archiveEquipment,
+  restoreEquipment,
 
   // Service log + parts
   logService,
