@@ -81,7 +81,12 @@
   //   'busiest' = most ordered (frequency over the last 30 orders)
   // Persisted to localStorage. Pinned vendors always float to the top
   // regardless of mode, in their own internal sort order.
-  const VENDOR_SORT_KEY = 'nexus_ordering_vendor_sort';
+  // Key bumped to v2 so older 'alpha' values from the previous default
+  // are ignored — every install now defaults to "Recently used", which
+  // matches how the page is actually used (re-orders touch the same
+  // vendors over and over). Users who explicitly want alpha can pick
+  // it from the sort menu and the v2 key will retain their choice.
+  const VENDOR_SORT_KEY = 'nexus_ordering_vendor_sort_v2';
   const VENDOR_SORT_MODES = ['alpha', 'custom', 'recent', 'busiest'];
   const VENDOR_SORT_LABELS = {
     alpha:   'Alphabetical',
@@ -92,8 +97,8 @@
   function readVendorSort() {
     try {
       const v = localStorage.getItem(VENDOR_SORT_KEY);
-      return VENDOR_SORT_MODES.includes(v) ? v : 'alpha';
-    } catch (_) { return 'alpha'; }
+      return VENDOR_SORT_MODES.includes(v) ? v : 'recent';
+    } catch (_) { return 'recent'; }
   }
   let   vendorSortMode = readVendorSort();
   let   vendorReorderMode = false;     // true while user is dragging
@@ -2518,13 +2523,346 @@ Thanks for your help sorting this out.`;
   /**
    * Open the vendor editor. Pass null/undefined for "new vendor" mode.
    */
+  /* ─────────────────────────────────────────────────────────────────────
+   * openVendorEditor — opens the vendor edit screen via NX.recordEditor.
+   *
+   * Uses the shared engine in js/record-editor.js. The vendor editor is
+   * one of two callers (the contractor editor in equipment.js is the
+   * other). All visual chrome — overlay shell, collapsible cards with
+   * chevrons, chip groups, photo + color picker — comes from the
+   * engine. This function only wires vendor-specific bits (delivery
+   * day pills, catalog CTA, archive) and the save payload that writes
+   * to order_vendors.
+   *
+   * The legacy renderVendorEditor + mountVendorEditor + saveVendor
+   * below are now unreachable from this function; left in place for
+   * the moment to avoid a giant deletion. They'll be removed once the
+   * engine path proves stable.
+   * ───────────────────────────────────────────────────────────────────── */
   async function openVendorEditor(vendor) {
+    if (!window.NX || !NX.recordEditor) {
+      console.error('[ordering] NX.recordEditor not loaded — falling back to legacy editor');
+      return openVendorEditor_legacy(vendor);
+    }
     const isNew = !vendor;
+    const v = isNew
+      ? { name: '', email: '', alt_emails: [], image_url: '', avatar_hue: null, pinned: false,
+          delivery_days: [], subject_template: '', body_template: '', notes: '' }
+      : { ...vendor };
+
+    // Bucket existing alt_emails into separate chip arrays per kind.
+    const altParsed = parseAltEmails(v.alt_emails || []);
+    const ccArr  = altParsed.filter(r => r.kind === 'cc' ).map(r => r.email);
+    const bccArr = altParsed.filter(r => r.kind === 'bcc').map(r => r.email);
+    const altArr = altParsed.filter(r => r.kind === 'alt').map(r => r.email);
+
+    // Catalog item count for the count chip + "Manage catalog" CTA.
+    let itemCount = 0;
+    if (!isNew && v.id) {
+      try {
+        const { count } = await NX.sb
+          .from('order_guide_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('vendor_id', v.id)
+          .eq('archived', false);
+        itemCount = count || 0;
+      } catch (e) {
+        console.warn('[ordering] count items for editor:', e);
+      }
+    }
+
+    const RX = NX.recordEditor;
+    const cards = [];
+
+    // ─── Identity card ───────────────────────────────────────────
+    cards.push({
+      key: 'identity',
+      title: 'Identity',
+      expanded: true,
+      body: RX.buildIdentityCardBody({
+        name: v.name,
+        photoUrl: v.image_url || '',
+        hue: typeof v.avatar_hue === 'number' ? v.avatar_hue : 'auto',
+        showPin: true,
+        pinned: !!v.pinned,
+        pinTitle: 'Pin to top of vendor list',
+        pinSub: 'Pinned vendors always sort first.',
+        nameLabel: 'Vendor name',
+        namePlaceholder: 'e.g. Farm To Table',
+      }),
+    });
+
+    // ─── Recipients card (TO + CC chips + BCC chips + Other chips) ──
+    cards.push({
+      key: 'recipients',
+      title: 'Recipients',
+      expanded: true,
+      body: `
+        <div class="rx-form-field">
+          <label class="rx-form-label">
+            <span class="rx-chip-pill rx-chip-pill-to">TO</span>
+            <span class="rx-form-hint">— required for sending orders</span>
+          </label>
+          <input type="email" class="rx-form-input" data-rx-vendor-email value="${esc(v.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
+        </div>
+        ${RX.buildChipGroupHTML(ccArr,  'cc',  { label: 'CC',    hint: 'always copied on every order',          inputType: 'email', inputMode: 'email', placeholder: 'cc@example.com',     addLabel: 'Add CC' })}
+        ${RX.buildChipGroupHTML(bccArr, 'bcc', { label: 'BCC',   hint: "silent copies — others can't see them", inputType: 'email', inputMode: 'email', placeholder: 'bcc@example.com',    addLabel: 'Add BCC' })}
+        ${RX.buildChipGroupHTML(altArr, 'alt', { label: 'OTHER', hint: 'stored only — NOT auto-sent (backups)', inputType: 'email', inputMode: 'email', placeholder: 'backup@example.com', addLabel: 'Add other' })}
+      `,
+    });
+
+    // ─── Schedule (delivery days) ──
+    cards.push({
+      key: 'schedule',
+      title: 'Schedule',
+      expanded: false,
+      body: `
+        <div class="rx-form-field">
+          <label class="rx-form-label">Delivery days <span class="rx-form-hint">— used when scheduling new orders</span></label>
+          <div class="rx-day-pills" data-rx-days>
+            ${WEEKDAY_KEYS.map((k, i) => `
+              <button type="button" class="rx-day-pill${(v.delivery_days || []).includes(k) ? ' active' : ''}" data-day="${esc(k)}">${esc(WEEKDAY_LBL[i])}</button>
+            `).join('')}
+          </div>
+        </div>
+      `,
+    });
+
+    // ─── Email templates ──
+    cards.push({
+      key: 'templates',
+      title: 'Email templates',
+      expanded: false,
+      body: `
+        <div class="rx-form-field">
+          <label class="rx-form-label">Subject line</label>
+          <input type="text" class="rx-form-input" data-rx-subject value="${esc(v.subject_template || '')}" placeholder="${esc(v.name || 'Vendor')} order — {location} for {delivery_date}" autocomplete="off">
+          <div class="rx-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date}</code></div>
+        </div>
+        <div class="rx-form-field">
+          <label class="rx-form-label">Body template</label>
+          <textarea class="rx-form-input" data-rx-body rows="6" placeholder="Leave blank to use the standard format. If you set this, your text replaces the body — use {lines} where the item list should appear." style="height:auto;min-height:120px;padding:10px 12px;resize:vertical">${esc(v.body_template || '')}</textarea>
+          <div class="rx-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date_long}</code> <code>{lines}</code> <code>{notes}</code></div>
+        </div>
+      `,
+    });
+
+    // ─── Internal notes ──
+    cards.push({
+      key: 'notes',
+      title: 'Internal notes',
+      expanded: false,
+      body: `
+        <div class="rx-form-field">
+          <textarea class="rx-form-input" data-rx-notes rows="3" placeholder="Anything to remember about this vendor — only you see this" style="height:auto;min-height:80px;padding:10px 12px;resize:vertical">${esc(v.notes || '')}</textarea>
+        </div>
+      `,
+    });
+
+    // ─── Catalog CTA (existing vendors only) ──
+    if (!isNew) {
+      cards.push({
+        key: 'catalog',
+        title: 'Catalog',
+        subtitle: `${itemCount} item${itemCount === 1 ? '' : 's'}`,
+        expanded: false,
+        body: `
+          <button class="ved-catalog-cta" type="button" data-rx-catalog-cta>
+            <div class="ved-catalog-cta-icon">${listIcon()}</div>
+            <div class="ved-catalog-cta-main">
+              <div class="ved-catalog-cta-title">Manage catalog →</div>
+              <div class="ved-catalog-cta-sub">Sections, items, reorder</div>
+            </div>
+          </button>
+        `,
+      });
+    }
+
+    // ─── Danger zone ──
+    if (!isNew) {
+      cards.push({
+        key: 'danger',
+        title: 'Danger zone',
+        expanded: false,
+        danger: true,
+        body: `
+          <button class="ord-veditor-archive-btn" type="button" data-rx-archive>${trashIcon()}<span>Archive vendor</span></button>
+          <div class="rx-form-hint" style="text-align:center">Archived vendors are hidden from the list. Order history is preserved.</div>
+        `,
+      });
+    }
+
+    // Validation: light-touch email format check
+    const emailValidator = (e) => {
+      const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+      return ok ? null : 'Invalid email';
+    };
+
+    RX.openOverlay({
+      title:    isNew ? 'New vendor' : (v.name || 'Vendor'),
+      subtitle: isNew ? null : (v.email || 'No email set'),
+      countChip: isNew ? null : { num: itemCount, label: itemCount === 1 ? 'item' : 'items' },
+      cards,
+      saveLabel:   isNew ? 'Create vendor' : 'Save changes',
+      cancelLabel: 'Cancel',
+      state: {
+        chips: { cc: ccArr, bcc: bccArr, alt: altArr },
+      },
+
+      onMount: (overlay, state) => {
+        // Identity widgets: photo (with downscale) + hue picker
+        RX.wirePhotoPicker(overlay, state, {
+          maxBytes: 12 * 1024 * 1024,
+          tooLargeMsg: 'Image too large (12 MB max)',
+          processFile: (file) => downscaleImageToDataUrl(file, 384, 0.85),
+        });
+        RX.wireHuePicker(overlay, state);
+
+        // Recipient chip groups (cc / bcc / alt)
+        ['cc', 'bcc', 'alt'].forEach(kind => {
+          RX.wireChipGroup(overlay, kind, state, {
+            label: kind === 'alt' ? 'OTHER' : kind.toUpperCase(),
+            hint: kind === 'cc' ? 'always copied on every order'
+                : kind === 'bcc' ? "silent copies — others can't see them"
+                : 'stored only — NOT auto-sent (backups)',
+            inputType: 'email',
+            inputMode: 'email',
+            placeholder: 'email@example.com',
+            addLabel: kind === 'alt' ? 'Add other' : `Add ${kind.toUpperCase()}`,
+            validate: emailValidator,
+          });
+        });
+
+        // Delivery day pills — toggle on tap
+        overlay.querySelectorAll('[data-rx-days] .rx-day-pill').forEach(btn => {
+          btn.addEventListener('click', () => btn.classList.toggle('active'));
+        });
+
+        // Catalog CTA — closes editor, opens catalog editor for this vendor
+        const catalogBtn = overlay.querySelector('[data-rx-catalog-cta]');
+        if (catalogBtn) {
+          catalogBtn.addEventListener('click', () => {
+            RX.close();
+            // Re-find vendor from the cache to get the freshest data
+            const fresh = vendors.find(x => x.id === v.id) || v;
+            openCatalogEditor(fresh);
+          });
+        }
+
+        // Archive button — confirms then archives
+        const archiveBtn = overlay.querySelector('[data-rx-archive]');
+        if (archiveBtn) {
+          archiveBtn.addEventListener('click', async () => {
+            if (!confirm(`Archive ${v.name}? It will be hidden from the vendor list. Order history is preserved.`)) return;
+            try {
+              await archiveVendorById(v.id, v.name);
+              RX.close();
+            } catch (err) {
+              console.error('[ordering] archive failed:', err);
+              if (NX.toast) NX.toast('Failed to archive: ' + (err.message || ''), 'error', 3000);
+            }
+          });
+        }
+      },
+
+      onSave: async (overlay, state) => {
+        const id = RX.readIdentityValues(overlay, state);
+        if (!id.name) {
+          if (NX.toast) NX.toast('Name is required', 'warn', 1800);
+          return false;
+        }
+
+        const email = (overlay.querySelector('[data-rx-vendor-email]') || {}).value || '';
+        const subject = (overlay.querySelector('[data-rx-subject]') || {}).value || '';
+        const body    = (overlay.querySelector('[data-rx-body]')    || {}).value || '';
+        const notes   = (overlay.querySelector('[data-rx-notes]')   || {}).value || '';
+        const days = Array.from(overlay.querySelectorAll('[data-rx-days] .rx-day-pill.active'))
+                          .map(b => b.dataset.day);
+
+        // Build alt_emails from the three chip groups
+        const altEmails = [];
+        for (const e of (state.chips.cc  || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'cc'  }); }
+        for (const e of (state.chips.bcc || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'bcc' }); }
+        for (const e of (state.chips.alt || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'alt' }); }
+
+        const payload = {
+          name: id.name,
+          email: email.trim() || null,
+          alt_emails: altEmails.length ? altEmails : null,
+          image_url: id.photoUrl || null,
+          avatar_hue: id.avatarHue,
+          pinned: id.pinned,
+          delivery_days: days,
+          subject_template: subject.trim() || null,
+          body_template:    body.trim()    || null,
+          notes:            notes.trim()   || null,
+        };
+
+        const optionalCols = ['image_url', 'avatar_hue', 'pinned', 'alt_emails'];
+        const stripOptionalCols = (p) => {
+          const o = { ...p };
+          for (const k of optionalCols) delete o[k];
+          return o;
+        };
+        const isMissingColumnError = (err) => {
+          const msg = (err && (err.message || err.toString())) || '';
+          return /column|schema|does not exist|could not find/i.test(msg);
+        };
+
+        try {
+          if (isNew) {
+            let res = await NX.sb.from('order_vendors').insert(payload).select('*').single();
+            if (res.error && isMissingColumnError(res.error)) {
+              console.warn('[ordering] saveVendor insert: retry without new columns');
+              res = await NX.sb.from('order_vendors').insert(stripOptionalCols(payload)).select('*').single();
+            }
+            if (res.error) throw res.error;
+            vendors.push(res.data);
+            vendors.sort((a, b) => a.name.localeCompare(b.name));
+            if (vendors._itemCounts) vendors._itemCounts[res.data.id] = 0;
+          } else {
+            const vendorId = v.id;
+            if (!vendorId) throw new Error('Missing vendor.id — cannot update');
+            let res = await NX.sb.from('order_vendors').update(payload).eq('id', vendorId);
+            if (res.error && isMissingColumnError(res.error)) {
+              console.warn('[ordering] saveVendor update: retry without new columns');
+              res = await NX.sb.from('order_vendors').update(stripOptionalCols(payload)).eq('id', vendorId);
+            }
+            if (res.error) throw res.error;
+            const cached = vendors.find(x => x.id === vendorId);
+            if (cached) Object.assign(cached, payload);
+          }
+          if (NX.toast) NX.toast('Saved', 'info', 1200);
+          renderVendors();
+          return true;     // engine closes the overlay
+        } catch (err) {
+          console.error('[ordering] saveVendor:', err);
+          if (NX.toast) NX.toast('Failed to save: ' + (err.message || ''), 'error', 3000);
+          return false;    // keep open so user can retry
+        }
+      },
+    });
+  }
+
+  /* ─── Legacy entry point — used as fallback if the engine isn't loaded.
+   * Same body as the original openVendorEditor; renamed so the engine
+   * version above can take its name. ───────────────────────────────────── */
+  async function openVendorEditor_legacy(vendor) {
+    const isNew = !vendor;
+    const initialRecipients = parseAltEmails((vendor && vendor.alt_emails) || []);
     editorState = {
       isNew,
       vendor: isNew
         ? { name: '', email: '', alt_emails: [], image_url: '', avatar_hue: null, pinned: false, delivery_days: [], subject_template: '', body_template: '', notes: '' }
         : { ...vendor },
+      // Live working copy of recipients — mutated by the chip add/remove
+      // handlers so they stay separate from the vendor object until save.
+      recipients: initialRecipients,
+      // Card collapse state. Identity + Recipients open by default; the
+      // rest fold up so the screen isn't a wall of fields. User toggles
+      // are CSS-only (no re-render) so input state in collapsed cards
+      // is preserved across opens/closes.
+      expandedCards: new Set(['identity', 'recipients']),
       itemCount: null,           // count for the "Manage catalog" CTA — fetched async
       overlay: null,
     };
@@ -2565,6 +2903,14 @@ Thanks for your help sorting this out.`;
     const v = editorState.vendor;
     const isNew = editorState.isNew;
     const days = Array.isArray(v.delivery_days) ? v.delivery_days : [];
+    // Card collapse state — defaults to {identity, recipients} if missing
+    if (!editorState.expandedCards) editorState.expandedCards = new Set(['identity', 'recipients']);
+    const isExp = (key) => editorState.expandedCards.has(key);
+    // Recipients: ensure the working copy exists (may be missing if state
+    // was constructed before openVendorEditor — defensive)
+    if (!Array.isArray(editorState.recipients)) {
+      editorState.recipients = parseAltEmails(v.alt_emails || []);
+    }
 
     // Items section is now its own dedicated editor. Vendor editor only
     // surfaces a button to open it + a quick item count.
@@ -2611,101 +2957,89 @@ Thanks for your help sorting this out.`;
       </div>
       <div class="ord-veditor-body">
 
-        <div class="ved-section-divider"><span>Vendor</span></div>
-        <div class="ved-vendor-head">
-          <button type="button" class="ved-avatar-btn" id="vedAvatarBtn" aria-label="Upload vendor photo from device">
-            <div class="ved-avatar-preview" id="vedAvatarPreview" aria-hidden="true">
-              ${vendorAvatar(v.name, v.image_url, v.avatar_hue)}
-            </div>
-            <span class="ved-avatar-badge" aria-hidden="true">${cameraIcon()}</span>
-          </button>
-          <input type="file" id="vedImageFile" accept="image/*" hidden>
-          <div class="ved-vendor-head-fields">
-            <div class="ord-form-field">
-              <label class="ord-form-label" for="vedName">Name</label>
-              <input type="text" class="ord-form-input" id="vedName" value="${esc(v.name)}" placeholder="e.g. Farm To Table" autocomplete="off">
-            </div>
-            <div class="ord-form-field">
-              <label class="ord-form-label" for="vedEmail">Primary email <span class="ord-form-label-hint">— required for sending orders</span></label>
-              <input type="email" class="ord-form-input" id="vedEmail" value="${esc(v.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
-            </div>
-          </div>
-        </div>
-        <div class="ord-form-field">
-          <label class="ord-form-label">Additional recipients <span class="ord-form-label-hint">— CC / BCC / alternate. Tap the badge to cycle.</span></label>
-          <div class="ved-recipients" id="vedRecipients">
-            ${renderRecipientRows(v.alt_emails || [])}
-          </div>
-          <button type="button" class="ved-recipient-add-btn" id="vedRecipientAdd">
-            ${plusIcon()}<span>Add another recipient</span>
-          </button>
-          <div class="ord-form-hint">Each row can be marked CC, BCC, or ALT. CC and BCC recipients are automatically included when you send an order. ALT recipients aren't auto-included — useful for storing backups or seasonal contacts.</div>
-        </div>
-        <div class="ord-form-field">
-          <label class="ord-form-label">Photo <span class="ord-form-label-hint">— tap the circle to pick from your gallery, or paste a URL below</span></label>
-          <div class="ved-photo-actions">
-            <button type="button" class="ved-photo-action-btn" id="vedPhotoUpload">${cameraIcon()}<span>Upload from device</span></button>
-            <button type="button" class="ved-photo-action-btn ved-photo-action-clear" id="vedPhotoClear">${trashIcon()}<span>Remove photo</span></button>
-          </div>
-          <input type="url" class="ord-form-input" id="vedImageUrl" value="${esc(v.image_url || '')}" placeholder="https://example.com/logo.png  (optional URL)" autocomplete="off" inputmode="url" style="margin-top:8px">
-          <div class="ord-form-hint">Photos are auto-cropped to square and downscaled to 384 px for crisp retina rendering. Leave empty for the colored-letter avatar.</div>
-        </div>
+        ${itemsHTML}
 
-        <div class="ord-form-field">
-          <label class="ord-form-label">Avatar color <span class="ord-form-label-hint">— only matters when there's no photo</span></label>
-          <div class="ved-hue-picker" id="vedHuePicker" data-selected="${typeof v.avatar_hue === 'number' ? v.avatar_hue : 'auto'}">
-            <button type="button" class="ved-hue-swatch ved-hue-auto${typeof v.avatar_hue !== 'number' ? ' active' : ''}" data-hue="auto" aria-label="Auto (hash from name)">A</button>
-            ${[15, 35, 55, 90, 130, 165, 200, 230, 265, 295, 325, 355].map(h =>
-              `<button type="button" class="ved-hue-swatch${v.avatar_hue === h ? ' active' : ''}" data-hue="${h}" style="--avatar-hue:${h}" aria-label="Hue ${h}"></button>`
-            ).join('')}
+        ${renderVendorCard('identity', 'Identity', isExp('identity'), `
+          <div class="ved-vendor-head">
+            <button type="button" class="ved-avatar-btn" id="vedAvatarBtn" aria-label="Upload vendor photo from device">
+              <div class="ved-avatar-preview" id="vedAvatarPreview" aria-hidden="true">
+                ${vendorAvatar(v.name, v.image_url, v.avatar_hue)}
+              </div>
+              <span class="ved-avatar-badge" aria-hidden="true">${cameraIcon()}</span>
+            </button>
+            <input type="file" id="vedImageFile" accept="image/*" hidden>
+            <div class="ved-vendor-head-fields">
+              <div class="ord-form-field">
+                <label class="ord-form-label" for="vedName">Name</label>
+                <input type="text" class="ord-form-input" id="vedName" value="${esc(v.name)}" placeholder="e.g. Farm To Table" autocomplete="off">
+              </div>
+            </div>
           </div>
-        </div>
-
-        <div class="ord-form-field">
+          <div class="ord-form-field">
+            <label class="ord-form-label">Photo <span class="ord-form-label-hint">— tap the circle or paste a URL</span></label>
+            <div class="ved-photo-actions">
+              <button type="button" class="ved-photo-action-btn" id="vedPhotoUpload">${cameraIcon()}<span>Upload</span></button>
+              <button type="button" class="ved-photo-action-btn ved-photo-action-clear" id="vedPhotoClear">${trashIcon()}<span>Remove</span></button>
+            </div>
+            <input type="url" class="ord-form-input" id="vedImageUrl" value="${esc(v.image_url || '')}" placeholder="https://example.com/logo.png  (optional URL)" autocomplete="off" inputmode="url" style="margin-top:8px">
+          </div>
+          <div class="ord-form-field">
+            <label class="ord-form-label">Avatar color <span class="ord-form-label-hint">— only matters when there's no photo</span></label>
+            <div class="ved-hue-picker" id="vedHuePicker" data-selected="${typeof v.avatar_hue === 'number' ? v.avatar_hue : 'auto'}">
+              <button type="button" class="ved-hue-swatch ved-hue-auto${typeof v.avatar_hue !== 'number' ? ' active' : ''}" data-hue="auto" aria-label="Auto (hash from name)">A</button>
+              ${[15, 35, 55, 90, 130, 165, 200, 230, 265, 295, 325, 355].map(h =>
+                `<button type="button" class="ved-hue-swatch${v.avatar_hue === h ? ' active' : ''}" data-hue="${h}" style="--avatar-hue:${h}" aria-label="Hue ${h}"></button>`
+              ).join('')}
+            </div>
+          </div>
           <label class="ord-form-toggle">
             <input type="checkbox" id="vedPinned" ${v.pinned ? 'checked' : ''}>
             <span class="ord-form-toggle-track"><span class="ord-form-toggle-thumb"></span></span>
             <span class="ord-form-toggle-text">
-              <span class="ord-form-toggle-title">Pin to top</span>
-              <span class="ord-form-toggle-sub">Pinned vendors appear above all others, in the order they were pinned.</span>
+              <span class="ord-form-toggle-title">Pin to top of vendor list</span>
+              <span class="ord-form-toggle-sub">Pinned vendors always sort first.</span>
             </span>
           </label>
-        </div>
+        `)}
 
-        ${itemsHTML}
+        ${renderVendorCard('recipients', 'Recipients', isExp('recipients'), renderRecipientCardBody(v, editorState.recipients))}
 
-        <div class="ved-section-divider"><span>Delivery days</span></div>
-        <div class="ord-form-field">
-          <div class="ord-day-pills" id="vedDays">
-            ${WEEKDAY_KEYS.map((k, i) => `
-              <button type="button" class="ord-day-pill${days.includes(k) ? ' active' : ''}" data-day="${k}">${WEEKDAY_LBL[i]}</button>
-            `).join('')}
+        ${renderVendorCard('schedule', 'Schedule', isExp('schedule'), `
+          <div class="ord-form-field">
+            <label class="ord-form-label">Delivery days <span class="ord-form-label-hint">— used when scheduling new orders</span></label>
+            <div class="ord-day-pills" id="vedDays">
+              ${WEEKDAY_KEYS.map((k, i) => `
+                <button type="button" class="ord-day-pill${days.includes(k) ? ' active' : ''}" data-day="${k}">${WEEKDAY_LBL[i]}</button>
+              `).join('')}
+            </div>
+            <div class="ord-form-hint">Tap to toggle. Used to pick the next delivery date when starting an order.</div>
           </div>
-          <div class="ord-form-hint">Tap to toggle. Used to pick the next delivery date when starting an order.</div>
-        </div>
+        `)}
 
-        <div class="ved-section-divider"><span>Email composition</span></div>
-        <div class="ord-form-field">
-          <label class="ord-form-label" for="vedSubject">Subject line</label>
-          <input type="text" class="ord-form-input" id="vedSubject" value="${esc(v.subject_template || '')}" placeholder="${esc(v.name || 'Vendor')} order — {location} for {delivery_date}" autocomplete="off">
-          <div class="ord-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date}</code></div>
-        </div>
-        <div class="ord-form-field">
-          <label class="ord-form-label" for="vedBody">Body template</label>
-          <textarea class="ord-form-textarea" id="vedBody" rows="6" placeholder="Leave blank to use the standard format. If you set this, your text replaces the body — use {lines} where the item list should appear.">${esc(v.body_template || '')}</textarea>
-          <div class="ord-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date_long}</code> <code>{lines}</code> <code>{notes}</code></div>
-        </div>
+        ${renderVendorCard('templates', 'Email templates', isExp('templates'), `
+          <div class="ord-form-field">
+            <label class="ord-form-label" for="vedSubject">Subject line</label>
+            <input type="text" class="ord-form-input" id="vedSubject" value="${esc(v.subject_template || '')}" placeholder="${esc(v.name || 'Vendor')} order — {location} for {delivery_date}" autocomplete="off">
+            <div class="ord-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date}</code></div>
+          </div>
+          <div class="ord-form-field">
+            <label class="ord-form-label" for="vedBody">Body template</label>
+            <textarea class="ord-form-textarea" id="vedBody" rows="6" placeholder="Leave blank to use the standard format. If you set this, your text replaces the body — use {lines} where the item list should appear.">${esc(v.body_template || '')}</textarea>
+            <div class="ord-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date_long}</code> <code>{lines}</code> <code>{notes}</code></div>
+          </div>
+        `)}
 
-        <div class="ved-section-divider"><span>Internal notes</span></div>
-        <div class="ord-form-field">
-          <textarea class="ord-form-textarea" id="vedNotes" rows="3" placeholder="Anything to remember about this vendor — only you see this">${esc(v.notes || '')}</textarea>
-        </div>
+        ${renderVendorCard('notes', 'Internal notes', isExp('notes'), `
+          <div class="ord-form-field">
+            <textarea class="ord-form-textarea" id="vedNotes" rows="3" placeholder="Anything to remember about this vendor — only you see this">${esc(v.notes || '')}</textarea>
+          </div>
+        `)}
 
-        ${!isNew ? `
-          <div class="ved-section-divider ved-section-divider-danger"><span>Danger zone</span></div>
+        ${!isNew ? renderVendorCard('danger', 'Danger zone', isExp('danger'), `
           <button class="ord-veditor-archive-btn" id="vedArchive">${trashIcon()}<span>Archive vendor</span></button>
           <div class="ord-form-hint" style="text-align:center">Archived vendors are hidden from the list. Order history is preserved.</div>
-        ` : ''}
+        `, true) : ''}
+
       </div>
       <div class="ord-veditor-foot">
         <button class="ord-veditor-cancel" id="vedCancel">Cancel</button>
@@ -2801,23 +3135,29 @@ Thanks for your help sorting this out.`;
     const arch = overlay.querySelector('#vedArchive');
     if (arch) arch.addEventListener('click', archiveVendor);
 
-    // Recipient list — wire kind-cycling and remove on existing rows,
-    // then bind the "Add another" button to append a new empty row.
-    const recipientsEl = overlay.querySelector('#vedRecipients');
-    const recipientAddBtn = overlay.querySelector('#vedRecipientAdd');
-    if (recipientsEl) wireRecipientRowsHandlers(recipientsEl);
-    if (recipientAddBtn && recipientsEl) {
-      recipientAddBtn.addEventListener('click', () => {
-        // Snapshot current rows, append a fresh empty CC row, re-render.
-        const current = readRecipientRows(recipientsEl);
-        current.push({ email: '', kind: 'cc' });
-        recipientsEl.innerHTML = renderRecipientRows(current);
-        wireRecipientRowsHandlers(recipientsEl);
-        // Focus the new row's input so the user can type immediately.
-        const lastInput = recipientsEl.querySelector('.ved-recipient-row:last-child .ved-recipient-email');
-        if (lastInput) lastInput.focus();
+    // ─── Card chevron toggle ─────────────────────────────────────────
+    // Tapping the card head toggles the .is-collapsed class only — no
+    // re-render — so any half-typed input inside the card body keeps its
+    // value across collapse/expand.
+    overlay.querySelectorAll('[data-card-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.cardToggle;
+        const card = overlay.querySelector(`.ved-card[data-card="${key}"]`);
+        if (!card) return;
+        if (editorState.expandedCards.has(key)) {
+          editorState.expandedCards.delete(key);
+          card.classList.add('is-collapsed');
+          btn.setAttribute('aria-expanded', 'false');
+        } else {
+          editorState.expandedCards.add(key);
+          card.classList.remove('is-collapsed');
+          btn.setAttribute('aria-expanded', 'true');
+        }
       });
-    }
+    });
+
+    // ─── Recipient chips: add + remove ───────────────────────────────
+    wireRecipientChipHandlers(overlay);
 
     const manageCatalog = overlay.querySelector('#vedManageCatalog');
     if (manageCatalog) manageCatalog.addEventListener('click', () => {
@@ -2942,6 +3282,7 @@ Thanks for your help sorting this out.`;
   function renderSectionGroup(sec, items) {
     const isUncat = sec === '';
     const isRenaming = catalogState.renamingSection === sec;
+    const isCollapsed = catalogState.collapsedSections.has(sec);
     const headerInner = isRenaming
       ? `
         <input type="text" class="ved-section-rename-input" value="${esc(sec)}" autocomplete="off" spellcheck="false" placeholder="Section name">
@@ -2955,22 +3296,29 @@ Thanks for your help sorting this out.`;
             <line x1="3" y1="16" x2="21" y2="16"/>
           </svg>
         </span>
-        <span class="ved-section-name${isUncat ? ' is-uncat' : ''}" ${!isUncat ? `data-section="${esc(sec)}" role="button" tabindex="0"` : ''}>
+        <span class="ved-section-name${isUncat ? ' is-uncat' : ''}" data-section="${esc(sec)}" role="button" tabindex="0">
           ${esc(sec || 'Uncategorized')}
         </span>
         <span class="ved-section-count">${items.length}</span>
         ${!isUncat ? `
           <button class="ved-section-rename-btn" data-section="${esc(sec)}" aria-label="Rename section ${esc(sec)}">${editIcon()}</button>
         ` : ''}
+        <button class="ved-section-collapse" data-section="${esc(sec)}" type="button" aria-expanded="${!isCollapsed}" aria-label="${isCollapsed ? 'Expand' : 'Collapse'} section ${esc(sec || 'uncategorized')}">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
       `;
 
     let inner = `<div class="ved-section-row" data-section="${esc(sec)}">${headerInner}</div>`;
 
-    // Items wrapper — items live inside the section card
+    // Items wrapper — items live inside the section card. When the
+    // section is collapsed, this wrapper is hidden via CSS but the
+    // items remain in the DOM so the snapshot for drag-reorder still
+    // includes them (they just have zero height + are hit-tested out).
     let itemsHTML = '';
 
     if (items.length === 0 && !isUncat) {
-      // Pending / emptied section — show placeholder with quick-add CTA.
       itemsHTML += `
         <div class="ved-section-empty">
           <div class="ved-section-empty-text">No items in this section yet.</div>
@@ -2992,7 +3340,7 @@ Thanks for your help sorting this out.`;
 
     inner += `<div class="ved-section-items">${itemsHTML}</div>`;
 
-    return `<div class="ved-section-block" data-section="${esc(sec)}">${inner}</div>`;
+    return `<div class="ved-section-block${isCollapsed ? ' is-collapsed' : ''}" data-section="${esc(sec)}">${inner}</div>`;
   }
 
   function renderItemRow(item) {
@@ -3125,27 +3473,27 @@ Thanks for your help sorting this out.`;
       b.addEventListener('click', () => deleteItem(b.dataset.itemId));
     });
 
-    // ─── Section rename ────────────────────────────────────────────
-    // Tap section name → start inline rename
+    // ─── Section collapse / expand ─────────────────────────────────
+    // Tap section name OR chevron → toggle collapse. Rename now lives
+    // on the pencil button only (clearer separation of intents).
     list.querySelectorAll('.ved-section-name[data-section]').forEach(el => {
-      el.addEventListener('click', () => {
-        catalogState.renamingSection = el.dataset.section;
-        renderItemsAreaOnly();
-        setTimeout(() => {
-          const inp = list.querySelector('.ved-section-rename-input');
-          if (inp) { inp.focus(); inp.select(); }
-        }, 30);
-      });
+      el.addEventListener('click', () => toggleCollapseSection(el.dataset.section));
       el.addEventListener('keydown', e => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          catalogState.renamingSection = el.dataset.section;
-          renderItemsAreaOnly();
+          toggleCollapseSection(el.dataset.section);
         }
       });
     });
+    list.querySelectorAll('.ved-section-collapse').forEach(btn => {
+      btn.addEventListener('click', () => toggleCollapseSection(btn.dataset.section));
+    });
+
+    // ─── Section rename ────────────────────────────────────────────
     list.querySelectorAll('.ved-section-rename-btn').forEach(btn => {
       btn.addEventListener('click', () => {
+        // Make sure section is expanded so the input is visible
+        catalogState.collapsedSections.delete(btn.dataset.section);
         catalogState.renamingSection = btn.dataset.section;
         renderItemsAreaOnly();
         setTimeout(() => {
@@ -3257,19 +3605,21 @@ Thanks for your help sorting this out.`;
 
   /* ── Item drag handlers: reorder within section, or drag across
    * boundaries to change section. Mirrors the vendor-list drag pattern
-   * but adds section detection on drop. */
+   * but adds section detection on drop AND auto-scroll when the pointer
+   * is near the top/bottom edge of the list container. */
   function wireItemDragHandlers(listEl) {
+    const SCROLL_ZONE = 90;       // px from edge that triggers auto-scroll
+    const SCROLL_MAX  = 14;       // max px per RAF tick
     let draggingId = null;
     let startY = 0;
-    let liveOrder = [];   // array of {id, section} entries reflecting current visual state
+    let liveOrder = [];           // [{id, section, el}, ...] reflecting current visual order
+    let lastPointerY = 0;
+    let scrollRAF = null;
 
     const handles = listEl.querySelectorAll('.ved-item-drag-handle');
     handles.forEach(h => h.addEventListener('pointerdown', onPointerDown));
 
     function snapshot() {
-      // Walk DOM in document order to capture current item-row sequence
-      // and which section block each row currently lives in. This is the
-      // single source of truth during a drag.
       const rows = listEl.querySelectorAll('.ved-section-block');
       const out = [];
       rows.forEach(block => {
@@ -3288,6 +3638,7 @@ Thanks for your help sorting this out.`;
       if (!row) return;
       draggingId = row.dataset.itemId;
       startY = e.clientY;
+      lastPointerY = e.clientY;
       row.classList.add('is-dragging');
       liveOrder = snapshot();
       handle.setPointerCapture(e.pointerId);
@@ -3296,55 +3647,86 @@ Thanks for your help sorting this out.`;
       handle.addEventListener('pointercancel', onPointerUp);
     }
 
-    function onPointerMove(e) {
+    /* Pure positioning + swap logic — called from pointermove AND from
+     * the auto-scroll RAF loop (so swaps still register while the user
+     * holds finger still and the list is auto-scrolling under them). */
+    function performMove(clientY) {
       if (!draggingId) return;
       const draggedRow = listEl.querySelector('.ved-item-row.is-dragging');
       if (!draggedRow) return;
-      const dy = e.clientY - startY;
+      const dy = clientY - startY;
       draggedRow.style.transform = `translateY(${dy}px)`;
 
-      // Find the closest non-dragged item row whose vertical center we've
-      // crossed. When found, swap positions in the DOM + liveOrder.
       const draggedRect = draggedRow.getBoundingClientRect();
       const draggedCenter = draggedRect.top + draggedRect.height / 2;
       const allRows = Array.from(listEl.querySelectorAll('.ved-item-row[data-item-id]'))
                            .filter(r => r.dataset.itemId !== draggingId);
       for (const other of allRows) {
         const r = other.getBoundingClientRect();
+        // Skip rows with zero height (collapsed sections hide their items)
+        if (r.height === 0) continue;
         if (draggedCenter > r.top && draggedCenter < r.bottom) {
-          // Crossed center — move dragged row before/after `other` in the DOM.
           const targetSecBlock = other.closest('.ved-section-block');
           const otherIdInOrder = other.dataset.itemId;
           const fromIdx = liveOrder.findIndex(x => x.id === draggingId);
           const toIdx   = liveOrder.findIndex(x => x.id === otherIdInOrder);
           if (fromIdx === -1 || toIdx === -1 || !targetSecBlock) break;
 
-          // Determine target section from `other`'s parent block
           const newSection = targetSecBlock.dataset.section || '';
-
-          // Mutate liveOrder
           const moved = liveOrder.splice(fromIdx, 1)[0];
           moved.section = newSection;
-          // After splice, indices may shift — recompute toIdx
           const newToIdx = liveOrder.findIndex(x => x.id === otherIdInOrder);
-          // If dragging downward we want to insert AFTER `other`, otherwise BEFORE.
-          const insertBefore = (fromIdx > toIdx);  // moved upward → insert before
+          const insertBefore = (fromIdx > toIdx);
           liveOrder.splice(insertBefore ? newToIdx : newToIdx + 1, 0, moved);
 
-          // Reflect in DOM: physically move the dragged row into the
-          // target block at the new position.
+          // Move into target section's items wrapper if available
+          const targetItemsWrap = targetSecBlock.querySelector('.ved-section-items');
           if (insertBefore) {
-            targetSecBlock.insertBefore(draggedRow, other);
+            (targetItemsWrap || targetSecBlock).insertBefore(draggedRow, other);
           } else {
             other.after(draggedRow);
           }
-          // Reset transform — the row is now in its new home, finger
-          // stays at the same screen position so we re-anchor.
-          startY = e.clientY;
+          startY = clientY;
           draggedRow.style.transform = 'translateY(0px)';
           break;
         }
       }
+    }
+
+    function onPointerMove(e) {
+      lastPointerY = e.clientY;
+      performMove(e.clientY);
+      maybeStartAutoScroll();
+    }
+
+    function maybeStartAutoScroll() {
+      if (scrollRAF) return;
+      const rect = listEl.getBoundingClientRect();
+      if (lastPointerY < rect.top + SCROLL_ZONE || lastPointerY > rect.bottom - SCROLL_ZONE) {
+        scrollRAF = requestAnimationFrame(autoScrollFrame);
+      }
+    }
+
+    function autoScrollFrame() {
+      if (!draggingId) { scrollRAF = null; return; }
+      const rect = listEl.getBoundingClientRect();
+      let delta = 0;
+      if (lastPointerY < rect.top + SCROLL_ZONE) {
+        delta = -Math.min(SCROLL_MAX, (rect.top + SCROLL_ZONE - lastPointerY) / 6);
+      } else if (lastPointerY > rect.bottom - SCROLL_ZONE) {
+        delta = Math.min(SCROLL_MAX, (lastPointerY - (rect.bottom - SCROLL_ZONE)) / 6);
+      }
+      if (delta === 0) { scrollRAF = null; return; }
+
+      const before = listEl.scrollTop;
+      listEl.scrollTop += delta;
+      const actualDelta = listEl.scrollTop - before;
+      if (actualDelta !== 0) {
+        // Compensate so the dragged element stays under the finger
+        startY -= actualDelta;
+        performMove(lastPointerY);
+      }
+      scrollRAF = requestAnimationFrame(autoScrollFrame);
     }
 
     async function onPointerUp(e) {
@@ -3354,6 +3736,10 @@ Thanks for your help sorting this out.`;
       if (draggedRow) {
         draggedRow.classList.remove('is-dragging');
         draggedRow.style.transform = '';
+      }
+      if (scrollRAF) {
+        cancelAnimationFrame(scrollRAF);
+        scrollRAF = null;
       }
       handle.releasePointerCapture?.(e.pointerId);
       handle.removeEventListener('pointermove', onPointerMove);
@@ -3367,12 +3753,15 @@ Thanks for your help sorting this out.`;
   }
 
   /* ── Section drag: pickup the whole section block, drop relative
-   * to other section blocks. On drop, the section's items are
-   * re-numbered to slot in at the new position. */
+   * to other section blocks. Auto-scroll while dragging too. */
   function wireSectionDragHandlers(listEl) {
+    const SCROLL_ZONE = 90;
+    const SCROLL_MAX  = 14;
     let draggingSec = null;
     let startY = 0;
-    let liveOrder = [];   // array of section names in current visual order
+    let liveOrder = [];
+    let lastPointerY = 0;
+    let scrollRAF = null;
 
     const handles = listEl.querySelectorAll('.ved-section-drag');
     handles.forEach(h => h.addEventListener('pointerdown', onPointerDown));
@@ -3384,6 +3773,7 @@ Thanks for your help sorting this out.`;
       if (!block) return;
       draggingSec = block.dataset.section || '';
       startY = e.clientY;
+      lastPointerY = e.clientY;
       block.classList.add('is-dragging');
       liveOrder = Array.from(listEl.querySelectorAll('.ved-section-block')).map(b => b.dataset.section || '');
       handle.setPointerCapture(e.pointerId);
@@ -3392,11 +3782,11 @@ Thanks for your help sorting this out.`;
       handle.addEventListener('pointercancel', onPointerUp);
     }
 
-    function onPointerMove(e) {
+    function performMove(clientY) {
       if (draggingSec == null) return;
       const block = listEl.querySelector('.ved-section-block.is-dragging');
       if (!block) return;
-      const dy = e.clientY - startY;
+      const dy = clientY - startY;
       block.style.transform = `translateY(${dy}px)`;
 
       const blockRect = block.getBoundingClientRect();
@@ -3405,23 +3795,58 @@ Thanks for your help sorting this out.`;
                           .filter(b => (b.dataset.section || '') !== draggingSec);
       for (const other of others) {
         const r = other.getBoundingClientRect();
+        if (r.height === 0) continue;
         if (blockCenter > r.top && blockCenter < r.bottom) {
           const fromIdx = liveOrder.indexOf(draggingSec);
           const toIdx = liveOrder.indexOf(other.dataset.section || '');
           if (fromIdx === -1 || toIdx === -1) break;
           liveOrder.splice(fromIdx, 1);
           liveOrder.splice(toIdx, 0, draggingSec);
-          // Reflect in DOM
           if (fromIdx > toIdx) {
             other.parentNode.insertBefore(block, other);
           } else {
             other.after(block);
           }
-          startY = e.clientY;
+          startY = clientY;
           block.style.transform = 'translateY(0px)';
           break;
         }
       }
+    }
+
+    function onPointerMove(e) {
+      lastPointerY = e.clientY;
+      performMove(e.clientY);
+      maybeStartAutoScroll();
+    }
+
+    function maybeStartAutoScroll() {
+      if (scrollRAF) return;
+      const rect = listEl.getBoundingClientRect();
+      if (lastPointerY < rect.top + SCROLL_ZONE || lastPointerY > rect.bottom - SCROLL_ZONE) {
+        scrollRAF = requestAnimationFrame(autoScrollFrame);
+      }
+    }
+
+    function autoScrollFrame() {
+      if (draggingSec == null) { scrollRAF = null; return; }
+      const rect = listEl.getBoundingClientRect();
+      let delta = 0;
+      if (lastPointerY < rect.top + SCROLL_ZONE) {
+        delta = -Math.min(SCROLL_MAX, (rect.top + SCROLL_ZONE - lastPointerY) / 6);
+      } else if (lastPointerY > rect.bottom - SCROLL_ZONE) {
+        delta = Math.min(SCROLL_MAX, (lastPointerY - (rect.bottom - SCROLL_ZONE)) / 6);
+      }
+      if (delta === 0) { scrollRAF = null; return; }
+
+      const before = listEl.scrollTop;
+      listEl.scrollTop += delta;
+      const actualDelta = listEl.scrollTop - before;
+      if (actualDelta !== 0) {
+        startY -= actualDelta;
+        performMove(lastPointerY);
+      }
+      scrollRAF = requestAnimationFrame(autoScrollFrame);
     }
 
     async function onPointerUp(e) {
@@ -3431,6 +3856,10 @@ Thanks for your help sorting this out.`;
       if (block) {
         block.classList.remove('is-dragging');
         block.style.transform = '';
+      }
+      if (scrollRAF) {
+        cancelAnimationFrame(scrollRAF);
+        scrollRAF = null;
       }
       handle.releasePointerCapture?.(e.pointerId);
       handle.removeEventListener('pointermove', onPointerMove);
@@ -3549,10 +3978,12 @@ Thanks for your help sorting this out.`;
     }
     const pinned = !!overlay.querySelector('#vedPinned')?.checked;
 
-    // Recipient list (alt_emails) — read from current DOM rows. Empty
-    // rows are filtered by readRecipientRows. Stored as JSON array of
-    // {email, kind} objects in the alt_emails column.
-    const altEmails = readRecipientRows(overlay.querySelector('#vedRecipients'));
+    // Recipient list (alt_emails) — read straight from state, the chip
+    // handlers keep editorState.recipients in sync. Empty / blank entries
+    // are filtered out at save time so we never persist `[{email:''}]`.
+    const altEmails = Array.isArray(editorState.recipients)
+      ? editorState.recipients.filter(r => r && (r.email || '').trim())
+      : [];
 
     const payload = {
       name,
@@ -3804,6 +4235,7 @@ Thanks for your help sorting this out.`;
       addingSection: false,          // true while the "+ Section" inline form is open
       pendingSections: [],           // names of empty sections the user just created
                                      // (kept client-side until first item lands in them)
+      collapsedSections: new Set(),  // section names currently collapsed (header-only)
       searchQuery: '',
       overlay: null,
     };
@@ -3896,10 +4328,24 @@ Thanks for your help sorting this out.`;
       </div>
     ` : '';
 
-    // Search bar
+    // Search bar with a collapse-all toggle on the right
+    const allSectionNames = collectAllSectionNames();
+    const allCollapsed = allSectionNames.length > 0 &&
+                         allSectionNames.every(s => catalogState.collapsedSections.has(s));
     const searchHTML = `
-      <div class="ord-entry-search-wrap ord-cat-search-wrap">
-        <input type="search" class="ord-entry-search" id="catSearch" placeholder="Search items…" value="${esc(catalogState.searchQuery || '')}" autocomplete="off" spellcheck="false">
+      <div class="ord-cat-search-row">
+        <div class="ord-entry-search-wrap ord-cat-search-wrap">
+          <input type="search" class="ord-entry-search" id="catSearch" placeholder="Search items…" value="${esc(catalogState.searchQuery || '')}" autocomplete="off" spellcheck="false">
+        </div>
+        ${allSectionNames.length ? `
+          <button class="ord-cat-collapse-all" id="catCollapseAll" type="button" aria-pressed="${allCollapsed}" aria-label="${allCollapsed ? 'Expand all sections' : 'Collapse all sections'}" title="${allCollapsed ? 'Expand all' : 'Collapse all'}">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              ${allCollapsed
+                ? '<polyline points="6 9 12 15 18 9"/><polyline points="6 15 12 9 18 15" style="opacity:.4"/>'
+                : '<polyline points="6 15 12 9 18 15"/><polyline points="6 9 12 15 18 9" style="opacity:.4"/>'}
+            </svg>
+          </button>
+        ` : ''}
       </div>
     `;
 
@@ -3983,6 +4429,10 @@ Thanks for your help sorting this out.`;
       });
     }
 
+    // Collapse-all toggle
+    const collapseAllBtn = overlay.querySelector('#catCollapseAll');
+    if (collapseAllBtn) collapseAllBtn.addEventListener('click', toggleCollapseAll);
+
     // Wire item-list interactions (rename, edit form, drag)
     wireItemListHandlers();
 
@@ -4024,11 +4474,44 @@ Thanks for your help sorting this out.`;
   function pickDefaultNewItemSection() {
     if (!catalogState) return '';
     const pending = catalogState.pendingSections || [];
-    if (pending.length) return pending[pending.length - 1];
+    if (pending.length) return pending[0];   // unshifted to front, so [0] is newest
     const sections = new Set();
     catalogState.items.forEach(i => { if (i.section) sections.add(i.section); });
     if (!sections.size) return '';
     return Array.from(sections).sort()[0];
+  }
+
+  /* Return all named sections (real + pending). Used for collapse-all
+   * state evaluation and for the auto-scroll bounds. */
+  function collectAllSectionNames() {
+    if (!catalogState) return [];
+    const out = new Set();
+    catalogState.items.forEach(i => { if (i.section) out.add(i.section); });
+    (catalogState.pendingSections || []).forEach(s => out.add(s));
+    return Array.from(out);
+  }
+
+  function toggleCollapseSection(sec) {
+    if (!catalogState) return;
+    if (catalogState.collapsedSections.has(sec)) {
+      catalogState.collapsedSections.delete(sec);
+    } else {
+      catalogState.collapsedSections.add(sec);
+    }
+    renderItemsAreaOnly();
+  }
+
+  function toggleCollapseAll() {
+    if (!catalogState) return;
+    const all = collectAllSectionNames();
+    if (!all.length) return;
+    const everyCollapsed = all.every(s => catalogState.collapsedSections.has(s));
+    if (everyCollapsed) {
+      catalogState.collapsedSections.clear();
+    } else {
+      all.forEach(s => catalogState.collapsedSections.add(s));
+    }
+    renderCatalog();   // full re-render so the toggle button label updates
   }
 
   /* Validate + commit a new section. Sections that already exist (or
@@ -4321,31 +4804,213 @@ Thanks for your help sorting this out.`;
     }).filter(r => r.email);  // drop empty rows
   }
 
-  /**
-   * Render the editable rows of a recipient list. Each row has:
-   *   - a kind badge (CC / BCC / ALT) that cycles on tap
-   *   - an email input
-   *   - a remove (×) button
-   * Returns HTML for the list body. Wiring lives in
-   * wireRecipientRowsHandlers() below.
-   */
+  /* ── Collapsible card shell for the vendor editor ──
+   *   key       — stable identifier ('identity', 'recipients', etc.)
+   *   title     — visible label in the card header
+   *   isExpanded — initial state
+   *   bodyHTML  — markup for the body
+   *   danger    — when true, applies a red accent to the card border */
+  function renderVendorCard(key, title, isExpanded, bodyHTML, danger) {
+    return `
+      <div class="ved-card${isExpanded ? '' : ' is-collapsed'}${danger ? ' ved-card-danger' : ''}" data-card="${esc(key)}">
+        <button class="ved-card-head" type="button" data-card-toggle="${esc(key)}" aria-expanded="${isExpanded ? 'true' : 'false'}">
+          <span class="ved-card-title">${esc(title)}</span>
+          <span class="ved-card-chevron" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </span>
+        </button>
+        <div class="ved-card-body">${bodyHTML}</div>
+      </div>
+    `;
+  }
+
+  /* ── Recipient card body — TO + CC chips + BCC chips + Other ──
+   * Replaces the older row-with-cycle-badge UI. Each kind has its own
+   * dedicated chip area + Add button so the user can see at a glance
+   * which addresses get CC'd vs BCC'd vs just stored.
+   *   - TO    — vendor's primary email (single input, required for sending)
+   *   - CC    — chips, every order auto-includes them
+   *   - BCC   — chips, silent copies on every order
+   *   - Other — chips for backups / seasonal contacts (NOT auto-sent) */
+  function renderRecipientCardBody(vendor, recipients) {
+    const list = Array.isArray(recipients) ? recipients : [];
+    const cc  = list.filter(r => r.kind === 'cc');
+    const bcc = list.filter(r => r.kind === 'bcc');
+    const alt = list.filter(r => r.kind === 'alt');
+    return `
+      <div class="ord-form-field">
+        <label class="ord-form-label" for="vedEmail">
+          <span class="ved-rec-label-pill ved-rec-label-pill-to">TO</span>
+          <span class="ord-form-label-hint">— primary recipient, required for sending</span>
+        </label>
+        <input type="email" class="ord-form-input" id="vedEmail" value="${esc(vendor.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
+      </div>
+      <div class="ved-recipient-section" data-kind="cc">
+        <div class="ved-recipient-section-head">
+          <span class="ved-rec-label-pill ved-rec-label-pill-cc">CC</span>
+          <span class="ved-recipient-section-hint">always copied on every order</span>
+        </div>
+        <div class="ved-chips" data-kind="cc">${renderChipGroupContents(cc, 'cc')}</div>
+      </div>
+      <div class="ved-recipient-section" data-kind="bcc">
+        <div class="ved-recipient-section-head">
+          <span class="ved-rec-label-pill ved-rec-label-pill-bcc">BCC</span>
+          <span class="ved-recipient-section-hint">silent copies — others can't see them</span>
+        </div>
+        <div class="ved-chips" data-kind="bcc">${renderChipGroupContents(bcc, 'bcc')}</div>
+      </div>
+      <div class="ved-recipient-section" data-kind="alt">
+        <div class="ved-recipient-section-head">
+          <span class="ved-rec-label-pill ved-rec-label-pill-alt">OTHER</span>
+          <span class="ved-recipient-section-hint">stored only — NOT auto-sent (backups)</span>
+        </div>
+        <div class="ved-chips" data-kind="alt">${renderChipGroupContents(alt, 'alt')}</div>
+      </div>
+    `;
+  }
+
+  /* Inner contents of one chip group (chips + Add button). Kept separate
+   * so a single group can be re-rendered after add/remove without
+   * disturbing the rest of the card (and its inputs/focus). */
+  function renderChipGroupContents(items, kind) {
+    const chipsHTML = items.map(r => renderRecipientChip(r)).join('');
+    const addLabel = kind === 'alt' ? 'Add backup contact'
+                   : kind === 'bcc' ? 'Add BCC'
+                   : 'Add CC';
+    return `
+      ${chipsHTML}
+      <button class="ved-chip-add" type="button" data-add-kind="${esc(kind)}">
+        ${plusIcon()}<span>${esc(addLabel)}</span>
+      </button>
+    `;
+  }
+
+  function renderRecipientChip(r) {
+    return `
+      <span class="ved-chip" data-email="${esc(r.email)}" data-kind="${esc(r.kind)}">
+        <span class="ved-chip-text">${esc(r.email)}</span>
+        <button class="ved-chip-remove" type="button" aria-label="Remove ${esc(r.email)}">×</button>
+      </span>
+    `;
+  }
+
+  /* Re-render just one chip group (cc / bcc / alt) from current state.
+   * Used after add/remove so we don't blow away the email input above. */
+  function refreshChipGroup(kind) {
+    if (!editorState || !editorState.overlay) return;
+    const wrap = editorState.overlay.querySelector(`.ved-chips[data-kind="${kind}"]`);
+    if (!wrap) return;
+    const items = (editorState.recipients || []).filter(r => r.kind === kind);
+    wrap.innerHTML = renderChipGroupContents(items, kind);
+    wireRecipientChipHandlers(editorState.overlay);   // re-bind on this group's new buttons
+  }
+
+  /* Wire all chip add/remove handlers in the recipients card. Idempotent —
+   * stamps a flag so re-binds don't double up. */
+  function wireRecipientChipHandlers(overlay) {
+    if (!overlay) return;
+
+    // Remove (×) on existing chips
+    overlay.querySelectorAll('.ved-chip-remove').forEach(btn => {
+      if (btn._chipBound) return;
+      btn._chipBound = true;
+      btn.addEventListener('click', () => {
+        const chip = btn.closest('.ved-chip');
+        if (!chip || !editorState) return;
+        const email = chip.dataset.email;
+        const kind  = chip.dataset.kind;
+        editorState.recipients = (editorState.recipients || [])
+          .filter(r => !(r.email === email && r.kind === kind));
+        refreshChipGroup(kind);
+      });
+    });
+
+    // Add button — replaces the button with an inline input. Enter or
+    // blur commits the value; Escape cancels.
+    overlay.querySelectorAll('.ved-chip-add').forEach(btn => {
+      if (btn._chipBound) return;
+      btn._chipBound = true;
+      btn.addEventListener('click', () => {
+        const kind = btn.dataset.addKind;
+        const wrap = btn.parentElement;
+        if (!wrap) return;
+        // Inject inline input in place of the Add button
+        const input = document.createElement('input');
+        input.type = 'email';
+        input.className = 'ved-chip-input';
+        input.placeholder = kind === 'alt' ? 'name@email.com' : `${kind}@vendor.com`;
+        input.autocomplete = 'off';
+        input.inputMode = 'email';
+        wrap.insertBefore(input, btn);
+        btn.style.display = 'none';
+        input.focus();
+
+        const cancel = () => {
+          input.remove();
+          btn.style.display = '';
+        };
+        const commit = () => {
+          const email = (input.value || '').trim();
+          if (!email) { cancel(); return; }
+          if (!isLikelyEmail(email)) {
+            input.classList.add('ved-chip-input-invalid');
+            input.focus();
+            return;
+          }
+          // Avoid duplicates (same email + kind)
+          const exists = (editorState.recipients || []).some(r =>
+            r.email.toLowerCase() === email.toLowerCase() && r.kind === kind);
+          if (!exists) {
+            editorState.recipients = (editorState.recipients || []).slice();
+            editorState.recipients.push({ email, kind });
+          }
+          refreshChipGroup(kind);
+        };
+
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); }
+          else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+          else if (e.key === ',' || e.key === ';') {
+            e.preventDefault();
+            commit();
+            // After commit, refreshChipGroup re-creates the Add button.
+            // Re-tap it programmatically so the user can chain entries.
+            const newAdd = wrap.querySelector(`.ved-chip-add[data-add-kind="${kind}"]`);
+            if (newAdd) newAdd.click();
+          }
+        });
+        input.addEventListener('blur', () => {
+          // Small delay so a tap on the (now-hidden) Add button doesn't
+          // race the commit.
+          setTimeout(() => {
+            if (!input.isConnected) return;
+            if (input.value.trim()) commit();
+            else cancel();
+          }, 80);
+        });
+      });
+    });
+  }
+
+  /* Loose email check — accepts what most mail clients accept; not
+   * RFC-strict (which is overkill for a UI guard). */
+  function isLikelyEmail(s) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s || '');
+  }
+
+  /* Legacy helper retained for back-compat — older code paths still
+   * call renderRecipientRows() and recipientRowHTML(). They now no-op
+   * for the chip UI but stay defined so nothing throws. */
   function renderRecipientRows(rawAltEmails) {
     const rows = parseAltEmails(rawAltEmails);
-    if (!rows.length) {
-      return '<div class="ved-recipients-empty">No additional recipients yet.</div>';
-    }
+    if (!rows.length) return '';
     return rows.map((r, i) => recipientRowHTML(r, i)).join('');
   }
 
   function recipientRowHTML(row, index) {
-    const kindLabel = (row.kind || 'cc').toUpperCase();
-    return `
-      <div class="ved-recipient-row" data-index="${index}">
-        <button type="button" class="ved-recipient-kind ved-recipient-kind-${esc(row.kind)}" data-action="cycle-kind" aria-label="Cycle recipient type (currently ${esc(kindLabel)})">${esc(kindLabel)}</button>
-        <input type="email" class="ved-recipient-email" value="${esc(row.email)}" placeholder="cc@vendor.com" autocomplete="off" inputmode="email">
-        <button type="button" class="ved-recipient-remove" data-action="remove" aria-label="Remove recipient">${closeIcon()}</button>
-      </div>
-    `;
+    return `<span class="ved-chip" data-email="${esc(row.email)}" data-kind="${esc(row.kind)}">${esc(row.email)}</span>`;
   }
 
   /**
