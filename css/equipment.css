@@ -10754,19 +10754,43 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   box-shadow: 0 0 18px 4px rgba(212, 164, 78, 0.5) !important;
 }
 
-/* Tappable hint — beacon is interactive on mobile (tap to change
-   status). Subtle press feedback. */
-.eq-col-status .eq-lc-pill {
+/* Tappable hint — beacon is interactive everywhere it appears as a
+   primary status indicator: list rows AND the detail header. One pill,
+   one affordance, same one-tap-to-change-status workflow.
+
+   The :active scale gives tactile feedback on touch devices; the
+   :hover lift only fires where hover actually exists (desktop) so we
+   don't get phantom lifts from sticky tap states on mobile. */
+.eq-col-status .eq-lc-pill,
+.eq-detail-status .eq-lc-pill {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: transform var(--nx-press, 120ms ease-out);
+  user-select: none;
+  transition:
+    transform var(--nx-press, 120ms ease-out),
+    background 200ms ease,
+    color 200ms ease,
+    border-color 200ms ease,
+    box-shadow 200ms ease;
 }
-.eq-col-status .eq-lc-pill:active {
+.eq-col-status .eq-lc-pill:active,
+.eq-detail-status .eq-lc-pill:active {
   transform: scale(0.92);
+}
+@media (hover: hover) and (pointer: fine) {
+  .eq-col-status .eq-lc-pill:hover,
+  .eq-detail-status .eq-lc-pill:hover {
+    transform: translateY(-1px);
+  }
+}
+.eq-detail-status .eq-lc-pill:focus-visible {
+  outline: 2px solid var(--nx-gold, #d4a44e);
+  outline-offset: 3px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .eq-col-status .eq-lc-pill {
+  .eq-col-status .eq-lc-pill,
+  .eq-detail-status .eq-lc-pill {
     animation: none !important;
   }
 }
@@ -11237,4 +11261,142 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   #equipmentView .eq-list .eq-row > .eq-col-status   { grid-area: beacon; }
   #equipmentView .eq-list .eq-row > .eq-col-pm       { grid-area: pm; }
   #equipmentView .eq-list .eq-row > .eq-col-services { grid-area: services; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PARTS LIBRARY PICKER + INLINE SOURCES LIST
+   ─────────────────────────────────────────────────────────────────────
+   The picker sits at the top of the Add Part modal. As the user types
+   it shows existing parts they can pick from — selecting one pre-fills
+   the rest of the form. The inline sources list is the multi-vendor
+   editor surfaced inside the part detail's Sourcing section, replacing
+   the old single-supplier inputs.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Picker (Add Part modal) ─────────────────────────────────────────── */
+.eq-part-picker {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.05));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-radius: 12px;
+  position: relative;
+}
+.eq-part-picker-label {
+  display: block;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e);
+  margin-bottom: 8px;
+}
+.eq-part-picker-label .eq-part-form-hint {
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--nx-faint, var(--muted));
+  font-weight: 400;
+}
+.eq-part-picker-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--nx-bg, #15110a);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.22));
+  border-radius: 8px;
+  color: var(--nx-text, #ede9e0);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color .12s ease;
+}
+.eq-part-picker-input:focus {
+  border-color: var(--nx-gold, #d4a44e);
+}
+[data-theme="light"] .eq-part-picker-input {
+  background: var(--bg, #fff);
+}
+
+/* Results dropdown */
+.eq-part-picker-results {
+  margin-top: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  background: var(--nx-bg, #15110a);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-radius: 8px;
+}
+[data-theme="light"] .eq-part-picker-results {
+  background: var(--bg, #fff);
+}
+.eq-part-picker-result {
+  width: 100%;
+  text-align: left;
+  padding: 9px 11px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .1s ease, border-color .1s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.eq-part-picker-result:hover,
+.eq-part-picker-result:active {
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.08));
+  border-color: var(--nx-gold-line, rgba(212, 164, 78, 0.32));
+}
+.eq-part-picker-result-name {
+  color: var(--nx-text, var(--text));
+  font-size: 14px;
+  font-weight: 500;
+}
+.eq-part-picker-result-meta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.eq-part-picker-result-oem {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--nx-faint, var(--muted));
+  letter-spacing: 0.04em;
+}
+.eq-part-picker-result-sources {
+  font-size: 10.5px;
+  color: var(--nx-muted, var(--muted));
+}
+.eq-part-picker-empty {
+  padding: 12px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--nx-faint, var(--muted));
+  font-style: italic;
+}
+
+/* ── Inline sources list (Part detail → Sourcing) ────────────────────── */
+.eq-part-vendors-inline {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.04));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-radius: 10px;
+}
+.eq-part-vendors-loading {
+  font-size: 12px;
+  color: var(--nx-faint, var(--muted));
+  font-style: italic;
+  padding: 6px 0;
+}
+.eq-part-vendors-empty {
+  padding: 10px 4px;
+  font-size: 12.5px;
+  color: var(--nx-faint, var(--muted));
+  font-style: italic;
+  text-align: center;
 }
