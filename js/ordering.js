@@ -2775,13 +2775,24 @@ Thanks for your help sorting this out.`;
         // ─── Auto-commit ANY pending chip input values ────────────────
         // The user might have typed an email and tapped Save WITHOUT
         // first pressing Enter or the Add button. Without this rescue,
-        // that email vanishes silently. Walk every visible chip input;
+        // that email vanishes silently. Walk every VISIBLE chip input;
         // if the value is non-empty + valid + not already in state, push
         // it. This is the single biggest source of "CC didn't save."
+        //
+        // CRITICAL: only auto-commit from VISIBLE input wraps. Chrome on
+        // Android aggressively autofills email-type inputs across the
+        // whole page — when the user accepts an autofill suggestion in
+        // (say) CC's open input, the same value gets shoved silently
+        // into the hidden BCC and OTHER inputs too. Without the
+        // visibility guard below, we'd then commit those autofilled
+        // values to BCC + OTHER as well, and the email would mysteriously
+        // appear in all three groups on the next open. That was the bug.
         const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         ['cc', 'bcc', 'alt'].forEach(kind => {
           const inp = overlay.querySelector(`[data-rx-chip-input="${kind}"]`);
           if (!inp) return;
+          const wrap = inp.closest('.rx-chip-input-wrap');
+          if (!wrap || wrap.hidden) return;       // hidden wrap = autofill leak; ignore
           const v = (inp.value || '').trim();
           if (!v) return;
           if (!emailRe.test(v)) return;
