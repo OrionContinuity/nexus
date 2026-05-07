@@ -10769,10 +10769,32 @@ function renderContractorsDetail() {
       // tabs) stays underneath; engine slides over it. Save in the engine
       // refreshes the detail in place.
       if (btn.dataset.detailTab === 'edit') {
-        if (typeof openContractorEditor === 'function') {
-          openContractorEditor(contractorsState.activeContractor);
+        // Diagnostic — if the engine isn't loaded or the click doesn't
+        // reach the function for some reason, the user gets a visible
+        // signal instead of a silent no-op.
+        if (!window.NX || !NX.recordEditor) {
+          if (NX.toast) NX.toast('Editor engine not loaded — refresh the page', 'error', 3000);
+          console.error('[contractors] Edit tap: NX.recordEditor missing');
           return;
         }
+        if (typeof openContractorEditor !== 'function') {
+          if (NX.toast) NX.toast('openContractorEditor not defined — please refresh', 'error', 3000);
+          console.error('[contractors] Edit tap: openContractorEditor missing');
+          return;
+        }
+        const c = contractorsState.activeContractor;
+        if (!c) {
+          if (NX.toast) NX.toast('No contractor selected — try reopening the contractor', 'warn', 2200);
+          console.warn('[contractors] Edit tap: activeContractor is null');
+          return;
+        }
+        try {
+          openContractorEditor(c);
+        } catch (err) {
+          console.error('[contractors] openContractorEditor threw:', err);
+          if (NX.toast) NX.toast('Could not open editor: ' + (err && err.message), 'error', 3000);
+        }
+        return;
       }
       contractorsState.detailTab = btn.dataset.detailTab;
       renderContractors();
