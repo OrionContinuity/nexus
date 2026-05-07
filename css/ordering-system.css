@@ -2505,11 +2505,13 @@ body.ord-overlay-open .bottom-nav {
   /* Deterministic per-vendor color via --avatar-hue (set inline by JS).
      Saturation/lightness fixed so all avatars belong to the same
      visual family — warm, gold-adjacent. The initial sits on top in
-     near-white. Bumped to 60px so uploaded photos read clearly and
-     the row carries the visual weight of the editorial card system. */
+     near-white. 72px is the vendor-list size — large enough that
+     uploaded logos read clearly and the row carries the visual weight
+     of the editorial card system. Smaller-context overrides
+     (recent list 28px, bottom sheet 48px, etc.) live further down. */
   flex-shrink: 0;
-  width: 60px;
-  height: 60px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
@@ -2518,7 +2520,7 @@ body.ord-overlay-open .bottom-nav {
   border: 1px solid hsl(var(--avatar-hue, 35), 35%, 50%);
   color: #f5ecd6;
   font-family: 'Outfit', sans-serif;
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 600;
   letter-spacing: 0.5px;
   -webkit-user-select: none;
@@ -5898,4 +5900,211 @@ body.ord-overlay-open .bottom-nav {
 .ord-confirm-delete:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   RECENT ORDERS — search + filter chips + avatars + empty states
+   ─────────────────────────────────────────────────────────────────────
+   The recent list is the screen Orion looks at most. A sticky search
+   input + a row of status chips above the list make it findable when
+   you've got 30+ orders. Vendor avatars on each row let you scan by
+   color before reading the name.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Header strip — search + chips. Sits between the "Recent" label and
+   the rows, doesn't scroll separately on mobile (the parent card
+   handles scrolling). */
+.ord-recent-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+
+/* Search input */
+.ord-recent-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.ord-recent-search-icon {
+  position: absolute;
+  left: 11px;
+  color: var(--nx-faint, var(--muted));
+  pointer-events: none;
+}
+.ord-recent-search {
+  width: 100%;
+  padding: 9px 36px 9px 33px;
+  background: var(--nx-bg, #15110a);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-radius: 8px;
+  color: var(--nx-text, #ede9e0);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color .12s ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.ord-recent-search::-webkit-search-cancel-button { display: none; }    /* using our own × */
+.ord-recent-search::placeholder {
+  color: var(--nx-faint, var(--muted));
+}
+.ord-recent-search:focus {
+  border-color: var(--nx-gold, #d4a44e);
+}
+[data-theme="light"] .ord-recent-search {
+  background: var(--bg, #fff);
+}
+.ord-recent-search-clear {
+  position: absolute;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: var(--nx-faint, var(--muted));
+  color: var(--nx-bg, #15110a);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+}
+
+/* Status chip row — horizontally scrollable on narrow screens so all
+   five chips can sit side-by-side without wrapping, and the user can
+   swipe through them naturally. */
+.ord-recent-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;            /* firefox */
+  margin: 0 -2px;                   /* compensate for padding so chips align with search */
+  padding: 0 2px;
+}
+.ord-recent-chips::-webkit-scrollbar { display: none; }    /* webkit */
+
+.ord-recent-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.22));
+  color: var(--nx-muted, var(--muted));
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .12s ease, border-color .12s ease, color .12s ease, transform .12s ease;
+  white-space: nowrap;
+}
+.ord-recent-chip:active {
+  transform: scale(0.95);
+}
+.ord-recent-chip.is-active {
+  background: var(--nx-gold, #d4a44e);
+  border-color: var(--nx-gold, #d4a44e);
+  color: var(--nx-bg, #15110a);
+  font-weight: 600;
+}
+.ord-recent-chip-count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  opacity: 0.75;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.ord-recent-chip.is-active .ord-recent-chip-count {
+  background: rgba(0, 0, 0, 0.18);
+  opacity: 1;
+}
+
+/* Row layout — adds an avatar slot to the left of the existing main
+   content. The original .ord-recent-row is preserved for any older
+   call sites; --with-avatar variant restructures with a leading avatar.
+   28px is small enough to feel like a list (not a card) but large
+   enough that a logo or initial reads cleanly. */
+.ord-recent-row.ord-recent-row--with-avatar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ord-recent-row-avatar .ord-vendor-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 12px;
+  border-width: 1px;
+}
+
+/* Empty states — informative, not dead-end. The CTA row points the
+   user to their next action (start an order / add a vendor / clear
+   filters) instead of just stating the obvious negative. */
+.ord-empty.ord-empty-cta {
+  text-align: center;
+  padding: 22px 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ord-empty-msg {
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--nx-text, var(--text));
+  font-weight: 500;
+}
+.ord-empty-hint-row {
+  font-size: 12.5px;
+  color: var(--nx-faint, var(--muted));
+}
+.ord-empty-hint-row strong {
+  color: var(--nx-gold, #d4a44e);
+  font-weight: 600;
+}
+.ord-empty.ord-empty-filtered {
+  text-align: center;
+  padding: 22px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+.ord-empty-clear-btn {
+  padding: 7px 16px;
+  background: transparent;
+  border: 1px solid var(--nx-gold, #d4a44e);
+  border-radius: 999px;
+  color: var(--nx-gold, #d4a44e);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .12s ease;
+}
+.ord-empty-clear-btn:active {
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.10));
+}
+.ord-empty-hint {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* Unknown-vendor fallback avatar (the order references a vendor that
+   was deleted / archived). Kept neutral so it's clearly different
+   from a real avatar. */
+.ord-vendor-avatar.ord-vendor-avatar-unknown {
+  background: var(--nx-faint, rgba(255, 255, 255, 0.12));
+  border-color: var(--nx-gold-line);
+  color: var(--nx-muted, var(--muted));
 }
