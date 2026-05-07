@@ -5256,12 +5256,15 @@ body.ord-overlay-open .bottom-nav {
   opacity: 0;
   border-radius: 1px;
 }
-/* When the user is holding, sweep the bar across over 3s */
+/* When the user is holding, sweep the bar across in 500ms (matches
+   LONG_PRESS_MS in the wireDragHandlers JS). The user gets a clear
+   visual confirmation the press is registering, but the bar fills
+   fast enough to not feel like a long wait. */
 .ord-catalog-overlay .ved-item-row.is-pressing::before,
 .ord-catalog-overlay .ved-section-block.is-pressing::before {
   width: 100%;
   opacity: 1;
-  transition: width 3s linear, opacity 0.15s ease;
+  transition: width 0.5s linear, opacity 0.15s ease;
 }
 /* Slight visual cue on the card itself during the hold — soft gold
    tint so the user sees something IS happening even before drag fires */
@@ -5283,3 +5286,40 @@ body.ord-overlay-open .bottom-nav {
    (no separate ≡ handle), so make the cursor a pointer for clarity. */
 .ord-catalog-overlay .ved-item-row { cursor: pointer; }
 .ord-catalog-overlay .ved-section-row { cursor: pointer; }
+
+/* ─── Item edit form: ↑/↓ Move buttons ──────────────────────────────────
+   Shown inside the inline edit form so reorder is reachable without
+   needing to long-press drag. Two equal-width buttons; tap moves the
+   item one position within its section. */
+.ord-catalog-overlay .ord-vitem-move-row {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+.ord-catalog-overlay .ord-vitem-move-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--accent);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.ord-catalog-overlay .ord-vitem-move-btn:hover {
+  background: var(--nx-gold-mist);
+}
+.ord-catalog-overlay .ord-vitem-move-btn:active {
+  background: var(--nx-gold-soft);
+  transform: scale(0.98);
+}
