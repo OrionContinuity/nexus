@@ -10163,9 +10163,15 @@ async function openContractorEditor(contractor) {
     if (NX.toast) NX.toast('Editor engine not loaded — refresh the page', 'error', 3000);
     return;
   }
+  // Wrap everything in try/catch so any engine-internal throw surfaces
+  // as a toast instead of vanishing silently. Bug-hunting only — fine
+  // to leave in production since the catch is harmless on the happy path.
+  try {
   const RX = NX.recordEditor;
   const c = contractor || {};
   const isNew = !c.id;
+
+  console.log('[openContractorEditor] entry', { c, isNew });
 
   // Bucket existing email rows by role into separate chip arrays.
   const emailRows = extractContractorEmails(c);
@@ -10401,6 +10407,11 @@ async function openContractorEditor(contractor) {
       }
     },
   });
+  console.log('[openContractorEditor] RX.openOverlay returned successfully');
+  } catch (err) {
+    console.error('[openContractorEditor] threw:', err);
+    if (NX.toast) NX.toast('openContractorEditor crashed: ' + (err && err.message), 'error', 6000);
+  }
 }
 
 
@@ -10764,36 +10775,78 @@ function renderContractorsDetail() {
   });
   overlay.querySelectorAll('[data-detail-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
-      // Edit tab → open the shared NX.recordEditor overlay instead of
-      // re-rendering an inline form. The detail view (Activity / Equipment
-      // tabs) stays underneath; engine slides over it. Save in the engine
-      // refreshes the detail in place.
+      // ─── DEEP DIAGNOSTICS ─────────────────────────────────────────────
+      // Every step toasts a marker so we can see exactly where the chain
+      // dies. If you tap Edit and see no toasts at all, the click never
+      // reaches this handler (something is blocking the event upstream
+      // — overlay covering the button, etc).
+      // ─────────────────────────────────────────────────────────────────
       if (btn.dataset.detailTab === 'edit') {
-        // Diagnostic — if the engine isn't loaded or the click doesn't
-        // reach the function for some reason, the user gets a visible
-        // signal instead of a silent no-op.
+        // Step 1 — handler reached
+        if (NX.toast) NX.toast('[1/5] Edit tap registered', 'info', 1200);
+        console.log('[contractors:edit] step 1 — click handler running', { btn });
+
+        // Step 2 — engine present
         if (!window.NX || !NX.recordEditor) {
-          if (NX.toast) NX.toast('Editor engine not loaded — refresh the page', 'error', 3000);
-          console.error('[contractors] Edit tap: NX.recordEditor missing');
+          if (NX.toast) NX.toast('[2/5] FAIL: NX.recordEditor missing — record-editor.js did not load', 'error', 5000);
+          console.error('[contractors:edit] step 2 FAIL — NX.recordEditor missing', { NX: window.NX });
           return;
         }
+        if (NX.toast) NX.toast('[2/5] Engine loaded', 'info', 900);
+        console.log('[contractors:edit] step 2 — engine loaded');
+
+        // Step 3 — function present
         if (typeof openContractorEditor !== 'function') {
-          if (NX.toast) NX.toast('openContractorEditor not defined — please refresh', 'error', 3000);
-          console.error('[contractors] Edit tap: openContractorEditor missing');
+          if (NX.toast) NX.toast('[3/5] FAIL: openContractorEditor undefined — equipment.js did not load this build', 'error', 5000);
+          console.error('[contractors:edit] step 3 FAIL — openContractorEditor undefined');
           return;
         }
-        const c = contractorsState.activeContractor;
+        if (NX.toast) NX.toast('[3/5] Function defined', 'info', 900);
+        console.log('[contractors:edit] step 3 — openContractorEditor is a function');
+
+        // Step 4 — contractor present
+        const c = contractorsState && contractorsState.activeContractor;
         if (!c) {
-          if (NX.toast) NX.toast('No contractor selected — try reopening the contractor', 'warn', 2200);
-          console.warn('[contractors] Edit tap: activeContractor is null');
+          if (NX.toast) NX.toast('[4/5] FAIL: activeContractor is null — go back, tap contractor again', 'warn', 5000);
+          console.warn('[contractors:edit] step 4 FAIL — activeContractor is null', { contractorsState });
           return;
         }
+        if (NX.toast) NX.toast(`[4/5] Contractor ready: ${c.name || c.id}`, 'info', 900);
+        console.log('[contractors:edit] step 4 — contractor', c);
+
+        // Step 5 — call the function
         try {
+          console.log('[contractors:edit] step 5 — calling openContractorEditor');
           openContractorEditor(c);
         } catch (err) {
-          console.error('[contractors] openContractorEditor threw:', err);
-          if (NX.toast) NX.toast('Could not open editor: ' + (err && err.message), 'error', 3000);
+          if (NX.toast) NX.toast('[5/5] THREW: ' + (err && err.message), 'error', 6000);
+          console.error('[contractors:edit] step 5 THREW', err);
+          return;
         }
+
+        // Step 6 — verify the overlay actually mounted to the DOM
+        // The engine appends a .rx-overlay to body. If it's not there
+        // 250ms after the call, the engine silently failed (no error
+        // thrown). Most likely cause: the engine threw during onMount.
+        setTimeout(() => {
+          const rxOverlay = document.querySelector('.rx-overlay');
+          if (!rxOverlay) {
+            if (NX.toast) NX.toast('[5/5] FAIL: openOverlay returned but no .rx-overlay in DOM — engine silent fail', 'error', 6000);
+            console.error('[contractors:edit] step 5 SILENT FAIL — no .rx-overlay element after 250ms');
+            return;
+          }
+          // Check it's actually visible (not hidden by CSS)
+          const rect = rxOverlay.getBoundingClientRect();
+          const cs = getComputedStyle(rxOverlay);
+          if (rect.width === 0 || rect.height === 0 || cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') {
+            if (NX.toast) NX.toast(`[5/5] FAIL: overlay in DOM but invisible (w=${rect.width} h=${rect.height} disp=${cs.display})`, 'error', 6000);
+            console.error('[contractors:edit] step 5 INVISIBLE', { rect, display: cs.display, visibility: cs.visibility, opacity: cs.opacity, zIndex: cs.zIndex });
+            return;
+          }
+          if (NX.toast) NX.toast('[5/5] Engine overlay mounted ✓', 'info', 1200);
+          console.log('[contractors:edit] step 5 SUCCESS — overlay in DOM, visible', { rect, zIndex: cs.zIndex });
+        }, 250);
+
         return;
       }
       contractorsState.detailTab = btn.dataset.detailTab;
@@ -13508,5 +13561,35 @@ NX.modules.equipment = {
 };
 
 console.log('[Equipment] unified module loaded — ' + Object.keys(NX.modules.equipment).length + ' exports');
+
+// ─── Self-test: contractor editor wiring ──────────────────────────────
+// Runs once shortly after equipment.js loads. If any required piece is
+// missing (engine not loaded, function not defined, etc.) we log loudly
+// to the console — that's diagnosable without UI access. The tap-Edit
+// path adds toasts on top of these for the actual user-facing test.
+setTimeout(() => {
+  const checks = [
+    ['window.NX exists',            () => !!window.NX],
+    ['NX.recordEditor loaded',      () => !!(window.NX && NX.recordEditor)],
+    ['NX.recordEditor.openOverlay', () => !!(window.NX && NX.recordEditor && typeof NX.recordEditor.openOverlay === 'function')],
+    ['openContractorEditor defined',() => typeof openContractorEditor === 'function'],
+    ['extractContractorEmails',     () => typeof extractContractorEmails === 'function'],
+    ['extractContractorPhones',     () => typeof extractContractorPhones === 'function'],
+    ['extractContractorTags',       () => typeof extractContractorTags === 'function'],
+    ['NX.sb (Supabase client)',     () => !!(window.NX && NX.sb)],
+  ];
+  console.group('[contractor edit self-test]');
+  let allPass = true;
+  for (const [name, fn] of checks) {
+    let pass = false;
+    try { pass = !!fn(); } catch (_) { pass = false; }
+    console.log((pass ? '✓' : '✗') + ' ' + name);
+    if (!pass) allPass = false;
+  }
+  console.groupEnd();
+  if (!allPass) {
+    console.error('[contractor edit self-test] FAILURES — Edit button will not work');
+  }
+}, 500);
 
 })();
