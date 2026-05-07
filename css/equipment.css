@@ -11400,3 +11400,337 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   font-style: italic;
   text-align: center;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SERVICED BY — equipment ↔ contractor surface block
+   ─────────────────────────────────────────────────────────────────────
+   Sits at the top of the equipment detail's Overview tab. Hydrates
+   from the assigned contractor record (joined by service_contractor_
+   node_id) so all the contractor's data is reachable in one place
+   — name, specialty tags ("duties"), phone tap-to-call, and small
+   pips showing whether the email engine is wired up (has email
+   address, has saved template).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.eq-serviced-by {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.06));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.20));
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.eq-serviced-by-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.eq-serviced-by-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e);
+}
+.eq-serviced-by-name {
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--nx-text, var(--text));
+  line-height: 1.2;
+}
+
+.eq-serviced-by-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.eq-serviced-by-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.28));
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--nx-muted, var(--muted));
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+
+.eq-serviced-by-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.eq-serviced-by-call {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  background: var(--nx-gold, #d4a44e);
+  border: 1px solid var(--nx-gold, #d4a44e);
+  border-radius: 999px;
+  color: var(--nx-bg, #15110a);
+  text-decoration: none;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease;
+}
+.eq-serviced-by-call:active { transform: scale(0.96); }
+.eq-serviced-by-call:hover { text-decoration: none; }
+.eq-serviced-by-nophone {
+  font-size: 12px;
+  color: var(--nx-faint, var(--muted));
+  font-style: italic;
+}
+
+.eq-serviced-by-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+}
+.eq-serviced-by-pip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--nx-faint, var(--muted));
+  opacity: 0.65;
+}
+.eq-serviced-by-pip.is-on {
+  color: var(--nx-gold, #d4a44e);
+  opacity: 1;
+}
+.eq-serviced-by-pip svg {
+  flex-shrink: 0;
+}
+
+/* Empty state — nudges the user to Edit Everything → Links to set up
+   the relationship. Quieter visual since there's nothing to surface. */
+.eq-serviced-by.eq-serviced-by-empty {
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--nx-gold-line, rgba(212, 164, 78, 0.15));
+  padding: 12px 14px;
+  align-items: center;
+  text-align: center;
+}
+.eq-serviced-by-empty-msg {
+  font-size: 13px;
+  color: var(--nx-muted, var(--muted));
+}
+.eq-serviced-by-empty-hint {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--nx-faint, var(--muted));
+  letter-spacing: 0.04em;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EQUIPMENT ARCHIVE FLOW + STATUS UNDO BANNER
+   ─────────────────────────────────────────────────────────────────────
+   Modeled on the orders module's archive/undo system so equipment ops
+   feel consistent across NEXUS. Confirm modal for archive, snackbar
+   undo for quick status changes.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.eq-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  animation: eq-confirm-fade .15s ease;
+}
+@keyframes eq-confirm-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.eq-confirm-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.eq-confirm-modal {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  background: var(--nx-surface-solid, #15110a);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.35));
+  border-radius: 14px;
+  padding: 24px 22px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+
+.eq-confirm-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.12));
+  color: var(--nx-gold, #d4a44e);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+
+.eq-confirm-title {
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--nx-text);
+}
+
+.eq-confirm-body {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--nx-muted, var(--muted));
+  line-height: 1.45;
+}
+.eq-confirm-line { color: var(--nx-text); font-size: 14px; margin-top: 2px; }
+.eq-confirm-line strong { color: var(--nx-text); font-weight: 600; }
+.eq-confirm-sub {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--nx-faint, var(--muted));
+}
+.eq-confirm-warn {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.06));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-radius: 8px;
+  font-size: 12.5px;
+  text-align: left;
+  line-height: 1.5;
+}
+.eq-confirm-warn strong { color: var(--nx-gold); }
+
+.eq-confirm-actions {
+  display: flex;
+  width: 100%;
+  gap: 10px;
+  margin-top: 14px;
+}
+.eq-confirm-cancel,
+.eq-confirm-archive {
+  flex: 1;
+  height: 44px;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-confirm-cancel {
+  background: transparent;
+  border: 1px solid var(--nx-gold-line);
+  color: var(--nx-text);
+}
+.eq-confirm-archive {
+  background: var(--nx-gold);
+  border: 1px solid var(--nx-gold);
+  color: var(--nx-bg);
+}
+.eq-confirm-archive:active { transform: scale(0.98); }
+.eq-confirm-archive:disabled { opacity: 0.6; cursor: wait; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   STATUS UNDO BANNER — snackbar after quick-status change
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.eq-undo-banner {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--nx-surface-solid, #15110a);
+  border: 1px solid var(--nx-gold);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.55), 0 0 0 1px rgba(212, 164, 78, 0.1);
+  transform: translateY(120%);
+  transition: transform 280ms cubic-bezier(.2,.9,.3,1);
+}
+.eq-undo-banner.is-shown { transform: translateY(0); }
+@media (min-width: 600px) {
+  .eq-undo-banner {
+    left: auto;
+    right: 24px;
+    bottom: 24px;
+    max-width: 380px;
+    width: auto;
+    min-width: 340px;
+  }
+}
+.eq-undo-banner-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.12));
+  color: var(--nx-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.eq-undo-banner-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.eq-undo-banner-title {
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--nx-text);
+}
+.eq-undo-banner-sub {
+  font-size: 11.5px;
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.04em;
+}
+.eq-undo-banner-btn {
+  flex-shrink: 0;
+  background: var(--nx-gold);
+  color: var(--nx-bg);
+  border: none;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+.eq-undo-banner-btn:active { transform: scale(0.96); filter: brightness(0.95); }
+.eq-undo-banner-btn:disabled { opacity: 0.6; cursor: wait; }
