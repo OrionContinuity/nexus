@@ -2959,3 +2959,128 @@ html {
 .rx-form-hint.rx-form-hint--center {
   text-align: center;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   RX-FORM additions for template editor
+   ─────────────────────────────────────────────────────────────────────
+   Used by the vendor email template card to show a leading note,
+   collapsible default-format preview, legacy-template warning banner,
+   and a "Use default" reset link beside each override field. These
+   compose with the existing .rx-form-* primitives without disturbing
+   them.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.rx-form-note {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--nx-muted, var(--muted));
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.05));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+
+/* Collapsible preview block — collapsed shows just a one-line summary,
+   expanded reveals the full sample email body. */
+.rx-form-preview {
+  margin-bottom: 16px;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--nx-bg-soft, rgba(255, 255, 255, 0.02));
+}
+.rx-form-preview > summary {
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--nx-text);
+  font-weight: 500;
+  list-style: none;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rx-form-preview > summary::-webkit-details-marker { display: none; }
+.rx-form-preview > summary::before {
+  content: '▸';
+  display: inline-block;
+  color: var(--nx-gold);
+  transition: transform 150ms ease;
+}
+.rx-form-preview[open] > summary::before { transform: rotate(90deg); }
+.rx-form-preview[open] > summary {
+  border-bottom: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+}
+
+.rx-form-preview-pre {
+  margin: 0;
+  padding: 14px 16px;
+  font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--nx-text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-x: auto;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--nx-bg, #15110a);
+}
+
+/* Banner shown when the existing template matches the legacy default.
+   Warn variant uses a soft amber tint without screaming for attention. */
+.rx-form-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.rx-form-banner-warn {
+  background: rgba(212, 164, 78, 0.1);
+  border: 1px solid rgba(212, 164, 78, 0.45);
+  color: var(--nx-text);
+}
+.rx-form-banner-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rx-form-banner-text strong { color: var(--nx-gold); font-weight: 600; }
+.rx-form-banner-text em { font-style: normal; color: var(--nx-text); }
+
+/* Row with label on the left, "Use default" link on the right —
+   keeps the reset action discoverable without crowding the input. */
+.rx-form-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.rx-form-label-row .rx-form-label {
+  margin-bottom: 0;
+}
+.rx-form-link {
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--nx-gold, #d4a44e);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  border-radius: 4px;
+}
+.rx-form-link:hover,
+.rx-form-link:active {
+  text-decoration: underline;
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.08));
+}
