@@ -2298,10 +2298,14 @@ html {
 .rx-overlay {
   position: fixed;
   inset: 0;
-  z-index: 250;
+  z-index: 300;
   background: var(--bg);
-  display: flex;
-  flex-direction: column;
+  /* CSS Grid is more reliable on iOS Safari than nested flex for the
+     classic "header / scrollable body / footer" layout. The 1fr middle
+     row gets exactly the space left over after head + foot, and the
+     body's overflow-y: auto + min-height: 0 below scrolls internally. */
+  display: grid;
+  grid-template-rows: auto 1fr auto;
   /* Top padding respects status-bar safe area on iOS PWA */
   padding-top: env(safe-area-inset-top, 0);
   animation: rx-overlay-in .22s ease;
@@ -2312,7 +2316,7 @@ html {
 }
 
 .rx-overlay-head {
-  flex: 0 0 auto;
+  /* Grid row 1 (auto). Internal layout uses flex for the title block. */
   display: flex;
   align-items: center;
   gap: 12px;
@@ -2379,11 +2383,10 @@ html {
 .rx-overlay-spacer { flex-shrink: 0; width: 36px; }
 
 .rx-overlay-body {
-  /* iOS Safari quirk: flex: 1 1 auto + overflow-y: auto in a column-flex
-     parent can let the body grow past the viewport instead of scrolling
-     internally. Explicit flex: 1 1 0 + min-height: 0 forces the body to
-     constrain to the available flex space and lets overflow-y do its job. */
-  flex: 1 1 0;
+  /* Grid row 2 (1fr — fills remaining space between head and foot).
+     min-height: 0 is critical for grid items that are also overflow
+     containers — without it, the item refuses to shrink below its
+     content size, so overflow: auto can never trigger. */
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -2396,7 +2399,7 @@ html {
 }
 
 .rx-overlay-foot {
-  flex: 0 0 auto;
+  /* Grid row 3 (auto). */
   display: flex;
   gap: 10px;
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0));
