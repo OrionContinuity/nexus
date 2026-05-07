@@ -4883,3 +4883,318 @@ body.ord-overlay-open .bottom-nav {
 .ord-catalog-overlay .ved-section-block.is-collapsed .ved-section-row {
   border-bottom: 0;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Vendor editor — collapsible cards + recipient chips (rebuild)
+   Replaces the linear .ved-section-divider sections with self-contained
+   cards. Each card has a tappable head with title + chevron and a body
+   that hides via .is-collapsed. Recipients use chip lists per kind.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ─── Card shell ─────────────────────────────────────────────────────── */
+.ord-veditor-overlay .ved-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  margin: 0 0 14px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 14px rgba(0,0,0,0.06);
+  transition: box-shadow .18s ease, border-color .18s ease;
+}
+[data-theme="dark"] .ord-veditor-overlay .ved-card {
+  box-shadow: 0 2px 10px rgba(0,0,0,0.30);
+}
+.ord-veditor-overlay .ved-card-danger {
+  border-color: var(--red, #b3534a);
+}
+
+/* Card head — full-width tappable bar with title + chevron */
+.ord-veditor-overlay .ved-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--nx-gold-faint);
+  border: 0;
+  border-bottom: 1px solid var(--nx-gold-line);
+  color: var(--accent);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font-family: 'JetBrains Mono', 'Outfit', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-align: left;
+  transition: background .15s ease;
+}
+.ord-veditor-overlay .ved-card-head:hover {
+  background: var(--nx-gold-mist);
+}
+.ord-veditor-overlay .ved-card-head:active {
+  background: var(--nx-gold-soft);
+}
+.ord-veditor-overlay .ved-card-danger .ved-card-head {
+  background: rgba(179, 83, 74, 0.07);
+  border-bottom-color: rgba(179, 83, 74, 0.25);
+  color: var(--red, #b3534a);
+}
+
+.ord-veditor-overlay .ved-card-title {
+  flex: 1;
+  min-width: 0;
+}
+.ord-veditor-overlay .ved-card-chevron {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+.ord-veditor-overlay .ved-card-chevron svg {
+  transition: transform .22s cubic-bezier(.4,0,.2,1);
+  color: currentColor;
+}
+.ord-veditor-overlay .ved-card.is-collapsed .ved-card-chevron svg {
+  transform: rotate(-90deg);
+}
+
+/* Card body */
+.ord-veditor-overlay .ved-card-body {
+  padding: 14px 16px 16px;
+  display: block;
+}
+.ord-veditor-overlay .ved-card.is-collapsed > .ved-card-body {
+  display: none;
+}
+.ord-veditor-overlay .ved-card.is-collapsed > .ved-card-head {
+  border-bottom: 0;
+}
+
+/* Inside a card, fields stack tighter (the card itself frames them) */
+.ord-veditor-overlay .ved-card-body .ord-form-field {
+  margin-bottom: 12px;
+}
+.ord-veditor-overlay .ved-card-body .ord-form-field:last-child {
+  margin-bottom: 0;
+}
+
+/* ─── Recipient kind labels (TO / CC / BCC / OTHER) ─────────────────── */
+.ord-veditor-overlay .ved-rec-label-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+.ord-veditor-overlay .ved-rec-label-pill-to {
+  background: var(--accent);
+  color: var(--bg);
+}
+.ord-veditor-overlay .ved-rec-label-pill-cc {
+  background: rgba(200, 164, 78, 0.15);
+  color: var(--accent);
+  border: 1px solid var(--nx-gold-line);
+}
+.ord-veditor-overlay .ved-rec-label-pill-bcc {
+  background: rgba(120, 130, 150, 0.15);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.ord-veditor-overlay .ved-rec-label-pill-alt {
+  background: rgba(120, 130, 150, 0.07);
+  color: var(--faint);
+  border: 1px dashed var(--border);
+}
+
+/* ─── Recipient kind sections ────────────────────────────────────────── */
+.ord-veditor-overlay .ved-recipient-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.ord-veditor-overlay .ved-recipient-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.ord-veditor-overlay .ved-recipient-section-hint {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* ─── Chip list ──────────────────────────────────────────────────────── */
+.ord-veditor-overlay .ved-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 36px;
+}
+.ord-veditor-overlay .ved-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 4px 5px 10px;
+  background: var(--nx-gold-faint);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 16px;
+  font-size: 13px;
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+}
+.ord-veditor-overlay .ved-chip-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.ord-veditor-overlay .ved-chip-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-veditor-overlay .ved-chip-remove:hover {
+  background: var(--nx-gold-mist);
+  color: var(--text);
+}
+.ord-veditor-overlay .ved-chip-remove:active {
+  background: var(--nx-gold-soft);
+}
+
+/* The "Add CC" / "Add BCC" / "Add backup" buttons — visually like a chip
+   but dashed border to read as an empty slot. */
+.ord-veditor-overlay .ved-chip-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  background: transparent;
+  border: 1px dashed var(--nx-gold-line);
+  border-radius: 16px;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .12s ease, border-color .12s ease;
+}
+.ord-veditor-overlay .ved-chip-add svg {
+  width: 14px;
+  height: 14px;
+}
+.ord-veditor-overlay .ved-chip-add:hover {
+  background: var(--nx-gold-mist);
+  border-color: var(--accent);
+  border-style: solid;
+}
+
+/* Inline input that replaces the Add button while typing a new chip */
+.ord-veditor-overlay .ved-chip-input {
+  flex: 1;
+  min-width: 180px;
+  padding: 6px 12px;
+  border-radius: 16px;
+  border: 1.5px solid var(--accent);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color .12s ease;
+}
+.ord-veditor-overlay .ved-chip-input::placeholder {
+  color: var(--faint);
+}
+.ord-veditor-overlay .ved-chip-input-invalid {
+  border-color: var(--red, #b3534a);
+  animation: chip-shake .3s ease;
+}
+@keyframes chip-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Catalog editor — bump chevron visibility (round 4)
+   The previous 14px chevron was too subtle. 18px + full opacity + on the
+   right side of the row makes the collapse affordance unmissable.
+   ═══════════════════════════════════════════════════════════════════════ */
+.ord-catalog-overlay .ved-section-collapse {
+  width: 32px !important;
+  height: 32px !important;
+  opacity: 1 !important;
+  margin-left: 0;
+}
+.ord-catalog-overlay .ved-section-collapse svg {
+  width: 18px !important;
+  height: 18px !important;
+  stroke-width: 3 !important;
+}
+.ord-catalog-overlay .ved-section-collapse:hover {
+  background: var(--nx-gold-mist);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Catalog editor — chevron prominence (round 4)
+   Moves the section-collapse chevron to the RIGHT side of the section
+   header (iOS convention) and bumps its visibility. Rotation is driven
+   from the parent .ved-section-block.is-collapsed class so it animates
+   smoothly between states without re-rendering.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.ord-catalog-overlay .ved-section-collapse {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 50%;
+  color: var(--accent);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+  margin-left: 4px;
+  opacity: 1;
+  transition: background .12s ease, transform .15s ease;
+}
+.ord-catalog-overlay .ved-section-collapse:hover {
+  background: var(--nx-gold-mist);
+  transform: scale(1.05);
+}
+.ord-catalog-overlay .ved-section-collapse:active {
+  transform: scale(0.95);
+}
+.ord-catalog-overlay .ved-section-collapse svg {
+  transition: transform .22s cubic-bezier(.4, 0, .2, 1);
+  transform: rotate(0deg);
+}
+.ord-catalog-overlay .ved-section-block.is-collapsed .ved-section-collapse svg {
+  transform: rotate(-90deg);
+}
