@@ -8269,23 +8269,20 @@ async function emailContractorAboutIssue(equipment, issue) {
     contractor = data;
   }
 
-  // Extract email from contractor's links field. Links shape varies;
-  // tolerate string and array forms.
-  let contractorEmail = '';
+  // Pull all emails with their roles. Falls back to extracting from notes
+  // if the structured links column has no email entries.
+  const emailRows = extractContractorEmails(contractor || {});
+  let toList  = emailRows.filter(e => e.role === 'to').map(e => e.email);
+  const ccList  = emailRows.filter(e => e.role === 'cc').map(e => e.email);
+  const bccList = emailRows.filter(e => e.role === 'bcc').map(e => e.email);
+
+  // If no emails are explicitly tagged TO but at least one email exists,
+  // promote the first one — better than sending to nobody.
+  if (!toList.length && emailRows.length) {
+    toList = [emailRows[0].email];
+  }
+  const contractorEmail = toList[0] || '';
   let contractorName = contractor?.name || '';
-  if (contractor?.links) {
-    const links = Array.isArray(contractor.links) ? contractor.links : [contractor.links];
-    for (const l of links) {
-      const str = (typeof l === 'string') ? l : (l?.url || l?.href || '');
-      const match = str.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
-      if (match) { contractorEmail = match[0]; break; }
-    }
-  }
-  // Fallback: try to find an email pattern in the notes field too.
-  if (!contractorEmail && contractor?.notes) {
-    const match = contractor.notes.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
-    if (match) contractorEmail = match[0];
-  }
 
   const restaurant = equipment.location || '';
   const area = equipment.area ? ` (${equipment.area})` : '';
@@ -8306,9 +8303,16 @@ When can you take a look? Reply with an ETA and we'll be ready for you.
 
 Thanks for your help.`;
 
-  // Build mailto: URL — handle empty contractor email gracefully.
+  // Build mailto: URL — handle multiple TO + CC + BCC. Empty contractor
+  // email still opens compose so the user can paste an address.
   const enc = s => encodeURIComponent(s || '').replace(/\+/g, '%20');
-  const url = `mailto:${enc(contractorEmail)}?subject=${enc(subject)}&body=${enc(body)}`;
+  const params = [];
+  if (ccList.length)  params.push(`cc=${enc(ccList.join(','))}`);
+  if (bccList.length) params.push(`bcc=${enc(bccList.join(','))}`);
+  params.push(`subject=${enc(subject)}`);
+  params.push(`body=${enc(body)}`);
+  const toRecipients = toList.length ? toList.join(',') : '';
+  const url = `mailto:${enc(toRecipients)}?${params.join('&')}`;
 
   if (!contractorEmail) {
     NX.toast && NX.toast(contractorName
@@ -10142,6 +10146,264 @@ function extractContractorTags(c) {
  * Mirrors the manufacturer logo helper but with a distinct CSS class
  * so we can tune contractor avatars separately.
  */
+/* ──────────────────────────────────────────────────────────────────────
+ * openContractorEditor — engine-based contractor edit overlay
+ *
+ * Uses the shared NX.recordEditor (js/record-editor.js) — same engine
+ * as the vendor editor in ordering.js. Opens cards for Identity, Contacts
+ * (TO / CC / BCC email chip groups + phone numbers), Specialties (tag
+ * chips), Notes, and a Danger zone. Save writes back to the nodes table.
+ *
+ * The PM "Email contractor" flow (emailContractorAboutIssue) reads the
+ * same role-tagged emails this editor stores, so CC/BCC contacts set
+ * here will be pre-filled when the user opens a service-request email.
+ * ────────────────────────────────────────────────────────────────────── */
+async function openContractorEditor(contractor) {
+  if (!window.NX || !NX.recordEditor) {
+    if (NX.toast) NX.toast('Editor engine not loaded — refresh the page', 'error', 3000);
+    return;
+  }
+  const RX = NX.recordEditor;
+  const c = contractor || {};
+  const isNew = !c.id;
+
+  // Bucket existing email rows by role into separate chip arrays.
+  const emailRows = extractContractorEmails(c);
+  const toArr  = emailRows.filter(e => e.role === 'to').map(e => e.email);
+  const ccArr  = emailRows.filter(e => e.role === 'cc').map(e => e.email);
+  const bccArr = emailRows.filter(e => e.role === 'bcc').map(e => e.email);
+
+  // Phones: chip values look like "(512) 555-1234" — labels are stored
+  // as meta on each chip ("dispatch", "after-hours", etc.).
+  const phoneRows = extractContractorPhones(c);
+  const phoneArr  = phoneRows.map(p => p.phone);
+  // Keep a side-map of phone → label so we can reconstruct on save.
+  const phoneLabels = Object.create(null);
+  phoneRows.forEach(p => { if (p.phone) phoneLabels[p.phone] = p.label || ''; });
+
+  const tagsArr = extractContractorTags(c);
+
+  const emailValidator = (e) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? null : 'Invalid email';
+  };
+  const phoneValidator = (p) => {
+    // Allow "+1 512 555 1234", "(512) 555-1234", etc. — at least 7 digits.
+    const digits = (p.match(/\d/g) || []).length;
+    return digits >= 7 ? null : 'Need at least 7 digits';
+  };
+
+  const cards = [];
+
+  // ─── Identity (just name — contractors don't have photos in current schema) ──
+  cards.push({
+    key: 'identity',
+    title: 'Identity',
+    expanded: true,
+    body: `
+      <div class="rx-form-field">
+        <label class="rx-form-label">Contractor name</label>
+        <input type="text" class="rx-form-input" data-rx-cc-name value="${esc(c.name || '')}" placeholder="e.g. Austin Air & Ice" autocomplete="off">
+      </div>
+    `,
+  });
+
+  // ─── Contacts (TO / CC / BCC emails + phones) ──
+  cards.push({
+    key: 'contacts',
+    title: 'Contacts',
+    expanded: true,
+    body: `
+      ${RX.buildChipGroupHTML(toArr,  'to',  { label: 'TO',    hint: 'primary recipient(s) — service request goes here', inputType: 'email', inputMode: 'email', placeholder: 'dispatch@vendor.com',     addLabel: 'Add TO' })}
+      ${RX.buildChipGroupHTML(ccArr,  'cc',  { label: 'CC',    hint: 'always copied on every PM email',                  inputType: 'email', inputMode: 'email', placeholder: 'cc@vendor.com',           addLabel: 'Add CC' })}
+      ${RX.buildChipGroupHTML(bccArr, 'bcc', { label: 'BCC',   hint: "silent copies — others can't see them",            inputType: 'email', inputMode: 'email', placeholder: 'bcc@vendor.com',          addLabel: 'Add BCC' })}
+      ${RX.buildChipGroupHTML(phoneArr, 'phone', { label: 'PHONE', hint: 'first one powers the Call button on QR scan',    inputType: 'tel',   inputMode: 'tel',   placeholder: '(512) 555-1234',          addLabel: 'Add phone' })}
+    `,
+  });
+
+  // ─── Specialties (tag chips) ──
+  cards.push({
+    key: 'tags',
+    title: 'In charge of',
+    expanded: false,
+    body: `
+      <div class="rx-form-field">
+        <label class="rx-form-label">Specialties <span class="rx-form-hint">— what they cover</span></label>
+        ${RX.buildChipGroupHTML(tagsArr, 'tags', { placeholder: 'e.g. refrigeration', addLabel: 'Add specialty' })}
+      </div>
+    `,
+  });
+
+  // ─── Notes ──
+  cards.push({
+    key: 'notes',
+    title: 'Notes',
+    expanded: false,
+    body: `
+      <div class="rx-form-field">
+        <textarea class="rx-form-input" data-rx-cc-notes rows="4" placeholder="Hours, address, billing rate, anything else — only you see this" style="height:auto;min-height:96px;padding:10px 12px;resize:vertical">${esc(c.notes || '')}</textarea>
+      </div>
+    `,
+  });
+
+  // ─── Danger zone (existing contractors only) ──
+  if (!isNew) {
+    cards.push({
+      key: 'danger',
+      title: 'Danger zone',
+      expanded: false,
+      danger: true,
+      body: `
+        <button class="ord-veditor-archive-btn" type="button" data-rx-cc-delete>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          </svg>
+          <span>Delete contractor</span>
+        </button>
+        <div class="rx-form-hint" style="text-align:center">Deleting a contractor unlinks them from all equipment but does not affect service history.</div>
+      `,
+    });
+  }
+
+  RX.openOverlay({
+    title:    isNew ? 'New contractor' : (c.name || 'Contractor'),
+    subtitle: isNew ? null : ((tagsArr || []).slice(0, 3).join(' · ') || null),
+    cards,
+    saveLabel:   isNew ? 'Create contractor' : 'Save changes',
+    cancelLabel: 'Cancel',
+    state: {
+      chips: { to: toArr, cc: ccArr, bcc: bccArr, phone: phoneArr, tags: tagsArr },
+    },
+
+    onMount: (overlay, state) => {
+      // Email chip groups — same email validator across to/cc/bcc.
+      ['to', 'cc', 'bcc'].forEach(kind => {
+        RX.wireChipGroup(overlay, kind, state, {
+          label: kind.toUpperCase(),
+          inputType: 'email',
+          inputMode: 'email',
+          placeholder: 'email@example.com',
+          addLabel: `Add ${kind.toUpperCase()}`,
+          validate: emailValidator,
+        });
+      });
+      // Phone chip group — different validator + input type.
+      RX.wireChipGroup(overlay, 'phone', state, {
+        label: 'PHONE',
+        inputType: 'tel',
+        inputMode: 'tel',
+        placeholder: '(512) 555-1234',
+        addLabel: 'Add phone',
+        validate: phoneValidator,
+      });
+      // Tag chip group — no validator, free text.
+      RX.wireChipGroup(overlay, 'tags', state, {
+        placeholder: 'e.g. HVAC',
+        addLabel: 'Add specialty',
+      });
+
+      // Delete button — confirm + delete + close
+      const delBtn = overlay.querySelector('[data-rx-cc-delete]');
+      if (delBtn) {
+        delBtn.addEventListener('click', async () => {
+          if (!confirm(`Delete ${c.name}? This unlinks them from all equipment.`)) return;
+          try {
+            const { error } = await NX.sb.from('nodes').delete().eq('id', c.id);
+            if (error) throw error;
+            if (NX.toast) NX.toast('Contractor deleted', 'info', 1400);
+            RX.close();
+            // Refresh the contractors list view if it's open.
+            if (typeof contractorsState !== 'undefined' && contractorsState && contractorsState.overlay) {
+              contractorsState.mode = 'list';
+              contractorsState.activeId = null;
+              contractorsState.activeContractor = null;
+              if (typeof loadContractors === 'function') {
+                await loadContractors();
+              }
+              if (typeof renderContractors === 'function') renderContractors();
+            }
+          } catch (err) {
+            console.error('[contractor] delete failed:', err);
+            if (NX.toast) NX.toast('Failed to delete: ' + (err.message || ''), 'error', 3000);
+          }
+        });
+      }
+    },
+
+    onSave: async (overlay, state) => {
+      const name = (overlay.querySelector('[data-rx-cc-name]') || {}).value || '';
+      if (!name.trim()) {
+        if (NX.toast) NX.toast('Name is required', 'warn', 1800);
+        return false;
+      }
+      const notes = (overlay.querySelector('[data-rx-cc-notes]') || {}).value || '';
+
+      // Reconstruct nodes.links from the four chip groups.
+      // Schema convention (matches existing extract* helpers):
+      //   { phone, type:'phone', label }
+      //   { email, type:'email', role: 'to'|'cc'|'bcc', label }
+      const links = [];
+      // Preserve any non-phone/email links already on the contractor
+      // (URLs, etc.) so saving doesn't blow them away.
+      const existingLinks = Array.isArray(c.links) ? c.links : [];
+      for (const l of existingLinks) {
+        if (!l) continue;
+        const isPhone = (typeof l === 'object' && l.phone) || (typeof l === 'string' && /(?:tel:)?(\+?[\d\s().-]{7,})/.test(l));
+        const isEmail = (typeof l === 'object' && l.email) || (typeof l === 'string' && /[\w.+-]+@[\w-]+\.[\w.-]+/.test(l));
+        if (isPhone || isEmail) continue;
+        links.push(l);
+      }
+      for (const ph of (state.chips.phone || [])) {
+        const t = String(ph).trim();
+        if (!t) continue;
+        links.push({ phone: t, type: 'phone', label: phoneLabels[t] || null });
+      }
+      for (const em of (state.chips.to  || [])) { const t = String(em).trim(); if (t) links.push({ email: t, type: 'email', role: 'to'  }); }
+      for (const em of (state.chips.cc  || [])) { const t = String(em).trim(); if (t) links.push({ email: t, type: 'email', role: 'cc'  }); }
+      for (const em of (state.chips.bcc || [])) { const t = String(em).trim(); if (t) links.push({ email: t, type: 'email', role: 'bcc' }); }
+
+      const tags = Array.from(new Set((state.chips.tags || []).map(t => String(t).trim()).filter(Boolean)));
+
+      const payload = {
+        name: name.trim(),
+        notes: notes.trim() || null,
+        tags,
+        links,
+      };
+
+      try {
+        if (isNew) {
+          // Insert as a new node with category='contractors'.
+          const insertPayload = { ...payload, category: 'contractors', kind: 'org' };
+          const { data, error } = await NX.sb.from('nodes').insert(insertPayload).select('*').single();
+          if (error) throw error;
+          if (NX.toast) NX.toast('Contractor created', 'info', 1400);
+          // Refresh list + open detail
+          if (typeof loadContractors === 'function') await loadContractors();
+          if (typeof renderContractors === 'function') renderContractors();
+        } else {
+          const { error } = await NX.sb.from('nodes').update(payload).eq('id', c.id);
+          if (error) throw error;
+          // Update the in-memory copy so subsequent reads (e.g. the email
+          // PM flow) see the new roles immediately.
+          Object.assign(c, payload);
+          if (NX.toast) NX.toast('Saved', 'info', 1200);
+          // Refresh the detail view if it's currently rendered.
+          if (typeof contractorsState !== 'undefined' && contractorsState && contractorsState.activeContractor && contractorsState.activeContractor.id === c.id) {
+            Object.assign(contractorsState.activeContractor, payload);
+            if (typeof renderContractors === 'function') renderContractors();
+          }
+        }
+        return true;
+      } catch (err) {
+        console.error('[contractor] save failed:', err);
+        if (NX.toast) NX.toast('Failed to save: ' + (err.message || ''), 'error', 3000);
+        return false;
+      }
+    },
+  });
+}
+
+
 function contractorAvatar(c, size) {
   const name = (c && c.name) || '';
   const initial = name.trim().charAt(0).toUpperCase() || '?';
@@ -10502,6 +10764,16 @@ function renderContractorsDetail() {
   });
   overlay.querySelectorAll('[data-detail-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
+      // Edit tab → open the shared NX.recordEditor overlay instead of
+      // re-rendering an inline form. The detail view (Activity / Equipment
+      // tabs) stays underneath; engine slides over it. Save in the engine
+      // refreshes the detail in place.
+      if (btn.dataset.detailTab === 'edit') {
+        if (typeof openContractorEditor === 'function') {
+          openContractorEditor(contractorsState.activeContractor);
+          return;
+        }
+      }
       contractorsState.detailTab = btn.dataset.detailTab;
       renderContractors();
     });
@@ -11576,6 +11848,15 @@ async function mergeContractorGroup(canonical, others) {
 }
 
 async function addNewContractor() {
+  // Open the shared editor with an empty contractor. The engine's
+  // onSave handler runs the actual INSERT once the user fills in name
+  // (and any contacts they want pre-set). Avoids the old two-step flow:
+  // prompt for name → DB insert → open detail → switch to edit tab.
+  if (typeof openContractorEditor === 'function') {
+    openContractorEditor(null);
+    return;
+  }
+  // Legacy fallback if the editor function isn't loaded for some reason.
   const name = prompt('New contractor name:');
   if (!name || !name.trim()) return;
   try {
@@ -11586,8 +11867,6 @@ async function addNewContractor() {
       links: [],
     }).select('*').single();
     if (error) throw error;
-
-    // Stamp derived fields to zero so the rest of the UI doesn't choke.
     Object.assign(data, {
       _maint: [], _issues: [],
       _callsYtd: 0, _ytdSpend: 0, _totalCalls: 0,
