@@ -2298,7 +2298,7 @@ html {
 .rx-overlay {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: 250;
   background: var(--bg);
   display: flex;
   flex-direction: column;
@@ -2382,10 +2382,12 @@ html {
   flex: 1 1 auto;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 14px 14px calc(20px + env(safe-area-inset-bottom, 0)) ;
+  /* Generous padding + 20px gap between cards. Whitespace is the
+     visual rhythm — cards crammed at 12px read as one long blob. */
+  padding: 20px 16px calc(28px + env(safe-area-inset-bottom, 0)) ;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 20px;
 }
 
 .rx-overlay-foot {
@@ -2440,7 +2442,11 @@ html {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 13px 14px;
+  /* 56px min-height = comfortable iOS-grade tap target; 18px horizontal
+     padding gives room for the title + count subtitle without crowding
+     the chevron. */
+  padding: 16px 18px;
+  min-height: 56px;
   background: var(--nx-gold-faint);
   border: 0;
   color: var(--accent);
@@ -2451,7 +2457,12 @@ html {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   -webkit-tap-highlight-color: transparent;
-  transition: background .12s ease;
+  transition: background .15s ease, border-color .15s ease;
+}
+/* Quiet collapsed state: drop the gold tint so a stack of closed cards
+   feels calm. The currently-open card pops via its tinted bar. */
+.rx-card.is-collapsed .rx-card-head {
+  background: transparent;
 }
 .rx-card-head:hover { background: var(--nx-gold-mist); }
 .rx-card-title-wrap {
@@ -2491,10 +2502,12 @@ html {
 }
 
 .rx-card-body {
-  padding: 14px;
+  /* Generous padding + 16px gap between fields — the card frames them
+     so they don't need to fight for space. */
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   border-top: 1px solid var(--border);
 }
 .rx-card.is-collapsed > .rx-card-body { display: none; }
