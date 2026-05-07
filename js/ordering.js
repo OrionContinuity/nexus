@@ -253,8 +253,9 @@
     if (!NX.sb) return [];
     const { data, error } = await NX.sb
       .from('orders')
-      .select('id, vendor_id, location, delivery_date, status, email_sent_at, created_at, updated_at, created_by_name, sent_by_name, confirmed_at, delivered_at, closed_at, issue_at, issue_note')
+      .select('id, vendor_id, location, delivery_date, status, email_sent_at, created_at, updated_at, created_by_name, sent_by_name, confirmed_at, delivered_at, closed_at, issue_at, issue_note, archived_at')
       .eq('location', location)
+      .is('archived_at', null)
       .order('updated_at', { ascending: false })
       .limit(limit);
     if (error) {
@@ -1173,9 +1174,10 @@
     if (!NX.sb) return [];
     const { data, error } = await NX.sb
       .from('orders')
-      .select('id, vendor_id, location, delivery_date, status, email_sent_at, created_at, updated_at, created_by_name, sent_by_name, confirmed_at, delivered_at, closed_at, issue_at, issue_note')
+      .select('id, vendor_id, location, delivery_date, status, email_sent_at, created_at, updated_at, created_by_name, sent_by_name, confirmed_at, delivered_at, closed_at, issue_at, issue_note, archived_at')
       .eq('vendor_id', vendorId)
       .eq('location', location)
+      .is('archived_at', null)
       .order('updated_at', { ascending: false })
       .limit(limit);
     if (error) {
@@ -1189,6 +1191,28 @@
         .limit(limit);
       if (fb.error) { console.error('[ordering] loadVendorOrders:', fb.error); return []; }
       return fb.data || [];
+    }
+    return data || [];
+  }
+
+  /* Load only ARCHIVED orders for a vendor at a location. Used by the
+     "Show archived" expander in the vendor detail so the user can find
+     and restore them. Mirrors the ordering of loadVendorOrders so it
+     reads the same way. */
+  async function loadVendorArchivedOrders(vendorId, location, limit = 50) {
+    if (!NX.sb) return [];
+    const { data, error } = await NX.sb
+      .from('orders')
+      .select('id, vendor_id, location, delivery_date, status, email_sent_at, created_at, updated_at, created_by_name, sent_by_name, confirmed_at, delivered_at, closed_at, issue_at, issue_note, archived_at')
+      .eq('vendor_id', vendorId)
+      .eq('location', location)
+      .not('archived_at', 'is', null)
+      .order('archived_at', { ascending: false })
+      .limit(limit);
+    if (error) {
+      // Pre-migration: column doesn't exist, no archived to show
+      console.warn('[ordering] loadVendorArchivedOrders:', error.message || error);
+      return [];
     }
     return data || [];
   }
@@ -1214,14 +1238,23 @@
       ordersLoading: true,
       hasDraft: false,
       overlay,
+      archivedOrders: [],
+      archivedExpanded: false,
+      archivedLoading: false,
     };
 
     renderVendorDetail();   // initial paint with loading state
 
     try {
-      const orders = await loadVendorOrders(vendor.id, activeLoc);
+      // Load active + archived in parallel so the expander knows whether
+      // to show itself by the time the first paint completes.
+      const [orders, archived] = await Promise.all([
+        loadVendorOrders(vendor.id, activeLoc),
+        loadVendorArchivedOrders(vendor.id, activeLoc),
+      ]);
       if (!detailState || detailState.overlay !== overlay) return;  // user closed before load completed
       detailState.orders = orders;
+      detailState.archivedOrders = archived;
       detailState.ordersLoading = false;
       detailState.hasDraft = orders.some(o => o.status === 'draft');
       renderVendorDetail();
@@ -1250,7 +1283,7 @@
 
   function renderVendorDetail() {
     if (!detailState || !detailState.overlay) return;
-    const { vendor, orders, ordersLoading, hasDraft, overlay } = detailState;
+    const { vendor, orders, ordersLoading, hasDraft, overlay, archivedOrders, archivedExpanded } = detailState;
 
     // Header: back, avatar+identity, pin-toggle, gear
     const headerHTML = `
@@ -1328,6 +1361,52 @@
       bodyHTML = `<div class="ord-vdetail-orders">${rowsHTML}</div>`;
     }
 
+    // Archived-orders expander. Lives at the bottom of the orders body
+    // so it doesn't compete with the active list, and only renders when
+    // there's at least one archived order to find. Collapsed: a single
+    // muted line ("3 archived orders ▾"). Expanded: each archived order
+    // with timestamp + a restore button.
+    const archivedCount = (archivedOrders || []).length;
+    let archivedHTML = '';
+    if (archivedCount > 0) {
+      const archivedRowsHTML = archivedExpanded
+        ? archivedOrders.map(o => {
+            const status = o.status || 'sent';
+            const archAt = o.archived_at ? fmtActivityWhen(o.archived_at) : '';
+            const shortId = o.id ? o.id.slice(0, 8) : '';
+            return `
+              <div class="ord-vdetail-archived-row">
+                <div class="ord-vdetail-archived-main">
+                  <div class="ord-vdetail-archived-meta">
+                    <span class="ord-status ord-status-${esc(status)}">${esc(status)}</span>
+                    <span class="ord-vdetail-archived-when">archived ${esc(archAt)}</span>
+                  </div>
+                  <div class="ord-vdetail-archived-id">${esc(shortId)}</div>
+                </div>
+                <button class="ord-vdetail-archived-restore" data-action="restore" data-order-id="${esc(o.id)}" type="button">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <path d="M3.51 15a9 9 0 1 0 .49-5"/>
+                  </svg>
+                  <span>Restore</span>
+                </button>
+              </div>`;
+          }).join('')
+        : '';
+      archivedHTML = `
+        <div class="ord-vdetail-archived-block">
+          <button class="ord-vdetail-archived-toggle" data-action="toggle-archived" type="button" aria-expanded="${archivedExpanded ? 'true' : 'false'}">
+            <span class="ord-vdetail-archived-label">
+              ${archivedCount} archived order${archivedCount === 1 ? '' : 's'}
+            </span>
+            <span class="ord-vdetail-archived-chev" aria-hidden="true">${archivedExpanded ? '▴' : '▾'}</span>
+          </button>
+          ${archivedExpanded ? `<div class="ord-vdetail-archived-list">${archivedRowsHTML}</div>` : ''}
+        </div>
+      `;
+    }
+    bodyHTML = bodyHTML + archivedHTML;
+
     // Sticky CTA: "Continue order →" if draft exists, else "Start new order →"
     const ctaLabel = hasDraft ? 'Continue order' : 'Start new order';
     const footerHTML = `
@@ -1362,6 +1441,46 @@
         const oid = b.dataset.orderId;
         closeVendorDetail();
         openExistingOrder(oid);
+      });
+    });
+
+    // Archived expander toggle
+    overlay.querySelector('[data-action="toggle-archived"]')?.addEventListener('click', () => {
+      if (!detailState) return;
+      detailState.archivedExpanded = !detailState.archivedExpanded;
+      renderVendorDetail();
+    });
+
+    // Restore individual archived order. Restoration is safe (worst
+    // case: order shows up again), so no confirm modal — just do it
+    // and toast the result.
+    overlay.querySelectorAll('[data-action="restore"]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const oid = btn.dataset.orderId;
+        const shortId = (oid || '').slice(0, 8).toUpperCase();
+        btn.disabled = true;
+        btn.querySelector('span').textContent = 'Restoring…';
+        try {
+          await restoreOrder(oid);
+          // Refresh the detailState orders so the UI reflects reality
+          if (detailState && detailState.vendor && detailState.vendor.id === vendor.id) {
+            const [fresh, freshArch] = await Promise.all([
+              loadVendorOrders(vendor.id, activeLoc),
+              loadVendorArchivedOrders(vendor.id, activeLoc),
+            ]);
+            detailState.orders = fresh;
+            detailState.archivedOrders = freshArch;
+            detailState.hasDraft = fresh.some(o => o.status === 'draft');
+            renderVendorDetail();
+          }
+          if (NX.toast) NX.toast(`Restored order ${shortId}`, 'info', 1800);
+        } catch (e) {
+          console.error('[ordering] restoreOrder:', e);
+          btn.disabled = false;
+          btn.querySelector('span').textContent = 'Restore';
+          if (NX.toast) NX.toast('Could not restore: ' + ((e && e.message) || ''), 'error', 4000);
+        }
       });
     });
   }
@@ -1746,8 +1865,8 @@ Thanks for your help sorting this out.`;
           </button>
           <button class="ord-vmenu-action ord-vmenu-action-danger" data-action="delete">
             <span class="ord-vmenu-action-text">
-              <span class="ord-vmenu-action-title">Delete order</span>
-              <span class="ord-vmenu-action-sub">Permanent — removes the order + its line items from the database</span>
+              <span class="ord-vmenu-action-title">Archive order</span>
+              <span class="ord-vmenu-action-sub">Hides from your orders list. Restorable any time.</span>
             </span>
           </button>
           <button class="ord-vmenu-action ord-vmenu-action-cancel" data-action="cancel">Cancel</button>
@@ -1769,13 +1888,13 @@ Thanks for your help sorting this out.`;
     });
   }
 
-  /* Two-step delete with an explicit confirmation modal. The kebab menu
+  /* Two-step archive with an explicit confirmation modal. The kebab menu
      itself is one tap, so there's no "muscle memory" guard against
      bumping it accidentally — the confirm modal forces a deliberate
      choice with the order's short-id shown so the user sees exactly
-     what's being deleted. The action is destructive + irreversible
-     (no soft-delete column on orders right now), so we err heavily
-     toward "are you sure". */
+     what's being archived. Archived orders disappear from list views
+     but stay in the DB with archived_at set, so they can be restored
+     from the "Show archived" expander in the vendor detail. */
   function confirmDeleteOrder(order) {
     const existing = document.querySelector('.ord-confirm-overlay');
     if (existing) existing.remove();
@@ -1789,23 +1908,23 @@ Thanks for your help sorting this out.`;
     overlay.className = 'ord-confirm-overlay';
     overlay.innerHTML = `
       <div class="ord-confirm-backdrop"></div>
-      <div class="ord-confirm-modal" role="dialog" aria-label="Confirm delete">
+      <div class="ord-confirm-modal" role="dialog" aria-label="Confirm archive">
         <div class="ord-confirm-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/>
-            <line x1="12" y1="17" x2="12.01" y2="17"/>
+            <polyline points="21 8 21 21 3 21 3 8"/>
+            <rect x="1" y="3" width="22" height="5"/>
+            <line x1="10" y1="12" x2="14" y2="12"/>
           </svg>
         </div>
-        <div class="ord-confirm-title">Delete this order?</div>
+        <div class="ord-confirm-title">Archive this order?</div>
         <div class="ord-confirm-body">
-          <div class="ord-confirm-line"><strong>${esc(vendorName)}</strong> · order ${esc(orderShortId)}</div>
-          <div class="ord-confirm-sub">${lineCount} item${lineCount === 1 ? '' : 's'} · ${esc((order.status || 'sent').toUpperCase())}</div>
-          <div class="ord-confirm-warn">This is permanent. The order row and all its line items will be deleted from the database. There is no undo.</div>
+          <div class="ord-confirm-line"><strong>${esc(vendorName)}</strong> &middot; order ${esc(orderShortId)}</div>
+          <div class="ord-confirm-sub">${lineCount} item${lineCount === 1 ? '' : 's'} &middot; ${esc((order.status || 'sent').toUpperCase())}</div>
+          <div class="ord-confirm-warn">It will be hidden from your active orders list. You can restore it any time from <strong>Show archived</strong> at the bottom of the vendor's order history.</div>
         </div>
         <div class="ord-confirm-actions">
           <button class="ord-confirm-cancel" type="button">Cancel</button>
-          <button class="ord-confirm-delete" type="button">Delete order</button>
+          <button class="ord-confirm-delete" type="button">Archive order</button>
         </div>
       </div>
     `;
@@ -1816,35 +1935,83 @@ Thanks for your help sorting this out.`;
     overlay.querySelector('.ord-confirm-delete').addEventListener('click', async () => {
       const btn = overlay.querySelector('.ord-confirm-delete');
       btn.disabled = true;
-      btn.textContent = 'Deleting…';
+      btn.textContent = 'Archiving…';
       try {
-        await deleteOrder(order.id);
+        await archiveOrder(order.id);
         close();
         closeOrderDetail();
-        if (NX.toast) NX.toast(`Deleted order ${orderShortId}`, 'info', 1800);
+        if (NX.toast) NX.toast(`Archived order ${orderShortId}`, 'info', 1800);
       } catch (e) {
-        console.error('[ordering] deleteOrder:', e);
+        console.error('[ordering] archiveOrder:', e);
         btn.disabled = false;
-        btn.textContent = 'Delete order';
-        if (NX.toast) NX.toast('Could not delete: ' + ((e && e.message) || ''), 'error', 4000);
+        btn.textContent = 'Archive order';
+        if (NX.toast) NX.toast('Could not archive: ' + ((e && e.message) || ''), 'error', 4000);
       }
     });
   }
 
-  /* Hard-delete an order. We delete order_lines first to be safe in
-     case the FK isn't cascade-on-delete; if it IS cascade, deleting
-     them explicitly is a harmless no-op (zero rows match after the
-     parent is gone — but we delete lines BEFORE the parent so the
-     FK direction is fine either way). After DB is clear, refresh
-     the in-memory orders cache so the home screen no longer shows it. */
+  /* Soft-delete an order by stamping archived_at. Order rows + their
+     order_lines stay in the database — the archived_at filter on list
+     queries hides them from active views. Restoration is a matter of
+     setting archived_at = NULL again (see restoreOrder).
+     Falls back to a hard delete only if the column doesn't exist yet
+     (pre-migration) — and in that case it warns the user that the
+     action was irreversible after the fact. */
+  async function archiveOrder(orderId) {
+    if (!NX.sb || !orderId) throw new Error('Missing Supabase client or order id');
+    const res = await NX.sb.from('orders')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', orderId);
+    if (res.error) {
+      const msg = (res.error.message || '') + '';
+      // If the column doesn't exist (pre-migration), we don't want to
+      // silently hard-delete the order — that would surprise the user
+      // who explicitly chose "Archive (recoverable)". Throw with a
+      // clear message so they know to run the migration.
+      if (/column.*archived_at|could not find|schema cache/i.test(msg)) {
+        throw new Error('Database needs migration: add archived_at to orders. See SQL note.');
+      }
+      throw res.error;
+    }
+    // Refresh in-memory state so list views update immediately.
+    if (initialized) {
+      try {
+        recentOrders = await loadRecentOrders(activeLoc);
+        const vmap = {}; vendors.forEach(v => vmap[v.id] = v);
+        renderRecent(recentOrders, vmap);
+        renderVendors();
+      } catch (_) {}
+    }
+  }
+
+  /* Reverse an archive: clear archived_at so the order shows up in
+     active list views again. Status is preserved — a SENT order
+     restored stays SENT, etc. */
+  async function restoreOrder(orderId) {
+    if (!NX.sb || !orderId) throw new Error('Missing Supabase client or order id');
+    const res = await NX.sb.from('orders')
+      .update({ archived_at: null })
+      .eq('id', orderId);
+    if (res.error) throw res.error;
+    if (initialized) {
+      try {
+        recentOrders = await loadRecentOrders(activeLoc);
+        const vmap = {}; vendors.forEach(v => vmap[v.id] = v);
+        renderRecent(recentOrders, vmap);
+        renderVendors();
+      } catch (_) {}
+    }
+  }
+
+  /* Legacy hard-delete — preserved as a private helper in case ever
+     needed (e.g. a future "purge archived after 90 days" job). NOT
+     wired to the kebab anymore. */
   async function deleteOrder(orderId) {
     if (!NX.sb || !orderId) throw new Error('Missing Supabase client or order id');
     const linesRes = await NX.sb.from('order_lines').delete().eq('order_id', orderId);
     if (linesRes.error) throw linesRes.error;
     const orderRes = await NX.sb.from('orders').delete().eq('id', orderId);
     if (orderRes.error) throw orderRes.error;
-    // Refresh in-memory state so list views update immediately. Mirrors
-    // the same refresh pattern used by advanceOrderStatus / flagOrderIssue.
     if (initialized) {
       try {
         recentOrders = await loadRecentOrders(activeLoc);
@@ -2643,6 +2810,66 @@ Thanks for your help sorting this out.`;
     return `${vendor.name} order — ${ctx.location} for ${ctx.delivery_date}`;
   }
 
+  /* Render the universal default email body. Single source of truth —
+     called from buildBody when the vendor has no custom template, AND
+     from the template editor's preview pane so the user sees exactly
+     what the default produces.
+
+     Pure function: takes formatted lines text + ctx, returns the full
+     body string. Doesn't touch entryState or DB. */
+  function defaultEmailBody(vendor, ctx, linesText, notes, totalItemCount) {
+    let body = `Hi ${vendor.name} team,\n\n`;
+    body += `Please prepare this order:\n\n`;
+    body += `  Delivery:  ${ctx.delivery_date_long}\n`;
+    body += `  Location:  ${ctx.location}\n\n\n`;
+    body += linesText;
+    if (notes && notes.trim()) {
+      body += `\n\n\nNOTES\n\n${notes.trim()}`;
+    }
+    body += `\n\n\n${totalItemCount} item${totalItemCount === 1 ? '' : 's'} total\n\n`;
+    body += `Thanks,\n`;
+    return body;
+  }
+
+  /* Detect a "legacy default" body template — the pattern from before
+     the email format was overhauled. If a vendor's body_template
+     matches this loose pattern, we suggest they reset to default
+     instead of staying on the old format. We don't auto-overwrite —
+     just surface the option in the template editor. */
+  function isLegacyDefaultTemplate(text) {
+    if (!text || typeof text !== 'string') return false;
+    const t = text.trim();
+    // Heuristic: starts with "Hi ... team", contains "Please prepare for"
+    // (the old phrasing), contains {lines}, ends with "Thanks". This
+    // matches the pre-overhaul default but not custom prose.
+    return /^Hi\s+[^,\n]+\s+team,/i.test(t)
+        && /Please prepare for/i.test(t)
+        && /\{lines\}/i.test(t)
+        && /Thanks/i.test(t);
+  }
+
+  /* Render a preview of the default email body using sample data, for
+     display in the vendor template editor. Two sample line groups so
+     the user sees how sections look. Doesn't touch live state. */
+  function buildDefaultPreview(vendor) {
+    const sampleCtx = {
+      vendor: vendor.name || 'Vendor',
+      location: 'Este Restaurant',
+      delivery_date_long: 'Monday, May 11',
+      delivery_date: '5/11',
+    };
+    const sampleLines =
+      `PRODUCE  (2)\n\n` +
+      `  4 \u00D7 Romaine Hearts, 24ct\n` +
+      `      1 CS \u00B7 #PFG-12345\n` +
+      `  6 \u00D7 Tomatoes, slicing\n` +
+      `      lb \u00B7 #PFG-67890\n\n` +
+      `DAIRY  (1)\n\n` +
+      `  2 \u00D7 Whole Milk\n` +
+      `      1 GA \u00B7 #PFG-22100`;
+    return defaultEmailBody(vendor, sampleCtx, sampleLines, '', 3);
+  }
+
   function buildBody(vendor, location, deliveryDate, lines, notes) {
     const ctx = {
       vendor: vendor.name,
@@ -2661,20 +2888,70 @@ Thanks for your help sorting this out.`;
       }))
       .sort((a, b) => (a.section || '').localeCompare(b.section || '') || a.sort_order - b.sort_order);
 
-    // Build the formatted line list once — same for both default and
-    // custom templates. {lines} in custom templates expands to this.
+    /* ─────────────────────────────────────────────────────────────────
+       Format the line list.
+
+       Each item gets two lines:
+         {qty} × {name}
+             {pack} · #{sku}
+
+       The two-line shape solves three problems at once:
+         - "7 3/1 GA" was unreadable as a single token (qty merged with
+           pack size). Now they're on separate lines.
+         - SKU in [brackets] looked like a code comment. The # prefix
+           is more invoicing-conventional.
+         - Long item names + long packs + long SKUs no longer wrap
+           awkwardly mid-content because each piece has its own line.
+
+       Sections become empty-line-delimited blocks rather than just
+       capitalized labels, giving the eye somewhere to rest in long
+       orders. Item count at the start of each section header helps
+       the vendor verify completeness. The two-space indent on items
+       is a soft visual hierarchy that survives proportional fonts.
+       ───────────────────────────────────────────────────────────── */
     let linesText = '';
     let lastSection = null;
+    let sectionItemCount = 0;
+    let sectionItems = [];
+
+    // Group by section first so we can emit "(N items)" alongside the
+    // header — needs the count before printing items.
+    const groupedBySection = new Map();
     for (const l of linesArr) {
-      if (l.section && l.section !== lastSection) {
-        linesText += `\n${l.section.toUpperCase()}\n`;
-        lastSection = l.section;
-      }
-      const qtyUnit = `${l.qty} ${l.unit || 'ea'}`.padEnd(8);
-      const sku = l.vendor_sku ? `  [${l.vendor_sku}]` : '';
-      linesText += `  ${qtyUnit}  ${l.item_name}${sku}\n`;
+      const key = l.section || '__uncategorized__';
+      if (!groupedBySection.has(key)) groupedBySection.set(key, []);
+      groupedBySection.get(key).push(l);
     }
-    linesText = linesText.replace(/^\n+/, '');  // trim leading blank from first section
+
+    let totalItemCount = 0;
+    for (const [section, items] of groupedBySection.entries()) {
+      if (section !== '__uncategorized__') {
+        // Blank line before section unless first section
+        if (linesText) linesText += '\n';
+        linesText += `${section.toUpperCase()}  (${items.length})\n\n`;
+      }
+      for (const l of items) {
+        const qty = l.qty;
+        const pack = (l.unit || '').trim();
+        const sku = (l.vendor_sku || '').trim();
+        // Build the meta line — pack and sku each conditional, joined
+        // by middle dot when both present.
+        let metaParts = [];
+        if (pack) metaParts.push(pack);
+        if (sku)  metaParts.push(`#${sku}`);
+        const metaLine = metaParts.join(' \u00B7 ');
+
+        linesText += `  ${qty} \u00D7 ${l.item_name}\n`;
+        if (metaLine) linesText += `      ${metaLine}\n`;
+        // Note (if user added one to this line item) gets its own
+        // indented line below the meta.
+        if (l.note && l.note.trim()) {
+          linesText += `      Note: ${l.note.trim()}\n`;
+        }
+        totalItemCount++;
+      }
+    }
+    linesText = linesText.replace(/\n+$/, '');  // trim trailing blanks
 
     // If the vendor has a custom body_template, expand its tokens.
     // Otherwise use the standard hi-team / please-prepare / lines format.
@@ -2685,20 +2962,15 @@ Thanks for your help sorting this out.`;
         .replace(/\{delivery_date_long\}/gi, ctx.delivery_date_long)
         .replace(/\{delivery_date\}/gi,      ctx.delivery_date)
         .replace(/\{date\}/gi,               ctx.delivery_date)
-        .replace(/\{lines\}/gi,              linesText.trimEnd())
+        .replace(/\{lines\}/gi,              linesText)
         .replace(/\{notes\}/gi,              (notes || '').trim());
       return body + '\n';
     }
 
-    // Default template
-    let body = `Hi ${vendor.name} team,\n\n`;
-    body += `Please prepare for ${ctx.delivery_date_long} delivery to ${ctx.location}:\n\n`;
-    body += linesText;
-    if (notes && notes.trim()) {
-      body += `\nNotes: ${notes.trim()}\n`;
-    }
-    body += `\nThanks,\n`;
-    return body;
+    // Default template — clean two-block layout: header / line items /
+    // footer / sign-off. Calls into defaultEmailBody so the same format
+    // can be previewed from the template editor.
+    return defaultEmailBody(vendor, ctx, linesText, notes, totalItemCount);
   }
 
   function buildMailtoUrl(to, subject, body, cc, bcc) {
@@ -2928,19 +3200,48 @@ Thanks for your help sorting this out.`;
     });
 
     // ─── Email templates ──
+    // Universal default first. Lead-in note explains that all vendors
+    // share the same clean format unless overridden — most users never
+    // need to touch this card. Legacy templates (matching the old
+    // default pattern) get an upgrade banner.
+    const isLegacy = isLegacyDefaultTemplate(v.body_template);
     cards.push({
       key: 'templates',
       title: 'Email templates',
       expanded: false,
       body: `
+        <div class="rx-form-note">
+          Every vendor uses the same clean default email format. Set fields below only if this vendor needs different copy.
+        </div>
+
+        <details class="rx-form-preview" data-rx-preview>
+          <summary>Preview the default format</summary>
+          <pre class="rx-form-preview-pre" data-rx-preview-body>${esc(buildDefaultPreview(v))}</pre>
+        </details>
+
+        ${isLegacy ? `
+          <div class="rx-form-banner rx-form-banner-warn" data-rx-legacy-banner>
+            <div class="rx-form-banner-text">
+              <strong>This template uses the old email format.</strong>
+              <span>Tap <em>Use default</em> to switch to the new universal format.</span>
+            </div>
+          </div>
+        ` : ''}
+
         <div class="rx-form-field">
-          <label class="rx-form-label">Subject line</label>
+          <div class="rx-form-label-row">
+            <label class="rx-form-label">Subject line override</label>
+            <button type="button" class="rx-form-link" data-rx-reset-subject>Use default</button>
+          </div>
           <input type="text" class="rx-form-input" data-rx-subject value="${esc(v.subject_template || '')}" placeholder="${esc(v.name || 'Vendor')} order — {location} for {delivery_date}" autocomplete="off">
           <div class="rx-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date}</code></div>
         </div>
         <div class="rx-form-field">
-          <label class="rx-form-label">Body template</label>
-          <textarea class="rx-form-input rx-form-textarea" data-rx-body rows="6" placeholder="Leave blank to use the standard format. If you set this, your text replaces the body — use {lines} where the item list should appear.">${esc(v.body_template || '')}</textarea>
+          <div class="rx-form-label-row">
+            <label class="rx-form-label">Body template override</label>
+            <button type="button" class="rx-form-link" data-rx-reset-body>Use default</button>
+          </div>
+          <textarea class="rx-form-input rx-form-textarea" data-rx-body rows="6" placeholder="Leave blank to use the default shown above. If set, your text replaces the body — use {lines} where the item list should appear.">${esc(v.body_template || '')}</textarea>
           <div class="rx-form-hint">Tokens: <code>{vendor}</code> <code>{location}</code> <code>{delivery_date_long}</code> <code>{lines}</code> <code>{notes}</code></div>
         </div>
       `,
@@ -3059,6 +3360,37 @@ Thanks for your help sorting this out.`;
             } catch (err) {
               console.error('[ordering] archive failed:', err);
               if (NX.toast) NX.toast('Failed to archive: ' + (err.message || ''), 'error', 3000);
+            }
+          });
+        }
+
+        // Template reset buttons — clear the override field so the
+        // universal default takes over on next email send. The user
+        // still has to hit Save to persist, so the change isn't
+        // committed without their consent.
+        const resetSubject = overlay.querySelector('[data-rx-reset-subject]');
+        if (resetSubject) {
+          resetSubject.addEventListener('click', () => {
+            const inp = overlay.querySelector('[data-rx-subject]');
+            if (inp) {
+              inp.value = '';
+              inp.focus();
+              if (NX.toast) NX.toast('Subject reset to default — tap Save to apply', 'info', 1800);
+            }
+          });
+        }
+        const resetBody = overlay.querySelector('[data-rx-reset-body]');
+        if (resetBody) {
+          resetBody.addEventListener('click', () => {
+            const ta = overlay.querySelector('[data-rx-body]');
+            if (ta) {
+              ta.value = '';
+              ta.focus();
+              // Hide the legacy banner if it was showing — clearing the
+              // field is exactly what we were asking the user to do.
+              const banner = overlay.querySelector('[data-rx-legacy-banner]');
+              if (banner) banner.remove();
+              if (NX.toast) NX.toast('Body reset to default — tap Save to apply', 'info', 1800);
             }
           });
         }
