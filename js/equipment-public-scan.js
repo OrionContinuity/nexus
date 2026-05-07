@@ -654,6 +654,73 @@
     .nx-ps-btn-login .nx-ps-btn-icon-wrap svg { color: var(--ps-muted); }
     .nx-ps-btn-login .nx-ps-btn-title { color: var(--ps-muted); }
 
+    /* SERVICED BY — surfaces the assigned contractor + their specialty
+       tags right on the public scan page. Phone tap-to-call lives
+       inside this block when phone is set, so the user sees who
+       handles this unit + how to reach them in one grouped surface. */
+    .nx-ps-serviced-by {
+      margin: 8px 0 4px;
+      padding: 14px 16px;
+      background: rgba(212, 182, 138, 0.06);
+      border: 1px solid rgba(212, 182, 138, 0.22);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .nx-ps-serviced-by-label {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 10px;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      color: var(--ps-accent);
+    }
+    .nx-ps-serviced-by-name {
+      font-family: 'Outfit', system-ui, sans-serif;
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--ps-text);
+      line-height: 1.2;
+    }
+    .nx-ps-serviced-by-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: -2px;
+    }
+    .nx-ps-serviced-by-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 9px;
+      border: 1px solid rgba(212, 182, 138, 0.3);
+      border-radius: 999px;
+      font-size: 11px;
+      color: var(--ps-muted);
+      text-transform: lowercase;
+      letter-spacing: 0.02em;
+    }
+    .nx-ps-serviced-by-call {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      align-self: flex-start;
+      padding: 9px 16px;
+      margin-top: 4px;
+      background: var(--ps-accent);
+      border: 1px solid var(--ps-accent);
+      border-radius: 999px;
+      color: var(--nx-gold-on, #1a1408);
+      text-decoration: none;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 120ms ease;
+    }
+    .nx-ps-serviced-by-call:active { transform: scale(0.96); }
+    .nx-ps-serviced-by-call svg { color: var(--nx-gold-on, #1a1408); }
+
     /* Footer */
     .nx-ps-footer {
       text-align: center;
@@ -1082,20 +1149,31 @@
         .eq('equipment_id', eq.id)
         .order('event_date', { ascending: false })
         .limit(4),
-      (!eq.service_contractor_phone && eq.service_contractor_node_id)
+      eq.service_contractor_node_id
         ? sb.from('nodes').select('id, name, notes, tags, links')
             .eq('id', eq.service_contractor_node_id).single()
         : Promise.resolve({ data: null }),
     ]);
 
-    // Build contact object
+    // Build contact object — also exposes specialty tags ("duties") so
+    // the scan page can show what the contractor handles, and the
+    // contractor name standalone so we render even without a phone.
     let contact = null;
     if (eq.service_contractor_phone) {
       contact = {
         name: eq.service_contractor_name || 'Service',
         phone: eq.service_contractor_phone,
         phoneHref: telHref(eq.service_contractor_phone),
+        tags: [],
       };
+      // If we also have the contractor node (because phone-on-eq was
+      // missing initially OR we always fetch when FK is set), augment
+      // the contact with tags.
+      if (contractorRes?.data) {
+        const node = contractorRes.data;
+        contact.tags = Array.isArray(node.tags) ? node.tags.filter(Boolean) : [];
+        contact.contractorId = node.id;
+      }
     } else if (contractorRes?.data) {
       const node = contractorRes.data;
       const links = node.links || {};
@@ -1105,8 +1183,15 @@
         const m = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
         if (m) phone = m[0].trim();
       }
-      if (phone) {
-        contact = { name: node.name || 'Service', phone, phoneHref: telHref(phone) };
+      const tags = Array.isArray(node.tags) ? node.tags.filter(Boolean) : [];
+      if (phone || tags.length || node.name) {
+        contact = {
+          name: node.name || 'Service',
+          phone,
+          phoneHref: phone ? telHref(phone) : '',
+          tags,
+          contractorId: node.id,
+        };
       }
     }
 
@@ -1203,12 +1288,38 @@
       `).join('')}
     ` : '';
 
-    const callBtnHTML = contact ? `
+    // SERVICED BY block — surfaces the contractor + their specialty
+    // tags ("duties") right on the public scan page so the tech who
+    // scanned can see at a glance who handles this unit. When phone is
+    // present, the call CTA lives inside this block instead of below
+    // (cleaner grouping). When no contractor is assigned, the block
+    // is omitted entirely so the page stays focused.
+    const servicedByHTML = contact ? `
+      <div class="nx-ps-serviced-by">
+        <div class="nx-ps-serviced-by-label">Serviced by</div>
+        <div class="nx-ps-serviced-by-name">${esc(contact.name)}</div>
+        ${(contact.tags && contact.tags.length) ? `
+          <div class="nx-ps-serviced-by-tags">
+            ${contact.tags.slice(0, 5).map(t => `<span class="nx-ps-serviced-by-tag">${esc(t)}</span>`).join('')}
+          </div>
+        ` : ''}
+        ${contact.phone ? `
+          <a href="${esc(contact.phoneHref)}" class="nx-ps-serviced-by-call" data-action="call-direct">
+            ${icon('phone')}<span>${esc(contact.phone)}</span>
+          </a>
+        ` : ''}
+      </div>
+    ` : '';
+
+    // The standalone Call CTA at the top of the action list is now
+    // redundant when SERVICED BY shows the phone too. Hide it in that
+    // case to avoid double-call buttons.
+    const callBtnHTML = (contact && !contact.phone) ? `
       <button class="nx-ps-btn nx-ps-btn-call" data-action="call">
         <div class="nx-ps-btn-icon-wrap">${icon('phone')}</div>
         <div class="nx-ps-btn-label">
           <div class="nx-ps-btn-title">Call ${esc(contact.name)}</div>
-          <div class="nx-ps-btn-sub">${esc(contact.phone)}</div>
+          <div class="nx-ps-btn-sub">${esc(contact.phone || '')}</div>
         </div>
         <div class="nx-ps-btn-arrow">${icon('chevronRight', 16)}</div>
       </button>
@@ -1237,6 +1348,7 @@
               <div><div class="nx-ps-spec-label">Next PM</div><div class="nx-ps-spec-val ${pmOverdue ? '' : 'dim'}">${pmStr}</div></div>
             </div>
             ${historyHTML}
+            ${servicedByHTML}
             <div class="nx-ps-actions">
               <button class="nx-ps-btn nx-ps-btn-primary" data-action="log-service">
                 <div class="nx-ps-btn-icon-wrap">${icon('wrench')}</div>
@@ -1287,9 +1399,12 @@
         const fn = window._NX_PUBLIC_PM_OPEN;
         if (fn) fn(eq.qr_code);
         else alert('PM Logger not loaded');
-      } else if (action === 'call') {
-        // Require context capture before dialing — creates a ticket so
-        // staff have a record of who called the contractor and why.
+      } else if (action === 'call' || action === 'call-direct') {
+        // Prevent the raw <a href="tel:"> default — we want the issue
+        // modal to capture context FIRST, then dial. Same audit trail
+        // whether the user tapped the standalone Call CTA or the call
+        // chip embedded in the SERVICED BY block.
+        e.preventDefault();
         openIssueModal(eq, { mode: 'call', contact });
       } else if (action === 'report') {
         openIssueModal(eq, { mode: 'report' });
