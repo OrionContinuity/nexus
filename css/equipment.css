@@ -12846,3 +12846,324 @@ body.eq-bulk-mode .eq-row.is-selected::after {
   color: var(--nx-gold);
   border-color: var(--nx-gold);
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   REPAIR vs MAINTENANCE — split contractor surfacing
+   ════════════════════════════════════════════════════════════════════════════
+   Two parallel contractor slots per equipment: maintenance (scheduled PMs)
+   and repair (powers the public QR Call button). Cards laid out side-by-side
+   on tablet/desktop, stacked on phone. Repair is tinted oxblood/amber to
+   read as "urgent contact" vs the gold "scheduled work" maintenance card.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.eq-serviced-by-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+.eq-serviced-by-row > .eq-serviced-by {
+  flex: 1 1 240px;
+  margin: 0;
+}
+
+/* Repair card — distinct from the gold maintenance card. Uses a softer
+   amber-leaning tint that reads as "call when broken" without the oxblood
+   alarm intensity (which is reserved for actual down/error states). */
+.eq-serviced-by.eq-serviced-by-role-repair {
+  background: rgba(180, 80, 50, 0.05);
+  border-color: rgba(180, 80, 50, 0.22);
+}
+.eq-serviced-by.eq-serviced-by-role-repair .eq-serviced-by-label {
+  color: rgb(190, 95, 60);
+}
+
+/* ── Role chips on equipment rows inside contractor detail ───────────── */
+.eq-contractor-eq-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.eq-contractor-eq-body-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: pointer;
+}
+.eq-contractor-eq-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 1px 0;
+}
+.eq-contractor-eq-role-chip {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  line-height: 1.4;
+}
+.eq-contractor-eq-role-chip.eq-contractor-eq-role-maint {
+  background: rgba(212, 164, 78, 0.10);
+  border-color: rgba(212, 164, 78, 0.30);
+  color: var(--nx-gold, #d4a44e);
+}
+.eq-contractor-eq-role-chip.eq-contractor-eq-role-repair {
+  background: rgba(180, 80, 50, 0.10);
+  border-color: rgba(180, 80, 50, 0.30);
+  color: rgb(190, 95, 60);
+}
+
+/* Per-row × unassign button. Compact, only reveals on hover so the row
+   stays clean — phone users tap-and-hold or just tap directly. */
+.eq-contractor-eq-unassign-btn {
+  flex: 0 0 auto;
+  width: 28px;
+  align-self: center;
+  border: 1px solid var(--nx-line);
+  background: transparent;
+  border-radius: 7px;
+  color: var(--nx-faint);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  height: 28px;
+  transition: color var(--nx-press), border-color var(--nx-press), background var(--nx-press);
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-contractor-eq-unassign-btn:hover {
+  color: rgb(190, 95, 60);
+  border-color: rgba(180, 80, 50, 0.45);
+  background: rgba(180, 80, 50, 0.07);
+}
+.eq-contractor-eq-unassign-btn:active { transform: scale(0.94); }
+
+/* Don't let the whole row click bubble through to detail when tapping × */
+.eq-contractor-eq-row:has(.eq-contractor-eq-unassign-btn:hover) {
+  border-color: var(--nx-gold-line);
+  background: var(--nx-surface-1);
+}
+
+/* ── Role picker on the contractor → Assign equipment sheet ──────────── */
+.eq-bulk-role-picker {
+  display: flex;
+  gap: 6px;
+  margin: 14px 16px 12px;
+}
+.eq-bulk-role-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-line);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: border-color var(--nx-press), background var(--nx-press), transform var(--nx-press);
+  -webkit-tap-highlight-color: transparent;
+  text-align: center;
+}
+.eq-bulk-role-btn:active { transform: scale(0.98); }
+.eq-bulk-role-btn.is-active {
+  background: var(--nx-gold-mist);
+  border-color: var(--nx-gold);
+}
+.eq-bulk-role-label {
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nx-text);
+  line-height: 1.2;
+}
+.eq-bulk-role-btn.is-active .eq-bulk-role-label {
+  color: var(--nx-gold);
+}
+.eq-bulk-role-hint {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--nx-faint);
+  text-transform: uppercase;
+}
+
+/* Phone: stack the two contractor cards vertically — they were getting
+   too narrow at 240px each on a 375-wide viewport with surrounding chrome. */
+@media (max-width: 520px) {
+  .eq-serviced-by-row { flex-direction: column; }
+  .eq-serviced-by-row > .eq-serviced-by { flex-basis: auto; }
+  .eq-bulk-role-picker { flex-wrap: wrap; }
+  .eq-bulk-role-btn { flex: 1 1 calc(50% - 3px); }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TWO-LEVEL CATEGORY → SECTION GROUPING
+   ════════════════════════════════════════════════════════════════════════════
+   Outer card = category (fixed enum: Refrigeration, Cooking, Ice…). Renders
+   with a more prominent header (category icon + larger label) so the
+   structural hierarchy is obvious at a glance. Inner sections (.eq-section.
+   is-nested) use the existing rename + collapse machinery and sit indented
+   inside the category body.
+
+   When a category has only one un-named ("Uncategorized") inner section
+   the inner header is suppressed in JS and the equipment rows render
+   directly in .eq-cat-section-body — handled by .eq-rows there.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.eq-cat-section {
+  margin: 0 0 14px;
+  background: var(--nx-surface-1, var(--surface));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.22));
+  border-radius: 14px;
+  overflow: hidden;
+}
+.eq-cat-section.is-collapsed .eq-cat-section-body { display: none; }
+.eq-cat-section.is-collapsed .eq-cat-section-collapse svg { transform: rotate(-90deg); }
+
+.eq-cat-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  background: linear-gradient(
+    180deg,
+    var(--nx-gold-mist, rgba(212, 164, 78, 0.10)) 0%,
+    var(--nx-gold-faint, rgba(212, 164, 78, 0.04)) 100%
+  );
+  border-bottom: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  transition: background var(--nx-press, 120ms ease);
+}
+.eq-cat-section.is-collapsed .eq-cat-section-head { border-bottom-color: transparent; }
+.eq-cat-section-head:hover { background: var(--nx-gold-mist, rgba(212, 164, 78, 0.14)); }
+
+.eq-cat-section-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--nx-gold, #d4a44e);
+  background: rgba(212, 164, 78, 0.10);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.30));
+  border-radius: 8px;
+}
+.eq-cat-section-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.eq-cat-section-name {
+  flex: 1;
+  min-width: 0;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--nx-text, var(--text));
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eq-cat-section-count {
+  flex: 0 0 auto;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.10em;
+  color: var(--nx-gold, #d4a44e);
+  background: rgba(212, 164, 78, 0.08);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.22));
+  padding: 3px 8px;
+  border-radius: 999px;
+  min-width: 26px;
+  text-align: center;
+}
+
+.eq-cat-section-collapse {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--nx-faint, var(--muted));
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 7px;
+  transition: color var(--nx-press, 120ms ease), background var(--nx-press, 120ms ease);
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-cat-section-collapse:hover {
+  color: var(--nx-gold, #d4a44e);
+  background: rgba(212, 164, 78, 0.08);
+}
+.eq-cat-section-collapse svg {
+  transition: transform 180ms ease;
+}
+
+.eq-cat-section-body {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* When the category renders flat (one un-named inner section), .eq-rows
+   sits directly inside the body and gets a tighter top margin. */
+.eq-cat-section-body > .eq-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ── Inner sections (nested under a category card) ─────────────────── */
+.eq-section.is-nested {
+  margin: 0;
+  background: transparent;
+  border: 1px dashed var(--nx-line, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  overflow: hidden;
+}
+.eq-section.is-nested > .eq-section-head {
+  background: transparent;
+  padding: 8px 11px;
+  border-bottom: 1px dashed var(--nx-line, rgba(255, 255, 255, 0.08));
+}
+.eq-section.is-nested.is-collapsed > .eq-section-head { border-bottom-color: transparent; }
+.eq-section.is-nested > .eq-section-head .eq-section-name {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nx-faint, var(--muted));
+  font-weight: 500;
+}
+.eq-section.is-nested > .eq-section-body {
+  padding: 8px 6px 4px;
+}
+
+/* Phone — keep the outer category card edge-to-edge but tighten the
+   inner padding so we don't lose row width to nested chrome. */
+@media (max-width: 520px) {
+  .eq-cat-section { border-radius: 12px; }
+  .eq-cat-section-head { padding: 10px 12px; gap: 9px; }
+  .eq-cat-section-name { font-size: 15px; }
+  .eq-cat-section-icon { width: 26px; height: 26px; }
+  .eq-cat-section-icon svg { width: 14px; height: 14px; }
+  .eq-cat-section-body { padding: 8px 8px; gap: 8px; }
+  .eq-section.is-nested > .eq-section-head { padding: 7px 9px; }
+  .eq-section.is-nested > .eq-section-body { padding: 6px 4px 2px; }
+}
