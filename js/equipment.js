@@ -1011,23 +1011,26 @@ function buildListRow(e) {
   if (e.location) subParts.push(esc(e.location) + (e.area ? ' · ' + esc(e.area) : ''));
   const sub = subParts.join(' · ');
 
-  // Avatar priority: equipment photo > manufacturer logo > category icon.
-  // The equipment's actual photo is more recognizable than a colored
-  // letter circle — when the user uploads a photo it shows up
-  // immediately as the row's identifying mark. Falls back gracefully.
+  // Avatar — photo if uploaded, otherwise a colored letter on a
+  // hue-driven background. Same visual treatment as ordering's vendor
+  // avatar so the two row systems read as one app. Hue is derived
+  // deterministically from the equipment name so the same unit always
+  // gets the same color across renders. Manufacturer logos and
+  // category icons are reserved for the detail view where they have
+  // room to breathe; in the row, simpler is better.
   let avatar;
   if (e.photo_url) {
-    avatar = `<span class="eq-row-avatar eq-row-avatar-photo" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to replace photo">
-      <img src="${escAttr(e.photo_url)}" alt="" onerror="this.parentElement.classList.add('photo-failed');this.remove()">
-    </span>`;
-  } else if (e.manufacturer) {
-    avatar = `<span class="eq-row-avatar eq-row-avatar-logo" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to add photo">
-      ${manufacturerLogo(e, 'sm')}
-    </span>`;
+    avatar = `<span class="eq-row-avatar eq-row-avatar-img" style="background-image:url('${escAttr(e.photo_url)}');" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to replace photo"></span>`;
   } else {
-    avatar = `<span class="eq-row-avatar eq-row-avatar-icon" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to add photo">
-      ${catIcon(e.category)}
-    </span>`;
+    const letter = esc(((e.name || '?').trim().charAt(0) || '?').toUpperCase());
+    // Stable string-hash → 0..359 hue. Bit-shifting keeps it int.
+    let h = 0;
+    const seed = String(e.name || e.id || '');
+    for (let i = 0; i < seed.length; i++) {
+      h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
+    }
+    const hue = Math.abs(h) % 360;
+    avatar = `<span class="eq-row-avatar" style="--avatar-hue:${hue};" data-action="quick-photo" data-eq-id="${e.id}" title="Tap to add photo">${letter}</span>`;
   }
 
   return `
