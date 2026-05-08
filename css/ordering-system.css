@@ -4292,6 +4292,36 @@ body.ord-overlay-open .bottom-nav {
 }
 .ved-section-rename-btn svg { width: 13px; height: 13px; }
 
+/* Section delete button — same shell as rename-btn so the header
+   stays visually balanced. Default state is muted (faint color, no
+   border) so it doesn't shout; hover state turns muted-red so the
+   destructive intent reads before the click. The two-step confirm
+   inside deleteSection() is the actual safety net; the visual cue
+   is just a hint. */
+.ved-section-delete-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 0;
+  transition: all .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.ved-section-delete-btn:hover,
+.ved-section-delete-btn:active {
+  color: #c45a5a;
+  border-color: rgba(196, 90, 90, 0.35);
+  background: rgba(196, 90, 90, 0.08);
+}
+.ved-section-delete-btn svg { width: 15px; height: 15px; }
+
 /* Inline rename form (replaces the header content while editing) */
 .ved-section-rename-input {
   flex: 1;
