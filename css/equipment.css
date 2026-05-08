@@ -13167,3 +13167,59 @@ body.eq-bulk-mode .eq-row.is-selected::after {
   .eq-section.is-nested > .eq-section-head { padding: 7px 9px; }
   .eq-section.is-nested > .eq-section-body { padding: 6px 4px 2px; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   ROW BEACON — clean right-edge status indicator
+   ════════════════════════════════════════════════════════════════════════════
+   Replaces the inline OPERATIONAL / NEEDS SERVICE / DOWN pill that used to
+   sit in the middle of each card with a single round beacon all the way to
+   the right. Same color rules as before (lifecycleStatusDot does the work),
+   just without the textual label. Beacon is fixed-width and right-aligned
+   so the dot column lines up perfectly across rows for a clean, neat scan.
+   The chevron has been removed in JS — the beacon takes its visual place
+   as the row's right-edge anchor.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.eq-row-beacon {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+}
+
+/* Override the grid-card variant of .eq-lc-dot when it's nested inside a
+   row beacon — that variant uses absolute positioning pinned to top:8/right:8
+   of its parent. In a row, we want the dot to flow inline at the center of
+   the beacon slot, scaled up slightly so it reads as a deliberate marker. */
+.eq-row-beacon .eq-lc-dot {
+  position: static;
+  top: auto;
+  right: auto;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+/* The OPERATIONAL pulse still applies via .eq-lc-dot.is-operational; we just
+   tighten the box-shadow ring so it reads against the row's lighter
+   background instead of the grid card's dark backdrop. */
+.eq-row-beacon .eq-lc-dot.is-operational {
+  box-shadow: 0 0 0 3px var(--nx-bg, var(--bg)),
+              0 0 10px rgba(212, 164, 78, 0.55),
+              0 0 20px rgba(212, 164, 78, 0.30);
+}
+[data-theme="light"] .eq-row-beacon .eq-lc-dot.is-operational {
+  box-shadow: 0 0 0 3px var(--surface, #faf6ed),
+              0 0 8px rgba(139, 105, 20, 0.45),
+              0 0 16px rgba(139, 105, 20, 0.18);
+}
+
+/* Phone — slightly tighter slot to claw back row-width for the name. */
+@media (max-width: 520px) {
+  .eq-row-beacon { width: 20px; height: 20px; margin-left: 4px; }
+  .eq-row-beacon .eq-lc-dot { width: 11px; height: 11px; }
+}
