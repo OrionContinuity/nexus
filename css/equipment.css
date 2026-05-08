@@ -11211,6 +11211,267 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
    ═══════════════════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════════════════
+   EQUIPMENT — SECTION CARD HOLDERS (collapsible group containers)
+   ─────────────────────────────────────────────────────────────────────
+   Equipment cards now render inside collapsible section containers,
+   one per .section value. Section headers can collapse / rename, but
+   are NEVER deletable — they vanish naturally when every equipment
+   row is moved out. Mirrors the ordering catalog editor's section
+   pattern visually so the two modules feel unified.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+#equipmentView .eq-section {
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 16px;
+  margin: 14px;
+  overflow: hidden;
+  transition: border-color .15s;
+}
+#equipmentView .eq-section:hover {
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line));
+}
+
+#equipmentView .eq-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--nx-surface-2, transparent);
+  border-bottom: 1px solid var(--nx-gold-line);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+#equipmentView .eq-section.is-collapsed .eq-section-head {
+  border-bottom-color: transparent;
+}
+
+#equipmentView .eq-section-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: 'Outfit', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--nx-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+#equipmentView .eq-section-count {
+  flex-shrink: 0;
+  background: var(--nx-gold-faint);
+  color: var(--nx-gold);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+#equipmentView .eq-section-rename,
+#equipmentView .eq-section-collapse {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--nx-faint);
+  cursor: pointer;
+  padding: 0;
+  transition: background .15s, color .15s, transform .2s;
+  -webkit-tap-highlight-color: transparent;
+}
+#equipmentView .eq-section-rename:hover,
+#equipmentView .eq-section-collapse:hover {
+  color: var(--nx-text);
+  background: var(--nx-gold-faint);
+}
+#equipmentView .eq-section-rename:active,
+#equipmentView .eq-section-collapse:active {
+  transform: scale(0.92);
+}
+
+/* Chevron rotation for collapse state */
+#equipmentView .eq-section-collapse svg {
+  transition: transform .2s ease;
+}
+#equipmentView .eq-section.is-collapsed .eq-section-collapse svg {
+  transform: rotate(-90deg);
+}
+
+/* Body — slides closed when collapsed. Uses max-height instead of
+   display:none so the chevron rotation has something to animate
+   against. 4000px upper bound covers any plausible section size. */
+#equipmentView .eq-section-body {
+  max-height: 4000px;
+  overflow: hidden;
+  transition: max-height .25s ease;
+}
+#equipmentView .eq-section.is-collapsed .eq-section-body {
+  max-height: 0;
+}
+
+/* Equipment rows inside a section — strip the outer margin since
+   the section card already provides side margins. Bottom margin
+   inside the section gives the cards breathing room from each other
+   and from the section header / footer. */
+#equipmentView .eq-section .eq-rows {
+  padding: 6px 0 10px;
+}
+#equipmentView .eq-section .eq-rows .eq-row {
+  margin: 6px 10px !important;
+  width: calc(100% - 20px) !important;
+}
+
+/* ─── Sort mode picker — pills above the section list ───────────── */
+#equipmentView .eq-sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 0;
+  flex-wrap: wrap;
+}
+#equipmentView .eq-sort-bar-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--nx-faint);
+  margin-right: 4px;
+}
+#equipmentView .eq-sort-mode {
+  background: transparent;
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--nx-faint);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+#equipmentView .eq-sort-mode:hover {
+  color: var(--nx-text);
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line));
+}
+#equipmentView .eq-sort-mode.active {
+  background: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+  border-color: var(--nx-gold);
+  box-shadow: 0 0 0 1px var(--nx-gold), 0 0 14px rgba(212, 164, 78, 0.32);
+}
+[data-theme="light"] #equipmentView .eq-sort-mode.active {
+  color: var(--surface);
+}
+
+/* ─── Section picker modal (Move to section…) ──────────────────── */
+.eq-section-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 16px;
+  animation: nxFadeIn .15s ease;
+}
+@keyframes nxFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.eq-section-picker {
+  width: 100%;
+  max-width: 380px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+.eq-section-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--nx-gold-line);
+}
+.eq-section-picker-head h3 {
+  margin: 0;
+  font-family: 'Outfit', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--nx-text);
+}
+.eq-section-picker-close {
+  background: transparent;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--nx-faint);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.eq-section-picker-close:hover {
+  background: var(--nx-gold-faint);
+  color: var(--nx-text);
+}
+
+.eq-section-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.eq-section-picker-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  color: var(--nx-text);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .12s;
+}
+.eq-section-picker-item:hover {
+  background: var(--nx-gold-faint);
+}
+.eq-section-picker-item.is-current {
+  color: var(--nx-gold);
+}
+.eq-section-picker-item.is-new {
+  color: var(--nx-gold);
+  border-top: 1px solid var(--nx-gold-line);
+  margin-top: 6px;
+  padding-top: 14px;
+}
+.eq-section-picker-current {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--nx-faint);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    OBSOLETE GRID OVERRIDES — REMOVED
    ─────────────────────────────────────────────────────────────────────
    This block previously contained two media queries that forced
