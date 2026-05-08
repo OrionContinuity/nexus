@@ -1121,14 +1121,17 @@
     // {data: null, error: {...}} — so we check error explicitly. The
     // previous try/catch never fired and silently broke the page.
     let eq, eqErr;
-    const fullRes = await sb.from('equipment')
-      .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_phone, service_contractor_name, service_contractor_node_id')
-      .eq('qr_code', qr).single();
-    if (fullRes.error && /column.+does not exist/i.test(fullRes.error.message || '')) {
+    const FULL = 'id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_phone, service_contractor_name, service_contractor_node_id, repair_contractor_phone, repair_contractor_name, repair_contractor_node_id';
+    const NO_REPAIR = 'id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_phone, service_contractor_name, service_contractor_node_id';
+    const MINIMAL = 'id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code';
+    const fullRes = await sb.from('equipment').select(FULL).eq('qr_code', qr).single();
+    if (fullRes.error && /column.+repair_contractor.+does not exist/i.test(fullRes.error.message || '')) {
+      // Pre-migration: fall back to legacy columns only.
+      const r = await sb.from('equipment').select(NO_REPAIR).eq('qr_code', qr).single();
+      eq = r.data; eqErr = r.error;
+    } else if (fullRes.error && /column.+does not exist/i.test(fullRes.error.message || '')) {
       console.warn('[scan] full select failed (column missing), falling back to minimal select:', fullRes.error.message);
-      const minRes = await sb.from('equipment')
-        .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code')
-        .eq('qr_code', qr).single();
+      const minRes = await sb.from('equipment').select(MINIMAL).eq('qr_code', qr).single();
       eq = minRes.data; eqErr = minRes.error;
     } else {
       eq = fullRes.data; eqErr = fullRes.error;
@@ -1136,6 +1139,12 @@
     if (eqErr || !eq) throw new Error(eqErr?.message || 'Equipment not registered');
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+    // Choose which contractor to pull. The QR scan defaults to the
+    // REPAIR contractor (staff scan because something is broken). Fall
+    // back to the maintenance/service contractor only if no repair
+    // contractor is set on the equipment.
+    const preferredContractorNodeId = eq.repair_contractor_node_id || eq.service_contractor_node_id || null;
+    const usingRepair = !!eq.repair_contractor_node_id;
     const [ticketRes, maintRes, contractorRes] = await Promise.all([
       sb.from('tickets')
         .select('id, title, created_at, reported_by, priority, status')
@@ -1149,32 +1158,70 @@
         .eq('equipment_id', eq.id)
         .order('event_date', { ascending: false })
         .limit(4),
-      eq.service_contractor_node_id
+      preferredContractorNodeId
         ? sb.from('nodes').select('id, name, notes, tags, links')
-            .eq('id', eq.service_contractor_node_id).single()
+            .eq('id', preferredContractorNodeId).single()
         : Promise.resolve({ data: null }),
     ]);
 
     // Build contact object — also exposes specialty tags ("duties") so
     // the scan page can show what the contractor handles, and the
     // contractor name standalone so we render even without a phone.
+    // Resolution order matches preferredContractorNodeId above:
+    //   1. repair_contractor_phone (plain-text, repair side)
+    //   2. linked repair contractor node (multi-phone, multi-email)
+    //   3. service_contractor_phone (plain-text, maintenance fallback)
+    //   4. linked service contractor node (maintenance fallback)
     let contact = null;
-    if (eq.service_contractor_phone) {
+    const repairPhone  = eq.repair_contractor_phone  || '';
+    const repairName   = eq.repair_contractor_name   || '';
+    const servicePhone = eq.service_contractor_phone || '';
+    const serviceName  = eq.service_contractor_name  || '';
+
+    if (repairPhone) {
       contact = {
-        name: eq.service_contractor_name || 'Service',
-        phone: eq.service_contractor_phone,
-        phoneHref: telHref(eq.service_contractor_phone),
+        name: repairName || (usingRepair && contractorRes?.data?.name) || 'Repair',
+        phone: repairPhone,
+        phoneHref: telHref(repairPhone),
         tags: [],
       };
-      // If we also have the contractor node (because phone-on-eq was
-      // missing initially OR we always fetch when FK is set), augment
-      // the contact with tags.
-      if (contractorRes?.data) {
+      if (usingRepair && contractorRes?.data) {
         const node = contractorRes.data;
         contact.tags = Array.isArray(node.tags) ? node.tags.filter(Boolean) : [];
         contact.contractorId = node.id;
       }
-    } else if (contractorRes?.data) {
+    } else if (usingRepair && contractorRes?.data) {
+      const node = contractorRes.data;
+      const links = node.links || {};
+      let phone = links.phone || '';
+      if (!phone) {
+        const text = (node.notes || '') + ' ' + JSON.stringify(node.tags || []) + ' ' + (node.name || '');
+        const m = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+        if (m) phone = m[0].trim();
+      }
+      const tags = Array.isArray(node.tags) ? node.tags.filter(Boolean) : [];
+      if (phone || tags.length || node.name) {
+        contact = {
+          name: node.name || 'Repair',
+          phone,
+          phoneHref: phone ? telHref(phone) : '',
+          tags,
+          contractorId: node.id,
+        };
+      }
+    } else if (servicePhone) {
+      contact = {
+        name: serviceName || 'Service',
+        phone: servicePhone,
+        phoneHref: telHref(servicePhone),
+        tags: [],
+      };
+      if (!usingRepair && contractorRes?.data) {
+        const node = contractorRes.data;
+        contact.tags = Array.isArray(node.tags) ? node.tags.filter(Boolean) : [];
+        contact.contractorId = node.id;
+      }
+    } else if (!usingRepair && contractorRes?.data) {
       const node = contractorRes.data;
       const links = node.links || {};
       let phone = links.phone || '';
