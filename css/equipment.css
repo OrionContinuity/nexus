@@ -11862,90 +11862,117 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   padding: 0;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   EQUIPMENT — LIST ROW (mirrors .ord-vendor-row exactly)
+   ─────────────────────────────────────────────────────────────────────
+   Same padding, min-height, border-radius, surface, typography, and
+   spacing as the ordering vendor card. The only structural difference
+   is the meta row holds a beacon pill + sub-line (model · mfr · loc)
+   instead of ordering's status pill + preview text. Visual weight is
+   intentionally identical so the two modules feel like one app.
+   ═══════════════════════════════════════════════════════════════════════ */
+
 .eq-row {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 14px 14px 14px 14px;
-  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.04));
-  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.14));
-  border-radius: 12px;
+  width: calc(100% - 28px);
+  margin: 8px 14px;
+  padding: 20px 18px;
+  min-height: 88px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 18px;
+  text-align: left;
+  font-family: 'Outfit', system-ui, sans-serif;
+  color: var(--nx-text);
   cursor: pointer;
+  transition: border-color .15s, background .15s, transform .12s, box-shadow .15s;
   -webkit-tap-highlight-color: transparent;
-  transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
   position: relative;
 }
-.eq-row:hover,
-.eq-row:active {
-  background: var(--nx-gold-mist, rgba(212, 164, 78, 0.09));
-  border-color: var(--nx-gold-line, rgba(212, 164, 78, 0.28));
+.eq-row:hover {
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line));
+  background: var(--nx-gold-soft, var(--nx-gold-faint));
 }
-.eq-row:active { transform: scale(0.995); }
+.eq-row:active {
+  transform: scale(0.99);
+}
 
-/* Avatar — bigger (52px) so it carries equal weight to the multi-line
-   content stack on the right. Smaller avatars looked tiny next to a
-   3-row content column. */
+/* Avatar — same treatment as ordering's vendor avatar.
+   Default: colored letter on hue-driven background (set inline by JS
+   via --avatar-hue). Photo variant: circular background-image, image
+   fully clipped to the circle. No logo/icon variants in the row —
+   those live in the detail view where they have room to breathe. */
 .eq-row-avatar {
   flex-shrink: 0;
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
-  background: var(--nx-bg, #0c0905);
-  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  background: hsl(var(--avatar-hue, 35), 28%, 32%);
+  border: 1px solid hsl(var(--avatar-hue, 35), 35%, 50%);
+  color: #f5ecd6;
   overflow: hidden;
-  color: var(--nx-gold);
-  -webkit-tap-highlight-color: transparent;
+  align-self: center;
+  font-family: 'Outfit', sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  -webkit-user-select: none;
+  user-select: none;
   position: relative;
-  align-self: flex-start;
-  margin-top: 1px;
 }
-.eq-row-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+[data-theme="light"] .eq-row-avatar {
+  background: hsl(var(--avatar-hue, 35), 32%, 92%);
+  border-color: hsl(var(--avatar-hue, 35), 35%, 60%);
+  color: hsl(var(--avatar-hue, 35), 35%, 28%);
 }
-.eq-row-avatar.eq-row-avatar-logo,
-.eq-row-avatar.eq-row-avatar-icon {
-  font-size: 20px;
+
+/* Photo variant — image fills the circle as a background. The hue
+   colors don't apply because background-image overrides the gradient.
+   Border stays neutral so any photo's edge looks intentional. */
+.eq-row-avatar.eq-row-avatar-img {
+  background-color: var(--nx-surface-2);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-color: var(--nx-gold-line);
+  color: transparent;
+  font-size: 0;
 }
-.eq-row-avatar.eq-row-avatar-icon svg {
-  width: 26px;
-  height: 26px;
-  opacity: 0.85;
+[data-theme="light"] .eq-row-avatar.eq-row-avatar-img {
+  background-color: var(--nx-elevated);
+  border-color: var(--nx-gold-line);
 }
 .eq-row-avatar.photo-failed {
-  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.06));
+  background-image: none !important;
+  background-color: var(--nx-gold-faint);
 }
 
-/* Main column — three stacked rows: name+pm, sub, beacon. */
+/* Main column — name+date row + meta row (beacon + sub) */
 .eq-row-main {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
-/* Top: equipment name + PM date (right-aligned). */
 .eq-row-top {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: 10px;
   min-width: 0;
 }
 .eq-row-name {
   flex: 1;
   min-width: 0;
-  font-family: 'Outfit', system-ui, sans-serif;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
-  color: var(--nx-text, var(--text));
-  line-height: 1.25;
-  letter-spacing: -0.01em;
+  color: var(--nx-text);
+  letter-spacing: 0.1px;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -11955,70 +11982,63 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 11px;
   font-weight: 500;
-  color: var(--nx-faint, var(--faint));
+  color: var(--nx-faint);
   letter-spacing: 0.4px;
   text-transform: uppercase;
   font-variant-numeric: tabular-nums;
 }
-.eq-row-when.eq-row-when-empty {
-  color: var(--nx-faintest, rgba(255, 255, 255, 0.18));
-  font-weight: 400;
-}
-.eq-row-when.is-soon {
-  color: var(--nx-gold);
-}
-.eq-row-when.is-overdue {
-  color: #d35454;
-  font-weight: 600;
-}
+.eq-row-when.eq-row-when-empty { color: var(--nx-faintest); font-weight: 400; }
+.eq-row-when.is-soon    { color: var(--nx-gold); }
+.eq-row-when.is-overdue { color: #d35454; font-weight: 600; }
 
-/* Sub line — model · manufacturer · location, mono breadcrumb. */
+/* Meta row — beacon pill + sub line (model · mfr · location).
+   No overflow:hidden here — that was clipping the leading characters
+   of the OPERATIONAL beacon. Each child handles its own truncation. */
+.eq-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+.eq-row-meta .eq-lc-pill {
+  flex-shrink: 0;
+}
 .eq-row-sub {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11px;
-  color: var(--nx-faint, var(--faint));
-  letter-spacing: 0.3px;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 12.5px;
+  color: var(--nx-faint);
+  letter-spacing: 0.1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
 }
 
-/* Beacon row — pill on its own dedicated line at the bottom of the
-   content column. The gold glow now has the entire row width as
-   visual breathing room, so it doesn't bleed into the avatar or sub
-   text the way it did when sat inline. */
-.eq-row-beacon-line {
-  display: flex;
-  align-items: center;
-  margin-top: 2px;
-}
-.eq-row-beacon-line .eq-lc-pill {
-  flex-shrink: 0;
-}
-
-/* Chevron — muted gold, vertically centered with the row content. */
+/* Chevron — muted gold, vertically centered. */
 .eq-row-arrow {
   flex-shrink: 0;
   font-family: 'Outfit', system-ui, sans-serif;
   font-size: 22px;
   font-weight: 300;
-  color: var(--nx-faintest, rgba(212, 164, 78, 0.4));
+  color: var(--nx-faintest);
   line-height: 1;
   padding-right: 2px;
   user-select: none;
   align-self: center;
 }
 
-/* Bulk-selection mode adds a checkbox affordance — keep it positioned
-   absolutely so the row layout doesn't reflow when entering bulk mode. */
+/* Bulk-selection mode — checkbox affordance. Padding adjusts so the
+   row layout doesn't reflow when toggling bulk mode. */
 body.eq-bulk-mode .eq-row {
-  padding-left: 42px;
+  padding-left: 46px;
 }
 body.eq-bulk-mode .eq-row::before {
   content: '';
   position: absolute;
-  left: 14px;
+  left: 16px;
   top: 50%;
   transform: translateY(-50%);
   width: 18px;
@@ -12035,7 +12055,7 @@ body.eq-bulk-mode .eq-row.is-selected::before {
 body.eq-bulk-mode .eq-row.is-selected::after {
   content: '✓';
   position: absolute;
-  left: 17px;
+  left: 19px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--nx-bg);
@@ -12156,28 +12176,6 @@ body.eq-bulk-mode .eq-row.is-selected::after {
    The beacon sits INLINE with the sub now — possible because the
    sm-variant glow has been tightened to not bleed into adjacent text.
    ═══════════════════════════════════════════════════════════════════════ */
-
-.eq-row-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex-wrap: nowrap;
-  overflow: hidden;
-}
-
-.eq-row-meta .eq-lc-pill-sm {
-  flex-shrink: 0;
-}
-
-/* Sub line in the meta row — flex-1 so it takes remaining width and
-   ellipsis-truncates anything that doesn't fit. min-width: 0 is
-   essential for the truncation to work inside a flex container. */
-.eq-row-meta .eq-row-sub {
-  flex: 1;
-  min-width: 0;
-  display: block;
-}
 
 /* Tighten the small-variant beacon glow specifically. The lg/md
    beacons still get their full presence (used in detail headers).
