@@ -171,6 +171,106 @@ const ZEBRA_BP_URL = 'http://localhost:9100';
 let equipment = [];
 let activeFilter = { location: LOCATIONS[0], status: 'all', category: 'all', pm: 'all' };
 
+/* Sort + collapse state for the section-grouped list view.
+   sortMode  — one of 'custom' | 'name' | 'pm' | 'status'
+                 'custom' uses equipment.sort_order (drag-set / move-up /
+                          move-down). default for everyone.
+                 'name'   alphabetical by equipment name
+                 'pm'     soonest PM date first (nulls last)
+                 'status' down → needs_service → operational
+   collapsedSections  — Set of section names the user has collapsed for
+                        the current location. Persisted to localStorage
+                        per-location so the SUERTE view remembers its
+                        collapsed sections independently of ESTE.
+*/
+let sortMode = 'custom';
+let collapsedSections = new Set();
+const COLLAPSED_KEY_PREFIX = 'nexus.equipment.collapsed.';
+const SORT_KEY_PREFIX      = 'nexus.equipment.sort.';
+
+function _collapseKey() { return COLLAPSED_KEY_PREFIX + (activeFilter.location || 'all'); }
+function _sortKey()     { return SORT_KEY_PREFIX     + (activeFilter.location || 'all'); }
+
+function loadSectionState() {
+  try {
+    const raw = localStorage.getItem(_collapseKey());
+    collapsedSections = new Set(raw ? JSON.parse(raw) : []);
+  } catch (_) { collapsedSections = new Set(); }
+  try {
+    const sm = localStorage.getItem(_sortKey());
+    sortMode = (sm && ['custom','name','pm','status'].includes(sm)) ? sm : 'custom';
+  } catch (_) { sortMode = 'custom'; }
+}
+function saveCollapsedState() {
+  try { localStorage.setItem(_collapseKey(), JSON.stringify([...collapsedSections])); } catch (_) {}
+}
+function saveSortMode() {
+  try { localStorage.setItem(_sortKey(), sortMode); } catch (_) {}
+}
+
+/* Apply the current sortMode to a list of equipment rows.
+   Returns a NEW array — never mutates input. Custom mode uses the
+   numeric sort_order column (seeded 1000, 2000, 3000... by the
+   migration so move-up/move-down can insert between using midpoints). */
+function applySortMode(items) {
+  const arr = [...items];
+  const byName = (a, b) => (a.name || '').localeCompare(b.name || '');
+  switch (sortMode) {
+    case 'name':
+      arr.sort(byName);
+      break;
+    case 'pm': {
+      const FAR = '9999-12-31';
+      arr.sort((a, b) => (a.next_pm_date || FAR).localeCompare(b.next_pm_date || FAR) || byName(a, b));
+      break;
+    }
+    case 'status': {
+      const rank = { down: 0, needs_service: 1, operational: 2 };
+      arr.sort((a, b) => ((rank[a.status] ?? 9) - (rank[b.status] ?? 9)) || byName(a, b));
+      break;
+    }
+    case 'custom':
+    default:
+      arr.sort((a, b) => ((a.sort_order || 0) - (b.sort_order || 0)) || byName(a, b));
+      break;
+  }
+  return arr;
+}
+
+/* Group equipment rows by their .section field. Returns a Map of
+   sectionName → items[], plus an ordered list of section names for
+   stable rendering. Section order tracks the lowest sort_order in
+   each group so Custom sort drives section order naturally — drag a
+   piece of equipment to the top of the list and its section floats
+   up too. For non-Custom sort modes, sections appear in alphabetical
+   order with Uncategorized first. */
+function groupBySection(items) {
+  const groups = new Map();
+  for (const e of items) {
+    const sec = (e.section || '').trim();
+    if (!groups.has(sec)) groups.set(sec, []);
+    groups.get(sec).push(e);
+  }
+  let order;
+  if (sortMode === 'custom') {
+    // Section order = order of first item in each section (already sorted by sort_order)
+    order = [];
+    const seen = new Set();
+    for (const e of items) {
+      const sec = (e.section || '').trim();
+      if (!seen.has(sec)) { seen.add(sec); order.push(sec); }
+    }
+  } else {
+    // Sort modes other than custom — Uncategorized first, then alpha
+    order = [...groups.keys()].sort((a, b) => {
+      if (a === '' && b !== '') return -1;
+      if (b === '' && a !== '') return 1;
+      return a.localeCompare(b);
+    });
+  }
+  return { groups, order };
+}
+
 /* ════════════════════════════════════════════════════════════════════
    EQUIPMENT EVENT LOGGING
    ────────────────────────────────────────────────────────────────────
@@ -852,6 +952,206 @@ function buildUI() {
   renderStats();
 }
 
+/* ════════════════════════════════════════════════════════════════════
+   SECTION MANAGEMENT — rename + move equipment between sections
+   ────────────────────────────────────────────────────────────────────
+   Sections aren't rows in a separate table; they're a string field
+   on each equipment row. So "rename a section" = bulk-update every
+   equipment row in that section. "Move to section" = update one
+   row's .section. Sections naturally die when emptied (no row =
+   no section appears in the list).
+   ════════════════════════════════════════════════════════════════════ */
+
+async function promptRenameSection(oldSec) {
+  const oldLabel = oldSec || 'Uncategorized';
+  const next = prompt(`Rename section "${oldLabel}":`, oldSec || '');
+  if (next === null) return;                     // user cancelled
+  const trimmed = (next || '').trim();
+  if (trimmed === oldSec) return;                // unchanged
+
+  // Reject merging into an existing non-empty section in v1 — too
+  // easy to accidentally collapse two distinct groups together.
+  // The user has to first move items out, then rename. Empty/nonexistent
+  // target sections are fine (regular rename).
+  const targetExists = equipment.some(e =>
+    (e.location === activeFilter.location || activeFilter.location === 'all') &&
+    (e.section || '') === trimmed && trimmed !== oldSec
+  );
+  if (targetExists) {
+    if (NX.toast) NX.toast(`A section called "${trimmed}" already exists. Move items there manually if you meant to merge.`, 'warn', 3000);
+    return;
+  }
+
+  try {
+    // Bulk-update every equipment row in the old section at this location.
+    // Scoped to the active location so renaming "Hot Line" at Suerte
+    // doesn't accidentally rename "Hot Line" at Este.
+    const locFilter = activeFilter.location && activeFilter.location !== 'all'
+      ? { location: activeFilter.location } : {};
+    let q = NX.sb.from('equipment').update({ section: trimmed }).eq('section', oldSec);
+    if (locFilter.location) q = q.eq('location', locFilter.location);
+    const { error } = await q;
+    if (error) throw error;
+
+    // Update local cache. Carry over collapsed state to the new name.
+    for (const e of equipment) {
+      if ((!locFilter.location || e.location === locFilter.location) && (e.section || '') === oldSec) {
+        e.section = trimmed;
+      }
+    }
+    if (collapsedSections.has(oldSec)) {
+      collapsedSections.delete(oldSec);
+      if (trimmed) collapsedSections.add(trimmed);
+      saveCollapsedState();
+    }
+    renderList();
+    if (NX.toast) NX.toast(`Renamed to "${trimmed || 'Uncategorized'}"`, 'info', 1400);
+  } catch (e) {
+    console.error('[equipment] rename section:', e);
+    if (NX.toast) NX.toast('Failed to rename section', 'error');
+  }
+}
+
+/* Move a single equipment row to a different section.
+   Picks the largest sort_order in the target section and adds 1000
+   so the moved item lands at the bottom. If no items in target, uses
+   1000 as the baseline. */
+async function moveEquipmentToSection(equipId, newSec) {
+  const e = equipment.find(x => x.id === equipId);
+  if (!e) return;
+  const trimmed = (newSec || '').trim();
+  if ((e.section || '') === trimmed) return;       // already there
+
+  // Compute new sort_order = max + 1000 in target section
+  const inTarget = equipment.filter(x =>
+    x.location === e.location && (x.section || '') === trimmed
+  );
+  const maxSort = inTarget.reduce((m, x) => Math.max(m, x.sort_order || 0), 0);
+  const newSort = maxSort + 1000;
+
+  try {
+    const { error } = await NX.sb.from('equipment')
+      .update({ section: trimmed, sort_order: newSort })
+      .eq('id', equipId);
+    if (error) throw error;
+    e.section = trimmed;
+    e.sort_order = newSort;
+    renderList();
+    if (NX.toast) NX.toast(`Moved to "${trimmed || 'Uncategorized'}"`, 'info', 1200);
+  } catch (err) {
+    console.error('[equipment] move to section:', err);
+    if (NX.toast) NX.toast('Failed to move', 'error');
+  }
+}
+
+/* Picker dialog — list of existing sections + "New section..." option.
+   Resolves with chosen section name or null if cancelled. */
+function pickSection(currentSec, locationScope) {
+  return new Promise(resolve => {
+    // Collect distinct sections at this location
+    const all = equipment
+      .filter(e => !locationScope || e.location === locationScope)
+      .map(e => (e.section || '').trim());
+    const distinct = [...new Set(all)].sort((a, b) => {
+      if (a === '' && b !== '') return -1;
+      if (b === '' && a !== '') return 1;
+      return a.localeCompare(b);
+    });
+
+    const overlay = document.createElement('div');
+    overlay.className = 'eq-section-picker-backdrop';
+    overlay.innerHTML = `
+      <div class="eq-section-picker" role="dialog" aria-label="Move to section">
+        <div class="eq-section-picker-head">
+          <h3>Move to section</h3>
+          <button class="eq-section-picker-close" type="button" aria-label="Cancel">×</button>
+        </div>
+        <ul class="eq-section-picker-list">
+          ${distinct.map(s => `
+            <li>
+              <button type="button" class="eq-section-picker-item${s === currentSec ? ' is-current' : ''}" data-section="${esc(s)}">
+                ${esc(s || 'Uncategorized')}
+                ${s === currentSec ? '<span class="eq-section-picker-current">current</span>' : ''}
+              </button>
+            </li>
+          `).join('')}
+          <li>
+            <button type="button" class="eq-section-picker-item is-new" data-action="new">
+              + New section...
+            </button>
+          </li>
+        </ul>
+      </div>`;
+
+    const cleanup = (val) => {
+      overlay.remove();
+      document.removeEventListener('keydown', escHandler);
+      resolve(val);
+    };
+    const escHandler = (e) => { if (e.key === 'Escape') cleanup(null); };
+    document.addEventListener('keydown', escHandler);
+
+    overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(null); });
+    overlay.querySelector('.eq-section-picker-close').addEventListener('click', () => cleanup(null));
+    overlay.querySelectorAll('.eq-section-picker-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.action === 'new') {
+          const name = prompt('New section name:');
+          if (name === null) { cleanup(null); return; }
+          const trimmed = (name || '').trim();
+          if (!trimmed) { cleanup(null); return; }
+          cleanup(trimmed);
+        } else {
+          cleanup(btn.dataset.section || '');
+        }
+      });
+    });
+
+    document.body.appendChild(overlay);
+  });
+}
+
+/* Move an equipment row up or down within its current section by
+   swapping sort_order with the adjacent sibling. */
+async function moveEquipmentInSection(equipId, direction) {
+  const e = equipment.find(x => x.id === equipId);
+  if (!e) return;
+  const sec = e.section || '';
+
+  // Get all items in this section at this location, in current Custom order
+  const siblings = equipment
+    .filter(x => x.location === e.location && (x.section || '') === sec)
+    .sort((a, b) => ((a.sort_order || 0) - (b.sort_order || 0)) || (a.name || '').localeCompare(b.name || ''));
+
+  const idx = siblings.findIndex(x => x.id === equipId);
+  if (idx === -1) return;
+  const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (targetIdx < 0 || targetIdx >= siblings.length) return;   // already at edge
+
+  const target = siblings[targetIdx];
+  const aSort = e.sort_order || 0;
+  const bSort = target.sort_order || 0;
+
+  try {
+    const [{ error: e1 }, { error: e2 }] = await Promise.all([
+      NX.sb.from('equipment').update({ sort_order: bSort }).eq('id', e.id),
+      NX.sb.from('equipment').update({ sort_order: aSort }).eq('id', target.id),
+    ]);
+    if (e1 || e2) throw (e1 || e2);
+    e.sort_order = bSort;
+    target.sort_order = aSort;
+    // Force Custom mode so the user can SEE their reorder take effect
+    if (sortMode !== 'custom') {
+      sortMode = 'custom';
+      saveSortMode();
+    }
+    renderList();
+  } catch (err) {
+    console.error('[equipment] move in section:', err);
+    if (NX.toast) NX.toast('Failed to reorder', 'error');
+  }
+}
+
 function renderStats() {
   const el = document.getElementById('eqStats');
   if (!el) return;
@@ -902,6 +1202,7 @@ function getFiltered() {
 function renderList() {
   const list = document.getElementById('eqList');
   if (!list) return;
+  loadSectionState();          // re-load per-location prefs each render
   const filtered = getFiltered();
   renderStats();
 
@@ -922,13 +1223,108 @@ function renderList() {
   if (viewMode === 'grid') {
     list.innerHTML = filtered.map(e => buildGridCard(e)).join('');
   } else {
-    // Card-list layout: each equipment is its own card with breathing
-    // room and visual containment. Mirrors the ordering vendor card
-    // pattern so the whole app feels visually consistent.
-    list.innerHTML = `
-      <div class="eq-rows">
-        ${filtered.map(e => buildListRow(e)).join('')}
+    // Sort, then group by section. Each section renders as a
+    // collapsible card holder — header (name + count + collapse +
+    // rename) on top, equipment cards inside. Sections themselves
+    // are NEVER deletable; they vanish only when every equipment
+    // row in them is moved elsewhere.
+    const sorted = applySortMode(filtered);
+    const { groups, order } = groupBySection(sorted);
+
+    // Sort mode picker — small pill bar above the list. Custom is
+    // default. Other modes don't change the section grouping, just
+    // the order of equipment cards within each section.
+    const SORT_MODES = [
+      { key: 'custom', label: 'Custom' },
+      { key: 'name',   label: 'Name'   },
+      { key: 'pm',     label: 'PM Date' },
+      { key: 'status', label: 'Status' },
+    ];
+    const sortPickerHTML = `
+      <div class="eq-sort-bar" role="tablist" aria-label="Sort equipment">
+        <span class="eq-sort-bar-label">Sort:</span>
+        ${SORT_MODES.map(m => `
+          <button class="eq-sort-mode${sortMode === m.key ? ' active' : ''}" data-sort="${m.key}" role="tab" aria-selected="${sortMode === m.key ? 'true' : 'false'}">${m.label}</button>
+        `).join('')}
       </div>`;
+
+    list.innerHTML = sortPickerHTML + order.map(sec => {
+      const secItems = groups.get(sec) || [];
+      const isCollapsed = collapsedSections.has(sec);
+      const safeSec = esc(sec);
+      // Note: NO delete button — sections die only when emptied via
+      // moving their equipment elsewhere. Rename is the only edit
+      // verb on a section header. Collapse persists per-location.
+      return `
+        <section class="eq-section${isCollapsed ? ' is-collapsed' : ''}" data-section="${safeSec}">
+          <header class="eq-section-head" data-section="${safeSec}">
+            <span class="eq-section-name" data-section="${safeSec}" role="button" tabindex="0" aria-label="Rename section ${safeSec || 'Uncategorized'}">${esc(sec || 'Uncategorized')}</span>
+            <span class="eq-section-count" aria-label="${secItems.length} item${secItems.length === 1 ? '' : 's'}">${secItems.length}</span>
+            <button type="button" class="eq-section-rename" data-section="${safeSec}" aria-label="Rename section">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
+            <button type="button" class="eq-section-collapse" data-section="${safeSec}" aria-expanded="${!isCollapsed}" aria-label="${isCollapsed ? 'Expand' : 'Collapse'} section">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </header>
+          <div class="eq-section-body">
+            <div class="eq-rows">
+              ${secItems.map(e => buildListRow(e)).join('')}
+            </div>
+          </div>
+        </section>
+      `;
+    }).join('');
+
+    // Wire sort mode picker
+    list.querySelectorAll('.eq-sort-mode').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = btn.dataset.sort;
+        if (next === sortMode) return;
+        sortMode = next;
+        saveSortMode();
+        renderList();
+      });
+    });
+
+    // Wire collapse toggles. Tap on the chevron OR anywhere on the
+    // header (except the rename name span / rename button) toggles.
+    list.querySelectorAll('.eq-section-collapse').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const sec = btn.dataset.section || '';
+        if (collapsedSections.has(sec)) collapsedSections.delete(sec);
+        else collapsedSections.add(sec);
+        saveCollapsedState();
+        renderList();
+      });
+    });
+    list.querySelectorAll('.eq-section-head').forEach(head => {
+      head.addEventListener('click', e => {
+        if (e.target.closest('.eq-section-name, .eq-section-rename, .eq-section-collapse')) return;
+        const sec = head.dataset.section || '';
+        if (collapsedSections.has(sec)) collapsedSections.delete(sec);
+        else collapsedSections.add(sec);
+        saveCollapsedState();
+        renderList();
+      });
+    });
+
+    // Wire rename — pencil button or tap on section name. Opens a
+    // prompt for the new name; bulk-updates equipment.section in DB.
+    const startRename = (oldSec) => promptRenameSection(oldSec);
+    list.querySelectorAll('.eq-section-rename').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        startRename(btn.dataset.section || '');
+      });
+    });
+    list.querySelectorAll('.eq-section-name').forEach(span => {
+      span.addEventListener('click', e => {
+        e.stopPropagation();
+        startRename(span.dataset.section || '');
+      });
+    });
   }
 
   // "View all activity →" — entry point to the global Equipment
@@ -13344,6 +13740,24 @@ function openEquipmentActionsDial(equipId) {
       iconSvg: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
     },
     {
+      key: 'move-to-section',
+      label: 'Move to section',
+      sub:   'Reassign to a section group',
+      iconSvg: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18"/><path d="M3 12h12"/><path d="M3 17h6"/><path d="M16 14l4 4-4 4"/></svg>',
+    },
+    {
+      key: 'move-up',
+      label: 'Move up',
+      sub:   'Reorder within section',
+      iconSvg: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>',
+    },
+    {
+      key: 'move-down',
+      label: 'Move down',
+      sub:   'Reorder within section',
+      iconSvg: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>',
+    },
+    {
       key: 'report-issue',
       label: 'Report issue',
       sub:   'Open issue tracker',
@@ -13441,6 +13855,16 @@ async function handleEquipmentDialAction(action, eq) {
       }
       break;
     }
+    case 'move-to-section': {
+      // Open the section picker, then reassign on selection
+      const target = await pickSection(eq.section || '', eq.location);
+      if (target !== null) {
+        await moveEquipmentToSection(eq.id, target);
+      }
+      break;
+    }
+    case 'move-up':   await moveEquipmentInSection(eq.id, 'up');   break;
+    case 'move-down': await moveEquipmentInSection(eq.id, 'down'); break;
     case 'report-issue': {
       if (typeof openIssueTracker === 'function') {
         openIssueTracker(eq.id);
@@ -14778,6 +15202,12 @@ NX.modules.equipment = {
   closeParts,
   loadPartsList,
   markPartReplaced,
+
+  // Section management — collapse, rename, move equipment
+  promptRenameSection,
+  moveEquipmentToSection,
+  moveEquipmentInSection,
+  pickSection,
 };
 
 console.log('[Equipment] unified module loaded — ' + Object.keys(NX.modules.equipment).length + ' exports');
