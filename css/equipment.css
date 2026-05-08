@@ -11210,58 +11210,24 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
    long or short the location text is.
    ═══════════════════════════════════════════════════════════════════════ */
 
-@media (max-width: 600px) {
-  #equipmentView .eq-list .eq-row {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) minmax(0, auto) 36px !important;
-    grid-template-areas: "name loc beacon" !important;
-    align-items: center !important;
-    column-gap: 12px !important;
-  }
-  #equipmentView .eq-list .eq-row > .eq-col-name   { grid-area: name; min-width: 0; }
-  #equipmentView .eq-list .eq-row > .eq-col-loc {
-    grid-area: loc;
-    text-align: right;
-    max-width: 33vw;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-size: 11.5px;
-    color: var(--nx-faint, var(--faint));
-    padding: 0 !important;
-  }
-  #equipmentView .eq-list .eq-row > .eq-col-status {
-    grid-area: beacon;
-    width: 36px;
-    height: 100%;
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    padding: 0 !important;
-  }
-  #equipmentView .eq-list .eq-row > .eq-col-pm,
-  #equipmentView .eq-list .eq-row > .eq-col-services { display: none !important; }
-  /* The list head row uses the same layout — keep header labels lined up */
-  #equipmentView .eq-list .eq-row.eq-row-head > .eq-col-status { display: none !important; }
-}
+/* ═══════════════════════════════════════════════════════════════════════
+   OBSOLETE GRID OVERRIDES — REMOVED
+   ─────────────────────────────────────────────────────────────────────
+   This block previously contained two media queries that forced
+   `display: grid !important` with grid-template-areas designed for
+   the old .eq-col-name / .eq-col-loc / .eq-col-status row structure.
+   The row HTML was rewritten to use .eq-row-avatar / .eq-row-main /
+   .eq-row-arrow (mirrors ordering's vendor row exactly), and the old
+   grid-template-areas didn't match the new class names. Result: the
+   avatar collapsed into a 0px column and the main content rendered
+   on top of it — that's why names appeared visually clipped on the
+   left ("om Rational Oven" instead of "Bottom Rational Oven").
 
-/* Desktop layout — restore the multi-column grid (otherwise the !important
-   flex would still apply on wider screens). */
-@media (min-width: 601px) {
-  #equipmentView .eq-list .eq-row {
-    display: grid !important;
-    grid-template-columns: 2.4fr 1.2fr 1fr 0.9fr 0.5fr !important;
-    grid-template-areas: "name loc beacon pm services" !important;
-    align-items: center !important;
-    gap: 14px !important;
-  }
-  #equipmentView .eq-list .eq-row > .eq-col-name     { grid-area: name; min-width: 0; }
-  #equipmentView .eq-list .eq-row > .eq-col-loc      { grid-area: loc; }
-  #equipmentView .eq-list .eq-row > .eq-col-status   { grid-area: beacon; }
-  #equipmentView .eq-list .eq-row > .eq-col-pm       { grid-area: pm; }
-  #equipmentView .eq-list .eq-row > .eq-col-services { grid-area: services; }
-}
+   The new layout uses plain flex (set by equipment-system.css's
+   `#equipmentView .eq-row { display: flex !important; ... }` at line
+   ~366) with child rules at line 11875+ in this file handling the
+   typography and spacing. No grid override needed.
+   ═══════════════════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════════════════
    PARTS LIBRARY PICKER + INLINE SOURCES LIST
@@ -11872,6 +11838,45 @@ body.eq-bulk-mode [data-eq-id].is-selected::after {
    intentionally identical so the two modules feel like one app.
    ═══════════════════════════════════════════════════════════════════════ */
 
+/* Higher specificity (#equipmentView .eq-list .eq-row) so this rule wins
+   against the more general #equipmentView .eq-row override in
+   equipment-system.css. !important on the key sizing properties matches
+   equipment-system.css's pattern so neither rule can stomp the other
+   into a half-applied state. */
+#equipmentView .eq-list .eq-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 14px !important;
+  width: calc(100% - 28px) !important;
+  margin: 8px 14px !important;
+  padding: 20px 18px !important;
+  min-height: 88px !important;
+  background: var(--nx-surface-1) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: 18px !important;
+  text-align: left;
+  font-family: 'Outfit', system-ui, sans-serif;
+  color: var(--nx-text);
+  cursor: pointer;
+  transition: border-color .15s, background .15s, transform .12s, box-shadow .15s;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+  /* Reset any grid-* properties that might have been set by older rules
+     so the flex layout above has no inherited grid leftovers. */
+  grid-template-columns: none !important;
+  grid-template-areas: none !important;
+}
+#equipmentView .eq-list .eq-row:hover {
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line)) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
+}
+#equipmentView .eq-list .eq-row:active {
+  transform: scale(0.99);
+}
+
+/* Legacy alias — unscoped .eq-row keeps a basic flex setup so any row
+   rendered outside #equipmentView (modals, previews) still looks
+   reasonable without depending on the scoped rule above. */
 .eq-row {
   display: flex;
   align-items: center;
