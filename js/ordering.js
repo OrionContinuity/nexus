@@ -2929,7 +2929,40 @@ Thanks for your help sorting this out.`;
       ]);
       entryState.catalog       = catalog;
       entryState.par_overrides = pars;
+
+      // ─── Par autofill ────────────────────────────────────────────
+      // Pre-populate qty for every item whose par hint resolves to a
+      // positive number for this delivery date + location. This is the
+      // "fresh new order" path — existing drafts already routed through
+      // openExistingOrder above, so we know lines is empty and the user
+      // has not made any explicit choices yet. The autofill reflects
+      // each item's configured par, with day-of-week overrides honored
+      // (parHintFor handles that). The chef can edit any qty before
+      // sending; a 0 means "don't order" and stays a 0 even if a par
+      // would otherwise fill it.
+      let autofilled = 0;
+      for (const item of catalog) {
+        const hint = parHintFor(item, entryState.delivery_date, entryState.location);
+        if (hint.disabled) continue;
+        if (hint.qty == null || hint.qty <= 0) continue;
+        entryState.lines[item.id] = {
+          qty:        hint.qty,
+          unit:       item.unit || 'ea',
+          item_name:  item.item_name,
+          house_name: item.house_name || null,
+          vendor_sku: item.vendor_sku,
+          note:       item.note,
+        };
+        autofilled++;
+      }
       renderEntryItems();
+      // Persist the prefilled draft so a tab close/reopen or device
+      // crash doesn't lose the chef's work — they expect the autofill
+      // to behave like a saved starting point, not a one-shot view.
+      if (autofilled > 0) {
+        scheduleDraftSave();
+        if (NX.toast) NX.toast(`Pre-filled ${autofilled} ${autofilled === 1 ? 'item' : 'items'} from pars — review and edit before sending`, 'info', 2600);
+      }
     } catch (e) {
       console.error('[ordering] openVendor:', e);
       if (NX.toast) NX.toast('Failed to load vendor catalog', 'error');
