@@ -12070,3 +12070,124 @@ body.eq-bulk-mode .eq-row.is-selected::after {
 .eq-overflow-item.eq-overflow-item-primary svg {
   color: var(--nx-gold);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EQUIPMENT — LOCATION PROFILE PICKER
+   ─────────────────────────────────────────────────────────────────────
+   Three-pill profile selector matching the ordering module's pattern.
+   Tapping a pill switches the entire equipment view to that
+   restaurant. Big tap targets, gold-glow active state. Visually
+   identical to .ord-loc-picker so the two modules feel like one app.
+   Replaces the older .eq-location-bar / .eq-loc-chip system which
+   used count-badge chips (kept in CSS as legacy but unused here).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.eq-loc-picker {
+  display: flex;
+  gap: 4px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  padding: 4px;
+  margin: 4px auto 12px;
+  width: max-content;
+  max-width: 100%;
+}
+
+.eq-loc-btn {
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 9px 18px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nx-faint);
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.eq-loc-btn:hover {
+  color: var(--nx-text);
+}
+
+.eq-loc-btn.active {
+  background: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+  box-shadow: 0 0 0 1px var(--nx-gold), 0 0 14px rgba(212, 164, 78, 0.32);
+}
+
+[data-theme="light"] .eq-loc-btn.active {
+  color: var(--surface);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EQUIPMENT LIST ROW — 2-row layout (rebuild)
+   ─────────────────────────────────────────────────────────────────────
+   Replaces the older 3-row stack (name+date / sub / beacon-on-own-line)
+   with a tighter 2-row version that mirrors the ordering vendor card:
+   - Top row: name (flex-1) + PM date (right)
+   - Bottom row: beacon (left) + sub line (flex-1, right)
+
+   The beacon sits INLINE with the sub now — possible because the
+   sm-variant glow has been tightened to not bleed into adjacent text.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.eq-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.eq-row-meta .eq-lc-pill-sm {
+  flex-shrink: 0;
+}
+
+/* Sub line in the meta row — flex-1 so it takes remaining width and
+   ellipsis-truncates anything that doesn't fit. min-width: 0 is
+   essential for the truncation to work inside a flex container. */
+.eq-row-meta .eq-row-sub {
+  flex: 1;
+  min-width: 0;
+  display: block;
+}
+
+/* Tighten the small-variant beacon glow specifically. The lg/md
+   beacons still get their full presence (used in detail headers).
+   The sm beacon is for inline use in list rows where a wide glow
+   would visually bleed into adjacent text. */
+.eq-lc-pill-sm.is-operational {
+  box-shadow:
+    0 0 0 1px rgba(212, 164, 78, 0.25),
+    0 0 6px rgba(212, 164, 78, 0.32) !important;
+  animation: eq-lc-glow-sm 3.6s ease-in-out infinite !important;
+}
+
+@keyframes eq-lc-glow-sm {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(212, 164, 78, 0.22),
+      0 0 5px rgba(212, 164, 78, 0.28);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(212, 164, 78, 0.32),
+      0 0 9px rgba(212, 164, 78, 0.45);
+  }
+}
+
+/* The 3-row layout's beacon-line is no longer used. Hidden if rendered
+   by any cached/legacy JS path so it doesn't take space. */
+.eq-row-beacon-line { display: none; }
+
+/* Vertically center the avatar with the now-2-row content stack —
+   override the older align-self:flex-start that was tuned for 3 rows. */
+.eq-row-avatar {
+  align-self: center;
+  margin-top: 0;
+}
