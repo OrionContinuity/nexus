@@ -918,7 +918,17 @@
       ${headerHTML}
       ${rowsHTML}
       ${controlsHTML}
+      <button class="ord-recent-tx-link" id="ordRecentTxLink" type="button" aria-label="View all transactions">
+        <span>View all transactions</span>
+        <span class="ord-recent-tx-link-arrow" aria-hidden="true">→</span>
+      </button>
     `;
+
+    // Wire the transactions link
+    const txLink = el.querySelector('#ordRecentTxLink');
+    if (txLink) {
+      txLink.addEventListener('click', () => openTransactionsView());
+    }
 
     wireRecentControls(el, vendorMap, totalPages);
     // Pulse follows every state change Recent reflects
@@ -7561,11 +7571,356 @@ Thanks for your help sorting this out.`;
     renderVendors();
   }
 
+  /* ════════════════════════════════════════════════════════════════════
+     TRANSACTIONS — full-history subscreen of Duties
+     ────────────────────────────────────────────────────────────────────
+     The home pulse shows a slice of recent orders for quick scanning.
+     This view is the canonical history: every order at the active
+     location, filterable by status (including archived), searchable,
+     paginated. The shape becomes the template for cleaning's history
+     view — same pill component, same time-grouping, same row pattern,
+     just different status keys + label text per module.
+     ════════════════════════════════════════════════════════════════════ */
+
+  const TX_PAGE_SIZE = 50;
+  const TX_STATUS_PILLS = [
+    { id: 'all',       label: 'All' },
+    { id: 'draft',     label: 'Drafts' },
+    { id: 'sent',      label: 'Sent' },
+    { id: 'confirmed', label: 'Confirmed' },
+    { id: 'delivered', label: 'Delivered' },
+    { id: 'closed',    label: 'Closed' },
+    { id: 'archived',  label: 'Archived' },
+  ];
+
+  let txState = {
+    status: 'all',
+    search: '',
+    orders: [],
+    counts: {},
+    loading: false,
+    hasMore: true,
+  };
+
+  /* Local fmtRel — same shape as the one in renderRecent's closure.
+     Duplicated rather than extracted because that function is well-
+     tested in the home pulse and I don't want to touch its scope. */
+  function txFmtRel(ts) {
+    if (!ts) return '';
+    const d = new Date(ts), now = new Date();
+    const diffMs = now - d;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1)  return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const sameDay = d.toDateString() === now.toDateString();
+    if (sameDay) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return 'yesterday';
+    const diffDays = Math.floor(diffHr / 24);
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
+  async function openTransactionsView() {
+    closeTransactionsView();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'ord-tx-overlay';
+    overlay.id = 'ordTxOverlay';
+    overlay.innerHTML = renderTxShell();
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => overlay.classList.add('is-open'));
+
+    txState = { status: 'all', search: '', orders: [], counts: {}, loading: false, hasMore: true };
+    wireTxOverlay(overlay);
+
+    setTxLoading(overlay, true);
+    await Promise.all([
+      loadTxCounts(),
+      loadTxPage(false),
+    ]);
+    setTxLoading(overlay, false);
+
+    renderTxPills(overlay);
+    renderTxList(overlay);
+  }
+
+  function closeTransactionsView() {
+    const overlay = document.getElementById('ordTxOverlay');
+    if (overlay) {
+      overlay.classList.remove('is-open');
+      setTimeout(() => overlay.remove(), 220);
+    }
+  }
+
+  function renderTxShell() {
+    const locLabel = (LOCS.find(l => l.id === activeLoc) || {}).label || activeLoc;
+    return `
+      <div class="ord-tx-backdrop"></div>
+      <div class="ord-tx-sheet">
+        <header class="ord-tx-header">
+          <button class="ord-tx-back" aria-label="Back" data-tx-action="back">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <div class="ord-tx-title-wrap">
+            <h2 class="ord-tx-title">Transactions</h2>
+            <span class="ord-tx-loc-label">${esc(locLabel)}</span>
+          </div>
+        </header>
+        <div class="ord-tx-pills" id="ordTxPills"></div>
+        <div class="ord-tx-search-wrap">
+          <input type="search" class="ord-tx-search" id="ordTxSearch" placeholder="Search order #, vendor…" autocomplete="off" spellcheck="false" inputmode="search">
+        </div>
+        <div class="ord-tx-list" id="ordTxList">
+          <div class="ord-tx-loading">Loading transactions…</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function setTxLoading(overlay, isLoading) {
+    txState.loading = isLoading;
+    const list = overlay.querySelector('#ordTxList');
+    if (list) list.classList.toggle('is-loading', isLoading);
+  }
+
+  /* Run 7 head-only count queries in parallel. Each is cheap (Postgres
+     does count(*) on an indexed column with a small filter set). On
+     mobile this typically lands in 200-400ms total. */
+  async function loadTxCounts() {
+    if (!NX.sb) return;
+    const base = () => NX.sb.from('orders').select('id', { count: 'exact', head: true }).eq('location', activeLoc);
+    try {
+      const [all, draft, sent, confirmed, delivered, closed, archived] = await Promise.all([
+        base().is('archived_at', null),
+        base().is('archived_at', null).eq('status', 'draft'),
+        base().is('archived_at', null).eq('status', 'sent'),
+        base().is('archived_at', null).eq('status', 'confirmed'),
+        base().is('archived_at', null).eq('status', 'delivered'),
+        base().is('archived_at', null).eq('status', 'closed'),
+        base().not('archived_at', 'is', null),
+      ]);
+      txState.counts = {
+        all: all.count || 0,
+        draft: draft.count || 0,
+        sent: sent.count || 0,
+        confirmed: confirmed.count || 0,
+        delivered: delivered.count || 0,
+        closed: closed.count || 0,
+        archived: archived.count || 0,
+      };
+    } catch (e) {
+      console.error('[ordering] loadTxCounts:', e);
+    }
+  }
+
+  /* Cursor-paginate by updated_at desc. Each call returns up to
+     TX_PAGE_SIZE rows; if exactly that many, hasMore stays true and
+     subsequent calls add `.lt(updated_at, lastSeen)` to skip already-
+     loaded rows. Filter the status server-side so the page is dense. */
+  async function loadTxPage(append) {
+    if (!NX.sb) return;
+    let q = NX.sb.from('orders')
+      .select('id, vendor_id, location, delivery_date, status, email_sent_at, created_at, updated_at, created_by_name, sent_by_name, confirmed_at, delivered_at, closed_at, issue_at, issue_note, archived_at')
+      .eq('location', activeLoc)
+      .order('updated_at', { ascending: false })
+      .limit(TX_PAGE_SIZE);
+
+    if (txState.status === 'archived') {
+      q = q.not('archived_at', 'is', null);
+    } else {
+      q = q.is('archived_at', null);
+      if (txState.status !== 'all') q = q.eq('status', txState.status);
+    }
+
+    if (append && txState.orders.length) {
+      const last = txState.orders[txState.orders.length - 1];
+      if (last.updated_at) q = q.lt('updated_at', last.updated_at);
+    }
+
+    try {
+      const { data, error } = await q;
+      if (error) throw error;
+      const rows = data || [];
+      txState.orders = append ? [...txState.orders, ...rows] : rows;
+      txState.hasMore = rows.length === TX_PAGE_SIZE;
+    } catch (e) {
+      console.error('[ordering] loadTxPage:', e);
+    }
+  }
+
+  function renderTxPills(overlay) {
+    const el = overlay.querySelector('#ordTxPills');
+    if (!el) return;
+    el.innerHTML = TX_STATUS_PILLS.map(p => {
+      const count = txState.counts[p.id] != null ? txState.counts[p.id] : '';
+      const active = txState.status === p.id;
+      return `
+        <button class="ord-tx-pill${active ? ' active' : ''}" data-tx-status="${esc(p.id)}">
+          <span>${esc(p.label)}</span>
+          ${count !== '' ? `<span class="ord-tx-pill-count">${count}</span>` : ''}
+        </button>
+      `;
+    }).join('');
+  }
+
+  function renderTxList(overlay) {
+    const el = overlay.querySelector('#ordTxList');
+    if (!el) return;
+
+    // Search filter applied to loaded orders only. If the user wants
+    // historic orders that aren't loaded, they need to load more first.
+    // Could add server-side search later if it becomes a real ergonomic
+    // problem, but for now client-side is fine for the page-by-page UX.
+    const search = (txState.search || '').toLowerCase().trim();
+    const filtered = !search ? txState.orders : txState.orders.filter(o => {
+      const v = vendors.find(x => x.id === o.vendor_id);
+      const vendorName = (v ? v.name : '').toLowerCase();
+      const id = (o.id || '').toLowerCase();
+      const shortId = id.slice(-8);
+      return vendorName.includes(search) || id.includes(search) || shortId.includes(search);
+    });
+
+    if (!filtered.length && !txState.loading) {
+      el.innerHTML = `<div class="ord-tx-empty">${search ? 'No orders match your search.' : 'No orders to show.'}</div>`;
+      return;
+    }
+
+    // Time buckets — extended for the longer history view (months go
+    // out as their own buckets so 6 months back you scroll past
+    // FEBRUARY 2025, JANUARY 2025, etc.).
+    const bucketOf = ts => {
+      if (!ts) return 'older';
+      const d = new Date(ts), now = new Date();
+      if (d.toDateString() === now.toDateString()) return 'today';
+      const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+      if (d.toDateString() === yesterday.toDateString()) return 'yesterday';
+      const diff = (now - d) / 86400000;
+      if (diff < 7)  return 'thisweek';
+      if (diff < 30) return 'thismonth';
+      const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+      return `month:${d.getFullYear()}-${mon}`;
+    };
+    const bucketLabel = b => {
+      if (b === 'today') return 'TODAY';
+      if (b === 'yesterday') return 'YESTERDAY';
+      if (b === 'thisweek') return 'EARLIER THIS WEEK';
+      if (b === 'thismonth') return 'EARLIER THIS MONTH';
+      if (b.startsWith('month:')) {
+        const [, ym] = b.split(':');
+        const [year, mon] = ym.split('-');
+        return `${mon.toUpperCase()} ${year}`;
+      }
+      return 'OLDER';
+    };
+
+    let lastBucket = null;
+    const rowsHTML = filtered.map(o => {
+      const v = vendors.find(x => x.id === o.vendor_id);
+      // Archived orders display "archived" as their status pill, even
+      // if the underlying status is e.g. "sent" — what matters for
+      // visual scanning is the archive state, not the previous lifecycle.
+      const status = o.archived_at ? 'archived' : (o.status || 'draft');
+      const when = txFmtRel(o.updated_at || o.created_at);
+      const deliv = o.delivery_date ? fmtDateShort(o.delivery_date) : '';
+      const bucket = bucketOf(o.updated_at || o.created_at);
+      let dividerHTML = '';
+      if (bucket !== lastBucket) {
+        dividerHTML = `<div class="ord-tx-divider">${esc(bucketLabel(bucket))}</div>`;
+        lastBucket = bucket;
+      }
+      const avatarHTML = v
+        ? vendorAvatar(v.name, v.image_url, v.avatar_hue)
+        : `<div class="ord-vendor-avatar ord-vendor-avatar-unknown">?</div>`;
+      const shortId = (o.id || '').slice(-8).toUpperCase();
+      return `${dividerHTML}
+        <button class="ord-tx-row" data-tx-order-id="${esc(o.id)}">
+          <div class="ord-tx-row-avatar">${avatarHTML}</div>
+          <div class="ord-tx-row-main">
+            <div class="ord-tx-row-top">
+              <span class="ord-tx-row-vendor">${esc(v ? v.name : 'Unknown vendor')}</span>
+              <span class="ord-tx-row-shortid">#${esc(shortId)}</span>
+            </div>
+            <div class="ord-tx-row-meta">
+              <span class="ord-status ord-status-${esc(status)}">${esc(status)}</span>
+              ${deliv ? `<span class="ord-tx-row-deliv">· deliver ${esc(deliv)}</span>` : ''}
+              <span class="ord-tx-row-when">· ${esc(when)}</span>
+            </div>
+          </div>
+          <div class="ord-arrow" aria-hidden="true">›</div>
+        </button>`;
+    }).join('');
+
+    const moreHTML = txState.hasMore && !search
+      ? `<button class="ord-tx-load-more" type="button" data-tx-action="load-more">Load more</button>`
+      : (txState.orders.length && !search && !txState.hasMore
+          ? `<div class="ord-tx-end">— end of history —</div>`
+          : '');
+
+    el.innerHTML = rowsHTML + moreHTML;
+
+    el.querySelectorAll('.ord-tx-row').forEach(r => {
+      r.addEventListener('click', () => {
+        const id = r.dataset.txOrderId;
+        if (id) openExistingOrder(id);
+      });
+    });
+    el.querySelector('[data-tx-action="load-more"]')?.addEventListener('click', async () => {
+      setTxLoading(overlay, true);
+      const btn = el.querySelector('[data-tx-action="load-more"]');
+      if (btn) btn.textContent = 'Loading…';
+      await loadTxPage(true);
+      setTxLoading(overlay, false);
+      renderTxList(overlay);
+    });
+  }
+
+  function wireTxOverlay(overlay) {
+    overlay.querySelector('.ord-tx-backdrop')?.addEventListener('click', closeTransactionsView);
+    overlay.querySelector('[data-tx-action="back"]')?.addEventListener('click', closeTransactionsView);
+
+    // Pill clicks — switch status, refetch first page
+    overlay.addEventListener('click', async e => {
+      const pill = e.target.closest('[data-tx-status]');
+      if (!pill || !overlay.contains(pill)) return;
+      const newStatus = pill.dataset.txStatus;
+      if (newStatus === txState.status) return;
+      txState.status = newStatus;
+      txState.orders = [];
+      txState.hasMore = true;
+      renderTxPills(overlay);
+      const list = overlay.querySelector('#ordTxList');
+      if (list) list.innerHTML = `<div class="ord-tx-loading">Loading…</div>`;
+      setTxLoading(overlay, true);
+      await loadTxPage(false);
+      setTxLoading(overlay, false);
+      renderTxList(overlay);
+    });
+
+    // Search — debounced
+    const search = overlay.querySelector('#ordTxSearch');
+    if (search) {
+      let t = null;
+      search.addEventListener('input', () => {
+        clearTimeout(t);
+        t = setTimeout(() => {
+          txState.search = search.value;
+          renderTxList(overlay);
+        }, 150);
+      });
+    }
+  }
+
+
   NX.modules.ordering = {
     init, show, setLocation, openVendor, openExistingOrder, closeEntry,
     openVendorEditor,
     openVendorDetail, closeVendorDetail,
     openOrderDetail, closeOrderDetail, reorderFromOrder, reportIssuesOnOrder,
+    openTransactionsView, closeTransactionsView,
   };
   console.log('[ordering] loaded (Phase B — vendor + item management)');
 })();
