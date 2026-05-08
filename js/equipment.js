@@ -11697,6 +11697,18 @@ async function openContractors() {
   overlay.className = 'eq-contractors-overlay';
   document.body.appendChild(overlay);
 
+  // Pull persisted location filter so the pill picker remembers the
+  // last "profile" the user was in across sessions. Mirrors the
+  // ordering module's per-location persistence pattern. 'all' means
+  // show everything across the three restaurants — this is the default
+  // when there's no saved preference, and it's the only valid fallback
+  // if localStorage is corrupt.
+  let savedLoc = 'all';
+  try {
+    const v = localStorage.getItem('nexus.contractors.activeLocation');
+    if (v && (v === 'all' || LOCATIONS.includes(v))) savedLoc = v;
+  } catch (_) {}
+
   contractorsState = {
     overlay,
     mode: 'list',        // 'list' | 'detail'
@@ -11710,6 +11722,7 @@ async function openContractors() {
     editing: false,
     loading: true,
     search: '',
+    activeLocation: savedLoc, // 'all' | 'Suerte' | 'Este' | 'Bar Toti'
   };
   renderContractors();
 
@@ -12688,31 +12701,49 @@ function buildContractorDetailDerived() {
   const c = contractorsState.activeContractor;
   if (!c) return;
 
-  const eqLite = contractorsState.equipmentLite || [];
+  const allEqLite = contractorsState.equipmentLite || [];
   const issues = c._issues || [];
   const maint = c._maint || [];
 
+  // Apply the active location filter ("profile") — same pattern the
+  // ordering module uses: switching the pill switches the entire view's
+  // data scope. activeLocation === 'all' means show every restaurant.
+  // We filter equipmentLite first, then derive everything else from
+  // that filtered set so equipment, activity, and stats are all
+  // consistently scoped to the same restaurant.
+  const activeLoc = contractorsState.activeLocation || 'all';
+  const eqLite = activeLoc === 'all'
+    ? allEqLite
+    : allEqLite.filter(e => (e.location || '') === activeLoc);
+
   // Activity feed — interleave maintenance + issues, sort desc by date.
+  // When a location filter is active, drop events whose equipment lives
+  // at a different restaurant. Events whose equipment record is missing
+  // are dropped only when filtered (we can't tell their location).
   const events = [];
   for (const m of maint) {
+    const eq = eqLite.find(e => e.id === m.equipment_id);
+    if (activeLoc !== 'all' && !eq) continue;
     events.push({
       type: 'maintenance',
       date: m.event_date,
       title: m.event_type ? m.event_type.replace(/_/g, ' ') : 'Service',
       description: m.description || '',
       cost: parseFloat(m.cost) || 0,
-      equipment: eqLite.find(e => e.id === m.equipment_id),
+      equipment: eq,
       raw: m,
     });
   }
   for (const i of issues) {
+    const eq = eqLite.find(e => e.id === i.equipment_id);
+    if (activeLoc !== 'all' && !eq) continue;
     events.push({
       type: 'issue',
       date: i.reported_at,
       title: 'Issue assigned',
       description: i.contractor_name || c.name,
       status: i.status,
-      equipment: eqLite.find(e => e.id === i.equipment_id),
+      equipment: eq,
       raw: i,
     });
   }
@@ -12750,6 +12781,34 @@ function buildContractorDetailDerived() {
   contractorsState.historicalEquipment = eqLite.filter(e =>
     servicedIds.has(e.id) && !assignedIds.has(e.id)
   );
+
+  // ─── SCOPED STATS for the summary cards ───────────────────────────
+  // When a location filter is active, the global per-contractor stats
+  // computed in loadContractorsList no longer match what the user is
+  // looking at. Recompute the four dashboard numbers (assigned, calls
+  // YTD, avg response, spend YTD) from the *filtered* dataset so the
+  // summary card reads the same restaurant the equipment + activity
+  // lists are showing. activeLocation === 'all' bypasses recomputation
+  // and falls back to the cheap precomputed globals.
+  if (activeLoc === 'all') {
+    contractorsState.scopedStats = null; // signals "use c._* globals"
+  } else {
+    const ytdCutoff = new Date(new Date().getFullYear(), 0, 1);
+    const scopedMaint = events.filter(ev => ev.type === 'maintenance' && new Date(ev.date) >= ytdCutoff);
+    const scopedIssues = events.filter(ev => ev.type === 'issue');
+    const responseHrs = scopedIssues
+      .map(ev => ev.raw)
+      .filter(i => i.contractor_called_at && i.reported_at)
+      .map(i => (new Date(i.contractor_called_at) - new Date(i.reported_at)) / 3600000);
+    contractorsState.scopedStats = {
+      assignedCount: contractorsState.assignedEquipment.length,
+      callsYtd: scopedMaint.length,
+      ytdSpend: scopedMaint.reduce((s, ev) => s + (parseFloat(ev.cost) || 0), 0),
+      avgResponseHrs: responseHrs.length
+        ? Math.round(responseHrs.reduce((s, r) => s + r, 0) / responseHrs.length * 10) / 10
+        : null,
+    };
+  }
 }
 
 function renderContractorsDetail() {
@@ -12763,6 +12822,11 @@ function renderContractorsDetail() {
   const phone = extractContractorPhone(c);
   const email = extractContractorEmail(c);
   const tags = extractContractorTags(c);
+  // Per-location scoped stats — populated by buildContractorDetailDerived
+  // when activeLocation is anything other than 'all'. When it's 'all',
+  // scoped is null and we fall back to the cheap precomputed globals
+  // hanging off the contractor record (c._assignedCount, c._callsYtd, …).
+  const scoped = contractorsState.scopedStats || null;
 
   let tabBody;
   if (detailTab === 'activity') {
@@ -12793,23 +12857,32 @@ function renderContractorsDetail() {
       ` : ''}
     </div>
 
+    <div class="eq-contractor-loc-picker" role="tablist" aria-label="Restaurant profile">
+      <button class="eq-contractor-loc-btn${(contractorsState.activeLocation || 'all') === 'all' ? ' active' : ''}" data-loc="all" role="tab" aria-selected="${(contractorsState.activeLocation || 'all') === 'all' ? 'true' : 'false'}">All</button>
+      ${LOCATIONS.map(loc => {
+        const label = loc.replace(/^Bar\s+/i, '');
+        const isActive = (contractorsState.activeLocation || 'all') === loc;
+        return `<button class="eq-contractor-loc-btn${isActive ? ' active' : ''}" data-loc="${esc(loc)}" role="tab" aria-selected="${isActive ? 'true' : 'false'}">${esc(label)}</button>`;
+      }).join('')}
+    </div>
+
     <div class="eq-contractor-summary">
       ${contractorAvatar(c, 'lg')}
       <div class="eq-contractor-summary-stats">
         <div class="eq-contractor-stat">
-          <div class="eq-contractor-stat-value">${c._assignedCount || 0}</div>
+          <div class="eq-contractor-stat-value">${(scoped ? scoped.assignedCount : c._assignedCount) || 0}</div>
           <div class="eq-contractor-stat-label">Assigned</div>
         </div>
         <div class="eq-contractor-stat">
-          <div class="eq-contractor-stat-value">${c._callsYtd || 0}</div>
+          <div class="eq-contractor-stat-value">${(scoped ? scoped.callsYtd : c._callsYtd) || 0}</div>
           <div class="eq-contractor-stat-label">Calls YTD</div>
         </div>
         <div class="eq-contractor-stat">
-          <div class="eq-contractor-stat-value">${c._avgResponseHrs != null ? fmtResponseHrs(c._avgResponseHrs) : '—'}</div>
+          <div class="eq-contractor-stat-value">${(scoped ? scoped.avgResponseHrs : c._avgResponseHrs) != null ? fmtResponseHrs(scoped ? scoped.avgResponseHrs : c._avgResponseHrs) : '—'}</div>
           <div class="eq-contractor-stat-label">Avg Response</div>
         </div>
         <div class="eq-contractor-stat">
-          <div class="eq-contractor-stat-value">${formatMoney(c._ytdSpend || 0)}</div>
+          <div class="eq-contractor-stat-value">${formatMoney((scoped ? scoped.ytdSpend : c._ytdSpend) || 0)}</div>
           <div class="eq-contractor-stat-label">Spend YTD</div>
         </div>
       </div>
@@ -12849,6 +12922,21 @@ function renderContractorsDetail() {
     contractorsState.activeContractor = null;
     contractorsState.editing = false;
     renderContractors();
+  });
+
+  // Location pill picker — same UX shape as ordering's ord-loc-picker.
+  // Switching pill = switching the entire detail's data scope to that
+  // restaurant. The choice persists to localStorage so the next session
+  // opens to whatever profile the user was last looking at.
+  overlay.querySelectorAll('.eq-contractor-loc-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const loc = btn.dataset.loc || 'all';
+      if (loc === contractorsState.activeLocation) return;
+      contractorsState.activeLocation = loc;
+      try { localStorage.setItem('nexus.contractors.activeLocation', loc); } catch (_) {}
+      buildContractorDetailDerived();
+      renderContractors();
+    });
   });
   overlay.querySelectorAll('[data-detail-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -13573,7 +13661,15 @@ async function promoteContractorNameLinks() {
 function openContractorAssignSheet() {
   if (!contractorsState || !contractorsState.activeContractor) return;
   const c = contractorsState.activeContractor;
-  const eqList = (typeof equipment !== 'undefined' && equipment) ? equipment : (contractorsState.equipmentLite || []);
+  const eqListAll = (typeof equipment !== 'undefined' && equipment) ? equipment : (contractorsState.equipmentLite || []);
+  // Honor the active location profile — the pill at the top of the detail
+  // view sets a scope, and the assign sheet should respect it so the user
+  // sees only the restaurant they're currently working in. 'all' falls
+  // through unchanged. This keeps the picker scannable on a phone screen
+  // and prevents cross-location mistakes (assigning a Suerte unit to
+  // a contractor while looking at the Este profile).
+  const activeLoc = (contractorsState.activeLocation || 'all');
+  const eqList = activeLoc === 'all' ? eqListAll : eqListAll.filter(e => (e.location || '') === activeLoc);
   // Already assigned (FK-linked) IDs to exclude — covers BOTH role FKs.
   const assignedIds = new Set();
   for (const e of (contractorsState.assignedEquipment || [])) {
@@ -13587,7 +13683,9 @@ function openContractorAssignSheet() {
   const candidates = eqList.filter(e => !assignedIds.has(e.id));
 
   if (!candidates.length) {
-    NX.toast && NX.toast('All equipment is already assigned to this contractor in both roles', 'info', 1800);
+    NX.toast && NX.toast(activeLoc === 'all'
+      ? 'All equipment is already assigned to this contractor in both roles'
+      : `No assignable equipment at ${activeLoc} (already linked, or none on file)`, 'info', 2200);
     return;
   }
 
@@ -13637,14 +13735,21 @@ function openContractorAssignSheet() {
 
         <div class="eq-bulk-sheet-list">
           ${candidates.map(e => {
-            const isSel = selected.has(e.id);
+            // Bug fix 2026-05-08: data-id from HTML is always a string while
+            // e.id from Supabase comes back as an integer. selected.has() does
+            // strict equality on Set keys, so storing "123" and checking 123
+            // never matched — checkmarks would render briefly then vanish on
+            // every re-render. Stringify both sides so the comparison is stable
+            // regardless of whether equipment.id is integer or uuid.
+            const eid = String(e.id);
+            const isSel = selected.has(eid);
             const matches = matchesSpecialty(e);
             // Warn if this slot is already held by a DIFFERENT contractor.
             const conflictMaint  = role !== 'repair'      && e.service_contractor_node_id && e.service_contractor_node_id !== c.id;
             const conflictRepair = role !== 'maintenance' && e.repair_contractor_node_id  && e.repair_contractor_node_id  !== c.id;
             const conflict = conflictMaint || conflictRepair;
             return `
-              <button class="eq-bulk-sheet-item eq-bulk-apply-item ${isSel ? 'is-selected' : ''} ${matches ? 'is-same-brand' : ''}" data-id="${esc(e.id)}" type="button">
+              <button class="eq-bulk-sheet-item eq-bulk-apply-item ${isSel ? 'is-selected' : ''} ${matches ? 'is-same-brand' : ''}" data-id="${esc(eid)}" type="button">
                 <div class="eq-bulk-apply-check">
                   ${isSel ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
                 </div>
@@ -13694,7 +13799,11 @@ function openContractorAssignSheet() {
       let updated = 0;
       let repairColumnsMissing = false;
       for (const id of ids) {
-        const eq = candidates.find(e => e.id === id);
+        // ids holds stringified equipment ids; equipment.id from Supabase
+        // is numeric. Use loose equality so the candidate lookup matches
+        // regardless of side. Supabase's .eq() filter coerces types
+        // server-side so passing the string to PostgREST is fine.
+        const eq = candidates.find(e => String(e.id) === id);
         const update = {};
         if (writeMaint) {
           update.service_contractor_node_id = c.id;
@@ -15519,10 +15628,13 @@ function openBulkCompatibilitySheet(p) {
         <div class="eq-bulk-sheet-sub">${primaryMfg ? `Same-brand units (${esc(primary.manufacturer)}) are listed first — most likely to share OEM parts.` : 'Pick every piece of equipment this part fits.'}</div>
         <div class="eq-bulk-sheet-list">
           ${candidates.map(e => {
-            const isSel = selected.has(e.id);
+            // Same string/number coercion fix as openContractorAssignSheet —
+            // dataset.id is always string, e.id may be int.
+            const eid = String(e.id);
+            const isSel = selected.has(eid);
             const sameBrand = primaryMfg && (e.manufacturer || '').toLowerCase() === primaryMfg;
             return `
-              <button class="eq-bulk-sheet-item eq-bulk-apply-item ${isSel ? 'is-selected' : ''} ${sameBrand ? 'is-same-brand' : ''}" data-id="${esc(e.id)}" type="button">
+              <button class="eq-bulk-sheet-item eq-bulk-apply-item ${isSel ? 'is-selected' : ''} ${sameBrand ? 'is-same-brand' : ''}" data-id="${esc(eid)}" type="button">
                 <div class="eq-bulk-apply-check">
                   ${isSel ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
                 </div>
