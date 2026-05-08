@@ -164,9 +164,51 @@
     return WEEKDAY_KEYS[d.getDay()];
   }
 
+  /* ───────────────────────────────────────────────────────────────────
+     PER-LOCATION SCHEDULE RESOLUTION
+     ───────────────────────────────────────────────────────────────────
+     Vendors have default schedule fields (delivery_days, cutoff_time,
+     cutoff_days_before). Each location can OPTIONALLY override these
+     via vendor.location_overrides[location] = { delivery_days, ... }.
+     effectiveSchedule(vendor, location) returns the in-effect values
+     for that location, falling back to defaults when no override.
+     This is the single point where every other schedule helper resolves
+     per-location values, so adding new schedule fields later only
+     requires touching this function. */
+  function effectiveSchedule(vendor, location) {
+    if (!vendor) return { delivery_days: [], cutoff_time: null, cutoff_days_before: null, isCustom: false };
+    const override = vendor.location_overrides && location && vendor.location_overrides[location];
+    if (override && typeof override === 'object') {
+      return {
+        delivery_days:      Array.isArray(override.delivery_days) ? override.delivery_days : (vendor.delivery_days || []),
+        cutoff_time:        override.cutoff_time != null ? override.cutoff_time : (vendor.cutoff_time || null),
+        cutoff_days_before: override.cutoff_days_before != null ? override.cutoff_days_before : (vendor.cutoff_days_before == null ? null : vendor.cutoff_days_before),
+        isCustom: true,
+      };
+    }
+    return {
+      delivery_days:      vendor.delivery_days || [],
+      cutoff_time:        vendor.cutoff_time || null,
+      cutoff_days_before: vendor.cutoff_days_before == null ? null : vendor.cutoff_days_before,
+      isCustom: false,
+    };
+  }
+
+  /* Is this vendor available at the given location?
+     vendor.locations is an optional text[] — when null/empty, the
+     vendor is available everywhere (default). When populated, the
+     vendor only shows at locations in the list. */
+  function isVendorVisible(vendor, location) {
+    if (!vendor) return false;
+    const locs = vendor.locations;
+    if (!Array.isArray(locs) || locs.length === 0) return true;
+    return locs.includes(location);
+  }
+
   /** Best initial delivery date — the next day in vendor.delivery_days. */
-  function nextDeliveryDate(vendor) {
-    const days = Array.isArray(vendor && vendor.delivery_days) ? vendor.delivery_days : [];
+  function nextDeliveryDate(vendor, location) {
+    const sched = effectiveSchedule(vendor, location);
+    const days = sched.delivery_days || [];
     let cursor = todayISO();
     if (!days.length) return addDays(cursor, 1);
     const beforeNoon = new Date().getHours() < 12;
@@ -184,14 +226,11 @@
     return addDays(todayISO(), 1);
   }
 
-  /** Short label for the vendor's next delivery, used in cards and hints.
-      Returns "today" / "tomorrow" / "Wed" / "Mon Aug 5" depending on
-      how far out the next delivery falls. Returns null if the vendor
-      has no delivery_days set so callers can choose to show nothing. */
-  function nextDeliveryLabel(vendor) {
-    const days = Array.isArray(vendor && vendor.delivery_days) ? vendor.delivery_days : [];
-    if (!days.length) return null;
-    const iso = nextDeliveryDate(vendor);
+  /** Short label for the vendor's next delivery, used in cards and hints. */
+  function nextDeliveryLabel(vendor, location) {
+    const sched = effectiveSchedule(vendor, location);
+    if (!sched.delivery_days.length) return null;
+    const iso = nextDeliveryDate(vendor, location);
     if (!iso) return null;
     const today = todayISO();
     const tomorrow = addDays(today, 1);
@@ -199,42 +238,34 @@
     if (iso === tomorrow) return 'tomorrow';
     const d = new Date(iso + 'T00:00:00');
     const wkLbl = WEEKDAY_LBL[d.getDay()];
-    // If within next 7 days, just the weekday is enough. Otherwise add date.
     const diffDays = Math.round((new Date(iso) - new Date(today)) / 86400000);
     if (diffDays < 7) return wkLbl;
     const month = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
     return `${wkLbl} ${month} ${d.getDate()}`;
   }
 
-  /** Check if a date (ISO yyyy-mm-dd) falls on a vendor's delivery day.
-      Returns false when vendor has no delivery_days configured (no
-      basis to flag a mismatch — the user gets a free pass). */
-  function isVendorDeliveryDay(vendor, isoDate) {
-    const days = Array.isArray(vendor && vendor.delivery_days) ? vendor.delivery_days : [];
+  /** Check if a date (ISO yyyy-mm-dd) falls on a vendor's delivery day at a location. */
+  function isVendorDeliveryDay(vendor, isoDate, location) {
+    const sched = effectiveSchedule(vendor, location);
+    const days = sched.delivery_days || [];
     if (!days.length || !isoDate) return true;
     return days.includes(weekdayOf(isoDate));
   }
 
-  /** When does the vendor's order cutoff for `deliveryDateIso` land?
-      Returns a Date object (local time) or null if the vendor has no
-      cutoff configured. Used to surface countdown banners and "past
-      cutoff" warnings on send. */
-  function vendorCutoffMoment(vendor, deliveryDateIso) {
-    if (!vendor || !vendor.cutoff_time || !deliveryDateIso) return null;
-    const daysBefore = vendor.cutoff_days_before == null ? 1 : vendor.cutoff_days_before;
-    // Walk back from delivery date by N days (calendar days, not
-    // business days — restaurant kitchens think in calendar terms).
+  /** When does the vendor's order cutoff for `deliveryDateIso` land? */
+  function vendorCutoffMoment(vendor, deliveryDateIso, location) {
+    const sched = effectiveSchedule(vendor, location);
+    if (!sched.cutoff_time || !deliveryDateIso) return null;
+    const daysBefore = sched.cutoff_days_before == null ? 1 : sched.cutoff_days_before;
     const cutoffDateIso = addDays(deliveryDateIso, -daysBefore);
-    // cutoff_time is "HH:MM" — parse it onto cutoffDateIso in local TZ.
-    const [hh, mm] = String(vendor.cutoff_time).split(':').map(s => parseInt(s, 10));
+    const [hh, mm] = String(sched.cutoff_time).split(':').map(s => parseInt(s, 10));
     if (isNaN(hh) || isNaN(mm)) return null;
     const d = new Date(cutoffDateIso + 'T00:00:00');
     d.setHours(hh, mm, 0, 0);
     return d;
   }
 
-  /** Format a duration in ms as a friendly countdown like "2h 14m" or
-      "32m" or "1d 4h". Used in the entry-screen cutoff banner. */
+  /** Format a duration in ms as a friendly countdown like "2h 14m". */
   function fmtCountdown(ms) {
     if (ms <= 0) return 'past cutoff';
     const totalMin = Math.floor(ms / 60000);
@@ -265,7 +296,7 @@
     // missing fields will just render as null/false everywhere.
     let { data, error } = await NX.sb
       .from('order_vendors')
-      .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, cutoff_time, cutoff_days_before, subject_template, body_template, notes, archived, image_url, avatar_hue, pinned, sort_order')
+      .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, cutoff_time, cutoff_days_before, locations, location_overrides, subject_template, body_template, notes, archived, image_url, avatar_hue, pinned, sort_order')
       .eq('archived', false)
       .order('pinned', { ascending: false, nullsFirst: false })
       .order('name', { ascending: true });
@@ -380,15 +411,37 @@
       .from('order_guide_items').select('id').eq('vendor_id', vendorId);
     if (e1 || !items || !items.length) return {};
     const itemIds = items.map(i => i.id);
-    const { data, error } = await NX.sb
+    // Try with house_name (per-location team name override)
+    let res = await NX.sb
       .from('order_guide_pars')
-      .select('item_id, pars_by_day, enabled')
+      .select('item_id, pars_by_day, enabled, house_name')
       .eq('location', location)
       .in('item_id', itemIds);
-    if (error) { console.error('[ordering] loadParOverrides:', error); return {}; }
+    if (res.error && /house_name|column.*does not exist|schema cache/i.test(res.error.message || '')) {
+      res = await NX.sb
+        .from('order_guide_pars')
+        .select('item_id, pars_by_day, enabled')
+        .eq('location', location)
+        .in('item_id', itemIds);
+    }
+    if (res.error) { console.error('[ordering] loadParOverrides:', res.error); return {}; }
     const map = {};
-    (data || []).forEach(row => { map[row.item_id] = row; });
+    (res.data || []).forEach(row => { map[row.item_id] = row; });
     return map;
+  }
+
+  /* Pick the right display name for an item at a location, with fallbacks:
+     1. Per-location house_name from order_guide_pars (most specific)
+     2. Catalog-wide house_name from order_guide_items (vendor-level team name)
+     3. Vendor's actual item_name (raw catalog entry)
+
+     This is the single point where per-location team names are resolved.
+     Used in order entry, review-and-send, and order detail views. */
+  function pickHouseName(item, parOverride) {
+    const perLoc  = (parOverride && parOverride.house_name || '').trim();
+    const perItem = (item && item.house_name || '').trim();
+    const vendor  = (item && item.item_name || '').trim();
+    return perLoc || perItem || vendor || '(unnamed item)';
   }
 
   async function loadOrderById(orderId) {
@@ -429,6 +482,7 @@
           `).join('')}
         </div>
       </div>
+      <div class="ord-pulse" id="ordPulse"></div>
       <div class="ord-recent" id="ordRecent"></div>
       <div class="ord-vendors-wrap">
         <div class="ord-section-label ord-section-label-with-action">
@@ -454,6 +508,221 @@
     const addBtn = root.querySelector('#ordAddVendor');
     if (addBtn) addBtn.addEventListener('click', () => openVendorEditor(null));
     return root;
+  }
+
+  /* Daily Pulse — compact at-a-glance summary panel above Recent.
+     Surfaces five operational states as tappable chips:
+       • needs-ordering : vendors with imminent delivery + no order
+       • cutoff-soon    : vendors with cutoff in next 4h
+       • issues         : orders with unresolved issue
+       • awaiting-conf  : sent orders not yet confirmed
+       • arriving-today : confirmed/sent orders with delivery_date today
+
+     Renders nothing when the day is fully quiet (all counts zero).
+     Each chip is tappable: needs-ordering scrolls to the first such
+     vendor in the list, issues + awaiting + arriving filter Recent. */
+  function renderPulse() {
+    const el = document.getElementById('ordPulse');
+    if (!el) return;
+
+    const today = todayISO();
+    const tomorrow = addDays(today, 1);
+    const orders = recentOrders || [];
+    const vendorList = vendors || [];
+
+    // 1) Vendors that need ordering — delivery today/tomorrow + no
+    //    active order for that delivery yet.
+    let needsOrderingCount = 0;
+    let firstNeedsOrderingId = null;
+    for (const v of vendorList) {
+      if (v.archived) continue;
+      if (!Array.isArray(v.delivery_days) || !v.delivery_days.length) continue;
+      const nextIso = nextDeliveryDate(v, activeLoc);
+      if (nextIso !== today && nextIso !== tomorrow) continue;
+      const hasActive = orders.some(o =>
+        o.vendor_id === v.id
+        && o.location === activeLoc
+        && !o.archived_at
+        && o.delivery_date === nextIso
+      );
+      if (!hasActive) {
+        needsOrderingCount++;
+        if (!firstNeedsOrderingId) firstNeedsOrderingId = v.id;
+      }
+    }
+
+    // 2) Cutoffs in the next 4 hours
+    const fourHrMs = 4 * 3600 * 1000;
+    const now = Date.now();
+    let cutoffSoonCount = 0;
+    for (const v of vendorList) {
+      if (v.archived || !v.cutoff_time) continue;
+      const nextIso = nextDeliveryDate(v, activeLoc);
+      if (!nextIso) continue;
+      // Only count if there's actually something to send — a draft order
+      // or a vendor with no order at all for this delivery cycle.
+      const draft = orders.find(o =>
+        o.vendor_id === v.id && o.location === activeLoc
+        && !o.archived_at && o.delivery_date === nextIso
+        && (o.status === 'draft' || !o.email_sent_at)
+      );
+      // Surface either if there's a draft to send, OR if there's nothing
+      // (the user might still need to start one).
+      const cutoff = vendorCutoffMoment(v, nextIso, activeLoc);
+      if (!cutoff) continue;
+      const ms = cutoff.getTime() - now;
+      if (ms > 0 && ms <= fourHrMs) {
+        // Skip only if order is already sent (no-action-needed)
+        const sentAlready = orders.some(o =>
+          o.vendor_id === v.id && o.location === activeLoc
+          && !o.archived_at && o.delivery_date === nextIso
+          && o.email_sent_at
+        );
+        if (!sentAlready) cutoffSoonCount++;
+      }
+    }
+
+    // 3) Issues unresolved
+    const issuesCount = orders.filter(o =>
+      o.location === activeLoc
+      && !o.archived_at
+      && o.issue_at
+      && !o.issue_resolved_at
+    ).length;
+
+    // 4) Sent but not yet confirmed
+    const awaitingCount = orders.filter(o =>
+      o.location === activeLoc
+      && !o.archived_at
+      && o.status === 'sent'
+    ).length;
+
+    // 5) Deliveries arriving today (confirmed/sent with delivery=today)
+    const arrivingTodayCount = orders.filter(o =>
+      o.location === activeLoc
+      && !o.archived_at
+      && o.delivery_date === today
+      && (o.status === 'sent' || o.status === 'confirmed')
+    ).length;
+
+    const total = needsOrderingCount + cutoffSoonCount + issuesCount + awaitingCount + arrivingTodayCount;
+    if (total === 0) {
+      // Quiet day — render a calm "all clear" line if there are vendors
+      // configured at all, else nothing (new install state).
+      if (vendorList.length) {
+        el.innerHTML = `
+          <div class="ord-pulse-calm">
+            <span class="ord-pulse-calm-dot" aria-hidden="true">◆</span>
+            <span>All clear.</span>
+          </div>
+        `;
+      } else {
+        el.innerHTML = '';
+      }
+      return;
+    }
+
+    const chips = [];
+    if (needsOrderingCount > 0) {
+      chips.push({
+        cls: 'is-needs',
+        action: 'scroll-vendor',
+        target: firstNeedsOrderingId,
+        icon: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
+        count: needsOrderingCount,
+        label: needsOrderingCount === 1 ? 'vendor needs ordering' : 'vendors need ordering',
+      });
+    }
+    if (cutoffSoonCount > 0) {
+      chips.push({
+        cls: 'is-cutoff',
+        action: 'noop',
+        icon: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+        count: cutoffSoonCount,
+        label: cutoffSoonCount === 1 ? 'cutoff in 4h' : 'cutoffs in 4h',
+      });
+    }
+    if (issuesCount > 0) {
+      chips.push({
+        cls: 'is-issue',
+        action: 'filter-issue',
+        icon: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+        count: issuesCount,
+        label: issuesCount === 1 ? 'open issue' : 'open issues',
+      });
+    }
+    if (arrivingTodayCount > 0) {
+      chips.push({
+        cls: 'is-arriving',
+        action: 'filter-status',
+        target: 'confirmed',
+        icon: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l16-16M21 16v5h-5M4 4l5 5"/></svg>`,
+        count: arrivingTodayCount,
+        label: arrivingTodayCount === 1 ? 'arriving today' : 'arriving today',
+      });
+    }
+    if (awaitingCount > 0) {
+      chips.push({
+        cls: 'is-awaiting',
+        action: 'filter-status',
+        target: 'sent',
+        icon: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
+        count: awaitingCount,
+        label: awaitingCount === 1 ? 'awaiting confirmation' : 'awaiting confirmation',
+      });
+    }
+
+    el.innerHTML = `
+      <div class="ord-pulse-chips" role="list" aria-label="Today's operational pulse">
+        ${chips.map(c => `
+          <button class="ord-pulse-chip ${c.cls}" type="button"
+            data-pulse-action="${esc(c.action)}"
+            ${c.target ? `data-pulse-target="${esc(c.target)}"` : ''}>
+            ${c.icon}
+            <span class="ord-pulse-chip-count">${c.count}</span>
+            <span class="ord-pulse-chip-label">${esc(c.label)}</span>
+          </button>
+        `).join('')}
+      </div>
+    `;
+
+    // Wire chip taps. Filtering chips set the Recent status filter and
+    // re-render Recent. Scroll-vendor chip jumps to the relevant vendor.
+    el.querySelectorAll('.ord-pulse-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.pulseAction;
+        const target = btn.dataset.pulseTarget;
+        if (action === 'scroll-vendor' && target) {
+          const row = document.querySelector(`.ord-vendor-row[data-vendor-id="${target}"]`);
+          if (row) {
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Quick visual flash so the user knows which vendor we landed on
+            row.classList.add('is-flash');
+            setTimeout(() => row.classList.remove('is-flash'), 1600);
+          }
+        } else if (action === 'filter-status' && target) {
+          recentStatusFilter = target;
+          recentSearchQuery = '';
+          recentPage = 0;
+          const vmap = {}; (vendors || []).forEach(v => vmap[v.id] = v);
+          renderRecent(recentOrders, vmap);
+          // Scroll Recent into view if needed
+          const recentEl = document.getElementById('ordRecent');
+          if (recentEl) recentEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else if (action === 'filter-issue') {
+          // No issue-status filter exists yet; we use search="issue"
+          // as a quick proxy that surfaces issue-flagged orders via
+          // the issue pill in the row preview.
+          recentSearchQuery = 'issue';
+          recentStatusFilter = 'all';
+          recentPage = 0;
+          const vmap = {}; (vendors || []).forEach(v => vmap[v.id] = v);
+          renderRecent(recentOrders, vmap);
+          const recentEl = document.getElementById('ordRecent');
+          if (recentEl) recentEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
   }
 
   function renderRecent(list, vendorMap) {
@@ -652,6 +921,8 @@
     `;
 
     wireRecentControls(el, vendorMap, totalPages);
+    // Pulse follows every state change Recent reflects
+    renderPulse();
   }
 
   /* Wire all recent-list interactions in one place — the search input,
@@ -772,10 +1043,16 @@
     }
 
     // Sort. Pinned vendors always float to the top regardless of mode.
+    // Filter out vendors that don't serve the active location. Vendors
+    // without an explicit locations[] are visible everywhere (the
+    // default — most vendors). Vendors with locations[] only show at
+    // the locations they actually serve.
+    const visibleVendors = vendors.filter(v => isVendorVisible(v, activeLoc));
+
     // Within their group, pinned vendors sort by sort_order (custom-set
     // order from the user, falling back to name). Within unpinned, the
     // active sort mode applies.
-    const sorted = vendors.slice().sort((a, b) => {
+    const sorted = visibleVendors.slice().sort((a, b) => {
       const ap = a.pinned ? 1 : 0, bp = b.pinned ? 1 : 0;
       if (ap !== bp) return bp - ap;
 
@@ -856,7 +1133,7 @@
         // No recent activity — surface the catalog size + next delivery
         // day if known, so the user can see "this vendor delivers Wed,
         // I should think about ordering soon" at a glance.
-        const nextLbl = nextDeliveryLabel(v);
+        const nextLbl = nextDeliveryLabel(v, activeLoc);
         if (itemCount && nextLbl) {
           preview = `${itemCount} item${itemCount === 1 ? '' : 's'} · next delivery ${nextLbl}`;
         } else if (itemCount) {
@@ -879,7 +1156,7 @@
       // when there's already a non-archived order in progress.
       let needsOrdering = false;
       if (Array.isArray(v.delivery_days) && v.delivery_days.length) {
-        const nextIso = nextDeliveryDate(v);
+        const nextIso = nextDeliveryDate(v, activeLoc);
         const today = todayISO();
         const tomorrow = addDays(today, 1);
         const isImminent = nextIso === today || nextIso === tomorrow;
@@ -1941,7 +2218,7 @@
     entryState = {
       vendor, catalog: [], par_overrides: {},
       location:      sourceOrder.location || activeLoc,
-      delivery_date: nextDeliveryDate(vendor),
+      delivery_date: nextDeliveryDate(vendor, location),
       notes:         '',
       lines:         {},
       draftOrderId:  null,
@@ -2621,7 +2898,7 @@ Thanks for your help sorting this out.`;
     entryState = {
       vendor, catalog: [], par_overrides: {},
       location: activeLoc,
-      delivery_date: nextDeliveryDate(vendor),
+      delivery_date: nextDeliveryDate(vendor, location),
       notes: '', lines: {},
       draftOrderId: null, saveTimer: null, saveInFlight: false,
       overlay: null, reviewing: false,
@@ -2671,7 +2948,7 @@ Thanks for your help sorting this out.`;
     entryState = {
       vendor, catalog: [], par_overrides: {},
       location:      order.location || activeLoc,
-      delivery_date: order.delivery_date || nextDeliveryDate(vendor),
+      delivery_date: order.delivery_date || nextDeliveryDate(vendor, order.location || activeLoc),
       notes:         order.notes || '',
       lines:         {},
       draftOrderId:  order.id,
@@ -2819,7 +3096,7 @@ Thanks for your help sorting this out.`;
           // the date matches.
           if (readOnly || !delivery_date) return '';
           if (!Array.isArray(vendor.delivery_days) || !vendor.delivery_days.length) return '';
-          if (isVendorDeliveryDay(vendor, delivery_date)) return '';
+          if (isVendorDeliveryDay(vendor, delivery_date, location)) return '';
           const dayLbls = vendor.delivery_days.map(k => WEEKDAY_LBL[WEEKDAY_KEYS.indexOf(k)]).filter(Boolean).join(', ');
           return `
             <div class="ord-meta-warn">
@@ -2838,7 +3115,7 @@ Thanks for your help sorting this out.`;
           //   • ≤ 4h until cutoff → emphasized "running out" banner
           //   • past cutoff       → "cutoff passed" warning (still allows send)
           if (readOnly || !delivery_date) return '';
-          const cutoff = vendorCutoffMoment(vendor, delivery_date);
+          const cutoff = vendorCutoffMoment(vendor, delivery_date, location);
           if (!cutoff) return '';
           const now = new Date();
           const ms = cutoff.getTime() - now.getTime();
@@ -2984,18 +3261,20 @@ Thanks for your help sorting this out.`;
   }
 
   function itemRowHtml(item, line, deliveryDate, location, readOnly) {
-    // Display name precedence: house_name (team's nickname) wins when set,
-    // otherwise vendor's catalog name. The OTHER name moves to the meta
-    // line so it stays visible (e.g. team sees "Big Foil" up top, with
-    // "FOIL HD 18\" ROLL · SKU 157549" right below for SKU verification).
-    const houseName  = (item.house_name || '').trim();
-    const vendorName = (item.item_name  || '').trim();
-    const primary    = houseName || vendorName;
-    const showVendorAlias = houseName && vendorName && houseName !== vendorName;
+    // Display name precedence (handled by pickHouseName):
+    //   1. Per-location team name (order_guide_pars.house_name)
+    //   2. Catalog team name (order_guide_items.house_name)
+    //   3. Vendor's raw item_name
+    // The OTHER name moves to the meta line so SKU verification still
+    // works (e.g. "Big Foil" up top, "FOIL HD 18\" ROLL · SKU 157549" below).
+    const parOverride = entryState && entryState.par_overrides && entryState.par_overrides[item.id];
+    const primary    = pickHouseName(item, parOverride);
+    const vendorName = (item.item_name || '').trim();
+    const showVendorAlias = primary !== vendorName && vendorName;
 
-    // Search-match attribute: combine both names lowercased so search
-    // hits regardless of which one the user typed.
-    const searchKey = `${houseName} ${vendorName}`.toLowerCase().trim();
+    // Search-match attribute: combine team name + vendor name lowercased
+    // so search hits regardless of which one the user typed.
+    const searchKey = `${primary} ${vendorName}`.toLowerCase().trim();
 
     const hint = parHintFor(item, deliveryDate, location);
     if (hint.disabled) {
@@ -3181,7 +3460,7 @@ Thanks for your help sorting this out.`;
       catalog: entryState.catalog,
       par_overrides: entryState.par_overrides,
       location: entryState.location,
-      delivery_date: nextDeliveryDate(entryState.vendor),
+      delivery_date: nextDeliveryDate(entryState.vendor, entryState.location),
       notes: '',
       lines: JSON.parse(JSON.stringify(oldLines)),
       draftOrderId: null,
@@ -3570,7 +3849,7 @@ Thanks for your help sorting this out.`;
     // passed, surface a confirm so the user explicitly acknowledges
     // they're sending late. Vendors do accept late orders sometimes,
     // so we don't hard-block, just slow them down for one extra tap.
-    const cutoff = vendorCutoffMoment(vendor, delivery_date);
+    const cutoff = vendorCutoffMoment(vendor, delivery_date, location);
     if (cutoff && cutoff.getTime() <= Date.now()) {
       const cutoffStr = cutoff.toLocaleString([], {
         weekday: 'short', month: 'short', day: 'numeric',
@@ -3637,9 +3916,13 @@ Thanks for your help sorting this out.`;
       if (NX.toast) NX.toast('Could not save order — sending email anyway', 'warn', 3000);
     }
 
-    // Open mailto: with CC + BCC pulled from the vendor's recipient list.
-    // Recipients marked 'alt' are NOT auto-included (manual-only by design).
-    const recipients = parseAltEmails(vendor.alt_emails);
+    // Open mailto: with CC + BCC pulled from the vendor's recipient list
+    // FOR THIS LOCATION. Each location has its own profile (Este might
+    // CC alfredo@este, Suerte might CC ops@suerte) so the same vendor
+    // sends with different recipients depending on which restaurant
+    // is ordering. Recipients marked 'alt' are NOT auto-included
+    // (manual-only by design).
+    const recipients = parseAltEmails(vendor.alt_emails, location);
     const ccList  = recipients.filter(r => r.kind === 'cc').map(r => r.email);
     const bccList = recipients.filter(r => r.kind === 'bcc').map(r => r.email);
     const url = buildMailtoUrl(vendor.email, subject, body, ccList, bccList);
@@ -3790,10 +4073,16 @@ Thanks for your help sorting this out.`;
       : { ...vendor };
 
     // Bucket existing alt_emails into separate chip arrays per kind.
-    const altParsed = parseAltEmails(v.alt_emails || []);
+    // FOR THE ACTIVE LOCATION: each location is its own profile, so the
+    // editor only ever shows/edits one location's recipients at a time.
+    // The alt_emails column may be a legacy array (pre per-location) —
+    // parseAltEmails returns the right slice either way.
+    const altParsed = parseAltEmails(v.alt_emails, activeLoc);
     const ccArr  = altParsed.filter(r => r.kind === 'cc' ).map(r => r.email);
     const bccArr = altParsed.filter(r => r.kind === 'bcc').map(r => r.email);
     const altArr = altParsed.filter(r => r.kind === 'alt').map(r => r.email);
+    const otherLocsConfigured = vendorHasOtherLocationPrefs(v, activeLoc);
+    const activeLocLabel = (LOCS.find(l => l.id === activeLoc) || {}).label || activeLoc;
 
     // Catalog item count for the count chip + "Manage catalog" CTA.
     let itemCount = 0;
@@ -3831,53 +4120,152 @@ Thanks for your help sorting this out.`;
       }),
     });
 
+    // ─── Availability card — which restaurants does this vendor serve? ──
+    // When all 3 pills active OR all 3 inactive, vendor is available
+    // everywhere (locations stays null). When a strict subset is
+    // active, locations is set to that array — vendors hide from
+    // restaurants not in the list.
+    const currentLocs = Array.isArray(v.locations) ? v.locations : null;
+    const isAvailableAt = (locId) => {
+      if (!currentLocs || !currentLocs.length) return true;
+      return currentLocs.includes(locId);
+    };
+    cards.push({
+      key: 'availability',
+      title: 'Available at',
+      expanded: false,
+      body: `
+        <div class="rx-form-field">
+          <div class="rx-form-hint" style="margin-bottom:8px">Which restaurants does this vendor serve? Vendors hide from locations they don't serve.</div>
+          <div class="rx-loc-pills" data-rx-locs>
+            ${LOCS.map(l => `
+              <button type="button" class="rx-loc-availability-pill${isAvailableAt(l.id) ? ' active' : ''}" data-loc-id="${esc(l.id)}">
+                ${esc(l.label)}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      `,
+    });
+
     // ─── Recipients card (TO + CC chips + BCC chips + Other chips) ──
+    // CC/BCC/Other are PER-LOCATION (each restaurant maintains its own
+    // recipient profile). The TO is shared across all locations since
+    // vendors typically have one orders@ inbox regardless of which
+    // restaurant is sending.
     cards.push({
       key: 'recipients',
       title: 'Recipients',
       expanded: true,
       body: `
+        <div class="rx-loc-scope">
+          <span class="rx-loc-scope-icon">${pinIcon ? '' : ''}<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
+          <span class="rx-loc-scope-text">CC / BCC / Other are <strong>${esc(activeLocLabel)}'s profile</strong>${otherLocsConfigured ? ' — other locations have separate recipients' : ''}</span>
+        </div>
         <div class="rx-form-field">
           <label class="rx-form-label">
             <span class="rx-chip-pill rx-chip-pill-to">TO</span>
-            <span class="rx-form-hint">— required for sending orders</span>
+            <span class="rx-form-hint">— required for sending orders, shared across all locations</span>
           </label>
           <input type="email" class="rx-form-input" data-rx-vendor-email value="${esc(v.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
         </div>
-        ${RX.buildChipGroupHTML(ccArr,  'cc',  { label: 'CC',    hint: 'always copied on every order',          inputType: 'email', inputMode: 'email', placeholder: 'cc@example.com',     addLabel: 'Add CC' })}
-        ${RX.buildChipGroupHTML(bccArr, 'bcc', { label: 'BCC',   hint: "silent copies — others can't see them", inputType: 'email', inputMode: 'email', placeholder: 'bcc@example.com',    addLabel: 'Add BCC' })}
-        ${RX.buildChipGroupHTML(altArr, 'alt', { label: 'OTHER', hint: 'stored only — NOT auto-sent (backups)', inputType: 'email', inputMode: 'email', placeholder: 'backup@example.com', addLabel: 'Add other' })}
+        ${RX.buildChipGroupHTML(ccArr,  'cc',  { label: 'CC',    hint: `always copied on ${esc(activeLocLabel)}'s orders`,        inputType: 'email', inputMode: 'email', placeholder: 'cc@example.com',     addLabel: 'Add CC' })}
+        ${RX.buildChipGroupHTML(bccArr, 'bcc', { label: 'BCC',   hint: `silent copies on ${esc(activeLocLabel)}'s orders`,       inputType: 'email', inputMode: 'email', placeholder: 'bcc@example.com',    addLabel: 'Add BCC' })}
+        ${RX.buildChipGroupHTML(altArr, 'alt', { label: 'OTHER', hint: `stored only for ${esc(activeLocLabel)} — NOT auto-sent`, inputType: 'email', inputMode: 'email', placeholder: 'backup@example.com', addLabel: 'Add other' })}
       `,
     });
 
     // ─── Schedule (delivery days + cutoff) ──
+    // Defaults live on the vendor; each location can override via
+    // location_overrides[loc] = { delivery_days, cutoff_time,
+    // cutoff_days_before }. The editor shows the EFFECTIVE schedule for
+    // the active location with a toggle: "Same as default" (uses
+    // vendor defaults — inputs disabled) vs. "Custom for [Loc]"
+    // (inputs editable, writes to the override slice on save).
+    const sched = effectiveSchedule(v, activeLoc);
+    const isCustomForLoc = sched.isCustom;
+
+    // Render a small "default schedule" summary for the dimmed mode.
+    // Helps the user see WHAT the default actually is at a glance.
+    const defDays = (v.delivery_days || []);
+    const defDaysLbl = defDays.length
+      ? defDays.map(k => WEEKDAY_LBL[WEEKDAY_KEYS.indexOf(k)]).filter(Boolean).join(', ')
+      : 'no days set';
+    const defCutoffLbl = v.cutoff_time
+      ? `${v.cutoff_time} ${v.cutoff_days_before === 0 ? 'on delivery day' : `${v.cutoff_days_before == null ? 1 : v.cutoff_days_before}d before`}`
+      : 'no cutoff';
+
+    // Render the per-location overrides count for a sub-line
+    const overrideCount = v.location_overrides && typeof v.location_overrides === 'object'
+      ? Object.keys(v.location_overrides).length
+      : 0;
+    const otherLocsScheduled = overrideCount > (isCustomForLoc ? 1 : 0);
+
     cards.push({
       key: 'schedule',
       title: 'Schedule',
       expanded: false,
       body: `
-        <div class="rx-form-field">
-          <label class="rx-form-label">Delivery days <span class="rx-form-hint">— used when scheduling new orders</span></label>
+        <div class="rx-loc-scope rx-sched-scope${isCustomForLoc ? ' is-custom' : ''}">
+          <span class="rx-loc-scope-icon">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </span>
+          <span class="rx-loc-scope-text">
+            ${isCustomForLoc
+              ? `<strong>Custom schedule for ${esc(activeLocLabel)}</strong> — overrides the vendor default`
+              : `Using vendor's <strong>default schedule</strong> at ${esc(activeLocLabel)}${otherLocsScheduled ? ' — other locations have custom schedules' : ''}`}
+          </span>
+        </div>
+
+        <div class="rx-sched-toggle-row" data-rx-sched-toggle-wrap>
+          <button type="button" class="rx-sched-toggle-btn${isCustomForLoc ? ' is-active' : ''}" data-rx-sched-toggle="custom" aria-pressed="${isCustomForLoc ? 'true' : 'false'}">
+            ${isCustomForLoc ? `Custom for ${esc(activeLocLabel)}` : `Customize for ${esc(activeLocLabel)}`}
+          </button>
+          ${isCustomForLoc ? `
+            <button type="button" class="rx-sched-reset-btn" data-rx-sched-toggle="reset">Reset to default</button>
+          ` : ''}
+        </div>
+
+        ${!isCustomForLoc ? `
+          <div class="rx-sched-default-summary">
+            <div class="rx-sched-default-row">
+              <span class="rx-sched-default-label">Default delivery days</span>
+              <span class="rx-sched-default-value">${esc(defDaysLbl)}</span>
+            </div>
+            <div class="rx-sched-default-row">
+              <span class="rx-sched-default-label">Default cutoff</span>
+              <span class="rx-sched-default-value">${esc(defCutoffLbl)}</span>
+            </div>
+            <div class="rx-sched-default-hint">Edits below update the vendor default — applies to every location without a custom schedule.</div>
+          </div>
+        ` : ''}
+
+        <div class="rx-form-field${isCustomForLoc ? ' is-editing-override' : ''}">
+          <label class="rx-form-label">Delivery days ${isCustomForLoc ? `<span class="rx-form-hint">— for ${esc(activeLocLabel)} only</span>` : `<span class="rx-form-hint">— vendor default</span>`}</label>
           <div class="rx-day-pills" data-rx-days>
             ${WEEKDAY_KEYS.map((k, i) => `
-              <button type="button" class="rx-day-pill${(v.delivery_days || []).includes(k) ? ' active' : ''}" data-day="${esc(k)}">${esc(WEEKDAY_LBL[i])}</button>
+              <button type="button" class="rx-day-pill${(sched.delivery_days || []).includes(k) ? ' active' : ''}" data-day="${esc(k)}">${esc(WEEKDAY_LBL[i])}</button>
             `).join('')}
           </div>
         </div>
-        <div class="rx-form-field">
-          <label class="rx-form-label">Order cutoff <span class="rx-form-hint">— last time you can send before they stop accepting</span></label>
+        <div class="rx-form-field${isCustomForLoc ? ' is-editing-override' : ''}">
+          <label class="rx-form-label">Order cutoff ${isCustomForLoc ? `<span class="rx-form-hint">— for ${esc(activeLocLabel)} only</span>` : `<span class="rx-form-hint">— vendor default</span>`}</label>
           <div class="rx-cutoff-row">
-            <input type="time" class="rx-form-input rx-cutoff-time" data-rx-cutoff-time value="${esc(v.cutoff_time || '')}">
+            <input type="time" class="rx-form-input rx-cutoff-time" data-rx-cutoff-time value="${esc(sched.cutoff_time || '')}">
             <span class="rx-cutoff-conn">on</span>
             <select class="rx-form-input rx-cutoff-days" data-rx-cutoff-days>
-              <option value="0"${(v.cutoff_days_before === 0) ? ' selected' : ''}>delivery day</option>
-              <option value="1"${(v.cutoff_days_before == null || v.cutoff_days_before === 1) ? ' selected' : ''}>day before</option>
-              <option value="2"${(v.cutoff_days_before === 2) ? ' selected' : ''}>2 days before</option>
-              <option value="3"${(v.cutoff_days_before === 3) ? ' selected' : ''}>3 days before</option>
+              <option value="0"${(sched.cutoff_days_before === 0) ? ' selected' : ''}>delivery day</option>
+              <option value="1"${(sched.cutoff_days_before == null || sched.cutoff_days_before === 1) ? ' selected' : ''}>day before</option>
+              <option value="2"${(sched.cutoff_days_before === 2) ? ' selected' : ''}>2 days before</option>
+              <option value="3"${(sched.cutoff_days_before === 3) ? ' selected' : ''}>3 days before</option>
             </select>
           </div>
           <div class="rx-form-hint">Leave time blank if this vendor has no firm cutoff.</div>
         </div>
+
+        <input type="hidden" data-rx-sched-mode value="${isCustomForLoc ? 'custom' : 'default'}">
       `,
     });
 
@@ -4020,6 +4408,78 @@ Thanks for your help sorting this out.`;
           btn.addEventListener('click', () => btn.classList.toggle('active'));
         });
 
+        // Schedule custom / default mode toggle. Tapping "Customize for X"
+        // flips the schedule inputs from "editing the vendor default"
+        // into "editing the override slice for this location." The save
+        // flow reads data-rx-sched-mode at save time to know which
+        // destination to write to. We update visual classes here so the
+        // banner copy + field hint text reflect the new state, but we
+        // don't re-render the inputs — the day pills + cutoff time keep
+        // their current values, the user just continues from there.
+        const wireSchedToggle = () => {
+          overlay.querySelectorAll('[data-rx-sched-toggle]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const mode = btn.dataset.rxSchedToggle;  // 'custom' or 'reset'
+              const modeInput = overlay.querySelector('[data-rx-sched-mode]');
+              const scopeBanner = overlay.querySelector('.rx-sched-scope');
+              const scopeText   = scopeBanner ? scopeBanner.querySelector('.rx-loc-scope-text') : null;
+              const fields      = overlay.querySelectorAll('.rx-form-field.is-editing-override, .rx-form-field:has([data-rx-days]), .rx-form-field:has([data-rx-cutoff-time])');
+              const summary     = overlay.querySelector('.rx-sched-default-summary');
+              const toggleWrap  = overlay.querySelector('[data-rx-sched-toggle-wrap]');
+              if (!modeInput) return;
+
+              if (mode === 'custom') {
+                modeInput.value = 'custom';
+                if (scopeBanner) scopeBanner.classList.add('is-custom');
+                if (scopeText)   scopeText.innerHTML = `<strong>Custom schedule for ${esc(activeLocLabel)}</strong> — overrides the vendor default`;
+                fields.forEach(f => f.classList.add('is-editing-override'));
+                if (summary) summary.style.display = 'none';
+                if (toggleWrap) {
+                  toggleWrap.innerHTML = `
+                    <button type="button" class="rx-sched-toggle-btn is-active" data-rx-sched-toggle="custom" aria-pressed="true">Custom for ${esc(activeLocLabel)}</button>
+                    <button type="button" class="rx-sched-reset-btn" data-rx-sched-toggle="reset">Reset to default</button>
+                  `;
+                  wireSchedToggle();  // re-bind on the new buttons
+                }
+                // Update field hints
+                overlay.querySelectorAll('.rx-form-field .rx-form-label .rx-form-hint').forEach((hint, i) => {
+                  if (i < 2) hint.textContent = `— for ${activeLocLabel} only`;
+                });
+              } else if (mode === 'reset') {
+                modeInput.value = 'default';
+                if (scopeBanner) scopeBanner.classList.remove('is-custom');
+                if (scopeText)   scopeText.innerHTML = `Using vendor's <strong>default schedule</strong> at ${esc(activeLocLabel)}`;
+                fields.forEach(f => f.classList.remove('is-editing-override'));
+                // Reset inputs to vendor defaults
+                overlay.querySelectorAll('[data-rx-days] .rx-day-pill').forEach(p => {
+                  if ((v.delivery_days || []).includes(p.dataset.day)) p.classList.add('active');
+                  else p.classList.remove('active');
+                });
+                const tIn = overlay.querySelector('[data-rx-cutoff-time]');
+                if (tIn) tIn.value = v.cutoff_time || '';
+                const dSel = overlay.querySelector('[data-rx-cutoff-days]');
+                if (dSel) dSel.value = String(v.cutoff_days_before == null ? 1 : v.cutoff_days_before);
+                if (summary) summary.style.display = '';
+                if (toggleWrap) {
+                  toggleWrap.innerHTML = `
+                    <button type="button" class="rx-sched-toggle-btn" data-rx-sched-toggle="custom" aria-pressed="false">Customize for ${esc(activeLocLabel)}</button>
+                  `;
+                  wireSchedToggle();
+                }
+                overlay.querySelectorAll('.rx-form-field .rx-form-label .rx-form-hint').forEach((hint, i) => {
+                  if (i < 2) hint.textContent = `— vendor default`;
+                });
+              }
+            });
+          });
+        };
+        wireSchedToggle();
+
+        // Visibility location pills — toggle which locations this vendor serves
+        overlay.querySelectorAll('[data-rx-locs] .rx-loc-availability-pill').forEach(btn => {
+          btn.addEventListener('click', () => btn.classList.toggle('active'));
+        });
+
         // Catalog CTA — closes editor, opens catalog editor for this vendor
         const catalogBtn = overlay.querySelector('[data-rx-catalog-cta]');
         if (catalogBtn) {
@@ -4131,40 +4591,87 @@ Thanks for your help sorting this out.`;
           ? (cutoffDaysRaw === '' ? 1 : parseInt(cutoffDaysRaw, 10))
           : null;
 
-        // Build alt_emails from the three chip groups
+        // Schedule mode — 'custom' (write to override slice for active
+        // location) or 'default' (update vendor defaults + drop the
+        // override for this location if it existed).
+        const schedMode = ((overlay.querySelector('[data-rx-sched-mode]') || {}).value || 'default');
+
+        // Visibility — selected location pills determine where the
+        // vendor is available. All-selected (or none-selected) → null
+        // (visible everywhere). Strict subset → array.
+        const selectedLocs = Array.from(overlay.querySelectorAll('[data-rx-locs] .rx-loc-availability-pill.active'))
+          .map(b => b.dataset.locId)
+          .filter(Boolean);
+        const visLocations = (selectedLocs.length === 0 || selectedLocs.length === LOCS.length)
+          ? null
+          : selectedLocs;
+
+        // Build per-location alt_emails. Each restaurant has its own
+        // CC/BCC/Other profile, so we save these as a slice keyed by
+        // activeLoc and preserve any existing slices for other
+        // locations. The TO email is shared across all locations
+        // (vendors typically have one orders@ inbox).
         const altEmails = [];
         for (const e of (state.chips.cc  || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'cc'  }); }
         for (const e of (state.chips.bcc || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'bcc' }); }
         for (const e of (state.chips.alt || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'alt' }); }
+        const newAltEmailsObj = writeAltEmailsForLocation(v.alt_emails, activeLoc, altEmails);
 
-        // Diagnostic — surface exactly what we're about to save so we
-        // can see whether CC values reached this point. If the toast
-        // shows "0 CC" but you typed CCs, the bug is upstream (input
-        // never made it into state). If it shows the right counts but
-        // the data doesn't persist, the bug is downstream (DB).
+        // Build location_overrides for schedule fields. When mode is
+        // 'custom' we write the active location's slice; when 'default'
+        // we strip the slice (so no stale override leftover).
+        let newLocOverrides = (v.location_overrides && typeof v.location_overrides === 'object' && !Array.isArray(v.location_overrides))
+          ? { ...v.location_overrides }
+          : {};
+        let payloadDefaultDays = v.delivery_days || [];
+        let payloadDefaultCutoffTime = v.cutoff_time || null;
+        let payloadDefaultCutoffDays = v.cutoff_days_before;
+
+        if (schedMode === 'custom') {
+          // Override slice for active location only. Defaults untouched.
+          newLocOverrides[activeLoc] = {
+            delivery_days: days,
+            cutoff_time: cutoffTime,
+            cutoff_days_before: cutoffDaysBefore,
+          };
+        } else {
+          // Default mode: apply edits to vendor-level defaults and drop
+          // any prior override for this location (user said "use default").
+          payloadDefaultDays = days;
+          payloadDefaultCutoffTime = cutoffTime;
+          payloadDefaultCutoffDays = cutoffDaysBefore;
+          delete newLocOverrides[activeLoc];
+        }
+        if (Object.keys(newLocOverrides).length === 0) newLocOverrides = null;
+
         const ccCount = (state.chips.cc || []).length;
         const bccCount = (state.chips.bcc || []).length;
         dinfo('[ordering] saveVendor about to persist', {
           ccCount, bccCount, altCount: (state.chips.alt || []).length,
-          alt_emails: altEmails,
+          location: activeLoc,
+          schedMode,
+          alt_emails: newAltEmailsObj,
+          locations: visLocations,
         });
 
         const payload = {
           name: id.name,
           email: email.trim() || null,
-          alt_emails: altEmails.length ? altEmails : null,
+          alt_emails: newAltEmailsObj,
           image_url: id.photoUrl || null,
           avatar_hue: id.avatarHue,
           pinned: id.pinned,
-          delivery_days: days,
-          cutoff_time: cutoffTime,
-          cutoff_days_before: cutoffDaysBefore,
+          delivery_days: payloadDefaultDays,
+          cutoff_time: payloadDefaultCutoffTime,
+          cutoff_days_before: payloadDefaultCutoffDays,
+          locations: visLocations,
+          location_overrides: newLocOverrides,
           subject_template: subject.trim() || null,
           body_template:    body.trim()    || null,
           notes:            notes.trim()   || null,
         };
 
-        const optionalCols = ['image_url', 'avatar_hue', 'pinned', 'alt_emails', 'cutoff_time', 'cutoff_days_before'];
+        const optionalCols = ['image_url', 'avatar_hue', 'pinned', 'alt_emails', 'cutoff_time', 'cutoff_days_before', 'locations', 'location_overrides'];
         const stripOptionalCols = (p) => {
           const o = { ...p };
           for (const k of optionalCols) delete o[k];
@@ -6651,17 +7158,80 @@ Thanks for your help sorting this out.`;
    *   - array of objects  → passed through (validated/defaulted)
    * Unknown kinds default to 'cc' so they auto-include in sent orders.
    */
-  function parseAltEmails(raw) {
+  /* alt_emails has two valid shapes — the parser handles both:
+
+     LEGACY (array): [{email, kind}, …]
+       Treated as applying to ALL locations. Pre-dates per-location
+       profiles.
+
+     NEW (object): { este: [...], toti: [...], suerte: [...], _default: [...] }
+       Per-location lists. Each location has its own CC/BCC/Other.
+       _default is used as fallback for locations without an explicit
+       slice (e.g. brand-new locations the user hasn't configured yet).
+
+     parseAltEmails(raw, location) returns the array of {email, kind}
+     entries for the given location. Always returns an array. */
+  function parseAltEmails(raw, location) {
     if (!raw) return [];
-    if (!Array.isArray(raw)) return [];
-    return raw.map(r => {
-      if (typeof r === 'string') return { email: r.trim(), kind: 'cc' };
-      if (r && typeof r === 'object') {
-        const kind = ['cc', 'bcc', 'alt'].includes(r.kind) ? r.kind : 'cc';
-        return { email: (r.email || '').trim(), kind };
-      }
-      return { email: '', kind: 'cc' };
-    }).filter(r => r.email);  // drop empty rows
+
+    // Legacy array shape — applies to every location.
+    if (Array.isArray(raw)) {
+      return raw.map(r => {
+        if (typeof r === 'string') return { email: r.trim(), kind: 'cc' };
+        if (r && typeof r === 'object') {
+          const kind = ['cc', 'bcc', 'alt'].includes(r.kind) ? r.kind : 'cc';
+          return { email: (r.email || '').trim(), kind };
+        }
+        return { email: '', kind: 'cc' };
+      }).filter(r => r.email);
+    }
+
+    // New per-location object shape
+    if (typeof raw === 'object') {
+      const slice = (location && Array.isArray(raw[location])) ? raw[location]
+                  : (Array.isArray(raw._default) ? raw._default : []);
+      return parseAltEmails(slice);  // recurse on the array slice to normalize
+    }
+
+    return [];
+  }
+
+  /* Build the alt_emails write payload for saving. Preserves slices for
+     OTHER locations while writing the active location's slice fresh.
+     This is what makes the per-location editor non-destructive — saving
+     Este's CCs doesn't wipe what you set up for Suerte.
+
+     `existing` is the vendor's current alt_emails (any shape).
+     `location` is the location whose slice we're updating.
+     `entries` is the new array of {email, kind} for that location. */
+  function writeAltEmailsForLocation(existing, location, entries) {
+    const cleaned = (entries || []).filter(e => e && e.email);
+    // Build the merged object. If existing is legacy array, we promote
+    // it to _default and add the new location-specific slice on top.
+    let next;
+    if (Array.isArray(existing)) {
+      next = { _default: existing.slice() };
+    } else if (existing && typeof existing === 'object') {
+      next = { ...existing };
+    } else {
+      next = {};
+    }
+    if (cleaned.length) {
+      next[location] = cleaned;
+    } else {
+      delete next[location];
+    }
+    // If the object is now empty, return null so the column clears
+    if (!Object.keys(next).length) return null;
+    return next;
+  }
+
+  /* Has this vendor been customized for a non-active location? Used
+     to badge the editor with a hint that other locations exist. */
+  function vendorHasOtherLocationPrefs(vendor, currentLoc) {
+    const raw = vendor && vendor.alt_emails;
+    if (!raw || Array.isArray(raw) || typeof raw !== 'object') return false;
+    return Object.keys(raw).some(k => k !== currentLoc && k !== '_default' && Array.isArray(raw[k]) && raw[k].length);
   }
 
   /* ── Collapsible card shell for the vendor editor ──
