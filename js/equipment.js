@@ -1598,12 +1598,9 @@ function buildListRow(e) {
           <div class="eq-row-name">${esc(e.name)}</div>
           <div class="eq-row-when ${pmCls}">${esc(pmLabel || '—')}</div>
         </div>
-        <div class="eq-row-meta">
-          ${lifecycleStatusPill(e, 'sm')}
-          ${sub ? `<span class="eq-row-sub">${sub}</span>` : ''}
-        </div>
+        ${sub ? `<div class="eq-row-meta"><span class="eq-row-sub">${sub}</span></div>` : ''}
       </div>
-      <div class="eq-row-arrow" aria-hidden="true">›</div>
+      <span class="eq-row-beacon" aria-hidden="true">${lifecycleStatusDot(e)}</span>
     </div>`;
 }
 
@@ -9071,24 +9068,55 @@ function formatPhonePretty(p) {
 // Hides destructive actions (currently just Delete) behind a tap to prevent
 // accidental triggers. Auto-closes on outside tap.
 function toggleOverflow(event, equipId) {
-  event.stopPropagation();
+  // Robust open/close for the equipment-detail overflow menu.
+  //
+  // Old version used setTimeout + { once: true } with a bubble-phase
+  // outside-click listener. Two known footguns:
+  //   1) Touch synthesizes click in a way that on some browsers fires
+  //      the listener too early (between touchend and the user lifting
+  //      their finger), self-removing it via { once: true } — so the
+  //      menu would open and immediately close on mobile.
+  //   2) The menu element has onclick="event.stopPropagation()", which
+  //      prevents the bubble-phase listener from ever seeing inside-menu
+  //      clicks at all — fine for the OPEN state, but it also meant that
+  //      the listener never got the chance to remove itself cleanly on
+  //      menu-item taps, leaking handlers across the session.
+  //
+  // New version: capture-phase listeners on both click and touchstart,
+  // explicit add/remove (no { once: true }), and a closer that stays
+  // in place until an actual outside tap happens.
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
   const menu = document.getElementById('eqOverflow-' + equipId);
   if (!menu) return;
   const isOpen = menu.classList.contains('active');
-  // Close any other open overflows first
-  document.querySelectorAll('.eq-overflow-menu.active').forEach(m => m.classList.remove('active'));
-  if (!isOpen) {
-    menu.classList.add('active');
-    // Close on next outside click
-    setTimeout(() => {
-      document.addEventListener('click', function closeOverflow(e) {
-        if (!menu.contains(e.target)) {
-          menu.classList.remove('active');
-          document.removeEventListener('click', closeOverflow);
-        }
-      }, { once: true });
-    }, 0);
+  // Close any other open overflows so we don't stack two open menus.
+  document.querySelectorAll('.eq-overflow-menu.active').forEach(m => {
+    if (m !== menu) m.classList.remove('active');
+  });
+  if (isOpen) {
+    // Toggle: was open, close it now.
+    menu.classList.remove('active');
+    return;
   }
+  menu.classList.add('active');
+
+  // Outside-tap closer. Capture phase (third arg = true) so it sees
+  // every event regardless of stopPropagation handlers on children.
+  // Bound on next tick so the click that opened the menu doesn't
+  // immediately close it.
+  const close = (e) => {
+    if (menu.contains(e.target)) return;
+    menu.classList.remove('active');
+    document.removeEventListener('click',     close, true);
+    document.removeEventListener('touchstart', close, true);
+  };
+  setTimeout(() => {
+    document.addEventListener('click',     close, true);
+    document.addEventListener('touchstart', close, true);
+  }, 0);
 }
 
 
