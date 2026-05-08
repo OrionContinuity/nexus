@@ -2291,13 +2291,18 @@
     const subject = `Issue with order ${orderShortId} — ${locLabel}${delivDate ? ' (' + delivDate + ')' : ''}`;
     const lines = (order.lines || []).filter(l => l.item_name);
     // Match the order-send email's qty × name layout so the followup
-    // reads like a continuation of the original order. Pack size goes
-    // in parens, prettified the same way.
+    // reads like a continuation of the original order. Pack size + SKU
+    // go in parens with the same  ·  separator for visual continuity.
     const lineList = lines.length
       ? '\n\nItems on this order:\n' + lines.map(l => {
           const pack = (l.unit || '').trim();
           const prettyPack = pack ? prettyPackSize(pack).primary : '';
-          return `  [ ] ${l.qty || 0} \u00D7 ${l.item_name}${prettyPack ? ' (' + prettyPack + ')' : ''}`;
+          const sku = (l.vendor_sku || '').trim();
+          const metaParts = [];
+          if (prettyPack) metaParts.push(prettyPack);
+          if (sku) metaParts.push(`#${sku}`);
+          const meta = metaParts.length ? '  (' + metaParts.join('  \u00B7  ') + ')' : '';
+          return `  [ ] ${l.qty || 0} \u00D7 ${l.item_name}${meta}`;
         }).join('\n')
       : '';
 
@@ -3089,6 +3094,37 @@ Thanks for your help sorting this out.`;
     };
   }
 
+  /**
+   * Build a section-divider line for the order email.
+   *
+   *   "─── PRODUCE ─────────────────── 2 items"
+   *
+   * Padded to a consistent visual width with U+2500 horizontal-line
+   * characters so sections form a clean repeating rhythm down the
+   * email regardless of name length. Width caps at 45 columns — wide
+   * enough to feel substantial, narrow enough that mobile email
+   * clients won't soft-wrap mid-rule.
+   *
+   * U+2500 (─) renders cleanly in every modern email client (Gmail
+   * web/mobile, Apple Mail, Outlook, Yahoo). Avoiding heavier box-
+   * drawing characters (━ ═) because some Outlook builds drop them.
+   */
+  function emailSectionHeader(name, count) {
+    const TARGET_WIDTH = 45;
+    const PREFIX = '─── ';
+    const itemWord = count === 1 ? 'item' : 'items';
+    const suffix = ` ${count} ${itemWord}`;
+    const start = `${PREFIX}${(name || '').toUpperCase()} `;
+    const fillCount = Math.max(3, TARGET_WIDTH - start.length - suffix.length);
+    return `${start}${'─'.repeat(fillCount)}${suffix}`;
+  }
+
+  /** Plain horizontal rule of the same width — used as the closing
+   *  divider before the order total. */
+  function emailRule() {
+    return '─'.repeat(45);
+  }
+
   /** Resolve par hint for an item on a given delivery date + location. */
   function parHintFor(item, deliveryDate, location) {
     const wk = weekdayOf(deliveryDate);
@@ -3804,18 +3840,55 @@ Thanks for your help sorting this out.`;
      from the template editor's preview pane so the user sees exactly
      what the default produces.
 
+     Layout (plain text — mailto: can't carry HTML):
+
+       Hi {Vendor} team,
+
+       Please prepare this order for {Location}.
+
+         Delivery:  Monday, May 11, 2026
+
+
+       ─── PRODUCE ──────────────────── 2 items
+
+         4 × Romaine Hearts, 24ct
+             24 × 1 EA  ·  #PFG-12345
+
+         6 × Tomatoes, slicing
+             LB  ·  #PFG-67890
+
+
+       ─── DAIRY ────────────────────── 1 item
+
+         2 × Whole Milk
+             4 × 1 GA  ·  #PFG-22100
+
+
+       ─────────────────────────────────────────
+
+       Total: 3 items
+
+       Thanks,
+
      Pure function: takes formatted lines text + ctx, returns the full
      body string. Doesn't touch entryState or DB. */
   function defaultEmailBody(vendor, ctx, linesText, notes, totalItemCount) {
+    const RULE = emailRule();
+
     let body = `Hi ${vendor.name} team,\n\n`;
-    body += `Please prepare this order:\n\n`;
-    body += `  Delivery:  ${ctx.delivery_date_long}\n`;
-    body += `  Location:  ${ctx.location}\n\n\n`;
+    body += `Please prepare this order for ${ctx.location}.\n\n`;
+    body += `  Delivery:  ${ctx.delivery_date_long}\n\n\n`;
     body += linesText;
+
     if (notes && notes.trim()) {
-      body += `\n\n\nNOTES\n\n${notes.trim()}`;
+      // Indent multi-line notes consistently (2-space indent on every
+      // line, including continuations) so they line up with item rows.
+      const indented = notes.trim().replace(/^/gm, '  ');
+      body += `\n\n\n${RULE}\n\nNotes\n\n${indented}`;
     }
-    body += `\n\n\n${totalItemCount} item${totalItemCount === 1 ? '' : 's'} total\n\n`;
+
+    body += `\n\n\n${RULE}\n\n`;
+    body += `Total: ${totalItemCount} item${totalItemCount === 1 ? '' : 's'}\n\n`;
     body += `Thanks,\n`;
     return body;
   }
@@ -3844,18 +3917,18 @@ Thanks for your help sorting this out.`;
     const sampleCtx = {
       vendor: vendor.name || 'Vendor',
       location: 'Este Restaurant',
-      delivery_date_long: 'Monday, May 11',
+      delivery_date_long: 'Monday, May 11, 2026',
       delivery_date: '5/11',
     };
     const sampleLines =
-      `PRODUCE  (2)\n\n` +
+      `${emailSectionHeader('Produce', 2)}\n\n` +
       `  4 \u00D7 Romaine Hearts, 24ct\n` +
-      `      24 \u00D7 1 EA \u00B7 #PFG-12345\n` +
+      `      24 \u00D7 1 EA  \u00B7  #PFG-12345\n\n` +
       `  6 \u00D7 Tomatoes, slicing\n` +
-      `      LB \u00B7 #PFG-67890\n\n` +
-      `DAIRY  (1)\n\n` +
+      `      LB  \u00B7  #PFG-67890\n\n\n` +
+      `${emailSectionHeader('Dairy', 1)}\n\n` +
       `  2 \u00D7 Whole Milk\n` +
-      `      4 \u00D7 1 GA \u00B7 #PFG-22100`;
+      `      4 \u00D7 1 GA  \u00B7  #PFG-22100`;
     return defaultEmailBody(vendor, sampleCtx, sampleLines, '', 3);
   }
 
@@ -3880,9 +3953,15 @@ Thanks for your help sorting this out.`;
     /* ─────────────────────────────────────────────────────────────────
        Format the line list.
 
+       Section header: a horizontal-rule line built by emailSectionHeader
+       that includes the section name + item count, e.g.
+           "─── PRODUCE ───────────────── 2 items"
+       Sections are separated by two blank lines for visual breathing
+       room — the divider rule lets the eye skip to a section quickly.
+
        Each item gets two lines:
          {qty} × {name}
-             {pack} · #{sku}
+             {pack}  ·  #{sku}
 
        The two-line shape solves three problems at once:
          - "7 3/1 GA" was unreadable as a single token (qty merged with
@@ -3892,16 +3971,14 @@ Thanks for your help sorting this out.`;
          - Long item names + long packs + long SKUs no longer wrap
            awkwardly mid-content because each piece has its own line.
 
-       Sections become empty-line-delimited blocks rather than just
-       capitalized labels, giving the eye somewhere to rest in long
-       orders. Item count at the start of each section header helps
-       the vendor verify completeness. The two-space indent on items
-       is a soft visual hierarchy that survives proportional fonts.
+       A blank line BETWEEN items (not just between sections) gives the
+       vendor's eye somewhere to land while pulling product. The
+       per-line meta uses double-spaces around the middle dot (· vs · )
+       to make the SKU stand out — a small thing that meaningfully
+       improves scanability when the email is read in a proportional
+       font (most mobile mail clients).
        ───────────────────────────────────────────────────────────── */
     let linesText = '';
-    let lastSection = null;
-    let sectionItemCount = 0;
-    let sectionItems = [];
 
     // Group by section first so we can emit "(N items)" alongside the
     // header — needs the count before printing items.
@@ -3913,12 +3990,18 @@ Thanks for your help sorting this out.`;
     }
 
     let totalItemCount = 0;
+    let isFirstSection = true;
     for (const [section, items] of groupedBySection.entries()) {
+      // Two blank lines between sections (one trailing from previous
+      // section's last item + one explicit) — gives the eye a clear
+      // gap before the next section's rule.
+      if (!isFirstSection) linesText += '\n';
+      isFirstSection = false;
+
       if (section !== '__uncategorized__') {
-        // Blank line before section unless first section
-        if (linesText) linesText += '\n';
-        linesText += `${section.toUpperCase()}  (${items.length})\n\n`;
+        linesText += `${emailSectionHeader(section, items.length)}\n\n`;
       }
+
       for (const l of items) {
         const qty = l.qty;
         // Run the same pack-size prettifier the on-screen item rows use,
@@ -3931,11 +4014,11 @@ Thanks for your help sorting this out.`;
         const prettyPack = pack ? prettyPackSize(pack).primary : '';
         const sku = (l.vendor_sku || '').trim();
         // Build the meta line — pack and sku each conditional, joined
-        // by middle dot when both present.
+        // by middle dot with double-spaces around it for breathing room.
         let metaParts = [];
         if (prettyPack) metaParts.push(prettyPack);
         if (sku)        metaParts.push(`#${sku}`);
-        const metaLine = metaParts.join(' \u00B7 ');
+        const metaLine = metaParts.join('  \u00B7  ');
 
         linesText += `  ${qty} \u00D7 ${l.item_name}\n`;
         if (metaLine) linesText += `      ${metaLine}\n`;
@@ -3944,10 +4027,14 @@ Thanks for your help sorting this out.`;
         if (l.note && l.note.trim()) {
           linesText += `      Note: ${l.note.trim()}\n`;
         }
+        // Blank line between items — gives the vendor's eye a place to
+        // rest and makes per-item details feel like discrete units
+        // rather than a wall of text.
+        linesText += '\n';
         totalItemCount++;
       }
     }
-    linesText = linesText.replace(/\n+$/, '');  // trim trailing blanks
+    linesText = linesText.replace(/\s+$/, '');  // trim trailing blanks
 
     // If the vendor has a custom body_template, expand its tokens.
     // Otherwise use the standard hi-team / please-prepare / lines format.
@@ -5247,7 +5334,7 @@ Thanks for your help sorting this out.`;
         </div>
         <div class="ord-form-row-2">
           <div class="ord-form-field">
-            <label class="ord-form-label">Unit</label>
+            <label class="ord-form-label">Pack/Size</label>
             <input type="text" class="ord-form-input ied-unit" value="${esc(item.unit || 'ea')}" placeholder="ea / cs / lb / gal" autocomplete="off">
           </div>
           <div class="ord-form-field">
@@ -6264,7 +6351,7 @@ Thanks for your help sorting this out.`;
     const wb = window.XLSX.utils.book_new();
 
     // ── Items sheet ─────────────────────────────────────────────────
-    const headers = ['Section', 'Item Name', 'Team Name', 'Vendor SKU', 'Unit', 'Default Par', 'Note'];
+    const headers = ['Section', 'Item Name', 'Team Name', 'Vendor SKU', 'Pack/Size', 'Default Par', 'Note'];
     const titleBanner   = ['NEXUS Vendor Catalog', '', '', '', '', '', ''];
     const vendorBanner  = [`For: ${vendor.name || 'Unknown vendor'}`, '', '', '', '', '', ''];
     const instrBanner   = [
@@ -6384,7 +6471,7 @@ Thanks for your help sorting this out.`;
       ['Item Name',   'Required',    "Vendor's name — what they see in the email."],
       ['Team Name',   'Optional',    "Your team's nickname for the item. Shown in the order screen instead of the vendor name. Vendor never sees this."],
       ['Vendor SKU',  'Recommended', "Vendor's product code. Used to match items on re-import — without it, every re-import duplicates."],
-      ['Unit',        'Required',    'Pack size: case, lb, 24/12 OZ, etc.'],
+      ['Pack/Size',   'Required',    'Pack size: case, lb, 24/12 OZ, etc.'],
       ['Default Par', 'Optional',    'Default order quantity. Per-location pars set inside NEXUS.'],
       ['Note',        'Optional',    'Brand, allergen, prep notes.'],
       ['', '', ''],
@@ -7250,7 +7337,7 @@ Thanks for your help sorting this out.`;
           </div>
           <div class="ord-form-row-2">
             <div class="ord-form-field">
-              <label class="ord-form-label" for="qaddUnit">Unit</label>
+              <label class="ord-form-label" for="qaddUnit">Pack/Size</label>
               <input type="text" class="ord-form-input" id="qaddUnit" value="ea" placeholder="ea / cs / lb" autocomplete="off">
             </div>
             <div class="ord-form-field">
