@@ -13045,6 +13045,14 @@ function renderContractorActivityTab() {
 }
 
 function renderContractorEquipmentTab() {
+  // ─── BUGFIX 2026-05-08 ──────────────────────────────────────────────
+  // Earlier build referenced `c.name` inside renderEqRow without defining
+  // `c` here. Result: a ReferenceError mid-template-literal that aborted
+  // every render of this tab, so tapping the Equipment header tab in the
+  // contractor detail did nothing visible (Activity stayed shown). Pull
+  // the active contractor up here so renderEqRow can read its name for
+  // the per-row unassign tooltip without crashing.
+  const c = (contractorsState && contractorsState.activeContractor) || { name: 'this contractor' };
   const assigned = contractorsState.assignedEquipment || [];
   const historical = contractorsState.historicalEquipment || [];
 
