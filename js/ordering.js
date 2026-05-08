@@ -2290,8 +2290,15 @@
 
     const subject = `Issue with order ${orderShortId} — ${locLabel}${delivDate ? ' (' + delivDate + ')' : ''}`;
     const lines = (order.lines || []).filter(l => l.item_name);
+    // Match the order-send email's qty × name layout so the followup
+    // reads like a continuation of the original order. Pack size goes
+    // in parens, prettified the same way.
     const lineList = lines.length
-      ? '\n\nItems on this order:\n' + lines.map(l => `  [ ] ${l.qty || 0} ${l.unit || ''} — ${l.item_name}`).join('\n')
+      ? '\n\nItems on this order:\n' + lines.map(l => {
+          const pack = (l.unit || '').trim();
+          const prettyPack = pack ? prettyPackSize(pack).primary : '';
+          return `  [ ] ${l.qty || 0} \u00D7 ${l.item_name}${prettyPack ? ' (' + prettyPack + ')' : ''}`;
+        }).join('\n')
       : '';
 
     const body =
@@ -2993,6 +3000,62 @@ Thanks for your help sorting this out.`;
     }
   }
 
+  /**
+   * Extract the trailing "base unit" from a vendor pack-size string.
+   * Inputs follow the foodservice convention "<caseQty>/<unitSize> <UNIT>"
+   * (e.g. "3/1 GA", "6/32 OZ", "12/1 CT") or just a plain unit ("EA", "LB").
+   * Returns just the trailing unit word so par chips, totals, and inline
+   * stats can display in meaningful units instead of repeating the whole
+   * pack format. Falls back to 'ea' when nothing is provided.
+   */
+  function baseUnit(unitStr) {
+    if (!unitStr) return 'ea';
+    const s = String(unitStr).trim();
+    const m = s.match(/^\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?\s+(.+)$/);
+    if (m) return m[1].trim();
+    return s;
+  }
+
+  /**
+   * Format a vendor pack-size string into a readable two-line display.
+   * Returns { primary, secondary } so the right-edge column of an item
+   * row can render a clearer card than the raw "3/1 GA" the vendor sends.
+   *
+   * Examples (input → primary, secondary):
+   *   "3/1 GA"  → "3 × 1 GA",  "case"
+   *   "12/1 CT" → "12 × 1 CT", "case"
+   *   "6/32 OZ" → "6 × 32 OZ", "case"
+   *   "1/1 CT"  → "1 CT",      ""        (singular pack — drop the redundant "× 1")
+   *   "EA"      → "EA",        ""
+   *   ""        → "EA",        ""
+   *
+   * The user's mental model: "1 box, 3 gallons" — the case unit on top,
+   * the contents underneath. We invert that slightly because the vendor's
+   * "3" leads (it's the case quantity) and the unit follows. The "× 1"
+   * disambiguates how many of the unit are in each box.
+   */
+  function prettyPackSize(unitStr) {
+    if (!unitStr) return { primary: 'EA', secondary: '' };
+    const s = String(unitStr).trim();
+    const m = s.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s+(.+)$/);
+    if (!m) return { primary: s.toUpperCase(), secondary: '' };
+    const caseQty = parseFloat(m[1]);
+    const unitQty = parseFloat(m[2]);
+    const unit = m[3].trim().toUpperCase();
+    // Singular pack (one unit per case) — collapsing "1 × 1 CT" to just
+    // "1 CT" reads cleaner and matches how the eye reads it anyway.
+    if (caseQty === 1 && unitQty === 1) {
+      return { primary: `1 ${unit}`, secondary: '' };
+    }
+    if (caseQty === 1) {
+      return { primary: `${unitQty} ${unit}`, secondary: '' };
+    }
+    return {
+      primary: `${caseQty} × ${unitQty} ${unit}`,
+      secondary: 'case',
+    };
+  }
+
   /** Resolve par hint for an item on a given delivery date + location. */
   function parHintFor(item, deliveryDate, location) {
     const wk = weekdayOf(deliveryDate);
@@ -3014,7 +3077,15 @@ Thanks for your help sorting this out.`;
     if (qty == null && item.default_par_qty != null) qty = parseFloat(item.default_par_qty);
     if (qty == null || isNaN(qty)) return { qty: null, label: '' };
     const unit = item.unit || 'ea';
-    return { qty, label: `par: ${qty} ${unit}${wkLbl ? ' ' + wkLbl : ''}` };
+    // chipUnit uses the BASE unit (e.g. "GA" not "3/1 GA") so the par
+    // chip reads "PAR 5 GA" instead of nonsense "PAR 5 3/1 GA".
+    return {
+      qty,
+      label: `par: ${qty} ${unit}${wkLbl ? ' ' + wkLbl : ''}`,
+      chipQty:  qty,
+      chipUnit: baseUnit(unit),
+      chipDay:  wkLbl || '',
+    };
   }
 
   function mountEntryOverlay() {
@@ -3297,23 +3368,47 @@ Thanks for your help sorting this out.`;
         </div>`;
     }
     const qty = (line && line.qty) || 0;
+    // Meta line: alias, SKU, note. Par used to be in this line as
+    // "par: 5 GA Mon" — it's now broken out into a dedicated chip below
+    // so the user can see PAR + UNIT at a glance instead of hunting for
+    // it inside a comma-separated meta string.
     const meta = [];
     if (showVendorAlias)  meta.push(esc(vendorName));
     if (item.vendor_sku)  meta.push(`SKU ${esc(item.vendor_sku)}`);
-    if (hint.label)       meta.push(esc(hint.label));
     if (item.note)        meta.push(esc(item.note));
+
+    // Par chip — bottom-left of the main column, below the meta line.
+    // Empty when there's no par configured. Shows the day label ("Mon",
+    // "Tue") only when a per-weekday override is active for the
+    // delivery date, otherwise just "PAR 5 GA".
+    const parChip = (hint.chipQty != null) ? `
+      <div class="ord-item-par-chip" title="Target stock level">
+        <span class="ord-item-par-label">PAR</span>
+        <span class="ord-item-par-qty">${esc(String(hint.chipQty))}</span>
+        <span class="ord-item-par-unit">${esc(hint.chipUnit)}</span>
+        ${hint.chipDay ? `<span class="ord-item-par-day">· ${esc(hint.chipDay)}</span>` : ''}
+      </div>` : '';
+
+    // Pack-size column — split into a primary "3 × 1 GA" line and a
+    // muted "case" sub-line so the format is self-explaining at a glance.
+    const pack = prettyPackSize(item.unit);
+
     return `
       <div class="ord-item-row${qty > 0 ? ' has-qty' : ''}" data-item-id="${esc(item.id)}" data-item-name="${esc(searchKey)}">
         <div class="ord-item-main">
           <div class="ord-item-name">${esc(primary)}</div>
           ${meta.length ? `<div class="ord-item-meta">${meta.join(' · ')}</div>` : ''}
+          ${parChip}
         </div>
         <div class="ord-qty">
           <button class="ord-qty-btn" data-action="dec" aria-label="Decrease" ${readOnly ? 'disabled' : ''}>−</button>
           <input class="ord-qty-input" type="number" min="0" step="1" inputmode="numeric" value="${qty || ''}" placeholder="0" ${readOnly ? 'readonly' : ''}>
           <button class="ord-qty-btn" data-action="inc" aria-label="Increase" ${readOnly ? 'disabled' : ''}>+</button>
         </div>
-        <div class="ord-item-unit">${esc(item.unit || 'ea')}</div>
+        <div class="ord-item-unit">
+          <div class="ord-item-unit-pack">${esc(pack.primary)}</div>
+          ${pack.secondary ? `<div class="ord-item-unit-sub">${esc(pack.secondary)}</div>` : ''}
+        </div>
       </div>`;
   }
 
@@ -3722,12 +3817,12 @@ Thanks for your help sorting this out.`;
     const sampleLines =
       `PRODUCE  (2)\n\n` +
       `  4 \u00D7 Romaine Hearts, 24ct\n` +
-      `      1 CS \u00B7 #PFG-12345\n` +
+      `      24 \u00D7 1 EA \u00B7 #PFG-12345\n` +
       `  6 \u00D7 Tomatoes, slicing\n` +
-      `      lb \u00B7 #PFG-67890\n\n` +
+      `      LB \u00B7 #PFG-67890\n\n` +
       `DAIRY  (1)\n\n` +
       `  2 \u00D7 Whole Milk\n` +
-      `      1 GA \u00B7 #PFG-22100`;
+      `      4 \u00D7 1 GA \u00B7 #PFG-22100`;
     return defaultEmailBody(vendor, sampleCtx, sampleLines, '', 3);
   }
 
@@ -3793,13 +3888,20 @@ Thanks for your help sorting this out.`;
       }
       for (const l of items) {
         const qty = l.qty;
+        // Run the same pack-size prettifier the on-screen item rows use,
+        // so the email mirrors what the user picked from. Vendor strings
+        // like "3/1 GA" become "3 × 1 GA" — the slash that confused the
+        // user is replaced with a multiplication symbol that makes the
+        // case-of-N structure unambiguous. Singular packs ("1/1 CT")
+        // collapse to just "1 CT".
         const pack = (l.unit || '').trim();
+        const prettyPack = pack ? prettyPackSize(pack).primary : '';
         const sku = (l.vendor_sku || '').trim();
         // Build the meta line — pack and sku each conditional, joined
         // by middle dot when both present.
         let metaParts = [];
-        if (pack) metaParts.push(pack);
-        if (sku)  metaParts.push(`#${sku}`);
+        if (prettyPack) metaParts.push(prettyPack);
+        if (sku)        metaParts.push(`#${sku}`);
         const metaLine = metaParts.join(' \u00B7 ');
 
         linesText += `  ${qty} \u00D7 ${l.item_name}\n`;
