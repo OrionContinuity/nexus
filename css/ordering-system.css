@@ -8164,3 +8164,47 @@ body.ord-overlay-open .bottom-nav {
   .ord-item-par-chip { font-size: 10px; padding: 3px 8px 3px 6px; }
   .ord-item-par-qty { font-size: 11px; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   VENDOR ROW "⋮" MENU — ALWAYS VISIBLE — 2026-05-08
+   ════════════════════════════════════════════════════════════════════════════
+   The settings menu was reading as missing on PFG (and any vendor with a
+   gold-tinted has-draft / sent state) — likely a contrast issue where the
+   very-faint adjacent menu icon got visually washed out by the warm card
+   surface next to it. The render path always emits the button; the fix is
+   to make it visibly present at rest regardless of neighbor state.
+
+   Treatment: bump the resting color from --nx-faint to --nx-muted, give
+   the button a subtle visible border and surface color so it has a
+   definite footprint, and force display so it's never accidentally
+   hidden by a layout collapse. Hover/active still flips to gold to
+   reward intent. The card itself doesn't change — the brief was "I need
+   the card to stay the same."
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.ord-vendor-menu {
+  display: inline-flex !important;
+  flex-shrink: 0 !important;
+  width: 40px !important;
+  min-width: 40px !important;
+  color: var(--nx-muted, var(--nx-faint)) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: var(--nx-surface-1) !important;
+}
+.ord-vendor-menu:hover,
+.ord-vendor-menu:active,
+.ord-vendor-menu:focus-visible {
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-mist, var(--nx-surface-1))) !important;
+}
+[data-theme="light"] .ord-vendor-menu {
+  color: var(--nx-muted) !important;
+  border-color: var(--nx-gold-line) !important;
+  background: var(--nx-surface-1) !important;
+}
+[data-theme="light"] .ord-vendor-menu:hover,
+[data-theme="light"] .ord-vendor-menu:active {
+  color: var(--nx-gold-deep, var(--nx-gold)) !important;
+  border-color: var(--nx-gold-deep, var(--nx-gold)) !important;
+}
