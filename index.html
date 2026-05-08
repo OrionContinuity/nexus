@@ -1861,6 +1861,44 @@
   </div>
 </div>
 
+<!-- Equip speed-dial — same pattern as Duties dial. Opens when the
+     Equip bottom-nav button is tapped. Lets the user jump straight to
+     Equipment list, Parts library, or Archived equipment view. Wiring
+     is self-contained in an inline script at the bottom of this file
+     (since app.js's setupNav only knows about #dutiesDial). -->
+<div class="nx-speed-dial" id="equipDial" role="dialog" aria-label="Equip menu" aria-hidden="true">
+  <div class="nx-speed-dial-backdrop" data-dial-close></div>
+  <div class="nx-speed-dial-stack">
+    <button class="nx-speed-dial-action" data-equip-target="equipment" type="button" aria-label="Open Equipment">
+      <span class="nx-speed-dial-label">Equipment</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>
+        </svg>
+      </span>
+    </button>
+    <button class="nx-speed-dial-action" data-equip-target="parts" type="button" aria-label="Open Parts">
+      <span class="nx-speed-dial-label">Parts</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </span>
+    </button>
+    <button class="nx-speed-dial-action" data-equip-target="archive" type="button" aria-label="View Archived equipment">
+      <span class="nx-speed-dial-label">Archive</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="4" width="20" height="5" rx="1"/>
+          <path d="M4 9v11a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/>
+          <path d="M10 13h4"/>
+        </svg>
+      </span>
+    </button>
+  </div>
+</div>
+
 <!-- Bottom Navigation — mobile primary nav. "Brain" removed (NEXUS logo top-left handles that). -->
 <nav class="bottom-nav" id="bottomNav" role="navigation">
   <button class="bnav-btn bnav-btn-has-alt" data-view="clean" data-perm="clean" aria-label="Duties">
@@ -1868,7 +1906,7 @@
     <svg class="bnav-icon-alt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
     <span data-i18n="duties">Duties</span>
   </button>
-  <button class="bnav-btn" data-view="equipment" data-perm="equipment" aria-label="Equipment">
+  <button class="bnav-btn" data-view="equipment" data-perm="equipment" data-equip-dial="1" aria-label="Equipment">
     <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
     <span data-i18n="equipment">Equip</span>
   </button>
@@ -2846,13 +2884,11 @@
 <script src="js/i18n.js"></script>
 <script src="js/translate.js"></script>
 <script src="js/composer.js"></script>
-<!-- LOAD ORDER NOTE: record-editor.js MUST come AFTER app.js. The engine
-     attaches to the lexical `const NX` declared at the top of app.js, which
-     is NOT a property on window. If record-editor.js loads first, it falls
-     back to attaching itself to window.NX — a different object that nothing
-     else uses — and every Edit button silently fails with "NX.recordEditor
-     missing". Don't move this back above app.js. -->
 <script src="js/app.js"></script>
+<!-- record-editor.js MUST come AFTER app.js — the engine attaches to the
+     lexical `const NX` declared in app.js, which is not a property on
+     window. Loading order is the only way to make that binding visible
+     to the IIFE wrapper. -->
 <script src="js/record-editor.js"></script>
 <script src="js/daily-card.js"></script>
 <script src="js/home.js"></script>
@@ -3047,6 +3083,83 @@
       if (e.key === 'Escape' && overlay.classList.contains('nx-open')) closeOverlay();
     });
   }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+<!-- Equip speed-dial wiring — self-contained. Mirrors the Duties dial
+     pattern but doesn't depend on app.js (which only knows about
+     #dutiesDial). Tap Equip nav button → equipDial opens. Pick an
+     action → dial closes, that action fires. -->
+<script>
+(function() {
+  'use strict';
+  function init() {
+    const dial = document.getElementById('equipDial');
+    const btn  = document.querySelector('.bnav-btn[data-equip-dial]');
+    if (!dial || !btn) return;
+
+    function openDial() {
+      dial.setAttribute('aria-hidden', 'false');
+      dial.classList.add('is-open');
+    }
+    function closeDial() {
+      dial.classList.remove('is-open');
+      dial.setAttribute('aria-hidden', 'true');
+    }
+
+    // Open dial whenever the Equip nav is tapped. The default
+    // app.js setupNav handler still fires (which switches the view to
+    // equipment), so the dial appears with the equipment view dimming
+    // behind the backdrop. If the user picks "Equipment" they're
+    // already where they're going. Picks of Parts / Archive override.
+    btn.addEventListener('click', () => {
+      // Brief defer so the view-switch begins painting before the
+      // dial slides in — feels like layered rather than racing.
+      setTimeout(openDial, 40);
+    });
+
+    // Backdrop tap dismisses
+    dial.querySelector('[data-dial-close]')?.addEventListener('click', closeDial);
+
+    // Action dispatch
+    dial.querySelectorAll('.nx-speed-dial-action').forEach(action => {
+      action.addEventListener('click', () => {
+        const target = action.dataset.equipTarget;
+        closeDial();
+
+        if (target === 'parts') {
+          // openParts is exposed via NX.modules.equipment
+          if (window.NX?.modules?.equipment?.openParts) {
+            window.NX.modules.equipment.openParts();
+          } else {
+            console.warn('[equipDial] openParts not available');
+          }
+          return;
+        }
+
+        if (target === 'archive') {
+          // Set the archive filter to "only" via the existing chip,
+          // which goes through the same code path as a manual click.
+          // Defer slightly to let the equipment view finish its
+          // initial render — the chip won't exist until then.
+          const trySet = (attempt = 0) => {
+            const chip = document.querySelector('.eq-chip[data-filter="archived"][data-value="only"]');
+            if (chip) { chip.click(); return; }
+            if (attempt < 12) setTimeout(() => trySet(attempt + 1), 80);
+          };
+          trySet();
+          return;
+        }
+
+        // 'equipment' target — view is already loading, nothing to do
+      });
+    });
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
