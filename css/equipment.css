@@ -13223,3 +13223,58 @@ body.eq-bulk-mode .eq-row.is-selected::after {
   .eq-row-beacon { width: 20px; height: 20px; margin-left: 4px; }
   .eq-row-beacon .eq-lc-dot { width: 11px; height: 11px; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   CONTRACTOR DETAIL — LOCATION PROFILE PILL
+   ════════════════════════════════════════════════════════════════════════════
+   Mirrors the ordering module's .ord-loc-picker exactly so the two surfaces
+   feel like the same app. Same gold-line container, same gold-fill active
+   state, same padding and corner radius. Sits between the contractor head
+   and the summary stats card. The pill scopes equipment, activity, and the
+   four summary numbers to a single restaurant — switching is instant since
+   the data is already in memory; nothing reloads from Supabase.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.eq-contractor-loc-picker {
+  display: flex;
+  gap: 4px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  padding: 4px;
+  margin: 0 14px 12px;
+}
+
+.eq-contractor-loc-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nx-faint);
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+.eq-contractor-loc-btn:hover {
+  color: var(--nx-text);
+}
+.eq-contractor-loc-btn.active {
+  background: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+  box-shadow: 0 0 0 1px var(--nx-gold), 0 0 14px rgba(212, 164, 78, 0.32);
+}
+[data-theme="light"] .eq-contractor-loc-btn.active {
+  color: var(--surface);
+}
+
+/* Phone — keep all four pills on one line at narrow widths by tightening
+   horizontal padding. The labels are short ("All", "Suerte", "Este", "Toti")
+   so 9px each side is plenty. */
+@media (max-width: 420px) {
+  .eq-contractor-loc-btn { padding: 9px 9px; font-size: 12.5px; }
+}
