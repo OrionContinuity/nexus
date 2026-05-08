@@ -8166,30 +8166,53 @@ body.ord-overlay-open .bottom-nav {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   VENDOR ROW "⋮" MENU — ALWAYS VISIBLE — 2026-05-08
+   VENDOR ROW "⋮" MENU — ALWAYS VISIBLE v2 — 2026-05-08
    ════════════════════════════════════════════════════════════════════════════
-   The settings menu was reading as missing on PFG (and any vendor with a
-   gold-tinted has-draft / sent state) — likely a contrast issue where the
-   very-faint adjacent menu icon got visually washed out by the warm card
-   surface next to it. The render path always emits the button; the fix is
-   to make it visibly present at rest regardless of neighbor state.
+   v1 fix (visibility-only — color/border/background) didn't take. Real cause
+   is layout, not contrast: when a vendor's row has long preview text (like
+   "Sent · awaiting confirmation · deliver Mon, May 11"), the row's
+   intrinsic min-content width grows large enough that, combined with the
+   40px menu sibling and the wrap gap, it exceeds the wrap's available
+   width. The flex shrink rules then push the menu out of the visible area.
 
-   Treatment: bump the resting color from --nx-faint to --nx-muted, give
-   the button a subtle visible border and surface color so it has a
-   definite footprint, and force display so it's never accidentally
-   hidden by a layout collapse. Hover/active still flips to gold to
-   reward intent. The card itself doesn't change — the brief was "I need
-   the card to stay the same."
+   v2 strategy: take the menu OUT of flex flow entirely. The wrap becomes
+   the positioning anchor (it already has position: relative from earlier
+   styles), the menu absolutely-positions to the wrap's right edge, and
+   the wrap reserves 46px of right padding so the row never overlaps the
+   menu's slot. Now no matter how wide the row content is, the menu sits
+   at a fixed right offset and is always visible. The card itself does
+   NOT change — the brief was "I need the card to stay the same."
+
+   Drag-reorder mode (.is-reordering) opts out of the right padding because
+   no menu renders in that state — the drag handle on the LEFT replaces it.
    ════════════════════════════════════════════════════════════════════════════ */
 
+.ord-vendor-row-wrap {
+  position: relative !important;        /* already set in dragging-state CSS but make explicit */
+  padding-right: 46px;                  /* 40px menu + 6px gap from wrap edge */
+}
+.ord-vendor-row-wrap.is-reordering {
+  padding-right: 0;                     /* drag mode — no menu, no reserved space */
+}
 .ord-vendor-menu {
+  position: absolute !important;
+  right: 0 !important;
+  top: 50% !important;
+  transform: translateY(-50%);
   display: inline-flex !important;
-  flex-shrink: 0 !important;
+  align-items: center !important;
+  justify-content: center !important;
   width: 40px !important;
   min-width: 40px !important;
+  /* Match the row's vertical footprint minus a tiny inset so the gold-
+     line border doesn't visually crowd the row's border. */
+  height: calc(100% - 16px) !important;
+  min-height: 56px;
   color: var(--nx-muted, var(--nx-faint)) !important;
   border: 1px solid var(--nx-gold-line) !important;
   background: var(--nx-surface-1) !important;
+  border-radius: 12px !important;
+  z-index: 2;
 }
 .ord-vendor-menu:hover,
 .ord-vendor-menu:active,
