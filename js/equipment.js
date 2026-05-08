@@ -169,7 +169,7 @@ const ZEBRA_BP_URL = 'http://localhost:9100';
 
 // Module state
 let equipment = [];
-let activeFilter = { location: 'all', status: 'all', category: 'all', pm: 'all' };
+let activeFilter = { location: LOCATIONS[0], status: 'all', category: 'all', pm: 'all' };
 let viewMode = 'list';          // 'list' | 'grid'
 let currentEquipId = null;
 let searchQuery = '';
@@ -296,19 +296,19 @@ function buildUI() {
         </button>
       </div>
 
-      <!-- Location chips: top-priority filter for someone walking between 3
-           restaurants. Always visible, large tap targets, count badge per
-           location so you can see at a glance how much equipment lives where. -->
-      <div class="eq-location-bar" id="eqLocationBar">
-        ${['all', ...LOCATIONS].map(loc => {
-          const count = loc === 'all'
-            ? equipment.length
-            : equipment.filter(e => e.location === loc).length;
+      <!-- Location profile selector — three pills matching the ordering
+           module's profile picker. Tapping a pill switches the entire
+           equipment view to that restaurant's gear. Big tap targets,
+           gold-glow active state, mirrors the same pattern used in
+           ordering for cross-module visual consistency. -->
+      <div class="eq-loc-picker" id="eqLocationBar" role="tablist" aria-label="Location">
+        ${LOCATIONS.map(loc => {
+          // Display label trims "Bar " prefix so the three pills read
+          // as "Suerte / Este / Toti" — visually balanced and matches
+          // ordering's ergonomic short labels.
+          const label = loc.replace(/^Bar\s+/i, '');
           return `
-            <button class="eq-loc-chip ${activeFilter.location === loc ? 'active' : ''}" data-filter="location" data-value="${esc(loc)}">
-              <span class="eq-loc-chip-name">${loc === 'all' ? 'All locations' : esc(loc)}</span>
-              <span class="eq-loc-chip-count">${count}</span>
-            </button>
+            <button class="eq-loc-btn${activeFilter.location === loc ? ' active' : ''}" data-filter="location" data-value="${esc(loc)}" role="tab" aria-selected="${activeFilter.location === loc ? 'true' : 'false'}">${esc(label)}</button>
           `;
         }).join('')}
       </div>
@@ -399,10 +399,13 @@ function buildUI() {
     });
   });
 
-  // Wire the prominent top location chips (separate styling, same logic).
-  view.querySelectorAll('.eq-loc-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      activeFilter[chip.dataset.filter] = chip.dataset.value;
+  // Wire the location profile pills at the top of the equipment view.
+  // Scoped to #eqLocationBar so it doesn't catch the .eq-loc-btn buttons
+  // inside the relocate modal (which has the same class but different
+  // wire-up semantics — they need data-loc, not data-filter).
+  view.querySelectorAll('#eqLocationBar .eq-loc-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeFilter[btn.dataset.filter] = btn.dataset.value;
       buildUI();
     });
   });
@@ -586,9 +589,9 @@ function buildListRow(e) {
           <div class="eq-row-name">${esc(e.name)}</div>
           <div class="eq-row-when ${pmCls}">${esc(pmLabel || '—')}</div>
         </div>
-        ${sub ? `<div class="eq-row-sub">${sub}</div>` : ''}
-        <div class="eq-row-beacon-line">
+        <div class="eq-row-meta">
           ${lifecycleStatusPill(e, 'sm')}
+          ${sub ? `<span class="eq-row-sub">${sub}</span>` : ''}
         </div>
       </div>
       <div class="eq-row-arrow" aria-hidden="true">›</div>
