@@ -4901,6 +4901,15 @@ Thanks for your help sorting this out.`;
         </div>
         ${!isUncat ? `
           <button class="ved-section-rename-btn" data-section="${esc(sec)}" aria-label="Rename section ${esc(sec)}">${editIcon()}</button>
+          <button class="ved-section-delete-btn" data-section-delete="${esc(sec)}" aria-label="Delete section ${esc(sec)}" title="Delete section + all items in it">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6"/>
+              <path d="M14 11v6"/>
+              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
         ` : ''}
         <button class="ved-section-collapse" data-section="${esc(sec)}" type="button" aria-expanded="${!isCollapsed}" aria-label="${isCollapsed ? 'Expand' : 'Collapse'} section ${esc(sec || 'uncategorized')}">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -5218,6 +5227,18 @@ Thanks for your help sorting this out.`;
         const sec = btn.dataset.section || '';
         catalogState.pendingSections = (catalogState.pendingSections || []).filter(s => s !== sec);
         renderItemsAreaOnly();
+      });
+    });
+
+    // Section delete (populated sections) — nukes section + all items.
+    // Two-step confirm inside deleteSection() guards the destructive
+    // path. FK-safe: order_lines pointing at deleted items get
+    // detached first so order history stays readable.
+    list.querySelectorAll('.ved-section-delete-btn[data-section-delete]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sec = btn.dataset.sectionDelete || '';
+        deleteSection(sec);
       });
     });
 
@@ -5845,6 +5866,22 @@ Thanks for your help sorting this out.`;
     if (!it) return;
     if (!confirm(`Delete "${it.item_name}"?`)) return;
     try {
+      // 1) Detach order_lines that reference this item. Without this,
+      // a FK constraint on order_lines.item_id blocks the delete when
+      // the item appears in any draft / sent / confirmed / delivered
+      // order. order_lines store item_name and vendor_sku denormalized,
+      // so nulling item_id keeps order history fully readable while
+      // letting us drop the catalog row.
+      await NX.sb.from('order_lines')
+        .update({ item_id: null })
+        .eq('item_id', itemId);
+
+      // 2) Drop any per-location pars rows for this item (FK to items)
+      await NX.sb.from('order_guide_pars')
+        .delete()
+        .eq('item_id', itemId);
+
+      // 3) Now safe to delete the catalog row itself
       const { error } = await NX.sb.from('order_guide_items')
         .delete().eq('id', itemId);
       if (error) throw error;
@@ -5858,6 +5895,62 @@ Thanks for your help sorting this out.`;
     } catch (e) {
       console.error('[ordering] deleteItem:', e);
       if (NX.toast) NX.toast('Failed to delete', 'error');
+    }
+  }
+
+  /* Delete an entire section + every item in it. Two-step confirm
+     because this is destructive: a single click could nuke 30+
+     catalog items at once. Same FK-safe pattern as deleteItem —
+     nulls out order_lines first so historical orders stay readable. */
+  async function deleteSection(sectionName) {
+    if (!catalogState || !catalogState.vendor || !NX.sb) return;
+    const sec = sectionName || '';
+    const itemsInSection = catalogState.items.filter(i => (i.section || '') === sec);
+    if (itemsInSection.length === 0) {
+      // Empty section — just drop the pending placeholder if present
+      catalogState.pendingSections = (catalogState.pendingSections || []).filter(s => s !== sec);
+      renderItemsAreaOnly();
+      return;
+    }
+    const label = sec || 'Uncategorized';
+    if (!confirm(`Delete section "${label}" and all ${itemsInSection.length} item${itemsInSection.length === 1 ? '' : 's'} in it?\n\nThis cannot be undone. Order history will remain readable.`)) return;
+    if (itemsInSection.length >= 10) {
+      // Second confirm for large sections — guards against fat-finger
+      if (!confirm(`Really delete ${itemsInSection.length} items? Last chance.`)) return;
+    }
+    try {
+      const itemIds = itemsInSection.map(i => i.id);
+
+      // 1) Detach order_lines referencing any of these items
+      await NX.sb.from('order_lines')
+        .update({ item_id: null })
+        .in('item_id', itemIds);
+
+      // 2) Drop per-location pars rows
+      await NX.sb.from('order_guide_pars')
+        .delete()
+        .in('item_id', itemIds);
+
+      // 3) Delete the catalog rows
+      const { error } = await NX.sb.from('order_guide_items')
+        .delete()
+        .in('id', itemIds);
+      if (error) throw error;
+
+      // Update local state
+      catalogState.items = catalogState.items.filter(i => (i.section || '') !== sec);
+      catalogState.pendingSections = (catalogState.pendingSections || []).filter(s => s !== sec);
+      catalogState.collapsedSections.delete(sec);
+      if (catalogState.renamingSection === sec) catalogState.renamingSection = null;
+      if (vendors._itemCounts) {
+        vendors._itemCounts[catalogState.vendor.id] = Math.max(0, (vendors._itemCounts[catalogState.vendor.id] || itemIds.length) - itemIds.length);
+      }
+
+      renderCatalog();
+      if (NX.toast) NX.toast(`Section "${label}" deleted (${itemIds.length} item${itemIds.length === 1 ? '' : 's'})`, 'info', 1800);
+    } catch (e) {
+      console.error('[ordering] deleteSection:', e);
+      if (NX.toast) NX.toast('Failed to delete section', 'error');
     }
   }
 
