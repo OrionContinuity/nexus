@@ -9085,6 +9085,14 @@ function toggleOverflow(event, equipId) {
   // New version: capture-phase listeners on both click and touchstart,
   // explicit add/remove (no { once: true }), and a closer that stays
   // in place until an actual outside tap happens.
+  //
+  // BUGFIX 2026-05-08: the menu was rendering BEHIND the cards in the
+  // detail body. Cause: the parent .eq-detail-actions has overflow-x:
+  // auto, which per CSS spec coerces overflow-y from `visible` to `auto`
+  // — so anything popping UPWARD out of the action bar (this menu) gets
+  // clipped to the bar's bounds. Fix: when opening, compute the button's
+  // viewport rect and switch the menu to position:fixed with bottom/right
+  // anchored to the viewport, escaping the parent's clipping box.
   if (event) {
     event.stopPropagation();
     event.preventDefault();
@@ -9092,16 +9100,60 @@ function toggleOverflow(event, equipId) {
   const menu = document.getElementById('eqOverflow-' + equipId);
   if (!menu) return;
   const isOpen = menu.classList.contains('active');
+
+  // Wipe inline positioning styles so a previously-positioned menu falls
+  // back cleanly when re-opened, and so closed menus don't leave behind
+  // stale fixed-coords that could fight with CSS the next time we open.
+  const clearPos = (m) => {
+    m.style.position = '';
+    m.style.top      = '';
+    m.style.left     = '';
+    m.style.right    = '';
+    m.style.bottom   = '';
+    m.style.zIndex   = '';
+  };
+
   // Close any other open overflows so we don't stack two open menus.
   document.querySelectorAll('.eq-overflow-menu.active').forEach(m => {
-    if (m !== menu) m.classList.remove('active');
+    if (m !== menu) {
+      m.classList.remove('active');
+      clearPos(m);
+    }
   });
   if (isOpen) {
     // Toggle: was open, close it now.
     menu.classList.remove('active');
+    clearPos(menu);
     return;
   }
   menu.classList.add('active');
+
+  // Reposition: anchor to viewport coords so we escape parent overflow.
+  // We look up the trigger button by walking up to .eq-overflow-wrap and
+  // grabbing its first <button> child — covers both .eq-overflow-btn-v2
+  // (current detail-action layout) and .eq-overflow-btn (legacy callers).
+  const wrap = menu.parentElement;
+  const btn  = wrap ? wrap.querySelector('button') : null;
+  if (btn) {
+    const rect = btn.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    // bottom = distance from viewport bottom to (button top - 8px gap).
+    // This makes the menu sit just above the ⋯ button.
+    menu.style.bottom   = (window.innerHeight - rect.top + 8) + 'px';
+    // right-anchor so the menu's right edge aligns with the button's
+    // right edge. Works for buttons in either corner of the action bar.
+    menu.style.right    = (window.innerWidth - rect.right) + 'px';
+    menu.style.left     = 'auto';
+    menu.style.top      = 'auto';
+    // High z-index ensures we float above the detail body, the modal
+    // backdrop, and any other overlays sharing this stacking context.
+    menu.style.zIndex   = '10000';
+    // Cap height to the available space above the button so a menu with
+    // many items can scroll internally rather than extend off-screen.
+    const maxH = Math.max(120, rect.top - 16);
+    menu.style.maxHeight = maxH + 'px';
+    menu.style.overflowY = 'auto';
+  }
 
   // Outside-tap closer. Capture phase (third arg = true) so it sees
   // every event regardless of stopPropagation handlers on children.
@@ -9110,6 +9162,9 @@ function toggleOverflow(event, equipId) {
   const close = (e) => {
     if (menu.contains(e.target)) return;
     menu.classList.remove('active');
+    clearPos(menu);
+    menu.style.maxHeight = '';
+    menu.style.overflowY = '';
     document.removeEventListener('click',     close, true);
     document.removeEventListener('touchstart', close, true);
   };
