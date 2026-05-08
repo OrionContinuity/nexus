@@ -89,27 +89,33 @@
 
 /* Location picker — three small pills (Este / Toti / Suerte). The
    active one is gold-filled. Sits next to the title. */
+/* ─── Location pill picker — the primary "profile selector".
+   Tapping a pill switches the active restaurant: vendor email lists,
+   per-location team names, recent orders, all swap to that location's
+   profile. Bigger size + bolder treatment than a typical sub-filter
+   reflects that this is an identity-level switch, not a filter. */
 .ord-loc-picker {
   display: flex;
   gap: 4px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
   border-radius: 999px;
-  padding: 3px;
+  padding: 4px;
 }
 
 .ord-loc-btn {
   background: transparent;
   border: none;
   border-radius: 999px;
-  padding: 6px 12px;
+  padding: 9px 18px;
   font-family: 'Outfit', sans-serif;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--nx-faint);
   cursor: pointer;
-  transition: background .15s, color .15s;
+  letter-spacing: 0.02em;
   -webkit-tap-highlight-color: transparent;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 
 .ord-loc-btn:hover {
@@ -119,6 +125,7 @@
 .ord-loc-btn.active {
   background: var(--nx-gold);
   color: var(--nx-gold-on, #1c1408);
+  box-shadow: 0 0 0 1px var(--nx-gold), 0 0 14px rgba(212, 164, 78, 0.32);
 }
 
 [data-theme="light"] .ord-loc-btn.active {
@@ -7446,4 +7453,202 @@ body.ord-overlay-open .bottom-nav {
 @keyframes ord-vendor-flash {
   0%   { background: var(--nx-gold-mist, rgba(212, 164, 78, 0.18)); }
   100% { background: transparent; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   VENDOR EDITOR — per-location scope banner
+   ─────────────────────────────────────────────────────────────────────
+   Surfaces at the top of the Recipients card to make crystal clear that
+   CC/BCC/Other are PER-LOCATION (each restaurant is its own profile).
+   When the active vendor has other-location customizations, the banner
+   adds a hint so the user knows there are slices they're not seeing.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.rx-loc-scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.08));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.3));
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--nx-text);
+}
+.rx-loc-scope-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--nx-gold);
+}
+.rx-loc-scope-text strong {
+  color: var(--nx-gold);
+  font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PER-LOCATION SCHEDULE — custom override toggle UX
+   ─────────────────────────────────────────────────────────────────────
+   The Schedule card has TWO modes of editing: "default" (changes apply
+   to every location that doesn't have a custom override) and "custom for
+   [Loc]" (changes apply only to the active location's slice). The
+   visual treatment makes the mode obvious so users know what their
+   edits will affect.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Banner variant: customized state gets gold-emphasis border so it's
+   visually distinct from the default-mode banner. */
+.rx-loc-scope.rx-sched-scope {
+  margin-bottom: 12px;
+}
+.rx-loc-scope.rx-sched-scope.is-custom {
+  background: var(--nx-gold-mist, rgba(212, 164, 78, 0.13));
+  border-color: var(--nx-gold);
+}
+
+/* Toggle row: button group sitting between the banner and the inputs. */
+.rx-sched-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.rx-sched-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.3));
+  color: var(--nx-text);
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.rx-sched-toggle-btn:hover {
+  border-color: var(--nx-gold);
+}
+.rx-sched-toggle-btn.is-active {
+  background: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+  border-color: var(--nx-gold);
+}
+.rx-sched-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px dashed var(--nx-gold-line, rgba(212, 164, 78, 0.3));
+  color: var(--nx-faint);
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+.rx-sched-reset-btn:hover {
+  color: var(--nx-text);
+  border-color: var(--nx-gold);
+}
+
+/* Default-mode summary: compact info box showing what the vendor's
+   default schedule actually IS, so the user can see what they'd be
+   overriding. Hides when user toggles into custom mode. */
+.rx-sched-default-summary {
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.16));
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rx-sched-default-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+}
+.rx-sched-default-label {
+  color: var(--nx-faint);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.rx-sched-default-value {
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-weight: 500;
+  text-align: right;
+}
+.rx-sched-default-hint {
+  margin-top: 2px;
+  color: var(--nx-faint);
+  font-size: 11.5px;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+/* When in custom-override mode, fields get a subtle gold accent on the
+   left edge — visual signal that "edits here go into the override slice." */
+.rx-form-field.is-editing-override {
+  position: relative;
+  padding-left: 12px;
+  border-left: 2px solid var(--nx-gold);
+  margin-left: -12px;
+  padding-right: 4px;
+}
+.rx-form-field.is-editing-override::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--nx-gold);
+  box-shadow: 0 0 8px rgba(212, 164, 78, 0.5);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   AVAILABILITY CARD — location pills
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.rx-loc-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rx-loc-availability-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 18px;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.3));
+  color: var(--nx-faint);
+  border-radius: 999px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.rx-loc-availability-pill:hover {
+  color: var(--nx-text);
+  border-color: var(--nx-gold);
+}
+.rx-loc-availability-pill.active {
+  background: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+  border-color: var(--nx-gold);
+  box-shadow: 0 0 14px rgba(212, 164, 78, 0.25);
 }
