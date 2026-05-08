@@ -7652,3 +7652,369 @@ body.ord-overlay-open .bottom-nav {
   border-color: var(--nx-gold);
   box-shadow: 0 0 14px rgba(212, 164, 78, 0.25);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   TRANSACTIONS — full-history subscreen
+   ─────────────────────────────────────────────────────────────────────
+   Full-screen overlay accessed from "View all transactions →" on the
+   home pulse. Shows every order at the active location with status
+   pills, search, time-grouped list, and pagination. Designed so the
+   same shape can be reused for cleaning's history view and any other
+   duty module — pill bar at top, time-grouped list below.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Entry-point link below the home recent pulse */
+.ord-recent-tx-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 14px 18px;
+  background: transparent;
+  border: 1px dashed var(--nx-gold-line, rgba(212, 164, 78, 0.3));
+  border-radius: 12px;
+  color: var(--nx-faint);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+.ord-recent-tx-link:hover {
+  color: var(--nx-gold);
+  border-color: var(--nx-gold);
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.06));
+}
+.ord-recent-tx-link-arrow {
+  display: inline-block;
+  transition: transform 140ms ease;
+}
+.ord-recent-tx-link:hover .ord-recent-tx-link-arrow {
+  transform: translateX(2px);
+}
+
+/* Overlay shell — fade backdrop + sliding sheet */
+.ord-tx-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  pointer-events: none;
+}
+.ord-tx-overlay.is-open {
+  pointer-events: auto;
+}
+.ord-tx-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(12, 9, 5, 0.6);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.ord-tx-overlay.is-open .ord-tx-backdrop {
+  opacity: 1;
+}
+.ord-tx-sheet {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--nx-bg, #faf7f1);
+  display: flex;
+  flex-direction: column;
+  transform: translateY(20px);
+  opacity: 0;
+  transition: transform 220ms ease, opacity 200ms ease;
+  overflow: hidden;
+}
+.ord-tx-overlay.is-open .ord-tx-sheet {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* Header — sticky at top with back button + title + location subtitle */
+.ord-tx-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.16));
+  flex-shrink: 0;
+}
+.ord-tx-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.25));
+  border-radius: 50%;
+  color: var(--nx-text);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+.ord-tx-back:hover {
+  border-color: var(--nx-gold);
+  color: var(--nx-gold);
+}
+.ord-tx-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ord-tx-title {
+  margin: 0;
+  font-family: 'Outfit', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--nx-text);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.ord-tx-loc-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--nx-faint);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+/* Status pill bar — horizontal scroll if it overflows. Sits above the
+   search bar, below the header. Each pill carries a count badge. */
+.ord-tx-pills {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 10px 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  flex-shrink: 0;
+}
+.ord-tx-pills::-webkit-scrollbar { display: none; }
+.ord-tx-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 7px 12px;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.28));
+  border-radius: 999px;
+  color: var(--nx-faint);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.ord-tx-pill:hover {
+  border-color: var(--nx-gold);
+  color: var(--nx-text);
+}
+.ord-tx-pill.active {
+  background: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+  border-color: var(--nx-gold);
+}
+[data-theme="light"] .ord-tx-pill.active { color: var(--surface); }
+.ord-tx-pill-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  background: var(--nx-surface-1);
+  border-radius: 999px;
+  color: var(--nx-faint);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ord-tx-pill.active .ord-tx-pill-count {
+  background: rgba(28, 20, 8, 0.18);
+  color: var(--nx-gold-on, #1c1408);
+}
+
+/* Search bar */
+.ord-tx-search-wrap {
+  padding: 0 16px 10px;
+  flex-shrink: 0;
+}
+.ord-tx-search {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-radius: 10px;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.ord-tx-search::placeholder { color: var(--nx-faint); }
+.ord-tx-search:focus {
+  outline: none;
+  border-color: var(--nx-gold);
+}
+
+/* List body — scrollable */
+.ord-tx-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 16px 24px;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+}
+.ord-tx-list.is-loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.ord-tx-loading,
+.ord-tx-empty,
+.ord-tx-end {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--nx-faint);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+}
+.ord-tx-end {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  padding: 24px 16px;
+}
+
+/* Time-bucket dividers — gold mono labels matching the home pulse */
+.ord-tx-divider {
+  margin: 18px 0 8px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--nx-faint);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+.ord-tx-divider:first-child { margin-top: 4px; }
+
+/* Transaction row — compact 2-line card with avatar, vendor name +
+   short ID on top, status meta below, chevron on right. */
+.ord-tx-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin: 0 0 6px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.16));
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 140ms ease, transform 80ms ease;
+  font-family: inherit;
+  color: inherit;
+}
+.ord-tx-row:hover {
+  border-color: var(--nx-gold-line, rgba(212, 164, 78, 0.4));
+}
+.ord-tx-row:active {
+  transform: scale(0.997);
+}
+.ord-tx-row-avatar {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ord-tx-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ord-tx-row-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.ord-tx-row-vendor {
+  flex: 1;
+  min-width: 0;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--nx-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+.ord-tx-row-shortid {
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--nx-faintest, rgba(0, 0, 0, 0.32));
+  letter-spacing: 0.4px;
+}
+.ord-tx-row-meta {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--nx-faint);
+  letter-spacing: 0.3px;
+}
+.ord-tx-row-deliv,
+.ord-tx-row-when {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Load more button at the bottom of the list */
+.ord-tx-load-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin: 16px 0 8px;
+  padding: 12px;
+  background: transparent;
+  border: 1px dashed var(--nx-gold-line, rgba(212, 164, 78, 0.3));
+  border-radius: 10px;
+  color: var(--nx-faint);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+.ord-tx-load-more:hover {
+  color: var(--nx-gold);
+  border-color: var(--nx-gold);
+}
