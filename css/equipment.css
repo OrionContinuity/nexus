@@ -13278,3 +13278,288 @@ body.eq-bulk-mode .eq-row.is-selected::after {
 @media (max-width: 420px) {
   .eq-contractor-loc-btn { padding: 9px 9px; font-size: 12.5px; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   LIFECYCLE BEACON OVERHAUL — 2026-05-08
+   ════════════════════════════════════════════════════════════════════════════
+   The original "all-gold lightbulb" metaphor (every state rendered in gold;
+   only the intensity and animation distinguished them) didn't survive
+   contact with light mode — when the cream surface and the dots are both
+   warm-toned, every beacon read as the same blob. This overhaul keeps the
+   editorial brand restraint but assigns each lifecycle state its own hue
+   so a glance at a list of equipment instantly says which units are
+   healthy, which need attention, and which are critical. The brand colors
+   are still the source — green/red/blue/amber from nx-system, with light-
+   mode-tuned versions promoted up front for legibility on the cream
+   surface. No new colors were introduced.
+
+   New color logic:
+     operational      → green   (healthy, alive, pulses)
+     needs_service    → amber   (attention)
+     down/broken      → red     (critical, struggle animation)
+     reported         → fresh   (urgent, freshly logged)
+     contractor_called→ blue    (in motion)
+     eta_set          → blue    (scheduled, blinks)
+     in_progress      → blue    (working — dimmer)
+     awaiting_parts   → fresh   (back-burner — dimmer)
+     missing          → fresh   (where is it)
+     loaned/relocated → muted   (out of building)
+     retired          → fainter (end of life)
+
+   In the DETAIL HEADER (.eq-detail-status), the pill chrome is stripped —
+   no border, no background, no glow — leaving just a beacon dot and a
+   clean uppercase label. The state color does what the border was doing.
+   This is the user's "make it just a beacon with the description of
+   status" ask.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --eq-state-ok:        #9c8a3e;                     /* olive bronze — alive */
+  --eq-state-warn:      #d4a44e;                     /* gold/amber — attention */
+  --eq-state-crit:      #a83e3e;                     /* oxblood — critical */
+  --eq-state-fresh:     #d6912e;                     /* safety orange — urgent */
+  --eq-state-info:      #6b7a8a;                     /* steel blue — in motion */
+  --eq-state-muted:     #6e6a5a;                     /* warm gray — sidelined */
+  --eq-state-retired:   #4a4638;                     /* deep gray — done */
+}
+[data-theme="light"] {
+  --eq-state-ok:        #4f7027;                     /* deeper olive — pops on cream */
+  --eq-state-warn:      #b8842a;                     /* deep gold */
+  --eq-state-crit:      #7c2d2d;                     /* dark oxblood */
+  --eq-state-fresh:     #c4811f;                     /* deep orange */
+  --eq-state-info:      #2c5aa0;                     /* royal blue */
+  --eq-state-muted:     #8a8474;                     /* warm gray */
+  --eq-state-retired:   #b8b0a0;                     /* faint warm gray */
+}
+
+/* ─── Per-state DOTS (.eq-lc-dot) ──────────────────────────────────── */
+.eq-lc-dot.is-operational {
+  background: var(--eq-state-ok);
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 8px var(--eq-state-ok),
+              0 0 16px var(--eq-state-ok);
+  animation: eq-lc-pulse-dot 2.4s ease-in-out infinite;
+}
+.eq-lc-dot.is-needs-service {
+  background: var(--eq-state-warn);
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 6px var(--eq-state-warn);
+  animation: none;
+}
+.eq-lc-dot.is-down {
+  background: var(--eq-state-crit);
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 8px var(--eq-state-crit),
+              0 0 16px var(--eq-state-crit);
+  animation: eq-lc-struggle-dot 5.2s steps(1, end) infinite;
+}
+.eq-lc-dot.is-reported {
+  background: var(--eq-state-fresh);
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 8px var(--eq-state-fresh);
+  animation: eq-lc-glow-quick 1.6s ease-in-out infinite;
+}
+.eq-lc-dot.is-called {
+  background: var(--eq-state-info);
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 6px var(--eq-state-info);
+}
+.eq-lc-dot.is-eta {
+  background: var(--eq-state-info);
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 6px var(--eq-state-info);
+  animation: eq-lc-eta-blink 2.8s ease-in-out infinite;
+}
+.eq-lc-dot.is-in-progress {
+  background: var(--eq-state-info);
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 5px var(--eq-state-info);
+  opacity: 0.78;
+  animation: none;
+}
+.eq-lc-dot.is-awaiting {
+  background: var(--eq-state-fresh);
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 4px var(--eq-state-fresh);
+  opacity: 0.72;
+}
+.eq-lc-dot.is-missing {
+  background: var(--eq-state-fresh);
+  box-shadow: 0 0 0 2px var(--nx-bg);
+  opacity: 0.85;
+}
+.eq-lc-dot.is-muted {
+  background: var(--eq-state-muted);
+  box-shadow: 0 0 0 2px var(--nx-bg);
+  opacity: 0.62;
+}
+.eq-lc-dot.is-retired {
+  background: var(--eq-state-retired);
+  box-shadow: 0 0 0 2px var(--nx-bg);
+  opacity: 0.55;
+}
+
+/* ─── Light-mode dot tuning ────────────────────────────────────────────
+   Slightly larger and with brighter glow halos so dots stay legible on
+   the cream surface. The brand colors are darker in light mode, so the
+   halo does the visibility work that the saturated dark-mode colors
+   were doing on their own. */
+[data-theme="light"] .eq-lc-dot,
+[data-theme="light"] .eq-row-beacon .eq-lc-dot {
+  width: 12px;
+  height: 12px;
+}
+[data-theme="light"] .eq-lc-dot.is-operational {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 6px rgba(79, 112, 39, 0.65),
+              0 0 14px rgba(79, 112, 39, 0.40);
+}
+[data-theme="light"] .eq-lc-dot.is-down {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 7px rgba(124, 45, 45, 0.60),
+              0 0 14px rgba(124, 45, 45, 0.40);
+}
+[data-theme="light"] .eq-lc-dot.is-needs-service {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 6px rgba(184, 132, 42, 0.55);
+}
+[data-theme="light"] .eq-lc-dot.is-reported {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 7px rgba(196, 129, 31, 0.60);
+}
+[data-theme="light"] .eq-lc-dot.is-eta,
+[data-theme="light"] .eq-lc-dot.is-called,
+[data-theme="light"] .eq-lc-dot.is-in-progress {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 6px rgba(44, 90, 160, 0.55);
+}
+
+/* ─── Per-state PILLS (.eq-lc-pill) ───────────────────────────────────
+   Same color logic as the dots, applied to the pill chrome. The label
+   text inherits the state color via `color`; the dot inherits via
+   `background: currentColor` from earlier in the cascade. */
+.eq-lc-pill.is-operational {
+  background: rgba(156, 138, 62, 0.14);
+  color: var(--eq-state-ok);
+  border-color: rgba(156, 138, 62, 0.45);
+  box-shadow: 0 0 0 1px rgba(156, 138, 62, 0.18),
+              0 0 22px rgba(156, 138, 62, 0.32);
+  animation: eq-lc-glow 3.6s ease-in-out infinite;
+}
+[data-theme="light"] .eq-lc-pill.is-operational {
+  background: rgba(79, 112, 39, 0.08);
+  color: var(--eq-state-ok);
+  border-color: rgba(79, 112, 39, 0.42);
+  box-shadow: 0 0 0 1px rgba(79, 112, 39, 0.20),
+              0 0 16px rgba(79, 112, 39, 0.22);
+}
+.eq-lc-pill.is-needs-service {
+  background: rgba(212, 164, 78, 0.10);
+  color: var(--eq-state-warn);
+  border-color: rgba(212, 164, 78, 0.40);
+}
+[data-theme="light"] .eq-lc-pill.is-needs-service {
+  background: rgba(184, 132, 42, 0.08);
+  color: var(--eq-state-warn);
+  border-color: rgba(184, 132, 42, 0.40);
+}
+.eq-lc-pill.is-down {
+  background: rgba(168, 62, 62, 0.10);
+  color: var(--eq-state-crit);
+  border-color: rgba(168, 62, 62, 0.45);
+  box-shadow: 0 0 10px rgba(168, 62, 62, 0.22);
+  animation: eq-lc-struggle 5.2s steps(1, end) infinite;
+}
+[data-theme="light"] .eq-lc-pill.is-down {
+  background: rgba(124, 45, 45, 0.06);
+  color: var(--eq-state-crit);
+  border-color: rgba(124, 45, 45, 0.35);
+}
+.eq-lc-pill.is-reported {
+  background: rgba(214, 145, 46, 0.12);
+  color: var(--eq-state-fresh);
+  border-color: rgba(214, 145, 46, 0.45);
+}
+[data-theme="light"] .eq-lc-pill.is-reported {
+  background: rgba(196, 129, 31, 0.08);
+  color: var(--eq-state-fresh);
+  border-color: rgba(196, 129, 31, 0.40);
+}
+.eq-lc-pill.is-called,
+.eq-lc-pill.is-eta,
+.eq-lc-pill.is-in-progress {
+  background: rgba(107, 122, 138, 0.10);
+  color: var(--eq-state-info);
+  border-color: rgba(107, 122, 138, 0.40);
+}
+[data-theme="light"] .eq-lc-pill.is-called,
+[data-theme="light"] .eq-lc-pill.is-eta,
+[data-theme="light"] .eq-lc-pill.is-in-progress {
+  background: rgba(44, 90, 160, 0.06);
+  color: var(--eq-state-info);
+  border-color: rgba(44, 90, 160, 0.38);
+}
+.eq-lc-pill.is-awaiting,
+.eq-lc-pill.is-missing {
+  background: rgba(214, 145, 46, 0.06);
+  color: var(--eq-state-fresh);
+  border-color: rgba(214, 145, 46, 0.30);
+}
+.eq-lc-pill.is-muted {
+  background: var(--nx-surface-2);
+  color: var(--eq-state-muted);
+  border-color: var(--nx-border);
+  opacity: 0.85;
+}
+.eq-lc-pill.is-retired {
+  background: var(--nx-surface-2);
+  color: var(--eq-state-retired);
+  border-color: var(--nx-border);
+  opacity: 0.7;
+}
+
+/* ─── DETAIL HEADER — strip the pill chrome ──────────────────────────
+   The user wanted the equipment-detail status to read as a beacon with
+   a description, not a chip. Remove border/background/glow on the pill
+   when it lives inside .eq-detail-status, leaving the colored dot to
+   carry the visual weight. The dot is enlarged (14px) and its glow is
+   amped up so it reads as the obvious indicator. The label keeps its
+   editorial uppercase mono treatment. */
+.eq-detail-status .eq-lc-pill {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 6px 4px !important;
+  animation: none !important;
+  gap: 10px;
+}
+.eq-detail-status .eq-lc-pill-dot {
+  width: 14px !important;
+  height: 14px !important;
+  box-shadow: 0 0 8px currentColor,
+              0 0 18px currentColor !important;
+}
+.eq-detail-status .eq-lc-pill.is-operational .eq-lc-pill-dot {
+  animation: eq-lc-pulse-dot 2.4s ease-in-out infinite;
+}
+.eq-detail-status .eq-lc-pill.is-down .eq-lc-pill-dot {
+  animation: eq-lc-struggle-dot 5.2s steps(1, end) infinite;
+}
+.eq-detail-status .eq-lc-pill.is-reported .eq-lc-pill-dot {
+  animation: eq-lc-glow-quick 1.6s ease-in-out infinite;
+}
+.eq-detail-status .eq-lc-pill.is-eta .eq-lc-pill-dot {
+  animation: eq-lc-eta-blink 2.8s ease-in-out infinite;
+}
+.eq-detail-status .eq-lc-pill-label {
+  font-size: 12px !important;
+  font-weight: 600;
+  letter-spacing: 1.6px;
+}
+.eq-detail-status .eq-lc-pill-time {
+  /* Keep the time tag, but lose the divider line that pill chrome had */
+  border-left-color: rgba(0, 0, 0, 0.15) !important;
+}
+[data-theme="light"] .eq-detail-status .eq-lc-pill-time {
+  border-left-color: rgba(0, 0, 0, 0.20) !important;
+}
