@@ -12191,3 +12191,372 @@ body.eq-bulk-mode .eq-row.is-selected::after {
   align-self: center;
   margin-top: 0;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EQUIPMENT ACTIVITY — per-equipment Timeline tab + global Log overlay
+   ─────────────────────────────────────────────────────────────────────
+   Two surfaces share these styles:
+     1. Activity tab inside the equipment detail view (per-equipment)
+     2. Global "Equipment Activity" overlay (per-location, all equipment)
+
+   Both use the same row markup so visual scanning is consistent — gold
+   icon column, summary line, meta line. Group classes
+   (eq-act-row-status, -location, -archive, -pm, etc.) tint the icon
+   column subtly so users can scan event types at a glance.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Per-equipment Activity tab — clean chronological list */
+.eq-act-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0 12px;
+}
+
+.eq-act-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.16));
+  border-radius: 10px;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.eq-act-row-clickable {
+  cursor: pointer;
+  transition: border-color 140ms ease, transform 80ms ease;
+}
+.eq-act-row-clickable:hover {
+  border-color: var(--nx-gold-line, rgba(212, 164, 78, 0.4));
+}
+.eq-act-row-clickable:active { transform: scale(0.998); }
+
+.eq-act-icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.10));
+  border-radius: 50%;
+  color: var(--nx-gold);
+  margin-top: 2px;
+}
+
+/* Group tints — subtle background variations on the icon disc */
+.eq-act-row-status   .eq-act-icon { background: rgba(212, 164, 78, 0.14); }
+.eq-act-row-location .eq-act-icon { background: rgba(96, 165, 250, 0.14); color: #6193e6; }
+.eq-act-row-archive  .eq-act-icon { background: rgba(180, 180, 180, 0.18); color: #8a8a8a; }
+.eq-act-row-pm       .eq-act-icon { background: rgba(74, 168, 102, 0.18); color: #5fae84; }
+.eq-act-row-edit     .eq-act-icon { background: rgba(212, 164, 78, 0.10); }
+.eq-act-row-create   .eq-act-icon { background: rgba(74, 168, 102, 0.18); color: #5fae84; }
+.eq-act-row-other    .eq-act-icon { background: rgba(212, 164, 78, 0.08); color: var(--nx-faint); }
+
+.eq-act-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.eq-act-summary {
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  color: var(--nx-text);
+  line-height: 1.35;
+  word-break: break-word;
+}
+.eq-act-summary b {
+  font-weight: 600;
+  color: var(--nx-gold);
+}
+.eq-act-summary .eq-act-name {
+  font-weight: 600;
+  color: var(--nx-text);
+}
+
+.eq-act-meta {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--nx-faint);
+  letter-spacing: 0.3px;
+}
+
+.eq-act-arrow {
+  flex-shrink: 0;
+  align-self: center;
+  color: var(--nx-faint);
+  font-size: 18px;
+  line-height: 1;
+  padding-left: 4px;
+}
+
+/* "View all activity →" link below the equipment list */
+.eq-act-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin: 14px 0 0;
+  padding: 14px 18px;
+  background: transparent;
+  border: 1px dashed var(--nx-gold-line, rgba(212, 164, 78, 0.3));
+  border-radius: 12px;
+  color: var(--nx-faint);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+.eq-act-link:hover {
+  color: var(--nx-gold);
+  border-color: var(--nx-gold);
+  background: var(--nx-gold-faint, rgba(212, 164, 78, 0.06));
+}
+.eq-act-link-arrow {
+  display: inline-block;
+  transition: transform 140ms ease;
+}
+.eq-act-link:hover .eq-act-link-arrow {
+  transform: translateX(2px);
+}
+
+/* ─── Global Equipment Activity overlay ──────────────────────────── */
+
+.eq-act-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  pointer-events: none;
+}
+.eq-act-overlay.is-open { pointer-events: auto; }
+
+.eq-act-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(12, 9, 5, 0.6);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.eq-act-overlay.is-open .eq-act-backdrop { opacity: 1; }
+
+.eq-act-sheet {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--nx-bg, #faf7f1);
+  display: flex;
+  flex-direction: column;
+  transform: translateY(20px);
+  opacity: 0;
+  transition: transform 220ms ease, opacity 200ms ease;
+  overflow: hidden;
+}
+.eq-act-overlay.is-open .eq-act-sheet {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.eq-act-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.16));
+  flex-shrink: 0;
+}
+.eq-act-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.25));
+  border-radius: 50%;
+  color: var(--nx-text);
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+.eq-act-back:hover {
+  border-color: var(--nx-gold);
+  color: var(--nx-gold);
+}
+.eq-act-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.eq-act-title {
+  margin: 0;
+  font-family: 'Outfit', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--nx-text);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.eq-act-loc-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--nx-faint);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.eq-act-pills {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 10px 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  flex-shrink: 0;
+}
+.eq-act-pills::-webkit-scrollbar { display: none; }
+.eq-act-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 7px 12px;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.28));
+  border-radius: 999px;
+  color: var(--nx-faint);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.eq-act-pill:hover {
+  border-color: var(--nx-gold);
+  color: var(--nx-text);
+}
+.eq-act-pill.active {
+  background: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+  border-color: var(--nx-gold);
+}
+[data-theme="light"] .eq-act-pill.active { color: var(--surface); }
+.eq-act-pill-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  background: var(--nx-surface-1);
+  border-radius: 999px;
+  color: var(--nx-faint);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.eq-act-pill.active .eq-act-pill-count {
+  background: rgba(28, 20, 8, 0.18);
+  color: var(--nx-gold-on, #1c1408);
+}
+
+.eq-act-search-wrap {
+  padding: 0 16px 10px;
+  flex-shrink: 0;
+}
+.eq-act-search {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-radius: 10px;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.eq-act-search::placeholder { color: var(--nx-faint); }
+.eq-act-search:focus {
+  outline: none;
+  border-color: var(--nx-gold);
+}
+
+.eq-act-list-wrap {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 16px 24px;
+  -webkit-overflow-scrolling: touch;
+}
+.eq-act-list-wrap.is-loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.eq-act-loading,
+.eq-act-empty,
+.eq-act-end {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--nx-faint);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+}
+.eq-act-end {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  padding: 24px 16px;
+}
+
+.eq-act-divider {
+  margin: 18px 0 8px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--nx-faint);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+.eq-act-divider:first-child { margin-top: 4px; }
+
+.eq-act-load-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin: 16px 0 8px;
+  padding: 12px;
+  background: transparent;
+  border: 1px dashed var(--nx-gold-line, rgba(212, 164, 78, 0.3));
+  border-radius: 10px;
+  color: var(--nx-faint);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+.eq-act-load-more:hover {
+  color: var(--nx-gold);
+  border-color: var(--nx-gold);
+}
