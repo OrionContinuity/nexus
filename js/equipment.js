@@ -711,12 +711,26 @@ function buildUI() {
     <div class="eq-header">
       <div class="eq-title-row">
         <h2 class="eq-title"><span class="eq-title-icon">${uiSvg('wrench', '20px')}</span> Equipment</h2>
-        <div class="eq-actions">
-          <button class="eq-btn eq-btn-primary eq-ai-create-btn" id="eqAiCreateBtn" title="AI create equipment from photo or description"><span class="eq-action-icon">${uiSvg('sparkles', '14px')}</span> AI Create</button>
-          <button class="eq-btn eq-btn-secondary eq-zebra-header-btn" id="eqZebraHeaderBtn" title="Print labels on Zebra printer">Zebra</button>
-          <button class="eq-btn eq-btn-secondary" id="eqPrintQRs" title="Print QR sticker sheet">${uiSvg('qr', '14px')} QR Sheet</button>
-          <button class="eq-btn eq-btn-secondary" id="eqAddBtn">+ Manual</button>
+        <!-- Location profile selector — top-right placement matches the
+             ordering module's pill picker exactly. Class renamed to
+             .eq-loc-tabs to dodge a collision with an older
+             .eq-loc-picker rule used by the relocate modal (which sets
+             flex-direction: column). -->
+        <div class="eq-loc-tabs" id="eqLocationBar" role="tablist" aria-label="Location">
+          ${LOCATIONS.map(loc => {
+            const label = loc.replace(/^Bar\s+/i, '');
+            return `
+              <button class="eq-loc-tab${activeFilter.location === loc ? ' active' : ''}" data-filter="location" data-value="${esc(loc)}" role="tab" aria-selected="${activeFilter.location === loc ? 'true' : 'false'}">${esc(label)}</button>
+            `;
+          }).join('')}
         </div>
+      </div>
+
+      <div class="eq-actions eq-actions-row">
+        <button class="eq-btn eq-btn-primary eq-ai-create-btn" id="eqAiCreateBtn" title="AI create equipment from photo or description"><span class="eq-action-icon">${uiSvg('sparkles', '14px')}</span> AI Create</button>
+        <button class="eq-btn eq-btn-secondary eq-zebra-header-btn" id="eqZebraHeaderBtn" title="Print labels on Zebra printer">Zebra</button>
+        <button class="eq-btn eq-btn-secondary" id="eqPrintQRs" title="Print QR sticker sheet">${uiSvg('qr', '14px')} QR Sheet</button>
+        <button class="eq-btn eq-btn-secondary" id="eqAddBtn">+ Manual</button>
       </div>
 
       <div class="eq-tools-row" id="eqToolsRow">
@@ -736,23 +750,6 @@ function buildUI() {
           <span class="eq-tool-icon">${uiSvg('star', '14px')}</span>
           <span class="eq-tool-label">Brands</span>
         </button>
-      </div>
-
-      <!-- Location profile selector — three pills matching the ordering
-           module's profile picker. Tapping a pill switches the entire
-           equipment view to that restaurant's gear. Big tap targets,
-           gold-glow active state, mirrors the same pattern used in
-           ordering for cross-module visual consistency. -->
-      <div class="eq-loc-picker" id="eqLocationBar" role="tablist" aria-label="Location">
-        ${LOCATIONS.map(loc => {
-          // Display label trims "Bar " prefix so the three pills read
-          // as "Suerte / Este / Toti" — visually balanced and matches
-          // ordering's ergonomic short labels.
-          const label = loc.replace(/^Bar\s+/i, '');
-          return `
-            <button class="eq-loc-btn${activeFilter.location === loc ? ' active' : ''}" data-filter="location" data-value="${esc(loc)}" role="tab" aria-selected="${activeFilter.location === loc ? 'true' : 'false'}">${esc(label)}</button>
-          `;
-        }).join('')}
       </div>
 
       <div class="eq-search-row">
@@ -842,10 +839,9 @@ function buildUI() {
   });
 
   // Wire the location profile pills at the top of the equipment view.
-  // Scoped to #eqLocationBar so it doesn't catch the .eq-loc-btn buttons
-  // inside the relocate modal (which has the same class but different
-  // wire-up semantics — they need data-loc, not data-filter).
-  view.querySelectorAll('#eqLocationBar .eq-loc-btn').forEach(btn => {
+  // Scoped to #eqLocationBar so it doesn't catch other .eq-loc-tab
+  // buttons that might exist in modals/overlays elsewhere.
+  view.querySelectorAll('#eqLocationBar .eq-loc-tab').forEach(btn => {
     btn.addEventListener('click', () => {
       activeFilter[btn.dataset.filter] = btn.dataset.value;
       buildUI();
