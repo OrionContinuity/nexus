@@ -12072,55 +12072,77 @@ body.eq-bulk-mode .eq-row.is-selected::after {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   EQUIPMENT — LOCATION PROFILE PICKER
+   EQUIPMENT — LOCATION PROFILE PICKER (top-right of title row)
    ─────────────────────────────────────────────────────────────────────
    Three-pill profile selector matching the ordering module's pattern.
    Tapping a pill switches the entire equipment view to that
-   restaurant. Big tap targets, gold-glow active state. Visually
-   identical to .ord-loc-picker so the two modules feel like one app.
-   Replaces the older .eq-location-bar / .eq-loc-chip system which
-   used count-badge chips (kept in CSS as legacy but unused here).
+   restaurant. Renamed from .eq-loc-picker to .eq-loc-tabs to dodge a
+   collision with an older .eq-loc-picker rule (used by the relocate
+   modal) that sets flex-direction: column. Explicit flex-direction
+   below ensures the pills always render as a horizontal row even if
+   the cascade picks up a stray rule from elsewhere.
    ═══════════════════════════════════════════════════════════════════════ */
 
-.eq-loc-picker {
-  display: flex;
+.eq-loc-tabs {
+  display: inline-flex;
+  flex-direction: row;        /* explicit — beats any cascade override */
+  align-items: center;
   gap: 4px;
   background: var(--nx-surface-1);
   border: 1px solid var(--nx-gold-line);
   border-radius: 999px;
   padding: 4px;
-  margin: 4px auto 12px;
-  width: max-content;
-  max-width: 100%;
+  flex-shrink: 0;             /* don't let the title squish the pills */
+  white-space: nowrap;
 }
 
-.eq-loc-btn {
+.eq-loc-tab {
   background: transparent;
   border: none;
   border-radius: 999px;
-  padding: 9px 18px;
+  padding: 8px 16px;
   font-family: 'Outfit', sans-serif;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--nx-faint);
   cursor: pointer;
   letter-spacing: 0.02em;
   -webkit-tap-highlight-color: transparent;
   transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+  white-space: nowrap;
 }
 
-.eq-loc-btn:hover {
+.eq-loc-tab:hover {
   color: var(--nx-text);
 }
 
-.eq-loc-btn.active {
+.eq-loc-tab.active {
   background: var(--nx-gold);
   color: var(--nx-gold-on, #1c1408);
   box-shadow: 0 0 0 1px var(--nx-gold), 0 0 14px rgba(212, 164, 78, 0.32);
 }
 
-[data-theme="light"] .eq-loc-btn.active {
+[data-theme="light"] .eq-loc-tab.active {
   color: var(--surface);
+}
+
+/* Title row layout — title left, pills right. Wrap on very narrow
+   viewports so nothing gets clipped; in normal mobile the row fits. */
+.eq-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* Action buttons row — moved out of .eq-title-row so they don't fight
+   the pills for horizontal space. Wraps naturally on narrow viewports. */
+.eq-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
