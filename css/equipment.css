@@ -13563,3 +13563,156 @@ body.eq-bulk-mode .eq-row.is-selected::after {
 [data-theme="light"] .eq-detail-status .eq-lc-pill-time {
   border-left-color: rgba(0, 0, 0, 0.20) !important;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   BEACON BOOST — 2026-05-08
+   ════════════════════════════════════════════════════════════════════════════
+   First overhaul (per-state colors) made beacons distinguishable by hue but
+   user said the dots are still not bright enough — needs bigger dot, more
+   prominent glow halo. This boost layer doubles down on visibility:
+
+     • Dots scale up (12px dark / 14px light, was 10/12)
+     • Glow halos extend to 24-30px outer radius with stronger alpha
+     • Halo colors saturate the brand hue with a higher rgba opacity
+     • Multiple layered shadows create a "torch" quality (close + far glow)
+
+   Both modes get the boost. Lives at the end of the file so it overrides
+   the prior color section's halo defaults via cascade order.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Default dot dimensions — bumped from 10px */
+.eq-lc-dot {
+  width: 12px;
+  height: 12px;
+}
+[data-theme="light"] .eq-lc-dot,
+[data-theme="light"] .eq-row-beacon .eq-lc-dot {
+  width: 14px;
+  height: 14px;
+}
+
+/* ─── Brighter, larger halos per state ──────────────────────────────── */
+.eq-lc-dot.is-operational {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 10px var(--eq-state-ok),
+              0 0 22px rgba(156, 138, 62, 0.85),
+              0 0 36px rgba(156, 138, 62, 0.50);
+}
+[data-theme="light"] .eq-lc-dot.is-operational {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 10px rgba(79, 112, 39, 0.95),
+              0 0 22px rgba(79, 112, 39, 0.65),
+              0 0 36px rgba(79, 112, 39, 0.35);
+}
+
+.eq-lc-dot.is-needs-service {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 10px var(--eq-state-warn),
+              0 0 22px rgba(212, 164, 78, 0.80),
+              0 0 32px rgba(212, 164, 78, 0.45);
+}
+[data-theme="light"] .eq-lc-dot.is-needs-service {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 10px rgba(184, 132, 42, 0.90),
+              0 0 22px rgba(184, 132, 42, 0.55),
+              0 0 32px rgba(184, 132, 42, 0.30);
+}
+
+.eq-lc-dot.is-down {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 10px var(--eq-state-crit),
+              0 0 22px rgba(168, 62, 62, 0.85),
+              0 0 36px rgba(168, 62, 62, 0.55);
+}
+[data-theme="light"] .eq-lc-dot.is-down {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 10px rgba(124, 45, 45, 0.95),
+              0 0 22px rgba(124, 45, 45, 0.70),
+              0 0 36px rgba(124, 45, 45, 0.40);
+}
+
+.eq-lc-dot.is-reported {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 12px var(--eq-state-fresh),
+              0 0 24px rgba(214, 145, 46, 0.85),
+              0 0 36px rgba(214, 145, 46, 0.50);
+}
+[data-theme="light"] .eq-lc-dot.is-reported {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 12px rgba(196, 129, 31, 0.95),
+              0 0 24px rgba(196, 129, 31, 0.65),
+              0 0 36px rgba(196, 129, 31, 0.35);
+}
+
+.eq-lc-dot.is-called,
+.eq-lc-dot.is-eta,
+.eq-lc-dot.is-in-progress {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 10px var(--eq-state-info),
+              0 0 22px rgba(107, 122, 138, 0.80),
+              0 0 32px rgba(107, 122, 138, 0.45);
+}
+[data-theme="light"] .eq-lc-dot.is-called,
+[data-theme="light"] .eq-lc-dot.is-eta,
+[data-theme="light"] .eq-lc-dot.is-in-progress {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 10px rgba(44, 90, 160, 0.90),
+              0 0 22px rgba(44, 90, 160, 0.60),
+              0 0 32px rgba(44, 90, 160, 0.32);
+}
+
+.eq-lc-dot.is-awaiting,
+.eq-lc-dot.is-missing {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 8px var(--eq-state-fresh),
+              0 0 18px rgba(214, 145, 46, 0.55);
+  opacity: 0.85;
+}
+[data-theme="light"] .eq-lc-dot.is-awaiting,
+[data-theme="light"] .eq-lc-dot.is-missing {
+  box-shadow: 0 0 0 2px var(--nx-bg),
+              0 0 8px rgba(196, 129, 31, 0.70),
+              0 0 18px rgba(196, 129, 31, 0.40);
+  opacity: 0.85;
+}
+
+/* Muted/retired stay subtle — they should NOT glow because they're
+   sidelined states; a glow would say "look at me" when the message
+   is "this isn't in service." */
+.eq-lc-dot.is-muted,
+.eq-lc-dot.is-retired {
+  box-shadow: 0 0 0 2px var(--nx-bg);
+}
+
+/* ─── Make the row-list beacon container give the halo room ────────── */
+.eq-row-beacon {
+  /* The halo extends ~36px beyond the dot. Give the slot enough room so
+     the glow doesn't get clipped at the row's right edge. The dot stays
+     centered visually; the slot just allows visual breathing room. */
+  width: 36px !important;
+  min-width: 36px;
+}
+
+/* ─── Detail-header beacon: torch-grade glow ───────────────────────── */
+.eq-detail-status .eq-lc-pill-dot {
+  width: 16px !important;
+  height: 16px !important;
+}
+.eq-detail-status .eq-lc-pill.is-operational .eq-lc-pill-dot {
+  box-shadow: 0 0 12px currentColor,
+              0 0 24px currentColor,
+              0 0 40px currentColor !important;
+}
+.eq-detail-status .eq-lc-pill.is-down .eq-lc-pill-dot,
+.eq-detail-status .eq-lc-pill.is-reported .eq-lc-pill-dot,
+.eq-detail-status .eq-lc-pill.is-needs-service .eq-lc-pill-dot {
+  box-shadow: 0 0 10px currentColor,
+              0 0 22px currentColor,
+              0 0 36px currentColor !important;
+}
+.eq-detail-status .eq-lc-pill.is-eta .eq-lc-pill-dot,
+.eq-detail-status .eq-lc-pill.is-called .eq-lc-pill-dot,
+.eq-detail-status .eq-lc-pill.is-in-progress .eq-lc-pill-dot {
+  box-shadow: 0 0 10px currentColor,
+              0 0 22px currentColor !important;
+}
