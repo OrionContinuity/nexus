@@ -1865,15 +1865,19 @@
      Equip bottom-nav button is tapped. Lets the user jump straight to
      Equipment list, Parts library, or Archived equipment view. Wiring
      is self-contained in an inline script at the bottom of this file
-     (since app.js's setupNav only knows about #dutiesDial). -->
+     (since app.js's setupNav only knows about #dutiesDial).
+     Order is intentional: most-used (Equipment) sits at the BOTTOM
+     closest to the nav button so it's the easiest thumb target. -->
 <div class="nx-speed-dial" id="equipDial" role="dialog" aria-label="Equip menu" aria-hidden="true">
   <div class="nx-speed-dial-backdrop" data-dial-close></div>
   <div class="nx-speed-dial-stack">
-    <button class="nx-speed-dial-action" data-equip-target="equipment" type="button" aria-label="Open Equipment">
-      <span class="nx-speed-dial-label">Equipment</span>
+    <button class="nx-speed-dial-action" data-equip-target="archive" type="button" aria-label="View Archived equipment">
+      <span class="nx-speed-dial-label">Archive</span>
       <span class="nx-speed-dial-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>
+          <rect x="2" y="4" width="20" height="5" rx="1"/>
+          <path d="M4 9v11a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/>
+          <path d="M10 13h4"/>
         </svg>
       </span>
     </button>
@@ -1886,13 +1890,11 @@
         </svg>
       </span>
     </button>
-    <button class="nx-speed-dial-action" data-equip-target="archive" type="button" aria-label="View Archived equipment">
-      <span class="nx-speed-dial-label">Archive</span>
+    <button class="nx-speed-dial-action" data-equip-target="equipment" type="button" aria-label="Open Equipment">
+      <span class="nx-speed-dial-label">Equipment</span>
       <span class="nx-speed-dial-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="2" y="4" width="20" height="5" rx="1"/>
-          <path d="M4 9v11a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/>
-          <path d="M10 13h4"/>
+          <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>
         </svg>
       </span>
     </button>
