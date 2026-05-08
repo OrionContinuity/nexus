@@ -271,6 +271,80 @@ function groupBySection(items) {
   return { groups, order };
 }
 
+/**
+ * Two-level grouper: equipment.category as the OUTER bucket, equipment.section
+ * as the INNER. Categories follow the canonical CATEGORIES array order so the
+ * surface reads consistently across locations and sort modes (Refrigeration
+ * always comes before HVAC, etc.). Inner-section order within each category
+ * follows the same first-appearance vs alphabetical rule as the flat grouper
+ * keyed off sortMode.
+ *
+ * Returns:
+ *   { cats: Map<categoryKey, {
+ *       items: [],                          // every row in this category
+ *       byInner: Map<sectionName, items>,   // sub-buckets keyed by section
+ *       innerOrder: [sectionName, …]        // sorted section order
+ *     }>,
+ *     order: [categoryKey, …]               // category render order
+ *   }
+ *
+ * Equipment with a missing/null category is bucketed under 'other'. This
+ * matches the implicit fallback used by buildListRow's catIcon call site —
+ * the data shouldn't ever be missing in practice, but keeping the bucket
+ * stable means a single bad row won't ghost into a phantom outer card.
+ */
+function groupByCategoryThenSection(items) {
+  const cats = new Map();
+  for (const e of items) {
+    const cat = ((e.category || 'other').trim() || 'other');
+    if (!cats.has(cat)) cats.set(cat, { items: [], byInner: new Map() });
+    const bucket = cats.get(cat);
+    bucket.items.push(e);
+    const sec = (e.section || '').trim();
+    if (!bucket.byInner.has(sec)) bucket.byInner.set(sec, []);
+    bucket.byInner.get(sec).push(e);
+  }
+  // Outer category render order — canonical CATEGORIES list, only including
+  // categories that actually have items. Unknown keys (schema drift) get
+  // appended at the end so we don't silently drop data.
+  const known = CATEGORIES.map(c => c.key);
+  const presentUnknown = [...cats.keys()].filter(k => !known.includes(k));
+  const order = [
+    ...known.filter(k => cats.has(k)),
+    ...presentUnknown,
+  ];
+  // Inner section order — per-category, follows sortMode rules.
+  for (const [, bucket] of cats) {
+    const firstAppearance = [];
+    const seen = new Set();
+    for (const e of bucket.items) {
+      const sec = (e.section || '').trim();
+      if (!seen.has(sec)) { seen.add(sec); firstAppearance.push(sec); }
+    }
+    if (sortMode === 'custom') {
+      bucket.innerOrder = firstAppearance;
+    } else {
+      bucket.innerOrder = firstAppearance.slice().sort((a, b) => {
+        if (a === '' && b !== '') return -1;
+        if (b === '' && a !== '') return 1;
+        return a.localeCompare(b);
+      });
+    }
+  }
+  return { cats, order };
+}
+
+// Collapse-state key helpers for the two-level grouper. Outer category
+// keys are prefixed with "__cat:" so they can never collide with a
+// user-typed section name. Inner keys are namespaced "<cat>::<section>"
+// so the same section name appearing under two different categories
+// (e.g. a "Bar" section under both Refrigeration and Beverage) gets two
+// independent collapse states. Old flat-section keys still live in
+// localStorage from the previous build — they're harmless leftovers
+// that don't match any new key, and they get pruned on the next rename.
+function _catCollapseKey(catKey)            { return `__cat:${catKey}`; }
+function _innerCollapseKey(catKey, secName) { return `${catKey}::${secName}`; }
+
 /* ════════════════════════════════════════════════════════════════════
    EQUIPMENT EVENT LOGGING
    ────────────────────────────────────────────────────────────────────
@@ -962,7 +1036,7 @@ function buildUI() {
    no section appears in the list).
    ════════════════════════════════════════════════════════════════════ */
 
-async function promptRenameSection(oldSec) {
+async function promptRenameSection(oldSec, categoryKey = null) {
   const oldLabel = oldSec || 'Uncategorized';
   const next = prompt(`Rename section "${oldLabel}":`, oldSec || '');
   if (next === null) return;                     // user cancelled
@@ -971,35 +1045,55 @@ async function promptRenameSection(oldSec) {
 
   // Reject merging into an existing non-empty section in v1 — too
   // easy to accidentally collapse two distinct groups together.
-  // The user has to first move items out, then rename. Empty/nonexistent
-  // target sections are fine (regular rename).
+  // Scoped to the same category (when categoryKey is given) so the
+  // user CAN have a "Bar" section under both Refrigeration and Beverage
+  // — they're distinct buckets in the two-level grouper.
+  const matchesCat = (e) => !categoryKey || ((e.category || 'other') === categoryKey);
   const targetExists = equipment.some(e =>
     (e.location === activeFilter.location || activeFilter.location === 'all') &&
-    (e.section || '') === trimmed && trimmed !== oldSec
+    (e.section || '') === trimmed && trimmed !== oldSec &&
+    matchesCat(e)
   );
   if (targetExists) {
-    if (NX.toast) NX.toast(`A section called "${trimmed}" already exists. Move items there manually if you meant to merge.`, 'warn', 3000);
+    if (NX.toast) NX.toast(`A section called "${trimmed}" already exists in this category. Move items there manually if you meant to merge.`, 'warn', 3000);
     return;
   }
 
   try {
-    // Bulk-update every equipment row in the old section at this location.
-    // Scoped to the active location so renaming "Hot Line" at Suerte
-    // doesn't accidentally rename "Hot Line" at Este.
+    // Bulk-update every equipment row in the old section at this location
+    // AND in this category. Scoping to category prevents cross-category
+    // bleed when the same section name lives under two different ones.
     const locFilter = activeFilter.location && activeFilter.location !== 'all'
       ? { location: activeFilter.location } : {};
     let q = NX.sb.from('equipment').update({ section: trimmed }).eq('section', oldSec);
     if (locFilter.location) q = q.eq('location', locFilter.location);
+    if (categoryKey)        q = q.eq('category', categoryKey);
     const { error } = await q;
     if (error) throw error;
 
-    // Update local cache. Carry over collapsed state to the new name.
+    // Update local cache.
     for (const e of equipment) {
-      if ((!locFilter.location || e.location === locFilter.location) && (e.section || '') === oldSec) {
+      if ((!locFilter.location || e.location === locFilter.location)
+          && (e.section || '') === oldSec
+          && matchesCat(e)) {
         e.section = trimmed;
       }
     }
-    if (collapsedSections.has(oldSec)) {
+    // Carry over collapsed state under the new namespaced inner key.
+    // Old key: "<cat>::<oldSec>" → New key: "<cat>::<trimmed>". When
+    // trimmed is empty (rename to "Uncategorized") we just drop the
+    // collapse — the empty inner section will likely be flat-rendered
+    // anyway and won't have its own collapse target.
+    if (categoryKey) {
+      const oldKey = _innerCollapseKey(categoryKey, oldSec);
+      const newKey = _innerCollapseKey(categoryKey, trimmed);
+      if (collapsedSections.has(oldKey)) {
+        collapsedSections.delete(oldKey);
+        if (trimmed) collapsedSections.add(newKey);
+        saveCollapsedState();
+      }
+    } else if (collapsedSections.has(oldSec)) {
+      // Legacy fallback for the old flat-grouper key shape.
       collapsedSections.delete(oldSec);
       if (trimmed) collapsedSections.add(trimmed);
       saveCollapsedState();
@@ -1223,13 +1317,16 @@ function renderList() {
   if (viewMode === 'grid') {
     list.innerHTML = filtered.map(e => buildGridCard(e)).join('');
   } else {
-    // Sort, then group by section. Each section renders as a
-    // collapsible card holder — header (name + count + collapse +
-    // rename) on top, equipment cards inside. Sections themselves
-    // are NEVER deletable; they vanish only when every equipment
-    // row in them is moved elsewhere.
+    // Sort, then two-level group: outer = category (fixed enum), inner =
+    // section (user-named text). Outer category cards are not renameable
+    // since the category set is a closed enum — only inner sections
+    // expose the rename pencil. When a category contains exactly one
+    // un-named ("Uncategorized") inner section, we render the rows flat
+    // inside the category card to avoid the redundant "Uncategorized"
+    // sub-header that shows up when the user hasn't bothered naming
+    // anything yet.
     const sorted = applySortMode(filtered);
-    const { groups, order } = groupBySection(sorted);
+    const { cats, order: catOrder } = groupByCategoryThenSection(sorted);
 
     // Sort mode picker — small pill bar above the list. Custom is
     // default. Other modes don't change the section grouping, just
@@ -1248,29 +1345,63 @@ function renderList() {
         `).join('')}
       </div>`;
 
-    list.innerHTML = sortPickerHTML + order.map(sec => {
-      const secItems = groups.get(sec) || [];
-      const isCollapsed = collapsedSections.has(sec);
+    const renderInnerSection = (catKey, sec, items) => {
+      const innerKey = _innerCollapseKey(catKey, sec);
+      const isInnerCollapsed = collapsedSections.has(innerKey);
       const safeSec = esc(sec);
-      // Note: NO delete button — sections die only when emptied via
-      // moving their equipment elsewhere. Rename is the only edit
-      // verb on a section header. Collapse persists per-location.
+      const safeKey = esc(innerKey);
+      // Inner sections keep the existing rename + collapse machinery
+      // but data-cat is now carried so the rename writes are scoped
+      // to a single category — important when "Bar" exists under both
+      // Refrigeration and Beverage and the user only wants to rename one.
       return `
-        <section class="eq-section${isCollapsed ? ' is-collapsed' : ''}" data-section="${safeSec}">
-          <header class="eq-section-head" data-section="${safeSec}">
-            <span class="eq-section-name" data-section="${safeSec}" role="button" tabindex="0" aria-label="Rename section ${safeSec || 'Uncategorized'}">${esc(sec || 'Uncategorized')}</span>
-            <span class="eq-section-count" aria-label="${secItems.length} item${secItems.length === 1 ? '' : 's'}">${secItems.length}</span>
-            <button type="button" class="eq-section-rename" data-section="${safeSec}" aria-label="Rename section">
+        <section class="eq-section is-nested${isInnerCollapsed ? ' is-collapsed' : ''}" data-section="${safeSec}" data-cat="${esc(catKey)}" data-collapse-key="${safeKey}">
+          <header class="eq-section-head" data-section="${safeSec}" data-cat="${esc(catKey)}" data-collapse-key="${safeKey}">
+            <span class="eq-section-name" data-section="${safeSec}" data-cat="${esc(catKey)}" role="button" tabindex="0" aria-label="Rename section ${safeSec || 'Uncategorized'}">${esc(sec || 'Uncategorized')}</span>
+            <span class="eq-section-count" aria-label="${items.length} item${items.length === 1 ? '' : 's'}">${items.length}</span>
+            <button type="button" class="eq-section-rename" data-section="${safeSec}" data-cat="${esc(catKey)}" aria-label="Rename section">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
             </button>
-            <button type="button" class="eq-section-collapse" data-section="${safeSec}" aria-expanded="${!isCollapsed}" aria-label="${isCollapsed ? 'Expand' : 'Collapse'} section">
+            <button type="button" class="eq-section-collapse" data-collapse-key="${safeKey}" aria-expanded="${!isInnerCollapsed}" aria-label="${isInnerCollapsed ? 'Expand' : 'Collapse'} section">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
           </header>
           <div class="eq-section-body">
             <div class="eq-rows">
-              ${secItems.map(e => buildListRow(e)).join('')}
+              ${items.map(e => buildListRow(e)).join('')}
             </div>
+          </div>
+        </section>
+      `;
+    };
+
+    list.innerHTML = sortPickerHTML + catOrder.map(catKey => {
+      const bucket = cats.get(catKey);
+      if (!bucket || !bucket.items.length) return '';
+      const catLabel = (CATEGORIES.find(c => c.key === catKey) || {}).label || (catKey || 'Other');
+      const catCardKey = _catCollapseKey(catKey);
+      const isCatCollapsed = collapsedSections.has(catCardKey);
+      const innerSecs = bucket.innerOrder;
+      // Render flat (no inner sub-headers) when the category has exactly
+      // one inner section that's empty/unnamed — the inner "Uncategorized"
+      // header would just be visual noise repeating the category name.
+      const renderFlat = innerSecs.length === 1 && innerSecs[0] === '';
+
+      return `
+        <section class="eq-cat-section${isCatCollapsed ? ' is-collapsed' : ''}" data-cat="${esc(catKey)}">
+          <header class="eq-cat-section-head" data-cat="${esc(catKey)}">
+            <span class="eq-cat-section-icon" aria-hidden="true">${catIcon(catKey)}</span>
+            <span class="eq-cat-section-name">${esc(catLabel)}</span>
+            <span class="eq-cat-section-count" aria-label="${bucket.items.length} item${bucket.items.length === 1 ? '' : 's'}">${bucket.items.length}</span>
+            <button type="button" class="eq-cat-section-collapse" data-cat="${esc(catKey)}" aria-expanded="${!isCatCollapsed}" aria-label="${isCatCollapsed ? 'Expand' : 'Collapse'} ${esc(catLabel)}">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </header>
+          <div class="eq-cat-section-body">
+            ${renderFlat
+              ? `<div class="eq-rows">${bucket.items.map(e => buildListRow(e)).join('')}</div>`
+              : innerSecs.map(sec => renderInnerSection(catKey, sec, bucket.byInner.get(sec) || [])).join('')
+            }
           </div>
         </section>
       `;
@@ -1287,42 +1418,72 @@ function renderList() {
       });
     });
 
-    // Wire collapse toggles. Tap on the chevron OR anywhere on the
-    // header (except the rename name span / rename button) toggles.
-    list.querySelectorAll('.eq-section-collapse').forEach(btn => {
+    // Outer category collapse — chevron OR header tap (excluding inner
+    // sections which have their own headers). The chevron handler stops
+    // propagation so it doesn't double-fire with the body tap.
+    list.querySelectorAll('.eq-cat-section-collapse').forEach(btn => {
       btn.addEventListener('click', e => {
         e.stopPropagation();
-        const sec = btn.dataset.section || '';
-        if (collapsedSections.has(sec)) collapsedSections.delete(sec);
-        else collapsedSections.add(sec);
+        const cat = btn.dataset.cat || '';
+        const key = _catCollapseKey(cat);
+        if (collapsedSections.has(key)) collapsedSections.delete(key);
+        else collapsedSections.add(key);
         saveCollapsedState();
         renderList();
       });
     });
-    list.querySelectorAll('.eq-section-head').forEach(head => {
+    list.querySelectorAll('.eq-cat-section-head').forEach(head => {
       head.addEventListener('click', e => {
-        if (e.target.closest('.eq-section-name, .eq-section-rename, .eq-section-collapse')) return;
-        const sec = head.dataset.section || '';
-        if (collapsedSections.has(sec)) collapsedSections.delete(sec);
-        else collapsedSections.add(sec);
+        // Don't toggle when an inner control was tapped.
+        if (e.target.closest('.eq-cat-section-collapse')) return;
+        const cat = head.dataset.cat || '';
+        const key = _catCollapseKey(cat);
+        if (collapsedSections.has(key)) collapsedSections.delete(key);
+        else collapsedSections.add(key);
         saveCollapsedState();
         renderList();
       });
     });
 
-    // Wire rename — pencil button or tap on section name. Opens a
-    // prompt for the new name; bulk-updates equipment.section in DB.
-    const startRename = (oldSec) => promptRenameSection(oldSec);
-    list.querySelectorAll('.eq-section-rename').forEach(btn => {
+    // Inner section collapse — chevron uses data-collapse-key, header tap
+    // also derives from data-collapse-key so we don't have to re-build it.
+    list.querySelectorAll('.eq-section .eq-section-collapse').forEach(btn => {
       btn.addEventListener('click', e => {
         e.stopPropagation();
-        startRename(btn.dataset.section || '');
+        const key = btn.dataset.collapseKey || '';
+        if (!key) return;
+        if (collapsedSections.has(key)) collapsedSections.delete(key);
+        else collapsedSections.add(key);
+        saveCollapsedState();
+        renderList();
       });
     });
-    list.querySelectorAll('.eq-section-name').forEach(span => {
+    list.querySelectorAll('.eq-section .eq-section-head').forEach(head => {
+      head.addEventListener('click', e => {
+        if (e.target.closest('.eq-section-name, .eq-section-rename, .eq-section-collapse')) return;
+        const key = head.dataset.collapseKey || '';
+        if (!key) return;
+        if (collapsedSections.has(key)) collapsedSections.delete(key);
+        else collapsedSections.add(key);
+        saveCollapsedState();
+        renderList();
+      });
+    });
+
+    // Wire rename — pencil button or tap on section name. Carries the
+    // category key so renames stay scoped to a single category (a "Bar"
+    // section under Refrigeration won't drag along a "Bar" under Beverage).
+    const startRename = (oldSec, catKey) => promptRenameSection(oldSec, catKey);
+    list.querySelectorAll('.eq-section .eq-section-rename').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        startRename(btn.dataset.section || '', btn.dataset.cat || null);
+      });
+    });
+    list.querySelectorAll('.eq-section .eq-section-name').forEach(span => {
       span.addEventListener('click', e => {
         e.stopPropagation();
-        startRename(span.dataset.section || '');
+        startRename(span.dataset.section || '', span.dataset.cat || null);
       });
     });
   }
@@ -1491,42 +1652,49 @@ async function openDetail(id) {
   // review). We fold pending logs into the timeline so they're
   // discoverable — admin can approve/reject inline instead of
   // hunting for a hidden review dashboard.
-  // Also: if equipment has a service_contractor_node_id, pull the
-  // contractor record so the overview can show "SERVICED BY" with
-  // their specialty tags and template status. Avoids a second round
-  // trip after the modal renders.
-  const [partsRes, maintRes, attachRes, customRes, pendingRes, contractorRes] = await Promise.all([
+  // Also: if equipment has a service_contractor_node_id (maintenance) and/or
+  // a repair_contractor_node_id, pull both contractor records so the overview
+  // can show "SERVICED BY" / "REPAIRS BY" with their specialty tags and template
+  // status. Avoids a second round trip after the modal renders. The fetcher
+  // tolerates schema gaps (template cols, repair_contractor_node_id col) so
+  // it keeps working before the migration is run.
+  const fetchContractor = (nodeId) => {
+    if (!nodeId) return Promise.resolve({ data: null });
+    return NX.sb.from('nodes')
+      .select('id, name, links, notes, tags, subject_template, body_template')
+      .eq('id', nodeId)
+      .maybeSingle()
+      .then(r => {
+        if (r.error && /column.*(subject_template|body_template).*does not exist/i.test(r.error.message || '')) {
+          return NX.sb.from('nodes')
+            .select('id, name, links, notes, tags')
+            .eq('id', nodeId)
+            .maybeSingle();
+        }
+        return r;
+      });
+  };
+  const [partsRes, maintRes, attachRes, customRes, pendingRes, maintContractorRes, repairContractorRes] = await Promise.all([
     NX.sb.from('equipment_parts').select('*').eq('equipment_id', id).order('assembly_path'),
     NX.sb.from('equipment_maintenance').select('*').eq('equipment_id', id).order('event_date', { ascending: false }),
     NX.sb.from('equipment_attachments').select('*').eq('equipment_id', id).order('created_at', { ascending: false }),
     NX.sb.from('equipment_custom_fields').select('*').eq('equipment_id', id).order('created_at'),
     NX.sb.from('pm_logs').select('*').eq('equipment_id', id).eq('review_status', 'pending').order('submitted_at', { ascending: false }),
-    eq.service_contractor_node_id
-      ? NX.sb.from('nodes')
-          .select('id, name, links, notes, tags, subject_template, body_template')
-          .eq('id', eq.service_contractor_node_id)
-          .maybeSingle()
-          .then(r => {
-            // Graceful fallback if the template columns don't exist yet
-            if (r.error && /column.*(subject_template|body_template).*does not exist/i.test(r.error.message || '')) {
-              return NX.sb.from('nodes')
-                .select('id, name, links, notes, tags')
-                .eq('id', eq.service_contractor_node_id)
-                .maybeSingle();
-            }
-            return r;
-          })
-      : Promise.resolve({ data: null }),
+    fetchContractor(eq.service_contractor_node_id),
+    fetchContractor(eq.repair_contractor_node_id),
   ]);
   const parts        = partsRes.data   || [];
   const maintenance  = maintRes.data   || [];
   const attachments  = attachRes.data  || [];
   const customFields = customRes.data  || [];
   const pendingLogs  = pendingRes.data || [];
-  // Attach the contractor record to eq so renderOverview can use it.
+  // Attach contractor records to eq so renderOverview can use them.
   // Don't store on the cached `equipment` array — that's shared state
   // and other views shouldn't see this hydration.
-  eq._contractor = contractorRes && contractorRes.data || null;
+  // _contractor preserved as the maintenance/service contractor (back-compat).
+  // _repairContractor is the new repair-side contractor (separate person/company).
+  eq._contractor       = maintContractorRes && maintContractorRes.data || null;
+  eq._repairContractor = repairContractorRes && repairContractorRes.data || null;
 
   const modal = document.getElementById('eqModal') || createDetailModal();
   modal.innerHTML = `
@@ -1828,53 +1996,88 @@ function renderOverview(eq, attachments, customFields) {
   const hasLinks = eq.manual_source_url || eq.manual_url || linkAttachments.length;
 
   // ── SERVICED BY block ──────────────────────────────────────────
-  // Surfaces the assigned contractor + their specialty tags ("duties")
-  // right at the top of the overview. The relationship is stored as a
-  // FK (service_contractor_node_id) — this block hydrates from the
-  // contractor record fetched alongside equipment in openDetail.
-  // When no contractor is assigned, render an empty CTA pointing to
-  // Edit Everything → Links so the user knows where to set it up.
-  let servicedByHTML = '';
-  const c = eq._contractor;
-  if (c) {
-    const phone = extractContractorPhone(c) || eq.service_contractor_phone || '';
-    const tags  = Array.isArray(c.tags) ? c.tags.filter(Boolean) : [];
-    const hasTemplate = !!(c.subject_template || c.body_template);
-    const emails = extractContractorEmails(c);
-    const hasEmail = emails && emails.length > 0;
-    servicedByHTML = `
-      <div class="eq-serviced-by">
-        <div class="eq-serviced-by-head">
-          <div class="eq-serviced-by-label">Serviced by</div>
-          <div class="eq-serviced-by-name">${esc(c.name || 'Unnamed contractor')}</div>
-        </div>
-        ${tags.length ? `
-          <div class="eq-serviced-by-tags">
-            ${tags.slice(0, 6).map(t => `<span class="eq-serviced-by-tag">${esc(t)}</span>`).join('')}
+  // Surfaces both contractors: who services it (PMs / scheduled) and
+  // who repairs it (when it breaks). They can be the same company or
+  // different — public QR scans default to the repair contractor since
+  // staff usually scan because something is wrong, not because a PM is due.
+  // When no contractor is assigned in either slot, render an empty CTA
+  // pointing to Edit Everything → Links so the user knows where to set it up.
+  const renderContractorBlock = (c, role, plainName, plainPhone) => {
+    // role: 'maintenance' | 'repair'
+    const roleLabel = role === 'repair' ? 'Repairs by' : 'Serviced by';
+    const roleClass = role === 'repair' ? 'eq-serviced-by-role-repair' : 'eq-serviced-by-role-maint';
+    if (c) {
+      const phone = extractContractorPhone(c) || plainPhone || '';
+      const tags  = Array.isArray(c.tags) ? c.tags.filter(Boolean) : [];
+      const hasTemplate = !!(c.subject_template || c.body_template);
+      const emails = extractContractorEmails(c);
+      const hasEmail = emails && emails.length > 0;
+      return `
+        <div class="eq-serviced-by ${roleClass}">
+          <div class="eq-serviced-by-head">
+            <div class="eq-serviced-by-label">${roleLabel}</div>
+            <div class="eq-serviced-by-name">${esc(c.name || 'Unnamed contractor')}</div>
           </div>
-        ` : ''}
-        <div class="eq-serviced-by-actions">
-          ${phone ? `
-            <a href="tel:${escAttr(phone)}" class="eq-serviced-by-call">
-              ${uiSvg('phone', '14px')}<span>${esc(phone)}</span>
-            </a>
-          ` : `<span class="eq-serviced-by-nophone">No phone on file</span>`}
+          ${tags.length ? `
+            <div class="eq-serviced-by-tags">
+              ${tags.slice(0, 6).map(t => `<span class="eq-serviced-by-tag">${esc(t)}</span>`).join('')}
+            </div>
+          ` : ''}
+          <div class="eq-serviced-by-actions">
+            ${phone ? `
+              <a href="tel:${escAttr(phone)}" class="eq-serviced-by-call">
+                ${uiSvg('phone', '14px')}<span>${esc(phone)}</span>
+              </a>
+            ` : `<span class="eq-serviced-by-nophone">No phone on file</span>`}
+          </div>
+          <div class="eq-serviced-by-status">
+            <span class="eq-serviced-by-pip ${hasEmail ? 'is-on' : ''}" title="Email on file">
+              ${uiSvg('mail', '11px')}<span>${hasEmail ? 'Email ready' : 'No email'}</span>
+            </span>
+            <span class="eq-serviced-by-pip ${hasTemplate ? 'is-on' : ''}" title="Custom email template configured">
+              ${uiSvg('document', '11px')}<span>${hasTemplate ? 'Template set' : 'Default template'}</span>
+            </span>
+          </div>
         </div>
-        <div class="eq-serviced-by-status">
-          <span class="eq-serviced-by-pip ${hasEmail ? 'is-on' : ''}" title="Email on file">
-            ${uiSvg('mail', '11px')}<span>${hasEmail ? 'Email ready' : 'No email'}</span>
-          </span>
-          <span class="eq-serviced-by-pip ${hasTemplate ? 'is-on' : ''}" title="Custom email template configured">
-            ${uiSvg('document', '11px')}<span>${hasTemplate ? 'Template set' : 'Default template'}</span>
-          </span>
+      `;
+    }
+    // Plain-text fallback: contractor not linked but a phone/name was typed.
+    if (plainName || plainPhone) {
+      return `
+        <div class="eq-serviced-by ${roleClass}">
+          <div class="eq-serviced-by-head">
+            <div class="eq-serviced-by-label">${roleLabel}</div>
+            <div class="eq-serviced-by-name">${esc(plainName || 'Unlinked contact')}</div>
+          </div>
+          <div class="eq-serviced-by-actions">
+            ${plainPhone ? `
+              <a href="tel:${escAttr(plainPhone)}" class="eq-serviced-by-call">
+                ${uiSvg('phone', '14px')}<span>${esc(plainPhone)}</span>
+              </a>
+            ` : `<span class="eq-serviced-by-nophone">No phone on file</span>`}
+          </div>
         </div>
+      `;
+    }
+    return '';
+  };
+
+  const maintBlock  = renderContractorBlock(eq._contractor, 'maintenance', eq.service_contractor_name, eq.service_contractor_phone);
+  const repairBlock = renderContractorBlock(eq._repairContractor, 'repair',     eq.repair_contractor_name,  eq.repair_contractor_phone);
+
+  let servicedByHTML = '';
+  if (maintBlock || repairBlock) {
+    servicedByHTML = `
+      <div class="eq-serviced-by-row">
+        ${maintBlock}
+        ${repairBlock}
       </div>
     `;
   } else {
     servicedByHTML = `
       <div class="eq-serviced-by eq-serviced-by-empty">
-        <div class="eq-serviced-by-empty-msg">No service contractor assigned.</div>
-        <div class="eq-serviced-by-empty-hint">Edit Everything → Links → Service Contact</div>
+        <div class="eq-serviced-by-empty-msg">No contractors assigned.</div>
+        <div class="eq-serviced-by-empty-hint">Edit Everything → Links → Maintenance / Repair Contractor</div>
       </div>
     `;
   }
@@ -6457,10 +6660,22 @@ function wirePublicCoin() {
 
 async function loadPublicScan(qrCode) {
   try {
-    const { data, error } = await NX.sb.from('equipment')
-      .select('id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_name, service_contractor_phone, service_contractor_node_id')
-      .eq('qr_code', qrCode)
-      .single();
+    // Try the full select including repair_contractor_* columns. Fall back
+    // to the legacy select if those columns aren't on the schema yet (the
+    // SQL migration hasn't been run). Without this fallback the entire scan
+    // page breaks for users running pre-migration code.
+    const FULL_COLS = 'id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_name, service_contractor_phone, service_contractor_node_id, repair_contractor_name, repair_contractor_phone, repair_contractor_node_id';
+    const LEGACY_COLS = 'id, name, location, area, manufacturer, model, serial_number, category, status, next_pm_date, install_date, warranty_until, photo_url, qr_code, service_contractor_name, service_contractor_phone, service_contractor_node_id';
+    let data, error;
+    {
+      const r = await NX.sb.from('equipment').select(FULL_COLS).eq('qr_code', qrCode).single();
+      if (r.error && /column.+repair_contractor.+does not exist/i.test(r.error.message || '')) {
+        const r2 = await NX.sb.from('equipment').select(LEGACY_COLS).eq('qr_code', qrCode).single();
+        data = r2.data; error = r2.error;
+      } else {
+        data = r.data; error = r.error;
+      }
+    }
     if (error || !data) throw new Error('Equipment not found');
 
     const { data: maint } = await NX.sb.from('equipment_maintenance')
@@ -6469,22 +6684,27 @@ async function loadPublicScan(qrCode) {
       .order('event_date', { ascending: false })
       .limit(5);
 
-    // Pull the linked contractor node (if any) so the public scan can
-    // surface every phone + email the contractor has on file. Best-effort
-    // — if the join fails we fall back to the equipment's own service
-    // contact fields (which still work).
-    let contractor = null;
-    if (data.service_contractor_node_id) {
+    // Pull both contractors when their FKs are set. The QR scan defaults
+    // to the REPAIR contractor (since staff scan when something is wrong),
+    // but we fetch both so we can fall back to the maintenance contractor
+    // if no repair contractor is assigned. Best-effort — failures fall
+    // through to the equipment's plain-text contact fields.
+    const fetchNode = async (id) => {
+      if (!id) return null;
       try {
         const { data: cnode } = await NX.sb.from('nodes')
           .select('id, name, links, notes')
-          .eq('id', data.service_contractor_node_id)
+          .eq('id', id)
           .maybeSingle();
-        if (cnode) contractor = cnode;
-      } catch (_) { /* ignore — fall back below */ }
-    }
+        return cnode || null;
+      } catch (_) { return null; }
+    };
+    const [repairContractor, serviceContractor] = await Promise.all([
+      fetchNode(data.repair_contractor_node_id),
+      fetchNode(data.service_contractor_node_id),
+    ]);
 
-    renderPublicScanHTML(data, maint || [], contractor);
+    renderPublicScanHTML(data, maint || [], repairContractor, serviceContractor);
   } catch (err) {
     document.getElementById('publicScanBody').innerHTML = `
       <div class="public-scan-error">
@@ -6499,7 +6719,31 @@ function _publicSvg(path, size) {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">${path}</svg>`;
 }
 
-function renderPublicScanHTML(eq, maint, contractor) {
+function renderPublicScanHTML(eq, maint, repairContractor, serviceContractor) {
+  // ─── Contractor resolution for the public scan ──────────────────
+  // Public QR scans default to the REPAIR contractor. Real-world flow:
+  // a line cook scans because the ice machine just stopped working —
+  // they need the repair guy NOW, not the PM scheduler. Maintenance
+  // contractor is for scheduled work and is surfaced inside the app.
+  // Resolution order:
+  //   1. repair_contractor_node_id (preferred — primary case)
+  //   2. repair_contractor_phone / repair_contractor_name (plain-text)
+  //   3. service_contractor_node_id (fallback — they handle both)
+  //   4. service_contractor_phone / service_contractor_name (plain-text)
+  let contractor = null;
+  let plainPhone = '';
+  let plainName = '';
+  if (repairContractor) {
+    contractor = repairContractor;
+  } else if (eq.repair_contractor_phone || eq.repair_contractor_name) {
+    plainPhone = eq.repair_contractor_phone || '';
+    plainName  = eq.repair_contractor_name  || '';
+  } else if (serviceContractor) {
+    contractor = serviceContractor;
+  } else if (eq.service_contractor_phone || eq.service_contractor_name) {
+    plainPhone = eq.service_contractor_phone || '';
+    plainName  = eq.service_contractor_name  || '';
+  }
   // Status palette — tokens, no raw web colors. Editorial set:
   // olive (operational), gold (needs service), oxblood (down),
   // graphite (retired). Same family the equipment list uses
@@ -6522,15 +6766,15 @@ function renderPublicScanHTML(eq, maint, contractor) {
   const MAIL_ICON  = '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>';
 
   // Resolve contact channels: prefer the linked contractor's full set
-  // (multi-phone, multi-email with TO/CC/BCC), fall back to the
-  // equipment's own service_contractor_phone + service_contractor_name fields when
-  // the FK isn't set yet.
+  // (multi-phone, multi-email with TO/CC/BCC), fall back to the resolved
+  // plain-text phone+name from the repair-or-service preference chain
+  // built above.
   const phones = contractor ? extractContractorPhones(contractor) : [];
   const emails = contractor ? extractContractorEmails(contractor) : [];
-  if (!phones.length && eq.service_contractor_phone) {
-    phones.push({ phone: eq.service_contractor_phone, label: '' });
+  if (!phones.length && plainPhone) {
+    phones.push({ phone: plainPhone, label: '' });
   }
-  const contactName = (contractor && contractor.name) || eq.service_contractor_name || '';
+  const contactName = (contractor && contractor.name) || plainName || '';
 
   // Build the email mailto: link with primary in to:, others in cc:.
   let emailMailto = '';
@@ -6921,10 +7165,10 @@ async function openFullEditor(equipId) {
             External links — manufacturer website, manual URL, training video, etc. Clickable from the equipment detail.
           </div>
           
-          <div class="eq-form-group eq-service-contact" style="margin-bottom:18px;padding:14px;background:var(--elevated);border:1px solid var(--border);border-radius:10px">
+          <div class="eq-form-group eq-service-contact" style="margin-bottom:14px;padding:14px;background:var(--elevated);border:1px solid var(--border);border-radius:10px">
             <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-              ${uiSvg('phone', '14px')} Service Contact
-              <span style="font-weight:400;font-size:11px;color:var(--muted)">— Powers the "Call" button on QR scan</span>
+              ${uiSvg('phone', '14px')} Maintenance Contractor
+              <span style="font-weight:400;font-size:11px;color:var(--muted)">— scheduled PMs / preventive work</span>
             </label>
             <div class="eq-form-row">
               <div class="eq-form-group" style="flex:1">
@@ -6945,12 +7189,44 @@ async function openFullEditor(equipId) {
             </div>
             <div style="display:flex;gap:8px;margin-top:8px">
               <button type="button" class="eq-btn eq-btn-tiny eq-btn-secondary" onclick="NX.modules.equipment.lookupServicePhoneFromNode('${eq.id}')" style="flex:1">
-                ${uiSvg('search', '13px')} Look up from preferred contractor
+                ${uiSvg('search', '13px')} Look up phone from contractor
               </button>
               ${eq.service_contractor_phone ? `<a href="tel:${escAttr(eq.service_contractor_phone)}" class="eq-btn eq-btn-tiny" style="flex:0 0 auto">Test Call</a>` : ''}
+              ${(eq.service_contractor_node_id || eq.service_contractor_name || eq.service_contractor_phone) ? `<button type="button" class="eq-btn eq-btn-tiny eq-btn-danger" id="eqServiceClear-${eq.id}" style="flex:0 0 auto">Unassign</button>` : ''}
             </div>
             <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4">
-              Type a contractor name to link this equipment. The contractor's phone will auto-fill and the contractor's Equipment tab will show this unit.
+              The maintenance contractor handles scheduled PMs. Type a name to link an existing contractor, or leave as plain text.
+            </div>
+          </div>
+
+          <div class="eq-form-group eq-repair-contact" style="margin-bottom:18px;padding:14px;background:var(--elevated);border:1px solid var(--border);border-radius:10px">
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              ${uiSvg('warning', '14px')} Repair Contractor
+              <span style="font-weight:400;font-size:11px;color:var(--muted)">— powers the "Call" button on QR scan</span>
+            </label>
+            <div class="eq-form-row">
+              <div class="eq-form-group" style="flex:1">
+                <label style="font-size:11px">Contact Name <span style="color:var(--muted)">— pick existing to auto-link</span></label>
+                <input data-field="repair_contractor_name" id="eqRepairContactName-${eq.id}" value="${escAttr(eq.repair_contractor_name||'')}" placeholder="A1 Refrigeration Repair" list="eqRepairContractorOptions-${eq.id}" autocomplete="off">
+                <datalist id="eqRepairContractorOptions-${eq.id}"></datalist>
+                <input type="hidden" data-field="repair_contractor_node_id" value="${escAttr(eq.repair_contractor_node_id||'')}">
+                <div id="eqRepairContractorLinkChip-${eq.id}" class="eq-contractor-link-chip" style="display:none">
+                  <span class="eq-contractor-link-chip-icon">🔗</span>
+                  <span class="eq-contractor-link-chip-text"></span>
+                  <button type="button" class="eq-contractor-link-chip-unlink" title="Unlink (keep name as plain text)">×</button>
+                </div>
+              </div>
+              <div class="eq-form-group" style="flex:1">
+                <label style="font-size:11px">Phone Number</label>
+                <input type="tel" data-field="repair_contractor_phone" id="eqRepairPhone-${eq.id}" value="${escAttr(eq.repair_contractor_phone||'')}" placeholder="(512) 555-1234">
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              ${eq.repair_contractor_phone ? `<a href="tel:${escAttr(eq.repair_contractor_phone)}" class="eq-btn eq-btn-tiny" style="flex:0 0 auto">Test Call</a>` : ''}
+              ${(eq.repair_contractor_node_id || eq.repair_contractor_name || eq.repair_contractor_phone) ? `<button type="button" class="eq-btn eq-btn-tiny eq-btn-danger" id="eqRepairClear-${eq.id}" style="flex:0 0 auto">Unassign</button>` : ''}
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4">
+              The repair contractor is who you call when something breaks. <strong>Public QR codes default to this contact.</strong> Can be the same as maintenance — or a different specialist.
             </div>
           </div>
 
@@ -7003,21 +7279,13 @@ async function openFullEditor(equipId) {
   `;
   modal.classList.add('active');
 
-  // Wire the Service Contact typeahead picker. Pulls all contractor nodes,
-  // populates the datalist, and on selection auto-fills phone + sets the
-  // hidden service_contractor_node_id field. Without this wiring, the
-  // equipment side and contractor side stay disconnected — the user has
-  // to type the same name in two places and phones drift.
+  // Wire the Service Contact typeahead pickers — one for the maintenance
+  // contractor (legacy service_*) and one for the repair contractor.
+  // Both pull all contractor nodes, populate their datalists, and on
+  // selection auto-fill phone + set the hidden FK field. Without this
+  // wiring, the equipment side and contractor side stay disconnected
+  // and the user has to type the same name in two places.
   (async () => {
-    const dl    = modal.querySelector(`#eqContractorOptions-${eq.id}`);
-    const nameI = modal.querySelector(`#eqServiceContactName-${eq.id}`);
-    const phoneI = modal.querySelector(`#eqServicePhone-${eq.id}`);
-    const fkI   = modal.querySelector('input[data-field="service_contractor_node_id"]');
-    const chip  = modal.querySelector(`#eqContractorLinkChip-${eq.id}`);
-    const chipText  = chip?.querySelector('.eq-contractor-link-chip-text');
-    const unlinkBtn = chip?.querySelector('.eq-contractor-link-chip-unlink');
-    if (!dl || !nameI) return;
-
     let contractorCache = [];
     try {
       const { data } = await NX.sb.from('nodes')
@@ -7025,57 +7293,103 @@ async function openFullEditor(equipId) {
         .eq('category', 'contractors')
         .order('name', { ascending: true });
       contractorCache = data || [];
-      // Populate datalist for native typeahead.
-      dl.innerHTML = contractorCache.map(c =>
-        `<option value="${escAttr(c.name)}"></option>`
-      ).join('');
     } catch (err) {
       console.warn('[full-editor] contractor lookup failed:', err);
     }
 
-    // Show "linked" chip if equipment already has FK set.
-    const refreshChip = () => {
-      if (!chip) return;
-      if (fkI && fkI.value && contractorCache.length) {
-        const linked = contractorCache.find(c => c.id === fkI.value);
-        if (linked) {
-          chip.style.display = 'inline-flex';
-          chipText.textContent = `Linked to ${linked.name}`;
-          return;
-        }
-      }
-      chip.style.display = 'none';
-    };
-    refreshChip();
+    // Reusable wirer — works for both maintenance ("") and repair ("Repair") slots.
+    const wireTypeahead = ({ datalistId, nameInputId, phoneInputId, fkSel, chipId, clearBtnId, fieldNamePrefix }) => {
+      const dl    = modal.querySelector(`#${datalistId}`);
+      const nameI = modal.querySelector(`#${nameInputId}`);
+      const phoneI = modal.querySelector(`#${phoneInputId}`);
+      const fkI   = modal.querySelector(fkSel);
+      const chip  = modal.querySelector(`#${chipId}`);
+      const chipText  = chip?.querySelector('.eq-contractor-link-chip-text');
+      const unlinkBtn = chip?.querySelector('.eq-contractor-link-chip-unlink');
+      const clearBtn  = clearBtnId ? modal.querySelector(`#${clearBtnId}`) : null;
+      if (!dl || !nameI) return;
 
-    // When user types or picks, try to match name to a contractor.
-    // If exact match (case-insensitive) → set FK + auto-fill phone if blank.
-    // If no match → clear FK (leaves it as a free-text name).
-    nameI.addEventListener('input', () => {
-      const typed = (nameI.value || '').trim().toLowerCase();
-      const match = contractorCache.find(c => (c.name || '').toLowerCase() === typed);
-      if (match) {
-        fkI.value = match.id;
-        // Auto-fill phone if equipment doesn't have one yet.
-        if (phoneI && !phoneI.value) {
-          const cphone = extractContractorPhone(match);
-          if (cphone) phoneI.value = cphone;
-        }
-        refreshChip();
-      } else {
-        // Loose name — keep typing, no FK linked.
-        if (fkI.value) {
-          fkI.value = '';
-          refreshChip();
-        }
-      }
-    });
+      // Populate datalist for native typeahead.
+      dl.innerHTML = contractorCache.map(c =>
+        `<option value="${escAttr(c.name)}"></option>`
+      ).join('');
 
-    // Unlink button: keep the typed name, but drop the FK.
-    unlinkBtn?.addEventListener('click', () => {
-      fkI.value = '';
+      // Show "linked" chip if equipment already has FK set.
+      const refreshChip = () => {
+        if (!chip) return;
+        if (fkI && fkI.value && contractorCache.length) {
+          const linked = contractorCache.find(c => c.id === fkI.value);
+          if (linked) {
+            chip.style.display = 'inline-flex';
+            chipText.textContent = `Linked to ${linked.name}`;
+            return;
+          }
+        }
+        chip.style.display = 'none';
+      };
       refreshChip();
-      NX.toast && NX.toast('Unlinked — name kept as plain text', 'info', 1400);
+
+      // When user types or picks, try to match name to a contractor.
+      // If exact match (case-insensitive) → set FK + auto-fill phone if blank.
+      // If no match → clear FK (leaves it as a free-text name).
+      nameI.addEventListener('input', () => {
+        const typed = (nameI.value || '').trim().toLowerCase();
+        const match = contractorCache.find(c => (c.name || '').toLowerCase() === typed);
+        if (match) {
+          fkI.value = match.id;
+          // Auto-fill phone if equipment doesn't have one yet.
+          if (phoneI && !phoneI.value) {
+            const cphone = extractContractorPhone(match);
+            if (cphone) phoneI.value = cphone;
+          }
+          refreshChip();
+        } else {
+          if (fkI.value) {
+            fkI.value = '';
+            refreshChip();
+          }
+        }
+      });
+
+      // Unlink button: keep the typed name, but drop the FK.
+      unlinkBtn?.addEventListener('click', () => {
+        fkI.value = '';
+        refreshChip();
+        NX.toast && NX.toast('Unlinked — name kept as plain text', 'info', 1400);
+      });
+
+      // Unassign button: blow away name, phone, AND FK in one tap.
+      // The values are flushed to DB on Save All Changes.
+      clearBtn?.addEventListener('click', () => {
+        if (!confirm(`Unassign the ${fieldNamePrefix} contractor from this equipment?`)) return;
+        if (fkI)    fkI.value = '';
+        if (nameI)  nameI.value = '';
+        if (phoneI) phoneI.value = '';
+        refreshChip();
+        clearBtn.style.display = 'none';
+        NX.toast && NX.toast(`${fieldNamePrefix} contractor cleared — tap Save All Changes to persist`, 'info', 2400);
+      });
+    };
+
+    // Maintenance slot (legacy service_contractor_*).
+    wireTypeahead({
+      datalistId:    `eqContractorOptions-${eq.id}`,
+      nameInputId:   `eqServiceContactName-${eq.id}`,
+      phoneInputId:  `eqServicePhone-${eq.id}`,
+      fkSel:         'input[data-field="service_contractor_node_id"]',
+      chipId:        `eqContractorLinkChip-${eq.id}`,
+      clearBtnId:    `eqServiceClear-${eq.id}`,
+      fieldNamePrefix: 'maintenance',
+    });
+    // Repair slot (new repair_contractor_*).
+    wireTypeahead({
+      datalistId:    `eqRepairContractorOptions-${eq.id}`,
+      nameInputId:   `eqRepairContactName-${eq.id}`,
+      phoneInputId:  `eqRepairPhone-${eq.id}`,
+      fkSel:         'input[data-field="repair_contractor_node_id"]',
+      chipId:        `eqRepairContractorLinkChip-${eq.id}`,
+      clearBtnId:    `eqRepairClear-${eq.id}`,
+      fieldNamePrefix: 'repair',
     });
   })();
   modal.querySelectorAll('.eq-tab').forEach(tab => {
@@ -7150,8 +7464,28 @@ async function openFullEditor(equipId) {
       });
       updates.specs = newSpecs;
 
-      const { error } = await NX.sb.from('equipment').update(updates).eq('id', equipId);
-      if (error) throw error;
+      // Save with graceful column-missing fallback. If the user hasn't run
+      // the repair_contractor_* migration yet, those keys will hard-fail
+      // the entire UPDATE. Strip and retry so the rest of the form still
+      // saves — and toast a warning so they know to run the SQL migration.
+      let saveErr;
+      {
+        const r = await NX.sb.from('equipment').update(updates).eq('id', equipId);
+        if (r.error && /column.+repair_contractor.+does not exist/i.test(r.error.message || '')) {
+          const stripped = { ...updates };
+          delete stripped.repair_contractor_node_id;
+          delete stripped.repair_contractor_name;
+          delete stripped.repair_contractor_phone;
+          const r2 = await NX.sb.from('equipment').update(stripped).eq('id', equipId);
+          saveErr = r2.error;
+          if (!r2.error) {
+            NX.toast && NX.toast('Saved — but repair contractor not stored (run the SQL migration)', 'warn', 5000);
+          }
+        } else {
+          saveErr = r.error;
+        }
+      }
+      if (saveErr) throw saveErr;
 
       const customOps = [];
       modal.querySelectorAll('#eqCustomList .eq-custom-row').forEach(row => {
@@ -11417,7 +11751,18 @@ async function loadContractorsList() {
     NX.sb.from('equipment_issues')
       .select('id, equipment_id, status, contractor_node_id, contractor_name, reported_at, contractor_called_at, repaired_at')
       .order('reported_at', { ascending: false }).then(r => r).catch(() => ({ data: [] })),
-    NX.sb.from('equipment').select('id, name, location, area, manufacturer, model, service_contractor_node_id, service_contractor_name, service_contractor_phone'),
+    // Try the full select including repair_contractor_*. Fall back to the
+    // legacy select if the migration hasn't been run yet — the repair
+    // contractor columns simply won't be available for matching.
+    (async () => {
+      const FULL = 'id, name, location, area, manufacturer, model, service_contractor_node_id, service_contractor_name, service_contractor_phone, repair_contractor_node_id, repair_contractor_name, repair_contractor_phone';
+      const LEGACY = 'id, name, location, area, manufacturer, model, service_contractor_node_id, service_contractor_name, service_contractor_phone';
+      const r = await NX.sb.from('equipment').select(FULL);
+      if (r.error && /column.+repair_contractor.+does not exist/i.test(r.error.message || '')) {
+        return await NX.sb.from('equipment').select(LEGACY);
+      }
+      return r;
+    })(),
   ]);
 
   // ─── Surface every error (this is the whole point of v37) ────────
@@ -11508,14 +11853,18 @@ async function loadContractorsList() {
       ? lastDates.sort().reverse()[0]
       : null;
 
-    // Equipment they're linked to. Match by:
-    //   1. service_contractor_node_id FK (the strong link)
-    //   2. service_contractor_name string (case-insensitive — handles equipment
-    //      where the user typed the contractor name without picking from
-    //      the dropdown, so it's not yet FK-linked)
+    // Equipment they're linked to. Match by EITHER role:
+    //   1. service_contractor_node_id FK (maintenance — strong link)
+    //   2. service_contractor_name string (maintenance — informal name link)
+    //   3. repair_contractor_node_id FK (repair — strong link)
+    //   4. repair_contractor_name string (repair — informal name link)
+    // Equipment in the second/fourth bucket can be promoted to FK via a
+    // one-tap action in the Equipment tab.
     c._assignedCount = eqList.filter(e =>
       e.service_contractor_node_id == c.id ||
-      ((e.service_contractor_name || '').toLowerCase().trim() === nameLower && nameLower)
+      e.repair_contractor_node_id  == c.id ||
+      ((e.service_contractor_name || '').toLowerCase().trim() === nameLower && nameLower) ||
+      ((e.repair_contractor_name  || '').toLowerCase().trim() === nameLower && nameLower)
     ).length;
     // Unique equipment they've serviced historically.
     const servicedIds = new Set(myMaint.map(m => m.equipment_id));
@@ -11848,12 +12197,35 @@ async function openContractorEditor(contractor) {
         addLabel: 'Add specialty',
       });
 
-      // Delete button — confirm + delete + close
+      // Delete button — confirm + clear FKs from equipment + delete + close
       const delBtn = overlay.querySelector('[data-rx-cc-delete]');
       if (delBtn) {
         delBtn.addEventListener('click', async () => {
-          if (!confirm(`Delete ${c.name}? This unlinks them from all equipment.`)) return;
+          if (!confirm(`Delete ${c.name}? This unlinks them from all equipment (both maintenance and repair roles).`)) return;
           try {
+            // ─── PRECONDITION: clear FK references on equipment ─────────
+            // The equipment table has FK constraints on service_contractor_node_id
+            // and (after migration) repair_contractor_node_id. If those are
+            // RESTRICT/NO ACTION, the DELETE on nodes fails with code 23503.
+            // Pre-emptively NULL out both FKs (and the parallel name strings,
+            // so the contractor doesn't reappear as a name-only loose link
+            // after the FK is gone). This makes delete work whether the FK
+            // is RESTRICT, SET NULL, or absent — the only safe ordering.
+            // Repair columns are stripped on column-missing so pre-migration
+            // databases still complete the delete.
+            const clearMaint = NX.sb.from('equipment')
+              .update({ service_contractor_node_id: null, service_contractor_name: null })
+              .eq('service_contractor_node_id', c.id);
+            const clearRepair = NX.sb.from('equipment')
+              .update({ repair_contractor_node_id: null, repair_contractor_name: null })
+              .eq('repair_contractor_node_id', c.id);
+            const [mRes, rRes] = await Promise.all([clearMaint, clearRepair.then(r => r).catch(e => ({ error: e }))]);
+            if (mRes.error) throw mRes.error;
+            if (rRes.error && !/column.+repair_contractor.+does not exist/i.test(rRes.error.message || '')) {
+              // Real error on repair clear (not just missing column) — bubble up.
+              throw rRes.error;
+            }
+
             const { error } = await NX.sb.from('nodes').delete().eq('id', c.id);
             if (error) throw error;
             if (NX.toast) NX.toast('Contractor deleted', 'info', 1400);
@@ -11863,14 +12235,19 @@ async function openContractorEditor(contractor) {
               contractorsState.mode = 'list';
               contractorsState.activeId = null;
               contractorsState.activeContractor = null;
-              if (typeof loadContractors === 'function') {
-                await loadContractors();
+              if (typeof loadContractorsList === 'function') {
+                await loadContractorsList();
               }
               if (typeof renderContractors === 'function') renderContractors();
             }
+            // Also reload the global equipment array since we just
+            // mutated FK columns on potentially many rows.
+            if (typeof loadEquipment === 'function') {
+              try { await loadEquipment(); } catch (_) {}
+            }
           } catch (err) {
             console.error('[contractor] delete failed:', err);
-            if (NX.toast) NX.toast('Failed to delete: ' + (err.message || ''), 'error', 3000);
+            if (NX.toast) NX.toast('Failed to delete: ' + (err.message || ''), 'error', 4000);
           }
         });
       }
@@ -12189,6 +12566,96 @@ async function openContractorDetail(contractorId) {
   renderContractors();
 }
 
+/**
+ * Unassign one piece of equipment from a contractor. Per-role aware: if
+ * the equipment is linked as both repair AND maintenance, we ask which
+ * role to clear; if only one, we just clear that one with confirmation.
+ *
+ * Always nulls BOTH the FK column and the matching plain-text name so
+ * the equipment side stops referencing this contractor in any form.
+ * Phone is preserved (it's just a free-text contact number — clearing
+ * it would require manual re-entry if the user wanted to keep calling
+ * the same number under a new contractor).
+ *
+ * Tolerates the repair_contractor_* migration not being run yet — only
+ * touches columns that actually exist (fall back on column-missing).
+ */
+async function unassignEquipmentFromContractor(eq, contractor) {
+  if (!eq || !contractor) return;
+  const both = eq._isMaint && eq._isRepair;
+
+  // Decide which role(s) to clear.
+  let clearMaint  = false;
+  let clearRepair = false;
+  if (both) {
+    const choice = (window.prompt(
+      `Unassign ${eq.name} from ${contractor.name}?\n\n` +
+      `Linked as BOTH repair and maintenance.\n\n` +
+      `Type:\n  R = unassign as Repair only\n  M = unassign as Maintenance only\n  B = unassign Both\n\n` +
+      `Or cancel to keep all links.`,
+      'B'
+    ) || '').trim().toUpperCase();
+    if (!choice) return; // cancel
+    if (choice === 'R')      clearRepair = true;
+    else if (choice === 'M') clearMaint  = true;
+    else if (choice === 'B') { clearMaint = true; clearRepair = true; }
+    else { NX.toast && NX.toast('Cancelled — type R, M, or B', 'info', 1800); return; }
+  } else if (eq._isMaint) {
+    if (!confirm(`Unassign ${eq.name} from ${contractor.name} as the maintenance contractor?`)) return;
+    clearMaint = true;
+  } else if (eq._isRepair) {
+    if (!confirm(`Unassign ${eq.name} from ${contractor.name} as the repair contractor?`)) return;
+    clearRepair = true;
+  } else {
+    return;
+  }
+
+  const update = {};
+  if (clearMaint) {
+    update.service_contractor_node_id = null;
+    update.service_contractor_name    = null;
+  }
+  if (clearRepair) {
+    update.repair_contractor_node_id = null;
+    update.repair_contractor_name    = null;
+  }
+  // Don't write columns that the migration hasn't created yet.
+  try {
+    let res = await NX.sb.from('equipment').update(update).eq('id', eq.id);
+    if (res.error && /column.+repair_contractor.+does not exist/i.test(res.error.message || '')) {
+      const stripped = { ...update };
+      delete stripped.repair_contractor_node_id;
+      delete stripped.repair_contractor_name;
+      if (Object.keys(stripped).length === 0) {
+        // Nothing left to update — the only thing to clear was the
+        // repair role and the column doesn't exist yet.
+        NX.toast && NX.toast('Repair contractor column missing — run the SQL migration first', 'warn', 4000);
+        return;
+      }
+      res = await NX.sb.from('equipment').update(stripped).eq('id', eq.id);
+    }
+    if (res.error) throw res.error;
+    NX.toast && NX.toast(`${eq.name} unassigned`, 'success', 1600);
+
+    // Refresh: reload contractor list + equipment lite so the next
+    // detail render reflects the new state.
+    contractorsState.loading = true;
+    renderContractors();
+    if (typeof loadEquipment === 'function') await loadEquipment();
+    await loadContractorsList();
+    const refreshed = contractorsState.list.find(x => x.id == contractor.id);
+    if (refreshed) {
+      contractorsState.activeContractor = refreshed;
+      buildContractorDetailDerived();
+    }
+    contractorsState.loading = false;
+    renderContractors();
+  } catch (err) {
+    console.error('[equipment] unassignEquipmentFromContractor:', err);
+    NX.toast && NX.toast('Could not unassign: ' + (err.message || ''), 'error', 4000);
+  }
+}
+
 function buildContractorDetailDerived() {
   const c = contractorsState.activeContractor;
   if (!c) return;
@@ -12225,20 +12692,30 @@ function buildContractorDetailDerived() {
   contractorsState.activity = events;
 
   // Equipment assignments + historical.
-  // Two paths to "assigned":
-  //   1. service_contractor_node_id FK (proper link)
-  //   2. service_contractor_name string match (informal link — typed name)
-  // Equipment in the second bucket can be promoted to the first via a
-  // one-tap action in the Equipment tab.
+  // Two paths to "assigned" PER ROLE:
+  //   maintenance: service_contractor_node_id FK | service_contractor_name string
+  //   repair:      repair_contractor_node_id  FK | repair_contractor_name  string
+  // Equipment in the name-string buckets can be promoted to FK via a
+  // one-tap action in the Equipment tab. Each row is tagged with role
+  // flags so the UI can show MAINT/REPAIR chips and per-role unassign.
   const nameLower = (c.name || '').toLowerCase().trim();
+  const matchMaintFk   = (e) => e.service_contractor_node_id == c.id;
+  const matchRepairFk  = (e) => e.repair_contractor_node_id  == c.id;
+  const matchMaintName = (e) => nameLower && (e.service_contractor_name || '').toLowerCase().trim() === nameLower;
+  const matchRepairName= (e) => nameLower && (e.repair_contractor_name  || '').toLowerCase().trim() === nameLower;
+
   contractorsState.assignedEquipment = eqLite.filter(e =>
-    e.service_contractor_node_id == c.id ||
-    ((e.service_contractor_name || '').toLowerCase().trim() === nameLower && nameLower)
+    matchMaintFk(e) || matchRepairFk(e) || matchMaintName(e) || matchRepairName(e)
   );
-  // Mark which ones are "loose" links so the UI can show a chip and
-  // offer to make the link permanent.
+  // Per-role + per-link-type flags for renderContractorEquipmentTab.
   for (const e of contractorsState.assignedEquipment) {
-    e._linkType = e.service_contractor_node_id == c.id ? 'fk' : 'name';
+    e._isMaint       = matchMaintFk(e)  || matchMaintName(e);
+    e._isRepair      = matchRepairFk(e) || matchRepairName(e);
+    e._maintLinkType = matchMaintFk(e)  ? 'fk' : (matchMaintName(e)  ? 'name' : null);
+    e._repairLinkType= matchRepairFk(e) ? 'fk' : (matchRepairName(e) ? 'name' : null);
+    // Legacy flag — true if ANY link is name-only. The "Promote name-only
+    // links" button keys off this so it can upgrade both FKs in one pass.
+    e._linkType = (e._maintLinkType === 'fk' || e._repairLinkType === 'fk') ? 'fk' : 'name';
   }
   const assignedIds = new Set(contractorsState.assignedEquipment.map(e => e.id));
   const servicedIds = new Set(maint.map(m => m.equipment_id));
@@ -12430,11 +12907,23 @@ function renderContractorsDetail() {
   if (detailTab === 'edit') {
     wireContractorEditForm();
   } else if (detailTab === 'equipment') {
-    overlay.querySelectorAll('[data-eq-id]').forEach(card => {
+    overlay.querySelectorAll('[data-action="open-eq"]').forEach(card => {
       card.addEventListener('click', () => {
         const id = card.dataset.eqId;
         closeContractors();
         if (typeof openDetail === 'function') openDetail(id);
+      });
+    });
+    // Per-row unassign — strip this contractor from one or both role
+    // FKs/names on the equipment, depending on what's set. Kept in a
+    // helper so it can be reused by future bulk-unassign flows.
+    overlay.querySelectorAll('[data-action="unassign-eq"]').forEach(btn => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const id = btn.dataset.eqId;
+        const eq = (contractorsState.assignedEquipment || []).find(x => x.id == id);
+        if (!eq) return;
+        await unassignEquipmentFromContractor(eq, contractorsState.activeContractor);
       });
     });
     // Promote name-only links to proper FK links.
@@ -12574,16 +13063,25 @@ function renderContractorEquipmentTab() {
   const looseCount = assigned.filter(e => e._linkType === 'name').length;
 
   const renderEqRow = (e) => {
-    const isLoose = e._linkType === 'name';
+    const isLooseM = e._maintLinkType  === 'name';
+    const isLooseR = e._repairLinkType === 'name';
+    const isLoose = isLooseM || isLooseR;
     return `
       <div class="eq-contractor-eq-row${isLoose ? ' is-loose-link' : ''}" data-eq-id="${esc(e.id)}">
-        <div class="eq-contractor-eq-body-text">
+        <div class="eq-contractor-eq-body-text" data-action="open-eq" data-eq-id="${esc(e.id)}">
           <div class="eq-contractor-eq-name">
             ${esc(e.name)}
-            ${isLoose ? '<span class="eq-contractor-eq-loose-chip" title="Linked by name only — tap to make permanent">↗ name only</span>' : ''}
+            ${isLoose ? '<span class="eq-contractor-eq-loose-chip" title="Linked by name only — tap Promote to make permanent">↗ name only</span>' : ''}
+          </div>
+          <div class="eq-contractor-eq-roles">
+            ${e._isMaint  ? '<span class="eq-contractor-eq-role-chip eq-contractor-eq-role-maint"  title="Maintenance contractor (scheduled PMs)">MAINT</span>'  : ''}
+            ${e._isRepair ? '<span class="eq-contractor-eq-role-chip eq-contractor-eq-role-repair" title="Repair contractor (powers public QR Call button)">REPAIR</span>' : ''}
           </div>
           <div class="eq-contractor-eq-meta">${e.area ? esc(e.area) + ' · ' : ''}${e.manufacturer ? esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}</div>
         </div>
+        <button class="eq-contractor-eq-unassign-btn" data-action="unassign-eq" data-eq-id="${esc(e.id)}" title="Unassign this equipment from ${esc(c.name)}" aria-label="Unassign">
+          ${uiSvg('close', '13px')}
+        </button>
       </div>
     `;
   };
@@ -12792,8 +13290,23 @@ function wireContractorEditForm() {
 
   form.querySelector('[data-action="delete"]')?.addEventListener('click', async () => {
     const c = contractorsState.activeContractor;
-    if (!confirm(`Delete ${c.name}? This will not affect existing equipment assignments — they'll just lose the link.`)) return;
+    if (!confirm(`Delete ${c.name}? This will unlink them from all equipment (both maintenance and repair roles).`)) return;
     try {
+      // Clear FK references on equipment first — same precondition as
+      // the rx-overlay delete path. See that handler for the full
+      // rationale (FK RESTRICT vs SET NULL, pre-migration safety).
+      const clearMaint = NX.sb.from('equipment')
+        .update({ service_contractor_node_id: null, service_contractor_name: null })
+        .eq('service_contractor_node_id', c.id);
+      const clearRepair = NX.sb.from('equipment')
+        .update({ repair_contractor_node_id: null, repair_contractor_name: null })
+        .eq('repair_contractor_node_id', c.id);
+      const [mRes, rRes] = await Promise.all([clearMaint, clearRepair.then(r => r).catch(e => ({ error: e }))]);
+      if (mRes.error) throw mRes.error;
+      if (rRes.error && !/column.+repair_contractor.+does not exist/i.test(rRes.error.message || '')) {
+        throw rRes.error;
+      }
+
       const { error } = await NX.sb.from('nodes').delete().eq('id', c.id);
       if (error) throw error;
       contractorsState.list = contractorsState.list.filter(x => x.id !== c.id);
@@ -12802,9 +13315,13 @@ function wireContractorEditForm() {
       contractorsState.activeContractor = null;
       renderContractors();
       NX.toast && NX.toast('Contractor deleted', 'info', 1200);
+      // Reload equipment so the now-orphaned FKs are reflected app-wide.
+      if (typeof loadEquipment === 'function') {
+        try { await loadEquipment(); } catch (_) {}
+      }
     } catch (err) {
       console.error('[equipment] deleteContractor:', err);
-      NX.toast && NX.toast('Could not delete: ' + (err.message || ''), 'error');
+      NX.toast && NX.toast('Could not delete: ' + (err.message || ''), 'error', 4000);
     }
   });
 }
@@ -13021,14 +13538,20 @@ function openContractorAssignSheet() {
   if (!contractorsState || !contractorsState.activeContractor) return;
   const c = contractorsState.activeContractor;
   const eqList = (typeof equipment !== 'undefined' && equipment) ? equipment : (contractorsState.equipmentLite || []);
-  // Already assigned (FK-linked) IDs to exclude.
-  const assignedIds = new Set((contractorsState.assignedEquipment || [])
-    .filter(e => e._linkType === 'fk')
-    .map(e => e.id));
+  // Already assigned (FK-linked) IDs to exclude — covers BOTH role FKs.
+  const assignedIds = new Set();
+  for (const e of (contractorsState.assignedEquipment || [])) {
+    // Only exclude if already FK-linked in BOTH roles. If the equipment
+    // is FK-linked in only one role, we want the user to be able to
+    // pick the other role here.
+    if (e._maintLinkType === 'fk' && e._repairLinkType === 'fk') {
+      assignedIds.add(e.id);
+    }
+  }
   const candidates = eqList.filter(e => !assignedIds.has(e.id));
 
   if (!candidates.length) {
-    NX.toast && NX.toast('All equipment is already assigned to this contractor', 'info', 1800);
+    NX.toast && NX.toast('All equipment is already assigned to this contractor in both roles', 'info', 1800);
     return;
   }
 
@@ -13049,6 +13572,9 @@ function openContractorAssignSheet() {
   const overlay = document.createElement('div');
   overlay.className = 'eq-bulk-sheet-overlay';
   const selected = new Set();
+  // Default role: "both". Most contractors do both. The user can flip
+  // to repair-only or maintenance-only if they want a specialist.
+  let role = 'both'; // 'both' | 'repair' | 'maintenance'
 
   const renderSheet = () => {
     overlay.innerHTML = `
@@ -13056,12 +13582,31 @@ function openContractorAssignSheet() {
       <div class="eq-bulk-sheet">
         <div class="eq-bulk-sheet-handle"></div>
         <div class="eq-bulk-sheet-title">Assign equipment to ${esc(c.name)}</div>
-        <div class="eq-bulk-sheet-sub">Pick the units this contractor is in charge of. We'll set the FK link on each selected piece, and fill in the contractor's primary phone where the equipment doesn't have one yet.</div>
+        <div class="eq-bulk-sheet-sub">Pick the units this contractor is in charge of, then choose the role. Public QR codes call the <strong>repair</strong> contractor; PMs go to the <strong>maintenance</strong> contractor.</div>
+
+        <div class="eq-bulk-role-picker" role="radiogroup" aria-label="Assignment role">
+          <button type="button" class="eq-bulk-role-btn ${role === 'both' ? 'is-active' : ''}" data-role="both">
+            <span class="eq-bulk-role-label">Both</span>
+            <span class="eq-bulk-role-hint">repair + maintenance</span>
+          </button>
+          <button type="button" class="eq-bulk-role-btn ${role === 'repair' ? 'is-active' : ''}" data-role="repair">
+            <span class="eq-bulk-role-label">Repair only</span>
+            <span class="eq-bulk-role-hint">QR Call button</span>
+          </button>
+          <button type="button" class="eq-bulk-role-btn ${role === 'maintenance' ? 'is-active' : ''}" data-role="maintenance">
+            <span class="eq-bulk-role-label">Maintenance only</span>
+            <span class="eq-bulk-role-hint">scheduled PMs</span>
+          </button>
+        </div>
+
         <div class="eq-bulk-sheet-list">
           ${candidates.map(e => {
             const isSel = selected.has(e.id);
             const matches = matchesSpecialty(e);
-            const otherContractor = e.service_contractor_node_id && e.service_contractor_node_id !== c.id;
+            // Warn if this slot is already held by a DIFFERENT contractor.
+            const conflictMaint  = role !== 'repair'      && e.service_contractor_node_id && e.service_contractor_node_id !== c.id;
+            const conflictRepair = role !== 'maintenance' && e.repair_contractor_node_id  && e.repair_contractor_node_id  !== c.id;
+            const conflict = conflictMaint || conflictRepair;
             return `
               <button class="eq-bulk-sheet-item eq-bulk-apply-item ${isSel ? 'is-selected' : ''} ${matches ? 'is-same-brand' : ''}" data-id="${esc(e.id)}" type="button">
                 <div class="eq-bulk-apply-check">
@@ -13069,7 +13614,7 @@ function openContractorAssignSheet() {
                 </div>
                 <div class="eq-bulk-sheet-item-text">
                   <div class="eq-bulk-sheet-item-name">${esc(e.name)}</div>
-                  <div class="eq-bulk-sheet-item-sub">${esc(e.location || '')}${e.manufacturer ? ' · ' + esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}${otherContractor ? ' · ⚠ already assigned to another contractor' : ''}</div>
+                  <div class="eq-bulk-sheet-item-sub">${esc(e.location || '')}${e.manufacturer ? ' · ' + esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}${conflict ? ' · ⚠ replaces existing' : ''}</div>
                 </div>
                 ${matches ? '<span class="eq-bulk-apply-badge">MATCHES</span>' : ''}
               </button>
@@ -13077,13 +13622,19 @@ function openContractorAssignSheet() {
           }).join('')}
         </div>
         <button class="eq-bulk-sheet-confirm" data-action="confirm" ${selected.size === 0 ? 'disabled' : ''} type="button">
-          Assign ${selected.size} ${selected.size === 1 ? 'unit' : 'units'} to ${esc(c.name)}
+          Assign ${selected.size} ${selected.size === 1 ? 'unit' : 'units'} as ${role === 'both' ? 'repair + maintenance' : role}
         </button>
         <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Cancel</button>
       </div>
     `;
     overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', close);
     overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+    overlay.querySelectorAll('[data-role]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        role = btn.dataset.role;
+        renderSheet();
+      });
+    });
     overlay.querySelectorAll('[data-id]').forEach(btn => {
       btn.addEventListener('click', () => {
         const id = btn.dataset.id;
@@ -13101,20 +13652,42 @@ function openContractorAssignSheet() {
     if (!selected.size) return;
     const ids = Array.from(selected);
     const phone = extractContractorPhone(c);
+    const writeMaint  = role === 'both' || role === 'maintenance';
+    const writeRepair = role === 'both' || role === 'repair';
     try {
       let updated = 0;
+      let repairColumnsMissing = false;
       for (const id of ids) {
         const eq = candidates.find(e => e.id === id);
-        const update = {
-          service_contractor_node_id: c.id,
-          service_contractor_name: c.name,  // keep name in sync
-        };
-        if (phone && eq && !eq.service_contractor_phone) update.service_contractor_phone = phone;
-        const { error } = await NX.sb.from('equipment').update(update).eq('id', id);
-        if (error) throw error;
+        const update = {};
+        if (writeMaint) {
+          update.service_contractor_node_id = c.id;
+          update.service_contractor_name = c.name;
+          if (phone && eq && !eq.service_contractor_phone) update.service_contractor_phone = phone;
+        }
+        if (writeRepair) {
+          update.repair_contractor_node_id = c.id;
+          update.repair_contractor_name = c.name;
+          if (phone && eq && !eq.repair_contractor_phone) update.repair_contractor_phone = phone;
+        }
+        let res = await NX.sb.from('equipment').update(update).eq('id', id);
+        if (res.error && /column.+repair_contractor.+does not exist/i.test(res.error.message || '')) {
+          repairColumnsMissing = true;
+          const stripped = { ...update };
+          delete stripped.repair_contractor_node_id;
+          delete stripped.repair_contractor_name;
+          delete stripped.repair_contractor_phone;
+          if (Object.keys(stripped).length === 0) continue; // repair-only and no migration — skip
+          res = await NX.sb.from('equipment').update(stripped).eq('id', id);
+        }
+        if (res.error) throw res.error;
         updated++;
       }
-      NX.toast && NX.toast(`${updated} ${updated === 1 ? 'unit' : 'units'} assigned to ${c.name}`, 'success', 1800);
+      if (repairColumnsMissing) {
+        NX.toast && NX.toast(`${updated} updated — but repair role NOT stored (run the SQL migration)`, 'warn', 5000);
+      } else {
+        NX.toast && NX.toast(`${updated} ${updated === 1 ? 'unit' : 'units'} assigned to ${c.name}`, 'success', 1800);
+      }
       close();
 
       // Refresh — reload contractor list so derivations update.
