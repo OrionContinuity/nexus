@@ -1487,15 +1487,17 @@ html {
 
 .nx-speed-dial-stack {
   position: absolute;
-  /* Sit above the bottom nav (which is ~64px + safe-area). The stack
-     centers horizontally so the whole row reads as a unit; users can
-     tap either the label chip or the icon button to fire the action. */
-  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  /* Anchor flush against the top edge of the bottom nav. The nav is
+     ~72px tall (60 min-h + 12 padding) plus safe-area-inset-bottom.
+     bottom: 60px + safe-area lands the bottom-most dial action right
+     at the nav's upper edge, so the dial reads as an extension of
+     the button that spawned it rather than floating mid-screen. */
+  bottom: calc(60px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   align-items: flex-end;
   padding: 0 16px;
   max-width: calc(100% - 32px);
