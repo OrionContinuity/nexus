@@ -170,6 +170,448 @@ const ZEBRA_BP_URL = 'http://localhost:9100';
 // Module state
 let equipment = [];
 let activeFilter = { location: LOCATIONS[0], status: 'all', category: 'all', pm: 'all' };
+
+/* ════════════════════════════════════════════════════════════════════
+   EQUIPMENT EVENT LOGGING
+   ────────────────────────────────────────────────────────────────────
+   Every equipment mutation that's worth seeing in a Timeline/Activity
+   view writes a row here. The two read surfaces are:
+     - per-equipment Timeline tab (detail view) — single equipment's
+       full history, chronologically
+     - global Equipment Activity log (per location) — every event
+       across all equipment at the active restaurant
+   Failures are logged but NEVER block the parent operation. Events
+   are observability, not correctness — losing a single log row
+   shouldn't make a status change fail.
+   ════════════════════════════════════════════════════════════════════ */
+
+async function logEquipmentEvent({ equipmentId, eventType, payload, location }) {
+  if (!NX.sb || !equipmentId || !eventType) return;
+  try {
+    const user = (window.NX && NX.currentUser) || {};
+    const actorUserId = (typeof user.id === 'number') ? user.id : null;
+    const actorName   = user.name || null;
+    // Resolve location from the equipment record if not provided so
+    // every event is location-stamped (powers the global filter).
+    let loc = location;
+    if (!loc) {
+      const eq = equipment.find(e => e.id === equipmentId);
+      loc = eq && eq.location ? eq.location : null;
+    }
+    await NX.sb.from('equipment_events').insert({
+      equipment_id: equipmentId,
+      event_type: eventType,
+      payload: payload || {},
+      location: loc,
+      actor_user_id: actorUserId,
+      actor_name: actorName,
+    });
+  } catch (e) {
+    console.warn('[equipment] logEquipmentEvent failed:', e);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ACTIVITY READ HELPERS — per-equipment + per-location
+   ─────────────────────────────────────────────────────────────────── */
+
+async function loadEquipmentEvents(equipmentId, { limit = 100, beforeOccurredAt = null } = {}) {
+  if (!NX.sb || !equipmentId) return [];
+  let q = NX.sb.from('equipment_events')
+    .select('*')
+    .eq('equipment_id', equipmentId)
+    .order('occurred_at', { ascending: false })
+    .limit(limit);
+  if (beforeOccurredAt) q = q.lt('occurred_at', beforeOccurredAt);
+  const { data, error } = await q;
+  if (error) {
+    console.warn('[equipment] loadEquipmentEvents:', error);
+    return [];
+  }
+  return data || [];
+}
+
+/* Activity event categorization — used by both UIs (per-equipment +
+   global) so labels and icons stay consistent. */
+const ACTIVITY_TYPES = {
+  status_change:    { label: 'Status',      group: 'status',    icon: 'refresh' },
+  location_change:  { label: 'Move',        group: 'location',  icon: 'pin' },
+  archived:         { label: 'Archived',    group: 'archive',   icon: 'archive' },
+  restored:         { label: 'Restored',    group: 'archive',   icon: 'check' },
+  pm_logged:        { label: 'Maintenance', group: 'pm',        icon: 'wrench' },
+  fields_edited:    { label: 'Edit',        group: 'edit',      icon: 'edit' },
+  note_added:       { label: 'Note',        group: 'note',      icon: 'note' },
+  photo_replaced:   { label: 'Photo',       group: 'photo',     icon: 'camera' },
+  created:          { label: 'Created',     group: 'create',    icon: 'plus' },
+};
+
+function activityIcon(eventType) {
+  const cfg = ACTIVITY_TYPES[eventType];
+  const iconName = cfg ? cfg.icon : 'dot';
+  // uiSvg is the project-wide icon helper. Falls back gracefully if a
+  // requested icon name isn't defined.
+  try { return uiSvg(iconName, '14px'); } catch (_) { return ''; }
+}
+
+function activitySummary(ev) {
+  const p = ev.payload || {};
+  const eqName = p.equipment_name ? `<span class="eq-act-name">${esc(p.equipment_name)}</span> ` : '';
+  switch (ev.event_type) {
+    case 'status_change':
+      return `${eqName}status: <b>${esc(p.from_label || p.from || '?')}</b> → <b>${esc(p.to_label || p.to || '?')}</b>`;
+    case 'location_change': {
+      const fromLoc  = p.from || '?';
+      const fromArea = p.from_area ? ` · ${p.from_area}` : '';
+      const toLoc    = p.to || '?';
+      const toArea   = p.to_area ? ` · ${p.to_area}` : '';
+      return `${eqName}moved: <b>${esc(fromLoc)}${esc(fromArea)}</b> → <b>${esc(toLoc)}${esc(toArea)}</b>`;
+    }
+    case 'archived':       return `${eqName}archived`;
+    case 'restored':       return `${eqName}restored`;
+    case 'pm_logged':      return `${eqName}maintenance logged${p.technician_name ? ` by ${esc(p.technician_name)}` : ''}`;
+    case 'fields_edited':  return `${eqName}edited: ${esc((p.changed_fields || []).join(', '))}`;
+    case 'note_added':     return `${eqName}note added`;
+    case 'photo_replaced': return `${eqName}photo updated`;
+    case 'created':        return `${eqName}equipment created`;
+    default:               return `${eqName}${esc(ev.event_type)}`;
+  }
+}
+
+function activityRelativeTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso), now = new Date();
+  const diffMin = Math.floor((now - d) / 60000);
+  if (diffMin < 1)  return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return 'yesterday';
+  const diffDays = Math.floor(diffHr / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+/* Per-equipment Activity tab body — chronological list with no
+   filtering (single equipment, scope is already narrow). */
+function renderEquipmentActivity(eq, events) {
+  if (!events || !events.length) {
+    return `<div class="eq-empty-small">
+      No activity logged yet.<br>
+      Status changes, location moves, edits, and other changes
+      will appear here as they happen.
+    </div>`;
+  }
+  const rows = events.map(ev => {
+    const cfg = ACTIVITY_TYPES[ev.event_type] || { label: ev.event_type, group: 'other' };
+    const who = ev.actor_name ? ` · ${esc(ev.actor_name)}` : '';
+    return `
+      <div class="eq-act-row eq-act-row-${esc(cfg.group)}">
+        <div class="eq-act-icon">${activityIcon(ev.event_type)}</div>
+        <div class="eq-act-body">
+          <div class="eq-act-summary">${activitySummary(ev)}</div>
+          <div class="eq-act-meta">${esc(activityRelativeTime(ev.occurred_at))}${who}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  return `<div class="eq-act-list">${rows}</div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   GLOBAL EQUIPMENT ACTIVITY LOG — per-location subscreen
+   ────────────────────────────────────────────────────────────────────
+   Mirrors ordering's Transactions view. Pills filter event type,
+   search filters by equipment name, time-grouped list, paginated.
+   Same component pattern. Cleaning's eventual log can copy this
+   shape verbatim.
+   ════════════════════════════════════════════════════════════════════ */
+
+const EQ_ACT_PAGE_SIZE = 50;
+const EQ_ACT_PILLS = [
+  { id: 'all',       label: 'All' },
+  { id: 'status',    label: 'Status' },
+  { id: 'location',  label: 'Moves' },
+  { id: 'pm',        label: 'PMs' },
+  { id: 'edit',      label: 'Edits' },
+  { id: 'archive',   label: 'Archived' },
+  { id: 'create',    label: 'Created' },
+];
+// Map pill group → which event_types it includes
+const EQ_ACT_GROUP_TYPES = {
+  all:      null,  // no filter
+  status:   ['status_change'],
+  location: ['location_change'],
+  pm:       ['pm_logged'],
+  edit:     ['fields_edited', 'note_added', 'photo_replaced'],
+  archive:  ['archived', 'restored'],
+  create:   ['created'],
+};
+
+let eqActState = {
+  group: 'all',
+  search: '',
+  events: [],
+  counts: {},
+  loading: false,
+  hasMore: true,
+};
+
+async function openEquipmentActivityLog() {
+  closeEquipmentActivityLog();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-act-overlay';
+  overlay.id = 'eqActOverlay';
+  overlay.innerHTML = renderEqActShell();
+  document.body.appendChild(overlay);
+
+  requestAnimationFrame(() => overlay.classList.add('is-open'));
+
+  eqActState = { group: 'all', search: '', events: [], counts: {}, loading: false, hasMore: true };
+  wireEqActOverlay(overlay);
+
+  setEqActLoading(overlay, true);
+  await Promise.all([
+    loadEqActCounts(),
+    loadEqActPage(false),
+  ]);
+  setEqActLoading(overlay, false);
+
+  renderEqActPills(overlay);
+  renderEqActList(overlay);
+}
+
+function closeEquipmentActivityLog() {
+  const overlay = document.getElementById('eqActOverlay');
+  if (overlay) {
+    overlay.classList.remove('is-open');
+    setTimeout(() => overlay.remove(), 220);
+  }
+}
+
+function renderEqActShell() {
+  return `
+    <div class="eq-act-backdrop"></div>
+    <div class="eq-act-sheet">
+      <header class="eq-act-header">
+        <button class="eq-act-back" aria-label="Back" data-eqact-action="back">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div class="eq-act-title-wrap">
+          <h2 class="eq-act-title">Equipment Activity</h2>
+          <span class="eq-act-loc-label">${esc(activeFilter.location || '')}</span>
+        </div>
+      </header>
+      <div class="eq-act-pills" id="eqActPills"></div>
+      <div class="eq-act-search-wrap">
+        <input type="search" class="eq-act-search" id="eqActSearch" placeholder="Search equipment name…" autocomplete="off" spellcheck="false" inputmode="search">
+      </div>
+      <div class="eq-act-list-wrap" id="eqActList">
+        <div class="eq-act-loading">Loading activity…</div>
+      </div>
+    </div>
+  `;
+}
+
+function setEqActLoading(overlay, isLoading) {
+  eqActState.loading = isLoading;
+  const list = overlay.querySelector('#eqActList');
+  if (list) list.classList.toggle('is-loading', isLoading);
+}
+
+async function loadEqActCounts() {
+  if (!NX.sb) return;
+  const loc = activeFilter.location;
+  const base = () => NX.sb.from('equipment_events').select('id', { count: 'exact', head: true }).eq('location', loc);
+  try {
+    const queries = [base()];
+    for (const pill of EQ_ACT_PILLS.slice(1)) {
+      const types = EQ_ACT_GROUP_TYPES[pill.id];
+      queries.push(types && types.length ? base().in('event_type', types) : base());
+    }
+    const results = await Promise.all(queries);
+    eqActState.counts = {};
+    EQ_ACT_PILLS.forEach((p, i) => {
+      eqActState.counts[p.id] = results[i].count || 0;
+    });
+  } catch (e) {
+    console.error('[equipment] loadEqActCounts:', e);
+  }
+}
+
+async function loadEqActPage(append) {
+  if (!NX.sb) return;
+  const loc = activeFilter.location;
+  let q = NX.sb.from('equipment_events')
+    .select('*')
+    .eq('location', loc)
+    .order('occurred_at', { ascending: false })
+    .limit(EQ_ACT_PAGE_SIZE);
+
+  const types = EQ_ACT_GROUP_TYPES[eqActState.group];
+  if (types && types.length) q = q.in('event_type', types);
+
+  if (append && eqActState.events.length) {
+    const last = eqActState.events[eqActState.events.length - 1];
+    if (last.occurred_at) q = q.lt('occurred_at', last.occurred_at);
+  }
+
+  try {
+    const { data, error } = await q;
+    if (error) throw error;
+    const rows = data || [];
+    eqActState.events = append ? [...eqActState.events, ...rows] : rows;
+    eqActState.hasMore = rows.length === EQ_ACT_PAGE_SIZE;
+  } catch (e) {
+    console.error('[equipment] loadEqActPage:', e);
+  }
+}
+
+function renderEqActPills(overlay) {
+  const el = overlay.querySelector('#eqActPills');
+  if (!el) return;
+  el.innerHTML = EQ_ACT_PILLS.map(p => {
+    const count = eqActState.counts[p.id] != null ? eqActState.counts[p.id] : '';
+    const active = eqActState.group === p.id;
+    return `
+      <button class="eq-act-pill${active ? ' active' : ''}" data-eqact-group="${esc(p.id)}">
+        <span>${esc(p.label)}</span>
+        ${count !== '' ? `<span class="eq-act-pill-count">${count}</span>` : ''}
+      </button>
+    `;
+  }).join('');
+}
+
+function renderEqActList(overlay) {
+  const el = overlay.querySelector('#eqActList');
+  if (!el) return;
+
+  const search = (eqActState.search || '').toLowerCase().trim();
+  const filtered = !search ? eqActState.events : eqActState.events.filter(ev => {
+    const nm = ((ev.payload && ev.payload.equipment_name) || '').toLowerCase();
+    const eq = equipment.find(e => e.id === ev.equipment_id);
+    const fallbackNm = (eq && eq.name || '').toLowerCase();
+    return nm.includes(search) || fallbackNm.includes(search);
+  });
+
+  if (!filtered.length && !eqActState.loading) {
+    el.innerHTML = `<div class="eq-act-empty">${search ? 'No activity matches your search.' : 'No activity logged yet at this location.'}</div>`;
+    return;
+  }
+
+  // Time bucketing — same pattern as ordering's Transactions
+  const bucketOf = ts => {
+    if (!ts) return 'older';
+    const d = new Date(ts), now = new Date();
+    if (d.toDateString() === now.toDateString()) return 'today';
+    const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return 'yesterday';
+    const diff = (now - d) / 86400000;
+    if (diff < 7)  return 'thisweek';
+    if (diff < 30) return 'thismonth';
+    const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+    return `month:${d.getFullYear()}-${mon}`;
+  };
+  const bucketLabel = b => {
+    if (b === 'today') return 'TODAY';
+    if (b === 'yesterday') return 'YESTERDAY';
+    if (b === 'thisweek') return 'EARLIER THIS WEEK';
+    if (b === 'thismonth') return 'EARLIER THIS MONTH';
+    if (b.startsWith('month:')) {
+      const [, ym] = b.split(':');
+      const [year, mon] = ym.split('-');
+      return `${mon.toUpperCase()} ${year}`;
+    }
+    return 'OLDER';
+  };
+
+  let lastBucket = null;
+  const rowsHTML = filtered.map(ev => {
+    const cfg = ACTIVITY_TYPES[ev.event_type] || { group: 'other' };
+    const bucket = bucketOf(ev.occurred_at);
+    let dividerHTML = '';
+    if (bucket !== lastBucket) {
+      dividerHTML = `<div class="eq-act-divider">${esc(bucketLabel(bucket))}</div>`;
+      lastBucket = bucket;
+    }
+    const who = ev.actor_name ? ` · ${esc(ev.actor_name)}` : '';
+    return `${dividerHTML}
+      <button class="eq-act-row eq-act-row-${esc(cfg.group)} eq-act-row-clickable" data-eqact-equip-id="${esc(ev.equipment_id)}">
+        <div class="eq-act-icon">${activityIcon(ev.event_type)}</div>
+        <div class="eq-act-body">
+          <div class="eq-act-summary">${activitySummary(ev)}</div>
+          <div class="eq-act-meta">${esc(activityRelativeTime(ev.occurred_at))}${who}</div>
+        </div>
+        <div class="eq-act-arrow" aria-hidden="true">›</div>
+      </button>`;
+  }).join('');
+
+  const moreHTML = eqActState.hasMore && !search
+    ? `<button class="eq-act-load-more" type="button" data-eqact-action="load-more">Load more</button>`
+    : (eqActState.events.length && !search && !eqActState.hasMore
+        ? `<div class="eq-act-end">— end of activity —</div>`
+        : '');
+
+  el.innerHTML = rowsHTML + moreHTML;
+
+  // Wire row clicks → open that equipment's detail
+  el.querySelectorAll('.eq-act-row-clickable').forEach(r => {
+    r.addEventListener('click', () => {
+      const eqId = r.dataset.eqactEquipId;
+      if (!eqId) return;
+      closeEquipmentActivityLog();
+      // Small delay so the activity overlay finishes its slide-out
+      // before the detail overlay slides in — feels less stacked.
+      setTimeout(() => openDetail(eqId), 220);
+    });
+  });
+
+  el.querySelector('[data-eqact-action="load-more"]')?.addEventListener('click', async () => {
+    const btn = el.querySelector('[data-eqact-action="load-more"]');
+    if (btn) btn.textContent = 'Loading…';
+    setEqActLoading(overlay, true);
+    await loadEqActPage(true);
+    setEqActLoading(overlay, false);
+    renderEqActList(overlay);
+  });
+}
+
+function wireEqActOverlay(overlay) {
+  overlay.querySelector('.eq-act-backdrop')?.addEventListener('click', closeEquipmentActivityLog);
+  overlay.querySelector('[data-eqact-action="back"]')?.addEventListener('click', closeEquipmentActivityLog);
+
+  overlay.addEventListener('click', async e => {
+    const pill = e.target.closest('[data-eqact-group]');
+    if (!pill || !overlay.contains(pill)) return;
+    const newGroup = pill.dataset.eqactGroup;
+    if (newGroup === eqActState.group) return;
+    eqActState.group = newGroup;
+    eqActState.events = [];
+    eqActState.hasMore = true;
+    renderEqActPills(overlay);
+    const list = overlay.querySelector('#eqActList');
+    if (list) list.innerHTML = `<div class="eq-act-loading">Loading…</div>`;
+    setEqActLoading(overlay, true);
+    await loadEqActPage(false);
+    setEqActLoading(overlay, false);
+    renderEqActList(overlay);
+  });
+
+  const search = overlay.querySelector('#eqActSearch');
+  if (search) {
+    let t = null;
+    search.addEventListener('input', () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        eqActState.search = search.value;
+        renderEqActList(overlay);
+      }, 150);
+    });
+  }
+}
 let viewMode = 'list';          // 'list' | 'grid'
 let currentEquipId = null;
 let searchQuery = '';
@@ -493,6 +935,17 @@ function renderList() {
       </div>`;
   }
 
+  // "View all activity →" — entry point to the global Equipment
+  // Activity Log overlay. Always visible at the bottom of the list
+  // so users can reach the canonical history surface from anywhere.
+  list.insertAdjacentHTML('beforeend', `
+    <button class="eq-act-link" id="eqActLink" type="button" aria-label="View equipment activity">
+      <span>View all activity</span>
+      <span class="eq-act-link-arrow" aria-hidden="true">→</span>
+    </button>
+  `);
+  list.querySelector('#eqActLink')?.addEventListener('click', () => openEquipmentActivityLog());
+
   // Wire rows → detail
   list.querySelectorAll('[data-eq-id]').forEach(el => {
     el.addEventListener('click', (ev) => {
@@ -704,6 +1157,7 @@ async function openDetail(id) {
       <div class="eq-detail-tabs">
         <button class="eq-tab active" data-tab="overview">Overview</button>
         <button class="eq-tab" data-tab="timeline">Timeline (${maintenance.length}${pendingLogs.length ? ` <span class="eq-tab-pending-dot" title="${pendingLogs.length} pending review">+${pendingLogs.length}</span>` : ''})</button>
+        <button class="eq-tab" data-tab="activity">Activity</button>
         <button class="eq-tab" data-tab="parts">Parts (${parts.length})</button>
         <button class="eq-tab" data-tab="manual">Manual</button>
         <button class="eq-tab" data-tab="intel">${uiSvg('brain', '14px')} AI</button>
@@ -713,6 +1167,7 @@ async function openDetail(id) {
       <div class="eq-detail-body">
         <div class="eq-tab-panel active" data-panel="overview">${renderOverview(eq, attachments, customFields)}</div>
         <div class="eq-tab-panel" data-panel="timeline">${renderTimeline(eq, maintenance, pendingLogs)}</div>
+        <div class="eq-tab-panel" data-panel="activity"><div class="eq-empty-small">Loading activity…</div></div>
         <div class="eq-tab-panel" data-panel="parts">${renderParts(eq, parts)}</div>
         <div class="eq-tab-panel" data-panel="manual">${renderManual(eq)}</div>
         <div class="eq-tab-panel" data-panel="intel"><div class="eq-empty-small">Loading intelligence…</div></div>
@@ -792,6 +1247,11 @@ async function openDetail(id) {
       if (tab.dataset.tab === 'intel' && !panel.dataset.loaded) {
         panel.dataset.loaded = '1';
         panel.innerHTML = await renderIntelligenceTab(id);
+      }
+      if (tab.dataset.tab === 'activity' && !panel.dataset.loaded) {
+        panel.dataset.loaded = '1';
+        const events = await loadEquipmentEvents(id);
+        panel.innerHTML = renderEquipmentActivity(eq, events);
       }
       if (tab.dataset.tab === 'parts') {
         const list = panel.querySelector('.eq-parts-list');
@@ -1437,13 +1897,83 @@ function openEditModal(id) {
       }
 
       if (id) {
+        // Snapshot the prior record so we can compute a diff after save.
+        // Diff drives meaningful event logging — only changes worth
+        // surfacing in the timeline get their own typed event; everything
+        // else collapses into a single 'fields_edited' summary.
+        const prior = equipment.find(e => e.id === id) || {};
+        const priorSnap = {
+          status: prior.status,
+          location: prior.location,
+          area: prior.area,
+          name: prior.name,
+          model: prior.model,
+          serial_number: prior.serial_number,
+          manufacturer: prior.manufacturer,
+          notes: prior.notes,
+        };
         const { error } = await NX.sb.from('equipment').update(data).eq('id', id);
         if (error) throw error;
         NX.toast && NX.toast('Equipment updated ✓', 'success');
+
+        // Diff-based event logging — non-blocking
+        const eqLoc = (data.location !== undefined ? data.location : priorSnap.location) || null;
+        if (data.status !== undefined && data.status !== priorSnap.status) {
+          logEquipmentEvent({
+            equipmentId: id,
+            eventType: 'status_change',
+            location: eqLoc,
+            payload: {
+              from: priorSnap.status, to: data.status,
+              from_label: STATUSES.find(s => s.key === priorSnap.status)?.label || priorSnap.status,
+              to_label:   STATUSES.find(s => s.key === data.status)?.label || data.status,
+              equipment_name: data.name || priorSnap.name,
+              source: 'edit_form',
+            },
+          });
+        }
+        if ((data.location !== undefined && data.location !== priorSnap.location) ||
+            (data.area !== undefined && data.area !== priorSnap.area)) {
+          logEquipmentEvent({
+            equipmentId: id,
+            eventType: 'location_change',
+            location: eqLoc,
+            payload: {
+              from: priorSnap.location, from_area: priorSnap.area,
+              to: data.location !== undefined ? data.location : priorSnap.location,
+              to_area: data.area !== undefined ? data.area : priorSnap.area,
+              equipment_name: data.name || priorSnap.name,
+            },
+          });
+        }
+        // Catch-all "fields_edited" for everything else worth a row.
+        const otherChangedFields = ['name','model','serial_number','manufacturer','notes']
+          .filter(f => data[f] !== undefined && data[f] !== priorSnap[f]);
+        if (otherChangedFields.length) {
+          logEquipmentEvent({
+            equipmentId: id,
+            eventType: 'fields_edited',
+            location: eqLoc,
+            payload: {
+              changed_fields: otherChangedFields,
+              equipment_name: data.name || priorSnap.name,
+            },
+          });
+        }
       } else {
         const { data: created, error } = await NX.sb.from('equipment').insert(data).select().single();
         if (error) throw error;
         NX.toast && NX.toast('Equipment created ✓', 'success');
+        // Log the created event so new equipment appears at the top of
+        // the activity log immediately.
+        if (created && created.id) {
+          logEquipmentEvent({
+            equipmentId: created.id,
+            eventType: 'created',
+            location: created.location || null,
+            payload: { equipment_name: created.name },
+          });
+        }
         // equipment_created syslog → now handled by Postgres trigger on equipment INSERT
       }
       closeEdit();
@@ -1543,6 +2073,13 @@ async function applyArchiveEquipment(id) {
     eq.archived_at = stamp;
     eq.archived = true;
   }
+  // Log the activity event — non-blocking
+  logEquipmentEvent({
+    equipmentId: id,
+    eventType: 'archived',
+    location: eq && eq.location,
+    payload: { archived_at: stamp, equipment_name: eq && eq.name },
+  });
   renderList();
 }
 
@@ -1561,6 +2098,13 @@ async function restoreEquipment(id) {
     if (res.error) throw res.error;
     eq.archived_at = null;
     eq.archived = false;
+    // Log the activity event — non-blocking
+    logEquipmentEvent({
+      equipmentId: id,
+      eventType: 'restored',
+      location: eq.location,
+      payload: { restored_at: new Date().toISOString(), equipment_name: eq.name },
+    });
     renderList();
     NX.toast && NX.toast(`Restored ${eq.name}`, 'info', 1800);
   } catch (err) {
@@ -7954,6 +8498,20 @@ function openQuickStatusMenu(equipmentId, anchorBtn) {
         if (error) throw error;
         NX.toast && NX.toast(`Status → ${STATUSES.find(s => s.key === newKey)?.label || newKey}`, 'success');
         if (eq) eq.status = newKey;  // optimistic local update
+        // Log the status change as an equipment event — non-blocking,
+        // captures from→to so the timeline shows transitions clearly.
+        logEquipmentEvent({
+          equipmentId,
+          eventType: 'status_change',
+          location: eq && eq.location,
+          payload: {
+            from: currentKey,
+            to: newKey,
+            from_label: STATUSES.find(s => s.key === currentKey)?.label || currentKey,
+            to_label:   STATUSES.find(s => s.key === newKey)?.label   || newKey,
+            equipment_name: eq && eq.name,
+          },
+        });
         // Sync to brain so the galaxy/AI reflects the new status
         // without waiting for next full refresh.
         if (NX.eqBrainSync?.syncOne) {
@@ -14078,6 +14636,10 @@ NX.modules.equipment = {
   buildUI,
   getFiltered,
   reportIssue,       // Creates a board card prefilled with this equipment
+
+  // Activity log (per-location global view)
+  openEquipmentActivityLog,
+  closeEquipmentActivityLog,
 
   // Add/edit modal (simple form)
   closeEdit,
