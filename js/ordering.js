@@ -3936,6 +3936,59 @@ Thanks for your help sorting this out.`;
     return defaultEmailBody(vendor, ctx, linesText, notes, totalItemCount);
   }
 
+  /* ─── Sender self-CC filter ─────────────────────────────────────────
+     The vendor's CC list is configured per-location and may include the
+     user's own email (e.g. when the ops person sets themselves up so
+     other team members get a copy). When the user is the one ACTUALLY
+     SENDING, they don't need to be CC'd on their own email — most mail
+     apps auto-bounce or duplicate the message in their inbox.
+
+     NX.currentUser doesn't carry an email field, so we ask the user
+     once and remember it in localStorage. Three states:
+       null            → never asked, prompt next send
+       ''/'__none__'   → asked + opted out, never prompt again, no filter
+       'x@y.z'         → filter this email (case-insensitive) from cc/bcc
+
+     The user can change/clear it later from the order entry footer's
+     "Recipients" inspector (added below).
+     ───────────────────────────────────────────────────────────────── */
+  const SENDER_EMAIL_KEY = 'nexus.sender.email';
+
+  function getSenderEmailFilter() {
+    try {
+      const v = localStorage.getItem(SENDER_EMAIL_KEY);
+      if (v == null) return null;            // never asked
+      if (v === '__none__') return '';       // explicitly opted out
+      return String(v).trim().toLowerCase();
+    } catch (_) { return ''; }
+  }
+  function setSenderEmailFilter(email) {
+    try {
+      const v = (email == null || email === '') ? '__none__' : String(email).trim().toLowerCase();
+      localStorage.setItem(SENDER_EMAIL_KEY, v);
+    } catch (_) {}
+  }
+  function clearSenderEmailFilter() {
+    try { localStorage.removeItem(SENDER_EMAIL_KEY); } catch (_) {}
+  }
+
+  /**
+   * Strip the saved sender email from cc/bcc. Returns the cleaned lists
+   * plus a count of how many entries were removed (so the caller can
+   * surface a toast). Idempotent — safe to call when no filter is set.
+   */
+  function stripSenderFromRecipients(ccList, bccList) {
+    const me = getSenderEmailFilter();
+    if (!me) return { ccList, bccList, removed: 0, sender: '' };
+    const eq = (e) => (e || '').trim().toLowerCase() === me;
+    const cBefore = ccList.length;
+    const bBefore = bccList.length;
+    const cleanCc  = ccList.filter(e => !eq(e));
+    const cleanBcc = bccList.filter(e => !eq(e));
+    const removed = (cBefore - cleanCc.length) + (bBefore - cleanBcc.length);
+    return { ccList: cleanCc, bccList: cleanBcc, removed, sender: me };
+  }
+
   function buildMailtoUrl(to, subject, body, cc, bcc) {
     // Manually construct — URLSearchParams uses + for spaces but mailto: needs %20.
     const enc = s => encodeURIComponent(s).replace(/\+/g, '%20');
@@ -4035,8 +4088,31 @@ Thanks for your help sorting this out.`;
     // is ordering. Recipients marked 'alt' are NOT auto-included
     // (manual-only by design).
     const recipients = parseAltEmails(vendor.alt_emails, location);
-    const ccList  = recipients.filter(r => r.kind === 'cc').map(r => r.email);
-    const bccList = recipients.filter(r => r.kind === 'bcc').map(r => r.email);
+    let ccList  = recipients.filter(r => r.kind === 'cc').map(r => r.email);
+    let bccList = recipients.filter(r => r.kind === 'bcc').map(r => r.email);
+
+    // Self-CC filter — first send on this device prompts the user for
+    // their own email so we can keep them off the CC line. Subsequent
+    // sends silently strip. If they decline ('' / cancel), we mark as
+    // opted-out and never ask again. Skip if there's nothing to strip
+    // anyway — no point asking when there's no recipient list.
+    if (getSenderEmailFilter() === null && (ccList.length || bccList.length)) {
+      const reply = prompt(
+        'What email do you send from?\n\n' +
+        'We\'ll keep this address off the CC/BCC line on your own sends ' +
+        'so you don\'t get a copy of every order you send. Stored on this ' +
+        'device only — leave blank to skip and never ask again.'
+      );
+      // null = cancel pressed, '' = OK with empty input — both mean "skip".
+      setSenderEmailFilter(reply);
+    }
+    const filtered = stripSenderFromRecipients(ccList, bccList);
+    ccList  = filtered.ccList;
+    bccList = filtered.bccList;
+    if (filtered.removed > 0 && NX.toast) {
+      NX.toast(`Removed your address (${filtered.sender}) from CC`, 'info', 2000);
+    }
+
     const url = buildMailtoUrl(vendor.email, subject, body, ccList, bccList);
     window.location.href = url;
 
