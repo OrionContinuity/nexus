@@ -980,6 +980,43 @@ body.ord-overlay-open .bottom-nav {
   height: 14px;
 }
 
+/* ─── Discard draft button ──────────────────────────────────────────
+   Quiet text-only ghost button below the save status, well clear of
+   the primary "Review & Send" CTA so the user has to deliberately
+   reach for it. Color shifts to danger-red on hover/press to confirm
+   the destructive nature.
+   ─────────────────────────────────────────────────────────────────── */
+.ord-entry-discard {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--nx-faint);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ord-entry-discard:hover,
+.ord-entry-discard:active,
+.ord-entry-discard:focus-visible {
+  color: var(--nx-danger, #d04a4a);
+  border-color: var(--nx-danger-line, color-mix(in srgb, var(--nx-danger, #d04a4a) 35%, transparent));
+  background: color-mix(in srgb, var(--nx-danger, #d04a4a) 8%, transparent);
+}
+.ord-entry-discard:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ord-entry-discard svg { flex-shrink: 0; }
+
 
 /* ═══════════════════════════════════════════════════════════════════
    CART REVIEW
@@ -3621,6 +3658,32 @@ body.ord-overlay-open .bottom-nav {
   background: linear-gradient(135deg, #c4811f 0%, #a96612 100%);
   border-color: #a96612;
   box-shadow: 0 4px 12px rgba(169, 102, 18, 0.25);
+}
+
+/* ─── Danger variant for soft-delete on closed/draft orders ─────────
+   Sits in the secondary slot (right side, where Report issues lives
+   for active orders). Reads as muted red-on-dark so it doesn't
+   scream — destructive intent is clear without being aggressive,
+   and the soft-delete is recoverable from "Show archived" anyway. */
+.ord-odetail-action-danger {
+  background: linear-gradient(135deg, #b04545 0%, #8a3434 100%);
+  color: #fff;
+  border-color: #8a3434;
+  box-shadow: 0 4px 14px rgba(138, 52, 52, 0.25);
+}
+.ord-odetail-action-danger:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 6px 18px rgba(138, 52, 52, 0.32);
+}
+.ord-odetail-action-danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: none;
+}
+[data-theme="light"] .ord-odetail-action-danger {
+  background: linear-gradient(135deg, #a13a3a 0%, #7d2828 100%);
+  border-color: #7d2828;
+  box-shadow: 0 4px 12px rgba(125, 40, 40, 0.25);
 }
 
 
