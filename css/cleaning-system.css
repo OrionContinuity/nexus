@@ -408,6 +408,17 @@
   padding: 60px 20px;
   color: var(--faint, #7a7167);
 }
+/* In takeover mode the cleanList is the scroll container with flex:1.
+   When it's empty (just the .clean-empty card), let it center vertically
+   in the available space instead of bunching at the top. */
+body.view-clean #cleanList {
+  display: flex;
+  flex-direction: column;
+}
+body.view-clean #cleanList .clean-empty {
+  margin: auto 0;
+  padding: 20px;
+}
 .clean-empty-title {
   font-family: 'Outfit', 'DM Sans', sans-serif;
   font-size: 18px;
