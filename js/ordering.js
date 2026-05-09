@@ -475,11 +475,6 @@
     if (!root) return null;
     root.innerHTML = `
       <div class="ord-header">
-        <button class="ord-takeover-close" id="ordTakeoverClose" type="button" aria-label="Close ordering">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        </button>
         <div class="ord-title">Ordering</div>
         <div class="ord-loc-picker" role="tablist" aria-label="Location">
           ${LOCS.map(l => `
@@ -512,18 +507,6 @@
     if (search) search.addEventListener('input', e => filterVendors(e.target.value));
     const addBtn = root.querySelector('#ordAddVendor');
     if (addBtn) addBtn.addEventListener('click', () => openVendorEditor(null));
-    // Takeover X — returns to Home (same pattern as Cleaning's X)
-    const closeBtn = root.querySelector('#ordTakeoverClose');
-    if (closeBtn) {
-      closeBtn.addEventListener('click', () => {
-        if (window.NX && typeof NX.switchTo === 'function') {
-          NX.switchTo('home');
-        } else {
-          const homeBtn = document.querySelector('[data-view="home"]');
-          if (homeBtn) homeBtn.click();
-        }
-      });
-    }
     return root;
   }
 
