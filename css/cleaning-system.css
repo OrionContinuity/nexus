@@ -411,11 +411,11 @@
 /* In takeover mode the cleanList is the scroll container with flex:1.
    When it's empty (just the .clean-empty card), let it center vertically
    in the available space instead of bunching at the top. */
-body.view-clean #cleanList {
+body.is-pane-cleaning #cleanList {
   display: flex;
   flex-direction: column;
 }
-body.view-clean #cleanList .clean-empty {
+body.is-pane-cleaning #cleanList .clean-empty {
   margin: auto 0;
   padding: 20px;
 }
@@ -2460,10 +2460,13 @@ body.view-clean #cleanList .clean-empty {
    level. Constraining #appWrap keeps everything else free.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* When in cleaning takeover, lock #appWrap to one viewport, no scroll
-   on the wrapper — only the inner clean-list scrolls. dvh handles iOS
-   Safari's URL-bar shrink/grow correctly. */
-body.view-clean #appWrap {
+/* When the cleaning pane is active, lock #appWrap to one viewport, no
+   scroll on the wrapper — only the inner clean-list scrolls. dvh handles
+   iOS Safari's URL-bar shrink/grow correctly. The body class
+   `is-pane-cleaning` is set by duties.js's activatePane() and ONLY applies
+   to the cleaning pane, leaving ordering with its original layout (and
+   the bottom-nav visible). */
+body.is-pane-cleaning #appWrap {
   height: 100dvh;
   height: 100vh;       /* fallback */
   height: 100dvh;
@@ -2472,16 +2475,16 @@ body.view-clean #appWrap {
   flex-direction: column;
 }
 /* The masthead stays at top — relative inside the flex column */
-body.view-clean #appWrap > .nav {
+body.is-pane-cleaning #appWrap > .nav {
   flex-shrink: 0;
   position: relative !important;
 }
-/* Hide the bottom-nav: X is the way out */
-body.view-clean .bottom-nav {
+/* Hide the bottom-nav: X is the way out (ONLY for cleaning, NOT ordering) */
+body.is-pane-cleaning .bottom-nav {
   display: none;
 }
 /* Active view fills the rest of the viewport */
-body.view-clean #cleanView.active {
+body.is-pane-cleaning #cleanView.active {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -2491,21 +2494,12 @@ body.view-clean #cleanView.active {
 }
 /* Inside the cleaning view, the cleaning duties-pane is the flex column
    that stacks header / list / footer. */
-body.view-clean .duties-pane[data-pane="cleaning"] {
+body.is-pane-cleaning .duties-pane[data-pane="cleaning"] {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-/* Same for the ordering pane (the takeover X is also there) */
-body.view-clean .duties-pane[data-pane="ordering"] {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
 /* The unified header: X + location tabs in one row. */
@@ -2541,7 +2535,7 @@ body.view-clean .duties-pane[data-pane="ordering"] {
 
 /* The list itself is the scroll container, taking remaining vertical
    space between the header and the sticky footer. */
-body.view-clean #cleanList {
+body.is-pane-cleaning #cleanList {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -2549,13 +2543,13 @@ body.view-clean #cleanList {
   padding: 4px 0 12px;
 }
 /* The clean-progress bar shouldn't squeeze the list — it's a fixed strip */
-body.view-clean .clean-progress {
+body.is-pane-cleaning .clean-progress {
   flex-shrink: 0;
 }
 /* The footer pins to the bottom of the column. Inside an overflow:hidden
    parent flex column with a flex:1 list above, the footer naturally sits
    at the bottom — no need for sticky. */
-body.view-clean .clean-footer {
+body.is-pane-cleaning .clean-footer {
   flex-shrink: 0;
   background: var(--bg, #0e0c08);
   border-top: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.16));
@@ -2563,33 +2557,6 @@ body.view-clean .clean-footer {
   z-index: 5;
 }
 
-/* ─── ORDERING takeover treatment ────────────────────────────────
-   Ordering doesn't have a footer; the whole pane is a single scrolling
-   column. Add the X to its header (ordering.js renders the header).
-   Plus we extend the same view-clean treatment so its bottom-nav also
-   hides + the pane fills the viewport. */
-.ord-takeover-close {
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  background: transparent;
-  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
-  color: var(--text, #f0e9da);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 150ms ease;
-  -webkit-tap-highlight-color: transparent;
-  flex-shrink: 0;
-  margin-right: 6px;
-}
-.ord-takeover-close:hover {
-  background: rgba(212, 164, 78, 0.08);
-  border-color: var(--accent, #d4a44e);
-  color: var(--accent, #d4a44e);
-}
-.ord-takeover-close:active { transform: scale(0.94); }
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
