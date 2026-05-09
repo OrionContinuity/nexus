@@ -1498,7 +1498,7 @@ td.check{background:#F0EDE6 !important}
   },
 
   activateModule(view) {
-    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js', inventory: 'js/inventory.js' };
+    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js', inventory: 'js/inventory.js', train: 'js/training.js' };
 
     // ── Local helper: re-translate the currently visible view if user
     // has a non-English language pinned. Called at the END of every
