@@ -1900,6 +1900,20 @@
         </svg>
       </span>
     </button>
+    <!-- Training is its own top-level view (#trainView), not a Duties
+         pane like Cleaning + Ordering. The dispatcher in app.js detects
+         data-target="train" and calls switchTo('train') instead of
+         activatePane(). Speed-dial UX is consistent: tap Duties, pick
+         the workflow you want to do today. -->
+    <button class="nx-speed-dial-action" data-target="train" type="button" aria-label="Open Training">
+      <span class="nx-speed-dial-label" data-i18n="training">Training</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="8" r="7"/>
+          <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
+        </svg>
+      </span>
+    </button>
   </div>
 </div>
 
@@ -3178,24 +3192,48 @@
         closeDial();
 
         if (target === 'parts') {
-          // openParts is exposed via NX.modules.equipment
-          if (window.NX?.modules?.equipment?.openParts) {
-            window.NX.modules.equipment.openParts();
-          } else {
-            console.warn('[equipDial] openParts not available');
-          }
+          // Bug fix 2026-05-09: equipment.js is lazy-loaded by
+          // app.js's activateModule when the user navigates to the
+          // Equipment view. The view-switch is fired in parallel
+          // with this dial open (40ms timeout), so by the time the
+          // user picks "Parts" the script may NOT have finished
+          // loading yet. Old code logged a warning and gave up.
+          // New code retries until the function exists (or 5s out).
+          let attempts = 0;
+          const maxAttempts = 60;  // 60 × 80ms = 4.8s budget
+          const tryOpen = () => {
+            const fn = window.NX?.modules?.equipment?.openParts;
+            if (typeof fn === 'function') {
+              fn();
+              return;
+            }
+            if (++attempts < maxAttempts) {
+              setTimeout(tryOpen, 80);
+            } else {
+              console.warn('[equipDial] openParts not available after retry budget');
+              if (window.NX?.toast) window.NX.toast('Parts view failed to load — try again', 'error', 3000);
+            }
+          };
+          tryOpen();
           return;
         }
 
         if (target === 'archive') {
-          // Set the archive filter to "only" via the existing chip,
-          // which goes through the same code path as a manual click.
-          // Defer slightly to let the equipment view finish its
-          // initial render — the chip won't exist until then.
-          const trySet = (attempt = 0) => {
+          // Find the archive chip + simulate a tap. Same retry pattern
+          // as Parts above — the chip is part of equipment.js's render
+          // output, so it doesn't exist until the module has loaded
+          // AND its initial render has run. Stretched budget to 5s.
+          let attempts = 0;
+          const maxAttempts = 60;
+          const trySet = () => {
             const chip = document.querySelector('.eq-chip[data-filter="archived"][data-value="only"]');
             if (chip) { chip.click(); return; }
-            if (attempt < 12) setTimeout(() => trySet(attempt + 1), 80);
+            if (++attempts < maxAttempts) {
+              setTimeout(trySet, 80);
+            } else {
+              console.warn('[equipDial] archive chip not found after retry budget');
+              if (window.NX?.toast) window.NX.toast('Archive view failed to load — try again', 'error', 3000);
+            }
           };
           trySet();
           return;
