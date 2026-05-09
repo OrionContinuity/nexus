@@ -1,0 +1,1017 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEXUS Cleaning v12 — module styles
+   ─────────────────────────────────────
+   Card-based design that mirrors the ordering catalog. Same gold-line
+   borders, same expand/collapse interaction, same in-line edit form
+   pattern. Freshness bars copied from the equipment health-bar pattern
+   (.eq-brand-health-bar) with class renames so concerns stay isolated.
+
+   This file is loaded after nexus.css so its rules take precedence over
+   the v11 styles still in nexus.css. v11 selectors not in this file
+   (like .clean-tab, .clean-progress, .clean-fill) continue to apply
+   from nexus.css — those still work and don't need rewriting.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Module wrapper: a little breathing room around the list ─────────── */
+.clean-list {
+  padding: 8px 10px 110px;
+  scroll-padding-bottom: 110px;
+}
+
+
+/* ═══ THE SECTION CARD ═══════════════════════════════════════════════════ */
+
+.clean-card {
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.12));
+  border-radius: var(--r, 10px);
+  margin-bottom: 12px;
+  overflow: hidden;
+  transition: border-color 200ms ease;
+}
+.clean-card:hover {
+  border-color: rgba(212, 164, 78, 0.22);
+}
+.clean-card.is-collapsed .clean-card-body {
+  display: none;
+}
+
+/* ─── Card head — title + freshness chip + chevron ─────────────────────── */
+.clean-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 12px 14px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 200ms ease;
+}
+.clean-card:not(.is-collapsed) .clean-card-head {
+  border-bottom-color: var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+}
+
+.clean-card-titles {
+  flex: 1;
+  min-width: 0;
+}
+.clean-card-title {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 16.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--text, #f0e9da);
+  line-height: 1.25;
+}
+.clean-card-sub {
+  margin-top: 2px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--faint, #7a7167);
+  text-transform: uppercase;
+}
+
+/* ─── Card status (right-side chip cluster) ────────────────────────────── */
+.clean-sec-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ─── Freshness chip ───────────────────────────────────────────────────── */
+.clean-fresh-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  border: 1px solid currentColor;
+}
+.clean-fresh-chip.is-fresh {
+  color: #6fa853;
+  background: rgba(91, 138, 76, 0.10);
+}
+.clean-fresh-chip.is-aging {
+  color: #d99c3d;
+  background: rgba(214, 145, 46, 0.10);
+}
+.clean-fresh-chip.is-stale {
+  color: #cf5959;
+  background: rgba(180, 60, 60, 0.10);
+}
+.clean-fresh-chip.is-overdue {
+  color: var(--bg, #0e0c08);
+  background: var(--nx-red, #b43c3c);
+  border-color: var(--nx-red, #b43c3c);
+  font-size: 10.5px;
+  text-transform: uppercase;
+}
+
+/* ─── Board pill (preserved from v11, restyled) ────────────────────────── */
+.clean-board-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(212, 164, 78, 0.08);
+  color: var(--accent, #d4a44e);
+  border: 1px solid rgba(212, 164, 78, 0.30);
+  cursor: pointer;
+}
+.clean-board-pill:hover {
+  background: rgba(212, 164, 78, 0.15);
+}
+.clean-board-pill.is-on-board {
+  background: rgba(212, 164, 78, 0.18);
+}
+
+/* ─── Chevron (rotates when collapsed) ─────────────────────────────────── */
+.clean-card-chev {
+  background: none;
+  border: none;
+  color: var(--faint, #7a7167);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  transition: transform 200ms ease;
+}
+.clean-card.is-collapsed .clean-card-chev {
+  transform: rotate(-90deg);
+}
+
+
+/* ═══ CARD BODY ══════════════════════════════════════════════════════════ */
+
+.clean-card-body {
+  padding: 6px 10px 10px;
+}
+
+/* ─── Check All button ────────────────────────────────────────────────── */
+.clean-check-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 4px 8px;
+  padding: 6px 12px;
+  background: rgba(212, 164, 78, 0.08);
+  border: 1px solid rgba(212, 164, 78, 0.25);
+  border-radius: var(--rs, 8px);
+  color: var(--accent, #d4a44e);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.clean-check-all-btn:hover {
+  background: rgba(212, 164, 78, 0.15);
+}
+
+
+/* ═══ TASK ROW ═══════════════════════════════════════════════════════════ */
+
+.clean-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 6px 10px 10px;
+  border-radius: 6px;
+  transition: background 150ms ease;
+}
+.clean-task + .clean-task {
+  border-top: 1px solid rgba(212, 164, 78, 0.06);
+}
+.clean-task.is-done {
+  opacity: 0.55;
+}
+.clean-task.is-done .clean-task-name {
+  text-decoration: line-through;
+  text-decoration-color: rgba(212, 164, 78, 0.4);
+}
+
+/* ─── Task checkbox (square with check icon when done) ─────────────────── */
+.clean-task-check {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: 5px;
+  border: 1.5px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.30));
+  background: transparent;
+  cursor: pointer;
+  color: var(--accent, #d4a44e);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 150ms ease;
+}
+.clean-task-check:hover {
+  border-color: var(--accent, #d4a44e);
+  background: rgba(212, 164, 78, 0.08);
+}
+.clean-task.is-done .clean-task-check {
+  border-color: var(--accent, #d4a44e);
+  background: rgba(212, 164, 78, 0.15);
+}
+
+/* ─── Task body (name + meta + freshness) ──────────────────────────────── */
+.clean-task-body {
+  flex: 1;
+  min-width: 0;
+}
+.clean-task-name {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 15.5px;
+  font-weight: 400;
+  color: var(--text, #f0e9da);
+  line-height: 1.35;
+}
+.clean-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+}
+.clean-task-secondary {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--faint, #7a7167);
+  letter-spacing: 0.02em;
+}
+.clean-task-fresh {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.clean-task-fresh-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--faint, #7a7167);
+  letter-spacing: 0.03em;
+}
+
+/* ─── Frequency / days-of-week tags ────────────────────────────────────── */
+.clean-freq-tag, .clean-days-tag {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 9px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.clean-freq-tag {
+  background: rgba(212, 164, 78, 0.10);
+  color: var(--accent, #d4a44e);
+  border: 1px solid rgba(212, 164, 78, 0.18);
+}
+.clean-days-tag {
+  background: rgba(120, 138, 174, 0.10);
+  color: #9eb3d4;
+  border: 1px solid rgba(120, 138, 174, 0.20);
+}
+
+/* ─── Assignee chip (initials in a gold circle, like board) ────────────── */
+.clean-assignee {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(212, 164, 78, 0.18);
+  color: var(--accent, #d4a44e);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+/* ─── Edit pencil button (always visible, not hover-only) ──────────────── */
+.clean-task-edit {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 6px;
+  color: var(--faint, #7a7167);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.clean-task-edit:hover {
+  color: var(--accent, #d4a44e);
+  border-color: rgba(212, 164, 78, 0.20);
+  background: rgba(212, 164, 78, 0.05);
+}
+
+
+/* ═══ FRESHNESS BAR ═══════════════════════════════════════════════════════
+   Modeled directly on .eq-brand-health-bar from the equipment module —
+   same height, same transition, same color ramp. We give it our own
+   class names so cross-module styling concerns stay separated. */
+.clean-fresh-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--nx-surface-2, rgba(212, 164, 78, 0.06));
+  overflow: hidden;
+}
+.clean-fresh-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 400ms ease-out;
+}
+.clean-fresh-bar-fill.is-fresh  { background: #6fa853; }
+.clean-fresh-bar-fill.is-aging  { background: #d99c3d; }
+.clean-fresh-bar-fill.is-stale  { background: #cf5959; }
+
+
+/* ═══ ADD-TASK BUTTON (per-section) ═════════════════════════════════════ */
+
+.clean-add-task-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px 12px;
+  background: transparent;
+  border: 1px dashed rgba(212, 164, 78, 0.22);
+  border-radius: 6px;
+  color: var(--accent, #d4a44e);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.clean-add-task-btn:hover {
+  background: rgba(212, 164, 78, 0.06);
+  border-color: rgba(212, 164, 78, 0.40);
+  border-style: solid;
+}
+
+
+/* ═══ FOOTER TOOLBAR (Add section) ═══════════════════════════════════════ */
+
+.clean-footer-toolbar {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+.clean-add-section-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  background: transparent;
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
+  border-radius: var(--r, 10px);
+  color: var(--accent, #d4a44e);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 200ms ease;
+}
+.clean-add-section-btn:hover {
+  border-color: var(--accent, #d4a44e);
+  background: rgba(212, 164, 78, 0.06);
+}
+
+
+/* ═══ EMPTY STATE ════════════════════════════════════════════════════════ */
+
+.clean-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--faint, #7a7167);
+}
+.clean-empty-title {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 18px;
+  color: var(--text, #f0e9da);
+  margin-bottom: 6px;
+}
+.clean-empty-hint {
+  font-size: 13.5px;
+  line-height: 1.5;
+  max-width: 320px;
+  margin: 0 auto;
+}
+
+
+/* ═══ TASK EDIT FORM (inline) ════════════════════════════════════════════
+   Same density and visual language as ordering's catalog item editor.
+   Form fields are stacked, gold "Save" pill is the prominent action,
+   neutral "Cancel" + amber "Archive" round out the trio. */
+
+.clean-task-edit-form {
+  background: rgba(212, 164, 78, 0.04);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.18));
+  border-radius: 8px;
+  padding: 14px;
+  margin: 8px 0;
+}
+.clean-edit-row {
+  margin-bottom: 12px;
+}
+.clean-edit-row:last-child {
+  margin-bottom: 0;
+}
+.clean-edit-row-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.clean-edit-label {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint, #7a7167);
+  margin-bottom: 4px;
+}
+.clean-edit-label-hint {
+  text-transform: none;
+  letter-spacing: 0;
+  font-style: italic;
+  color: rgba(122, 113, 103, 0.7);
+}
+.clean-edit-input,
+.clean-edit-select,
+.clean-edit-textarea {
+  width: 100%;
+  background: var(--elevated, #211e18);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--text, #f0e9da);
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 16px; /* iOS zoom prevention threshold */
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 150ms ease;
+}
+.clean-edit-input:focus,
+.clean-edit-select:focus,
+.clean-edit-textarea:focus {
+  border-color: var(--accent, #d4a44e);
+}
+.clean-edit-textarea {
+  resize: vertical;
+  min-height: 56px;
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+}
+
+/* ─── Day-of-week toggle pills inside the edit form ────────────────────── */
+.clean-day-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.clean-day-pill {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
+  background: transparent;
+  color: var(--faint, #7a7167);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.clean-day-pill:hover {
+  border-color: rgba(212, 164, 78, 0.40);
+  color: var(--text, #f0e9da);
+}
+.clean-day-pill.is-selected {
+  border-color: var(--accent, #d4a44e);
+  background: rgba(212, 164, 78, 0.18);
+  color: var(--accent, #d4a44e);
+}
+
+/* ─── Edit form actions ────────────────────────────────────────────────── */
+.clean-edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  align-items: center;
+}
+.clean-edit-cancel,
+.clean-edit-archive,
+.clean-edit-save {
+  padding: 9px 16px;
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 150ms ease;
+  border: 1px solid;
+}
+.clean-edit-cancel {
+  background: transparent;
+  border-color: var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
+  color: var(--faint, #7a7167);
+}
+.clean-edit-cancel:hover {
+  color: var(--text, #f0e9da);
+}
+.clean-edit-archive {
+  background: rgba(180, 60, 60, 0.05);
+  border-color: rgba(180, 60, 60, 0.30);
+  color: #cf5959;
+  margin-left: auto; /* push it away from save */
+}
+.clean-edit-archive:hover {
+  background: rgba(180, 60, 60, 0.15);
+}
+.clean-edit-save {
+  background: var(--accent, #d4a44e);
+  border-color: var(--accent, #d4a44e);
+  color: var(--bg, #0e0c08);
+  font-weight: 600;
+}
+.clean-edit-save:hover {
+  background: #e0b462;
+}
+.clean-edit-save:disabled,
+.clean-edit-archive:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+
+/* ═══ ARCHIVE BUTTON (lives in duties view header) ═══════════════════════ */
+
+.clean-archive-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  background: transparent;
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.18));
+  border-radius: 999px;
+  color: var(--faint, #7a7167);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.clean-archive-trigger:hover {
+  color: var(--accent, #d4a44e);
+  border-color: rgba(212, 164, 78, 0.40);
+}
+
+
+/* ═══ EXTRAS BUTTON ══════════════════════════════════════════════════════ */
+
+.clean-extras-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  background: transparent;
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.18));
+  border-radius: 999px;
+  color: var(--faint, #7a7167);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.clean-extras-trigger:hover {
+  color: var(--accent, #d4a44e);
+  border-color: rgba(212, 164, 78, 0.40);
+}
+
+
+/* ═══ SUBMIT ACTION SHEET ════════════════════════════════════════════════
+   Two-action menu when the user taps "Submit Report" — gives them the
+   choice between "Submit & email" (the new flow) and "Save without
+   email" (the v11 flow). */
+
+.clean-submit-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: auto;
+}
+.clean-submit-sheet-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: cleanSheetFadeIn 200ms ease;
+}
+.clean-submit-sheet-card {
+  position: relative;
+  width: 100%;
+  max-width: 460px;
+  margin: 0 16px 24px;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
+  border-radius: 14px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: cleanSheetSlideUp 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes cleanSheetFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes cleanSheetSlideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.clean-submit-sheet-title {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 17px;
+  color: var(--text, #f0e9da);
+  font-weight: 500;
+}
+.clean-submit-sheet-sub {
+  font-size: 12.5px;
+  color: var(--faint, #7a7167);
+  margin-bottom: 6px;
+}
+.clean-submit-sheet-primary,
+.clean-submit-sheet-secondary,
+.clean-submit-sheet-cancel {
+  padding: 13px 16px;
+  border-radius: 8px;
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 14.5px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid;
+  transition: all 150ms ease;
+}
+.clean-submit-sheet-primary {
+  background: var(--accent, #d4a44e);
+  border-color: var(--accent, #d4a44e);
+  color: var(--bg, #0e0c08);
+  font-weight: 600;
+}
+.clean-submit-sheet-primary:hover {
+  background: #e0b462;
+}
+.clean-submit-sheet-secondary {
+  background: transparent;
+  border-color: var(--nx-highlight-line, rgba(212, 164, 78, 0.30));
+  color: var(--text, #f0e9da);
+}
+.clean-submit-sheet-secondary:hover {
+  background: rgba(212, 164, 78, 0.06);
+}
+.clean-submit-sheet-cancel {
+  background: transparent;
+  border-color: transparent;
+  color: var(--faint, #7a7167);
+}
+
+
+/* ═══ EDIT-PAST-REPORT BANNER (preserved from v11) ═══════════════════════ */
+
+.clean-edit-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(212, 164, 78, 0.08);
+  border-bottom: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  color: var(--accent, #d4a44e);
+}
+.clean-edit-cancel-banner {
+  margin-left: auto;
+  padding: 5px 10px;
+  background: transparent;
+  border: 1px solid rgba(212, 164, 78, 0.30);
+  border-radius: 6px;
+  color: var(--accent, #d4a44e);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ARCHIVE OVERLAY — the unified archive accessed from above duties
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.nx-archive-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  pointer-events: auto;
+}
+.nx-archive-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: cleanSheetFadeIn 200ms ease;
+}
+.nx-archive-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  background: var(--surface, #1a1814);
+  border-left: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
+  border-right: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
+  display: flex;
+  flex-direction: column;
+  animation: archiveSheetSlideIn 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes archiveSheetSlideIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Archive head ─────────────────────────────────────────────────────── */
+.nx-archive-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+}
+.nx-archive-title-block {
+  flex: 1;
+}
+.nx-archive-title {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--text, #f0e9da);
+}
+.nx-archive-sub {
+  margin-top: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--faint, #7a7167);
+  letter-spacing: 0.04em;
+}
+.nx-archive-close {
+  background: none;
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.18));
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint, #7a7167);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.nx-archive-close:hover {
+  color: var(--text, #f0e9da);
+  border-color: rgba(212, 164, 78, 0.40);
+}
+
+/* ─── Archive tabs ─────────────────────────────────────────────────────── */
+.nx-archive-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.08));
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.nx-archive-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
+  border-radius: 999px;
+  color: var(--faint, #7a7167);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 150ms ease;
+}
+.nx-archive-tab:hover {
+  color: var(--text, #f0e9da);
+  border-color: rgba(212, 164, 78, 0.30);
+}
+.nx-archive-tab.is-active {
+  color: var(--accent, #d4a44e);
+  border-color: var(--accent, #d4a44e);
+  background: rgba(212, 164, 78, 0.08);
+}
+.nx-archive-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: rgba(212, 164, 78, 0.18);
+  color: var(--accent, #d4a44e);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.nx-archive-tab-count.is-zero {
+  background: transparent;
+  color: var(--faint, #7a7167);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+}
+
+/* ─── Archive body ─────────────────────────────────────────────────────── */
+.nx-archive-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.nx-archive-list {
+  padding: 12px 16px 60px;
+}
+
+.nx-archive-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px;
+  background: rgba(212, 164, 78, 0.03);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+  border-radius: 8px;
+  margin-bottom: 8px;
+  transition: all 200ms ease;
+}
+.nx-archive-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.nx-archive-row-title {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 15px;
+  color: var(--text, #f0e9da);
+  line-height: 1.3;
+}
+.nx-archive-row-secondary {
+  margin-top: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--faint, #7a7167);
+}
+.nx-archive-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--faint, #7a7167);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.nx-archive-row-loc {
+  color: var(--accent, #d4a44e);
+  font-weight: 600;
+}
+.nx-archive-row-dot {
+  opacity: 0.5;
+  margin: 0 1px;
+}
+
+.nx-archive-restore {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid rgba(212, 164, 78, 0.30);
+  border-radius: 999px;
+  color: var(--accent, #d4a44e);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.nx-archive-restore:hover {
+  background: rgba(212, 164, 78, 0.10);
+  border-color: var(--accent, #d4a44e);
+}
+.nx-archive-restore:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nx-archive-loading,
+.nx-archive-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--faint, #7a7167);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PHASE 7 KITCHEN-READABILITY OVERRIDES
+   ─────────────────────────────────────
+   Same typography sweep we applied to ordering — bumping default v11
+   selectors that are still in nexus.css (and apply to elements we kept,
+   like .clean-tab and .clean-progress) to the kitchen-tablet scale.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.clean-tab {
+  font-size: 13px;
+  min-height: 42px;
+  padding: 8px 18px;
+}
+.clean-progress-label {
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+}
+.clean-pct {
+  font-size: 13.5px;
+}
+.clean-date {
+  font-size: 12px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LIGHT THEME OVERRIDES
+   ─────────────────────
+   The app supports a [data-theme="light"] mode (set by the theme toggle).
+   These overrides keep the freshness chips legible on white backgrounds
+   without darkening the chip backgrounds too aggressively.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+[data-theme="light"] .clean-fresh-chip.is-fresh   { color: #4a7338; background: rgba(91, 138, 76, 0.12); }
+[data-theme="light"] .clean-fresh-chip.is-aging   { color: #b07a23; background: rgba(214, 145, 46, 0.12); }
+[data-theme="light"] .clean-fresh-chip.is-stale   { color: #a13c3c; background: rgba(180, 60, 60, 0.10); }
+
+[data-theme="light"] .clean-fresh-bar             { background: rgba(0, 0, 0, 0.06); }
+[data-theme="light"] .clean-fresh-bar-fill.is-fresh { background: #4a7338; }
+[data-theme="light"] .clean-fresh-bar-fill.is-aging { background: #b07a23; }
+[data-theme="light"] .clean-fresh-bar-fill.is-stale { background: #a13c3c; }
