@@ -2434,44 +2434,52 @@
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   v14 — CLEANING TAKEOVER MODE
-   ───────────────────────────
-   Cleaning view becomes a dedicated workspace: NEXUS masthead stays at
-   top, X close in the top-left, content fills the screen, Submit Report
-   pinned to the bottom as a sticky footer. Bottom-nav is hidden so the
-   workflow is uninterrupted; tap the X to return to Home.
+   v14 — CLEANING TAKEOVER MODE (rev 2)
+   ────────────────────────────────────
+   Cleaning + Ordering both take over the screen below the NEXUS masthead.
+   The X in the top-left of each header returns to Home.
+
+   Implementation: when body has view-clean, #appWrap becomes a flex column
+   capped at 100dvh. The masthead sits at top, the active view fills the
+   rest, and the bottom-nav is hidden. Inside the view, content scrolls;
+   the submit footer is pinned to the bottom of the viewport.
+
+   Why flex on #appWrap (not body): Anthropic's existing nav uses
+   position:sticky and other UI pieces (toasts, modals) sit at body
+   level. Constraining #appWrap keeps everything else free.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* When body has view-clean, hide the bottom-nav so cleaning takes over.
-   The X button in the top-left replaces the nav as the "go back" affordance. */
+/* When in cleaning takeover, lock #appWrap to one viewport, no scroll
+   on the wrapper — only the inner clean-list scrolls. dvh handles iOS
+   Safari's URL-bar shrink/grow correctly. */
+body.view-clean #appWrap {
+  height: 100dvh;
+  height: 100vh;       /* fallback */
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* The masthead stays at top — relative inside the flex column */
+body.view-clean #appWrap > .nav {
+  flex-shrink: 0;
+  position: relative !important;
+}
+/* Hide the bottom-nav: X is the way out */
 body.view-clean .bottom-nav {
   display: none;
 }
-
-/* The cleaning view itself becomes a vertical flex container so the
-   content scrolls between a fixed footer and the masthead. */
+/* Active view fills the rest of the viewport */
 body.view-clean #cleanView.active {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  position: fixed;
-  top: 60px;                  /* leaves the NEXUS masthead visible */
-  left: 0;
-  right: 0;
-  bottom: 0;
   overflow: hidden;
-  z-index: 30;
   background: var(--bg, #0e0c08);
 }
-@media (min-width: 600px) {
-  body.view-clean #cleanView.active {
-    top: 70px;
-  }
-}
-
-/* Adjust for the duties-train-launcher above + duties-pane scroll area */
-body.view-clean .duties-train-launcher-wrap {
-  flex-shrink: 0;
-}
+/* Inside the cleaning view, the cleaning duties-pane is the flex column
+   that stacks header / list / footer. */
 body.view-clean .duties-pane[data-pane="cleaning"] {
   flex: 1;
   min-height: 0;
@@ -2479,22 +2487,30 @@ body.view-clean .duties-pane[data-pane="cleaning"] {
   flex-direction: column;
   overflow: hidden;
 }
+/* Same for the ordering pane (the takeover X is also there) */
+body.view-clean .duties-pane[data-pane="ordering"] {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 
-/* The takeover bar (X + title) sits at the very top of the cleaning pane */
-.clean-takeover-bar {
+/* The unified header: X + location tabs in one row. */
+.clean-header.clean-header-takeover {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
-  border-bottom: 1px solid rgba(212, 164, 78, 0.10);
+  gap: 6px;
+  flex-wrap: wrap;
   flex-shrink: 0;
 }
 .clean-takeover-close {
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border-radius: 999px;
   background: transparent;
-  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.18));
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
   color: var(--text, #f0e9da);
   cursor: pointer;
   display: inline-flex;
@@ -2503,41 +2519,66 @@ body.view-clean .duties-pane[data-pane="cleaning"] {
   transition: all 150ms ease;
   -webkit-tap-highlight-color: transparent;
   flex-shrink: 0;
+  margin-right: 4px;
 }
 .clean-takeover-close:hover {
   background: rgba(212, 164, 78, 0.08);
   border-color: var(--accent, #d4a44e);
   color: var(--accent, #d4a44e);
 }
-.clean-takeover-close:active {
-  transform: scale(0.94);
-}
-.clean-takeover-title {
-  font-family: 'Outfit', 'DM Sans', sans-serif;
-  font-size: 16px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  color: var(--text, #f0e9da);
-}
+.clean-takeover-close:active { transform: scale(0.94); }
 
-/* The clean-list scrolls; the clean-footer sticks at the bottom */
+/* The list itself is the scroll container, taking remaining vertical
+   space between the header and the sticky footer. */
 body.view-clean #cleanList {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 8px;
+  padding: 4px 0 12px;
 }
+/* The clean-progress bar shouldn't squeeze the list — it's a fixed strip */
+body.view-clean .clean-progress {
+  flex-shrink: 0;
+}
+/* The footer pins to the bottom of the column. Inside an overflow:hidden
+   parent flex column with a flex:1 list above, the footer naturally sits
+   at the bottom — no need for sticky. */
 body.view-clean .clean-footer {
-  position: sticky;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  flex-shrink: 0;
   background: var(--bg, #0e0c08);
   border-top: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.16));
-  padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0));
-  flex-shrink: 0;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0));
   z-index: 5;
 }
+
+/* ─── ORDERING takeover treatment ────────────────────────────────
+   Ordering doesn't have a footer; the whole pane is a single scrolling
+   column. Add the X to its header (ordering.js renders the header).
+   Plus we extend the same view-clean treatment so its bottom-nav also
+   hides + the pane fills the viewport. */
+.ord-takeover-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
+  color: var(--text, #f0e9da);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 150ms ease;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+.ord-takeover-close:hover {
+  background: rgba(212, 164, 78, 0.08);
+  border-color: var(--accent, #d4a44e);
+  color: var(--accent, #d4a44e);
+}
+.ord-takeover-close:active { transform: scale(0.94); }
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
