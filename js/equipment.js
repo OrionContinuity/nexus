@@ -1743,12 +1743,6 @@ async function openDetail(id) {
           <span class="eq-action-cta-icon">${uiSvg('ticket', '18px')}</span>
           <span class="eq-action-cta-label">Report Issue</span>
         </button>
-        <!-- Edit was previously buried in the overflow menu; promoted to
-             a top-level action so non-power-users can always find it. -->
-        <button class="eq-action-cta eq-action-cta-tertiary" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">
-          <span class="eq-action-cta-icon">${uiSvg('pen', '18px')}</span>
-          <span class="eq-action-cta-label">Edit</span>
-        </button>
         <div class="eq-overflow-wrap">
           <button class="eq-overflow-btn-v2" onclick="NX.modules.equipment.toggleOverflow(event, '${eq.id}')" aria-label="More actions">${uiSvg('moreH', '20px')}</button>
           <div class="eq-overflow-menu" id="eqOverflow-${eq.id}" onclick="event.stopPropagation()">
