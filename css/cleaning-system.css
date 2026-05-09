@@ -2491,10 +2491,11 @@ body.is-pane-cleaning #appWrap > .nav {
   flex-shrink: 0;
   position: relative !important;
 }
-/* Hide the bottom-nav: X is the way out (ONLY for cleaning, NOT ordering) */
-body.is-pane-cleaning .bottom-nav {
-  display: none;
-}
+/* Bottom-nav stays visible during cleaning takeover — gives the user
+   direct hops to Home, Equipment, Log, etc. without going through the
+   X close. (Earlier versions hid the nav and forced the X-only exit;
+   reverted because it sacrificed too much navigation speed.) The X in
+   the cleaning header still works as an explicit "exit cleaning" path. */
 /* Active view fills the rest of the viewport */
 body.is-pane-cleaning #cleanView.active {
   flex: 1;
