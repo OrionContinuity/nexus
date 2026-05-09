@@ -1779,6 +1779,42 @@
   flex: 0 0 auto !important;
 }
 
+/* ─── KEBAB VISIBILITY FIX ──────────────────────────────────────
+   The original kebab styling used color:var(--nx-faint) (#857f75 — dim
+   gray) and border:var(--nx-gold-line) (gold at 22% opacity) on a
+   transparent background. Result: on a dark page, sitting next to a
+   bright gold "Call Service" pill and a clearly outlined "Report Issue"
+   pill, the kebab read as empty space. Users repeatedly thought it was
+   missing or broken.
+
+   Fix: bump the icon to full gold, the border to full gold-line opacity,
+   and add a subtle gold tint behind it so it has presence on the page.
+   Less loud than the primary CTA, but unmistakably a button. The hover
+   state still escalates further. */
+.eq-detail-actions-v2 .eq-overflow-btn-v2 {
+  color: var(--nx-gold, #d4a44e) !important;
+  border: 1px solid var(--nx-gold, #d4a44e) !important;
+  background: rgba(212, 164, 78, 0.10) !important;
+  box-shadow: 0 1px 4px rgba(212, 164, 78, 0.15);
+}
+.eq-detail-actions-v2 .eq-overflow-btn-v2:hover,
+.eq-detail-actions-v2 .eq-overflow-btn-v2:active {
+  background: rgba(212, 164, 78, 0.20) !important;
+  border-color: var(--nx-gold, #d4a44e) !important;
+  color: var(--nx-gold, #d4a44e) !important;
+  box-shadow: 0 2px 8px rgba(212, 164, 78, 0.30);
+}
+.eq-detail-actions-v2 .eq-overflow-btn-v2 svg {
+  width: 22px !important;
+  height: 22px !important;
+  stroke-width: 2.4 !important;
+}
+[data-theme="light"] .eq-detail-actions-v2 .eq-overflow-btn-v2 {
+  color: var(--nx-gold, #8b6914) !important;
+  border-color: var(--nx-gold, #8b6914) !important;
+  background: rgba(139, 105, 20, 0.10) !important;
+}
+
 
 /* ─── Archive world banner ──────────────────────────────────────── */
 .eq-archive-banner {
