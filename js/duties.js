@@ -66,6 +66,13 @@
       p.hidden = !match;
     });
 
+    // Body class signals which pane is active. CSS uses `is-pane-cleaning`
+    // to scope the takeover treatment (hide bottom-nav, fixed footer)
+    // ONLY to the cleaning pane — ordering keeps its original layout
+    // with the bottom-nav visible.
+    document.body.classList.remove('is-pane-cleaning', 'is-pane-ordering');
+    document.body.classList.add('is-pane-' + name);
+
     // Lazy-init ordering on first activation
     if (name === 'ordering' && NX.modules.ordering) {
       if (!orderingInitDone && NX.modules.ordering.init) {
