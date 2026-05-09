@@ -3417,6 +3417,48 @@ function formatVendorRelative(iso) {
    v14 evolution of the older single-iframe enhanceManualPanel().
    ════════════════════════════════════════════════════════════════════════════ */
 
+// One-time, idempotent backfill: if this equipment has a legacy
+// equipment.manual_url but NO matching row in equipment_manuals, copy
+// it over so the multi-manual UI can treat equipment_manuals as the
+// source of truth. Handles three cases:
+//   1. The SQL migration was never run.
+//   2. The migration ran, but this equipment was added afterwards.
+//   3. The user uploaded via an old build that only wrote to manual_url.
+// Safe to call repeatedly — does nothing once a row exists.
+async function ensureLegacyManualMigrated(equipId) {
+  try {
+    const { data: eq } = await NX.sb.from('equipment')
+      .select('manual_url').eq('id', equipId).single();
+    if (!eq || !eq.manual_url) return;
+
+    const { count } = await NX.sb.from('equipment_manuals')
+      .select('id', { count: 'exact', head: true })
+      .eq('equipment_id', equipId)
+      .eq('url', eq.manual_url);
+    if (count && count > 0) return; // already migrated
+
+    // Best-effort default name from the URL: strip leading "<timestamp>-",
+    // drop the .pdf extension, decode URI escapes. Falls back to "Manual"
+    // if the URL was opaque.
+    let legacyName = (eq.manual_url.split('/').pop() || '').split('?')[0];
+    try { legacyName = decodeURIComponent(legacyName); } catch (_) {}
+    legacyName = legacyName.replace(/^\d+-/, '').replace(/\.pdf$/i, '').slice(0, 100);
+    if (!legacyName) legacyName = 'Manual';
+
+    await NX.sb.from('equipment_manuals').insert({
+      equipment_id: equipId,
+      name: legacyName,
+      url: eq.manual_url,
+      kind: 'pdf',
+      sort_order: 0
+    });
+  } catch (err) {
+    // Don't block the UI on backfill errors — the legacy fallback card
+    // path will still render the user's existing manual.
+    console.warn('[manual] backfill skipped:', err.message || err);
+  }
+}
+
 async function hydrateManualPanel(panel, equipId) {
   const root = panel.querySelector('.eq-manual');
   if (!root || root.dataset.hydrated === '1') return;
@@ -3424,6 +3466,12 @@ async function hydrateManualPanel(panel, equipId) {
 
   const list = panel.querySelector(`#eqManualList-${equipId}`);
   if (!list) return;
+
+  // Auto-migrate any legacy manual_url into equipment_manuals so the
+  // multi-manual UI shows it as a real card (editable name + Remove)
+  // instead of the read-only legacy fallback. Idempotent — no-op once
+  // the row exists.
+  await ensureLegacyManualMigrated(equipId);
 
   // Pull all manuals for this equipment, ordered by sort_order then created.
   const { data: manuals, error } = await NX.sb
@@ -3861,6 +3909,12 @@ function openPrepopulatedAddModal(data, dataPlateUrl) {
 /* ─── Manual upload ─── */
 
 async function uploadManual(equipId) {
+  // Backfill any legacy manual into equipment_manuals first. Without this,
+  // a user with a legacy manual_url uploading a 2nd PDF would lose the
+  // first one (the new upload would replace manual_url and the original
+  // would be orphaned with no equipment_manuals row).
+  await ensureLegacyManualMigrated(equipId);
+
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'application/pdf';
