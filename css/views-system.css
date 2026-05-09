@@ -1947,3 +1947,73 @@ body.is-equipment-archive-world .eq-card:hover,
 body.is-equipment-archive-world .eq-row:hover {
   filter: saturate(0.92) brightness(1.02);
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   v14 — MULTI-MANUAL LIST
+   ───────────────────────
+   The Manual tab now shows a stack of cards (one per manual). Each card
+   has its own thumbnail, editable name, and Open/Remove buttons. CSS
+   here adds the list wrapper, the editable name input that styles to
+   match the old static name, and a separator below the list before the
+   "Upload PDF / Find Online" action row.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.eq-manual-multi { padding: 0; }
+.eq-manual-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.eq-manual-list-loading {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--muted, var(--nx-faint, #857f75));
+  font-size: 13px;
+}
+
+/* The action row sits below the list of cards. Visually separated by a
+   hairline so it reads as "add another" rather than another card. */
+.eq-manual-add-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 14px 0 4px;
+  margin-top: 6px;
+  border-top: 1px dashed var(--nx-gold-line, rgba(212, 164, 78, 0.22));
+}
+
+/* Editable name input — looks like the static .eq-manual-card-name when
+   not focused; a subtle gold border appears on focus to signal it's
+   editable. The user types, blurs (or hits Enter), and the rename fires. */
+.eq-manual-card-name-input {
+  width: 100%;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text, #f0e9da);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+  margin: -4px -6px 0;
+  line-height: 1.4;
+  word-break: break-word;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.eq-manual-card-name-input:hover {
+  border-color: var(--nx-gold-line, rgba(212, 164, 78, 0.22));
+}
+.eq-manual-card-name-input:focus {
+  outline: none;
+  border-color: var(--nx-gold, #d4a44e);
+  background: rgba(212, 164, 78, 0.06);
+}
+[data-theme="light"] .eq-manual-card-name-input {
+  color: var(--nx-text, #2b1f0e);
+}
+[data-theme="light"] .eq-manual-card-name-input:focus {
+  border-color: var(--nx-gold, #8b6914);
+  background: rgba(139, 105, 20, 0.06);
+}
