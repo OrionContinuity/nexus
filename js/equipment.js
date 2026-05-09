@@ -9093,6 +9093,22 @@ function toggleOverflow(event, equipId) {
   // clipped to the bar's bounds. Fix: when opening, compute the button's
   // viewport rect and switch the menu to position:fixed with bottom/right
   // anchored to the viewport, escaping the parent's clipping box.
+  //
+  // BUGFIX 2026-05-09: even with position:fixed + z-index:10000, the
+  // menu was rendering BEHIND other cards. Cause: the action bar has
+  // position:sticky + z-index:5, which makes it a stacking context.
+  // Anything inside (including this fixed-positioned menu) is trapped
+  // inside that 5-level context — its 10000 only competes against
+  // siblings inside the action bar, not against cards outside it.
+  // Other content on the page sits at higher z-indexes than 5, so the
+  // menu disappears behind them.
+  //
+  // Real fix: detach the menu from its parent and re-parent to <body>
+  // when opening. Now z-index:10000 competes against everything in
+  // body's root stacking context — which is what 10000 is supposed to
+  // mean. On close, restore it to its original parent so the next
+  // open works (and so React-style re-renders find it where they
+  // expect).
   if (event) {
     event.stopPropagation();
     event.preventDefault();
@@ -9111,6 +9127,21 @@ function toggleOverflow(event, equipId) {
     m.style.right    = '';
     m.style.bottom   = '';
     m.style.zIndex   = '';
+    m.style.maxHeight = '';
+    m.style.overflowY = '';
+  };
+
+  // Restore a menu to its original parent + position. Looks up the
+  // saved data-original-parent attribute we stamped at open time.
+  // No-op if the menu was never detached (e.g., never opened).
+  const restoreToOriginalParent = (m) => {
+    const originalParentSelector = m.dataset.originalParent;
+    if (!originalParentSelector) return;
+    const originalParent = document.querySelector(originalParentSelector);
+    if (originalParent && m.parentElement !== originalParent) {
+      originalParent.appendChild(m);
+    }
+    delete m.dataset.originalParent;
   };
 
   // Close any other open overflows so we don't stack two open menus.
@@ -9118,36 +9149,59 @@ function toggleOverflow(event, equipId) {
     if (m !== menu) {
       m.classList.remove('active');
       clearPos(m);
+      restoreToOriginalParent(m);
     }
   });
   if (isOpen) {
     // Toggle: was open, close it now.
     menu.classList.remove('active');
     clearPos(menu);
+    restoreToOriginalParent(menu);
     return;
   }
-  menu.classList.add('active');
 
-  // Reposition: anchor to viewport coords so we escape parent overflow.
-  // We look up the trigger button by walking up to .eq-overflow-wrap and
-  // grabbing its first <button> child — covers both .eq-overflow-btn-v2
-  // (current detail-action layout) and .eq-overflow-btn (legacy callers).
+  // ─── OPENING THE MENU ─────────────────────────────────────────────
+  // Look up the trigger button BEFORE detaching (since detaching
+  // changes parentElement). The wrap selector is what we'll restore
+  // back to on close.
   const wrap = menu.parentElement;
   const btn  = wrap ? wrap.querySelector('button') : null;
-  if (btn) {
-    const rect = btn.getBoundingClientRect();
+  const rect = btn ? btn.getBoundingClientRect() : null;
+
+  // Detach from its current parent and append to body. This is the
+  // critical move — escapes any/all stacking-context traps.
+  if (wrap && wrap.id) {
+    menu.dataset.originalParent = '#' + wrap.id;
+  } else if (wrap && wrap.classList.length) {
+    // Fallback: use a class-based selector. Less specific but the
+    // overflow wrap is always uniquely scoped per-equip-id via the
+    // menu's own id, so this only matters for the rare case of
+    // synthetic menus without an id'd wrap.
+    menu.dataset.originalParent = '.' + wrap.classList[0];
+  }
+  if (menu.parentElement !== document.body) {
+    document.body.appendChild(menu);
+  }
+
+  menu.classList.add('active');
+
+  // Reposition: viewport coords (same math as before — works the same
+  // whether menu is in its original parent or in body, since fixed
+  // positioning is always viewport-anchored).
+  if (rect) {
     menu.style.position = 'fixed';
     // bottom = distance from viewport bottom to (button top - 8px gap).
-    // This makes the menu sit just above the ⋯ button.
     menu.style.bottom   = (window.innerHeight - rect.top + 8) + 'px';
     // right-anchor so the menu's right edge aligns with the button's
     // right edge. Works for buttons in either corner of the action bar.
     menu.style.right    = (window.innerWidth - rect.right) + 'px';
     menu.style.left     = 'auto';
     menu.style.top      = 'auto';
-    // High z-index ensures we float above the detail body, the modal
-    // backdrop, and any other overlays sharing this stacking context.
-    menu.style.zIndex   = '10000';
+    // 2147483647 = max int32 = the highest z-index possible. Ensures
+    // we sit above EVERY other element on the page, no matter what
+    // z-index they use. Belt-and-suspenders since we're already in
+    // body's stacking context.
+    menu.style.zIndex   = '2147483647';
     // Cap height to the available space above the button so a menu with
     // many items can scroll internally rather than extend off-screen.
     const maxH = Math.max(120, rect.top - 16);
@@ -9163,8 +9217,7 @@ function toggleOverflow(event, equipId) {
     if (menu.contains(e.target)) return;
     menu.classList.remove('active');
     clearPos(menu);
-    menu.style.maxHeight = '';
-    menu.style.overflowY = '';
+    restoreToOriginalParent(menu);
     document.removeEventListener('click',     close, true);
     document.removeEventListener('touchstart', close, true);
   };
