@@ -1015,3 +1015,607 @@
 [data-theme="light"] .clean-fresh-bar-fill.is-fresh { background: #4a7338; }
 [data-theme="light"] .clean-fresh-bar-fill.is-aging { background: #b07a23; }
 [data-theme="light"] .clean-fresh-bar-fill.is-stale { background: #a13c3c; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STATIC FOOTER — pin Submit Report bar to the viewport floor
+   ─────────────────────────────────────────────────────────────
+   v11 used position:sticky which only pins when scrolled past. With short
+   content (empty state, few tasks) the footer floats up to natural-bottom
+   of content, leaving whitespace below before the bottom-nav.
+
+   v12 makes the footer truly static — fixed to the viewport floor,
+   floating above the nav-bar (which is fixed at z:50). The footer
+   only renders when the cleaning duties-pane is active so it doesn't
+   bleed into ordering / home / other views.
+
+   The .clean-list gets compensating bottom padding so its scrollable
+   content never disappears under the footer.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Scope to the cleaning pane only — the [hidden] attr is on inactive
+   panes per duties.js, so the footer stays gone when you swap to ordering. */
+.duties-pane[data-pane="cleaning"]:not([hidden]) ~ * .clean-footer,
+.duties-pane[data-pane="cleaning"]:not([hidden]) .clean-footer {
+  position: fixed;
+  /* Sit above the bottom-nav (min-height:56px + safe-area bottom).
+     The 1px gap on top is the nav's border-top so they read as separate
+     planes rather than merged. */
+  bottom: calc(56px + env(safe-area-inset-bottom));
+  left: 0;
+  right: 0;
+  z-index: 40;  /* below nav-bar (50), above content */
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+  /* Keep the row feel — buttons sized for thumbs, not hover */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Hide the footer when cleaning pane isn't active (otherwise it'd
+   render fixed on every other view too) */
+.duties-pane[data-pane="cleaning"][hidden] ~ * .clean-footer,
+#cleanView:not(.active) .clean-footer {
+  display: none;
+}
+
+/* Compensate the list scroll so its bottom doesn't slide under the footer.
+   Footer ≈ 72px tall (12px×2 padding + 48px button) + safe-area + nav.
+   We add 96px above existing nav clearance for the footer itself. */
+.clean-list {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom)) !important;
+  scroll-padding-bottom: calc(96px + env(safe-area-inset-bottom));
+}
+
+
+/* Light-theme parity for the static footer — keep the surface +
+   border colors consistent with the rest of the cleaning pane. */
+[data-theme="light"] .clean-footer {
+  background: var(--surface, #faf8f3);
+  border-top-color: rgba(100, 85, 55, 0.10);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   v12.1 — PHOTOS, COSTS, COMING-UP STRIP, ACTION BUTTONS
+   ─────────────────────────────────────────────────────
+   New UI surfaces for: photo evidence per task, cost chips, the 7-day
+   "Coming up" lookahead strip above section cards, and the per-task
+   action button cluster (camera / $ / pencil) replacing the old single
+   edit pencil.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Task action button cluster (right side of task row) ──────────────── */
+.clean-task-actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.clean-task-action-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 6px;
+  width: 32px;
+  height: 32px;
+  color: var(--faint, #7a7167);
+  cursor: pointer;
+  transition: all 150ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.clean-task-action-btn:hover {
+  color: var(--accent, #d4a44e);
+  border-color: rgba(212, 164, 78, 0.20);
+  background: rgba(212, 164, 78, 0.05);
+}
+.clean-task-action-btn:active {
+  transform: scale(0.92);
+}
+
+/* On narrow screens, lay action buttons out horizontally to save vertical
+   space (otherwise they'd push the task row uncomfortably tall). */
+@media (max-width: 480px) {
+  .clean-task-actions {
+    flex-direction: row;
+    align-self: flex-start;
+  }
+  .clean-task-action-btn {
+    width: 30px;
+    height: 30px;
+    padding: 5px;
+  }
+}
+
+
+/* ─── Photo thumbnails inside a task row ───────────────────────────────── */
+.clean-task-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.clean-task-photo {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
+  border-radius: 6px;
+  background: var(--elevated, #211e18);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 150ms ease;
+  flex-shrink: 0;
+}
+.clean-task-photo:hover {
+  border-color: var(--accent, #d4a44e);
+  transform: scale(1.04);
+}
+.clean-task-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+
+/* ─── Photo full-screen viewer ─────────────────────────────────────────── */
+.clean-photo-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+.clean-photo-viewer-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.92);
+  animation: cleanSheetFadeIn 200ms ease;
+}
+.clean-photo-viewer-img {
+  position: relative;
+  max-width: 96vw;
+  max-height: 96vh;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 12px 60px rgba(0, 0, 0, 0.6);
+  animation: cleanPhotoZoomIn 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes cleanPhotoZoomIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.clean-photo-viewer-close {
+  position: absolute;
+  top: max(20px, env(safe-area-inset-top));
+  right: 20px;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 150ms ease;
+}
+.clean-photo-viewer-close:hover {
+  background: rgba(0, 0, 0, 0.78);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+
+/* ─── Cost chip in task meta row ───────────────────────────────────────── */
+.clean-cost-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 9px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  background: rgba(91, 138, 76, 0.10);
+  color: #6fa853;
+  border: 1px solid rgba(91, 138, 76, 0.28);
+}
+[data-theme="light"] .clean-cost-chip {
+  color: #4a7338;
+  background: rgba(91, 138, 76, 0.12);
+}
+
+
+/* ═══ COMING UP STRIP ════════════════════════════════════════════════════
+   Horizontal scroll strip at the top of the cleaning list, showing tasks
+   whose freshness will hit zero within the next 7 days. Each pill is
+   tappable and scrolls the list to the relevant task. */
+
+.clean-coming-up {
+  background: linear-gradient(180deg,
+    rgba(212, 164, 78, 0.06) 0%,
+    rgba(212, 164, 78, 0.02) 100%);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.14));
+  border-radius: var(--r, 10px);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.clean-coming-up-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--accent, #d4a44e);
+  margin-bottom: 8px;
+}
+.clean-coming-up-scroll {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin: 0 -2px;
+  padding: 2px;
+}
+.clean-coming-up-scroll::-webkit-scrollbar { display: none; }
+
+.clean-coming-up-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 7px 12px;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
+  border-radius: 999px;
+  color: var(--text, #f0e9da);
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 150ms ease;
+}
+.clean-coming-up-pill:hover {
+  border-color: var(--accent, #d4a44e);
+  background: rgba(212, 164, 78, 0.06);
+}
+.clean-coming-up-pill-when {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.clean-coming-up-pill-name {
+  color: var(--text, #f0e9da);
+}
+.clean-coming-up-pill-who {
+  color: var(--faint, #7a7167);
+  font-size: 11.5px;
+}
+
+/* Coloring by urgency */
+.clean-coming-up-pill.is-due .clean-coming-up-pill-when {
+  color: #cf5959;
+}
+.clean-coming-up-pill.is-soon .clean-coming-up-pill-when {
+  color: #d99c3d;
+}
+.clean-coming-up-pill.is-far .clean-coming-up-pill-when {
+  color: var(--accent, #d4a44e);
+}
+
+[data-theme="light"] .clean-coming-up {
+  background: linear-gradient(180deg,
+    rgba(212, 164, 78, 0.10) 0%,
+    rgba(212, 164, 78, 0.04) 100%);
+}
+[data-theme="light"] .clean-coming-up-pill.is-due  .clean-coming-up-pill-when { color: #a13c3c; }
+[data-theme="light"] .clean-coming-up-pill.is-soon .clean-coming-up-pill-when { color: #b07a23; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   v12.2 — VIEW MODE TOGGLE + SECTION KEBAB + COPY SHEET + EDIT REORDER
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ─── View mode toggle: "Today" / "All" segmented control ─────────────── */
+.clean-view-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  margin: 0 0 12px 0;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.18));
+  border-radius: 999px;
+  padding: 3px;
+  position: relative;
+}
+.clean-view-toggle-btn {
+  padding: 6px 18px;
+  border: none;
+  background: transparent;
+  color: var(--faint, #7a7167);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 999px;
+  transition: all 200ms ease;
+}
+.clean-view-toggle-btn:hover {
+  color: var(--text, #f0e9da);
+}
+.clean-view-toggle-btn.is-active {
+  background: var(--accent, #d4a44e);
+  color: var(--bg, #0e0c08);
+}
+
+/* Soft empty state when "Today" mode hides everything */
+.clean-empty-soft {
+  text-align: center;
+  padding: 36px 20px;
+  color: var(--faint, #7a7167);
+  font-size: 13.5px;
+}
+.clean-empty-soft-text {
+  max-width: 320px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+
+/* ─── Section card kebab (⋯) — sits between freshness chip + chevron ──── */
+.clean-card-kebab {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 4px 8px;
+  color: var(--faint, #7a7167);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 150ms ease;
+  flex-shrink: 0;
+}
+.clean-card-kebab:hover {
+  color: var(--accent, #d4a44e);
+  border-color: rgba(212, 164, 78, 0.20);
+  background: rgba(212, 164, 78, 0.05);
+}
+
+
+/* ─── Section kebab popup menu ────────────────────────────────────────── */
+.clean-section-kebab-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.30));
+  border-radius: 12px;
+  padding: 5px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  animation: cleanSheetSlideUp 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.clean-section-kebab-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: var(--text, #f0e9da);
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 150ms ease;
+}
+.clean-section-kebab-item:hover:not(.is-disabled) {
+  background: rgba(212, 164, 78, 0.08);
+}
+.clean-section-kebab-item.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.clean-section-kebab-arrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--accent, #d4a44e);
+  width: 14px;
+  display: inline-block;
+  text-align: center;
+}
+
+
+/* ─── Copy section sheet (modal) ──────────────────────────────────────── */
+.clean-copy-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 4500;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: auto;
+}
+.clean-copy-sheet-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: cleanSheetFadeIn 200ms ease;
+}
+.clean-copy-sheet-card {
+  position: relative;
+  width: 100%;
+  max-width: 460px;
+  margin: 0 16px 24px;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
+  border-radius: 14px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: cleanSheetSlideUp 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.clean-copy-sheet-title {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 17px;
+  color: var(--text, #f0e9da);
+  font-weight: 500;
+}
+.clean-copy-sheet-sub {
+  font-size: 12.5px;
+  color: var(--faint, #7a7167);
+  line-height: 1.45;
+  margin-bottom: 4px;
+}
+.clean-copy-sheet-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.clean-copy-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: transparent;
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.clean-copy-option:hover {
+  border-color: rgba(212, 164, 78, 0.32);
+  background: rgba(212, 164, 78, 0.04);
+}
+.clean-copy-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent, #d4a44e);
+  cursor: pointer;
+}
+.clean-copy-option-label {
+  flex: 1;
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 14.5px;
+  color: var(--text, #f0e9da);
+}
+.clean-copy-option-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--faint, #7a7167);
+  letter-spacing: 0.02em;
+}
+.clean-copy-sheet-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.clean-copy-cancel,
+.clean-copy-confirm {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: 1px solid;
+  transition: all 150ms ease;
+}
+.clean-copy-cancel {
+  background: transparent;
+  border-color: var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
+  color: var(--faint, #7a7167);
+}
+.clean-copy-cancel:hover {
+  color: var(--text, #f0e9da);
+}
+.clean-copy-confirm {
+  background: var(--accent, #d4a44e);
+  border-color: var(--accent, #d4a44e);
+  color: var(--bg, #0e0c08);
+  font-weight: 600;
+}
+.clean-copy-confirm:hover {
+  background: #e0b462;
+}
+.clean-copy-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+
+/* ─── Reorder row inside the task edit form ───────────────────────────── */
+.clean-edit-reorder-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.clean-edit-reorder-row .clean-edit-label {
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+.clean-edit-reorder {
+  display: flex;
+  gap: 6px;
+}
+.clean-edit-reorder-btn {
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.20));
+  border-radius: 6px;
+  color: var(--faint, #7a7167);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.clean-edit-reorder-btn:hover {
+  color: var(--accent, #d4a44e);
+  border-color: rgba(212, 164, 78, 0.40);
+  background: rgba(212, 164, 78, 0.05);
+}
+
+
+/* ─── Light theme overrides for v12.2 surfaces ────────────────────────── */
+[data-theme="light"] .clean-section-kebab-menu {
+  background: #f9f5e8;
+  border-color: rgba(100, 85, 55, 0.18);
+}
+[data-theme="light"] .clean-copy-sheet-card {
+  background: #f9f5e8;
+}
+[data-theme="light"] .clean-copy-option {
+  border-color: rgba(100, 85, 55, 0.10);
+}
+[data-theme="light"] .clean-copy-option:hover {
+  background: rgba(212, 164, 78, 0.08);
+}
