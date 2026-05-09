@@ -1,729 +1,1653 @@
-/* NEXUS Cleaning v11 — persistent state, 8AM rollover, who-did-what tracking */
-(function(){
+/* ════════════════════════════════════════════════════════════════════════════
+   NEXUS Cleaning v12 — DB-backed catalog · Freshness · Assignees · Email
+   ────────────────────────────────────────────────────────────────────────────
+   Replaces v11's hardcoded DEFAULTS + localStorage-only customs with a
+   database-backed task catalog (cleaning_tasks). Adds:
 
-/* ─── Inline SVG icons ────────────────────────────────────────────
-   The cleaning module shows check/uncheck state across hundreds of
-   line items per shift. Previously rendered with `✓` / `○` glyphs
-   which fall back to the user's emoji font on iOS (looks blocky)
-   and a plain Times-italic ring on Android. SVG line art renders
-   identically everywhere and inherits gold/text color via
-   currentColor — section headers can use the gold version, item
-   rows use the text version.                                    */
-const CLEAN_ICONS = {
-  check:  '<polyline points="20 6 9 17 4 12"/>',
-  circle: '<circle cx="12" cy="12" r="9"/>',
-  close:  '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
-  pen:    '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
-};
-function csvg(key, size = '14px', stroke = '2') {
-  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${CLEAN_ICONS[key] || ''}</svg>`;
-}
+     • Per-task editing — same pattern as the ordering catalog. Every task
+       is editable: name (es/en), section, frequency, days-of-week, assignee,
+       notes. No more "delete and re-add" workflow.
 
-let loc='suerte';
-const stateCache={}; // Per-location state cache
-const lastDone={};
-// linkedCards[location+'__'+section] = card.id — populated by loadLinkedCards.
-// Tracks open (non-archived) board cards that escalated from a cleaning
-// section, so the section header can show "→ On board" instead of
-// "→ Add to board" and prevent duplicate escalations.
-const linkedCards={};
-const NON_DAILY=['Bi-Semanal','Mensual','Semanal','Quincenal','Trimestral','Jardín','Jardin','Garden'];
+     • Quarterly + annual frequency — "Pressure wash patio" now schedulable.
 
-// Cleaning date: before 8 AM = still yesterday's shift
-function getCleaningDate(){
-  const now=new Date();
-  if(now.getHours()<8){now.setDate(now.getDate()-1);}
-  // Use LOCAL date, not UTC (toISOString gives UTC which shifts the day)
-  const y=now.getFullYear();
-  const m=String(now.getMonth()+1).padStart(2,'0');
-  const d=String(now.getDate()).padStart(2,'0');
-  return y+'-'+m+'-'+d;
-}
-let today=getCleaningDate();
+     • Per-task assignee — initials chip on each row, dropdown in the edit
+       form, populated from nexus_users via the list_user_names RPC.
 
-const FREQUENCY={
-  'Bi-Semanal':14,'Mensual':30,'Semanal':7,'Quincenal':15,
-  'Trimestral':90,'Jardín':7,'Jardin':7,'Garden':7
-};
-function getFrequency(secName){
-  for(const[k,v]of Object.entries(FREQUENCY)){if(secName.toLowerCase().includes(k.toLowerCase()))return v;}
-  return 30;
-}
-function daysBetween(d1,d2){return Math.floor((new Date(d2)-new Date(d1))/(1000*60*60*24));}
-function daysAgoText(days){
-  if(days===0)return'Today';if(days===1)return'Yesterday';
-  if(days<7)return days+'d ago';if(days<30)return Math.floor(days/7)+'w ago';
-  return Math.floor(days/30)+'mo ago';
-}
-function getUserName(){return NX.currentUser?NX.currentUser.name:'Unknown';}
+     • Per-task days-of-week — "Mop bar Mon/Wed/Fri" different from "Mop
+       floor every day". Toggleable pills on weekly-frequency tasks.
 
-// Default checklist data
-const DEFAULTS={suerte:[
-  {sec:'Comedor',items:[['Barrer el piso.','Sweep Floors.'],['Trapear el piso.','Mop Floor.'],['Inspeccionar ventanas y repisas.','Inspect windows/ledges.'],['Limpiar las mesas.','Wipe Tables.'],['Limpiar todas las repisas.','Wipe Ledges.'],['Trapear área de la Barra.','Mop Bar.']]},
-  {sec:'Baños',items:[['Limpiar Inodoro.','Clean Toilet.'],['Limpiar superficies metálicas.','Polish metal.'],['Barrer el piso.','Sweep.'],['Limpiar cristales y espejos.','Glass/Mirror.'],['Limpiar mostradores y lavabos.','Sink/Basin.'],['Limpiar azulejos detrás de inodoros.','Tile Behind Toilets.'],['Limpiar entrada y manijas.','Entrance/Handles.'],['Trapear el piso.','Mop.'],['Sanitizar cambiadores.','Sanitize changing tables.']]},
-  {sec:'Exterior',items:[['Recoger basura en pasillos y estacionamiento.','Pickup trash walkways/lot.'],['Soplar aceras y áreas de comedor.','Blow outdoor dining.']]},
-  {sec:'Cocina',items:[['Limpiar y pulir las 3 parrillas.','Clean 3 grills.'],['Limpiar atrás de parrilla.','Behind Grill.'],['Trapear piso.','Mop.'],['Limpiar rejilla de ventilación.','Hood vent.'],['Superficies metálicas.','Metal surfaces.'],['Cestas de drenaje.','Drain Baskets.'],['Paneles de madera.','Wood Panels.']]},
-  {sec:'Bi-Semanal',items:[['Paneles de madera del salón.','Wood paneling lounge.'],['Paneles del bar.','Wood paneling bar.'],['Paneles enfrente de cocina.','Chefs counter.'],['Rieles para pies.','Foot rails.'],['Polvo de textiles.','Textile frames.'],['Ventanas del patio.','Patio windows.']]},
-  {sec:'Mensual',items:[['Placas de rodadura y puertas.','Kickplates/Doors.'],['Ventilaciones.','Vents.'],['Polvo de luces.','Dust lights.'],['Marcas de trapeador.','Mop marks walls.'],['Telarañas.','Cobwebs.'],['Zócalos.','Baseboards.']]},
-  {sec:'Jardín',items:[['Soplar hojas.','Blow leaves.'],['Limpiar Basurero.','Clean garbage.'],['Inspeccionar plantas.','Inspect plants.'],['Organizar bodega.','Organize Shed.']]}
-],este:[
-  {sec:'Comedor',items:[['Barrer el piso.','Sweep.'],['Trapear el piso.','Mop.'],['Inspeccionar ventanas.','Inspect windows.'],['Limpiar mesas.','Wipe Tables.'],['Limpiar repisas.','Wipe Ledges.'],['Trapear Barra.','Mop Bar.']]},
-  {sec:'Baños',items:[['Limpiar Inodoro.','Toilet.'],['Superficies metálicas.','Metal.'],['Barrer.','Sweep.'],['Cristales y espejos.','Glass/Mirror.'],['Mostradores.','Sink.'],['Azulejos.','Tile.'],['Entrada del baño.','Entrance.'],['Trapear.','Mop.'],['Sanitizar cambiadores.','Changing tables.']]},
-  {sec:'Exterior',items:[['Soplar áreas de comedor.','Blow outdoor dining.']]},
-  {sec:'Cocina',items:[['Limpiar 2 parrillas.','2 grills.'],['Atrás de parrilla.','Behind Grill.'],['Trapear.','Mop.'],['Ventilación.','Hood vent.'],['Superficies metálicas.','Metal.'],['Cestas de drenaje.','Drain Baskets.']]},
-  {sec:'Jardín',items:[['Soplar hojas.','Blow leaves.'],['Limpiar Basurero.','Garbage.'],['Inspeccionar plantas.','Inspect plants.']]}
-],toti:[
-  {sec:'Comedor',items:[['Barrer.','Sweep.'],['Trapear.','Mop.'],['Inspeccionar ventanas.','Windows.'],['Limpiar mesas.','Tables.'],['Limpiar repisas.','Ledges.']]},
-  {sec:'Baños',items:[['Inodoro.','Toilet.'],['Superficies metálicas.','Metal.'],['Barrer.','Sweep.'],['Cristales y espejos.','Glass/Mirror.'],['Mostradores.','Sink.'],['Azulejos.','Tile.'],['Trapear.','Mop.']]},
-  {sec:'Cocina',items:[['Parrillas.','Grills.'],['Atrás de parrilla.','Behind Grill.'],['Trapear.','Mop.'],['Superficies metálicas.','Metal.'],['Cestas de drenaje.','Drain Baskets.']]},
-  {sec:'Jardín',items:[['Soplar hojas.','Blow leaves.'],['Limpiar Basurero.','Garbage.']]}
-]};
+     • Freshness — replaces ad-hoc "OVERDUE Xd" / "Last: Xd ago" strings
+       with a continuous 0-100 metric, color-bar visualization (matches
+       equipment health), aggregated section + location summary.
 
-// Custom tasks from localStorage (AI-added)
-function getCustomTasks(){
-  try{return JSON.parse(localStorage.getItem('nexus_custom_tasks')||'{}');}catch(e){return{};}
-}
-function saveCustomTasks(ct){localStorage.setItem('nexus_custom_tasks',JSON.stringify(ct));}
+     • Submit & email — one-tap composes a fully-formatted mailto: with
+       per-section breakdown, who-did-what, missed items, and extras. Uses
+       the shared NX.email engine so the format matches order emails.
 
-// Merge defaults + custom tasks (marks custom items)
-function getData(location){
-  const base=JSON.parse(JSON.stringify(DEFAULTS[location]||[]));
-  // Mark all default items
-  base.forEach(sec=>sec.items.forEach(item=>{item.push(false);})); // [es, en, isCustom]
-  const custom=getCustomTasks()[location]||[];
-  custom.forEach((ct,ci)=>{
-    let sec=base.find(s=>s.sec===ct.section);
-    if(!sec){sec={sec:ct.section,items:[]};base.push(sec);}
-    sec.items.push([ct.es,ct.en,true,ci]); // [es, en, isCustom, customIndex]
-  });
-  return base;
-}
+     • Soft-delete archive — tasks get archived (not deleted), restorable
+       from the unified NX.archive overlay (above duties).
 
-// Add a custom task (called from AI chat)
-function addTask(location,section,es,en){
-  const ct=getCustomTasks();
-  if(!ct[location])ct[location]=[];
-  ct[location].push({section,es,en,added:new Date().toISOString()});
-  saveCustomTasks(ct);
-  if(loc===location)render();
-  return true;
-}
+   Reuses, doesn't replicate: NX.composer, NX.toast, NX.email, NX.archive,
+   NX.i18n, NX.currentUser, NX.homeGalaxyPulse. Falls back gracefully when
+   any dependency is missing.
 
-// Remove a custom task by matching text
-function removeTask(location,text){
-  const ct=getCustomTasks();
-  if(!ct[location])return false;
-  const before=ct[location].length;
-  ct[location]=ct[location].filter(t=>
-    !t.es.toLowerCase().includes(text.toLowerCase())&&
-    !t.en.toLowerCase().includes(text.toLowerCase())
-  );
-  if(ct[location].length===before)return false;
-  saveCustomTasks(ct);
-  if(loc===location)render();
-  return true;
-}
+   The cleaning_logs table keeps its existing schema — task identity in the
+   log uses (location, section_es, task_order) so the audit trail survives
+   the migration. v11 logs continue to work.
+   ════════════════════════════════════════════════════════════════════════════ */
 
-async function init(){
-  document.getElementById('cleanDate').textContent=today;
-  document.querySelectorAll('.clean-tab').forEach(t=>{
-    t.addEventListener('click',async()=>{
-      document.querySelectorAll('.clean-tab').forEach(x=>x.classList.remove('active'));
-      t.classList.add('active');loc=t.dataset.cloc;
-      try{await loadToday();}catch(e){}
-      try{await loadHistory();}catch(e){}
-      try{await loadLinkedCards();}catch(e){}
-      populateSections();render();
-    });
-  });
-  document.getElementById('cleanSubmit').addEventListener('click',submitDailyReport);
-  const ab=document.getElementById('cleanAddBtn');if(ab)ab.addEventListener('click',addTaskUI);
-  try{await loadToday();}catch(e){}
-  try{await loadHistory();}catch(e){}
-      try{await loadLinkedCards();}catch(e){}
-  populateSections();render();
-}
+(function () {
 
-async function show(){
-  // Check if editing a previous report
-  if(NX.editingReport){
-    today=NX.editingReport.date;
-    // Show edit banner
-    let banner=document.getElementById('cleanEditBanner');
-    if(!banner){
-      banner=document.createElement('div');banner.id='cleanEditBanner';
-      banner.className='clean-edit-banner';
-      const wrap=document.getElementById('cleanView');
-      if(wrap)wrap.insertBefore(banner,wrap.firstChild);
-    }
-    banner.innerHTML=`<span>${csvg("pen","13px")} Editing report for <b>${today}</b></span><button id="cancelEditClean" class="clean-edit-cancel">✕ Cancel</button>`;
-    banner.style.display='flex';
-    document.getElementById('cancelEditClean')?.addEventListener('click',()=>{
-      NX.editingReport=null;today=getCleaningDate();
-      banner.style.display='none';
-      show();
-    });
-  }else{
-    today=getCleaningDate();
-    const banner=document.getElementById('cleanEditBanner');
-    if(banner)banner.style.display='none';
-  }
-  // Clear cached state for reload
-  stateCache[loc]={};
-  try{await loadToday();}catch(e){}
-  try{await loadHistory();}catch(e){}
-      try{await loadLinkedCards();}catch(e){}
-  populateSections();render();
-  // Update submit button text for edit mode
-  const submitBtn=document.getElementById('cleanSubmit');
-  if(submitBtn)submitBtn.textContent=NX.editingReport?'Update Report':'Submit Daily Report';
-}
-
-async function loadToday(){
-  if(!stateCache[loc])stateCache[loc]={};
-  if(!NX.sb||NX.paused)return;
-  const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,done').eq('log_date',today).eq('location',loc);
-  if(data)data.forEach(c=>{stateCache[loc][loc+'_'+c.section+'_'+c.task_index]={done:c.done,by:''};});
-}
-
-function getState(key){try{return stateCache[loc]?.[key]?.done||false;}catch(e){return false;}}
-function getStateBy(key){return'';}
-function setState(key,done){
-  if(!stateCache[loc])stateCache[loc]={};
-  stateCache[loc][key]={done,by:done?getUserName():''};
-}
-
-async function loadHistory(){
-  lastDone={};
-  if(!NX.sb||NX.paused)return;
-  const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,log_date')
-    .eq('location',loc).eq('done',true).order('log_date',{ascending:false}).limit(500);
-  if(data){data.forEach(r=>{
-    const key=r.section+'_'+r.task_index;
-    if(!lastDone[key])lastDone[key]={date:r.log_date};
-  });}
-}
-
-// ═══ CLEANING ↔ BOARD LINKAGE ════════════════════════════════════════
-// Loads the set of OPEN (non-archived, not Done) board cards that were
-// escalated from a cleaning section at the current location. Keyed by
-// "location__section" so the section header can display:
-//   → "On board" (link exists) — tap to jump to the card
-//   → "Add to board" (no link) — tap to escalate
-// Called at init/show + after escalating a new card.
-async function loadLinkedCards(){
-  Object.keys(linkedCards).forEach(k=>delete linkedCards[k]);
-  if(!NX.sb||NX.paused)return;
-  try{
-    // We pull cards for this location only. board.js's "Done" detection
-    // is column-name based (any list named done/closed/resolved/etc),
-    // so we filter that out client-side after fetch.
-    const{data}=await NX.sb.from('kanban_cards')
-      .select('id,cleaning_link_location,cleaning_link_section,column_name,list_id,archived')
-      .eq('cleaning_link_location',loc)
-      .eq('archived',false);
-    if(!data) return;
-    data.forEach(c=>{
-      const cn=(c.column_name||'').toLowerCase();
-      if(/(done|closed|resolved|complete|archived?)/.test(cn)) return;
-      if(c.cleaning_link_section){
-        linkedCards[loc+'__'+c.cleaning_link_section]=c.id;
-      }
-    });
-  }catch(e){
-    console.warn('[cleaning] loadLinkedCards:',e);
-  }
-}
-
-// Pick the first non-archived board + a list named report/todo/triage
-// (or first list if none match). Same pattern as brain-chat.js — chat
-// and cleaning both create cards without a board context, so they need
-// to resolve one. Returns null if nothing found.
-async function resolveBoardAndList(){
-  try{
-    const{data:bs}=await NX.sb.from('boards')
-      .select('id').eq('archived',false).order('position').limit(1);
-    if(!bs?.length)return null;
-    const boardId=bs[0].id;
-    const{data:ls}=await NX.sb.from('board_lists')
-      .select('*').eq('board_id',boardId).order('position');
-    const target=(ls||[]).find(l=>/report|todo|triage/i.test(l.name))||(ls||[])[0];
-    if(!target)return null;
-    return{boardId,listId:target.id};
-  }catch(e){
-    console.warn('[cleaning] resolveBoardAndList:',e);
-    return null;
-  }
-}
-
-// Escalate an overdue cleaning section to a board card. The card
-// remembers (cleaning_link_location, cleaning_link_section) so when
-// it's later marked Done in board.js, that move writes completion
-// records to cleaning_logs for every task in this section — clearing
-// the OVERDUE pill on this view. The card itself stays around with
-// its photos/comments/cost as the system-of-record for the work.
-async function escalateSectionToBoard(section){
-  const sec=getData(loc).find(s=>s.sec===section);
-  if(!sec){NX.toast&&NX.toast('Section not found','error');return;}
-  // Don't double-escalate. Cheap re-check before write.
-  if(linkedCards[loc+'__'+section]){
-    NX.toast&&NX.toast('Already on the board','info');
-    return;
-  }
-  const target=await resolveBoardAndList();
-  if(!target){
-    NX.toast&&NX.toast('No board found — open Board view first','warn');
-    return;
-  }
-  // Compute due-date proposal: today if overdue, otherwise the day it
-  // hits the frequency cliff. Manager can edit on the board.
-  const freq=getFrequency(section);
-  let oldestDays=null;
-  sec.items.forEach((_,i)=>{
-    const hist=lastDone[section+'_'+i];
-    if(hist){const d=daysBetween(hist.date,today);if(oldestDays===null||d>oldestDays)oldestDays=d;}
-    else oldestDays=999;
-  });
-  const isOverdue=(oldestDays==null||oldestDays>=freq);
-  const dueDate=isOverdue?today
-    :new Date(Date.now()+(freq-oldestDays)*86400000).toISOString().slice(0,10);
-  // Description = bilingual checklist of the items in this section.
-  // Gives the contractor a complete picture of what to do.
-  const lang=NX.i18n?NX.i18n.getLang():'en';
-  const itemLines=sec.items.map(it=>{
-    const primary=lang==='es'?it[0]:it[1];
-    const secondary=lang==='es'?it[1]:it[0];
-    return`• ${primary} (${secondary})`;
-  }).join('\n');
-  const locTitle=loc.charAt(0).toUpperCase()+loc.slice(1);
-  const cardRow={
-    title:`${section} – ${locTitle}`,
-    description:`Cleaning section escalated to board.\nFrequency: every ${freq} days.\nLast done: ${oldestDays===999?'never':daysAgoText(oldestDays)}.\n\nItems to complete:\n${itemLines}`,
-    board_id:target.boardId,
-    list_id:target.listId,
-    column_name:'',
-    position:999,
-    priority:isOverdue?'high':'normal',
-    location:loc,
-    due_date:dueDate,
-    cleaning_link_location:loc,
-    cleaning_link_section:section,
-    reported_by:NX.currentUser?.name||null,
-    checklist:[], comments:[], labels:[], photo_urls:[],
-    archived:false,
+  // ─── INLINE SVGS — kept verbatim from v11 (works with currentColor) ───
+  const ICONS = {
+    check:    '<polyline points="20 6 9 17 4 12"/>',
+    circle:   '<circle cx="12" cy="12" r="9"/>',
+    close:    '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    pen:      '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+    plus:     '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+    chevron:  '<polyline points="6 9 12 15 18 9"/>',
+    trash:    '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>',
+    user:     '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    mail:     '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>',
+    archive:  '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
   };
-  try{
-    const{data:created,error}=await NX.sb.from('kanban_cards').insert(cardRow).select().single();
-    if(error)throw error;
-    linkedCards[loc+'__'+section]=created.id;
-    if(NX.notifyCardCreated)NX.notifyCardCreated(created);
-    NX.toast&&NX.toast(`${section} → on the board`,'success');
-    render();
-  }catch(e){
-    console.error('[cleaning] escalateSection:',e);
-    NX.toast&&NX.toast('Could not add to board','error');
+  function svg(key, size = 14, stroke = 2) {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${ICONS[key] || ''}</svg>`;
   }
-}
 
-function populateSections(){
-  const sel=document.getElementById('cleanTaskSec');if(!sel)return;
-  sel.innerHTML='';
-  getData(loc).forEach(s=>{const o=document.createElement('option');o.value=s.sec;o.textContent=s.sec;sel.appendChild(o);});
-  const no=document.createElement('option');no.value='__new__';no.textContent='+ New Section';sel.appendChild(no);
-}
+  // ─── HTML escape ──────────────────────────────────────────────────────
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
-function addTaskUI(){
-  const es=document.getElementById('cleanTaskEs').value.trim();
-  const en=document.getElementById('cleanTaskEn').value.trim();
-  let sec=document.getElementById('cleanTaskSec').value;
-  if(!es&&!en)return;
-  if(sec==='__new__'){
-    if(NX.composer?.modal){
-      NX.composer.modal({
-        title:'New section',
-        subtitle:'Group cleaning tasks under a new heading',
-        placeholder:'e.g. Patio, Storage, Walk-in',
-        buttonLabel:'Create section',
-        onSubmit:async(name)=>{
-          if(!name)throw new Error('empty');
-          addTask(loc,name,es||en,en||es);
-          document.getElementById('cleanTaskEs').value='';
-          document.getElementById('cleanTaskEn').value='';
-          populateSections();
-        },
-      });
-      return;
-    }
-    sec=prompt('Section name:');
-    if(!sec)return;
+  // ─── CONSTANTS ────────────────────────────────────────────────────────
+  const LOCATIONS = ['suerte', 'este', 'toti'];
+  const FREQUENCY_DEFINITIONS = [
+    { type: 'daily',     days:   1, labelEn: 'Daily',     labelEs: 'Diario' },
+    { type: 'weekly',    days:   7, labelEn: 'Weekly',    labelEs: 'Semanal' },
+    { type: 'biweekly',  days:  14, labelEn: 'Bi-Weekly', labelEs: 'Bi-Semanal' },
+    { type: 'monthly',   days:  30, labelEn: 'Monthly',   labelEs: 'Mensual' },
+    { type: 'quarterly', days:  90, labelEn: 'Quarterly', labelEs: 'Trimestral' },
+    { type: 'annual',    days: 365, labelEn: 'Annual',    labelEs: 'Anual' },
+    { type: 'custom',    days: null, labelEn: 'Custom',   labelEs: 'Personalizado' },
+  ];
+  const FREQ_BY_TYPE = Object.fromEntries(FREQUENCY_DEFINITIONS.map(f => [f.type, f]));
+  const WEEKDAY_KEYS  = ['SU','MO','TU','WE','TH','FR','SA'];
+  const WEEKDAY_LABEL = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  // Daily frequencies (1-day) get section status simplified to "today's
+  // shift". Anything longer-than-daily gets the freshness bar treatment.
+  const DAILY_TYPES = new Set(['daily']);
+
+  // ─── STATE ────────────────────────────────────────────────────────────
+  let activeLoc = 'suerte';
+  let tasksByLoc = {};        // { suerte: [tasks], este: [...], toti: [...] }
+  let lastDoneByKey = {};     // { 'sectionEs_taskOrder': { date: 'YYYY-MM-DD', by: 'name' } }
+  let todayStateByKey = {};   // { 'sectionEs_taskOrder': { done: true, by: 'Orion' } }
+  let usersList = [];         // [{ id, name, role }]
+  let editingTaskId = null;   // uuid of task currently being edited inline
+  let addingToSection = null; // section_es of the section getting a new task added
+  let collapsedSections = new Set();   // section_es strings collapsed
+  let linkedBoardCards = {};  // { 'location__sectionEs': cardId } — overdue → board
+
+  // ─── DATE: 8AM rollover (a "cleaning shift" is 8am-to-8am) ────────────
+  function getCleaningDate() {
+    const now = new Date();
+    if (now.getHours() < 8) now.setDate(now.getDate() - 1);
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
-  addTask(loc,sec,es||en,en||es);
-  document.getElementById('cleanTaskEs').value='';
-  document.getElementById('cleanTaskEn').value='';
-  populateSections();
-}
+  let today = getCleaningDate();
 
-function render(){
-  const list=document.getElementById('cleanList');list.innerHTML='';
-  const secs=getData(loc);
-  const lang=NX.i18n?NX.i18n.getLang():'en';
-  let dailyTotal=0,dailyDone=0;
+  function daysBetween(d1, d2) {
+    return Math.floor((new Date(d2) - new Date(d1)) / (1000 * 60 * 60 * 24));
+  }
+  function daysAgoText(days) {
+    if (days <= 0)   return 'Today';
+    if (days === 1)  return 'Yesterday';
+    if (days < 7)    return days + 'd ago';
+    if (days < 30)   return Math.floor(days / 7) + 'w ago';
+    if (days < 365)  return Math.floor(days / 30) + 'mo ago';
+    return Math.floor(days / 365) + 'y ago';
+  }
 
-  secs.forEach((sec,si)=>{
-    const isDaily=!NON_DAILY.some(nd=>sec.sec.toLowerCase().includes(nd.toLowerCase()));
-    let sectionDone=0;
-    sec.items.forEach((_,i)=>{if(getState(loc+'_'+sec.sec+'_'+i))sectionDone++;});
-    const isComplete=sectionDone===sec.items.length&&sec.items.length>0;
+  function getUserName() {
+    return (window.NX && NX.currentUser && NX.currentUser.name) || 'Unknown';
+  }
+  function getCurrentUserId() {
+    return (window.NX && NX.currentUser && NX.currentUser.id) || null;
+  }
+  function getLang() {
+    return (window.NX && NX.i18n && typeof NX.i18n.getLang === 'function')
+      ? NX.i18n.getLang() : 'en';
+  }
+  function toast(msg, kind, ms) {
+    if (window.NX && NX.toast) NX.toast(msg, kind || 'info', ms || 1800);
+  }
 
-    // For non-daily sections: calculate status
-    let secStatus='';
-    let needsBoard=false;  // true → render "→ Add to board" pill
-    let onBoard=false;     // true → render "→ On board" pill (link exists)
-    if(!isDaily){
-      const freq=getFrequency(sec.sec);
-      // Find oldest "last done" among this section's tasks
-      let oldestDays=null;
-      sec.items.forEach((_,i)=>{
-        const hist=lastDone[sec.sec+'_'+i];
-        if(hist){const d=daysBetween(hist.date,today);if(oldestDays===null||d>oldestDays)oldestDays=d;}
-        else oldestDays=999;
-      });
-      if(oldestDays===null||oldestDays===999){secStatus='<span class="clean-overdue">Never done</span>';needsBoard=true;}
-      else if(oldestDays>freq){secStatus=`<span class="clean-overdue">OVERDUE ${oldestDays-freq}d</span>`;needsBoard=true;}
-      else if(oldestDays>freq*0.8){secStatus=`<span class="clean-due-soon">Due soon · ${daysAgoText(oldestDays)}</span>`;needsBoard=true;}
-      else{secStatus=`<span class="clean-on-track">${csvg("check","12px","2.25")} ${daysAgoText(oldestDays)} · every ${freq}d</span>`;}
-      // If a linked card already exists, show "On board" instead of
-      // "Add to board" (and the cleanup completes via that card).
-      if(linkedCards[loc+'__'+sec.sec]){onBoard=true;needsBoard=false;}
-    }
+  // ─── FRESHNESS — the metric that replaces ad-hoc "OVERDUE Xd" strings ──
+  /**
+   * Compute a 0-100 freshness score for a task. 100 = just done, 0 = at or
+   * past the frequency cliff. Daily tasks always return 100 if done today,
+   * else freshness based on days since last done vs 1-day cycle.
+   */
+  function freshnessForTask(task) {
+    const freq = task.frequency_days || FREQ_BY_TYPE[task.frequency_type]?.days || 30;
+    const histKey = task.section_es + '_' + task.task_order;
+    const hist = lastDoneByKey[histKey];
+    if (!hist) return 0;  // never done
+    const daysSince = daysBetween(hist.date, today);
+    if (daysSince <= 0) return 100;
+    const fresh = 100 * (1 - daysSince / freq);
+    return Math.max(0, Math.min(100, Math.round(fresh)));
+  }
+  function freshnessClass(pct) {
+    if (pct >= 70) return 'is-fresh';
+    if (pct >= 40) return 'is-aging';
+    return 'is-stale';
+  }
+  function sectionFreshness(tasks) {
+    if (!tasks.length) return 100;
+    const sum = tasks.reduce((acc, t) => acc + freshnessForTask(t), 0);
+    return Math.round(sum / tasks.length);
+  }
 
-    const el=document.createElement('div');
-    el.className='clean-sec'+(si>3?' collapsed':'')+(isComplete?' complete':'');
-    const h=document.createElement('div');h.className='clean-sec-head';
-    h.innerHTML=`<span class="clean-sec-check">${isComplete?csvg('check','13px','2.25'):csvg('circle','13px','1.75')}</span><span class="clean-sec-arrow">▼</span><span class="clean-sec-title">${sec.sec}</span>${secStatus}<span class="clean-sec-count">${sectionDone}/${sec.items.length}</span>`;
-
-    // Check All button
-    const caBtn=document.createElement('button');caBtn.className='clean-check-all';
-    caBtn.innerHTML=isComplete?'Undo':('All '+csvg('check','12px','2.25'));
-    caBtn.addEventListener('click',async(e)=>{
-      e.stopPropagation();const newState=!isComplete;
-      sec.items.forEach((_,i)=>{
-        const k=loc+'_'+sec.sec+'_'+i;setState(k,newState);
-      });
-      render();
-      // Save all to DB with await
-      for(let i=0;i<sec.items.length;i++){
-        try{await NX.sb.from('cleaning_logs').upsert({location:loc,log_date:today,task_index:i,section:sec.sec,done:newState,completed_at:newState?new Date().toISOString():null},{onConflict:'location,log_date,task_index,section'});}catch(e){console.error('Cleaning save error:',e);}
+  // ─── DB: load tasks (replaces hardcoded DEFAULTS) ─────────────────────
+  async function loadTasksForLocation(loc) {
+    if (!NX.sb || NX.paused) return [];
+    try {
+      const { data, error } = await NX.sb.from('cleaning_tasks')
+        .select('*')
+        .eq('location', loc)
+        .eq('archived', false)
+        .order('section_order', { ascending: true })
+        .order('task_order',    { ascending: true });
+      if (error) {
+        console.error('[cleaning] loadTasksForLocation:', error);
+        return [];
       }
-    });
+      return data || [];
+    } catch (e) {
+      console.error('[cleaning] loadTasksForLocation exception:', e);
+      return [];
+    }
+  }
 
-    h.appendChild(caBtn);
+  async function loadAllTasks() {
+    const out = {};
+    for (const loc of LOCATIONS) {
+      out[loc] = await loadTasksForLocation(loc);
+    }
+    tasksByLoc = out;
+  }
 
-    // Cleaning ↔ Board linkage badge — appears on non-daily sections
-    // that are overdue / due soon / never done. Clicking either:
-    //   • escalates the section to a new board card, or
-    //   • jumps to the existing linked card on the board
-    // The badge is excluded from the collapse-toggle handler below.
-    let linkBtn=null;
-    if(needsBoard||onBoard){
-      linkBtn=document.createElement('button');
-      linkBtn.className='clean-link-board'+(onBoard?' is-on-board':'');
-      linkBtn.textContent=onBoard?'→ On board':'→ Add to board';
-      linkBtn.title=onBoard?'Tap to open the linked board card':'Add this section to the board for tracking';
-      linkBtn.addEventListener('click',async(e)=>{
-        e.stopPropagation();
-        if(onBoard){
-          // Jump to the board view; the user's already-linked card is there.
-          if(NX.switchTo)NX.switchTo('board');
-          return;
+  // ─── DB: load today's done-state for active location ──────────────────
+  async function loadTodayState() {
+    todayStateByKey = {};
+    if (!NX.sb || NX.paused) return;
+    try {
+      const { data, error } = await NX.sb.from('cleaning_logs')
+        .select('section, task_index, done, completed_by')
+        .eq('log_date', today)
+        .eq('location', activeLoc);
+      if (error) { console.warn('[cleaning] loadTodayState:', error); return; }
+      (data || []).forEach(r => {
+        // r.section is section_es (we kept the legacy v11 key shape)
+        todayStateByKey[r.section + '_' + r.task_index] = {
+          done: r.done,
+          by: r.completed_by || '',
+        };
+      });
+    } catch (e) {
+      console.warn('[cleaning] loadTodayState exception:', e);
+    }
+  }
+
+  // ─── DB: load history (most-recent done per task, for freshness calc) ─
+  async function loadHistory() {
+    lastDoneByKey = {};
+    if (!NX.sb || NX.paused) return;
+    try {
+      const { data, error } = await NX.sb.from('cleaning_logs')
+        .select('section, task_index, log_date, completed_by')
+        .eq('location', activeLoc)
+        .eq('done', true)
+        .order('log_date', { ascending: false })
+        .limit(1000);
+      if (error) { console.warn('[cleaning] loadHistory:', error); return; }
+      (data || []).forEach(r => {
+        const key = r.section + '_' + r.task_index;
+        if (!lastDoneByKey[key]) {
+          lastDoneByKey[key] = { date: r.log_date, by: r.completed_by || '' };
         }
-        await escalateSectionToBoard(sec.sec);
       });
-      h.appendChild(linkBtn);
+    } catch (e) {
+      console.warn('[cleaning] loadHistory exception:', e);
     }
+  }
 
-    h.addEventListener('click',(e)=>{
-      if(e.target===caBtn)return;
-      if(linkBtn&&e.target===linkBtn)return;
-      el.classList.toggle('collapsed');
-    });
-    el.appendChild(h);
-
-    const body=document.createElement('div');body.className='clean-sec-body';
-    sec.items.forEach((item,i)=>{
-      // PERCENTAGE: only count daily tasks
-      if(isDaily)dailyTotal++;
-      const k=loc+'_'+sec.sec+'_'+i;
-      const d=getState(k);
-      if(d&&isDaily)dailyDone++;
-
-      const it=document.createElement('div');it.className='clean-item'+(d?' done':'')+(item[2]?' clean-item-custom':'');
-      let lastInfo='';
-      if(!isDaily){
-        const hist=lastDone[sec.sec+'_'+i];
-        if(hist){const daysAgo=daysBetween(hist.date,today);lastInfo=`<div class="ci-last">Last: ${daysAgoText(daysAgo)}</div>`;}
-        else{lastInfo='<div class="ci-last ci-never">Never done</div>';}
-      }
-      it.innerHTML=`<div class=\"ci-box\">${d?csvg('check','12px','2.25'):''}</div><div><div class="ci-primary">${lang==='es'?item[0]:item[1]}</div><div class="ci-secondary">${lang==='es'?item[1]:item[0]}</div>${lastInfo}</div>`;
-      // Delete button for custom tasks
-      if(item[2]){
-        const del=document.createElement('button');del.className='clean-item-del';del.innerHTML=csvg('close','12px','2');
-        del.addEventListener('click',(e)=>{
-          e.stopPropagation();
-          const ct=getCustomTasks();
-          if(ct[loc]){ct[loc].splice(item[3],1);saveCustomTasks(ct);render();}
-        });
-        it.appendChild(del);
-      }
-      it.onclick=async()=>{
-        const newVal=!getState(k);setState(k,newVal);render();
-        if(NX.syslog)NX.syslog('clean_'+(newVal?'checked':'unchecked'),item[1]+' ('+loc+'/'+sec.sec+')');
-        const upsertData={location:loc,log_date:today,task_index:i,section:sec.sec,done:newVal,completed_at:newVal?new Date().toISOString():null};
-        if(navigator.onLine){
-          try{
-            const{error}=await NX.sb.from('cleaning_logs').upsert(upsertData,{onConflict:'location,log_date,task_index,section'});
-            if(error)console.error('Cleaning save error:',error);
-          }catch(e){console.error('Cleaning save exception:',e);}
-        }else if(NX.offlineQueue){
-          NX.offlineQueue.add({type:'cleaning',data:upsertData});
-        }
-      };
-      // Camera button — photo proof. Uses an SVG mask icon rather than
-      // emoji because emoji rendering is platform-dependent (a small
-      // detail that previously made the whole UI look childish on iOS,
-      // where the system camera emoji is a glossy raster glyph that
-      // fights every other line-art element in the app).
-      // States are conveyed via a `data-state` attr on the button:
-      //   idle    → camera icon
-      //   pending → spinner (CSS animation)
-      //   ok      → check
-      //   err     → X
-      const cam=document.createElement('button');
-      cam.className='clean-cam';
-      cam.setAttribute('data-state','idle');
-      cam.title='Take photo';
-      cam.addEventListener('click',async(e)=>{
-        e.stopPropagation();
-        const input=document.createElement('input');input.type='file';input.accept='image/*';input.capture='environment';
-        input.addEventListener('change',async()=>{
-          if(!input.files.length)return;
-          const file=input.files[0];
-          cam.setAttribute('data-state','pending');cam.disabled=true;
-          try{
-            const path=`cleaning/${loc}/${today}/${sec.sec}_${i}_${Date.now()}.jpg`;
-            const{error}=await NX.sb.storage.from('nexus-files').upload(path,file,{contentType:file.type,upsert:true});
-            if(!error){
-              cam.setAttribute('data-state','ok');
-              // Store photo ref in cleaning log
-              await NX.sb.from('cleaning_logs').upsert({
-                location:loc,log_date:today,task_index:i,section:sec.sec,
-                done:getState(k),completed_at:new Date().toISOString(),
-                photo_path:path
-              },{onConflict:'location,log_date,task_index,section'});
-              if(NX.toast)NX.toast('Photo saved ✓','success');
-            }else{cam.setAttribute('data-state','err');if(NX.toast)NX.toast('Upload failed','error');}
-          }catch(err){cam.setAttribute('data-state','err');if(NX.toast)NX.toast('Upload failed','error');}
-          setTimeout(()=>{cam.setAttribute('data-state','idle');cam.disabled=false;},2000);
-        });
-        input.click();
-      });
-      it.appendChild(cam);
-      body.appendChild(it);
-    });
-
-    el.appendChild(body);list.appendChild(el);
-  });
-
-  // Progress bar — ONLY daily tasks
-  const pct=dailyTotal?Math.round(dailyDone/dailyTotal*100):0;
-  document.getElementById('cleanFill').style.width=pct+'%';
-  document.getElementById('cleanPct').textContent=pct+'%';
-  document.getElementById('cleanConfirm').style.display='none';
-
-  // Extras section
-  renderExtras(list);
-}
-
-// ═══ EXTRAS — log work not on the checklist ═══
-const COMMON_EXTRAS=[
-  ['Limpiar paredes.','Clean walls.'],['Limpiar tubos de cobre.','Clean copper pipes.'],
-  ['Lavado a presión.','Pressure wash.'],['Limpieza profunda de refrigeradores.','Deep clean fridges.'],
-  ['Pulir latón/bronce.','Polish brass/bronze.'],['Limpiar trampas de grasa.','Clean grease traps.'],
-  ['Limpiar ductos de ventilación.','Clean vent ducts.'],['Limpiar detrás de equipos.','Clean behind equipment.'],
-  ['Pulir pisos.','Polish/buff floors.'],['Limpiar canaletas.','Clean gutters.'],
-  ['Limpiar campana extractora.','Deep clean hood.'],['Descongelar congeladores.','Defrost freezers.']
-];
-function getExtrasToday(){try{return JSON.parse(localStorage.getItem('nexus_extras_'+loc+'_'+today)||'[]');}catch(e){return[];}}
-function saveExtrasToday(ex){localStorage.setItem('nexus_extras_'+loc+'_'+today,JSON.stringify(ex));}
-
-function renderExtras(list){
-  const el=document.createElement('div');el.className='clean-sec';
-  const extras=getExtrasToday();
-  const h=document.createElement('div');h.className='clean-sec-head';
-  h.innerHTML=`<span class="clean-sec-check" style="color:var(--amber)">+</span><span class="clean-sec-arrow">▼</span><span class="clean-sec-title">Extras</span><span class="clean-on-track" style="margin-left:auto;margin-right:8px">${extras.length} logged</span>`;
-  h.addEventListener('click',()=>el.classList.toggle('collapsed'));
-  el.appendChild(h);
-  const body=document.createElement('div');body.className='clean-sec-body';
-
-  extras.forEach((ex,i)=>{
-    const it=document.createElement('div');it.className='clean-item done clean-item-custom';
-    it.innerHTML=`<div class=\"ci-box\">${csvg('check','12px','2.25')}</div><div><div class="ci-primary">${NX.i18n&&NX.i18n.getLang()==='es'?ex.es:ex.en}</div><div class="ci-secondary">${NX.i18n&&NX.i18n.getLang()==='es'?ex.en:ex.es}</div><div class="ci-last">${ex.time||''}</div></div>`;
-    const del=document.createElement('button');del.className='clean-item-del';del.innerHTML=csvg('close','12px','2');
-    del.addEventListener('click',(e)=>{e.stopPropagation();const ext=getExtrasToday();ext.splice(i,1);saveExtrasToday(ext);render();});
-    it.appendChild(del);body.appendChild(it);
-
-    // Auto-translate the primary text when the extra is free-form.
-    // Built-in tasks ship with both Spanish + English filled in, but
-    // user-added "Custom" extras often have only one language. If the
-    // secondary line is empty or matches the primary (same language
-    // typed twice), attach NX.tr.auto so the reader sees a translation
-    // inline. quickDetect handles the "it's already in my language"
-    // case silently — no badge, no noise.
-    if (window.NX?.tr) {
-      const primaryEl = it.querySelector('.ci-primary');
-      const secondaryEl = it.querySelector('.ci-secondary');
-      const sameOrEmpty = !secondaryEl?.textContent.trim()
-        || secondaryEl.textContent.trim() === primaryEl.textContent.trim();
-      if (primaryEl && sameOrEmpty) {
-        try { NX.tr.auto(primaryEl); } catch(_) {}
-      }
-    }
-  });
-
-  const addRow=document.createElement('div');addRow.style.cssText='display:flex;gap:6px;padding:8px 0;flex-wrap:wrap;';
-  const sel=document.createElement('select');sel.className='clean-add-select';sel.style.cssText='flex:1;min-width:140px';
-  sel.innerHTML='<option value="">Quick add extra...</option>';
-  COMMON_EXTRAS.forEach((ex,i)=>{sel.innerHTML+=`<option value="${i}">${ex[1]}</option>`;});
-  sel.innerHTML+='<option value="custom">+ Custom...</option>';
-  const addBtn=document.createElement('button');addBtn.className='clean-add-btn';addBtn.textContent='Log';
-  addBtn.addEventListener('click',()=>{
-    const v=sel.value;if(!v)return;
-    const timeNow=new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}).toLowerCase();
-    if(v==='custom'){
-      // One dialog, two fields — beats the sequential prompt() pair
-      if(NX.composer?.modal){
-        NX.composer.modal({
-          title:'Custom cleaning task',
-          subtitle:'Add an extra task done today',
-          buttonLabel:'Log it',
-          fields:[
-            {name:'es',label:'Tarea (Español)',placeholder:'p.ej. Limpiar bajo la nevera',autofocus:true},
-            {name:'en',label:'Task (English)',placeholder:'e.g. Clean under fridge'},
-          ],
-          onSubmit:async({es,en})=>{
-            if(!es&&!en)throw new Error('empty');
-            const ext=getExtrasToday();
-            ext.push({es:es||en,en:en||es,time:timeNow});
-            saveExtrasToday(ext);
-            sel.value='';
-            render();
-          },
-        });
+  // ─── DB: load users list for assignee dropdowns ───────────────────────
+  async function loadUsers() {
+    if (!NX.sb || NX.paused) return;
+    try {
+      const { data, error } = await NX.sb.rpc('list_user_names');
+      if (!error && Array.isArray(data)) {
+        usersList = data;
         return;
       }
-      // Fallback if composer.js didn't load
-      const es=prompt('Tarea (español):');const en=prompt('Task (English):');
-      if(!es&&!en)return;
-      const ext=getExtrasToday();ext.push({es:es||en,en:en||es,time:timeNow});saveExtrasToday(ext);
-    }else{const ex=COMMON_EXTRAS[parseInt(v)];const ext=getExtrasToday();ext.push({es:ex[0],en:ex[1],time:timeNow});saveExtrasToday(ext);}
-    sel.value='';render();
-  });
-  addRow.appendChild(sel);addRow.appendChild(addBtn);body.appendChild(addRow);
-  el.appendChild(body);list.appendChild(el);
-}
+      // RPC might not exist — fall back to direct SELECT (works for
+      // privileged roles; fails silently for staff RLS).
+      const fb = await NX.sb.from('nexus_users').select('id, name, role').order('name');
+      if (!fb.error) usersList = fb.data || [];
+    } catch (e) {
+      // Network/RLS failure — empty list is acceptable, dropdown shows
+      // "No users available" and the user can save without an assignee.
+      console.warn('[cleaning] loadUsers:', e);
+      usersList = [];
+    }
+  }
 
-// ═══ FULL REPORT — every task listed with done/missed ═══
-function buildFullReport(location,locState){
-  const secs=getData(location);
-  let dailyTotal=0,dailyDone=0;const lines=[];
-  secs.forEach(sec=>{
-    const isDaily=!NON_DAILY.some(nd=>sec.sec.toLowerCase().includes(nd.toLowerCase()));
-    let done=[],missed=[];
-    sec.items.forEach((item,i)=>{
-      if(isDaily)dailyTotal++;
-      const s=locState?.[location+'_'+sec.sec+'_'+i];
-      if(s&&s.done){if(isDaily)dailyDone++;done.push(item[1]);}
-      else missed.push(item[1]);
-    });
-    lines.push(`${sec.sec} (${done.length}/${sec.items.length})`);
-    if(missed.length)lines.push(`MISSED: ${missed.join(', ')}`);
-  });
-  const extras=[];
-  try{const ex=JSON.parse(localStorage.getItem('nexus_extras_'+location+'_'+today)||'[]');ex.forEach(e=>extras.push(e.en));}catch(e){}
-  const pct=dailyTotal?Math.round(dailyDone/dailyTotal*100):0;
-  const locName=location.charAt(0).toUpperCase()+location.slice(1);
-  let entry=`Cleaning Report — ${locName} — ${today}\nDaily: ${pct}% (${dailyDone}/${dailyTotal})\n---\n${lines.join('\n')}`;
-  if(extras.length)entry+=`\n---\nEXTRAS: ${extras.join(', ')}`;
-  return entry;
-}
-
-async function submitDailyReport(){
-  const btn=document.getElementById('cleanSubmit'),confirm_el=document.getElementById('cleanConfirm');
-  const isEditing=!!NX.editingReport;
-  const reportDate=isEditing?NX.editingReport.date:today;
-
-  btn.disabled=true;btn.textContent='Building report...';
-
-  const parts=[];
-  for(const location of Object.keys(DEFAULTS)){
-    // PRIMARY: use stateCache (what the user actually sees on screen)
-    // FALLBACK: query database if cache is empty for this location
-    let locState=stateCache[location]||{};
-
-    if(!Object.keys(locState).length){
-      try{
-        const{data}=await NX.sb.from('cleaning_logs').select('section,task_index,done').eq('log_date',reportDate).eq('location',location);
-        if(data&&data.length){
-          locState={};
-          data.forEach(c=>{locState[location+'_'+c.section+'_'+c.task_index]={done:c.done,by:''};});
+  // ─── DB: load any open board cards linked to cleaning sections ────────
+  // (Preserved from v11 — the section header shows "→ On board" or
+  // "→ Add to board" depending on whether an open escalation exists.)
+  async function loadLinkedCards() {
+    Object.keys(linkedBoardCards).forEach(k => delete linkedBoardCards[k]);
+    if (!NX.sb || NX.paused) return;
+    try {
+      const { data } = await NX.sb.from('kanban_cards')
+        .select('id, cleaning_link_location, cleaning_link_section, column_name, archived')
+        .eq('cleaning_link_location', activeLoc)
+        .eq('archived', false);
+      if (!data) return;
+      data.forEach(c => {
+        const cn = (c.column_name || '').toLowerCase();
+        if (/(done|closed|resolved|complete|archived?)/.test(cn)) return;
+        if (c.cleaning_link_section) {
+          linkedBoardCards[activeLoc + '__' + c.cleaning_link_section] = c.id;
         }
-      }catch(e){console.error('Failed to load cleaning data for',location,e);}
+      });
+    } catch (e) {
+      console.warn('[cleaning] loadLinkedCards:', e);
     }
-
-    parts.push(buildFullReport(location,locState));
   }
 
-  btn.textContent='Submitting...';
-  const combined='Cleaning Report \u2014 '+reportDate+'\n===\n'+parts.join('\n===\n');
+  // ─── HELPERS: state get/set ───────────────────────────────────────────
+  function getDoneState(sectionEs, taskOrder) {
+    const k = sectionEs + '_' + taskOrder;
+    return !!todayStateByKey[k]?.done;
+  }
+  function setDoneState(sectionEs, taskOrder, done) {
+    const k = sectionEs + '_' + taskOrder;
+    todayStateByKey[k] = { done, by: done ? getUserName() : '' };
+    if (done) {
+      lastDoneByKey[k] = { date: today, by: getUserName() };
+    }
+  }
+  async function persistDone(sectionEs, taskOrder, done) {
+    if (!NX.sb || NX.paused) return;
+    try {
+      await NX.sb.from('cleaning_logs').upsert({
+        location:     activeLoc,
+        log_date:     today,
+        section:      sectionEs,
+        task_index:   taskOrder,
+        done:         done,
+        completed_by: done ? getUserName() : null,
+        completed_at: done ? new Date().toISOString() : null,
+      }, { onConflict: 'location,log_date,task_index,section' });
+    } catch (e) {
+      console.error('[cleaning] persistDone:', e);
+      toast('Could not save — retry by tapping again', 'error');
+    }
+  }
 
-  if(isEditing){
-    const{error}=await NX.sb.from('daily_logs').update({entry:combined}).eq('id',NX.editingReport.logId);
-    if(!error){
-      btn.textContent='\u2713 Updated';
-      if(NX.toast)NX.toast('Report updated \u2713','success');
-      NX.editingReport=null;today=getCleaningDate();
-      const banner=document.getElementById('cleanEditBanner');if(banner)banner.style.display='none';
-      setTimeout(()=>{document.querySelector('.nav-tab[data-view="log"]')?.click();},800);
-    }else{btn.textContent='Error \u2014 try again';console.error('Update error:',error);}
-  }else{
-    // Check if a report for today already exists — update instead of duplicate
-    let error;
-    try{
-      const{data:existing}=await NX.sb.from('daily_logs').select('id').ilike('entry','Cleaning Report%'+reportDate+'%').limit(1);
-      if(existing&&existing.length){
-        ({error}=await NX.sb.from('daily_logs').update({entry:combined}).eq('id',existing[0].id));
-      }else{
-        ({error}=await NX.sb.from('daily_logs').insert({entry:combined}));
+  // ─── GROUP TASKS BY SECTION (for rendering) ───────────────────────────
+  function tasksBySection(loc) {
+    const tasks = tasksByLoc[loc] || [];
+    const groups = new Map();
+    tasks.forEach(t => {
+      const key = t.section_es;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          section_es:    t.section_es,
+          section_en:    t.section_en,
+          section_order: t.section_order,
+          tasks:         [],
+        });
       }
-    }catch(e){
-      error=e;
-    }
-    if(!error){
-      btn.textContent='\u2713 Submitted';
-      confirm_el.textContent='All 3 restaurants saved to log.';
-      confirm_el.style.display='block';
-      if(NX.toast)NX.toast('Cleaning report submitted \u2713','success');
-      if(NX.syslog)NX.syslog('clean_report','Cleaning report submitted for '+reportDate);
-      // Stage R: pulse the mini-galaxy — daily cleaning is the heartbeat
-      // of the operation; the brain acknowledges.
-      if (NX.homeGalaxyPulse) NX.homeGalaxyPulse();
-    }else{btn.textContent='Error \u2014 try again';confirm_el.style.display='none';console.error('Submit error:',error);}
+      groups.get(key).tasks.push(t);
+    });
+    return Array.from(groups.values()).sort((a, b) => a.section_order - b.section_order);
   }
-  setTimeout(()=>{btn.disabled=false;btn.textContent='Submit Daily Report';},3000);
-}
 
-NX.cleaningAPI={addTask,removeTask,getLocations:()=>Object.keys(DEFAULTS)};
+  // ═══ RENDER LAYER ═══════════════════════════════════════════════════════
+  // Card-based design borrowed wholesale from the ordering catalog editor:
+  //   • Each section is a card with a gold-line border + rounded corners
+  //   • Card head shows: name (bilingual), task count, freshness chip,
+  //     overall progress, expand/collapse chevron
+  //   • Expand reveals: task rows, "+ Add task" button, optional "→ On board"
+  //   • Each task row: checkbox + bilingual name + freshness mini-bar +
+  //     assignee chip + days-of-week pills (when relevant) + edit pencil
+  //   • Tap edit pencil → inline form (same ord-vitem-editing pattern)
 
-NX.modules.clean={init,show};
-NX.cleaningTasks=DEFAULTS;
+  function render() {
+    const list = document.getElementById('cleanList');
+    if (!list) return;
+    list.innerHTML = '';
+
+    const groups = tasksBySection(activeLoc);
+    if (!groups.length) {
+      list.innerHTML = `
+        <div class="clean-empty">
+          <div class="clean-empty-title">No tasks yet</div>
+          <div class="clean-empty-hint">Tap <b>+ Add section</b> below to start building this location's checklist.</div>
+        </div>`;
+      renderFooterToolbar(list);
+      return;
+    }
+
+    // Aggregate counts for header bar (daily completion %)
+    let dailyDone = 0, dailyTotal = 0;
+    groups.forEach(g => {
+      g.tasks.forEach(t => {
+        if (DAILY_TYPES.has(t.frequency_type)) {
+          dailyTotal++;
+          if (getDoneState(t.section_es, t.task_order)) dailyDone++;
+        }
+      });
+    });
+    const pct = dailyTotal ? Math.round(dailyDone / dailyTotal * 100) : 0;
+
+    // Update top progress bar (already in HTML)
+    const fillEl = document.getElementById('cleanFill');
+    const pctEl  = document.getElementById('cleanPct');
+    if (fillEl) fillEl.style.width = pct + '%';
+    if (pctEl)  pctEl.textContent  = pct + '%';
+
+    // Render every section card
+    groups.forEach(group => {
+      list.appendChild(renderSectionCard(group));
+    });
+
+    renderFooterToolbar(list);
+  }
+
+  function renderSectionCard(group) {
+    const isCollapsed = collapsedSections.has(group.section_es);
+    const lang = getLang();
+    const isDailySection = group.tasks.some(t => DAILY_TYPES.has(t.frequency_type));
+
+    // Section status badge:
+    //   • Daily: today's progress (4/6, 100% green when complete)
+    //   • Non-daily: aggregate freshness (avg of task freshness)
+    let statusHTML;
+    let needsBoard = false;
+    let onBoard = false;
+
+    if (isDailySection) {
+      const done = group.tasks.filter(t =>
+        DAILY_TYPES.has(t.frequency_type) && getDoneState(t.section_es, t.task_order)
+      ).length;
+      const total = group.tasks.filter(t => DAILY_TYPES.has(t.frequency_type)).length;
+      const ratio = total ? done / total : 0;
+      const cls = ratio >= 1 ? 'is-fresh' : ratio >= 0.5 ? 'is-aging' : 'is-stale';
+      statusHTML = `<div class="clean-sec-status">
+        <span class="clean-fresh-chip ${cls}">${done}/${total}</span>
+      </div>`;
+    } else {
+      const freshPct = sectionFreshness(group.tasks);
+      const cls = freshnessClass(freshPct);
+      // Show OVERDUE badge when any task is past its frequency
+      const anyOverdue = group.tasks.some(t => freshnessForTask(t) === 0);
+      statusHTML = `<div class="clean-sec-status">
+        ${anyOverdue ? '<span class="clean-fresh-chip is-overdue">OVERDUE</span>' : ''}
+        <span class="clean-fresh-chip ${cls}">${freshPct}%</span>
+      </div>`;
+      // Linked-board state — only meaningful for non-daily, action-needed sections
+      const aging = freshPct < 50 || anyOverdue;
+      onBoard    = !!linkedBoardCards[activeLoc + '__' + group.section_es];
+      needsBoard = aging && !onBoard;
+    }
+
+    const card = document.createElement('div');
+    card.className = 'clean-card' + (isCollapsed ? ' is-collapsed' : '');
+    card.dataset.sectionEs = group.section_es;
+
+    // ─── HEAD ─────────────────────────────────────────────────────
+    const head = document.createElement('div');
+    head.className = 'clean-card-head';
+    head.innerHTML = `
+      <div class="clean-card-titles">
+        <div class="clean-card-title">${esc(lang === 'es' ? group.section_es : group.section_en)}</div>
+        <div class="clean-card-sub">${esc(lang === 'es' ? group.section_en : group.section_es)}  ·  ${group.tasks.length} task${group.tasks.length === 1 ? '' : 's'}</div>
+      </div>
+      ${statusHTML}
+      ${onBoard
+        ? `<button class="clean-board-pill is-on-board" data-board-jump>${svg('archive', 12)} On board</button>`
+        : (needsBoard ? `<button class="clean-board-pill" data-board-add>${svg('plus', 12)} To board</button>` : '')}
+      <button class="clean-card-chev" aria-label="Toggle section">${svg('chevron', 18, 2)}</button>
+    `;
+
+    // Tapping the title block (NOT the buttons) toggles collapse
+    head.querySelector('.clean-card-titles').addEventListener('click', () => {
+      if (isCollapsed) collapsedSections.delete(group.section_es);
+      else collapsedSections.add(group.section_es);
+      render();
+    });
+    head.querySelector('.clean-card-chev').addEventListener('click', () => {
+      if (isCollapsed) collapsedSections.delete(group.section_es);
+      else collapsedSections.add(group.section_es);
+      render();
+    });
+    // Board escalation
+    const boardAddBtn = head.querySelector('[data-board-add]');
+    if (boardAddBtn) {
+      boardAddBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        escalateSectionToBoard(group);
+      });
+    }
+    const boardJumpBtn = head.querySelector('[data-board-jump]');
+    if (boardJumpBtn) {
+      boardJumpBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (NX.switchTo) NX.switchTo('board');
+      });
+    }
+    card.appendChild(head);
+
+    // ─── BODY ─────────────────────────────────────────────────────
+    if (!isCollapsed) {
+      const body = document.createElement('div');
+      body.className = 'clean-card-body';
+
+      // "Check All" / "Undo all" — quick action for daily sections
+      if (isDailySection) {
+        const dailyTasks = group.tasks.filter(t => DAILY_TYPES.has(t.frequency_type));
+        const allDone = dailyTasks.every(t => getDoneState(t.section_es, t.task_order));
+        const checkAllBtn = document.createElement('button');
+        checkAllBtn.className = 'clean-check-all-btn';
+        checkAllBtn.innerHTML = allDone
+          ? `${svg('close', 12)} <span>Undo all</span>`
+          : `${svg('check', 12)} <span>Check all</span>`;
+        checkAllBtn.addEventListener('click', async () => {
+          const newState = !allDone;
+          dailyTasks.forEach(t => setDoneState(t.section_es, t.task_order, newState));
+          render();
+          for (const t of dailyTasks) {
+            await persistDone(t.section_es, t.task_order, newState);
+          }
+        });
+        body.appendChild(checkAllBtn);
+      }
+
+      // Task rows
+      group.tasks.forEach(task => {
+        if (editingTaskId === task.id) {
+          body.appendChild(renderTaskEditForm(task));
+        } else {
+          body.appendChild(renderTaskRow(task));
+        }
+      });
+
+      // "+ Add task" inline form trigger (or the form itself if active)
+      if (addingToSection === group.section_es) {
+        body.appendChild(renderTaskEditForm({
+          id: 'new',
+          location: activeLoc,
+          section_es: group.section_es,
+          section_en: group.section_en,
+          section_order: group.section_order,
+          task_order: group.tasks.length,
+          name_es: '',
+          name_en: '',
+          frequency_type: 'daily',
+          frequency_days: 1,
+          days_of_week: null,
+          assignee_id: null,
+          notes: '',
+        }));
+      } else {
+        const addBtn = document.createElement('button');
+        addBtn.className = 'clean-add-task-btn';
+        addBtn.innerHTML = `${svg('plus', 14)} <span>Add task</span>`;
+        addBtn.addEventListener('click', () => {
+          addingToSection = group.section_es;
+          editingTaskId = null;
+          render();
+        });
+        body.appendChild(addBtn);
+      }
+
+      card.appendChild(body);
+    }
+    return card;
+  }
+
+  // ─── TASK ROW (display mode) ──────────────────────────────────────────
+  function renderTaskRow(task) {
+    const lang = getLang();
+    const done = getDoneState(task.section_es, task.task_order);
+    const isDaily = DAILY_TYPES.has(task.frequency_type);
+
+    const row = document.createElement('div');
+    row.className = 'clean-task' + (done ? ' is-done' : '');
+    row.dataset.taskId = task.id;
+
+    // Primary text in active language, secondary in the other
+    const primary   = lang === 'es' ? task.name_es : task.name_en;
+    const secondary = lang === 'es' ? task.name_en : task.name_es;
+
+    // Freshness mini-bar (only for non-daily tasks — daily is just done/not-done)
+    let freshHTML = '';
+    if (!isDaily) {
+      const pct = freshnessForTask(task);
+      const cls = freshnessClass(pct);
+      const histKey = task.section_es + '_' + task.task_order;
+      const hist = lastDoneByKey[histKey];
+      const subText = hist
+        ? `${daysAgoText(daysBetween(hist.date, today))}${hist.by ? ' · ' + esc(hist.by) : ''}`
+        : 'Never done';
+      freshHTML = `
+        <div class="clean-task-fresh">
+          <div class="clean-fresh-bar">
+            <div class="clean-fresh-bar-fill ${cls}" style="width:${pct}%"></div>
+          </div>
+          <div class="clean-task-fresh-sub">${esc(subText)}</div>
+        </div>`;
+    } else {
+      // For daily tasks, show "done by X" if checked today
+      const stateKey = task.section_es + '_' + task.task_order;
+      const todayBy = todayStateByKey[stateKey]?.by;
+      if (done && todayBy) {
+        freshHTML = `<div class="clean-task-fresh-sub">by ${esc(todayBy)}</div>`;
+      }
+    }
+
+    // Assignee chip
+    let assigneeHTML = '';
+    if (task.assignee_id) {
+      const u = usersList.find(x => x.id === task.assignee_id);
+      const name = u ? u.name : null;
+      const initials = name ? name.split(/\s+/).map(p => p[0]).join('').slice(0,2).toUpperCase() : '?';
+      assigneeHTML = `<span class="clean-assignee" title="${esc(name || 'Unknown')}">${esc(initials)}</span>`;
+    }
+
+    // Days-of-week pills (only for weekly + custom with days)
+    let daysHTML = '';
+    if (Array.isArray(task.days_of_week) && task.days_of_week.length && task.days_of_week.length < 7) {
+      const labels = task.days_of_week
+        .map(i => WEEKDAY_LABEL[i - 1] || '')
+        .filter(Boolean)
+        .join(' ');
+      if (labels) {
+        daysHTML = `<span class="clean-days-tag">${esc(labels)}</span>`;
+      }
+    }
+
+    // Frequency badge for non-daily
+    let freqHTML = '';
+    if (!isDaily) {
+      const def = FREQ_BY_TYPE[task.frequency_type];
+      if (def) freqHTML = `<span class="clean-freq-tag">${esc(def.labelEn)}</span>`;
+    }
+
+    row.innerHTML = `
+      <button class="clean-task-check" aria-label="Mark done" data-toggle-done>
+        ${done ? svg('check', 14, 2.5) : ''}
+      </button>
+      <div class="clean-task-body">
+        <div class="clean-task-name">${esc(primary)}</div>
+        <div class="clean-task-meta">
+          ${secondary && secondary !== primary ? `<span class="clean-task-secondary">${esc(secondary)}</span>` : ''}
+          ${freqHTML}
+          ${daysHTML}
+          ${assigneeHTML}
+        </div>
+        ${freshHTML}
+      </div>
+      <button class="clean-task-edit" aria-label="Edit task" data-edit-task>
+        ${svg('pen', 14, 2)}
+      </button>
+    `;
+
+    // Wire interactions
+    row.querySelector('[data-toggle-done]').addEventListener('click', async () => {
+      const newDone = !done;
+      setDoneState(task.section_es, task.task_order, newDone);
+      render();
+      await persistDone(task.section_es, task.task_order, newDone);
+    });
+    row.querySelector('[data-edit-task]').addEventListener('click', () => {
+      editingTaskId = task.id;
+      addingToSection = null;
+      render();
+    });
+
+    return row;
+  }
+
+  // ─── TASK EDIT FORM (inline, replaces the row when editing) ───────────
+  // Same visual pattern as ordering's catalog item editor — full-card
+  // inline form with stacked rows, gold "Save" pill, neutral "Cancel",
+  // amber "Archive" for existing tasks. New tasks omit Archive.
+  function renderTaskEditForm(task) {
+    const isNew = task.id === 'new';
+    const wrap = document.createElement('div');
+    wrap.className = 'clean-task-edit-form';
+
+    // Build assignee dropdown options
+    const assigneeOptions = ['<option value="">— Unassigned —</option>']
+      .concat(usersList.map(u =>
+        `<option value="${u.id}" ${task.assignee_id === u.id ? 'selected' : ''}>${esc(u.name)}</option>`
+      )).join('');
+
+    // Frequency dropdown
+    const freqOptions = FREQUENCY_DEFINITIONS.map(f =>
+      `<option value="${f.type}" ${task.frequency_type === f.type ? 'selected' : ''}>${esc(f.labelEn)}${f.days ? ` (${f.days}d)` : ''}</option>`
+    ).join('');
+
+    // Days-of-week pills (only meaningful for weekly + custom)
+    const daysSelected = new Set(task.days_of_week || []);
+    const dayPillsHTML = WEEKDAY_LABEL.map((lbl, i) => {
+      const dayNum = i + 1;
+      const sel = daysSelected.has(dayNum);
+      return `<button type="button" class="clean-day-pill ${sel ? 'is-selected' : ''}" data-day="${dayNum}">${esc(lbl.slice(0,1))}</button>`;
+    }).join('');
+
+    // Custom-frequency days input (only shown when type = 'custom')
+    const showCustomDays = task.frequency_type === 'custom';
+
+    // Days-of-week row visible only when frequency is weekly or custom
+    const showDays = task.frequency_type === 'weekly' || task.frequency_type === 'custom';
+
+    wrap.innerHTML = `
+      <div class="clean-edit-row">
+        <label class="clean-edit-label">Tarea (Español)</label>
+        <input type="text" class="clean-edit-input" data-field="name_es"
+               value="${esc(task.name_es || '')}"
+               placeholder="p.ej. Limpiar las mesas." autocomplete="off">
+      </div>
+      <div class="clean-edit-row">
+        <label class="clean-edit-label">Task (English)</label>
+        <input type="text" class="clean-edit-input" data-field="name_en"
+               value="${esc(task.name_en || '')}"
+               placeholder="e.g. Wipe down the tables." autocomplete="off">
+      </div>
+      <div class="clean-edit-row clean-edit-row-2col">
+        <div>
+          <label class="clean-edit-label">Frequency</label>
+          <select class="clean-edit-select" data-field="frequency_type">
+            ${freqOptions}
+          </select>
+        </div>
+        <div data-custom-days style="${showCustomDays ? '' : 'display:none'}">
+          <label class="clean-edit-label">Custom days</label>
+          <input type="number" class="clean-edit-input" data-field="frequency_days"
+                 min="1" max="999" value="${task.frequency_days || 30}">
+        </div>
+      </div>
+      <div class="clean-edit-row" data-days-row style="${showDays ? '' : 'display:none'}">
+        <label class="clean-edit-label">On these days</label>
+        <div class="clean-day-pills">${dayPillsHTML}</div>
+      </div>
+      <div class="clean-edit-row">
+        <label class="clean-edit-label">Assigned to</label>
+        <select class="clean-edit-select" data-field="assignee_id">
+          ${assigneeOptions}
+        </select>
+      </div>
+      <div class="clean-edit-row">
+        <label class="clean-edit-label">Notes <span class="clean-edit-label-hint">(optional)</span></label>
+        <textarea class="clean-edit-textarea" data-field="notes" rows="2"
+                  placeholder="e.g. Use the green-handled brush from under the bar.">${esc(task.notes || '')}</textarea>
+      </div>
+      <div class="clean-edit-actions">
+        <button class="clean-edit-cancel" type="button">Cancel</button>
+        ${isNew ? '' : '<button class="clean-edit-archive" type="button">Archive</button>'}
+        <button class="clean-edit-save" type="button">${isNew ? 'Add task' : 'Save'}</button>
+      </div>
+    `;
+
+    // ─── Live wiring ──────────────────────────────────────────────
+    // Frequency change → show/hide days-of-week + custom-days inputs
+    const freqSel = wrap.querySelector('[data-field="frequency_type"]');
+    freqSel.addEventListener('change', () => {
+      const t = freqSel.value;
+      wrap.querySelector('[data-days-row]').style.display =
+        (t === 'weekly' || t === 'custom') ? '' : 'none';
+      wrap.querySelector('[data-custom-days]').style.display =
+        (t === 'custom') ? '' : 'none';
+    });
+
+    // Day pills toggle
+    wrap.querySelectorAll('.clean-day-pill').forEach(pill => {
+      pill.addEventListener('click', () => pill.classList.toggle('is-selected'));
+    });
+
+    // Cancel
+    wrap.querySelector('.clean-edit-cancel').addEventListener('click', () => {
+      editingTaskId = null;
+      addingToSection = null;
+      render();
+    });
+
+    // Archive (existing tasks only) — single tap with toast undo
+    const archiveBtn = wrap.querySelector('.clean-edit-archive');
+    if (archiveBtn) {
+      archiveBtn.addEventListener('click', async () => {
+        archiveBtn.disabled = true;
+        archiveBtn.textContent = 'Archiving…';
+        try {
+          await archiveTask(task.id);
+          editingTaskId = null;
+          await loadAllTasks();
+          render();
+          toast('Task archived — restore from Archive button', 'info', 2400);
+        } catch (e) {
+          archiveBtn.disabled = false;
+          archiveBtn.textContent = 'Archive';
+          toast('Could not archive: ' + (e.message || ''), 'error');
+        }
+      });
+    }
+
+    // Save
+    wrap.querySelector('.clean-edit-save').addEventListener('click', async () => {
+      const get = (sel) => wrap.querySelector('[data-field="' + sel + '"]')?.value || '';
+      const name_es = get('name_es').trim();
+      const name_en = get('name_en').trim();
+      if (!name_es && !name_en) {
+        toast('Add a name in at least one language', 'warn');
+        return;
+      }
+      const frequency_type = get('frequency_type') || 'daily';
+      const def = FREQ_BY_TYPE[frequency_type];
+      let frequency_days = def?.days || null;
+      if (frequency_type === 'custom') {
+        frequency_days = parseInt(get('frequency_days'), 10) || 30;
+      }
+      // Days of week — collect from pill UI
+      const days_of_week = Array.from(wrap.querySelectorAll('.clean-day-pill.is-selected'))
+        .map(p => parseInt(p.dataset.day, 10))
+        .filter(n => n >= 1 && n <= 7);
+      const assignee_raw = get('assignee_id');
+      const assignee_id = assignee_raw ? parseInt(assignee_raw, 10) : null;
+      const notes = get('notes').trim() || null;
+
+      const payload = {
+        location:       task.location,
+        section_es:     task.section_es,
+        section_en:     task.section_en,
+        section_order:  task.section_order,
+        task_order:     task.task_order,
+        name_es:        name_es || name_en,
+        name_en:        name_en || name_es,
+        frequency_type,
+        frequency_days,
+        days_of_week:   (frequency_type === 'weekly' || frequency_type === 'custom') && days_of_week.length ? days_of_week : null,
+        assignee_id,
+        notes,
+      };
+
+      const saveBtn = wrap.querySelector('.clean-edit-save');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      try {
+        await saveTask(isNew ? null : task.id, payload);
+        editingTaskId = null;
+        addingToSection = null;
+        await loadAllTasks();
+        render();
+        toast(isNew ? 'Task added' : 'Saved', 'info', 1400);
+      } catch (e) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = isNew ? 'Add task' : 'Save';
+        toast('Could not save: ' + (e.message || ''), 'error');
+      }
+    });
+
+    return wrap;
+  }
+
+  // ─── DB: save (insert/update) a task ──────────────────────────────────
+  async function saveTask(existingId, payload) {
+    if (!NX.sb) throw new Error('Database unavailable');
+    if (existingId) {
+      const { error } = await NX.sb.from('cleaning_tasks')
+        .update(payload).eq('id', existingId);
+      if (error) throw error;
+    } else {
+      // For new tasks, push to end of section
+      const existing = (tasksByLoc[payload.location] || [])
+        .filter(t => t.section_es === payload.section_es);
+      payload.task_order = existing.length;
+      const { error } = await NX.sb.from('cleaning_tasks').insert(payload);
+      if (error) throw error;
+    }
+  }
+
+  // ─── DB: archive a task (soft-delete) ─────────────────────────────────
+  async function archiveTask(taskId) {
+    if (!NX.sb) throw new Error('Database unavailable');
+    const { error } = await NX.sb.from('cleaning_tasks')
+      .update({ archived: true, archived_at: new Date().toISOString() })
+      .eq('id', taskId);
+    if (error) throw error;
+  }
+
+  // ─── DB: restore an archived task ─────────────────────────────────────
+  async function restoreTask(taskId) {
+    if (!NX.sb) throw new Error('Database unavailable');
+    const { error } = await NX.sb.from('cleaning_tasks')
+      .update({ archived: false, archived_at: null })
+      .eq('id', taskId);
+    if (error) throw error;
+    await loadAllTasks();
+    render();
+  }
+
+  // ─── DB: fetch archived tasks (for the Archive overlay) ───────────────
+  async function fetchArchivedTasks() {
+    if (!NX.sb) return [];
+    const { data, error } = await NX.sb.from('cleaning_tasks')
+      .select('*')
+      .eq('archived', true)
+      .order('archived_at', { ascending: false })
+      .limit(200);
+    if (error) {
+      console.warn('[cleaning] fetchArchivedTasks:', error);
+      return [];
+    }
+    return data || [];
+  }
+
+  // ─── BOARD ESCALATION (preserved from v11) ────────────────────────────
+  // When a non-daily section ages past its frequency cliff, the user
+  // can escalate it to a kanban card. The card carries cleaning_link_*
+  // metadata so when it's later marked Done in board.js, that closure
+  // writes back to cleaning_logs (clearing the OVERDUE pill on this view).
+  async function escalateSectionToBoard(group) {
+    if (!NX.sb) { toast('Database unavailable', 'error'); return; }
+    if (linkedBoardCards[activeLoc + '__' + group.section_es]) {
+      toast('Already on the board', 'info');
+      return;
+    }
+    // Pick first non-archived board + a list named report/todo/triage
+    let target = null;
+    try {
+      const { data: bs } = await NX.sb.from('boards')
+        .select('id').eq('archived', false).order('position').limit(1);
+      if (!bs?.length) { toast('No board found — open Board view first', 'warn'); return; }
+      const boardId = bs[0].id;
+      const { data: ls } = await NX.sb.from('board_lists')
+        .select('*').eq('board_id', boardId).order('position');
+      const list = (ls || []).find(l => /report|todo|triage/i.test(l.name)) || (ls || [])[0];
+      if (!list) { toast('No list available on the board', 'warn'); return; }
+      target = { boardId, listId: list.id };
+    } catch (e) {
+      toast('Could not resolve board: ' + (e.message || ''), 'error');
+      return;
+    }
+
+    // Build description = bilingual checklist of the section's tasks
+    const desc = group.tasks.map(t => `• ${t.name_es} / ${t.name_en}`).join('\n');
+    const freq = FREQ_BY_TYPE[group.tasks[0]?.frequency_type]?.days || 30;
+    const oldestDays = group.tasks.reduce((acc, t) => {
+      const hist = lastDoneByKey[t.section_es + '_' + t.task_order];
+      return Math.max(acc, hist ? daysBetween(hist.date, today) : 999);
+    }, 0);
+    const isOverdue = oldestDays >= freq;
+    const dueDate = isOverdue
+      ? today
+      : new Date(Date.now() + (freq - oldestDays) * 86400000).toISOString().slice(0, 10);
+
+    try {
+      await NX.sb.from('kanban_cards').insert({
+        board_id:                target.boardId,
+        list_id:                 target.listId,
+        title:                   `Cleaning · ${group.section_en} · ${activeLoc}`,
+        description:             desc,
+        cleaning_link_location:  activeLoc,
+        cleaning_link_section:   group.section_es,
+        due_date:                dueDate,
+        position:                Date.now(),
+      });
+      toast('Sent to board', 'info');
+      await loadLinkedCards();
+      render();
+    } catch (e) {
+      toast('Could not escalate: ' + (e.message || ''), 'error');
+    }
+  }
+
+  // ─── FOOTER TOOLBAR (Add section button at bottom of list) ────────────
+  function renderFooterToolbar(list) {
+    const wrap = document.createElement('div');
+    wrap.className = 'clean-footer-toolbar';
+    wrap.innerHTML = `
+      <button class="clean-add-section-btn" type="button">${svg('plus', 14)} <span>Add section</span></button>
+    `;
+    wrap.querySelector('.clean-add-section-btn').addEventListener('click', addNewSection);
+    list.appendChild(wrap);
+  }
+
+  // ─── ADD SECTION (composer modal) ─────────────────────────────────────
+  // New sections are created by inserting a placeholder task — there's
+  // no separate sections table. Once one task exists, the section card
+  // appears in the list and tasks can be added to it normally.
+  function addNewSection() {
+    if (!NX.composer?.modal) {
+      // Fallback to native prompts if composer isn't loaded
+      const sec_es = prompt('Section name (Spanish):');
+      if (!sec_es) return;
+      const sec_en = prompt('Section name (English):') || sec_es;
+      createSectionWithFirstTask(sec_es, sec_en);
+      return;
+    }
+    NX.composer.modal({
+      title: 'New section',
+      subtitle: 'Adds a section card with one starter task — you can rename or remove that task after.',
+      buttonLabel: 'Create',
+      fields: [
+        { name: 'sec_es', label: 'Section (Español)', placeholder: 'p.ej. Bodega', autofocus: true },
+        { name: 'sec_en', label: 'Section (English)', placeholder: 'e.g. Storage' },
+      ],
+      onSubmit: async ({ sec_es, sec_en }) => {
+        const a = (sec_es || '').trim();
+        const b = (sec_en || '').trim();
+        if (!a && !b) throw new Error('Need a section name');
+        await createSectionWithFirstTask(a || b, b || a);
+      },
+    });
+  }
+
+  async function createSectionWithFirstTask(sec_es, sec_en) {
+    if (!NX.sb) { toast('Database unavailable', 'error'); return; }
+    // Find next section_order for this location
+    const existingOrders = (tasksByLoc[activeLoc] || []).map(t => t.section_order);
+    const nextOrder = existingOrders.length ? Math.max(...existingOrders) + 1 : 0;
+    try {
+      await NX.sb.from('cleaning_tasks').insert({
+        location:       activeLoc,
+        section_es:     sec_es,
+        section_en:     sec_en,
+        section_order:  nextOrder,
+        task_order:     0,
+        name_es:        '(nueva tarea)',
+        name_en:        '(new task)',
+        frequency_type: 'daily',
+        frequency_days: 1,
+      });
+      await loadAllTasks();
+      // Auto-open the new section's first task for editing
+      const section = (tasksByLoc[activeLoc] || []).find(t =>
+        t.section_es === sec_es && t.task_order === 0);
+      if (section) {
+        editingTaskId = section.id;
+        collapsedSections.delete(sec_es);
+      }
+      render();
+    } catch (e) {
+      toast('Could not create section: ' + (e.message || ''), 'error');
+    }
+  }
+
+  // ─── EXTRAS — log work that wasn't in the catalog ─────────────────────
+  // Preserved from v11 (with the localStorage backing — extras are
+  // ephemeral, per-day records, not catalog entries). Common extras
+  // dropdown for fast adds; "+ Custom" opens a composer modal for
+  // one-off entries.
+  const COMMON_EXTRAS = [
+    ['Limpiar paredes.',                      'Clean the walls.'],
+    ['Limpiar tubos de cobre.',               'Polish the copper pipes.'],
+    ['Lavado a presión.',                     'Pressure wash.'],
+    ['Limpieza profunda de refrigeradores.',  'Deep clean the fridges.'],
+    ['Pulir latón/bronce.',                   'Polish brass and bronze.'],
+    ['Limpiar trampas de grasa.',             'Clean the grease traps.'],
+    ['Limpiar ductos de ventilación.',        'Clean the vent ducts.'],
+    ['Limpiar detrás de equipos.',            'Clean behind equipment.'],
+    ['Pulir pisos.',                          'Polish and buff the floors.'],
+    ['Limpiar canaletas.',                    'Clean the gutters.'],
+    ['Limpiar campana extractora.',           'Deep clean the hood.'],
+    ['Descongelar congeladores.',             'Defrost the freezers.'],
+  ];
+  function getExtrasToday() {
+    try {
+      return JSON.parse(localStorage.getItem('nexus_extras_' + activeLoc + '_' + today) || '[]');
+    } catch (e) { return []; }
+  }
+  function saveExtrasToday(ex) {
+    localStorage.setItem('nexus_extras_' + activeLoc + '_' + today, JSON.stringify(ex));
+  }
+
+  function logExtra(es, en) {
+    const ex = getExtrasToday();
+    const timeNow = new Date().toLocaleTimeString([], {
+      hour: 'numeric', minute: '2-digit',
+    }).toLowerCase();
+    ex.push({
+      es:   es || en,
+      en:   en || es,
+      time: timeNow,
+      by:   getUserName(),
+    });
+    saveExtrasToday(ex);
+    render();
+    toast('Extra logged', 'info', 1200);
+  }
+
+  function openExtrasMenu() {
+    if (!NX.composer?.modal) return;
+    // Build a select-options string for a quick custom-modal flow
+    NX.composer.modal({
+      title: 'Log an extra',
+      subtitle: 'Work done today that isn\'t in the catalog',
+      buttonLabel: 'Log',
+      fields: [
+        { name: 'es', label: 'Tarea (Español)', placeholder: 'p.ej. Limpiar bajo la nevera', autofocus: true },
+        { name: 'en', label: 'Task (English)',  placeholder: 'e.g. Clean under fridge' },
+      ],
+      onSubmit: async ({ es, en }) => {
+        if (!es && !en) throw new Error('Need a description');
+        logExtra((es || '').trim(), (en || '').trim());
+      },
+    });
+  }
+
+  // ═══ SUBMIT + EMAIL ═════════════════════════════════════════════════════
+  // Two paths from the same button:
+  //   • Submit & log    — writes to daily_logs (today's record)
+  //   • Submit & email  — does the above + opens mailto: with the report
+  // The user picks via a small action menu; default is "Submit & email"
+  // since the email is the highest-friction action and the user
+  // explicitly asked for it.
+
+  function buildEmailSubject() {
+    const date = new Date(today + 'T12:00');
+    const wk = date.toLocaleDateString([], { weekday: 'short' });
+    const md = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    const locName = activeLoc.charAt(0).toUpperCase() + activeLoc.slice(1);
+    // Compute overall %
+    const groups = tasksBySection(activeLoc);
+    let dailyDone = 0, dailyTotal = 0;
+    groups.forEach(g => g.tasks.forEach(t => {
+      if (DAILY_TYPES.has(t.frequency_type)) {
+        dailyTotal++;
+        if (getDoneState(t.section_es, t.task_order)) dailyDone++;
+      }
+    }));
+    const pct = dailyTotal ? Math.round(dailyDone / dailyTotal * 100) : 0;
+    return `Cleaning · ${locName} · ${wk} ${md} · ${pct}%`;
+  }
+
+  /**
+   * Build the full email body. Three sections:
+   *   • DAILY        — today's progress per section, missed items called out
+   *   • ON SCHEDULE  — non-daily sections with freshness % + assignee
+   *   • EXTRAS       — ad-hoc work logged via the Extras flow
+   * Format matches ordering's email body conventions: 45-char rules,
+   * uppercase section labels, middle-dot bullets for sub-items.
+   */
+  function buildEmailBody(locName) {
+    const groups = tasksBySection(activeLoc);
+    const lines = [];
+    const E = (window.NX && NX.email) || null;
+    const sectionHeader = E ? E.sectionHeader : (lbl, suf) =>
+      `--- ${String(lbl).toUpperCase()} ---${suf ? ' ' + suf : ''}`;
+    const rule = E ? E.rule : () => '─'.repeat(45);
+
+    // ─── Header block ──────────────────────────────────────────
+    const date = new Date(today + 'T12:00');
+    const dateStr = date.toLocaleDateString([], {
+      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    });
+    const submitter = getUserName();
+    const submitTime = new Date().toLocaleTimeString([], {
+      hour: 'numeric', minute: '2-digit',
+    });
+
+    lines.push(`Cleaning Report — ${dateStr}`);
+    lines.push(`Location: ${locName}  ·  Submitted by ${submitter} at ${submitTime}`);
+    lines.push('');
+
+    // Aggregate metrics
+    let dailyDone = 0, dailyTotal = 0;
+    let allFreshness = [];
+    groups.forEach(g => {
+      g.tasks.forEach(t => {
+        if (DAILY_TYPES.has(t.frequency_type)) {
+          dailyTotal++;
+          if (getDoneState(t.section_es, t.task_order)) dailyDone++;
+        } else {
+          allFreshness.push(freshnessForTask(t));
+        }
+      });
+    });
+    const dailyPct = dailyTotal ? Math.round(dailyDone / dailyTotal * 100) : 0;
+    const overallFresh = allFreshness.length
+      ? Math.round(allFreshness.reduce((a, b) => a + b, 0) / allFreshness.length)
+      : 100;
+
+    lines.push(`Overall freshness: ${overallFresh}%   ·   Daily completion: ${dailyDone}/${dailyTotal} (${dailyPct}%)`);
+    lines.push('');
+
+    // ─── DAILY section ─────────────────────────────────────────
+    const dailyGroups = groups.filter(g =>
+      g.tasks.some(t => DAILY_TYPES.has(t.frequency_type))
+    );
+    if (dailyGroups.length) {
+      lines.push(sectionHeader('DAILY', `${dailyGroups.length} sections`));
+      dailyGroups.forEach(g => {
+        const dailyTasks = g.tasks.filter(t => DAILY_TYPES.has(t.frequency_type));
+        const done = dailyTasks.filter(t => getDoneState(t.section_es, t.task_order));
+        const missed = dailyTasks.filter(t => !getDoneState(t.section_es, t.task_order));
+        const symbol = missed.length ? '⚠' : '✓';
+        // Pick "done by" — most-recently-set name from today's state
+        const completers = new Set();
+        dailyTasks.forEach(t => {
+          const k = t.section_es + '_' + t.task_order;
+          const by = todayStateByKey[k]?.by;
+          if (by) completers.add(by);
+        });
+        const byStr = completers.size
+          ? `done by ${Array.from(completers).join(', ')}`
+          : (missed.length ? '' : 'done');
+        const namePart = padRight(g.section_en, 16);
+        const ratioPart = padLeft(`${done.length}/${dailyTasks.length}`, 5);
+        lines.push(`  ${namePart} ${ratioPart} ${symbol}  ${byStr}`);
+        if (missed.length) {
+          const missedNames = missed.map(t => t.name_en).join(', ');
+          lines.push(`    missed: ${missedNames}`);
+        }
+      });
+      lines.push('');
+    }
+
+    // ─── ON SCHEDULE section ───────────────────────────────────
+    const scheduledGroups = groups.filter(g =>
+      g.tasks.some(t => !DAILY_TYPES.has(t.frequency_type))
+    );
+    if (scheduledGroups.length) {
+      lines.push(sectionHeader('ON SCHEDULE', `${scheduledGroups.length} sections`));
+      scheduledGroups.forEach(g => {
+        const schedTasks = g.tasks.filter(t => !DAILY_TYPES.has(t.frequency_type));
+        const freshArr = schedTasks.map(t => freshnessForTask(t));
+        const avgFresh = Math.round(freshArr.reduce((a, b) => a + b, 0) / freshArr.length);
+        const anyOverdue = schedTasks.some(t => freshnessForTask(t) === 0);
+        const symbol = anyOverdue ? '⚠' : (avgFresh >= 70 ? '✓' : '·');
+        const namePart = padRight(g.section_en, 16);
+        let info;
+        if (anyOverdue) {
+          // Find oldest overdue task to lead with
+          let worst = null;
+          schedTasks.forEach(t => {
+            const hist = lastDoneByKey[t.section_es + '_' + t.task_order];
+            const dSince = hist ? daysBetween(hist.date, today) : 999;
+            const freq = t.frequency_days || FREQ_BY_TYPE[t.frequency_type]?.days || 30;
+            const over = dSince - freq;
+            if (!worst || over > worst.over) worst = { task: t, over, dSince };
+          });
+          info = `OVERDUE ${worst.over}d`;
+          // Append assignee if set
+          if (worst.task.assignee_id) {
+            const u = usersList.find(x => x.id === worst.task.assignee_id);
+            if (u) info += `  (assigned: ${u.name})`;
+          }
+        } else {
+          info = `freshness ${avgFresh}%`;
+        }
+        lines.push(`  ${namePart} ${symbol}  ${info}`);
+        // Per-task detail for non-daily — useful for quarterly + annual
+        // tasks where each item has its own assignee/cadence.
+        schedTasks.forEach(t => {
+          const hist = lastDoneByKey[t.section_es + '_' + t.task_order];
+          const since = hist ? daysAgoText(daysBetween(hist.date, today)) : 'never done';
+          const freq = FREQ_BY_TYPE[t.frequency_type]?.labelEn || `${t.frequency_days}d`;
+          const assignee = t.assignee_id
+            ? (usersList.find(x => x.id === t.assignee_id)?.name || '')
+            : '';
+          let line = `    · ${t.name_en} — ${freq.toLowerCase()}, ${since}`;
+          if (assignee) line += `, ${assignee}`;
+          lines.push(line);
+        });
+      });
+      lines.push('');
+    }
+
+    // ─── EXTRAS section ────────────────────────────────────────
+    const extras = getExtrasToday();
+    if (extras.length) {
+      lines.push(sectionHeader('EXTRAS', `${extras.length} logged`));
+      extras.forEach(ex => {
+        const time = ex.time ? padRight(ex.time, 8) : padRight('', 8);
+        const by = ex.by ? `  by ${ex.by}` : '';
+        lines.push(`  ${time}${ex.en}${by}`);
+      });
+      lines.push('');
+    }
+
+    // ─── Footer ────────────────────────────────────────────────
+    lines.push(rule());
+    lines.push('Photos and full audit trail in NEXUS.');
+
+    return lines.join('\n');
+  }
+
+  // String padding helpers — left/right pad with spaces (mailto: bodies
+  // render in monospace on most clients, so columns will line up).
+  function padRight(s, n) {
+    s = String(s == null ? '' : s);
+    return s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length);
+  }
+  function padLeft(s, n) {
+    s = String(s == null ? '' : s);
+    return s.length >= n ? s.slice(0, n) : ' '.repeat(n - s.length) + s;
+  }
+
+  // ─── DB: write today's report to daily_logs ───────────────────────────
+  async function persistDailyLog(plainTextBody) {
+    if (!NX.sb) throw new Error('Database unavailable');
+    const locName = activeLoc.charAt(0).toUpperCase() + activeLoc.slice(1);
+    const entry = `Cleaning Report — ${today}\n===\n${locName}\n${plainTextBody}`;
+    // Update if a report for today already exists, else insert
+    try {
+      const { data: existing } = await NX.sb.from('daily_logs')
+        .select('id')
+        .ilike('entry', `Cleaning Report%${today}%${locName}%`)
+        .limit(1);
+      if (existing && existing.length) {
+        const { error } = await NX.sb.from('daily_logs')
+          .update({ entry })
+          .eq('id', existing[0].id);
+        if (error) throw error;
+      } else {
+        const { error } = await NX.sb.from('daily_logs').insert({ entry });
+        if (error) throw error;
+      }
+    } catch (e) {
+      throw e;
+    }
+    if (NX.syslog) NX.syslog('clean_report', `Cleaning report submitted for ${today} (${locName})`);
+    if (NX.homeGalaxyPulse) NX.homeGalaxyPulse();
+  }
+
+  // ─── ACTION: Submit & log only (no email) ─────────────────────────────
+  async function submitLogOnly() {
+    const locName = activeLoc.charAt(0).toUpperCase() + activeLoc.slice(1);
+    try {
+      const body = buildEmailBody(locName);
+      await persistDailyLog(body);
+      toast('Report saved', 'info', 1600);
+    } catch (e) {
+      toast('Save failed: ' + (e.message || ''), 'error');
+    }
+  }
+
+  // ─── ACTION: Submit & email (writes log, then opens mailto:) ──────────
+  async function submitWithEmail() {
+    const locName = activeLoc.charAt(0).toUpperCase() + activeLoc.slice(1);
+    let body, subject;
+    try {
+      body = buildEmailBody(locName);
+      subject = buildEmailSubject();
+    } catch (e) {
+      toast('Could not build report: ' + (e.message || ''), 'error');
+      return;
+    }
+
+    // Long-email warning (the user explicitly opted in to long emails,
+    // but we still warn so they can copy/paste into a different client
+    // if their default mail app truncates).
+    const E = (window.NX && NX.email) || null;
+    const warnLen = E ? E.BODY_WARN_LEN : 1900;
+    if (body.length > warnLen) {
+      const ok = confirm(
+        `This email is long (${body.length} chars). Some mail apps may truncate. Send anyway?`
+      );
+      if (!ok) return;
+    }
+
+    // Persist BEFORE opening mailto — iOS may pause JS once the mail
+    // app takes focus, so the DB write must complete first.
+    try {
+      await persistDailyLog(body);
+    } catch (e) {
+      toast('Save failed (continuing to email): ' + (e.message || ''), 'warn', 4000);
+    }
+
+    // Resolve recipient email — currentUser's email if available
+    const toAddress = (NX.currentUser && NX.currentUser.email) || '';
+    const url = E
+      ? E.buildMailtoUrl(toAddress, subject, body)
+      : `mailto:${encodeURIComponent(toAddress)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+    if (!toAddress) {
+      // No email on file — open the mailto: anyway with empty TO so the
+      // user can fill in their address in the mail app.
+      toast('No email on file — fill it in your mail app', 'info', 3000);
+    }
+
+    // Same iOS-safe pattern as ordering: change href, don't open new
+    // tab. Mail app takes focus, JS may pause, but the persist has
+    // already completed.
+    setTimeout(() => { window.location.href = url; }, 100);
+  }
+
+  // ─── BUTTON HANDLER: Submit Daily Report ──────────────────────────────
+  // Decision UX: small action menu with two options. Default action
+  // (the prominent one) is "Submit & email" since that's the new
+  // capability the user just asked for. "Save without email" is the
+  // secondary option for partial-day saves.
+  function onSubmitClick() {
+    if (!NX.composer?.modal) {
+      // Fallback — go straight to email
+      return submitWithEmail();
+    }
+    // Use a tiny custom action sheet via raw DOM (composer.modal is
+    // for forms, not action menus). Render a backdrop + two buttons.
+    const sheet = document.createElement('div');
+    sheet.className = 'clean-submit-sheet';
+    sheet.innerHTML = `
+      <div class="clean-submit-sheet-bg"></div>
+      <div class="clean-submit-sheet-card">
+        <div class="clean-submit-sheet-title">Submit report</div>
+        <div class="clean-submit-sheet-sub">Choose how to finish today's shift</div>
+        <button class="clean-submit-sheet-primary" data-action="email">
+          ${svg('mail', 16)} <span>Submit &amp; email</span>
+        </button>
+        <button class="clean-submit-sheet-secondary" data-action="log">
+          Save without email
+        </button>
+        <button class="clean-submit-sheet-cancel" data-action="cancel">Cancel</button>
+      </div>
+    `;
+    document.body.appendChild(sheet);
+    const close = () => sheet.remove();
+    sheet.querySelector('.clean-submit-sheet-bg').addEventListener('click', close);
+    sheet.querySelector('[data-action="cancel"]').addEventListener('click', close);
+    sheet.querySelector('[data-action="email"]').addEventListener('click', () => {
+      close(); submitWithEmail();
+    });
+    sheet.querySelector('[data-action="log"]').addEventListener('click', () => {
+      close(); submitLogOnly();
+    });
+  }
+
+  // ═══ LOCALSTORAGE MIGRATION ═════════════════════════════════════════════
+  // v11 stored user-added tasks in localStorage under 'nexus_custom_tasks'.
+  // On first v12 load, port any local-only customs into cleaning_tasks
+  // and clear the localStorage key so we don't double-migrate. Idempotent
+  // — safe to run on every load, but the localStorage check short-circuits
+  // after the first successful migration.
+  async function migrateLocalStorageCustoms() {
+    let raw;
+    try {
+      raw = localStorage.getItem('nexus_custom_tasks');
+      if (!raw) return;
+    } catch (e) { return; }
+
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (e) { return; }
+    if (!parsed || typeof parsed !== 'object') return;
+
+    let migrated = 0;
+    for (const loc of Object.keys(parsed)) {
+      const customs = parsed[loc] || [];
+      if (!customs.length) continue;
+      // Find the section_order base for this loc — we'll append
+      // migrated customs as new tasks within their existing section
+      // if the section exists, or create a new section if not.
+      const existing = await loadTasksForLocation(loc);
+      for (const ct of customs) {
+        // Skip if a matching task already exists (idempotent check)
+        const dupe = existing.find(t =>
+          t.section_es === ct.section &&
+          (t.name_es === ct.es || t.name_en === ct.en)
+        );
+        if (dupe) continue;
+        // Find max task_order in this section
+        const sectionTasks = existing.filter(t => t.section_es === ct.section);
+        const nextTaskOrder = sectionTasks.length;
+        // Find or invent section_order
+        const sectionOrder = sectionTasks.length
+          ? sectionTasks[0].section_order
+          : (existing.length ? Math.max(...existing.map(t => t.section_order)) + 1 : 0);
+        const sectionEn = sectionTasks.length ? sectionTasks[0].section_en : ct.section;
+        try {
+          const { error } = await NX.sb.from('cleaning_tasks').insert({
+            location:       loc,
+            section_es:     ct.section,
+            section_en:     sectionEn,
+            section_order:  sectionOrder,
+            task_order:     nextTaskOrder,
+            name_es:        ct.es || ct.en,
+            name_en:        ct.en || ct.es,
+            frequency_type: 'daily',
+            frequency_days: 1,
+          });
+          if (!error) migrated++;
+        } catch (e) {
+          console.warn('[cleaning] migrate failed for one custom:', e);
+        }
+      }
+    }
+
+    if (migrated > 0) {
+      try { localStorage.removeItem('nexus_custom_tasks'); } catch (e) {}
+      console.log(`[cleaning] migrated ${migrated} custom task(s) from localStorage`);
+      toast(`Restored ${migrated} custom task${migrated === 1 ? '' : 's'} from this device`, 'info', 3000);
+    } else if (raw) {
+      // Nothing migrated but we did have a payload — still clear it,
+      // it was either all-duplicates or empty arrays.
+      try { localStorage.removeItem('nexus_custom_tasks'); } catch (e) {}
+    }
+  }
+
+  // ═══ ARCHIVE REGISTRATION ═══════════════════════════════════════════════
+  // Plug into the unified NX.archive overlay. The overlay's "Cleaning" tab
+  // pulls archived tasks via fetchArchivedTasks; tapping Restore on a row
+  // calls restoreTask. Row rendering shows: location · section · task name
+  // (bilingual) · when archived.
+  function registerArchiveContributor() {
+    if (!window.NX || !NX.archive) return;
+    NX.archive.register({
+      key:   'cleaning',
+      label: 'Cleaning',
+      empty: 'No archived cleaning tasks. Edit a task and tap Archive to send it here.',
+      fetch: fetchArchivedTasks,
+      renderRow: (row, ctx) => {
+        const e = ctx.esc;
+        const when = row.archived_at
+          ? new Date(row.archived_at).toLocaleDateString([], {
+              month: 'short', day: 'numeric', year: 'numeric',
+            })
+          : '';
+        const locName = row.location.charAt(0).toUpperCase() + row.location.slice(1);
+        const freqDef = FREQ_BY_TYPE[row.frequency_type];
+        const freq = freqDef ? freqDef.labelEn : (row.frequency_type || '');
+        return `
+          <div class="nx-archive-row-title">${e(row.name_en || row.name_es)}</div>
+          <div class="nx-archive-row-meta">
+            <span class="nx-archive-row-loc">${e(locName)}</span>
+            <span class="nx-archive-row-dot">·</span>
+            <span class="nx-archive-row-section">${e(row.section_en || row.section_es)}</span>
+            <span class="nx-archive-row-dot">·</span>
+            <span class="nx-archive-row-freq">${e(freq)}</span>
+            ${when ? `<span class="nx-archive-row-dot">·</span><span class="nx-archive-row-when">archived ${e(when)}</span>` : ''}
+          </div>
+          ${row.name_es && row.name_es !== row.name_en
+            ? `<div class="nx-archive-row-secondary">${e(row.name_es)}</div>`
+            : ''}
+        `;
+      },
+      restore: async (id) => { await restoreTask(id); },
+    });
+  }
+
+  // ═══ INIT + SHOW ════════════════════════════════════════════════════════
+  let initialized = false;
+
+  async function init() {
+    if (initialized) return;
+    initialized = true;
+
+    // Wire the date display
+    const dateEl = document.getElementById('cleanDate');
+    if (dateEl) dateEl.textContent = today;
+
+    // Wire location tabs
+    document.querySelectorAll('.clean-tab').forEach(tab => {
+      tab.addEventListener('click', async () => {
+        document.querySelectorAll('.clean-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        activeLoc = tab.dataset.cloc;
+        editingTaskId = null;
+        addingToSection = null;
+        await loadTodayState();
+        await loadHistory();
+        await loadLinkedCards();
+        render();
+      });
+    });
+
+    // Wire submit (with two-action menu)
+    const submitBtn = document.getElementById('cleanSubmit');
+    if (submitBtn) submitBtn.addEventListener('click', onSubmitClick);
+
+    // Wire archive button (added to HTML alongside cleanSubmit)
+    const archiveBtn = document.getElementById('cleanArchive');
+    if (archiveBtn) {
+      archiveBtn.addEventListener('click', () => {
+        if (NX.archive) NX.archive.open();
+        else toast('Archive unavailable', 'warn');
+      });
+    }
+
+    // Wire extras button (replaces the old in-list dropdown)
+    const extrasBtn = document.getElementById('cleanExtras');
+    if (extrasBtn) extrasBtn.addEventListener('click', openExtrasMenu);
+
+    // Migrate any v11 localStorage customs first (one-time)
+    try { await migrateLocalStorageCustoms(); } catch (e) {
+      console.warn('[cleaning] migration error:', e);
+    }
+
+    // Load all data, then render
+    await loadAllTasks();
+    await loadUsers();
+    await loadTodayState();
+    await loadHistory();
+    await loadLinkedCards();
+
+    // Register with NX.archive
+    registerArchiveContributor();
+
+    render();
+  }
+
+  async function show() {
+    // Edit-past-report banner support (preserved from v11)
+    if (window.NX && NX.editingReport) {
+      today = NX.editingReport.date;
+      let banner = document.getElementById('cleanEditBanner');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'cleanEditBanner';
+        banner.className = 'clean-edit-banner';
+        const wrap = document.getElementById('cleanView');
+        if (wrap) wrap.insertBefore(banner, wrap.firstChild);
+      }
+      banner.innerHTML = `
+        <span>${svg('pen', 13)} Editing report for <b>${esc(today)}</b></span>
+        <button id="cancelEditClean" class="clean-edit-cancel-banner">${svg('close', 12)} Cancel</button>
+      `;
+      banner.style.display = 'flex';
+      const cancelBtn = document.getElementById('cancelEditClean');
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+          NX.editingReport = null;
+          today = getCleaningDate();
+          banner.style.display = 'none';
+          show();
+        });
+      }
+    } else {
+      today = getCleaningDate();
+      const banner = document.getElementById('cleanEditBanner');
+      if (banner) banner.style.display = 'none';
+    }
+
+    const dateEl = document.getElementById('cleanDate');
+    if (dateEl) dateEl.textContent = today;
+
+    // Refresh state for current location
+    await loadTodayState();
+    await loadHistory();
+    await loadLinkedCards();
+    render();
+  }
+
+  // ═══ PUBLIC API ═════════════════════════════════════════════════════════
+  // Expose hooks for ai chat / other modules to add tasks programmatically.
+  // The shape mirrors v11's NX.cleaningAPI for backward compatibility,
+  // but the underlying storage is now the database, not localStorage.
+  async function apiAddTask(loc, sectionEs, sectionEn, es, en) {
+    const existing = await loadTasksForLocation(loc);
+    const sectionTasks = existing.filter(t => t.section_es === sectionEs);
+    const sectionOrder = sectionTasks.length
+      ? sectionTasks[0].section_order
+      : (existing.length ? Math.max(...existing.map(t => t.section_order)) + 1 : 0);
+    const taskOrder = sectionTasks.length;
+    const { error } = await NX.sb.from('cleaning_tasks').insert({
+      location: loc,
+      section_es: sectionEs,
+      section_en: sectionEn || sectionEs,
+      section_order: sectionOrder,
+      task_order: taskOrder,
+      name_es: es || en,
+      name_en: en || es,
+      frequency_type: 'daily',
+      frequency_days: 1,
+    });
+    if (error) throw error;
+    if (loc === activeLoc) {
+      await loadAllTasks();
+      render();
+    }
+    return true;
+  }
+
+  async function apiRemoveTask(loc, text) {
+    const lc = (text || '').toLowerCase();
+    const tasks = await loadTasksForLocation(loc);
+    const matches = tasks.filter(t =>
+      (t.name_es || '').toLowerCase().includes(lc) ||
+      (t.name_en || '').toLowerCase().includes(lc)
+    );
+    if (!matches.length) return false;
+    for (const t of matches) {
+      await archiveTask(t.id);
+    }
+    if (loc === activeLoc) {
+      await loadAllTasks();
+      render();
+    }
+    return true;
+  }
+
+  // ═══ EXPORTS ════════════════════════════════════════════════════════════
+  if (!window.NX) window.NX = {};
+  if (!NX.modules) NX.modules = {};
+  NX.modules.clean = { init, show };
+
+  // Backward-compatible API surface for AI chat / other callers
+  NX.cleaningAPI = {
+    addTask: apiAddTask,
+    removeTask: apiRemoveTask,
+    getLocations: () => LOCATIONS.slice(),
+  };
+
 })();
