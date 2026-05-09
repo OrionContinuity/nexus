@@ -2350,7 +2350,18 @@ ${lineList}
 
 Thanks for your help sorting this out.`;
 
-    const mailto = `mailto:${encodeURIComponent(vendor.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    // Build the multi-TO list — primary vendor.email plus any
+    // location-scoped TO extras. Same dedupe pattern as confirmAndSend.
+    const issueRecipients = parseAltEmails(vendor.alt_emails, order.location || activeLoc);
+    const issueToExtras = issueRecipients.filter(r => r.kind === 'to').map(r => r.email);
+    const issueToList = [];
+    const issueSeen = new Set();
+    [vendor.email, ...issueToExtras].forEach(e => {
+      const t = (e || '').trim();
+      const k = t.toLowerCase();
+      if (t && !issueSeen.has(k)) { issueSeen.add(k); issueToList.push(t); }
+    });
+    const mailto = buildMailtoUrl(issueToList, subject, body, [], []);
     // Stamp the issue flag on the order BEFORE redirecting to mailto.
     // Mobile may background JS once the mail app takes focus, so the
     // record needs to land first. The note placeholder is a clue to
@@ -4297,7 +4308,13 @@ Thanks for your help sorting this out.`;
     const params = [`subject=${enc(subject)}`, `body=${enc(body)}`];
     if (cc && cc.length)  params.push(`cc=${cc.map(e => encodeURIComponent(e)).join(',')}`);
     if (bcc && bcc.length) params.push(`bcc=${bcc.map(e => encodeURIComponent(e)).join(',')}`);
-    return `mailto:${encodeURIComponent(to || '')}?${params.join('&')}`;
+    // `to` may be a single string (legacy) or an array (multi-recipient
+    // sends). Either way, encode each address and comma-join — most
+    // mail clients accept comma-separated addresses in the mailto: TO
+    // segment, which is what addresses multiple TOs in one send.
+    const toList = Array.isArray(to) ? to : (to ? [to] : []);
+    const toEncoded = toList.filter(Boolean).map(e => encodeURIComponent(e)).join(',');
+    return `mailto:${toEncoded}?${params.join('&')}`;
   }
 
   async function confirmAndSend() {
@@ -4392,6 +4409,21 @@ Thanks for your help sorting this out.`;
     const recipients = parseAltEmails(vendor.alt_emails, location);
     let ccList  = recipients.filter(r => r.kind === 'cc').map(r => r.email);
     let bccList = recipients.filter(r => r.kind === 'bcc').map(r => r.email);
+    // Combine the primary TO (vendor.email) with any additional TO
+    // addresses set per-location. Dedupe so the same address isn't
+    // sent to twice — case-insensitive, since email's local-part is
+    // technically case-sensitive but in practice never used that way.
+    const toExtras = recipients.filter(r => r.kind === 'to').map(r => r.email);
+    const toList = [];
+    const seenTo = new Set();
+    [vendor.email, ...toExtras].forEach(e => {
+      const trimmed = (e || '').trim();
+      const key = trimmed.toLowerCase();
+      if (trimmed && !seenTo.has(key)) {
+        seenTo.add(key);
+        toList.push(trimmed);
+      }
+    });
 
     // Self-CC filter — first send on this device prompts the user for
     // their own email so we can keep them off the CC line. Subsequent
@@ -4415,7 +4447,7 @@ Thanks for your help sorting this out.`;
       NX.toast(`Removed your address (${filtered.sender}) from CC`, 'info', 2000);
     }
 
-    const url = buildMailtoUrl(vendor.email, subject, body, ccList, bccList);
+    const url = buildMailtoUrl(toList, subject, body, ccList, bccList);
     window.location.href = url;
 
     // Brief delay before closing the entry overlay so the mail app has
@@ -4500,6 +4532,7 @@ Thanks for your help sorting this out.`;
     // The alt_emails column may be a legacy array (pre per-location) —
     // parseAltEmails returns the right slice either way.
     const altParsed = parseAltEmails(v.alt_emails, activeLoc);
+    const toArr  = altParsed.filter(r => r.kind === 'to' ).map(r => r.email);
     const ccArr  = altParsed.filter(r => r.kind === 'cc' ).map(r => r.email);
     const bccArr = altParsed.filter(r => r.kind === 'bcc').map(r => r.email);
     const altArr = altParsed.filter(r => r.kind === 'alt').map(r => r.email);
@@ -4582,14 +4615,15 @@ Thanks for your help sorting this out.`;
       body: `
         <div class="rx-loc-scope">
           <span class="rx-loc-scope-icon"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
-          <span class="rx-loc-scope-text">CC / BCC / Other are <strong>${esc(activeLocLabel)}'s profile</strong>${otherLocsConfigured ? ' — other locations have separate recipients' : ''}</span>
+          <span class="rx-loc-scope-text">Additional TO / CC / BCC / Other are <strong>${esc(activeLocLabel)}'s profile</strong>${otherLocsConfigured ? ' — other locations have separate recipients' : ''}</span>
         </div>
-        <div class="rx-form-field">
+        <div class="rx-form-field rx-to-bundle">
           <label class="rx-form-label">
             <span class="rx-chip-pill rx-chip-pill-to">TO</span>
-            <span class="rx-form-hint">— required for sending orders, shared across all locations</span>
+            <span class="rx-form-hint">— primary required, additional ones below get every order at ${esc(activeLocLabel)}</span>
           </label>
           <input type="email" class="rx-form-input" data-rx-vendor-email value="${esc(v.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
+          ${RX.buildChipGroupHTML(toArr, 'to', { label: '', hint: '', inputType: 'email', inputMode: 'email', placeholder: 'orders2@vendor.com', addLabel: '+ Add another TO recipient' })}
         </div>
         ${RX.buildChipGroupHTML(ccArr,  'cc',  { label: 'CC',    hint: `always copied on ${esc(activeLocLabel)}'s orders`,        inputType: 'email', inputMode: 'email', placeholder: 'cc@example.com',     addLabel: 'Add CC' })}
         ${RX.buildChipGroupHTML(bccArr, 'bcc', { label: 'BCC',   hint: `silent copies on ${esc(activeLocLabel)}'s orders`,       inputType: 'email', inputMode: 'email', placeholder: 'bcc@example.com',    addLabel: 'Add BCC' })}
@@ -4798,7 +4832,7 @@ Thanks for your help sorting this out.`;
       saveLabel:   isNew ? 'Create vendor' : 'Save changes',
       cancelLabel: 'Cancel',
       state: {
-        chips: { cc: ccArr, bcc: bccArr, alt: altArr },
+        chips: { to: toArr, cc: ccArr, bcc: bccArr, alt: altArr },
       },
 
       onMount: (overlay, state) => {
@@ -4810,11 +4844,12 @@ Thanks for your help sorting this out.`;
         });
         RX.wireHuePicker(overlay, state);
 
-        // Recipient chip groups (cc / bcc / alt)
-        ['cc', 'bcc', 'alt'].forEach(kind => {
+        // Recipient chip groups (to / cc / bcc / alt)
+        ['to', 'cc', 'bcc', 'alt'].forEach(kind => {
           RX.wireChipGroup(overlay, kind, state, {
             label: kind === 'alt' ? 'OTHER' : kind.toUpperCase(),
-            hint: kind === 'cc' ? 'always copied on every order'
+            hint: kind === 'to' ? 'additional recipients on the To line'
+                : kind === 'cc' ? 'always copied on every order'
                 : kind === 'bcc' ? "silent copies — others can't see them"
                 : 'stored only — NOT auto-sent (backups)',
             inputType: 'email',
@@ -5029,11 +5064,13 @@ Thanks for your help sorting this out.`;
           : selectedLocs;
 
         // Build per-location alt_emails. Each restaurant has its own
-        // CC/BCC/Other profile, so we save these as a slice keyed by
-        // activeLoc and preserve any existing slices for other
-        // locations. The TO email is shared across all locations
-        // (vendors typically have one orders@ inbox).
+        // TO-extras / CC / BCC / Other profile, so we save these as a
+        // slice keyed by activeLoc and preserve any existing slices for
+        // other locations. The PRIMARY TO email (vendor.email) is
+        // shared across all locations (vendors typically have one
+        // orders@ inbox), but additional TOs can be per-location.
         const altEmails = [];
+        for (const e of (state.chips.to  || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'to'  }); }
         for (const e of (state.chips.cc  || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'cc'  }); }
         for (const e of (state.chips.bcc || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'bcc' }); }
         for (const e of (state.chips.alt || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'alt' }); }
@@ -7778,7 +7815,7 @@ Thanks for your help sorting this out.`;
       return raw.map(r => {
         if (typeof r === 'string') return { email: r.trim(), kind: 'cc' };
         if (r && typeof r === 'object') {
-          const kind = ['cc', 'bcc', 'alt'].includes(r.kind) ? r.kind : 'cc';
+          const kind = ['to', 'cc', 'bcc', 'alt'].includes(r.kind) ? r.kind : 'cc';
           return { email: (r.email || '').trim(), kind };
         }
         return { email: '', kind: 'cc' };
