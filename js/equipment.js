@@ -1743,6 +1743,12 @@ async function openDetail(id) {
           <span class="eq-action-cta-icon">${uiSvg('ticket', '18px')}</span>
           <span class="eq-action-cta-label">Report Issue</span>
         </button>
+        <!-- Edit was previously buried in the overflow menu; promoted to
+             a top-level action so non-power-users can always find it. -->
+        <button class="eq-action-cta eq-action-cta-tertiary" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">
+          <span class="eq-action-cta-icon">${uiSvg('pen', '18px')}</span>
+          <span class="eq-action-cta-label">Edit</span>
+        </button>
         <div class="eq-overflow-wrap">
           <button class="eq-overflow-btn-v2" onclick="NX.modules.equipment.toggleOverflow(event, '${eq.id}')" aria-label="More actions">${uiSvg('moreH', '20px')}</button>
           <div class="eq-overflow-menu" id="eqOverflow-${eq.id}" onclick="event.stopPropagation()">
@@ -14752,6 +14758,67 @@ const PARTS_TABS = [
   { key: 'compatibility', label: 'Compatibility' },
 ];
 
+// ═══ ARCHIVE WORLD (v14) ═══════════════════════════════════════════════
+// Opens the equipment view filtered to archived items + adds a body
+// class so CSS can apply a distinctive "you're in the archive" look:
+// muted colors, an Archive banner across the top with an X back-button,
+// and a slight vignette. Called from the Equipment speed-dial's
+// Archive option. Exit clears the body class AND the filter (going back
+// to the default Active view).
+//
+// Why this lives here (not as a separate module): the Archive is a
+// *view treatment* of the existing equipment list, not a parallel
+// data system. Same data, same components, just a focused mode.
+function openArchiveWorld() {
+  // (1) Set the underlying filter
+  if (typeof activeFilter !== 'undefined' && activeFilter) {
+    activeFilter.archived = 'only';
+  }
+  // (2) Apply the body class — CSS keys off this for the distinctive look
+  document.body.classList.add('is-equipment-archive-world');
+  // (3) Re-render so the filter takes effect + the chip becomes active
+  if (typeof buildUI === 'function') {
+    try { buildUI(); } catch (e) { console.warn('[equipment] openArchiveWorld buildUI:', e); }
+  }
+  // (4) Inject the Archive banner if it doesn't exist yet. The banner
+  // gets prepended to the equipment view so it sits above the chips
+  // and serves as both a label ("ARCHIVE") and a way out (X button).
+  const eqView = document.getElementById('equipmentView');
+  if (eqView && !eqView.querySelector('.eq-archive-banner')) {
+    const banner = document.createElement('div');
+    banner.className = 'eq-archive-banner';
+    banner.innerHTML = `
+      <button class="eq-archive-banner-close" type="button" aria-label="Exit archive">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+      <div class="eq-archive-banner-titles">
+        <div class="eq-archive-banner-title">Archive</div>
+        <div class="eq-archive-banner-sub">Showing only archived equipment</div>
+      </div>
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="eq-archive-banner-icon" aria-hidden="true">
+        <rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v11a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><path d="M10 13h4"/>
+      </svg>
+    `;
+    eqView.insertBefore(banner, eqView.firstChild);
+    banner.querySelector('.eq-archive-banner-close').addEventListener('click', closeArchiveWorld);
+  }
+}
+
+function closeArchiveWorld() {
+  document.body.classList.remove('is-equipment-archive-world');
+  if (typeof activeFilter !== 'undefined' && activeFilter) {
+    activeFilter.archived = 'active';
+  }
+  // Remove the banner
+  document.querySelectorAll('.eq-archive-banner').forEach(b => b.remove());
+  if (typeof buildUI === 'function') {
+    try { buildUI(); } catch (_) {}
+  }
+}
+
+
 async function openParts(opts) {
   closeParts();
   const overlay = document.createElement('div');
@@ -15978,6 +16045,10 @@ NX.modules.equipment = {
   closeParts,
   loadPartsList,
   markPartReplaced,
+
+  // Archive world (v14) — focused view for archived equipment with banner
+  openArchiveWorld,
+  closeArchiveWorld,
 
   // Section management — collapse, rename, move equipment
   promptRenameSection,
