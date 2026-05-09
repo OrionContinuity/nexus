@@ -2381,9 +2381,37 @@ Thanks for your help sorting this out.`;
       close();
       duplicateOrderAsDraft(order);
     });
-    overlay.querySelector('[data-action="delete"]').addEventListener('click', () => {
-      close();
-      confirmDeleteOrder(order);
+    overlay.querySelector('[data-action="delete"]').addEventListener('click', async () => {
+      // ── One-tap archive ─────────────────────────────────────────
+      // Was: open this menu sheet → tap "Archive order" → confirm
+      // modal pops up → tap "Archive order" again → done. 3 taps,
+      // and on mobile the second modal frequently caught the ghost
+      // click from the same finger-lift that triggered this menu
+      // action — making it look like "tap archive does nothing".
+      //
+      // Now: this menu item IS the deliberate action. The card
+      // already shows the danger styling, the title "Archive order",
+      // and a subtitle saying "Hides from your orders list.
+      // Restorable any time." — that's enough warning to make an
+      // informed tap. Restore is one click from "show archived" at
+      // the bottom of the vendor's order history.
+      const btn = overlay.querySelector('[data-action="delete"]');
+      btn.disabled = true;
+      const titleEl = btn.querySelector('.ord-vmenu-action-title');
+      const originalTitle = titleEl ? titleEl.textContent : '';
+      if (titleEl) titleEl.textContent = 'Archiving…';
+      const orderShortId = order.id ? order.id.slice(0, 8).toUpperCase() : '—';
+      try {
+        await archiveOrder(order.id);
+        close();
+        closeOrderDetail();
+        if (NX.toast) NX.toast(`Archived order ${orderShortId}`, 'info', 2000);
+      } catch (e) {
+        console.error('[ordering] archiveOrder:', e);
+        btn.disabled = false;
+        if (titleEl) titleEl.textContent = originalTitle;
+        if (NX.toast) NX.toast('Could not archive: ' + ((e && e.message) || ''), 'error', 4000);
+      }
     });
   }
 
