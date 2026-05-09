@@ -88,6 +88,10 @@
   let modules = [];                // array of catalog modules
   let completionsByModule = {};    // { moduleId: [completions sorted desc by completed_at] }
   let attachmentsByCompletion = {};
+  // Module-level attachments — SOP PDFs/diagrams/images uploaded ONCE
+  // for the module itself (not per completion). Distributed to all
+  // staff so they can review materials inline. Keyed by module_id.
+  let attachmentsByModule = {};
   let usersList = [];              // all users for assignee/team views
   let viewMode = (() => {
     try {
@@ -179,16 +183,29 @@
 
   async function loadAttachments() {
     attachmentsByCompletion = {};
+    attachmentsByModule = {};
     if (!NX.sb || NX.paused) return;
     try {
-      const { data, error } = await NX.sb.from('training_attachments')
+      // Per-completion attachments (certificates from staff)
+      const { data: comps, error: compErr } = await NX.sb.from('training_attachments')
         .select('id, completion_id, file_url, mime_type, caption, uploaded_by, created_at')
         .not('completion_id', 'is', null)
         .order('created_at', { ascending: true });
-      if (error) { console.warn('[training] loadAttachments:', error); return; }
-      (data || []).forEach(a => {
+      if (compErr) { console.warn('[training] loadAttachments comp:', compErr); }
+      (comps || []).forEach(a => {
         if (!attachmentsByCompletion[a.completion_id]) attachmentsByCompletion[a.completion_id] = [];
         attachmentsByCompletion[a.completion_id].push(a);
+      });
+
+      // Module-level attachments (SOP PDFs/diagrams admin-uploaded for everyone)
+      const { data: mods, error: modErr } = await NX.sb.from('training_attachments')
+        .select('id, module_id, file_url, mime_type, caption, uploaded_by, created_at')
+        .not('module_id', 'is', null)
+        .order('created_at', { ascending: true });
+      if (modErr) { console.warn('[training] loadAttachments mod:', modErr); }
+      (mods || []).forEach(a => {
+        if (!attachmentsByModule[a.module_id]) attachmentsByModule[a.module_id] = [];
+        attachmentsByModule[a.module_id].push(a);
       });
     } catch (e) {
       console.error('[training] loadAttachments:', e);
@@ -307,6 +324,7 @@
       if (error) throw error;
       await loadCompletions();
       render();
+      refreshNavBadge();
       toast(`Marked complete${expiresAt ? ` · expires ${fmtDate(expiresAt)}` : ''}`, 'info', 2200);
       return data;
     } catch (e) {
@@ -327,6 +345,7 @@
       if (error) throw error;
       await loadCompletions();
       render();
+      refreshNavBadge();
       toast('Completion removed', 'info', 1600);
     } catch (e) {
       toast('Could not remove: ' + (e.message || ''), 'error');
@@ -373,6 +392,7 @@
         if (error) throw error;
         await loadCompletions();
         render();
+        refreshNavBadge();
         toast(`Signed off for ${u?.name || 'staff'}`, 'info', 2200);
       },
     });
@@ -443,6 +463,12 @@
   }
 
   function openAttachmentViewer(url) {
+    // PDFs open in a new tab; images render inline in the lightbox.
+    const isPdf = /\.pdf(\?|$)/i.test(url) || /pdf/i.test(url);
+    if (isPdf) {
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
     const v = document.createElement('div');
     v.className = 'train-photo-viewer';
     v.innerHTML = `
@@ -459,6 +485,172 @@
     v.querySelector('.train-photo-viewer-close').addEventListener('click', close);
     document.body.appendChild(v);
   }
+
+
+  // ═══ MODULE-LEVEL ATTACHMENTS (v13) ══════════════════════════════════
+  // Upload reference docs (PDFs, diagrams, photos) to a training module
+  // itself — distinct from per-completion certificates. Visible to all
+  // staff in their Mine view + in the catalog. Replaces "must follow an
+  // external link" with self-contained training inside NEXUS.
+  async function uploadModuleAttachment(mod) {
+    if (!NX.sb) return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*,application/pdf';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+      const MAX_SIZE = 25 * 1024 * 1024;  // 25MB for module SOPs
+      if (file.size > MAX_SIZE) {
+        toast('File too large (max 25MB)', 'error', 4000);
+        return;
+      }
+      toast('Uploading…', 'info', 8000);
+      try {
+        const safeName = file.name.replace(/[^a-z0-9.]/gi, '_');
+        const fname = `module/${mod.id}/${Date.now()}-${safeName}`;
+        const { error: upErr } = await NX.sb.storage
+          .from('training-attachments')
+          .upload(fname, file, { upsert: false, contentType: file.type });
+        if (upErr) throw upErr;
+        const { data: { publicUrl } } = NX.sb.storage
+          .from('training-attachments').getPublicUrl(fname);
+        const { error: dbErr } = await NX.sb.from('training_attachments').insert({
+          module_id:      mod.id,
+          file_url:       publicUrl,
+          mime_type:      file.type,
+          file_size:      file.size,
+          caption:        file.name,
+          uploaded_by:    getUserName(),
+          uploaded_by_id: getCurrentUserId(),
+        });
+        if (dbErr) throw dbErr;
+        await loadAttachments();
+        render();
+        toast('Resource uploaded', 'info', 1600);
+      } catch (e) {
+        console.error('[training] module upload:', e);
+        toast('Upload failed: ' + (e.message || ''), 'error', 4500);
+      }
+    });
+    input.click();
+  }
+
+
+  // ═══ BULK SIGN-OFF (v13) ═════════════════════════════════════════════
+  // Manager picks a module + multi-selects staff → one INSERT per staff.
+  // Used for in-person training sessions where the manager runs through
+  // the topic with multiple hires at once and certifies everyone.
+  function openBulkSignOffDialog(preselectedModuleId) {
+    if (!isManager()) { toast('Manager-only action', 'warn'); return; }
+    if (!modules.length) { toast('No modules to sign off', 'info'); return; }
+    if (!usersList.length) { toast('No staff loaded', 'info'); return; }
+
+    const sheet = document.createElement('div');
+    sheet.className = 'train-bulk-sheet';
+    sheet.innerHTML = `
+      <div class="train-bulk-bg"></div>
+      <div class="train-bulk-card">
+        <div class="train-bulk-head">
+          <div class="train-bulk-title">Bulk sign-off</div>
+          <button class="train-bulk-close" aria-label="Close">×</button>
+        </div>
+        <div class="train-bulk-sub">Pick a module, then check staff to sign off in one action. Useful for in-person training sessions.</div>
+
+        <label class="train-bulk-label">Module</label>
+        <select class="train-bulk-select" data-module-select>
+          <option value="">— Pick a module —</option>
+          ${modules.map(m => `
+            <option value="${esc(m.id)}" ${m.id === preselectedModuleId ? 'selected' : ''}>${esc(m.name_en)} · ${esc(m.category_en)}</option>
+          `).join('')}
+        </select>
+
+        <label class="train-bulk-label">Staff (tap to toggle)</label>
+        <div class="train-bulk-staff" data-staff-list>
+          ${usersList.map(u => `
+            <label class="train-bulk-staff-row">
+              <input type="checkbox" class="train-bulk-staff-cb" data-user-id="${esc(u.id)}">
+              <span class="train-bulk-staff-name">${esc(u.name)}</span>
+              ${u.role ? `<span class="train-bulk-staff-role">${esc(u.role)}</span>` : ''}
+            </label>
+          `).join('')}
+        </div>
+
+        <div class="train-bulk-actions">
+          <button class="train-bulk-cancel">Cancel</button>
+          <button class="train-bulk-confirm">Sign off (<span data-bulk-count>0</span>)</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(sheet);
+
+    const close = () => sheet.remove();
+    sheet.querySelector('.train-bulk-bg').addEventListener('click', close);
+    sheet.querySelector('.train-bulk-close').addEventListener('click', close);
+    sheet.querySelector('.train-bulk-cancel').addEventListener('click', close);
+
+    // Update count on each checkbox change
+    const updateCount = () => {
+      const count = sheet.querySelectorAll('.train-bulk-staff-cb:checked').length;
+      sheet.querySelector('[data-bulk-count]').textContent = count;
+    };
+    sheet.querySelectorAll('.train-bulk-staff-cb').forEach(cb => {
+      cb.addEventListener('change', updateCount);
+    });
+
+    sheet.querySelector('.train-bulk-confirm').addEventListener('click', async () => {
+      const moduleId = sheet.querySelector('[data-module-select]').value;
+      const userIds = Array.from(sheet.querySelectorAll('.train-bulk-staff-cb:checked'))
+        .map(cb => parseInt(cb.dataset.userId, 10));
+      if (!moduleId) { toast('Pick a module', 'warn'); return; }
+      if (!userIds.length) { toast('Pick at least one staff member', 'warn'); return; }
+
+      const mod = modules.find(m => m.id === moduleId);
+      if (!mod) { toast('Module not found', 'error'); return; }
+
+      // Compute expires_at once for all
+      const renewal = RENEWAL_BY_TYPE[mod.renewal_type] || RENEWAL_BY_TYPE.one_time;
+      let expiresAt = null;
+      if (renewal.days) expiresAt = new Date(Date.now() + renewal.days * 86400000).toISOString();
+      else if (mod.renewal_type === 'custom' && mod.expires_after_days) {
+        expiresAt = new Date(Date.now() + mod.expires_after_days * 86400000).toISOString();
+      }
+
+      const confirmBtn = sheet.querySelector('.train-bulk-confirm');
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Signing off…';
+      try {
+        const rows = userIds.map(uid => {
+          const u = usersList.find(x => x.id === uid);
+          return {
+            module_id:        moduleId,
+            user_id:          uid,
+            user_name:        u?.name || null,
+            completed_at:     new Date().toISOString(),
+            expires_at:       expiresAt,
+            signed_off_by:    getUserName(),
+            signed_off_by_id: getCurrentUserId(),
+            notes:            'Bulk sign-off',
+          };
+        });
+        const { error } = await NX.sb.from('training_completions').insert(rows);
+        if (error) throw error;
+        close();
+        await loadCompletions();
+        render();
+        refreshNavBadge();
+        toast(`Signed off ${userIds.length} ${userIds.length === 1 ? 'person' : 'people'}`, 'info', 2400);
+      } catch (e) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = `Sign off (${userIds.length})`;
+        toast('Bulk sign-off failed: ' + (e.message || ''), 'error', 4500);
+      }
+    });
+  }
+
 
   // ─── DB: save / archive / restore module ─────────────────────────────
   async function saveModule(existingId, payload) {
@@ -628,6 +820,23 @@
           </button>`).join('')}
       </div>` : '';
 
+    // Module-level attachments (SOPs, diagrams, reference PDFs) — same
+    // for everyone, distinct from per-completion certs above.
+    const modAtts = attachmentsByModule[mod.id] || [];
+    const modAttsHTML = modAtts.length ? `
+      <div class="train-row-resources">
+        <div class="train-row-resources-label">${svg('document', 11)} Resources</div>
+        ${modAtts.map(a => {
+          const isPdf = /pdf/i.test(a.mime_type || '') || /\.pdf(\?|$)/i.test(a.file_url);
+          const fileName = a.caption || (a.file_url.split('/').pop() || 'File');
+          return `
+            <button class="train-row-resource-item" data-mod-att-url="${esc(a.file_url)}">
+              ${svg(isPdf ? 'document' : 'camera', 12)}
+              <span>${esc(fileName.length > 32 ? fileName.slice(0, 30) + '…' : fileName)}</span>
+            </button>`;
+        }).join('')}
+      </div>` : '';
+
     row.innerHTML = `
       <div class="train-row-body">
         <div class="train-row-head">
@@ -641,6 +850,7 @@
           ${mod.mandatory ? '<span class="train-mandatory-tag">Required</span>' : ''}
         </div>
         ${desc ? `<div class="train-row-desc">${esc(desc)}</div>` : ''}
+        ${modAttsHTML}
         ${photosHTML}
       </div>
       <div class="train-row-side">
@@ -649,6 +859,14 @@
         ${completion ? `<button class="train-row-cert" data-action="add-cert" title="Attach certificate">${svg('camera', 14)}</button>` : ''}
       </div>
     `;
+
+    // Tap a module-level attachment → viewer (PDFs open in new tab)
+    row.querySelectorAll('[data-mod-att-url]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openAttachmentViewer(btn.dataset.modAttUrl);
+      });
+    });
 
     // Wire actions
     row.querySelectorAll('[data-action]').forEach(btn => {
@@ -725,6 +943,7 @@
       <div class="train-team-head">
         <span>Staff</span>
         <span class="train-team-head-sub">Compliance gaps first</span>
+        <button class="train-team-bulk-btn" data-bulk-signoff>${svg('check', 11, 2.5)} <span>Bulk sign-off</span></button>
       </div>
       ${summary.map(s => {
         const gap = s.pending + s.expiring + s.expired;
@@ -748,6 +967,15 @@
       }).join('')}
     `;
     list.appendChild(wrap);
+
+    // Wire the bulk-signoff button in the team header
+    const bulkBtn = wrap.querySelector('[data-bulk-signoff]');
+    if (bulkBtn) {
+      bulkBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openBulkSignOffDialog();
+      });
+    }
 
     // Wire row expansion
     wrap.querySelectorAll('[data-expand-user]').forEach(btn => {
@@ -982,6 +1210,27 @@
           </label>
         </div>
       </div>
+      ${isNew ? '' : `
+      <div class="train-edit-row">
+        <label class="train-edit-label">Resources <span class="train-edit-hint">(SOPs, diagrams, reference PDFs — visible to all staff)</span></label>
+        <div class="train-edit-mod-atts">
+          ${(attachmentsByModule[mod.id] || []).map(a => {
+            const isPdf = /pdf/i.test(a.mime_type || '') || /\.pdf(\?|$)/i.test(a.file_url);
+            const fileName = a.caption || (a.file_url.split('/').pop() || 'File');
+            return `
+              <div class="train-edit-mod-att">
+                ${isPdf
+                  ? `<span class="train-edit-mod-att-icon">${svg('document', 14)}</span>`
+                  : `<img src="${esc(a.file_url)}" class="train-edit-mod-att-thumb" alt="">`}
+                <span class="train-edit-mod-att-name">${esc(fileName.length > 30 ? fileName.slice(0,28) + '…' : fileName)}</span>
+                <button class="train-edit-mod-att-x" type="button" data-del-att="${esc(a.id)}" data-del-url="${esc(a.file_url)}" aria-label="Remove">×</button>
+              </div>
+            `;
+          }).join('')}
+          <button class="train-edit-mod-att-add" type="button" data-mod-att-add>${svg('plus', 12)} <span>Upload resource</span></button>
+        </div>
+      </div>
+      `}
       <div class="train-edit-actions">
         <button class="train-edit-cancel" type="button">Cancel</button>
         ${isNew ? '' : '<button class="train-edit-archive" type="button">Archive</button>'}
@@ -1000,6 +1249,18 @@
       editingModuleId = null;
       addingToCategory = null;
       render();
+    });
+
+    // Module attachments — upload + per-attachment delete
+    const modAttAddBtn = wrap.querySelector('[data-mod-att-add]');
+    if (modAttAddBtn) {
+      modAttAddBtn.addEventListener('click', () => uploadModuleAttachment(mod));
+    }
+    wrap.querySelectorAll('[data-del-att]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await deleteAttachment(btn.dataset.delAtt, btn.dataset.delUrl);
+      });
     });
 
     // Archive
@@ -1275,6 +1536,17 @@
   // ═══ INIT + SHOW ═════════════════════════════════════════════════════
   let initialized = false;
 
+  // Tells duties.js (if loaded) to refresh its training-status display:
+  // updates both the launcher subtitle on the Duties view AND the badge
+  // on the bottom-nav Training tab. Bypasses the 60s cache so a freshly-
+  // completed module reflects immediately.
+  function refreshNavBadge() {
+    try {
+      const fn = window.NX?.modules?.duties?.refreshTrainingStatus;
+      if (typeof fn === 'function') fn(true);  // force = true
+    } catch (e) { /* silent */ }
+  }
+
   async function init() {
     if (initialized) return;
     initialized = true;
@@ -1296,6 +1568,7 @@
     await loadAttachments();
     registerArchiveContributor();
     render();
+    refreshNavBadge();
   }
 
   async function show() {
@@ -1303,6 +1576,7 @@
     await loadCompletions();
     await loadAttachments();
     render();
+    refreshNavBadge();
   }
 
   // ═══ EXPORTS ══════════════════════════════════════════════════════════
