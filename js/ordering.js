@@ -5337,25 +5337,23 @@ Thanks for your help sorting this out.`;
             ${datalistHTML}
           </div>
         </div>
-        <div class="ord-form-pack-row">
-          <div class="ord-form-pack-group" role="group" aria-label="Pack and size">
-            <label class="ord-form-label">Pack/Size</label>
-            <div class="ord-form-pack-inputs">
-              <input type="number" class="ord-form-input ord-form-input--mini ied-pack" value="${esc(parsedUnit.caseQty)}" placeholder="1" min="1" step="1" inputmode="numeric" aria-label="Pack quantity">
-              <span class="ord-form-pack-x" aria-hidden="true">×</span>
-              <input type="text" class="ord-form-input ord-form-input--mini ied-size" value="${esc(parsedUnit.unitQty)}" placeholder="1" inputmode="decimal" aria-label="Size per unit">
-              <select class="ord-form-input ord-form-input--unit ied-unit-select" aria-label="Unit of measure">
-                ${STANDARD_UNITS.map(u => `<option value="${u}"${u === parsedUnit.unit ? ' selected' : ''}>${u}</option>`).join('')}
-                ${STANDARD_UNITS.includes(parsedUnit.unit) ? '' : `<option value="${esc(parsedUnit.unit)}" selected>${esc(parsedUnit.unit)}</option>`}
-                <option value="__other__">Other…</option>
-              </select>
-              <input type="text" class="ord-form-input ord-form-input--unit-custom ied-unit-custom" placeholder="custom" autocomplete="off" style="display:none;" aria-label="Custom unit">
-            </div>
+        <div class="ord-form-field">
+          <label class="ord-form-label">Pack/Size</label>
+          <div class="ord-form-pack-inputs">
+            <input type="number" class="ord-form-input ord-form-input--mini ied-pack" value="${esc(parsedUnit.caseQty)}" placeholder="1" min="1" step="1" inputmode="numeric" aria-label="Pack quantity">
+            <span class="ord-form-pack-x" aria-hidden="true">×</span>
+            <input type="text" class="ord-form-input ord-form-input--mini ied-size" value="${esc(parsedUnit.unitQty)}" placeholder="1" inputmode="decimal" aria-label="Size per unit">
+            <select class="ord-form-input ord-form-input--unit ied-unit-select" aria-label="Unit of measure">
+              ${STANDARD_UNITS.map(u => `<option value="${u}"${u === parsedUnit.unit ? ' selected' : ''}>${u}</option>`).join('')}
+              ${STANDARD_UNITS.includes(parsedUnit.unit) ? '' : `<option value="${esc(parsedUnit.unit)}" selected>${esc(parsedUnit.unit)}</option>`}
+              <option value="__other__">Other…</option>
+            </select>
           </div>
-          <div class="ord-form-field ord-form-field--par">
-            <label class="ord-form-label">Default par</label>
-            <input type="number" class="ord-form-input ord-form-input--par ied-par" value="${item.default_par_qty != null ? item.default_par_qty : ''}" placeholder="0" inputmode="numeric" min="0" max="999" maxlength="3" step="1">
-          </div>
+          <input type="text" class="ord-form-input ord-form-input--unit-custom ied-unit-custom" placeholder="custom unit" autocomplete="off" style="display:none;" aria-label="Custom unit">
+        </div>
+        <div class="ord-form-field ord-form-field--par-row">
+          <label class="ord-form-label">Default par</label>
+          <input type="number" class="ord-form-input ord-form-input--par ied-par" value="${item.default_par_qty != null ? item.default_par_qty : ''}" placeholder="0" inputmode="numeric" min="0" max="999" maxlength="3" step="1">
         </div>
         <div class="ord-form-field">
           <label class="ord-form-label">Day-of-week pars (optional, overrides default)</label>
@@ -5431,8 +5429,10 @@ Thanks for your help sorting this out.`;
     // bloating the dropdown list. Hide it again when they pick a
     // standard option. Keeps the form clean for the 99% case.
     list.querySelectorAll('.ied-unit-select').forEach(sel => {
-      const wrap = sel.closest('.ord-form-pack-inputs');
-      const customInput = wrap && wrap.querySelector('.ied-unit-custom');
+      // Custom input sits as a sibling of .ord-form-pack-inputs inside
+      // the parent form-field, not inside .ord-form-pack-inputs itself.
+      const field = sel.closest('.ord-form-field');
+      const customInput = field && field.querySelector('.ied-unit-custom');
       const sync = () => {
         if (!customInput) return;
         if (sel.value === '__other__') {
