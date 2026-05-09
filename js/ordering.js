@@ -42,9 +42,9 @@
   // by default. Errors always fire — they're the signal that survives
   // through the noise. Flip `NX.debug = true` in DevTools to turn the
   // log/info/warn channels back on for postmortem investigation.
-  const dlog  = (...a) => { if (window.NX && NX.debug) dlog(...a);  };
-  const dinfo = (...a) => { if (window.NX && NX.debug) dinfo(...a); };
-  const dwarn = (...a) => { if (window.NX && NX.debug) dwarn(...a); };
+  const dlog  = (...a) => { if (window.NX && NX.debug) console.log(...a);  };
+  const dinfo = (...a) => { if (window.NX && NX.debug) console.info(...a); };
+  const dwarn = (...a) => { if (window.NX && NX.debug) console.warn(...a); };
 
   // ─── CONSTANTS ────────────────────────────────────────────────────
   const PANE_SEL    = '#dutiesOrderingPane';
@@ -2157,16 +2157,48 @@
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           <span>Reorder</span>
         </button>
+        ${(status === 'closed' || status === 'draft') ? `
+        <button class="ord-odetail-action ord-odetail-action-danger" data-action="discard">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+          <span>Delete</span>
+        </button>
+        ` : `
         <button class="ord-odetail-action ord-odetail-action-issue" data-action="report-issue">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           <span>Report issues</span>
         </button>
+        `}
       </div>
     `;
 
     overlay.querySelector('.ord-odetail-close').addEventListener('click', closeOrderDetail);
     overlay.querySelector('[data-action="reorder"]').addEventListener('click', () => reorderFromOrder(order));
-    overlay.querySelector('[data-action="report-issue"]').addEventListener('click', () => reportIssuesOnOrder(order));
+    overlay.querySelector('[data-action="report-issue"]')?.addEventListener('click', () => reportIssuesOnOrder(order));
+    // ── Soft-delete action for closed + draft orders ─────────────
+    // Visible only when status is closed or draft (the two "least
+    // active" states where cleanup makes sense). Sent / confirmed /
+    // delivered keep "Report issues" as their secondary action since
+    // those are still in-flight. Same archiveOrder() pathway as the
+    // kebab — soft delete via archived_at, restorable any time from
+    // "Show archived" at the bottom of the vendor's order history.
+    overlay.querySelector('[data-action="discard"]')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      const labelEl = btn.querySelector('span');
+      const originalLabel = labelEl ? labelEl.textContent : '';
+      btn.disabled = true;
+      if (labelEl) labelEl.textContent = 'Deleting…';
+      const orderShortId = order.id ? order.id.slice(0, 8).toUpperCase() : '—';
+      try {
+        await archiveOrder(order.id);
+        closeOrderDetail();
+        if (NX.toast) NX.toast(`Deleted order ${orderShortId}`, 'info', 2000);
+      } catch (err) {
+        console.error('[ordering] discard order:', err);
+        btn.disabled = false;
+        if (labelEl) labelEl.textContent = originalLabel;
+        if (NX.toast) NX.toast('Could not delete: ' + ((err && err.message) || ''), 'error', 4000);
+      }
+    });
     overlay.querySelector('[data-action="more"]')?.addEventListener('click', () => showOrderMoreMenu(order));
     overlay.querySelector('[data-action="advance"]')?.addEventListener('click', e => {
       const target = e.currentTarget.dataset.target;
@@ -3416,19 +3448,73 @@ Thanks for your help sorting this out.`;
         ${catalog.length === 0 ? `
           <div class="ord-empty">
             This vendor has no catalog yet.<br>
-            <span class="ord-empty-hint">Items can be added from the vendor editor (coming soon).</span>
+            <span class="ord-empty-hint">Tap the + at top to add an item now, or open <b>Edit catalog</b> from the vendor menu to import a list.</span>
           </div>
         ` : ''}
       </div>
       <div class="ord-entry-cta-wrap">
         <button class="ord-entry-cta" id="ordEntryReview" ${ctaDisabled ? 'disabled' : ''}>${ctaLabel}</button>
         <div class="ord-entry-save-status" id="ordSaveStatus"></div>
+        ${readOnly ? '' : `<button class="ord-entry-discard" id="ordEntryDiscard" type="button">${trashIcon()}<span>Discard draft</span></button>`}
       </div>
     `;
 
     overlay.querySelector('.ord-entry-close').addEventListener('click', closeEntry);
     const addBtn = overlay.querySelector('#ordEntryAdd');
     if (addBtn) addBtn.addEventListener('click', () => openQuickAddItem(vendor));
+
+    // ── Discard draft ────────────────────────────────────────────
+    // Sits well below the primary CTA so it can't be hit by accident
+    // when going for "Review & Send". Single-tap discard since drafts
+    // are by definition unsent / work-in-progress; if the user
+    // accidentally taps, the cost is re-checking their items, not a
+    // misfired vendor email.
+    const discardBtn = overlay.querySelector('#ordEntryDiscard');
+    if (discardBtn) {
+      discardBtn.addEventListener('click', async () => {
+        // No-op gate: nothing meaningful entered yet, no draft row
+        // exists, and the user isn't going to "lose" anything by
+        // closing. Just close the overlay quietly.
+        const hasLines = Object.values(entryState.lines || {})
+          .some(l => l && l.qty > 0);
+        if (!entryState.draftOrderId && !hasLines && !(entryState.notes || '').trim()) {
+          closeEntry();
+          return;
+        }
+        discardBtn.disabled = true;
+        const labelEl = discardBtn.querySelector('span');
+        const originalLabel = labelEl ? labelEl.textContent : '';
+        if (labelEl) labelEl.textContent = 'Discarding…';
+        try {
+          // Cancel any in-flight autosave so it doesn't recreate the
+          // row right after we archive it.
+          if (entryState.saveTimer) {
+            clearTimeout(entryState.saveTimer);
+            entryState.saveTimer = null;
+          }
+          // Archive the draft if it exists in the DB. Same soft-delete
+          // semantics as a sent order — restorable via "Show archived"
+          // at the bottom of the vendor's order history. Skips this
+          // step entirely if the draft never persisted (no autosave
+          // had completed yet).
+          if (entryState.draftOrderId) {
+            await archiveOrder(entryState.draftOrderId);
+          }
+          // Clear in-memory state so a re-open doesn't pick up stale
+          // lines as a "new" draft.
+          entryState.lines = {};
+          entryState.notes = '';
+          entryState.draftOrderId = null;
+          closeEntry();
+          if (NX.toast) NX.toast('Draft discarded', 'info', 1800);
+        } catch (e) {
+          console.error('[ordering] discard draft:', e);
+          discardBtn.disabled = false;
+          if (labelEl) labelEl.textContent = originalLabel;
+          if (NX.toast) NX.toast('Could not discard: ' + ((e && e.message) || ''), 'error', 4000);
+        }
+      });
+    }
 
     // Par filter pills — set the mode + persist per-location preference
     overlay.querySelectorAll('[data-filter]').forEach(btn => {
@@ -7391,6 +7477,12 @@ Thanks for your help sorting this out.`;
   function openQuickAddItem(vendor) {
     if (!vendor || !entryState) return;
 
+    // Build a fresh parsedUnit for the default — "1/1 EA" is the
+    // simplest case and the most common starting point for a new
+    // ad-hoc item, so the dropdown lands on EA. The user can change
+    // it without typing.
+    const qaddUnitParts = parseUnitParts('EA');
+
     // Mount a modal overlay
     const modal = document.createElement('div');
     modal.className = 'ord-qadd-overlay';
@@ -7406,19 +7498,33 @@ Thanks for your help sorting this out.`;
             <label class="ord-form-label" for="qaddName">Name</label>
             <input type="text" class="ord-form-input" id="qaddName" placeholder="e.g. cilantro" autocomplete="off">
           </div>
-          <div class="ord-form-row-2">
-            <div class="ord-form-field">
-              <label class="ord-form-label" for="qaddUnit">Pack/Size</label>
-              <input type="text" class="ord-form-input" id="qaddUnit" value="ea" placeholder="ea / cs / lb" autocomplete="off">
+          <div class="ord-form-field">
+            <label class="ord-form-label">Pack/Size</label>
+            <div class="ord-form-pack-inputs">
+              <input type="number" class="ord-form-input ord-form-input--mini" id="qaddPack" value="${esc(qaddUnitParts.caseQty)}" placeholder="1" min="1" step="1" inputmode="numeric" aria-label="Pack quantity">
+              <span class="ord-form-pack-x" aria-hidden="true">×</span>
+              <input type="text" class="ord-form-input ord-form-input--mini" id="qaddSize" value="${esc(qaddUnitParts.unitQty)}" placeholder="1" inputmode="decimal" aria-label="Size per unit">
+              <select class="ord-form-input ord-form-input--unit" id="qaddUnit" aria-label="Unit of measure">
+                ${STANDARD_UNITS.map(u => `<option value="${u}"${u === qaddUnitParts.unit ? ' selected' : ''}>${u}</option>`).join('')}
+                <option value="__other__">Other…</option>
+              </select>
             </div>
-            <div class="ord-form-field">
-              <label class="ord-form-label" for="qaddQty">Qty for this order</label>
-              <input type="number" class="ord-form-input" id="qaddQty" value="1" min="0" step="1" inputmode="numeric">
-            </div>
+            <input type="text" class="ord-form-input ord-form-input--unit-custom" id="qaddUnitCustom" placeholder="custom unit" autocomplete="off" style="display:none;" aria-label="Custom unit">
+          </div>
+          <div class="ord-form-field ord-form-field--par-row">
+            <label class="ord-form-label" for="qaddQty">Qty for this order</label>
+            <input type="number" class="ord-form-input ord-form-input--par" id="qaddQty" value="1" min="0" step="1" inputmode="numeric">
           </div>
           <div class="ord-form-field">
             <label class="ord-form-label" for="qaddSection">Section (optional)</label>
-            <input type="text" class="ord-form-input" id="qaddSection" placeholder="e.g. Produce" autocomplete="off">
+            <input type="text" class="ord-form-input" id="qaddSection" placeholder="e.g. Produce" autocomplete="off" list="qaddSectionList">
+            <datalist id="qaddSectionList">
+              ${(() => {
+                const sections = new Set();
+                (entryState.catalog || []).forEach(i => { if (i.section) sections.add(i.section); });
+                return Array.from(sections).sort().map(s => `<option value="${esc(s)}"></option>`).join('');
+              })()}
+            </datalist>
           </div>
           <div class="ord-form-hint">This adds the item to <b>${esc(vendor.name)}</b>'s catalog so it's there for future orders too.</div>
         </div>
@@ -7434,12 +7540,33 @@ Thanks for your help sorting this out.`;
     modal.querySelector('.ord-qadd-backdrop').addEventListener('click', close);
     modal.querySelector('#qaddCancel').addEventListener('click', close);
 
+    // Wire the "Other…" toggle for the unit dropdown. Same pattern as
+    // the catalog form: pick "Other…" → custom text input shows.
+    const unitSel = modal.querySelector('#qaddUnit');
+    const unitCustom = modal.querySelector('#qaddUnitCustom');
+    unitSel.addEventListener('change', () => {
+      if (unitSel.value === '__other__') {
+        unitCustom.style.display = '';
+        unitCustom.focus();
+      } else {
+        unitCustom.style.display = 'none';
+        unitCustom.value = '';
+      }
+    });
+
     // Focus name input on open
     setTimeout(() => modal.querySelector('#qaddName').focus(), 30);
 
     modal.querySelector('#qaddSave').addEventListener('click', async () => {
       const name = modal.querySelector('#qaddName').value.trim();
-      const unit = modal.querySelector('#qaddUnit').value.trim() || 'ea';
+      // Recombine the three structured fields into the canonical
+      // "X/Y UNIT" string the catalog stores.
+      const packRaw = modal.querySelector('#qaddPack').value.trim() || '1';
+      const sizeRaw = modal.querySelector('#qaddSize').value.trim() || '1';
+      const unitSelVal = unitSel.value || 'EA';
+      const unitCustomVal = unitCustom.value.trim();
+      const unitChoice = (unitSelVal === '__other__' ? unitCustomVal : unitSelVal) || 'EA';
+      const unit = combineUnitParts(packRaw, sizeRaw, unitChoice);
       const sec  = modal.querySelector('#qaddSection').value.trim();
       const qtyStr = modal.querySelector('#qaddQty').value.trim();
       const qty = qtyStr === '' ? 1 : Math.max(0, parseFloat(qtyStr) || 0);
