@@ -51,6 +51,11 @@
     calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
     mail:     '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>',
     archive:  '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
+    camera:   '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+    award:    '<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>',
+    play:     '<polygon points="5 3 19 12 5 21 5 3"/>',
+    document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+    external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
   };
   function svg(key, size = 14, stroke = 2) {
     return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${ICONS[key] || ''}</svg>`;
@@ -89,6 +94,68 @@
   let addingToSection = null; // section_es of the section getting a new task added
   let collapsedSections = new Set();   // section_es strings collapsed
   let linkedBoardCards = {};  // { 'location__sectionEs': cardId } — overdue → board
+
+  // ─── PHOTOS + COSTS state (v12.1) ──────────────────────────────────────
+  // Photo evidence per (location, log_date, section, task_index). Loaded
+  // once per location-switch in loadAttachments(); rebuilt in render().
+  // Keyed the same way as cleaning_logs entries.
+  let attachmentsByKey = {};       // { 'sec_taskOrder': [{id, file_url, ...}] }
+  let costsByKey       = {};       // { 'sec_taskOrder': { cost, note } }  — last seen for a date
+  // "Coming up" lookahead — populated on render from non-daily tasks
+  // whose freshness is heading toward zero in the next 7 days. Renders
+  // as a horizontal scroll strip above the section cards.
+  const COMING_UP_DAYS = 7;
+
+  // ─── VIEW MODE (v12.2) ────────────────────────────────────────────────
+  // 'today' = show only sections that have at least one daily task. The
+  //           Coming-Up strip still surfaces non-daily things due soon.
+  // 'all'   = show every section (daily + bi-weekly + monthly + etc).
+  // Persisted per-user in localStorage. Default 'today' so the busy
+  // morning open isn't drowned in monthly/quarterly noise.
+  const VIEW_MODES = ['today', 'all'];
+  let viewMode = (() => {
+    try {
+      const saved = localStorage.getItem('nexus_clean_view_mode');
+      return VIEW_MODES.includes(saved) ? saved : 'today';
+    } catch (e) { return 'today'; }
+  })();
+  function setViewMode(m) {
+    if (!VIEW_MODES.includes(m)) return;
+    viewMode = m;
+    try { localStorage.setItem('nexus_clean_view_mode', m); } catch (e) {}
+    render();
+  }
+
+  // ─── TRAINING MODE (v12.3) ────────────────────────────────────────────
+  // Toggle that surfaces per-task training affordances. When ON, each
+  // task row that has linked training modules shows a 🎓 pill with the
+  // current user's completion ratio. Tap to expand an inline panel with
+  // a Mark-complete button per module. Edit form always has the link
+  // controls regardless of this toggle, so admins can manage links
+  // without turning training mode on for everyday use.
+  let trainingMode = (() => {
+    try { return localStorage.getItem('nexus_clean_training_mode') === '1'; }
+    catch (e) { return false; }
+  })();
+  function setTrainingMode(on) {
+    trainingMode = !!on;
+    try { localStorage.setItem('nexus_clean_training_mode', trainingMode ? '1' : '0'); }
+    catch (e) {}
+    if (trainingMode) {
+      // First time toggling on → make sure we have the data loaded
+      loadTrainingData().then(() => render()).catch(() => render());
+    } else {
+      // Collapse any expanded training panels on toggle-off
+      expandedTrainingTaskId = null;
+      render();
+    }
+  }
+  let expandedTrainingTaskId = null;  // which task's training panel is open
+
+  // Caches for cleaning ↔ training relationship
+  let linksByTaskId      = {};   // { cleaningTaskId: [trainingModuleId, ...] }
+  let trainingModulesById = {};  // { trainingModuleId: { ...module } }
+  let myTrainingByModule = {};   // { trainingModuleId: latest completion for current user }
 
   // ─── DATE: 8AM rollover (a "cleaning shift" is 8am-to-8am) ────────────
   function getCleaningDate() {
@@ -273,7 +340,134 @@
     }
   }
 
-  // ─── HELPERS: state get/set ───────────────────────────────────────────
+  // ─── DB: load photo attachments for active location + today ──────────
+  // We keep this scoped to today's shift. Older photos are still in the
+  // DB and visible in the per-task history detail (TODO), but the row
+  // UI only shows today's. Cost tracking works the same way.
+  async function loadAttachments() {
+    attachmentsByKey = {};
+    if (!NX.sb || NX.paused) return;
+    try {
+      const { data, error } = await NX.sb.from('cleaning_attachments')
+        .select('id, section, task_index, file_url, mime_type, caption, uploaded_by, created_at')
+        .eq('location', activeLoc)
+        .eq('log_date', today)
+        .order('created_at', { ascending: true });
+      if (error) { console.warn('[cleaning] loadAttachments:', error); return; }
+      (data || []).forEach(a => {
+        const k = a.section + '_' + a.task_index;
+        if (!attachmentsByKey[k]) attachmentsByKey[k] = [];
+        attachmentsByKey[k].push(a);
+      });
+    } catch (e) {
+      console.warn('[cleaning] loadAttachments exception:', e);
+    }
+  }
+
+  async function loadCosts() {
+    costsByKey = {};
+    if (!NX.sb || NX.paused) return;
+    try {
+      const { data, error } = await NX.sb.from('cleaning_logs')
+        .select('section, task_index, completion_cost, completion_cost_note')
+        .eq('location', activeLoc)
+        .eq('log_date', today)
+        .not('completion_cost', 'is', null);
+      if (error) { console.warn('[cleaning] loadCosts:', error); return; }
+      (data || []).forEach(r => {
+        const k = r.section + '_' + r.task_index;
+        costsByKey[k] = {
+          cost: parseFloat(r.completion_cost) || 0,
+          note: r.completion_cost_note || '',
+        };
+      });
+    } catch (e) {
+      console.warn('[cleaning] loadCosts exception:', e);
+    }
+  }
+
+  // ─── DB: load cleaning↔training link data ──────────────────────────────
+  // Loads (a) which training modules each cleaning task is linked to,
+  // (b) the linked modules' details, (c) current user's most-recent
+  // completion for each linked module. All three caches keyed by ID.
+  // Cheap to call repeatedly — short-circuits when training mode is off.
+  async function loadTrainingData() {
+    if (!NX.sb || NX.paused) return;
+    // Step 1: links for this location's tasks
+    const taskIds = (tasksByLoc[activeLoc] || []).map(t => t.id);
+    if (!taskIds.length) {
+      linksByTaskId = {};
+      trainingModulesById = {};
+      myTrainingByModule = {};
+      return;
+    }
+    try {
+      const { data: links, error: linkErr } = await NX.sb
+        .from('cleaning_task_training_links')
+        .select('cleaning_task_id, training_module_id')
+        .in('cleaning_task_id', taskIds);
+      if (linkErr) { console.warn('[cleaning] training links:', linkErr); return; }
+
+      linksByTaskId = {};
+      const moduleIds = new Set();
+      (links || []).forEach(l => {
+        if (!linksByTaskId[l.cleaning_task_id]) linksByTaskId[l.cleaning_task_id] = [];
+        linksByTaskId[l.cleaning_task_id].push(l.training_module_id);
+        moduleIds.add(l.training_module_id);
+      });
+
+      if (!moduleIds.size) {
+        trainingModulesById = {};
+        myTrainingByModule = {};
+        return;
+      }
+
+      // Step 2: the linked modules
+      const { data: mods } = await NX.sb.from('training_modules')
+        .select('*')
+        .in('id', Array.from(moduleIds))
+        .eq('archived', false);
+      trainingModulesById = {};
+      (mods || []).forEach(m => { trainingModulesById[m.id] = m; });
+
+      // Step 3: my completions for those modules (latest first per module)
+      const userId = getCurrentUserId();
+      if (userId) {
+        const { data: completions } = await NX.sb.from('training_completions')
+          .select('id, module_id, user_id, completed_at, expires_at')
+          .eq('user_id', userId)
+          .in('module_id', Array.from(moduleIds))
+          .order('completed_at', { ascending: false });
+        myTrainingByModule = {};
+        (completions || []).forEach(c => {
+          // Most-recent wins (we ordered desc, so first one we see is latest)
+          if (!myTrainingByModule[c.module_id]) myTrainingByModule[c.module_id] = c;
+        });
+      }
+    } catch (e) {
+      console.warn('[cleaning] loadTrainingData exception:', e);
+    }
+  }
+
+  // Returns [done, total] for a cleaning task's linked training, for current user
+  function trainingProgressForTask(taskId) {
+    const moduleIds = linksByTaskId[taskId] || [];
+    if (!moduleIds.length) return [0, 0];
+    let done = 0;
+    moduleIds.forEach(mid => {
+      const c = myTrainingByModule[mid];
+      if (!c) return;
+      // If module has expiration AND we're past it, don't count as done
+      if (c.expires_at) {
+        const remaining = (new Date(c.expires_at) - new Date()) / (1000 * 60 * 60 * 24);
+        if (remaining < 0) return;  // expired
+      }
+      done++;
+    });
+    return [done, moduleIds.length];
+  }
+
+
   function getDoneState(sectionEs, taskOrder) {
     const k = sectionEs + '_' + taskOrder;
     return !!todayStateByKey[k]?.done;
@@ -322,7 +516,306 @@
     return Array.from(groups.values()).sort((a, b) => a.section_order - b.section_order);
   }
 
-  // ═══ RENDER LAYER ═══════════════════════════════════════════════════════
+  // ═══ PHOTO UPLOAD ════════════════════════════════════════════════════
+  // Open a file picker → upload to cleaning-attachments bucket → INSERT
+  // a row in cleaning_attachments → re-render. Mirrors the pattern from
+  // equipment.js (see equipment_attachments at lines 7665-7690).
+  async function uploadPhotoForTask(task) {
+    if (!NX.sb) { toast('Database unavailable', 'error'); return; }
+    // Build a hidden file input with capture="environment" so mobile
+    // camera defaults to the rear-facing lens (better for photographing
+    // the work area). Falls back to the file picker when no camera.
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.capture = 'environment';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+
+      const MAX_SIZE = 10 * 1024 * 1024;  // 10 MB hard cap
+      if (file.size > MAX_SIZE) {
+        toast(`Photo too large (${Math.round(file.size/1024/1024)}MB max 10MB)`, 'error', 4000);
+        return;
+      }
+
+      toast('Uploading photo…', 'info', 8000);
+      try {
+        // Path scheme: {location}/{date}/{section}-{task_order}-{ts}.{ext}
+        const safeName = file.name.replace(/[^a-z0-9.]/gi, '_');
+        const fname = `${activeLoc}/${today}/${task.section_es.replace(/\s+/g,'_')}-${task.task_order}-${Date.now()}-${safeName}`;
+        const { error: upErr } = await NX.sb.storage
+          .from('cleaning-attachments')
+          .upload(fname, file, { upsert: false, contentType: file.type });
+        if (upErr) throw upErr;
+
+        const { data: { publicUrl } } = NX.sb.storage
+          .from('cleaning-attachments').getPublicUrl(fname);
+
+        const { error: dbErr } = await NX.sb.from('cleaning_attachments').insert({
+          location:       activeLoc,
+          log_date:       today,
+          section:        task.section_es,
+          task_index:     task.task_order,
+          file_url:       publicUrl,
+          mime_type:      file.type,
+          file_size:      file.size,
+          uploaded_by:    getUserName(),
+          uploaded_by_id: getCurrentUserId(),
+        });
+        if (dbErr) throw dbErr;
+
+        // Mark the task done if it isn't already — uploading proof is a
+        // strong signal of completion. Caller can uncheck if they were
+        // mid-task.
+        if (!getDoneState(task.section_es, task.task_order)) {
+          setDoneState(task.section_es, task.task_order, true);
+          await persistDone(task.section_es, task.task_order, true);
+        }
+
+        await loadAttachments();
+        render();
+        toast('Photo saved', 'info', 1600);
+      } catch (e) {
+        console.error('[cleaning] photo upload:', e);
+        toast('Upload failed: ' + (e.message || ''), 'error', 4500);
+      }
+    });
+    input.click();
+  }
+
+  async function deletePhoto(attachmentId, fileUrl) {
+    if (!confirm('Delete this photo?')) return;
+    if (!NX.sb) return;
+    try {
+      // Strip bucket prefix from URL to get the storage path
+      const m = (fileUrl || '').match(/cleaning-attachments\/(.+)$/);
+      if (m && m[1]) {
+        await NX.sb.storage.from('cleaning-attachments').remove([m[1]]);
+      }
+      await NX.sb.from('cleaning_attachments').delete().eq('id', attachmentId);
+      await loadAttachments();
+      render();
+      toast('Photo removed', 'info', 1400);
+    } catch (e) {
+      console.error('[cleaning] deletePhoto:', e);
+      toast('Could not delete', 'error');
+    }
+  }
+
+  function openPhotoViewer(url) {
+    // Lightweight full-screen image viewer. Tap-anywhere to dismiss.
+    const v = document.createElement('div');
+    v.className = 'clean-photo-viewer';
+    v.innerHTML = `
+      <div class="clean-photo-viewer-bg"></div>
+      <img class="clean-photo-viewer-img" src="${esc(url)}" alt="">
+      <button class="clean-photo-viewer-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    `;
+    const close = () => v.remove();
+    v.querySelector('.clean-photo-viewer-bg').addEventListener('click', close);
+    v.querySelector('.clean-photo-viewer-close').addEventListener('click', close);
+    document.body.appendChild(v);
+  }
+
+
+  // ═══ COST ENTRY ══════════════════════════════════════════════════════
+  // Opens a tiny modal to record the cost of completing this task today.
+  // Used for pressure washing, deep cleans, contractor work — anything
+  // where money was spent. Stores on cleaning_logs.completion_cost.
+  function openCostEntry(task) {
+    if (!NX.composer?.modal) {
+      const v = prompt('Cost for this task ($):');
+      if (v === null) return;
+      const cost = parseFloat(v);
+      if (isNaN(cost) || cost < 0) return;
+      saveCost(task, cost, '');
+      return;
+    }
+    const existing = costsByKey[task.section_es + '_' + task.task_order];
+    NX.composer.modal({
+      title: 'Log cost',
+      subtitle: `${task.name_en} — ${activeLoc.charAt(0).toUpperCase() + activeLoc.slice(1)}`,
+      buttonLabel: 'Save',
+      fields: [
+        {
+          name: 'cost',
+          label: 'Cost ($)',
+          placeholder: 'e.g. 320.00',
+          value: existing ? String(existing.cost) : '',
+          autofocus: true,
+        },
+        {
+          name: 'note',
+          label: 'Note (optional)',
+          placeholder: 'e.g. Power wash by ContractorCo invoice #4421',
+          value: existing ? existing.note : '',
+        },
+      ],
+      onSubmit: async ({ cost, note }) => {
+        const n = parseFloat(cost);
+        if (isNaN(n) || n < 0) throw new Error('Enter a valid amount');
+        await saveCost(task, n, (note || '').trim());
+      },
+    });
+  }
+
+  async function saveCost(task, cost, note) {
+    if (!NX.sb) throw new Error('Database unavailable');
+    // Upsert into cleaning_logs — completion_cost is a column on the
+    // existing row, not a separate table. The (location, log_date,
+    // section, task_index) UNIQUE composite acts as the key.
+    try {
+      // Mark the task done as a side-effect (recording cost implies done)
+      const wasDone = getDoneState(task.section_es, task.task_order);
+      const { error } = await NX.sb.from('cleaning_logs').upsert({
+        location:              activeLoc,
+        log_date:              today,
+        section:               task.section_es,
+        task_index:            task.task_order,
+        done:                  true,
+        completed_by:          getUserName(),
+        completed_at:          wasDone ? undefined : new Date().toISOString(),
+        completion_cost:       cost,
+        completion_cost_note:  note || null,
+      }, { onConflict: 'location,log_date,task_index,section' });
+      if (error) throw error;
+      setDoneState(task.section_es, task.task_order, true);
+      costsByKey[task.section_es + '_' + task.task_order] = { cost, note: note || '' };
+      render();
+      toast('Cost logged', 'info', 1600);
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  function fmtCost(n) {
+    if (n == null || n === 0) return '';
+    return '$' + (Math.round(n * 100) / 100).toLocaleString(undefined, {
+      minimumFractionDigits: n % 1 === 0 ? 0 : 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+
+  // ═══ AUTO-ESCALATE TO BOARD ════════════════════════════════════════════
+  // For non-daily tasks past their freshness cliff, automatically create
+  // a board card if one doesn't already exist — with a buffer threshold
+  // so we don't escalate a single-day overdue (which is normal noise).
+  // Threshold: overdue by >25% of the task's frequency_days. So a
+  // monthly task escalates ~7d after the cliff; quarterly ~22d; annual
+  // ~91d. Daily tasks never auto-escalate (manual is fine).
+  const AUTO_ESCALATE_OVERDUE_RATIO = 0.25;
+
+  async function runAutoEscalations() {
+    if (!NX.sb) return;
+    const groups = tasksBySection(activeLoc);
+    // Find overdue groups where no card is linked yet
+    const candidates = [];
+    for (const group of groups) {
+      // Skip daily-only sections
+      const nonDaily = group.tasks.filter(t => !DAILY_TYPES.has(t.frequency_type));
+      if (!nonDaily.length) continue;
+      // Already linked? Skip.
+      if (linkedBoardCards[activeLoc + '__' + group.section_es]) continue;
+      // Compute most-overdue task in section
+      let worstRatio = 0;
+      for (const t of nonDaily) {
+        const freq = t.frequency_days || FREQ_BY_TYPE[t.frequency_type]?.days || 30;
+        const hist = lastDoneByKey[t.section_es + '_' + t.task_order];
+        const since = hist ? daysBetween(hist.date, today) : 9999;
+        if (since <= freq) continue;
+        const overRatio = (since - freq) / freq;
+        if (overRatio > worstRatio) worstRatio = overRatio;
+      }
+      if (worstRatio >= AUTO_ESCALATE_OVERDUE_RATIO) {
+        candidates.push(group);
+      }
+    }
+    if (!candidates.length) return;
+
+    // Fire off escalations sequentially (avoid multiple board lookups
+    // hitting the same board api in parallel). Silent — no toast per
+    // escalation; one summary toast at the end.
+    let count = 0;
+    for (const g of candidates) {
+      try {
+        await escalateSectionToBoardSilent(g);
+        count++;
+      } catch (e) {
+        console.warn('[cleaning] auto-escalate failed for', g.section_es, e);
+      }
+    }
+    if (count) {
+      await loadLinkedCards();
+      render();
+      toast(`${count} section${count === 1 ? '' : 's'} sent to board`, 'info', 2400);
+    }
+  }
+
+  // Internal version of escalateSectionToBoard without the user-facing
+  // toasts (auto-escalation should be quiet). Same DB writes.
+  async function escalateSectionToBoardSilent(group) {
+    const { data: bs } = await NX.sb.from('boards')
+      .select('id').eq('archived', false).order('position').limit(1);
+    if (!bs?.length) throw new Error('No board');
+    const boardId = bs[0].id;
+    const { data: ls } = await NX.sb.from('board_lists')
+      .select('*').eq('board_id', boardId).order('position');
+    const list = (ls || []).find(l => /report|todo|triage/i.test(l.name)) || (ls || [])[0];
+    if (!list) throw new Error('No list');
+    const desc = group.tasks.map(t => `• ${t.name_es} / ${t.name_en}`).join('\n');
+    const { error } = await NX.sb.from('kanban_cards').insert({
+      board_id:                boardId,
+      list_id:                 list.id,
+      title:                   `Cleaning · ${group.section_en} · ${activeLoc} (auto)`,
+      description:             desc + '\n\n[Auto-escalated by NEXUS — overdue cleaning section]',
+      cleaning_link_location:  activeLoc,
+      cleaning_link_section:   group.section_es,
+      due_date:                today,
+      position:                Date.now(),
+    });
+    if (error) throw error;
+  }
+
+
+  // ═══ COMING UP — 7-day forward look ══════════════════════════════════
+  // Returns a sorted list of upcoming task cliffs in the next N days,
+  // useful for the "Coming up" strip rendered above the section cards.
+  // Each entry: { task, daysUntilDue, dateStr }
+  function computeComingUp(days = COMING_UP_DAYS) {
+    const out = [];
+    const tasks = tasksByLoc[activeLoc] || [];
+    for (const t of tasks) {
+      // Skip daily — no point telling someone "mop the floor due Tuesday"
+      if (DAILY_TYPES.has(t.frequency_type)) continue;
+      const freq = t.frequency_days || FREQ_BY_TYPE[t.frequency_type]?.days || 30;
+      const hist = lastDoneByKey[t.section_es + '_' + t.task_order];
+      const since = hist ? daysBetween(hist.date, today) : 9999;
+      const daysUntil = freq - since;
+      // Include if due within window (positive = future) OR slightly
+      // overdue (≤2 days). Sort ascending so most-urgent appears first.
+      if (daysUntil > -2 && daysUntil <= days) {
+        out.push({
+          task: t,
+          daysUntil,
+        });
+      }
+    }
+    out.sort((a, b) => a.daysUntil - b.daysUntil);
+    return out;
+  }
+
+
+
   // Card-based design borrowed wholesale from the ordering catalog editor:
   //   • Each section is a card with a gold-line border + rounded corners
   //   • Card head shows: name (bilingual), task count, freshness chip,
@@ -331,6 +824,399 @@
   //   • Each task row: checkbox + bilingual name + freshness mini-bar +
   //     assignee chip + days-of-week pills (when relevant) + edit pencil
   //   • Tap edit pencil → inline form (same ord-vitem-editing pattern)
+
+  // ═══ TRAINING ACTIONS FROM CLEANING (v12.3) ═════════════════════════
+  // The cleaning view can mark training-completion on behalf of the
+  // current user when training mode is on. These helpers wrap the
+  // direct training_completions writes so the cleaning view doesn't
+  // need to depend on the training module being loaded.
+  async function markTrainingCompleteFromCleaning(moduleId) {
+    if (!NX.sb) { toast('Database unavailable', 'error'); return; }
+    const userId = getCurrentUserId();
+    if (!userId) { toast('Not signed in', 'warn'); return; }
+    const mod = trainingModulesById[moduleId];
+    if (!mod) { toast('Module not loaded', 'error'); return; }
+
+    let expiresAt = null;
+    if (mod.renewal_type === 'annual')        expiresAt = new Date(Date.now() + 365 * 86400000).toISOString();
+    else if (mod.renewal_type === 'biennial') expiresAt = new Date(Date.now() + 730 * 86400000).toISOString();
+    else if (mod.renewal_type === 'custom' && mod.expires_after_days) {
+      expiresAt = new Date(Date.now() + mod.expires_after_days * 86400000).toISOString();
+    }
+
+    try {
+      const { error } = await NX.sb.from('training_completions').insert({
+        module_id:    moduleId,
+        user_id:      userId,
+        user_name:    getUserName(),
+        completed_at: new Date().toISOString(),
+        expires_at:   expiresAt,
+      });
+      if (error) throw error;
+      await loadTrainingData();
+      render();
+      toast(`Training complete: ${mod.name_en}`, 'info', 2400);
+    } catch (e) {
+      console.error('[cleaning] markTrainingComplete:', e);
+      toast('Could not save: ' + (e.message || ''), 'error');
+    }
+  }
+
+  async function linkTrainingModuleToTask(taskId, moduleId) {
+    if (!NX.sb) return;
+    try {
+      const { error } = await NX.sb.from('cleaning_task_training_links').insert({
+        cleaning_task_id:   taskId,
+        training_module_id: moduleId,
+      });
+      if (error && error.code !== '23505') throw error;  // 23505 = already exists, fine
+      await loadTrainingData();
+      render();
+    } catch (e) {
+      console.error('[cleaning] linkTrainingModule:', e);
+      toast('Could not link: ' + (e.message || ''), 'error');
+    }
+  }
+
+  async function unlinkTrainingModuleFromTask(taskId, moduleId) {
+    if (!NX.sb) return;
+    try {
+      await NX.sb.from('cleaning_task_training_links').delete()
+        .eq('cleaning_task_id', taskId)
+        .eq('training_module_id', moduleId);
+      await loadTrainingData();
+      render();
+    } catch (e) {
+      console.error('[cleaning] unlinkTrainingModule:', e);
+      toast('Could not unlink: ' + (e.message || ''), 'error');
+    }
+  }
+
+  // Open a picker showing all (non-archived) training modules. User taps
+  // any to link or unlink; multi-link is supported. Live-fetches from
+  // training_modules so we don't depend on the Training view having
+  // ever been visited.
+  async function openTrainingLinkPicker(task, alreadyLinkedIds) {
+    if (!NX.sb) { toast('Database unavailable', 'error'); return; }
+    let allModules = [];
+    try {
+      const { data } = await NX.sb.from('training_modules')
+        .select('id, name_es, name_en, category_en, kind, mandatory')
+        .eq('archived', false)
+        .order('category_order', { ascending: true })
+        .order('module_order',   { ascending: true });
+      allModules = data || [];
+    } catch (e) {
+      toast('Could not load modules', 'error');
+      return;
+    }
+    if (!allModules.length) {
+      toast('No training modules — create some in the Training view first', 'info', 3500);
+      return;
+    }
+
+    const linkedSet = new Set(alreadyLinkedIds || []);
+    const sheet = document.createElement('div');
+    sheet.className = 'clean-train-pick-sheet';
+    sheet.innerHTML = `
+      <div class="clean-train-pick-bg"></div>
+      <div class="clean-train-pick-card">
+        <div class="clean-train-pick-title">Link training to "${esc(task.name_en)}"</div>
+        <div class="clean-train-pick-sub">Tap to link or unlink. Already-linked modules are highlighted.</div>
+        <div class="clean-train-pick-search-wrap">
+          <input type="text" class="clean-train-pick-search" placeholder="Search modules…" autofocus>
+        </div>
+        <div class="clean-train-pick-list">
+          ${allModules.map(m => `
+            <button class="clean-train-pick-item ${linkedSet.has(m.id) ? 'is-linked' : ''}"
+                    data-mod-id="${esc(m.id)}"
+                    data-mod-search="${esc((m.name_en + ' ' + m.name_es + ' ' + (m.category_en || '')).toLowerCase())}">
+              <div class="clean-train-pick-item-head">
+                <span class="clean-train-pick-item-name">${esc(m.name_en)}</span>
+                ${linkedSet.has(m.id)
+                  ? '<span class="clean-train-pick-item-status">Linked</span>'
+                  : '<span class="clean-train-pick-item-status is-add">+ Link</span>'}
+              </div>
+              <div class="clean-train-pick-item-meta">${esc(m.category_en || '')} · ${esc(m.kind)}</div>
+            </button>
+          `).join('')}
+        </div>
+        <div class="clean-train-pick-actions">
+          <button class="clean-train-pick-close">Done</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(sheet);
+
+    const close = () => sheet.remove();
+    sheet.querySelector('.clean-train-pick-bg').addEventListener('click', close);
+    sheet.querySelector('.clean-train-pick-close').addEventListener('click', close);
+
+    const searchInput = sheet.querySelector('.clean-train-pick-search');
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.toLowerCase().trim();
+      sheet.querySelectorAll('.clean-train-pick-item').forEach(item => {
+        const text = item.dataset.modSearch || '';
+        item.style.display = (!q || text.includes(q)) ? '' : 'none';
+      });
+    });
+
+    sheet.querySelectorAll('[data-mod-id]').forEach(item => {
+      item.addEventListener('click', async () => {
+        const moduleId = item.dataset.modId;
+        const isLinked = item.classList.contains('is-linked');
+        item.disabled = true;
+        try {
+          if (isLinked) {
+            await unlinkTrainingModuleFromTask(task.id, moduleId);
+            item.classList.remove('is-linked');
+            const status = item.querySelector('.clean-train-pick-item-status');
+            if (status) { status.textContent = '+ Link'; status.classList.add('is-add'); }
+          } else {
+            await linkTrainingModuleToTask(task.id, moduleId);
+            item.classList.add('is-linked');
+            const status = item.querySelector('.clean-train-pick-item-status');
+            if (status) { status.textContent = 'Linked'; status.classList.remove('is-add'); }
+          }
+        } finally {
+          item.disabled = false;
+        }
+      });
+    });
+  }
+
+
+  // ═══ REORDER (v12.2) ════════════════════════════════════════════════
+  // Move-up / move-down for tasks within a section, and for whole sections
+  // within a location. Implemented as two index swaps + DB updates so the
+  // existing cleaning_logs (keyed on task_index a.k.a. task_order) stays
+  // consistent — old log rows still resolve correctly because we never
+  // gap or re-base, just swap pairs.
+
+  async function moveTaskInSection(task, direction) {
+    if (!NX.sb) return;
+    const peers = (tasksByLoc[activeLoc] || [])
+      .filter(t => t.section_es === task.section_es)
+      .sort((a, b) => a.task_order - b.task_order);
+    const idx = peers.findIndex(t => t.id === task.id);
+    if (idx < 0) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= peers.length) return;
+    const other = peers[swapIdx];
+    try {
+      // Swap their task_order values
+      await NX.sb.from('cleaning_tasks').update({ task_order: other.task_order }).eq('id', task.id);
+      await NX.sb.from('cleaning_tasks').update({ task_order: task.task_order  }).eq('id', other.id);
+      await loadAllTasks();
+      render();
+    } catch (e) {
+      toast('Could not move: ' + (e.message || ''), 'error');
+    }
+  }
+
+  async function moveSectionInLocation(group, direction) {
+    if (!NX.sb) return;
+    const groups = tasksBySection(activeLoc);
+    const idx = groups.findIndex(g => g.section_es === group.section_es);
+    if (idx < 0) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= groups.length) return;
+    const other = groups[swapIdx];
+    const myOrder    = group.tasks[0]?.section_order ?? 0;
+    const otherOrder = other.tasks[0]?.section_order ?? 0;
+    if (myOrder === otherOrder) return;
+    try {
+      await NX.sb.from('cleaning_tasks')
+        .update({ section_order: otherOrder })
+        .eq('location', activeLoc).eq('section_es', group.section_es);
+      await NX.sb.from('cleaning_tasks')
+        .update({ section_order: myOrder })
+        .eq('location', activeLoc).eq('section_es', other.section_es);
+      await loadAllTasks();
+      render();
+    } catch (e) {
+      toast('Could not move section: ' + (e.message || ''), 'error');
+    }
+  }
+
+
+  // ═══ COPY SECTION TO OTHER LOCATIONS (v12.2) ═════════════════════════
+  // Useful when adding a new daily task ("wipe the new espresso machine")
+  // to one location's Comedor and wanting it across all three locations
+  // without re-typing. Copies all tasks in a source section into target
+  // location(s), creating the section there if it doesn't exist. Skips
+  // tasks whose Spanish name already exists in the target — Copy is
+  // idempotent so re-running doesn't duplicate.
+  function openCopySectionDialog(group) {
+    const otherLocs = LOCATIONS.filter(l => l !== activeLoc);
+    if (!otherLocs.length) {
+      toast('No other locations to copy to', 'info');
+      return;
+    }
+    const sheet = document.createElement('div');
+    sheet.className = 'clean-copy-sheet';
+    sheet.innerHTML = `
+      <div class="clean-copy-sheet-bg"></div>
+      <div class="clean-copy-sheet-card">
+        <div class="clean-copy-sheet-title">Copy "${esc(group.section_en)}" to…</div>
+        <div class="clean-copy-sheet-sub">Adds ${group.tasks.length} task${group.tasks.length === 1 ? '' : 's'} to the selected location${otherLocs.length === 1 ? '' : 's'}. Existing tasks won't be duplicated.</div>
+        <div class="clean-copy-sheet-options">
+          ${otherLocs.map(loc => `
+            <label class="clean-copy-option">
+              <input type="checkbox" class="clean-copy-checkbox" data-loc="${esc(loc)}" checked>
+              <span class="clean-copy-option-label">${esc(loc.charAt(0).toUpperCase() + loc.slice(1))}</span>
+              <span class="clean-copy-option-meta" data-existing-count="${esc(loc)}"></span>
+            </label>
+          `).join('')}
+        </div>
+        <div class="clean-copy-sheet-actions">
+          <button class="clean-copy-cancel">Cancel</button>
+          <button class="clean-copy-confirm">Copy</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(sheet);
+
+    // Show count of pre-existing tasks per target location for context
+    otherLocs.forEach(loc => {
+      const existing = (tasksByLoc[loc] || [])
+        .filter(t => t.section_es === group.section_es).length;
+      const label = sheet.querySelector(`[data-existing-count="${loc}"]`);
+      if (label) {
+        label.textContent = existing
+          ? `(${existing} task${existing === 1 ? '' : 's'} already there)`
+          : '(new section)';
+      }
+    });
+
+    const close = () => sheet.remove();
+    sheet.querySelector('.clean-copy-sheet-bg').addEventListener('click', close);
+    sheet.querySelector('.clean-copy-cancel').addEventListener('click', close);
+    sheet.querySelector('.clean-copy-confirm').addEventListener('click', async () => {
+      const targets = Array.from(sheet.querySelectorAll('.clean-copy-checkbox:checked'))
+        .map(cb => cb.dataset.loc);
+      if (!targets.length) { close(); return; }
+      const btn = sheet.querySelector('.clean-copy-confirm');
+      btn.disabled = true;
+      btn.textContent = 'Copying…';
+      try {
+        const total = await copySectionToLocations(group, targets);
+        close();
+        toast(`Copied ${total} task${total === 1 ? '' : 's'} to ${targets.length} location${targets.length === 1 ? '' : 's'}`, 'info', 2400);
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Copy';
+        toast('Copy failed: ' + (e.message || ''), 'error');
+      }
+    });
+  }
+
+  async function copySectionToLocations(sourceGroup, targetLocs) {
+    if (!NX.sb) throw new Error('Database unavailable');
+    let inserted = 0;
+    for (const targetLoc of targetLocs) {
+      const targetTasks = tasksByLoc[targetLoc] || [];
+      const existingSection = targetTasks.filter(t => t.section_es === sourceGroup.section_es);
+      let sectionOrder;
+      if (existingSection.length) {
+        sectionOrder = existingSection[0].section_order;
+      } else {
+        sectionOrder = targetTasks.length
+          ? Math.max(...targetTasks.map(t => t.section_order)) + 1
+          : 0;
+      }
+      let nextTaskOrder = existingSection.length;
+      for (const t of sourceGroup.tasks) {
+        // Idempotency: skip if same Spanish name already in this section
+        const dupe = existingSection.find(et =>
+          et.name_es.trim().toLowerCase() === t.name_es.trim().toLowerCase()
+        );
+        if (dupe) continue;
+        const { error } = await NX.sb.from('cleaning_tasks').insert({
+          location:       targetLoc,
+          section_es:     sourceGroup.section_es,
+          section_en:     sourceGroup.section_en,
+          section_order:  sectionOrder,
+          task_order:     nextTaskOrder++,
+          name_es:        t.name_es,
+          name_en:        t.name_en,
+          frequency_type: t.frequency_type,
+          frequency_days: t.frequency_days,
+          days_of_week:   t.days_of_week,
+          assignee_id:    null,  // Don't carry assignee across locations
+          notes:          t.notes,
+        });
+        if (!error) inserted++;
+      }
+    }
+    await loadAllTasks();
+    render();
+    return inserted;
+  }
+
+
+  // ═══ SECTION KEBAB MENU (v12.2) ══════════════════════════════════════
+  // Tap the small ⋯ button on a section card head → small popup with:
+  //   • Copy to other locations…
+  //   • Move section up
+  //   • Move section down
+  // Lives at viewport-fixed coords like the equipment overflow menu.
+  function openSectionKebab(triggerBtn, group) {
+    document.querySelectorAll('.clean-section-kebab-menu').forEach(m => m.remove());
+
+    const groups = tasksBySection(activeLoc);
+    const idx = groups.findIndex(g => g.section_es === group.section_es);
+    const canUp   = idx > 0;
+    const canDown = idx < groups.length - 1;
+
+    const menu = document.createElement('div');
+    menu.className = 'clean-section-kebab-menu';
+    menu.innerHTML = `
+      <button class="clean-section-kebab-item" data-action="copy">
+        ${svg('plus', 14)} <span>Copy to other locations…</span>
+      </button>
+      <button class="clean-section-kebab-item ${canUp ? '' : 'is-disabled'}" data-action="up">
+        <span class="clean-section-kebab-arrow">↑</span> <span>Move section up</span>
+      </button>
+      <button class="clean-section-kebab-item ${canDown ? '' : 'is-disabled'}" data-action="down">
+        <span class="clean-section-kebab-arrow">↓</span> <span>Move section down</span>
+      </button>
+    `;
+    document.body.appendChild(menu);
+
+    // Position above the trigger, right-aligned
+    const rect = triggerBtn.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    menu.style.bottom   = (window.innerHeight - rect.top + 4) + 'px';
+    menu.style.right    = (window.innerWidth - rect.right) + 'px';
+    menu.style.zIndex   = '8500';
+
+    const close = (e) => {
+      if (e && menu.contains(e.target)) return;
+      menu.remove();
+      document.removeEventListener('click', close, true);
+      document.removeEventListener('touchstart', close, true);
+    };
+    setTimeout(() => {
+      document.addEventListener('click', close, true);
+      document.addEventListener('touchstart', close, true);
+    }, 0);
+
+    menu.querySelectorAll('[data-action]').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = item.dataset.action;
+        if (item.classList.contains('is-disabled')) return;
+        menu.remove();
+        document.removeEventListener('click', close, true);
+        document.removeEventListener('touchstart', close, true);
+        if (action === 'copy') openCopySectionDialog(group);
+        else if (action === 'up')   moveSectionInLocation(group, 'up');
+        else if (action === 'down') moveSectionInLocation(group, 'down');
+      });
+    });
+  }
+
 
   function render() {
     const list = document.getElementById('cleanList');
@@ -366,10 +1252,97 @@
     if (fillEl) fillEl.style.width = pct + '%';
     if (pctEl)  pctEl.textContent  = pct + '%';
 
-    // Render every section card
-    groups.forEach(group => {
-      list.appendChild(renderSectionCard(group));
+    // ─── VIEW MODE TOGGLE ─────────────────────────────────────
+    // "Today" / "All" segmented control + Training mode pill.
+    // Stays at the top of the list; tap either side to flip
+    // between minimal-noise morning view and full-catalog view.
+    // Training pill (rightmost) toggles per-task training affordances.
+    const viewToggle = document.createElement('div');
+    viewToggle.className = 'clean-view-toggle-row';
+    viewToggle.innerHTML = `
+      <div class="clean-view-toggle">
+        <button class="clean-view-toggle-btn ${viewMode === 'today' ? 'is-active' : ''}" data-view="today">Today</button>
+        <button class="clean-view-toggle-btn ${viewMode === 'all'   ? 'is-active' : ''}" data-view="all">All</button>
+      </div>
+      <button class="clean-train-mode-pill ${trainingMode ? 'is-active' : ''}" data-train-toggle title="Show training affordances on each task">
+        ${svg('award', 12)} <span>Training ${trainingMode ? 'on' : 'off'}</span>
+      </button>
+    `;
+    viewToggle.querySelectorAll('[data-view]').forEach(btn => {
+      btn.addEventListener('click', () => setViewMode(btn.dataset.view));
     });
+    viewToggle.querySelector('[data-train-toggle]').addEventListener('click', () => {
+      setTrainingMode(!trainingMode);
+    });
+    list.appendChild(viewToggle);
+
+    // ─── COMING UP strip — 7-day forward look ────────────────────
+    const comingUp = computeComingUp(COMING_UP_DAYS);
+    if (comingUp.length) {
+      const strip = document.createElement('div');
+      strip.className = 'clean-coming-up';
+      strip.innerHTML = `
+        <div class="clean-coming-up-label">${svg('calendar', 12)} Coming up · ${COMING_UP_DAYS}d</div>
+        <div class="clean-coming-up-scroll">
+          ${comingUp.map(c => {
+            const t = c.task;
+            const d = c.daysUntil;
+            const dueLabel = d <= 0
+              ? (d === 0 ? 'Today' : `${Math.abs(d)}d overdue`)
+              : (d === 1 ? 'Tomorrow' : `in ${d}d`);
+            const cls = d <= 0 ? 'is-due' : (d <= 3 ? 'is-soon' : 'is-far');
+            const assigneeName = t.assignee_id
+              ? (usersList.find(u => u.id === t.assignee_id)?.name || '')
+              : '';
+            return `
+              <button class="clean-coming-up-pill ${cls}" data-coming-task-id="${esc(t.id)}">
+                <span class="clean-coming-up-pill-when">${esc(dueLabel)}</span>
+                <span class="clean-coming-up-pill-name">${esc(t.name_en)}</span>
+                ${assigneeName ? `<span class="clean-coming-up-pill-who">· ${esc(assigneeName)}</span>` : ''}
+              </button>
+            `;
+          }).join('')}
+        </div>
+      `;
+      // Tap a pill → expand its section + scroll to it
+      strip.querySelectorAll('[data-coming-task-id]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tid = btn.dataset.comingTaskId;
+          const t = (tasksByLoc[activeLoc] || []).find(x => x.id === tid);
+          if (!t) return;
+          collapsedSections.delete(t.section_es);
+          render();
+          // Scroll to the task row after re-render
+          requestAnimationFrame(() => {
+            const target = document.querySelector(
+              `[data-section-es="${CSS.escape(t.section_es)}"] [data-task-id="${CSS.escape(t.id)}"]`
+            );
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          });
+        });
+      });
+      list.appendChild(strip);
+    }
+
+    // Render every section card — filter by viewMode
+    const visibleGroups = viewMode === 'today'
+      ? groups.filter(g => g.tasks.some(t => DAILY_TYPES.has(t.frequency_type)))
+      : groups;
+
+    if (!visibleGroups.length && groups.length) {
+      // viewMode='today' but no daily sections exist — show a hint
+      const hint = document.createElement('div');
+      hint.className = 'clean-empty-soft';
+      hint.innerHTML = `
+        <div class="clean-empty-soft-text">
+          No daily sections at this location. Tap <b>All</b> above to see scheduled tasks.
+        </div>`;
+      list.appendChild(hint);
+    } else {
+      visibleGroups.forEach(group => {
+        list.appendChild(renderSectionCard(group));
+      });
+    }
 
     renderFooterToolbar(list);
   }
@@ -427,6 +1400,7 @@
       ${onBoard
         ? `<button class="clean-board-pill is-on-board" data-board-jump>${svg('archive', 12)} On board</button>`
         : (needsBoard ? `<button class="clean-board-pill" data-board-add>${svg('plus', 12)} To board</button>` : '')}
+      <button class="clean-card-kebab" aria-label="Section options" data-section-kebab>⋯</button>
       <button class="clean-card-chev" aria-label="Toggle section">${svg('chevron', 18, 2)}</button>
     `;
 
@@ -454,6 +1428,14 @@
       boardJumpBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (NX.switchTo) NX.switchTo('board');
+      });
+    }
+    // Section kebab → Copy / Move up / Move down
+    const kebabBtn = head.querySelector('[data-section-kebab]');
+    if (kebabBtn) {
+      kebabBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openSectionKebab(kebabBtn, group);
       });
     }
     card.appendChild(head);
@@ -594,6 +1576,80 @@
       if (def) freqHTML = `<span class="clean-freq-tag">${esc(def.labelEn)}</span>`;
     }
 
+    // Photos for this task today
+    const taskKey = task.section_es + '_' + task.task_order;
+    const photos = attachmentsByKey[taskKey] || [];
+    let photosHTML = '';
+    if (photos.length) {
+      photosHTML = `<div class="clean-task-photos" data-photos>${
+        photos.map(p => `
+          <button class="clean-task-photo" data-photo-url="${esc(p.file_url)}" data-photo-id="${esc(p.id)}" aria-label="View photo">
+            <img src="${esc(p.file_url)}" alt="" loading="lazy">
+          </button>
+        `).join('')
+      }</div>`;
+    }
+
+    // Cost chip — only renders if a cost was logged today
+    const costEntry = costsByKey[taskKey];
+    let costHTML = '';
+    if (costEntry && costEntry.cost > 0) {
+      costHTML = `<span class="clean-cost-chip" title="${esc(costEntry.note || '')}">${esc(fmtCost(costEntry.cost))}</span>`;
+    }
+
+    // Training pill (visible only when training mode is on AND there
+    // are linked modules). Shows "🎓 done/total"; tap to expand the
+    // inline panel beneath the row.
+    let trainingPillHTML = '';
+    let trainingPanelHTML = '';
+    if (trainingMode) {
+      const [doneCount, totalCount] = trainingProgressForTask(task.id);
+      if (totalCount > 0) {
+        const allDone = doneCount === totalCount;
+        const isOpen = expandedTrainingTaskId === task.id;
+        trainingPillHTML = `
+          <button class="clean-train-pill ${allDone ? 'is-done' : 'is-pending'} ${isOpen ? 'is-open' : ''}"
+                  data-train-pill aria-label="Toggle training panel">
+            ${svg('award', 11)} <span>${doneCount}/${totalCount}</span>
+          </button>`;
+        if (isOpen) {
+          trainingPanelHTML = `
+            <div class="clean-train-panel">
+              ${(linksByTaskId[task.id] || []).map(modId => {
+                const m = trainingModulesById[modId];
+                if (!m) return '';
+                const c = myTrainingByModule[modId];
+                let status, statusCls;
+                if (c) {
+                  if (c.expires_at && (new Date(c.expires_at) - new Date()) / 86400000 < 0) {
+                    status = 'Expired'; statusCls = 'is-expired';
+                  } else if (c.expires_at && (new Date(c.expires_at) - new Date()) / 86400000 < 30) {
+                    const d = Math.max(0, Math.floor((new Date(c.expires_at) - new Date()) / 86400000));
+                    status = `Expiring · ${d}d`; statusCls = 'is-expiring';
+                  } else {
+                    status = 'Done'; statusCls = 'is-done';
+                  }
+                } else {
+                  status = 'Pending'; statusCls = 'is-pending';
+                }
+                const showMarkBtn = !c || statusCls === 'is-expired' || statusCls === 'is-expiring';
+                return `
+                  <div class="clean-train-panel-row ${statusCls}">
+                    <div class="clean-train-panel-info">
+                      <div class="clean-train-panel-name">${esc(m.name_en)}</div>
+                      <div class="clean-train-panel-meta">${esc(m.kind)}${m.category_en ? ' · ' + esc(m.category_en) : ''}</div>
+                    </div>
+                    <span class="clean-train-panel-status ${statusCls}">${esc(status)}</span>
+                    ${m.resource_url ? `<a class="clean-train-panel-resource" href="${esc(m.resource_url)}" target="_blank" rel="noopener noreferrer">Open</a>` : ''}
+                    ${showMarkBtn ? `<button class="clean-train-panel-mark" data-mark-mod="${esc(modId)}">${svg('check', 12, 2.5)}</button>` : ''}
+                  </div>
+                `;
+              }).join('')}
+            </div>`;
+        }
+      }
+    }
+
     row.innerHTML = `
       <button class="clean-task-check" aria-label="Mark done" data-toggle-done>
         ${done ? svg('check', 14, 2.5) : ''}
@@ -605,13 +1661,42 @@
           ${freqHTML}
           ${daysHTML}
           ${assigneeHTML}
+          ${costHTML}
+          ${trainingPillHTML}
         </div>
         ${freshHTML}
+        ${photosHTML}
+        ${trainingPanelHTML}
       </div>
-      <button class="clean-task-edit" aria-label="Edit task" data-edit-task>
-        ${svg('pen', 14, 2)}
-      </button>
+      <div class="clean-task-actions">
+        <button class="clean-task-action-btn" aria-label="Add photo" data-add-photo title="Photo">
+          ${svg('camera', 14, 2)}
+        </button>
+        <button class="clean-task-action-btn" aria-label="Log cost" data-log-cost title="Cost">
+          <span style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:13px">$</span>
+        </button>
+        <button class="clean-task-action-btn" aria-label="Edit task" data-edit-task title="Edit">
+          ${svg('pen', 14, 2)}
+        </button>
+      </div>
     `;
+
+    // Training pill toggles the expanded panel
+    const tpill = row.querySelector('[data-train-pill]');
+    if (tpill) {
+      tpill.addEventListener('click', (e) => {
+        e.stopPropagation();
+        expandedTrainingTaskId = (expandedTrainingTaskId === task.id) ? null : task.id;
+        render();
+      });
+    }
+    // Mark-complete buttons inside training panel
+    row.querySelectorAll('[data-mark-mod]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await markTrainingCompleteFromCleaning(btn.dataset.markMod);
+      });
+    });
 
     // Wire interactions
     row.querySelector('[data-toggle-done]').addEventListener('click', async () => {
@@ -624,6 +1709,33 @@
       editingTaskId = task.id;
       addingToSection = null;
       render();
+    });
+    row.querySelector('[data-add-photo]').addEventListener('click', () => {
+      uploadPhotoForTask(task);
+    });
+    row.querySelector('[data-log-cost]').addEventListener('click', () => {
+      openCostEntry(task);
+    });
+    // Tap a photo thumbnail → full-screen viewer; long-press → delete
+    row.querySelectorAll('[data-photo-url]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openPhotoViewer(btn.dataset.photoUrl);
+      });
+      // Long-press (700ms) → confirm delete
+      let pressTimer = null;
+      const startPress = () => {
+        pressTimer = setTimeout(() => {
+          deletePhoto(btn.dataset.photoId, btn.dataset.photoUrl);
+        }, 700);
+      };
+      const cancelPress = () => { if (pressTimer) clearTimeout(pressTimer); pressTimer = null; };
+      btn.addEventListener('touchstart', startPress, { passive: true });
+      btn.addEventListener('touchend',   cancelPress);
+      btn.addEventListener('touchcancel', cancelPress);
+      btn.addEventListener('mousedown',  startPress);
+      btn.addEventListener('mouseup',    cancelPress);
+      btn.addEventListener('mouseleave', cancelPress);
     });
 
     return row;
@@ -704,6 +1816,32 @@
         <textarea class="clean-edit-textarea" data-field="notes" rows="2"
                   placeholder="e.g. Use the green-handled brush from under the bar.">${esc(task.notes || '')}</textarea>
       </div>
+      ${isNew ? '' : `
+      <div class="clean-edit-row">
+        <label class="clean-edit-label">Training modules <span class="clean-edit-label-hint">(staff must complete to do this task)</span></label>
+        <div class="clean-edit-train-links" data-train-links-container>
+          ${(linksByTaskId[task.id] || []).map(modId => {
+            const m = trainingModulesById[modId];
+            return `
+              <span class="clean-edit-train-link" data-linked-mod="${esc(modId)}">
+                ${svg('award', 11)} <span>${esc(m ? m.name_en : modId.slice(0,8))}</span>
+                <button class="clean-edit-train-link-x" data-unlink-mod="${esc(modId)}" aria-label="Unlink">×</button>
+              </span>
+            `;
+          }).join('')}
+          <button class="clean-edit-train-link-add" type="button" data-link-add>${svg('plus', 12)} <span>Link module</span></button>
+        </div>
+      </div>
+      `}
+      ${isNew ? '' : `
+      <div class="clean-edit-row clean-edit-reorder-row">
+        <label class="clean-edit-label">Position</label>
+        <div class="clean-edit-reorder">
+          <button class="clean-edit-reorder-btn" type="button" data-move="up" aria-label="Move task up">↑ Up</button>
+          <button class="clean-edit-reorder-btn" type="button" data-move="down" aria-label="Move task down">↓ Down</button>
+        </div>
+      </div>
+      `}
       <div class="clean-edit-actions">
         <button class="clean-edit-cancel" type="button">Cancel</button>
         ${isNew ? '' : '<button class="clean-edit-archive" type="button">Archive</button>'}
@@ -732,6 +1870,33 @@
       editingTaskId = null;
       addingToSection = null;
       render();
+    });
+
+    // Move up / Move down — close the form and re-render the list
+    wrap.querySelectorAll('[data-move]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const direction = btn.dataset.move;
+        editingTaskId = null;
+        await moveTaskInSection(task, direction);
+      });
+    });
+
+    // Training-link controls (only present when not isNew)
+    const linkAddBtn = wrap.querySelector('[data-link-add]');
+    if (linkAddBtn) {
+      linkAddBtn.addEventListener('click', () => {
+        // Make sure caches are loaded so the picker shows the latest
+        // existing-link state.
+        loadTrainingData().then(() => {
+          openTrainingLinkPicker(task, linksByTaskId[task.id] || []);
+        });
+      });
+    }
+    wrap.querySelectorAll('[data-unlink-mod]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await unlinkTrainingModuleFromTask(task.id, btn.dataset.unlinkMod);
+      });
     });
 
     // Archive (existing tasks only) — single tap with toast undo
@@ -1229,6 +2394,58 @@
       lines.push('');
     }
 
+    // ─── COSTS section ─────────────────────────────────────────
+    // Aggregate any task completions today that recorded a cost.
+    const costEntries = Object.entries(costsByKey)
+      .filter(([_, v]) => v && v.cost > 0)
+      .map(([k, v]) => {
+        const [secEs, taskOrder] = (() => {
+          const idx = k.lastIndexOf('_');
+          return [k.slice(0, idx), parseInt(k.slice(idx + 1), 10)];
+        })();
+        const t = (tasksByLoc[activeLoc] || []).find(
+          x => x.section_es === secEs && x.task_order === taskOrder
+        );
+        return { task: t, secEs, cost: v.cost, note: v.note };
+      })
+      .filter(e => e.task);
+    if (costEntries.length) {
+      const total = costEntries.reduce((acc, e) => acc + e.cost, 0);
+      lines.push(sectionHeader('COSTS', `total ${fmtCost(total)}`));
+      costEntries.forEach(e => {
+        const name = padRight(e.task.name_en, 28);
+        const cost = padLeft(fmtCost(e.cost), 8);
+        const noteFrag = e.note ? `  — ${e.note}` : '';
+        lines.push(`  ${name}${cost}${noteFrag}`);
+      });
+      lines.push('');
+    }
+
+    // ─── PHOTOS section ────────────────────────────────────────
+    // Just a count + link list. Bodies are mailto:, so URLs render as
+    // tap-to-open in any mail client. We list one URL per line so each
+    // is selectable.
+    const totalPhotos = Object.values(attachmentsByKey)
+      .reduce((acc, arr) => acc + arr.length, 0);
+    if (totalPhotos > 0) {
+      lines.push(sectionHeader('PHOTOS', `${totalPhotos} attached`));
+      Object.entries(attachmentsByKey).forEach(([k, arr]) => {
+        const [secEs, taskOrder] = (() => {
+          const idx = k.lastIndexOf('_');
+          return [k.slice(0, idx), parseInt(k.slice(idx + 1), 10)];
+        })();
+        const t = (tasksByLoc[activeLoc] || []).find(
+          x => x.section_es === secEs && x.task_order === taskOrder
+        );
+        const label = t ? t.name_en : secEs;
+        lines.push(`  ${label} (${arr.length})`);
+        arr.forEach(p => {
+          lines.push(`    ${p.file_url}`);
+        });
+      });
+      lines.push('');
+    }
+
     // ─── Footer ────────────────────────────────────────────────
     lines.push(rule());
     lines.push('Photos and full audit trail in NEXUS.');
@@ -1508,8 +2725,14 @@
         addingToSection = null;
         await loadTodayState();
         await loadHistory();
+        await loadAttachments();
+        await loadCosts();
         await loadLinkedCards();
+        await loadTrainingData();
         render();
+        // Auto-escalate after a short delay so the user sees the
+        // location's data first before any toast fires.
+        setTimeout(() => { runAutoEscalations().catch(() => {}); }, 800);
       });
     });
 
@@ -1540,12 +2763,19 @@
     await loadUsers();
     await loadTodayState();
     await loadHistory();
+    await loadAttachments();
+    await loadCosts();
     await loadLinkedCards();
+    await loadTrainingData();
 
     // Register with NX.archive
     registerArchiveContributor();
 
     render();
+
+    // Run auto-escalation pass after first render. Wrapped in a delay
+    // so the user sees their checklist before any "sent to board" toast.
+    setTimeout(() => { runAutoEscalations().catch(() => {}); }, 1500);
   }
 
   async function show() {
@@ -1586,7 +2816,10 @@
     // Refresh state for current location
     await loadTodayState();
     await loadHistory();
+    await loadAttachments();
+    await loadCosts();
     await loadLinkedCards();
+    await loadTrainingData();
     render();
   }
 
