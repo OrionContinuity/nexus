@@ -1474,33 +1474,19 @@
          heavy. activatePane() in duties.js still owns the pane visibility
          toggle; it's a no-op when no .duties-tab elements exist. -->
 
-    <!-- ─── Training launcher (top of Duties view, above all panes) ──
-         Lives outside the cleaning / ordering pane wrappers so it stays
-         visible regardless of which pane is active. Tap → switches the
-         whole app to the Training view via NX.switchTo('train'). The
-         subtitle is dynamically updated by duties.js to surface the
-         current user's pending count. -->
-    <div class="duties-train-launcher-wrap">
-      <button class="duties-train-launcher" id="dutiesTrainLauncher" type="button" aria-label="Open Training">
-        <span class="duties-train-launcher-icon">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
-          </svg>
-        </span>
-        <span class="duties-train-launcher-body">
-          <span class="duties-train-launcher-title">Training</span>
-          <span class="duties-train-launcher-sub" id="dutiesTrainLauncherSub">Certifications, videos, sign-offs</span>
-        </span>
-        <span class="duties-train-launcher-chev">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="9 18 15 12 9 6"/>
-          </svg>
-        </span>
-      </button>
-    </div>
-
     <!-- ─── Cleaning pane (v12 — DB-backed catalog, freshness, email) ───────── -->
     <div class="duties-pane" data-pane="cleaning" id="dutiesCleaningPane">
+    <!-- Top-left X closes the cleaning takeover and returns to Home.
+         Lives in its own row above the location tabs so on small screens
+         it's never crowded by the date/+EXTRA/Archive controls. -->
+    <div class="clean-takeover-bar">
+      <button class="clean-takeover-close" id="cleanTakeoverClose" type="button" aria-label="Close cleaning">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+      <span class="clean-takeover-title">Cleaning</span>
+    </div>
     <div class="clean-header">
       <button class="clean-tab active" data-cloc="suerte">Suerte</button>
       <button class="clean-tab" data-cloc="este">Este</button>
@@ -1560,9 +1546,6 @@
       <button class="train-archive-trigger" id="trainArchive" type="button" aria-label="Open archive">Archive</button>
     </div>
     <div class="train-list" id="trainList"></div>
-    <div class="train-footer">
-      <button class="train-submit" id="trainSubmit" data-i18n="submitTraining">Email Status</button>
-    </div>
   </div>
 
   <!-- CALENDAR -->
@@ -3219,23 +3202,25 @@
         }
 
         if (target === 'archive') {
-          // Find the archive chip + simulate a tap. Same retry pattern
-          // as Parts above — the chip is part of equipment.js's render
-          // output, so it doesn't exist until the module has loaded
-          // AND its initial render has run. Stretched budget to 5s.
+          // Calls openArchiveWorld() which sets the filter + adds a
+          // dedicated banner + body class for visual distinction. Same
+          // retry pattern as Parts since equipment.js is lazy-loaded.
           let attempts = 0;
           const maxAttempts = 60;
-          const trySet = () => {
-            const chip = document.querySelector('.eq-chip[data-filter="archived"][data-value="only"]');
-            if (chip) { chip.click(); return; }
+          const tryOpen = () => {
+            const fn = window.NX?.modules?.equipment?.openArchiveWorld;
+            if (typeof fn === 'function') {
+              fn();
+              return;
+            }
             if (++attempts < maxAttempts) {
-              setTimeout(trySet, 80);
+              setTimeout(tryOpen, 80);
             } else {
-              console.warn('[equipDial] archive chip not found after retry budget');
+              console.warn('[equipDial] openArchiveWorld not available after retry budget');
               if (window.NX?.toast) window.NX.toast('Archive view failed to load — try again', 'error', 3000);
             }
           };
-          trySet();
+          tryOpen();
           return;
         }
 
