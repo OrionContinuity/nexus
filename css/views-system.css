@@ -1752,3 +1752,119 @@
 }
 .b-parts-bom-chip.is-selected .b-parts-bom-chip-price { opacity: 1; }
 
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   v14 — EQUIPMENT EDIT BUTTON + ARCHIVE WORLD
+   ───────────────────────────────────────────
+   Promotes "Edit Everything" out of the overflow menu and into a top-level
+   action button. Adds the dedicated Archive world — distinctive banner +
+   muted-color treatment so users know they're looking at archived items
+   rather than a regular filtered list.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Edit button — sits between Report Issue and the overflow menu */
+.eq-action-cta-tertiary {
+  background: rgba(212, 164, 78, 0.14) !important;
+  border: 1px solid rgba(212, 164, 78, 0.32) !important;
+  color: var(--accent, #d4a44e) !important;
+  flex: 0 0 auto !important;
+  min-width: 80px;
+}
+.eq-action-cta-tertiary:hover {
+  background: rgba(212, 164, 78, 0.22) !important;
+  border-color: var(--accent, #d4a44e) !important;
+}
+.eq-action-cta-tertiary .eq-action-cta-icon {
+  color: var(--accent, #d4a44e) !important;
+}
+
+/* Make the bottom action bar use flex-wrap so 4 buttons fit on phones.
+   Each button becomes more compact when crowded. */
+.eq-detail-actions-v2 {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.eq-detail-actions-v2 .eq-action-cta {
+  flex: 1 1 auto;
+}
+@media (max-width: 480px) {
+  .eq-detail-actions-v2 .eq-action-cta-label {
+    font-size: 11.5px;
+  }
+}
+
+
+/* ─── Archive world banner ──────────────────────────────────────── */
+.eq-archive-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin: 10px 12px 6px;
+  background: linear-gradient(180deg,
+    rgba(122, 113, 103, 0.18) 0%,
+    rgba(122, 113, 103, 0.06) 100%);
+  border: 1px solid rgba(122, 113, 103, 0.32);
+  border-radius: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.eq-archive-banner-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid rgba(122, 113, 103, 0.40);
+  color: var(--text, #f0e9da);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 150ms ease;
+}
+.eq-archive-banner-close:hover {
+  background: rgba(207, 89, 89, 0.16);
+  border-color: #cf5959;
+  color: #cf5959;
+}
+.eq-archive-banner-titles { flex: 1; min-width: 0; }
+.eq-archive-banner-title {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text, #f0e9da);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.eq-archive-banner-sub {
+  margin-top: 2px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--faint, #7a7167);
+  text-transform: uppercase;
+}
+.eq-archive-banner-icon {
+  color: var(--faint, #7a7167);
+  flex-shrink: 0;
+}
+
+/* ─── Visual treatment for archive world (muted) ────────────────── */
+body.is-equipment-archive-world #equipmentView {
+  background:
+    radial-gradient(ellipse at top,
+      rgba(122, 113, 103, 0.08) 0%,
+      transparent 60%),
+    var(--bg, #0e0c08);
+}
+body.is-equipment-archive-world .eq-card,
+body.is-equipment-archive-world .eq-row {
+  filter: saturate(0.7) brightness(0.94);
+}
+body.is-equipment-archive-world .eq-card:hover,
+body.is-equipment-archive-world .eq-row:hover {
+  filter: saturate(0.92) brightness(1.02);
+}
