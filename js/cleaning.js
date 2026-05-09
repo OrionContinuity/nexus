@@ -2792,53 +2792,176 @@
   }
 
   // ─── ACTION: Submit & email (writes log, then opens mailto:) ──────────
+  // Open an editable email-compose review sheet (matches the ordering
+  // module's review-then-send flow). Pre-fills To/CC/BCC/Subject/Body
+  // from defaults; user can edit any field before tapping Send. On send
+  // the daily report is persisted, then mailto: is opened. Designed to
+  // mirror Ordering's review screen — same labels, same flow, same look.
   async function submitWithEmail() {
     const locName = activeLoc.charAt(0).toUpperCase() + activeLoc.slice(1);
     let body, subject;
     try {
-      body = buildEmailBody(locName);
+      body    = buildEmailBody(locName);
       subject = buildEmailSubject();
     } catch (e) {
       toast('Could not build report: ' + (e.message || ''), 'error');
       return;
     }
 
-    // Long-email warning (the user explicitly opted in to long emails,
-    // but we still warn so they can copy/paste into a different client
-    // if their default mail app truncates).
-    const E = (window.NX && NX.email) || null;
-    const warnLen = E ? E.BODY_WARN_LEN : 1900;
-    if (body.length > warnLen) {
-      const ok = confirm(
-        `This email is long (${body.length} chars). Some mail apps may truncate. Send anyway?`
-      );
-      if (!ok) return;
-    }
-
-    // Persist BEFORE opening mailto — iOS may pause JS once the mail
-    // app takes focus, so the DB write must complete first.
+    // Resolve sensible defaults for the recipient list.
+    // - Default To: current user's email (if known)
+    // - Default CC/BCC: empty (user adds whoever they want)
+    // - User can persist their own preferred recipients via localStorage
+    //   so they don't have to retype every shift.
+    const userEmail = (NX.currentUser && NX.currentUser.email) || '';
+    let savedTo, savedCc, savedBcc;
     try {
-      await persistDailyLog(body);
-    } catch (e) {
-      toast('Save failed (continuing to email): ' + (e.message || ''), 'warn', 4000);
+      savedTo  = localStorage.getItem('nexus_clean_email_to')  || userEmail;
+      savedCc  = localStorage.getItem('nexus_clean_email_cc')  || '';
+      savedBcc = localStorage.getItem('nexus_clean_email_bcc') || '';
+    } catch (_) {
+      savedTo = userEmail; savedCc = ''; savedBcc = '';
     }
 
-    // Resolve recipient email — currentUser's email if available
-    const toAddress = (NX.currentUser && NX.currentUser.email) || '';
-    const url = E
-      ? E.buildMailtoUrl(toAddress, subject, body)
-      : `mailto:${encodeURIComponent(toAddress)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    openCleanComposeSheet({
+      to:      savedTo,
+      cc:      savedCc,
+      bcc:     savedBcc,
+      subject,
+      body,
+    });
+  }
 
-    if (!toAddress) {
-      // No email on file — open the mailto: anyway with empty TO so the
-      // user can fill in their address in the mail app.
-      toast('No email on file — fill it in your mail app', 'info', 3000);
-    }
+  // ═══ EMAIL COMPOSE REVIEW SHEET (v12.5) ═══════════════════════════════
+  // Modeled after ordering's review screen. Full-screen takeover sheet
+  // with editable To / CC / BCC chips, editable Subject, editable Body
+  // (multiline), then a Send pill at the bottom that fires mailto:.
+  function openCleanComposeSheet(initial) {
+    const sheet = document.createElement('div');
+    sheet.className = 'clean-compose-sheet';
+    sheet.innerHTML = `
+      <div class="clean-compose-bg"></div>
+      <div class="clean-compose-card">
+        <div class="clean-compose-head">
+          <button class="clean-compose-back" aria-label="Back">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+            </svg>
+          </button>
+          <div class="clean-compose-titles">
+            <div class="clean-compose-title">Review &amp; send</div>
+            <div class="clean-compose-sub">Edit any field, then tap Send</div>
+          </div>
+        </div>
 
-    // Same iOS-safe pattern as ordering: change href, don't open new
-    // tab. Mail app takes focus, JS may pause, but the persist has
-    // already completed.
-    setTimeout(() => { window.location.href = url; }, 100);
+        <div class="clean-compose-body">
+          <label class="clean-compose-label">To</label>
+          <input type="email" class="clean-compose-input" id="cleanComposeTo"
+                 value="${esc(initial.to || '')}" placeholder="recipient@example.com" inputmode="email" autocomplete="off">
+
+          <label class="clean-compose-label">CC <span class="clean-compose-hint">(comma-separated)</span></label>
+          <input type="text" class="clean-compose-input" id="cleanComposeCc"
+                 value="${esc(initial.cc || '')}" placeholder="optional" inputmode="email" autocomplete="off">
+
+          <label class="clean-compose-label">BCC <span class="clean-compose-hint">(silent — others won't see)</span></label>
+          <input type="text" class="clean-compose-input" id="cleanComposeBcc"
+                 value="${esc(initial.bcc || '')}" placeholder="optional" inputmode="email" autocomplete="off">
+
+          <label class="clean-compose-label">Subject</label>
+          <input type="text" class="clean-compose-input" id="cleanComposeSubject"
+                 value="${esc(initial.subject || '')}" autocomplete="off">
+
+          <label class="clean-compose-label">Message</label>
+          <textarea class="clean-compose-textarea" id="cleanComposeBody"
+                    rows="12">${esc(initial.body || '')}</textarea>
+
+          <label class="clean-compose-checkbox">
+            <input type="checkbox" id="cleanComposeRemember" checked>
+            <span>Remember these recipients next time</span>
+          </label>
+        </div>
+
+        <div class="clean-compose-foot">
+          <button class="clean-compose-cancel" type="button">Cancel</button>
+          <button class="clean-compose-send" type="button">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+            <span>Send</span>
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(sheet);
+
+    const close = () => sheet.remove();
+    sheet.querySelector('.clean-compose-bg').addEventListener('click', close);
+    sheet.querySelector('.clean-compose-back').addEventListener('click', close);
+    sheet.querySelector('.clean-compose-cancel').addEventListener('click', close);
+
+    sheet.querySelector('.clean-compose-send').addEventListener('click', async () => {
+      const to       = sheet.querySelector('#cleanComposeTo').value.trim();
+      const ccStr    = sheet.querySelector('#cleanComposeCc').value.trim();
+      const bccStr   = sheet.querySelector('#cleanComposeBcc').value.trim();
+      const subject  = sheet.querySelector('#cleanComposeSubject').value;
+      const body     = sheet.querySelector('#cleanComposeBody').value;
+      const remember = sheet.querySelector('#cleanComposeRemember').checked;
+
+      if (!to) {
+        toast('Add a To address', 'warn');
+        return;
+      }
+
+      // Persist recipient prefs if requested
+      if (remember) {
+        try {
+          localStorage.setItem('nexus_clean_email_to',  to);
+          localStorage.setItem('nexus_clean_email_cc',  ccStr);
+          localStorage.setItem('nexus_clean_email_bcc', bccStr);
+        } catch (_) {}
+      }
+
+      // Long-body warning
+      const E = (window.NX && NX.email) || null;
+      const warnLen = E ? E.BODY_WARN_LEN : 1900;
+      if (body.length > warnLen) {
+        const ok = confirm(`This email is long (${body.length} chars). Some mail apps may truncate. Send anyway?`);
+        if (!ok) return;
+      }
+
+      // Persist daily log BEFORE handing off to the mail app — iOS may
+      // pause JS the moment the mail app takes focus.
+      const sendBtn = sheet.querySelector('.clean-compose-send');
+      sendBtn.disabled = true;
+      sendBtn.querySelector('span').textContent = 'Saving…';
+      try {
+        await persistDailyLog(body);
+      } catch (e) {
+        toast('Save failed (continuing to email): ' + (e.message || ''), 'warn', 4000);
+      }
+
+      // Build mailto: with cc/bcc lists. Same encoding rules as ordering's
+      // buildMailtoUrl (mailto wants %20, not +).
+      const ccList  = ccStr.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean);
+      const bccList = bccStr.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean);
+      const url = E
+        ? E.buildMailtoUrl(to, subject, body, ccList, bccList)
+        : buildLocalMailto(to, subject, body, ccList, bccList);
+
+      sendBtn.querySelector('span').textContent = 'Opening mail…';
+      close();
+      // 100ms breather so the close animation paints before iOS context-switches
+      setTimeout(() => { window.location.href = url; }, 100);
+    });
+  }
+
+  // Tiny mailto: fallback if NX.email isn't loaded for any reason.
+  function buildLocalMailto(to, subject, body, ccList, bccList) {
+    const enc = s => encodeURIComponent(s).replace(/\+/g, '%20');
+    const params = [`subject=${enc(subject)}`, `body=${enc(body)}`];
+    if (ccList && ccList.length)  params.push(`cc=${ccList.map(e => encodeURIComponent(e)).join(',')}`);
+    if (bccList && bccList.length) params.push(`bcc=${bccList.map(e => encodeURIComponent(e)).join(',')}`);
+    return `mailto:${encodeURIComponent(to)}?${params.join('&')}`;
   }
 
   // ─── BUTTON HANDLER: Submit Daily Report ──────────────────────────────
@@ -2998,6 +3121,22 @@
   async function init() {
     if (initialized) return;
     initialized = true;
+
+    // Wire the takeover-close button: returns to Home. The body class
+    // `view-clean` is maintained by app.js's setupNav and is what CSS
+    // hooks into for the takeover treatment, so it clears automatically
+    // when we navigate away.
+    const closeBtn = document.getElementById('cleanTakeoverClose');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        if (window.NX && typeof NX.switchTo === 'function') {
+          NX.switchTo('home');
+        } else {
+          const homeBtn = document.querySelector('[data-view="home"]');
+          if (homeBtn) homeBtn.click();
+        }
+      });
+    }
 
     // Wire the date display
     const dateEl = document.getElementById('cleanDate');
