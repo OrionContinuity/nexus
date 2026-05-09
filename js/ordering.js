@@ -42,9 +42,9 @@
   // by default. Errors always fire — they're the signal that survives
   // through the noise. Flip `NX.debug = true` in DevTools to turn the
   // log/info/warn channels back on for postmortem investigation.
-  const dlog  = (...a) => { if (window.NX && NX.debug) console.log(...a);  };
-  const dinfo = (...a) => { if (window.NX && NX.debug) console.info(...a); };
-  const dwarn = (...a) => { if (window.NX && NX.debug) console.warn(...a); };
+  const dlog  = (...a) => { if (window.NX && NX.debug) dlog(...a);  };
+  const dinfo = (...a) => { if (window.NX && NX.debug) dinfo(...a); };
+  const dwarn = (...a) => { if (window.NX && NX.debug) dwarn(...a); };
 
   // ─── CONSTANTS ────────────────────────────────────────────────────
   const PANE_SEL    = '#dutiesOrderingPane';
@@ -475,6 +475,11 @@
     if (!root) return null;
     root.innerHTML = `
       <div class="ord-header">
+        <button class="ord-takeover-close" id="ordTakeoverClose" type="button" aria-label="Close ordering">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
         <div class="ord-title">Ordering</div>
         <div class="ord-loc-picker" role="tablist" aria-label="Location">
           ${LOCS.map(l => `
@@ -507,6 +512,18 @@
     if (search) search.addEventListener('input', e => filterVendors(e.target.value));
     const addBtn = root.querySelector('#ordAddVendor');
     if (addBtn) addBtn.addEventListener('click', () => openVendorEditor(null));
+    // Takeover X — returns to Home (same pattern as Cleaning's X)
+    const closeBtn = root.querySelector('#ordTakeoverClose');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        if (window.NX && typeof NX.switchTo === 'function') {
+          NX.switchTo('home');
+        } else {
+          const homeBtn = document.querySelector('[data-view="home"]');
+          if (homeBtn) homeBtn.click();
+        }
+      });
+    }
     return root;
   }
 
@@ -2157,48 +2174,16 @@
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           <span>Reorder</span>
         </button>
-        ${(status === 'closed' || status === 'draft') ? `
-        <button class="ord-odetail-action ord-odetail-action-danger" data-action="discard">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
-          <span>Delete</span>
-        </button>
-        ` : `
         <button class="ord-odetail-action ord-odetail-action-issue" data-action="report-issue">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           <span>Report issues</span>
         </button>
-        `}
       </div>
     `;
 
     overlay.querySelector('.ord-odetail-close').addEventListener('click', closeOrderDetail);
     overlay.querySelector('[data-action="reorder"]').addEventListener('click', () => reorderFromOrder(order));
-    overlay.querySelector('[data-action="report-issue"]')?.addEventListener('click', () => reportIssuesOnOrder(order));
-    // ── Soft-delete action for closed + draft orders ─────────────
-    // Visible only when status is closed or draft (the two "least
-    // active" states where cleanup makes sense). Sent / confirmed /
-    // delivered keep "Report issues" as their secondary action since
-    // those are still in-flight. Same archiveOrder() pathway as the
-    // kebab — soft delete via archived_at, restorable any time from
-    // "Show archived" at the bottom of the vendor's order history.
-    overlay.querySelector('[data-action="discard"]')?.addEventListener('click', async (e) => {
-      const btn = e.currentTarget;
-      const labelEl = btn.querySelector('span');
-      const originalLabel = labelEl ? labelEl.textContent : '';
-      btn.disabled = true;
-      if (labelEl) labelEl.textContent = 'Deleting…';
-      const orderShortId = order.id ? order.id.slice(0, 8).toUpperCase() : '—';
-      try {
-        await archiveOrder(order.id);
-        closeOrderDetail();
-        if (NX.toast) NX.toast(`Deleted order ${orderShortId}`, 'info', 2000);
-      } catch (err) {
-        console.error('[ordering] discard order:', err);
-        btn.disabled = false;
-        if (labelEl) labelEl.textContent = originalLabel;
-        if (NX.toast) NX.toast('Could not delete: ' + ((err && err.message) || ''), 'error', 4000);
-      }
-    });
+    overlay.querySelector('[data-action="report-issue"]').addEventListener('click', () => reportIssuesOnOrder(order));
     overlay.querySelector('[data-action="more"]')?.addEventListener('click', () => showOrderMoreMenu(order));
     overlay.querySelector('[data-action="advance"]')?.addEventListener('click', e => {
       const target = e.currentTarget.dataset.target;
@@ -2323,18 +2308,13 @@
     const subject = `Issue with order ${orderShortId} — ${locLabel}${delivDate ? ' (' + delivDate + ')' : ''}`;
     const lines = (order.lines || []).filter(l => l.item_name);
     // Match the order-send email's qty × name layout so the followup
-    // reads like a continuation of the original order. Pack size + SKU
-    // go in parens with the same  ·  separator for visual continuity.
+    // reads like a continuation of the original order. Pack size goes
+    // in parens, prettified the same way.
     const lineList = lines.length
       ? '\n\nItems on this order:\n' + lines.map(l => {
           const pack = (l.unit || '').trim();
           const prettyPack = pack ? prettyPackSize(pack).primary : '';
-          const sku = (l.vendor_sku || '').trim();
-          const metaParts = [];
-          if (prettyPack) metaParts.push(prettyPack);
-          if (sku) metaParts.push(`#${sku}`);
-          const meta = metaParts.length ? '  (' + metaParts.join('  \u00B7  ') + ')' : '';
-          return `  [ ] ${l.qty || 0} \u00D7 ${l.item_name}${meta}`;
+          return `  [ ] ${l.qty || 0} \u00D7 ${l.item_name}${prettyPack ? ' (' + prettyPack + ')' : ''}`;
         }).join('\n')
       : '';
 
@@ -2350,18 +2330,7 @@ ${lineList}
 
 Thanks for your help sorting this out.`;
 
-    // Build the multi-TO list — primary vendor.email plus any
-    // location-scoped TO extras. Same dedupe pattern as confirmAndSend.
-    const issueRecipients = parseAltEmails(vendor.alt_emails, order.location || activeLoc);
-    const issueToExtras = issueRecipients.filter(r => r.kind === 'to').map(r => r.email);
-    const issueToList = [];
-    const issueSeen = new Set();
-    [vendor.email, ...issueToExtras].forEach(e => {
-      const t = (e || '').trim();
-      const k = t.toLowerCase();
-      if (t && !issueSeen.has(k)) { issueSeen.add(k); issueToList.push(t); }
-    });
-    const mailto = buildMailtoUrl(issueToList, subject, body, [], []);
+    const mailto = `mailto:${encodeURIComponent(vendor.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     // Stamp the issue flag on the order BEFORE redirecting to mailto.
     // Mobile may background JS once the mail app takes focus, so the
     // record needs to land first. The note placeholder is a clue to
@@ -2424,37 +2393,9 @@ Thanks for your help sorting this out.`;
       close();
       duplicateOrderAsDraft(order);
     });
-    overlay.querySelector('[data-action="delete"]').addEventListener('click', async () => {
-      // ── One-tap archive ─────────────────────────────────────────
-      // Was: open this menu sheet → tap "Archive order" → confirm
-      // modal pops up → tap "Archive order" again → done. 3 taps,
-      // and on mobile the second modal frequently caught the ghost
-      // click from the same finger-lift that triggered this menu
-      // action — making it look like "tap archive does nothing".
-      //
-      // Now: this menu item IS the deliberate action. The card
-      // already shows the danger styling, the title "Archive order",
-      // and a subtitle saying "Hides from your orders list.
-      // Restorable any time." — that's enough warning to make an
-      // informed tap. Restore is one click from "show archived" at
-      // the bottom of the vendor's order history.
-      const btn = overlay.querySelector('[data-action="delete"]');
-      btn.disabled = true;
-      const titleEl = btn.querySelector('.ord-vmenu-action-title');
-      const originalTitle = titleEl ? titleEl.textContent : '';
-      if (titleEl) titleEl.textContent = 'Archiving…';
-      const orderShortId = order.id ? order.id.slice(0, 8).toUpperCase() : '—';
-      try {
-        await archiveOrder(order.id);
-        close();
-        closeOrderDetail();
-        if (NX.toast) NX.toast(`Archived order ${orderShortId}`, 'info', 2000);
-      } catch (e) {
-        console.error('[ordering] archiveOrder:', e);
-        btn.disabled = false;
-        if (titleEl) titleEl.textContent = originalTitle;
-        if (NX.toast) NX.toast('Could not archive: ' + ((e && e.message) || ''), 'error', 4000);
-      }
+    overlay.querySelector('[data-action="delete"]').addEventListener('click', () => {
+      close();
+      confirmDeleteOrder(order);
     });
   }
 
@@ -3165,93 +3106,6 @@ Thanks for your help sorting this out.`;
     };
   }
 
-  /**
-   * Build a section-divider line for the order email.
-   *
-   *   "─── PRODUCE ─────────────────── 2 items"
-   *
-   * Padded to a consistent visual width with U+2500 horizontal-line
-   * characters so sections form a clean repeating rhythm down the
-   * email regardless of name length. Width caps at 45 columns — wide
-   * enough to feel substantial, narrow enough that mobile email
-   * clients won't soft-wrap mid-rule.
-   *
-   * U+2500 (─) renders cleanly in every modern email client (Gmail
-   * web/mobile, Apple Mail, Outlook, Yahoo). Avoiding heavier box-
-   * drawing characters (━ ═) because some Outlook builds drop them.
-   */
-  function emailSectionHeader(name, count) {
-    const TARGET_WIDTH = 45;
-    const PREFIX = '─── ';
-    const itemWord = count === 1 ? 'item' : 'items';
-    const suffix = ` ${count} ${itemWord}`;
-    const start = `${PREFIX}${(name || '').toUpperCase()} `;
-    const fillCount = Math.max(3, TARGET_WIDTH - start.length - suffix.length);
-    return `${start}${'─'.repeat(fillCount)}${suffix}`;
-  }
-
-  /** Plain horizontal rule of the same width — used as the closing
-   *  divider before the order total. */
-  function emailRule() {
-    return '─'.repeat(45);
-  }
-
-  /**
-   * Parse a unit string like "3/1 GA" into structured parts so the
-   * catalog form can render three discrete inputs (pack qty, each
-   * size, unit type) instead of a single error-prone freetext field.
-   *
-   * Examples:
-   *   "3/1 GA"   → { caseQty: 3, unitQty: 1, unit: "GA" }
-   *   "6/32 OZ"  → { caseQty: 6, unitQty: 32, unit: "OZ" }
-   *   "EA"       → { caseQty: 1, unitQty: 1, unit: "EA" }
-   *   "lb"       → { caseQty: 1, unitQty: 1, unit: "LB" }
-   *   ""         → { caseQty: 1, unitQty: 1, unit: "EA" }
-   */
-  function parseUnitParts(unitStr) {
-    if (!unitStr) return { caseQty: 1, unitQty: 1, unit: 'EA' };
-    const s = String(unitStr).trim();
-    const m = s.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s+(.+)$/);
-    if (m) {
-      return {
-        caseQty: parseFloat(m[1]),
-        unitQty: parseFloat(m[2]),
-        unit:    m[3].trim().toUpperCase(),
-      };
-    }
-    return { caseQty: 1, unitQty: 1, unit: s.toUpperCase() };
-  }
-
-  /**
-   * Recombine structured unit parts into the canonical "X/Y UNIT"
-   * string that lives in the database — keeping the storage format
-   * unchanged so the prettifier, parHintFor, email builder, and
-   * import/export roundtrip all keep working without touching them.
-   */
-  function combineUnitParts(caseQty, unitQty, unit) {
-    const cq = parseFloat(caseQty);
-    const uq = parseFloat(unitQty);
-    const u  = String(unit || 'EA').trim().toUpperCase();
-    if (!isFinite(cq) || cq <= 0) return u;
-    if (!isFinite(uq) || uq <= 0) return u;
-    // Bare "1/1 UNIT" cases compress to just "UNIT" — matches how the
-    // user types simple things ("EA", "LB") without thinking about a
-    // pack format.
-    if (cq === 1 && uq === 1) return u;
-    // Drop trailing .0 — "3/1 GA" not "3.0/1.0 GA"
-    const fmt = (n) => Number.isInteger(n) ? String(n) : String(n);
-    return `${fmt(cq)}/${fmt(uq)} ${u}`;
-  }
-
-  /** Common food-service units, alphabetized. The catalog form's unit
-   *  dropdown uses this list; an "Other…" option reveals a freetext
-   *  input for edge cases (rare units like "PALLET", "TOTE", etc.). */
-  const STANDARD_UNITS = [
-    'BG', 'BTL', 'BX', 'CN', 'CS', 'CT', 'DZ', 'EA',
-    'FT', 'GA', 'G', 'IN', 'JAR', 'KG', 'L', 'LB',
-    'ML', 'OZ', 'PK', 'PT', 'QT', 'RL', 'SL', 'TUB', 'YD',
-  ];
-
   /** Resolve par hint for an item on a given delivery date + location. */
   function parHintFor(item, deliveryDate, location) {
     const wk = weekdayOf(deliveryDate);
@@ -3459,73 +3313,19 @@ Thanks for your help sorting this out.`;
         ${catalog.length === 0 ? `
           <div class="ord-empty">
             This vendor has no catalog yet.<br>
-            <span class="ord-empty-hint">Tap the + at top to add an item now, or open <b>Edit catalog</b> from the vendor menu to import a list.</span>
+            <span class="ord-empty-hint">Items can be added from the vendor editor (coming soon).</span>
           </div>
         ` : ''}
       </div>
       <div class="ord-entry-cta-wrap">
         <button class="ord-entry-cta" id="ordEntryReview" ${ctaDisabled ? 'disabled' : ''}>${ctaLabel}</button>
         <div class="ord-entry-save-status" id="ordSaveStatus"></div>
-        ${readOnly ? '' : `<button class="ord-entry-discard" id="ordEntryDiscard" type="button">${trashIcon()}<span>Discard draft</span></button>`}
       </div>
     `;
 
     overlay.querySelector('.ord-entry-close').addEventListener('click', closeEntry);
     const addBtn = overlay.querySelector('#ordEntryAdd');
     if (addBtn) addBtn.addEventListener('click', () => openQuickAddItem(vendor));
-
-    // ── Discard draft ────────────────────────────────────────────
-    // Sits well below the primary CTA so it can't be hit by accident
-    // when going for "Review & Send". Single-tap discard since drafts
-    // are by definition unsent / work-in-progress; if the user
-    // accidentally taps, the cost is re-checking their items, not a
-    // misfired vendor email.
-    const discardBtn = overlay.querySelector('#ordEntryDiscard');
-    if (discardBtn) {
-      discardBtn.addEventListener('click', async () => {
-        // No-op gate: nothing meaningful entered yet, no draft row
-        // exists, and the user isn't going to "lose" anything by
-        // closing. Just close the overlay quietly.
-        const hasLines = Object.values(entryState.lines || {})
-          .some(l => l && l.qty > 0);
-        if (!entryState.draftOrderId && !hasLines && !(entryState.notes || '').trim()) {
-          closeEntry();
-          return;
-        }
-        discardBtn.disabled = true;
-        const labelEl = discardBtn.querySelector('span');
-        const originalLabel = labelEl ? labelEl.textContent : '';
-        if (labelEl) labelEl.textContent = 'Discarding…';
-        try {
-          // Cancel any in-flight autosave so it doesn't recreate the
-          // row right after we archive it.
-          if (entryState.saveTimer) {
-            clearTimeout(entryState.saveTimer);
-            entryState.saveTimer = null;
-          }
-          // Archive the draft if it exists in the DB. Same soft-delete
-          // semantics as a sent order — restorable via "Show archived"
-          // at the bottom of the vendor's order history. Skips this
-          // step entirely if the draft never persisted (no autosave
-          // had completed yet).
-          if (entryState.draftOrderId) {
-            await archiveOrder(entryState.draftOrderId);
-          }
-          // Clear in-memory state so a re-open doesn't pick up stale
-          // lines as a "new" draft.
-          entryState.lines = {};
-          entryState.notes = '';
-          entryState.draftOrderId = null;
-          closeEntry();
-          if (NX.toast) NX.toast('Draft discarded', 'info', 1800);
-        } catch (e) {
-          console.error('[ordering] discard draft:', e);
-          discardBtn.disabled = false;
-          if (labelEl) labelEl.textContent = originalLabel;
-          if (NX.toast) NX.toast('Could not discard: ' + ((e && e.message) || ''), 'error', 4000);
-        }
-      });
-    }
 
     // Par filter pills — set the mode + persist per-location preference
     overlay.querySelectorAll('[data-filter]').forEach(btn => {
@@ -3618,26 +3418,14 @@ Thanks for your help sorting this out.`;
         </div>`;
     }
     const qty = (line && line.qty) || 0;
-    // Meta line: pack/size, alias, SKU, note. The pack info appears
-    // inline in the description so the user sees "BLEACH GERMICIDAL
-    // ULTRA · 3/1 GA · SKU 518709 · FRST MRK" at a glance — no need
-    // to look at the right-side pill to verify case structure. Par
-    // used to be in this line as "par: 5 GA Mon" — it's now broken
-    // out into a dedicated chip below so the user can see PAR + UNIT
-    // at a glance instead of hunting for it inside a comma-separated
-    // meta string.
-    const packStr = (item.unit || '').trim();
-    // Note (brand prefix) is sometimes redundant with vendorName once
-    // the catalog has been updated to PFG-format names like "FRST MRK
-    // BAG PAPER SHOPPER BISTRO KRAFT" — skip displaying note in that
-    // case so we don't render "FRST MRK ... · ... · FRST MRK".
-    const noteRedundant = item.note && vendorName &&
-      vendorName.toUpperCase().startsWith(item.note.toUpperCase().trim() + ' ');
+    // Meta line: alias, SKU, note. Par used to be in this line as
+    // "par: 5 GA Mon" — it's now broken out into a dedicated chip below
+    // so the user can see PAR + UNIT at a glance instead of hunting for
+    // it inside a comma-separated meta string.
     const meta = [];
-    if (showVendorAlias)            meta.push(esc(vendorName));
-    if (packStr)                    meta.push(esc(packStr));
-    if (item.vendor_sku)            meta.push(`SKU ${esc(item.vendor_sku)}`);
-    if (item.note && !noteRedundant) meta.push(esc(item.note));
+    if (showVendorAlias)  meta.push(esc(vendorName));
+    if (item.vendor_sku)  meta.push(`SKU ${esc(item.vendor_sku)}`);
+    if (item.note)        meta.push(esc(item.note));
 
     // Par chip — bottom-left of the main column, below the meta line.
     // Empty when there's no par configured. Shows the day label ("Mon",
@@ -4033,55 +3821,18 @@ Thanks for your help sorting this out.`;
      from the template editor's preview pane so the user sees exactly
      what the default produces.
 
-     Layout (plain text — mailto: can't carry HTML):
-
-       Hi {Vendor} team,
-
-       Please prepare this order for {Location}.
-
-         Delivery:  Monday, May 11, 2026
-
-
-       ─── PRODUCE ──────────────────── 2 items
-
-         4 × Romaine Hearts, 24ct
-             24 × 1 EA  ·  #PFG-12345
-
-         6 × Tomatoes, slicing
-             LB  ·  #PFG-67890
-
-
-       ─── DAIRY ────────────────────── 1 item
-
-         2 × Whole Milk
-             4 × 1 GA  ·  #PFG-22100
-
-
-       ─────────────────────────────────────────
-
-       Total: 3 items
-
-       Thanks,
-
      Pure function: takes formatted lines text + ctx, returns the full
      body string. Doesn't touch entryState or DB. */
   function defaultEmailBody(vendor, ctx, linesText, notes, totalItemCount) {
-    const RULE = emailRule();
-
     let body = `Hi ${vendor.name} team,\n\n`;
-    body += `Please prepare this order for ${ctx.location}.\n\n`;
-    body += `  Delivery:  ${ctx.delivery_date_long}\n\n\n`;
+    body += `Please prepare this order:\n\n`;
+    body += `  Delivery:  ${ctx.delivery_date_long}\n`;
+    body += `  Location:  ${ctx.location}\n\n\n`;
     body += linesText;
-
     if (notes && notes.trim()) {
-      // Indent multi-line notes consistently (2-space indent on every
-      // line, including continuations) so they line up with item rows.
-      const indented = notes.trim().replace(/^/gm, '  ');
-      body += `\n\n\n${RULE}\n\nNotes\n\n${indented}`;
+      body += `\n\n\nNOTES\n\n${notes.trim()}`;
     }
-
-    body += `\n\n\n${RULE}\n\n`;
-    body += `Total: ${totalItemCount} item${totalItemCount === 1 ? '' : 's'}\n\n`;
+    body += `\n\n\n${totalItemCount} item${totalItemCount === 1 ? '' : 's'} total\n\n`;
     body += `Thanks,\n`;
     return body;
   }
@@ -4110,18 +3861,18 @@ Thanks for your help sorting this out.`;
     const sampleCtx = {
       vendor: vendor.name || 'Vendor',
       location: 'Este Restaurant',
-      delivery_date_long: 'Monday, May 11, 2026',
+      delivery_date_long: 'Monday, May 11',
       delivery_date: '5/11',
     };
     const sampleLines =
-      `${emailSectionHeader('Produce', 2)}\n\n` +
+      `PRODUCE  (2)\n\n` +
       `  4 \u00D7 Romaine Hearts, 24ct\n` +
-      `      24 \u00D7 1 EA  \u00B7  #PFG-12345\n\n` +
+      `      24 \u00D7 1 EA \u00B7 #PFG-12345\n` +
       `  6 \u00D7 Tomatoes, slicing\n` +
-      `      LB  \u00B7  #PFG-67890\n\n\n` +
-      `${emailSectionHeader('Dairy', 1)}\n\n` +
+      `      LB \u00B7 #PFG-67890\n\n` +
+      `DAIRY  (1)\n\n` +
       `  2 \u00D7 Whole Milk\n` +
-      `      4 \u00D7 1 GA  \u00B7  #PFG-22100`;
+      `      4 \u00D7 1 GA \u00B7 #PFG-22100`;
     return defaultEmailBody(vendor, sampleCtx, sampleLines, '', 3);
   }
 
@@ -4146,15 +3897,9 @@ Thanks for your help sorting this out.`;
     /* ─────────────────────────────────────────────────────────────────
        Format the line list.
 
-       Section header: a horizontal-rule line built by emailSectionHeader
-       that includes the section name + item count, e.g.
-           "─── PRODUCE ───────────────── 2 items"
-       Sections are separated by two blank lines for visual breathing
-       room — the divider rule lets the eye skip to a section quickly.
-
        Each item gets two lines:
          {qty} × {name}
-             {pack}  ·  #{sku}
+             {pack} · #{sku}
 
        The two-line shape solves three problems at once:
          - "7 3/1 GA" was unreadable as a single token (qty merged with
@@ -4164,14 +3909,16 @@ Thanks for your help sorting this out.`;
          - Long item names + long packs + long SKUs no longer wrap
            awkwardly mid-content because each piece has its own line.
 
-       A blank line BETWEEN items (not just between sections) gives the
-       vendor's eye somewhere to land while pulling product. The
-       per-line meta uses double-spaces around the middle dot (· vs · )
-       to make the SKU stand out — a small thing that meaningfully
-       improves scanability when the email is read in a proportional
-       font (most mobile mail clients).
+       Sections become empty-line-delimited blocks rather than just
+       capitalized labels, giving the eye somewhere to rest in long
+       orders. Item count at the start of each section header helps
+       the vendor verify completeness. The two-space indent on items
+       is a soft visual hierarchy that survives proportional fonts.
        ───────────────────────────────────────────────────────────── */
     let linesText = '';
+    let lastSection = null;
+    let sectionItemCount = 0;
+    let sectionItems = [];
 
     // Group by section first so we can emit "(N items)" alongside the
     // header — needs the count before printing items.
@@ -4183,18 +3930,12 @@ Thanks for your help sorting this out.`;
     }
 
     let totalItemCount = 0;
-    let isFirstSection = true;
     for (const [section, items] of groupedBySection.entries()) {
-      // Two blank lines between sections (one trailing from previous
-      // section's last item + one explicit) — gives the eye a clear
-      // gap before the next section's rule.
-      if (!isFirstSection) linesText += '\n';
-      isFirstSection = false;
-
       if (section !== '__uncategorized__') {
-        linesText += `${emailSectionHeader(section, items.length)}\n\n`;
+        // Blank line before section unless first section
+        if (linesText) linesText += '\n';
+        linesText += `${section.toUpperCase()}  (${items.length})\n\n`;
       }
-
       for (const l of items) {
         const qty = l.qty;
         // Run the same pack-size prettifier the on-screen item rows use,
@@ -4207,11 +3948,11 @@ Thanks for your help sorting this out.`;
         const prettyPack = pack ? prettyPackSize(pack).primary : '';
         const sku = (l.vendor_sku || '').trim();
         // Build the meta line — pack and sku each conditional, joined
-        // by middle dot with double-spaces around it for breathing room.
+        // by middle dot when both present.
         let metaParts = [];
         if (prettyPack) metaParts.push(prettyPack);
         if (sku)        metaParts.push(`#${sku}`);
-        const metaLine = metaParts.join('  \u00B7  ');
+        const metaLine = metaParts.join(' \u00B7 ');
 
         linesText += `  ${qty} \u00D7 ${l.item_name}\n`;
         if (metaLine) linesText += `      ${metaLine}\n`;
@@ -4220,14 +3961,10 @@ Thanks for your help sorting this out.`;
         if (l.note && l.note.trim()) {
           linesText += `      Note: ${l.note.trim()}\n`;
         }
-        // Blank line between items — gives the vendor's eye a place to
-        // rest and makes per-item details feel like discrete units
-        // rather than a wall of text.
-        linesText += '\n';
         totalItemCount++;
       }
     }
-    linesText = linesText.replace(/\s+$/, '');  // trim trailing blanks
+    linesText = linesText.replace(/\n+$/, '');  // trim trailing blanks
 
     // If the vendor has a custom body_template, expand its tokens.
     // Otherwise use the standard hi-team / please-prepare / lines format.
@@ -4308,13 +4045,7 @@ Thanks for your help sorting this out.`;
     const params = [`subject=${enc(subject)}`, `body=${enc(body)}`];
     if (cc && cc.length)  params.push(`cc=${cc.map(e => encodeURIComponent(e)).join(',')}`);
     if (bcc && bcc.length) params.push(`bcc=${bcc.map(e => encodeURIComponent(e)).join(',')}`);
-    // `to` may be a single string (legacy) or an array (multi-recipient
-    // sends). Either way, encode each address and comma-join — most
-    // mail clients accept comma-separated addresses in the mailto: TO
-    // segment, which is what addresses multiple TOs in one send.
-    const toList = Array.isArray(to) ? to : (to ? [to] : []);
-    const toEncoded = toList.filter(Boolean).map(e => encodeURIComponent(e)).join(',');
-    return `mailto:${toEncoded}?${params.join('&')}`;
+    return `mailto:${encodeURIComponent(to || '')}?${params.join('&')}`;
   }
 
   async function confirmAndSend() {
@@ -4409,21 +4140,6 @@ Thanks for your help sorting this out.`;
     const recipients = parseAltEmails(vendor.alt_emails, location);
     let ccList  = recipients.filter(r => r.kind === 'cc').map(r => r.email);
     let bccList = recipients.filter(r => r.kind === 'bcc').map(r => r.email);
-    // Combine the primary TO (vendor.email) with any additional TO
-    // addresses set per-location. Dedupe so the same address isn't
-    // sent to twice — case-insensitive, since email's local-part is
-    // technically case-sensitive but in practice never used that way.
-    const toExtras = recipients.filter(r => r.kind === 'to').map(r => r.email);
-    const toList = [];
-    const seenTo = new Set();
-    [vendor.email, ...toExtras].forEach(e => {
-      const trimmed = (e || '').trim();
-      const key = trimmed.toLowerCase();
-      if (trimmed && !seenTo.has(key)) {
-        seenTo.add(key);
-        toList.push(trimmed);
-      }
-    });
 
     // Self-CC filter — first send on this device prompts the user for
     // their own email so we can keep them off the CC line. Subsequent
@@ -4447,19 +4163,87 @@ Thanks for your help sorting this out.`;
       NX.toast(`Removed your address (${filtered.sender}) from CC`, 'info', 2000);
     }
 
-    const url = buildMailtoUrl(toList, subject, body, ccList, bccList);
+    const url = buildMailtoUrl(vendor.email, subject, body, ccList, bccList);
     window.location.href = url;
 
-    // Brief delay before closing the entry overlay so the mail app has
-    // time to take focus on mobile. NOT a send-delay — the mailto: URL
-    // is fired immediately above; this is just UI cleanup. The order
-    // is already marked 'sent' in the DB; if the user wants to revert,
-    // they can do that from the order detail view (status pill → Revert).
+    // Capture the order ID before closeEntry() clears entryState
+    const sentOrderId = entryState && entryState.draftOrderId;
     setTimeout(() => {
       closeEntry();
       show().catch(() => {});
-      if (NX.toast) NX.toast('Order sent — check your mail app', 'info', 3000);
+      // Undo banner with 10s window — handles "wrong email", "missed item",
+      // "wrong delivery date" mistakes that you only realize once the
+      // mail app pops up. Tapping Undo reverts the order to draft and
+      // clears email_sent_at; the email might have already been sent
+      // from the user's mail app, but at least the NEXUS state matches
+      // the user's intent so they can reopen the draft and try again.
+      if (sentOrderId) showUndoSendBanner(sentOrderId, vendor.name);
+      else if (NX.toast) NX.toast('Order sent — check your mail app', 'info', 3000);
     }, 600);
+  }
+
+  /* Snackbar-style banner that slides up from bottom-right with a
+     countdown + Undo button. Lives 10 seconds then auto-dismisses.
+     Stacks with NX.toast (which doesn't support actions) — this is
+     a separate UI element since revert is a deliberate action that
+     needs its own affordance. */
+  function showUndoSendBanner(orderId, vendorName) {
+    document.querySelector('.ord-undo-banner')?.remove();
+    const banner = document.createElement('div');
+    banner.className = 'ord-undo-banner';
+    banner.innerHTML = `
+      <div class="ord-undo-banner-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </div>
+      <div class="ord-undo-banner-text">
+        <div class="ord-undo-banner-title">Sent to ${esc(vendorName)}</div>
+        <div class="ord-undo-banner-sub" data-undo-countdown>10s to undo</div>
+      </div>
+      <button class="ord-undo-banner-btn" type="button">Undo</button>
+    `;
+    document.body.appendChild(banner);
+    requestAnimationFrame(() => banner.classList.add('is-shown'));
+
+    let remaining = 10;
+    const sub = banner.querySelector('[data-undo-countdown]');
+    const tick = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) { clearInterval(tick); return; }
+      if (sub) sub.textContent = `${remaining}s to undo`;
+    }, 1000);
+    const dismissTimer = setTimeout(() => {
+      banner.classList.remove('is-shown');
+      setTimeout(() => banner.remove(), 250);
+      clearInterval(tick);
+    }, 10000);
+
+    banner.querySelector('.ord-undo-banner-btn').addEventListener('click', async () => {
+      clearTimeout(dismissTimer);
+      clearInterval(tick);
+      banner.querySelector('.ord-undo-banner-btn').disabled = true;
+      banner.querySelector('.ord-undo-banner-btn').textContent = 'Undoing…';
+      try {
+        const update = { status: 'draft', email_sent_at: null };
+        const { error } = await NX.sb.from('orders').update(update).eq('id', orderId);
+        if (error) throw error;
+        if (initialized) {
+          recentOrders = await loadRecentOrders(activeLoc);
+          const vmap = {}; vendors.forEach(v => vmap[v.id] = v);
+          renderRecent(recentOrders, vmap);
+          renderVendors();
+        }
+        banner.classList.remove('is-shown');
+        setTimeout(() => banner.remove(), 250);
+        if (NX.toast) NX.toast('Reverted to draft. Email may have already gone — reopen and resend if needed.', 'warn', 4000);
+      } catch (e) {
+        console.error('[ordering] undo send:', e);
+        banner.querySelector('.ord-undo-banner-btn').disabled = false;
+        banner.querySelector('.ord-undo-banner-btn').textContent = 'Undo';
+        if (NX.toast) NX.toast('Could not undo: ' + ((e && e.message) || ''), 'error', 3000);
+      }
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -4532,7 +4316,6 @@ Thanks for your help sorting this out.`;
     // The alt_emails column may be a legacy array (pre per-location) —
     // parseAltEmails returns the right slice either way.
     const altParsed = parseAltEmails(v.alt_emails, activeLoc);
-    const toArr  = altParsed.filter(r => r.kind === 'to' ).map(r => r.email);
     const ccArr  = altParsed.filter(r => r.kind === 'cc' ).map(r => r.email);
     const bccArr = altParsed.filter(r => r.kind === 'bcc').map(r => r.email);
     const altArr = altParsed.filter(r => r.kind === 'alt').map(r => r.email);
@@ -4615,15 +4398,14 @@ Thanks for your help sorting this out.`;
       body: `
         <div class="rx-loc-scope">
           <span class="rx-loc-scope-icon"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
-          <span class="rx-loc-scope-text">Additional TO / CC / BCC / Other are <strong>${esc(activeLocLabel)}'s profile</strong>${otherLocsConfigured ? ' — other locations have separate recipients' : ''}</span>
+          <span class="rx-loc-scope-text">CC / BCC / Other are <strong>${esc(activeLocLabel)}'s profile</strong>${otherLocsConfigured ? ' — other locations have separate recipients' : ''}</span>
         </div>
-        <div class="rx-form-field rx-to-bundle">
+        <div class="rx-form-field">
           <label class="rx-form-label">
             <span class="rx-chip-pill rx-chip-pill-to">TO</span>
-            <span class="rx-form-hint">— primary required, additional ones below get every order at ${esc(activeLocLabel)}</span>
+            <span class="rx-form-hint">— required for sending orders, shared across all locations</span>
           </label>
           <input type="email" class="rx-form-input" data-rx-vendor-email value="${esc(v.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
-          ${RX.buildChipGroupHTML(toArr, 'to', { label: '', hint: '', inputType: 'email', inputMode: 'email', placeholder: 'orders2@vendor.com', addLabel: '+ Add another TO recipient' })}
         </div>
         ${RX.buildChipGroupHTML(ccArr,  'cc',  { label: 'CC',    hint: `always copied on ${esc(activeLocLabel)}'s orders`,        inputType: 'email', inputMode: 'email', placeholder: 'cc@example.com',     addLabel: 'Add CC' })}
         ${RX.buildChipGroupHTML(bccArr, 'bcc', { label: 'BCC',   hint: `silent copies on ${esc(activeLocLabel)}'s orders`,       inputType: 'email', inputMode: 'email', placeholder: 'bcc@example.com',    addLabel: 'Add BCC' })}
@@ -4832,7 +4614,7 @@ Thanks for your help sorting this out.`;
       saveLabel:   isNew ? 'Create vendor' : 'Save changes',
       cancelLabel: 'Cancel',
       state: {
-        chips: { to: toArr, cc: ccArr, bcc: bccArr, alt: altArr },
+        chips: { cc: ccArr, bcc: bccArr, alt: altArr },
       },
 
       onMount: (overlay, state) => {
@@ -4844,12 +4626,11 @@ Thanks for your help sorting this out.`;
         });
         RX.wireHuePicker(overlay, state);
 
-        // Recipient chip groups (to / cc / bcc / alt)
-        ['to', 'cc', 'bcc', 'alt'].forEach(kind => {
+        // Recipient chip groups (cc / bcc / alt)
+        ['cc', 'bcc', 'alt'].forEach(kind => {
           RX.wireChipGroup(overlay, kind, state, {
             label: kind === 'alt' ? 'OTHER' : kind.toUpperCase(),
-            hint: kind === 'to' ? 'additional recipients on the To line'
-                : kind === 'cc' ? 'always copied on every order'
+            hint: kind === 'cc' ? 'always copied on every order'
                 : kind === 'bcc' ? "silent copies — others can't see them"
                 : 'stored only — NOT auto-sent (backups)',
             inputType: 'email',
@@ -5064,13 +4845,11 @@ Thanks for your help sorting this out.`;
           : selectedLocs;
 
         // Build per-location alt_emails. Each restaurant has its own
-        // TO-extras / CC / BCC / Other profile, so we save these as a
-        // slice keyed by activeLoc and preserve any existing slices for
-        // other locations. The PRIMARY TO email (vendor.email) is
-        // shared across all locations (vendors typically have one
-        // orders@ inbox), but additional TOs can be per-location.
+        // CC/BCC/Other profile, so we save these as a slice keyed by
+        // activeLoc and preserve any existing slices for other
+        // locations. The TO email is shared across all locations
+        // (vendors typically have one orders@ inbox).
         const altEmails = [];
-        for (const e of (state.chips.to  || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'to'  }); }
         for (const e of (state.chips.cc  || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'cc'  }); }
         for (const e of (state.chips.bcc || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'bcc' }); }
         for (const e of (state.chips.alt || [])) { const t = String(e).trim(); if (t) altEmails.push({ email: t, kind: 'alt' }); }
@@ -5446,11 +5225,6 @@ Thanks for your help sorting this out.`;
 
   function renderItemForm(item, isNew) {
     const days = item.pars_by_day || {};
-    // Parse the existing unit string into structured parts so the form
-    // can render three discrete inputs (pack qty, each size, unit type)
-    // pre-populated from whatever was previously stored. Storage format
-    // doesn't change — we recombine on save.
-    const parsedUnit = parseUnitParts(item.unit);
     // Build datalist of known section names so the user can pick an
     // existing section (avoiding typo splits like "Dairy" vs "Diary")
     // while still being free to type a brand-new one.
@@ -5488,23 +5262,15 @@ Thanks for your help sorting this out.`;
             ${datalistHTML}
           </div>
         </div>
-        <div class="ord-form-field">
-          <label class="ord-form-label">Pack/Size</label>
-          <div class="ord-form-pack-inputs">
-            <input type="number" class="ord-form-input ord-form-input--mini ied-pack" value="${esc(parsedUnit.caseQty)}" placeholder="1" min="1" step="1" inputmode="numeric" aria-label="Pack quantity">
-            <span class="ord-form-pack-x" aria-hidden="true">×</span>
-            <input type="text" class="ord-form-input ord-form-input--mini ied-size" value="${esc(parsedUnit.unitQty)}" placeholder="1" inputmode="decimal" aria-label="Size per unit">
-            <select class="ord-form-input ord-form-input--unit ied-unit-select" aria-label="Unit of measure">
-              ${STANDARD_UNITS.map(u => `<option value="${u}"${u === parsedUnit.unit ? ' selected' : ''}>${u}</option>`).join('')}
-              ${STANDARD_UNITS.includes(parsedUnit.unit) ? '' : `<option value="${esc(parsedUnit.unit)}" selected>${esc(parsedUnit.unit)}</option>`}
-              <option value="__other__">Other…</option>
-            </select>
+        <div class="ord-form-row-2">
+          <div class="ord-form-field">
+            <label class="ord-form-label">Unit</label>
+            <input type="text" class="ord-form-input ied-unit" value="${esc(item.unit || 'ea')}" placeholder="ea / cs / lb / gal" autocomplete="off">
           </div>
-          <input type="text" class="ord-form-input ord-form-input--unit-custom ied-unit-custom" placeholder="custom unit" autocomplete="off" style="display:none;" aria-label="Custom unit">
-        </div>
-        <div class="ord-form-field ord-form-field--par-row">
-          <label class="ord-form-label">Default par</label>
-          <input type="number" class="ord-form-input ord-form-input--par ied-par" value="${item.default_par_qty != null ? item.default_par_qty : ''}" placeholder="0" inputmode="numeric" min="0" max="999" maxlength="3" step="1">
+          <div class="ord-form-field">
+            <label class="ord-form-label">Default par</label>
+            <input type="number" class="ord-form-input ied-par" value="${item.default_par_qty != null ? item.default_par_qty : ''}" placeholder="0" inputmode="numeric" min="0" step="1">
+          </div>
         </div>
         <div class="ord-form-field">
           <label class="ord-form-label">Day-of-week pars (optional, overrides default)</label>
@@ -5573,28 +5339,6 @@ Thanks for your help sorting this out.`;
     // Delete
     list.querySelectorAll('.ord-vitem-delete-btn').forEach(b => {
       b.addEventListener('click', () => deleteItem(b.dataset.itemId));
-    });
-
-    // Unit dropdown — reveal the custom input when "Other…" is picked
-    // so the user can type rare units (PALLET, TOTE, etc.) without
-    // bloating the dropdown list. Hide it again when they pick a
-    // standard option. Keeps the form clean for the 99% case.
-    list.querySelectorAll('.ied-unit-select').forEach(sel => {
-      // Custom input sits as a sibling of .ord-form-pack-inputs inside
-      // the parent form-field, not inside .ord-form-pack-inputs itself.
-      const field = sel.closest('.ord-form-field');
-      const customInput = field && field.querySelector('.ied-unit-custom');
-      const sync = () => {
-        if (!customInput) return;
-        if (sel.value === '__other__') {
-          customInput.style.display = '';
-          customInput.focus();
-        } else {
-          customInput.style.display = 'none';
-          customInput.value = '';
-        }
-      };
-      sel.addEventListener('change', sync);
     });
 
     // ─── Move up / Move down ───────────────────────────────────────
@@ -6259,15 +6003,7 @@ Thanks for your help sorting this out.`;
     const sku  = formRow.querySelector('.ied-sku').value.trim();
     const house = (formRow.querySelector('.ied-house')?.value || '').trim();
     const sec  = formRow.querySelector('.ied-section').value.trim();
-    // Recombine the three structured pack/size inputs into the
-    // canonical "X/Y UNIT" string. If the user picked "Other…" from
-    // the unit dropdown, the custom text input takes precedence.
-    const packRaw = formRow.querySelector('.ied-pack')?.value.trim() || '1';
-    const sizeRaw = formRow.querySelector('.ied-size')?.value.trim() || '1';
-    const unitSel = formRow.querySelector('.ied-unit-select')?.value || 'EA';
-    const unitCustom = formRow.querySelector('.ied-unit-custom')?.value.trim() || '';
-    const unitChoice = (unitSel === '__other__' ? unitCustom : unitSel) || 'EA';
-    const unit = combineUnitParts(packRaw, sizeRaw, unitChoice);
+    const unit = formRow.querySelector('.ied-unit').value.trim() || 'ea';
     const parRaw = formRow.querySelector('.ied-par').value.trim();
     const note = formRow.querySelector('.ied-note').value.trim();
     const par = parRaw === '' ? null : parseFloat(parRaw);
@@ -6545,7 +6281,7 @@ Thanks for your help sorting this out.`;
     const wb = window.XLSX.utils.book_new();
 
     // ── Items sheet ─────────────────────────────────────────────────
-    const headers = ['Section', 'Item Name', 'Team Name', 'Vendor SKU', 'Pack/Size', 'Default Par', 'Note'];
+    const headers = ['Section', 'Item Name', 'Team Name', 'Vendor SKU', 'Unit', 'Default Par', 'Note'];
     const titleBanner   = ['NEXUS Vendor Catalog', '', '', '', '', '', ''];
     const vendorBanner  = [`For: ${vendor.name || 'Unknown vendor'}`, '', '', '', '', '', ''];
     const instrBanner   = [
@@ -6665,7 +6401,7 @@ Thanks for your help sorting this out.`;
       ['Item Name',   'Required',    "Vendor's name — what they see in the email."],
       ['Team Name',   'Optional',    "Your team's nickname for the item. Shown in the order screen instead of the vendor name. Vendor never sees this."],
       ['Vendor SKU',  'Recommended', "Vendor's product code. Used to match items on re-import — without it, every re-import duplicates."],
-      ['Pack/Size',   'Required',    'Pack size: case, lb, 24/12 OZ, etc.'],
+      ['Unit',        'Required',    'Pack size: case, lb, 24/12 OZ, etc.'],
       ['Default Par', 'Optional',    'Default order quantity. Per-location pars set inside NEXUS.'],
       ['Note',        'Optional',    'Brand, allergen, prep notes.'],
       ['', '', ''],
@@ -7514,12 +7250,6 @@ Thanks for your help sorting this out.`;
   function openQuickAddItem(vendor) {
     if (!vendor || !entryState) return;
 
-    // Build a fresh parsedUnit for the default — "1/1 EA" is the
-    // simplest case and the most common starting point for a new
-    // ad-hoc item, so the dropdown lands on EA. The user can change
-    // it without typing.
-    const qaddUnitParts = parseUnitParts('EA');
-
     // Mount a modal overlay
     const modal = document.createElement('div');
     modal.className = 'ord-qadd-overlay';
@@ -7535,33 +7265,19 @@ Thanks for your help sorting this out.`;
             <label class="ord-form-label" for="qaddName">Name</label>
             <input type="text" class="ord-form-input" id="qaddName" placeholder="e.g. cilantro" autocomplete="off">
           </div>
-          <div class="ord-form-field">
-            <label class="ord-form-label">Pack/Size</label>
-            <div class="ord-form-pack-inputs">
-              <input type="number" class="ord-form-input ord-form-input--mini" id="qaddPack" value="${esc(qaddUnitParts.caseQty)}" placeholder="1" min="1" step="1" inputmode="numeric" aria-label="Pack quantity">
-              <span class="ord-form-pack-x" aria-hidden="true">×</span>
-              <input type="text" class="ord-form-input ord-form-input--mini" id="qaddSize" value="${esc(qaddUnitParts.unitQty)}" placeholder="1" inputmode="decimal" aria-label="Size per unit">
-              <select class="ord-form-input ord-form-input--unit" id="qaddUnit" aria-label="Unit of measure">
-                ${STANDARD_UNITS.map(u => `<option value="${u}"${u === qaddUnitParts.unit ? ' selected' : ''}>${u}</option>`).join('')}
-                <option value="__other__">Other…</option>
-              </select>
+          <div class="ord-form-row-2">
+            <div class="ord-form-field">
+              <label class="ord-form-label" for="qaddUnit">Unit</label>
+              <input type="text" class="ord-form-input" id="qaddUnit" value="ea" placeholder="ea / cs / lb" autocomplete="off">
             </div>
-            <input type="text" class="ord-form-input ord-form-input--unit-custom" id="qaddUnitCustom" placeholder="custom unit" autocomplete="off" style="display:none;" aria-label="Custom unit">
-          </div>
-          <div class="ord-form-field ord-form-field--par-row">
-            <label class="ord-form-label" for="qaddQty">Qty for this order</label>
-            <input type="number" class="ord-form-input ord-form-input--par" id="qaddQty" value="1" min="0" step="1" inputmode="numeric">
+            <div class="ord-form-field">
+              <label class="ord-form-label" for="qaddQty">Qty for this order</label>
+              <input type="number" class="ord-form-input" id="qaddQty" value="1" min="0" step="1" inputmode="numeric">
+            </div>
           </div>
           <div class="ord-form-field">
             <label class="ord-form-label" for="qaddSection">Section (optional)</label>
-            <input type="text" class="ord-form-input" id="qaddSection" placeholder="e.g. Produce" autocomplete="off" list="qaddSectionList">
-            <datalist id="qaddSectionList">
-              ${(() => {
-                const sections = new Set();
-                (entryState.catalog || []).forEach(i => { if (i.section) sections.add(i.section); });
-                return Array.from(sections).sort().map(s => `<option value="${esc(s)}"></option>`).join('');
-              })()}
-            </datalist>
+            <input type="text" class="ord-form-input" id="qaddSection" placeholder="e.g. Produce" autocomplete="off">
           </div>
           <div class="ord-form-hint">This adds the item to <b>${esc(vendor.name)}</b>'s catalog so it's there for future orders too.</div>
         </div>
@@ -7577,33 +7293,12 @@ Thanks for your help sorting this out.`;
     modal.querySelector('.ord-qadd-backdrop').addEventListener('click', close);
     modal.querySelector('#qaddCancel').addEventListener('click', close);
 
-    // Wire the "Other…" toggle for the unit dropdown. Same pattern as
-    // the catalog form: pick "Other…" → custom text input shows.
-    const unitSel = modal.querySelector('#qaddUnit');
-    const unitCustom = modal.querySelector('#qaddUnitCustom');
-    unitSel.addEventListener('change', () => {
-      if (unitSel.value === '__other__') {
-        unitCustom.style.display = '';
-        unitCustom.focus();
-      } else {
-        unitCustom.style.display = 'none';
-        unitCustom.value = '';
-      }
-    });
-
     // Focus name input on open
     setTimeout(() => modal.querySelector('#qaddName').focus(), 30);
 
     modal.querySelector('#qaddSave').addEventListener('click', async () => {
       const name = modal.querySelector('#qaddName').value.trim();
-      // Recombine the three structured fields into the canonical
-      // "X/Y UNIT" string the catalog stores.
-      const packRaw = modal.querySelector('#qaddPack').value.trim() || '1';
-      const sizeRaw = modal.querySelector('#qaddSize').value.trim() || '1';
-      const unitSelVal = unitSel.value || 'EA';
-      const unitCustomVal = unitCustom.value.trim();
-      const unitChoice = (unitSelVal === '__other__' ? unitCustomVal : unitSelVal) || 'EA';
-      const unit = combineUnitParts(packRaw, sizeRaw, unitChoice);
+      const unit = modal.querySelector('#qaddUnit').value.trim() || 'ea';
       const sec  = modal.querySelector('#qaddSection').value.trim();
       const qtyStr = modal.querySelector('#qaddQty').value.trim();
       const qty = qtyStr === '' ? 1 : Math.max(0, parseFloat(qtyStr) || 0);
@@ -7815,7 +7510,7 @@ Thanks for your help sorting this out.`;
       return raw.map(r => {
         if (typeof r === 'string') return { email: r.trim(), kind: 'cc' };
         if (r && typeof r === 'object') {
-          const kind = ['to', 'cc', 'bcc', 'alt'].includes(r.kind) ? r.kind : 'cc';
+          const kind = ['cc', 'bcc', 'alt'].includes(r.kind) ? r.kind : 'cc';
           return { email: (r.email || '').trim(), kind };
         }
         return { email: '', kind: 'cc' };
