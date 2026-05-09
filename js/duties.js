@@ -84,6 +84,26 @@
    */
   function wireTabs() {
     if (wired) return;
+    // Wire the Training launcher button — separate from the (now-absent)
+    // duties tab strip. The launcher lives at the top of the cleanView
+    // and navigates the whole app to the dedicated Training view.
+    const trainBtn = document.getElementById('dutiesTrainLauncher');
+    if (trainBtn && !trainBtn.dataset.wired) {
+      trainBtn.dataset.wired = '1';
+      trainBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (window.NX && typeof NX.switchTo === 'function') {
+          NX.switchTo('train');
+        } else {
+          // Fallback for older builds — synthesize a tab click
+          const tab = document.querySelector('[data-view="train"]');
+          if (tab) tab.click();
+        }
+      });
+      // Refresh the subtitle once on wiring (no-op if nothing to count)
+      refreshTrainingLauncherSubtitle();
+    }
+
     const tabs = document.querySelectorAll('.duties-tab');
     if (!tabs.length) {
       // The tab strip isn't in the DOM yet — bail. init() will retry
@@ -97,6 +117,108 @@
       });
     });
     wired = true;
+  }
+
+  /**
+   * Update the Training launcher's subtitle with the current user's
+   * pending count. Best-effort — silently skips if Supabase or user
+   * context isn't ready, or if training tables don't exist yet.
+   * Cached for 60s so re-entering the duties view doesn't hammer the DB.
+   */
+  let lastSubRefreshAt = 0;
+  let lastSubText      = null;
+  async function refreshTrainingLauncherSubtitle(force) {
+    const sub = document.getElementById('dutiesTrainLauncherSub');
+    const badge = document.getElementById('navTrainBadge');
+    // The badge can exist even when the launcher (sub) doesn't (different
+    // views). Bail only if NEITHER target is in the DOM.
+    if (!sub && !badge) return;
+    if (!force && lastSubText && (Date.now() - lastSubRefreshAt) < 60000) {
+      if (sub) sub.textContent = lastSubText;
+      return;
+    }
+    try {
+      const sb = window.NX && NX.sb;
+      const userId = window.NX && NX.currentUser && NX.currentUser.id;
+      if (!sb || !userId) return;
+
+      // Count mandatory modules
+      const { data: mods, error: modErr } = await sb
+        .from('training_modules')
+        .select('id, renewal_type, mandatory, archived')
+        .eq('archived', false)
+        .eq('mandatory', true);
+      if (modErr) return;
+      const moduleIds = (mods || []).map(m => m.id);
+      if (!moduleIds.length) {
+        lastSubText = 'No modules yet — open to set up';
+        if (sub) sub.textContent = lastSubText;
+        lastSubRefreshAt = Date.now();
+        return;
+      }
+
+      // Get user's most-recent completion per module
+      const { data: comps, error: compErr } = await sb
+        .from('training_completions')
+        .select('module_id, expires_at, completed_at')
+        .eq('user_id', userId)
+        .order('completed_at', { ascending: false });
+      if (compErr) return;
+
+      // Bucket: pending (none done), expiring (≤30d), expired (past)
+      const latestByMod = {};
+      (comps || []).forEach(c => {
+        if (!latestByMod[c.module_id]) latestByMod[c.module_id] = c;
+      });
+      let pending = 0, expiring = 0, expired = 0;
+      const now = Date.now();
+      mods.forEach(m => {
+        const c = latestByMod[m.id];
+        if (!c) { pending++; return; }
+        if (c.expires_at) {
+          const days = (new Date(c.expires_at) - now) / 86400000;
+          if (days < 0)  expired++;
+          else if (days <= 30) expiring++;
+        }
+      });
+      const gap = pending + expiring + expired;
+      let text;
+      if (gap === 0) {
+        text = 'All caught up ✓';
+      } else {
+        const bits = [];
+        if (expired)  bits.push(`${expired} expired`);
+        if (expiring) bits.push(`${expiring} expiring`);
+        if (pending)  bits.push(`${pending} pending`);
+        text = bits.join(' · ');
+      }
+      lastSubText = text;
+      if (sub) sub.textContent = text;
+      lastSubRefreshAt = Date.now();
+      // Visual urgency cue on the launcher itself
+      const btn = document.getElementById('dutiesTrainLauncher');
+      if (btn) {
+        btn.classList.toggle('has-gaps',     expired > 0 || expiring > 0);
+        btn.classList.toggle('has-pending',  pending > 0 && expired === 0 && expiring === 0);
+      }
+      // Bottom-nav training tab badge — same gap data, shown as a dot
+      // on the nav tab itself so users see pending training even when
+      // they're not on the Duties view.
+      const badge = document.getElementById('navTrainBadge');
+      if (badge) {
+        const total = pending + expiring + expired;
+        if (total > 0) {
+          badge.removeAttribute('hidden');
+          badge.textContent = total > 9 ? '9+' : String(total);
+          badge.classList.toggle('is-urgent', expired > 0 || expiring > 0);
+        } else {
+          badge.setAttribute('hidden', '');
+          badge.textContent = '';
+        }
+      }
+    } catch (e) {
+      // Tables may not exist yet — silent
+    }
   }
 
   /**
@@ -115,6 +237,7 @@
    */
   function show() {
     wireTabs();
+    refreshTrainingLauncherSubtitle();
     if (activePane === 'ordering' && NX.modules.ordering && NX.modules.ordering.show) {
       try { NX.modules.ordering.show(); }
       catch (e) { console.error('[duties] ordering refresh failed:', e); }
@@ -123,6 +246,6 @@
     // (since cleaning.js is the primary module under 'clean' view).
   }
 
-  NX.modules.duties = { init, show, activatePane };
+  NX.modules.duties = { init, show, activatePane, refreshTrainingStatus: refreshTrainingLauncherSubtitle };
   console.log('[duties] loaded');
 })();
