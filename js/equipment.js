@@ -1818,7 +1818,7 @@ async function openDetail(id) {
         if (list) enhancePartsList(list);
       }
       if (tab.dataset.tab === 'manual') {
-        enhanceManualPanel(panel, id);
+        hydrateManualPanel(panel, id);
       }
     });
   });
@@ -1827,7 +1827,7 @@ async function openDetail(id) {
   const partsPanelInitial = modal.querySelector('[data-panel="parts"].active .eq-parts-list');
   if (partsPanelInitial) enhancePartsList(partsPanelInitial);
   const manualPanelInitial = modal.querySelector('[data-panel="manual"].active');
-  if (manualPanelInitial) enhanceManualPanel(manualPanelInitial, id);
+  if (manualPanelInitial) hydrateManualPanel(manualPanelInitial, id);
 
   // Wire QR download
   const qrImg = modal.querySelector('.eq-qr-img');
@@ -2316,25 +2316,17 @@ function renderParts(eq, parts) {
 }
 
 function renderManual(eq) {
+  // v14: multi-manual support. The cards are rendered async by
+  // hydrateManualPanel() once the panel is visible; this initial markup
+  // is just the empty container + the upload/find-online actions.
   return `
-    <div class="eq-manual" data-eq-id="${eq.id}" data-manual-url="${escAttr(eq.manual_url || '')}">
-      ${eq.manual_url ? `
-        <iframe src="${eq.manual_url}" class="eq-manual-iframe"></iframe>
-        <div class="eq-manual-actions">
-          <a href="${eq.manual_url}" target="_blank" class="eq-btn eq-btn-secondary">Open in new tab</a>
-          <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.removeManual('${eq.id}')">Remove</button>
-        </div>
-      ` : `
-        <div class="eq-empty-small">
-          <p>No manual uploaded.</p>
-          ${eq.manual_source_url ? `<p class="eq-mt"><a href="${eq.manual_source_url}" target="_blank">Original source ↗</a></p>` : ''}
-        </div>
-      `}
-      <div class="eq-manual-upgrade">
-        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadManual('${eq.id}')">${uiSvg("document", "13px")} Upload PDF</button>
-          <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${eq.id}')">${uiSvg("link", "13px")} Find Online</button>
-        </div>
+    <div class="eq-manual eq-manual-multi" data-eq-id="${eq.id}">
+      <div class="eq-manual-list" id="eqManualList-${eq.id}">
+        <div class="eq-manual-list-loading">Loading manuals…</div>
+      </div>
+      <div class="eq-manual-add-row">
+        <button class="eq-btn eq-btn-primary" onclick="NX.modules.equipment.uploadManual('${eq.id}')">${uiSvg("document", "13px")} Upload PDF</button>
+        <button class="eq-btn eq-btn-secondary" onclick="NX.modules.equipment.autoFetchManual('${eq.id}')">${uiSvg("link", "13px")} Find Online</button>
       </div>
     </div>`;
 }
@@ -3417,61 +3409,136 @@ function formatVendorRelative(iso) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   MANUAL VIEWER — PDF card with first-page thumbnail
+   MANUAL VIEWER — multi-manual list with PDF thumbnails
    
-   Called by the tabs wiring when the Manual panel becomes active. Finds the
-   iframe that renderManual() rendered, replaces it with a styled card,
-   and renders page 1 of the PDF as a thumbnail using window.pdfjsLib.
+   Called by the tabs wiring when the Manual panel becomes active. Loads all
+   manual rows for the equipment from equipment_manuals, renders each as a
+   card with a PDF thumbnail, editable name, and Open / Remove actions.
+   v14 evolution of the older single-iframe enhanceManualPanel().
    ════════════════════════════════════════════════════════════════════════════ */
 
-function enhanceManualPanel(panel, equipId) {
+async function hydrateManualPanel(panel, equipId) {
   const root = panel.querySelector('.eq-manual');
-  if (!root || root.dataset.enhanced === '1') return;
-  const iframe = root.querySelector('.eq-manual-iframe');
-  if (!iframe) return;
-  root.dataset.enhanced = '1';
-  
-  const url = iframe.src;
-  if (!url) return;
+  if (!root || root.dataset.hydrated === '1') return;
+  root.dataset.hydrated = '1';
+
+  const list = panel.querySelector(`#eqManualList-${equipId}`);
+  if (!list) return;
+
+  // Pull all manuals for this equipment, ordered by sort_order then created.
+  const { data: manuals, error } = await NX.sb
+    .from('equipment_manuals')
+    .select('*')
+    .eq('equipment_id', equipId)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('[manual] load failed:', error);
+    list.innerHTML = '<div class="eq-empty-small">Could not load manuals.</div>';
+    return;
+  }
+
+  // Backward-compat fallback: if equipment_manuals returned nothing but the
+  // legacy equipment.manual_url is set, surface it as a single read-only
+  // card so the user isn't suddenly missing their existing manual. The SQL
+  // migration normally handles this, but this protects against the case
+  // where the user uploaded before the migration ran.
+  if (!manuals || manuals.length === 0) {
+    const { data: eq } = await NX.sb.from('equipment')
+      .select('manual_url, manual_source_url')
+      .eq('id', equipId).single();
+    if (eq && eq.manual_url) {
+      list.innerHTML = renderLegacyManualCard(eq.manual_url);
+      const card = list.querySelector('.eq-manual-card');
+      if (card) {
+        const thumb = card.querySelector('.eq-manual-card-thumb');
+        const pages = card.querySelector('.eq-manual-card-pages');
+        renderPdfThumbnail(eq.manual_url, thumb, pages);
+      }
+      return;
+    }
+    const sourceLine = (eq && eq.manual_source_url)
+      ? `<p class="eq-mt"><a href="${esc(eq.manual_source_url)}" target="_blank">Original source ↗</a></p>`
+      : '';
+    list.innerHTML = `<div class="eq-empty-small"><p>No manuals yet. Upload a PDF or use Find Online.</p>${sourceLine}</div>`;
+    return;
+  }
+
+  // Render every manual as a card.
+  list.innerHTML = manuals.map(m => renderManualCardFromRow(m)).join('');
+
+  // Kick off PDF thumbnail rendering for each PDF manual.
+  manuals.forEach(m => {
+    if (m.kind === 'pdf' && m.url) {
+      const thumb = list.querySelector(`#eqManualThumb-${m.id}`);
+      const pages = list.querySelector(`#eqManualPages-${m.id}`);
+      if (thumb && pages) renderPdfThumbnail(m.url, thumb, pages);
+    }
+  });
+}
+
+function renderManualCardFromRow(m) {
+  // Best-effort fallback display name if m.name is empty.
+  let fallback = (m.url || '').split('/').pop().split('?')[0];
+  try { fallback = decodeURIComponent(fallback); } catch (_) {}
+  const displayName = m.name && m.name.trim() ? m.name : (fallback || 'Manual');
+  const isPdf = m.kind === 'pdf';
+  return `
+    <div class="eq-manual-card" data-manual-id="${m.id}">
+      <div class="eq-manual-card-thumb" id="eqManualThumb-${m.id}">
+        ${isPdf
+          ? `<div class="eq-manual-card-loading">Loading preview…</div>`
+          : `<div class="eq-manual-card-thumb-fallback">${uiSvg('link','32px')}</div>`}
+      </div>
+      <div class="eq-manual-card-info">
+        <div class="eq-manual-card-icon">${uiSvg(isPdf ? 'document' : 'link', '32px')}</div>
+        <div class="eq-manual-card-meta">
+          <input type="text"
+                 class="eq-manual-card-name-input"
+                 value="${escAttr(displayName)}"
+                 data-orig="${escAttr(displayName)}"
+                 onblur="NX.modules.equipment.renameManual('${m.id}', this.value, this.dataset.orig)"
+                 onkeydown="if(event.key==='Enter'){this.blur();}else if(event.key==='Escape'){this.value=this.dataset.orig;this.blur();}"
+                 aria-label="Manual name">
+          <div class="eq-manual-card-pages" id="eqManualPages-${m.id}">${isPdf ? 'PDF Document' : 'Web link'}</div>
+        </div>
+      </div>
+      <div class="eq-manual-card-actions">
+        <a href="${esc(m.url)}" target="_blank" rel="noopener" class="eq-manual-card-open-btn">Open Manual ↗</a>
+        <button class="eq-manual-card-secondary-btn" onclick="NX.modules.equipment.removeManualById('${m.id}')">Remove</button>
+      </div>
+    </div>`;
+}
+
+function renderLegacyManualCard(url) {
+  // Used only when equipment.manual_url is set but no equipment_manuals row
+  // exists yet (e.g., migration hasn't run). Read-only — the user can still
+  // re-upload to get into the new system, but we don't expose rename here.
   let fileName = url.split('/').pop().split('?')[0];
   try { fileName = decodeURIComponent(fileName); } catch (_) {}
-
-  const card = document.createElement('div');
-  card.className = 'eq-manual-card';
-  card.innerHTML = `
-    <div class="eq-manual-card-thumb" id="eqManualThumb">
-      <div class="eq-manual-card-loading">Loading preview…</div>
-    </div>
-    <div class="eq-manual-card-info">
-      <div class="eq-manual-card-icon">${uiSvg("document", "32px")}</div>
-      <div class="eq-manual-card-meta">
-        <div class="eq-manual-card-name">${esc(fileName)}</div>
-        <div class="eq-manual-card-pages" id="eqManualPages">PDF Document</div>
+  return `
+    <div class="eq-manual-card eq-manual-card-legacy">
+      <div class="eq-manual-card-thumb">
+        <div class="eq-manual-card-loading">Loading preview…</div>
       </div>
-    </div>
-    <div class="eq-manual-card-actions">
-      <a href="${esc(url)}" target="_blank" rel="noopener" class="eq-manual-card-open-btn">Open Manual ↗</a>
-      <button class="eq-manual-card-secondary-btn" id="eqManualRemoveBtn">Remove</button>
-    </div>
-  `;
-  iframe.replaceWith(card);
-  
-  // Hide the old "Open in new tab / Remove" actions row
-  const oldActions = root.querySelector('.eq-manual-actions');
-  if (oldActions) oldActions.style.display = 'none';
-
-  // Wire remove
-  card.querySelector('#eqManualRemoveBtn').addEventListener('click', () => {
-    if (confirm('Remove the manual?')) removeManual(equipId);
-  });
-
-  // Render PDF thumbnail in background
-  renderPdfThumbnail(url, card.querySelector('#eqManualThumb'), card.querySelector('#eqManualPages'));
+      <div class="eq-manual-card-info">
+        <div class="eq-manual-card-icon">${uiSvg('document', '32px')}</div>
+        <div class="eq-manual-card-meta">
+          <div class="eq-manual-card-name">${esc(fileName)}</div>
+          <div class="eq-manual-card-pages">PDF Document</div>
+        </div>
+      </div>
+      <div class="eq-manual-card-actions">
+        <a href="${esc(url)}" target="_blank" rel="noopener" class="eq-manual-card-open-btn">Open Manual ↗</a>
+      </div>
+    </div>`;
 }
 
 async function renderPdfThumbnail(url, thumbContainer, pagesEl) {
+  if (!thumbContainer) return;
   if (!window.pdfjsLib) {
-    thumbContainer.innerHTML = `<div class=\"eq-manual-card-thumb-fallback\">${uiSvg('document','32px')}</div>`;
+    thumbContainer.innerHTML = `<div class="eq-manual-card-thumb-fallback">${uiSvg('document','32px')}</div>`;
     return;
   }
   try {
@@ -3496,16 +3563,82 @@ async function renderPdfThumbnail(url, thumbContainer, pagesEl) {
     thumbContainer.appendChild(canvas);
   } catch (err) {
     console.warn('[manual] PDF thumbnail failed:', err);
-    thumbContainer.innerHTML = `<div class=\"eq-manual-card-thumb-fallback\">${uiSvg('document','32px')}</div>`;
+    thumbContainer.innerHTML = `<div class="eq-manual-card-thumb-fallback">${uiSvg('document','32px')}</div>`;
   }
 }
 
-async function removeManual(id) {
-  if (!confirm('Remove manual from this equipment?')) return;
-  await NX.sb.from('equipment').update({ manual_url: null }).eq('id', id);
+async function removeManualById(manualId) {
+  if (!confirm('Remove this manual?')) return;
+  // Look up the manual to find its equipment so we can refresh after.
+  const { data: m } = await NX.sb.from('equipment_manuals')
+    .select('equipment_id, url')
+    .eq('id', manualId).single();
+  if (!m) return;
+
+  const { error } = await NX.sb.from('equipment_manuals').delete().eq('id', manualId);
+  if (error) {
+    console.error('[manual] delete failed:', error);
+    NX.toast && NX.toast('Remove failed: ' + error.message, 'error');
+    return;
+  }
+
+  // Keep equipment.manual_url synced with whichever manual is now first.
+  // If we deleted what was pinned to manual_url, point at the next one (or
+  // null if none remain). Other code paths (Print Everything, AI scanner,
+  // etc.) still reference manual_url as a single primary URL, so this
+  // keeps backward compat.
+  const { data: remaining } = await NX.sb.from('equipment_manuals')
+    .select('url')
+    .eq('equipment_id', m.equipment_id)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true })
+    .limit(1);
+  const nextPrimary = (remaining && remaining[0]) ? remaining[0].url : null;
+  await NX.sb.from('equipment').update({ manual_url: nextPrimary }).eq('id', m.equipment_id);
+
   NX.toast && NX.toast('Manual removed', 'success');
   await loadEquipment();
-  openDetail(id);
+  openDetail(m.equipment_id);
+}
+
+// Legacy single-manual remove — preserved for any old call sites that
+// might still target the equipment row directly. Nukes both the row in
+// equipment_manuals (by url match) and clears equipment.manual_url.
+async function removeManual(equipId) {
+  if (!confirm('Remove manual from this equipment?')) return;
+  const { data: eq } = await NX.sb.from('equipment')
+    .select('manual_url').eq('id', equipId).single();
+  if (eq && eq.manual_url) {
+    await NX.sb.from('equipment_manuals')
+      .delete().eq('equipment_id', equipId).eq('url', eq.manual_url);
+  }
+  await NX.sb.from('equipment').update({ manual_url: null }).eq('id', equipId);
+  NX.toast && NX.toast('Manual removed', 'success');
+  await loadEquipment();
+  openDetail(equipId);
+}
+
+async function renameManual(manualId, newName, originalName) {
+  const trimmed = (newName || '').trim().slice(0, 100);
+  if (!trimmed) {
+    // Empty rename — restore original. Don't write empty to DB.
+    const input = document.querySelector(`.eq-manual-card[data-manual-id="${manualId}"] .eq-manual-card-name-input`);
+    if (input) input.value = originalName || '';
+    return;
+  }
+  if (trimmed === (originalName || '').trim()) return; // no change
+  const { error } = await NX.sb.from('equipment_manuals')
+    .update({ name: trimmed })
+    .eq('id', manualId);
+  if (error) {
+    console.error('[manual] rename failed:', error);
+    NX.toast && NX.toast('Rename failed: ' + error.message, 'error');
+    return;
+  }
+  // Update the input's data-orig so subsequent blur events know the new baseline.
+  const input = document.querySelector(`.eq-manual-card[data-manual-id="${manualId}"] .eq-manual-card-name-input`);
+  if (input) input.dataset.orig = trimmed;
+  NX.toast && NX.toast('Renamed ✓', 'success');
 }
 
 
@@ -3744,13 +3877,40 @@ async function uploadManual(equipId) {
 
     try {
       const fname = `${equipId}/${Date.now()}-${file.name.replace(/[^a-z0-9.]/gi, '_')}`;
-      const { error } = await NX.sb.storage
+      const { error: upErr } = await NX.sb.storage
         .from('equipment-manuals')
         .upload(fname, file, { upsert: false, contentType: 'application/pdf' });
-      if (error) throw error;
+      if (upErr) throw upErr;
 
       const { data: { publicUrl } } = NX.sb.storage.from('equipment-manuals').getPublicUrl(fname);
-      await NX.sb.from('equipment').update({ manual_url: publicUrl }).eq('id', equipId);
+
+      // Default name from the original filename, minus the extension. The
+      // user can rename inline once the card renders.
+      const defaultName = file.name.replace(/\.pdf$/i, '').slice(0, 100) || 'Manual';
+
+      // Determine sort_order = current count (so new manuals append).
+      const { count } = await NX.sb.from('equipment_manuals')
+        .select('id', { count: 'exact', head: true })
+        .eq('equipment_id', equipId);
+      const sortOrder = count || 0;
+
+      const { error: insErr } = await NX.sb.from('equipment_manuals').insert({
+        equipment_id: equipId,
+        name: defaultName,
+        url: publicUrl,
+        kind: 'pdf',
+        sort_order: sortOrder,
+        created_by: NX.currentUser?.name || null,
+        created_by_id: NX.currentUser?.id || null
+      });
+      if (insErr) throw insErr;
+
+      // If this is the equipment's first manual, also pin it as the legacy
+      // primary so other code paths (Print Everything, AI scanner, etc.)
+      // that read equipment.manual_url keep working.
+      if (sortOrder === 0) {
+        await NX.sb.from('equipment').update({ manual_url: publicUrl }).eq('id', equipId);
+      }
 
       NX.toast && NX.toast('Manual uploaded ✓', 'success');
       if (NX.syslog) NX.syslog('manual_uploaded', `equipment ${equipId}`);
@@ -15974,8 +16134,12 @@ NX.modules.equipment = {
 
   // Manual
   removeManual,
+  removeManualById,
+  renameManual,
   uploadManual,
   autoFetchManual,
+  hydrateManualPanel,
+  enhanceManualPanel: hydrateManualPanel, // alias for back-compat with any old call sites
 
   // AI intelligence
   scanDataPlate,
@@ -16041,7 +16205,6 @@ NX.modules.equipment = {
   lookupServicePhoneFromNode,
   toggleOverflow,
   enhancePartsList,
-  enhanceManualPanel,
 
   // Issue tracker (lifecycle)
   openIssueTracker,
