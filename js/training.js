@@ -1418,120 +1418,13 @@
     });
   }
 
-  // ═══ EMAIL SUBMIT ════════════════════════════════════════════════════
-  function buildEmailSubject() {
-    const date = new Date();
-    const wk = date.toLocaleDateString([], { weekday: 'short' });
-    const md = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    return `Training Status · ${wk} ${md}`;
-  }
-
-  function buildEmailBody() {
-    const E = (window.NX && NX.email) || null;
-    const sectionHeader = E ? E.sectionHeader : (l, s) => `--- ${l.toUpperCase()} ---${s ? ' ' + s : ''}`;
-    const rule = E ? E.rule : () => '─'.repeat(45);
-    const lines = [];
-    const date = new Date();
-    const dateStr = date.toLocaleDateString([], {
-      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-    });
-    lines.push(`Training Status — ${dateStr}`);
-    lines.push(`Compiled by ${getUserName()}`);
-    lines.push('');
-
-    // Aggregate by user, mandatory modules only
-    const summary = usersList.map(u => {
-      let pending = 0, expiring = 0, expired = 0, done = 0, na = 0;
-      for (const m of modules) {
-        if (!m.mandatory) continue;
-        const s = statusForModule(m, u.id);
-        if (s === 'pending')       pending++;
-        else if (s === 'expiring') expiring++;
-        else if (s === 'expired')  expired++;
-        else if (s === 'done')     done++;
-        else if (s === 'na')       na++;
-      }
-      return { user: u, pending, expiring, expired, done, na };
-    });
-
-    const totalGap = summary.reduce((acc, s) => acc + s.pending + s.expiring + s.expired, 0);
-    lines.push(`Compliance gaps: ${totalGap} across ${usersList.length} staff`);
-    lines.push('');
-
-    // ─── COMPLIANCE GAPS section ─────────────────────────────
-    const gappy = summary.filter(s => (s.pending + s.expiring + s.expired) > 0)
-                          .sort((a, b) => (b.pending + b.expiring + b.expired) - (a.pending + a.expiring + a.expired));
-    if (gappy.length) {
-      lines.push(sectionHeader('GAPS', `${gappy.length} staff`));
-      gappy.forEach(s => {
-        const bits = [];
-        if (s.expired)  bits.push(`${s.expired} expired`);
-        if (s.expiring) bits.push(`${s.expiring} expiring`);
-        if (s.pending)  bits.push(`${s.pending} pending`);
-        lines.push(`  ${s.user.name.padEnd(22)} ${bits.join(', ')}`);
-        // Detail per-module
-        for (const m of modules) {
-          if (!m.mandatory) continue;
-          const st = statusForModule(m, s.user.id);
-          if (st === 'pending' || st === 'expiring' || st === 'expired') {
-            const c = latestCompletionFor(m.id, s.user.id);
-            lines.push(`    · ${m.name_en} — ${statusLabel(st, c)}`);
-          }
-        }
-      });
-      lines.push('');
-    }
-
-    // ─── EXPIRING SOON section (across whole team) ──────────
-    const expiring = [];
-    for (const m of modules) {
-      const list = completionsByModule[m.id] || [];
-      list.forEach(c => {
-        if (!c.expires_at) return;
-        const d = daysUntil(c.expires_at);
-        if (d >= 0 && d <= EXPIRING_SOON_DAYS) {
-          expiring.push({ mod: m, completion: c, days: d });
-        }
-      });
-    }
-    expiring.sort((a, b) => a.days - b.days);
-    if (expiring.length) {
-      lines.push(sectionHeader('EXPIRING SOON', `${expiring.length} item${expiring.length === 1 ? '' : 's'}`));
-      expiring.forEach(e => {
-        lines.push(`  ${(e.completion.user_name || '').padEnd(20)} ${e.mod.name_en.padEnd(28)} ${e.days}d (${fmtDate(e.completion.expires_at)})`);
-      });
-      lines.push('');
-    }
-
-    // ─── MODULE COUNTS ─────────────────────────────────────
-    lines.push(sectionHeader('CATALOG', `${modules.length} modules`));
-    const byCategory = modulesByCategory();
-    byCategory.forEach(g => {
-      const count = g.modules.length;
-      lines.push(`  ${g.category_en.padEnd(24)} ${count} module${count === 1 ? '' : 's'}`);
-    });
-    lines.push('');
-
-    lines.push(rule());
-    lines.push('Full status + certificates in NEXUS.');
-    return lines.join('\n');
-  }
-
-  async function submitTrainingReport() {
-    const E = (window.NX && NX.email) || null;
-    const subject = buildEmailSubject();
-    const body    = buildEmailBody();
-    const warnLen = E ? E.BODY_WARN_LEN : 1900;
-    if (body.length > warnLen) {
-      const ok = confirm(`Email is long (${body.length} chars). Send anyway?`);
-      if (!ok) return;
-    }
-    const toAddress = (NX.currentUser && NX.currentUser.email) || '';
-    const url = E ? E.buildMailtoUrl(toAddress, subject, body)
-                  : `mailto:${encodeURIComponent(toAddress)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    if (!toAddress) toast('No email on file — fill it in your mail app', 'info', 3000);
-    setTimeout(() => { window.location.href = url; }, 100);
-  }
+  // ═══ EMAIL SUBMIT REMOVED (v14)
+  // The Training module previously had an "Email Status" footer button.
+  // Removed: composing an emailable team-status report from the user-
+  // facing learning view confused the workflow (training is for staff
+  // completing modules, not management compliance reporting). If a
+  // team-status export is ever needed, it should live in admin or a
+  // dedicated reporting view, not on the Training tab.
 
   // ═══ INIT + SHOW ═════════════════════════════════════════════════════
   let initialized = false;
@@ -1552,8 +1445,6 @@
     initialized = true;
 
     // Wire footer buttons
-    const submitBtn = document.getElementById('trainSubmit');
-    if (submitBtn) submitBtn.addEventListener('click', submitTrainingReport);
     const archiveBtn = document.getElementById('trainArchive');
     if (archiveBtn) {
       archiveBtn.addEventListener('click', () => {
