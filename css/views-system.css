@@ -1636,6 +1636,13 @@
   to   { opacity: 1; transform: translateY(0)  scale(1); }
 }
 
+/* Menu items — rescoped to .eq-overflow-menu so they apply both when
+   the menu is in its original parent AND after toggleOverflow() detaches
+   it to <body> to escape the action bar's stacking context. The previous
+   selectors used .eq-detail-actions-v2 .eq-overflow-item which silently
+   stopped applying once the menu was reparented, leaving items rendered
+   in unstyled defaults (dim on black). */
+.eq-overflow-menu .eq-overflow-item,
 .eq-detail-actions-v2 .eq-overflow-item {
   display: flex !important;
   align-items: center;
@@ -1654,32 +1661,83 @@
   transition: background .12s !important;
   -webkit-tap-highlight-color: transparent;
 }
+.eq-overflow-menu .eq-overflow-item:hover,
 .eq-detail-actions-v2 .eq-overflow-item:hover {
   background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
 }
+.eq-overflow-menu .eq-overflow-item svg,
 .eq-detail-actions-v2 .eq-overflow-item svg {
   color: var(--nx-faint);
   flex-shrink: 0;
 }
+.eq-overflow-menu .eq-overflow-item:hover svg,
 .eq-detail-actions-v2 .eq-overflow-item:hover svg {
   color: var(--nx-gold);
 }
 
+.eq-overflow-menu .eq-overflow-item.eq-overflow-danger,
 .eq-detail-actions-v2 .eq-overflow-item.eq-overflow-danger {
   color: var(--nx-red, var(--red)) !important;
 }
+.eq-overflow-menu .eq-overflow-item.eq-overflow-danger svg,
 .eq-detail-actions-v2 .eq-overflow-item.eq-overflow-danger svg {
   color: var(--nx-red, var(--red));
 }
+.eq-overflow-menu .eq-overflow-item.eq-overflow-danger:hover,
 .eq-detail-actions-v2 .eq-overflow-item.eq-overflow-danger:hover {
   background: var(--nx-red-soft, var(--nx-red-faint)) !important;
 }
 
+.eq-overflow-menu .eq-overflow-divider,
 .eq-detail-actions-v2 .eq-overflow-divider {
   height: 1px;
   background: var(--nx-gold-line);
   margin: 4px 6px !important;
   border: none;
+}
+
+/* Section labels (Operate, Manage) inside the menu — were also scoped
+   to .eq-detail-actions-v2 only, so they fell back to unstyled when
+   the menu detached. Add the same rescoped variant. */
+.eq-overflow-menu .eq-overflow-section-label,
+.eq-detail-actions-v2 .eq-overflow-section-label {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 10px !important;
+  letter-spacing: 0.10em !important;
+  text-transform: uppercase !important;
+  color: var(--nx-faint) !important;
+  padding: 6px 14px 4px !important;
+}
+
+/* The primary item (Edit equipment) — gold-tinted to stand out */
+.eq-overflow-menu .eq-overflow-item.eq-overflow-item-primary,
+.eq-detail-actions-v2 .eq-overflow-item.eq-overflow-item-primary {
+  color: var(--nx-gold, #d4a44e) !important;
+  background: rgba(212, 164, 78, 0.08) !important;
+  font-weight: 500;
+}
+.eq-overflow-menu .eq-overflow-item.eq-overflow-item-primary svg,
+.eq-detail-actions-v2 .eq-overflow-item.eq-overflow-item-primary svg {
+  color: var(--nx-gold, #d4a44e) !important;
+}
+
+/* When the menu is detached and floating in body, give it the same
+   sheet styling it had inside the action bar (border, bg, padding) so
+   it doesn't render as a naked div. */
+.eq-overflow-menu.active {
+  display: flex !important;
+  flex-direction: column;
+  background: var(--nx-bg, #1a1814) !important;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.22)) !important;
+  border-radius: 12px !important;
+  padding: 6px !important;
+  min-width: 220px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  animation: eq-overflow-pop 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+[data-theme="light"] .eq-overflow-menu.active {
+  background: #f9f5e8 !important;
+  box-shadow: 0 12px 40px rgba(70, 50, 18, 0.18);
 }
 
 
