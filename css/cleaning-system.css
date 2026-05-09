@@ -419,6 +419,18 @@ body.is-pane-cleaning #cleanList .clean-empty {
   margin: auto 0;
   padding: 20px;
 }
+/* Add Section button when rendered INSIDE the empty state — sits right
+   below the hint as the primary call-to-action so the empty state reads
+   as one coherent block (title / hint / button) and doesn't leave a
+   floating button somewhere down the list. */
+.clean-empty-add-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 22px auto 0 !important;
+  padding: 11px 22px !important;
+}
 .clean-empty-title {
   font-family: 'Outfit', 'DM Sans', sans-serif;
   font-size: 18px;
@@ -2546,15 +2558,30 @@ body.is-pane-cleaning #cleanList {
 body.is-pane-cleaning .clean-progress {
   flex-shrink: 0;
 }
-/* The footer pins to the bottom of the column. Inside an overflow:hidden
-   parent flex column with a flex:1 list above, the footer naturally sits
-   at the bottom — no need for sticky. */
+/* The footer pins to the bottom of the column. In takeover mode it
+   becomes a static flex child (not position:fixed) so it sits flush at
+   the actual bottom of the viewport — overrides the legacy rule that
+   bumped it up 56px to clear the bottom-nav (which is hidden in
+   takeover, so the offset created the "floating above the bottom"
+   effect). */
 body.is-pane-cleaning .clean-footer {
+  position: static !important;
+  bottom: auto !important;
+  left: auto !important;
+  right: auto !important;
   flex-shrink: 0;
   background: var(--bg, #0e0c08);
   border-top: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.16));
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0));
   z-index: 5;
+}
+/* In takeover mode the list doesn't need the 96px bottom padding that
+   was reserving space for a position:fixed footer — the footer is now
+   a normal flex child below the list, so the list can use natural padding. */
+body.is-pane-cleaning #cleanList,
+body.is-pane-cleaning .clean-list {
+  padding-bottom: 12px !important;
+  scroll-padding-bottom: 0 !important;
 }
 
 
