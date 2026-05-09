@@ -56,6 +56,7 @@
     play:     '<polygon points="5 3 19 12 5 21 5 3"/>',
     document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
     external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+    alert:    '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
   };
   function svg(key, size = 14, stroke = 2) {
     return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${ICONS[key] || ''}</svg>`;
@@ -101,6 +102,9 @@
   // Keyed the same way as cleaning_logs entries.
   let attachmentsByKey = {};       // { 'sec_taskOrder': [{id, file_url, ...}] }
   let costsByKey       = {};       // { 'sec_taskOrder': { cost, note } }  — last seen for a date
+  // Active per-task notes (v12.4). Map of cleaning_task_id → most-recent
+  // active note row. "Active" = not dismissed AND not yet expired.
+  let notesByTaskId    = {};
   // "Coming up" lookahead — populated on render from non-daily tasks
   // whose freshness is heading toward zero in the next 7 days. Renders
   // as a horizontal scroll strip above the section cards.
@@ -383,6 +387,110 @@
       });
     } catch (e) {
       console.warn('[cleaning] loadCosts exception:', e);
+    }
+  }
+
+  // ─── DB: load active per-task notes for this location's tasks ─────────
+  // Notes are scoped per-task and disappear after their expires_at, or
+  // when explicitly dismissed. Only the most recent active note per task
+  // is surfaced in the UI.
+  async function loadTaskNotes() {
+    notesByTaskId = {};
+    if (!NX.sb || NX.paused) return;
+    const taskIds = (tasksByLoc[activeLoc] || []).map(t => t.id);
+    if (!taskIds.length) return;
+    try {
+      const { data, error } = await NX.sb.from('cleaning_task_notes')
+        .select('id, cleaning_task_id, note, expires_at, created_by, created_at, dismissed_at')
+        .in('cleaning_task_id', taskIds)
+        .is('dismissed_at', null)
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false });
+      if (error) { console.warn('[cleaning] loadTaskNotes:', error); return; }
+      // Take latest per task
+      (data || []).forEach(n => {
+        if (!notesByTaskId[n.cleaning_task_id]) {
+          notesByTaskId[n.cleaning_task_id] = n;
+        }
+      });
+    } catch (e) {
+      console.warn('[cleaning] loadTaskNotes exception:', e);
+    }
+  }
+
+  // Save a new note for a task (replaces visible previous note via the
+  // latest-wins rendering — old rows still live in the DB for the audit
+  // trail). Default expiry = 7 days from now.
+  async function saveTaskNote(taskId, noteText) {
+    if (!NX.sb) throw new Error('Database unavailable');
+    const text = (noteText || '').trim();
+    if (!text) return;
+    const { error } = await NX.sb.from('cleaning_task_notes').insert({
+      cleaning_task_id: taskId,
+      note:             text.slice(0, 500),
+      created_by:       getUserName(),
+      created_by_id:    getCurrentUserId(),
+      // expires_at defaults to now() + 7 days at the DB level
+    });
+    if (error) throw error;
+    await loadTaskNotes();
+    render();
+  }
+
+  // Dismiss a note explicitly. Sets dismissed_at on the row so it
+  // disappears immediately in the UI but stays in the table for audit.
+  async function dismissTaskNote(noteId) {
+    if (!NX.sb) return;
+    try {
+      await NX.sb.from('cleaning_task_notes')
+        .update({ dismissed_at: new Date().toISOString() })
+        .eq('id', noteId);
+      await loadTaskNotes();
+      render();
+    } catch (e) {
+      console.warn('[cleaning] dismissTaskNote:', e);
+      toast('Could not dismiss', 'error');
+    }
+  }
+
+  // ─── DB: fetch completion history for a single task ──────────────────
+  // Used by the completion-history modal. Returns the last N completions
+  // joined with their attachments + costs so the modal can show a
+  // visual "what done looks like" reference.
+  async function fetchTaskHistory(task, limit = 10) {
+    if (!NX.sb) return [];
+    try {
+      const { data: logs, error } = await NX.sb.from('cleaning_logs')
+        .select('log_date, done, completed_by, completed_at, completion_cost, completion_cost_note')
+        .eq('location',   activeLoc)
+        .eq('section',    task.section_es)
+        .eq('task_index', task.task_order)
+        .eq('done',       true)
+        .order('log_date', { ascending: false })
+        .limit(limit);
+      if (error) { console.warn('[cleaning] fetchTaskHistory logs:', error); return []; }
+      const history = logs || [];
+      if (!history.length) return [];
+
+      // Pull all attachments for these dates in one query
+      const dates = history.map(h => h.log_date);
+      const { data: atts } = await NX.sb.from('cleaning_attachments')
+        .select('log_date, file_url, mime_type, caption, uploaded_by')
+        .eq('location',   activeLoc)
+        .eq('section',    task.section_es)
+        .eq('task_index', task.task_order)
+        .in('log_date',   dates)
+        .order('created_at', { ascending: true });
+      const attsByDate = {};
+      (atts || []).forEach(a => {
+        if (!attsByDate[a.log_date]) attsByDate[a.log_date] = [];
+        attsByDate[a.log_date].push(a);
+      });
+      history.forEach(h => { h.attachments = attsByDate[h.log_date] || []; });
+      return history;
+    } catch (e) {
+      console.warn('[cleaning] fetchTaskHistory exception:', e);
+      return [];
     }
   }
 
@@ -784,6 +892,128 @@
       position:                Date.now(),
     });
     if (error) throw error;
+  }
+
+
+  // ═══ PER-TASK NOTES UI (v12.4) ═══════════════════════════════════════
+  // Quick contextual notes that surface on the task row and persist
+  // across shifts. Open the editor via the note icon (existing notes)
+  // or via a long-press anywhere on the task body (new notes).
+  function openNoteEditor(task) {
+    const existing = notesByTaskId[task.id];
+    if (NX.composer?.modal) {
+      NX.composer.modal({
+        title: existing ? 'Edit note' : 'Add note',
+        subtitle: `${task.name_en} — ${activeLoc.charAt(0).toUpperCase() + activeLoc.slice(1)}`,
+        buttonLabel: existing ? 'Save' : 'Add',
+        fields: [
+          {
+            name: 'note',
+            label: 'Note (visible to next shift, expires in 7 days)',
+            placeholder: 'e.g. Mop is broken — using one in the office for now.',
+            value: existing ? existing.note : '',
+            autofocus: true,
+            multiline: true,
+          },
+        ],
+        onSubmit: async ({ note }) => {
+          const text = (note || '').trim();
+          if (!text) {
+            // Empty submit on existing note → dismiss it
+            if (existing) await dismissTaskNote(existing.id);
+            return;
+          }
+          await saveTaskNote(task.id, text);
+        },
+      });
+    } else {
+      const v = prompt('Note:', existing ? existing.note : '');
+      if (v === null) return;
+      if (!v.trim() && existing) {
+        dismissTaskNote(existing.id);
+      } else {
+        saveTaskNote(task.id, v).catch(e => toast(e.message, 'error'));
+      }
+    }
+  }
+
+
+  // ═══ TASK COMPLETION HISTORY MODAL (v12.4) ═══════════════════════════
+  // Tap a task name → see the last N completions with photos + cost +
+  // who completed it. Read-only reference for QA and "this is what done
+  // looks like".
+  async function openTaskHistory(task) {
+    const sheet = document.createElement('div');
+    sheet.className = 'clean-history-sheet';
+    sheet.innerHTML = `
+      <div class="clean-history-bg"></div>
+      <div class="clean-history-card">
+        <div class="clean-history-head">
+          <div class="clean-history-titles">
+            <div class="clean-history-title">${esc(task.name_en)}</div>
+            <div class="clean-history-sub">${esc(task.name_es)} · ${esc(activeLoc.charAt(0).toUpperCase() + activeLoc.slice(1))}</div>
+          </div>
+          <button class="clean-history-close" aria-label="Close">${svg('close', 18, 2.2)}</button>
+        </div>
+        <div class="clean-history-body" data-history-body>
+          <div class="clean-history-loading">Loading…</div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(sheet);
+    const close = () => sheet.remove();
+    sheet.querySelector('.clean-history-bg').addEventListener('click', close);
+    sheet.querySelector('.clean-history-close').addEventListener('click', close);
+
+    const history = await fetchTaskHistory(task, 12);
+    const body = sheet.querySelector('[data-history-body]');
+    if (!history.length) {
+      body.innerHTML = `
+        <div class="clean-history-empty">
+          <div class="clean-history-empty-title">No completions yet</div>
+          <div class="clean-history-empty-sub">Once this task is checked off, the last 12 completions will appear here with photos and cost notes.</div>
+        </div>`;
+      return;
+    }
+
+    body.innerHTML = history.map(h => {
+      const dateStr = new Date(h.log_date + 'T12:00:00').toLocaleDateString([], {
+        weekday: 'short', month: 'short', day: 'numeric',
+      });
+      const completedTime = h.completed_at
+        ? new Date(h.completed_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+        : '';
+      const photosHTML = h.attachments.length ? `
+        <div class="clean-history-photos">
+          ${h.attachments.map(a => `
+            <button class="clean-history-photo" data-photo-url="${esc(a.file_url)}">
+              <img src="${esc(a.file_url)}" alt="" loading="lazy">
+            </button>
+          `).join('')}
+        </div>` : '';
+      const costHTML = (h.completion_cost && h.completion_cost > 0)
+        ? `<span class="clean-history-cost">${esc(fmtCost(h.completion_cost))}${h.completion_cost_note ? ` · ${esc(h.completion_cost_note)}` : ''}</span>`
+        : '';
+      return `
+        <div class="clean-history-row">
+          <div class="clean-history-row-head">
+            <span class="clean-history-row-date">${esc(dateStr)}</span>
+            ${completedTime ? `<span class="clean-history-row-time">${esc(completedTime)}</span>` : ''}
+            ${h.completed_by ? `<span class="clean-history-row-by">${esc(h.completed_by)}</span>` : ''}
+          </div>
+          ${costHTML}
+          ${photosHTML}
+        </div>
+      `;
+    }).join('');
+
+    // Tap thumbnail → reuse the photo viewer
+    body.querySelectorAll('[data-photo-url]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openPhotoViewer(btn.dataset.photoUrl);
+      });
+    });
   }
 
 
@@ -1650,21 +1880,46 @@
       }
     }
 
+    // Active note for this task (v12.4) — surfaces an amber chip in
+    // the meta row + the full note text below the freshness bar. Tap
+    // the chip to dismiss; tap anywhere on the note to edit.
+    const activeNote = notesByTaskId[task.id];
+    let notePillHTML = '';
+    let noteCardHTML = '';
+    if (activeNote) {
+      const ageHours = Math.floor((Date.now() - new Date(activeNote.created_at)) / 3600000);
+      const ageStr = ageHours < 1 ? 'just now'
+                   : ageHours < 24 ? `${ageHours}h ago`
+                   : `${Math.floor(ageHours / 24)}d ago`;
+      notePillHTML = `<span class="clean-note-pill" title="${esc(activeNote.note)}" data-note-pill>${svg('alert', 11)}<span>Note</span></span>`;
+      noteCardHTML = `
+        <div class="clean-note-card" data-edit-note>
+          <div class="clean-note-card-text">${esc(activeNote.note)}</div>
+          <div class="clean-note-card-meta">
+            ${activeNote.created_by ? `<span>${esc(activeNote.created_by)}</span>` : ''}
+            <span>·</span><span>${esc(ageStr)}</span>
+          </div>
+          <button class="clean-note-card-x" data-dismiss-note aria-label="Dismiss note">×</button>
+        </div>`;
+    }
+
     row.innerHTML = `
       <button class="clean-task-check" aria-label="Mark done" data-toggle-done>
         ${done ? svg('check', 14, 2.5) : ''}
       </button>
       <div class="clean-task-body">
-        <div class="clean-task-name">${esc(primary)}</div>
+        <button class="clean-task-name" data-show-history aria-label="Show completion history">${esc(primary)}</button>
         <div class="clean-task-meta">
           ${secondary && secondary !== primary ? `<span class="clean-task-secondary">${esc(secondary)}</span>` : ''}
           ${freqHTML}
           ${daysHTML}
           ${assigneeHTML}
           ${costHTML}
+          ${notePillHTML}
           ${trainingPillHTML}
         </div>
         ${freshHTML}
+        ${noteCardHTML}
         ${photosHTML}
         ${trainingPanelHTML}
       </div>
@@ -1675,8 +1930,12 @@
         <button class="clean-task-action-btn" aria-label="Log cost" data-log-cost title="Cost">
           <span style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:13px">$</span>
         </button>
+        <button class="clean-task-action-btn" aria-label="${activeNote ? 'Edit note' : 'Add note'}" data-add-note title="${activeNote ? 'Edit note' : 'Note'}">
+          ${svg('alert', 14, 2)}
+        </button>
         <button class="clean-task-action-btn" aria-label="Edit task" data-edit-task title="Edit">
           ${svg('pen', 14, 2)}
+        </button>
         </button>
       </div>
     `;
@@ -1716,6 +1975,35 @@
     row.querySelector('[data-log-cost]').addEventListener('click', () => {
       openCostEntry(task);
     });
+    // Note action: opens the editor (creates new or edits existing)
+    row.querySelector('[data-add-note]').addEventListener('click', () => {
+      openNoteEditor(task);
+    });
+    // Tap on the task name → completion history modal
+    const nameBtn = row.querySelector('[data-show-history]');
+    if (nameBtn) {
+      nameBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openTaskHistory(task);
+      });
+    }
+    // Active note card: tap text to edit, tap × to dismiss
+    const dismissBtn = row.querySelector('[data-dismiss-note]');
+    if (dismissBtn && activeNote) {
+      dismissBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dismissTaskNote(activeNote.id);
+      });
+    }
+    const noteCard = row.querySelector('[data-edit-note]');
+    if (noteCard && activeNote) {
+      noteCard.addEventListener('click', (e) => {
+        // Don't fire when tapping the dismiss × (it has its own handler
+        // that stops propagation)
+        if (e.target.closest('[data-dismiss-note]')) return;
+        openNoteEditor(task);
+      });
+    }
     // Tap a photo thumbnail → full-screen viewer; long-press → delete
     row.querySelectorAll('[data-photo-url]').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -2729,6 +3017,7 @@
         await loadCosts();
         await loadLinkedCards();
         await loadTrainingData();
+        await loadTaskNotes();
         render();
         // Auto-escalate after a short delay so the user sees the
         // location's data first before any toast fires.
@@ -2767,6 +3056,7 @@
     await loadCosts();
     await loadLinkedCards();
     await loadTrainingData();
+    await loadTaskNotes();
 
     // Register with NX.archive
     registerArchiveContributor();
@@ -2820,6 +3110,7 @@
     await loadCosts();
     await loadLinkedCards();
     await loadTrainingData();
+    await loadTaskNotes();
     render();
   }
 
