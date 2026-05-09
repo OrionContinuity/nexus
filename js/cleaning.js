@@ -1455,12 +1455,18 @@
 
     const groups = tasksBySection(activeLoc);
     if (!groups.length) {
+      // Empty state — render title, hint, AND the Add Section button
+      // together as a single centered group. Skip the separate
+      // .clean-footer-toolbar so the button doesn't drift to the
+      // bottom of the list and overlap the Submit Report bar.
       list.innerHTML = `
         <div class="clean-empty">
           <div class="clean-empty-title">No tasks yet</div>
-          <div class="clean-empty-hint">Tap <b>+ Add section</b> below to start building this location's checklist.</div>
+          <div class="clean-empty-hint">Tap the button below to start building this location's checklist.</div>
+          <button class="clean-add-section-btn clean-empty-add-btn" type="button">${svg('plus', 14)} <span>Add section</span></button>
         </div>`;
-      renderFooterToolbar(list);
+      const btn = list.querySelector('.clean-add-section-btn');
+      if (btn) btn.addEventListener('click', addNewSection);
       return;
     }
 
