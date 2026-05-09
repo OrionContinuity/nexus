@@ -3125,6 +3125,62 @@ Thanks for your help sorting this out.`;
     return '─'.repeat(45);
   }
 
+  /**
+   * Parse a unit string like "3/1 GA" into structured parts so the
+   * catalog form can render three discrete inputs (pack qty, each
+   * size, unit type) instead of a single error-prone freetext field.
+   *
+   * Examples:
+   *   "3/1 GA"   → { caseQty: 3, unitQty: 1, unit: "GA" }
+   *   "6/32 OZ"  → { caseQty: 6, unitQty: 32, unit: "OZ" }
+   *   "EA"       → { caseQty: 1, unitQty: 1, unit: "EA" }
+   *   "lb"       → { caseQty: 1, unitQty: 1, unit: "LB" }
+   *   ""         → { caseQty: 1, unitQty: 1, unit: "EA" }
+   */
+  function parseUnitParts(unitStr) {
+    if (!unitStr) return { caseQty: 1, unitQty: 1, unit: 'EA' };
+    const s = String(unitStr).trim();
+    const m = s.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s+(.+)$/);
+    if (m) {
+      return {
+        caseQty: parseFloat(m[1]),
+        unitQty: parseFloat(m[2]),
+        unit:    m[3].trim().toUpperCase(),
+      };
+    }
+    return { caseQty: 1, unitQty: 1, unit: s.toUpperCase() };
+  }
+
+  /**
+   * Recombine structured unit parts into the canonical "X/Y UNIT"
+   * string that lives in the database — keeping the storage format
+   * unchanged so the prettifier, parHintFor, email builder, and
+   * import/export roundtrip all keep working without touching them.
+   */
+  function combineUnitParts(caseQty, unitQty, unit) {
+    const cq = parseFloat(caseQty);
+    const uq = parseFloat(unitQty);
+    const u  = String(unit || 'EA').trim().toUpperCase();
+    if (!isFinite(cq) || cq <= 0) return u;
+    if (!isFinite(uq) || uq <= 0) return u;
+    // Bare "1/1 UNIT" cases compress to just "UNIT" — matches how the
+    // user types simple things ("EA", "LB") without thinking about a
+    // pack format.
+    if (cq === 1 && uq === 1) return u;
+    // Drop trailing .0 — "3/1 GA" not "3.0/1.0 GA"
+    const fmt = (n) => Number.isInteger(n) ? String(n) : String(n);
+    return `${fmt(cq)}/${fmt(uq)} ${u}`;
+  }
+
+  /** Common food-service units, alphabetized. The catalog form's unit
+   *  dropdown uses this list; an "Other…" option reveals a freetext
+   *  input for edge cases (rare units like "PALLET", "TOTE", etc.). */
+  const STANDARD_UNITS = [
+    'BG', 'BTL', 'BX', 'CN', 'CS', 'CT', 'DZ', 'EA',
+    'FT', 'GA', 'G', 'IN', 'JAR', 'KG', 'L', 'LB',
+    'ML', 'OZ', 'PK', 'PT', 'QT', 'RL', 'SL', 'TUB', 'YD',
+  ];
+
   /** Resolve par hint for an item on a given delivery date + location. */
   function parHintFor(item, deliveryDate, location) {
     const wk = weekdayOf(deliveryDate);
@@ -3437,14 +3493,26 @@ Thanks for your help sorting this out.`;
         </div>`;
     }
     const qty = (line && line.qty) || 0;
-    // Meta line: alias, SKU, note. Par used to be in this line as
-    // "par: 5 GA Mon" — it's now broken out into a dedicated chip below
-    // so the user can see PAR + UNIT at a glance instead of hunting for
-    // it inside a comma-separated meta string.
+    // Meta line: pack/size, alias, SKU, note. The pack info appears
+    // inline in the description so the user sees "BLEACH GERMICIDAL
+    // ULTRA · 3/1 GA · SKU 518709 · FRST MRK" at a glance — no need
+    // to look at the right-side pill to verify case structure. Par
+    // used to be in this line as "par: 5 GA Mon" — it's now broken
+    // out into a dedicated chip below so the user can see PAR + UNIT
+    // at a glance instead of hunting for it inside a comma-separated
+    // meta string.
+    const packStr = (item.unit || '').trim();
+    // Note (brand prefix) is sometimes redundant with vendorName once
+    // the catalog has been updated to PFG-format names like "FRST MRK
+    // BAG PAPER SHOPPER BISTRO KRAFT" — skip displaying note in that
+    // case so we don't render "FRST MRK ... · ... · FRST MRK".
+    const noteRedundant = item.note && vendorName &&
+      vendorName.toUpperCase().startsWith(item.note.toUpperCase().trim() + ' ');
     const meta = [];
-    if (showVendorAlias)  meta.push(esc(vendorName));
-    if (item.vendor_sku)  meta.push(`SKU ${esc(item.vendor_sku)}`);
-    if (item.note)        meta.push(esc(item.note));
+    if (showVendorAlias)            meta.push(esc(vendorName));
+    if (packStr)                    meta.push(esc(packStr));
+    if (item.vendor_sku)            meta.push(`SKU ${esc(item.vendor_sku)}`);
+    if (item.note && !noteRedundant) meta.push(esc(item.note));
 
     // Par chip — bottom-left of the main column, below the meta line.
     // Empty when there's no par configured. Shows the day label ("Mon",
@@ -4236,84 +4304,16 @@ Thanks for your help sorting this out.`;
     const url = buildMailtoUrl(vendor.email, subject, body, ccList, bccList);
     window.location.href = url;
 
-    // Capture the order ID before closeEntry() clears entryState
-    const sentOrderId = entryState && entryState.draftOrderId;
+    // Brief delay before closing the entry overlay so the mail app has
+    // time to take focus on mobile. NOT a send-delay — the mailto: URL
+    // is fired immediately above; this is just UI cleanup. The order
+    // is already marked 'sent' in the DB; if the user wants to revert,
+    // they can do that from the order detail view (status pill → Revert).
     setTimeout(() => {
       closeEntry();
       show().catch(() => {});
-      // Undo banner with 10s window — handles "wrong email", "missed item",
-      // "wrong delivery date" mistakes that you only realize once the
-      // mail app pops up. Tapping Undo reverts the order to draft and
-      // clears email_sent_at; the email might have already been sent
-      // from the user's mail app, but at least the NEXUS state matches
-      // the user's intent so they can reopen the draft and try again.
-      if (sentOrderId) showUndoSendBanner(sentOrderId, vendor.name);
-      else if (NX.toast) NX.toast('Order sent — check your mail app', 'info', 3000);
+      if (NX.toast) NX.toast('Order sent — check your mail app', 'info', 3000);
     }, 600);
-  }
-
-  /* Snackbar-style banner that slides up from bottom-right with a
-     countdown + Undo button. Lives 10 seconds then auto-dismisses.
-     Stacks with NX.toast (which doesn't support actions) — this is
-     a separate UI element since revert is a deliberate action that
-     needs its own affordance. */
-  function showUndoSendBanner(orderId, vendorName) {
-    document.querySelector('.ord-undo-banner')?.remove();
-    const banner = document.createElement('div');
-    banner.className = 'ord-undo-banner';
-    banner.innerHTML = `
-      <div class="ord-undo-banner-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-        </svg>
-      </div>
-      <div class="ord-undo-banner-text">
-        <div class="ord-undo-banner-title">Sent to ${esc(vendorName)}</div>
-        <div class="ord-undo-banner-sub" data-undo-countdown>10s to undo</div>
-      </div>
-      <button class="ord-undo-banner-btn" type="button">Undo</button>
-    `;
-    document.body.appendChild(banner);
-    requestAnimationFrame(() => banner.classList.add('is-shown'));
-
-    let remaining = 10;
-    const sub = banner.querySelector('[data-undo-countdown]');
-    const tick = setInterval(() => {
-      remaining -= 1;
-      if (remaining <= 0) { clearInterval(tick); return; }
-      if (sub) sub.textContent = `${remaining}s to undo`;
-    }, 1000);
-    const dismissTimer = setTimeout(() => {
-      banner.classList.remove('is-shown');
-      setTimeout(() => banner.remove(), 250);
-      clearInterval(tick);
-    }, 10000);
-
-    banner.querySelector('.ord-undo-banner-btn').addEventListener('click', async () => {
-      clearTimeout(dismissTimer);
-      clearInterval(tick);
-      banner.querySelector('.ord-undo-banner-btn').disabled = true;
-      banner.querySelector('.ord-undo-banner-btn').textContent = 'Undoing…';
-      try {
-        const update = { status: 'draft', email_sent_at: null };
-        const { error } = await NX.sb.from('orders').update(update).eq('id', orderId);
-        if (error) throw error;
-        if (initialized) {
-          recentOrders = await loadRecentOrders(activeLoc);
-          const vmap = {}; vendors.forEach(v => vmap[v.id] = v);
-          renderRecent(recentOrders, vmap);
-          renderVendors();
-        }
-        banner.classList.remove('is-shown');
-        setTimeout(() => banner.remove(), 250);
-        if (NX.toast) NX.toast('Reverted to draft. Email may have already gone — reopen and resend if needed.', 'warn', 4000);
-      } catch (e) {
-        console.error('[ordering] undo send:', e);
-        banner.querySelector('.ord-undo-banner-btn').disabled = false;
-        banner.querySelector('.ord-undo-banner-btn').textContent = 'Undo';
-        if (NX.toast) NX.toast('Could not undo: ' + ((e && e.message) || ''), 'error', 3000);
-      }
-    });
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -5295,6 +5295,11 @@ Thanks for your help sorting this out.`;
 
   function renderItemForm(item, isNew) {
     const days = item.pars_by_day || {};
+    // Parse the existing unit string into structured parts so the form
+    // can render three discrete inputs (pack qty, each size, unit type)
+    // pre-populated from whatever was previously stored. Storage format
+    // doesn't change — we recombine on save.
+    const parsedUnit = parseUnitParts(item.unit);
     // Build datalist of known section names so the user can pick an
     // existing section (avoiding typo splits like "Dairy" vs "Diary")
     // while still being free to type a brand-new one.
@@ -5332,14 +5337,24 @@ Thanks for your help sorting this out.`;
             ${datalistHTML}
           </div>
         </div>
-        <div class="ord-form-row-2">
-          <div class="ord-form-field">
+        <div class="ord-form-pack-row">
+          <div class="ord-form-pack-group" role="group" aria-label="Pack and size">
             <label class="ord-form-label">Pack/Size</label>
-            <input type="text" class="ord-form-input ied-unit" value="${esc(item.unit || 'ea')}" placeholder="ea / cs / lb / gal" autocomplete="off">
+            <div class="ord-form-pack-inputs">
+              <input type="number" class="ord-form-input ord-form-input--mini ied-pack" value="${esc(parsedUnit.caseQty)}" placeholder="1" min="1" step="1" inputmode="numeric" aria-label="Pack quantity">
+              <span class="ord-form-pack-x" aria-hidden="true">×</span>
+              <input type="text" class="ord-form-input ord-form-input--mini ied-size" value="${esc(parsedUnit.unitQty)}" placeholder="1" inputmode="decimal" aria-label="Size per unit">
+              <select class="ord-form-input ord-form-input--unit ied-unit-select" aria-label="Unit of measure">
+                ${STANDARD_UNITS.map(u => `<option value="${u}"${u === parsedUnit.unit ? ' selected' : ''}>${u}</option>`).join('')}
+                ${STANDARD_UNITS.includes(parsedUnit.unit) ? '' : `<option value="${esc(parsedUnit.unit)}" selected>${esc(parsedUnit.unit)}</option>`}
+                <option value="__other__">Other…</option>
+              </select>
+              <input type="text" class="ord-form-input ord-form-input--unit-custom ied-unit-custom" placeholder="custom" autocomplete="off" style="display:none;" aria-label="Custom unit">
+            </div>
           </div>
-          <div class="ord-form-field">
+          <div class="ord-form-field ord-form-field--par">
             <label class="ord-form-label">Default par</label>
-            <input type="number" class="ord-form-input ied-par" value="${item.default_par_qty != null ? item.default_par_qty : ''}" placeholder="0" inputmode="numeric" min="0" step="1">
+            <input type="number" class="ord-form-input ord-form-input--par ied-par" value="${item.default_par_qty != null ? item.default_par_qty : ''}" placeholder="0" inputmode="numeric" min="0" max="999" maxlength="3" step="1">
           </div>
         </div>
         <div class="ord-form-field">
@@ -5409,6 +5424,26 @@ Thanks for your help sorting this out.`;
     // Delete
     list.querySelectorAll('.ord-vitem-delete-btn').forEach(b => {
       b.addEventListener('click', () => deleteItem(b.dataset.itemId));
+    });
+
+    // Unit dropdown — reveal the custom input when "Other…" is picked
+    // so the user can type rare units (PALLET, TOTE, etc.) without
+    // bloating the dropdown list. Hide it again when they pick a
+    // standard option. Keeps the form clean for the 99% case.
+    list.querySelectorAll('.ied-unit-select').forEach(sel => {
+      const wrap = sel.closest('.ord-form-pack-inputs');
+      const customInput = wrap && wrap.querySelector('.ied-unit-custom');
+      const sync = () => {
+        if (!customInput) return;
+        if (sel.value === '__other__') {
+          customInput.style.display = '';
+          customInput.focus();
+        } else {
+          customInput.style.display = 'none';
+          customInput.value = '';
+        }
+      };
+      sel.addEventListener('change', sync);
     });
 
     // ─── Move up / Move down ───────────────────────────────────────
@@ -6073,7 +6108,15 @@ Thanks for your help sorting this out.`;
     const sku  = formRow.querySelector('.ied-sku').value.trim();
     const house = (formRow.querySelector('.ied-house')?.value || '').trim();
     const sec  = formRow.querySelector('.ied-section').value.trim();
-    const unit = formRow.querySelector('.ied-unit').value.trim() || 'ea';
+    // Recombine the three structured pack/size inputs into the
+    // canonical "X/Y UNIT" string. If the user picked "Other…" from
+    // the unit dropdown, the custom text input takes precedence.
+    const packRaw = formRow.querySelector('.ied-pack')?.value.trim() || '1';
+    const sizeRaw = formRow.querySelector('.ied-size')?.value.trim() || '1';
+    const unitSel = formRow.querySelector('.ied-unit-select')?.value || 'EA';
+    const unitCustom = formRow.querySelector('.ied-unit-custom')?.value.trim() || '';
+    const unitChoice = (unitSel === '__other__' ? unitCustom : unitSel) || 'EA';
+    const unit = combineUnitParts(packRaw, sizeRaw, unitChoice);
     const parRaw = formRow.querySelector('.ied-par').value.trim();
     const note = formRow.querySelector('.ied-note').value.trim();
     const par = parRaw === '' ? null : parseFloat(parRaw);
