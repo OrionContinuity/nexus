@@ -1763,35 +1763,20 @@
    rather than a regular filtered list.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Edit button — sits between Report Issue and the overflow menu */
-.eq-action-cta-tertiary {
-  background: rgba(212, 164, 78, 0.14) !important;
-  border: 1px solid rgba(212, 164, 78, 0.32) !important;
-  color: var(--accent, #d4a44e) !important;
-  flex: 0 0 auto !important;
-  min-width: 80px;
-}
-.eq-action-cta-tertiary:hover {
-  background: rgba(212, 164, 78, 0.22) !important;
-  border-color: var(--accent, #d4a44e) !important;
-}
-.eq-action-cta-tertiary .eq-action-cta-icon {
-  color: var(--accent, #d4a44e) !important;
-}
-
-/* Make the bottom action bar use flex-wrap so 4 buttons fit on phones.
-   Each button becomes more compact when crowded. */
+/* Action bar — keep all elements on a single row. The original layout
+   was Call Service / Report Issue / kebab; the kebab must never wrap
+   off to a second line (was a bug on phones with a 4th button — fix
+   stays in place even though the 4th button has been removed). */
 .eq-detail-actions-v2 {
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-wrap: nowrap !important;
+  gap: 8px !important;
 }
 .eq-detail-actions-v2 .eq-action-cta {
-  flex: 1 1 auto;
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
 }
-@media (max-width: 480px) {
-  .eq-detail-actions-v2 .eq-action-cta-label {
-    font-size: 11.5px;
-  }
+.eq-detail-actions-v2 .eq-overflow-wrap {
+  flex: 0 0 auto !important;
 }
 
 
