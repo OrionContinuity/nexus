@@ -1,93 +1,329 @@
-<svg id="clippy-svg" viewBox="0 0 120 160" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<svg id="clippy-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <defs>
-    <linearGradient id="cl-body-grad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"  stop-color="#f0f0f2"/>
-      <stop offset="30%" stop-color="#b8bcc2"/>
-      <stop offset="65%" stop-color="#7a7e85"/>
-      <stop offset="100%" stop-color="#56595f"/>
-    </linearGradient>
-    <linearGradient id="cl-shine" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="50%" stop-color="#fff" stop-opacity="0.85"/>
-      <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
-    </linearGradient>
-    <radialGradient id="cl-shadow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0%" stop-color="#000" stop-opacity="0.28"/>
-      <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+    <radialGradient id="orb-body" cx="0.42" cy="0.38" r="0.62">
+      <stop offset="0%"  stop-color="#dafcff"/>
+      <stop offset="22%" stop-color="#87e0ff"/>
+      <stop offset="55%" stop-color="#3aa0ff"/>
+      <stop offset="85%" stop-color="#1a4fc8"/>
+      <stop offset="100%" stop-color="#0a1f6e"/>
     </radialGradient>
+    <radialGradient id="orb-core" cx="0.40" cy="0.32" r="0.40">
+      <stop offset="0%"  stop-color="#ffffff" stop-opacity="0.92"/>
+      <stop offset="55%" stop-color="#dff8ff" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#dff8ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="orb-halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="55%" stop-color="#5cb0ff" stop-opacity="0"/>
+      <stop offset="78%" stop-color="#5cb0ff" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#5cb0ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cheek-grad" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%"  stop-color="#ff9bbb" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#ff9bbb" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="iris-grad" cx="0.5" cy="0.40" r="0.6">
+      <stop offset="0%"  stop-color="#3a5fc0"/>
+      <stop offset="60%" stop-color="#0a1f6e"/>
+      <stop offset="100%" stop-color="#04124a"/>
+    </radialGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="1.6" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Reusable heart for love eyes -->
+    <symbol id="sym-heart" viewBox="0 0 20 18">
+      <path d="M10 16 C 4 11, 0 7, 2 4 C 4 1, 8 1, 10 5 C 12 1, 16 1, 18 4 C 20 7, 16 11, 10 16 Z" fill="#ff4d8a" stroke="#c0205c" stroke-width="0.8"/>
+      <ellipse cx="6.5" cy="5.5" rx="1.5" ry="1.2" fill="#ffffff" opacity="0.85"/>
+    </symbol>
+    <!-- Reusable star for excited eyes -->
+    <symbol id="sym-star" viewBox="0 0 22 22">
+      <path d="M11 1 L13.5 8 L21 8 L15 12.5 L17 20 L11 15.5 L5 20 L7 12.5 L1 8 L8.5 8 Z" fill="#ffec70" stroke="#d4a44e" stroke-width="0.8"/>
+      <circle cx="11" cy="10" r="1.5" fill="#ffffff" opacity="0.9"/>
+    </symbol>
   </defs>
 
-  <ellipse class="cl-floor" cx="60" cy="153" rx="28" ry="4.5" fill="url(#cl-shadow)"/>
+  <!-- ═══════ BODY LAYERS (unchanged from v16) ═══════ -->
+  <ellipse class="cl-floor" cx="100" cy="194" rx="42" ry="5.5" fill="#000" opacity="0.22"/>
+  <circle class="cl-halo" cx="100" cy="100" r="92" fill="url(#orb-halo)"/>
 
-  <g class="cl-body">
-    <path d="M 38 26
-             C 38 16, 80 16, 80 26
-             L 80 96
-             C 80 112, 60 112, 60 96
-             L 60 38
-             C 60 28, 42 28, 42 38
-             L 42 134
-             C 42 146, 80 146, 80 134
-             L 80 110"
-          fill="none"
-          stroke="url(#cl-body-grad)"
-          stroke-width="9"
-          stroke-linecap="round"
-          stroke-linejoin="round"/>
-    <path d="M 42 22 C 44 18, 76 18, 78 22"
-          fill="none" stroke="url(#cl-shine)" stroke-width="2.2"
-          stroke-linecap="round" opacity="0.75"/>
+  <g class="cl-nodes-rotating" style="transform-origin: 100px 100px;">
+    <g class="cl-connections" stroke="#7df0ff" stroke-width="0.55" opacity="0.4" fill="none">
+      <line x1="100" y1="100" x2="170" y2="50"/>
+      <line x1="170" y1="50"  x2="180" y2="120"/>
+      <line x1="100" y1="100" x2="30"  y2="55"/>
+      <line x1="30"  y1="55"  x2="20"  y2="130"/>
+      <line x1="100" y1="100" x2="170" y2="150"/>
+      <line x1="170" y1="150" x2="120" y2="180"/>
+      <line x1="100" y1="100" x2="80"  y2="20"/>
+    </g>
+    <g class="cl-node-group" filter="url(#glow)">
+      <circle class="cl-node cl-node-1" cx="170" cy="50"  r="4"   fill="#7df0ff"/>
+      <circle class="cl-node cl-node-2" cx="180" cy="120" r="3.5" fill="#b06fff"/>
+      <circle class="cl-node cl-node-3" cx="120" cy="180" r="3"   fill="#7df0ff"/>
+      <circle class="cl-node cl-node-4" cx="30"  cy="170" r="3.5" fill="#7df0ff"/>
+      <circle class="cl-node cl-node-5" cx="20"  cy="130" r="4"   fill="#b06fff"/>
+      <circle class="cl-node cl-node-6" cx="30"  cy="55"  r="3"   fill="#7df0ff"/>
+      <circle class="cl-node cl-node-7" cx="80"  cy="20"  r="3.5" fill="#b06fff"/>
+    </g>
   </g>
 
-  <g class="cl-arms">
-    <path class="cl-arm cl-arm-r"
-          d="M 80 78 Q 100 72, 108 60"
-          fill="none" stroke="url(#cl-body-grad)"
-          stroke-width="5.5" stroke-linecap="round"/>
-    <circle class="cl-hand cl-hand-r" cx="108" cy="60" r="4.2" fill="url(#cl-body-grad)"/>
-    <path class="cl-arm cl-arm-l"
-          d="M 40 78 Q 20 72, 12 60"
-          fill="none" stroke="url(#cl-body-grad)"
-          stroke-width="5.5" stroke-linecap="round"/>
-    <circle class="cl-hand cl-hand-l" cx="12" cy="60" r="4.2" fill="url(#cl-body-grad)"/>
+  <g class="cl-tendrils" stroke="#7df0ff" stroke-width="0.9" fill="none" opacity="0.55" filter="url(#glow)" stroke-linecap="round">
+    <path class="cl-tendril cl-tendril-1" d="M 158 88 Q 168 93 175 100 L 168 106 L 175 113"/>
+    <path class="cl-tendril cl-tendril-2" d="M 42 88 Q 32 93 25 100 L 32 106 L 25 113"/>
+    <path class="cl-tendril cl-tendril-3" d="M 100 38 Q 105 31 110 24 L 104 20 L 110 14"/>
+    <path class="cl-tendril cl-tendril-4" d="M 100 162 Q 95 169 90 176 L 96 180 L 90 186"/>
   </g>
+
+  <circle class="cl-body" cx="100" cy="100" r="58" fill="url(#orb-body)"/>
+  <ellipse class="cl-core" cx="84" cy="80" rx="30" ry="24" fill="url(#orb-core)"/>
+
+  <ellipse class="cl-cheek cl-cheek-l" cx="73" cy="120" rx="11" ry="5.2" fill="url(#cheek-grad)"/>
+  <ellipse class="cl-cheek cl-cheek-r" cx="127" cy="120" rx="11" ry="5.2" fill="url(#cheek-grad)"/>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       FACE EXPRESSION LAYER — All variants stacked at same coordinates.
+       CSS-driven visibility based on mood classes on #clippy-shell.
+       Default eye + mouth visible, all others opacity:0 by default.
+       ═══════════════════════════════════════════════════════════════════ -->
 
   <g class="cl-eyes">
-    <ellipse class="cl-eye cl-eye-l" cx="46" cy="52" rx="10" ry="13" fill="#fdfdfd" stroke="#1a1a1a" stroke-width="1.6"/>
-    <ellipse class="cl-eye cl-eye-r" cx="74" cy="52" rx="10" ry="13" fill="#fdfdfd" stroke="#1a1a1a" stroke-width="1.6"/>
 
-    <g class="cl-pupils">
-      <circle class="cl-pupil" cx="46" cy="54" r="3.6" fill="#0a0a0a"/>
-      <circle class="cl-pupil" cx="74" cy="54" r="3.6" fill="#0a0a0a"/>
-      <circle class="cl-glint" cx="44.2" cy="51.5" r="1.3" fill="#fff"/>
-      <circle class="cl-glint" cx="72.2" cy="51.5" r="1.3" fill="#fff"/>
+    <!-- DEFAULT anime eyes (visible by default, hidden during specific moods).
+         Pupils + glints translate via CSS vars for cursor follow. -->
+    <g class="cl-eyes-default">
+      <!-- LEFT eye -->
+      <ellipse cx="83" cy="103" rx="10" ry="13" fill="#04124a"/>
+      <ellipse cx="83" cy="103" rx="9" ry="12" fill="url(#iris-grad)"/>
+      <ellipse cx="83" cy="111" rx="6.5" ry="1.6" fill="#5a7fff" opacity="0.55"/>
+      <circle class="cl-pupil" cx="83" cy="105" r="3.5" fill="#020a30"/>
+      <ellipse class="cl-glint" cx="79.5" cy="98" rx="2.8" ry="3.5" fill="#ffffff"/>
+      <circle class="cl-glint" cx="85.8" cy="105" r="1.3" fill="#ffffff" opacity="0.95"/>
+      <circle class="cl-glint" cx="82" cy="112.5" r="0.9" fill="#ffffff" opacity="0.75"/>
+      <!-- RIGHT eye -->
+      <ellipse cx="117" cy="103" rx="10" ry="13" fill="#04124a"/>
+      <ellipse cx="117" cy="103" rx="9" ry="12" fill="url(#iris-grad)"/>
+      <ellipse cx="117" cy="111" rx="6.5" ry="1.6" fill="#5a7fff" opacity="0.55"/>
+      <circle class="cl-pupil" cx="117" cy="105" r="3.5" fill="#020a30"/>
+      <ellipse class="cl-glint" cx="113.5" cy="98" rx="2.8" ry="3.5" fill="#ffffff"/>
+      <circle class="cl-glint" cx="119.8" cy="105" r="1.3" fill="#ffffff" opacity="0.95"/>
+      <circle class="cl-glint" cx="116" cy="112.5" r="0.9" fill="#ffffff" opacity="0.75"/>
     </g>
 
-    <g class="cl-eyes-shut">
-      <path d="M 36 52 Q 46 58, 56 52" stroke="#1a1a1a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
-      <path d="M 64 52 Q 74 58, 84 52" stroke="#1a1a1a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
-    </g>
-
+    <!-- HAPPY closed crescents ^_^ -->
     <g class="cl-eyes-happy">
-      <path d="M 36 54 Q 46 46, 56 54" stroke="#1a1a1a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
-      <path d="M 64 54 Q 74 46, 84 54" stroke="#1a1a1a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <path d="M 73 106 Q 83 94 93 106" stroke="#04124a" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+      <path d="M 107 106 Q 117 94 127 106" stroke="#04124a" stroke-width="2.8" fill="none" stroke-linecap="round"/>
     </g>
+
+    <!-- SHUT (gentle blink/sleep) -->
+    <g class="cl-eyes-shut">
+      <path d="M 73 103 Q 83 109 93 103" stroke="#04124a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <path d="M 107 103 Q 117 109 127 103" stroke="#04124a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+    </g>
+
+    <!-- LOVE hearts -->
+    <g class="cl-eyes-love">
+      <use href="#sym-heart" x="73" y="93" width="20" height="18"/>
+      <use href="#sym-heart" x="107" y="93" width="20" height="18"/>
+    </g>
+
+    <!-- STARS (excited) -->
+    <g class="cl-eyes-stars">
+      <use href="#sym-star" x="72" y="92" width="22" height="22"/>
+      <use href="#sym-star" x="106" y="92" width="22" height="22"/>
+    </g>
+
+    <!-- DIZZY spirals -->
+    <g class="cl-eyes-dizzy">
+      <path d="M 77 103 Q 77 96 84 96 Q 91 96 91 103 Q 91 109 85 109 Q 80 109 80 105 Q 80 102 83 102"
+            fill="none" stroke="#04124a" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M 111 103 Q 111 96 118 96 Q 125 96 125 103 Q 125 109 119 109 Q 114 109 114 105 Q 114 102 117 102"
+            fill="none" stroke="#04124a" stroke-width="1.6" stroke-linecap="round"/>
+    </g>
+
+    <!-- ANGRY (V-brows + narrowed slash eyes) -->
+    <g class="cl-eyes-angry">
+      <!-- V brows -->
+      <path d="M 73 92 L 92 99" stroke="#04124a" stroke-width="3.2" stroke-linecap="round"/>
+      <path d="M 127 92 L 108 99" stroke="#04124a" stroke-width="3.2" stroke-linecap="round"/>
+      <!-- Narrowed eyes with pupils -->
+      <path d="M 74 104 Q 83 102 92 105 Q 83 110 74 108 Z" fill="#04124a"/>
+      <path d="M 126 104 Q 117 102 108 105 Q 117 110 126 108 Z" fill="#04124a"/>
+      <circle cx="85" cy="106" r="2.2" fill="#ff3a5a"/>
+      <circle cx="115" cy="106" r="2.2" fill="#ff3a5a"/>
+    </g>
+
+    <!-- SAD (droopy eyes + tear) -->
+    <g class="cl-eyes-sad">
+      <!-- Eyes (rounder, looking down) -->
+      <ellipse cx="83" cy="106" rx="8.5" ry="9" fill="#04124a"/>
+      <ellipse cx="117" cy="106" rx="8.5" ry="9" fill="#04124a"/>
+      <!-- Pupils (small, low) -->
+      <circle cx="83" cy="110" r="2.5" fill="#020a30"/>
+      <circle cx="117" cy="110" r="2.5" fill="#020a30"/>
+      <circle cx="81.5" cy="108" r="1" fill="#ffffff" opacity="0.7"/>
+      <circle cx="115.5" cy="108" r="1" fill="#ffffff" opacity="0.7"/>
+      <!-- Sloped eyebrows (sad) -->
+      <path d="M 72 92 Q 78 90 90 94" stroke="#04124a" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <path d="M 128 92 Q 122 90 110 94" stroke="#04124a" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <!-- Tear -->
+      <path d="M 91 115 Q 93 119 92 124 Q 89 122 88 117 Z" fill="#7fc8ff" opacity="0.9"/>
+    </g>
+
+    <!-- SLEEPY heavy half-lids -->
+    <g class="cl-eyes-sleepy">
+      <!-- Lower half of eye -->
+      <path d="M 74 103 Q 83 113 92 103 L 92 105 L 74 105 Z" fill="#04124a"/>
+      <path d="M 108 103 Q 117 113 126 103 L 126 105 L 108 105 Z" fill="#04124a"/>
+      <!-- Lazy pupils -->
+      <ellipse cx="83" cy="108" rx="2.5" ry="1.5" fill="#020a30"/>
+      <ellipse cx="117" cy="108" rx="2.5" ry="1.5" fill="#020a30"/>
+      <!-- Heavy top lashes -->
+      <path d="M 74 102 Q 83 99 92 102" stroke="#04124a" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+      <path d="M 108 102 Q 117 99 126 102" stroke="#04124a" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+    </g>
+
+    <!-- DOTS (tiny smug eyes) -->
+    <g class="cl-eyes-dots">
+      <circle cx="83" cy="104" r="2.6" fill="#04124a"/>
+      <circle cx="117" cy="104" r="2.6" fill="#04124a"/>
+    </g>
+
+    <!-- X-eyes (knocked out) -->
+    <g class="cl-eyes-x">
+      <path d="M 75 96 L 91 110 M 91 96 L 75 110" stroke="#04124a" stroke-width="2.8" stroke-linecap="round"/>
+      <path d="M 109 96 L 125 110 M 125 96 L 109 110" stroke="#04124a" stroke-width="2.8" stroke-linecap="round"/>
+    </g>
+
+    <!-- WINK LEFT (left closed, right open) -->
+    <g class="cl-eyes-wink-l">
+      <path d="M 73 103 Q 83 109 93 103" stroke="#04124a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <ellipse cx="117" cy="103" rx="10" ry="13" fill="#04124a"/>
+      <ellipse cx="117" cy="103" rx="9" ry="12" fill="url(#iris-grad)"/>
+      <ellipse cx="117" cy="111" rx="6.5" ry="1.6" fill="#5a7fff" opacity="0.55"/>
+      <circle cx="117" cy="105" r="3.5" fill="#020a30"/>
+      <ellipse cx="113.5" cy="98" rx="2.8" ry="3.5" fill="#ffffff"/>
+      <circle cx="119.8" cy="105" r="1.3" fill="#ffffff"/>
+    </g>
+
+    <!-- WINK RIGHT (right closed, left open) -->
+    <g class="cl-eyes-wink-r">
+      <ellipse cx="83" cy="103" rx="10" ry="13" fill="#04124a"/>
+      <ellipse cx="83" cy="103" rx="9" ry="12" fill="url(#iris-grad)"/>
+      <ellipse cx="83" cy="111" rx="6.5" ry="1.6" fill="#5a7fff" opacity="0.55"/>
+      <circle cx="83" cy="105" r="3.5" fill="#020a30"/>
+      <ellipse cx="79.5" cy="98" rx="2.8" ry="3.5" fill="#ffffff"/>
+      <circle cx="85.8" cy="105" r="1.3" fill="#ffffff"/>
+      <path d="M 107 103 Q 117 109 127 103" stroke="#04124a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+    </g>
+
+    <!-- SUSPICIOUS / SKEPTICAL half-lidded -->
+    <g class="cl-eyes-suspicious">
+      <path d="M 73 102 Q 83 105 93 102 L 93 113 Q 83 116 73 113 Z" fill="#04124a"/>
+      <path d="M 107 102 Q 117 105 127 102 L 127 113 Q 117 116 107 113 Z" fill="#04124a"/>
+      <circle cx="83" cy="108" r="2.6" fill="#020a30"/>
+      <circle cx="117" cy="108" r="2.6" fill="#020a30"/>
+      <circle cx="82" cy="107" r="1" fill="#ffffff" opacity="0.7"/>
+      <circle cx="116" cy="107" r="1" fill="#ffffff" opacity="0.7"/>
+    </g>
+
+    <!-- DETERMINED (focused eyes + slight brows) -->
+    <g class="cl-eyes-determined">
+      <ellipse cx="83" cy="105" rx="9" ry="10.5" fill="#04124a"/>
+      <ellipse cx="117" cy="105" rx="9" ry="10.5" fill="#04124a"/>
+      <ellipse cx="83" cy="105" rx="7.5" ry="9" fill="url(#iris-grad)"/>
+      <ellipse cx="117" cy="105" rx="7.5" ry="9" fill="url(#iris-grad)"/>
+      <circle cx="83" cy="107" r="3.5" fill="#020a30"/>
+      <circle cx="117" cy="107" r="3.5" fill="#020a30"/>
+      <ellipse cx="80" cy="101" rx="2.4" ry="2.8" fill="#ffffff"/>
+      <ellipse cx="114" cy="101" rx="2.4" ry="2.8" fill="#ffffff"/>
+      <!-- Slight downturn brows (focused) -->
+      <path d="M 73 92 L 92 95" stroke="#04124a" stroke-width="2.6" stroke-linecap="round"/>
+      <path d="M 127 92 L 108 95" stroke="#04124a" stroke-width="2.6" stroke-linecap="round"/>
+    </g>
+
+    <!-- SPARKLE eyes (default eyes + sparkle stars overlay) -->
+    <g class="cl-eyes-sparkle">
+      <text x="64" y="94" font-size="9" fill="#ffec70" font-family="serif">✦</text>
+      <text x="95" y="92" font-size="6" fill="#ffec70" font-family="serif">✦</text>
+      <text x="103" y="94" font-size="9" fill="#ffec70" font-family="serif">✦</text>
+      <text x="130" y="92" font-size="6" fill="#ffec70" font-family="serif">✦</text>
+      <text x="62" y="118" font-size="6" fill="#ffec70" font-family="serif">✦</text>
+      <text x="132" y="118" font-size="6" fill="#ffec70" font-family="serif">✦</text>
+      <text x="98" y="115" font-size="5" fill="#ffec70" font-family="serif">✦</text>
+    </g>
+
+    <!-- EMBARRASSED (eyes look up + away with squiggle blush hint) -->
+    <g class="cl-eyes-embarrassed">
+      <ellipse cx="83" cy="103" rx="9" ry="11" fill="#04124a"/>
+      <ellipse cx="117" cy="103" rx="9" ry="11" fill="#04124a"/>
+      <!-- Pupils looking up-right -->
+      <circle cx="86" cy="100" r="2.8" fill="#020a30"/>
+      <circle cx="120" cy="100" r="2.8" fill="#020a30"/>
+      <circle cx="85" cy="99" r="1" fill="#ffffff"/>
+      <circle cx="119" cy="99" r="1" fill="#ffffff"/>
+      <!-- Wavy embarrassed line under eyes -->
+      <path d="M 75 116 Q 78 114 81 116 Q 84 118 87 116 Q 90 114 92 116"
+            stroke="#ff6b95" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.85"/>
+      <path d="M 108 116 Q 111 114 114 116 Q 117 118 120 116 Q 123 114 125 116"
+            stroke="#ff6b95" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.85"/>
+    </g>
+
   </g>
 
-  <g class="cl-brows">
-    <path class="cl-brow cl-brow-l" d="M 36 36 L 56 32" stroke="#1a1a1a" stroke-width="3.6" stroke-linecap="round"/>
-    <path class="cl-brow cl-brow-r" d="M 64 32 L 84 36" stroke="#1a1a1a" stroke-width="3.6" stroke-linecap="round"/>
+  <!-- ═══════ MOUTH LAYER ═══════ -->
+  <g class="cl-mouth">
+
+    <!-- DEFAULT smile -->
+    <path class="cl-mouth-smile" d="M 92 130 Q 100 137 108 130" stroke="#04124a" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+
+    <!-- BIG smile (open) -->
+    <g class="cl-mouth-bigsmile">
+      <path d="M 87 127 Q 100 144 113 127 Q 100 136 87 127 Z" fill="#04124a"/>
+      <path d="M 91 131 Q 100 139 109 131" fill="#ff6e9e" opacity="0.7"/>
+    </g>
+
+    <!-- TONGUE-OUT (small open + pink drop) -->
+    <g class="cl-mouth-tongue">
+      <path d="M 90 128 Q 100 140 110 128 Q 100 133 90 128 Z" fill="#04124a"/>
+      <path d="M 96 134 Q 100 144 105 138 Q 105 132 100 132 Q 96 132 96 134 Z" fill="#ff5577"/>
+    </g>
+
+    <!-- O surprised -->
+    <ellipse class="cl-mouth-o" cx="100" cy="132" rx="2.8" ry="3.8" fill="#04124a"/>
+
+    <!-- WAVY squiggle (uncertain/dizzy) -->
+    <path class="cl-mouth-wavy" d="M 90 132 Q 94 128 98 132 Q 102 136 106 132 Q 110 128 114 132"
+          stroke="#04124a" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+
+    <!-- FANGS (angry mouth with tiny teeth) -->
+    <g class="cl-mouth-fangs">
+      <path d="M 87 128 L 100 140 L 113 128 Z" fill="#04124a"/>
+      <path d="M 93 130 L 96 134 L 99 130 Z" fill="#ffffff"/>
+      <path d="M 101 130 L 104 134 L 107 130 Z" fill="#ffffff"/>
+    </g>
+
+    <!-- FLAT (meh) -->
+    <line class="cl-mouth-flat" x1="92" y1="132" x2="108" y2="132" stroke="#04124a" stroke-width="2.4" stroke-linecap="round"/>
+
+    <!-- FROWN -->
+    <path class="cl-mouth-frown" d="M 92 134 Q 100 128 108 134" stroke="#04124a" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+
+    <!-- CAT :3 -->
+    <path class="cl-mouth-cat" d="M 92 130 Q 96 134 100 130 Q 104 134 108 130" stroke="#04124a" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+
+    <!-- KISSY pucker -->
+    <ellipse class="cl-mouth-kiss" cx="100" cy="132" rx="3.2" ry="2.4" fill="#ff5577"/>
+
   </g>
 
+  <!-- Sleep Z's -->
   <g class="cl-zzz">
-    <text x="86" y="38" font-family="serif" font-size="12" font-weight="700" fill="#9aa0a6">z</text>
-    <text x="94" y="28" font-family="serif" font-size="14" font-weight="700" fill="#aab0b6">z</text>
-    <text x="102" y="18" font-family="serif" font-size="16" font-weight="700" fill="#bac0c6">Z</text>
-  </g>
-
-  <g class="cl-sparkles">
-    <text x="20" y="40" font-family="serif" font-size="14" fill="#d4a44e">✦</text>
-    <text x="98" y="56" font-family="serif" font-size="11" fill="#d4a44e">✦</text>
-    <text x="14" y="80" font-family="serif" font-size="9"  fill="#d4a44e">✦</text>
+    <text x="146" y="50" font-family="serif" font-size="14" font-weight="700" fill="#7df0ff" opacity="0.85">z</text>
+    <text x="156" y="38" font-family="serif" font-size="16" font-weight="700" fill="#9bf2ff" opacity="0.85">z</text>
+    <text x="168" y="24" font-family="serif" font-size="18" font-weight="700" fill="#bef5ff" opacity="0.85">Z</text>
   </g>
 </svg>
