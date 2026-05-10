@@ -105,6 +105,18 @@
   // Active per-task notes (v12.4). Map of cleaning_task_id → most-recent
   // active note row. "Active" = not dismissed AND not yet expired.
   let notesByTaskId    = {};
+
+  // ─── V15 state ────────────────────────────────────────────────────────
+  // Assignment rows keyed by task_id. Each task can have many — one per
+  // (day_of_week, shift) for weekly, one per year_month for monthly.
+  let assignmentsByTaskId = {};
+  // Linked education guides per task. Each value is an array of guide
+  // objects with at least { id, title_en, primary_kind }.
+  let guidesLinkedByTaskId = {};
+  // Person-filter state: null = everyone (full view), otherwise the
+  // user_id whose assignments are being filtered to. Persists for the
+  // session in NX state so it survives navigation away+back.
+  let viewingUserId = null;
   // "Coming up" lookahead — populated on render from non-daily tasks
   // whose freshness is heading toward zero in the next 7 days. Renders
   // as a horizontal scroll strip above the section cards.
@@ -318,6 +330,99 @@
       console.warn('[cleaning] loadUsers:', e);
       usersList = [];
     }
+  }
+
+  // ─── V15: assignments + guide-link loaders + helpers ──────────────────
+  async function loadAssignments() {
+    assignmentsByTaskId = {};
+    if (!NX.sb || NX.paused) return;
+    try {
+      // Load all assignments for tasks in the current location. Avoids
+      // pulling cross-location data we don't need to render this view.
+      const taskIds = (tasksByLoc[activeLoc] || []).map(t => t.id);
+      if (!taskIds.length) return;
+      const { data, error } = await NX.sb.from('cleaning_task_assignments')
+        .select('*')
+        .in('task_id', taskIds);
+      if (error) { console.warn('[cleaning] loadAssignments:', error); return; }
+      (data || []).forEach(row => {
+        if (!assignmentsByTaskId[row.task_id]) assignmentsByTaskId[row.task_id] = [];
+        assignmentsByTaskId[row.task_id].push(row);
+      });
+    } catch (e) {
+      console.warn('[cleaning] loadAssignments ex:', e);
+    }
+  }
+
+  async function loadGuideLinks() {
+    guidesLinkedByTaskId = {};
+    if (!NX.sb || NX.paused) return;
+    try {
+      const taskIds = (tasksByLoc[activeLoc] || []).map(t => t.id);
+      if (!taskIds.length) return;
+      // Join through cleaning_task_guides to get the guide rows. Postgrest
+      // syntax: select linked-table fields via the FK relation.
+      const { data, error } = await NX.sb.from('cleaning_task_guides')
+        .select('task_id, sort_order, education_guides(id, title_en, primary_kind, context_hint)')
+        .in('task_id', taskIds)
+        .order('sort_order', { ascending: true });
+      if (error) { console.warn('[cleaning] loadGuideLinks:', error); return; }
+      (data || []).forEach(row => {
+        if (!row.education_guides) return;
+        if (!guidesLinkedByTaskId[row.task_id]) guidesLinkedByTaskId[row.task_id] = [];
+        guidesLinkedByTaskId[row.task_id].push(row.education_guides);
+      });
+    } catch (e) {
+      console.warn('[cleaning] loadGuideLinks ex:', e);
+    }
+  }
+
+  // Returns 1-7 for today (1=Sun, 2=Mon, ..., 7=Sat). Postgres convention.
+  function todayDayOfWeek() {
+    return new Date().getDay() + 1;
+  }
+  // Returns YYYYMM int for current month
+  function currentYearMonth() {
+    const d = new Date();
+    return d.getFullYear() * 100 + (d.getMonth() + 1);
+  }
+
+  // For a given task, returns { am: user|null, pm: user|null } for today.
+  // Looks up assignments based on day_of_week + scope. Also handles
+  // monthly tasks by checking year_month.
+  function todayAssigneesFor(task) {
+    const rows = assignmentsByTaskId[task.id] || [];
+    const isMonthly = (task.frequency_type === 'monthly');
+    const dow = todayDayOfWeek();
+    const ym = currentYearMonth();
+    let am = null, pm = null;
+    rows.forEach(r => {
+      if (isMonthly && r.scope === 'monthly' && r.year_month === ym) {
+        // Monthly tasks: one assignee for the whole month, slot it as am
+        // for display purposes (the task only happens once anyway).
+        const u = usersList.find(x => x.id === r.user_id);
+        if (u) am = u;
+      } else if (!isMonthly && r.scope === 'weekly' && r.day_of_week === dow) {
+        const u = usersList.find(x => x.id === r.user_id);
+        if (!u) return;
+        if (r.shift === 'am') am = u;
+        if (r.shift === 'pm') pm = u;
+      }
+    });
+    return { am, pm };
+  }
+
+  // Filters task groups to only those assigned to a specific user today.
+  // Returns the original groups if userId is null (everyone view).
+  function filterGroupsByUser(groups, userId) {
+    if (!userId) return groups;
+    return groups.map(g => {
+      const filtered = g.tasks.filter(t => {
+        const { am, pm } = todayAssigneesFor(t);
+        return (am && am.id === userId) || (pm && pm.id === userId);
+      });
+      return filtered.length ? { ...g, tasks: filtered } : null;
+    }).filter(Boolean);
   }
 
   // ─── DB: load any open board cards linked to cleaning sections ────────
@@ -654,8 +759,19 @@
       toast('Uploading photo…', 'info', 8000);
       try {
         // Path scheme: {location}/{date}/{section}-{task_order}-{ts}.{ext}
+        // BUGFIX 2026-05-09: Supabase Storage rejects keys with non-ASCII
+        // chars. Section names like "🍽 COMEDOR" or "JARDÍN" used to leak
+        // emojis + accents into the path. We now strip ANYTHING that
+        // isn't [A-Za-z0-9_-], collapse runs of underscores, and trim.
         const safeName = file.name.replace(/[^a-z0-9.]/gi, '_');
-        const fname = `${activeLoc}/${today}/${task.section_es.replace(/\s+/g,'_')}-${task.task_order}-${Date.now()}-${safeName}`;
+        const safeSection = (task.section_es || 'SECTION')
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // ÁÉ → AE
+          .replace(/[^A-Za-z0-9_-]+/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .toUpperCase()
+          || 'SECTION';
+        const fname = `${activeLoc}/${today}/${safeSection}-${task.task_order}-${Date.now()}-${safeName}`;
         const { error: upErr } = await NX.sb.storage
           .from('cleaning-attachments')
           .upload(fname, file, { upsert: false, contentType: file.type });
@@ -1385,6 +1501,107 @@
   }
 
 
+  // ═══ TASK GUIDE PICKER (v15) ═════════════════════════════════════════
+  // Only used when a task has 2+ linked guides. Shows them in a small
+  // sheet so the user can pick which one to open. (Single-guide tasks
+  // open directly without this intermediate.)
+  function openTaskGuidePicker(task, guides) {
+    document.querySelectorAll('.clean-guide-picker').forEach(m => m.remove());
+
+    const sheet = document.createElement('div');
+    sheet.className = 'clean-guide-picker';
+    sheet.innerHTML = `
+      <div class="clean-guide-picker-bg"></div>
+      <div class="clean-guide-picker-card">
+        <div class="clean-guide-picker-head">
+          <div class="clean-guide-picker-title">Pick a guide</div>
+          <button class="clean-guide-picker-close" aria-label="Close">${svg('close', 14)}</button>
+        </div>
+        <div class="clean-guide-picker-list">
+          ${guides.map(g => {
+            const kindIcon = {
+              text:'book', video:'camera', pdf:'pen', embed:'link', steps:'check'
+            }[g.primary_kind] || 'book';
+            return `
+              <button class="clean-guide-picker-item" data-guide-id="${esc(g.id)}">
+                <span class="clean-guide-picker-kind">${svg(kindIcon, 13)}</span>
+                <span class="clean-guide-picker-name">${esc(g.title_en)}</span>
+                ${g.context_hint ? `<span class="clean-guide-picker-hint">${esc(g.context_hint)}</span>` : ''}
+              </button>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(sheet);
+
+    const close = () => sheet.remove();
+    sheet.querySelector('.clean-guide-picker-bg').addEventListener('click', close);
+    sheet.querySelector('.clean-guide-picker-close').addEventListener('click', close);
+    sheet.querySelectorAll('[data-guide-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        close();
+        if (NX.educationAPI && NX.educationAPI.openGuideViewer) {
+          NX.educationAPI.openGuideViewer(btn.dataset.guideId);
+        }
+      });
+    });
+  }
+
+
+  // ═══ PERSON FILTER PICKER (v15) ══════════════════════════════════════
+  // Slide-up sheet listing all known users + "Everyone". Tap a row to
+  // switch the cleaning view to that person's assignments. Persists for
+  // the session in viewingUserId state.
+  function openPersonFilterPicker() {
+    document.querySelectorAll('.clean-person-picker').forEach(m => m.remove());
+
+    const me = getCurrentUserId();
+    const sheet = document.createElement('div');
+    sheet.className = 'clean-person-picker';
+    sheet.innerHTML = `
+      <div class="clean-person-picker-bg"></div>
+      <div class="clean-person-picker-card">
+        <div class="clean-person-picker-head">
+          <div class="clean-person-picker-title">Whose view to show</div>
+          <button class="clean-person-picker-close" aria-label="Close">${svg('close', 14)}</button>
+        </div>
+        <div class="clean-person-picker-list">
+          <button class="clean-person-picker-item ${viewingUserId === null ? 'is-selected' : ''}" data-user-id="">
+            <span class="clean-person-picker-dot"></span>
+            <span class="clean-person-picker-name">Everyone</span>
+            <span class="clean-person-picker-hint">All tasks across the location</span>
+          </button>
+          ${usersList.map(u => {
+            const isSelected = (viewingUserId === u.id);
+            const isMe = (me === u.id);
+            return `
+              <button class="clean-person-picker-item ${isSelected ? 'is-selected' : ''}" data-user-id="${esc(u.id)}">
+                <span class="clean-person-picker-dot"></span>
+                <span class="clean-person-picker-name">${esc(u.name)}${isMe ? ' <span class="clean-person-picker-me">(me)</span>' : ''}</span>
+                <span class="clean-person-picker-hint">Show ${esc(u.name)}'s tasks</span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(sheet);
+
+    const close = () => sheet.remove();
+    sheet.querySelector('.clean-person-picker-bg').addEventListener('click', close);
+    sheet.querySelector('.clean-person-picker-close').addEventListener('click', close);
+    sheet.querySelectorAll('[data-user-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const v = btn.dataset.userId;
+        viewingUserId = v ? (parseInt(v, 10) || v) : null;
+        close();
+        render();
+      });
+    });
+  }
+
+
   // ═══ SECTION KEBAB MENU (v12.2) ══════════════════════════════════════
   // Tap the small ⋯ button on a section card head → small popup with:
   //   • Copy to other locations…
@@ -1489,10 +1706,19 @@
     if (pctEl)  pctEl.textContent  = pct + '%';
 
     // ─── VIEW MODE TOGGLE ─────────────────────────────────────
-    // "Today" / "All" segmented control + Training mode pill.
-    // Stays at the top of the list; tap either side to flip
-    // between minimal-noise morning view and full-catalog view.
-    // Training pill (rightmost) toggles per-task training affordances.
+    // "Today" / "All" segmented control + Person filter pill (v15).
+    // Person filter: defaults to current logged-in user (from PIN auth).
+    // Tap to switch between My / Anyone-Else / Everyone view. Lets a
+    // staff member focus on their own tasks but swap to peek at someone
+    // else's view or see the full picture.
+    const me = getCurrentUserId();
+    const meName = me ? (usersList.find(u => u.id === me)?.name || 'Me') : 'Me';
+    const viewingUser = viewingUserId ? usersList.find(u => u.id === viewingUserId) : null;
+    let pillLabel;
+    if (viewingUserId === null) pillLabel = 'Everyone';
+    else if (viewingUserId === me) pillLabel = `${meName} (me)`;
+    else pillLabel = (viewingUser ? viewingUser.name : 'Filtered');
+
     const viewToggle = document.createElement('div');
     viewToggle.className = 'clean-view-toggle-row';
     viewToggle.innerHTML = `
@@ -1500,15 +1726,15 @@
         <button class="clean-view-toggle-btn ${viewMode === 'today' ? 'is-active' : ''}" data-view="today">Today</button>
         <button class="clean-view-toggle-btn ${viewMode === 'all'   ? 'is-active' : ''}" data-view="all">All</button>
       </div>
-      <button class="clean-train-mode-pill ${trainingMode ? 'is-active' : ''}" data-train-toggle title="Show training affordances on each task">
-        ${svg('award', 12)} <span>Training ${trainingMode ? 'on' : 'off'}</span>
+      <button class="clean-person-pill ${viewingUserId !== null ? 'is-active' : ''}" data-person-pill title="Whose view to show">
+        ${svg('user', 12)} <span>${esc(pillLabel)}</span>
       </button>
     `;
     viewToggle.querySelectorAll('[data-view]').forEach(btn => {
       btn.addEventListener('click', () => setViewMode(btn.dataset.view));
     });
-    viewToggle.querySelector('[data-train-toggle]').addEventListener('click', () => {
-      setTrainingMode(!trainingMode);
+    viewToggle.querySelector('[data-person-pill]').addEventListener('click', () => {
+      openPersonFilterPicker();
     });
     list.appendChild(viewToggle);
 
@@ -1560,18 +1786,24 @@
       list.appendChild(strip);
     }
 
-    // Render every section card — filter by viewMode
-    const visibleGroups = viewMode === 'today'
+    // Render every section card — filter by viewMode, then by person
+    let visibleGroups = viewMode === 'today'
       ? groups.filter(g => g.tasks.some(t => DAILY_TYPES.has(t.frequency_type)))
       : groups;
 
+    // V15: filter to person's view if one is selected. null = Everyone.
+    visibleGroups = filterGroupsByUser(visibleGroups, viewingUserId);
+
     if (!visibleGroups.length && groups.length) {
-      // viewMode='today' but no daily sections exist — show a hint
+      // Could be empty due to viewMode='today' OR due to person filter.
       const hint = document.createElement('div');
       hint.className = 'clean-empty-soft';
+      const isPersonFiltered = viewingUserId !== null;
       hint.innerHTML = `
         <div class="clean-empty-soft-text">
-          No daily sections at this location. Tap <b>All</b> above to see scheduled tasks.
+          ${isPersonFiltered
+            ? `No tasks assigned to this person${viewMode === 'today' ? ' today' : ''}. Tap the person pill to switch view.`
+            : `No daily sections at this location. Tap <b>All</b> above to see scheduled tasks.`}
         </div>`;
       list.appendChild(hint);
     } else {
@@ -1784,13 +2016,34 @@
       }
     }
 
-    // Assignee chip
+    // Assignee chip(s) — v15: read from cleaning_task_assignments based
+    // on today's day-of-week + the task's shift_pattern. Falls back to
+    // the legacy assignee_id (if set) so old data still renders.
     let assigneeHTML = '';
-    if (task.assignee_id) {
+    const todayPair = todayAssigneesFor(task);
+    const shiftPattern = task.shift_pattern || 'am';
+    function chipFor(user, shift) {
+      if (!user) return '';
+      const initials = user.name.split(/\s+/).map(p => p[0]).join('').slice(0,2).toUpperCase();
+      const me = getCurrentUserId();
+      const isMe = (me && me === user.id);
+      const shiftLabel = shiftPattern === 'both' ? `<span class="clean-assignee-shift">${shift.toUpperCase()}</span>` : '';
+      return `<span class="clean-assignee ${isMe ? 'is-me' : ''}" title="${esc(user.name)} (${shift})">${shiftLabel}<span>${esc(initials)}</span></span>`;
+    }
+    if (shiftPattern === 'am') {
+      assigneeHTML = chipFor(todayPair.am, 'am');
+    } else if (shiftPattern === 'pm') {
+      assigneeHTML = chipFor(todayPair.pm, 'pm');
+    } else {
+      // both: render two chips side by side
+      assigneeHTML = chipFor(todayPair.am, 'am') + chipFor(todayPair.pm, 'pm');
+    }
+    // Legacy fallback — if no v15 assignment but old assignee_id exists
+    if (!assigneeHTML && task.assignee_id) {
       const u = usersList.find(x => x.id === task.assignee_id);
       const name = u ? u.name : null;
       const initials = name ? name.split(/\s+/).map(p => p[0]).join('').slice(0,2).toUpperCase() : '?';
-      assigneeHTML = `<span class="clean-assignee" title="${esc(name || 'Unknown')}">${esc(initials)}</span>`;
+      assigneeHTML = `<span class="clean-assignee" title="${esc(name || 'Unknown')}"><span>${esc(initials)}</span></span>`;
     }
 
     // Days-of-week pills (only for weekly + custom with days)
@@ -1826,65 +2079,14 @@
       }</div>`;
     }
 
-    // Cost chip — only renders if a cost was logged today
-    const costEntry = costsByKey[taskKey];
-    let costHTML = '';
-    if (costEntry && costEntry.cost > 0) {
-      costHTML = `<span class="clean-cost-chip" title="${esc(costEntry.note || '')}">${esc(fmtCost(costEntry.cost))}</span>`;
-    }
+    // Cost chip removed in v15 — cost-logging feature retired entirely.
+    const costHTML = '';
 
-    // Training pill (visible only when training mode is on AND there
-    // are linked modules). Shows "🎓 done/total"; tap to expand the
-    // inline panel beneath the row.
-    let trainingPillHTML = '';
-    let trainingPanelHTML = '';
-    if (trainingMode) {
-      const [doneCount, totalCount] = trainingProgressForTask(task.id);
-      if (totalCount > 0) {
-        const allDone = doneCount === totalCount;
-        const isOpen = expandedTrainingTaskId === task.id;
-        trainingPillHTML = `
-          <button class="clean-train-pill ${allDone ? 'is-done' : 'is-pending'} ${isOpen ? 'is-open' : ''}"
-                  data-train-pill aria-label="Toggle training panel">
-            ${svg('award', 11)} <span>${doneCount}/${totalCount}</span>
-          </button>`;
-        if (isOpen) {
-          trainingPanelHTML = `
-            <div class="clean-train-panel">
-              ${(linksByTaskId[task.id] || []).map(modId => {
-                const m = trainingModulesById[modId];
-                if (!m) return '';
-                const c = myTrainingByModule[modId];
-                let status, statusCls;
-                if (c) {
-                  if (c.expires_at && (new Date(c.expires_at) - new Date()) / 86400000 < 0) {
-                    status = 'Expired'; statusCls = 'is-expired';
-                  } else if (c.expires_at && (new Date(c.expires_at) - new Date()) / 86400000 < 30) {
-                    const d = Math.max(0, Math.floor((new Date(c.expires_at) - new Date()) / 86400000));
-                    status = `Expiring · ${d}d`; statusCls = 'is-expiring';
-                  } else {
-                    status = 'Done'; statusCls = 'is-done';
-                  }
-                } else {
-                  status = 'Pending'; statusCls = 'is-pending';
-                }
-                const showMarkBtn = !c || statusCls === 'is-expired' || statusCls === 'is-expiring';
-                return `
-                  <div class="clean-train-panel-row ${statusCls}">
-                    <div class="clean-train-panel-info">
-                      <div class="clean-train-panel-name">${esc(m.name_en)}</div>
-                      <div class="clean-train-panel-meta">${esc(m.kind)}${m.category_en ? ' · ' + esc(m.category_en) : ''}</div>
-                    </div>
-                    <span class="clean-train-panel-status ${statusCls}">${esc(status)}</span>
-                    ${m.resource_url ? `<a class="clean-train-panel-resource" href="${esc(m.resource_url)}" target="_blank" rel="noopener noreferrer">Open</a>` : ''}
-                    ${showMarkBtn ? `<button class="clean-train-panel-mark" data-mark-mod="${esc(modId)}">${svg('check', 12, 2.5)}</button>` : ''}
-                  </div>
-                `;
-              }).join('')}
-            </div>`;
-        }
-      }
-    }
+    // Training pill removed in v15 — replaced by Education guides
+    // (Phase 2). Each task will get a 📖 button that opens linked
+    // education_guides in a takeover sheet.
+    const trainingPillHTML = '';
+    const trainingPanelHTML = '';
 
     // Active note for this task (v12.4) — surfaces an amber chip in
     // the meta row + the full note text below the freshness bar. Tap
@@ -1933,15 +2135,17 @@
         <button class="clean-task-action-btn" aria-label="Add photo" data-add-photo title="Photo">
           ${svg('camera', 14, 2)}
         </button>
-        <button class="clean-task-action-btn" aria-label="Log cost" data-log-cost title="Cost">
-          <span style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:13px">$</span>
-        </button>
         <button class="clean-task-action-btn" aria-label="${activeNote ? 'Edit note' : 'Add note'}" data-add-note title="${activeNote ? 'Edit note' : 'Note'}">
           ${svg('alert', 14, 2)}
         </button>
+        ${(guidesLinkedByTaskId[task.id] || []).length ? `
+          <button class="clean-task-action-btn clean-guide-btn" aria-label="Open guide" data-open-guide title="Guide">
+            ${svg('book', 14, 2)}
+            ${(guidesLinkedByTaskId[task.id] || []).length > 1 ? `<span class="clean-guide-btn-count">${guidesLinkedByTaskId[task.id].length}</span>` : ''}
+          </button>
+        ` : ''}
         <button class="clean-task-action-btn" aria-label="Edit task" data-edit-task title="Edit">
           ${svg('pen', 14, 2)}
-        </button>
         </button>
       </div>
     `;
@@ -1978,9 +2182,23 @@
     row.querySelector('[data-add-photo]').addEventListener('click', () => {
       uploadPhotoForTask(task);
     });
-    row.querySelector('[data-log-cost]').addEventListener('click', () => {
-      openCostEntry(task);
-    });
+    // Guide button: opens the linked education guide. If multiple guides
+    // are linked, shows a small picker; if just one, opens it directly.
+    const guideBtn = row.querySelector('[data-open-guide]');
+    if (guideBtn) {
+      guideBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const guides = guidesLinkedByTaskId[task.id] || [];
+        if (!guides.length) return;
+        if (guides.length === 1) {
+          if (NX.educationAPI && NX.educationAPI.openGuideViewer) {
+            NX.educationAPI.openGuideViewer(guides[0].id);
+          }
+        } else {
+          openTaskGuidePicker(task, guides);
+        }
+      });
+    }
     // Note action: opens the editor (creates new or edits existing)
     row.querySelector('[data-add-note]').addEventListener('click', () => {
       openNoteEditor(task);
@@ -2099,33 +2317,118 @@
         <label class="clean-edit-label">On these days</label>
         <div class="clean-day-pills">${dayPillsHTML}</div>
       </div>
+
       <div class="clean-edit-row">
-        <label class="clean-edit-label">Assigned to</label>
-        <select class="clean-edit-select" data-field="assignee_id">
-          ${assigneeOptions}
-        </select>
+        <label class="clean-edit-label">Shift pattern <span class="clean-edit-label-hint">— who does this and when</span></label>
+        <div class="clean-shift-picker" data-shift-picker>
+          ${['am','pm','both'].map(s => {
+            const sel = (task.shift_pattern || 'am') === s;
+            const label = s === 'am' ? 'AM only' : s === 'pm' ? 'PM only' : 'Both shifts';
+            return `<button type="button" class="clean-shift-btn ${sel ? 'is-selected' : ''}" data-shift="${s}">${label}</button>`;
+          }).join('')}
+        </div>
       </div>
+
+      ${task.frequency_type === 'monthly' ? `
+        <div class="clean-edit-row">
+          <label class="clean-edit-label">Monthly rotation <span class="clean-edit-label-hint">— different person per month</span></label>
+          <div class="clean-month-picker" data-month-picker>
+            ${(() => {
+              const ym = currentYearMonth();
+              const nextYm = (() => {
+                const d = new Date();
+                d.setMonth(d.getMonth() + 1);
+                return d.getFullYear() * 100 + (d.getMonth() + 1);
+              })();
+              const labelOf = (yymm) => {
+                const yy = Math.floor(yymm / 100), mm = yymm % 100;
+                const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                return `${months[mm-1]} ${yy}`;
+              };
+              const findUser = (yymm) => {
+                const r = (assignmentsByTaskId[task.id] || []).find(x =>
+                  x.scope === 'monthly' && x.year_month === yymm);
+                return r ? r.user_id : '';
+              };
+              const opts = ['<option value="">— Unassigned —</option>']
+                .concat(usersList.map(u => `<option value="${u.id}">${esc(u.name)}</option>`));
+              return `
+                <div class="clean-month-row">
+                  <span class="clean-month-label">${labelOf(ym)} (this)</span>
+                  <select class="clean-edit-select" data-month-ym="${ym}">
+                    ${opts.map(o => o.replace(`value="${findUser(ym)}"`, `value="${findUser(ym)}" selected`)).join('')}
+                  </select>
+                </div>
+                <div class="clean-month-row">
+                  <span class="clean-month-label">${labelOf(nextYm)} (next)</span>
+                  <select class="clean-edit-select" data-month-ym="${nextYm}">
+                    ${opts.map(o => o.replace(`value="${findUser(nextYm)}"`, `value="${findUser(nextYm)}" selected`)).join('')}
+                  </select>
+                </div>
+              `;
+            })()}
+          </div>
+        </div>
+      ` : `
+        <div class="clean-edit-row" data-week-row>
+          <label class="clean-edit-label">Weekly assignments <span class="clean-edit-label-hint">— who does it each day</span></label>
+          <div class="clean-week-grid" data-week-grid>
+            ${(() => {
+              // Determine which days to show. If days_of_week is set,
+              // show only those; otherwise show all 7.
+              const daysOfWeek = (Array.isArray(task.days_of_week) && task.days_of_week.length)
+                ? task.days_of_week
+                : [1,2,3,4,5,6,7];
+              const dayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+              const shifts = (task.shift_pattern || 'am') === 'both' ? ['am','pm'] : [(task.shift_pattern || 'am')];
+              const findAsg = (dow, sh) => {
+                const r = (assignmentsByTaskId[task.id] || []).find(x =>
+                  x.scope === 'weekly' && x.day_of_week === dow && x.shift === sh);
+                return r ? r.user_id : '';
+              };
+              const opts = ['<option value="">—</option>']
+                .concat(usersList.map(u => `<option value="${u.id}">${esc(u.name)}</option>`));
+              return daysOfWeek.map(dow => `
+                <div class="clean-week-row">
+                  <span class="clean-week-day-label">${dayLabels[dow - 1]}</span>
+                  ${shifts.map(sh => `
+                    <div class="clean-week-shift-cell">
+                      ${shifts.length > 1 ? `<span class="clean-week-shift-label">${sh.toUpperCase()}</span>` : ''}
+                      <select class="clean-edit-select" data-week-dow="${dow}" data-week-shift="${sh}">
+                        ${opts.map(o => {
+                          const cur = findAsg(dow, sh);
+                          if (!cur) return o;
+                          return o.replace(`value="${cur}"`, `value="${cur}" selected`);
+                        }).join('')}
+                      </select>
+                    </div>
+                  `).join('')}
+                </div>
+              `).join('');
+            })()}
+          </div>
+        </div>
+      `}
+
       <div class="clean-edit-row">
         <label class="clean-edit-label">Notes <span class="clean-edit-label-hint">(optional)</span></label>
         <textarea class="clean-edit-textarea" data-field="notes" rows="2"
                   placeholder="e.g. Use the green-handled brush from under the bar.">${esc(task.notes || '')}</textarea>
       </div>
+
       ${isNew ? '' : `
-      <div class="clean-edit-row">
-        <label class="clean-edit-label">Training modules <span class="clean-edit-label-hint">(staff must complete to do this task)</span></label>
-        <div class="clean-edit-train-links" data-train-links-container>
-          ${(linksByTaskId[task.id] || []).map(modId => {
-            const m = trainingModulesById[modId];
-            return `
-              <span class="clean-edit-train-link" data-linked-mod="${esc(modId)}">
-                ${svg('award', 11)} <span>${esc(m ? m.name_en : modId.slice(0,8))}</span>
-                <button class="clean-edit-train-link-x" data-unlink-mod="${esc(modId)}" aria-label="Unlink">×</button>
+        <div class="clean-edit-row">
+          <label class="clean-edit-label">Linked guides <span class="clean-edit-label-hint">— shown as a 📖 button on this task</span></label>
+          <div class="clean-edit-guide-links" data-guide-links>
+            ${(guidesLinkedByTaskId[task.id] || []).map(g => `
+              <span class="clean-edit-guide-link" data-linked-guide="${esc(g.id)}">
+                ${svg('book', 11)} <span>${esc(g.title_en)}</span>
+                <button class="clean-edit-guide-link-x" data-unlink-guide="${esc(g.id)}" aria-label="Unlink">×</button>
               </span>
-            `;
-          }).join('')}
-          <button class="clean-edit-train-link-add" type="button" data-link-add>${svg('plus', 12)} <span>Link module</span></button>
+            `).join('')}
+            <button class="clean-edit-guide-link-add" type="button" data-link-guide-add>${svg('plus', 12)} <span>Link guide</span></button>
+          </div>
         </div>
-      </div>
       `}
       ${isNew ? '' : `
       <div class="clean-edit-row clean-edit-reorder-row">
@@ -2144,19 +2447,72 @@
     `;
 
     // ─── Live wiring ──────────────────────────────────────────────
-    // Frequency change → show/hide days-of-week + custom-days inputs
+    // Frequency change → re-render the form so the right assignment
+    // section (weekly grid vs monthly picker) shows up.
     const freqSel = wrap.querySelector('[data-field="frequency_type"]');
     freqSel.addEventListener('change', () => {
       const t = freqSel.value;
+      // Toggle the simple controls
       wrap.querySelector('[data-days-row]').style.display =
         (t === 'weekly' || t === 'custom') ? '' : 'none';
       wrap.querySelector('[data-custom-days]').style.display =
         (t === 'custom') ? '' : 'none';
+      // For frequency-type changes that flip between monthly and weekly
+      // the editor needs to be re-rendered (different assignment UI).
+      const wasMonthly = (task.frequency_type === 'monthly');
+      const isMonthly = (t === 'monthly');
+      if (wasMonthly !== isMonthly) {
+        // Update the in-memory task so re-render reflects pending change
+        task.frequency_type = t;
+        wrap.replaceWith(renderTaskEditForm(task));
+      }
     });
 
     // Day pills toggle
     wrap.querySelectorAll('.clean-day-pill').forEach(pill => {
       pill.addEventListener('click', () => pill.classList.toggle('is-selected'));
+    });
+
+    // Shift pattern picker (am / pm / both) — purely UI; saved value
+    // is read at save-time. Selecting 'both' should re-render the
+    // weekly grid so it shows two columns.
+    wrap.querySelectorAll('[data-shift-picker] [data-shift]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const newShift = btn.dataset.shift;
+        wrap.querySelectorAll('[data-shift-picker] [data-shift]').forEach(b =>
+          b.classList.toggle('is-selected', b === btn));
+        if (task.shift_pattern !== newShift) {
+          task.shift_pattern = newShift;
+          // Re-render to update grid columns (am/pm/both changes layout)
+          wrap.replaceWith(renderTaskEditForm(task));
+        }
+      });
+    });
+
+    // Linked-guides controls (only present when not isNew)
+    const linkGuideAddBtn = wrap.querySelector('[data-link-guide-add]');
+    if (linkGuideAddBtn) {
+      linkGuideAddBtn.addEventListener('click', () => {
+        openGuideLinkPicker(task);
+      });
+    }
+    wrap.querySelectorAll('[data-unlink-guide]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const guideId = btn.dataset.unlinkGuide;
+        try {
+          if (NX.educationAPI && NX.educationAPI.unlinkGuideFromTask) {
+            await NX.educationAPI.unlinkGuideFromTask(task.id, guideId);
+          }
+          await loadGuideLinks();
+          // Soft re-render of just the link list
+          const list = guidesLinkedByTaskId[task.id] || [];
+          const container = wrap.querySelector('[data-guide-links]');
+          if (container) {
+            container.querySelector(`[data-linked-guide="${guideId}"]`)?.remove();
+          }
+        } catch (e) { toast('Unlink failed', 'error'); }
+      });
     });
 
     // Cancel
@@ -2172,24 +2528,6 @@
         const direction = btn.dataset.move;
         editingTaskId = null;
         await moveTaskInSection(task, direction);
-      });
-    });
-
-    // Training-link controls (only present when not isNew)
-    const linkAddBtn = wrap.querySelector('[data-link-add]');
-    if (linkAddBtn) {
-      linkAddBtn.addEventListener('click', () => {
-        // Make sure caches are loaded so the picker shows the latest
-        // existing-link state.
-        loadTrainingData().then(() => {
-          openTrainingLinkPicker(task, linksByTaskId[task.id] || []);
-        });
-      });
-    }
-    wrap.querySelectorAll('[data-unlink-mod]').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        await unlinkTrainingModuleFromTask(task.id, btn.dataset.unlinkMod);
       });
     });
 
@@ -2232,9 +2570,33 @@
       const days_of_week = Array.from(wrap.querySelectorAll('.clean-day-pill.is-selected'))
         .map(p => parseInt(p.dataset.day, 10))
         .filter(n => n >= 1 && n <= 7);
-      const assignee_raw = get('assignee_id');
-      const assignee_id = assignee_raw ? parseInt(assignee_raw, 10) : null;
       const notes = get('notes').trim() || null;
+
+      // Shift pattern — captured from selected button in the picker
+      const shiftBtn = wrap.querySelector('[data-shift-picker] .is-selected');
+      const shift_pattern = shiftBtn ? shiftBtn.dataset.shift : 'am';
+
+      // Collect new assignment rows from the form. We'll write them in
+      // a separate step after the task is saved so we have a task_id.
+      const newAssignments = [];
+      if (frequency_type === 'monthly') {
+        wrap.querySelectorAll('[data-month-ym]').forEach(sel => {
+          const ym = parseInt(sel.dataset.monthYm, 10);
+          const userId = sel.value ? (parseInt(sel.value, 10) || null) : null;
+          if (userId && ym) {
+            newAssignments.push({ scope: 'monthly', year_month: ym, user_id: userId });
+          }
+        });
+      } else {
+        wrap.querySelectorAll('[data-week-dow]').forEach(sel => {
+          const dow = parseInt(sel.dataset.weekDow, 10);
+          const sh = sel.dataset.weekShift;
+          const userId = sel.value ? (parseInt(sel.value, 10) || null) : null;
+          if (userId && dow && sh) {
+            newAssignments.push({ scope: 'weekly', day_of_week: dow, shift: sh, user_id: userId });
+          }
+        });
+      }
 
       const payload = {
         location:       task.location,
@@ -2247,7 +2609,8 @@
         frequency_type,
         frequency_days,
         days_of_week:   (frequency_type === 'weekly' || frequency_type === 'custom') && days_of_week.length ? days_of_week : null,
-        assignee_id,
+        assignee_id:    null,  // v15: replaced by cleaning_task_assignments
+        shift_pattern,
         notes,
       };
 
@@ -2255,10 +2618,16 @@
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
       try {
-        await saveTask(isNew ? null : task.id, payload);
+        const savedId = await saveTask(isNew ? null : task.id, payload);
+        const targetId = isNew ? savedId : task.id;
+        // Persist assignments — wipe the relevant scope first, then insert.
+        if (targetId) {
+          await replaceAssignmentsForTask(targetId, frequency_type, newAssignments);
+        }
         editingTaskId = null;
         addingToSection = null;
         await loadAllTasks();
+        await loadAssignments();
         render();
         toast(isNew ? 'Task added' : 'Saved', 'info', 1400);
       } catch (e) {
@@ -2278,14 +2647,140 @@
       const { error } = await NX.sb.from('cleaning_tasks')
         .update(payload).eq('id', existingId);
       if (error) throw error;
+      return existingId;
     } else {
       // For new tasks, push to end of section
       const existing = (tasksByLoc[payload.location] || [])
         .filter(t => t.section_es === payload.section_es);
       payload.task_order = existing.length;
-      const { error } = await NX.sb.from('cleaning_tasks').insert(payload);
+      const { data, error } = await NX.sb.from('cleaning_tasks')
+        .insert(payload).select('id').single();
       if (error) throw error;
+      return data ? data.id : null;
     }
+  }
+
+  // V15: wipe + re-insert assignments for a task in the relevant scope.
+  // We only touch the scope being edited so monthly assignments survive
+  // weekly grid edits and vice-versa.
+  async function replaceAssignmentsForTask(taskId, frequencyType, newRows) {
+    if (!NX.sb || !taskId) return;
+    const isMonthly = (frequencyType === 'monthly');
+    const scope = isMonthly ? 'monthly' : 'weekly';
+    // Delete existing rows for this scope only
+    const delQ = NX.sb.from('cleaning_task_assignments')
+      .delete().eq('task_id', taskId).eq('scope', scope);
+    const { error: delErr } = await delQ;
+    if (delErr) {
+      console.warn('[cleaning] replace assignments delete:', delErr);
+      // Continue — we still want to insert the new rows.
+    }
+    if (!newRows.length) return;
+    const inserts = newRows.map(r => ({
+      task_id: taskId,
+      user_id: r.user_id,
+      scope: r.scope,
+      day_of_week: r.day_of_week || null,
+      shift: r.shift || null,
+      year_month: r.year_month || null,
+    }));
+    const { error: insErr } = await NX.sb.from('cleaning_task_assignments').insert(inserts);
+    if (insErr) {
+      console.error('[cleaning] replace assignments insert:', insErr);
+      throw insErr;
+    }
+  }
+
+  // V15: link-guide picker — opens a slide-up sheet listing all education
+  // guides; tap a guide to toggle its link to this task. Used from the
+  // "+ Link guide" button inside the task editor.
+  async function openGuideLinkPicker(task) {
+    document.querySelectorAll('.clean-guide-link-picker').forEach(m => m.remove());
+
+    let allGuides = [];
+    if (NX.educationAPI && NX.educationAPI.listAllGuides) {
+      try { allGuides = await NX.educationAPI.listAllGuides(); }
+      catch (e) { console.warn(e); }
+    }
+    let allCats = [];
+    if (NX.educationAPI && NX.educationAPI.listAllCategories) {
+      try { allCats = await NX.educationAPI.listAllCategories(); }
+      catch (e) { console.warn(e); }
+    }
+    const catName = (id) => {
+      const c = allCats.find(x => x.id === id);
+      return c ? c.name_en : 'Uncategorized';
+    };
+    const linkedIds = new Set((guidesLinkedByTaskId[task.id] || []).map(g => g.id));
+
+    const sheet = document.createElement('div');
+    sheet.className = 'clean-guide-link-picker';
+    sheet.innerHTML = `
+      <div class="clean-guide-link-picker-bg"></div>
+      <div class="clean-guide-link-picker-card">
+        <div class="clean-guide-link-picker-head">
+          <div class="clean-guide-link-picker-title">Link a guide</div>
+          <button class="clean-guide-link-picker-close" aria-label="Close">${svg('close', 14)}</button>
+        </div>
+        <input class="clean-guide-link-picker-search" type="text" placeholder="Search guides…">
+        <div class="clean-guide-link-picker-list">
+          ${allGuides.length ? allGuides.map(g => {
+            const linked = linkedIds.has(g.id);
+            const search = (g.title_en + ' ' + (g.description || '') + ' ' + catName(g.category_id)).toLowerCase();
+            return `
+              <button class="clean-guide-link-picker-item ${linked ? 'is-linked' : ''}"
+                      data-guide-id="${esc(g.id)}" data-search="${esc(search)}">
+                <div class="clean-guide-link-picker-name">${esc(g.title_en)}</div>
+                <div class="clean-guide-link-picker-meta">${esc(catName(g.category_id))} · ${esc(g.primary_kind)}</div>
+                <span class="clean-guide-link-picker-status ${linked ? '' : 'is-add'}">${linked ? 'Linked' : '+ Link'}</span>
+              </button>
+            `;
+          }).join('') : `
+            <div class="clean-guide-link-picker-empty">
+              No guides yet. Tap Education in the top nav to create some.
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(sheet);
+
+    const close = () => sheet.remove();
+    sheet.querySelector('.clean-guide-link-picker-bg').addEventListener('click', close);
+    sheet.querySelector('.clean-guide-link-picker-close').addEventListener('click', close);
+
+    const searchInput = sheet.querySelector('.clean-guide-link-picker-search');
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.toLowerCase().trim();
+      sheet.querySelectorAll('.clean-guide-link-picker-item').forEach(item => {
+        const text = item.dataset.search || '';
+        item.style.display = (!q || text.includes(q)) ? '' : 'none';
+      });
+    });
+
+    sheet.querySelectorAll('[data-guide-id]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const guideId = btn.dataset.guideId;
+        const isLinked = btn.classList.contains('is-linked');
+        btn.disabled = true;
+        try {
+          if (isLinked) {
+            await NX.educationAPI.unlinkGuideFromTask(task.id, guideId);
+            btn.classList.remove('is-linked');
+            const status = btn.querySelector('.clean-guide-link-picker-status');
+            if (status) { status.textContent = '+ Link'; status.classList.add('is-add'); }
+          } else {
+            await NX.educationAPI.linkGuideToTask(task.id, guideId);
+            btn.classList.add('is-linked');
+            const status = btn.querySelector('.clean-guide-link-picker-status');
+            if (status) { status.textContent = 'Linked'; status.classList.remove('is-add'); }
+          }
+          await loadGuideLinks();
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
   }
 
   // ─── DB: archive a task (soft-delete) ─────────────────────────────────
@@ -3202,6 +3697,14 @@
     await loadLinkedCards();
     await loadTrainingData();
     await loadTaskNotes();
+    await loadAssignments();
+    await loadGuideLinks();
+
+    // Default the person filter to the logged-in user. They can switch
+    // to "Everyone" or any other person via the pill at the top.
+    if (viewingUserId === null && getCurrentUserId()) {
+      viewingUserId = getCurrentUserId();
+    }
 
     // Register with NX.archive
     registerArchiveContributor();
@@ -3262,6 +3765,11 @@
     await loadLinkedCards();
     await loadTrainingData();
     await loadTaskNotes();
+    await loadAssignments();
+    await loadGuideLinks();
+    if (viewingUserId === null && getCurrentUserId()) {
+      viewingUserId = getCurrentUserId();
+    }
     render();
   }
 
