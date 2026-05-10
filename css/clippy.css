@@ -14,29 +14,40 @@
    below modals (modals use ≥10000). Crisp-edges rendering preserves the
    original 1997 sprite art instead of letting browsers blur-scale it.
    Slight scale-up gives him more presence at modern phone DPI. */
+/* ─── LIBRARY OVERRIDES ─────────────────────────────────────────────── */
+/* Z-index 40 puts him BELOW the bottom-nav (z:50) and any modals, so
+   his lower body is hidden behind nav and he doesn't cover important
+   UI. The visible head/eyes still take taps. Action bubbles are at
+   9100 so they always render on top of everything.
+
+   transform-origin: center bottom keeps him "anchored at his feet"
+   regardless of position — looks natural after dragging.
+
+   touch-action: none stops iOS native scroll from hijacking drag. */
 .clippy,
 .clippyjs-agent {
-  z-index: 9000 !important;
-  cursor: pointer !important;
+  z-index: 40 !important;
+  cursor: grab !important;
   pointer-events: auto !important;
-  /* Bump 50% larger so he has clear presence on hi-DPI phones (the
-     original sprite was sized for ~96dpi monitors of 1997). */
+  touch-action: none !important;
   transform: scale(1.5) !important;
-  transform-origin: bottom right !important;
-  /* Crisp pixel-art rendering — preserves the 1997 art instead of
-     letting browsers blur-scale it. */
+  transform-origin: center bottom !important;
   image-rendering: -webkit-optimize-contrast;
   image-rendering: crisp-edges;
 }
+.clippy:active,
+.clippyjs-agent:active {
+  cursor: grabbing !important;
+}
 .clippy *,
 .clippyjs-agent * {
-  cursor: pointer !important;
+  cursor: inherit !important;
+  pointer-events: auto !important;
   image-rendering: -webkit-optimize-contrast;
   image-rendering: crisp-edges;
 }
 
-/* clippyjs's own balloon — let it show but boost z-index so our action
-   bubble doesn't accidentally cover it. */
+/* clippyjs's own balloon — keep it on top so it never gets covered */
 .clippy-balloon,
 .clippyjs-balloon {
   z-index: 9001 !important;
