@@ -2494,3 +2494,119 @@ body.is-equipment-archive-world .eq-row:hover {
 [data-theme="light"] .rx-cc-phone-name-num {
   color: #6b4f0d;
 }
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   v15.4 — Equipment assignment sheet: hide-conflicts toggle + override
+   ────────────────────────────────────────────────────────────────────
+   By default the assignment sheet now hides equipment already linked
+   to ANOTHER contractor in the target role. A toggle pill at the top
+   reveals them; rows from other contractors get a clear OVERRIDE
+   badge + the existing contractor's name in the sub-text.
+   ════════════════════════════════════════════════════════════════════════ */
+
+.eq-bulk-others-toggle {
+  margin: 0 16px 8px;
+  padding: 9px 14px;
+  background: transparent;
+  border: 1px dashed rgba(212, 164, 78, 0.45);
+  border-radius: 999px;
+  color: var(--nx-gold, #d4a44e);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.eq-bulk-others-toggle:hover {
+  background: rgba(212, 164, 78, 0.06);
+  border-color: var(--nx-gold);
+}
+.eq-bulk-others-toggle.is-on {
+  background: rgba(212, 164, 78, 0.12);
+  border-style: solid;
+}
+
+/* Conflict rows — equipment held by another contractor */
+.eq-bulk-sheet-item.is-conflict {
+  border-left: 3px solid #d49b3a;
+}
+.eq-bulk-sheet-item-conflict {
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: #d49b3a;
+  line-height: 1.4;
+}
+.eq-bulk-sheet-item-conflict strong {
+  font-weight: 700;
+  color: var(--nx-gold, #d4a44e);
+}
+
+/* OVERRIDE badge — replaces MATCHES on conflict rows */
+.eq-bulk-apply-badge-override {
+  background: rgba(212, 155, 58, 0.18) !important;
+  border-color: rgba(212, 155, 58, 0.55) !important;
+  color: #d49b3a !important;
+  font-weight: 700;
+}
+
+[data-theme="light"] .eq-bulk-others-toggle {
+  color: #6b4f0d;
+  border-color: rgba(139, 105, 20, 0.45);
+}
+[data-theme="light"] .eq-bulk-others-toggle:hover {
+  background: rgba(139, 105, 20, 0.06);
+  border-color: #6b4f0d;
+}
+[data-theme="light"] .eq-bulk-sheet-item-conflict {
+  color: #8a6914;
+}
+[data-theme="light"] .eq-bulk-sheet-item-conflict strong {
+  color: #6b4f0d;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   v15.4 — Phone names sub-form: editable phone input
+   ────────────────────────────────────────────────────────
+   The .rx-cc-phone-name-num used to be a static span. Now it's an
+   editable <input>. Keep the visual rhythm — mono font for the
+   number, sans for the name — so the row still reads as
+   "(number) name" at a glance.
+   ════════════════════════════════════════════════════════════════════════ */
+input.rx-cc-phone-name-num {
+  flex: 0 0 auto;
+  width: 9.5em;
+  padding: 6px 10px !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 12.5px !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 6px;
+  color: var(--nx-text-secondary, #b9b3a5);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+input.rx-cc-phone-name-num:focus,
+input.rx-cc-phone-name-num:hover {
+  background: rgba(212, 164, 78, 0.06) !important;
+  border-color: rgba(212, 164, 78, 0.30) !important;
+  color: var(--nx-text, #f0e8d8);
+  outline: none;
+}
+input.rx-cc-phone-name-num.rx-input-error {
+  border-color: #c83838 !important;
+  background: rgba(200, 56, 56, 0.08) !important;
+}
+[data-theme="light"] input.rx-cc-phone-name-num {
+  color: #6b4f0d;
+}
+[data-theme="light"] input.rx-cc-phone-name-num:focus,
+[data-theme="light"] input.rx-cc-phone-name-num:hover {
+  color: #1a1408;
+  background: rgba(139, 105, 20, 0.06) !important;
+  border-color: rgba(139, 105, 20, 0.30) !important;
+}
