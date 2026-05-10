@@ -1477,16 +1477,20 @@
     <!-- ─── Cleaning pane (v12 — DB-backed catalog, freshness, email) ───────── -->
     <div class="duties-pane" data-pane="cleaning" id="dutiesCleaningPane">
     <!-- Top-left X is now part of the location tab row, not its own row.
-         Reads as a unified header: [X] [Suerte] [Este] [Toti] · date · +Extra · Archive -->
+         Reads as a unified header: [X] [Suerte | Este | Toti] · date · +Extra · Archive
+         Location pills now share a single rounded container (matches the
+         ordering view's .ord-loc-picker pattern). -->
     <div class="clean-header clean-header-takeover">
       <button class="clean-takeover-close" id="cleanTakeoverClose" type="button" aria-label="Close cleaning">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
         </svg>
       </button>
-      <button class="clean-tab active" data-cloc="suerte">Suerte</button>
-      <button class="clean-tab" data-cloc="este">Este</button>
-      <button class="clean-tab" data-cloc="toti">Toti</button>
+      <div class="clean-loc-picker" role="tablist" aria-label="Location">
+        <button class="clean-tab active" data-cloc="suerte" role="tab" aria-selected="true">Suerte</button>
+        <button class="clean-tab" data-cloc="este" role="tab" aria-selected="false">Este</button>
+        <button class="clean-tab" data-cloc="toti" role="tab" aria-selected="false">Toti</button>
+      </div>
       <span class="clean-date" id="cleanDate"></span>
       <button class="clean-extras-trigger" id="cleanExtras" type="button">+ Extra</button>
       <button class="clean-archive-trigger" id="cleanArchive" type="button" aria-label="Open archive">Archive</button>
