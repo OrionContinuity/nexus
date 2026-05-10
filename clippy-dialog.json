@@ -1380,5 +1380,164 @@
     "Confine yourself to the present.",
     "The best revenge is to be unlike him who performed the injury.",
     "What we do in life echoes in eternity."
+  ],
+  "login_peek": [
+    "Hi! I'm Trajan. Want some company?",
+    "Hey there! Mind if I hang around?",
+    "Bzzt — hello! I'm new here. Want to be friends?",
+    "Pssst. I'm a little orb. Care to keep me around?",
+    "Greetings, friend! Should I stick around?",
+    "Hi! I help. Sometimes. Mostly I just float and chat.",
+    "Hello! I'm a glowing orb of moderate usefulness. Keep me?",
+    "Salve! Latin for hi. Want a tiny digital companion?",
+    "Bzzt! Hi! Can I join your tabs?",
+    "Hi there. I tell Roman jokes. Wanna let me in?",
+    "I'm Trajan. I'm small, blue, and chatty. May I stay?",
+    "*polite orb wave* Want me around?"
+  ],
+  "task_completed": [
+    "Task done! Nice.",
+    "Bzzt — checked off!",
+    "Achievement unlocked: task completion.",
+    "Look at you, finishing things.",
+    "Productive! I approve.",
+    "Roman senators wish they were as efficient.",
+    "Trajan would be proud.",
+    "One down. Excellent.",
+    "Boom. Done. Next?",
+    "Crossed off. Beautiful.",
+    "That's the stuff.",
+    "Marcus Aurelius style: 'Do it now.' You did.",
+    "*chef's kiss*",
+    "Smooth.",
+    "I love it when plans come together.",
+    "Hadrian-tier execution.",
+    "Augustus-tier efficiency.",
+    "Bzzt of approval.",
+    "Task vanquished.",
+    "Solid work, friend."
+  ],
+  "task_overdue_passive": [
+    "Pssst. Something's been waiting a while.",
+    "Hey, friendly reminder — there's overdue stuff.",
+    "Just noticed an overdue task. No pressure though.",
+    "Hadrian abandoned conquests he couldn't keep. Maybe reprioritize?",
+    "Late tasks: just one. Take a look when ready.",
+    "Bzzt — gentle nudge about overdue items.",
+    "Not to nag, but... overdue tasks await.",
+    "Roman mail was slow. So am I. But this is overdue.",
+    "Just keeping you posted: things are aging.",
+    "Time is finite, even for emperors.",
+    "Trajan would have triaged this already.",
+    "I'm not judging. The list is."
+  ],
+  "streak_milestone": [
+    "Streak! You're on fire.",
+    "Consistent! Roman-tier discipline.",
+    "Augustus reigned 41 years. You're warming up.",
+    "Daily streak intact. Bzzt!",
+    "Streak count: impressive.",
+    "Cincinnatus only farmed when called. You farm DAILY.",
+    "Streaks are the bones of habits. Yours are strong.",
+    "Marcus Aurelius approves of your consistency.",
+    "Day after day. Inspiring.",
+    "Streak unbroken. Bzzt-bzzt!"
+  ],
+  "offer_brain": [
+    "Want to chat with me? I have two minds.",
+    "Open my brain mode? I can be Trajan or Providentia.",
+    "I have a chat feature. Curious?",
+    "Bzzt — wanna talk it out?",
+    "I'm here if you need to think aloud.",
+    "Tap to chat — I have stoic OR strategic options."
+  ],
+  "describe_trajan": [
+    "Trajan: stoic emperor. Bias toward action.",
+    "Trajan was Spain-born, decisive, beloved of his soldiers.",
+    "Trajan mode: practical wisdom. Less philosophy, more action.",
+    "Trajan asks: 'What's the next step?' Direct."
+  ],
+  "describe_providentia": [
+    "Providentia: Roman goddess of foresight.",
+    "Providentia mode: strategic, long-view, planning.",
+    "Providentia asks: 'What's the second-order effect?'",
+    "Providentia weighs futures. Trajan acts on the present."
+  ],
+  "pick_trajan_confirmed": [
+    "Trajan mode engaged. Decisive.",
+    "Welcome to Trajan. Tactical.",
+    "Trajan it is. Action-first.",
+    "Trajan: at your service."
+  ],
+  "pick_trajan_warning": [
+    "Heads up: Trajan is direct. Sometimes blunt.",
+    "Trajan won't sugarcoat. You okay with that?",
+    "Trajan mode is no-nonsense. Sure?"
+  ],
+  "trajan_quote_intro": [
+    "Trajan once said:",
+    "From Marcus Aurelius:",
+    "Stoic wisdom:",
+    "A Roman thought:",
+    "On the matter:",
+    "Per Trajan's habit:",
+    "An old reflection:"
+  ],
+  "song_accepted": [
+    "Playing! Bzzt.",
+    "Music engaged.",
+    "Tunes incoming.",
+    "Enjoy the soundtrack!",
+    "Roman lyres were nice. So is this."
+  ],
+  "song_declined": [
+    "No music, got it.",
+    "Quiet hours. Cool.",
+    "Mute mode. Bzzt softly.",
+    "Silence is also good."
+  ],
+  "song_ended": [
+    "Song ended. Hope you liked it!",
+    "Track over. Want another?",
+    "*tiny applause*",
+    "Bzzt — playback complete."
+  ],
+  "sneeze": [
+    "AH-CHOO!",
+    "*sneeze* Sorry!",
+    "Bzzt-CHOO!",
+    "Allergic to my own glow!",
+    "Romans said 'salus!' after sneezes. Bless me.",
+    "Bzzt. Sneeze recovery in progress.",
+    "Did I just sneeze? Orbs aren't supposed to.",
+    "Ah-CHOO! Excuse me.",
+    "*tiny sneeze*"
+  ],
+  "konami_code": [
+    "Whoa, you know the code!",
+    "Konami detected! Bzzt!",
+    "Legendary! Up up down down...",
+    "Cheat mode? I have no cheats. But I appreciate the gesture.",
+    "Old-school. I respect it.",
+    "Bonus orb-points awarded!"
+  ],
+  "idle_random": [
+    "Hmm.",
+    "Bzzt.",
+    "*idle hum*",
+    "Just here.",
+    "Pondering.",
+    "Floating.",
+    "Existing.",
+    "Bzzt-zzt.",
+    "Still here.",
+    "*small glow*"
+  ],
+  "command_palette_no_results": [
+    "Nothing matches. Try a different word?",
+    "No results. Hmm.",
+    "Bzzt — no matches found.",
+    "Couldn't find that. Try less specific?",
+    "Roman libraries had the same problem."
   ]
 }
