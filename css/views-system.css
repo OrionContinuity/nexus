@@ -2038,12 +2038,10 @@ body.is-equipment-archive-world .eq-row:hover {
    5. Tappable as a button — focus ring + cursor.
    ════════════════════════════════════════════════════════════════════════ */
 
-/* ─── SORT ROW PADDING FIX ─────────────────────────────────────────── */
-#equipmentView .eq-sort-bar {
-  padding: 8px 14px 14px !important;
-  margin-bottom: 4px;
-  border-bottom: 1px solid rgba(212, 164, 78, 0.08);
-}
+/* ─── SORT ROW ──────────────────────────────────────────────────────
+   Hidden in v15.4 — see #equipmentView .eq-sort-bar { display:none }
+   below. The original padding-fix block lived here but became moot
+   once the row was hidden. */
 
 /* ─── BEACON WRAPPER ───────────────────────────────────────────────── */
 .eq-row .eq-row-beacon,
@@ -2226,57 +2224,90 @@ body.is-equipment-archive-world .eq-row:hover {
   }
 }
 
-/* ─── NEEDS SERVICE — rapid flash ──────────────────────────────────── */
+/* ─── SORT ROW — HIDDEN ────────────────────────────────────────────
+   The Custom / Name / PM Date / Status pills were removed in v15.4.
+   The sort logic in equipment.js still functions (it falls back to
+   whatever was last saved or 'custom' default), so this is a pure
+   visual hide — no JS surgery needed. */
+#equipmentView .eq-sort-bar {
+  display: none !important;
+}
+
+/* ─── NEEDS SERVICE — calmer pulse ─────────────────────────────────
+   Was 1.0s cycle with scale 1.18 and 38px halo — visibly distracting.
+   Now 1.8s cycle with scale 1.06 and 16px halo — clearly in trouble
+   without yelling about it. */
 .eq-row-beacon .eq-lc-dot.is-needs-service,
 .eq-row-beacon .eq-lc-dot.is-reported,
 .eq-row-beacon .eq-lc-dot.is-called {
   background: var(--nx-gold, #d4a44e) !important;
-  animation: eq-beacon-flash 1.0s ease-in-out infinite !important;
+  animation: eq-beacon-flash 1.8s ease-in-out infinite !important;
 }
 @keyframes eq-beacon-flash {
   0%, 100% {
     box-shadow:
       0 0 0 2px rgba(28, 20, 8, 0.85),
       0 0 4px rgba(212, 164, 78, 0.40);
-    transform: scale(0.95);
+    transform: scale(1.0);
   }
   50% {
     box-shadow:
       0 0 0 2px rgba(28, 20, 8, 0.85),
-      0 0 14px rgba(255, 200, 100, 1),
-      0 0 26px rgba(212, 164, 78, 0.85),
-      0 0 38px rgba(212, 164, 78, 0.55);
-    transform: scale(1.18);
+      0 0 8px rgba(212, 164, 78, 0.85),
+      0 0 16px rgba(212, 164, 78, 0.45);
+    transform: scale(1.06);
   }
 }
 
-/* ─── DOWN / BROKEN — gray + faint gold flicker ────────────────────── */
+/* ─── DOWN / BROKEN — struggling lightbulb ─────────────────────────
+   Filament fighting to stay lit. Mostly dim warm amber with random
+   sparks, a couple of brave attempts to flare back, and a stuttering
+   double-tap. steps(1, end) gives sharp on/off (no smooth fade) so
+   it reads as electrical flicker, not a heartbeat. */
 .eq-row-beacon .eq-lc-dot.is-down,
 .eq-row-beacon .eq-lc-dot.is-broken {
-  background: #5a5550 !important;
+  background: #5a4a30 !important;
   box-shadow:
     0 0 0 2px rgba(28, 20, 8, 0.85),
+    0 0 3px rgba(212, 164, 78, 0.20),
     inset 0 0 4px rgba(0, 0, 0, 0.5) !important;
-  animation: eq-beacon-flicker 3.4s steps(1, end) infinite !important;
+  animation: eq-beacon-bulb-dying 5.4s steps(1, end) infinite !important;
 }
-@keyframes eq-beacon-flicker {
-  0%, 65%, 80%, 100% {
-    box-shadow:
-      0 0 0 2px rgba(28, 20, 8, 0.85),
-      inset 0 0 4px rgba(0, 0, 0, 0.5);
-  }
-  68%, 70% {
-    box-shadow:
-      0 0 0 2px rgba(28, 20, 8, 0.85),
-      0 0 8px rgba(212, 164, 78, 0.7),
-      inset 0 0 4px rgba(0, 0, 0, 0.5);
-  }
-  73% {
-    box-shadow:
-      0 0 0 2px rgba(28, 20, 8, 0.85),
-      0 0 4px rgba(212, 164, 78, 0.4),
-      inset 0 0 4px rgba(0, 0, 0, 0.5);
-  }
+@keyframes eq-beacon-bulb-dying {
+  /* DIM baseline (the bulb's "trying-to-stay-on" state) */
+  0%   { background: #5a4a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 3px rgba(212,164,78,0.20), inset 0 0 4px rgba(0,0,0,0.5); }
+
+  /* Quick twitch */
+  4%   { background: #8a6a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 5px rgba(212,164,78,0.4),  inset 0 0 4px rgba(0,0,0,0.5); }
+  6%   { background: #5a4a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 3px rgba(212,164,78,0.20), inset 0 0 4px rgba(0,0,0,0.5); }
+
+  /* A weak brave attempt that fails */
+  17%  { background: #a8842a; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 7px rgba(212,164,78,0.55), inset 0 0 4px rgba(0,0,0,0.5); }
+  18%  { background: #6a5230; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 4px rgba(212,164,78,0.30), inset 0 0 4px rgba(0,0,0,0.5); }
+  19%  { background: #5a4a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 3px rgba(212,164,78,0.20), inset 0 0 4px rgba(0,0,0,0.5); }
+
+  /* Stuttering — comes and goes */
+  31%  { background: #8a6a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 5px rgba(212,164,78,0.4),  inset 0 0 4px rgba(0,0,0,0.5); }
+  32%  { background: #5a4a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 3px rgba(212,164,78,0.20), inset 0 0 4px rgba(0,0,0,0.5); }
+  33%  { background: #8a6a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 5px rgba(212,164,78,0.4),  inset 0 0 4px rgba(0,0,0,0.5); }
+  34%  { background: #5a4a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 3px rgba(212,164,78,0.20), inset 0 0 4px rgba(0,0,0,0.5); }
+
+  /* Big spark — full brightness for a single frame */
+  47%  { background: #f0c870; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 12px rgba(255,200,100,0.95), 0 0 22px rgba(212,164,78,0.55), inset 0 0 4px rgba(0,0,0,0.5); }
+  48%  { background: #5a4a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 3px rgba(212,164,78,0.20), inset 0 0 4px rgba(0,0,0,0.5); }
+
+  /* Long quiet stretch — feels broken */
+  60%  { background: #5a4a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 3px rgba(212,164,78,0.20), inset 0 0 4px rgba(0,0,0,0.5); }
+
+  /* Stutter double-tap */
+  73%  { background: #a8842a; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 7px rgba(212,164,78,0.55), inset 0 0 4px rgba(0,0,0,0.5); }
+  74%  { background: #5a4a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 3px rgba(212,164,78,0.20), inset 0 0 4px rgba(0,0,0,0.5); }
+  76%  { background: #c89a48; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 9px rgba(212,164,78,0.7),  inset 0 0 4px rgba(0,0,0,0.5); }
+  77%  { background: #5a4a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 3px rgba(212,164,78,0.20), inset 0 0 4px rgba(0,0,0,0.5); }
+
+  /* Dies down to baseline */
+  90%  { background: #5a4a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 3px rgba(212,164,78,0.20), inset 0 0 4px rgba(0,0,0,0.5); }
+  100% { background: #5a4a30; box-shadow: 0 0 0 2px rgba(28,20,8,0.85), 0 0 3px rgba(212,164,78,0.20), inset 0 0 4px rgba(0,0,0,0.5); }
 }
 
 /* ─── RETIRED / MISSING — flat faint static ────────────────────────── */
@@ -2338,8 +2369,8 @@ body.is-equipment-archive-world .eq-row:hover {
 }
 .eq-lc-pill.is-down .eq-lc-pill-dot,
 .eq-lc-pill.is-broken .eq-lc-pill-dot {
-  background: #5a5550 !important;
-  animation: eq-beacon-flicker 3.4s steps(1, end) infinite !important;
+  background: #5a4a30 !important;
+  animation: eq-beacon-bulb-dying 5.4s steps(1, end) infinite !important;
 }
 
 /* ════════════════════════════════════════════════════════════════════
