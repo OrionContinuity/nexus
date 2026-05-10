@@ -1,0 +1,93 @@
+<svg id="clippy-svg" viewBox="0 0 120 160" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <linearGradient id="cl-body-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#f0f0f2"/>
+      <stop offset="30%" stop-color="#b8bcc2"/>
+      <stop offset="65%" stop-color="#7a7e85"/>
+      <stop offset="100%" stop-color="#56595f"/>
+    </linearGradient>
+    <linearGradient id="cl-shine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#fff" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="cl-shadow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#000" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <ellipse class="cl-floor" cx="60" cy="153" rx="28" ry="4.5" fill="url(#cl-shadow)"/>
+
+  <g class="cl-body">
+    <path d="M 38 26
+             C 38 16, 80 16, 80 26
+             L 80 96
+             C 80 112, 60 112, 60 96
+             L 60 38
+             C 60 28, 42 28, 42 38
+             L 42 134
+             C 42 146, 80 146, 80 134
+             L 80 110"
+          fill="none"
+          stroke="url(#cl-body-grad)"
+          stroke-width="9"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+    <path d="M 42 22 C 44 18, 76 18, 78 22"
+          fill="none" stroke="url(#cl-shine)" stroke-width="2.2"
+          stroke-linecap="round" opacity="0.75"/>
+  </g>
+
+  <g class="cl-arms">
+    <path class="cl-arm cl-arm-r"
+          d="M 80 78 Q 100 72, 108 60"
+          fill="none" stroke="url(#cl-body-grad)"
+          stroke-width="5.5" stroke-linecap="round"/>
+    <circle class="cl-hand cl-hand-r" cx="108" cy="60" r="4.2" fill="url(#cl-body-grad)"/>
+    <path class="cl-arm cl-arm-l"
+          d="M 40 78 Q 20 72, 12 60"
+          fill="none" stroke="url(#cl-body-grad)"
+          stroke-width="5.5" stroke-linecap="round"/>
+    <circle class="cl-hand cl-hand-l" cx="12" cy="60" r="4.2" fill="url(#cl-body-grad)"/>
+  </g>
+
+  <g class="cl-eyes">
+    <ellipse class="cl-eye cl-eye-l" cx="46" cy="52" rx="10" ry="13" fill="#fdfdfd" stroke="#1a1a1a" stroke-width="1.6"/>
+    <ellipse class="cl-eye cl-eye-r" cx="74" cy="52" rx="10" ry="13" fill="#fdfdfd" stroke="#1a1a1a" stroke-width="1.6"/>
+
+    <g class="cl-pupils">
+      <circle class="cl-pupil" cx="46" cy="54" r="3.6" fill="#0a0a0a"/>
+      <circle class="cl-pupil" cx="74" cy="54" r="3.6" fill="#0a0a0a"/>
+      <circle class="cl-glint" cx="44.2" cy="51.5" r="1.3" fill="#fff"/>
+      <circle class="cl-glint" cx="72.2" cy="51.5" r="1.3" fill="#fff"/>
+    </g>
+
+    <g class="cl-eyes-shut">
+      <path d="M 36 52 Q 46 58, 56 52" stroke="#1a1a1a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <path d="M 64 52 Q 74 58, 84 52" stroke="#1a1a1a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+    </g>
+
+    <g class="cl-eyes-happy">
+      <path d="M 36 54 Q 46 46, 56 54" stroke="#1a1a1a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <path d="M 64 54 Q 74 46, 84 54" stroke="#1a1a1a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <g class="cl-brows">
+    <path class="cl-brow cl-brow-l" d="M 36 36 L 56 32" stroke="#1a1a1a" stroke-width="3.6" stroke-linecap="round"/>
+    <path class="cl-brow cl-brow-r" d="M 64 32 L 84 36" stroke="#1a1a1a" stroke-width="3.6" stroke-linecap="round"/>
+  </g>
+
+  <g class="cl-zzz">
+    <text x="86" y="38" font-family="serif" font-size="12" font-weight="700" fill="#9aa0a6">z</text>
+    <text x="94" y="28" font-family="serif" font-size="14" font-weight="700" fill="#aab0b6">z</text>
+    <text x="102" y="18" font-family="serif" font-size="16" font-weight="700" fill="#bac0c6">Z</text>
+  </g>
+
+  <g class="cl-sparkles">
+    <text x="20" y="40" font-family="serif" font-size="14" fill="#d4a44e">✦</text>
+    <text x="98" y="56" font-family="serif" font-size="11" fill="#d4a44e">✦</text>
+    <text x="14" y="80" font-family="serif" font-size="9"  fill="#d4a44e">✦</text>
+  </g>
+</svg>
