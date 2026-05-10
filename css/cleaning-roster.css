@@ -197,12 +197,15 @@
 }
 .clean-guide-btn.is-empty {
   /* No guides linked yet — render dimmer so the user knows tapping will
-     prompt them to link one rather than open something */
-  opacity: 0.42;
+     prompt them to link one rather than open something. 0.65 keeps it
+     legible on the dark NEXUS background; the previous 0.42 was so dim
+     the button looked invisible. */
+  opacity: 0.65;
+  color: var(--nx-gold, #d4a44e);
 }
 .clean-guide-btn.is-empty:hover,
 .clean-guide-btn.is-empty:active {
-  opacity: 0.85;
+  opacity: 1;
 }
 .clean-guide-btn-count {
   position: absolute;
