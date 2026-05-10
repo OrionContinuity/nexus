@@ -63,6 +63,8 @@
       enabled: null,
       do_not_disturb: false,
       preferred_agent: 'Clippy',
+      position_x: null,         // saved drag position (px from left)
+      position_y: null,         // saved drag position (px from top)
       dismissed_tips: [],
       total_clicks: 0,
       unlocked: [],
@@ -136,6 +138,8 @@
             enabled: data.enabled,
             do_not_disturb: data.do_not_disturb,
             preferred_agent: data.preferred_agent || 'Clippy',
+            position_x: data.position_x,
+            position_y: data.position_y,
             dismissed_tips: data.dismissed_tips || [],
             total_clicks: data.total_clicks || 0,
             unlocked: data.unlocked || [],
@@ -161,6 +165,8 @@
         enabled: state.preferences.enabled,
         do_not_disturb: state.preferences.do_not_disturb,
         preferred_agent: state.agentName,
+        position_x: state.preferences.position_x,
+        position_y: state.preferences.position_y,
         dismissed_tips: state.preferences.dismissed_tips,
         total_clicks: state.preferences.total_clicks,
         unlocked: state.preferences.unlocked,
@@ -220,6 +226,7 @@
     state.agentDomEl = await waitForAgentEl();
     setupAgentInteractions();
     setupCostumeLayer();
+    applySavedPosition();
   }
   async function waitForAgentEl(maxWait = 2500) {
     const start = Date.now();
@@ -286,28 +293,104 @@
   }
 
 
-  // ─── Agent click + interaction wiring ───────────────────────────────
-  // Use document-level event delegation. clippyjs swaps DOM elements
-  // internally during animations, so a direct addEventListener on the
-  // initial .clippy node would go stale. Delegating from document with
-  // a closest() match catches every click on the agent or any sprite
-  // child, no matter how the library rearranges things.
+  // ─── Apply saved drag position (after agent loads) ──────────────────
+  function applySavedPosition() {
+    if (!state.agentDomEl) return;
+    const px = state.preferences.position_x;
+    const py = state.preferences.position_y;
+    if (px == null || py == null) return;
+    // Clamp to current viewport in case window shrank since last save
+    const maxX = Math.max(0, window.innerWidth  - 80);
+    const maxY = Math.max(0, window.innerHeight - 80);
+    const x = Math.max(0, Math.min(maxX, px));
+    const y = Math.max(0, Math.min(maxY, py));
+    state.agentDomEl.style.position = 'fixed';
+    state.agentDomEl.style.left   = x + 'px';
+    state.agentDomEl.style.top    = y + 'px';
+    state.agentDomEl.style.right  = 'auto';
+    state.agentDomEl.style.bottom = 'auto';
+  }
+
+
+  // ─── Agent click + drag wiring ──────────────────────────────────────
+  // Pointer events at capture phase. clippyjs may install its own
+  // handlers, so we beat those to the punch with capture=true and an
+  // own movement-threshold to distinguish clicks from drags.
+  //   • Tap (no movement) → handleAgentClick → "What's up?" bubble
+  //   • Drag (>6px) → reposition + persist coordinates
   function setupAgentInteractions() {
     if (state._clickWired) return;
     state._clickWired = true;
-    document.addEventListener('click', (e) => {
-      const t = e.target;
-      if (!t || !t.closest) return;
-      const onAgent = t.closest('.clippy') ||
-                      t.closest('[data-clippy]') ||
-                      t.closest('.clippyjs-agent') ||
-                      t.closest('.clippyjs');
+
+    let drag = null;
+
+    function getOnAgent(t) {
+      if (!t || !t.closest) return null;
+      // Don't trigger if click was inside one of our bubbles or palette
+      if (t.closest('.clippy-balloon') ||
+          t.closest('.clippyjs-balloon') ||
+          t.closest('.clippy-bubble') ||
+          t.closest('.clippy-palette')) return null;
+      return t.closest('.clippy') ||
+             t.closest('.clippyjs-agent') ||
+             t.closest('.clippyjs');
+    }
+
+    document.addEventListener('pointerdown', (e) => {
+      const onAgent = getOnAgent(e.target);
       if (!onAgent) return;
-      // Don't fire when clicking inside the library's own balloon
-      if (t.closest('.clippy-balloon') || t.closest('.clippyjs-balloon')) return;
+      const rect = onAgent.getBoundingClientRect();
+      drag = {
+        startX: e.clientX,
+        startY: e.clientY,
+        startTime: Date.now(),
+        offsetX: e.clientX - rect.left,
+        offsetY: e.clientY - rect.top,
+        agentEl: onAgent,
+        moved: false,
+      };
+      // Don't preventDefault here — let normal pointerup fire
+    }, true);  // capture phase
+
+    document.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.startX;
+      const dy = e.clientY - drag.startY;
+      // Movement threshold: distinguish tap from drag
+      if (Math.abs(dx) + Math.abs(dy) < 6) return;
+      drag.moved = true;
+      // Clamp to viewport — never let him be dragged out of reach
+      const maxX = window.innerWidth  - 80;
+      const maxY = window.innerHeight - 80;
+      const newLeft = Math.max(0, Math.min(maxX, e.clientX - drag.offsetX));
+      const newTop  = Math.max(0, Math.min(maxY, e.clientY - drag.offsetY));
+      drag.agentEl.style.position = 'fixed';
+      drag.agentEl.style.left   = newLeft + 'px';
+      drag.agentEl.style.top    = newTop  + 'px';
+      drag.agentEl.style.right  = 'auto';
+      drag.agentEl.style.bottom = 'auto';
+      e.preventDefault();
+    }, true);
+
+    document.addEventListener('pointerup', (e) => {
+      if (!drag) return;
+      const finished = drag;
+      drag = null;
+      if (finished.moved) {
+        // Persist new position
+        const rect = finished.agentEl.getBoundingClientRect();
+        state.preferences.position_x = Math.round(rect.left);
+        state.preferences.position_y = Math.round(rect.top);
+        savePreferences();
+        return;  // not a click
+      }
+      // No drag → it's a tap
       e.stopPropagation();
       handleAgentClick();
-    });
+    }, true);
+
+    // Cancel drag on pointercancel (e.g. system gesture interrupts)
+    document.addEventListener('pointercancel', () => { drag = null; }, true);
   }
 
   function handleAgentClick() {
