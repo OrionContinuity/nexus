@@ -183,6 +183,13 @@
     } else {
       renderListView();
     }
+    // The header has the close button (top-left) and the + Module button
+    // (top-right). Clippy lives in the top-right by default and can land
+    // on top of + Module. Politely ask him to relocate to a less busy
+    // corner when this view becomes visible.
+    if (window.NX && NX.clippy && typeof NX.clippy.moveToEmptyCorner === 'function') {
+      setTimeout(() => NX.clippy.moveToEmptyCorner(), 250);
+    }
   }
 
   function renderListView() {
@@ -210,6 +217,9 @@
                     data-cat-id="${esc(cat.id)}">
               ${svg(cat.icon || 'graduation', 13)}
               <span>${esc(cat.name_en)}</span>
+              ${cat.id === activeCategoryId ? `
+                <span class="edu-cat-btn-edit" data-edit-cat="${esc(cat.id)}" role="button" tabindex="0" aria-label="Edit module ${esc(cat.name_en)}">${svg('pen', 11)}</span>
+              ` : ''}
             </button>
           `).join('')}
         </div>
@@ -231,13 +241,11 @@
         `}
       </div>
 
-      <div class="edu-footer">
-        ${activeCat ? `
-          <button class="edu-add-guide-btn" id="eduAddGuide">
-            ${svg('plus', 14)} <span>Add lesson to ${esc(activeCat.name_en)}</span>
-          </button>
-        ` : ''}
-      </div>
+      ${activeCat ? `
+        <button class="edu-add-guide-fab" id="eduAddGuide" type="button" aria-label="Add lesson to ${esc(activeCat.name_en)}">
+          ${svg('plus', 18, 2.4)} <span>Add lesson</span>
+        </button>
+      ` : ''}
     `;
 
     // Wire close
@@ -245,20 +253,29 @@
       if (window.NX && typeof NX.switchTo === 'function') NX.switchTo('home');
     });
 
-    // Wire category picker
+    // Wire category picker — taps on the body switch the active module;
+    // taps on the small edit pin (visible on the active module) open
+    // the editor. Tapping the already-active pill ALSO opens the editor
+    // as a redundant discoverability path.
     view.querySelectorAll('[data-cat-id]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        activeCategoryId = btn.dataset.catId;
-        renderListView();
-      });
-    });
-
-    // Long-press category to edit (also: a small edit button on each)
-    view.querySelectorAll('.edu-cat-btn-edit').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const cat = categories.find(c => c.id === btn.dataset.editCat);
-        if (cat) openCategoryEditor(cat);
+        // Edit-pin tap → open editor (and don't change selection)
+        const pin = e.target.closest('[data-edit-cat]');
+        if (pin) {
+          e.stopPropagation();
+          const cat = categories.find(c => c.id === pin.dataset.editCat);
+          if (cat) openCategoryEditor(cat);
+          return;
+        }
+        const tappedId = btn.dataset.catId;
+        // Re-tap of the already-active pill → open editor too
+        if (tappedId === activeCategoryId) {
+          const cat = categories.find(c => c.id === tappedId);
+          if (cat) openCategoryEditor(cat);
+          return;
+        }
+        activeCategoryId = tappedId;
+        renderListView();
       });
     });
 
@@ -660,7 +677,7 @@
         </div>
         <div class="edu-sheet-actions">
           <button class="edu-sheet-cancel">Cancel</button>
-          ${cat ? '<button class="edu-sheet-archive">Archive</button>' : ''}
+          ${cat ? '<button class="edu-sheet-archive">Delete</button>' : ''}
           <button class="edu-sheet-save">${isNew ? 'Create' : 'Save'}</button>
         </div>
       </div>
@@ -712,7 +729,7 @@
     const archiveBtn = sheet.querySelector('.edu-sheet-archive');
     if (archiveBtn) {
       archiveBtn.addEventListener('click', async () => {
-        if (!confirm('Archive this module? Lessons remain but become uncategorized.')) return;
+        if (!confirm(`Delete the "${cat.name_en}" module? Lessons inside it will remain but become uncategorized — you can move them to another module.`)) return;
         try {
           const { error } = await NX.sb.from('education_categories').update({ archived: true }).eq('id', cat.id);
           if (error) throw error;
@@ -720,8 +737,8 @@
           if (activeCategoryId === cat.id) activeCategoryId = null;
           await loadAll();
           renderListView();
-          toast('Category archived', 'info');
-        } catch (e) { toast('Archive failed: ' + e.message, 'error'); }
+          toast('Module deleted', 'info');
+        } catch (e) { toast('Delete failed: ' + e.message, 'error'); }
       });
     }
   }
