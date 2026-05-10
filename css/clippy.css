@@ -14,37 +14,43 @@
    below modals (modals use ≥10000). Crisp-edges rendering preserves the
    original 1997 sprite art instead of letting browsers blur-scale it.
    Slight scale-up gives him more presence at modern phone DPI. */
-/* ─── LIBRARY OVERRIDES ─────────────────────────────────────────────── */
-/* Z-index 40 puts him BELOW the bottom-nav (z:50) and any modals, so
-   his lower body is hidden behind nav and he doesn't cover important
-   UI. The visible head/eyes still take taps. Action bubbles are at
-   9100 so they always render on top of everything.
+/* ─── Z-INDEX LAYERS — DOCUMENTED ─────────────────────────────────────
+   Reading top-down (highest = most-on-top):
+     9100  our action bubble (always above everything)
+     9001  clippyjs's own balloon (when it speaks)
+       50  bottom-nav (NEXUS app chrome)
+       41  clippy hit-target overlay (above clippy himself, below nav)
+       40  clippy himself
+   The bottom-nav (50) covers the LOWER part of clippy (40) visually.
+   The hit-target (41) is also covered by the nav in the lower region,
+   so taps on nav buttons go to nav, not clippy. But clippy's HEAD
+   that pokes above the nav is fully tappable via the hit-target. */
 
-   transform-origin: center bottom keeps him "anchored at his feet"
-   regardless of position — looks natural after dragging.
-
-   touch-action: none stops iOS native scroll from hijacking drag. */
 .clippy,
 .clippyjs-agent {
   z-index: 40 !important;
-  cursor: grab !important;
-  pointer-events: auto !important;
+  pointer-events: none !important;     /* let hit-target catch all input */
   touch-action: none !important;
   transform: scale(1.5) !important;
   transform-origin: center bottom !important;
   image-rendering: -webkit-optimize-contrast;
   image-rendering: crisp-edges;
 }
-.clippy:active,
-.clippyjs-agent:active {
-  cursor: grabbing !important;
-}
 .clippy *,
 .clippyjs-agent * {
-  cursor: inherit !important;
-  pointer-events: auto !important;
+  pointer-events: none !important;
   image-rendering: -webkit-optimize-contrast;
   image-rendering: crisp-edges;
+}
+
+/* Hit target — transparent overlay div at z-index 41 */
+#clippy-hit-target {
+  border-radius: 12px;
+  /* Uncomment to debug-visualize the hit target:
+     background: rgba(255, 0, 0, 0.2) !important; */
+}
+#clippy-hit-target:active {
+  cursor: grabbing !important;
 }
 
 /* clippyjs's own balloon — keep it on top so it never gets covered */
