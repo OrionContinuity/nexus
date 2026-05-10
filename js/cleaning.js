@@ -3248,7 +3248,13 @@
     const dateEl = document.getElementById('cleanDate');
     if (dateEl) dateEl.textContent = today;
 
-    // Refresh state for current location
+    // Refresh state for current location.
+    // BUGFIX 2026-05-09: also reload the task catalog itself. Previously
+    // tasksByLoc was only populated in init() (once per session), so any
+    // change to cleaning_tasks made AFTER the app booted (e.g. running a
+    // new seed migration in Supabase) wouldn't show up until a hard
+    // refresh. Now every entry into the cleaning view pulls the latest.
+    await loadAllTasks();
     await loadTodayState();
     await loadHistory();
     await loadAttachments();
