@@ -1093,6 +1093,19 @@ td.check{background:#F0EDE6 !important}
     const dutiesDial = document.getElementById('dutiesDial');
     const dutiesBtn  = document.querySelector('.bnav-btn[data-view="clean"]');
     bindSpeedDial(dutiesBtn, dutiesDial, (target) => {
+      // Training is its OWN top-level view — not a Duties pane like
+      // Cleaning and Ordering. The HTML comment claimed this dispatcher
+      // already handled it; in fact, the special case was never written,
+      // so every speed-dial tap (including Training) fell through to
+      // switchTo('clean'). That's why "Training redirected to cleaning."
+      //
+      // Route 'train' to the Education view (modules = categories,
+      // lessons = guides) since the legacy training_modules table was
+      // retired in v15. Cleaning + Ordering remain Duties panes.
+      if (target === 'train') {
+        switchTo('education');
+        return;
+      }
       // (1) Persist FIRST so any imminent duties.init() reads the right pane.
       try { localStorage.setItem('nexus_duties_active_pane', target); } catch(_){}
       switchTo('clean');
