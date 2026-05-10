@@ -2208,14 +2208,13 @@
     row.querySelector('[data-add-photo]').addEventListener('click', () => {
       uploadPhotoForTask(task);
     });
-    // Guide button: opens the linked education guide. If multiple guides
-    // are linked, shows a small picker; if just one, opens it directly.
-    // If education mode is on but no guides are linked yet, opens the
-    // link picker so the user can attach one on the spot.
     const guideBtn = row.querySelector('[data-open-guide]');
     if (guideBtn) {
-      guideBtn.addEventListener('click', (e) => {
+      guideBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
+        // education.js may not be loaded yet (user hasn't visited
+        // Training). Load it now so NX.educationAPI is available.
+        await ensureEducationLoaded();
         const guides = guidesLinkedByTaskId[task.id] || [];
         if (!guides.length) {
           // No links yet — let the user attach one
@@ -2225,6 +2224,8 @@
         if (guides.length === 1) {
           if (NX.educationAPI && NX.educationAPI.openGuideViewer) {
             NX.educationAPI.openGuideViewer(guides[0].id);
+          } else {
+            toast('Could not open lesson — try again', 'error');
           }
         } else {
           openTaskGuidePicker(task, guides);
@@ -2726,8 +2727,53 @@
   // V15: link-guide picker — opens a slide-up sheet listing all education
   // guides; tap a guide to toggle its link to this task. Used from the
   // "+ Link guide" button inside the task editor.
+  // ─── Education module loader ──────────────────────────────────────────
+  // education.js is lazy-loaded by app.js when the user navigates to
+  // Training. But cleaning's 🎓 button needs NX.educationAPI even
+  // before that — to open lesson viewers and the link-picker. Without
+  // this, tapping the button silently does nothing if the user hasn't
+  // visited Training yet. ensureEducationLoaded() loads the script
+  // on demand, returns a promise that resolves once NX.educationAPI
+  // is available.
+  let _eduLoadPromise = null;
+  function ensureEducationLoaded() {
+    if (window.NX && NX.educationAPI) return Promise.resolve();
+    if (_eduLoadPromise) return _eduLoadPromise;
+    _eduLoadPromise = new Promise((resolve) => {
+      const existing = document.querySelector('script[src="js/education.js"]');
+      if (existing) {
+        // Script is loading — wait for NX.educationAPI to appear
+        const t0 = Date.now();
+        const tick = () => {
+          if (window.NX && NX.educationAPI) return resolve();
+          if (Date.now() - t0 > 5000) return resolve();   // bail
+          setTimeout(tick, 50);
+        };
+        tick();
+        return;
+      }
+      const s = document.createElement('script');
+      s.src = 'js/education.js';
+      s.onload = () => {
+        // Give it a tick to register NX.educationAPI
+        setTimeout(resolve, 30);
+      };
+      s.onerror = () => {
+        console.error('[cleaning] education.js failed to load');
+        _eduLoadPromise = null;     // allow retry
+        resolve();                  // don't hang the UI
+      };
+      document.body.appendChild(s);
+    });
+    return _eduLoadPromise;
+  }
+
   async function openGuideLinkPicker(task) {
     document.querySelectorAll('.clean-guide-link-picker').forEach(m => m.remove());
+
+    // Pull in education.js if it's not already loaded — without this,
+    // NX.educationAPI is undefined and the picker shows zero lessons.
+    await ensureEducationLoaded();
 
     let allGuides = [];
     if (NX.educationAPI && NX.educationAPI.listAllGuides) {
