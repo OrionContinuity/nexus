@@ -12457,6 +12457,11 @@ async function openContractorEditor(contractor) {
   });
 
   // ─── Contacts (TO / CC / BCC emails + phones) ──
+  // Phones are passed as {value, meta} so the chip displays "name · phone"
+  // when a label exists. The "Phone names" sub-form lets the user attach
+  // (or edit) a name for any phone — which then powers the QR-scan
+  // public page ("Call dispatch", "Call Mike", etc).
+  const phoneItemsForChips = phoneArr.map(p => ({ value: p, meta: phoneLabels[p] || null }));
   cards.push({
     key: 'contacts',
     title: 'Contacts',
@@ -12465,7 +12470,19 @@ async function openContractorEditor(contractor) {
       ${RX.buildChipGroupHTML(toArr,  'to',  { label: 'TO',    hint: 'primary recipient(s) — service request goes here', inputType: 'email', inputMode: 'email', placeholder: 'dispatch@example.com',    addLabel: 'Add TO' })}
       ${RX.buildChipGroupHTML(ccArr,  'cc',  { label: 'CC',    hint: 'always copied on every service email',             inputType: 'email', inputMode: 'email', placeholder: 'cc@example.com',          addLabel: 'Add CC' })}
       ${RX.buildChipGroupHTML(bccArr, 'bcc', { label: 'BCC',   hint: "silent copies — others can't see them",            inputType: 'email', inputMode: 'email', placeholder: 'bcc@example.com',         addLabel: 'Add BCC' })}
-      ${RX.buildChipGroupHTML(phoneArr, 'phone', { label: 'PHONE', hint: 'first one powers the Call button on QR scan',    inputType: 'tel',   inputMode: 'tel',   placeholder: '(512) 555-1234',          addLabel: 'Add phone' })}
+      ${RX.buildChipGroupHTML(phoneItemsForChips, 'phone', { label: 'PHONE', hint: 'first one powers the Call button on QR scan',    inputType: 'tel',   inputMode: 'tel',   placeholder: '(512) 555-1234',          addLabel: 'Add phone' })}
+
+      <div class="rx-form-field rx-cc-phone-names" id="rxCcPhoneNamesField" ${phoneArr.length ? '' : 'hidden'}>
+        <label class="rx-form-label">Names for phones <span class="rx-form-hint">— optional, shown on QR scan ("Call Mike")</span></label>
+        <div class="rx-cc-phone-names-list" id="rxCcPhoneNamesList">
+          ${phoneArr.map(p => `
+            <div class="rx-cc-phone-name-row" data-phone="${esc(p)}">
+              <span class="rx-cc-phone-name-num">${esc(p)}</span>
+              <input class="rx-form-input rx-cc-phone-name-input" data-phone-label-for="${esc(p)}" type="text" value="${esc(phoneLabels[p] || '')}" placeholder="dispatch · main · cell · Mike" maxlength="30" autocomplete="off">
+            </div>
+          `).join('')}
+        </div>
+      </div>
     `,
   });
 
@@ -12560,6 +12577,52 @@ async function openContractorEditor(contractor) {
         });
       });
       // Phone chip group — different validator + input type.
+      // Plus: keep the "Names for phones" sub-form below in sync.
+      // When a phone is added, append a row. When removed, drop it.
+      // When a name input changes, write to phoneLabels (used at save).
+      const refreshPhoneNamesUI = () => {
+        const wrap = overlay.querySelector('#rxCcPhoneNamesField');
+        const list = overlay.querySelector('#rxCcPhoneNamesList');
+        if (!wrap || !list) return;
+        const phones = state.chips.phone || [];
+        wrap.hidden = phones.length === 0;
+        // Rebuild the list — small UI, no need to be incremental.
+        list.innerHTML = phones.map(p => {
+          const phone = (typeof p === 'string') ? p : (p && p.value) || '';
+          const safePhone = (phone || '').replace(/"/g, '&quot;');
+          const safeLabel = (phoneLabels[phone] || '').replace(/"/g, '&quot;');
+          return `
+            <div class="rx-cc-phone-name-row" data-phone="${safePhone}">
+              <span class="rx-cc-phone-name-num">${safePhone}</span>
+              <input class="rx-form-input rx-cc-phone-name-input" data-phone-label-for="${safePhone}" type="text" value="${safeLabel}" placeholder="dispatch · main · cell · Mike" maxlength="30" autocomplete="off">
+            </div>
+          `;
+        }).join('');
+        // Wire each input
+        list.querySelectorAll('.rx-cc-phone-name-input').forEach(input => {
+          input.addEventListener('input', () => {
+            const phone = input.dataset.phoneLabelFor;
+            phoneLabels[phone] = input.value || '';
+            // Live-update the chip's "name · phone" meta display
+            const chip = overlay.querySelector(`.rx-chip[data-rx-chip="${phone.replace(/"/g, '\\"')}"][data-kind="phone"]`);
+            if (chip) {
+              let metaEl = chip.querySelector('.rx-chip-meta');
+              const removeBtn = chip.querySelector('.rx-chip-remove');
+              if (input.value) {
+                if (!metaEl) {
+                  metaEl = document.createElement('span');
+                  metaEl.className = 'rx-chip-meta';
+                  if (removeBtn) chip.insertBefore(metaEl, removeBtn);
+                }
+                metaEl.textContent = input.value;
+              } else if (metaEl) {
+                metaEl.remove();
+              }
+            }
+          });
+        });
+      };
+
       RX.wireChipGroup(overlay, 'phone', state, {
         label: 'PHONE',
         inputType: 'tel',
@@ -12567,7 +12630,14 @@ async function openContractorEditor(contractor) {
         placeholder: '(512) 555-1234',
         addLabel: 'Add phone',
         validate: phoneValidator,
+        onAdd: () => refreshPhoneNamesUI(),
+        onRemove: (removed) => {
+          delete phoneLabels[removed];
+          refreshPhoneNamesUI();
+        },
       });
+      // Initial wire — covers existing rows rendered server-side
+      refreshPhoneNamesUI();
       // Tag chip group — no validator, free text.
       RX.wireChipGroup(overlay, 'tags', state, {
         placeholder: 'e.g. HVAC',
@@ -12683,21 +12753,43 @@ async function openContractorEditor(contractor) {
       // (`alter table nodes add column subject_template text`,
       //  `alter table nodes add column body_template text`) — until then,
       // every other field still saves cleanly.
+      // Same pattern for the `kind` column — older databases don't have
+      // it. The contractor save still works without it; `kind: 'org'`
+      // is purely for sub-classifying nodes (org / person / equipment).
       const stripTplCols = (p) => {
         const { subject_template, body_template, ...rest } = p;
         return rest;
       };
+      const stripKindCol = (p) => {
+        const { kind, ...rest } = p;
+        return rest;
+      };
+      const isMissingColumn = (err, ...names) => {
+        const msg = (err && err.message) || '';
+        return names.some(n =>
+          new RegExp(`column.*${n}.*does not exist`, 'i').test(msg) ||
+          new RegExp(`find.*['"\`]${n}['"\`] column`, 'i').test(msg)
+        );
+      };
       let templatesStripped = false;
+      let kindStripped = false;
 
       try {
         if (isNew) {
           // Insert as a new node with category='contractors'.
-          const insertPayload = { ...payload, category: 'contractors', kind: 'org' };
+          let insertPayload = { ...payload, category: 'contractors', kind: 'org' };
           let res = await NX.sb.from('nodes').insert(insertPayload).select('*').single();
+          // If `kind` column is missing on the schema, strip + retry.
+          if (res.error && isMissingColumn(res.error, 'kind')) {
+            kindStripped = true;
+            insertPayload = stripKindCol(insertPayload);
+            res = await NX.sb.from('nodes').insert(insertPayload).select('*').single();
+          }
           // If the template columns aren't on the schema yet, strip + retry
-          if (res.error && /column.*(subject_template|body_template).*does not exist/i.test(res.error.message || '')) {
+          if (res.error && isMissingColumn(res.error, 'subject_template', 'body_template')) {
             templatesStripped = true;
-            res = await NX.sb.from('nodes').insert({ ...stripTplCols(insertPayload), category: 'contractors', kind: 'org' }).select('*').single();
+            insertPayload = stripTplCols(insertPayload);
+            res = await NX.sb.from('nodes').insert(insertPayload).select('*').single();
           }
           if (res.error) throw res.error;
           if (NX.toast) NX.toast(templatesStripped
@@ -12707,10 +12799,18 @@ async function openContractorEditor(contractor) {
           if (typeof loadContractors === 'function') await loadContractors();
           if (typeof renderContractors === 'function') renderContractors();
         } else {
-          let res = await NX.sb.from('nodes').update(payload).eq('id', c.id);
-          if (res.error && /column.*(subject_template|body_template).*does not exist/i.test(res.error.message || '')) {
+          let updatePayload = { ...payload };
+          let res = await NX.sb.from('nodes').update(updatePayload).eq('id', c.id);
+          // Same strip-on-missing-column pattern for updates
+          if (res.error && isMissingColumn(res.error, 'kind')) {
+            kindStripped = true;
+            updatePayload = stripKindCol(updatePayload);
+            res = await NX.sb.from('nodes').update(updatePayload).eq('id', c.id);
+          }
+          if (res.error && isMissingColumn(res.error, 'subject_template', 'body_template')) {
             templatesStripped = true;
-            res = await NX.sb.from('nodes').update(stripTplCols(payload)).eq('id', c.id);
+            updatePayload = stripTplCols(updatePayload);
+            res = await NX.sb.from('nodes').update(updatePayload).eq('id', c.id);
           }
           if (res.error) throw res.error;
           // Update the in-memory copy so subsequent reads (e.g. the email
@@ -13281,10 +13381,15 @@ function renderContractorsDetail() {
       // dies. If you tap Edit and see no toasts at all, the click never
       // reaches this handler (something is blocking the event upstream
       // — overlay covering the button, etc).
+      //
+      // v15.4: success-path toasts removed. They're noise once everything
+      // works. FAILURE toasts remain — they only fire when something is
+      // actually broken, so they stay quiet during normal operation.
+      // Console logs at every step also remain (silent unless dev tools
+      // are open) so failures are still traceable post-mortem.
       // ─────────────────────────────────────────────────────────────────
       if (btn.dataset.detailTab === 'edit') {
         // Step 1 — handler reached
-        if (NX.toast) NX.toast('[1/5] Edit tap registered', 'info', 1200);
         console.log('[contractors:edit] step 1 — click handler running', { btn });
 
         // Step 2 — engine present
@@ -13293,7 +13398,6 @@ function renderContractorsDetail() {
           console.error('[contractors:edit] step 2 FAIL — NX.recordEditor missing', { NX: window.NX });
           return;
         }
-        if (NX.toast) NX.toast('[2/5] Engine loaded', 'info', 900);
         console.log('[contractors:edit] step 2 — engine loaded');
 
         // Step 3 — function present
@@ -13302,7 +13406,6 @@ function renderContractorsDetail() {
           console.error('[contractors:edit] step 3 FAIL — openContractorEditor undefined');
           return;
         }
-        if (NX.toast) NX.toast('[3/5] Function defined', 'info', 900);
         console.log('[contractors:edit] step 3 — openContractorEditor is a function');
 
         // Step 4 — contractor present
@@ -13312,7 +13415,6 @@ function renderContractorsDetail() {
           console.warn('[contractors:edit] step 4 FAIL — activeContractor is null', { contractorsState });
           return;
         }
-        if (NX.toast) NX.toast(`[4/5] Contractor ready: ${c.name || c.id}`, 'info', 900);
         console.log('[contractors:edit] step 4 — contractor', c);
 
         // Step 5 — call the function
@@ -13344,7 +13446,6 @@ function renderContractorsDetail() {
             console.error('[contractors:edit] step 5 INVISIBLE', { rect, display: cs.display, visibility: cs.visibility, opacity: cs.opacity, zIndex: cs.zIndex });
             return;
           }
-          if (NX.toast) NX.toast('[5/5] Engine overlay mounted ✓', 'info', 1200);
           console.log('[contractors:edit] step 5 SUCCESS — overlay in DOM, visible', { rect, zIndex: cs.zIndex });
         }, 250);
 
