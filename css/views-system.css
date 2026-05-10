@@ -2025,23 +2025,27 @@ body.is-equipment-archive-world .eq-row:hover {
    1. Sort row padding fix — was clashing with the section header below
       because padding-bottom was 0. Add proper breathing room.
    2. Beacon redesign — bigger, brighter, all gold-themed:
-        • is-operational  : gold + soft pulse + 2 orbiting particles
+        • is-operational  : gold + soft pulse + 4 orbiting particles
+                            (2 small fast over the beacon, 2 larger slow
+                            behind it — depth + majesty)
         • is-needs-service: rapid bright flash
-        • is-down         : muted gray with quick yellow flicker (alive but struggling)
+        • is-down         : muted gray with quick yellow flicker (alive
+                            but struggling)
         • is-retired/missing: faintest static gray
+   3. Light-mode override — gold theme everywhere, no green stragglers.
+   4. Same beacon on detail-page pill (.eq-lc-pill-dot) so list and
+      detail show the same character.
+   5. Tappable as a button — focus ring + cursor.
    ════════════════════════════════════════════════════════════════════════ */
 
 /* ─── SORT ROW PADDING FIX ─────────────────────────────────────────── */
 #equipmentView .eq-sort-bar {
-  /* Was 6px 14px 0 — caused the row to abut the section header below,
-     making "Refrigeration" sit on top of the pills. Add bottom padding
-     and a subtle separator. */
   padding: 8px 14px 14px !important;
   margin-bottom: 4px;
   border-bottom: 1px solid rgba(212, 164, 78, 0.08);
 }
 
-/* ─── BEACON BASE ──────────────────────────────────────────────────── */
+/* ─── BEACON WRAPPER ───────────────────────────────────────────────── */
 .eq-row .eq-row-beacon,
 .eq-row-beacon {
   position: relative;
@@ -2052,10 +2056,19 @@ body.is-equipment-archive-world .eq-row:hover {
   height: 22px;
   flex-shrink: 0;
   margin-left: 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-row-beacon:focus-visible,
+.eq-lc-dot:focus-visible {
+  outline: 2px solid var(--nx-gold, #d4a44e);
+  outline-offset: 3px;
+  border-radius: 50%;
 }
 
-/* Override the existing inline placement on the dot itself — the new
-   parent .eq-row-beacon handles positioning, the dot just centers. */
+/* The dot is now the orbit container — its children are positioned
+   absolutely from the dot's center. overflow:visible lets the orbit
+   particles escape the dot's bounding box. */
 .eq-row-beacon .eq-lc-dot {
   position: relative !important;
   top: auto !important;
@@ -2064,9 +2077,128 @@ body.is-equipment-archive-world .eq-row:hover {
   height: 14px !important;
   border-radius: 50%;
   display: block;
+  overflow: visible;
+  cursor: pointer;
 }
 
-/* ─── OPERATIONAL — gold beacon + orbiting particles ───────────────── */
+/* ─── ORBIT PARTICLES (the "majestic flying nodes") ────────────────── */
+/* Two child .eq-lc-orbit spans inside each dot. Plus we also use the
+   wrapper's ::before and ::after for two more particles, giving four
+   orbits total per beacon — varied sizes and orbital periods so they
+   never sync up, which keeps the motion looking organic. */
+.eq-lc-orbit {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  pointer-events: none;
+  background: var(--nx-gold, #d4a44e);
+}
+
+/* The orbits and ::before/::after are only enabled when the beacon
+   reads "operational". Hidden by default to keep down/needs-service
+   cleaner visually. */
+.eq-lc-orbit-fore,
+.eq-lc-orbit-back {
+  opacity: 0;
+}
+.eq-lc-dot.is-operational .eq-lc-orbit-fore,
+.eq-lc-dot.is-operational .eq-lc-orbit-back,
+.eq-lc-pill-dot:is(.is-operational, [class*="is-operational"]) .eq-lc-orbit-fore,
+.eq-lc-pill.is-operational .eq-lc-pill-dot .eq-lc-orbit-fore,
+.eq-lc-pill.is-operational .eq-lc-pill-dot .eq-lc-orbit-back {
+  opacity: 1;
+}
+
+/* Orbit FORE — small fast particle, passes OVER the beacon (z-index 2) */
+.eq-lc-dot.is-operational .eq-lc-orbit-fore,
+.eq-lc-pill.is-operational .eq-lc-pill-dot .eq-lc-orbit-fore {
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  background: #fff7d8;
+  box-shadow:
+    0 0 4px rgba(255, 220, 130, 1),
+    0 0 8px rgba(212, 164, 78, 0.85);
+  z-index: 3;
+  animation: eq-orbit-fore 2.6s linear infinite;
+}
+
+/* Orbit BACK — bigger slow particle, passes BEHIND the beacon (z-index 0) */
+.eq-lc-dot.is-operational .eq-lc-orbit-back,
+.eq-lc-pill.is-operational .eq-lc-pill-dot .eq-lc-orbit-back {
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  background: var(--nx-gold, #d4a44e);
+  box-shadow:
+    0 0 6px rgba(212, 164, 78, 0.85),
+    0 0 14px rgba(212, 164, 78, 0.45);
+  z-index: 0;
+  animation: eq-orbit-back 4.4s linear infinite reverse;
+}
+
+@keyframes eq-orbit-fore {
+  0%   { transform: rotate(0deg)   translateX(9px) rotate(0deg); }
+  /* When the particle's angular position is between 90° and 270°, it's
+     visually behind the beacon — fade to suggest depth. */
+  25%  { opacity: 1; }
+  50%  { opacity: 0.35; transform: rotate(180deg) translateX(9px) rotate(-180deg); }
+  75%  { opacity: 1; }
+  100% { transform: rotate(360deg) translateX(9px) rotate(-360deg); }
+}
+@keyframes eq-orbit-back {
+  0%   { transform: rotate(0deg)   translateX(13px) rotate(0deg); opacity: 0.5; }
+  50%  { transform: rotate(180deg) translateX(13px) rotate(-180deg); opacity: 1; }
+  100% { transform: rotate(360deg) translateX(13px) rotate(-360deg); opacity: 0.5; }
+}
+
+/* Two more particles via ::before and ::after on the dot — even
+   smaller, even faster, jittery — adds the buzzing "alive" feel. */
+.eq-lc-dot.is-operational::before,
+.eq-lc-pill.is-operational .eq-lc-pill-dot::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 2px;
+  margin: -1px 0 0 -1px;
+  border-radius: 50%;
+  background: #fff7d8;
+  box-shadow: 0 0 3px rgba(255, 220, 130, 1);
+  z-index: 4;
+  animation: eq-orbit-tiny-a 1.9s linear infinite;
+  pointer-events: none;
+}
+.eq-lc-dot.is-operational::after,
+.eq-lc-pill.is-operational .eq-lc-pill-dot::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2.5px;
+  height: 2.5px;
+  margin: -1.25px 0 0 -1.25px;
+  border-radius: 50%;
+  background: var(--nx-gold, #d4a44e);
+  box-shadow: 0 0 4px rgba(212, 164, 78, 0.9);
+  z-index: 1;
+  animation: eq-orbit-tiny-b 3.2s linear infinite reverse;
+  pointer-events: none;
+}
+@keyframes eq-orbit-tiny-a {
+  0%   { transform: rotate(45deg)  translateX(7px) rotate(-45deg); opacity: 0.85; }
+  50%  { opacity: 0.3; }
+  100% { transform: rotate(405deg) translateX(7px) rotate(-405deg); opacity: 0.85; }
+}
+@keyframes eq-orbit-tiny-b {
+  0%   { transform: rotate(135deg) translateX(11px) rotate(-135deg); opacity: 0.45; }
+  50%  { opacity: 1; }
+  100% { transform: rotate(495deg) translateX(11px) rotate(-495deg); opacity: 0.45; }
+}
+
+/* ─── OPERATIONAL — beacon's own glow ──────────────────────────────── */
 .eq-row-beacon .eq-lc-dot.is-operational {
   background: var(--nx-gold, #d4a44e) !important;
   box-shadow:
@@ -2075,6 +2207,7 @@ body.is-equipment-archive-world .eq-row:hover {
     0 0 16px rgba(212, 164, 78, 0.55),
     0 0 28px rgba(212, 164, 78, 0.30) !important;
   animation: eq-beacon-pulse 2.4s ease-in-out infinite !important;
+  z-index: 2;
 }
 @keyframes eq-beacon-pulse {
   0%, 100% {
@@ -2093,41 +2226,7 @@ body.is-equipment-archive-world .eq-row:hover {
   }
 }
 
-/* Orbiting particles — two tiny gold dots circling the beacon when
-   it's operational. ::before and ::after on the parent give us two
-   particles offset on opposite phases of the same orbit. */
-.eq-row-beacon:has(.eq-lc-dot.is-operational)::before,
-.eq-row-beacon:has(.eq-lc-dot.is-operational)::after {
-  content: '';
-  position: absolute;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--nx-gold, #d4a44e);
-  box-shadow: 0 0 4px rgba(212, 164, 78, 0.9), 0 0 8px rgba(212, 164, 78, 0.55);
-  top: 50%;
-  left: 50%;
-  margin: -2px 0 0 -2px;
-  pointer-events: none;
-}
-.eq-row-beacon:has(.eq-lc-dot.is-operational)::before {
-  animation: eq-orbit-a 3.6s linear infinite;
-}
-.eq-row-beacon:has(.eq-lc-dot.is-operational)::after {
-  animation: eq-orbit-b 3.6s linear infinite;
-}
-@keyframes eq-orbit-a {
-  0%   { transform: rotate(0deg)   translateX(11px) rotate(0deg);   opacity: 0.9; }
-  50%  { transform: rotate(180deg) translateX(11px) rotate(-180deg); opacity: 0.4; }
-  100% { transform: rotate(360deg) translateX(11px) rotate(-360deg); opacity: 0.9; }
-}
-@keyframes eq-orbit-b {
-  0%   { transform: rotate(180deg) translateX(11px) rotate(-180deg); opacity: 0.4; }
-  50%  { transform: rotate(360deg) translateX(11px) rotate(-360deg); opacity: 0.9; }
-  100% { transform: rotate(540deg) translateX(11px) rotate(-540deg); opacity: 0.4; }
-}
-
-/* ─── NEEDS SERVICE — rapid bright flash ───────────────────────────── */
+/* ─── NEEDS SERVICE — rapid flash ──────────────────────────────────── */
 .eq-row-beacon .eq-lc-dot.is-needs-service,
 .eq-row-beacon .eq-lc-dot.is-reported,
 .eq-row-beacon .eq-lc-dot.is-called {
@@ -2151,7 +2250,7 @@ body.is-equipment-archive-world .eq-row:hover {
   }
 }
 
-/* ─── DOWN / BROKEN — gray dot, quick faint gold flicker ───────────── */
+/* ─── DOWN / BROKEN — gray + faint gold flicker ────────────────────── */
 .eq-row-beacon .eq-lc-dot.is-down,
 .eq-row-beacon .eq-lc-dot.is-broken {
   background: #5a5550 !important;
@@ -2161,8 +2260,6 @@ body.is-equipment-archive-world .eq-row:hover {
   animation: eq-beacon-flicker 3.4s steps(1, end) infinite !important;
 }
 @keyframes eq-beacon-flicker {
-  /* Mostly dim gray. Brief gold blip every few seconds — like a dying
-     signal trying to call for help. */
   0%, 65%, 80%, 100% {
     box-shadow:
       0 0 0 2px rgba(28, 20, 8, 0.85),
@@ -2192,11 +2289,120 @@ body.is-equipment-archive-world .eq-row:hover {
   animation: none !important;
 }
 
+/* ════════════════════════════════════════════════════════════════════
+   DETAIL-PAGE PILL DOT — same gold treatment as list beacon
+   ──────────────────────────────────────────────────────────────────
+   .eq-lc-pill is the OPERATIONAL/etc. pill at the top of the detail.
+   Its inner .eq-lc-pill-dot gets the same orbit + flash + flicker so
+   the list and detail feel like one design system.
+   ════════════════════════════════════════════════════════════════════ */
+.eq-lc-pill {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  /* Allow orbiting particles to escape the pill's rounded bounds */
+  overflow: visible !important;
+}
+.eq-lc-pill .eq-lc-pill-dot {
+  position: relative !important;
+  width: 10px !important;
+  height: 10px !important;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+  overflow: visible !important;
+}
+.eq-lc-pill.is-operational .eq-lc-pill-dot {
+  background: var(--nx-gold, #d4a44e) !important;
+  box-shadow:
+    0 0 6px rgba(212, 164, 78, 0.85),
+    0 0 14px rgba(212, 164, 78, 0.5) !important;
+  animation: eq-beacon-pulse-sm 2.4s ease-in-out infinite !important;
+}
+@keyframes eq-beacon-pulse-sm {
+  0%, 100% {
+    box-shadow:
+      0 0 6px rgba(212, 164, 78, 0.85),
+      0 0 14px rgba(212, 164, 78, 0.50);
+  }
+  50% {
+    box-shadow:
+      0 0 10px rgba(212, 164, 78, 1),
+      0 0 22px rgba(212, 164, 78, 0.70);
+  }
+}
+.eq-lc-pill.is-needs-service .eq-lc-pill-dot,
+.eq-lc-pill.is-reported .eq-lc-pill-dot,
+.eq-lc-pill.is-called .eq-lc-pill-dot {
+  background: var(--nx-gold, #d4a44e) !important;
+  animation: eq-beacon-flash 1.0s ease-in-out infinite !important;
+}
+.eq-lc-pill.is-down .eq-lc-pill-dot,
+.eq-lc-pill.is-broken .eq-lc-pill-dot {
+  background: #5a5550 !important;
+  animation: eq-beacon-flicker 3.4s steps(1, end) infinite !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   LIGHT MODE OVERRIDES — keep gold throughout, no green/red surprises
+   ════════════════════════════════════════════════════════════════════ */
+[data-theme="light"] .eq-row-beacon .eq-lc-dot.is-operational,
+[data-theme="light"] .eq-lc-pill.is-operational .eq-lc-pill-dot {
+  background: #b8862c !important;            /* deeper gold for cream BG */
+  box-shadow:
+    0 0 0 2px rgba(255, 250, 240, 0.85),
+    0 0 6px rgba(184, 134, 44, 0.85),
+    0 0 14px rgba(212, 164, 78, 0.55),
+    0 0 24px rgba(212, 164, 78, 0.28) !important;
+}
+[data-theme="light"] .eq-row-beacon .eq-lc-dot.is-needs-service,
+[data-theme="light"] .eq-row-beacon .eq-lc-dot.is-reported,
+[data-theme="light"] .eq-row-beacon .eq-lc-dot.is-called,
+[data-theme="light"] .eq-lc-pill.is-needs-service .eq-lc-pill-dot,
+[data-theme="light"] .eq-lc-pill.is-reported .eq-lc-pill-dot,
+[data-theme="light"] .eq-lc-pill.is-called .eq-lc-pill-dot {
+  background: #b8862c !important;
+}
+[data-theme="light"] .eq-row-beacon .eq-lc-dot.is-down,
+[data-theme="light"] .eq-row-beacon .eq-lc-dot.is-broken,
+[data-theme="light"] .eq-lc-pill.is-down .eq-lc-pill-dot,
+[data-theme="light"] .eq-lc-pill.is-broken .eq-lc-pill-dot {
+  background: #8a8580 !important;            /* mid-gray, visible on cream */
+}
+[data-theme="light"] .eq-lc-orbit {
+  background: #b8862c !important;
+  box-shadow: 0 0 4px rgba(184, 134, 44, 0.7) !important;
+}
+[data-theme="light"] .eq-lc-orbit-fore {
+  background: #d4a44e !important;
+  box-shadow: 0 0 4px rgba(184, 134, 44, 0.9) !important;
+}
+[data-theme="light"] .eq-lc-dot.is-operational::before,
+[data-theme="light"] .eq-lc-pill.is-operational .eq-lc-pill-dot::before {
+  background: #d4a44e !important;
+  box-shadow: 0 0 3px rgba(184, 134, 44, 0.9) !important;
+}
+[data-theme="light"] .eq-lc-dot.is-operational::after,
+[data-theme="light"] .eq-lc-pill.is-operational .eq-lc-pill-dot::after {
+  background: #b8862c !important;
+  box-shadow: 0 0 4px rgba(184, 134, 44, 0.7) !important;
+}
+/* Light-mode pill background — bring it to a warmer cream tone */
+[data-theme="light"] .eq-lc-pill.is-operational {
+  background: rgba(212, 164, 78, 0.14) !important;
+  color: #6b4f0d !important;
+  border-color: rgba(139, 105, 20, 0.50) !important;
+  box-shadow:
+    0 0 0 1px rgba(139, 105, 20, 0.18),
+    0 0 18px rgba(212, 164, 78, 0.30) !important;
+}
+
 /* ─── Reduced motion — keep semantic colors, drop animations ───────── */
 @media (prefers-reduced-motion: reduce) {
   .eq-row-beacon .eq-lc-dot,
-  .eq-row-beacon::before,
-  .eq-row-beacon::after {
+  .eq-lc-pill .eq-lc-pill-dot,
+  .eq-lc-orbit,
+  .eq-lc-dot::before, .eq-lc-dot::after,
+  .eq-lc-pill-dot::before, .eq-lc-pill-dot::after {
     animation: none !important;
   }
 }
