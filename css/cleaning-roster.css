@@ -1,0 +1,492 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Cleaning — Roster styles
+   Layered on top of cleaning-system.css. Covers the "who does what when"
+   layer plus the cleaning↔education guide-linking UI:
+     - Person filter pill (top of list)
+     - Person filter picker (slide-up sheet)
+     - Guide button on task rows
+     - Task guide picker (slide-up sheet, when 2+ guides)
+     - Shift pattern picker (am / pm / both)
+     - Weekly assignment grid (7 day rows × 1-2 shift cols)
+     - Monthly rotation picker (this month / next month)
+     - Linked guides chips + add button
+     - Guide link picker (search + tap to toggle)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+
+/* ─── PERSON FILTER PILL (top of cleaning list) ────────────────────── */
+.clean-person-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.18));
+  border-radius: 999px;
+  color: var(--text, #ece6d8);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 140ms, background 140ms;
+}
+.clean-person-pill:hover {
+  border-color: rgba(212, 164, 78, 0.4);
+}
+.clean-person-pill.is-active {
+  background: rgba(212, 164, 78, 0.12);
+  border-color: var(--nx-gold, #d4a44e);
+  color: var(--nx-gold, #d4a44e);
+}
+
+
+/* ─── PERSON FILTER PICKER (sheet) ─────────────────────────────────── */
+.clean-person-picker,
+.clean-guide-picker,
+.clean-guide-link-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.clean-person-picker-bg,
+.clean-guide-picker-bg,
+.clean-guide-link-picker-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+.clean-person-picker-card,
+.clean-guide-picker-card,
+.clean-guide-link-picker-card {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  max-height: 75vh;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.18));
+  border-radius: 14px 14px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: cleanSheetSlideUp 220ms ease-out;
+}
+@keyframes cleanSheetSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.clean-person-picker-head,
+.clean-guide-picker-head,
+.clean-guide-link-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+}
+.clean-person-picker-title,
+.clean-guide-picker-title,
+.clean-guide-link-picker-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text, #ece6d8);
+}
+.clean-person-picker-close,
+.clean-guide-picker-close,
+.clean-guide-link-picker-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid rgba(212, 164, 78, 0.18);
+  color: var(--nx-faint, #7a7167);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.clean-person-picker-list,
+.clean-guide-picker-list,
+.clean-guide-link-picker-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px;
+}
+.clean-person-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  text-align: left;
+  cursor: pointer;
+  margin-bottom: 4px;
+  -webkit-tap-highlight-color: transparent;
+}
+.clean-person-picker-item:hover {
+  background: rgba(212, 164, 78, 0.05);
+}
+.clean-person-picker-item.is-selected {
+  background: rgba(212, 164, 78, 0.10);
+  border-color: var(--nx-gold, #d4a44e);
+}
+.clean-person-picker-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--nx-faint, #7a7167);
+  flex-shrink: 0;
+}
+.clean-person-picker-item.is-selected .clean-person-picker-dot {
+  background: var(--nx-gold, #d4a44e);
+  border-color: var(--nx-gold, #d4a44e);
+}
+.clean-person-picker-name {
+  font-family: 'Outfit', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text, #ece6d8);
+  flex: 1;
+}
+.clean-person-picker-me {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--nx-gold, #d4a44e);
+  font-style: italic;
+}
+.clean-person-picker-hint {
+  font-size: 11.5px;
+  color: var(--nx-faint, #7a7167);
+}
+
+
+/* ─── ASSIGNEE CHIP TWEAKS (am/pm/me styling) ──────────────────────── */
+.clean-assignee {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.clean-assignee.is-me {
+  background: rgba(212, 164, 78, 0.18);
+  border-color: var(--nx-gold, #d4a44e);
+  color: var(--nx-gold, #d4a44e);
+}
+.clean-assignee-shift {
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+  font-weight: 700;
+}
+
+
+/* ─── GUIDE BUTTON ON TASK ROWS ────────────────────────────────────── */
+.clean-guide-btn {
+  position: relative;
+}
+.clean-guide-btn-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  background: var(--nx-gold, #d4a44e);
+  color: var(--nx-gold-on, #1c1408);
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+/* ─── TASK GUIDE PICKER (slide-up when 2+ guides) ──────────────────── */
+.clean-guide-picker-item {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  text-align: left;
+  cursor: pointer;
+  align-items: start;
+  margin-bottom: 4px;
+}
+.clean-guide-picker-item:hover {
+  background: rgba(212, 164, 78, 0.05);
+  border-color: rgba(212, 164, 78, 0.20);
+}
+.clean-guide-picker-kind {
+  color: var(--nx-gold, #d4a44e);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+.clean-guide-picker-name {
+  font-family: 'Outfit', sans-serif;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text, #ece6d8);
+  grid-column: 2;
+}
+.clean-guide-picker-hint {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--nx-faint, #7a7167);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+
+/* ─── SHIFT PATTERN PICKER (am / pm / both) ────────────────────────── */
+.clean-shift-picker {
+  display: inline-flex;
+  background: var(--bg, #0c0a08);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+.clean-shift-btn {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--nx-faint, #7a7167);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms, color 120ms;
+}
+.clean-shift-btn:hover { color: var(--text, #ece6d8); }
+.clean-shift-btn.is-selected {
+  background: var(--nx-gold, #d4a44e);
+  color: var(--nx-gold-on, #1c1408);
+  font-weight: 600;
+}
+
+
+/* ─── WEEKLY ASSIGNMENT GRID ───────────────────────────────────────── */
+.clean-week-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg, #0c0a08);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+  border-radius: 8px;
+  padding: 10px;
+}
+.clean-week-row {
+  display: grid;
+  grid-template-columns: 50px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+.clean-week-row:has(.clean-week-shift-cell + .clean-week-shift-cell) {
+  grid-template-columns: 50px 1fr 1fr;
+}
+.clean-week-day-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.10em;
+  color: var(--nx-gold, #d4a44e);
+  font-weight: 600;
+}
+.clean-week-shift-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.clean-week-shift-label {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.10em;
+  color: var(--nx-faint, #7a7167);
+  pointer-events: none;
+  z-index: 1;
+}
+.clean-week-shift-cell select {
+  padding-right: 28px;
+}
+
+
+/* ─── MONTHLY ROTATION PICKER ──────────────────────────────────────── */
+.clean-month-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg, #0c0a08);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+  border-radius: 8px;
+  padding: 10px;
+}
+.clean-month-row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+.clean-month-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--nx-gold, #d4a44e);
+  font-weight: 600;
+}
+
+
+/* ─── LINKED GUIDES IN EDITOR ──────────────────────────────────────── */
+.clean-edit-guide-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.clean-edit-guide-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px 5px 11px;
+  background: rgba(212, 164, 78, 0.10);
+  border: 1px solid rgba(212, 164, 78, 0.25);
+  border-radius: 999px;
+  color: var(--nx-gold, #d4a44e);
+  font-size: 12.5px;
+  font-family: 'Outfit', sans-serif;
+}
+.clean-edit-guide-link-x {
+  width: 18px;
+  height: 18px;
+  background: transparent;
+  border: none;
+  color: var(--nx-faint, #7a7167);
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-left: 2px;
+}
+.clean-edit-guide-link-x:hover {
+  background: rgba(204, 90, 90, 0.15);
+  color: #cc5a5a;
+}
+.clean-edit-guide-link-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  background: transparent;
+  border: 1px dashed rgba(212, 164, 78, 0.4);
+  border-radius: 999px;
+  color: var(--nx-gold, #d4a44e);
+  font-size: 12.5px;
+  font-family: 'Outfit', sans-serif;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.clean-edit-guide-link-add:hover {
+  background: rgba(212, 164, 78, 0.06);
+}
+
+
+/* ─── GUIDE LINK PICKER (sheet) ────────────────────────────────────── */
+.clean-guide-link-picker-search {
+  margin: 10px 12px 6px;
+  padding: 10px 12px;
+  background: var(--bg, #0c0a08);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
+  border-radius: 8px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  color: var(--text, #ece6d8);
+}
+.clean-guide-link-picker-search:focus {
+  outline: none;
+  border-color: var(--nx-gold, #d4a44e);
+}
+.clean-guide-link-picker-item {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 12px 100px 12px 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  text-align: left;
+  cursor: pointer;
+  margin-bottom: 4px;
+  -webkit-tap-highlight-color: transparent;
+}
+.clean-guide-link-picker-item:hover {
+  background: rgba(212, 164, 78, 0.05);
+}
+.clean-guide-link-picker-item.is-linked {
+  background: rgba(212, 164, 78, 0.08);
+  border-color: rgba(212, 164, 78, 0.25);
+}
+.clean-guide-link-picker-name {
+  font-family: 'Outfit', sans-serif;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text, #ece6d8);
+  margin-bottom: 4px;
+}
+.clean-guide-link-picker-meta {
+  font-size: 11.5px;
+  color: var(--nx-faint, #7a7167);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.clean-guide-link-picker-status {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  font-family: 'Outfit', sans-serif;
+  background: rgba(212, 164, 78, 0.15);
+  color: var(--nx-gold, #d4a44e);
+  border: 1px solid rgba(212, 164, 78, 0.3);
+}
+.clean-guide-link-picker-status.is-add {
+  background: transparent;
+  border-color: var(--nx-highlight-line, rgba(212, 164, 78, 0.18));
+  color: var(--nx-faint, #7a7167);
+}
+.clean-guide-link-picker-empty {
+  padding: 30px 20px;
+  text-align: center;
+  color: var(--nx-faint, #7a7167);
+  font-size: 13px;
+  line-height: 1.5;
+}
