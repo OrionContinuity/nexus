@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v43-clippy-v17-3';
+const CACHE_NAME = 'nexus-v44-clippy-v17-4';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
