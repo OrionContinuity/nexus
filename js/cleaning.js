@@ -57,6 +57,9 @@
     document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
     external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
     alert:    '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    graduation: '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>',
+    scroll:   '<path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M15 8h-5"/><path d="M15 12h-5"/><path d="M21 21H8a3 3 0 0 1-3-3V7a3 3 0 0 0-3-3"/>',
+    book:     '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
   };
   function svg(key, size = 14, stroke = 2) {
     return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0">${ICONS[key] || ''}</svg>`;
@@ -1745,7 +1748,7 @@
         ${svg('user', 12)} <span>${esc(pillLabel)}</span>
       </button>
       <button class="clean-person-pill ${educationModeOn ? 'is-active' : ''}" data-edu-pill title="Show learning guide buttons on every task" aria-pressed="${educationModeOn}">
-        ${svg('book', 12)} <span>Learn</span>
+        ${svg('graduation', 12)} <span>Learn</span>
       </button>
     `;
     viewToggle.querySelectorAll('[data-view]').forEach(btn => {
@@ -2163,7 +2166,7 @@
         </button>
         ${(educationModeOn || (guidesLinkedByTaskId[task.id] || []).length) ? `
           <button class="clean-task-action-btn clean-guide-btn ${(guidesLinkedByTaskId[task.id] || []).length ? '' : 'is-empty'}" aria-label="${(guidesLinkedByTaskId[task.id] || []).length ? 'Open guide' : 'Link a guide'}" data-open-guide title="${(guidesLinkedByTaskId[task.id] || []).length ? 'Guide' : 'Link guide'}">
-            ${svg('book', 14, 2)}
+            ${svg('graduation', 14, 2)}
             ${(guidesLinkedByTaskId[task.id] || []).length > 1 ? `<span class="clean-guide-btn-count">${guidesLinkedByTaskId[task.id].length}</span>` : ''}
           </button>
         ` : ''}
@@ -2451,7 +2454,7 @@
           <div class="clean-edit-guide-links" data-guide-links>
             ${(guidesLinkedByTaskId[task.id] || []).map(g => `
               <span class="clean-edit-guide-link" data-linked-guide="${esc(g.id)}">
-                ${svg('book', 11)} <span>${esc(g.title_en)}</span>
+                ${svg('scroll', 11)} <span>${esc(g.title_en)}</span>
                 <button class="clean-edit-guide-link-x" data-unlink-guide="${esc(g.id)}" aria-label="Unlink">×</button>
               </span>
             `).join('')}
