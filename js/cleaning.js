@@ -414,10 +414,17 @@
 
   // Filters task groups to only those assigned to a specific user today.
   // Returns the original groups if userId is null (everyone view).
+  // Tasks with NO assignments at all are treated as universal/unassigned —
+  // they show for everyone regardless of person filter. Only tasks that
+  // explicitly have assignments get filtered down to their assignees.
   function filterGroupsByUser(groups, userId) {
     if (!userId) return groups;
     return groups.map(g => {
       const filtered = g.tasks.filter(t => {
+        const rows = assignmentsByTaskId[t.id] || [];
+        // Zero assignments anywhere → universal task, show always
+        if (rows.length === 0) return true;
+        // Has assignments → only show if THIS user is on today's roster
         const { am, pm } = todayAssigneesFor(t);
         return (am && am.id === userId) || (pm && pm.id === userId);
       });
@@ -3700,11 +3707,9 @@
     await loadAssignments();
     await loadGuideLinks();
 
-    // Default the person filter to the logged-in user. They can switch
-    // to "Everyone" or any other person via the pill at the top.
-    if (viewingUserId === null && getCurrentUserId()) {
-      viewingUserId = getCurrentUserId();
-    }
+    // Person filter defaults to "Everyone" — user can opt-in to person view
+    // by tapping the pill at the top. Auto-defaulting to current user was
+    // surprising in empty-assignment-table scenarios (showed "no tasks").
 
     // Register with NX.archive
     registerArchiveContributor();
@@ -3767,9 +3772,7 @@
     await loadTaskNotes();
     await loadAssignments();
     await loadGuideLinks();
-    if (viewingUserId === null && getCurrentUserId()) {
-      viewingUserId = getCurrentUserId();
-    }
+    // Person filter defaults to Everyone — see init() comment above.
     render();
   }
 
