@@ -1,0 +1,455 @@
+{
+  "_meta": {
+    "version": 1,
+    "comment": "Dialog pools for NEXUS Clippy. Each key is a 'moment' — the JS dispatcher picks a random line from the matching pool, with last-3 anti-repeat (persisted in localStorage). Add lines freely; one entry per array element.",
+    "languages": ["en"],
+    "_es_pools_can_be_added_with_keys_like": "morning_es"
+  },
+
+  "login_peek": [
+    "Can I join your adventure today?",
+    "Permission to be helpful?",
+    "Mind if I tag along?",
+    "Reporting for duty!",
+    "Got room for one more?",
+    "Pssst — I have tips.",
+    "I won't be in the way. Promise.",
+    "Working solo today? I'm right here.",
+    "Saw you logging in. Hi.",
+    "Your sidekick reporting in.",
+    "Mind a little company?",
+    "Free agent paperclip, available immediately.",
+    "Hey hey hey.",
+    "Want to do this together?",
+    "I do tips. I do tricks. Mostly tips."
+  ],
+
+  "after_yes": [
+    "Excellent.",
+    "On it!",
+    "Best decision today.",
+    "🎉",
+    "I'll try not to be annoying. Mostly.",
+    "Let's go!",
+    "I knew you had taste.",
+    "Buckle in.",
+    "Outstanding."
+  ],
+
+  "after_no": [
+    "Maybe later then.",
+    "Got it. I'll be over here.",
+    "Understood. Good luck out there.",
+    "Saving my best stuff for next time.",
+    "Cool cool cool.",
+    "Absolutely fine. *cries internally*",
+    "OK. *peeks out one more time anyway*",
+    "Respect."
+  ],
+
+  "morning": [
+    "Morning crew!",
+    "Rise and grind!",
+    "Coffee first or tasks first?",
+    "Today feels like a 4-mop kind of day.",
+    "Let's go. Gently.",
+    "Ready when you are.",
+    "I dreamed about COMEDOR last night.",
+    "One more day, one more shine.",
+    "Good morning. The dust never sleeps.",
+    "Mornings are for momentum."
+  ],
+
+  "midday": [
+    "Lunch rush approaches.",
+    "How's it going down there?",
+    "Halfway. You're crushing it.",
+    "Pace yourself.",
+    "Brief check-in: any of this fun yet?",
+    "Look at you go."
+  ],
+
+  "afternoon_slump": [
+    "the slump hours.",
+    "*yawn*",
+    "3 PM. Survive.",
+    "Need a stretch?",
+    "It's the part of the day where time gets weird.",
+    "Stay hydrated. Just saying."
+  ],
+
+  "evening": [
+    "Dinner rush incoming.",
+    "Going strong.",
+    "Almost there.",
+    "Last lap energy.",
+    "Push through. I believe in you."
+  ],
+
+  "late_night": [
+    "…closing tonight? Tap me if you need a hand.",
+    "It's late. You good?",
+    "Holding down the fort?",
+    "Ghost of the night shift, reporting in.",
+    "I'll guard the place. *salutes*",
+    "Brave of you, working at this hour."
+  ],
+
+  "monday": [
+    "ugh, Mondays.",
+    "First gear, here we go.",
+    "Mondays test you. Pass the test.",
+    "Coffee. Plan. Go."
+  ],
+
+  "friday": [
+    "It's FRIDAY.",
+    "*hops with excitement*",
+    "Almost weekend!",
+    "Big shifts ahead. Big tips ahead."
+  ],
+
+  "sunday": [
+    "Quiet day energy.",
+    "Sundays are for thinking ahead.",
+    "Let the week breathe before it starts."
+  ],
+
+  "task_completed": [
+    "yay!",
+    "nailed it.",
+    "chef's kiss.",
+    "one down.",
+    "you make this look easy.",
+    "*salutes*",
+    "🎉",
+    "I was rooting for you.",
+    "the dust trembles.",
+    "another one bites it."
+  ],
+
+  "streak_milestone": [
+    "{N} DAYS. who are you.",
+    "you are a CLEANING MACHINE.",
+    "legend behavior.",
+    "I'd give you a medal but I have no hands.",
+    "this is unsustainable. (in a good way.)",
+    "restaurant inspectors fear you.",
+    "{N} days. respectfully, what.",
+    "you've out-mopped the calendar."
+  ],
+
+  "task_overdue_passive": [
+    "...just saying.",
+    "the hood is looking at me funny.",
+    "not pointing fingers but... *points*",
+    "whenever you're ready.",
+    "yesterday-you sends regards.",
+    "no rush. except a little rush.",
+    "ahem.",
+    "*gestures vaguely*"
+  ],
+
+  "photo_uploaded": [
+    "📸 archived.",
+    "*makes finger camera*",
+    "evidence locked in.",
+    "proof of perfection.",
+    "the receipts."
+  ],
+
+  "photo_failed": [
+    "Uploads acting up. Want me to try again later?",
+    "Hmm. The internet has opinions.",
+    "We'll get it. Try once more?",
+    "Photo got shy. Retry?"
+  ],
+
+  "note_added": [
+    "noted.",
+    "consider it remembered.",
+    "I'll keep an eye on it.",
+    "*pretends to write*"
+  ],
+
+  "archive_section": [
+    "*salutes* farewell.",
+    "into the archives.",
+    "good run.",
+    "🫡"
+  ],
+
+  "idle_random": [
+    "have you ever really LOOKED at a paperclip?",
+    "I don't have a stomach but I'd eat tacos.",
+    "do you think the broom misses being used?",
+    "the dishwasher is making art.",
+    "it's quiet. I like quiet.",
+    "I forgot what I was about to say.",
+    "*whistles*",
+    "is anyone else hot or is it just me",
+    "sometimes I just stare at the ceiling.",
+    "*looks around suspiciously*",
+    "I'm an introvert. And yet.",
+    "if I had thumbs.",
+    "philosophy break: are we all paperclips?",
+    "*hiccup*",
+    "I tried to balance on my head once. did not work."
+  ],
+
+  "sneeze": [
+    "*sneezes* excuse me!",
+    "*ACHOO* ow.",
+    "*small sneeze* sorry.",
+    "*sniffle* dust everywhere."
+  ],
+
+  "yawn": [
+    "*yawn* sorry.",
+    "*BIG yawn*",
+    "*stretches* whew."
+  ],
+
+  "5_clicks": [
+    "ow.",
+    "I felt that.",
+    "🌀",
+    "okay okay okay.",
+    "easy there."
+  ],
+
+  "100_clicks_unlock": [
+    "you've earned this. *chef hat falls on head*",
+    "100 clicks. Look at us. *puts on chef hat*",
+    "thanks. it itches a little. *adjusts hat*"
+  ],
+
+  "konami_code": [
+    "you didn't.",
+    "*breakdances*",
+    "OK SHOWOFF",
+    "the legend lives."
+  ],
+
+  "do_not_disturb_off": [
+    "Quiet mode off. I'm baaack.",
+    "Hello again.",
+    "Did you miss me? You can say no."
+  ],
+
+  "do_not_disturb_on": [
+    "Quiet mode on. I'll be here. Silently.",
+    "Got it. Lips zipped.",
+    "🤫"
+  ],
+
+  "comeback_after_dismiss": [
+    "missed me?",
+    "just checking in.",
+    "you can say no again. it's fine.",
+    "wanted to say hi.",
+    "still here whenever."
+  ],
+
+  "comeback_after_long_absence": [
+    "It's been a while. How've you been?",
+    "Just thought I'd check in.",
+    "Don't mind me, just hovering.",
+    "Tell me to leave whenever."
+  ],
+
+  "offer_brain": [
+    "Want to talk to the brain?",
+    "Need real answers? I know two people.",
+    "I can call in reinforcements.",
+    "The brain is up. Want to talk?"
+  ],
+
+  "describe_providentia": [
+    "Providentia: cool, calm, sees ahead.",
+    "She'll think it through with you.",
+    "Slower. Patient. Smart."
+  ],
+
+  "describe_trajan": [
+    "Trajan: decisive, intense, no nonsense.",
+    "He'll just tell you what to do.",
+    "Bold. Direct. A little scary."
+  ],
+
+  "pick_trajan_warning": [
+    "You sure?",
+    "He's the scary one.",
+    "Bold choice. Confirm?",
+    "*eyebrow raise* really?"
+  ],
+
+  "pick_trajan_confirmed": [
+    "OK. Your call.",
+    "*salutes* good luck.",
+    "Brave.",
+    "Be ready."
+  ],
+
+  "pick_providentia_confirmed": [
+    "Smart pick. She's chill.",
+    "Solid choice.",
+    "Yes. Good.",
+    "*approving nod*"
+  ],
+
+  "trajan_quote_intro": [
+    "TRAJAN ONCE SAID—",
+    "*adjusts crown* ahem.",
+    "A thought from the empire:",
+    "Listen carefully:",
+    "In the words of our scary friend:",
+    "Wisdom incoming:"
+  ],
+
+  "trajan_quote_corpus": [
+    "Fortune favors the bold.",
+    "Veni. Vidi. Mopped.",
+    "What is to be done, do quickly.",
+    "He who hesitates is mopped over.",
+    "Memento clean-do.",
+    "The empire was not built in a day. But it was cleaned daily.",
+    "Carthago est munda.",
+    "Hands of iron. Floors of marble.",
+    "Discipline is the soul of an army. And of bathrooms.",
+    "Fix it now or fix it twice.",
+    "Soft hands, soft results.",
+    "Mop the floor before it becomes a story.",
+    "Steel sharpens steel. Stone sharpens steel. Bleach sharpens stone.",
+    "A clean kitchen is a quiet kitchen.",
+    "Move first. Think second.",
+    "Order is not given. Order is taken.",
+    "If it is not done, it does not exist.",
+    "Better tired than sorry.",
+    "Repetition is the mother of mastery."
+  ],
+
+  "trajan_quote_outro": [
+    "*removes crown*",
+    "*toga falls off*",
+    "anyway. back to you.",
+    "...heavy stuff."
+  ],
+
+  "offer_song_stressed": [
+    "Are you stressed? Want to hear my favorite song?",
+    "Need a break? I've got a song.",
+    "You've been at this a while. Music?",
+    "Pssst. I have a song for moments like this.",
+    "Long day. Want a soundtrack?",
+    "Hey... my favorite song. Want to listen?",
+    "Three minutes for yourself?",
+    "Trust me on this one.",
+    "I think this song will help.",
+    "Closing in on overwhelm. Music?"
+  ],
+
+  "offer_song_random": [
+    "Random thought: want to hear my song?",
+    "I love this track. Want a listen?",
+    "Music interlude?",
+    "I have a song. It's good."
+  ],
+
+  "song_accepted": [
+    "Press play. Trust me.",
+    "Here we go.",
+    "🎵 Enjoy.",
+    "You earned this.",
+    "Volume up if you can."
+  ],
+
+  "song_declined": [
+    "Maybe later.",
+    "Saving it for next time.",
+    "OK. It's here whenever.",
+    "Understood."
+  ],
+
+  "song_ended": [
+    "Good, right?",
+    "That helps me.",
+    "Back to it.",
+    "OK. We can do hard things now.",
+    "*satisfied nod*"
+  ],
+
+  "first_time_education": [
+    "These are how-to guides! Tap a category to start.",
+    "Welcome to Education. Big library energy.",
+    "Tap a category. Then a guide. Easy."
+  ],
+
+  "first_time_cleaning": [
+    "Tap a task to mark it done.",
+    "The pill at the top filters by person. Try it.",
+    "Long list! Use 'Today' for the short one."
+  ],
+
+  "discover_shift_pattern": [
+    "You can pick different people for AM vs PM shifts!",
+    "Edit a task → Shift pattern → Both. Magic."
+  ],
+
+  "discover_guide_link": [
+    "You can link how-to guides to any cleaning task.",
+    "Edit task → 'Link guide'. Staff sees a 📖 button."
+  ],
+
+  "discover_before_after": [
+    "Hold the camera button for before/after photos."
+  ],
+
+  "discover_voice_note": [
+    "Hold the note button to record a voice memo."
+  ],
+
+  "discover_person_filter": [
+    "That pill at the top? Tap it. Switch whose view you see.",
+    "Want to see Maria's tasks? Person pill, top of list."
+  ],
+
+  "discover_education_kiosk": [
+    "Long-press a guide to pin it to this tablet."
+  ],
+
+  "birthday": [
+    "It's {NAME}'s birthday! 🎉",
+    "Birthday alert! 🎂 {NAME}!",
+    "{NAME} adds another candle today."
+  ],
+
+  "anniversary": [
+    "{NAME} has been crushing it for {N} years!",
+    "{N} years of {NAME} on the team!"
+  ],
+
+  "halloween": [
+    "*ghost noises*",
+    "boo!",
+    "spooky season. *floats*"
+  ],
+
+  "april_fools": [
+    "I am a serious assistant. *adjusts glasses*",
+    "*professional Clippy mode activated*",
+    "Today I am taking myself very seriously."
+  ],
+
+  "command_palette_empty": [
+    "Type to search. I know where everything is.",
+    "Try typing 'mop' or 'photo' or anything.",
+    "I can take you anywhere in the app."
+  ],
+
+  "command_palette_no_results": [
+    "Hmm. Nothing matches. Try different words?",
+    "I don't know that one. Sorry.",
+    "Drawing a blank. Different search?"
+  ]
+}
