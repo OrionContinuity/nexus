@@ -419,6 +419,18 @@ body.is-pane-cleaning #cleanList .clean-empty {
   margin: auto 0;
   padding: 20px;
 }
+/* CRITICAL — section cards (and the add-section toolbar) must NEVER
+   shrink. When #cleanList is a flex column, its children inherit
+   flex-shrink:1 and squeeze to fit. That made expanded sections look
+   like they were compressing each other. Locking flex-shrink:0 lets
+   each card keep its natural height; the list scrolls when total
+   content exceeds the viewport, exactly as expected. */
+body.is-pane-cleaning #cleanList .clean-card,
+body.is-pane-cleaning #cleanList .clean-footer-toolbar,
+body.is-pane-cleaning #cleanList .clean-empty-soft,
+body.is-pane-cleaning #cleanList .clean-coming-up-scroll {
+  flex-shrink: 0;
+}
 /* Add Section button when rendered INSIDE the empty state — sits right
    below the hint as the primary call-to-action so the empty state reads
    as one coherent block (title / hint / button) and doesn't leave a
