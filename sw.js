@@ -163,6 +163,7 @@
      vendor-detail edit button, causing "undefined uuid" errors.
 */
 
+/*
    What changed v10 → v15:
    - Ordering pane buildout: vendor detail overlay, recent-orders
      pagination (3 → 10 → paginate), date dividers, draft state
@@ -183,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v36';
+const CACHE_NAME = 'nexus-v37-clippy';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -216,6 +217,10 @@ const APP_SHELL = [
   './css/admin-system.css',
   './css/ingest-system.css',
   './css/file-picker.css',
+  './css/cleaning-system.css',
+  './css/cleaning-roster.css',
+  './css/education-system.css',
+  './css/clippy.css',
 
   // JS — all current modules
   './js/app.js',
@@ -231,6 +236,8 @@ const APP_SHELL = [
   './js/cleaning.js',
   './js/composer.js',
   './js/config.js',
+  './js/education.js',
+  './js/clippy.js',
   './js/equipment.js',
   './js/equipment-ai.js',
   './js/equipment-badge-choice.js',
@@ -246,6 +253,10 @@ const APP_SHELL = [
   './js/log.js',
   './js/native-bridge.js',
   './js/translate.js',
+
+  // Data + audio
+  './clippy-dialog.json',
+  './audio/nexus-theme.mp3',
 ];
 
 // ─── CDN resources to cache (fonts, icons, libs) ──────────────────
@@ -255,6 +266,12 @@ const CDN_CACHE = [
   'https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap',
   'https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap',
   'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap',
+  // Clippy library + agent index. Individual agent assets are
+  // runtime-cached on first load (sprites are heavy and only the
+  // active agent's assets need fetching, which is what cache-first
+  // does for free below).
+  'https://cdn.jsdelivr.net/npm/clippyjs/dist/index.mjs',
+  'https://cdn.jsdelivr.net/npm/clippyjs/dist/agents/index.mjs',
 ];
 
 // ─── INSTALL — cache the app shell ────────────────────────────────
