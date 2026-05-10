@@ -1506,7 +1506,10 @@ function renderList() {
       // row-click that would open the detail view. The beacon is the
       // most-frequent action target in the list — tapping it cycles
       // status with one tap instead of three (row → edit → status).
-      const beaconTarget = ev.target.closest('.eq-lc-pill');
+      // Match either form: .eq-lc-pill (legacy detail-style pill that
+      // may appear in compact rows) OR .eq-row-beacon (the standard
+      // small dot wrapper used in the equipment list).
+      const beaconTarget = ev.target.closest('.eq-lc-pill, .eq-row-beacon');
       if (beaconTarget && el.contains(beaconTarget)) {
         ev.stopPropagation();
         openQuickStatusMenuForRow(el.dataset.eqId, beaconTarget);
@@ -9751,7 +9754,10 @@ function lifecycleStatusPill(eq, size) {
                 : 'eq-lc-pill-md';
   return `
     <span class="eq-lc-pill ${sizeCls} ${state.cls}">
-      <span class="eq-lc-pill-dot" aria-hidden="true"></span>
+      <span class="eq-lc-pill-dot" aria-hidden="true">
+        <span class="eq-lc-orbit eq-lc-orbit-fore" aria-hidden="true"></span>
+        <span class="eq-lc-orbit eq-lc-orbit-back" aria-hidden="true"></span>
+      </span>
       <span class="eq-lc-pill-label">${esc(state.label)}</span>
       ${state.time ? `<span class="eq-lc-pill-time">${esc(state.time)}</span>` : ''}
     </span>
@@ -9761,10 +9767,18 @@ function lifecycleStatusPill(eq, size) {
 /**
  * A bare-dot indicator for compact contexts (list-row column where
  * space is precious). Same color rules as the pill but no label.
+ * The two empty <span class="eq-lc-orbit"> children are styling hooks
+ * for orbiting "satellite" particles when the beacon is operational —
+ * one passes over the dot (z-index above), one behind (z-index below),
+ * giving the beacon a sense of life and depth. CSS controls every-
+ * thing else; JS only emits the markup.
  */
 function lifecycleStatusDot(eq) {
   const state = pickLifecyclePillState(eq);
-  return `<span class="eq-lc-dot ${state.cls}" aria-label="${esc(state.label)}"></span>`;
+  return `<span class="eq-lc-dot ${state.cls}" aria-label="${esc(state.label)}" role="button" tabindex="0">
+    <span class="eq-lc-orbit eq-lc-orbit-fore" aria-hidden="true"></span>
+    <span class="eq-lc-orbit eq-lc-orbit-back" aria-hidden="true"></span>
+  </span>`;
 }
 /* catIcon — emits a Lucide-style line-art SVG glyph for an equipment
    category. Replaces the emoji approach (inconsistent rendering across
