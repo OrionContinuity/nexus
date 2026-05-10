@@ -1,176 +1,373 @@
 /* ════════════════════════════════════════════════════════════════════════
-   NEXUS Clippy — v2 (clippyjs-backed)
-   Library handles the character itself. We style:
-     - Login peek (custom paperclip-eyes peeking from corner before agent boots)
-     - Custom action bubble (Comic Sans, with buttons)
-     - Command palette (slide-up sheet)
-     - Music player widget
-     - Costume overlay layer (positioned to follow the agent)
+   NEXUS Clippy — handmade SVG/CSS character
+   ────────────────────────────────────────────────────────────────────
+   No clippyjs. No external sprites. 100% our own DOM, our own animations,
+   our own click handling. Lives inside a popover host (top-layer) so
+   nothing on the page can ever cover him or his bubble.
+
+   Architecture:
+     #clippy-host      popover wrapper (top layer, escapes stacking)
+       #clippy-shell   draggable container (we own this)
+         svg.clippy-svg  the character himself
+         #clippy-costume-layer  PNG overlay for hats/etc
+       .clippy-bubble  speech bubble with action buttons
+       .clippy-palette command palette sheet
    ════════════════════════════════════════════════════════════════════════ */
 
 
-/* ─── LIBRARY OVERRIDES ─────────────────────────────────────────────── */
-/* clippyjs creates a .clippy element. Make sure it sits high enough but
-   below modals (modals use ≥10000). Crisp-edges rendering preserves the
-   original 1997 sprite art instead of letting browsers blur-scale it.
-   Slight scale-up gives him more presence at modern phone DPI. */
-/* ─── TOP LAYER (POPOVER) HOST ────────────────────────────────────────
-   Browsers render popover-mode elements in a special "top layer" that
-   escapes ALL stacking contexts on the page. We host Clippy + hit-target
-   + bubbles + palette inside #clippy-host so NEXUS cards / modals / any
-   high-z-index UI can never cover them.
-
-   The host itself is a full-screen overlay with pointer-events: none —
-   clicks pass through to the page underneath. Children with pointer-
-   events: auto opt in to receive input. */
+/* ─── TOP LAYER HOST ──────────────────────────────────────────────── */
 #clippy-host {
-  /* Reset default popover/dialog styling */
-  border: 0 !important;
-  background: transparent !important;
-  padding: 0 !important;
-  margin: 0 !important;
+  /* Override default popover/dialog styling */
+  position: fixed !important;
   inset: 0 !important;
   width: 100vw !important;
   height: 100vh !important;
   max-width: none !important;
   max-height: none !important;
-  pointer-events: none !important;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
   overflow: visible !important;
+  pointer-events: none !important;     /* clicks pass through; children opt in */
   color: inherit;
 }
 #clippy-host:focus-visible { outline: none; }
-#clippy-host::backdrop {
-  /* No backdrop — the host should be invisible */
-  background: transparent !important;
-}
-
-/* ─── Z-INDEX LAYERS / popover host ──────────────────────────────────
-   See top of file. Within the host, simple z-order (siblings). */
-
-/* Within the top-layer host, restore z-index hierarchy among siblings:
-   bubble > palette > hit-target > clippy himself */
-#clippy-host .clippy,
-#clippy-host .clippyjs-agent {
-  z-index: 1 !important;
-  pointer-events: none !important;
-  touch-action: none !important;
-  transform: scale(1.5) !important;
-  transform-origin: center bottom !important;
-  /* Smooth motion when programmatically repositioned */
-  transition: transform 700ms cubic-bezier(0.34, 1.56, 0.64, 1),
-              left 600ms cubic-bezier(0.34, 1.56, 0.64, 1),
-              top  600ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
-  filter: drop-shadow(0 0 4px rgba(212, 164, 78, 0.4));
-}
-
-/* ── LOGIN PEEK STATES ─────────────────────────────────────────────
-   Pre-acceptance: Clippy peeks up from below. Only his head is
-   visible above the screen edge. When the user accepts, the
-   .is-peeking class is removed and he springs to full visibility. */
-
-/* Off-screen below — entry point of the peek-up animation */
-#clippy-host .clippy.is-peek-entering,
-.clippy.is-peek-entering {
-  transform: scale(1.5) translateY(140%) !important;
-  transition: none !important;
-}
-/* Peek state — only his head is above the viewport edge */
-#clippy-host .clippy.is-peeking,
-.clippy.is-peeking {
-  transform: scale(1.5) translateY(55%) !important;
-  transition: transform 900ms cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-}
-#clippy-host #clippy-hit-target {
-  z-index: 2 !important;
-  border-radius: 12px;
-}
-#clippy-host #clippy-costume-layer {
-  z-index: 3 !important;
-  pointer-events: none;
-}
-#clippy-host .clippy-bubble {
-  z-index: 100 !important;
-  pointer-events: auto;
-}
-#clippy-host .clippy-palette {
-  z-index: 200 !important;
-  pointer-events: auto;
-}
-
-/* Same rules for any agent rendered outside the top-layer host (fallback) */
-.clippy,
-.clippyjs-agent {
-  pointer-events: none !important;
-  touch-action: none !important;
-  transform: scale(1.5) !important;
-  transform-origin: center bottom !important;
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
-}
-.clippy *,
-.clippyjs-agent * {
-  pointer-events: none !important;
-}
-
-#clippy-hit-target:active {
-  cursor: grabbing !important;
-}
-
-/* clippyjs's own balloon — stays on top */
-.clippy-balloon,
-.clippyjs-balloon {
-  z-index: 9001 !important;
-  font-family: 'Comic Sans MS', 'Comic Sans', cursive !important;
-}
+#clippy-host::backdrop { background: transparent !important; }
 
 
-/* ─── COSTUME OVERLAY LAYER ─────────────────────────────────────────── */
-/* Positioned absolutely over the agent's bounding rect via JS. Costume
-   PNGs live in /clippy-costumes/ and are referenced by name (e.g. 'laurel'
-   loads /clippy-costumes/laurel.png). object-fit:contain keeps aspect. */
-#clippy-costume-layer {
+/* ─── SHELL (the draggable container) ─────────────────────────────── */
+#clippy-shell {
   position: fixed;
+  bottom: 16px;
+  right: 16px;
+  width: 110px;
+  height: 145px;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.35))
+          drop-shadow(0 0 6px rgba(212, 164, 78, 0.25));
+  transition: opacity 280ms ease, filter 200ms ease;
+  /* Smooth transitions when programmatically repositioning */
+  --pos-transition: left 700ms cubic-bezier(0.34, 1.36, 0.64, 1),
+                    top  700ms cubic-bezier(0.34, 1.36, 0.64, 1),
+                    bottom 700ms cubic-bezier(0.34, 1.36, 0.64, 1),
+                    right  700ms cubic-bezier(0.34, 1.36, 0.64, 1);
+  transition: var(--pos-transition), opacity 280ms ease, filter 200ms ease;
+}
+#clippy-shell.is-dragging {
+  cursor: grabbing;
+  transition: none;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45))
+          drop-shadow(0 0 8px rgba(212, 164, 78, 0.45));
+}
+#clippy-shell.is-hidden {
+  opacity: 0;
   pointer-events: none;
-  z-index: 9050;
+  transform: translateY(120%) scale(0.6);
+}
+#clippy-shell.is-suppressed {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* SVG fills the shell */
+.clippy-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;     /* events handled by shell */
+  overflow: visible;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   IDLE — default behaviors (always running unless overridden)
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Subtle breathing scale on the body */
+.clippy-svg .cl-body {
+  transform-origin: 60px 130px;
+  animation: clBreathe 4.2s ease-in-out infinite;
+}
+@keyframes clBreathe {
+  0%, 100% { transform: scale(1) translateY(0); }
+  50%      { transform: scale(1.012) translateY(-2px); }
+}
+
+/* Pupils track the cursor via --eye-x / --eye-y */
+.clippy-svg .cl-pupils,
+.clippy-svg .cl-glint {
+  transform: translate(calc(var(--eye-x, 0) * 1px), calc(var(--eye-y, 0) * 1px));
+  transition: transform 200ms ease-out;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+/* Closed-eye states — hidden by default, toggled via classes */
+.clippy-svg .cl-eyes-shut,
+.clippy-svg .cl-eyes-happy {
+  opacity: 0;
+  transition: opacity 70ms ease;
+}
+
+/* Arms hidden by default */
+.clippy-svg .cl-arms {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+/* Z's hidden by default */
+.clippy-svg .cl-zzz {
+  opacity: 0;
+  transition: opacity 280ms ease;
+}
+
+/* Sparkles hidden by default */
+.clippy-svg .cl-sparkles {
+  opacity: 0;
+  transition: opacity 280ms ease;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   EXPRESSION STATES — toggled on shell, swap eye/brow appearance
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Blink — eyes momentarily shut */
+#clippy-shell.is-blinking .cl-eye,
+#clippy-shell.is-blinking .cl-pupils,
+#clippy-shell.is-blinking .cl-glint { opacity: 0; }
+#clippy-shell.is-blinking .cl-eyes-shut { opacity: 1; }
+
+/* Sleeping — eyes shut + Z's float, body droops */
+#clippy-shell.is-sleeping .cl-eye,
+#clippy-shell.is-sleeping .cl-pupils,
+#clippy-shell.is-shut .cl-glint { opacity: 0; }
+#clippy-shell.is-sleeping .cl-eye,
+#clippy-shell.is-sleeping .cl-pupils,
+#clippy-shell.is-sleeping .cl-glint { opacity: 0; }
+#clippy-shell.is-sleeping .cl-eyes-shut { opacity: 1; }
+#clippy-shell.is-sleeping .cl-zzz { opacity: 1; }
+#clippy-shell.is-sleeping .cl-zzz text { animation: clZzz 2.4s ease-in-out infinite; }
+#clippy-shell.is-sleeping .cl-body { filter: brightness(0.85); }
+@keyframes clZzz {
+  0%, 100% { opacity: 0.3; transform: translateY(0); }
+  50%      { opacity: 1;   transform: translateY(-3px); }
+}
+
+/* Happy — squinty smile eyes */
+#clippy-shell.is-happy .cl-eye,
+#clippy-shell.is-happy .cl-pupils,
+#clippy-shell.is-happy .cl-glint { opacity: 0; }
+#clippy-shell.is-happy .cl-eyes-happy { opacity: 1; }
+
+/* Surprised — eyes pop big, brows shoot up */
+#clippy-shell.is-surprised .cl-eye {
+  transform: scale(1.18);
+  transform-origin: center;
+  transform-box: fill-box;
+}
+#clippy-shell.is-surprised .cl-pupil { r: 2.2; }
+#clippy-shell.is-surprised .cl-brows {
+  transform: translateY(-7px);
+}
+
+/* Concerned — brows arched inward */
+#clippy-shell.is-concerned .cl-brow-l {
+  transform: rotate(8deg) translate(2px, 1px);
+  transform-origin: 56px 32px;
+}
+#clippy-shell.is-concerned .cl-brow-r {
+  transform: rotate(-8deg) translate(-2px, 1px);
+  transform-origin: 64px 32px;
+}
+
+/* Angry — brows angled sharply down */
+#clippy-shell.is-angry .cl-brow-l {
+  transform: rotate(22deg) translate(0, -3px);
+  transform-origin: 56px 32px;
+}
+#clippy-shell.is-angry .cl-brow-r {
+  transform: rotate(-22deg) translate(0, -3px);
+  transform-origin: 64px 32px;
+}
+
+/* Sad — brows angled the other way + eyes droop */
+#clippy-shell.is-sad .cl-brow-l {
+  transform: rotate(-15deg) translate(0, 2px);
+  transform-origin: 36px 36px;
+}
+#clippy-shell.is-sad .cl-brow-r {
+  transform: rotate(15deg) translate(0, 2px);
+  transform-origin: 84px 36px;
+}
+#clippy-shell.is-sad .cl-eye {
+  transform: translateY(2px) scaleY(0.85);
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+/* All brow + eye transforms transition smoothly */
+.clippy-svg .cl-brows,
+.clippy-svg .cl-brow-l,
+.clippy-svg .cl-brow-r,
+.clippy-svg .cl-eye,
+.clippy-svg .cl-pupil {
+  transition: transform 240ms ease-out, r 240ms ease-out;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   ACTION ANIMATIONS — one-shot
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Wave — arm appears, waves 3 times, retracts */
+#clippy-shell.is-waving .cl-arms { opacity: 1; }
+#clippy-shell.is-waving .cl-arm-r,
+#clippy-shell.is-waving .cl-hand-r {
+  animation: clWave 700ms ease-in-out 3;
+  transform-origin: 80px 78px;
+  transform-box: fill-box;
+}
+@keyframes clWave {
+  0%, 100% { transform: rotate(0); }
+  25%      { transform: rotate(28deg); }
+  75%      { transform: rotate(-18deg); }
+}
+
+/* Boing — entrance from below, springy */
+#clippy-shell.is-entering .clippy-svg {
+  animation: clBoing 760ms cubic-bezier(0.34, 1.56, 0.64, 1) 1;
+}
+@keyframes clBoing {
+  0%   { transform: translateY(60px) scale(0.55); opacity: 0; }
+  60%  { transform: translateY(-10px) scale(1.10); opacity: 1; }
+  82%  { transform: translateY(3px) scale(0.96); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+/* Hop — quick excited up-and-down */
+#clippy-shell.is-hopping .clippy-svg {
+  animation: clHop 540ms cubic-bezier(0.34, 1.56, 0.64, 1) 1;
+}
+@keyframes clHop {
+  0%, 100% { transform: translateY(0); }
+  45%, 60% { transform: translateY(-22px); }
+}
+
+/* Wobble — gentle side-to-side */
+#clippy-shell.is-wobbling .clippy-svg {
+  animation: clWobble 720ms cubic-bezier(0.36, 0.07, 0.19, 0.97) 1;
+}
+@keyframes clWobble {
+  0%, 100% { transform: rotate(0); }
+  18%      { transform: rotate(-5deg); }
+  36%      { transform: rotate(5deg); }
+  54%      { transform: rotate(-3deg); }
+  72%      { transform: rotate(3deg); }
+  90%      { transform: rotate(-1deg); }
+}
+
+/* Dizzy — full 720° spin */
+#clippy-shell.is-dizzy .clippy-svg {
+  animation: clDizzy 1.2s linear 1;
+}
+@keyframes clDizzy {
+  0%   { transform: rotate(0); }
+  100% { transform: rotate(720deg); }
+}
+
+/* Cartwheel — sideways flip */
+#clippy-shell.is-cartwheeling .clippy-svg {
+  animation: clCartwheel 900ms ease-in-out 1;
+}
+@keyframes clCartwheel {
+  0%   { transform: rotate(0) translateX(0); }
+  50%  { transform: rotate(-180deg) translateX(-25px); }
+  100% { transform: rotate(-360deg) translateX(0); }
+}
+
+/* Magic — sparkles appear, slight glow pulse */
+#clippy-shell.is-magic .cl-sparkles { opacity: 1; }
+#clippy-shell.is-magic .cl-sparkles text {
+  animation: clSparkle 1.2s ease-in-out infinite;
+}
+@keyframes clSparkle {
+  0%, 100% { opacity: 0.3; transform: scale(0.7); }
+  50%      { opacity: 1;   transform: scale(1.2); }
+}
+
+/* Listening (music) — gentle sway */
+#clippy-shell.is-listening .clippy-svg {
+  animation: clSway 2.8s ease-in-out infinite;
+}
+@keyframes clSway {
+  0%, 100% { transform: rotate(0); }
+  50%      { transform: rotate(3deg); }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   LOGIN PEEK — pre-acceptance state (only head visible, slides up)
+   ════════════════════════════════════════════════════════════════════ */
+#clippy-shell.is-peek-entering {
+  transform: translateY(140%);
   transition: none;
 }
+#clippy-shell.is-peeking {
+  transform: translateY(50%);
+  transition: transform 900ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   COSTUME OVERLAY LAYER — for the 16 SVG hats/crowns/etc
+   ════════════════════════════════════════════════════════════════════ */
+#clippy-costume-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+}
+#clippy-costume-layer.is-active { display: block; }
 .clippy-costume-img {
   position: absolute;
   width: 100%;
   height: 100%;
   object-fit: contain;
   pointer-events: none;
-  /* Per-costume tweaks can be added below to nudge into place */
 }
 
-/* Per-costume positioning — tweak these once we get the actual PNGs.
-   The default object-fit:contain centers them; these overrides shift
-   the costume to align with specific Clippy body parts. */
-.clippy-costume-laurel    { transform: translate(0, -10%) scale(1.05); }
-.clippy-costume-chef      { transform: translate(0, -25%) scale(1.10); }
-.clippy-costume-glasses   { transform: translate(0,   0%) scale(0.95); }
-.clippy-costume-mustache  { transform: translate(0,  10%) scale(0.85); }
-.clippy-costume-ghost     { transform: translate(0,  -5%) scale(1.20); }
-.clippy-costume-sombrero  { transform: translate(0, -20%) scale(1.15); }
-.clippy-costume-sunglasses{ transform: translate(0,  -2%) scale(1.00); }
-.clippy-costume-cone      { transform: translate(0, -28%) scale(1.05); }
+/* Per-costume positioning (translates relative to the shell) */
+.clippy-costume-laurel    { transform: translate(0, -14%) scale(0.95); }
+.clippy-costume-chef      { transform: translate(0, -28%) scale(1.10); }
+.clippy-costume-glasses   { transform: translate(0,  -8%) scale(0.95); }
+.clippy-costume-mustache  { transform: translate(0,   8%) scale(0.85); }
+.clippy-costume-ghost     { transform: translate(0,  -5%) scale(1.18); }
+.clippy-costume-sombrero  { transform: translate(0, -22%) scale(1.18); }
+.clippy-costume-sunglasses{ transform: translate(0,  -8%) scale(1.00); }
+.clippy-costume-cone      { transform: translate(0, -32%) scale(1.00); }
 .clippy-costume-pirate    { transform: translate(0, -22%) scale(1.10); }
-
-
-/* ─── LOGIN PEEK REMOVED ────────────────────────────────────────────── */
-/* The legacy CSS-paperclip-eyes peek is gone. The real clippyjs Clippy
-   now appears on the PIN screen too. See clippy.js init() for the
-   pre-acceptance flow. */
+.clippy-costume-cowboy    { transform: translate(0, -22%) scale(1.18); }
+.clippy-costume-crown     { transform: translate(0, -16%) scale(1.00); }
+.clippy-costume-tophat    { transform: translate(0, -28%) scale(0.85); }
+.clippy-costume-santa     { transform: translate(0, -22%) scale(1.05); }
+.clippy-costume-graduation{ transform: translate(0, -18%) scale(1.05); }
+.clippy-costume-halo      { transform: translate(0, -28%) scale(1.00); }
+.clippy-costume-devil-horns { transform: translate(0, -22%) scale(0.85); }
 
 
 /* ════════════════════════════════════════════════════════════════════
-   ACTION BUBBLE (our custom — used when we need buttons)
+   SPEECH BUBBLE — Comic Sans, sits next to him
    ════════════════════════════════════════════════════════════════════ */
 .clippy-bubble {
   position: fixed;
-  z-index: 9100;
+  z-index: 100;
   max-width: 280px;
   min-width: 220px;
   background: #fffef6;
@@ -184,11 +381,13 @@
   box-shadow: 4px 4px 0 #1a1a1a, 0 8px 24px rgba(0,0,0,0.25);
   pointer-events: auto;
   opacity: 0;
+  visibility: hidden;
   transform: translateY(8px) scale(0.94);
   transition: opacity 220ms ease, transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .clippy-bubble.is-visible {
   opacity: 1;
+  visibility: visible;
   transform: translateY(0) scale(1);
 }
 .clippy-bubble::before,
@@ -206,8 +405,7 @@
   border-color: #1a1a1a transparent transparent transparent;
 }
 .clippy-bubble.tail-right::after {
-  right: 30px;
-  bottom: -12px;
+  right: 30px; bottom: -12px;
   border-width: 12px 11px 0 0;
   border-color: #fffef6 transparent transparent transparent;
 }
@@ -217,8 +415,7 @@
   border-color: #1a1a1a transparent transparent transparent;
 }
 .clippy-bubble.tail-left::after {
-  left: 30px;
-  bottom: -12px;
+  left: 30px; bottom: -12px;
   border-width: 12px 0 0 11px;
   border-color: #fffef6 transparent transparent transparent;
 }
@@ -232,23 +429,17 @@
   background: #fffef6;
   border: 2px solid #1a1a1a;
   color: #1a1a1a;
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 700;
+  font: 700 14px/1 inherit;
   cursor: pointer;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  line-height: 1;
 }
 .clippy-bubble-text { margin-bottom: 8px; }
 .clippy-bubble-text:last-child { margin-bottom: 0; }
 .clippy-bubble-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
 }
 .clippy-bubble-btn {
   flex: 1;
@@ -257,24 +448,19 @@
   background: #fffef6;
   border: 2px solid #1a1a1a;
   border-radius: 8px;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  font: 600 13px/1 inherit;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: transform 80ms ease, box-shadow 120ms;
   box-shadow: 2px 2px 0 #1a1a1a;
 }
 .clippy-bubble-btn:hover { background: #fff8d0; }
-.clippy-bubble-btn:active {
-  transform: translate(2px, 2px);
-  box-shadow: 0 0 0 #1a1a1a;
-}
-.clippy-bubble-btn.is-primary { background: #d4a44e; color: #1a1a1a; }
+.clippy-bubble-btn:active { transform: translate(2px, 2px); box-shadow: 0 0 0 #1a1a1a; }
+.clippy-bubble-btn.is-primary { background: #d4a44e; }
 .clippy-bubble-btn.is-danger  { background: #fde2e2; }
 .clippy-bubble-btn.is-warning-trajan { background: #f5e8d0; }
 
-/* Trajan-mode bubble — black with gold border, terminal mono font */
+/* Trajan-mode bubble — black/gold mono */
 .clippy-bubble.is-trajan {
   background: #0c0a08;
   color: #d4a44e;
@@ -283,12 +469,10 @@
   font-size: 13px;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  box-shadow: 4px 4px 0 #d4a44e, 0 8px 24px rgba(212, 164, 78, 0.35);
+  box-shadow: 4px 4px 0 #d4a44e, 0 8px 24px rgba(212,164,78,0.35);
 }
 .clippy-bubble.is-trajan .clippy-bubble-close {
-  background: #0c0a08;
-  border-color: #d4a44e;
-  color: #d4a44e;
+  background: #0c0a08; border-color: #d4a44e; color: #d4a44e;
 }
 .clippy-bubble.is-trajan.tail-right::before { border-color: #d4a44e transparent transparent transparent; }
 .clippy-bubble.is-trajan.tail-right::after  { border-color: #0c0a08 transparent transparent transparent; }
@@ -305,20 +489,19 @@
 
 
 /* ════════════════════════════════════════════════════════════════════
-   COMMAND PALETTE
+   COMMAND PALETTE — sliding sheet
    ════════════════════════════════════════════════════════════════════ */
 .clippy-palette {
   position: fixed;
   inset: 0;
-  z-index: 9500;
+  z-index: 200;
   display: flex;
   align-items: flex-end;
   justify-content: center;
   pointer-events: auto;
 }
 .clippy-palette-bg {
-  position: absolute;
-  inset: 0;
+  position: absolute; inset: 0;
   background: rgba(0,0,0,0.55);
   opacity: 0;
   transition: opacity 220ms ease;
@@ -340,17 +523,13 @@
 }
 .clippy-palette.is-open .clippy-palette-card { transform: translateY(0); }
 .clippy-palette-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  display: flex; align-items: center; gap: 12px;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.10));
+  border-bottom: 1px solid rgba(212,164,78,0.10);
 }
 .clippy-palette-title {
   flex: 1;
-  font-family: 'Outfit', sans-serif;
-  font-size: 16px;
-  font-weight: 600;
+  font: 600 16px 'Outfit', sans-serif;
   color: var(--text, #ece6d8);
 }
 .clippy-palette-close {
@@ -366,36 +545,27 @@
   margin: 12px 14px 8px;
   padding: 11px 14px;
   background: var(--bg, #0c0a08);
-  border: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.18));
+  border: 1px solid rgba(212,164,78,0.18);
   border-radius: 10px;
   color: var(--text, #ece6d8);
-  font-family: 'Outfit', sans-serif;
-  font-size: 14.5px;
+  font: 14.5px 'Outfit', sans-serif;
 }
 .clippy-palette-search:focus {
   outline: none;
   border-color: var(--nx-gold, #d4a44e);
   box-shadow: 0 0 0 2px rgba(212,164,78,0.18);
 }
-.clippy-palette-results {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 8px 14px;
-}
+.clippy-palette-results { flex: 1; overflow-y: auto; padding: 4px 8px 14px; }
 .clippy-palette-section-label {
   padding: 10px 10px 4px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
+  font: 700 10px/1 'JetBrains Mono', monospace;
   letter-spacing: 0.10em;
   text-transform: uppercase;
   color: var(--nx-gold, #d4a44e);
 }
 .clippy-palette-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 11px 12px;
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 11px 12px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 8px;
@@ -417,9 +587,7 @@
 }
 .clippy-palette-item-body { flex: 1; min-width: 0; }
 .clippy-palette-item-name {
-  font-family: 'Outfit', sans-serif;
-  font-size: 14.5px;
-  font-weight: 600;
+  font: 600 14.5px 'Outfit', sans-serif;
   color: var(--text, #ece6d8);
 }
 .clippy-palette-item-hint {
@@ -440,38 +608,29 @@
    ════════════════════════════════════════════════════════════════════ */
 .clippy-music-player {
   margin-top: 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: flex; align-items: center; gap: 8px;
   padding: 8px 10px;
-  background: rgba(212, 164, 78, 0.10);
+  background: rgba(212,164,78,0.10);
   border: 2px solid #1a1a1a;
   border-radius: 8px;
 }
 .clippy-music-btn {
-  width: 32px;
-  height: 32px;
+  width: 32px; height: 32px;
   border-radius: 50%;
   background: #fffef6;
   border: 2px solid #1a1a1a;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-family: inherit;
+  display: flex; align-items: center; justify-content: center;
+  font: 14px inherit;
 }
 .clippy-music-progress {
-  flex: 1;
-  height: 5px;
+  flex: 1; height: 5px;
   background: #1a1a1a;
   border-radius: 3px;
   overflow: hidden;
-  position: relative;
 }
 .clippy-music-progress-fill {
-  height: 100%;
-  width: 0;
+  height: 100%; width: 0;
   background: #d4a44e;
   transition: width 200ms linear;
 }
@@ -481,8 +640,19 @@
    RESPONSIVE
    ════════════════════════════════════════════════════════════════════ */
 @media (max-width: 480px) {
+  #clippy-shell {
+    width: 92px;
+    height: 122px;
+  }
   .clippy-bubble {
     max-width: calc(100vw - 80px);
     font-size: 14px;
+  }
+}
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  #clippy-shell {
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    right: calc(16px + env(safe-area-inset-right));
   }
 }
