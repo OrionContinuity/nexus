@@ -2573,7 +2573,9 @@ body.is-pane-cleaning .clean-footer {
   flex-shrink: 0;
   background: var(--bg, #0e0c08);
   border-top: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.16));
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0));
+  /* Slightly more bottom padding so the Submit Report row clears the
+     bottom-nav / home-indicator without feeling cramped against it. */
+  padding: 12px 12px calc(16px + env(safe-area-inset-bottom, 0));
   z-index: 5;
 }
 /* In takeover mode the list doesn't need the 96px bottom padding that
@@ -2583,6 +2585,53 @@ body.is-pane-cleaning #cleanList,
 body.is-pane-cleaning .clean-list {
   padding-bottom: 12px !important;
   scroll-padding-bottom: 0 !important;
+}
+
+/* ─── LOCATION PICKER ─ matches ordering's .ord-loc-picker exactly ───
+   Single rounded pill container with the location buttons as
+   transparent segments inside. The active segment fills with gold;
+   inactive ones are subtle text-only. Earlier the cleaning view used
+   3 standalone pill buttons each with their own border + background
+   tint — replaced here with the unified pill-group treatment so the
+   two surfaces (cleaning + ordering) read as the same control. */
+.clean-loc-picker {
+  display: flex;
+  gap: 4px;
+  background: var(--nx-surface-1, rgba(212, 164, 78, 0.04));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.22));
+  border-radius: 999px;
+  padding: 4px;
+  flex-shrink: 0;
+}
+/* Override the standalone .clean-tab styling when nested inside
+   .clean-loc-picker — needs to defeat the !important overrides set
+   in views-system.css for the original pill-button look. */
+.clean-loc-picker .clean-tab {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 9px 18px !important;
+  min-height: 0 !important;
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--nx-faint, #857f75) !important;
+  letter-spacing: 0.02em !important;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease !important;
+}
+.clean-loc-picker .clean-tab:hover {
+  color: var(--nx-text, #f0e9da) !important;
+}
+.clean-loc-picker .clean-tab.active {
+  background: var(--nx-gold, #d4a44e) !important;
+  color: var(--nx-gold-on, #1c1408) !important;
+  box-shadow: 0 0 0 1px var(--nx-gold, #d4a44e),
+              0 0 14px rgba(212, 164, 78, 0.32) !important;
+}
+[data-theme="light"] .clean-loc-picker .clean-tab.active {
+  color: #faf8f3 !important;
 }
 
 
