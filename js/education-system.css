@@ -1,0 +1,1156 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Education v1
+   Matches ordering's design language (pill picker, gold accents, terminal
+   eyebrow + editorial title) but adds full-screen takeover treatment for
+   the guide viewer with deliberately oversized controls.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+#educationView {
+  display: none;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg, #0c0a08);
+}
+.view#educationView.active,
+.view.active#educationView {
+  display: flex;
+}
+
+.edu-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint, #7a7167);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+
+/* ─── HEADER ────────────────────────────────────────────────────────── */
+.edu-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+}
+
+.edu-close {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.18));
+  color: var(--faint, #7a7167);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 140ms, color 140ms;
+}
+.edu-close:hover {
+  border-color: var(--nx-gold, #d4a44e);
+  color: var(--nx-gold, #d4a44e);
+}
+
+.edu-title-row { flex: 1; min-width: 0; }
+.edu-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--nx-gold, #d4a44e);
+  margin-bottom: 2px;
+}
+.edu-title {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text, #ece6d8);
+  letter-spacing: 0.01em;
+}
+
+.edu-add-cat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px dashed rgba(212, 164, 78, 0.4);
+  color: var(--nx-gold, #d4a44e);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms, border-color 140ms;
+}
+.edu-add-cat-btn:hover {
+  background: rgba(212, 164, 78, 0.06);
+  border-color: var(--nx-gold);
+}
+
+
+/* ─── CATEGORY PICKER (matches .ord-loc-picker exactly) ─────────────── */
+.edu-cat-picker-wrap {
+  padding: 12px 16px 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.edu-cat-picker-wrap::-webkit-scrollbar { display: none; }
+
+.edu-cat-picker {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--nx-surface-1, #1a1814);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-radius: 999px;
+  padding: 4px;
+}
+.edu-cat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 9px 16px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nx-faint, #7a7167);
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms, color 140ms, box-shadow 140ms;
+}
+.edu-cat-btn:hover { color: var(--nx-text, #ece6d8); }
+.edu-cat-btn.active {
+  background: var(--nx-gold, #d4a44e);
+  color: var(--nx-gold-on, #1c1408);
+  box-shadow: 0 0 0 1px var(--nx-gold), 0 0 14px rgba(212, 164, 78, 0.28);
+}
+
+
+/* ─── GUIDE LIST ────────────────────────────────────────────────────── */
+.edu-guides-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Bottom padding leaves room for the floating Add-lesson FAB so the
+     last lesson card isn't hidden under it. Plus extra room for safe-
+     area-inset-bottom (home indicator) + bottom-nav (~80px) when this
+     scroll region runs all the way to the bottom of the viewport. */
+  padding: 14px 16px calc(120px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.edu-card {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+  border-radius: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 200ms, background 200ms;
+}
+.edu-card:hover {
+  border-color: rgba(212, 164, 78, 0.28);
+  background: rgba(212, 164, 78, 0.02);
+}
+
+.edu-card-thumb {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  background: rgba(212, 164, 78, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--nx-gold, #d4a44e);
+  overflow: hidden;
+}
+.edu-card-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.edu-card-thumb-video { background: rgba(212, 70, 70, 0.10); color: #d46e6e; }
+.edu-card-thumb-pdf   { background: rgba(212, 164, 78, 0.10); }
+.edu-card-thumb-steps { background: rgba(78, 164, 212, 0.10); color: #4ea4d4; }
+.edu-card-thumb-embed { background: rgba(150, 100, 200, 0.10); color: #a87fc8; }
+
+.edu-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.edu-card-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 15.5px;
+  font-weight: 600;
+  color: var(--text, #ece6d8);
+  letter-spacing: 0.005em;
+  line-height: 1.25;
+}
+.edu-card-desc {
+  font-size: 12.5px;
+  color: var(--nx-faint, #7a7167);
+  line-height: 1.4;
+}
+.edu-card-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  margin-top: 2px;
+  background: rgba(78, 164, 212, 0.08);
+  border: 1px solid rgba(78, 164, 212, 0.20);
+  border-radius: 6px;
+  color: #6ec0e8;
+  font-size: 11.5px;
+  line-height: 1.3;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.edu-card-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  align-items: center;
+}
+.edu-card-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e);
+  padding: 3px 7px;
+  border: 1px solid rgba(212, 164, 78, 0.25);
+  border-radius: 4px;
+}
+.edu-card-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--nx-faint, #7a7167);
+  padding: 3px 7px;
+  border-radius: 4px;
+}
+.edu-card-tag {
+  display: inline-flex;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #c89a4e;
+  padding: 2px 7px;
+  background: rgba(212, 164, 78, 0.06);
+  border-radius: 3px;
+}
+
+.edu-card-edit {
+  position: absolute;
+  top: 10px;
+  right: 36px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  color: var(--nx-faint, #7a7167);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 140ms, color 140ms, border-color 140ms;
+}
+.edu-card:hover .edu-card-edit { opacity: 1; }
+.edu-card-edit:hover { color: var(--nx-gold); border-color: rgba(212, 164, 78, 0.3); }
+.edu-card-chev {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  color: var(--nx-faint, #7a7167);
+}
+
+
+/* ─── EMPTY ─────────────────────────────────────────────────────────── */
+.edu-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 20px;
+  margin: auto 0;
+}
+.edu-empty-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text, #ece6d8);
+  margin-bottom: 6px;
+}
+.edu-empty-hint {
+  font-size: 13px;
+  color: var(--nx-faint, #7a7167);
+  line-height: 1.5;
+  max-width: 280px;
+}
+
+
+/* ─── ADD LESSON FAB ─────────────────────────────────────────────────
+   Floats above the bottom-nav at all times. Stays visible while the
+   lessons list scrolls infinitely above. Sits on the right so it
+   doesn't conflict with the close-X (left) and lines up visually with
+   the gold "+ Module" pill in the header. */
+.edu-add-guide-fab {
+  position: fixed;
+  right: 16px;
+  /* Clearance: bottom-nav is min-height 60 + padding-bottom safe-area
+     ≈ 94px on iPhone X+. Previous 72+safe = 106px gave only ~12px gap
+     and the FAB was visually clipped behind the nav. 80+safe+18 = 132px
+     gives a comfortable 38px gap with no clipping. */
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px) + 18px);
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px 12px 14px;
+  background: var(--nx-gold, #d4a44e);
+  color: var(--nx-gold-on, #1c1408);
+  border: 0;
+  border-radius: 999px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.40),
+    0 2px 6px rgba(212, 164, 78, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transition: transform 140ms cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 140ms ease,
+              filter 140ms ease;
+}
+.edu-add-guide-fab:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.05);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.45),
+    0 3px 8px rgba(212, 164, 78, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.30);
+}
+.edu-add-guide-fab:active {
+  transform: translateY(0) scale(0.97);
+}
+.edu-add-guide-fab svg {
+  flex-shrink: 0;
+}
+@media (max-width: 380px) {
+  /* On very narrow screens, hide the label, show just the + */
+  .edu-add-guide-fab span { display: none; }
+  .edu-add-guide-fab { padding: 14px; border-radius: 50%; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   TAKEOVER VIEWER — full-screen, big buttons, "dirty hands" friendly
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.edu-takeover {
+  position: absolute;
+  inset: 0;
+  background: var(--bg, #0c0a08);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+
+.edu-takeover-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+  flex-shrink: 0;
+}
+.edu-takeover-close {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--nx-surface-1, #1a1814);
+  border: 1px solid rgba(212, 164, 78, 0.20);
+  color: var(--text, #ece6d8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.edu-takeover-title-row { flex: 1; min-width: 0; }
+.edu-takeover-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e);
+  margin-bottom: 2px;
+}
+.edu-takeover-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text, #ece6d8);
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+}
+.edu-takeover-edit {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid rgba(212, 164, 78, 0.18);
+  color: var(--nx-faint, #7a7167);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.edu-takeover-edit:hover { color: var(--nx-gold); border-color: rgba(212, 164, 78, 0.35); }
+
+
+.edu-takeover-scroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+
+/* Context hint banner — "when to use this" */
+.edu-context-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 14px;
+  background: rgba(78, 164, 212, 0.08);
+  border: 1px solid rgba(78, 164, 212, 0.22);
+  border-radius: 10px;
+  color: #c5e3f5;
+}
+.edu-context-banner > svg {
+  color: #6ec0e8;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.edu-context-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: #6ec0e8;
+  margin-bottom: 4px;
+}
+.edu-context-text {
+  font-size: 14px;
+  line-height: 1.45;
+  color: #e3effa;
+}
+
+
+/* Required supplies */
+.edu-supplies {
+  padding: 12px 14px;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+  border-radius: 8px;
+}
+.edu-supplies-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e);
+  margin-bottom: 8px;
+}
+.edu-supplies-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.edu-supplies-list li {
+  font-size: 14px;
+  color: var(--text, #ece6d8);
+  line-height: 1.4;
+}
+
+.edu-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.edu-tag {
+  display: inline-flex;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #d4a44e;
+  padding: 4px 9px;
+  background: rgba(212, 164, 78, 0.10);
+  border: 1px solid rgba(212, 164, 78, 0.22);
+  border-radius: 4px;
+}
+
+.edu-takeover-desc {
+  font-size: 14.5px;
+  color: var(--nx-faint, #7a7167);
+  line-height: 1.5;
+}
+
+
+/* Body content variants */
+.edu-text-body {
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--text, #ece6d8);
+}
+.edu-text-body p { margin: 0 0 12px; }
+.edu-text-body b { color: var(--nx-gold, #d4a44e); }
+.edu-text-body a { color: #6ec0e8; text-decoration: underline; }
+.edu-text-body ul { padding-left: 22px; margin: 0 0 12px; }
+.edu-text-body li { margin-bottom: 4px; }
+
+.edu-video-wrap, .edu-pdf-wrap, .edu-embed-wrap {
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+.edu-video {
+  width: 100%;
+  display: block;
+  max-height: 70vh;
+}
+.edu-pdf-iframe {
+  width: 100%;
+  height: 60vh;
+  border: 0;
+}
+.edu-pdf-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px;
+  padding: 10px 14px;
+  color: var(--nx-gold);
+  text-decoration: none;
+  border: 1px solid rgba(212, 164, 78, 0.3);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.edu-embed-wrap {
+  aspect-ratio: 16 / 9;
+}
+.edu-embed-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.edu-empty-content {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--nx-faint, #7a7167);
+  font-size: 13px;
+}
+
+
+/* ─── STEP-BY-STEP MODE ─────────────────────────────────────────────── */
+.edu-takeover-steps {
+  display: flex;
+  flex-direction: column;
+}
+
+.edu-step-progress {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px 0;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.edu-step-dot {
+  height: 4px;
+  flex: 1;
+  min-width: 12px;
+  background: var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
+  border-radius: 2px;
+  transition: background 200ms;
+}
+.edu-step-dot.active { background: var(--nx-gold, #d4a44e); }
+.edu-step-dot.done { background: rgba(212, 164, 78, 0.55); }
+.edu-step-counter {
+  width: 100%;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--nx-faint, #7a7167);
+  margin-top: 8px;
+}
+
+.edu-step-scroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.edu-step-photo {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  display: flex;
+  justify-content: center;
+}
+.edu-step-photo img {
+  max-width: 100%;
+  max-height: 50vh;
+  object-fit: contain;
+  display: block;
+}
+.edu-step-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text, #ece6d8);
+  letter-spacing: 0.005em;
+  line-height: 1.25;
+}
+.edu-step-context {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(78, 164, 212, 0.08);
+  border-left: 3px solid #6ec0e8;
+  border-radius: 4px;
+  color: #c5e3f5;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.edu-step-context > svg { color: #6ec0e8; flex-shrink: 0; margin-top: 2px; }
+.edu-step-body {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text, #ece6d8);
+}
+.edu-step-body p { margin: 0 0 10px; }
+.edu-step-duration {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--nx-faint, #7a7167);
+}
+
+
+/* BIG navigation — designed for dirty hands. 60+ px tap targets. */
+.edu-step-nav {
+  display: flex;
+  gap: 10px;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0));
+  border-top: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+  background: var(--bg, #0c0a08);
+  flex-shrink: 0;
+}
+.edu-step-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 64px;
+  border-radius: 12px;
+  background: var(--nx-surface-1, #1a1814);
+  border: 1px solid rgba(212, 164, 78, 0.20);
+  color: var(--text, #ece6d8);
+  font-family: 'Outfit', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms, border-color 140ms, transform 80ms;
+}
+.edu-step-btn:hover {
+  background: rgba(212, 164, 78, 0.06);
+  border-color: var(--nx-gold);
+}
+.edu-step-btn:active { transform: scale(0.98); }
+.edu-step-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.edu-step-btn.edu-step-prev { color: var(--nx-faint, #7a7167); }
+.edu-step-btn.edu-step-next {
+  background: var(--nx-gold, #d4a44e);
+  color: var(--nx-gold-on, #1c1408);
+  border-color: var(--nx-gold);
+  box-shadow: 0 0 0 1px var(--nx-gold), 0 0 18px rgba(212, 164, 78, 0.32);
+}
+.edu-step-btn.edu-step-done {
+  background: #4ea88a;
+  color: #082416;
+  border-color: #4ea88a;
+  box-shadow: 0 0 0 1px #4ea88a, 0 0 18px rgba(78, 168, 138, 0.40);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EDITOR SHEETS (category, guide)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.edu-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.edu-sheet-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+}
+.edu-sheet-card {
+  position: relative;
+  width: min(92vw, 460px);
+  max-height: 90vh;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.18));
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.edu-sheet-card-large {
+  width: min(94vw, 540px);
+  max-height: 92vh;
+}
+
+.edu-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+}
+.edu-sheet-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text, #ece6d8);
+}
+.edu-sheet-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid rgba(212, 164, 78, 0.18);
+  color: var(--nx-faint, #7a7167);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.edu-sheet-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.edu-guide-editor-body { gap: 14px; }
+
+.edu-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.edu-field-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--nx-faint, #7a7167);
+}
+.edu-field-hint {
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+  color: var(--faint, #6a6359);
+  font-weight: normal;
+  margin-left: 4px;
+}
+.edu-input {
+  background: var(--bg, #0c0a08);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  color: var(--text, #ece6d8);
+  width: 100%;
+}
+.edu-input:focus {
+  outline: none;
+  border-color: var(--nx-gold, #d4a44e);
+  box-shadow: 0 0 0 2px rgba(212, 164, 78, 0.18);
+}
+.edu-textarea-large {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  min-height: 200px;
+  line-height: 1.5;
+}
+
+.edu-sheet-actions {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
+}
+.edu-sheet-actions button {
+  flex: 1;
+  padding: 11px;
+  border-radius: 8px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid;
+  -webkit-tap-highlight-color: transparent;
+}
+.edu-sheet-cancel {
+  background: transparent;
+  border-color: var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
+  color: var(--faint, #7a7167);
+}
+.edu-sheet-archive {
+  background: transparent;
+  border-color: rgba(204, 90, 90, 0.4);
+  color: #cc5a5a;
+}
+.edu-sheet-save {
+  background: var(--nx-gold, #d4a44e);
+  border-color: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+}
+
+
+/* Upload buttons */
+.edu-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(212, 164, 78, 0.06);
+  border: 1px dashed rgba(212, 164, 78, 0.4);
+  border-radius: 8px;
+  color: var(--nx-gold);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  justify-content: center;
+}
+.edu-upload-btn-sm {
+  font-size: 12px;
+  padding: 8px 12px;
+}
+.edu-upload-btn:hover { background: rgba(212, 164, 78, 0.10); }
+
+.edu-uploaded {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.edu-remove-upload {
+  align-self: flex-start;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid rgba(204, 90, 90, 0.4);
+  border-radius: 6px;
+  color: #cc5a5a;
+  font-size: 12px;
+  cursor: pointer;
+}
+.edu-pdf-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg, #0c0a08);
+  border: 1px solid rgba(212, 164, 78, 0.2);
+  border-radius: 6px;
+  color: var(--nx-gold);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+
+/* Steps editor */
+.edu-step-edit-card {
+  padding: 12px;
+  background: var(--bg, #0c0a08);
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.12));
+  border-radius: 8px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.edu-step-edit-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.edu-step-edit-num {
+  flex: 1;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.10em;
+  color: var(--nx-gold);
+  text-transform: uppercase;
+}
+.edu-step-edit-up, .edu-step-edit-dn, .edu-step-edit-rm {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
+  color: var(--nx-faint, #7a7167);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.edu-step-edit-rm:hover { color: #cc5a5a; border-color: rgba(204, 90, 90, 0.4); }
+.edu-step-edit-up:disabled, .edu-step-edit-dn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.edu-step-edit-photo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.edu-step-edit-photo img {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 6px;
+  display: block;
+}
+.edu-step-photo-rm {
+  align-self: flex-start;
+  padding: 5px 10px;
+  background: transparent;
+  border: 1px solid rgba(204, 90, 90, 0.3);
+  border-radius: 5px;
+  color: #cc5a5a;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.edu-add-step-btn {
+  margin-top: 6px;
+  padding: 10px;
+  background: transparent;
+  border: 1px dashed rgba(212, 164, 78, 0.35);
+  border-radius: 8px;
+  color: var(--nx-gold);
+  cursor: pointer;
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.edu-empty-inline {
+  padding: 14px;
+  text-align: center;
+  color: var(--nx-faint, #7a7167);
+  font-size: 12px;
+  border: 1px dashed var(--nx-highlight-line, rgba(212, 164, 78, 0.15));
+  border-radius: 8px;
+}
+.edu-loading-inline {
+  padding: 14px;
+  text-align: center;
+  color: var(--nx-faint, #7a7167);
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   v15.2 polish — subtitle, module description bar, emblem, embed fallback
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Subtitle under "School of NEXUS" — small terminal-style stat line */
+.edu-subtitle {
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e);
+  opacity: 0.62;
+}
+
+/* Module description bar — appears under the module pills when the
+   selected module has a description. Subtle, italicized, gold-bordered. */
+.edu-module-context {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 14px 10px;
+  padding: 9px 12px;
+  border-left: 2px solid var(--nx-gold, #d4a44e);
+  background: linear-gradient(90deg, rgba(212,164,78,0.06), rgba(212,164,78,0));
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--nx-text-secondary, #b9b3a5);
+  border-radius: 0 6px 6px 0;
+}
+.edu-module-context svg {
+  margin-top: 2px;
+  color: var(--nx-gold, #d4a44e);
+  flex-shrink: 0;
+}
+
+/* Empty-state emblem — the big graduation cap (or module icon) above
+   the "No modules yet" / "No lessons" message. Faded gold, classical. */
+.edu-empty-emblem {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 18px;
+  color: var(--nx-gold, #d4a44e);
+  opacity: 0.35;
+  filter: drop-shadow(0 2px 6px rgba(212,164,78,0.15));
+}
+.edu-empty-emblem svg {
+  width: 64px;
+  height: 64px;
+}
+
+/* Embed fallback link — shown below the iframe in case it doesn't load
+   (X-Frame-Options blocking, network failure, or simply not embeddable). */
+.edu-embed-fallback {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 14px 18px;
+  padding: 10px 14px;
+  background: rgba(212,164,78,0.08);
+  border: 1px solid rgba(212,164,78,0.22);
+  border-radius: 8px;
+  color: var(--nx-gold, #d4a44e);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 200ms ease, transform 100ms ease;
+}
+.edu-embed-fallback:hover,
+.edu-embed-fallback:active {
+  background: rgba(212,164,78,0.15);
+  transform: translateY(-1px);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   v15.4 — Module pill edit pin
+   ────────────────────────────────────────
+   Small pen icon that appears INSIDE the active module pill. Tap it
+   to open the module editor (rename / change icon / change description
+   / delete). Hidden on inactive pills to keep the picker uncluttered.
+   ════════════════════════════════════════════════════════════════════════ */
+.edu-cat-btn-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  margin-right: -4px;
+  padding: 0;
+  background: rgba(28, 20, 8, 0.18);
+  border: 1px solid rgba(28, 20, 8, 0.22);
+  border-radius: 50%;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, transform 100ms ease;
+}
+.edu-cat-btn-edit:hover,
+.edu-cat-btn-edit:focus-visible {
+  background: rgba(28, 20, 8, 0.28);
+  outline: none;
+}
+.edu-cat-btn-edit:active {
+  transform: scale(0.92);
+}
+.edu-cat-btn-edit svg {
+  width: 11px;
+  height: 11px;
+  display: block;
+}
+
+[data-theme="light"] .edu-cat-btn-edit {
+  background: rgba(255, 250, 240, 0.55);
+  border-color: rgba(28, 20, 8, 0.18);
+}
+[data-theme="light"] .edu-cat-btn-edit:hover,
+[data-theme="light"] .edu-cat-btn-edit:focus-visible {
+  background: rgba(255, 250, 240, 0.85);
+}
