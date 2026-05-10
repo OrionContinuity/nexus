@@ -11,10 +11,27 @@
 
 /* ─── LIBRARY OVERRIDES ─────────────────────────────────────────────── */
 /* clippyjs creates a .clippy element. Make sure it sits high enough but
-   below modals (modals use ≥10000). */
+   below modals (modals use ≥10000). Crisp-edges rendering preserves the
+   original 1997 sprite art instead of letting browsers blur-scale it.
+   Slight scale-up gives him more presence at modern phone DPI. */
 .clippy,
 .clippyjs-agent {
   z-index: 9000 !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  /* Bump 30% larger for modern hi-DPI phones — sprite was designed for
+     ~96dpi monitors, looks tiny on a 460dpi iPhone */
+  transform: scale(1.3) !important;
+  transform-origin: bottom right !important;
+  /* Crisp pixel-art rendering (no anti-alias blur on the sprite) */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+.clippy *,
+.clippyjs-agent * {
+  cursor: pointer !important;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
 }
 
 /* clippyjs's own balloon — let it show but boost z-index so our action
@@ -59,66 +76,10 @@
 .clippy-costume-pirate    { transform: translate(0, -22%) scale(1.10); }
 
 
-/* ─── LOGIN PEEK (visible before clippyjs is loaded) ────────────────── */
-/* Tiny paperclip-eyes peeking from bottom-right corner. Tap to invite
-   him in. Built from CSS (no SVG file needed). */
-.clippy-peek {
-  position: fixed;
-  bottom: 0;
-  right: 16px;
-  z-index: 9000;
-  width: 48px;
-  height: 24px;
-  background: #d8d8da;
-  border: 2px solid #2a2a2a;
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  cursor: pointer;
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.3);
-  transition: transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 220ms;
-  animation: clippyPeekIdle 4s ease-in-out infinite;
-}
-.clippy-peek:hover {
-  transform: translateY(-3px);
-}
-.clippy-peek.is-leaving {
-  transform: translateY(40px);
-  opacity: 0;
-}
-.clippy-peek-eye {
-  width: 8px;
-  height: 8px;
-  background: #fff;
-  border: 1.5px solid #1a1a1a;
-  border-radius: 50%;
-  position: relative;
-  animation: clippyPeekBlink 5.2s ease-in-out infinite;
-}
-.clippy-peek-eye::after {
-  content: '';
-  position: absolute;
-  width: 3px;
-  height: 3px;
-  background: #1a1a1a;
-  border-radius: 50%;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-}
-@keyframes clippyPeekIdle {
-  0%, 90%, 100% { transform: translateY(0); }
-  92% { transform: translateY(-3px); }
-  94% { transform: translateY(0); }
-  96% { transform: translateY(-3px); }
-}
-@keyframes clippyPeekBlink {
-  0%, 95%, 100% { transform: scaleY(1); }
-  97% { transform: scaleY(0.1); }
-}
+/* ─── LOGIN PEEK REMOVED ────────────────────────────────────────────── */
+/* The legacy CSS-paperclip-eyes peek is gone. The real clippyjs Clippy
+   now appears on the PIN screen too. See clippy.js init() for the
+   pre-acceptance flow. */
 
 
 /* ════════════════════════════════════════════════════════════════════
@@ -440,15 +401,5 @@
   .clippy-bubble {
     max-width: calc(100vw - 80px);
     font-size: 14px;
-  }
-  .clippy-peek {
-    width: 44px;
-    height: 22px;
-  }
-}
-
-@supports (padding: env(safe-area-inset-bottom)) {
-  .clippy-peek {
-    bottom: env(safe-area-inset-bottom, 0);
   }
 }
