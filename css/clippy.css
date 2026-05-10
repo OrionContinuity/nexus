@@ -450,6 +450,84 @@
   transition: transform 900ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* v17.5: PEEK-EYES-ONLY mode — for first-login. Clip the shell so only
+   the eye band is visible. Position is set via JS to a random spot per
+   session. The clip leaves about 25% of the shell visible (the eyes).
+   The body/cheeks/mouth/nodes/halo all get clipped out, so only the
+   "eyes peeking from somewhere" effect remains. */
+#clippy-shell.is-peek-eyes-only {
+  /* Show only the middle horizontal band where eyes live (~y=40-72%) */
+  clip-path: inset(38% 12% 28% 12% round 30%);
+  -webkit-clip-path: inset(38% 12% 28% 12% round 30%);
+  filter: drop-shadow(0 0 12px rgba(125, 240, 255, 0.55))
+          drop-shadow(0 0 6px rgba(255, 255, 255, 0.4));
+  animation: clPeekBob 3.2s ease-in-out infinite;
+}
+@keyframes clPeekBob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-2px); }
+}
+/* When peeking, blink more often to draw attention */
+#clippy-shell.is-peek-eyes-only .cl-body,
+#clippy-shell.is-peek-eyes-only .cl-cheek,
+#clippy-shell.is-peek-eyes-only .cl-mouth {
+  opacity: 0.4;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.6 PARTICLE EFFECTS
+   Spawn via spawnParticles() in JS. Each particle is an absolutely-
+   positioned <div> with CSS animation that fires once and self-removes.
+   Three flavors: sparkle (yellow burst), heart (pink burst), confetti
+   (multicolor with gravity fall).
+   ════════════════════════════════════════════════════════════════════ */
+.clippy-particle {
+  position: fixed;
+  pointer-events: none;
+  width: 12px;
+  height: 12px;
+  z-index: 100;
+  will-change: transform, opacity;
+}
+.clippy-particle-sparkle {
+  background: radial-gradient(circle, #ffec70 0%, #ffd24a 35%, transparent 70%);
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(255, 220, 100, 0.85);
+  animation: clParticle 1.5s ease-out forwards;
+}
+.clippy-particle-heart {
+  width: 14px;
+  height: 14px;
+  background: radial-gradient(circle, #ff4d8a 0%, #ff4d8a 60%, transparent 70%);
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  transform-origin: center;
+  box-shadow: 0 0 4px rgba(255, 77, 138, 0.6);
+  animation: clParticle 1.5s ease-out forwards;
+}
+.clippy-particle-heart::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.8) 0%, transparent 40%);
+  border-radius: inherit;
+}
+.clippy-particle-confetti {
+  width: 6px;
+  height: 10px;
+  background: linear-gradient(135deg, #ffec70, #ff5577, #5cb0ff, #b06fff);
+  animation: clConfetti 1.6s ease-out forwards;
+}
+@keyframes clParticle {
+  0%   { transform: translate(0, 0) scale(0);   opacity: 0; }
+  20%  { transform: translate(0, 0) scale(1.2); opacity: 1; }
+  100% { transform: translate(var(--tx, 0), var(--ty, 0)) scale(0.4) rotate(var(--rot, 0deg)); opacity: 0; }
+}
+@keyframes clConfetti {
+  0%   { transform: translate(0, 0) rotate(0); opacity: 0; }
+  15%  { opacity: 1; }
+  100% { transform: translate(var(--tx, 0), calc(var(--ty, 0) + 80px)) rotate(var(--rot, 360deg)); opacity: 0; }
+}
+
 
 /* ════════════════════════════════════════════════════════════════════
    COSTUME OVERLAY LAYER — for the 16 SVG hats/crowns/etc
