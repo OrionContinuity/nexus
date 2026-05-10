@@ -191,8 +191,19 @@
   let _libCache = null, _agentsCache = null;
   async function importLib() {
     if (!_libCache) {
-      _libCache = await import(/* @vite-ignore */ CDN_INDEX);
-      _agentsCache = await import(/* @vite-ignore */ CDN_AGENTS);
+      // Try locally-vendored library first (populated by the
+      // .github/workflows/vendor-clippyjs.yml action). Falls back to
+      // jsDelivr CDN if not present. Either way, the service worker
+      // caches the result so subsequent loads are offline.
+      try {
+        _libCache    = await import(/* @vite-ignore */ './js/clippyjs-vendor/index.mjs');
+        _agentsCache = await import(/* @vite-ignore */ './js/clippyjs-vendor/agents/index.mjs');
+        console.log('[clippy] using local vendored library');
+      } catch (e) {
+        console.log('[clippy] no local vendor — falling back to CDN');
+        _libCache    = await import(/* @vite-ignore */ CDN_INDEX);
+        _agentsCache = await import(/* @vite-ignore */ CDN_AGENTS);
+      }
     }
     return { lib: _libCache, agents: _agentsCache };
   }
