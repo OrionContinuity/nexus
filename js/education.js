@@ -196,10 +196,10 @@
       <div class="edu-header">
         <button class="edu-close" id="eduClose" aria-label="Close">${svg('x', 18, 2.4)}</button>
         <div class="edu-title-row">
-          <div class="edu-eyebrow">EDUCATION</div>
-          <div class="edu-title">How-to library</div>
+          <div class="edu-eyebrow">TRAINING</div>
+          <div class="edu-title">School of NEXUS</div>
         </div>
-        <button class="edu-add-cat-btn" id="eduAddCat" aria-label="Add category">${svg('plus', 14)} <span>Category</span></button>
+        <button class="edu-add-cat-btn" id="eduAddCat" aria-label="Add module">${svg('plus', 14)} <span>Module</span></button>
       </div>
 
       <div class="edu-cat-picker-wrap">
@@ -207,7 +207,7 @@
           ${categories.map(cat => `
             <button class="edu-cat-btn ${cat.id === activeCategoryId ? 'active' : ''}"
                     data-cat-id="${esc(cat.id)}">
-              ${svg(cat.icon || 'book', 13)}
+              ${svg(cat.icon || 'graduation', 13)}
               <span>${esc(cat.name_en)}</span>
             </button>
           `).join('')}
@@ -217,8 +217,8 @@
       <div class="edu-guides-list" id="eduGuidesList">
         ${activeCat ? renderGuidesForCategory(activeCat, guides) : `
           <div class="edu-empty">
-            <div class="edu-empty-title">No categories yet</div>
-            <div class="edu-empty-hint">Tap <b>+ Category</b> above to start.</div>
+            <div class="edu-empty-title">No modules yet</div>
+            <div class="edu-empty-hint">Tap <b>+ Module</b> above to create your first one. Each module holds lessons (text, video, PDF books, photo guides, study material).</div>
           </div>
         `}
       </div>
@@ -226,7 +226,7 @@
       <div class="edu-footer">
         ${activeCat ? `
           <button class="edu-add-guide-btn" id="eduAddGuide">
-            ${svg('plus', 14)} <span>Add guide to ${esc(activeCat.name_en)}</span>
+            ${svg('plus', 14)} <span>Add lesson to ${esc(activeCat.name_en)}</span>
           </button>
         ` : ''}
       </div>
@@ -287,15 +287,15 @@
     if (!guides.length) {
       return `
         <div class="edu-empty">
-          <div class="edu-empty-title">No guides in ${esc(cat.name_en)} yet</div>
-          <div class="edu-empty-hint">Tap <b>Add guide</b> below to create the first one.</div>
+          <div class="edu-empty-title">No lessons in ${esc(cat.name_en)} yet</div>
+          <div class="edu-empty-hint">Tap <b>Add lesson</b> below to create the first one. Lessons can be text, video, PDF book, photo guide, embedded URL, or step-by-step study material.</div>
         </div>
       `;
     }
     return guides.map(g => {
       const kindIcon = {
-        text:'book', video:'video', pdf:'pdf', embed:'link', steps:'list'
-      }[g.primary_kind] || 'book';
+        text:'document', video:'video', pdf:'book', embed:'external', steps:'scroll'
+      }[g.primary_kind] || 'graduation';
       const supplies = (g.required_supplies || []).length
         ? `<span class="edu-card-meta-chip">${svg('list', 11)} ${g.required_supplies.length}</span>` : '';
       const dur = g.duration_seconds
@@ -322,7 +322,7 @@
               ${tags}
             </div>
           </div>
-          <button class="edu-card-edit" data-edit-guide="${esc(g.id)}" aria-label="Edit guide">${svg('pen', 13)}</button>
+          <button class="edu-card-edit" data-edit-guide="${esc(g.id)}" aria-label="Edit lesson">${svg('pen', 13)}</button>
           <div class="edu-card-chev">${svg('chevR', 16)}</div>
         </div>
       `;
@@ -351,7 +351,7 @@
       <div class="edu-takeover-header">
         <button class="edu-takeover-close" id="eduTkClose" aria-label="Close">${svg('x', 20, 2.4)}</button>
         <div class="edu-takeover-title-row">
-          <div class="edu-takeover-eyebrow">${esc(categories.find(c => c.id === guide.category_id)?.name_en || 'Guide')}</div>
+          <div class="edu-takeover-eyebrow">${esc(categories.find(c => c.id === guide.category_id)?.name_en || 'Lesson')}</div>
           <div class="edu-takeover-title">${esc(guide.title_en)}</div>
         </div>
         <button class="edu-takeover-edit" id="eduTkEdit" aria-label="Edit">${svg('pen', 16)}</button>
@@ -583,7 +583,7 @@
       <div class="edu-sheet-bg"></div>
       <div class="edu-sheet-card">
         <div class="edu-sheet-head">
-          <div class="edu-sheet-title">${isNew ? 'New category' : 'Edit category'}</div>
+          <div class="edu-sheet-title">${isNew ? 'New module' : 'Edit module'}</div>
           <button class="edu-sheet-close" aria-label="Close">${svg('x', 16)}</button>
         </div>
         <div class="edu-sheet-body">
@@ -661,7 +661,7 @@
     const archiveBtn = sheet.querySelector('.edu-sheet-archive');
     if (archiveBtn) {
       archiveBtn.addEventListener('click', async () => {
-        if (!confirm('Archive this category? Guides remain but become uncategorized.')) return;
+        if (!confirm('Archive this module? Lessons remain but become uncategorized.')) return;
         try {
           const { error } = await NX.sb.from('education_categories').update({ archived: true }).eq('id', cat.id);
           if (error) throw error;
@@ -705,7 +705,7 @@
       <div class="edu-sheet-bg"></div>
       <div class="edu-sheet-card edu-sheet-card-large">
         <div class="edu-sheet-head">
-          <div class="edu-sheet-title">${isNew ? 'New guide' : 'Edit guide'}</div>
+          <div class="edu-sheet-title">${isNew ? 'New lesson' : 'Edit lesson'}</div>
           <button class="edu-sheet-close" aria-label="Close">${svg('x', 16)}</button>
         </div>
         <div class="edu-sheet-body edu-guide-editor-body">
@@ -745,11 +745,11 @@
           <label class="edu-field">
             <span class="edu-field-label">Content type</span>
             <select class="edu-input" data-field="primary_kind">
-              <option value="text"  ${editingGuide.primary_kind === 'text'  ? 'selected' : ''}>Text / markdown</option>
-              <option value="video" ${editingGuide.primary_kind === 'video' ? 'selected' : ''}>Native video (upload)</option>
-              <option value="pdf"   ${editingGuide.primary_kind === 'pdf'   ? 'selected' : ''}>PDF (upload)</option>
-              <option value="embed" ${editingGuide.primary_kind === 'embed' ? 'selected' : ''}>Embed URL (YouTube, Vimeo)</option>
-              <option value="steps" ${editingGuide.primary_kind === 'steps' ? 'selected' : ''}>Step-by-step</option>
+              <option value="text"  ${editingGuide.primary_kind === 'text'  ? 'selected' : ''}>Text / article</option>
+              <option value="video" ${editingGuide.primary_kind === 'video' ? 'selected' : ''}>Video lesson (upload)</option>
+              <option value="pdf"   ${editingGuide.primary_kind === 'pdf'   ? 'selected' : ''}>Book / PDF (upload)</option>
+              <option value="embed" ${editingGuide.primary_kind === 'embed' ? 'selected' : ''}>Embedded URL (YouTube, Vimeo, web)</option>
+              <option value="steps" ${editingGuide.primary_kind === 'steps' ? 'selected' : ''}>Step-by-step study</option>
             </select>
           </label>
 
@@ -840,7 +840,7 @@
     const archiveBtn = sheet.querySelector('.edu-sheet-archive');
     if (archiveBtn) {
       archiveBtn.addEventListener('click', async () => {
-        if (!confirm('Archive this guide?')) return;
+        if (!confirm('Archive this lesson?')) return;
         try {
           const { error } = await NX.sb.from('education_guides').update({ archived: true }).eq('id', guide.id);
           if (error) throw error;
@@ -861,7 +861,7 @@
       host.innerHTML = `
         <label class="edu-field">
           <span class="edu-field-label">Content (markdown supported: **bold**, *italic*, [link](url), - bullets)</span>
-          <textarea class="edu-input edu-textarea-large" data-field="primary_text" rows="10" placeholder="Write the guide…">${esc(editingGuide.primary_text || '')}</textarea>
+          <textarea class="edu-input edu-textarea-large" data-field="primary_text" rows="10" placeholder="Write the lesson…">${esc(editingGuide.primary_text || '')}</textarea>
         </label>
       `;
       host.querySelector('[data-field]').addEventListener('input', (e) => {
@@ -1144,10 +1144,15 @@
     renderTakeover();
   }
 
-  function init() {
+  async function init() {
     if (initialized) return;
     initialized = true;
-    // Nothing to wire on init — show() builds everything.
+    // First-load render. Without this, app.js calls init() exactly once
+    // on the FIRST navigation, init() does nothing visible, and the
+    // educationView div sits empty — that's the "blank canvas" bug.
+    // On subsequent navigations app.js calls show() directly, which is
+    // why later visits worked but the first one didn't.
+    await show();
   }
 
   // ─── Exports ────────────────────────────────────────────────────────
