@@ -42,23 +42,6 @@
   <ellipse class="cl-floor" cx="100" cy="194" rx="42" ry="5.5" fill="#000" opacity="0.22"/>
   <circle class="cl-halo" cx="100" cy="100" r="92" fill="url(#orb-halo)"/>
 
-  <g class="cl-nodes" filter="url(#glow)">
-    <circle class="cl-node cl-node-1" cx="170" cy="50"  r="4"   fill="#7df0ff"/>
-    <circle class="cl-node cl-node-2" cx="180" cy="120" r="3.5" fill="#b06fff"/>
-    <circle class="cl-node cl-node-3" cx="120" cy="180" r="3"   fill="#7df0ff"/>
-    <circle class="cl-node cl-node-4" cx="30"  cy="170" r="3.5" fill="#7df0ff"/>
-    <circle class="cl-node cl-node-5" cx="20"  cy="130" r="4"   fill="#b06fff"/>
-    <circle class="cl-node cl-node-6" cx="30"  cy="55"  r="3"   fill="#7df0ff"/>
-    <circle class="cl-node cl-node-7" cx="80"  cy="20"  r="3.5" fill="#b06fff"/>
-  </g>
-
-  <g class="cl-tendrils" stroke="#7df0ff" stroke-width="0.9" fill="none" opacity="0.55" filter="url(#glow)" stroke-linecap="round">
-    <path class="cl-tendril cl-tendril-1" d="M 158 88 Q 168 93 175 100 L 168 106 L 175 113"/>
-    <path class="cl-tendril cl-tendril-2" d="M 42 88 Q 32 93 25 100 L 32 106 L 25 113"/>
-    <path class="cl-tendril cl-tendril-3" d="M 100 38 Q 105 31 110 24 L 104 20 L 110 14"/>
-    <path class="cl-tendril cl-tendril-4" d="M 100 162 Q 95 169 90 176 L 96 180 L 90 186"/>
-  </g>
-
   <circle class="cl-body" cx="100" cy="100" r="58" fill="url(#orb-body)"/>
 
   <ellipse class="cl-cheek cl-cheek-l" cx="73" cy="120" rx="11" ry="5.2" fill="url(#cheek-grad)"/>
@@ -227,5 +210,19 @@
     <text x="146" y="50" font-family="serif" font-size="14" font-weight="700" fill="#7df0ff" opacity="0.85">z</text>
     <text x="156" y="38" font-family="serif" font-size="16" font-weight="700" fill="#9bf2ff" opacity="0.85">z</text>
     <text x="168" y="24" font-family="serif" font-size="18" font-weight="700" fill="#bef5ff" opacity="0.85">Z</text>
+  </g>
+
+  <!-- v17.4: NODES render LAST so they orbit OVER the character.
+       Bigger (r=6-8), softer pastel colors, no glow filter (flat 2D).
+       Mix of outer-ring positions (orbit around, never block face) and
+       inner-ring positions (orbit visibly over the body). -->
+  <g class="cl-nodes">
+    <circle class="cl-node cl-node-1" cx="172" cy="62"  r="7"   fill="#9adff5"/>
+    <circle class="cl-node cl-node-2" cx="178" cy="130" r="6.5" fill="#cbb0f5"/>
+    <circle class="cl-node cl-node-3" cx="128" cy="178" r="6"   fill="#9adff5"/>
+    <circle class="cl-node cl-node-4" cx="28"  cy="158" r="7"   fill="#9adff5"/>
+    <circle class="cl-node cl-node-5" cx="32"  cy="65"  r="6.5" fill="#cbb0f5"/>
+    <circle class="cl-node cl-node-6" cx="135" cy="58"  r="5.5" fill="#9adff5"/>
+    <circle class="cl-node cl-node-7" cx="62"  cy="138" r="5.5" fill="#cbb0f5"/>
   </g>
 </svg>
