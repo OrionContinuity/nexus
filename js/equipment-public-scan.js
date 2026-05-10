@@ -273,25 +273,28 @@
 
     /* ─── Light-theme palette ─────────────────────────────────────
        Triggered when html[data-theme="light"] (set by the coin tap).
-       Cream/parchment surfaces, deep-gold text, charcoal lines.
-       Same editorial family as the post-login app's light theme so the
-       transition into the main app feels seamless. */
+       Cream/parchment surfaces with EXPLICIT readable hex colors.
+       The previous version inherited from var(--accent) / var(--nx-gold-on)
+       which aren't always defined on this self-contained module
+       (it boots before the main app's variables exist), leaving the
+       page faded gray-on-cream and unreadable. Now: deep brown-black
+       text on warm cream, deep gold accents, warm muted browns. */
     html[data-theme="light"] .nx-ps-page,
     html[data-theme="light"].nx-ps {
-      --ps-bg: #f4ecd8;          /* cream / parchment */
-      --ps-surface: #ede2c8;
-      --ps-elevated: #e2d4b3;
-      --ps-text: var(--nx-gold-on);        /* deep brown-black, easier on eyes than pure black */
-      --ps-muted: var(--accent);
-      --ps-faint: var(--accent);
-      --ps-accent: var(--accent);      /* deep gold — readable on cream */
-      --ps-border: rgba(70, 50, 18, 0.12);
-      --ps-border-strong: rgba(70, 50, 18, 0.22);
-      --ps-glow: rgba(139, 105, 20, 0.16);
-      --ps-green: var(--accent);       /* desaturated olive */
-      --ps-amber: var(--accent);
-      --ps-red:   #7a2828;       /* deep oxblood */
-      --ps-blue:  #4a5878;
+      --ps-bg:        #fdf6ec;          /* warm cream / parchment */
+      --ps-surface:   #f3e8d0;          /* slightly tinted card */
+      --ps-elevated:  #e8d8b6;          /* deeper card edge */
+      --ps-text:      #1a1408;          /* deep brown-black, max contrast */
+      --ps-muted:     #5a4a30;          /* warm dark brown for secondary */
+      --ps-faint:     #8a7a55;          /* mid-brown for tertiary */
+      --ps-accent:    #8b6914;          /* deep gold — readable on cream */
+      --ps-border:    rgba(70, 50, 18, 0.16);
+      --ps-border-strong: rgba(70, 50, 18, 0.28);
+      --ps-glow:      rgba(139, 105, 20, 0.20);
+      --ps-green:     #6b7f3a;          /* sage olive */
+      --ps-amber:     #b8862c;          /* warm amber */
+      --ps-red:       #7a2828;          /* deep oxblood */
+      --ps-blue:      #4a5878;
     }
 
     /* Page shell — relative for the absolute stripe child */
@@ -442,25 +445,408 @@
     }
     .nx-ps-loc svg { width: 13px; height: 13px; stroke-width: 2; opacity: 0.7; }
 
-    /* Status pill — use NEXUS accent tints, not raw green/red */
+    /* Status pill — now a tappable BUTTON. Tapping opens the status-
+       change sheet so a contractor at the unit can update its state
+       directly. Bigger gold beacon with animated orbit particles when
+       operational, calm flash when needs-service, struggling-bulb
+       flicker when down. Same character as the equipment-list beacons
+       in the main app — one design system across both surfaces. */
     .nx-ps-status {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 7px 13px;
+      gap: 12px;
+      padding: 10px 16px 10px 14px;
       border-radius: 999px;
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.3px;
+      font-size: 12.5px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
       text-transform: uppercase;
       margin-bottom: 22px;
-      border: 1px solid;
-      background: rgba(212, 182, 138, 0.04);
+      border: 1px solid var(--ps-border-strong);
+      background: rgba(212, 164, 78, 0.08);
+      color: var(--ps-accent);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 120ms ease, background 140ms ease, border-color 140ms ease;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      position: relative;
+      overflow: visible;
     }
+    .nx-ps-status:hover { background: rgba(212, 164, 78, 0.14); }
+    .nx-ps-status:active { transform: scale(0.97); }
+    .nx-ps-status:focus-visible {
+      outline: 2px solid var(--ps-accent);
+      outline-offset: 3px;
+    }
+    .nx-ps-status-edit-hint {
+      margin-left: 4px;
+      opacity: 0.55;
+      font-size: 10px;
+      letter-spacing: 0.8px;
+    }
+
+    /* The beacon dot — gold, 14px, multi-layer halo, animated. */
     .nx-ps-status-dot {
-      width: 6px; height: 6px; border-radius: 50%;
-      display: inline-block;
-      box-shadow: 0 0 8px currentColor;
+      position: relative;
+      display: block;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      overflow: visible;
+      background: #d4a44e;
+    }
+    .nx-ps-status-dot.is-operational {
+      animation: nx-ps-beacon-pulse 2.4s ease-in-out infinite;
+      box-shadow:
+        0 0 8px rgba(212, 164, 78, 0.85),
+        0 0 16px rgba(212, 164, 78, 0.55),
+        0 0 28px rgba(212, 164, 78, 0.30);
+    }
+    .nx-ps-status-dot.is-needs-service,
+    .nx-ps-status-dot.is-reported,
+    .nx-ps-status-dot.is-called {
+      animation: nx-ps-beacon-flash 1.8s ease-in-out infinite;
+    }
+    .nx-ps-status-dot.is-down,
+    .nx-ps-status-dot.is-broken {
+      background: #5a4a30;
+      animation: nx-ps-beacon-bulb-dying 5.4s steps(1, end) infinite;
+    }
+    .nx-ps-status-dot.is-retired,
+    .nx-ps-status-dot.is-missing {
+      background: #8a8580;
+      opacity: 0.55;
+    }
+
+    /* Orbit particles — only for operational. fore = white-gold above
+       beacon, back = larger gold behind. ::before/::after for two more
+       tiny particles. Different orbital periods so they never sync. */
+    .nx-ps-orbit { position: absolute; top: 50%; left: 50%; border-radius: 50%; pointer-events: none; opacity: 0; }
+    .nx-ps-status-dot.is-operational .nx-ps-orbit-fore,
+    .nx-ps-status-dot.is-operational .nx-ps-orbit-back { opacity: 1; }
+    .nx-ps-status-dot.is-operational .nx-ps-orbit-fore {
+      width: 3px; height: 3px;
+      margin: -1.5px 0 0 -1.5px;
+      background: #fff7d8;
+      box-shadow: 0 0 4px rgba(255, 220, 130, 1), 0 0 8px rgba(212, 164, 78, 0.85);
+      z-index: 3;
+      animation: nx-ps-orbit-fore 2.6s linear infinite;
+    }
+    .nx-ps-status-dot.is-operational .nx-ps-orbit-back {
+      width: 5px; height: 5px;
+      margin: -2.5px 0 0 -2.5px;
+      background: #d4a44e;
+      box-shadow: 0 0 6px rgba(212, 164, 78, 0.85), 0 0 14px rgba(212, 164, 78, 0.45);
+      z-index: 0;
+      animation: nx-ps-orbit-back 4.4s linear infinite reverse;
+    }
+    .nx-ps-status-dot.is-operational::before,
+    .nx-ps-status-dot.is-operational::after {
+      content: ''; position: absolute; top: 50%; left: 50%;
+      border-radius: 50%; pointer-events: none;
+    }
+    .nx-ps-status-dot.is-operational::before {
+      width: 2px; height: 2px; margin: -1px 0 0 -1px;
+      background: #fff7d8;
+      box-shadow: 0 0 3px rgba(255, 220, 130, 1);
+      z-index: 4;
+      animation: nx-ps-orbit-tiny-a 1.9s linear infinite;
+    }
+    .nx-ps-status-dot.is-operational::after {
+      width: 2.5px; height: 2.5px; margin: -1.25px 0 0 -1.25px;
+      background: #d4a44e;
+      box-shadow: 0 0 4px rgba(212, 164, 78, 0.9);
+      z-index: 1;
+      animation: nx-ps-orbit-tiny-b 3.2s linear infinite reverse;
+    }
+
+    @keyframes nx-ps-beacon-pulse {
+      0%, 100% { box-shadow: 0 0 8px rgba(212,164,78,0.85), 0 0 16px rgba(212,164,78,0.55), 0 0 28px rgba(212,164,78,0.30); }
+      50%      { box-shadow: 0 0 12px rgba(212,164,78,1),    0 0 22px rgba(212,164,78,0.75), 0 0 36px rgba(212,164,78,0.40); }
+    }
+    @keyframes nx-ps-beacon-flash {
+      0%, 100% { box-shadow: 0 0 4px rgba(212,164,78,0.40); transform: scale(1.0); }
+      50%      { box-shadow: 0 0 8px rgba(212,164,78,0.85), 0 0 16px rgba(212,164,78,0.45); transform: scale(1.06); }
+    }
+    @keyframes nx-ps-beacon-bulb-dying {
+      0%   { background: #5a4a30; box-shadow: 0 0 3px rgba(212,164,78,0.20); }
+      4%   { background: #8a6a30; box-shadow: 0 0 5px rgba(212,164,78,0.40); }
+      6%   { background: #5a4a30; box-shadow: 0 0 3px rgba(212,164,78,0.20); }
+      17%  { background: #a8842a; box-shadow: 0 0 7px rgba(212,164,78,0.55); }
+      19%  { background: #5a4a30; box-shadow: 0 0 3px rgba(212,164,78,0.20); }
+      31%  { background: #8a6a30; box-shadow: 0 0 5px rgba(212,164,78,0.40); }
+      33%  { background: #8a6a30; box-shadow: 0 0 5px rgba(212,164,78,0.40); }
+      34%  { background: #5a4a30; box-shadow: 0 0 3px rgba(212,164,78,0.20); }
+      47%  { background: #f0c870; box-shadow: 0 0 12px rgba(255,200,100,0.95), 0 0 22px rgba(212,164,78,0.55); }
+      48%  { background: #5a4a30; box-shadow: 0 0 3px rgba(212,164,78,0.20); }
+      73%  { background: #a8842a; box-shadow: 0 0 7px rgba(212,164,78,0.55); }
+      74%  { background: #5a4a30; box-shadow: 0 0 3px rgba(212,164,78,0.20); }
+      76%  { background: #c89a48; box-shadow: 0 0 9px rgba(212,164,78,0.7);  }
+      77%  { background: #5a4a30; box-shadow: 0 0 3px rgba(212,164,78,0.20); }
+      100% { background: #5a4a30; box-shadow: 0 0 3px rgba(212,164,78,0.20); }
+    }
+    @keyframes nx-ps-orbit-fore {
+      0%   { transform: rotate(0deg)   translateX(9px) rotate(0deg); opacity: 1; }
+      50%  { transform: rotate(180deg) translateX(9px) rotate(-180deg); opacity: 0.35; }
+      100% { transform: rotate(360deg) translateX(9px) rotate(-360deg); opacity: 1; }
+    }
+    @keyframes nx-ps-orbit-back {
+      0%   { transform: rotate(0deg)   translateX(13px) rotate(0deg); opacity: 0.5; }
+      50%  { transform: rotate(180deg) translateX(13px) rotate(-180deg); opacity: 1; }
+      100% { transform: rotate(360deg) translateX(13px) rotate(-360deg); opacity: 0.5; }
+    }
+    @keyframes nx-ps-orbit-tiny-a {
+      0%   { transform: rotate(45deg)  translateX(7px) rotate(-45deg); opacity: 0.85; }
+      50%  { opacity: 0.3; }
+      100% { transform: rotate(405deg) translateX(7px) rotate(-405deg); opacity: 0.85; }
+    }
+    @keyframes nx-ps-orbit-tiny-b {
+      0%   { transform: rotate(135deg) translateX(11px) rotate(-135deg); opacity: 0.45; }
+      50%  { opacity: 1; }
+      100% { transform: rotate(495deg) translateX(11px) rotate(-495deg); opacity: 0.45; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .nx-ps-status-dot, .nx-ps-orbit,
+      .nx-ps-status-dot::before, .nx-ps-status-dot::after { animation: none !important; }
+    }
+
+    /* ─── STATUS-CHANGE SHEET ────────────────────────────────────
+       Bottom-sheet that opens when the beacon is tapped. Lets a
+       contractor at the unit pick what was done, then writes
+       equipment.status + a maintenance log entry. */
+    .nx-ps-status-sheet-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      pointer-events: none;
+    }
+    .nx-ps-status-sheet-bg {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      opacity: 0;
+      pointer-events: auto;
+      transition: opacity 200ms ease;
+    }
+    .nx-ps-status-sheet-overlay.is-open .nx-ps-status-sheet-bg { opacity: 1; }
+    .nx-ps-status-sheet {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      background: var(--ps-bg);
+      color: var(--ps-text);
+      border-top: 1px solid var(--ps-border-strong);
+      border-radius: 18px 18px 0 0;
+      padding: 8px 18px calc(env(safe-area-inset-bottom, 0px) + 18px);
+      max-height: 88vh;
+      overflow-y: auto;
+      transform: translateY(100%);
+      transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+      pointer-events: auto;
+      box-shadow: 0 -16px 48px rgba(0, 0, 0, 0.45);
+    }
+    .nx-ps-status-sheet-overlay.is-open .nx-ps-status-sheet { transform: translateY(0); }
+    .nx-ps-status-sheet-handle {
+      width: 40px; height: 4px;
+      background: var(--ps-border-strong);
+      border-radius: 999px;
+      margin: 8px auto 16px;
+    }
+    .nx-ps-status-sheet-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 19px;
+      font-weight: 700;
+      color: var(--ps-text);
+      margin-bottom: 2px;
+    }
+    .nx-ps-status-sheet-sub {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 11px;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--ps-faint);
+      margin-bottom: 18px;
+    }
+
+    /* State group */
+    .nx-ps-status-sheet-group {
+      margin-bottom: 14px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--ps-border);
+    }
+    .nx-ps-status-sheet-group:last-of-type { border-bottom: 0; }
+    .nx-ps-status-sheet-group-head {
+      margin: 4px 0 8px;
+    }
+    .nx-ps-status-sheet-group-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      border: 1px solid var(--ps-border-strong);
+      background: rgba(212, 164, 78, 0.06);
+      color: var(--ps-accent);
+    }
+    .nx-ps-status-sheet-group-dot {
+      width: 7px; height: 7px;
+      background: #d4a44e;
+      border-radius: 50%;
+      box-shadow: 0 0 4px rgba(212,164,78,0.7);
+    }
+    .nx-ps-status-sheet-group-pill.is-down .nx-ps-status-sheet-group-dot { background: #5a4a30; box-shadow: none; }
+
+    /* Selectable row */
+    .nx-ps-status-sheet-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      padding: 12px 14px;
+      margin-bottom: 6px;
+      background: var(--ps-surface);
+      border: 1px solid var(--ps-border);
+      border-radius: 10px;
+      color: var(--ps-text);
+      font-family: 'Outfit', sans-serif;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      text-align: left;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+    .nx-ps-status-sheet-row:hover {
+      background: var(--ps-elevated);
+      border-color: var(--ps-border-strong);
+    }
+    .nx-ps-status-sheet-row.is-selected {
+      background: rgba(212, 164, 78, 0.18);
+      border-color: var(--ps-accent);
+      box-shadow: 0 0 0 2px rgba(212, 164, 78, 0.20);
+    }
+    .nx-ps-status-sheet-row-text { flex: 1; min-width: 0; }
+    .nx-ps-status-sheet-row-label {
+      font-size: 14.5px;
+      font-weight: 600;
+      color: var(--ps-text);
+      margin-bottom: 2px;
+    }
+    .nx-ps-status-sheet-row-hint {
+      font-size: 12px;
+      color: var(--ps-faint);
+    }
+    .nx-ps-status-sheet-row-check {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      border: 1.5px solid var(--ps-border-strong);
+      flex-shrink: 0;
+      position: relative;
+      transition: background 120ms, border-color 120ms;
+    }
+    .nx-ps-status-sheet-row.is-selected .nx-ps-status-sheet-row-check {
+      background: var(--ps-accent);
+      border-color: var(--ps-accent);
+    }
+    .nx-ps-status-sheet-row.is-selected .nx-ps-status-sheet-row-check::after {
+      content: '';
+      position: absolute;
+      top: 5px; left: 8px;
+      width: 5px; height: 9px;
+      border-right: 2px solid #fff;
+      border-bottom: 2px solid #fff;
+      transform: rotate(45deg);
+    }
+
+    /* Notes + actions */
+    .nx-ps-status-sheet-notes-label {
+      display: block;
+      margin: 16px 0 6px;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 10.5px;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--ps-faint);
+    }
+    .nx-ps-status-sheet-notes {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--ps-surface);
+      border: 1px solid var(--ps-border-strong);
+      border-radius: 10px;
+      color: var(--ps-text);
+      font-family: 'Outfit', sans-serif;
+      font-size: 14px;
+      resize: vertical;
+      min-height: 70px;
+    }
+    .nx-ps-status-sheet-notes:focus {
+      outline: none;
+      border-color: var(--ps-accent);
+    }
+    .nx-ps-status-sheet-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .nx-ps-status-sheet-cancel,
+    .nx-ps-status-sheet-confirm {
+      flex: 1;
+      padding: 14px 16px;
+      border-radius: 12px;
+      font-family: 'Outfit', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 140ms ease, transform 100ms ease;
+    }
+    .nx-ps-status-sheet-cancel {
+      background: transparent;
+      border: 1px solid var(--ps-border-strong);
+      color: var(--ps-text);
+    }
+    .nx-ps-status-sheet-cancel:hover { background: var(--ps-surface); }
+    .nx-ps-status-sheet-confirm {
+      background: linear-gradient(135deg, #d4a44e 0%, #8b6914 100%);
+      border: 0;
+      color: #1a1408;
+      box-shadow: 0 6px 18px -4px rgba(212, 164, 78, 0.45);
+    }
+    .nx-ps-status-sheet-confirm:disabled {
+      background: var(--ps-elevated);
+      color: var(--ps-faint);
+      box-shadow: none;
+      cursor: not-allowed;
+    }
+    .nx-ps-status-sheet-confirm:not(:disabled):active { transform: scale(0.97); }
+
+    /* Soft success toast after save */
+    .nx-ps-status-toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+      transform: translateX(-50%) translateY(40px);
+      padding: 11px 18px;
+      background: rgba(28, 20, 8, 0.92);
+      color: #d4a44e;
+      border: 1px solid rgba(212, 164, 78, 0.4);
+      border-radius: 999px;
+      font-family: 'Outfit', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      z-index: 10001;
+      opacity: 0;
+      transition: opacity 220ms ease, transform 220ms ease;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+      pointer-events: none;
+    }
+    .nx-ps-status-toast.is-on {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
     }
 
     /* Banners — tonal surface cards, accent-tinted left border */
@@ -1335,38 +1721,26 @@
       `).join('')}
     ` : '';
 
-    // SERVICED BY block — surfaces the contractor + their specialty
-    // tags ("duties") right on the public scan page so the tech who
-    // scanned can see at a glance who handles this unit. When phone is
-    // present, the call CTA lives inside this block instead of below
-    // (cleaner grouping). When no contractor is assigned, the block
-    // is omitted entirely so the page stays focused.
+    // SERVICED BY block — surfaces the contractor + a tap-to-call CTA.
+    // Specialty tags ("hvac", "ac", "lowboy") were removed in v15.4 —
+    // the contractor's name is enough at a glance, and the chips
+    // crowded an already-busy card. The big Call button below the
+    // actions list now carries the phone CTA.
     const servicedByHTML = contact ? `
       <div class="nx-ps-serviced-by">
         <div class="nx-ps-serviced-by-label">Serviced by</div>
         <div class="nx-ps-serviced-by-name">${esc(contact.name)}</div>
-        ${(contact.tags && contact.tags.length) ? `
-          <div class="nx-ps-serviced-by-tags">
-            ${contact.tags.slice(0, 5).map(t => `<span class="nx-ps-serviced-by-tag">${esc(t)}</span>`).join('')}
-          </div>
-        ` : ''}
-        ${contact.phone ? `
-          <a href="${esc(contact.phoneHref)}" class="nx-ps-serviced-by-call" data-action="call-direct">
-            ${icon('phone')}<span>${esc(contact.phone)}</span>
-          </a>
-        ` : ''}
       </div>
     ` : '';
 
-    // The standalone Call CTA at the top of the action list is now
-    // redundant when SERVICED BY shows the phone too. Hide it in that
-    // case to avoid double-call buttons.
-    const callBtnHTML = (contact && !contact.phone) ? `
+    // Big Call button at the top of actions — same prominence as
+    // Log Service. Always shown when a contractor phone exists.
+    const callBtnHTML = (contact && contact.phone) ? `
       <button class="nx-ps-btn nx-ps-btn-call" data-action="call">
         <div class="nx-ps-btn-icon-wrap">${icon('phone')}</div>
         <div class="nx-ps-btn-label">
           <div class="nx-ps-btn-title">Call ${esc(contact.name)}</div>
-          <div class="nx-ps-btn-sub">${esc(contact.phone || '')}</div>
+          <div class="nx-ps-btn-sub">${esc(contact.phone)}</div>
         </div>
         <div class="nx-ps-btn-arrow">${icon('chevronRight', 16)}</div>
       </button>
@@ -1381,10 +1755,14 @@
             ${photoHTML}
             <h1 class="nx-ps-name">${esc(eq.name)}</h1>
             <div class="nx-ps-loc">${icon('mapPin', 13)} ${esc(eq.location || '')}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
-            <div class="nx-ps-status" style="color:${status.color}; border-color:${status.color}40;">
-              <span class="nx-ps-status-dot" style="background:${status.color};"></span>
-              ${esc(status.label)}
-            </div>
+            <button class="nx-ps-status" data-action="status-change" type="button" aria-label="Change equipment status">
+              <span class="nx-ps-status-dot is-${esc(eq.status || 'operational')}" aria-hidden="true">
+                <span class="nx-ps-orbit nx-ps-orbit-fore"></span>
+                <span class="nx-ps-orbit nx-ps-orbit-back"></span>
+              </span>
+              <span class="nx-ps-status-label">${esc(status.label)}</span>
+              <span class="nx-ps-status-edit-hint">tap to change</span>
+            </button>
             ${banners.join('')}
             <div class="nx-ps-specs">
               <div><div class="nx-ps-spec-label">Manufacturer</div><div class="nx-ps-spec-val">${esc(eq.manufacturer || '—')}</div></div>
@@ -1397,6 +1775,7 @@
             ${historyHTML}
             ${servicedByHTML}
             <div class="nx-ps-actions">
+              ${callBtnHTML}
               <button class="nx-ps-btn nx-ps-btn-primary" data-action="log-service">
                 <div class="nx-ps-btn-icon-wrap">${icon('wrench')}</div>
                 <div class="nx-ps-btn-label">
@@ -1405,7 +1784,6 @@
                 </div>
                 <div class="nx-ps-btn-arrow">${icon('chevronRight', 16)}</div>
               </button>
-              ${callBtnHTML}
               <button class="nx-ps-btn nx-ps-btn-issue" data-action="report">
                 <div class="nx-ps-btn-icon-wrap">${icon('alert')}</div>
                 <div class="nx-ps-btn-label">
@@ -1457,6 +1835,8 @@
         openIssueModal(eq, { mode: 'report' });
       } else if (action === 'login') {
         window.location.href = loginUrl;
+      } else if (action === 'status-change') {
+        openStatusChangeSheet(eq, sb);
       }
     });
 
@@ -1494,6 +1874,199 @@
   // when, and which equipment — so no one calls behind anyone's back and
   // no issue ever disappears into a phone tree. Same modal serves both
   // paths so UX is consistent.
+  // ─── 9.5  STATUS CHANGE SHEET — bottom-sheet that lets a contractor
+  // at the unit update its current status. Tapped from the beacon at
+  // the top of the scan card. Writes equipment.status + an
+  // equipment_maintenance log entry so the change is auditable.
+  //
+  // Each option maps to a target equipment.status:
+  //    operational  → "Repaired", "Serviced", "Cleaned"
+  //    needs_service→ "Waiting on parts (functional)", "Service scheduled", "Performance degraded"
+  //    down         → "Waiting on parts (down)", "Awaiting contractor", "Out of service"
+  //
+  // Optional notes textarea + Confirm button. After save, the page
+  // re-renders the beacon to reflect the new state.
+  function openStatusChangeSheet(eq, sb) {
+    // Define the status options grouped by target state. Each row
+    // carries the human label, the target status, and a short hint.
+    const OPTIONS = [
+      // OPERATIONAL — back to working
+      { key: 'repaired',     label: 'Repaired',                target: 'operational',   hint: 'Back to full working order' },
+      { key: 'serviced',     label: 'Serviced',                target: 'operational',   hint: 'Routine maintenance done' },
+      { key: 'cleaned',      label: 'Cleaned & restored',      target: 'operational',   hint: 'Cleaned, back in service' },
+      // NEEDS SERVICE — degraded but functional
+      { key: 'parts_func',   label: 'Waiting on parts (still functional)', target: 'needs_service', hint: 'Works but degraded — parts on order' },
+      { key: 'svc_sched',    label: 'Service scheduled',       target: 'needs_service', hint: 'Service appt booked' },
+      { key: 'degraded',     label: 'Performance degraded',    target: 'needs_service', hint: 'Working but underperforming' },
+      // DOWN — not functional
+      { key: 'parts_down',   label: 'Waiting on parts (down)', target: 'down',          hint: 'Not working — parts on order' },
+      { key: 'await_contr',  label: 'Awaiting contractor',     target: 'down',          hint: 'Need someone to come look' },
+      { key: 'out_of_svc',   label: 'Out of service',          target: 'down',          hint: 'Cannot use until further notice' },
+    ];
+
+    // Build the sheet
+    const sheet = document.createElement('div');
+    sheet.className = 'nx-ps-status-sheet-overlay';
+    sheet.innerHTML = `
+      <div class="nx-ps-status-sheet-bg" data-action="close-sheet"></div>
+      <div class="nx-ps-status-sheet">
+        <div class="nx-ps-status-sheet-handle"></div>
+        <div class="nx-ps-status-sheet-title">Update status</div>
+        <div class="nx-ps-status-sheet-sub">${esc(eq.name)} — what's been done?</div>
+
+        <div class="nx-ps-status-sheet-group" data-group="operational">
+          <div class="nx-ps-status-sheet-group-head">
+            <span class="nx-ps-status-sheet-group-pill is-operational">
+              <span class="nx-ps-status-sheet-group-dot"></span> Operational
+            </span>
+          </div>
+          ${OPTIONS.filter(o => o.target === 'operational').map(o => `
+            <button class="nx-ps-status-sheet-row" type="button" data-status-key="${esc(o.key)}" data-status-target="${esc(o.target)}" data-status-label="${esc(o.label)}">
+              <div class="nx-ps-status-sheet-row-text">
+                <div class="nx-ps-status-sheet-row-label">${esc(o.label)}</div>
+                <div class="nx-ps-status-sheet-row-hint">${esc(o.hint)}</div>
+              </div>
+              <span class="nx-ps-status-sheet-row-check"></span>
+            </button>
+          `).join('')}
+        </div>
+
+        <div class="nx-ps-status-sheet-group" data-group="needs_service">
+          <div class="nx-ps-status-sheet-group-head">
+            <span class="nx-ps-status-sheet-group-pill is-needs-service">
+              <span class="nx-ps-status-sheet-group-dot"></span> Needs Service
+            </span>
+          </div>
+          ${OPTIONS.filter(o => o.target === 'needs_service').map(o => `
+            <button class="nx-ps-status-sheet-row" type="button" data-status-key="${esc(o.key)}" data-status-target="${esc(o.target)}" data-status-label="${esc(o.label)}">
+              <div class="nx-ps-status-sheet-row-text">
+                <div class="nx-ps-status-sheet-row-label">${esc(o.label)}</div>
+                <div class="nx-ps-status-sheet-row-hint">${esc(o.hint)}</div>
+              </div>
+              <span class="nx-ps-status-sheet-row-check"></span>
+            </button>
+          `).join('')}
+        </div>
+
+        <div class="nx-ps-status-sheet-group" data-group="down">
+          <div class="nx-ps-status-sheet-group-head">
+            <span class="nx-ps-status-sheet-group-pill is-down">
+              <span class="nx-ps-status-sheet-group-dot"></span> Down
+            </span>
+          </div>
+          ${OPTIONS.filter(o => o.target === 'down').map(o => `
+            <button class="nx-ps-status-sheet-row" type="button" data-status-key="${esc(o.key)}" data-status-target="${esc(o.target)}" data-status-label="${esc(o.label)}">
+              <div class="nx-ps-status-sheet-row-text">
+                <div class="nx-ps-status-sheet-row-label">${esc(o.label)}</div>
+                <div class="nx-ps-status-sheet-row-hint">${esc(o.hint)}</div>
+              </div>
+              <span class="nx-ps-status-sheet-row-check"></span>
+            </button>
+          `).join('')}
+        </div>
+
+        <label class="nx-ps-status-sheet-notes-label">Notes (optional)</label>
+        <textarea class="nx-ps-status-sheet-notes" id="nxPsStatusNotes" rows="3" placeholder="Anything else — names, part numbers, ETA…" maxlength="500"></textarea>
+
+        <div class="nx-ps-status-sheet-actions">
+          <button class="nx-ps-status-sheet-cancel" type="button" data-action="close-sheet">Cancel</button>
+          <button class="nx-ps-status-sheet-confirm" type="button" disabled id="nxPsStatusConfirm">Confirm</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(sheet);
+    requestAnimationFrame(() => sheet.classList.add('is-open'));
+
+    let selectedKey = null;
+    let selectedTarget = null;
+    let selectedLabel = null;
+
+    const close = () => {
+      sheet.classList.remove('is-open');
+      setTimeout(() => sheet.remove(), 200);
+    };
+
+    sheet.addEventListener('click', async (e) => {
+      const t = e.target;
+      if (t.closest('[data-action="close-sheet"]')) { close(); return; }
+      const row = t.closest('[data-status-key]');
+      if (row) {
+        // Visually toggle: clear all, set this one
+        sheet.querySelectorAll('.nx-ps-status-sheet-row').forEach(r => r.classList.remove('is-selected'));
+        row.classList.add('is-selected');
+        selectedKey    = row.dataset.statusKey;
+        selectedTarget = row.dataset.statusTarget;
+        selectedLabel  = row.dataset.statusLabel;
+        const confirm = sheet.querySelector('#nxPsStatusConfirm');
+        if (confirm) {
+          confirm.disabled = false;
+          confirm.textContent = `Confirm: ${selectedLabel}`;
+        }
+        return;
+      }
+      if (t.closest('#nxPsStatusConfirm')) {
+        if (!selectedTarget) return;
+        const notes = (sheet.querySelector('#nxPsStatusNotes') || {}).value || '';
+        const confirmBtn = sheet.querySelector('#nxPsStatusConfirm');
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Saving…';
+        try {
+          // 1. Update equipment.status
+          const { error: updErr } = await sb.from('equipment')
+            .update({ status: selectedTarget })
+            .eq('id', eq.id);
+          if (updErr) throw updErr;
+
+          // 2. Write a maintenance log entry — auditable trail of who
+          // changed status to what, when. event_type 'status_change'
+          // distinguishes these from regular service/PM events.
+          const { error: logErr } = await sb.from('equipment_maintenance').insert({
+            equipment_id: eq.id,
+            event_type: 'status_change',
+            description: `${selectedLabel}${notes ? ' — ' + notes.trim() : ''}`,
+            performed_by: 'QR scan',
+            event_date: new Date().toISOString(),
+          });
+          if (logErr) {
+            // Status update succeeded; log entry failed. Not fatal —
+            // user might be on a database without the trigger / table
+            // permissions. Surface a softer warning rather than
+            // rolling back.
+            console.warn('[scan] maint log failed:', logErr);
+          }
+
+          // 3. Update the in-memory eq + re-render the beacon dot
+          //    in place so the user sees the new state immediately.
+          eq.status = selectedTarget;
+          const dot = document.querySelector('.nx-ps-status-dot');
+          if (dot) {
+            dot.className = `nx-ps-status-dot is-${selectedTarget}`;
+          }
+          // Update the visible label too (status.label was computed
+          // earlier; we'll uppercase the target for now).
+          const lbl = document.querySelector('.nx-ps-status-label');
+          if (lbl) lbl.textContent = selectedTarget.replace(/_/g, ' ').toUpperCase();
+
+          close();
+          // Soft success indicator — temporary toast
+          const toast = document.createElement('div');
+          toast.className = 'nx-ps-status-toast';
+          toast.textContent = `✓ Status updated: ${selectedLabel}`;
+          document.body.appendChild(toast);
+          requestAnimationFrame(() => toast.classList.add('is-on'));
+          setTimeout(() => {
+            toast.classList.remove('is-on');
+            setTimeout(() => toast.remove(), 250);
+          }, 2400);
+        } catch (err) {
+          console.error('[scan] status update failed:', err);
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = `Save failed — try again`;
+        }
+      }
+    });
+  }
+
   function openIssueModal(eq, { mode, contact } = {}) {
     const isCall = mode === 'call';
     const commonIssues = [
