@@ -290,7 +290,17 @@
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
     state.poolHistory[poolKey] = [picked, ...history].slice(0, histSize);
     persistPoolHistory();
-    return picked;
+    return substituteVars(picked);
+  }
+  // v17.6: replace {name} (and other vars) with user data
+  function substituteVars(text) {
+    if (!text || typeof text !== 'string') return text;
+    if (text.indexOf('{') === -1) return text;
+    const name = (state.preferences && state.preferences.user_name) || 'friend';
+    return text
+      .replace(/\{name\}/g, name)
+      .replace(/\{streak\}/g, String(state.preferences && state.preferences.daily_streak || 0))
+      .replace(/\{score\}/g, String(state.minigameScore || 0));
   }
   function persistPoolHistory() {
     try { localStorage.setItem('clippy_pool_history', JSON.stringify(state.poolHistory)); } catch (e) {}
@@ -301,6 +311,266 @@
       if (raw) state.poolHistory = JSON.parse(raw) || {};
     } catch (e) { state.poolHistory = {}; }
   }
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.7 MEMORY NODES — deposit/recall system
+  //   Clippy deposits significant moments as memory nodes. The galaxy
+  //   (or any listener) renders them. Nodes persist in localStorage and
+  //   are the source of truth — galaxy is just one possible viewer.
+  //
+  // v17.8 MEMORY PALACE — Roman method-of-loci. Every memory is also
+  //   filed into one of seven thematic rooms (atrium, tablinum, lararium,
+  //   triclinium, bibliotheca, hortus, peristylium). Cicero used this
+  //   technique; now Trajan does too.
+  // ════════════════════════════════════════════════════════════════════
+  const MAX_MEMORIES = 200;
+  const CORNERSTONE_TYPES = ['first_meet', 'anniversary'];   // never auto-dropped
+  const MEMORY_COLORS = {
+    first_meet:       '#ff4d8a',    // pink — the moment we met
+    name_set:         '#ffd24a',    // gold — you gave me your name
+    milestone:        '#7df0ff',    // cyan — click milestones
+    streak:           '#9adff5',    // pale cyan — daily streaks
+    special_day:      '#cbb0f5',    // lavender — holidays
+    first_view_visit: '#a8e4ff',    // pale blue — exploration
+    anniversary:      '#ff6e9e',    // hot pink — annual return
+    costume_unlock:   '#ffec70',    // bright yellow — unlocked accessories
+  };
+
+  // v17.8: Roman memory palace structure. Seven rooms; each memory
+  // node is auto-assigned to one based on type. Galaxy may render
+  // each room as a distinct cluster/sector for spatial categorization.
+  const PALACE_ROOMS = {
+    atrium: {
+      label: 'Atrium',
+      description: 'The entrance — first encounters and identity.',
+      glyph: '🏛️',
+      color: '#ffd24a',
+    },
+    tablinum: {
+      label: 'Tablinum',
+      description: 'The records office — milestones and achievements.',
+      glyph: '📜',
+      color: '#7df0ff',
+    },
+    lararium: {
+      label: 'Lararium',
+      description: 'The household shrine — sacred days and anniversaries.',
+      glyph: '🕯️',
+      color: '#cbb0f5',
+    },
+    bibliotheca: {
+      label: 'Bibliotheca',
+      description: 'The library — knowledge and discovery.',
+      glyph: '📚',
+      color: '#a8e4ff',
+    },
+    triclinium: {
+      label: 'Triclinium',
+      description: 'The dining hall — conversations and moments shared.',
+      glyph: '🍇',
+      color: '#9adff5',
+    },
+    hortus: {
+      label: 'Hortus',
+      description: 'The garden — joy, compliments, and small delights.',
+      glyph: '🌿',
+      color: '#7fffa8',
+    },
+    peristylium: {
+      label: 'Peristylium',
+      description: 'The colonnade — paths walked together over time.',
+      glyph: '🏺',
+      color: '#ff9bbb',
+    },
+  };
+
+  // Map memory types → palace rooms. Auto-categorization.
+  function roomForType(type) {
+    switch (type) {
+      case 'first_meet':       return 'atrium';
+      case 'name_set':         return 'atrium';
+      case 'milestone':        return 'tablinum';
+      case 'streak':           return 'tablinum';
+      case 'anniversary':      return 'lararium';
+      case 'special_day':      return 'lararium';
+      case 'first_view_visit': return 'bibliotheca';
+      case 'costume_unlock':   return 'hortus';
+      case 'conversation':     return 'triclinium';
+      case 'journey':          return 'peristylium';
+      default:                 return 'atrium';
+    }
+  }
+
+  function loadMemories() {
+    try {
+      const raw = localStorage.getItem('clippy_memories');
+      state.memories = raw ? (JSON.parse(raw) || []) : [];
+    } catch (e) { state.memories = []; }
+  }
+  function saveMemories() {
+    try { localStorage.setItem('clippy_memories', JSON.stringify(state.memories || [])); } catch (e) {}
+  }
+
+  // Deposit a memory node. Called on significant events. Saves to disk,
+  // notifies the galaxy via NX.galaxy.addClippyMemory() if present, AND
+  // broadcasts the 'clippy:memory-deposited' event so any other listener
+  // can render or process it. High-importance deposits also surface a
+  // brief "I'll remember this" bubble.
+  function depositMemory(type, label, data, importance) {
+    if (!state.memories) loadMemories();
+    importance = Math.max(1, Math.min(5, importance || 2));
+    const room = roomForType(type);
+    const node = {
+      id: 'mem_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8),
+      type: type,
+      label: label,
+      data: data || {},
+      importance: importance,
+      timestamp: new Date().toISOString(),
+      source: 'clippy',
+      room: room,                          // v17.8: palace room assignment
+      hint: {
+        color: MEMORY_COLORS[type] || '#7df0ff',
+        size: importance * 2,
+        pulse: importance >= 4,
+        room: room,                        // also surfaced in hint for galaxy
+        room_color: PALACE_ROOMS[room].color,
+      },
+    };
+    state.memories.push(node);
+    // Cap at MAX_MEMORIES: cornerstones never dropped; otherwise lowest-
+    // importance + oldest drops first.
+    if (state.memories.length > MAX_MEMORIES) {
+      const sorted = state.memories.slice().sort((a, b) => {
+        const aCorner = CORNERSTONE_TYPES.includes(a.type) ? 1 : 0;
+        const bCorner = CORNERSTONE_TYPES.includes(b.type) ? 1 : 0;
+        if (aCorner !== bCorner) return bCorner - aCorner;
+        if (a.importance !== b.importance) return b.importance - a.importance;
+        return new Date(b.timestamp) - new Date(a.timestamp);
+      });
+      state.memories = sorted.slice(0, MAX_MEMORIES);
+    }
+    saveMemories();
+    // Galaxy notification — try direct API first, then dispatch event
+    try {
+      if (window.NX && window.NX.galaxy && typeof window.NX.galaxy.addClippyMemory === 'function') {
+        window.NX.galaxy.addClippyMemory(node);
+      }
+      window.dispatchEvent(new CustomEvent('clippy:memory-deposited', { detail: node }));
+    } catch (e) {}
+    // Visible feedback: subtle gold sparkle on every deposit
+    if (state.shell && state.enabled && !state.suppressed) {
+      try { spawnParticles({ count: 2, type: 'sparkle' }); } catch (_) {}
+    }
+    // High-importance deposits get a delayed "I'll remember this" bubble
+    if (importance >= 4 && state.enabled) {
+      setTimeout(() => {
+        if (!state.bubble && state.enabled && !state.suppressed) {
+          spawnParticles({ count: 6, type: 'sparkle' });
+          mood('sparkle', 3000);
+          bubble(pickFromPool('memory_deposited'), { autoHide: 4500, eyebrow: 'MEMORY' });
+        }
+      }, 5500);
+    }
+    return node;
+  }
+
+  // Pull a random memory (optionally filtered). Used for recall bubbles.
+  function recallRandomMemory(filter) {
+    if (!state.memories || !state.memories.length) return null;
+    let candidates = state.memories;
+    if (typeof filter === 'function') candidates = candidates.filter(filter);
+    if (!candidates.length) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  // Show a recall bubble — "Earlier today: ..." / "Long ago: ..."
+  function showRecallBubble() {
+    const mem = recallRandomMemory();
+    if (!mem) return false;
+    const days = Math.floor((Date.now() - new Date(mem.timestamp).getTime()) / 86400000);
+    let prefix;
+    if (days <= 0)       prefix = 'Earlier today: ';
+    else if (days === 1) prefix = 'Yesterday: ';
+    else if (days < 7)   prefix = `${days} days ago: `;
+    else if (days < 31)  prefix = 'A few weeks ago: ';
+    else if (days < 90)  prefix = 'A while back: ';
+    else if (days < 365) prefix = 'Months ago: ';
+    else                 prefix = 'A year+ ago: ';
+    mood('thinking', 5500);
+    bubble(prefix + mem.label, { autoHide: 6000, eyebrow: 'MEMORY' });
+    return true;
+  }
+
+  // v17.8: aggregate the memory bank — counts per room, totals, oldest/newest.
+  // Used by the galaxy or any UI that wants to summarize the palace.
+  function getMemoryBank() {
+    const mems = state.memories || [];
+    const rooms = {};
+    Object.keys(PALACE_ROOMS).forEach(r => {
+      rooms[r] = Object.assign({}, PALACE_ROOMS[r], { count: 0, memories: [] });
+    });
+    let oldest = null, newest = null;
+    mems.forEach(m => {
+      const r = m.room || roomForType(m.type);
+      if (rooms[r]) {
+        rooms[r].count++;
+        rooms[r].memories.push(m);
+      }
+      const t = new Date(m.timestamp).getTime();
+      if (!oldest || t < new Date(oldest.timestamp).getTime()) oldest = m;
+      if (!newest || t > new Date(newest.timestamp).getTime()) newest = m;
+    });
+    // Sort each room's memories by timestamp descending
+    Object.keys(rooms).forEach(r => {
+      rooms[r].memories.sort((a, b) =>
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+    });
+    return {
+      total: mems.length,
+      capacity: MAX_MEMORIES,
+      rooms: rooms,
+      oldest: oldest,
+      newest: newest,
+      cornerstones: mems.filter(m => CORNERSTONE_TYPES.includes(m.type)),
+    };
+  }
+
+  // v17.8: tour the memory palace — Clippy reads off room summaries
+  // one at a time via chained bubbles. Triggered by long-press menu.
+  function tourPalace() {
+    const bank = getMemoryBank();
+    if (bank.total === 0) {
+      bubble("My memory palace is empty. Let's fill it together!", { autoHide: 4500, eyebrow: 'MEMORY' });
+      return;
+    }
+    closeActionBubble();
+    mood('thinking', 8000);
+    const occupied = Object.entries(bank.rooms).filter(([k, r]) => r.count > 0);
+    if (!occupied.length) return;
+    let i = 0;
+    const showNext = () => {
+      if (i >= occupied.length || !state.enabled) {
+        // Final bubble: total
+        setTimeout(() => {
+          bubble(`That's ${bank.total} memories across ${occupied.length} rooms. Thank you for them all.`,
+            { autoHide: 5500, eyebrow: 'PALACE' });
+          mood('love', 4000);
+          spawnParticles({ count: 8, type: 'heart' });
+        }, 500);
+        return;
+      }
+      const [key, room] = occupied[i++];
+      bubble(`${room.glyph} ${room.label}: ${room.count} ${room.count === 1 ? 'memory' : 'memories'}. ${room.description}`,
+        { autoHide: 5000, eyebrow: room.label.toUpperCase() });
+      spawnParticles({ count: 3, type: 'sparkle' });
+      setTimeout(showNext, 5400);
+    };
+    showNext();
+  }
+
+
 
 
   // ─── Preferences ────────────────────────────────────────────────────
@@ -448,12 +718,20 @@
         longPressFired: false,
         pointerId: e.pointerId,
       };
-      // v17.4: 3-second long-press → menu. Plain tap → quick fun bubble.
+      // v17.4: 3s long-press → menu. v17.5: keep holding 2 more (5s total)
+      // → dismiss confirmation. Plain tap → quick fun bubble.
       drag.longPressTimer = setTimeout(() => {
         if (!drag || drag.moved || drag.longPressFired) return;
         drag.longPressFired = true;
         try { if (navigator.vibrate) navigator.vibrate(30); } catch (_) {}
         showWhatsUp();
+        // Chain a 2-additional-second timer for direct-dismiss
+        drag.dismissTimer = setTimeout(() => {
+          if (!drag || drag.moved) return;
+          drag.dismissFired = true;
+          try { if (navigator.vibrate) navigator.vibrate([25, 40, 25]); } catch (_) {}
+          showDismissConfirm();
+        }, 2000);
       }, 3000);
       shell.classList.add('is-dragging');
     });
@@ -467,10 +745,14 @@
       const dx = e.clientX - drag.startX;
       const dy = e.clientY - drag.startY;
       if (Math.abs(dx) + Math.abs(dy) < 6) return;
-      // Movement detected → cancel long-press timer
+      // Movement detected → cancel long-press AND dismiss timers
       if (drag.longPressTimer) {
         clearTimeout(drag.longPressTimer);
         drag.longPressTimer = null;
+      }
+      if (drag.dismissTimer) {
+        clearTimeout(drag.dismissTimer);
+        drag.dismissTimer = null;
       }
       // First time we cross the drag threshold → playful chirp
       if (!drag.moved) {
@@ -500,9 +782,12 @@
       drag = null;
       shell.classList.remove('is-dragging');
       try { shell.releasePointerCapture(e.pointerId); } catch (_) {}
-      // Always clear any pending long-press timer
+      // Always clear any pending long-press / dismiss timers
       if (finished.longPressTimer) {
         clearTimeout(finished.longPressTimer);
+      }
+      if (finished.dismissTimer) {
+        clearTimeout(finished.dismissTimer);
       }
       if (finished.moved) {
         // Save new position
@@ -619,7 +904,20 @@
         total === 250  ? 'excited' : 'happy';
       mood(milestoneMood, 4500);
       play('hop');
+      // v17.6: particle burst + tone scaled to milestone size
+      const partCount = total === 1000 ? 28 : total === 500 ? 20 : total === 250 ? 14 : 10;
+      const partType = total === 1000 ? 'heart' : 'confetti';
+      spawnParticles({ count: partCount, type: partType });
+      playTone('milestone');
       bubble(pickFromPool('milestone_' + total), { autoHide: 4500 });
+      // v17.7: deposit click-milestone memory
+      const milestoneImportance = total === 1000 ? 5 : total === 500 ? 4 : total === 250 ? 3 : 2;
+      depositMemory(
+        'milestone',
+        `You reached ${total} taps.`,
+        { count: total },
+        milestoneImportance
+      );
       savePreferences();
       return;
     }
@@ -646,22 +944,44 @@
 
   // Short-tap response: random pool with matching expression.
   function showQuickBubble() {
+    // v17.6: tactile feedback — sparkle + boop on every tap
+    spawnParticles({ count: 4, type: 'sparkle' });
+    playTone('boop');
+    // v17.7: 8% chance to recall a memory if we have at least 3 stored
+    if (state.memories && state.memories.length >= 3 && Math.random() < 0.08) {
+      if (showRecallBubble()) return;
+    }
     const r = Math.random();
-    if (r < 0.28) {
+    if (r < 0.18) {
+      // v17.6: occasional name-personalized bubble
+      bubble(pickFromPool('name_random'), { autoHide: 4200 });
+      mood('happy', 3800);
+    } else if (r < 0.32) {
       bubble(pickFromPool('roman_facts'), { eyebrow: 'ROMA', autoHide: 5800 });
       mood('thinking', 5500);
-    } else if (r < 0.48) {
+    } else if (r < 0.42) {
       bubble(pickFromPool('whimsical_idle'), { autoHide: 3800 });
-    } else if (r < 0.62) {
+    } else if (r < 0.50) {
       bubble(pickFromPool('dad_jokes'), { autoHide: 4500 });
       mood('winking', 3800);
-    } else if (r < 0.76) {
-      bubble(pickFromPool('compliments'), { autoHide: 3800 });
+    } else if (r < 0.60) {
+      // v17.6: name-aware compliments — more emotional impact
+      bubble(pickFromPool('name_compliment'), { autoHide: 3800 });
       mood('love', 3800);
-    } else if (r < 0.86) {
+      spawnParticles({ count: 3, type: 'heart' });
+    } else if (r < 0.70) {
       bubble(pickFromPool('latin_phrases'), { eyebrow: 'LATINA', autoHide: 4500 });
       mood('determined', 4000);
-    } else if (r < 0.94) {
+    } else if (r < 0.78) {
+      // v17.5: multilang hi or bye
+      const which = Math.random() < 0.6 ? 'multilang_hi' : 'multilang_bye';
+      bubble(pickFromPool(which), { eyebrow: 'POLYGLOT', autoHide: 4500 });
+      mood('happy', 3500);
+    } else if (r < 0.85) {
+      // v17.5: random translation
+      bubble(pickFromPool('translations'), { eyebrow: 'LINGUA', autoHide: 5000 });
+      mood('thinking', 4500);
+    } else if (r < 0.93) {
       bubble(pickFromPool('self_aware'), { autoHide: 3800 });
       mood('smug', 3500);
     } else {
@@ -827,18 +1147,74 @@
 
   // ─── "What's up?" tap menu ──────────────────────────────────────────
   function showWhatsUp() {
-    actionBubble("what's up?", {
-      actions: [
-        { label: 'Open menu', cls: 'is-primary', onClick: openPalette },
-        { label: 'Just hi 👋', onClick: () => { play('wave'); mood('happy', 2000); bubble('hi!'); }},
-        { label: 'Quiet, plz', onClick: hideForSession },
-        { label: 'Send away', cls: 'is-danger', onClick: declineToJoin },
-      ]
-    });
+    const soundOn = state.preferences.sound_enabled !== false;
+    const memCount = (state.memories || []).length;
+    const actions = [
+      { label: 'Open menu', cls: 'is-primary', onClick: openPalette },
+      { label: 'Set my name', onClick: askForName },
+    ];
+    if (memCount >= 3) {
+      actions.push({ label: `🏛️ Tour palace (${memCount})`, onClick: tourPalace });
+    }
+    actions.push(
+      { label: soundOn ? '🔊 Mute' : '🔇 Unmute', onClick: toggleSound },
+      { label: 'Quiet, plz', onClick: hideForSession },
+      { label: 'Send away', cls: 'is-danger', onClick: declineToJoin },
+    );
+    actionBubble("what's up?", { actions });
   }
   function hideForSession() {
     if (state.shell) state.shell.classList.add('is-hidden');
     state.enabled = false;
+  }
+
+  // v17.6: user names Clippy's relationship — gets called by name in dialog
+  function askForName() {
+    closeActionBubble();
+    const current = state.preferences.user_name || '';
+    const newName = prompt('What should I call you?', current);
+    if (newName && newName.trim()) {
+      const cleanName = newName.trim().slice(0, 24);
+      const previousName = state.preferences.user_name;
+      state.preferences.user_name = cleanName;
+      savePreferences();
+      mood('love', 4000);
+      bubble(`Got it! Nice to meet you, ${cleanName}! 💙`, { autoHide: 4500 });
+      spawnParticles({ count: 12, type: 'heart' });
+      // v17.7: deposit memory node
+      depositMemory(
+        'name_set',
+        previousName
+          ? `You changed your name from ${previousName} to ${cleanName}.`
+          : `You told me your name is ${cleanName}.`,
+        { name: cleanName, previous: previousName || null },
+        4
+      );
+    }
+  }
+
+  // v17.6: optional sound effects toggle
+  function toggleSound() {
+    closeActionBubble();
+    const enabled = state.preferences.sound_enabled !== false;
+    state.preferences.sound_enabled = !enabled;
+    savePreferences();
+    if (state.preferences.sound_enabled) {
+      playTone('boop');
+      bubble(pickFromPool('sound_on'), { autoHide: 2500 });
+    } else {
+      bubble(pickFromPool('sound_off'), { autoHide: 2500 });
+    }
+  }
+
+  // v17.5: 5-second hold → direct dismiss confirmation. Skipping the menu.
+  function showDismissConfirm() {
+    actionBubble(pickFromPool('dismiss_confirm'), {
+      actions: [
+        { label: 'No, stay!',     cls: 'is-primary', onClick: () => closeActionBubble() },
+        { label: 'Yes, dismiss',  cls: 'is-danger',  onClick: declineToJoin },
+      ]
+    });
   }
 
 
@@ -855,13 +1231,20 @@
     state.preferences.enabled = true;
     state.preferences.reject_count = 0;
     state.preferences.session_count = (state.preferences.session_count || 0) + 1;
+    // v17.6: record first-acceptance date for anniversary detection
+    if (!state.preferences.accepted_at) {
+      state.preferences.accepted_at = new Date().toISOString();
+    }
     savePreferences();
     state.enabled = true;
     if (state.shell) {
-      state.shell.classList.remove('is-peeking', 'is-peek-entering');
+      state.shell.classList.remove('is-peeking', 'is-peek-entering', 'is-peek-eyes-only');
     }
     mood('happy', 3500);
     play('hop');
+    // v17.6: celebration burst on acceptance
+    spawnParticles({ count: 16, type: 'confetti' });
+    playTone('milestone');
     setTimeout(() => moveToEmptyCorner(), 900);
     setTimeout(() => bubble(pickFromPool('after_yes')), 1200);
     startBlinking();
@@ -869,6 +1252,17 @@
     startMovingAround();
     afterJoinSchedule();
     timeAwareGreeting();
+    // v17.6: streak init + special day check
+    const streakInfo = checkDailyStreak();
+    celebrateStreak(streakInfo.streak, streakInfo.isMilestone, streakInfo.event);
+    celebrateSpecialDay(checkSpecialDay());
+    // v17.7: deposit the cornerstone "first meet" memory node
+    depositMemory(
+      'first_meet',
+      'We met for the first time.',
+      { accepted_at: state.preferences.accepted_at },
+      5
+    );
   }
   function declineToJoin() {
     state.preferences.enabled = false;
@@ -1103,6 +1497,15 @@
     state.preferences.position_x = Math.round(x);
     state.preferences.position_y = Math.round(y);
     savePreferences();
+    // v17.5: hop animation + quirky remark on the way
+    play('hop');
+    if (state.enabled && !state.bubble && Math.random() < 0.35) {
+      setTimeout(() => {
+        if (state.enabled && !state.bubble && !state.suppressed) {
+          bubble(pickFromPool('moving_remarks'), { autoHide: 2200 });
+        }
+      }, 250);
+    }
   }
   function startContentAwareness() {
     const checkOverlays = () => {
@@ -1155,7 +1558,9 @@
       }
     }, { capture: true });
 
-    // Move out of way when input near him gets focused
+    // Move out of way when input near him gets focused — UNLESS he's
+    // feeling attention-seeky (12% chance), in which case he moves
+    // ONTO the input to block it. Quirky.
     document.addEventListener('focusin', (e) => {
       if (!state.enabled || !state.shell) return;
       const t = e.target;
@@ -1170,7 +1575,13 @@
       const verticalConflict = Math.abs(
         (inputRect.top + inputRect.bottom) / 2 - (shellRect.top + shellRect.bottom) / 2
       ) < 120;
-      if (overlap || verticalConflict) moveToEmptyCorner();
+      if (overlap || verticalConflict) {
+        if (Math.random() < 0.12 && !state.bubble) {
+          blockInputAttention(t, inputRect);
+        } else {
+          moveToEmptyCorner();
+        }
+      }
     });
 
     // ─── TAB VISIBILITY (v15.6) ──────────────────────────────────────
@@ -1237,6 +1648,65 @@
         }
       }
     }, { passive: true });
+
+    // ─── VIEW CONTEXT AWARENESS (v17.5) ──────────────────────────────
+    // NEXUS marks the active view via `.nav-tab.active[data-view]`. When
+    // it changes, occasionally bubble a context-specific remark so he
+    // feels aware of which screen you're on. Quirky and contextual.
+    let lastView = null;
+    let lastViewBubbleAt = 0;
+    setInterval(() => {
+      if (!state.enabled || !state.shell || state.suppressed) return;
+      const active = document.querySelector('.nav-tab.active[data-view], .bnav-btn.active[data-view]');
+      const view = active ? active.getAttribute('data-view') : null;
+      if (view && view !== lastView) {
+        lastView = view;
+        // v17.7: deposit memory on FIRST visit to a NEXUS view
+        const visited = state.preferences.visited_views || {};
+        if (!visited[view]) {
+          visited[view] = new Date().toISOString();
+          state.preferences.visited_views = visited;
+          savePreferences();
+          const viewLabel = {
+            home: 'Home', clean: 'Duties', log: 'Log', board: 'Board',
+            cal: 'Calendar', equipment: 'Equipment', education: 'Education',
+            train: 'Training', inventory: 'Inventory', brain: 'NEXUS brain',
+          }[view] || view;
+          depositMemory('first_view_visit', `You explored ${viewLabel} for the first time.`, { view }, 2);
+        }
+        // Only react if it's been 25+ seconds since last view bubble,
+        // and a fresh switch (not initial detection). Also random gate.
+        const now = Date.now();
+        if (now - lastViewBubbleAt > 25_000 && Math.random() < 0.55 && !state.bubble) {
+          lastViewBubbleAt = now;
+          const pool = 'context_' + view;
+          // Only fire if a pool actually exists for this view
+          if (state.dialog && state.dialog[pool] && state.dialog[pool].length) {
+            setTimeout(() => {
+              if (!state.bubble && state.enabled) {
+                bubble(pickFromPool(pool), { autoHide: 4200 });
+              }
+            }, 600);
+          }
+        }
+      }
+    }, 2000);
+  }
+  // is focusing. After ~3.5s, politely retreat. Quirky behavior, ~12%.
+  function blockInputAttention(inputEl, inputRect) {
+    if (!state.shell) return;
+    const shellW = state.shell.offsetWidth || 120;
+    const shellH = state.shell.offsetHeight || 120;
+    const cx = inputRect.left + inputRect.width / 2 - shellW / 2;
+    const cy = Math.max(40, inputRect.top - shellH / 3);
+    moveTo(Math.max(8, Math.min(window.innerWidth - shellW - 8, cx)), cy);
+    mood('smug', 3500);
+    bubble(pickFromPool('attention_seeking'), { autoHide: 2800 });
+    setTimeout(() => {
+      if (state.enabled && state.shell) {
+        moveToEmptyCorner();
+      }
+    }, 3800);
   }
 
   // ─── TIME-AWARE GREETING (v15.6) ──────────────────────────────────
@@ -1575,11 +2045,206 @@
   }
 
 
+  // ════════════════════════════════════════════════════════════════════
+  // v17.6 ePet FEATURES — particles, streaks, special days, sound
+  // ════════════════════════════════════════════════════════════════════
+
+  // ─── PARTICLE EFFECTS ─────────────────────────────────────────────
+  // Lightweight DOM-based particles burst around Clippy on key moments:
+  // sparkles on tap, hearts on love, confetti on milestones. Each
+  // particle is a tiny div, animated via CSS, auto-removed after 1.5s.
+  function spawnParticles(opts) {
+    opts = opts || {};
+    const count = opts.count || 6;
+    const type = opts.type || 'sparkle';   // sparkle | heart | confetti
+    const host = ensureHost();
+    if (!host || !state.shell) return;
+    const r = state.shell.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    for (let i = 0; i < count; i++) {
+      const p = document.createElement('div');
+      p.className = 'clippy-particle clippy-particle-' + type;
+      // Random direction + distance
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 30 + Math.random() * 60;
+      const tx = Math.cos(angle) * dist;
+      const ty = Math.sin(angle) * dist - 15;  // bias upward
+      p.style.left = (cx - 6) + 'px';
+      p.style.top  = (cy - 6) + 'px';
+      p.style.setProperty('--tx', tx + 'px');
+      p.style.setProperty('--ty', ty + 'px');
+      p.style.setProperty('--rot', (Math.random() * 720 - 360) + 'deg');
+      p.style.animationDelay = (Math.random() * 120) + 'ms';
+      host.appendChild(p);
+      setTimeout(() => { try { p.remove(); } catch (_) {} }, 1700);
+    }
+  }
+
+  // ─── WEB AUDIO SOUND EFFECTS ──────────────────────────────────────
+  // Tiny synthesized tones via Web Audio API. No asset files. Off by
+  // default; user toggles via menu. Respects autoplay policies via
+  // user-gesture init (called from menu toggle or tap).
+  let audioCtx = null;
+  function getAudioCtx() {
+    if (audioCtx) return audioCtx;
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) { audioCtx = null; }
+    return audioCtx;
+  }
+  function playTone(kind) {
+    if (state.preferences.sound_enabled === false) return;
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    let freq, dur, type, peak;
+    switch (kind) {
+      case 'boop':    freq = 880;  dur = 0.08; type = 'sine';     peak = 0.10; break;
+      case 'sparkle': freq = 1760; dur = 0.20; type = 'triangle'; peak = 0.07; break;
+      case 'hop':     freq = 520;  dur = 0.10; type = 'sine';     peak = 0.12; break;
+      case 'bzzt':    freq = 220;  dur = 0.15; type = 'square';   peak = 0.05; break;
+      case 'mwah':    freq = 700;  dur = 0.18; type = 'sine';     peak = 0.10; break;
+      case 'milestone': freq = 1320; dur = 0.50; type = 'triangle'; peak = 0.12; break;
+      default:        freq = 660;  dur = 0.10; type = 'sine';     peak = 0.10;
+    }
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, now);
+    if (kind === 'hop') osc.frequency.exponentialRampToValueAtTime(freq * 1.4, now + dur * 0.6);
+    if (kind === 'milestone') {
+      // chord: arpeggio
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.setValueAtTime(1100, now + 0.1);
+      osc.frequency.setValueAtTime(1320, now + 0.2);
+    }
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(peak, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    osc.start(now);
+    osc.stop(now + dur + 0.05);
+  }
+
+  // ─── DAILY STREAK ─────────────────────────────────────────────────
+  // Tracks consecutive-day visits. Triggers celebration bubbles at
+  // milestone counts (2, 3, 7, 14, 30, 50, 100, 365).
+  function checkDailyStreak() {
+    const todayStr = new Date().toDateString();
+    const last = state.preferences.last_session_date;
+    let streak = state.preferences.daily_streak || 0;
+    let event = null;   // 'continued', 'broken', 'first'
+    if (last === todayStr) {
+      // Same day, no change
+      return { streak, event: 'same_day', isMilestone: false };
+    }
+    if (!last) {
+      streak = 1;
+      event = 'first';
+    } else {
+      const lastDate = new Date(last);
+      const diff = Math.floor((Date.now() - lastDate.getTime()) / 86400000);
+      if (diff === 1) {
+        streak += 1;
+        event = 'continued';
+      } else {
+        if (streak > 1) event = 'broken';
+        streak = 1;
+      }
+    }
+    state.preferences.daily_streak = streak;
+    state.preferences.last_session_date = todayStr;
+    savePreferences();
+    const milestoneSteps = [2, 3, 7, 14, 30, 50, 100, 365];
+    const isMilestone = milestoneSteps.includes(streak);
+    return { streak, event, isMilestone };
+  }
+  function celebrateStreak(streak, isMilestone, event) {
+    if (event === 'broken') {
+      setTimeout(() => bubble(pickFromPool('streak_broken'), { autoHide: 4500 }), 2500);
+      return;
+    }
+    if (!isMilestone) return;
+    const pool = 'streak_' + streak;
+    setTimeout(() => {
+      mood('sparkle', 5000);
+      play('hop');
+      spawnParticles({ count: 18, type: 'confetti' });
+      playTone('milestone');
+      bubble(pickFromPool(pool), { autoHide: 6000, eyebrow: 'STREAK' });
+    }, 2800);
+    // v17.7: deposit streak-milestone memory
+    const streakImportance = streak >= 365 ? 5 : streak >= 100 ? 5 : streak >= 30 ? 4 : streak >= 7 ? 3 : 3;
+    depositMemory(
+      'streak',
+      `You hit a ${streak}-day streak.`,
+      { streak },
+      streakImportance
+    );
+  }
+
+  // ─── SPECIAL DAYS ─────────────────────────────────────────────────
+  // Detect Roman / Western special dates and surface themed bubbles.
+  function checkSpecialDay() {
+    const d = new Date();
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    if (m === 12 && day >= 17 && day <= 23) return 'saturnalia';
+    if (m === 12 && day === 25)            return 'christmas';
+    if ((m === 12 && day === 31) || (m === 1 && day === 1)) return 'new_year';
+    if (m === 10 && day === 31)            return 'halloween';
+    if (m === 2  && day === 14)            return 'valentines';
+    if (m === 3  && day === 15)            return 'ides_of_march';
+    if (m === 4  && day === 21)            return 'rome_birthday';
+    // User's anniversary with Clippy
+    const accepted = state.preferences.accepted_at;
+    if (accepted) {
+      const a = new Date(accepted);
+      if (a.getMonth() === d.getMonth() && a.getDate() === d.getDate()
+          && a.getFullYear() < d.getFullYear()) {
+        return 'anniversary';
+      }
+    }
+    return null;
+  }
+  function celebrateSpecialDay(key) {
+    if (!key) return;
+    const pool = (key === 'anniversary') ? 'anniversary' : ('special_day_' + key);
+    setTimeout(() => {
+      if (state.bubble || !state.enabled) return;
+      mood('sparkle', 5500);
+      play('hop');
+      spawnParticles({ count: 20, type: 'confetti' });
+      playTone('milestone');
+      bubble(pickFromPool(pool), { autoHide: 7000, eyebrow: key.toUpperCase().replace('_', ' ') });
+    }, 4500);
+    // v17.7: deposit special-day memory (deduped per year via data.year)
+    const year = new Date().getFullYear();
+    const existing = (state.memories || []).find(m =>
+      m.type === (key === 'anniversary' ? 'anniversary' : 'special_day')
+      && m.data && m.data.key === key && m.data.year === year
+    );
+    if (!existing) {
+      depositMemory(
+        key === 'anniversary' ? 'anniversary' : 'special_day',
+        key === 'anniversary'
+          ? `We celebrated our anniversary in ${year}.`
+          : `We observed ${key.replace(/_/g, ' ')} together in ${year}.`,
+        { key, year },
+        key === 'anniversary' ? 5 : 3
+      );
+    }
+  }
+
+
   // ─── INIT ───────────────────────────────────────────────────────────
   async function init() {
     if (state.initialized) return;
     state.initialized = true;
     loadPoolHistory();
+    loadMemories();                 // v17.7: load deposited memory nodes
     await loadDialog();
     await loadPreferences();
     wireGlobalListeners();
@@ -1600,18 +2265,77 @@
       // the only path that called timeAwareGreeting was acceptJoin(),
       // which only fires during onboarding.
       timeAwareGreeting();
+      // v17.6: daily streak + special day celebrations
+      const streakInfo = checkDailyStreak();
+      celebrateStreak(streakInfo.streak, streakInfo.isMilestone, streakInfo.event);
+      celebrateSpecialDay(checkSpecialDay());
     } else if (shouldShowComeback()) {
-      // Pre-acceptance peek
+      // v17.5: peek with ONLY HIS EYES visible, from a random spot.
+      // Each session a different place. The is-peek-eyes-only class
+      // clips the SVG to the eye band so the rest of the body hides.
       await buildShell();
-      state.shell.classList.add('is-peek-entering');
-      requestAnimationFrame(() => {
-        state.shell.classList.remove('is-peek-entering');
-        state.shell.classList.add('is-peeking');
-      });
+      state.shell.classList.add('is-peek-eyes-only');
+      positionPeekRandomly();
       play('wave');
       startContentAwareness();
-      setTimeout(offerToJoinBubble, 1300);
+      // Use peek_question pool for variety in the welcome wording
+      setTimeout(() => {
+        actionBubble(pickFromPool('peek_question'), {
+          actions: [
+            { label: 'Yes!',      cls: 'is-primary', onClick: acceptToJoin },
+            { label: 'Not today', onClick: declineToJoin },
+          ]
+        });
+      }, 1300);
     }
+  }
+
+  // v17.5: position the shell at a random spot for the peek state.
+  // Avoids the central PIN/coin area; biases to the four edges so he
+  // looks like he's poking his eyes out from behind the corner.
+  function positionPeekRandomly() {
+    if (!state.shell) return;
+    const w = window.innerWidth, h = window.innerHeight;
+    const shellW = 120, shellH = 120;
+    const margin = 16;
+    // Choose a random corner quadrant — never the same as last session
+    const quadrants = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right'];
+    const last = state.preferences.last_peek_quadrant;
+    const avail = quadrants.filter(q => q !== last);
+    const q = avail[Math.floor(Math.random() * avail.length)];
+    state.preferences.last_peek_quadrant = q;
+    savePreferences();
+    let x, y;
+    switch (q) {
+      case 'top-left':
+        x = margin + Math.random() * (w * 0.15);
+        y = margin + Math.random() * (h * 0.10);
+        break;
+      case 'top-right':
+        x = w - shellW - margin - Math.random() * (w * 0.15);
+        y = margin + Math.random() * (h * 0.10);
+        break;
+      case 'bottom-left':
+        x = margin + Math.random() * (w * 0.15);
+        y = h - shellH - margin - Math.random() * (h * 0.10);
+        break;
+      case 'bottom-right':
+        x = w - shellW - margin - Math.random() * (w * 0.15);
+        y = h - shellH - margin - Math.random() * (h * 0.10);
+        break;
+      case 'middle-left':
+        x = margin;
+        y = h * 0.35 + Math.random() * (h * 0.2);
+        break;
+      case 'middle-right':
+        x = w - shellW - margin;
+        y = h * 0.35 + Math.random() * (h * 0.2);
+        break;
+    }
+    state.shell.style.left = Math.round(x) + 'px';
+    state.shell.style.top  = Math.round(y) + 'px';
+    state.shell.style.right  = 'auto';
+    state.shell.style.bottom = 'auto';
   }
 
 
@@ -1664,6 +2388,44 @@
     switchAgent: () => {},   // no-op (legacy API, no longer applies)
     enable: () => { state.preferences.enabled = true; savePreferences(); init(); },
     disable: declineToJoin,
+
+    // ─── v17.7/8 MEMORY-NODE + PALACE API (for galaxy.js to consume) ──
+    // The galaxy can register a new layer that consumes these. Either
+    // poll getMemories() at render time, OR listen for the live event:
+    //   window.addEventListener('clippy:memory-deposited', e => e.detail)
+    // OR define window.NX.galaxy.addClippyMemory(node) and Clippy will
+    // call it directly the moment a memory is deposited.
+    //
+    // v17.8 adds the memory palace — seven Roman rooms organize nodes:
+    //   atrium, tablinum, lararium, bibliotheca, triclinium, hortus, peristylium
+    getMemories: () => (state.memories || []).slice(),
+    getMemoryCount: () => (state.memories || []).length,
+    getMemoryColors: () => Object.assign({}, MEMORY_COLORS),
+    getMemoryBank: getMemoryBank,                  // summary of all rooms + counts
+    getPalaceRooms: () => Object.assign({}, PALACE_ROOMS),
+    getRoomMemories: (room) => (state.memories || []).filter(m =>
+      (m.room || 'atrium') === room
+    ),
+    tourPalace: tourPalace,
+    depositMemory,                                 // external code can also deposit
+    forgetMemory: (id) => {
+      if (!state.memories) return false;
+      const before = state.memories.length;
+      state.memories = state.memories.filter(m => m.id !== id);
+      saveMemories();
+      try { window.dispatchEvent(new CustomEvent('clippy:memory-forgotten', { detail: { id } })); } catch (_) {}
+      return state.memories.length < before;
+    },
+    clearMemories: () => {
+      state.memories = [];
+      saveMemories();
+      try { window.dispatchEvent(new CustomEvent('clippy:memories-cleared')); } catch (_) {}
+    },
+    onMemoryDeposit: (cb) => {
+      const handler = (e) => cb(e.detail);
+      window.addEventListener('clippy:memory-deposited', handler);
+      return () => window.removeEventListener('clippy:memory-deposited', handler);
+    },
   };
 
   function tryInit() {
