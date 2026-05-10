@@ -33,6 +33,7 @@
 <link rel="stylesheet" href="css/cleaning-system.css">
 <link rel="stylesheet" href="css/cleaning-roster.css">
 <link rel="stylesheet" href="css/education-system.css">
+<link rel="stylesheet" href="css/clippy.css">
 <link rel="stylesheet" href="css/training-system.css">
 <link rel="stylesheet" href="css/galaxy.css">
 <link rel="stylesheet" href="css/equipment.css">
@@ -2934,6 +2935,8 @@
 <script src="js/nx-email.js"></script>
 <script src="js/nx-archive.js"></script>
 <script src="js/app.js"></script>
+<!-- Clippy — companion / proactive helper. Self-bootstrapping after NX exists. -->
+<script src="js/clippy.js" defer></script>
 <!-- record-editor.js MUST come AFTER app.js — the engine attaches to the
      lexical `const NX` declared in app.js, which is not a property on
      window. Loading order is the only way to make that binding visible
