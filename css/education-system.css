@@ -997,3 +997,80 @@
   font-size: 12px;
   font-family: 'JetBrains Mono', monospace;
 }
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   v15.2 polish — subtitle, module description bar, emblem, embed fallback
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Subtitle under "School of NEXUS" — small terminal-style stat line */
+.edu-subtitle {
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e);
+  opacity: 0.62;
+}
+
+/* Module description bar — appears under the module pills when the
+   selected module has a description. Subtle, italicized, gold-bordered. */
+.edu-module-context {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 14px 10px;
+  padding: 9px 12px;
+  border-left: 2px solid var(--nx-gold, #d4a44e);
+  background: linear-gradient(90deg, rgba(212,164,78,0.06), rgba(212,164,78,0));
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--nx-text-secondary, #b9b3a5);
+  border-radius: 0 6px 6px 0;
+}
+.edu-module-context svg {
+  margin-top: 2px;
+  color: var(--nx-gold, #d4a44e);
+  flex-shrink: 0;
+}
+
+/* Empty-state emblem — the big graduation cap (or module icon) above
+   the "No modules yet" / "No lessons" message. Faded gold, classical. */
+.edu-empty-emblem {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 18px;
+  color: var(--nx-gold, #d4a44e);
+  opacity: 0.35;
+  filter: drop-shadow(0 2px 6px rgba(212,164,78,0.15));
+}
+.edu-empty-emblem svg {
+  width: 64px;
+  height: 64px;
+}
+
+/* Embed fallback link — shown below the iframe in case it doesn't load
+   (X-Frame-Options blocking, network failure, or simply not embeddable). */
+.edu-embed-fallback {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 14px 18px;
+  padding: 10px 14px;
+  background: rgba(212,164,78,0.08);
+  border: 1px solid rgba(212,164,78,0.22);
+  border-radius: 8px;
+  color: var(--nx-gold, #d4a44e);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 200ms ease, transform 100ms ease;
+}
+.edu-embed-fallback:hover,
+.edu-embed-fallback:active {
+  background: rgba(212,164,78,0.15);
+  transform: translateY(-1px);
+}
