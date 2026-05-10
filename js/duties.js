@@ -100,10 +100,14 @@
       trainBtn.addEventListener('click', (e) => {
         e.preventDefault();
         if (window.NX && typeof NX.switchTo === 'function') {
-          NX.switchTo('train');
+          // The dedicated Education/Training view is registered as
+          // 'education' in app.js's moduleMap, NOT 'train'. Sending
+          // 'train' was the bug that made tapping the launcher do
+          // nothing (or apparently leave you on cleaning).
+          NX.switchTo('education');
         } else {
           // Fallback for older builds — synthesize a tab click
-          const tab = document.querySelector('[data-view="train"]');
+          const tab = document.querySelector('[data-view="education"]');
           if (tab) tab.click();
         }
       });
