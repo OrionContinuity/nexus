@@ -224,6 +224,9 @@
     state.agent = await lib.initAgent(ctor);
     state.agent.show();
     state.agentDomEl = await waitForAgentEl();
+    // CRITICAL: move the agent into our top-layer popover host so it
+    // escapes all NEXUS stacking contexts (cards-on-top-of-clippy bug)
+    moveToTopLayer(state.agentDomEl);
     setupAgentInteractions();
     setupCostumeLayer();
     applySavedPosition();
@@ -248,7 +251,7 @@
       state.costumeLayer = document.createElement('div');
       state.costumeLayer.id = 'clippy-costume-layer';
       state.costumeLayer.style.display = 'none';
-      document.body.appendChild(state.costumeLayer);
+      ensureTopLayer().appendChild(state.costumeLayer);
     }
     if (state.costumeFrame) cancelAnimationFrame(state.costumeFrame);
     syncCostumePosition();
@@ -293,6 +296,60 @@
   }
 
 
+  // ─── TOP LAYER (the bulletproof stacking fix) ───────────────────────
+  // Modern browsers render popover-mode elements in a special "top layer"
+  // that escapes ALL stacking contexts. Even if NEXUS cards are wrapped
+  // in transform/filter parents, even if modals raise z-index, the top
+  // layer is on top. Period. We host Clippy + hit-target + bubbles +
+  // palette inside this popover so nothing can ever cover them.
+  //
+  // Spec: https://developer.mozilla.org/en-US/docs/Web/API/Popover_API
+  // Support: Chrome 114+ (May 2023), Safari 17+ (Sept 2023), Firefox 125+
+  function ensureTopLayer() {
+    if (state.topLayer && document.body.contains(state.topLayer)) return state.topLayer;
+    const host = document.createElement('div');
+    host.id = 'clippy-host';
+    host.setAttribute('popover', 'manual');
+    host.style.cssText = [
+      'position: fixed',
+      'inset: 0',
+      'width: 100vw',
+      'height: 100vh',
+      'pointer-events: none',         // pass clicks through; children opt in
+      'background: transparent',
+      'border: 0',
+      'padding: 0',
+      'margin: 0',
+      'overflow: visible',
+    ].join('; ');
+    document.body.appendChild(host);
+    try {
+      if (typeof host.showPopover === 'function') {
+        host.showPopover();
+        console.log('[clippy] top-layer (popover) active — bulletproof stacking');
+      } else {
+        // Fallback: max-int z-index. Less reliable but the best we can do.
+        host.style.zIndex = '2147483646';
+        console.warn('[clippy] popover unsupported — falling back to z-index 2147483646');
+      }
+    } catch (e) {
+      host.style.zIndex = '2147483646';
+      console.warn('[clippy] showPopover failed, using z-index fallback:', e);
+    }
+    state.topLayer = host;
+    return host;
+  }
+
+  // Move an element into our top-layer host (preserving event listeners)
+  function moveToTopLayer(el) {
+    if (!el) return;
+    const host = ensureTopLayer();
+    if (el.parentElement !== host) {
+      host.appendChild(el);
+    }
+  }
+
+
   // ─── Apply saved drag position (after agent loads) ──────────────────
   function applySavedPosition() {
     if (!state.agentDomEl) return;
@@ -327,16 +384,16 @@
     t.id = 'clippy-hit-target';
     t.style.cssText = [
       'position: fixed',
-      'z-index: 41',                  // above clippy (40), below bottom-nav (50)
       'background: transparent',
       'cursor: grab',
-      'pointer-events: auto',
+      'pointer-events: auto',         // opt in to click capture
       'touch-action: none',           // critical: stops iOS from hijacking
       '-webkit-user-select: none',
       'user-select: none',
       'display: none',
     ].join('; ');
-    document.body.appendChild(t);
+    // Append to TOP LAYER, not body — escapes all stacking contexts
+    ensureTopLayer().appendChild(t);
     state.hitTarget = t;
     attachHitHandlers(t);
     if (state.hitFrame) cancelAnimationFrame(state.hitFrame);
@@ -493,6 +550,27 @@
     });
   }
 
+  // Periodically reposition to an empty corner. Keeps Clippy out of
+  // the way without manual dragging. Runs every 60-90 seconds, with
+  // a 30% chance of actually moving so he doesn't feel jumpy.
+  function startMovingAround() {
+    if (state._moveTimer) return;
+    function loop() {
+      if (!state.enabled) return;
+      if (!state.preferences.do_not_disturb &&
+          !state.bubble &&
+          !state.palette &&
+          !state._suppressed &&
+          Math.random() < 0.3) {
+        moveToEmptyCorner();
+      }
+      // Random interval 60-90s
+      const next = 60_000 + Math.random() * 30_000;
+      state._moveTimer = setTimeout(loop, next);
+    }
+    state._moveTimer = setTimeout(loop, 30_000);  // first check after 30s
+  }
+
   // Programmatically move Clippy to the corner with the least UI noise.
   // Default heuristic: prefer top-right (least likely to have important
   // bottom-nav / FAB buttons), fall back to top-left.
@@ -638,10 +716,29 @@
     }
     if (opts.musicPlayer) body += renderMusicPlayer();
     el.innerHTML = `<button class="clippy-bubble-close" aria-label="Dismiss">×</button>${body}`;
-    document.body.appendChild(el);
+    // Hide while we calculate position (prevents flash at top-left of viewport
+    // before first layout). Append, force layout, position, then reveal.
+    el.style.visibility = 'hidden';
+    ensureTopLayer().appendChild(el);
     state.bubble = el;
-    positionActionBubble(el);
-    requestAnimationFrame(() => el.classList.add('is-visible'));
+
+    // Position on next frame (after layout) and refresh for ~1s in case
+    // the agent is still animating into place (peek animation, drag, etc.)
+    let positionFrames = 0;
+    function refreshPosition() {
+      if (state.bubble !== el || !document.body.contains(el)) return;
+      positionActionBubble(el);
+      positionFrames++;
+      if (positionFrames === 1) {
+        // Reveal after first positioning
+        el.style.visibility = '';
+        el.classList.add('is-visible');
+      }
+      if (positionFrames < 60) {  // refresh for ~1 second (60fps)
+        requestAnimationFrame(refreshPosition);
+      }
+    }
+    requestAnimationFrame(refreshPosition);
     el.querySelector('.clippy-bubble-close').addEventListener('click', () => {
       closeActionBubble();
       if (opts.onDismiss) opts.onDismiss();
@@ -663,19 +760,27 @@
   }
 
   function positionActionBubble(el) {
-    if (!state.agentDomEl) {
-      el.style.top = '50px';
-      el.style.right = '20px';
+    // Force layout flush
+    void el.offsetHeight;
+    const eRect = el.getBoundingClientRect();
+
+    // If we have no agent, or the agent rect is degenerate, position
+    // bubble in lower-right above where Clippy normally is
+    let rect = state.agentDomEl ? state.agentDomEl.getBoundingClientRect() : null;
+    if (!rect || rect.width === 0 || rect.height === 0) {
+      el.style.top  = (window.innerHeight - eRect.height - 200) + 'px';
+      el.style.left = (window.innerWidth  - eRect.width  - 24)  + 'px';
+      el.classList.add('tail-right');
       return;
     }
-    const rect = state.agentDomEl.getBoundingClientRect();
-    const eRect = el.getBoundingClientRect();
-    let top = rect.top - eRect.height - 24;
+
+    let top  = rect.top - eRect.height - 24;
     let left = rect.left + (rect.width / 2) - (eRect.width / 2);
-    left = Math.max(8, Math.min(window.innerWidth - eRect.width - 8, left));
-    top = Math.max(8, top);
-    el.style.top = top + 'px';
+    left = Math.max(8, Math.min(window.innerWidth  - eRect.width  - 8, left));
+    top  = Math.max(8, top);
+    el.style.top  = top  + 'px';
     el.style.left = left + 'px';
+    el.classList.remove('tail-left', 'tail-right');
     el.classList.add(rect.left < window.innerWidth / 2 ? 'tail-left' : 'tail-right');
   }
   function closeActionBubble() {
@@ -705,9 +810,16 @@
     state.preferences.session_count = (state.preferences.session_count || 0) + 1;
     savePreferences();
     state.enabled = true;
+    // Clear peek — pop into full visibility
+    if (state.agentDomEl) {
+      state.agentDomEl.classList.remove('is-peeking', 'is-peek-entering');
+    }
     tryPlay('Pleased');
-    setTimeout(() => bubble(pickFromPool('after_yes')), 600);
+    // Move to a good empty corner after the peek animation settles
+    setTimeout(() => moveToEmptyCorner(), 900);
+    setTimeout(() => bubble(pickFromPool('after_yes')), 1200);
     startRandomBehaviors();
+    startMovingAround();
     afterJoinSchedule();
   }
   function declineToJoin() {
@@ -970,7 +1082,7 @@
         <div class="clippy-palette-results"></div>
       </div>
     `;
-    document.body.appendChild(p);
+    ensureTopLayer().appendChild(p);
     state.palette = p;
     requestAnimationFrame(() => p.classList.add('is-open'));
     p.querySelector('.clippy-palette-bg').addEventListener('click', closePalette);
@@ -1061,7 +1173,7 @@
         </div>
       </div>
     `;
-    document.body.appendChild(sheet);
+    ensureTopLayer().appendChild(sheet);
     state.palette = sheet;
     requestAnimationFrame(() => sheet.classList.add('is-open'));
     sheet.querySelector('.clippy-palette-bg').addEventListener('click', closePalette);
@@ -1139,22 +1251,37 @@
       state.enabled = true;
       try {
         await loadAgent(state.agentName);
+        // After login: settle into a good empty corner
+        setTimeout(() => moveToEmptyCorner(), 800);
         tryPlay('Wave') || tryPlay('Show');
         startRandomBehaviors();
+        startMovingAround();
         afterJoinSchedule();
       } catch (e) {
         console.error('[clippy] agent init failed:', e);
       }
     } else if (shouldShowComeback()) {
       // Pre-acceptance / comeback — boot the REAL clippyjs Clippy
-      // (no legacy CSS-peek anymore). He appears, waves, and offers
-      // to join. Tap him or tap "Yes!" to accept.
+      // and have him "peek" up from below the viewport: only his head
+      // pokes above the screen edge. Tap him or "Yes!" to bring him in.
       try {
         await loadAgent(state.agentName || 'Clippy');
+        // Apply peek-entering state (off-screen below) THEN peek
+        if (state.agentDomEl) {
+          state.agentDomEl.classList.add('is-peek-entering');
+          // Clear any saved drag position during peek so he's at default
+          state.agentDomEl.style.left = '';
+          state.agentDomEl.style.top = '';
+          state.agentDomEl.style.right = '';
+          state.agentDomEl.style.bottom = '';
+          requestAnimationFrame(() => {
+            state.agentDomEl.classList.remove('is-peek-entering');
+            state.agentDomEl.classList.add('is-peeking');
+          });
+        }
         tryPlay('Wave') || tryPlay('Show');
-        // Brief pause so the wave animation registers before the
-        // bubble lands on top of him
-        setTimeout(() => offerToJoinBubble(), 1100);
+        // Brief pause so the peek-up animation lands first
+        setTimeout(() => offerToJoinBubble(), 1300);
       } catch (e) {
         console.error('[clippy] pre-acceptance load failed:', e);
       }
