@@ -1,0 +1,2202 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS Views — design system migration
+   ─────────────────────────────────────
+   This file overrides the visual styling of the cleaning, calendar,
+   board, and brain views from nexus.css. It does NOT replace those
+   sections — it loads AFTER them, and the cascade rules win.
+   
+   This is intentional. The original styles in nexus.css are battle-
+   tested with hundreds of edge cases (drag-drop, archived cards,
+   recurring contractor visits, etc.) Rewriting from scratch would
+   risk breaking working functionality. Instead we override only the
+   visual surface — colors, typography, spacing, button shapes — and
+   leave the structural/behavioral CSS intact.
+   
+   What this file changes per view:
+     CLEANING — header, tabs, progress, sections, items, footer
+     CALENDAR — header, grid, detail, events, upcoming strip
+     BOARD    — header, tabs, lists, cards, detail modal
+     BRAIN    — HUD search, list filters, events panel
+   
+   Load order: nexus.css → nx-system.css → equipment-system.css
+               → views-system.css (THIS FILE) → home.css → chat.css
+   ═══════════════════════════════════════════════════════════════════════ */
+
+
+/* ═════════════════════════════════════════════════════════════════
+   CLEANING
+   ════════════════════════════════════════════════════════════════ */
+
+.clean-header {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--nx-space-2) !important;
+  padding: var(--nx-space-3) var(--nx-space-4) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  flex-wrap: wrap !important;
+}
+.clean-tab {
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 9px 16px !important;
+  min-height: 40px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid transparent !important;
+  background: var(--nx-gold-faint) !important;
+  color: var(--nx-muted) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.3px !important;
+  cursor: pointer !important;
+  transition: background var(--nx-press), color var(--nx-press), border-color var(--nx-press) !important;
+}
+.clean-tab.active {
+  border-color: var(--nx-gold-line-2) !important;
+  color: var(--nx-gold) !important;
+  background: var(--nx-gold-soft) !important;
+  font-weight: 600 !important;
+}
+.clean-date {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-faint) !important;
+  margin-left: auto !important;
+  letter-spacing: 1px !important;
+  text-transform: uppercase !important;
+}
+
+/* Progress bar — calmer, gold-on-track instead of green→gold gradient */
+.clean-progress {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--nx-space-3) !important;
+  padding: var(--nx-space-3) var(--nx-space-4) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+}
+.clean-progress-label {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 9.5px !important;
+  letter-spacing: 1.6px !important;
+  color: var(--nx-faint) !important;
+  font-weight: 600 !important;
+  text-transform: uppercase;
+}
+.clean-track {
+  flex: 1 !important;
+  height: 4px !important;
+  background: var(--nx-surface-2) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  overflow: hidden !important;
+}
+.clean-fill {
+  height: 100% !important;
+  background: linear-gradient(90deg, var(--nx-gold-deep), var(--nx-gold)) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  transition: width 0.4s var(--nx-ease) !important;
+}
+.clean-pct {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-gold) !important;
+  font-weight: 600 !important;
+  min-width: 40px !important;
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Add-task bar */
+.clean-add-bar {
+  display: flex !important;
+  gap: var(--nx-space-2) !important;
+  padding: var(--nx-space-3) var(--nx-space-4) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  flex-wrap: wrap !important;
+}
+.clean-add-input,
+.clean-add-select {
+  background: var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  padding: 10px 12px !important;
+  min-height: 40px !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  outline: none !important;
+}
+.clean-add-input:focus,
+.clean-add-select:focus { border-color: var(--nx-gold-line-3) !important; }
+.clean-add-input { flex: 1; min-width: 120px; }
+.clean-add-input::placeholder { color: var(--nx-faint) !important; }
+.clean-add-btn {
+  padding: 10px 16px !important;
+  min-height: 40px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: none !important;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  color: var(--nx-gold-on) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.4px !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+  transition: transform var(--nx-press), background var(--nx-press) !important;
+}
+.clean-add-btn:active { transform: scale(0.97); }
+
+/* Section cards — soft elevated cards instead of subtle hairline */
+.clean-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--nx-space-3) var(--nx-space-4) var(--nx-space-9) !important;
+}
+.clean-sec {
+  border: 1px solid var(--nx-highlight-faint) !important;
+  border-radius: var(--nx-radius-card) !important;
+  margin-bottom: var(--nx-space-3) !important;
+  overflow: hidden !important;
+  background: var(--nx-surface-1) !important;
+  box-shadow: var(--nx-shadow-soft) !important;
+  transition: border-color 0.3s !important;
+}
+.clean-sec.complete {
+  border-left: 3px solid var(--nx-green) !important;
+  background: rgba(156, 138, 62, 0.03) !important;
+}
+.clean-sec-head {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--nx-space-3) !important;
+  padding: 14px 16px !important;
+  min-height: var(--nx-touch-min);
+  cursor: pointer !important;
+  user-select: none;
+}
+.clean-sec-check {
+  font-size: 16px !important;
+  color: var(--nx-faint) !important;
+  width: 22px;
+  text-align: center;
+}
+.clean-sec.complete .clean-sec-check { color: var(--nx-green) !important; }
+.clean-sec-arrow {
+  font-size: 11px !important;
+  color: var(--nx-faint) !important;
+  transition: transform 0.2s;
+}
+.clean-sec-title {
+  flex: 1;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-md) !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.005em;
+  color: var(--nx-text) !important;
+}
+.clean-sec-count {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-faint) !important;
+}
+.clean-check-all {
+  padding: 6px 12px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: transparent !important;
+  color: var(--nx-faint) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: 10.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.5px !important;
+  cursor: pointer !important;
+  margin-left: var(--nx-space-2) !important;
+  transition: color var(--nx-press), border-color var(--nx-press) !important;
+}
+.clean-sec.complete .clean-check-all {
+  border-color: var(--nx-green) !important;
+  color: var(--nx-green) !important;
+}
+
+/* Board-link badge — appears on overdue/due-soon non-daily sections.
+   Pill button next to the Check-All. Two states:
+     • "Add to board" — gold, prompts escalation
+     • "On board" — calmer, indicates a linked card already exists */
+.clean-link-board {
+  padding: 6px 11px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line-2) !important;
+  background: var(--nx-gold-soft) !important;
+  color: var(--nx-gold) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.3px !important;
+  cursor: pointer !important;
+  margin-left: 6px !important;
+  white-space: nowrap !important;
+  transition: background var(--nx-press), color var(--nx-press), border-color var(--nx-press) !important;
+}
+.clean-link-board:hover {
+  background: var(--nx-gold-faint) !important;
+  border-color: var(--nx-gold-line-3) !important;
+}
+.clean-link-board.is-on-board {
+  background: transparent !important;
+  border-color: rgba(156, 138, 62, 0.30) !important;
+  color: var(--nx-green) !important;
+}
+.clean-link-board.is-on-board:hover {
+  background: rgba(156, 138, 62, 0.08) !important;
+  border-color: rgba(156, 138, 62, 0.45) !important;
+}
+/* On phone-narrow screens, the section header gets crowded — hide
+   the long status text and just keep the badge + count. The status
+   info is still inferable from the badge color (red/amber/green). */
+@media (max-width: 460px) {
+  .clean-link-board {
+    padding: 5px 9px !important;
+    font-size: 10px !important;
+    margin-left: 4px !important;
+  }
+}
+.clean-sec-body { padding: 0 16px var(--nx-space-2) !important; }
+
+/* Individual cleaning items */
+.clean-item {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: var(--nx-space-3) !important;
+  padding: 14px var(--nx-space-2) !important;
+  border-bottom: 1px solid var(--nx-highlight-tint) !important;
+  cursor: pointer !important;
+  transition: opacity 0.2s, background var(--nx-press) !important;
+  min-height: var(--nx-touch-min) !important;
+  -webkit-tap-highlight-color: transparent;
+}
+.clean-item:active { background: var(--nx-gold-faint) !important; }
+.clean-item.done { opacity: 0.45 !important; }
+.ci-box {
+  width: 26px !important;
+  height: 26px !important;
+  border: 1.5px solid var(--nx-gold-line) !important;
+  border-radius: 7px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  font-size: 16px !important;
+  color: var(--nx-green) !important;
+  transition: all var(--nx-press) !important;
+}
+.clean-item.done .ci-box {
+  border-color: var(--nx-green) !important;
+  background: rgba(156, 138, 62, 0.1) !important;
+}
+.ci-primary {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-text) !important;
+  margin-bottom: 2px !important;
+  line-height: 1.4;
+}
+.ci-by {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 9.5px !important;
+  color: var(--nx-gold) !important;
+  background: var(--nx-gold-faint) !important;
+  padding: 2px 7px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  margin-left: var(--nx-space-2) !important;
+  vertical-align: middle;
+  letter-spacing: 0.5px;
+}
+.ci-secondary {
+  font-size: 11px !important;
+  color: var(--nx-faint) !important;
+  font-style: italic;
+}
+.ci-last {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10.5px !important;
+  color: var(--nx-green) !important;
+  margin-top: 3px !important;
+  opacity: 0.85 !important;
+  letter-spacing: 0.3px;
+}
+.ci-never { color: var(--nx-red) !important; opacity: 0.95 !important; }
+
+/* Status pills (overdue / due-soon / on-track) */
+.clean-overdue,
+.clean-due-soon,
+.clean-on-track {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 9.5px !important;
+  letter-spacing: 1.4px !important;
+  padding: 3px 9px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  margin-left: auto !important;
+  margin-right: var(--nx-space-2) !important;
+  font-weight: 600 !important;
+  text-transform: uppercase;
+}
+.clean-overdue { color: var(--nx-red) !important; background: var(--nx-red-soft) !important; }
+.clean-due-soon { color: var(--nx-amber) !important; background: var(--nx-gold-mist) !important; }
+.clean-on-track { color: var(--nx-green) !important; background: rgba(156, 138, 62, 0.10) !important; }
+
+/* Footer (Scan / Print / Submit) — v3 composition.
+
+   v2 (38px) was too small and the visual weights were uneven: Submit
+   was a giant gold pill while Scan/Print were small fadable circles
+   that read as orphaned afterthoughts. Critique was "horrendous" —
+   correct.
+
+   v3 fixes the imbalance with three principles:
+
+   1.  Equal heights. Every button sits at 48px tall on the same
+       baseline, so the row reads as one cohesive control surface
+       rather than a primary + two strays.
+
+   2.  Earned hierarchy. Submit dominates by being filled gold and
+       taking flex space — that's the primary action. Scan QR is a
+       gold-tinted square (clearly tappable, clearly secondary).
+       Print is a transparent square with faint icon — same shape
+       and size as Scan, just lower visual weight, signaling it's
+       the rarely-needed admin action.
+
+   3.  Square corners on icons, pill on submit. Submit's pill shape
+       differentiates it as the commit action; the squarish radius
+       on icon buttons (var(--nx-radius-card)) rhymes with the
+       checklist cards above without screaming for attention. */
+
+.clean-footer {
+  /* Float above bottom-nav (bnav is fixed; min-height ~60px + safe-area).
+     Bumped padding to 12px vertical to give 48px buttons breathing room. */
+  padding: 12px 14px !important;
+  border-top: 1px solid var(--nx-gold-line) !important;
+  background: var(--nx-bg) !important;
+  display: flex !important;
+  gap: 10px !important;
+  align-items: center !important;
+  position: sticky !important;
+  bottom: calc(48px + env(safe-area-inset-bottom, 0px)) !important;
+  z-index: 6;
+}
+
+/* Shared icon-button base — both Scan and Print follow this geometry.
+   Square with rounded corners, 48×48 tap target, icon centered via
+   ::before with SVG mask. font-size:0 hides any stray text node. */
+.clean-scan,
+.clean-export {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
+  padding: 0 !important;
+  border-radius: var(--nx-radius-card) !important;
+  font-size: 0 !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  transition:
+    background var(--nx-press),
+    color var(--nx-press),
+    border-color var(--nx-press),
+    transform var(--nx-press) !important;
+}
+.clean-scan::before,
+.clean-export::before {
+  content: '';
+  width: 20px;
+  height: 20px;
+  background-color: currentColor;
+}
+
+/* Scan QR — secondary action. Soft-gold filled background, gold icon.
+   Reads as "definitely a button, definitely useful." */
+.clean-scan {
+  border: 1px solid var(--nx-gold-line-2) !important;
+  background: var(--nx-gold-soft) !important;
+  color: var(--nx-gold) !important;
+}
+.clean-scan::before {
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z'/><circle cx='12' cy='13' r='3'/></svg>") no-repeat center;
+          mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z'/><circle cx='12' cy='13' r='3'/></svg>") no-repeat center;
+}
+.clean-scan:active {
+  background: var(--nx-gold-faint) !important;
+  border-color: var(--nx-gold-line-3) !important;
+  transform: scale(0.96);
+}
+
+/* Print — tertiary. Same shape as Scan but transparent bg + faint
+   icon, signaling "available but rarely needed." */
+.clean-export {
+  border: 1px solid var(--nx-gold-line) !important;
+  background: transparent !important;
+  color: var(--nx-faint) !important;
+}
+.clean-export::before {
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 6 2 18 2 18 9'/><path d='M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2'/><rect x='6' y='14' width='12' height='8'/></svg>") no-repeat center;
+          mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 6 2 18 2 18 9'/><path d='M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2'/><rect x='6' y='14' width='12' height='8'/></svg>") no-repeat center;
+}
+.clean-export:active {
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold-line-2) !important;
+  background: var(--nx-gold-mist) !important;
+  transform: scale(0.96);
+}
+
+/* Submit Report — primary action. Filled gold pill, dominates the
+   row by taking flex space and wearing the fill treatment. */
+.clean-submit {
+  flex: 1 1 auto !important;
+  padding: 0 22px !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: none !important;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  color: var(--nx-gold-on) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.4px !important;
+  cursor: pointer !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+  transition: background var(--nx-press), transform var(--nx-press) !important;
+}
+.clean-submit:active {
+  background: linear-gradient(180deg, var(--nx-gold-deep), var(--nx-gold-darker)) !important;
+  transform: scale(0.985);
+}
+
+/* The cleaning content area must reserve space at the bottom so the
+   last task row isn't hidden under the sticky footer. v3 footer is
+   ~72px tall (12+48+12) over the 60px bnav; ~140px clearance. */
+.cl-content,
+#cleanScroll,
+[data-clean-scroll] {
+  padding-bottom: 140px !important;
+  scroll-padding-bottom: 140px !important;
+}
+
+/* ─── Inline camera button on each checklist row ────────────────────
+   The little camera that sits at the right edge of each task row,
+   used to upload a "proof" photo of work done. Replaces the previous
+   emoji (camera/clock/check/cross) with a single ::before mask icon driven by a
+   `data-state` attribute. Same line-art family as the footer Scan
+   icon — keeps the visual vocabulary consistent across the screen. */
+.clean-cam {
+  position: absolute !important;
+  right: 8px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 32px !important; height: 32px !important;
+  background: none !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: 50% !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  opacity: 0.55;
+  transition: opacity .15s, border-color .15s, color .15s, background .15s !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  -webkit-tap-highlight-color: transparent !important;
+  font-size: 0 !important;  /* belt-and-suspenders: kill any text rendering */
+  color: var(--nx-faint);
+}
+.clean-cam:hover, .clean-cam:active { opacity: 1; color: var(--nx-gold); border-color: var(--nx-gold-line-2); }
+.clean-cam:disabled { cursor: default; opacity: 0.6; }
+
+/* Icon via mask — currentColor lets state classes recolor it. */
+.clean-cam::before {
+  content: '';
+  width: 16px; height: 16px;
+  background-color: currentColor;
+  -webkit-mask: var(--cam-icon, url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z'/><circle cx='12' cy='13' r='3'/></svg>")) no-repeat center / 16px 16px;
+  mask: var(--cam-icon, url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z'/><circle cx='12' cy='13' r='3'/></svg>")) no-repeat center / 16px 16px;
+}
+
+/* Pending — spinner (rotates a circle with a gap) */
+.clean-cam[data-state="pending"] { color: var(--nx-gold); opacity: 1; }
+.clean-cam[data-state="pending"]::before {
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'><path d='M21 12a9 9 0 1 1-6.219-8.56'/></svg>") no-repeat center / 16px 16px;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'><path d='M21 12a9 9 0 1 1-6.219-8.56'/></svg>") no-repeat center / 16px 16px;
+  animation: clean-spin 0.9s linear infinite;
+}
+@keyframes clean-spin { to { transform: rotate(360deg); } }
+
+/* Success — check mark in olive-bronze (success without scarlet/screaming green) */
+.clean-cam[data-state="ok"] { color: var(--nx-green, var(--green)); opacity: 1; border-color: currentColor !important; background: rgba(156,138,62,0.08) !important; }
+.clean-cam[data-state="ok"]::before {
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") no-repeat center / 14px 14px;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") no-repeat center / 14px 14px;
+}
+
+/* Error — X in oxblood */
+.clean-cam[data-state="err"] { color: var(--nx-red, var(--red)); opacity: 1; border-color: currentColor !important; background: var(--nx-red-faint) !important; }
+.clean-cam[data-state="err"]::before {
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'/><line x1='6' y1='6' x2='18' y2='18'/></svg>") no-repeat center / 14px 14px;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'/><line x1='6' y1='6' x2='18' y2='18'/></svg>") no-repeat center / 14px 14px;
+}
+
+
+/* ═════════════════════════════════════════════════════════════════
+   CALENDAR
+   ════════════════════════════════════════════════════════════════ */
+
+.cal-wrap {
+  padding: var(--nx-space-4) !important;
+  max-width: 600px !important;
+  margin: 0 auto !important;
+  width: 100% !important;
+}
+.cal-header {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--nx-space-2) !important;
+  padding: var(--nx-space-2) 0 var(--nx-space-5) !important;
+}
+.cal-title {
+  flex: 1 !important;
+  text-align: center !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xl) !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--nx-text) !important;
+}
+.cal-nav {
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: transparent !important;
+  color: var(--nx-text) !important;
+  font-size: 16px !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: background var(--nx-press), border-color var(--nx-press) !important;
+}
+.cal-nav:active {
+  background: var(--nx-gold-faint) !important;
+  border-color: var(--nx-gold-line-2) !important;
+}
+.cal-today {
+  padding: 8px 14px !important;
+  min-height: 36px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line-2) !important;
+  background: var(--nx-gold-faint) !important;
+  color: var(--nx-gold) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.3px !important;
+  cursor: pointer !important;
+  transition: background var(--nx-press) !important;
+}
+.cal-today:active { background: var(--nx-gold-soft) !important; }
+
+/* Weekday header */
+.cal-weekdays {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  color: var(--nx-faint) !important;
+  letter-spacing: 1.5px !important;
+  padding-bottom: var(--nx-space-2) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  text-transform: uppercase;
+}
+
+/* Calendar cells */
+.cal-cell {
+  border-radius: var(--nx-radius-tight) !important;
+  transition:
+    background var(--nx-press),
+    border-color var(--nx-press) !important;
+}
+.cal-cell:hover { background: var(--nx-surface-1) !important; }
+.cal-cell.selected {
+  background: var(--nx-gold-soft) !important;
+  border: 1px solid var(--nx-gold-line-2) !important;
+}
+.cal-cell.cal-today-cell .cal-num {
+  color: var(--nx-gold) !important;
+  font-weight: 700 !important;
+}
+.cal-num {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-text) !important;
+  font-variant-numeric: tabular-nums;
+}
+.cal-badge {
+  background: var(--nx-gold-soft) !important;
+  color: var(--nx-gold) !important;
+  font-family: var(--nx-font-mono) !important;
+  font-weight: 700 !important;
+}
+
+/* Detail panel */
+.cal-detail-date {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-gold) !important;
+  letter-spacing: 1.4px !important;
+  font-weight: 600 !important;
+  margin-bottom: var(--nx-space-3) !important;
+  background: var(--nx-bg) !important;
+  text-transform: uppercase;
+}
+.cal-detail-empty {
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-faint) !important;
+  padding: var(--nx-space-5) 0 !important;
+  text-align: center !important;
+}
+
+/* Event card */
+.cal-event {
+  display: flex !important;
+  gap: 0 !important;
+  margin-bottom: var(--nx-space-2) !important;
+  border-radius: var(--nx-radius-card) !important;
+  overflow: hidden !important;
+  background: var(--nx-surface-1) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
+  cursor: pointer !important;
+  transition: border-color var(--nx-press), background var(--nx-press) !important;
+  box-shadow: var(--nx-shadow-soft) !important;
+}
+.cal-event:active {
+  border-color: var(--nx-gold-line-2) !important;
+  background: var(--nx-surface-3) !important;
+}
+.cal-event-faded { opacity: 0.5 !important; border-style: dashed !important; }
+.cal-event-accent {
+  width: 4px !important;
+  flex-shrink: 0 !important;
+}
+.cal-event-body {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 16px !important;
+}
+.cal-event-type {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 1.4px !important;
+  color: var(--nx-faint) !important;
+  text-transform: uppercase !important;
+  font-weight: 600 !important;
+}
+.cal-event-title {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-md) !important;
+  font-weight: 500 !important;
+  color: var(--nx-text) !important;
+  line-height: 1.35 !important;
+  letter-spacing: -0.005em;
+}
+.cal-event-meta {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  color: var(--nx-muted) !important;
+  margin-top: 4px !important;
+}
+.cal-event-status {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 9.5px !important;
+  padding: 3px 10px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  letter-spacing: 1.2px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+}
+.cal-status-open,
+.cal-status-todo {
+  background: var(--nx-gold-soft) !important;
+  color: var(--nx-gold) !important;
+}
+.cal-status-done,
+.cal-status-closed {
+  background: rgba(156, 138, 62, 0.12) !important;
+  color: var(--nx-green) !important;
+}
+.cal-status-noted {
+  background: rgba(160, 140, 120, 0.12) !important;
+  color: var(--nx-faint) !important;
+}
+
+/* Upcoming strip */
+.cal-up-head {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-md) !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.005em !important;
+  color: var(--nx-text) !important;
+  text-transform: none !important;
+  margin-bottom: var(--nx-space-4) !important;
+}
+.cal-up-empty {
+  border: 1px solid var(--nx-highlight-tint) !important;
+  border-radius: var(--nx-radius-card) !important;
+  background: var(--nx-surface-1) !important;
+}
+.cal-up-day.is-today .cal-up-date { color: var(--nx-gold) !important; }
+.cal-up-date {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 1.4px !important;
+  color: var(--nx-faint) !important;
+}
+.cal-up-time {
+  font-family: var(--nx-font-mono) !important;
+  color: var(--nx-muted) !important;
+}
+
+
+/* ═════════════════════════════════════════════════════════════════
+   BOARD
+   ════════════════════════════════════════════════════════════════ */
+
+.board-header {
+  padding: var(--nx-space-3) var(--nx-space-4) !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+}
+.board-tab {
+  padding: 8px 16px !important;
+  min-height: 36px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid transparent !important;
+  background: var(--nx-surface-1) !important;
+  color: var(--nx-muted) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.3px !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  transition: background var(--nx-press), color var(--nx-press), border-color var(--nx-press) !important;
+}
+.board-tab.active {
+  color: var(--nx-gold) !important;
+  background: var(--nx-gold-soft) !important;
+  border-color: var(--nx-gold-line-2) !important;
+  font-weight: 600 !important;
+}
+.board-add-tab {
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold-line) !important;
+  background: transparent !important;
+  font-size: 16px !important;
+  padding: 6px 14px !important;
+}
+
+/* Lists */
+.board-list {
+  background: var(--nx-surface-1) !important;
+  border: 1px solid var(--nx-highlight-tint) !important;
+  border-radius: var(--nx-radius-card) !important;
+  box-shadow: var(--nx-shadow-soft) !important;
+}
+.board-list-new {
+  background: transparent !important;
+  border: 1.5px dashed var(--nx-gold-line) !important;
+}
+.board-list-header {
+  padding: 12px 16px !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+}
+.board-list-name {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.3px !important;
+  color: var(--nx-text) !important;
+}
+.board-list-count {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-faint) !important;
+  background: var(--nx-surface-2) !important;
+  padding: 3px 9px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-weight: 600;
+}
+.board-list-cards.drag-over {
+  background: var(--nx-gold-faint) !important;
+}
+.board-list-add,
+.board-list-add-new {
+  padding: 12px !important;
+  color: var(--nx-faint) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  transition: color var(--nx-press) !important;
+}
+.board-list-add:hover,
+.board-list-add-new:hover { color: var(--nx-gold) !important; }
+
+/* Cards */
+.board-card {
+  padding: 12px 14px !important;
+  background: var(--nx-surface-3) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  margin-bottom: var(--nx-space-2) !important;
+  cursor: pointer !important;
+  border-left: 3px solid var(--nx-gold) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15) !important;
+  transition: transform var(--nx-press), box-shadow var(--nx-press) !important;
+}
+.board-card:active {
+  transform: scale(0.97) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+}
+.card-title {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  color: var(--nx-text) !important;
+  line-height: 1.4 !important;
+  letter-spacing: 0.05px;
+}
+.card-meta {
+  display: flex;
+  gap: var(--nx-space-2);
+  margin-top: var(--nx-space-2) !important;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.card-check-count,
+.card-due,
+.card-comment-count {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10.5px !important;
+  color: var(--nx-faint) !important;
+  letter-spacing: 0.3px;
+}
+.card-due.overdue { color: var(--nx-red) !important; font-weight: 700 !important; }
+.card-assignee {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10.5px !important;
+  color: var(--nx-gold) !important;
+  letter-spacing: 0.3px;
+}
+
+/* Card detail modal */
+.card-detail-overlay {
+  background: rgba(0, 0, 0, 0.7) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+.card-detail {
+  background: var(--nx-surface-1) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
+  border-radius: var(--nx-radius-card) !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
+}
+.card-detail-header {
+  padding: 18px 20px !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+}
+.card-detail-title {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-lg) !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--nx-text) !important;
+  background: none !important;
+  border: none !important;
+  outline: none !important;
+}
+.card-detail-close {
+  color: var(--nx-faint) !important;
+  font-size: 20px !important;
+  background: none !important;
+  border: none !important;
+  cursor: pointer;
+}
+.card-detail-body { padding: 18px 20px !important; }
+.card-detail-label {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 1.6px !important;
+  color: var(--nx-gold) !important;
+  text-transform: uppercase !important;
+  font-weight: 600 !important;
+  margin-bottom: var(--nx-space-2) !important;
+}
+.card-detail-desc {
+  background: var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  padding: 12px !important;
+}
+.card-detail-desc:focus { border-color: var(--nx-gold-line-3) !important; }
+.label-add-btn {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-gold) !important;
+  background: transparent !important;
+  border: 1px dashed var(--nx-gold-line-2) !important;
+  padding: 4px 12px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-weight: 500 !important;
+  cursor: pointer;
+}
+.check-add input,
+.comment-add input,
+.card-detail-assignee,
+.card-detail-due {
+  background: var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  padding: 10px 12px !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+}
+.check-add input:focus,
+.comment-add input:focus { border-color: var(--nx-gold-line-3) !important; }
+.check-add button,
+.comment-add button {
+  padding: 10px 16px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: none !important;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  color: var(--nx-gold-on) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+  transition: transform var(--nx-press) !important;
+}
+.check-add button:active,
+.comment-add button:active { transform: scale(0.96); }
+.check-item input[type="checkbox"] { accent-color: var(--nx-gold) !important; }
+.comment-item {
+  background: var(--nx-surface-2) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  padding: 10px 12px !important;
+}
+.comment-by {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 600 !important;
+  color: var(--nx-gold) !important;
+}
+.comment-time {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 9.5px !important;
+  color: var(--nx-faint) !important;
+}
+.card-archive-btn {
+  background: var(--nx-red-soft) !important;
+  border: 1px solid var(--nx-red-line) !important;
+  color: var(--nx-red) !important;
+  padding: 10px 18px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-xs) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.4px !important;
+  cursor: pointer !important;
+  transition: background var(--nx-press) !important;
+}
+.card-archive-btn:active { background: rgba(180, 80, 80, 0.20) !important; }
+
+
+/* ═════════════════════════════════════════════════════════════════
+   BRAIN — HUD overlays only (canvas itself untouched)
+   ════════════════════════════════════════════════════════════════ */
+
+.brain-search input {
+  background: rgba(20, 20, 24, 0.85) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  padding: 10px 16px !important;
+  min-height: 42px !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+}
+.brain-search input::placeholder { color: var(--nx-faint) !important; }
+.brain-search input:focus {
+  border-color: var(--nx-gold-line-3) !important;
+  outline: none !important;
+}
+.list-toggle,
+.events-toggle {
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: rgba(20, 20, 24, 0.85) !important;
+  color: var(--nx-faint) !important;
+  transition: color var(--nx-press), border-color var(--nx-press) !important;
+}
+.list-toggle.on,
+.events-toggle.on {
+  border-color: var(--nx-gold-line-2) !important;
+  color: var(--nx-gold) !important;
+  background: var(--nx-gold-faint) !important;
+}
+
+/* List filters and chips */
+.filter-chip {
+  padding: 6px 12px !important;
+  min-height: 32px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid transparent !important;
+  background: var(--nx-surface-1) !important;
+  color: var(--nx-muted) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-xs) !important;
+  cursor: pointer !important;
+  transition: background var(--nx-press), color var(--nx-press), border-color var(--nx-press) !important;
+}
+.filter-chip.active {
+  border-color: var(--nx-gold-line-2) !important;
+  color: var(--nx-gold) !important;
+  background: var(--nx-gold-soft) !important;
+  font-weight: 600 !important;
+}
+.sort-btn {
+  padding: 6px 12px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: transparent !important;
+  color: var(--nx-faint) !important;
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 1.2px !important;
+  cursor: pointer !important;
+}
+.sort-btn.active {
+  border-color: var(--nx-gold-line-2) !important;
+  color: var(--nx-gold) !important;
+}
+
+/* List node items */
+.list-node {
+  padding: 14px 16px !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+  background: transparent !important;
+  transition: background var(--nx-press) !important;
+}
+.list-node:active { background: var(--nx-gold-faint) !important; }
+.list-node-cat {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 9.5px !important;
+  letter-spacing: 1.6px !important;
+  color: var(--nx-gold) !important;
+  text-transform: uppercase !important;
+  font-weight: 600 !important;
+}
+.list-node-title {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  color: var(--nx-text) !important;
+}
+.list-node-notes {
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-muted) !important;
+  line-height: 1.4 !important;
+}
+.list-node-footer {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  color: var(--nx-faint) !important;
+}
+
+/* Events panel */
+.events-panel {
+  background: var(--nx-surface-1) !important;
+  border: 1px solid var(--nx-highlight-faint) !important;
+  border-radius: var(--nx-radius-card) !important;
+  box-shadow: var(--nx-shadow-card) !important;
+}
+.events-header {
+  padding: 14px 16px !important;
+  border-bottom: 1px solid var(--nx-gold-line) !important;
+}
+.events-title {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 2px !important;
+  color: var(--nx-gold) !important;
+  font-weight: 600 !important;
+  text-transform: uppercase;
+}
+.events-field {
+  background: var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  padding: 10px 12px !important;
+  min-height: 40px !important;
+  color: var(--nx-text) !important;
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+}
+.events-field:focus { border-color: var(--nx-gold-line-3) !important; outline: none !important; }
+.events-add-btn {
+  padding: 10px 16px !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: none !important;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep)) !important;
+  color: var(--nx-gold-on) !important;
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  box-shadow: var(--nx-shadow-pill) !important;
+}
+.event-card {
+  padding: 12px 14px !important;
+  background: var(--nx-surface-3) !important;
+  border-radius: var(--nx-radius-tight) !important;
+  border: 1px solid transparent !important;
+  margin-bottom: var(--nx-space-2) !important;
+  transition: border-color var(--nx-press) !important;
+}
+.event-card:hover { border-color: var(--nx-gold-line) !important; }
+.event-contractor {
+  font-family: var(--nx-font-display) !important;
+  font-size: var(--nx-text-sm) !important;
+  font-weight: 500 !important;
+  color: var(--nx-text) !important;
+}
+.event-time {
+  font-family: var(--nx-font-mono) !important;
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-gold) !important;
+}
+.event-desc {
+  font-size: var(--nx-text-xs) !important;
+  color: var(--nx-muted) !important;
+  margin-bottom: var(--nx-space-2) !important;
+}
+.event-date-sep {
+  font-family: var(--nx-font-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 1.8px !important;
+  color: var(--nx-faint) !important;
+  text-transform: uppercase !important;
+  font-weight: 600 !important;
+}
+.event-date-sep.today { color: var(--nx-gold) !important; }
+
+
+/* ═════════════════════════════════════════════════════════════════
+   GLOBAL — Toast notifications
+   ════════════════════════════════════════════════════════════════ */
+/* The screenshot pill ("Not clocked in") was a NX.toast call
+   styled by nexus.css. Bring it into the system. */
+.toast-container {
+  /* Sits above the persistent Ask NEXUS pill on Home so they don't
+     visually fight. The pill was bumped up to bottom:(56+safe+80),
+     pill top edge sits at ~134+safe. Toast at 152 keeps a clean
+     gap above. Other views without an Ask pill aren't bothered by
+     this — it just means transient toasts appear higher on the
+     screen, which is fine. */
+  bottom: calc(56px + env(safe-area-inset-bottom) + 152px) !important;
+}
+.toast {
+  font-family: var(--nx-font-body) !important;
+  font-size: var(--nx-text-sm) !important;
+  border-radius: var(--nx-radius-pill) !important;
+  border: 1px solid var(--nx-gold-line-2) !important;
+  background: rgba(28, 24, 20, 0.92) !important;
+  backdrop-filter: blur(20px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.4) !important;
+  color: var(--nx-text) !important;
+  padding: 12px 18px !important;
+  box-shadow: var(--nx-shadow-card) !important;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   EQUIPMENT — editorial palette overrides
+   ────────────────────────────────────────────────────────────────────
+   The legacy equipment-fixes.css uses bright kelly greens and reds
+   (#5bba5f / #d45858 / #7fd494) for the parts-stock indicators —
+   the only place in the app that breaks the editorial palette
+   (olive-bronze + oxblood + gold). Override them here.
+   ════════════════════════════════════════════════════════════════════ */
+
+.eq-part-vendor-stock.in {
+  color: var(--nx-green, var(--green)) !important;       /* olive bronze */
+  background: rgba(156, 138, 62, 0.10) !important;
+}
+.eq-part-vendor-stock.in::before {
+  color: var(--nx-green, var(--green)) !important;
+}
+.eq-part-vendor-stock.out {
+  color: var(--nx-red, var(--red)) !important;         /* oxblood */
+  background: var(--nx-red-soft) !important;
+}
+.eq-part-vendor-stock.out::before {
+  color: var(--nx-red, var(--red)) !important;
+}
+
+/* PREFERRED tag — gold pill with leading filled-star (replaces
+   the previous solid yellow-on-cream block). Matches the rest of
+   the editorial palette. */
+.eq-part-vendor-star {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px !important;
+  background: var(--nx-gold-soft, var(--nx-gold-mist)) !important;
+  border: 1px solid var(--nx-gold-line, var(--nx-gold-aura)) !important;
+  color: var(--nx-gold) !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 1px;
+  border-radius: 999px !important;
+}
+.eq-part-vendor-star svg { color: var(--nx-gold); }
+
+/* Vendor row action icons — small circular line-art buttons. The
+   legacy treatment was the raw character glyph (e.g. star, pencil, cross). Now they
+   render as 28×28 circles with SVG icons and a hover tint. */
+.eq-part-vendor-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px !important;
+  min-height: 30px !important;
+  padding: 0 8px !important;
+  background: transparent !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  color: var(--nx-faint) !important;
+  border-radius: 999px !important;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s !important;
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-part-vendor-btn:hover {
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line-2)) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
+}
+.eq-part-vendor-btn.order {
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e)) !important;
+  border-color: var(--nx-gold) !important;
+  color: var(--nx-gold-on, #1c1408) !important;
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 0 16px !important;
+}
+[data-theme="light"] .eq-part-vendor-btn.order { color: #fff !important; }
+
+/* AI Create button — the gradient was over-saturated pure-gold with
+   a glow that competed with everything else on the page. Tone it
+   down to the editorial gold pill style used throughout. */
+.eq-ai-create-btn {
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e)) !important;
+  border: 1px solid var(--nx-gold) !important;
+  box-shadow: none !important;            /* kill the bright glow */
+  color: var(--nx-gold-on, #1c1408) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.2px;
+}
+[data-theme="light"] .eq-ai-create-btn { color: #fff !important; }
+
+/* Equipment header title — better gold vs default text */
+.eq-title { display: inline-flex; align-items: center; gap: 8px; }
+.eq-title-icon { color: var(--nx-gold); display: inline-flex; }
+
+/* Tab strip - AI tab gets gold icon on hover/active */
+.eq-tab[data-tab="intel"] { display: inline-flex; align-items: center; gap: 6px; }
+.eq-tab[data-tab="intel"] svg { color: var(--nx-gold); }
+
+/* Bottom action bar icons — make sure SVGs sit centered with their
+   labels, since the eq-action-icon span is a flex-inline child. */
+.eq-action-icon {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+}
+.eq-action-icon svg { display: block; }
+
+/* Operational/Status pill at top right — was bright kelly green dot.
+   The token-based --nx-green now resolves to olive bronze in dark
+   theme and a desaturated equivalent in light. */
+.eq-status-pill[data-status="operational"] .eq-status-dot,
+.eq-status-pill.operational .eq-status-dot {
+  background: var(--nx-green, var(--green)) !important;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--nx-green, var(--green)) 50%, transparent);
+}
+
+/* Equipment list filter chip row overflow — same pattern as inventory.
+   Without this the STATUS: All chip got cut off on the right edge. */
+.eq-filter-row {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  width: 100%; max-width: 100%; min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.eq-filter-row::-webkit-scrollbar { display: none; }
+
+
+
+/* ─── Equipment polish: field layout, part name wrapping, search ───
+   These are layout corrections noticed in late-stage QA.
+   ────────────────────────────────────────────────────────────── */
+
+/* Part row title — prevent the awkward 2-line wrap when the title
+   competes with OEM/qty/path metadata for horizontal space. The
+   container is flex; we give the name its own column with a flex
+   basis and let it ellipsize when truly long. */
+.eq-part-row {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%; min-width: 0;
+}
+.eq-part-row > .eq-part-info,
+.eq-part-row > .eq-part-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.eq-part-name {
+  white-space: normal;
+  word-break: break-word;
+  hyphens: auto;
+  /* For cases where the part name is one continuous unhyphenable
+     word at small viewports, allow the line height to expand
+     gracefully rather than competing with the OEM/qty pills */
+  line-height: 1.25 !important;
+}
+
+/* Search input placeholder — was --nx-faint (very dim, almost
+   invisible against --nx-bg in dark mode). Bump to --nx-muted so
+   it's legible at a glance without competing with typed text. */
+.eq-search::placeholder,
+.inventory-search input::placeholder {
+  color: var(--nx-muted, #8a826f) !important;
+  opacity: 0.85;
+}
+
+/* Equipment field grid — balance the two columns so short values
+   don't leave huge gaps. Currently field grids use 1fr 1fr; we
+   let labels size by content and values fill remaining space. */
+.eq-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px 18px;
+  align-items: start;
+}
+.eq-field {
+  min-width: 0;
+}
+.eq-field label {
+  display: block;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 1.4px !important;
+  text-transform: uppercase !important;
+  color: var(--nx-faint, #6e6555) !important;
+  margin-bottom: 4px !important;
+}
+.eq-field > div {
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 14px !important;
+  color: var(--nx-text) !important;
+  word-break: break-word;
+}
+
+/* Health score 100% — it's a numeric highlight, deserves the gold
+   accent like other key metrics. */
+.eq-fields .eq-field:has(label:contains("HEALTH")) > div { color: var(--nx-gold) !important; }
+.eq-field-value-accent { color: var(--nx-gold) !important; font-weight: 600; }
+
+/* Tab strip — the AI tab now has an SVG; ensure tabs evenly
+   distribute and don't push the content past the viewport. */
+.eq-tabs {
+  display: flex;
+  width: 100%; min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.eq-tabs::-webkit-scrollbar { display: none; }
+.eq-tab { flex: 0 0 auto; }
+
+/* Print EVERYTHING banner — gold tint, document icon visible */
+.eq-print-everything-btn {
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+}
+.eq-pe-icon, .eq-pe-arrow { color: var(--nx-gold); }
+.eq-pe-title { color: var(--nx-gold) !important; font-weight: 600; }
+
+/* Timeline icon spans — make the inline SVGs sit cleanly next to
+   their label text. */
+.eq-timeline-who, .eq-timeline-cost, .eq-timeline-dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.eq-timeline-who svg,
+.eq-timeline-cost svg,
+.eq-timeline-dt svg { color: var(--nx-faint); flex-shrink: 0; }
+.eq-timeline-cost svg { color: var(--nx-gold); }
+
+/* AI tab heading icons */
+.eq-ai-card h4 {
+  display: flex; align-items: center; gap: 8px;
+}
+.eq-ai-card h4 svg { color: var(--nx-gold); flex-shrink: 0; }
+
+/* AI Create method tile icons — center the SVG */
+.eq-ai-method-icon {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--nx-gold);
+  margin-bottom: 8px;
+}
+.eq-ai-method-icon svg { color: var(--nx-gold); }
+
+/* Family section heading icon */
+.eq-family-section h4 {
+  display: flex; align-items: center; gap: 6px;
+}
+.eq-family-section h4 svg { color: var(--nx-gold); }
+
+
+
+/* ════════════════════════════════════════════════════════════════════
+   EQUIPMENT — bottom action bar v2
+   ────────────────────────────────────────────────────────────────────
+   Was: 5 cramped icon-stacked buttons (Print, Call, Report, Edit, Log)
+   plus a small ⋯ overflow. Edit/Print/Log are administrative actions
+   that field staff and contractors don't need on the primary bar.
+   
+   Now: two thumb-friendly CTAs (Call Service, Report Issue) plus a
+   single overflow disc holding everything else (Log Service, Edit
+   Equipment, Print Label, Delete). Hierarchy is clear: the buttons
+   you reach for 80% of the time are large and front; the rarer
+   actions are one tap deeper.
+   ════════════════════════════════════════════════════════════════════ */
+
+.eq-detail-actions-v2 {
+  display: flex !important;
+  align-items: stretch;
+  gap: 10px !important;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px)) 16px !important;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    var(--nx-bg) 30%,
+    var(--nx-bg) 100%) !important;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  /* Subtle hairline above the action area to separate it from the
+     scrolling content above. */
+  border-top: 1px solid var(--nx-gold-line) !important;
+}
+
+.eq-action-cta {
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 18px;
+  border-radius: 999px !important;
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e)) !important;
+  border: 1px solid var(--nx-gold) !important;
+  color: var(--nx-gold-on, #1c1408) !important;
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: transform .12s, box-shadow .15s, opacity .15s !important;
+  box-shadow: 0 2px 10px var(--nx-gold-soft);
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eq-action-cta:active { transform: scale(0.97); }
+.eq-action-cta:disabled { opacity: 0.5; cursor: not-allowed; }
+
+[data-theme="light"] .eq-action-cta {
+  color: var(--surface) !important;
+  box-shadow: 0 2px 10px rgba(139, 105, 20, 0.22);
+}
+
+/* Secondary CTA — outline pill that still reads as primary action,
+   just one tier below Call. Same height, same shape, no fill. */
+.eq-action-cta.eq-action-cta-secondary {
+  background: transparent !important;
+  color: var(--nx-text) !important;
+  border: 1px solid var(--nx-gold-line-2, var(--nx-gold-line)) !important;
+  box-shadow: none !important;
+}
+.eq-action-cta.eq-action-cta-secondary:hover {
+  border-color: var(--nx-gold) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
+}
+[data-theme="light"] .eq-action-cta.eq-action-cta-secondary { color: var(--nx-text) !important; }
+
+.eq-action-cta-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.eq-action-cta-icon svg { display: block; }
+.eq-action-cta-label {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Overflow disc — same height as primary, square aspect. The dots
+   icon is centered inside. Less visually loud than the CTAs but
+   easily tappable. */
+.eq-overflow-btn-v2 {
+  flex: 0 0 52px;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  background: transparent !important;
+  color: var(--nx-faint) !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-overflow-btn-v2:hover {
+  color: var(--nx-gold) !important;
+  border-color: var(--nx-gold) !important;
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
+}
+
+/* Overflow menu — re-styled to feel like a proper editorial sheet
+   instead of a floating chip list. */
+.eq-detail-actions-v2 .eq-overflow-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+.eq-detail-actions-v2 .eq-overflow-menu {
+  position: absolute !important;
+  bottom: calc(100% + 8px) !important;
+  right: 0 !important;
+  min-width: 220px;
+  background: var(--nx-bg) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  border-radius: 14px !important;
+  padding: 6px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  z-index: 100;
+  display: none;
+  flex-direction: column;
+  gap: 0;
+  animation: eq-overflow-pop .15s ease-out;
+}
+[data-theme="light"] .eq-detail-actions-v2 .eq-overflow-menu {
+  box-shadow: 0 10px 30px rgba(70, 50, 18, 0.16);
+}
+.eq-detail-actions-v2 .eq-overflow-menu.active,
+.eq-detail-actions-v2 .eq-overflow-menu[style*="block"] {
+  display: flex !important;
+}
+
+@keyframes eq-overflow-pop {
+  from { opacity: 0; transform: translateY(4px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)  scale(1); }
+}
+
+/* Menu items — rescoped to .eq-overflow-menu so they apply both when
+   the menu is in its original parent AND after toggleOverflow() detaches
+   it to <body> to escape the action bar's stacking context. The previous
+   selectors used .eq-detail-actions-v2 .eq-overflow-item which silently
+   stopped applying once the menu was reparented, leaving items rendered
+   in unstyled defaults (dim on black). */
+.eq-overflow-menu .eq-overflow-item,
+.eq-detail-actions-v2 .eq-overflow-item {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 14px !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 8px !important;
+  color: var(--nx-text) !important;
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+  transition: background .12s !important;
+  -webkit-tap-highlight-color: transparent;
+}
+.eq-overflow-menu .eq-overflow-item:hover,
+.eq-detail-actions-v2 .eq-overflow-item:hover {
+  background: var(--nx-gold-soft, var(--nx-gold-faint)) !important;
+}
+.eq-overflow-menu .eq-overflow-item svg,
+.eq-detail-actions-v2 .eq-overflow-item svg {
+  color: var(--nx-faint);
+  flex-shrink: 0;
+}
+.eq-overflow-menu .eq-overflow-item:hover svg,
+.eq-detail-actions-v2 .eq-overflow-item:hover svg {
+  color: var(--nx-gold);
+}
+
+.eq-overflow-menu .eq-overflow-item.eq-overflow-danger,
+.eq-detail-actions-v2 .eq-overflow-item.eq-overflow-danger {
+  color: var(--nx-red, var(--red)) !important;
+}
+.eq-overflow-menu .eq-overflow-item.eq-overflow-danger svg,
+.eq-detail-actions-v2 .eq-overflow-item.eq-overflow-danger svg {
+  color: var(--nx-red, var(--red));
+}
+.eq-overflow-menu .eq-overflow-item.eq-overflow-danger:hover,
+.eq-detail-actions-v2 .eq-overflow-item.eq-overflow-danger:hover {
+  background: var(--nx-red-soft, var(--nx-red-faint)) !important;
+}
+
+.eq-overflow-menu .eq-overflow-divider,
+.eq-detail-actions-v2 .eq-overflow-divider {
+  height: 1px;
+  background: var(--nx-gold-line);
+  margin: 4px 6px !important;
+  border: none;
+}
+
+/* Section labels (Operate, Manage) inside the menu — were also scoped
+   to .eq-detail-actions-v2 only, so they fell back to unstyled when
+   the menu detached. Add the same rescoped variant. */
+.eq-overflow-menu .eq-overflow-section-label,
+.eq-detail-actions-v2 .eq-overflow-section-label {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 10px !important;
+  letter-spacing: 0.10em !important;
+  text-transform: uppercase !important;
+  color: var(--nx-faint) !important;
+  padding: 6px 14px 4px !important;
+}
+
+/* The primary item (Edit equipment) — gold-tinted to stand out */
+.eq-overflow-menu .eq-overflow-item.eq-overflow-item-primary,
+.eq-detail-actions-v2 .eq-overflow-item.eq-overflow-item-primary {
+  color: var(--nx-gold, #d4a44e) !important;
+  background: rgba(212, 164, 78, 0.08) !important;
+  font-weight: 500;
+}
+.eq-overflow-menu .eq-overflow-item.eq-overflow-item-primary svg,
+.eq-detail-actions-v2 .eq-overflow-item.eq-overflow-item-primary svg {
+  color: var(--nx-gold, #d4a44e) !important;
+}
+
+/* When the menu is detached and floating in body, give it the same
+   sheet styling it had inside the action bar (border, bg, padding) so
+   it doesn't render as a naked div. */
+.eq-overflow-menu.active {
+  display: flex !important;
+  flex-direction: column;
+  background: var(--nx-bg, #1a1814) !important;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.22)) !important;
+  border-radius: 12px !important;
+  padding: 6px !important;
+  min-width: 220px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  animation: eq-overflow-pop 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+[data-theme="light"] .eq-overflow-menu.active {
+  background: #f9f5e8 !important;
+  box-shadow: 0 12px 40px rgba(70, 50, 18, 0.18);
+}
+
+
+
+/* ════════════════════════════════════════════════════════════════════
+   BOARD — parts BOM quick-picker
+   ────────────────────────────────────────────────────────────────────
+   When a card is linked to an equipment, the Parts Needed section
+   shows tappable chips of that equipment's BOM. Selected chips are
+   gold-filled with the part name and the preferred vendor's price;
+   tapping toggles selection and updates the parts input + Est cost.
+   ════════════════════════════════════════════════════════════════════ */
+
+.b-parts-bom {
+  margin: 6px 0 8px;
+  padding: 10px 12px;
+  background: var(--nx-gold-soft, var(--nx-gold-tint));
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 10px;
+}
+.b-parts-bom-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--nx-gold);
+  margin-bottom: 8px;
+}
+.b-parts-bom-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.b-parts-bom-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s, transform .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.b-parts-bom-chip:hover {
+  border-color: var(--nx-gold-line-2, var(--nx-gold-line));
+  background: var(--nx-gold-soft, var(--nx-gold-faint));
+}
+.b-parts-bom-chip:active { transform: scale(0.97); }
+.b-parts-bom-chip.is-selected {
+  background: var(--nx-gold);
+  border-color: var(--nx-gold);
+  color: var(--nx-gold-on, #1c1408);
+}
+[data-theme="light"] .b-parts-bom-chip.is-selected { color: var(--surface); }
+
+.b-parts-bom-chip-name {
+  font-weight: 500;
+}
+.b-parts-bom-chip-price {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  opacity: 0.85;
+  letter-spacing: 0.3px;
+}
+.b-parts-bom-chip.is-selected .b-parts-bom-chip-price { opacity: 1; }
+
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   v14 — EQUIPMENT EDIT BUTTON + ARCHIVE WORLD
+   ───────────────────────────────────────────
+   Promotes "Edit Everything" out of the overflow menu and into a top-level
+   action button. Adds the dedicated Archive world — distinctive banner +
+   muted-color treatment so users know they're looking at archived items
+   rather than a regular filtered list.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Action bar — keep all elements on a single row. The original layout
+   was Call Service / Report Issue / kebab; the kebab must never wrap
+   off to a second line (was a bug on phones with a 4th button — fix
+   stays in place even though the 4th button has been removed). */
+.eq-detail-actions-v2 {
+  flex-wrap: nowrap !important;
+  gap: 8px !important;
+}
+.eq-detail-actions-v2 .eq-action-cta {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+}
+.eq-detail-actions-v2 .eq-overflow-wrap {
+  flex: 0 0 auto !important;
+}
+
+/* ─── KEBAB VISIBILITY FIX ──────────────────────────────────────
+   The original kebab styling used color:var(--nx-faint) (#857f75 — dim
+   gray) and border:var(--nx-gold-line) (gold at 22% opacity) on a
+   transparent background. Result: on a dark page, sitting next to a
+   bright gold "Call Service" pill and a clearly outlined "Report Issue"
+   pill, the kebab read as empty space. Users repeatedly thought it was
+   missing or broken.
+
+   Fix: bump the icon to full gold, the border to full gold-line opacity,
+   and add a subtle gold tint behind it so it has presence on the page.
+   Less loud than the primary CTA, but unmistakably a button. The hover
+   state still escalates further. */
+.eq-detail-actions-v2 .eq-overflow-btn-v2 {
+  color: var(--nx-gold, #d4a44e) !important;
+  border: 1px solid var(--nx-gold, #d4a44e) !important;
+  background: rgba(212, 164, 78, 0.10) !important;
+  box-shadow: 0 1px 4px rgba(212, 164, 78, 0.15);
+}
+.eq-detail-actions-v2 .eq-overflow-btn-v2:hover,
+.eq-detail-actions-v2 .eq-overflow-btn-v2:active {
+  background: rgba(212, 164, 78, 0.20) !important;
+  border-color: var(--nx-gold, #d4a44e) !important;
+  color: var(--nx-gold, #d4a44e) !important;
+  box-shadow: 0 2px 8px rgba(212, 164, 78, 0.30);
+}
+.eq-detail-actions-v2 .eq-overflow-btn-v2 svg {
+  width: 22px !important;
+  height: 22px !important;
+  stroke-width: 2.4 !important;
+}
+[data-theme="light"] .eq-detail-actions-v2 .eq-overflow-btn-v2 {
+  color: var(--nx-gold, #8b6914) !important;
+  border-color: var(--nx-gold, #8b6914) !important;
+  background: rgba(139, 105, 20, 0.10) !important;
+}
+
+
+/* ─── Archive world banner ──────────────────────────────────────── */
+.eq-archive-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin: 10px 12px 6px;
+  background: linear-gradient(180deg,
+    rgba(122, 113, 103, 0.18) 0%,
+    rgba(122, 113, 103, 0.06) 100%);
+  border: 1px solid rgba(122, 113, 103, 0.32);
+  border-radius: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.eq-archive-banner-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid rgba(122, 113, 103, 0.40);
+  color: var(--text, #f0e9da);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 150ms ease;
+}
+.eq-archive-banner-close:hover {
+  background: rgba(207, 89, 89, 0.16);
+  border-color: #cf5959;
+  color: #cf5959;
+}
+.eq-archive-banner-titles { flex: 1; min-width: 0; }
+.eq-archive-banner-title {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text, #f0e9da);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.eq-archive-banner-sub {
+  margin-top: 2px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--faint, #7a7167);
+  text-transform: uppercase;
+}
+.eq-archive-banner-icon {
+  color: var(--faint, #7a7167);
+  flex-shrink: 0;
+}
+
+/* ─── Visual treatment for archive world (muted) ────────────────── */
+body.is-equipment-archive-world #equipmentView {
+  background:
+    radial-gradient(ellipse at top,
+      rgba(122, 113, 103, 0.08) 0%,
+      transparent 60%),
+    var(--bg, #0e0c08);
+}
+body.is-equipment-archive-world .eq-card,
+body.is-equipment-archive-world .eq-row {
+  filter: saturate(0.7) brightness(0.94);
+}
+body.is-equipment-archive-world .eq-card:hover,
+body.is-equipment-archive-world .eq-row:hover {
+  filter: saturate(0.92) brightness(1.02);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   v14 — MULTI-MANUAL LIST
+   ───────────────────────
+   The Manual tab now shows a stack of cards (one per manual). Each card
+   has its own thumbnail, editable name, and Open/Remove buttons. CSS
+   here adds the list wrapper, the editable name input that styles to
+   match the old static name, and a separator below the list before the
+   "Upload PDF / Find Online" action row.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.eq-manual-multi { padding: 0; }
+.eq-manual-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.eq-manual-list-loading {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--muted, var(--nx-faint, #857f75));
+  font-size: 13px;
+}
+
+/* The action row sits below the list of cards. Visually separated by a
+   hairline so it reads as "add another" rather than another card. */
+.eq-manual-add-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 14px 0 4px;
+  margin-top: 6px;
+  border-top: 1px dashed var(--nx-gold-line, rgba(212, 164, 78, 0.22));
+}
+
+/* Editable name input — looks like the static .eq-manual-card-name when
+   not focused; a subtle gold border appears on focus to signal it's
+   editable. The user types, blurs (or hits Enter), and the rename fires. */
+.eq-manual-card-name-input {
+  width: 100%;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text, #f0e9da);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+  margin: -4px -6px 0;
+  line-height: 1.4;
+  word-break: break-word;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.eq-manual-card-name-input:hover {
+  border-color: var(--nx-gold-line, rgba(212, 164, 78, 0.22));
+}
+.eq-manual-card-name-input:focus {
+  outline: none;
+  border-color: var(--nx-gold, #d4a44e);
+  background: rgba(212, 164, 78, 0.06);
+}
+[data-theme="light"] .eq-manual-card-name-input {
+  color: var(--nx-text, #2b1f0e);
+}
+[data-theme="light"] .eq-manual-card-name-input:focus {
+  border-color: var(--nx-gold, #8b6914);
+  background: rgba(139, 105, 20, 0.06);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   v15.3 — Equipment sort bar + beacon redesign
+   ────────────────────────────────────────────────────────────────────
+   1. Sort row padding fix — was clashing with the section header below
+      because padding-bottom was 0. Add proper breathing room.
+   2. Beacon redesign — bigger, brighter, all gold-themed:
+        • is-operational  : gold + soft pulse + 2 orbiting particles
+        • is-needs-service: rapid bright flash
+        • is-down         : muted gray with quick yellow flicker (alive but struggling)
+        • is-retired/missing: faintest static gray
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ─── SORT ROW PADDING FIX ─────────────────────────────────────────── */
+#equipmentView .eq-sort-bar {
+  /* Was 6px 14px 0 — caused the row to abut the section header below,
+     making "Refrigeration" sit on top of the pills. Add bottom padding
+     and a subtle separator. */
+  padding: 8px 14px 14px !important;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(212, 164, 78, 0.08);
+}
+
+/* ─── BEACON BASE ──────────────────────────────────────────────────── */
+.eq-row .eq-row-beacon,
+.eq-row-beacon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+/* Override the existing inline placement on the dot itself — the new
+   parent .eq-row-beacon handles positioning, the dot just centers. */
+.eq-row-beacon .eq-lc-dot {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 50%;
+  display: block;
+}
+
+/* ─── OPERATIONAL — gold beacon + orbiting particles ───────────────── */
+.eq-row-beacon .eq-lc-dot.is-operational {
+  background: var(--nx-gold, #d4a44e) !important;
+  box-shadow:
+    0 0 0 2px rgba(28, 20, 8, 0.85),
+    0 0 8px rgba(212, 164, 78, 0.85),
+    0 0 16px rgba(212, 164, 78, 0.55),
+    0 0 28px rgba(212, 164, 78, 0.30) !important;
+  animation: eq-beacon-pulse 2.4s ease-in-out infinite !important;
+}
+@keyframes eq-beacon-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 2px rgba(28, 20, 8, 0.85),
+      0 0 8px rgba(212, 164, 78, 0.85),
+      0 0 16px rgba(212, 164, 78, 0.55),
+      0 0 28px rgba(212, 164, 78, 0.30);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(28, 20, 8, 0.85),
+      0 0 12px rgba(212, 164, 78, 1),
+      0 0 22px rgba(212, 164, 78, 0.75),
+      0 0 36px rgba(212, 164, 78, 0.40);
+  }
+}
+
+/* Orbiting particles — two tiny gold dots circling the beacon when
+   it's operational. ::before and ::after on the parent give us two
+   particles offset on opposite phases of the same orbit. */
+.eq-row-beacon:has(.eq-lc-dot.is-operational)::before,
+.eq-row-beacon:has(.eq-lc-dot.is-operational)::after {
+  content: '';
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--nx-gold, #d4a44e);
+  box-shadow: 0 0 4px rgba(212, 164, 78, 0.9), 0 0 8px rgba(212, 164, 78, 0.55);
+  top: 50%;
+  left: 50%;
+  margin: -2px 0 0 -2px;
+  pointer-events: none;
+}
+.eq-row-beacon:has(.eq-lc-dot.is-operational)::before {
+  animation: eq-orbit-a 3.6s linear infinite;
+}
+.eq-row-beacon:has(.eq-lc-dot.is-operational)::after {
+  animation: eq-orbit-b 3.6s linear infinite;
+}
+@keyframes eq-orbit-a {
+  0%   { transform: rotate(0deg)   translateX(11px) rotate(0deg);   opacity: 0.9; }
+  50%  { transform: rotate(180deg) translateX(11px) rotate(-180deg); opacity: 0.4; }
+  100% { transform: rotate(360deg) translateX(11px) rotate(-360deg); opacity: 0.9; }
+}
+@keyframes eq-orbit-b {
+  0%   { transform: rotate(180deg) translateX(11px) rotate(-180deg); opacity: 0.4; }
+  50%  { transform: rotate(360deg) translateX(11px) rotate(-360deg); opacity: 0.9; }
+  100% { transform: rotate(540deg) translateX(11px) rotate(-540deg); opacity: 0.4; }
+}
+
+/* ─── NEEDS SERVICE — rapid bright flash ───────────────────────────── */
+.eq-row-beacon .eq-lc-dot.is-needs-service,
+.eq-row-beacon .eq-lc-dot.is-reported,
+.eq-row-beacon .eq-lc-dot.is-called {
+  background: var(--nx-gold, #d4a44e) !important;
+  animation: eq-beacon-flash 1.0s ease-in-out infinite !important;
+}
+@keyframes eq-beacon-flash {
+  0%, 100% {
+    box-shadow:
+      0 0 0 2px rgba(28, 20, 8, 0.85),
+      0 0 4px rgba(212, 164, 78, 0.40);
+    transform: scale(0.95);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(28, 20, 8, 0.85),
+      0 0 14px rgba(255, 200, 100, 1),
+      0 0 26px rgba(212, 164, 78, 0.85),
+      0 0 38px rgba(212, 164, 78, 0.55);
+    transform: scale(1.18);
+  }
+}
+
+/* ─── DOWN / BROKEN — gray dot, quick faint gold flicker ───────────── */
+.eq-row-beacon .eq-lc-dot.is-down,
+.eq-row-beacon .eq-lc-dot.is-broken {
+  background: #5a5550 !important;
+  box-shadow:
+    0 0 0 2px rgba(28, 20, 8, 0.85),
+    inset 0 0 4px rgba(0, 0, 0, 0.5) !important;
+  animation: eq-beacon-flicker 3.4s steps(1, end) infinite !important;
+}
+@keyframes eq-beacon-flicker {
+  /* Mostly dim gray. Brief gold blip every few seconds — like a dying
+     signal trying to call for help. */
+  0%, 65%, 80%, 100% {
+    box-shadow:
+      0 0 0 2px rgba(28, 20, 8, 0.85),
+      inset 0 0 4px rgba(0, 0, 0, 0.5);
+  }
+  68%, 70% {
+    box-shadow:
+      0 0 0 2px rgba(28, 20, 8, 0.85),
+      0 0 8px rgba(212, 164, 78, 0.7),
+      inset 0 0 4px rgba(0, 0, 0, 0.5);
+  }
+  73% {
+    box-shadow:
+      0 0 0 2px rgba(28, 20, 8, 0.85),
+      0 0 4px rgba(212, 164, 78, 0.4),
+      inset 0 0 4px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* ─── RETIRED / MISSING — flat faint static ────────────────────────── */
+.eq-row-beacon .eq-lc-dot.is-retired,
+.eq-row-beacon .eq-lc-dot.is-missing,
+.eq-row-beacon .eq-lc-dot.is-muted {
+  background: #3a3530 !important;
+  box-shadow: 0 0 0 2px rgba(28, 20, 8, 0.85) !important;
+  opacity: 0.55 !important;
+  animation: none !important;
+}
+
+/* ─── Reduced motion — keep semantic colors, drop animations ───────── */
+@media (prefers-reduced-motion: reduce) {
+  .eq-row-beacon .eq-lc-dot,
+  .eq-row-beacon::before,
+  .eq-row-beacon::after {
+    animation: none !important;
+  }
+}
