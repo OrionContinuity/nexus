@@ -330,7 +330,11 @@
 .edu-add-guide-fab {
   position: fixed;
   right: 16px;
-  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  /* Clearance: bottom-nav is min-height 60 + padding-bottom safe-area
+     ≈ 94px on iPhone X+. Previous 72+safe = 106px gave only ~12px gap
+     and the FAB was visually clipped behind the nav. 80+safe+18 = 132px
+     gives a comfortable 38px gap with no clipping. */
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px) + 18px);
   z-index: 60;
   display: inline-flex;
   align-items: center;
@@ -1101,4 +1105,52 @@
 .edu-embed-fallback:active {
   background: rgba(212,164,78,0.15);
   transform: translateY(-1px);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   v15.4 — Module pill edit pin
+   ────────────────────────────────────────
+   Small pen icon that appears INSIDE the active module pill. Tap it
+   to open the module editor (rename / change icon / change description
+   / delete). Hidden on inactive pills to keep the picker uncluttered.
+   ════════════════════════════════════════════════════════════════════════ */
+.edu-cat-btn-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  margin-right: -4px;
+  padding: 0;
+  background: rgba(28, 20, 8, 0.18);
+  border: 1px solid rgba(28, 20, 8, 0.22);
+  border-radius: 50%;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, transform 100ms ease;
+}
+.edu-cat-btn-edit:hover,
+.edu-cat-btn-edit:focus-visible {
+  background: rgba(28, 20, 8, 0.28);
+  outline: none;
+}
+.edu-cat-btn-edit:active {
+  transform: scale(0.92);
+}
+.edu-cat-btn-edit svg {
+  width: 11px;
+  height: 11px;
+  display: block;
+}
+
+[data-theme="light"] .edu-cat-btn-edit {
+  background: rgba(255, 250, 240, 0.55);
+  border-color: rgba(28, 20, 8, 0.18);
+}
+[data-theme="light"] .edu-cat-btn-edit:hover,
+[data-theme="light"] .edu-cat-btn-edit:focus-visible {
+  background: rgba(255, 250, 240, 0.85);
 }
