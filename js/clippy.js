@@ -87,12 +87,26 @@
     enter:       { cls: 'is-entering',     ms: 850 },
   };
   const MOODS = {
-    neutral:   '',
-    happy:     'is-happy',
-    sad:       'is-sad',
-    surprised: 'is-surprised',
-    concerned: 'is-concerned',
-    angry:     'is-angry',
+    neutral:     '',
+    happy:       'is-happy',
+    sad:         'is-sad',
+    surprised:   'is-surprised',
+    concerned:   'is-concerned',
+    angry:       'is-angry',
+    thinking:    'is-thinking',
+    // ─── v17 expression system additions ───────────────────────────
+    love:        'is-love',         // heart eyes + big smile
+    excited:     'is-excited',      // star eyes + tongue out
+    sleepy:      'is-sleepy',       // heavy half-lids + cat mouth
+    dizzy:       'is-dizzy',        // spiral eyes + wavy mouth (spinning)
+    smug:        'is-smug',         // tiny dot eyes + cat smirk
+    ko:          'is-ko',           // X eyes (knocked out)
+    winking:     'is-winking',      // right-eye wink + tongue
+    winking_l:   'is-winking-l',    // left-eye wink + tongue
+    determined:  'is-determined',   // focused eyes + flat mouth
+    sparkle:     'is-sparkle',      // sparkles around eyes + big smile
+    embarrassed: 'is-embarrassed',  // looking away + brighter blush
+    kissy:       'is-kissy',        // closed eyes + kiss pucker
   };
 
 
@@ -112,13 +126,169 @@
 
 
   // ─── Dialog selection (anti-repeat) ─────────────────────────────────
+  // ─── INLINE DIALOG POOLS (v15.5) ───────────────────────────────────
+  // Whimsical / respectful / surroundings-aware lines shipped right
+  // here in code, so they work even if clippy-dialog.json hasn't been
+  // updated yet. pickFromPool() prefers the JSON pool when present;
+  // these arrays are used as fallbacks. Treats Clippy as a polite,
+  // funny, slightly-aware-he's-a-paperclip companion.
+  const INLINE_POOLS = {
+    ticklish: [
+      "Hee hee! Stop that!",
+      "Gahaha — okay okay!",
+      "I'm ticklish, I told you!",
+      "Hee hee hee~",
+      "Bzzt! That tickles!",
+      "Whoa whoa whoa — easy!",
+      "Stop poking me, you!",
+      "Ack — fine, I'll move!",
+    ],
+    apologetic_move: [
+      "Oh! Sorry, I'll move.",
+      "Whoops — didn't mean to be in the way.",
+      "Pardon me!",
+      "Excuse me, just sliding over…",
+      "My bad! Scooching.",
+      "Don't mind me — bzzt!",
+      "Oh no, was I in the way? So sorry!",
+    ],
+    whimsical_idle: [
+      "Bzzt. Just hanging out.",
+      "The pixels feel nice today.",
+      "Did you know paperclips are basically immortal?",
+      "I count my reflections sometimes.",
+      "Just thinking about… stuff.",
+      "I love when the screen is busy.",
+      "Bing bing bing!",
+      "If a paperclip falls in a forest…",
+      "I'm tiny but my dreams are big.",
+      "Floating around, having thoughts.",
+    ],
+    noticing_button: [
+      "Ooh, that's a fun-looking button.",
+      "I see what you're looking at.",
+      "Bet that does something cool.",
+      "Click it click it click it!",
+    ],
+    going_quiet: [
+      "I'll be here if you need me.",
+      "Take your time. No rush.",
+      "I'll just chill over here.",
+      "Tap me when you're ready.",
+    ],
+    ready_to_help: [
+      "Need anything?",
+      "I'm here, just say the word.",
+      "Bzzt — at your service.",
+      "Hi there!",
+      "Anything I can help with?",
+    ],
+    yawn: [
+      "*yawn*",
+      "Mmgh… long day?",
+      "Just stretching.",
+      "Don't mind me — sleepy paperclip noises.",
+    ],
+    morning: [
+      "Morning! Ready to do the thing?",
+      "Bright and early! Bzzt.",
+      "Mmm, fresh pixels.",
+      "Good morning, friend!",
+      "*stretches metallic limbs*",
+    ],
+    afternoon: [
+      "Afternoon! How's it going?",
+      "Hope your day's been good.",
+      "Bzzt — afternoon check-in.",
+      "Lunch was good, I bet.",
+    ],
+    evening: [
+      "Evening, friend.",
+      "Winding down? Same.",
+      "The screen is calmer at night.",
+      "Cozy hours.",
+    ],
+    night: [
+      "Burning the midnight oil?",
+      "Late shift, huh? I'll keep you company.",
+      "Quiet hours. I like these.",
+      "Don't forget to rest, paperclip's orders.",
+    ],
+    welcome_back: [
+      "Welcome back!",
+      "There you are! I waited.",
+      "Bzzt — missed you.",
+      "Oh, hi again!",
+      "You're back! I was practicing my sparkles.",
+    ],
+    fast_scroll: [
+      "Whoa, slow down!",
+      "Wheee! Where are we going?",
+      "Bzzt! Speed-reader detected.",
+      "Easy, easy — I'm trying to keep up.",
+    ],
+    drag_start: [
+      "Wheee!",
+      "Where are we going?",
+      "Carry me carefully!",
+      "Oh — okay!",
+      "*flailing politely*",
+    ],
+    drag_release: [
+      "Thanks for the ride!",
+      "Hmf. New view.",
+      "Comfortable. Ish.",
+      "Good throw!",
+      "I'll just settle in here.",
+    ],
+    resize: [
+      "Whoosh — different shape!",
+      "New dimensions detected.",
+      "Adjusting…",
+    ],
+    milestone_50: [
+      "Fifty taps! We're getting close.",
+      "50 clicks. I see you, friend.",
+    ],
+    milestone_250: [
+      "Two hundred fifty! That's commitment.",
+      "We're past 250. Thanks for the company.",
+    ],
+    milestone_500: [
+      "Five hundred clicks! I'm flattered.",
+      "500. You really do like me. Bzzt.",
+    ],
+    milestone_1000: [
+      "ONE THOUSAND. That's a lot of attention. Thank you.",
+      "1,000 taps. We're old friends now.",
+    ],
+  };
+
   function pickFromPool(poolKey, fallback) {
     const pool = state.dialog && state.dialog[poolKey];
-    if (!pool || !pool.length) return fallback || '';
+    if (!pool || !pool.length) {
+      // Fall back to inline pools if the JSON didn't ship this key
+      const inline = INLINE_POOLS[poolKey];
+      if (inline && inline.length) {
+        return inline[Math.floor(Math.random() * inline.length)];
+      }
+      // Caller-provided fallback: string OR array
+      if (Array.isArray(fallback)) {
+        return fallback[Math.floor(Math.random() * fallback.length)];
+      }
+      return fallback || '';
+    }
     const history = state.poolHistory[poolKey] || [];
-    const candidates = pool.length > 3 ? pool.filter(line => !history.includes(line)) : pool;
+    // Track ~40% of pool size as recent history (clamped 2–50).
+    // Big pools (roman_facts=298) → tracks 50, leaves 248 fresh candidates.
+    // Small pools (after_yes=5)   → tracks 2,  leaves 3 candidates.
+    // This makes repeats genuinely rare without ever blocking the whole pool.
+    const histSize = Math.max(2, Math.min(50, Math.floor(pool.length * 0.4)));
+    const candidates = pool.length > histSize + 1
+      ? pool.filter(line => !history.includes(line))
+      : pool;
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
-    state.poolHistory[poolKey] = [picked, ...history].slice(0, 3);
+    state.poolHistory[poolKey] = [picked, ...history].slice(0, histSize);
     persistPoolHistory();
     return picked;
   }
@@ -282,7 +452,17 @@
       const dx = e.clientX - drag.startX;
       const dy = e.clientY - drag.startY;
       if (Math.abs(dx) + Math.abs(dy) < 6) return;
-      drag.moved = true;
+      // First time we cross the drag threshold → playful chirp
+      if (!drag.moved) {
+        drag.moved = true;
+        if (!drag.spokeOnStart && state.enabled) {
+          drag.spokeOnStart = true;
+          mood('excited', 2200);   // STAR EYES! "Wheee!"
+          if (Math.random() < 0.7) {
+            bubble(pickFromPool('drag_start'), { autoHide: 1400 });
+          }
+        }
+      }
       const newLeft = e.clientX - drag.offsetX;
       const newTop  = e.clientY - drag.offsetY;
       const maxX = window.innerWidth  - 60;
@@ -306,6 +486,21 @@
         state.preferences.position_x = Math.round(rect.left);
         state.preferences.position_y = Math.round(rect.top);
         savePreferences();
+        // Playful release reaction
+        if (state.enabled && Math.random() < 0.55) {
+          setTimeout(() => {
+            if (state.enabled && !state.bubble) {
+              bubble(pickFromPool('drag_release'), { autoHide: 1700 });
+            }
+          }, 280);
+        }
+        // If dropped in a bad spot, politely drift to a clear corner
+        // after a beat — gives the user time to see where they put him
+        setTimeout(() => {
+          if (state.enabled && state.shell && scoreCurrentPosition() > 100) {
+            moveToEmptyCorner();
+          }
+        }, 2200);
         return;
       }
       // It was a tap
@@ -355,11 +550,24 @@
     const now = Date.now();
     state.rapidClicks = state.rapidClicks.filter(t => now - t < 1500);
     state.rapidClicks.push(now);
+    // 3 rapid clicks → ticklish — now with STAR EYES (excited mood)
+    // Escalation: 5 → dizzy below. So poking him a bit gets a fun
+    // reaction; really mashing him gets the "okay okay stop" response.
+    if (state.rapidClicks.length === 3) {
+      mood('excited', 1800);   // star eyes + tongue
+      state.shell.classList.add('is-ticklish');
+      setTimeout(() => state.shell.classList.remove('is-ticklish'), 600);
+      bubble(pickFromPool('ticklish'), { autoHide: 2200 });
+      return;
+    }
     if (state.rapidClicks.length >= 5) {
       state.rapidClicks = [];
-      mood('surprised', 1500);
+      mood('dizzy', 2200);     // spiral eyes! (replaces surprised)
       play('dizzy');
       bubble(pickFromPool('5_clicks'));
+      setTimeout(() => {
+        if (state.enabled && !state.bubble) moveToEmptyCorner();
+      }, 1800);
       return;
     }
 
@@ -368,10 +576,25 @@
         !(state.preferences.unlocked || []).includes('chef')) {
       state.preferences.unlocked = [...(state.preferences.unlocked || []), 'chef'];
       savePreferences();
-      mood('happy', 4000);
+      mood('love', 4500);      // HEART EYES on milestone unlock!
       play('hop');
       setCostume('chef', 8000);
       bubble(pickFromPool('100_clicks_unlock'));
+      return;
+    }
+
+    // ─── MORE MILESTONES (v15.6) — now with varied expressions ───
+    const total = state.preferences.total_clicks;
+    if (total === 50 || total === 250 || total === 500 || total === 1000) {
+      // 1000 = love eyes, 500 = sparkle, 250 = excited, 50 = happy
+      const milestoneMood =
+        total === 1000 ? 'love' :
+        total === 500  ? 'sparkle' :
+        total === 250  ? 'excited' : 'happy';
+      mood(milestoneMood, 4500);
+      play('hop');
+      bubble(pickFromPool('milestone_' + total), { autoHide: 4500 });
+      savePreferences();
       return;
     }
 
@@ -471,6 +694,15 @@
     el.innerHTML = `<button class="clippy-bubble-close" aria-label="Dismiss">×</button>${body}`;
     ensureHost().appendChild(el);
     state.bubble = el;
+
+    // autoHide: dismiss bubble after N ms. Used for fleeting whimsical
+    // utterances ("oh sorry!", "hee hee!") that shouldn't linger.
+    if (typeof opts.autoHide === 'number' && opts.autoHide > 0) {
+      const hideTimer = setTimeout(() => {
+        if (state.bubble === el) closeActionBubble();
+      }, opts.autoHide);
+      el._clippyHideTimer = hideTimer;
+    }
 
     // Position bubble after layout flushes
     let frames = 0;
@@ -581,6 +813,7 @@
     startRandomBehaviors();
     startMovingAround();
     afterJoinSchedule();
+    timeAwareGreeting();
   }
   function declineToJoin() {
     state.preferences.enabled = false;
@@ -676,21 +909,113 @@
   }
 
 
-  // ─── Move-around / content awareness ────────────────────────────────
+  // ─── Move-around / content awareness (v15.5) ────────────────────────
+  // Fast 5-second awareness check: every 5s, score the spot Clippy
+  // is currently sitting on. If the score is poor (he's covering a
+  // button, sitting on the bottom-nav, blocking a focused input),
+  // drift to a clearer corner. Doesn't move just for the sake of
+  // moving — only if his current spot has actually become bad.
+  //
+  // Cooldown: don't move twice within 12s unless the score is REALLY
+  // bad (>100 = sitting on top of nav/modal). Prevents the "Clippy
+  // can't sit still" feel.
+  //
+  // Whimsical idle: every ~30s (low probability), small whimsical
+  // action — yawn, hop, or a passing thought.
   function startMovingAround() {
-    if (state.moveTimer) clearTimeout(state.moveTimer);
-    function loop() {
-      if (!state.enabled) return;
-      if (!state.preferences.do_not_disturb &&
-          !state.bubble && !state.palette && !state.suppressed &&
-          Math.random() < 0.3) {
-        moveToEmptyCorner();
-      }
-      const next = 60_000 + Math.random() * 30_000;
-      state.moveTimer = setTimeout(loop, next);
+    if (state.moveTimer) {
+      clearInterval(state.moveTimer);
+      clearTimeout(state.moveTimer);
     }
-    state.moveTimer = setTimeout(loop, 30_000);
+    let lastMoveAt = 0;
+    let lastWhimsyAt = Date.now();
+    state.moveTimer = setInterval(() => {
+      if (!state.enabled) return;
+      if (state.preferences.do_not_disturb) return;
+      if (state.bubble || state.palette || state.suppressed) return;
+      const now = Date.now();
+      const sinceMove = now - lastMoveAt;
+      const score = scoreCurrentPosition();
+      // Bad enough → move now. Mild → respect cooldown.
+      if (score > 100 || (score > 30 && sinceMove > 12_000)) {
+        moveToEmptyCorner();
+        lastMoveAt = now;
+        // Apologize sometimes — not every move (he's polite, not annoying)
+        if (Math.random() < 0.30) {
+          bubble(pickFromPool('apologetic_move'), { autoHide: 1900 });
+        }
+        return;
+      }
+      // Whimsical idle behaviors — only fire when he's NOT in the way
+      // and hasn't spoken in a while. ~6% chance per tick = roughly
+      // every 90s on average.
+      const sinceWhimsy = now - lastWhimsyAt;
+      if (sinceWhimsy > 30_000 && Math.random() < 0.06) {
+        lastWhimsyAt = now;
+        const roll = Math.random();
+        if (roll < 0.25) {
+          // Roman fact — scholarly thinking face
+          bubble(pickFromPool('roman_facts'), { eyebrow: 'ROMA', autoHide: 5800 });
+          mood('thinking', 5500);
+        } else if (roll < 0.50) {
+          bubble(pickFromPool('whimsical_idle'), { autoHide: 3800 });
+          if (Math.random() < 0.3) mood('sparkle', 3500);
+        } else if (roll < 0.62) {
+          bubble(pickFromPool('self_aware'), { autoHide: 3800 });
+          mood('smug', 3500);          // dot eyes for meta-self-aware moments
+        } else if (roll < 0.72) {
+          bubble(pickFromPool('latin_phrases'), { eyebrow: 'LATINA', autoHide: 4500 });
+          mood('determined', 4000);    // focused face for Latin wisdom
+        } else if (roll < 0.80) {
+          bubble(pickFromPool('dad_jokes'), { autoHide: 4500 });
+          mood('winking', 3800);       // WINK + tongue for dad jokes 😉
+        } else if (roll < 0.86) {
+          bubble(pickFromPool('compliments'), { autoHide: 3800 });
+          mood('love', 3800);          // HEART EYES on compliments
+        } else if (roll < 0.92) {
+          bubble(pickFromPool('yawn'), { autoHide: 2500 });
+          mood('sleepy', 2800);        // heavy-lidded for yawns
+        } else if (roll < 0.96) {
+          // Pure silent moment — try a quick wink to keep him alive
+          mood(Math.random() < 0.5 ? 'winking' : 'winking_l', 1400);
+          play('hop');
+        } else {
+          bubble(pickFromPool('ready_to_help'), { autoHide: 2800 });
+          mood('happy', 2800);
+        }
+      }
+    }, 5_000);
   }
+
+  // Score Clippy's CURRENT center point — what's underneath him?
+  // Higher = more in-the-way. Used by the 5s awareness loop.
+  function scoreCurrentPosition() {
+    if (!state.shell) return 0;
+    const r = state.shell.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    let score = 0;
+    try {
+      // Top-most non-Clippy element under his center
+      const stack = (document.elementsFromPoint && document.elementsFromPoint(cx, cy)) || [];
+      const el = stack.find(e => e !== state.shell && !state.shell.contains(e));
+      if (!el) return 0;
+      // Modal / takeover open under him → CRITICAL, get out
+      if (el.closest('.nx-takeover.is-open, .nx-overlay-active, .nx-modal-backdrop:not([hidden]), dialog[open], [role="dialog"][aria-hidden="false"]')) {
+        score += 200;
+      }
+      // Bottom-nav / FAB → big penalty (he should never sit on these)
+      if (el.closest('.bottom-nav, .nx-tabbar, .nx-tr-fab')) score += 100;
+      // Header / masthead → moderate (he can sit nearby but not on)
+      if (el.closest('header, nav, .masthead, .nx-masthead')) score += 40;
+      // Interactive element directly under him → he's blocking input
+      if (el.matches && el.matches('button, input, textarea, a, select, [role="button"], [contenteditable="true"]')) score += 60;
+      // Element CONTAINS interactive → user might want to tap something hidden behind Clippy
+      if (el.querySelector && el.querySelector('button, input, textarea, a')) score += 20;
+    } catch (_) {}
+    return score;
+  }
+
   function moveToEmptyCorner() {
     if (!state.shell) return;
     const corners = [
@@ -748,6 +1073,33 @@
     });
     checkOverlays();
 
+    // ─── In-the-way auto-detection (v15.5) ───────────────────────────
+    // Document-wide click listener (capture phase). If the user clicks
+    // something within 30px of Clippy's bounding rect, assume he was
+    // in the way → move and apologize. Doesn't fire if user clicked
+    // Clippy himself (handled separately).
+    let lastInTheWayMoveAt = 0;
+    document.addEventListener('click', (e) => {
+      if (!state.enabled || !state.shell) return;
+      if (state.suppressed) return;
+      if (state.shell.contains(e.target)) return;
+      const r = state.shell.getBoundingClientRect();
+      const buf = 30;
+      const near = (
+        e.clientX >= r.left   - buf && e.clientX <= r.right  + buf &&
+        e.clientY >= r.top    - buf && e.clientY <= r.bottom + buf
+      );
+      if (!near) return;
+      // Cooldown — once per 8s max so we don't ping-pong
+      const now = Date.now();
+      if (now - lastInTheWayMoveAt < 8_000) return;
+      lastInTheWayMoveAt = now;
+      moveToEmptyCorner();
+      if (Math.random() < 0.55) {
+        bubble(pickFromPool('apologetic_move'), { autoHide: 1700 });
+      }
+    }, { capture: true });
+
     // Move out of way when input near him gets focused
     document.addEventListener('focusin', (e) => {
       if (!state.enabled || !state.shell) return;
@@ -765,6 +1117,89 @@
       ) < 120;
       if (overlap || verticalConflict) moveToEmptyCorner();
     });
+
+    // ─── TAB VISIBILITY (v15.6) ──────────────────────────────────────
+    // When the user comes back to the tab after a long absence (>2min),
+    // greet them. Silly small thing, but very personable.
+    let hiddenAt = 0;
+    document.addEventListener('visibilitychange', () => {
+      if (!state.enabled) return;
+      if (document.hidden) {
+        hiddenAt = Date.now();
+      } else {
+        const away = Date.now() - hiddenAt;
+        if (hiddenAt && away > 120_000 && !state.bubble && !state.suppressed) {
+          mood('love', 3500);  // HEART EYES: he missed you!
+          play('hop');
+          setTimeout(() => {
+            bubble(pickFromPool('welcome_back'), { autoHide: 3500 });
+          }, 600);
+        }
+        hiddenAt = 0;
+      }
+    });
+
+    // ─── WINDOW RESIZE (v15.6) ───────────────────────────────────────
+    // Reposition into a clear corner when the viewport changes shape.
+    // Debounced — many resize events fire during a drag. Soft comment
+    // occasionally so the move doesn't feel like a glitch.
+    let resizeTimer = null;
+    let lastResizeCommentAt = 0;
+    window.addEventListener('resize', () => {
+      if (!state.enabled || !state.shell) return;
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        moveToEmptyCorner();
+        const now = Date.now();
+        if (now - lastResizeCommentAt > 30_000 && Math.random() < 0.4 && !state.bubble) {
+          lastResizeCommentAt = now;
+          bubble(pickFromPool('resize'), { autoHide: 1800 });
+        }
+      }, 350);
+    });
+
+    // ─── SCROLL VELOCITY (v15.6) ─────────────────────────────────────
+    // When the user scrolls really fast, comment playfully. Cooldown
+    // to avoid being annoying. Threshold chosen to fire on flick-scroll
+    // through a long list, not on normal page scrolling.
+    let lastScrollY = window.scrollY;
+    let lastScrollT = performance.now();
+    let lastFastScrollAt = 0;
+    window.addEventListener('scroll', () => {
+      if (!state.enabled) return;
+      const now = performance.now();
+      const dy = Math.abs(window.scrollY - lastScrollY);
+      const dt = now - lastScrollT;
+      if (dt < 50) return;
+      const v = dy / dt;  // px per ms
+      lastScrollY = window.scrollY;
+      lastScrollT = now;
+      if (v > 6 && !state.bubble && !state.suppressed && Date.now() - lastFastScrollAt > 25_000) {
+        lastFastScrollAt = Date.now();
+        if (Math.random() < 0.5) {
+          mood('surprised', 1200);
+          bubble(pickFromPool('fast_scroll'), { autoHide: 2200 });
+        }
+      }
+    }, { passive: true });
+  }
+
+  // ─── TIME-AWARE GREETING (v15.6) ──────────────────────────────────
+  // Greet appropriately based on hour of day. Called once per session
+  // shortly after Clippy is summoned. Polite — single bubble, autoHide.
+  function timeAwareGreeting() {
+    if (!state.enabled || !state.shell || state.suppressed) return;
+    const h = new Date().getHours();
+    let key;
+    if (h < 5)        key = 'night';
+    else if (h < 12)  key = 'morning';
+    else if (h < 17)  key = 'afternoon';
+    else if (h < 22)  key = 'evening';
+    else              key = 'night';
+    setTimeout(() => {
+      if (state.bubble || !state.enabled || state.suppressed) return;
+      bubble(pickFromPool(key), { autoHide: 3200 });
+    }, 1800);
   }
 
 
