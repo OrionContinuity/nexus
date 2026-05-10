@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v37-clippy';
+const CACHE_NAME = 'nexus-v38-clippy-v3';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -256,6 +256,7 @@ const APP_SHELL = [
 
   // Data + audio
   './clippy-dialog.json',
+  './clippy.svg',
   './audio/nexus-theme.mp3',
 ];
 
@@ -266,12 +267,7 @@ const CDN_CACHE = [
   'https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap',
   'https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap',
   'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap',
-  // Clippy library + agent index. Individual agent assets are
-  // runtime-cached on first load (sprites are heavy and only the
-  // active agent's assets need fetching, which is what cache-first
-  // does for free below).
-  'https://cdn.jsdelivr.net/npm/clippyjs/dist/index.mjs',
-  'https://cdn.jsdelivr.net/npm/clippyjs/dist/agents/index.mjs',
+  // (clippyjs CDN URLs removed — Clippy v3 is fully self-contained now)
 ];
 
 // ─── INSTALL — cache the app shell ────────────────────────────────
