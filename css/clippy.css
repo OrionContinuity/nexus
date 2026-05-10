@@ -996,20 +996,18 @@
    here to a soft cyan that complements the new SVG halo.
    ════════════════════════════════════════════════════════════════════ */
 
-/* Override the legacy gold halo to cool cyan, behind the orb */
+/* Override the legacy gold halo to cool cyan, behind the orb.
+   v17.4 fix: keep the ORIGINAL 'clippy-halo' animation (scale only,
+   no translate). My v16 override added translate(-50%, -50%) which
+   broke the inset-based positioning and pushed the halo up-left,
+   creating the visible offset glow blob. Now: color change only. */
 #clippy-shell::before {
   background: radial-gradient(
     circle at 50% 50%,
-    rgba(125, 240, 255, 0.35) 0%,
-    rgba(58, 160, 255, 0.18) 40%,
-    rgba(58, 160, 255, 0)    70%
+    rgba(76, 182, 255, 0.32) 0%,
+    rgba(46, 141, 224, 0.16) 40%,
+    rgba(46, 141, 224, 0)    72%
   ) !important;
-  animation: clippy-orb-halo-breathe 4.4s ease-in-out infinite;
-}
-
-@keyframes clippy-orb-halo-breathe {
-  0%, 100% { opacity: 0.65; transform: translate(-50%, -50%) scale(0.95); }
-  50%      { opacity: 1.0;  transform: translate(-50%, -50%) scale(1.08); }
 }
 
 /* Inner SVG halo (the circle inside the SVG itself) — soft pulse */
@@ -1022,63 +1020,26 @@
   50%      { opacity: 1.00; transform: scale(1.04); }
 }
 
-/* Orbiting nodes — INDIVIDUAL random flight (v17.2).
-   Each node has its own translate path with different duration so they
-   look like buzzing electrons, not a rigid orbiting group. Per-node
-   keyframes use translate + opacity blend for that flickering quality. */
+/* v17.4: Orbital rotation around orb center (100,100).
+   Each node has its own speed/direction so the cluster looks chaotic-
+   organic, not robotically synchronized. Inner-orbit nodes (5,6,7) visibly
+   pass OVER the body as they swing around; outer ones (1-4) orbit around.
+   Direction varies (some reverse) for visual richness. */
 .cl-node {
-  transform-origin: center;
-  transform-box: fill-box;
+  transform-origin: 100px 100px;
+  transform-box: view-box;
 }
-.cl-node-1 { animation: clNode1 7.3s ease-in-out infinite; }
-.cl-node-2 { animation: clNode2 9.1s ease-in-out infinite; }
-.cl-node-3 { animation: clNode3 11.6s ease-in-out infinite; }
-.cl-node-4 { animation: clNode4 8.4s ease-in-out infinite; }
-.cl-node-5 { animation: clNode5 10.2s ease-in-out infinite; }
-.cl-node-6 { animation: clNode6 12.8s ease-in-out infinite; }
-.cl-node-7 { animation: clNode7 6.7s ease-in-out infinite; }
+.cl-node-1 { animation: clOrbit 18s linear infinite; }
+.cl-node-2 { animation: clOrbit 22s linear infinite reverse; animation-delay: -4s; }
+.cl-node-3 { animation: clOrbit 26s linear infinite; animation-delay: -10s; }
+.cl-node-4 { animation: clOrbit 20s linear infinite reverse; animation-delay: -7s; }
+.cl-node-5 { animation: clOrbit 15s linear infinite; animation-delay: -2s; }
+.cl-node-6 { animation: clOrbit 12s linear infinite reverse; animation-delay: -5s; }
+.cl-node-7 { animation: clOrbit 14s linear infinite; animation-delay: -8s; }
 
-@keyframes clNode1 {
-  0%, 100% { transform: translate(0, 0);     opacity: 0.85; }
-  20%      { transform: translate(7px, -4px); opacity: 1.00; }
-  45%      { transform: translate(-3px, -9px); opacity: 0.65; }
-  70%      { transform: translate(9px, 5px);  opacity: 0.95; }
-  85%      { transform: translate(-5px, 3px); opacity: 0.55; }
-}
-@keyframes clNode2 {
-  0%, 100% { transform: translate(0, 0);     opacity: 0.80; }
-  25%      { transform: translate(-6px, 5px); opacity: 0.50; }
-  55%      { transform: translate(4px, -7px); opacity: 1.00; }
-  80%      { transform: translate(-8px, -2px); opacity: 0.65; }
-}
-@keyframes clNode3 {
-  0%, 100% { transform: translate(0, 0);     opacity: 0.90; }
-  30%      { transform: translate(5px, -6px); opacity: 0.60; }
-  60%      { transform: translate(-7px, 4px); opacity: 1.00; }
-  85%      { transform: translate(3px, 8px);  opacity: 0.70; }
-}
-@keyframes clNode4 {
-  0%, 100% { transform: translate(0, 0);     opacity: 0.75; }
-  15%      { transform: translate(-4px, -5px); opacity: 1.00; }
-  50%      { transform: translate(8px, 3px);  opacity: 0.50; }
-  75%      { transform: translate(2px, -8px); opacity: 0.85; }
-}
-@keyframes clNode5 {
-  0%, 100% { transform: translate(0, 0);     opacity: 0.85; }
-  35%      { transform: translate(9px, 6px); opacity: 0.55; }
-  65%      { transform: translate(-5px, -7px); opacity: 1.00; }
-}
-@keyframes clNode6 {
-  0%, 100% { transform: translate(0, 0);     opacity: 0.70; }
-  20%      { transform: translate(-7px, 4px); opacity: 1.00; }
-  45%      { transform: translate(4px, -3px); opacity: 0.45; }
-  70%      { transform: translate(6px, 7px);  opacity: 0.90; }
-}
-@keyframes clNode7 {
-  0%, 100% { transform: translate(0, 0);     opacity: 0.95; }
-  25%      { transform: translate(5px, 8px); opacity: 0.55; }
-  55%      { transform: translate(-8px, 2px); opacity: 1.00; }
-  80%      { transform: translate(3px, -6px); opacity: 0.65; }
+@keyframes clOrbit {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 /* Electric tendrils — subtle flicker so they feel alive but not noisy */
