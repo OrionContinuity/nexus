@@ -1542,15 +1542,10 @@
   <!-- EQUIPMENT -->
   <div class="view" id="equipmentView" data-view="equipment"></div>
 
-  <!-- TRAINING (legacy — hidden in v15, replaced by Education) -->
-  <div class="view" id="trainView" data-view="train">
-    <div class="train-header">
-      <span class="train-header-title" data-i18n="training">Training</span>
-      <span class="train-header-spacer"></span>
-      <button class="train-archive-trigger" id="trainArchive" type="button" aria-label="Open archive">Archive</button>
-    </div>
-    <div class="train-list" id="trainList"></div>
-  </div>
+  <!-- TRAINING is now handled by the Education view (#educationView).
+       The legacy #trainView container was removed in v15.1 — its only
+       entry points (FAB Training button + duties launcher) both route
+       to #educationView via switchTo('education'). -->
 
   <!-- EDUCATION (v15 replacement for Training) -->
   <div class="view" id="educationView" data-view="education"></div>
