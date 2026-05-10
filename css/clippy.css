@@ -41,18 +41,18 @@
   position: fixed;
   bottom: 16px;
   right: 16px;
-  width: 110px;
-  height: 145px;
+  width: 120px;
+  height: 120px;
   pointer-events: auto;
   cursor: grab;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.35))
-          drop-shadow(0 0 6px rgba(212, 164, 78, 0.25));
+  /* Drop-shadow keyed to the orb's cyan glow, not the paperclip gold */
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45))
+          drop-shadow(0 0 14px rgba(92, 176, 255, 0.35));
   transition: opacity 280ms ease, filter 200ms ease;
-  /* Smooth transitions when programmatically repositioning */
   --pos-transition: left 700ms cubic-bezier(0.34, 1.36, 0.64, 1),
                     top  700ms cubic-bezier(0.34, 1.36, 0.64, 1),
                     bottom 700ms cubic-bezier(0.34, 1.36, 0.64, 1),
@@ -62,8 +62,8 @@
 #clippy-shell.is-dragging {
   cursor: grabbing;
   transition: none;
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45))
-          drop-shadow(0 0 8px rgba(212, 164, 78, 0.45));
+  filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.55))
+          drop-shadow(0 0 18px rgba(125, 240, 255, 0.55));
 }
 #clippy-shell.is-hidden {
   opacity: 0;
@@ -108,118 +108,244 @@
   transform-box: fill-box;
 }
 
-/* Closed-eye states — hidden by default, toggled via classes */
-.clippy-svg .cl-eyes-shut,
-.clippy-svg .cl-eyes-happy {
-  opacity: 0;
-  transition: opacity 70ms ease;
-}
-
-/* Arms hidden by default */
-.clippy-svg .cl-arms {
-  opacity: 0;
-  transition: opacity 200ms ease;
-}
-
-/* Z's hidden by default */
-.clippy-svg .cl-zzz {
-  opacity: 0;
-  transition: opacity 280ms ease;
-}
-
-/* Sparkles hidden by default */
-.clippy-svg .cl-sparkles {
-  opacity: 0;
-  transition: opacity 280ms ease;
-}
-
-
 /* ════════════════════════════════════════════════════════════════════
-   EXPRESSION STATES — toggled on shell, swap eye/brow appearance
+   v17 — FULL ANIME EXPRESSION SYSTEM
+   ──────────────────────────────────────────────────────────────────────
+   Every face state has its own group in the SVG, all stacked at the
+   same coordinates. Default eyes + default mouth are visible; every
+   other variant has opacity:0 until a mood class is added to the shell.
+   Mood class toggles the swap — old default fades out, target fades in.
    ════════════════════════════════════════════════════════════════════ */
 
-/* Blink — eyes momentarily shut */
-#clippy-shell.is-blinking .cl-eye,
-#clippy-shell.is-blinking .cl-pupils,
-#clippy-shell.is-blinking .cl-glint { opacity: 0; }
-#clippy-shell.is-blinking .cl-eyes-shut { opacity: 1; }
+/* Universal transition on the swap targets so they crossfade smoothly */
+.clippy-svg [class^="cl-eyes-"],
+.clippy-svg [class^="cl-mouth-"] {
+  transition: opacity 220ms ease, transform 280ms ease-out;
+}
 
-/* Sleeping — eyes shut + Z's float, body droops */
-#clippy-shell.is-sleeping .cl-eye,
-#clippy-shell.is-sleeping .cl-pupils,
-#clippy-shell.is-shut .cl-glint { opacity: 0; }
-#clippy-shell.is-sleeping .cl-eye,
-#clippy-shell.is-sleeping .cl-pupils,
-#clippy-shell.is-sleeping .cl-glint { opacity: 0; }
-#clippy-shell.is-sleeping .cl-eyes-shut { opacity: 1; }
-#clippy-shell.is-sleeping .cl-zzz { opacity: 1; }
-#clippy-shell.is-sleeping .cl-zzz text { animation: clZzz 2.4s ease-in-out infinite; }
-#clippy-shell.is-sleeping .cl-body { filter: brightness(0.85); }
+/* Default visibility: default eyes & smile shown, all variants hidden */
+.clippy-svg .cl-eyes-default { opacity: 1; }
+.clippy-svg .cl-eyes-happy,
+.clippy-svg .cl-eyes-shut,
+.clippy-svg .cl-eyes-love,
+.clippy-svg .cl-eyes-stars,
+.clippy-svg .cl-eyes-dizzy,
+.clippy-svg .cl-eyes-angry,
+.clippy-svg .cl-eyes-sad,
+.clippy-svg .cl-eyes-sleepy,
+.clippy-svg .cl-eyes-dots,
+.clippy-svg .cl-eyes-x,
+.clippy-svg .cl-eyes-wink-l,
+.clippy-svg .cl-eyes-wink-r,
+.clippy-svg .cl-eyes-suspicious,
+.clippy-svg .cl-eyes-determined,
+.clippy-svg .cl-eyes-sparkle,
+.clippy-svg .cl-eyes-embarrassed { opacity: 0; }
+
+.clippy-svg .cl-mouth-smile { opacity: 1; }
+.clippy-svg .cl-mouth-bigsmile,
+.clippy-svg .cl-mouth-tongue,
+.clippy-svg .cl-mouth-o,
+.clippy-svg .cl-mouth-wavy,
+.clippy-svg .cl-mouth-fangs,
+.clippy-svg .cl-mouth-flat,
+.clippy-svg .cl-mouth-frown,
+.clippy-svg .cl-mouth-cat,
+.clippy-svg .cl-mouth-kiss { opacity: 0; }
+
+/* Sleep Z's hidden by default (kept from prior version) */
+.clippy-svg .cl-zzz { opacity: 0; transition: opacity 280ms ease; }
+
+/* Pupil + glint translate via --eye-x/--eye-y CSS vars (set by JS).
+   Only meaningful for default eyes; other variants are static. */
+.clippy-svg .cl-pupil,
+.clippy-svg .cl-glint {
+  transform: translate(calc(var(--eye-x, 0) * 1px), calc(var(--eye-y, 0) * 1px));
+  transition: transform 200ms ease-out;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+/* ───────── MOOD CLASSES ─────────
+   Each mood toggles a specific eye + mouth combination.
+   Format:  shell.is-X   eye-group-on/off   mouth-group-on/off
+*/
+
+/* BLINK — split-second close (fast transition for this one) */
+#clippy-shell.is-blinking .cl-eyes-default { opacity: 0; transition-duration: 60ms; }
+#clippy-shell.is-blinking .cl-eyes-shut    { opacity: 1; transition-duration: 60ms; }
+
+/* SLEEPING — eyes shut + Z's appear + body dims */
+#clippy-shell.is-sleeping .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-sleeping .cl-eyes-shut    { opacity: 1; }
+#clippy-shell.is-sleeping .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-sleeping .cl-mouth-flat   { opacity: 0.55; }
+#clippy-shell.is-sleeping .cl-zzz          { opacity: 1; }
+#clippy-shell.is-sleeping .cl-zzz text     { animation: clZzz 2.4s ease-in-out infinite; }
+#clippy-shell.is-sleeping .cl-body         { filter: brightness(0.85); }
 @keyframes clZzz {
   0%, 100% { opacity: 0.3; transform: translateY(0); }
-  50%      { opacity: 1;   transform: translateY(-3px); }
+  50%      { opacity: 1.0; transform: translateY(-3px); }
 }
 
-/* Happy — squinty smile eyes */
-#clippy-shell.is-happy .cl-eye,
-#clippy-shell.is-happy .cl-pupils,
-#clippy-shell.is-happy .cl-glint { opacity: 0; }
-#clippy-shell.is-happy .cl-eyes-happy { opacity: 1; }
+/* HAPPY — closed crescents ^_^ + open smile */
+#clippy-shell.is-happy .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-happy .cl-eyes-happy   { opacity: 1; }
+#clippy-shell.is-happy .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-happy .cl-mouth-bigsmile { opacity: 1; }
 
-/* Surprised — eyes pop big, brows shoot up */
-#clippy-shell.is-surprised .cl-eye {
-  transform: scale(1.18);
+/* LOVE — heart eyes + big smile */
+#clippy-shell.is-love .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-love .cl-eyes-love    { opacity: 1; }
+#clippy-shell.is-love .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-love .cl-mouth-bigsmile { opacity: 1; }
+#clippy-shell.is-love .cl-eyes-love use {
+  animation: clHeartPulse 1.2s ease-in-out infinite;
   transform-origin: center;
   transform-box: fill-box;
 }
-#clippy-shell.is-surprised .cl-pupil { r: 2.2; }
-#clippy-shell.is-surprised .cl-brows {
-  transform: translateY(-7px);
+@keyframes clHeartPulse {
+  0%, 100% { transform: scale(1.0); }
+  50%      { transform: scale(1.15); }
 }
 
-/* Concerned — brows arched inward */
-#clippy-shell.is-concerned .cl-brow-l {
-  transform: rotate(8deg) translate(2px, 1px);
-  transform-origin: 56px 32px;
-}
-#clippy-shell.is-concerned .cl-brow-r {
-  transform: rotate(-8deg) translate(-2px, 1px);
-  transform-origin: 64px 32px;
-}
-
-/* Angry — brows angled sharply down */
-#clippy-shell.is-angry .cl-brow-l {
-  transform: rotate(22deg) translate(0, -3px);
-  transform-origin: 56px 32px;
-}
-#clippy-shell.is-angry .cl-brow-r {
-  transform: rotate(-22deg) translate(0, -3px);
-  transform-origin: 64px 32px;
-}
-
-/* Sad — brows angled the other way + eyes droop */
-#clippy-shell.is-sad .cl-brow-l {
-  transform: rotate(-15deg) translate(0, 2px);
-  transform-origin: 36px 36px;
-}
-#clippy-shell.is-sad .cl-brow-r {
-  transform: rotate(15deg) translate(0, 2px);
-  transform-origin: 84px 36px;
-}
-#clippy-shell.is-sad .cl-eye {
-  transform: translateY(2px) scaleY(0.85);
+/* EXCITED — star eyes + tongue out */
+#clippy-shell.is-excited .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-excited .cl-eyes-stars   { opacity: 1; }
+#clippy-shell.is-excited .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-excited .cl-mouth-tongue { opacity: 1; }
+#clippy-shell.is-excited .cl-eyes-stars use {
+  animation: clStarSpin 2.2s linear infinite;
   transform-origin: center;
   transform-box: fill-box;
 }
-
-/* All brow + eye transforms transition smoothly */
-.clippy-svg .cl-brows,
-.clippy-svg .cl-brow-l,
-.clippy-svg .cl-brow-r,
-.clippy-svg .cl-eye,
-.clippy-svg .cl-pupil {
-  transition: transform 240ms ease-out, r 240ms ease-out;
+@keyframes clStarSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
+
+/* SURPRISED — keep default eyes but pop them larger, plus mouth O */
+#clippy-shell.is-surprised .cl-eyes-default {
+  transform: scale(1.12);
+  transform-origin: center;
+  transform-box: fill-box;
+}
+#clippy-shell.is-surprised .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-surprised .cl-mouth-o     { opacity: 1; }
+
+/* THINKING — suspicious half-lid + flat mouth */
+#clippy-shell.is-thinking .cl-eyes-default   { opacity: 0; }
+#clippy-shell.is-thinking .cl-eyes-suspicious { opacity: 1; }
+#clippy-shell.is-thinking .cl-mouth-smile    { opacity: 0; }
+#clippy-shell.is-thinking .cl-mouth-flat     { opacity: 1; }
+
+/* CONCERNED — embarrassed/looking-away + flat */
+#clippy-shell.is-concerned .cl-eyes-default     { opacity: 0; }
+#clippy-shell.is-concerned .cl-eyes-embarrassed { opacity: 1; }
+#clippy-shell.is-concerned .cl-mouth-smile      { opacity: 0; }
+#clippy-shell.is-concerned .cl-mouth-flat       { opacity: 1; }
+
+/* SAD — droopy eyes + tear + frown */
+#clippy-shell.is-sad .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-sad .cl-eyes-sad     { opacity: 1; }
+#clippy-shell.is-sad .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-sad .cl-mouth-frown  { opacity: 1; }
+
+/* ANGRY — V-brow narrowed eyes + fangs */
+#clippy-shell.is-angry .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-angry .cl-eyes-angry   { opacity: 1; }
+#clippy-shell.is-angry .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-angry .cl-mouth-fangs  { opacity: 1; }
+/* Tiny rage shake */
+#clippy-shell.is-angry .clippy-svg {
+  animation: clRageShake 120ms steps(2, end) infinite;
+}
+@keyframes clRageShake {
+  0%, 100% { transform: translateX(0); }
+  50%      { transform: translateX(0.6px); }
+}
+
+/* DIZZY — spiral eyes + wavy mouth + slight tilt */
+#clippy-shell.is-dizzy .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-dizzy .cl-eyes-dizzy   { opacity: 1; }
+#clippy-shell.is-dizzy .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-dizzy .cl-mouth-wavy   { opacity: 1; }
+#clippy-shell.is-dizzy .cl-eyes-dizzy {
+  animation: clDizzySpin 1.6s linear infinite;
+  transform-origin: 100px 103px;
+}
+@keyframes clDizzySpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* SMUG — tiny dot eyes + cat :3 mouth */
+#clippy-shell.is-smug .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-smug .cl-eyes-dots    { opacity: 1; }
+#clippy-shell.is-smug .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-smug .cl-mouth-cat    { opacity: 1; }
+
+/* KO — X-eyes + flat mouth */
+#clippy-shell.is-ko .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-ko .cl-eyes-x       { opacity: 1; }
+#clippy-shell.is-ko .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-ko .cl-mouth-flat   { opacity: 1; }
+
+/* WINKING — right-eye wink + tongue */
+#clippy-shell.is-winking .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-winking .cl-eyes-wink-r  { opacity: 1; }
+#clippy-shell.is-winking .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-winking .cl-mouth-tongue { opacity: 1; }
+
+/* WINK-LEFT — alternate wink direction */
+#clippy-shell.is-winking-l .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-winking-l .cl-eyes-wink-l  { opacity: 1; }
+#clippy-shell.is-winking-l .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-winking-l .cl-mouth-tongue { opacity: 1; }
+
+/* SLEEPY — heavy lids + cat mouth */
+#clippy-shell.is-sleepy .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-sleepy .cl-eyes-sleepy  { opacity: 1; }
+#clippy-shell.is-sleepy .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-sleepy .cl-mouth-cat    { opacity: 1; }
+
+/* DETERMINED — focused eyes + flat mouth */
+#clippy-shell.is-determined .cl-eyes-default    { opacity: 0; }
+#clippy-shell.is-determined .cl-eyes-determined { opacity: 1; }
+#clippy-shell.is-determined .cl-mouth-smile     { opacity: 0; }
+#clippy-shell.is-determined .cl-mouth-flat      { opacity: 1; }
+
+/* SPARKLE — default eyes + sparkle overlay + big smile */
+#clippy-shell.is-sparkle .cl-eyes-sparkle { opacity: 1; }
+#clippy-shell.is-sparkle .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-sparkle .cl-mouth-bigsmile { opacity: 1; }
+#clippy-shell.is-sparkle .cl-eyes-sparkle text {
+  animation: clSparkleTwinkle 1.3s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+#clippy-shell.is-sparkle .cl-eyes-sparkle text:nth-child(2n) { animation-delay: 0.3s; }
+#clippy-shell.is-sparkle .cl-eyes-sparkle text:nth-child(3n) { animation-delay: 0.6s; }
+@keyframes clSparkleTwinkle {
+  0%, 100% { opacity: 0.4; transform: scale(0.7); }
+  50%      { opacity: 1.0; transform: scale(1.15); }
+}
+
+/* EMBARRASSED — looking away + cheeks brighter + cat mouth */
+#clippy-shell.is-embarrassed .cl-eyes-default     { opacity: 0; }
+#clippy-shell.is-embarrassed .cl-eyes-embarrassed { opacity: 1; }
+#clippy-shell.is-embarrassed .cl-cheek {
+  opacity: 1;
+  filter: brightness(1.25) saturate(1.3);
+}
+#clippy-shell.is-embarrassed .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-embarrassed .cl-mouth-cat   { opacity: 1; }
+
+/* KISSY — kiss mouth + happy eyes (mwah!) */
+#clippy-shell.is-kissy .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-kissy .cl-eyes-happy   { opacity: 1; }
+#clippy-shell.is-kissy .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-kissy .cl-mouth-kiss   { opacity: 1; }
 
 
 /* ════════════════════════════════════════════════════════════════════
@@ -641,8 +767,8 @@
    ════════════════════════════════════════════════════════════════════ */
 @media (max-width: 480px) {
   #clippy-shell {
-    width: 92px;
-    height: 122px;
+    width: 102px;
+    height: 102px;
   }
   .clippy-bubble {
     max-width: calc(100vw - 80px);
@@ -654,5 +780,369 @@
   #clippy-shell {
     bottom: calc(16px + env(safe-area-inset-bottom));
     right: calc(16px + env(safe-area-inset-right));
+  }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   v15.5 — TICKLE / WHIMSY / INSPIRATION FROM THE BLUE-ORB VIBE
+   ────────────────────────────────────────────────────────────────────
+   Channel the cute-glowing-orb energy: subtle gold halo around Clippy
+   when idle, bigger jiggle when tickled, blushing cheek hint, more
+   personality in the chat bubble.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ─── TICKLE: jiggle when tapped 3 rapid times ─── */
+.clippy-shell.is-ticklish {
+  animation: clippy-jiggle 0.6s cubic-bezier(0.36, 0.07, 0.19, 0.97) !important;
+  transform-origin: 50% 80%;
+}
+@keyframes clippy-jiggle {
+  0%   { transform: rotate(0deg)   scale(1); }
+  10%  { transform: rotate(-7deg)  scale(1.04); }
+  22%  { transform: rotate(8deg)   scale(1.06); }
+  35%  { transform: rotate(-6deg)  scale(1.05); }
+  48%  { transform: rotate(5deg)   scale(1.04); }
+  62%  { transform: rotate(-4deg)  scale(1.03); }
+  76%  { transform: rotate(3deg)   scale(1.02); }
+  88%  { transform: rotate(-1deg)  scale(1.01); }
+  100% { transform: rotate(0deg)   scale(1); }
+}
+
+/* ─── HALO: subtle gold glow that pulses around Clippy when idle.
+   Inspired by the user's reference image of the blue glowing orb —
+   the magical-companion vibe. Keeps NEXUS gold palette though. */
+#clippy-shell::before {
+  content: '';
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 60%,
+    rgba(212, 164, 78, 0.22) 0%,
+    rgba(212, 164, 78, 0.10) 40%,
+    rgba(212, 164, 78, 0)    72%
+  );
+  pointer-events: none;
+  z-index: -1;
+  animation: clippy-halo 4.2s ease-in-out infinite;
+  opacity: 0.85;
+}
+@keyframes clippy-halo {
+  0%, 100% { transform: scale(1.0);  opacity: 0.55; }
+  50%      { transform: scale(1.08); opacity: 0.95; }
+}
+#clippy-shell.is-suppressed::before { opacity: 0; }
+#clippy-shell.is-sleeping::before {
+  animation-duration: 8s;
+  opacity: 0.35;
+}
+
+/* When ticklish, halo flares brighter to match the giggle */
+#clippy-shell.is-ticklish::before {
+  background: radial-gradient(
+    circle at 50% 60%,
+    rgba(255, 220, 130, 0.45) 0%,
+    rgba(212, 164, 78, 0.20) 45%,
+    rgba(212, 164, 78, 0)    72%
+  );
+  opacity: 1;
+}
+
+/* ─── BUBBLE: more personality. Soft gradient, animated tail. ─── */
+.clippy-bubble {
+  background: linear-gradient(
+    180deg,
+    rgba(36, 28, 16, 0.98) 0%,
+    rgba(28, 22, 12, 0.98) 100%
+  ) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow:
+    0 14px 36px rgba(0, 0, 0, 0.55),
+    0 2px 8px rgba(212, 164, 78, 0.18),
+    0 0 0 1px rgba(212, 164, 78, 0.22) inset;
+}
+
+/* Whimsical bounce on appear instead of a flat fade */
+.clippy-bubble.is-visible {
+  animation: clippy-bubble-pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) backwards !important;
+}
+@keyframes clippy-bubble-pop {
+  0%   { transform: translateY(8px) scale(0.86); opacity: 0; }
+  70%  { transform: translateY(-2px) scale(1.04); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* Gentle text shimmer — like little sparks of thought */
+.clippy-bubble-text {
+  position: relative;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: #f4e8c8 !important;
+  letter-spacing: 0.005em;
+}
+
+/* Eyebrow (Trajan label) — terminal mono */
+.clippy-bubble-trajan-eyebrow {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9.5px !important;
+  letter-spacing: 1.6px !important;
+  color: rgba(212, 164, 78, 0.85) !important;
+}
+
+/* Action buttons inside the bubble — bigger touch targets */
+.clippy-bubble-btn {
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 13px !important;
+  border-radius: 9px !important;
+  background: rgba(212, 164, 78, 0.12) !important;
+  border: 1px solid rgba(212, 164, 78, 0.32) !important;
+  color: #d4a44e !important;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, transform 80ms ease;
+}
+.clippy-bubble-btn:hover {
+  background: rgba(212, 164, 78, 0.22) !important;
+}
+.clippy-bubble-btn:active {
+  transform: scale(0.96);
+}
+.clippy-bubble-btn.is-primary {
+  background: linear-gradient(135deg, #d4a44e, #8b6914) !important;
+  border-color: transparent !important;
+  color: #1a1408 !important;
+}
+
+/* Close button — softer, more tactile */
+.clippy-bubble-close {
+  background: rgba(212, 164, 78, 0.14) !important;
+  border: 1px solid rgba(212, 164, 78, 0.30) !important;
+  color: rgba(212, 164, 78, 0.80) !important;
+  width: 22px !important;
+  height: 22px !important;
+  border-radius: 50% !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+  transition: background 120ms ease;
+}
+.clippy-bubble-close:hover {
+  background: rgba(212, 164, 78, 0.28) !important;
+}
+
+/* ─── Reduced motion respect ─── */
+@media (prefers-reduced-motion: reduce) {
+  .clippy-shell.is-ticklish { animation: none !important; }
+  #clippy-shell::before     { animation: none !important; }
+  .clippy-bubble.is-visible { animation: none !important; }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   v15.6 — SMOOTH MOVEMENT, DRAG, MORE LIFE
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ─── SMOOTH SLIDE: when Clippy moveTo()'s, glide instead of teleport.
+   Disabled during active drag so dragging stays 1:1 with the pointer.
+   Cubic-bezier with overshoot for personality. */
+#clippy-shell {
+  transition:
+    left 540ms cubic-bezier(0.34, 1.32, 0.64, 1),
+    top  540ms cubic-bezier(0.34, 1.32, 0.64, 1),
+    opacity 200ms ease,
+    filter  200ms ease;
+}
+#clippy-shell.is-dragging {
+  transition: none !important;
+  cursor: grabbing !important;
+  filter: drop-shadow(0 12px 16px rgba(212, 164, 78, 0.42));
+}
+#clippy-shell.is-dragging::before {
+  /* extra-bright halo while being carried */
+  background: radial-gradient(
+    circle at 50% 60%,
+    rgba(255, 220, 130, 0.55) 0%,
+    rgba(212, 164, 78, 0.25) 45%,
+    rgba(212, 164, 78, 0)    72%
+  ) !important;
+  opacity: 1 !important;
+}
+
+/* Cursor hint — grab when hovering, grabbing when dragging */
+#clippy-shell {
+  cursor: grab;
+}
+
+/* While suppressed (modal open), don't slide either — instant fade out */
+#clippy-shell.is-suppressed {
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   v16 — ORB REMODEL VISUALS
+   The clippy-shell is now a glowing orb. New animated layers:
+     • .cl-halo            — pulsing outer glow (radial-gradient circle)
+     • .cl-nodes-rotating  — 7 orbiting satellite nodes + constellation
+                             lines, slow rotation around center
+     • .cl-tendrils        — 4 electric tendrils, subtle flicker
+     • .cl-body            — main orb, gentle breathing scale
+     • .cl-cheek           — pink blush, gentle pulse
+     • .cl-glint           — eye-shine micro-float, makes him alive
+   The OLD .clippy-shell::before halo (paperclip-gold) is overridden
+   here to a soft cyan that complements the new SVG halo.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Override the legacy gold halo to cool cyan, behind the orb */
+#clippy-shell::before {
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(125, 240, 255, 0.35) 0%,
+    rgba(58, 160, 255, 0.18) 40%,
+    rgba(58, 160, 255, 0)    70%
+  ) !important;
+  animation: clippy-orb-halo-breathe 4.4s ease-in-out infinite;
+}
+
+@keyframes clippy-orb-halo-breathe {
+  0%, 100% { opacity: 0.65; transform: translate(-50%, -50%) scale(0.95); }
+  50%      { opacity: 1.0;  transform: translate(-50%, -50%) scale(1.08); }
+}
+
+/* Inner SVG halo (the circle inside the SVG itself) — soft pulse */
+.cl-halo {
+  transform-origin: 100px 100px;
+  animation: clippy-svghalo-pulse 4.8s ease-in-out infinite;
+}
+@keyframes clippy-svghalo-pulse {
+  0%, 100% { opacity: 0.85; transform: scale(1.00); }
+  50%      { opacity: 1.00; transform: scale(1.04); }
+}
+
+/* Orbiting nodes — slow rotation around orb center (100,100) */
+.cl-nodes-rotating {
+  transform-origin: 100px 100px;
+  transform-box: fill-box;
+  animation: clippy-nodes-orbit 38s linear infinite;
+}
+@keyframes clippy-nodes-orbit {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Individual node twinkle — staggered opacity flicker.
+   Without staggering nth-child, all nodes blink in unison which
+   looks robotic; with stagger they feel independent. */
+.cl-node {
+  transform-origin: center;
+  animation: clippy-node-twinkle 3.6s ease-in-out infinite;
+}
+.cl-node-1 { animation-delay: 0s; }
+.cl-node-2 { animation-delay: 0.5s; }
+.cl-node-3 { animation-delay: 1.0s; }
+.cl-node-4 { animation-delay: 1.5s; }
+.cl-node-5 { animation-delay: 2.0s; }
+.cl-node-6 { animation-delay: 2.5s; }
+.cl-node-7 { animation-delay: 3.0s; }
+@keyframes clippy-node-twinkle {
+  0%, 100% { opacity: 0.85; }
+  50%      { opacity: 0.45; }
+}
+
+/* Electric tendrils — subtle flicker so they feel alive but not noisy */
+.cl-tendrils {
+  animation: clippy-tendril-flicker 1.9s ease-in-out infinite;
+}
+.cl-tendril-2 { animation-delay: 0.25s; }
+.cl-tendril-3 { animation-delay: 0.55s; }
+.cl-tendril-4 { animation-delay: 0.85s; }
+@keyframes clippy-tendril-flicker {
+  0%, 100% { opacity: 0.55; }
+  30%      { opacity: 0.30; }
+  60%      { opacity: 0.75; }
+}
+
+/* The body itself — very subtle breathing scale */
+.cl-body {
+  transform-origin: 100px 100px;
+  transform-box: fill-box;
+  animation: clippy-body-breathe 5.2s ease-in-out infinite;
+}
+@keyframes clippy-body-breathe {
+  0%, 100% { transform: scale(1.000); }
+  50%      { transform: scale(1.012); }
+}
+
+/* Cheek blush — soft pulse, gives him warmth */
+.cl-cheek {
+  animation: clippy-cheek-pulse 3.4s ease-in-out infinite;
+}
+@keyframes clippy-cheek-pulse {
+  0%, 100% { opacity: 0.85; }
+  50%      { opacity: 1.00; }
+}
+
+/* Glints — tiny float so eyes feel wet/alive */
+.cl-glint {
+  animation: clippy-glint-float 2.6s ease-in-out infinite;
+}
+@keyframes clippy-glint-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-0.4px); }
+}
+
+/* When SUPPRESSED (modal open), pause the heavier animations */
+#clippy-shell.is-suppressed .cl-nodes-rotating,
+#clippy-shell.is-suppressed .cl-tendrils,
+#clippy-shell.is-suppressed .cl-body,
+#clippy-shell.is-suppressed .cl-halo {
+  animation-play-state: paused;
+}
+
+/* When DRAGGING, freeze the orbital animation (visually correct: a real
+   dragged object's satellites would tag along, not keep spinning) */
+#clippy-shell.is-dragging .cl-nodes-rotating {
+  animation-play-state: paused;
+}
+
+/* Mood: surprised → nodes spin faster, halo brighter */
+#clippy-shell.is-surprised .cl-nodes-rotating {
+  animation-duration: 6s;
+}
+#clippy-shell.is-surprised .cl-halo {
+  filter: brightness(1.4) saturate(1.3);
+}
+
+/* Mood: happy → cheeks deepen, halo warms */
+#clippy-shell.is-happy .cl-cheek {
+  opacity: 1;
+  filter: brightness(1.15);
+}
+
+/* Mood: sleeping → halo dims, body fades slightly, nodes slow down */
+#clippy-shell.is-sleeping .cl-halo {
+  opacity: 0.3;
+}
+#clippy-shell.is-sleeping .cl-nodes-rotating {
+  animation-duration: 90s;
+}
+#clippy-shell.is-sleeping .cl-tendrils {
+  opacity: 0.15;
+}
+
+/* Reduced-motion users: stop all the spinning/pulsing, keep static */
+@media (prefers-reduced-motion: reduce) {
+  .cl-halo,
+  .cl-nodes-rotating,
+  .cl-node,
+  .cl-tendrils,
+  .cl-body,
+  .cl-cheek,
+  .cl-glint,
+  #clippy-shell::before {
+    animation: none !important;
   }
 }
