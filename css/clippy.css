@@ -1,0 +1,454 @@
+/* ════════════════════════════════════════════════════════════════════════
+   NEXUS Clippy — v2 (clippyjs-backed)
+   Library handles the character itself. We style:
+     - Login peek (custom paperclip-eyes peeking from corner before agent boots)
+     - Custom action bubble (Comic Sans, with buttons)
+     - Command palette (slide-up sheet)
+     - Music player widget
+     - Costume overlay layer (positioned to follow the agent)
+   ════════════════════════════════════════════════════════════════════════ */
+
+
+/* ─── LIBRARY OVERRIDES ─────────────────────────────────────────────── */
+/* clippyjs creates a .clippy element. Make sure it sits high enough but
+   below modals (modals use ≥10000). */
+.clippy,
+.clippyjs-agent {
+  z-index: 9000 !important;
+}
+
+/* clippyjs's own balloon — let it show but boost z-index so our action
+   bubble doesn't accidentally cover it. */
+.clippy-balloon,
+.clippyjs-balloon {
+  z-index: 9001 !important;
+  font-family: 'Comic Sans MS', 'Comic Sans', cursive !important;
+}
+
+
+/* ─── COSTUME OVERLAY LAYER ─────────────────────────────────────────── */
+/* Positioned absolutely over the agent's bounding rect via JS. Costume
+   PNGs live in /clippy-costumes/ and are referenced by name (e.g. 'laurel'
+   loads /clippy-costumes/laurel.png). object-fit:contain keeps aspect. */
+#clippy-costume-layer {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9050;
+  transition: none;
+}
+.clippy-costume-img {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  /* Per-costume tweaks can be added below to nudge into place */
+}
+
+/* Per-costume positioning — tweak these once we get the actual PNGs.
+   The default object-fit:contain centers them; these overrides shift
+   the costume to align with specific Clippy body parts. */
+.clippy-costume-laurel    { transform: translate(0, -10%) scale(1.05); }
+.clippy-costume-chef      { transform: translate(0, -25%) scale(1.10); }
+.clippy-costume-glasses   { transform: translate(0,   0%) scale(0.95); }
+.clippy-costume-mustache  { transform: translate(0,  10%) scale(0.85); }
+.clippy-costume-ghost     { transform: translate(0,  -5%) scale(1.20); }
+.clippy-costume-sombrero  { transform: translate(0, -20%) scale(1.15); }
+.clippy-costume-sunglasses{ transform: translate(0,  -2%) scale(1.00); }
+.clippy-costume-cone      { transform: translate(0, -28%) scale(1.05); }
+.clippy-costume-pirate    { transform: translate(0, -22%) scale(1.10); }
+
+
+/* ─── LOGIN PEEK (visible before clippyjs is loaded) ────────────────── */
+/* Tiny paperclip-eyes peeking from bottom-right corner. Tap to invite
+   him in. Built from CSS (no SVG file needed). */
+.clippy-peek {
+  position: fixed;
+  bottom: 0;
+  right: 16px;
+  z-index: 9000;
+  width: 48px;
+  height: 24px;
+  background: #d8d8da;
+  border: 2px solid #2a2a2a;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 220ms;
+  animation: clippyPeekIdle 4s ease-in-out infinite;
+}
+.clippy-peek:hover {
+  transform: translateY(-3px);
+}
+.clippy-peek.is-leaving {
+  transform: translateY(40px);
+  opacity: 0;
+}
+.clippy-peek-eye {
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border: 1.5px solid #1a1a1a;
+  border-radius: 50%;
+  position: relative;
+  animation: clippyPeekBlink 5.2s ease-in-out infinite;
+}
+.clippy-peek-eye::after {
+  content: '';
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: #1a1a1a;
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+@keyframes clippyPeekIdle {
+  0%, 90%, 100% { transform: translateY(0); }
+  92% { transform: translateY(-3px); }
+  94% { transform: translateY(0); }
+  96% { transform: translateY(-3px); }
+}
+@keyframes clippyPeekBlink {
+  0%, 95%, 100% { transform: scaleY(1); }
+  97% { transform: scaleY(0.1); }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   ACTION BUBBLE (our custom — used when we need buttons)
+   ════════════════════════════════════════════════════════════════════ */
+.clippy-bubble {
+  position: fixed;
+  z-index: 9100;
+  max-width: 280px;
+  min-width: 220px;
+  background: #fffef6;
+  color: #1a1a1a;
+  border: 2.5px solid #1a1a1a;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-family: 'Comic Sans MS', 'Comic Sans', 'Marker Felt', cursive;
+  font-size: 14.5px;
+  line-height: 1.4;
+  box-shadow: 4px 4px 0 #1a1a1a, 0 8px 24px rgba(0,0,0,0.25);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(8px) scale(0.94);
+  transition: opacity 220ms ease, transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.clippy-bubble.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.clippy-bubble::before,
+.clippy-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -16px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+}
+.clippy-bubble.tail-right::before {
+  right: 28px;
+  border-width: 16px 14px 0 0;
+  border-color: #1a1a1a transparent transparent transparent;
+}
+.clippy-bubble.tail-right::after {
+  right: 30px;
+  bottom: -12px;
+  border-width: 12px 11px 0 0;
+  border-color: #fffef6 transparent transparent transparent;
+}
+.clippy-bubble.tail-left::before {
+  left: 28px;
+  border-width: 16px 0 0 14px;
+  border-color: #1a1a1a transparent transparent transparent;
+}
+.clippy-bubble.tail-left::after {
+  left: 30px;
+  bottom: -12px;
+  border-width: 12px 0 0 11px;
+  border-color: #fffef6 transparent transparent transparent;
+}
+.clippy-bubble-close {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fffef6;
+  border: 2px solid #1a1a1a;
+  color: #1a1a1a;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.clippy-bubble-text { margin-bottom: 8px; }
+.clippy-bubble-text:last-child { margin-bottom: 0; }
+.clippy-bubble-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.clippy-bubble-btn {
+  flex: 1;
+  min-width: 80px;
+  padding: 8px 12px;
+  background: #fffef6;
+  border: 2px solid #1a1a1a;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 80ms ease, box-shadow 120ms;
+  box-shadow: 2px 2px 0 #1a1a1a;
+}
+.clippy-bubble-btn:hover { background: #fff8d0; }
+.clippy-bubble-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 #1a1a1a;
+}
+.clippy-bubble-btn.is-primary { background: #d4a44e; color: #1a1a1a; }
+.clippy-bubble-btn.is-danger  { background: #fde2e2; }
+.clippy-bubble-btn.is-warning-trajan { background: #f5e8d0; }
+
+/* Trajan-mode bubble — black with gold border, terminal mono font */
+.clippy-bubble.is-trajan {
+  background: #0c0a08;
+  color: #d4a44e;
+  border-color: #d4a44e;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  box-shadow: 4px 4px 0 #d4a44e, 0 8px 24px rgba(212, 164, 78, 0.35);
+}
+.clippy-bubble.is-trajan .clippy-bubble-close {
+  background: #0c0a08;
+  border-color: #d4a44e;
+  color: #d4a44e;
+}
+.clippy-bubble.is-trajan.tail-right::before { border-color: #d4a44e transparent transparent transparent; }
+.clippy-bubble.is-trajan.tail-right::after  { border-color: #0c0a08 transparent transparent transparent; }
+.clippy-bubble.is-trajan.tail-left::before  { border-color: #d4a44e transparent transparent transparent; }
+.clippy-bubble.is-trajan.tail-left::after   { border-color: #0c0a08 transparent transparent transparent; }
+.clippy-bubble-trajan-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: #d4a44e;
+  margin-bottom: 6px;
+  opacity: 0.8;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   COMMAND PALETTE
+   ════════════════════════════════════════════════════════════════════ */
+.clippy-palette {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: auto;
+}
+.clippy-palette-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+.clippy-palette.is-open .clippy-palette-bg { opacity: 1; }
+.clippy-palette-card {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  max-height: 78vh;
+  background: var(--surface, #1a1814);
+  border: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.22));
+  border-radius: 16px 16px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateY(100%);
+  transition: transform 320ms cubic-bezier(0.34, 1.36, 0.64, 1);
+}
+.clippy-palette.is-open .clippy-palette-card { transform: translateY(0); }
+.clippy-palette-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.10));
+}
+.clippy-palette-title {
+  flex: 1;
+  font-family: 'Outfit', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text, #ece6d8);
+}
+.clippy-palette-close {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid rgba(212,164,78,0.18);
+  color: var(--nx-faint, #7a7167);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.clippy-palette-search {
+  margin: 12px 14px 8px;
+  padding: 11px 14px;
+  background: var(--bg, #0c0a08);
+  border: 1px solid var(--nx-highlight-line, rgba(212,164,78,0.18));
+  border-radius: 10px;
+  color: var(--text, #ece6d8);
+  font-family: 'Outfit', sans-serif;
+  font-size: 14.5px;
+}
+.clippy-palette-search:focus {
+  outline: none;
+  border-color: var(--nx-gold, #d4a44e);
+  box-shadow: 0 0 0 2px rgba(212,164,78,0.18);
+}
+.clippy-palette-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px 14px;
+}
+.clippy-palette-section-label {
+  padding: 10px 10px 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e);
+}
+.clippy-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+.clippy-palette-item:hover {
+  background: rgba(212,164,78,0.06);
+  border-color: rgba(212,164,78,0.18);
+}
+.clippy-palette-item-icon {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  background: rgba(212,164,78,0.10);
+  color: var(--nx-gold);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.clippy-palette-item-body { flex: 1; min-width: 0; }
+.clippy-palette-item-name {
+  font-family: 'Outfit', sans-serif;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text, #ece6d8);
+}
+.clippy-palette-item-hint {
+  font-size: 11.5px;
+  color: var(--nx-faint, #7a7167);
+  margin-top: 2px;
+}
+.clippy-palette-empty {
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--nx-faint, #7a7167);
+  font-size: 13px;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   MUSIC PLAYER (inline in bubble)
+   ════════════════════════════════════════════════════════════════════ */
+.clippy-music-player {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(212, 164, 78, 0.10);
+  border: 2px solid #1a1a1a;
+  border-radius: 8px;
+}
+.clippy-music-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #fffef6;
+  border: 2px solid #1a1a1a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-family: inherit;
+}
+.clippy-music-progress {
+  flex: 1;
+  height: 5px;
+  background: #1a1a1a;
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.clippy-music-progress-fill {
+  height: 100%;
+  width: 0;
+  background: #d4a44e;
+  transition: width 200ms linear;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   RESPONSIVE
+   ════════════════════════════════════════════════════════════════════ */
+@media (max-width: 480px) {
+  .clippy-bubble {
+    max-width: calc(100vw - 80px);
+    font-size: 14px;
+  }
+  .clippy-peek {
+    width: 44px;
+    height: 22px;
+  }
+}
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  .clippy-peek {
+    bottom: env(safe-area-inset-bottom, 0);
+  }
+}
