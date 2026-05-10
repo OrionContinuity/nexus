@@ -19,11 +19,12 @@
   z-index: 9000 !important;
   cursor: pointer !important;
   pointer-events: auto !important;
-  /* Bump 30% larger for modern hi-DPI phones — sprite was designed for
-     ~96dpi monitors, looks tiny on a 460dpi iPhone */
-  transform: scale(1.3) !important;
+  /* Bump 50% larger so he has clear presence on hi-DPI phones (the
+     original sprite was sized for ~96dpi monitors of 1997). */
+  transform: scale(1.5) !important;
   transform-origin: bottom right !important;
-  /* Crisp pixel-art rendering (no anti-alias blur on the sprite) */
+  /* Crisp pixel-art rendering — preserves the 1997 art instead of
+     letting browsers blur-scale it. */
   image-rendering: -webkit-optimize-contrast;
   image-rendering: crisp-edges;
 }
