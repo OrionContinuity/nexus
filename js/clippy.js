@@ -299,7 +299,6 @@
     const px = state.preferences.position_x;
     const py = state.preferences.position_y;
     if (px == null || py == null) return;
-    // Clamp to current viewport in case window shrank since last save
     const maxX = Math.max(0, window.innerWidth  - 80);
     const maxY = Math.max(0, window.innerHeight - 80);
     const x = Math.max(0, Math.min(maxX, px));
@@ -312,85 +311,231 @@
   }
 
 
-  // ─── Agent click + drag wiring ──────────────────────────────────────
-  // Pointer events at capture phase. clippyjs may install its own
-  // handlers, so we beat those to the punch with capture=true and an
-  // own movement-threshold to distinguish clicks from drags.
-  //   • Tap (no movement) → handleAgentClick → "What's up?" bubble
-  //   • Drag (>6px) → reposition + persist coordinates
-  function setupAgentInteractions() {
-    if (state._clickWired) return;
-    state._clickWired = true;
+  // ─── Hit target overlay (the click + drag surface) ──────────────────
+  // The fundamental problem: clippyjs renders Clippy as a .clippy div
+  // (background-image sprite) and may install its own pointer handlers
+  // with stopPropagation. CSS transform: scale also makes the visual
+  // larger than the layout box, so taps on his "head" can miss the
+  // actual element. SOLUTION: a transparent overlay div sized to match
+  // Clippy's visual rect (via getBoundingClientRect, which DOES include
+  // transforms). All pointer events go through this overlay, with
+  // setPointerCapture() so drag is bulletproof. clippyjs is bypassed
+  // entirely for input handling — we use it only to drive animations.
+  function ensureHitTarget() {
+    if (state.hitTarget) return;
+    const t = document.createElement('div');
+    t.id = 'clippy-hit-target';
+    t.style.cssText = [
+      'position: fixed',
+      'z-index: 41',                  // above clippy (40), below bottom-nav (50)
+      'background: transparent',
+      'cursor: grab',
+      'pointer-events: auto',
+      'touch-action: none',           // critical: stops iOS from hijacking
+      '-webkit-user-select: none',
+      'user-select: none',
+      'display: none',
+    ].join('; ');
+    document.body.appendChild(t);
+    state.hitTarget = t;
+    attachHitHandlers(t);
+    if (state.hitFrame) cancelAnimationFrame(state.hitFrame);
+    syncHitTarget();
+  }
 
+  function syncHitTarget() {
+    state.hitFrame = requestAnimationFrame(syncHitTarget);
+    if (!state.hitTarget || !state.agentDomEl) return;
+    // getBoundingClientRect respects CSS transforms — gives us the
+    // visual rect of the scaled Clippy, not the layout box.
+    const r = state.agentDomEl.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) {
+      state.hitTarget.style.display = 'none';
+      return;
+    }
+    // Add 8px padding so taps NEAR him still register
+    state.hitTarget.style.display = state._suppressed ? 'none' : 'block';
+    state.hitTarget.style.left   = (r.left - 8) + 'px';
+    state.hitTarget.style.top    = (r.top - 8) + 'px';
+    state.hitTarget.style.width  = (r.width + 16) + 'px';
+    state.hitTarget.style.height = (r.height + 16) + 'px';
+  }
+
+  function attachHitHandlers(el) {
     let drag = null;
 
-    function getOnAgent(t) {
-      if (!t || !t.closest) return null;
-      // Don't trigger if click was inside one of our bubbles or palette
-      if (t.closest('.clippy-balloon') ||
-          t.closest('.clippyjs-balloon') ||
-          t.closest('.clippy-bubble') ||
-          t.closest('.clippy-palette')) return null;
-      return t.closest('.clippy') ||
-             t.closest('.clippyjs-agent') ||
-             t.closest('.clippyjs');
-    }
-
-    document.addEventListener('pointerdown', (e) => {
-      const onAgent = getOnAgent(e.target);
-      if (!onAgent) return;
-      const rect = onAgent.getBoundingClientRect();
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const aRect = state.agentDomEl ? state.agentDomEl.getBoundingClientRect() : null;
       drag = {
         startX: e.clientX,
         startY: e.clientY,
         startTime: Date.now(),
-        offsetX: e.clientX - rect.left,
-        offsetY: e.clientY - rect.top,
-        agentEl: onAgent,
         moved: false,
+        pointerId: e.pointerId,
+        agentLeftAtStart: aRect ? aRect.left : 0,
+        agentTopAtStart:  aRect ? aRect.top  : 0,
       };
-      // Don't preventDefault here — let normal pointerup fire
-    }, true);  // capture phase
+      try { el.setPointerCapture(e.pointerId); } catch (_) {}
+      el.style.cursor = 'grabbing';
+    });
 
-    document.addEventListener('pointermove', (e) => {
+    el.addEventListener('pointermove', (e) => {
       if (!drag) return;
       const dx = e.clientX - drag.startX;
       const dy = e.clientY - drag.startY;
-      // Movement threshold: distinguish tap from drag
       if (Math.abs(dx) + Math.abs(dy) < 6) return;
       drag.moved = true;
-      // Clamp to viewport — never let him be dragged out of reach
-      const maxX = window.innerWidth  - 80;
-      const maxY = window.innerHeight - 80;
-      const newLeft = Math.max(0, Math.min(maxX, e.clientX - drag.offsetX));
-      const newTop  = Math.max(0, Math.min(maxY, e.clientY - drag.offsetY));
-      drag.agentEl.style.position = 'fixed';
-      drag.agentEl.style.left   = newLeft + 'px';
-      drag.agentEl.style.top    = newTop  + 'px';
-      drag.agentEl.style.right  = 'auto';
-      drag.agentEl.style.bottom = 'auto';
+      const newLeft = drag.agentLeftAtStart + dx;
+      const newTop  = drag.agentTopAtStart  + dy;
+      const maxX = window.innerWidth  - 60;
+      const maxY = window.innerHeight - 60;
+      const x = Math.max(0, Math.min(maxX, newLeft));
+      const y = Math.max(0, Math.min(maxY, newTop));
+      if (state.agentDomEl) {
+        state.agentDomEl.style.position = 'fixed';
+        state.agentDomEl.style.left   = x + 'px';
+        state.agentDomEl.style.top    = y + 'px';
+        state.agentDomEl.style.right  = 'auto';
+        state.agentDomEl.style.bottom = 'auto';
+      }
       e.preventDefault();
-    }, true);
+    });
 
-    document.addEventListener('pointerup', (e) => {
+    el.addEventListener('pointerup', (e) => {
       if (!drag) return;
       const finished = drag;
       drag = null;
+      el.style.cursor = 'grab';
+      try { el.releasePointerCapture(e.pointerId); } catch (_) {}
       if (finished.moved) {
-        // Persist new position
-        const rect = finished.agentEl.getBoundingClientRect();
-        state.preferences.position_x = Math.round(rect.left);
-        state.preferences.position_y = Math.round(rect.top);
-        savePreferences();
-        return;  // not a click
+        // Drag end — persist new position
+        if (state.agentDomEl) {
+          const r = state.agentDomEl.getBoundingClientRect();
+          state.preferences.position_x = Math.round(r.left);
+          state.preferences.position_y = Math.round(r.top);
+          savePreferences();
+        }
+        return;
       }
-      // No drag → it's a tap
-      e.stopPropagation();
+      // Tap — fire click handler
       handleAgentClick();
-    }, true);
+    });
 
-    // Cancel drag on pointercancel (e.g. system gesture interrupts)
-    document.addEventListener('pointercancel', () => { drag = null; }, true);
+    el.addEventListener('pointercancel', () => {
+      drag = null;
+      el.style.cursor = 'grab';
+    });
+  }
+
+
+  // ─── Content awareness ──────────────────────────────────────────────
+  // Hide Clippy when modals/sheets/full-screen overlays are open. Watch
+  // the DOM for the appearance of any high-z-index UI and suppress.
+  function startContentAwareness() {
+    if (state._awarenessStarted) return;
+    state._awarenessStarted = true;
+    const checkOverlays = () => {
+      if (!state.enabled || !state.agent) return;
+      // Heuristic match for common overlay/modal patterns in NEXUS
+      const overlay = document.querySelector(
+        '.nx-takeover.is-open, ' +
+        '.nx-overlay-active, ' +
+        '.nx-modal-backdrop:not([hidden]), ' +
+        '.takeover.is-open, ' +
+        'dialog[open], ' +
+        '[role="dialog"][aria-hidden="false"], ' +
+        '[data-overlay-active="true"], ' +
+        '.clippy-palette.is-open'
+      );
+      const shouldHide = !!overlay;
+      if (shouldHide && !state._suppressed) {
+        state._suppressed = true;
+        if (state.hitTarget) state.hitTarget.style.display = 'none';
+      } else if (!shouldHide && state._suppressed) {
+        state._suppressed = false;
+        // hitTarget will re-show on next syncHitTarget tick
+      }
+    };
+    const obs = new MutationObserver(checkOverlays);
+    obs.observe(document.body, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+      attributeFilter: ['class', 'aria-hidden', 'open', 'hidden', 'data-overlay-active']
+    });
+    checkOverlays();
+
+    // When user focuses an input near Clippy, move him out of the way
+    // to the opposite corner. Smart-move only fires once per focus, no
+    // jumpy behavior.
+    document.addEventListener('focusin', (e) => {
+      if (!state.enabled || !state.agentDomEl) return;
+      const t = e.target;
+      if (!t || !t.matches) return;
+      if (!t.matches('input, textarea, [contenteditable="true"]')) return;
+      const inputRect = t.getBoundingClientRect();
+      const agentRect = state.agentDomEl.getBoundingClientRect();
+      // Are they overlapping or close? If so, move agent.
+      const overlap = !(
+        inputRect.right  < agentRect.left  ||
+        inputRect.left   > agentRect.right ||
+        inputRect.bottom < agentRect.top   ||
+        inputRect.top    > agentRect.bottom
+      );
+      // Also nudge if agent is in same vertical band as input + within 100px
+      const verticalConflict = Math.abs(
+        (inputRect.top + inputRect.bottom) / 2 - (agentRect.top + agentRect.bottom) / 2
+      ) < 120;
+      if (overlap || verticalConflict) {
+        moveToEmptyCorner();
+      }
+    });
+  }
+
+  // Programmatically move Clippy to the corner with the least UI noise.
+  // Default heuristic: prefer top-right (least likely to have important
+  // bottom-nav / FAB buttons), fall back to top-left.
+  function moveToEmptyCorner() {
+    if (!state.agentDomEl) return;
+    const corners = [
+      { x: window.innerWidth  - 180, y: 80, name: 'top-right' },
+      { x: 20,                       y: 80, name: 'top-left' },
+      { x: 20,                       y: window.innerHeight - 220, name: 'bottom-left' },
+    ];
+    // Score each by how much "noise" is at that point
+    const scored = corners.map(c => {
+      let score = 0;
+      try {
+        const el = document.elementFromPoint(c.x + 80, c.y + 60);
+        if (el) {
+          // Heavily penalize landing on interactive UI
+          if (el.matches('button, input, textarea, a, [role="button"]')) score += 50;
+          if (el.closest('.bottom-nav, .nx-tabbar, .nx-tr-fab, [data-overlay-active]')) score += 100;
+          if (el.closest('header, nav, .masthead')) score += 30;
+        }
+      } catch (_) {}
+      return { ...c, score };
+    });
+    scored.sort((a, b) => a.score - b.score);
+    const target = scored[0];
+    state.agentDomEl.style.position = 'fixed';
+    state.agentDomEl.style.left   = target.x + 'px';
+    state.agentDomEl.style.top    = target.y + 'px';
+    state.agentDomEl.style.right  = 'auto';
+    state.agentDomEl.style.bottom = 'auto';
+    state.preferences.position_x = target.x;
+    state.preferences.position_y = target.y;
+    savePreferences();
+  }
+
+
+  // ─── Agent click handler — kept simple, just delegates to bubble ────
+  function setupAgentInteractions() {
+    // The actual handlers are on the hit-target overlay. This function
+    // just kicks off the overlay creation and content-awareness watcher.
+    ensureHitTarget();
+    startContentAwareness();
   }
 
   function handleAgentClick() {
@@ -1103,6 +1248,7 @@
     setCostume,
     gestureAt,
     moveTo,
+    moveToEmptyCorner,            // Find an unobtrusive corner and go there
     switchAgent: loadAgent,
     summon,                    // Force-show, ignoring prefs. NX.clippy.summon()
     enable: () => { state.preferences.enabled = true; savePreferences(); init(); },
