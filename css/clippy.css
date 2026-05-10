@@ -986,7 +986,7 @@
    v16 — ORB REMODEL VISUALS
    The clippy-shell is now a glowing orb. New animated layers:
      • .cl-halo            — pulsing outer glow (radial-gradient circle)
-     • .cl-nodes-rotating  — 7 orbiting satellite nodes + constellation
+     • .cl-nodes  — 7 orbiting satellite nodes + constellation
                              lines, slow rotation around center
      • .cl-tendrils        — 4 electric tendrils, subtle flicker
      • .cl-body            — main orb, gentle breathing scale
@@ -1022,34 +1022,63 @@
   50%      { opacity: 1.00; transform: scale(1.04); }
 }
 
-/* Orbiting nodes — slow rotation around orb center (100,100) */
-.cl-nodes-rotating {
-  transform-origin: 100px 100px;
-  transform-box: fill-box;
-  animation: clippy-nodes-orbit 38s linear infinite;
-}
-@keyframes clippy-nodes-orbit {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-
-/* Individual node twinkle — staggered opacity flicker.
-   Without staggering nth-child, all nodes blink in unison which
-   looks robotic; with stagger they feel independent. */
+/* Orbiting nodes — INDIVIDUAL random flight (v17.2).
+   Each node has its own translate path with different duration so they
+   look like buzzing electrons, not a rigid orbiting group. Per-node
+   keyframes use translate + opacity blend for that flickering quality. */
 .cl-node {
   transform-origin: center;
-  animation: clippy-node-twinkle 3.6s ease-in-out infinite;
+  transform-box: fill-box;
 }
-.cl-node-1 { animation-delay: 0s; }
-.cl-node-2 { animation-delay: 0.5s; }
-.cl-node-3 { animation-delay: 1.0s; }
-.cl-node-4 { animation-delay: 1.5s; }
-.cl-node-5 { animation-delay: 2.0s; }
-.cl-node-6 { animation-delay: 2.5s; }
-.cl-node-7 { animation-delay: 3.0s; }
-@keyframes clippy-node-twinkle {
-  0%, 100% { opacity: 0.85; }
-  50%      { opacity: 0.45; }
+.cl-node-1 { animation: clNode1 7.3s ease-in-out infinite; }
+.cl-node-2 { animation: clNode2 9.1s ease-in-out infinite; }
+.cl-node-3 { animation: clNode3 11.6s ease-in-out infinite; }
+.cl-node-4 { animation: clNode4 8.4s ease-in-out infinite; }
+.cl-node-5 { animation: clNode5 10.2s ease-in-out infinite; }
+.cl-node-6 { animation: clNode6 12.8s ease-in-out infinite; }
+.cl-node-7 { animation: clNode7 6.7s ease-in-out infinite; }
+
+@keyframes clNode1 {
+  0%, 100% { transform: translate(0, 0);     opacity: 0.85; }
+  20%      { transform: translate(7px, -4px); opacity: 1.00; }
+  45%      { transform: translate(-3px, -9px); opacity: 0.65; }
+  70%      { transform: translate(9px, 5px);  opacity: 0.95; }
+  85%      { transform: translate(-5px, 3px); opacity: 0.55; }
+}
+@keyframes clNode2 {
+  0%, 100% { transform: translate(0, 0);     opacity: 0.80; }
+  25%      { transform: translate(-6px, 5px); opacity: 0.50; }
+  55%      { transform: translate(4px, -7px); opacity: 1.00; }
+  80%      { transform: translate(-8px, -2px); opacity: 0.65; }
+}
+@keyframes clNode3 {
+  0%, 100% { transform: translate(0, 0);     opacity: 0.90; }
+  30%      { transform: translate(5px, -6px); opacity: 0.60; }
+  60%      { transform: translate(-7px, 4px); opacity: 1.00; }
+  85%      { transform: translate(3px, 8px);  opacity: 0.70; }
+}
+@keyframes clNode4 {
+  0%, 100% { transform: translate(0, 0);     opacity: 0.75; }
+  15%      { transform: translate(-4px, -5px); opacity: 1.00; }
+  50%      { transform: translate(8px, 3px);  opacity: 0.50; }
+  75%      { transform: translate(2px, -8px); opacity: 0.85; }
+}
+@keyframes clNode5 {
+  0%, 100% { transform: translate(0, 0);     opacity: 0.85; }
+  35%      { transform: translate(9px, 6px); opacity: 0.55; }
+  65%      { transform: translate(-5px, -7px); opacity: 1.00; }
+}
+@keyframes clNode6 {
+  0%, 100% { transform: translate(0, 0);     opacity: 0.70; }
+  20%      { transform: translate(-7px, 4px); opacity: 1.00; }
+  45%      { transform: translate(4px, -3px); opacity: 0.45; }
+  70%      { transform: translate(6px, 7px);  opacity: 0.90; }
+}
+@keyframes clNode7 {
+  0%, 100% { transform: translate(0, 0);     opacity: 0.95; }
+  25%      { transform: translate(5px, 8px); opacity: 0.55; }
+  55%      { transform: translate(-8px, 2px); opacity: 1.00; }
+  80%      { transform: translate(3px, -6px); opacity: 0.65; }
 }
 
 /* Electric tendrils — subtle flicker so they feel alive but not noisy */
@@ -1095,7 +1124,7 @@
 }
 
 /* When SUPPRESSED (modal open), pause the heavier animations */
-#clippy-shell.is-suppressed .cl-nodes-rotating,
+#clippy-shell.is-suppressed .cl-nodes,
 #clippy-shell.is-suppressed .cl-tendrils,
 #clippy-shell.is-suppressed .cl-body,
 #clippy-shell.is-suppressed .cl-halo {
@@ -1104,13 +1133,13 @@
 
 /* When DRAGGING, freeze the orbital animation (visually correct: a real
    dragged object's satellites would tag along, not keep spinning) */
-#clippy-shell.is-dragging .cl-nodes-rotating {
+#clippy-shell.is-dragging .cl-node {
   animation-play-state: paused;
 }
 
-/* Mood: surprised → nodes spin faster, halo brighter */
-#clippy-shell.is-surprised .cl-nodes-rotating {
-  animation-duration: 6s;
+/* Mood: surprised → nodes scatter faster, halo brighter */
+#clippy-shell.is-surprised .cl-node {
+  animation-duration: 3s;
 }
 #clippy-shell.is-surprised .cl-halo {
   filter: brightness(1.4) saturate(1.3);
@@ -1122,12 +1151,12 @@
   filter: brightness(1.15);
 }
 
-/* Mood: sleeping → halo dims, body fades slightly, nodes slow down */
+/* Mood: sleeping → halo dims, body fades slightly, nodes slow way down */
 #clippy-shell.is-sleeping .cl-halo {
   opacity: 0.3;
 }
-#clippy-shell.is-sleeping .cl-nodes-rotating {
-  animation-duration: 90s;
+#clippy-shell.is-sleeping .cl-node {
+  animation-duration: 30s;
 }
 #clippy-shell.is-sleeping .cl-tendrils {
   opacity: 0.15;
@@ -1136,7 +1165,7 @@
 /* Reduced-motion users: stop all the spinning/pulsing, keep static */
 @media (prefers-reduced-motion: reduce) {
   .cl-halo,
-  .cl-nodes-rotating,
+  .cl-nodes,
   .cl-node,
   .cl-tendrils,
   .cl-body,
