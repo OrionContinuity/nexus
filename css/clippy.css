@@ -14,22 +14,95 @@
    below modals (modals use ≥10000). Crisp-edges rendering preserves the
    original 1997 sprite art instead of letting browsers blur-scale it.
    Slight scale-up gives him more presence at modern phone DPI. */
-/* ─── Z-INDEX LAYERS — DOCUMENTED ─────────────────────────────────────
-   Reading top-down (highest = most-on-top):
-     9100  our action bubble (always above everything)
-     9001  clippyjs's own balloon (when it speaks)
-       50  bottom-nav (NEXUS app chrome)
-       41  clippy hit-target overlay (above clippy himself, below nav)
-       40  clippy himself
-   The bottom-nav (50) covers the LOWER part of clippy (40) visually.
-   The hit-target (41) is also covered by the nav in the lower region,
-   so taps on nav buttons go to nav, not clippy. But clippy's HEAD
-   that pokes above the nav is fully tappable via the hit-target. */
+/* ─── TOP LAYER (POPOVER) HOST ────────────────────────────────────────
+   Browsers render popover-mode elements in a special "top layer" that
+   escapes ALL stacking contexts on the page. We host Clippy + hit-target
+   + bubbles + palette inside #clippy-host so NEXUS cards / modals / any
+   high-z-index UI can never cover them.
 
+   The host itself is a full-screen overlay with pointer-events: none —
+   clicks pass through to the page underneath. Children with pointer-
+   events: auto opt in to receive input. */
+#clippy-host {
+  /* Reset default popover/dialog styling */
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  pointer-events: none !important;
+  overflow: visible !important;
+  color: inherit;
+}
+#clippy-host:focus-visible { outline: none; }
+#clippy-host::backdrop {
+  /* No backdrop — the host should be invisible */
+  background: transparent !important;
+}
+
+/* ─── Z-INDEX LAYERS / popover host ──────────────────────────────────
+   See top of file. Within the host, simple z-order (siblings). */
+
+/* Within the top-layer host, restore z-index hierarchy among siblings:
+   bubble > palette > hit-target > clippy himself */
+#clippy-host .clippy,
+#clippy-host .clippyjs-agent {
+  z-index: 1 !important;
+  pointer-events: none !important;
+  touch-action: none !important;
+  transform: scale(1.5) !important;
+  transform-origin: center bottom !important;
+  /* Smooth motion when programmatically repositioned */
+  transition: transform 700ms cubic-bezier(0.34, 1.56, 0.64, 1),
+              left 600ms cubic-bezier(0.34, 1.56, 0.64, 1),
+              top  600ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  filter: drop-shadow(0 0 4px rgba(212, 164, 78, 0.4));
+}
+
+/* ── LOGIN PEEK STATES ─────────────────────────────────────────────
+   Pre-acceptance: Clippy peeks up from below. Only his head is
+   visible above the screen edge. When the user accepts, the
+   .is-peeking class is removed and he springs to full visibility. */
+
+/* Off-screen below — entry point of the peek-up animation */
+#clippy-host .clippy.is-peek-entering,
+.clippy.is-peek-entering {
+  transform: scale(1.5) translateY(140%) !important;
+  transition: none !important;
+}
+/* Peek state — only his head is above the viewport edge */
+#clippy-host .clippy.is-peeking,
+.clippy.is-peeking {
+  transform: scale(1.5) translateY(55%) !important;
+  transition: transform 900ms cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+#clippy-host #clippy-hit-target {
+  z-index: 2 !important;
+  border-radius: 12px;
+}
+#clippy-host #clippy-costume-layer {
+  z-index: 3 !important;
+  pointer-events: none;
+}
+#clippy-host .clippy-bubble {
+  z-index: 100 !important;
+  pointer-events: auto;
+}
+#clippy-host .clippy-palette {
+  z-index: 200 !important;
+  pointer-events: auto;
+}
+
+/* Same rules for any agent rendered outside the top-layer host (fallback) */
 .clippy,
 .clippyjs-agent {
-  z-index: 40 !important;
-  pointer-events: none !important;     /* let hit-target catch all input */
+  pointer-events: none !important;
   touch-action: none !important;
   transform: scale(1.5) !important;
   transform-origin: center bottom !important;
@@ -39,21 +112,13 @@
 .clippy *,
 .clippyjs-agent * {
   pointer-events: none !important;
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
 }
 
-/* Hit target — transparent overlay div at z-index 41 */
-#clippy-hit-target {
-  border-radius: 12px;
-  /* Uncomment to debug-visualize the hit target:
-     background: rgba(255, 0, 0, 0.2) !important; */
-}
 #clippy-hit-target:active {
   cursor: grabbing !important;
 }
 
-/* clippyjs's own balloon — keep it on top so it never gets covered */
+/* clippyjs's own balloon — stays on top */
 .clippy-balloon,
 .clippyjs-balloon {
   z-index: 9001 !important;
