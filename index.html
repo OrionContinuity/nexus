@@ -31,6 +31,8 @@
 <link rel="stylesheet" href="css/nx-system.css">
 <link rel="stylesheet" href="css/composer.css">
 <link rel="stylesheet" href="css/cleaning-system.css">
+<link rel="stylesheet" href="css/cleaning-roster.css">
+<link rel="stylesheet" href="css/education-system.css">
 <link rel="stylesheet" href="css/training-system.css">
 <link rel="stylesheet" href="css/galaxy.css">
 <link rel="stylesheet" href="css/equipment.css">
@@ -1332,7 +1334,8 @@
     <button class="nav-tab" data-view="board" data-perm="board" title="Task Board"><i data-lucide="columns-3" class="nav-icon"></i> <span data-i18n="board">Board</span></button>
     <button class="nav-tab" data-view="cal" data-perm="cal" title="Calendar"><i data-lucide="calendar" class="nav-icon"></i> <span data-i18n="cal">Cal</span></button>
     <button class="nav-tab" data-view="equipment" data-perm="equipment" title="Equipment"><i data-lucide="wrench" class="nav-icon"></i> <span data-i18n="equipment">Equipment</span></button>
-    <button class="nav-tab" data-view="train" data-perm="train" title="Training"><i data-lucide="graduation-cap" class="nav-icon"></i> <span data-i18n="training">Training</span><span class="nav-tab-badge" id="navTrainBadge" aria-hidden="true" hidden></span></button>
+    <button class="nav-tab" data-view="education" title="Education"><i data-lucide="book-open" class="nav-icon"></i> <span>Education</span></button>
+    <button class="nav-tab" data-view="train" data-perm="train" title="Training" hidden style="display:none"><i data-lucide="graduation-cap" class="nav-icon"></i> <span data-i18n="training">Training</span><span class="nav-tab-badge" id="navTrainBadge" aria-hidden="true" hidden></span></button>
     <button class="nav-tab" data-view="inventory" data-perm="inventory" title="Inventory"><i data-lucide="boxes" class="nav-icon"></i> <span data-i18n="inventory">Inventory</span></button>
   </div>
   <button class="nav-more" id="navMore" title="More"><i data-lucide="menu" class="nav-icon"></i></button>
@@ -1538,7 +1541,7 @@
   <!-- EQUIPMENT -->
   <div class="view" id="equipmentView" data-view="equipment"></div>
 
-  <!-- TRAINING -->
+  <!-- TRAINING (legacy — hidden in v15, replaced by Education) -->
   <div class="view" id="trainView" data-view="train">
     <div class="train-header">
       <span class="train-header-title" data-i18n="training">Training</span>
@@ -1547,6 +1550,9 @@
     </div>
     <div class="train-list" id="trainList"></div>
   </div>
+
+  <!-- EDUCATION (v15 replacement for Training) -->
+  <div class="view" id="educationView" data-view="education"></div>
 
   <!-- CALENDAR -->
   <div class="view" id="calView" data-view="cal">
