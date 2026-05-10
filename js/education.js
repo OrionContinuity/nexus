@@ -198,6 +198,7 @@
         <div class="edu-title-row">
           <div class="edu-eyebrow">TRAINING</div>
           <div class="edu-title">School of NEXUS</div>
+          <div class="edu-subtitle">${esc(categories.length ? `${categories.length} module${categories.length === 1 ? '' : 's'} · ${allGuides.length} lesson${allGuides.length === 1 ? '' : 's'}` : 'Build the curriculum')}</div>
         </div>
         <button class="edu-add-cat-btn" id="eduAddCat" aria-label="Add module">${svg('plus', 14)} <span>Module</span></button>
       </div>
@@ -214,9 +215,16 @@
         </div>
       </div>
 
+      ${activeCat && activeCat.description ? `
+        <div class="edu-module-context">
+          ${svg('info', 12)} <span>${esc(activeCat.description)}</span>
+        </div>
+      ` : ''}
+
       <div class="edu-guides-list" id="eduGuidesList">
         ${activeCat ? renderGuidesForCategory(activeCat, guides) : `
           <div class="edu-empty">
+            <div class="edu-empty-emblem">${svg('graduation', 48, 1.4)}</div>
             <div class="edu-empty-title">No modules yet</div>
             <div class="edu-empty-hint">Tap <b>+ Module</b> above to create your first one. Each module holds lessons (text, video, PDF books, photo guides, study material).</div>
           </div>
@@ -285,8 +293,10 @@
 
   function renderGuidesForCategory(cat, guides) {
     if (!guides.length) {
+      const kindIcon = cat.icon || 'graduation';
       return `
         <div class="edu-empty">
+          <div class="edu-empty-emblem">${svg(kindIcon, 48, 1.4)}</div>
           <div class="edu-empty-title">No lessons in ${esc(cat.name_en)} yet</div>
           <div class="edu-empty-hint">Tap <b>Add lesson</b> below to create the first one. Lessons can be text, video, PDF book, photo guide, embedded URL, or step-by-step study material.</div>
         </div>
@@ -408,9 +418,16 @@
       case 'embed':
         bodyHTML = guide.primary_url ? `
           <div class="edu-embed-wrap">
-            <iframe src="${esc(toEmbedUrl(guide.primary_url))}" class="edu-embed-iframe"
-                    allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>
+            <iframe src="${esc(toEmbedUrl(guide.primary_url))}"
+                    class="edu-embed-iframe"
+                    allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+                    referrerpolicy="strict-origin-when-cross-origin"
+                    loading="lazy"
+                    allowfullscreen></iframe>
           </div>
+          <a class="edu-embed-fallback" href="${esc(guide.primary_url)}" target="_blank" rel="noopener">
+            ${svg('external', 14)} <span>If the video doesn't load, open on ${esc(getEmbedSourceName(guide.primary_url))}</span>
+          </a>
         ` : `<div class="edu-empty-content">No embed URL set.</div>`;
         break;
       case 'steps':
@@ -554,21 +571,55 @@
   }
 
   // Coerce common video URLs to embed format
+  // Convert a user-pasted URL into something we can iframe-embed.
+  // Handles YouTube (watch, youtu.be, shorts, live, embed) and Vimeo.
+  // Falls back to the original URL if we can't recognize it (which
+  // probably won't iframe-embed, but the fallback link below covers it).
   function toEmbedUrl(url) {
     try {
       const u = new URL(url);
-      if (u.hostname.includes('youtube.com') || u.hostname === 'youtu.be') {
+      const host = u.hostname.replace(/^(www|m|music)\./, '');
+
+      // YouTube
+      if (host === 'youtube.com' || host === 'youtu.be' || host.endsWith('.youtube.com')) {
         let id = '';
-        if (u.hostname === 'youtu.be') id = u.pathname.slice(1);
-        else id = u.searchParams.get('v') || '';
-        if (id) return `https://www.youtube.com/embed/${id}`;
+        if (host === 'youtu.be') {
+          id = u.pathname.slice(1);
+        } else {
+          const path = u.pathname;
+          if (path.startsWith('/watch'))  id = u.searchParams.get('v') || '';
+          else if (path.startsWith('/shorts/'))   id = path.replace('/shorts/', '');
+          else if (path.startsWith('/live/'))     id = path.replace('/live/', '');
+          else if (path.startsWith('/embed/'))    return url;   // already embeddable
+        }
+        // Strip any trailing path segments / query
+        id = (id || '').split('/')[0].split('?')[0].split('&')[0];
+        if (id) {
+          // Preserve a start time if present (?t= or ?start=)
+          const t = u.searchParams.get('t') || u.searchParams.get('start');
+          const start = t ? `?start=${parseInt(t, 10) || 0}` : '';
+          return `https://www.youtube.com/embed/${id}${start}`;
+        }
       }
-      if (u.hostname.includes('vimeo.com')) {
+
+      // Vimeo
+      if (host === 'vimeo.com' || host === 'player.vimeo.com') {
+        if (u.pathname.startsWith('/video/')) return url;       // already embeddable
         const m = u.pathname.match(/\/(\d+)/);
         if (m) return `https://player.vimeo.com/video/${m[1]}`;
       }
     } catch (e) {}
     return url;
+  }
+
+  // Display name for the embed source — used in the "Open on …" fallback
+  function getEmbedSourceName(url) {
+    try {
+      const h = new URL(url).hostname.replace(/^(www|m)\./, '');
+      if (h.includes('youtube') || h === 'youtu.be') return 'YouTube';
+      if (h.includes('vimeo')) return 'Vimeo';
+      return h;
+    } catch (e) { return 'source'; }
   }
 
   // ─── Editors ────────────────────────────────────────────────────────
