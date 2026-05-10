@@ -117,6 +117,14 @@
   // user_id whose assignments are being filtered to. Persists for the
   // session in NX state so it survives navigation away+back.
   let viewingUserId = null;
+  // Education mode — when ON, every task row shows a 📖 button regardless
+  // of whether guides are linked. When OFF, the button is hidden entirely.
+  // Lets cleaners toggle into "training mode" without cluttering the
+  // checklist by default. Persisted in localStorage.
+  let educationModeOn = false;
+  try {
+    educationModeOn = localStorage.getItem('clean_education_mode') === '1';
+  } catch (e) {}
   // "Coming up" lookahead — populated on render from non-daily tasks
   // whose freshness is heading toward zero in the next 7 days. Renders
   // as a horizontal scroll strip above the section cards.
@@ -1736,12 +1744,20 @@
       <button class="clean-person-pill ${viewingUserId !== null ? 'is-active' : ''}" data-person-pill title="Whose view to show">
         ${svg('user', 12)} <span>${esc(pillLabel)}</span>
       </button>
+      <button class="clean-person-pill ${educationModeOn ? 'is-active' : ''}" data-edu-pill title="Show learning guide buttons on every task" aria-pressed="${educationModeOn}">
+        ${svg('book', 12)} <span>Learn</span>
+      </button>
     `;
     viewToggle.querySelectorAll('[data-view]').forEach(btn => {
       btn.addEventListener('click', () => setViewMode(btn.dataset.view));
     });
     viewToggle.querySelector('[data-person-pill]').addEventListener('click', () => {
       openPersonFilterPicker();
+    });
+    viewToggle.querySelector('[data-edu-pill]').addEventListener('click', () => {
+      educationModeOn = !educationModeOn;
+      try { localStorage.setItem('clean_education_mode', educationModeOn ? '1' : '0'); } catch (e) {}
+      render();
     });
     list.appendChild(viewToggle);
 
@@ -2145,8 +2161,8 @@
         <button class="clean-task-action-btn" aria-label="${activeNote ? 'Edit note' : 'Add note'}" data-add-note title="${activeNote ? 'Edit note' : 'Note'}">
           ${svg('alert', 14, 2)}
         </button>
-        ${(guidesLinkedByTaskId[task.id] || []).length ? `
-          <button class="clean-task-action-btn clean-guide-btn" aria-label="Open guide" data-open-guide title="Guide">
+        ${(educationModeOn || (guidesLinkedByTaskId[task.id] || []).length) ? `
+          <button class="clean-task-action-btn clean-guide-btn ${(guidesLinkedByTaskId[task.id] || []).length ? '' : 'is-empty'}" aria-label="${(guidesLinkedByTaskId[task.id] || []).length ? 'Open guide' : 'Link a guide'}" data-open-guide title="${(guidesLinkedByTaskId[task.id] || []).length ? 'Guide' : 'Link guide'}">
             ${svg('book', 14, 2)}
             ${(guidesLinkedByTaskId[task.id] || []).length > 1 ? `<span class="clean-guide-btn-count">${guidesLinkedByTaskId[task.id].length}</span>` : ''}
           </button>
@@ -2191,12 +2207,18 @@
     });
     // Guide button: opens the linked education guide. If multiple guides
     // are linked, shows a small picker; if just one, opens it directly.
+    // If education mode is on but no guides are linked yet, opens the
+    // link picker so the user can attach one on the spot.
     const guideBtn = row.querySelector('[data-open-guide]');
     if (guideBtn) {
       guideBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         const guides = guidesLinkedByTaskId[task.id] || [];
-        if (!guides.length) return;
+        if (!guides.length) {
+          // No links yet — let the user attach one
+          openGuideLinkPicker(task);
+          return;
+        }
         if (guides.length === 1) {
           if (NX.educationAPI && NX.educationAPI.openGuideViewer) {
             NX.educationAPI.openGuideViewer(guides[0].id);
