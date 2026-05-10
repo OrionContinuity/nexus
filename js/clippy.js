@@ -53,7 +53,6 @@
     agentDomEl: null,
     bubble: null,               // our custom action bubble
     palette: null,
-    peekEl: null,
     costumeLayer: null,
     currentCostume: null,
     costumeFrame: 0,
@@ -288,9 +287,24 @@
 
 
   // ─── Agent click + interaction wiring ───────────────────────────────
+  // Use document-level event delegation. clippyjs swaps DOM elements
+  // internally during animations, so a direct addEventListener on the
+  // initial .clippy node would go stale. Delegating from document with
+  // a closest() match catches every click on the agent or any sprite
+  // child, no matter how the library rearranges things.
   function setupAgentInteractions() {
-    if (!state.agentDomEl) return;
-    state.agentDomEl.addEventListener('click', (e) => {
+    if (state._clickWired) return;
+    state._clickWired = true;
+    document.addEventListener('click', (e) => {
+      const t = e.target;
+      if (!t || !t.closest) return;
+      const onAgent = t.closest('.clippy') ||
+                      t.closest('[data-clippy]') ||
+                      t.closest('.clippyjs-agent') ||
+                      t.closest('.clippyjs');
+      if (!onAgent) return;
+      // Don't fire when clicking inside the library's own balloon
+      if (t.closest('.clippy-balloon') || t.closest('.clippyjs-balloon')) return;
       e.stopPropagation();
       handleAgentClick();
     });
@@ -317,7 +331,47 @@
       return;
     }
     savePreferences();
-    openPalette();
+
+    // Pre-acceptance: clicking him is the handshake
+    if (!state.enabled) {
+      offerToJoin();
+      return;
+    }
+
+    // If a bubble is already up (e.g. he was speaking), close it on click.
+    // Two clicks in a row = "be quiet for a sec." Otherwise show the menu.
+    if (state.bubble) {
+      closeActionBubble();
+      return;
+    }
+
+    // Open the "What's up?" mini-menu with dismiss options
+    showWhatsUp();
+  }
+
+  // Quick "what's up" picker. Runs on every tap when enabled. Lightweight
+  // alternative to the full command palette — the four options here cover
+  // 90% of what users want: open the palette, say hi, hide for now,
+  // permanently dismiss.
+  function showWhatsUp() {
+    actionBubble("what's up?", {
+      actions: [
+        { label: 'Open menu',   cls: 'is-primary', onClick: openPalette },
+        { label: 'Just hi 👋',  onClick: () => { tryPlay('Wave'); bubble('hi!'); }},
+        { label: 'Quiet, plz', onClick: hideForSession },
+        { label: 'Send away',  cls: 'is-danger', onClick: declineToJoin },
+      ]
+    });
+  }
+
+  // Hide for the rest of this tab session — no preference change, no
+  // comeback-rule penalty. He returns on next page load. Distinct from
+  // declineToJoin (which is a sticky decline).
+  function hideForSession() {
+    if (state.agent) {
+      try { state.agent.hide(); } catch (e) {}
+    }
+    state.enabled = false;  // local only — preference is unchanged
   }
 
   function tryPlay(animationName) {
@@ -406,39 +460,16 @@
   }
 
 
-  // ─── Login peek ─────────────────────────────────────────────────────
-  function showPeek() {
-    if (state.peekEl) return;
-    const el = document.createElement('div');
-    el.id = 'clippy-peek';
-    el.className = 'clippy-peek';
-    el.innerHTML = `<div class="clippy-peek-eye"></div><div class="clippy-peek-eye"></div>`;
-    el.title = 'Tap me!';
-    document.body.appendChild(el);
-    state.peekEl = el;
-    el.addEventListener('click', () => {
-      el.classList.add('is-leaving');
-      setTimeout(() => { try { el.remove(); } catch (e) {} state.peekEl = null; }, 320);
-      offerToJoin();
-    });
-  }
-  function removePeek() {
-    if (state.peekEl) {
-      try { state.peekEl.remove(); } catch (e) {}
-      state.peekEl = null;
-    }
-  }
+  // ─── Login peek REMOVED ─────────────────────────────────────────────
+  // The legacy CSS-paperclip-eyes peek element is gone. We now boot
+  // the real clippyjs Clippy on the PIN screen too — see init().
   async function offerToJoin() {
-    await loadAgent(state.agentName || 'Clippy');
+    // Make sure the agent is loaded (covers manual re-enable case)
+    if (!state.agent) {
+      try { await loadAgent(state.agentName || 'Clippy'); } catch (e) {}
+    }
     tryPlay('Wave') || tryPlay('Show');
-    setTimeout(() => {
-      actionBubble(pickFromPool('login_peek'), {
-        actions: [
-          { label: 'Yes!',      cls: 'is-primary', onClick: acceptToJoin },
-          { label: 'Not today', onClick: declineToJoin },
-        ]
-      });
-    }, 700);
+    setTimeout(offerToJoinBubble, 600);
   }
   function acceptToJoin() {
     state.preferences.enabled = true;
@@ -460,7 +491,6 @@
     bubble(pickFromPool('after_no'));
     setTimeout(() => {
       if (state.agent) { try { state.agent.hide(); } catch (e) {} }
-      removePeek();
     }, 2200);
   }
 
@@ -839,12 +869,17 @@
       }
     });
     document.addEventListener('input', (e) => {
-      if (!state.enabled) return;
       const t = e.target;
       if (!t || typeof t.value !== 'string') return;
-      if (t.value.toLowerCase().endsWith('hi clippy')) {
-        tryPlay('Wave');
-        bubble('👋');
+      const v = t.value.toLowerCase();
+      // Summon trigger: works even when Clippy is hidden / disabled
+      if (v.endsWith('hi clippy') || v.endsWith('clippy come back') || v.endsWith('come back clippy')) {
+        if (!state.enabled || !state.agent) {
+          summon();
+        } else {
+          tryPlay('Wave');
+          bubble('hi!');
+        }
       }
     });
   }
@@ -870,7 +905,9 @@
     await loadDialog();
     await loadPreferences();
     wireGlobalListeners();
+
     if (state.preferences.enabled === true) {
+      // Already accepted — boot agent normally
       state.enabled = true;
       try {
         await loadAgent(state.agentName);
@@ -881,8 +918,31 @@
         console.error('[clippy] agent init failed:', e);
       }
     } else if (shouldShowComeback()) {
-      showPeek();
+      // Pre-acceptance / comeback — boot the REAL clippyjs Clippy
+      // (no legacy CSS-peek anymore). He appears, waves, and offers
+      // to join. Tap him or tap "Yes!" to accept.
+      try {
+        await loadAgent(state.agentName || 'Clippy');
+        tryPlay('Wave') || tryPlay('Show');
+        // Brief pause so the wave animation registers before the
+        // bubble lands on top of him
+        setTimeout(() => offerToJoinBubble(), 1100);
+      } catch (e) {
+        console.error('[clippy] pre-acceptance load failed:', e);
+      }
     }
+    // else: hidden silently (rejected too many times — comeback rules)
+  }
+
+  // Just the bubble offer — agent is already loaded by init() in
+  // pre-acceptance mode.
+  function offerToJoinBubble() {
+    actionBubble(pickFromPool('login_peek'), {
+      actions: [
+        { label: 'Yes!',      cls: 'is-primary', onClick: acceptToJoin },
+        { label: 'Not today', onClick: declineToJoin },
+      ]
+    });
   }
 
 
@@ -919,6 +979,29 @@
     if (state.agent) { try { state.agent.moveTo(x, y); } catch (e) {} }
   }
 
+  // Summon — force Clippy to appear, regardless of stored preferences.
+  // Useful when he's been dismissed and you want him back manually.
+  // Resets reject_count and sets enabled=true. Available as
+  // NX.clippy.summon() in the console or as a menu action. Also fires
+  // when the user types "hi clippy" or "clippy come back" in any input.
+  async function summon() {
+    state.preferences.enabled = true;
+    state.preferences.reject_count = 0;
+    state.preferences.last_seen_at = new Date().toISOString();
+    state.preferences.session_count = (state.preferences.session_count || 0) + 1;
+    await savePreferences();
+    state.enabled = true;
+    if (!state.agent) {
+      try { await loadAgent(state.agentName || 'Clippy'); }
+      catch (e) { console.error('[clippy] summon load failed:', e); return; }
+    } else {
+      try { state.agent.show(); } catch (e) {}
+    }
+    tryPlay('Wave') || tryPlay('Show') || tryPlay('Greet');
+    setTimeout(() => bubble("hi! i'm back."), 700);
+    if (!state.randomTimer) startRandomBehaviors();
+  }
+
   if (!window.NX) window.NX = {};
   NX.clippy = {
     init,
@@ -938,6 +1021,7 @@
     gestureAt,
     moveTo,
     switchAgent: loadAgent,
+    summon,                    // Force-show, ignoring prefs. NX.clippy.summon()
     enable: () => { state.preferences.enabled = true; savePreferences(); init(); },
     disable: declineToJoin,
   };
