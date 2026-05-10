@@ -407,6 +407,13 @@
     ensureHost().appendChild(shell);
     state.shell = shell;
     state.svg = shell.querySelector('svg');
+    // Defensive: ensure the 'clippy-svg' class is on the SVG element. The
+    // ~36 mood/eye/mouth CSS rules use `.clippy-svg ...` as their scope —
+    // if the SVG file ever ships without this class, every eye/mouth
+    // variant renders simultaneously ("bunched faces" bug, v17).
+    if (state.svg && !state.svg.classList.contains('clippy-svg')) {
+      state.svg.classList.add('clippy-svg');
+    }
     state.costumeLayer = shell.querySelector('#clippy-costume-layer');
 
     // Apply saved position if available
@@ -1540,6 +1547,11 @@
       startContentAwareness();
       setTimeout(() => moveToEmptyCorner(), 800);
       afterJoinSchedule();
+      // v17 fix: greet already-enabled users on each session too. Without
+      // this they see Clippy appear silently and report "no dialog" —
+      // the only path that called timeAwareGreeting was acceptJoin(),
+      // which only fires during onboarding.
+      timeAwareGreeting();
     } else if (shouldShowComeback()) {
       // Pre-acceptance peek
       await buildShell();
