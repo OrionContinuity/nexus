@@ -445,8 +445,16 @@
         offsetX: e.clientX - rect.left,
         offsetY: e.clientY - rect.top,
         moved: false,
+        longPressFired: false,
         pointerId: e.pointerId,
       };
+      // v17.4: 3-second long-press → menu. Plain tap → quick fun bubble.
+      drag.longPressTimer = setTimeout(() => {
+        if (!drag || drag.moved || drag.longPressFired) return;
+        drag.longPressFired = true;
+        try { if (navigator.vibrate) navigator.vibrate(30); } catch (_) {}
+        showWhatsUp();
+      }, 3000);
       shell.classList.add('is-dragging');
     });
 
@@ -459,12 +467,17 @@
       const dx = e.clientX - drag.startX;
       const dy = e.clientY - drag.startY;
       if (Math.abs(dx) + Math.abs(dy) < 6) return;
+      // Movement detected → cancel long-press timer
+      if (drag.longPressTimer) {
+        clearTimeout(drag.longPressTimer);
+        drag.longPressTimer = null;
+      }
       // First time we cross the drag threshold → playful chirp
       if (!drag.moved) {
         drag.moved = true;
         if (!drag.spokeOnStart && state.enabled) {
           drag.spokeOnStart = true;
-          mood('excited', 2200);   // STAR EYES! "Wheee!"
+          mood('excited', 2200);
           if (Math.random() < 0.7) {
             bubble(pickFromPool('drag_start'), { autoHide: 1400 });
           }
@@ -487,6 +500,10 @@
       drag = null;
       shell.classList.remove('is-dragging');
       try { shell.releasePointerCapture(e.pointerId); } catch (_) {}
+      // Always clear any pending long-press timer
+      if (finished.longPressTimer) {
+        clearTimeout(finished.longPressTimer);
+      }
       if (finished.moved) {
         // Save new position
         const rect = shell.getBoundingClientRect();
@@ -502,7 +519,6 @@
           }, 280);
         }
         // If dropped in a bad spot, politely drift to a clear corner
-        // after a beat — gives the user time to see where they put him
         setTimeout(() => {
           if (state.enabled && state.shell && scoreCurrentPosition() > 100) {
             moveToEmptyCorner();
@@ -510,11 +526,14 @@
         }, 2200);
         return;
       }
-      // It was a tap
+      // Long-press already triggered menu → skip the tap action
+      if (finished.longPressFired) return;
+      // Short tap → quick fun bubble (NOT the menu, that's now long-press)
       handleClick();
     });
 
     shell.addEventListener('pointercancel', () => {
+      if (drag && drag.longPressTimer) clearTimeout(drag.longPressTimer);
       drag = null;
       shell.classList.remove('is-dragging');
     });
@@ -619,8 +638,36 @@
       return;
     }
 
-    // Default: "What's up?" picker
-    showWhatsUp();
+    // v17.4: default short-tap → random fun bubble with matching mood.
+    // The menu (showWhatsUp) is now reserved for 3-second LONG-PRESS so
+    // a quick poke feels playful rather than formal.
+    showQuickBubble();
+  }
+
+  // Short-tap response: random pool with matching expression.
+  function showQuickBubble() {
+    const r = Math.random();
+    if (r < 0.28) {
+      bubble(pickFromPool('roman_facts'), { eyebrow: 'ROMA', autoHide: 5800 });
+      mood('thinking', 5500);
+    } else if (r < 0.48) {
+      bubble(pickFromPool('whimsical_idle'), { autoHide: 3800 });
+    } else if (r < 0.62) {
+      bubble(pickFromPool('dad_jokes'), { autoHide: 4500 });
+      mood('winking', 3800);
+    } else if (r < 0.76) {
+      bubble(pickFromPool('compliments'), { autoHide: 3800 });
+      mood('love', 3800);
+    } else if (r < 0.86) {
+      bubble(pickFromPool('latin_phrases'), { eyebrow: 'LATINA', autoHide: 4500 });
+      mood('determined', 4000);
+    } else if (r < 0.94) {
+      bubble(pickFromPool('self_aware'), { autoHide: 3800 });
+      mood('smug', 3500);
+    } else {
+      bubble(pickFromPool('ready_to_help'), { autoHide: 2800 });
+      mood('happy', 2800);
+    }
   }
 
 
@@ -702,12 +749,13 @@
     ensureHost().appendChild(el);
     state.bubble = el;
 
-    // autoHide: dismiss bubble after N ms. Used for fleeting whimsical
-    // utterances ("oh sorry!", "hee hee!") that shouldn't linger.
+    // autoHide: dismiss bubble after N ms. v17.4 bumps all autoHide
+    // values 1.6× so dialog stays readable longer. A 3.5s bubble now
+    // sticks ~5.6s; a 5.8s Roman fact bubble now sticks ~9.3s.
     if (typeof opts.autoHide === 'number' && opts.autoHide > 0) {
       const hideTimer = setTimeout(() => {
         if (state.bubble === el) closeActionBubble();
-      }, opts.autoHide);
+      }, opts.autoHide * 1.6);
       el._clippyHideTimer = hideTimer;
     }
 
