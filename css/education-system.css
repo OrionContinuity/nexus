@@ -145,7 +145,11 @@
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 14px 16px 12px;
+  /* Bottom padding leaves room for the floating Add-lesson FAB so the
+     last lesson card isn't hidden under it. Plus extra room for safe-
+     area-inset-bottom (home indicator) + bottom-nav (~80px) when this
+     scroll region runs all the way to the bottom of the viewport. */
+  padding: 14px 16px calc(120px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -318,32 +322,56 @@
 }
 
 
-/* ─── FOOTER ────────────────────────────────────────────────────────── */
-.edu-footer {
-  padding: 12px 16px;
-  border-top: 1px solid var(--nx-highlight-line, rgba(212, 164, 78, 0.10));
-}
-.edu-add-guide-btn {
-  display: flex;
+/* ─── ADD LESSON FAB ─────────────────────────────────────────────────
+   Floats above the bottom-nav at all times. Stays visible while the
+   lessons list scrolls infinitely above. Sits on the right so it
+   doesn't conflict with the close-X (left) and lines up visually with
+   the gold "+ Module" pill in the header. */
+.edu-add-guide-fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  z-index: 60;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  padding: 13px;
-  background: transparent;
-  border: 1px dashed rgba(212, 164, 78, 0.4);
-  border-radius: 8px;
-  color: var(--nx-gold, #d4a44e);
+  gap: 8px;
+  padding: 12px 18px 12px 14px;
+  background: var(--nx-gold, #d4a44e);
+  color: var(--nx-gold-on, #1c1408);
+  border: 0;
+  border-radius: 999px;
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background 140ms, border-color 140ms;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.40),
+    0 2px 6px rgba(212, 164, 78, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transition: transform 140ms cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 140ms ease,
+              filter 140ms ease;
 }
-.edu-add-guide-btn:hover {
-  background: rgba(212, 164, 78, 0.06);
-  border-color: var(--nx-gold);
+.edu-add-guide-fab:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.05);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.45),
+    0 3px 8px rgba(212, 164, 78, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.30);
+}
+.edu-add-guide-fab:active {
+  transform: translateY(0) scale(0.97);
+}
+.edu-add-guide-fab svg {
+  flex-shrink: 0;
+}
+@media (max-width: 380px) {
+  /* On very narrow screens, hide the label, show just the + */
+  .edu-add-guide-fab span { display: none; }
+  .edu-add-guide-fab { padding: 14px; border-radius: 50%; }
 }
 
 
