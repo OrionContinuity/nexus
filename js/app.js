@@ -1093,13 +1093,6 @@ td.check{background:#F0EDE6 !important}
     const dutiesDial = document.getElementById('dutiesDial');
     const dutiesBtn  = document.querySelector('.bnav-btn[data-view="clean"]');
     bindSpeedDial(dutiesBtn, dutiesDial, (target) => {
-      // Training is a top-level view, not a Duties sub-pane — route to
-      // the Training view directly. The cleaning + ordering targets fall
-      // through to the existing pane-activation flow.
-      if (target === 'train') {
-        switchTo('train');
-        return;
-      }
       // (1) Persist FIRST so any imminent duties.init() reads the right pane.
       try { localStorage.setItem('nexus_duties_active_pane', target); } catch(_){}
       switchTo('clean');
@@ -1505,7 +1498,7 @@ td.check{background:#F0EDE6 !important}
   },
 
   activateModule(view) {
-    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js', inventory: 'js/inventory.js' };
+    const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js', inventory: 'js/inventory.js', education: 'js/education.js' };
 
     // ── Local helper: re-translate the currently visible view if user
     // has a non-English language pinned. Called at the END of every
