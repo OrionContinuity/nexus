@@ -2260,17 +2260,20 @@ body.is-equipment-archive-world .eq-row:hover {
 }
 
 /* ─── DOWN / BROKEN — struggling lightbulb ─────────────────────────
-   Filament fighting to stay lit. Mostly dim warm amber with random
-   sparks, a couple of brave attempts to flare back, and a stuttering
-   double-tap. steps(1, end) gives sharp on/off (no smooth fade) so
-   it reads as electrical flicker, not a heartbeat. */
+   Filament fighting to stay lit. The animation drives BOTH background
+   and box-shadow at every keyframe, so the static rule below carries
+   no !important on those properties — !important on a static rule
+   beats animation values per the CSS spec, which is exactly what
+   was freezing the previous version. Only the animation property
+   itself is !important, to ensure our keyframe overrides the legacy
+   eq-lc-struggle-dot animation defined in equipment.css. */
 .eq-row-beacon .eq-lc-dot.is-down,
 .eq-row-beacon .eq-lc-dot.is-broken {
-  background: #5a4a30 !important;
+  background: #5a4a30;
   box-shadow:
     0 0 0 2px rgba(28, 20, 8, 0.85),
     0 0 3px rgba(212, 164, 78, 0.20),
-    inset 0 0 4px rgba(0, 0, 0, 0.5) !important;
+    inset 0 0 4px rgba(0, 0, 0, 0.5);
   animation: eq-beacon-bulb-dying 5.4s steps(1, end) infinite !important;
 }
 @keyframes eq-beacon-bulb-dying {
@@ -2397,7 +2400,11 @@ body.is-equipment-archive-world .eq-row:hover {
 [data-theme="light"] .eq-row-beacon .eq-lc-dot.is-broken,
 [data-theme="light"] .eq-lc-pill.is-down .eq-lc-pill-dot,
 [data-theme="light"] .eq-lc-pill.is-broken .eq-lc-pill-dot {
-  background: #8a8580 !important;            /* mid-gray, visible on cream */
+  /* No background override — let eq-beacon-bulb-dying keyframe vary
+     between dim warm baseline (#5a4a30) and full sparks (#f0c870).
+     Both colors read fine on the cream light-mode background.
+     A static !important background here would freeze the animation
+     because !important wins over animated property values. */
 }
 [data-theme="light"] .eq-lc-orbit {
   background: #b8862c !important;
@@ -2436,4 +2443,54 @@ body.is-equipment-archive-world .eq-row:hover {
   .eq-lc-pill-dot::before, .eq-lc-pill-dot::after {
     animation: none !important;
   }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   v15.4 — Contractor editor: phone-name sub-form
+   ───────────────────────────────────────────────────────
+   For each phone in the contractor's PHONE chip group, a paired input
+   row below lets the user attach a name ("Mike", "dispatch", "after
+   hours", etc). The name is saved alongside the phone and surfaces on
+   the QR-scan public page as "Call Mike" / "Call dispatch".
+   ════════════════════════════════════════════════════════════════════════ */
+.rx-cc-phone-names {
+  margin-top: 6px;
+}
+.rx-cc-phone-names-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rx-cc-phone-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(212, 164, 78, 0.04);
+  border: 1px solid rgba(212, 164, 78, 0.14);
+  border-radius: 8px;
+}
+.rx-cc-phone-name-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  color: var(--nx-text-secondary, #b9b3a5);
+  flex-shrink: 0;
+  min-width: 0;
+  white-space: nowrap;
+}
+.rx-cc-phone-name-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px !important;
+  font-size: 13px !important;
+  font-family: 'Outfit', sans-serif;
+}
+
+[data-theme="light"] .rx-cc-phone-name-row {
+  background: rgba(212, 164, 78, 0.06);
+  border-color: rgba(139, 105, 20, 0.18);
+}
+[data-theme="light"] .rx-cc-phone-name-num {
+  color: #6b4f0d;
 }
