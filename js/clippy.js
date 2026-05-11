@@ -153,6 +153,13 @@
   function getCurrentUser() {
     try { return (window.NX && NX.currentUser) || null; } catch (e) { return null; }
   }
+  // v17.19: per-user localStorage namespacing. Each user gets their own
+  // memories, prefs, pool history, feelings, game scores. Falls back to
+  // legacy global keys if no user is signed in.
+  function userKey(base) {
+    const u = getCurrentUser();
+    return (u && u.id) ? `${base}_u${u.id}` : base;
+  }
   function fmt(line, vars) {
     if (!vars) return line;
     return line.replace(/\{(\w+)\}/g, (_, k) => (vars[k] != null ? vars[k] : ''));
@@ -339,11 +346,11 @@
       .replace(/\{score\}/g, String(state.minigameScore || 0));
   }
   function persistPoolHistory() {
-    try { localStorage.setItem('clippy_pool_history', JSON.stringify(state.poolHistory)); } catch (e) {}
+    try { localStorage.setItem(userKey('clippy_pool_history'), JSON.stringify(state.poolHistory)); } catch (e) {}
   }
   function loadPoolHistory() {
     try {
-      const raw = localStorage.getItem('clippy_pool_history');
+      const raw = localStorage.getItem(userKey('clippy_pool_history'));
       if (raw) state.poolHistory = JSON.parse(raw) || {};
     } catch (e) { state.poolHistory = {}; }
   }
@@ -439,12 +446,12 @@
 
   function loadMemories() {
     try {
-      const raw = localStorage.getItem('clippy_memories');
+      const raw = localStorage.getItem(userKey('clippy_memories'));
       state.memories = raw ? (JSON.parse(raw) || []) : [];
     } catch (e) { state.memories = []; }
   }
   function saveMemories() {
-    try { localStorage.setItem('clippy_memories', JSON.stringify(state.memories || [])); } catch (e) {}
+    try { localStorage.setItem(userKey('clippy_memories'), JSON.stringify(state.memories || [])); } catch (e) {}
   }
 
   // Deposit a memory node. Called on significant events. Saves to disk,
@@ -638,13 +645,13 @@
   }
   function loadFeelings() {
     try {
-      const raw = localStorage.getItem('clippy_feelings');
+      const raw = localStorage.getItem(userKey('clippy_feelings'));
       const obj = raw ? JSON.parse(raw) : {};
       state.feelings = Object.assign(defaultFeelings(), obj || {});
     } catch (e) { state.feelings = defaultFeelings(); }
   }
   function saveFeelings() {
-    try { localStorage.setItem('clippy_feelings', JSON.stringify(state.feelings || {})); } catch (e) {}
+    try { localStorage.setItem(userKey('clippy_feelings'), JSON.stringify(state.feelings || {})); } catch (e) {}
   }
   function adjustFeeling(key, delta) {
     if (!state.feelings) loadFeelings();
@@ -1096,6 +1103,7 @@
       frames++;
       if (frames === 1) el.classList.add('is-visible');
       if (frames < 30) requestAnimationFrame(refresh);
+      else startBubbleFollowLoop();   // v17.18: chat box follows too
     };
     requestAnimationFrame(refresh);
   }
@@ -1670,7 +1678,7 @@
   // ─── Preferences ────────────────────────────────────────────────────
   async function loadPreferences() {
     try {
-      const raw = localStorage.getItem('clippy_prefs');
+      const raw = localStorage.getItem(userKey('clippy_prefs'));
       if (raw) Object.assign(state.preferences, JSON.parse(raw));
     } catch (e) {}
     const u = getCurrentUser();
@@ -1698,7 +1706,7 @@
     }
   }
   async function savePreferences() {
-    try { localStorage.setItem('clippy_prefs', JSON.stringify(state.preferences)); } catch (e) {}
+    try { localStorage.setItem(userKey('clippy_prefs'), JSON.stringify(state.preferences)); } catch (e) {}
     const u = getCurrentUser();
     if (!u || !u.id || !window.NX || !NX.sb) return;
     try {
@@ -2041,6 +2049,9 @@
 
   // Short-tap response: random pool with matching expression.
   function showQuickBubble() {
+    // v17.18: stamp interaction time for boredom-drift sensing
+    state.lastTapAt = Date.now();
+    if (state.shell) state.shell.classList.remove('is-bored');
     // v17.6: tactile feedback — sparkle + boop on every tap
     spawnParticles({ count: 4, type: 'sparkle' });
     playTone('boop');
@@ -2261,6 +2272,7 @@
       frames++;
       if (frames === 1) el.classList.add('is-visible');
       if (frames < 30) requestAnimationFrame(refresh);
+      else startBubbleFollowLoop();   // v17.18: handoff to follow loop
     }
     requestAnimationFrame(refresh);
 
@@ -2302,19 +2314,54 @@
     }
     let top  = rect.top - eRect.height - 24;
     let left = rect.left + (rect.width / 2) - (eRect.width / 2);
+    // v17.18: if bubble would go off top, position it BELOW the shell instead
+    let tailDirection = 'top';   // tail points UP (bubble above shell)
+    if (top < 8) {
+      top = rect.bottom + 24;
+      tailDirection = 'bottom';
+    }
     left = Math.max(8, Math.min(window.innerWidth  - eRect.width  - 8, left));
-    top  = Math.max(8, top);
     el.style.top  = top  + 'px';
     el.style.left = left + 'px';
     el.classList.remove('tail-left', 'tail-right');
     el.classList.add(rect.left < window.innerWidth / 2 ? 'tail-left' : 'tail-right');
   }
+
+  // v17.18: BUBBLE FOLLOW LOOP — while a bubble exists, re-position it on
+  // every animation frame so it tracks the shell as it moves. The CSS
+  // top/left transitions (600ms cubic-bezier) smooth this into a glide.
+  // The loop self-cancels when state.bubble is cleared.
+  function startBubbleFollowLoop() {
+    if (state.bubbleFollowRaf) cancelAnimationFrame(state.bubbleFollowRaf);
+    let lastX = -1, lastY = -1;
+    const tick = () => {
+      if (!state.bubble || !state.shell) {
+        state.bubbleFollowRaf = null;
+        return;
+      }
+      const r = state.shell.getBoundingClientRect();
+      // Only re-position if the shell has actually moved (avoid thrashing)
+      if (Math.abs(r.left - lastX) > 0.5 || Math.abs(r.top - lastY) > 0.5) {
+        lastX = r.left;
+        lastY = r.top;
+        positionBubble(state.bubble);
+      }
+      state.bubbleFollowRaf = requestAnimationFrame(tick);
+    };
+    state.bubbleFollowRaf = requestAnimationFrame(tick);
+  }
+
   function closeActionBubble() {
     if (state.bubble) {
       state.bubble.classList.remove('is-visible');
       const b = state.bubble;
       setTimeout(() => { try { b.remove(); } catch (e) {} }, 220);
       state.bubble = null;
+      // v17.18: cancel the follow loop when bubble closes
+      if (state.bubbleFollowRaf) {
+        cancelAnimationFrame(state.bubbleFollowRaf);
+        state.bubbleFollowRaf = null;
+      }
     }
   }
 
@@ -2332,6 +2379,7 @@
     const actions = [
       { label: 'Open menu', cls: 'is-primary', onClick: openPalette },
       { label: '💬 Chat with me', onClick: () => openChat() },
+      { label: '🎮 Play a game', onClick: () => { closeActionBubble(); showGameMenu(); } },
     ];
     if (oracleReady) {
       actions.push({ label: '✨ Oracle (rare)', onClick: () => { triggerSuperChat(); } });
@@ -2848,20 +2896,31 @@
     let lastView = null;
     let lastViewBubbleAt = 0;
     // v17.17 mapping: view → { pool, mood, eyebrow } for personality-mode
+    // v17.18: EVERY NEXUS view now has a personality
     const VIEW_PERSONALITY = {
+      home:      { pool: 'home_friendly',      mood: 'happy',       eyebrow: '🏠 HOME'      },
       equipment: { pool: 'equipment_technical', mood: 'genius',     eyebrow: '⚙️ TECH'      },
       clean:     { pool: 'cleaning_gross',     mood: 'disgusted',   eyebrow: '🧽 ICK'       },
       education: { pool: 'education_studious', mood: 'studious',    eyebrow: '📚 STUDIOUS'  },
       board:     { pool: 'board_strategist',   mood: 'strategist',  eyebrow: '♟️ STRATEGY'  },
       inventory: { pool: 'inventory_organized',mood: 'organized',   eyebrow: '📋 ORDER'    },
+      log:       { pool: 'log_reflective',     mood: 'thinking',    eyebrow: '✍️ REFLECT'   },
+      cal:       { pool: 'cal_planner',        mood: 'determined',  eyebrow: '📅 PLAN'     },
+      train:     { pool: 'train_coach',        mood: 'sparkle',     eyebrow: '🏆 COACH'    },
+      brain:     { pool: 'brain_curious',      mood: 'confused',    eyebrow: '🧠 PEER'     },
     };
     setInterval(() => {
       if (!state.enabled || !state.shell || state.suppressed) return;
-      // v17.17: COIN FLIP MISCHIEF — 0.4% chance per 2s tick (~1.2%/min)
-      // when no bubble is open, he wanders to the masthead coin and flips it
+      // v17.17: COIN FLIP MISCHIEF — 0.4% chance per 2s tick
       if (!state.bubble && !state.coinFlipInProgress && Math.random() < 0.004) {
         if (maybeFlipCoin()) return;
       }
+      // v17.18: VIEW MISCHIEF — equipment/clean/board/inventory pokes
+      if (maybeViewMischief()) return;
+      // v17.18: BORED DRIFT — when idle 30s+, slow wander to new spot
+      maybeBoredDrift();
+      // v17.19: GAME OFFER — when bored 60s+, occasionally invite to play
+      if (maybeOfferGame()) return;
       const active = document.querySelector('.nav-tab.active[data-view], .bnav-btn.active[data-view]');
       const view = active ? active.getAttribute('data-view') : null;
       // v17.17: maintain the view-personality mood (re-applied on every tick)
@@ -2958,6 +3017,636 @@
     }, 900);
     return true;
   }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.18 NEXUS MISCHIEF — visual-only interactions with NEXUS DOM.
+  // None of these modify real data. They apply temporary CSS classes
+  // that auto-clear after the animation ends, accompanied by Trajan
+  // walking over, commenting, then bouncing away.
+  // ════════════════════════════════════════════════════════════════════
+
+  function bounceAway() {
+    if (!state.shell) return;
+    const W = window.innerWidth, H = window.innerHeight;
+    const shellW = state.shell.offsetWidth || 120;
+    const shellH = state.shell.offsetHeight || 120;
+    const corners = [
+      { x: 24, y: 100 },
+      { x: W - shellW - 24, y: 100 },
+      { x: 24, y: H - shellH - 80 },
+      { x: W - shellW - 24, y: H - shellH - 80 },
+    ];
+    const target = corners[Math.floor(Math.random() * corners.length)];
+    play('bounce');
+    setTimeout(() => {
+      moveTo(target.x, target.y);
+      if (Math.random() < 0.7 && !state.bubble) {
+        setTimeout(() => {
+          if (!state.bubble && state.enabled) {
+            bubble(pickFromPool('mischief_escape'), { autoHide: 3000 });
+          }
+        }, 300);
+      }
+    }, 600);
+  }
+
+  function mischiefTarget(el, opts) {
+    if (!el || !state.shell || state.coinFlipInProgress) return false;
+    if (state.preferences.do_not_disturb || state.bubble) return false;
+    if (state.isRunningAway) return false;
+    state.coinFlipInProgress = true;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.bottom < 0 || r.top > window.innerHeight) {
+      state.coinFlipInProgress = false;
+      return false;
+    }
+    const shellW = state.shell.offsetWidth || 120;
+    const shellH = state.shell.offsetHeight || 120;
+    const cx = r.left + r.width / 2 - shellW / 2;
+    const cy = Math.max(40, r.top - shellH * 0.85);
+    mood(opts.mood || 'smug', 6000);
+    moveTo(cx, cy);
+    setTimeout(() => {
+      try {
+        el.classList.add(opts.cssClass);
+        setTimeout(() => { try { el.classList.remove(opts.cssClass); } catch(_) {} }, opts.duration || 1500);
+        if (opts.tone) playTone(opts.tone);
+        spawnParticles({ count: 4, type: opts.particle || 'sparkle' });
+        if (opts.pool) {
+          const line = pickFromPool(opts.pool);
+          bubble(line, { autoHide: 3500, eyebrow: opts.eyebrow || '🎭 MISCHIEF' });
+        }
+        depositMemory('mischief', opts.memoryLabel || 'Did a silly thing.', { type: opts.type }, 1);
+        adjustFeeling('happiness', +4);
+      } catch (e) { console.warn('[clippy] mischief failed', e); }
+      setTimeout(() => {
+        bounceAway();
+        setTimeout(() => { state.coinFlipInProgress = false; }, 1800);
+      }, 2500);
+    }, 900);
+    return true;
+  }
+
+  function mischiefEquipmentPoke() {
+    const pills = Array.from(document.querySelectorAll('.dos-status-pill'));
+    const visible = pills.filter(p => {
+      const r = p.getBoundingClientRect();
+      return r.width > 0 && r.bottom > 0 && r.top < window.innerHeight;
+    });
+    if (!visible.length) return false;
+    const target = visible[Math.floor(Math.random() * visible.length)];
+    return mischiefTarget(target, {
+      cssClass: 'is-trajan-poked',
+      duration: 1500,
+      pool: 'mischief_equipment_poke',
+      eyebrow: '⚙️ POKE',
+      mood: 'genius',
+      tone: 'boop',
+      type: 'equipment_poke',
+      memoryLabel: 'Poked an equipment status pill (visually).',
+    });
+  }
+
+  function mischiefCleanCheck() {
+    const items = Array.from(document.querySelectorAll('.clean-task-check'));
+    const visible = items.filter(i => {
+      const r = i.getBoundingClientRect();
+      return r.width > 0 && r.bottom > 0 && r.top < window.innerHeight;
+    });
+    if (!visible.length) return false;
+    const target = visible[Math.floor(Math.random() * visible.length)];
+    return mischiefTarget(target, {
+      cssClass: 'is-trajan-ghost-check',
+      duration: 2200,
+      pool: 'mischief_clean_check',
+      eyebrow: '✓ GHOST',
+      mood: 'proud',
+      tone: 'sparkle',
+      type: 'clean_ghost_check',
+      memoryLabel: 'Ghost-checked a cleaning task.',
+    });
+  }
+
+  function mischiefBoardPretend() {
+    const cards = Array.from(document.querySelectorAll(
+      '.kanban-card, .board-card, [data-card-id], .nx-card'
+    ));
+    const visible = cards.filter(c => {
+      const r = c.getBoundingClientRect();
+      return r.width > 0 && r.bottom > 0 && r.top < window.innerHeight;
+    });
+    if (!visible.length) return false;
+    const target = visible[Math.floor(Math.random() * visible.length)];
+    return mischiefTarget(target, {
+      cssClass: 'is-trajan-grabbing',
+      duration: 2200,
+      pool: 'mischief_board_pretend',
+      eyebrow: '✋ HMPH',
+      mood: 'strategist',
+      tone: 'boop',
+      type: 'board_pretend',
+      memoryLabel: 'Pretended to drag a board card.',
+    });
+  }
+
+  function mischiefInventoryCount() {
+    const rows = Array.from(document.querySelectorAll(
+      '.inventory-row, [data-inventory-id], .nx-inv-item, tr[data-row]'
+    ));
+    const visible = rows.filter(r => {
+      const rect = r.getBoundingClientRect();
+      return rect.width > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
+    });
+    if (!visible.length) return false;
+    const target = visible[Math.floor(Math.random() * visible.length)];
+    return mischiefTarget(target, {
+      cssClass: 'is-trajan-counting',
+      duration: 1800,
+      pool: 'mischief_inventory_count',
+      eyebrow: '🔢 COUNT',
+      mood: 'organized',
+      tone: 'boop',
+      type: 'inventory_count',
+      memoryLabel: 'Counted an inventory item.',
+    });
+  }
+
+  function maybeViewMischief() {
+    if (state.coinFlipInProgress) return false;
+    if (state.bubble) return false;
+    if (state.preferences.do_not_disturb) return false;
+    const active = document.querySelector('.nav-tab.active[data-view], .bnav-btn.active[data-view]');
+    const view = active ? active.getAttribute('data-view') : null;
+    if (!view) return false;
+    if (Math.random() > 0.005) return false;
+    if      (view === 'equipment') return mischiefEquipmentPoke();
+    else if (view === 'clean')     return mischiefCleanCheck();
+    else if (view === 'board')     return mischiefBoardPretend();
+    else if (view === 'inventory') return mischiefInventoryCount();
+    return false;
+  }
+
+  function maybeBoredDrift() {
+    if (state.bubble || state.coinFlipInProgress) return false;
+    const idleMs = Date.now() - (state.lastTapAt || 0);
+    if (idleMs < 30000) {
+      state.shell && state.shell.classList.remove('is-bored');
+      return false;
+    }
+    state.shell && state.shell.classList.add('is-bored');
+    if (Math.random() > 0.025) return false;
+    if (!state.shell) return false;
+    const rect = state.shell.getBoundingClientRect();
+    const W = window.innerWidth, H = window.innerHeight;
+    const shellW = state.shell.offsetWidth || 120;
+    const shellH = state.shell.offsetHeight || 120;
+    const dx = (Math.random() - 0.5) * 240;
+    const dy = (Math.random() - 0.5) * 160;
+    const nx = Math.max(12, Math.min(W - shellW - 12, rect.left + dx));
+    const ny = Math.max(60, Math.min(H - shellH - 12, rect.top + dy));
+    moveTo(nx, ny);
+    if (Math.random() < 0.4) {
+      setTimeout(() => {
+        if (!state.bubble && state.enabled) {
+          bubble(pickFromPool('bored_drift'), { autoHide: 3000, eyebrow: '😶 IDLE' });
+        }
+      }, 600);
+    }
+    return true;
+  }  // ════════════════════════════════════════════════════════════════════
+  // v17.19 GAMES — 4 mini-games + high score system + invitation flow.
+  // Per-user score storage via userKey(). When user accepts an invite,
+  // happiness + affection get a real boost. Beating a high score
+  // deposits a memory + celebrates with confetti.
+  // ════════════════════════════════════════════════════════════════════
+
+  const GAMES = {
+    tap:      { label: '⚡ Tap the Orb',  pool: 'game_intro_tap',      higherIsBetter: true,  unit: 'taps' },
+    catch:    { label: '🏃 Catch Me',     pool: 'game_intro_catch',    higherIsBetter: true,  unit: '/10'  },
+    reaction: { label: '⚡ Reaction',     pool: 'game_intro_reaction', higherIsBetter: false, unit: 'ms'   },
+    memory:   { label: '🧠 Memory Match', pool: 'game_intro_memory',   higherIsBetter: true,  unit: 'level'},
+  };
+
+  function getHighScores() {
+    try {
+      const raw = localStorage.getItem(userKey('clippy_highscores'));
+      return raw ? (JSON.parse(raw) || {}) : {};
+    } catch (e) { return {}; }
+  }
+  function saveHighScore(gameId, score) {
+    const scores = getHighScores();
+    const game = GAMES[gameId];
+    if (!game) return false;
+    const current = scores[gameId];
+    const better = current == null ||
+      (game.higherIsBetter ? score > current : score < current);
+    if (better) {
+      scores[gameId] = score;
+      try { localStorage.setItem(userKey('clippy_highscores'), JSON.stringify(scores)); } catch (e) {}
+      return true;   // new record
+    }
+    return false;
+  }
+
+  // ─── Game overlay shell ────────────────────────────────────────
+  function createGameOverlay() {
+    closeGameOverlay();
+    const ov = document.createElement('div');
+    ov.className = 'clippy-game-overlay';
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('is-visible'));
+    state.gameOverlay = ov;
+    state.suppressed = true;
+    if (state.shell) state.shell.classList.add('is-suppressed');
+    return ov;
+  }
+  function closeGameOverlay() {
+    if (state.gameOverlay) {
+      state.gameOverlay.classList.remove('is-visible');
+      const o = state.gameOverlay;
+      setTimeout(() => { try { o.remove(); } catch (e) {} }, 280);
+      state.gameOverlay = null;
+    }
+    state.suppressed = false;
+    if (state.shell) state.shell.classList.remove('is-suppressed');
+    if (state.gameCleanupFns) {
+      state.gameCleanupFns.forEach(fn => { try { fn(); } catch (e) {} });
+      state.gameCleanupFns = [];
+    }
+  }
+
+  // ─── Offer flow: he asks, user accepts/declines ────────────────
+  function offerGame() {
+    if (state.bubble || state.coinFlipInProgress || state.suppressed) return;
+    mood('happy', 6000);
+    actionBubble(substituteVars(pickFromPool('game_invitation')), {
+      eyebrow: '🎮 GAME?',
+      autoHide: 0,
+      actions: [
+        { label: 'Yes!', cls: 'is-primary', onClick: () => { closeActionBubble(); showGameMenu(); } },
+        { label: 'Maybe later', onClick: () => {
+            closeActionBubble();
+            bubble(pickFromPool('game_decline'), { autoHide: 3500 });
+            mood('disappointed', 3500);
+          }
+        },
+      ]
+    });
+    // Accepting any game grants instant relationship boost
+    adjustFeeling('happiness', +4);
+  }
+
+  function showGameMenu() {
+    const scores = getHighScores();
+    const fmt = (id, score) => {
+      if (score == null) return '—';
+      return GAMES[id].higherIsBetter ? score + ' ' + GAMES[id].unit : score + GAMES[id].unit;
+    };
+    actionBubble('Pick a game!', {
+      eyebrow: '🎮 GAMES',
+      autoHide: 0,
+      actions: [
+        { label: `⚡ Tap (best: ${fmt('tap', scores.tap)})`,
+          onClick: () => { closeActionBubble(); startTapGame(); } },
+        { label: `🏃 Catch (best: ${fmt('catch', scores.catch)})`,
+          onClick: () => { closeActionBubble(); startCatchGame(); } },
+        { label: `⚡ Reaction (best: ${fmt('reaction', scores.reaction)})`,
+          onClick: () => { closeActionBubble(); startReactionGame(); } },
+        { label: `🧠 Memory (best: ${fmt('memory', scores.memory)})`,
+          onClick: () => { closeActionBubble(); startMemoryGame(); } },
+        { label: 'Never mind', onClick: closeActionBubble },
+      ]
+    });
+  }
+
+  // ─── End-of-game shared screen ─────────────────────────────────
+  function showGameResult(gameId, score) {
+    const game = GAMES[gameId];
+    const newRecord = saveHighScore(gameId, score);
+    const allScores = getHighScores();
+    const ov = state.gameOverlay || createGameOverlay();
+    ov.innerHTML = `
+      <div class="clippy-game-title">${esc(game.label)} — RESULTS</div>
+      <div class="clippy-game-stat-label">Your Score</div>
+      <div class="clippy-game-stat">${esc(String(score))} <span style="font-size:18px;opacity:0.5;">${esc(game.unit)}</span></div>
+      <div class="clippy-game-highscore ${newRecord ? 'clippy-game-highscore-new' : ''}">
+        ${newRecord ? '🏆 NEW HIGH SCORE!' : `Best: ${esc(String(allScores[gameId] != null ? allScores[gameId] : score))} ${esc(game.unit)}`}
+      </div>
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn" data-act="again">Play Again</button>
+        <button class="clippy-game-btn is-ghost" data-act="menu">Menu</button>
+        <button class="clippy-game-btn is-ghost" data-act="done">Done</button>
+      </div>
+    `;
+    ov.querySelector('[data-act="again"]').addEventListener('click', () => {
+      closeGameOverlay();
+      if      (gameId === 'tap')      startTapGame();
+      else if (gameId === 'catch')    startCatchGame();
+      else if (gameId === 'reaction') startReactionGame();
+      else if (gameId === 'memory')   startMemoryGame();
+    });
+    ov.querySelector('[data-act="menu"]').addEventListener('click', () => {
+      closeGameOverlay();
+      showGameMenu();
+    });
+    ov.querySelector('[data-act="done"]').addEventListener('click', closeGameOverlay);
+
+    // Celebration + bubble after a beat
+    setTimeout(() => {
+      if (newRecord) {
+        mood('super_excited', 6000);
+        spawnParticles({ count: 24, type: 'confetti' });
+        playTone('milestone');
+        adjustFeeling('happiness', +12);
+        adjustFeeling('affection', +6);
+        depositMemory('high_score', `New high score in ${game.label}: ${score} ${game.unit}`,
+                      { game: gameId, score }, 3);
+      } else {
+        // Decent or bad — encouraging bubble outside the overlay
+        mood(score > 0 ? 'happy' : 'thinking', 4500);
+        adjustFeeling('happiness', +4);
+      }
+    }, 200);
+  }
+
+  // ─── GAME 1: TAP THE ORB (15s speed clicker) ───────────────────
+  function startTapGame() {
+    const ov = createGameOverlay();
+    let count = 0;
+    let timeLeft = 15;
+    let running = false;
+    const intro = pickFromPool('game_intro_tap');
+    ov.innerHTML = `
+      <div class="clippy-game-title">⚡ Tap the Orb</div>
+      <div class="clippy-game-instruction">${esc(intro)}</div>
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn" data-act="start">Start!</button>
+        <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
+      </div>
+    `;
+    ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
+    ov.querySelector('[data-act="start"]').addEventListener('click', () => {
+      running = true;
+      ov.innerHTML = `
+        <div class="clippy-game-title">⚡ TAP THE ORB</div>
+        <div class="clippy-game-timer">${timeLeft}s</div>
+        <div class="clippy-game-stat-label">Taps</div>
+        <div class="clippy-game-stat">${count}</div>
+        <div class="clippy-game-board">
+          <div class="clippy-game-target" style="left:50%;top:50%;transform:translate(-50%,-50%);">🟦</div>
+        </div>
+      `;
+      const target = ov.querySelector('.clippy-game-target');
+      const statEl = ov.querySelector('.clippy-game-stat');
+      const timerEl = ov.querySelector('.clippy-game-timer');
+      target.addEventListener('click', () => {
+        if (!running) return;
+        count++;
+        statEl.textContent = count;
+        target.style.transform = 'translate(-50%, -50%) scale(0.85)';
+        setTimeout(() => { target.style.transform = 'translate(-50%, -50%) scale(1)'; }, 80);
+      });
+      const tick = setInterval(() => {
+        timeLeft--;
+        timerEl.textContent = timeLeft + 's';
+        if (timeLeft <= 0) {
+          clearInterval(tick);
+          running = false;
+          showGameResult('tap', count);
+        }
+      }, 1000);
+      state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => clearInterval(tick)]);
+    });
+  }
+
+  // ─── GAME 2: CATCH ME (target teleports, you tap before it moves) ─
+  function startCatchGame() {
+    const ov = createGameOverlay();
+    let catches = 0;
+    let round = 0;
+    const totalRounds = 10;
+    let running = false;
+    let moveTimer = null;
+    const intro = pickFromPool('game_intro_catch');
+    ov.innerHTML = `
+      <div class="clippy-game-title">🏃 Catch Me</div>
+      <div class="clippy-game-instruction">${esc(intro)}</div>
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn" data-act="start">Start!</button>
+        <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
+      </div>
+    `;
+    ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
+    ov.querySelector('[data-act="start"]').addEventListener('click', () => {
+      running = true;
+      ov.innerHTML = `
+        <div class="clippy-game-title">🏃 CATCH ME</div>
+        <div class="clippy-game-stat-label">Round</div>
+        <div class="clippy-game-stat">${round}/${totalRounds}</div>
+        <div class="clippy-game-stat-label">Catches: <span data-catches>${catches}</span></div>
+        <div class="clippy-game-board"><div class="clippy-game-target">🏃</div></div>
+      `;
+      const target = ov.querySelector('.clippy-game-target');
+      const roundEl = ov.querySelector('.clippy-game-stat');
+      const catchEl = ov.querySelector('[data-catches]');
+      function reposition() {
+        const board = ov.querySelector('.clippy-game-board');
+        const rect = board.getBoundingClientRect();
+        const x = Math.random() * (rect.width - 80);
+        const y = Math.random() * (rect.height - 80);
+        target.style.left = x + 'px';
+        target.style.top = y + 'px';
+      }
+      function nextRound() {
+        round++;
+        if (round > totalRounds) {
+          if (moveTimer) clearTimeout(moveTimer);
+          running = false;
+          showGameResult('catch', catches);
+          return;
+        }
+        roundEl.textContent = round + '/' + totalRounds;
+        reposition();
+        if (moveTimer) clearTimeout(moveTimer);
+        moveTimer = setTimeout(nextRound, 1200);   // 1.2s before it moves
+      }
+      target.addEventListener('click', () => {
+        if (!running) return;
+        catches++;
+        catchEl.textContent = catches;
+        target.style.transform = 'scale(1.3)';
+        setTimeout(() => { target.style.transform = ''; }, 120);
+        nextRound();
+      });
+      nextRound();
+      state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => moveTimer && clearTimeout(moveTimer)]);
+    });
+  }
+
+  // ─── GAME 3: REACTION TIME (3 rounds, average ms, lower=better) ───
+  function startReactionGame() {
+    const ov = createGameOverlay();
+    let round = 0;
+    const totalRounds = 3;
+    const times = [];
+    const intro = pickFromPool('game_intro_reaction');
+    ov.innerHTML = `
+      <div class="clippy-game-title">⚡ Reaction Time</div>
+      <div class="clippy-game-instruction">${esc(intro)}</div>
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn" data-act="start">Start!</button>
+        <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
+      </div>
+    `;
+    ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
+    ov.querySelector('[data-act="start"]').addEventListener('click', runRound);
+    function runRound() {
+      round++;
+      ov.innerHTML = `
+        <div class="clippy-game-title">⚡ REACTION ${round}/${totalRounds}</div>
+        <div class="clippy-game-instruction" data-msg>Wait for GREEN...</div>
+        <div class="clippy-game-board">
+          <div class="clippy-game-target is-wait" style="left:50%;top:50%;transform:translate(-50%,-50%);">⏸</div>
+        </div>
+      `;
+      const target = ov.querySelector('.clippy-game-target');
+      const msg = ov.querySelector('[data-msg]');
+      const delay = 1200 + Math.random() * 2800;   // 1.2-4s
+      let goAt = 0;
+      let earlyClick = false;
+      const earlyHandler = () => {
+        if (goAt === 0) {
+          earlyClick = true;
+          msg.textContent = 'Too early! Try again.';
+          target.classList.remove('is-wait');
+          target.classList.add('is-wait');
+          setTimeout(() => { round--; runRound(); }, 1200);
+        }
+      };
+      target.addEventListener('click', earlyHandler);
+      const flashTimer = setTimeout(() => {
+        if (earlyClick) return;
+        goAt = performance.now();
+        target.classList.remove('is-wait');
+        target.classList.add('is-go');
+        target.textContent = 'TAP!';
+        msg.textContent = 'GO!';
+        const goHandler = () => {
+          if (!goAt) return;
+          const reactMs = Math.round(performance.now() - goAt);
+          times.push(reactMs);
+          target.removeEventListener('click', goHandler);
+          msg.textContent = reactMs + ' ms';
+          if (round >= totalRounds) {
+            setTimeout(() => {
+              const avg = Math.round(times.reduce((a,b) => a+b, 0) / times.length);
+              showGameResult('reaction', avg);
+            }, 900);
+          } else {
+            setTimeout(runRound, 1200);
+          }
+        };
+        target.addEventListener('click', goHandler);
+      }, delay);
+      state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => clearTimeout(flashTimer)]);
+    }
+  }
+
+  // ─── GAME 4: MEMORY MATCH (Simon-style, growing sequence) ──────
+  function startMemoryGame() {
+    const ov = createGameOverlay();
+    const colors = ['r', 'g', 'b', 'y'];
+    const sequence = [];
+    let userIdx = 0;
+    let level = 0;
+    const intro = pickFromPool('game_intro_memory');
+    ov.innerHTML = `
+      <div class="clippy-game-title">🧠 Memory Match</div>
+      <div class="clippy-game-instruction">${esc(intro)}</div>
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn" data-act="start">Start!</button>
+        <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
+      </div>
+    `;
+    ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
+    ov.querySelector('[data-act="start"]').addEventListener('click', () => nextLevel());
+
+    function nextLevel() {
+      level++;
+      sequence.push(colors[Math.floor(Math.random() * 4)]);
+      userIdx = 0;
+      ov.innerHTML = `
+        <div class="clippy-game-title">🧠 MEMORY — Level ${level}</div>
+        <div class="clippy-game-instruction" data-msg>Watch carefully...</div>
+        <div class="clippy-game-seq">
+          ${colors.map(c => `<div class="clippy-game-seq-cell" data-color="${c}"></div>`).join('')}
+        </div>
+      `;
+      const msg = ov.querySelector('[data-msg]');
+      // Disable cells during playback
+      const cells = Array.from(ov.querySelectorAll('.clippy-game-seq-cell'));
+      // Play the sequence
+      let i = 0;
+      const playInterval = setInterval(() => {
+        if (i >= sequence.length) {
+          clearInterval(playInterval);
+          msg.textContent = `Your turn! Tap the colors in order.`;
+          // Enable input
+          cells.forEach(cell => {
+            cell.addEventListener('click', () => handleTap(cell.getAttribute('data-color')));
+          });
+          return;
+        }
+        const c = sequence[i];
+        const cell = cells.find(el => el.getAttribute('data-color') === c);
+        if (cell) {
+          cell.classList.add('is-flash-' + c);
+          setTimeout(() => cell.classList.remove('is-flash-' + c), 400);
+        }
+        i++;
+      }, 600);
+      state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => clearInterval(playInterval)]);
+
+      function handleTap(color) {
+        const expected = sequence[userIdx];
+        if (color !== expected) {
+          // Wrong — game over
+          msg.textContent = `Wrong! Sequence was ${sequence.length} long.`;
+          setTimeout(() => showGameResult('memory', level - 1), 1500);
+          return;
+        }
+        const cell = cells.find(el => el.getAttribute('data-color') === color);
+        if (cell) {
+          cell.classList.add('is-flash-' + color);
+          setTimeout(() => cell.classList.remove('is-flash-' + color), 300);
+        }
+        userIdx++;
+        if (userIdx >= sequence.length) {
+          msg.textContent = `Got it! Next level...`;
+          setTimeout(nextLevel, 1000);
+        }
+      }
+    }
+  }
+
+  // ─── Hook: when bored 60s+, occasionally offer a game ──────────
+  function maybeOfferGame() {
+    if (state.bubble || state.coinFlipInProgress || state.suppressed) return false;
+    if (state.preferences.do_not_disturb) return false;
+    const idleMs = Date.now() - (state.lastTapAt || 0);
+    if (idleMs < 60000) return false;   // need 60s+ idle
+    // Cooldown: don't pester more than once per 10min
+    const lastOffer = state.preferences.last_game_offer || 0;
+    if (Date.now() - lastOffer < 10 * 60000) return false;
+    // 1% chance per 2s tick = ~1 offer per ~3min of solid boredom
+    if (Math.random() > 0.01) return false;
+    state.preferences.last_game_offer = Date.now();
+    savePreferences();
+    offerGame();
+    return true;
+  }
+
   function blockInputAttention(inputEl, inputRect) {
     if (!state.shell) return;
     const shellW = state.shell.offsetWidth || 120;
