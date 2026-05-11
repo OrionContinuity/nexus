@@ -283,7 +283,9 @@
     // Big pools (roman_facts=298) → tracks 50, leaves 248 fresh candidates.
     // Small pools (after_yes=5)   → tracks 2,  leaves 3 candidates.
     // This makes repeats genuinely rare without ever blocking the whole pool.
-    const histSize = Math.max(2, Math.min(50, Math.floor(pool.length * 0.4)));
+    // v17.9: anti-repetition deep fix. Track 60% of pool (min 5, max 100)
+    // so recent picks stay blocked much longer. User reported repeats.
+    const histSize = Math.max(5, Math.min(100, Math.floor(pool.length * 0.6)));
     const candidates = pool.length > histSize + 1
       ? pool.filter(line => !history.includes(line))
       : pool;
@@ -486,6 +488,20 @@
 
   // Show a recall bubble — "Earlier today: ..." / "Long ago: ..."
   function showRecallBubble() {
+    // v17.11: 30% chance to prioritize super_chat memories — the engraved
+    // questions from the oracle hour. Quirky callbacks like:
+    //   "Remember when you asked me '...'? I still think about that."
+    if (Math.random() < 0.30) {
+      const superMem = recallRandomMemory(m => m.type === 'super_chat');
+      if (superMem && superMem.data && superMem.data.question) {
+        const prefix = pickFromPool('super_chat_recall');
+        const text = prefix.replace('{question}', superMem.data.question);
+        mood('sparkle', 6000);
+        bubble(text, { autoHide: 7000, eyebrow: '✨ ENGRAVED' });
+        spawnParticles({ count: 4, type: 'sparkle' });
+        return true;
+      }
+    }
     const mem = recallRandomMemory();
     if (!mem) return false;
     const days = Math.floor((Date.now() - new Date(mem.timestamp).getTime()) / 86400000);
@@ -568,6 +584,839 @@
       setTimeout(showNext, 5400);
     };
     showNext();
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.10 OFFLINE INTELLIGENCE — feelings, tickle, clock, stress, dance
+  //   Everything runs locally. No network calls. He FEELS smart because
+  //   he tracks a dozen signals and responds contextually. Pattern-based
+  //   pseudo-intelligence — fast, private, reliable.
+  // ════════════════════════════════════════════════════════════════════
+
+  // ─── FEELINGS MODEL ────────────────────────────────────────────────
+  // Five gauges. Each 0-100, persistent across sessions. Update from
+  // user behavior — interactions, idle, time, etc. The dominant feeling
+  // shapes mood expression + pool selection. The user never SEES the
+  // numbers; they just feel the personality shift.
+  function defaultFeelings() {
+    return { happiness: 60, energy: 60, affection: 50, attention_need: 0, ticklish: 0 };
+  }
+  function loadFeelings() {
+    try {
+      const raw = localStorage.getItem('clippy_feelings');
+      const obj = raw ? JSON.parse(raw) : {};
+      state.feelings = Object.assign(defaultFeelings(), obj || {});
+    } catch (e) { state.feelings = defaultFeelings(); }
+  }
+  function saveFeelings() {
+    try { localStorage.setItem('clippy_feelings', JSON.stringify(state.feelings || {})); } catch (e) {}
+  }
+  function adjustFeeling(key, delta) {
+    if (!state.feelings) loadFeelings();
+    state.feelings[key] = Math.max(0, Math.min(100, (state.feelings[key] || 0) + delta));
+    saveFeelings();
+  }
+  // Returns the dominant emotional state — drives behavior choices
+  function dominantFeeling() {
+    if (!state.feelings) loadFeelings();
+    const f = state.feelings;
+    if (f.ticklish > 50)      return 'ticklish';
+    if (f.attention_need > 70) return 'lonely';
+    if (f.happiness < 25)     return 'sad';
+    if (f.happiness > 80 && f.energy > 60) return 'overjoyed';
+    if (f.energy < 25)        return 'tired';
+    if (f.affection > 80)     return 'loving';
+    if (f.happiness > 60 && f.affection > 60) return 'content';
+    return 'neutral';
+  }
+  // Periodic decay: feelings drift toward baseline when nothing happens.
+  // Attention_need rises when ignored. Energy drops over a session.
+  function decayFeelings() {
+    if (!state.feelings) loadFeelings();
+    const idle = Date.now() - (state.lastInteractionAt || Date.now());
+    const minutes = idle / 60000;
+    if (minutes > 2) adjustFeeling('attention_need', +2);
+    if (minutes > 5) adjustFeeling('happiness', -1);
+    if (minutes > 10) adjustFeeling('affection', -1);
+    // Gentle pull toward 50 baseline
+    ['happiness', 'energy', 'affection'].forEach(k => {
+      const v = state.feelings[k];
+      if (v > 50) adjustFeeling(k, -0.5);
+      else if (v < 50) adjustFeeling(k, 0.5);
+    });
+    if (state.feelings.ticklish > 0) adjustFeeling('ticklish', -3);
+    saveFeelings();
+  }
+
+  // ─── TICKLE DETECTION ──────────────────────────────────────────────
+  // Four rapid taps within 1.2s = tickle. Joy spike, jiggle animation,
+  // heart particles, big affection boost. The signature interaction.
+  state.tickleTaps = [];
+  function recordPopForTickle() {
+    const now = Date.now();
+    state.tickleTaps.push(now);
+    state.tickleTaps = state.tickleTaps.filter(t => now - t < 1200);
+    if (state.tickleTaps.length >= 4) {
+      triggerTickle();
+      state.tickleTaps = [];
+    }
+  }
+  function triggerTickle() {
+    if (!state.shell || state.suppressed) return;
+    closeActionBubble();
+    state.shell.classList.add('is-jiggling');
+    mood('happy', 4500);
+    bubble(pickFromPool('tickle_response'), { autoHide: 3500, eyebrow: 'TICKLE' });
+    spawnParticles({ count: 10, type: 'heart' });
+    playTone('mwah');
+    adjustFeeling('happiness', +15);
+    adjustFeeling('affection', +8);
+    adjustFeeling('ticklish', +50);
+    adjustFeeling('attention_need', -30);
+    try { if (navigator.vibrate) navigator.vibrate([15, 25, 15, 25, 15]); } catch (_) {}
+    setTimeout(() => {
+      if (state.shell) state.shell.classList.remove('is-jiggling');
+    }, 2800);
+  }
+
+  // ─── HOURLY CLOCK AWARENESS ────────────────────────────────────────
+  // On every hour change, possibly bubble a time-themed remark. Special
+  // pools for morning/noon/evening/late. Otherwise generic clock_remark.
+  state.lastHourSeen = -1;
+  function hourlyCheck() {
+    if (!state.enabled || !state.shell || state.suppressed || state.bubble) return;
+    const h = new Date().getHours();
+    if (state.lastHourSeen === -1) {
+      state.lastHourSeen = h;
+      return;   // first observation, no bubble
+    }
+    if (h === state.lastHourSeen) return;
+    state.lastHourSeen = h;
+    if (Math.random() > 0.30) return;   // 30% chance on hour change
+    let pool;
+    if (h >= 5 && h < 11)       pool = 'hour_morning';
+    else if (h >= 11 && h < 14) pool = 'hour_noon';
+    else if (h >= 17 && h < 22) pool = 'hour_evening';
+    else if (h >= 22 || h < 5)  pool = 'hour_late';
+    else                        pool = 'clock_remark';
+    bubble(pickFromPool(pool), { autoHide: 4500, eyebrow: 'HOUR' });
+  }
+
+  // ─── STRESS CHECK ──────────────────────────────────────────────────
+  // Detect stress markers: long session, late hour, lots of overdues.
+  // Once per day, offer a calm-down options bubble.
+  state.sessionStartAt = Date.now();
+  function checkStressMarkers() {
+    if (!state.enabled || state.suppressed || state.bubble) return;
+    const todayStr = new Date().toDateString();
+    if (state.preferences.stress_check_date === todayStr) return;
+    const sessionMin = (Date.now() - state.sessionStartAt) / 60000;
+    const hour = new Date().getHours();
+    const lateNight = hour >= 22 || hour < 6;
+    const longSession = sessionMin > 60;
+    const overworked = (state.lastMetrics && state.lastMetrics.overdueCount >= 3);
+    if (!(longSession || (lateNight && sessionMin > 20) || overworked)) return;
+    state.preferences.stress_check_date = todayStr;
+    savePreferences();
+    offerStressCheckIn();
+  }
+  function offerStressCheckIn() {
+    actionBubble(pickFromPool('stress_check_offer'), {
+      eyebrow: 'CARE',
+      actions: [
+        { label: 'Yeah, fine', cls: 'is-primary', onClick: () => {
+            adjustFeeling('happiness', +5);
+            bubble("Glad to hear. I'm here if anything changes.", { autoHide: 4000 });
+        }},
+        { label: 'Could be better', onClick: offerCalmMenu },
+      ]
+    });
+  }
+  function offerCalmMenu() {
+    closeActionBubble();
+    actionBubble("Pick one — what helps right now?", {
+      actions: [
+        { label: '🌿 Sit quietly with me', onClick: () => {
+          mood('sleepy', 9000);
+          bubble(pickFromPool('stress_resp_calm'), { autoHide: 5500 });
+          adjustFeeling('affection', +5);
+        }},
+        { label: '😄 Joke me', onClick: () => {
+          mood('winking', 4500);
+          bubble(pickFromPool('dad_jokes'), { autoHide: 5500 });
+          adjustFeeling('happiness', +8);
+        }},
+        { label: '🏛️ Tell me history', onClick: () => {
+          mood('thinking', 6000);
+          bubble(pickFromPool('roman_facts'), { autoHide: 6500, eyebrow: 'ROMA' });
+          adjustFeeling('happiness', +5);
+        }},
+        { label: '🎵 Theme song', onClick: () => { triggerSongAndDance(); }},
+      ]
+    });
+  }
+
+  // ─── MUSIC + DANCE INTEGRATION ─────────────────────────────────────
+  // Re-uses existing offerSong()/playSong() audio system. When playing,
+  // Clippy adds is-dancing class for animated boogie. Stops when song ends.
+  function triggerSongAndDance() {
+    closeActionBubble();
+    if (typeof offerSong === 'function') {
+      offerSong('user_requested');
+    } else if (typeof playSong === 'function') {
+      playSong();
+    }
+    setTimeout(startDancing, 800);
+  }
+  function startDancing() {
+    if (!state.shell) return;
+    state.shell.classList.add('is-dancing');
+    bubble(pickFromPool('dance_announce'), { autoHide: 4500 });
+    spawnParticles({ count: 12, type: 'sparkle' });
+    adjustFeeling('happiness', +10);
+    adjustFeeling('energy', +15);
+    // Stop after ~30s (typical song length)
+    setTimeout(() => {
+      if (state.shell) state.shell.classList.remove('is-dancing');
+    }, 30000);
+  }
+  function stopDancing() {
+    if (state.shell) state.shell.classList.remove('is-dancing');
+  }
+
+  // ─── DOMINANT-FEELING BUBBLE ROUTER ────────────────────────────────
+  // Called from showQuickBubble before regular rotation. If dominant
+  // feeling is strong, bias toward feeling-specific dialog so Clippy
+  // expresses what he's actually feeling.
+  function pickFeelingPool() {
+    const feel = dominantFeeling();
+    const roll = Math.random();
+    if (feel === 'lonely' && roll < 0.6) {
+      bubble(pickFromPool('needs_attention'), { autoHide: 3800, eyebrow: 'LONELY' });
+      mood('sad', 3500);
+      adjustFeeling('attention_need', -40);
+      return true;
+    }
+    if (feel === 'sad' && roll < 0.5) {
+      bubble(pickFromPool('sad_remarks'), { autoHide: 4500, eyebrow: 'QUIET' });
+      mood('sad', 4000);
+      return true;
+    }
+    if ((feel === 'overjoyed' || feel === 'loving') && roll < 0.5) {
+      bubble(pickFromPool('happy_remarks'), { autoHide: 4000, eyebrow: 'JOY' });
+      mood(feel === 'loving' ? 'love' : 'excited', 4000);
+      spawnParticles({ count: 4, type: 'heart' });
+      return true;
+    }
+    if (feel === 'tired' && roll < 0.4) {
+      bubble("*tired orb*", { autoHide: 3000 });
+      mood('sleepy', 4000);
+      return true;
+    }
+    return false;
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.11 CONVERSATION + SUPER-CHAT + FAMILIARITY + NEXUS HOOKS
+  // ════════════════════════════════════════════════════════════════════
+
+  // ─── FAMILIARITY STAGES ───────────────────────────────────────────
+  // Compute days-known from first acceptance. Four stages shape the
+  // tone of greetings and unlock callback dialog at higher tiers.
+  function daysKnown() {
+    const accepted = state.preferences.accepted_at;
+    if (!accepted) return 0;
+    const diff = Date.now() - new Date(accepted).getTime();
+    return Math.max(0, Math.floor(diff / 86400000));
+  }
+  function familiarityStage() {
+    const d = daysKnown();
+    if (d < 7)   return 1;   // formal, "friend"
+    if (d < 30)  return 2;   // casual, sometimes by name
+    if (d < 90)  return 3;   // by name always, inside jokes
+    return 4;                // old friend, callbacks to memories
+  }
+  function familiarityGreeting() {
+    return pickFromPool('stage_' + familiarityStage() + '_greeting');
+  }
+
+  // ─── PATTERN-MATCHING CONVERSATION ────────────────────────────────
+  // Local keyword matcher. Input → matched rule → response.
+  // No network. No real "AI." But with 3,500+ dialog lines as response
+  // corpus, it feels astonishingly responsive.
+  const CHAT_KEYWORDS = [
+    // Greetings + farewells
+    { pat: /\b(hi|hello|hey|sup|yo|salve|konnichiwa|bonjour|hola|namaste|aloha)\b/i,
+      respond: () => bubbleStage('greeting'),
+      mood: 'happy' },
+    { pat: /\b(bye|goodbye|farewell|vale|sayonara|adios|au revoir|ciao)\b/i,
+      pool: 'multilang_bye', mood: 'sad' },
+    // History topics
+    { pat: /\b(rome|roman|caesar|augustus|trajan|hadrian|nero|marcus aurelius|cicero|colosseum)\b/i,
+      pool: 'roman_facts', mood: 'thinking', eyebrow: 'ROMA' },
+    { pat: /\b(athens?|athenian|democracy|pericles|socrates|plato|parthenon|acropolis)\b/i,
+      pool: 'athens_facts', mood: 'thinking', eyebrow: 'ATHENS' },
+    { pat: /\b(sparta|spartan|leonidas|thermopylae|300|agoge|helot)\b/i,
+      pool: 'sparta_facts', mood: 'determined', eyebrow: 'SPARTA' },
+    { pat: /\b(persia|persian|iran|cyrus|darius|xerxes|zoroaster|achaemenid|sassanid|persepolis)\b/i,
+      pool: 'persian_facts', mood: 'thinking', eyebrow: 'PERSIA' },
+    { pat: /\b(hispania|spain|spanish|iberia|moorish|cordoba|toledo|granada|al-andalus)\b/i,
+      pool: 'hispania_facts', mood: 'thinking', eyebrow: 'HISPANIA' },
+    { pat: /\b(greek|greece|hellenic|hellas|olympics?|homer|aristotle|alexander)\b/i,
+      pool: 'greek_facts', mood: 'thinking', eyebrow: 'HELLAS' },
+    { pat: /\b(battle|war|fight|conquest|hannibal|cannae|waterloo|stalingrad|crusade)\b/i,
+      pool: 'battle_facts', mood: 'determined', eyebrow: 'BATTLE' },
+    // Topic categories
+    { pat: /\b(animal|creature|beast|octopus|whale|cat|dog|bird|fish|insect)\b/i,
+      pool: 'animal_facts', mood: 'sparkle', eyebrow: 'FAUNA' },
+    { pat: /\b(space|star|planet|cosmos|galaxy|nebula|mars|saturn|jupiter|moon|sun)\b/i,
+      pool: 'space_facts', mood: 'sparkle', eyebrow: 'COSMOS' },
+    { pat: /\b(science|atom|chemistry|physics|biology|dna|cell|element)\b/i,
+      pool: 'science_facts', mood: 'thinking', eyebrow: 'SCIENCE' },
+    { pat: /\b(weird|strange|odd|bizarre|crazy|wild|insane)\b/i,
+      pool: 'weird_facts', mood: 'sparkle', eyebrow: 'WEIRD' },
+    { pat: /\b(joke|funny|laugh|humor|pun|comedy)\b/i,
+      pool: 'dad_jokes', mood: 'winking' },
+    { pat: /\b(latin|phrase|saying|motto|maxim|wisdom)\b/i,
+      pool: 'latin_phrases', mood: 'determined', eyebrow: 'LATINA' },
+    { pat: /\b(fact|tell me|teach me|did you know|did u know)\b/i,
+      pool: 'roman_facts', mood: 'thinking', eyebrow: 'ROMA' },
+    // Sentiment
+    { pat: /\b(tired|exhausted|sleepy|drained|burnt out|burned out)\b/i,
+      pool: 'stress_resp_calm', mood: 'sleepy', action: 'offerCalmMenu' },
+    { pat: /\b(sad|down|blue|depressed|unhappy|miserable)\b/i,
+      pool: 'sad_remarks', mood: 'sad' },
+    { pat: /\b(happy|glad|joy|excited|great|amazing|wonderful)\b/i,
+      pool: 'happy_remarks', mood: 'happy', particles: 'heart' },
+    { pat: /\b(angry|mad|furious|pissed|enraged|annoyed)\b/i,
+      pool: 'angry_remarks', mood: 'angry' },
+    { pat: /\b(stress|stressed|anxious|overwhelmed|frantic|panicked)\b/i,
+      action: 'offerStressCheckIn' },
+    { pat: /\b(love you|i love|adore you|cherish)\b/i,
+      pool: 'taiga_blush', mood: 'love', particles: 'heart', effect: 'affectionBoost' },
+    { pat: /\b(hate|annoying|stupid|dumb|idiot)\b/i,
+      pool: 'taiga_snap', mood: 'angry' },
+    { pat: /\b(thank|thanks|appreciate|grateful)\b/i,
+      pool: 'taiga_blush', mood: 'embarrassed', particles: 'heart',
+      response: 'B-bzzt! It was nothing!' },
+    // Self-directed
+    { pat: /\b(who are you|what are you|your name)\b/i,
+      response: () => `I'm Trajan. Glowing orb. Roman-inspired. Companion to ${state.preferences.user_name || 'you'}.`,
+      mood: 'happy' },
+    { pat: /\b(how old|when did we|your age|how long)\b/i,
+      response: () => `We've known each other ${daysKnown()} days. Stage ${familiarityStage()} familiarity.`,
+      mood: 'thinking' },
+    { pat: /\b(tickle|tickling|tickles)\b/i,
+      action: 'triggerTickle' },
+    { pat: /\b(dance|sing|music|song)\b/i,
+      action: 'triggerSongAndDance' },
+    { pat: /\b(memor(y|ies)|remember|recall|palace)\b/i,
+      action: 'tourPalace' },
+    { pat: /\b(badge|achievement|trophy|trophies)\b/i,
+      action: 'showAchievements' },
+    { pat: /\b(personality|mood mode|tsundere|silly|grumpy|shy|angry mode)\b/i,
+      action: 'showPersonalityMenu' },
+    { pat: /\b(quit|leave|go away|stop|enough)\b/i,
+      pool: 'taiga_snap', mood: 'sad' },
+    // Multilang triggers
+    { pat: /\b(say hi|how do you say hi|hello in)\b/i,
+      pool: 'multilang_hi', mood: 'happy', eyebrow: 'POLYGLOT' },
+    { pat: /\b(translation|translate|word for)\b/i,
+      pool: 'translations', mood: 'thinking', eyebrow: 'LINGUA' },
+    // Question heuristics — fall-back catches
+    { pat: /^why\b/i, pool: 'whimsical_idle', mood: 'thinking' },
+    { pat: /^how\b/i, pool: 'roman_facts', mood: 'thinking', eyebrow: 'ROMA' },
+    { pat: /^what\b/i, pool: 'whimsical_idle', mood: 'thinking' },
+    { pat: /\?$/i, pool: 'whimsical_idle', mood: 'thinking' },
+  ];
+
+  function bubbleStage(kind) {
+    if (kind === 'greeting') {
+      bubble(familiarityGreeting(), { autoHide: 4500 });
+    }
+  }
+
+  function chatMatch(input) {
+    if (!input || typeof input !== 'string') return null;
+    const trimmed = input.trim();
+    if (trimmed.length === 0) return null;
+    for (const rule of CHAT_KEYWORDS) {
+      if (rule.pat.test(trimmed)) return rule;
+    }
+    return null;
+  }
+
+  // Handle a chat input — pattern match → respond. Side effects allowed
+  // (mood, particles, actions). Persists conversation history per-session.
+  function handleChatInput(text) {
+    if (!text || !text.trim()) return;
+    text = text.trim().slice(0, 280);
+    state.chatHistory = state.chatHistory || [];
+    state.chatHistory.push({ user: text, time: Date.now() });
+    if (state.chatHistory.length > 20) state.chatHistory.shift();
+    noteInteraction();
+    adjustFeeling('affection', +1);
+    adjustFeeling('attention_need', -10);
+    const match = chatMatch(text);
+    if (!match) {
+      bubble(pickFromPool('chat_no_match'), { autoHide: 5000, eyebrow: 'HMM' });
+      mood('thinking', 3500);
+      return;
+    }
+    // Direct action override (triggers another function)
+    if (match.action) {
+      const fn = {
+        triggerTickle, triggerSongAndDance, tourPalace, showAchievements,
+        showPersonalityMenu, offerStressCheckIn, offerCalmMenu,
+      }[match.action];
+      if (typeof fn === 'function') {
+        closeActionBubble();
+        setTimeout(fn, 200);
+        return;
+      }
+    }
+    // Direct response (string or function returning string)
+    if (match.response) {
+      const text = typeof match.response === 'function' ? match.response() : match.response;
+      bubble(text, { autoHide: 5500, eyebrow: match.eyebrow });
+    } else if (match.pool) {
+      bubble(pickFromPool(match.pool), { autoHide: 5500, eyebrow: match.eyebrow });
+    }
+    if (match.mood) mood(match.mood, 4500);
+    if (match.particles) spawnParticles({ count: 5, type: match.particles });
+    if (match.effect === 'affectionBoost') {
+      adjustFeeling('affection', +10);
+      adjustFeeling('happiness', +5);
+    }
+  }
+
+  // Open the conversation panel via an actionBubble with text input.
+  // Submit on Enter. Each submit clears the input but keeps the bubble
+  // open until user explicitly closes it.
+  function openChat(opts) {
+    opts = opts || {};
+    closeActionBubble();
+    const host = ensureHost();
+    if (!host || !state.shell) return;
+    const el = document.createElement('div');
+    el.className = 'clippy-bubble clippy-chat-bubble' + (opts.super ? ' is-super' : '');
+    if (state.shell.classList.contains('is-dragging')) {
+      el.classList.add('is-far-from-orb');
+    }
+    const eyebrowText = opts.super ? '✨ ORACLE' : 'CHAT';
+    el.innerHTML = `
+      <div class="clippy-bubble-eyebrow">${eyebrowText}</div>
+      <div class="clippy-bubble-text">${opts.super ? pickFromPool('super_chat_intro') : pickFromPool('chat_greeting')}</div>
+      <div class="clippy-chat-input-row">
+        <input type="text" class="clippy-chat-input" placeholder="${opts.super ? 'Ask anything — I will remember' : 'Type and press Enter'}" maxlength="280" autofocus>
+      </div>
+      <div class="clippy-chat-actions">
+        <button class="clippy-chat-send is-primary">Send</button>
+        <button class="clippy-chat-close">Close</button>
+      </div>
+    `;
+    host.appendChild(el);
+    state.bubble = el;
+    state.chatIsOpen = true;
+    state.chatIsSuper = !!opts.super;
+    const input = el.querySelector('.clippy-chat-input');
+    const sendBtn = el.querySelector('.clippy-chat-send');
+    const closeBtn = el.querySelector('.clippy-chat-close');
+    const submit = () => {
+      const txt = input.value.trim();
+      if (!txt) return;
+      input.value = '';
+      if (opts.super) {
+        handleSuperChatInput(txt);
+      } else {
+        handleChatInput(txt);
+      }
+    };
+    sendBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); submit(); });
+    closeBtn.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      state.chatIsOpen = false;
+      closeActionBubble();
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); submit(); }
+    });
+    setTimeout(() => {
+      try { input.focus(); } catch (_) {}
+    }, 100);
+    // Reposition the bubble
+    let frames = 0;
+    const refresh = () => {
+      if (state.bubble !== el || !document.body.contains(el)) return;
+      positionBubble(el);
+      frames++;
+      if (frames === 1) el.classList.add('is-visible');
+      if (frames < 30) requestAnimationFrame(refresh);
+    };
+    requestAnimationFrame(refresh);
+  }
+
+  // ─── SUPER-RARE AI CHAT (0.01% per tap, 7-day cooldown) ──────────
+  // This is the magical version. Trajan offers ONE deep question per
+  // (at most) week. The question is engraved into the memory palace
+  // and resurfaces in future recall bubbles for years to come.
+  function maybeSuperChat() {
+    // Cooldown
+    const last = state.preferences.super_chat_last;
+    if (last && (Date.now() - new Date(last).getTime()) < 7 * 86400000) {
+      return false;
+    }
+    // 0.01% probability per tap
+    if (Math.random() > 0.0001) return false;
+    triggerSuperChat();
+    return true;
+  }
+  function triggerSuperChat() {
+    closeActionBubble();
+    mood('sparkle', 9000);
+    spawnParticles({ count: 24, type: 'confetti' });
+    playTone('milestone');
+    try { if (navigator.vibrate) navigator.vibrate([60, 40, 60, 40, 60]); } catch (_) {}
+    state.preferences.super_chat_last = new Date().toISOString();
+    savePreferences();
+    setTimeout(() => openChat({ super: true }), 800);
+  }
+  // Try to route the super-chat question to an actual brain backend.
+  // If none is wired, fall back to pattern matching but ALWAYS store
+  // the question as a memory node — the engraving is the magic.
+  async function handleSuperChatInput(text) {
+    if (!text || !text.trim()) return;
+    const question = text.trim().slice(0, 500);
+    // Store as memory node — the durable, recallable part
+    depositMemory(
+      'super_chat',
+      `You asked me: "${question}"`,
+      { question: question, asked_at: new Date().toISOString() },
+      4
+    );
+    // Mark the chat bubble as "thinking"
+    if (state.bubble) {
+      const textEl = state.bubble.querySelector('.clippy-bubble-text');
+      if (textEl) textEl.textContent = pickFromPool('super_chat_thinking');
+    }
+    let answer = null;
+    try {
+      answer = await callBrainBackend(question);
+    } catch (e) {
+      answer = null;
+    }
+    if (!answer) {
+      // No backend available — use pattern matcher as fallback
+      const match = chatMatch(question);
+      if (match) {
+        if (match.response) {
+          answer = typeof match.response === 'function' ? match.response() : match.response;
+        } else if (match.pool) {
+          answer = pickFromPool(match.pool);
+        }
+      }
+      if (!answer) {
+        answer = pickFromPool('super_chat_fallback');
+      }
+    }
+    // Replace bubble text with the answer
+    if (state.bubble) {
+      const textEl = state.bubble.querySelector('.clippy-bubble-text');
+      if (textEl) textEl.textContent = answer;
+      const eyebrow = state.bubble.querySelector('.clippy-bubble-eyebrow');
+      if (eyebrow) eyebrow.textContent = '✨ ENGRAVED';
+    }
+    spawnParticles({ count: 14, type: 'sparkle' });
+    mood('sparkle', 6000);
+    adjustFeeling('affection', +12);
+  }
+  // Brain backend hook. Tries NX.brain.askQuestion first, then several
+  // other patterns. Returns null if no backend reachable.
+  async function callBrainBackend(question) {
+    const ctx = {
+      memories: (state.memories || []).slice(-50),
+      user_name: state.preferences.user_name || 'friend',
+      days_known: daysKnown(),
+      stage: familiarityStage(),
+    };
+    try {
+      if (window.NX && window.NX.brain && typeof window.NX.brain.askQuestion === 'function') {
+        return await window.NX.brain.askQuestion(question, ctx);
+      }
+      if (window.NX && window.NX.brain && typeof window.NX.brain.send === 'function') {
+        return await window.NX.brain.send(question, ctx);
+      }
+      if (window.NX && typeof window.NX.askBrain === 'function') {
+        return await window.NX.askBrain(question, ctx);
+      }
+    } catch (e) {
+      console.warn('[clippy] brain backend error:', e);
+    }
+    return null;
+  }
+
+  // ─── NEXUS EVENT INTEGRATION ──────────────────────────────────────
+  // Wire actual celebrations for NEXUS work. These extend the existing
+  // notifyTaskCompleted / notifyStreak / notifyOverdueDetected stubs.
+  function celebrateNexusTask() {
+    if (!state.enabled || state.suppressed) return;
+    mood('happy', 4500);
+    spawnParticles({ count: 8, type: 'confetti' });
+    playTone('sparkle');
+    setTimeout(() => {
+      if (!state.bubble && state.enabled) {
+        bubble(pickFromPool('nexus_task_celebrate'), { autoHide: 4500, eyebrow: 'TASK!' });
+      }
+    }, 600);
+    adjustFeeling('happiness', +5);
+    adjustFeeling('affection', +2);
+  }
+  function celebrateNexusStreak() {
+    if (!state.enabled || state.suppressed) return;
+    mood('sparkle', 5500);
+    play('hop');
+    spawnParticles({ count: 14, type: 'confetti' });
+    playTone('milestone');
+    setTimeout(() => {
+      if (!state.bubble && state.enabled) {
+        bubble(pickFromPool('nexus_streak_celebrate'), { autoHide: 5500, eyebrow: 'STREAK' });
+      }
+    }, 800);
+    adjustFeeling('happiness', +8);
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.9 BEHAVIOR TOGGLES, RUN-AWAY, ACHIEVEMENTS, PERSONALITY MODES
+  // ════════════════════════════════════════════════════════════════════
+
+  // ─── PERSONALITY MODES ─────────────────────────────────────────────
+  // The user can set Clippy's personality. Each mode biases pool
+  // selection — e.g. tsundere shows Taiga pools 35% of taps.
+  const PERSONALITIES = {
+    normal:    { label: 'Normal',    desc: 'Balanced personality.',       glyph: '😊' },
+    tsundere:  { label: 'Tsundere',  desc: 'Snaps then softens. Taiga.',  glyph: '😤' },
+    silly:     { label: 'Silly',     desc: 'Maximum nonsense energy.',    glyph: '🤪' },
+    grumpy:    { label: 'Grumpy',    desc: 'Today is suboptimal.',        glyph: '😒' },
+    shy:       { label: 'Shy',       desc: 'Soft and gentle.',            glyph: '🙈' },
+    angry:     { label: 'Angry',     desc: 'Caesar-level rage.',          glyph: '😠' },
+  };
+  function setPersonality(mode) {
+    if (!PERSONALITIES[mode]) return;
+    const prev = state.preferences.personality;
+    state.preferences.personality = mode;
+    savePreferences();
+    if (prev !== mode) {
+      mood('sparkle', 3000);
+      spawnParticles({ count: 6, type: 'sparkle' });
+      bubble(`${PERSONALITIES[mode].glyph} Personality: ${PERSONALITIES[mode].label}`,
+        { autoHide: 3500, eyebrow: 'MODE' });
+    }
+  }
+  function showPersonalityMenu() {
+    closeActionBubble();
+    const cur = state.preferences.personality || 'normal';
+    const actions = Object.entries(PERSONALITIES).map(([key, p]) => ({
+      label: `${p.glyph} ${p.label}${cur === key ? ' ✓' : ''}`,
+      cls: cur === key ? 'is-primary' : undefined,
+      onClick: () => setPersonality(key),
+    }));
+    actionBubble("Pick a mood:", { actions });
+  }
+
+  // Personality-aware pool router. Called by showQuickBubble.
+  // Returns true if it handled the bubble; false if caller should
+  // fall through to default rotation.
+  function pickPersonalityPool() {
+    const p = state.preferences.personality || 'normal';
+    if (p === 'normal') return false;
+    const roll = Math.random();
+    if (p === 'tsundere' && roll < 0.55) {
+      const pools = ['taiga_snap', 'taiga_dog', 'taiga_growl', 'taiga_blush', 'taiga_palmtop'];
+      const pool = pools[Math.floor(Math.random() * pools.length)];
+      bubble(pickFromPool(pool), { autoHide: 4500, eyebrow: 'TSUNDERE' });
+      mood(roll < 0.15 ? 'angry' : roll < 0.30 ? 'embarrassed' : 'suspicious', 3500);
+      return true;
+    }
+    if (p === 'silly' && roll < 0.55) {
+      bubble(pickFromPool('silly_remarks'), { autoHide: 3800, eyebrow: 'SILLY' });
+      mood('excited', 3000);
+      spawnParticles({ count: 6, type: 'sparkle' });
+      return true;
+    }
+    if (p === 'grumpy' && roll < 0.55) {
+      bubble(pickFromPool('grumpy_remarks'), { autoHide: 4000, eyebrow: 'GRUMPY' });
+      mood('sad', 3500);
+      return true;
+    }
+    if (p === 'shy' && roll < 0.55) {
+      bubble(pickFromPool('shy_remarks'), { autoHide: 3500, eyebrow: 'SHY' });
+      mood('embarrassed', 3000);
+      return true;
+    }
+    if (p === 'angry' && roll < 0.55) {
+      bubble(pickFromPool('angry_remarks'), { autoHide: 4000, eyebrow: 'ANGRY' });
+      mood('angry', 3500);
+      return true;
+    }
+    return false;
+  }
+
+  // ─── RUN-AWAY: when tapped too many times in a short window ───────
+  // Tracks tap timestamps; if more than 10 in 30 seconds, Clippy flees
+  // to the farthest corner with angry mood and a Taiga-style "ORA!"
+  state.tapTimes = [];
+  state.isRunningAway = false;
+  function recordTapForVelocity() {
+    const now = Date.now();
+    state.tapTimes.push(now);
+    state.tapTimes = state.tapTimes.filter(t => now - t < 30000);
+    if (state.tapTimes.length > 10 && !state.isRunningAway) {
+      runAwayFromHarassment();
+    }
+  }
+  function runAwayFromHarassment() {
+    if (!state.shell || state.isRunningAway) return;
+    state.isRunningAway = true;
+    state.tapTimes = [];   // reset so we don't re-trigger immediately
+    closeActionBubble();
+    mood('angry', 6000);
+    play('hop');
+    spawnParticles({ count: 12, type: 'sparkle' });
+    try { if (navigator.vibrate) navigator.vibrate([40, 30, 40]); } catch (_) {}
+    // Hop to the FAR corner
+    const rect = state.shell.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const shellW = state.shell.offsetWidth || 120;
+    const shellH = state.shell.offsetHeight || 120;
+    const tx = cx < window.innerWidth / 2 ? window.innerWidth - shellW - 12 : 12;
+    const ty = cy < window.innerHeight / 2 ? window.innerHeight - shellH - 12 : 12;
+    state.shell.style.left = tx + 'px';
+    state.shell.style.top  = ty + 'px';
+    state.shell.style.right = 'auto';
+    state.shell.style.bottom = 'auto';
+    state.preferences.position_x = Math.round(tx);
+    state.preferences.position_y = Math.round(ty);
+    savePreferences();
+    // Bubble — Taiga-flavored if tsundere, else generic
+    const pool = state.preferences.personality === 'tsundere' ? 'taiga_growl' : 'run_away_remarks';
+    bubble(pickFromPool(pool), { autoHide: 4000, eyebrow: 'TOO MUCH!' });
+    setTimeout(() => { state.isRunningAway = false; }, 12000);
+  }
+
+  // ─── IGNORED DETECTION ─────────────────────────────────────────────
+  // If user hasn't tapped Clippy in 5+ minutes AND he hasn't moved/bubbled,
+  // small chance per check that he comments on the silence.
+  state.lastInteractionAt = Date.now();
+  function noteInteraction() { state.lastInteractionAt = Date.now(); }
+  function checkIgnored() {
+    if (!state.enabled || !state.shell || state.suppressed || state.bubble) return;
+    if (state.preferences.do_not_disturb) return;
+    const idle = Date.now() - state.lastInteractionAt;
+    if (idle > 300000 && Math.random() < 0.08) {
+      mood('sad', 3500);
+      bubble(pickFromPool('ignored_remarks'), { autoHide: 4500, eyebrow: 'LONELY' });
+      state.lastInteractionAt = Date.now();   // reset cooldown
+    }
+  }
+
+  // ─── ACHIEVEMENTS ─────────────────────────────────────────────────
+  // 28 starter achievements. Each is checked periodically and on
+  // milestone events. Earning one fires confetti + deposits memory.
+  const ACHIEVEMENTS = {
+    first_tap:        { label: 'Hello, World',     desc: 'First tap.',                   test: p => (p.total_clicks||0) >= 1 },
+    ten_taps:         { label: 'Curious',          desc: '10 taps.',                     test: p => (p.total_clicks||0) >= 10 },
+    hundred_taps:     { label: 'Familiar',         desc: '100 taps.',                    test: p => (p.total_clicks||0) >= 100 },
+    five_hundred:     { label: 'Devoted',          desc: '500 taps.',                    test: p => (p.total_clicks||0) >= 500 },
+    thousand:         { label: 'Legend',           desc: '1000 taps.',                   test: p => (p.total_clicks||0) >= 1000 },
+    streak_2:         { label: 'Coming back',      desc: '2-day streak.',                test: p => (p.daily_streak||0) >= 2 },
+    streak_7:         { label: 'Habitual',         desc: '1-week streak.',               test: p => (p.daily_streak||0) >= 7 },
+    streak_30:        { label: 'Disciplined',      desc: '30-day streak.',               test: p => (p.daily_streak||0) >= 30 },
+    streak_100:       { label: 'Centurion',        desc: '100-day streak.',              test: p => (p.daily_streak||0) >= 100 },
+    streak_365:       { label: 'Year of the Orb',  desc: '365-day streak.',              test: p => (p.daily_streak||0) >= 365 },
+    name_set:         { label: 'On a first-name basis', desc: 'You told me your name.', test: p => !!p.user_name },
+    name_changed:     { label: 'Identity revised', desc: 'You renamed yourself.',        test: p => !!(p.name_changes && p.name_changes >= 1) },
+    explorer_3:       { label: 'Wanderer',         desc: 'Visited 3 views.',             test: p => Object.keys(p.visited_views || {}).length >= 3 },
+    explorer_7:       { label: 'Cartographer',     desc: 'Visited 7 views.',             test: p => Object.keys(p.visited_views || {}).length >= 7 },
+    explorer_all:     { label: 'Complete tour',    desc: 'Visited every view.',          test: p => Object.keys(p.visited_views || {}).length >= 10 },
+    palace_3:         { label: 'Palace founded',   desc: '3 memories in palace.',        test: p => (state.memories||[]).length >= 3 },
+    palace_25:        { label: 'Palace populated', desc: '25 memories stored.',          test: p => (state.memories||[]).length >= 25 },
+    palace_100:       { label: 'Palace flourishing',desc: '100 memories stored.',        test: p => (state.memories||[]).length >= 100 },
+    rooms_5:          { label: 'Five-room palace', desc: 'Memories in 5 rooms.',         test: p => occupiedRoomCount() >= 5 },
+    saturnalia:       { label: 'Saturnalia spirit',desc: 'Spent Saturnalia together.',   test: p => specialDayObserved('saturnalia') },
+    ides_of_march:    { label: 'Et tu',            desc: 'Survived an Ides of March.',   test: p => specialDayObserved('ides_of_march') },
+    rome_birthday:    { label: 'Roma natalis',     desc: 'Celebrated Rome\'s birthday.', test: p => specialDayObserved('rome_birthday') },
+    halloween:        { label: 'Spooky',           desc: 'Survived Halloween.',          test: p => specialDayObserved('halloween') },
+    polyglot:         { label: 'Polyglot',         desc: 'Heard 10+ languages.',         test: p => (p.langs_seen||0) >= 10 },
+    nightowl:         { label: 'Night owl',        desc: 'Used Clippy past midnight.',   test: p => p.midnight_session === true },
+    earlybird:        { label: 'Early bird',       desc: 'Used Clippy before 6am.',      test: p => p.dawn_session === true },
+    tsundere_mode:    { label: 'Palmtop tamed',    desc: 'Activated tsundere mode.',     test: p => p.personality === 'tsundere' },
+    silly_mode:       { label: 'Floof energy',     desc: 'Activated silly mode.',        test: p => p.personality === 'silly' },
+    mute_master:      { label: 'Silent partner',   desc: 'Muted Clippy via menu.',       test: p => p.sound_enabled === false },
+  };
+  function occupiedRoomCount() {
+    const r = {};
+    (state.memories || []).forEach(m => { r[m.room || 'atrium'] = true; });
+    return Object.keys(r).length;
+  }
+  function specialDayObserved(key) {
+    return (state.memories || []).some(m =>
+      (m.type === 'special_day' || m.type === 'anniversary')
+      && m.data && m.data.key === key
+    );
+  }
+  function checkAchievements(silent) {
+    if (!state.preferences.achievements) state.preferences.achievements = [];
+    const earned = state.preferences.achievements;
+    let newlyEarned = [];
+    Object.entries(ACHIEVEMENTS).forEach(([id, ach]) => {
+      if (!earned.includes(id)) {
+        try {
+          if (ach.test(state.preferences)) {
+            earned.push(id);
+            newlyEarned.push({ id, ach });
+          }
+        } catch (e) {}
+      }
+    });
+    if (newlyEarned.length) {
+      savePreferences();
+      if (!silent) {
+        // Stagger celebrations 4 seconds apart
+        newlyEarned.forEach((item, idx) => {
+          setTimeout(() => onAchievementUnlocked(item.id, item.ach), idx * 4000);
+        });
+      }
+    }
+    return newlyEarned;
+  }
+  function onAchievementUnlocked(id, ach) {
+    if (!state.enabled) return;
+    mood('sparkle', 6000);
+    play('hop');
+    spawnParticles({ count: 16, type: 'confetti' });
+    playTone('milestone');
+    bubble(`🏆 ${ach.label} — ${ach.desc}`, { autoHide: 5500, eyebrow: 'ACHIEVEMENT' });
+    depositMemory('achievement', `🏆 ${ach.label}: ${ach.desc}`, { id }, 3);
+  }
+  function showAchievements() {
+    closeActionBubble();
+    const earned = state.preferences.achievements || [];
+    const total = Object.keys(ACHIEVEMENTS).length;
+    if (earned.length === 0) {
+      bubble(`Achievements: 0 / ${total}. Keep tapping!`, { autoHide: 4500, eyebrow: 'BADGES' });
+      return;
+    }
+    // Show first three earned + count
+    const sample = earned.slice(-3).map(id => ACHIEVEMENTS[id]).filter(Boolean);
+    const names = sample.map(a => `🏆 ${a.label}`).join(' · ');
+    bubble(`Earned ${earned.length} / ${total}. Latest: ${names}`,
+      { autoHide: 6500, eyebrow: 'BADGES' });
+    mood('sparkle', 4500);
+    spawnParticles({ count: 8, type: 'sparkle' });
   }
 
 
@@ -947,41 +1796,93 @@
     // v17.6: tactile feedback — sparkle + boop on every tap
     spawnParticles({ count: 4, type: 'sparkle' });
     playTone('boop');
+    // v17.9: track tap velocity for run-away mechanic
+    recordTapForVelocity();
+    noteInteraction();
+    if (state.isRunningAway) return;
+    // v17.10: tickle detection (4 rapid taps in 1.2s)
+    recordPopForTickle();
+    if (state.tickleTaps && state.tickleTaps.length >= 4) return;
+    // v17.10: every tap nudges feelings — happiness up, affection up
+    adjustFeeling('happiness', +2);
+    adjustFeeling('affection', +1);
+    adjustFeeling('attention_need', -15);
+    // v17.11: ULTRA RARE — 0.01% per tap, max once per 7 days, opens super-chat
+    if (maybeSuperChat()) return;
+    // v17.10: feelings-driven bubble (short-circuits if strong feeling)
+    if (pickFeelingPool()) return;
+    // v17.9: personality routing — short-circuits if non-normal mode triggers
+    if (pickPersonalityPool()) return;
     // v17.7: 8% chance to recall a memory if we have at least 3 stored
     if (state.memories && state.memories.length >= 3 && Math.random() < 0.08) {
       if (showRecallBubble()) return;
     }
     const r = Math.random();
-    if (r < 0.18) {
+    if (r < 0.07) {
       // v17.6: occasional name-personalized bubble
       bubble(pickFromPool('name_random'), { autoHide: 4200 });
       mood('happy', 3800);
+    } else if (r < 0.13) {
+      // v17.10: NEW Persian facts
+      bubble(pickFromPool('persian_facts'), { eyebrow: 'PERSIA', autoHide: 5800 });
+      mood('thinking', 5500);
+    } else if (r < 0.19) {
+      // v17.10: NEW Greek facts
+      bubble(pickFromPool('greek_facts'), { eyebrow: 'HELLAS', autoHide: 5800 });
+      mood('thinking', 5500);
+    } else if (r < 0.23) {
+      // v17.10: NEW Athens specific
+      bubble(pickFromPool('athens_facts'), { eyebrow: 'ATHENS', autoHide: 5500 });
+      mood('thinking', 5000);
+    } else if (r < 0.27) {
+      // v17.10: NEW Sparta specific
+      bubble(pickFromPool('sparta_facts'), { eyebrow: 'SPARTA', autoHide: 5500 });
+      mood('determined', 5000);
     } else if (r < 0.32) {
+      // v17.10: NEW Hispania specific
+      bubble(pickFromPool('hispania_facts'), { eyebrow: 'HISPANIA', autoHide: 5500 });
+      mood('thinking', 5000);
+    } else if (r < 0.38) {
+      // v17.10: NEW Battle facts
+      bubble(pickFromPool('battle_facts'), { eyebrow: 'BATTLE', autoHide: 5800 });
+      mood('determined', 5500);
+    } else if (r < 0.42) {
+      bubble(pickFromPool('animal_facts'), { eyebrow: 'FAUNA', autoHide: 5500 });
+      mood('thinking', 5000);
+    } else if (r < 0.46) {
+      bubble(pickFromPool('space_facts'), { eyebrow: 'COSMOS', autoHide: 5500 });
+      mood('sparkle', 5000);
+    } else if (r < 0.50) {
+      bubble(pickFromPool('science_facts'), { eyebrow: 'SCIENCE', autoHide: 5500 });
+      mood('thinking', 5000);
+    } else if (r < 0.54) {
+      bubble(pickFromPool('weird_facts'), { eyebrow: 'WEIRD', autoHide: 5500 });
+      mood('sparkle', 4500);
+    } else if (r < 0.62) {
       bubble(pickFromPool('roman_facts'), { eyebrow: 'ROMA', autoHide: 5800 });
       mood('thinking', 5500);
-    } else if (r < 0.42) {
+    } else if (r < 0.68) {
       bubble(pickFromPool('whimsical_idle'), { autoHide: 3800 });
-    } else if (r < 0.50) {
+    } else if (r < 0.74) {
       bubble(pickFromPool('dad_jokes'), { autoHide: 4500 });
       mood('winking', 3800);
-    } else if (r < 0.60) {
-      // v17.6: name-aware compliments — more emotional impact
+    } else if (r < 0.80) {
       bubble(pickFromPool('name_compliment'), { autoHide: 3800 });
       mood('love', 3800);
       spawnParticles({ count: 3, type: 'heart' });
-    } else if (r < 0.70) {
+    } else if (r < 0.85) {
       bubble(pickFromPool('latin_phrases'), { eyebrow: 'LATINA', autoHide: 4500 });
       mood('determined', 4000);
-    } else if (r < 0.78) {
+    } else if (r < 0.91) {
       // v17.5: multilang hi or bye
       const which = Math.random() < 0.6 ? 'multilang_hi' : 'multilang_bye';
       bubble(pickFromPool(which), { eyebrow: 'POLYGLOT', autoHide: 4500 });
       mood('happy', 3500);
-    } else if (r < 0.85) {
+    } else if (r < 0.95) {
       // v17.5: random translation
       bubble(pickFromPool('translations'), { eyebrow: 'LINGUA', autoHide: 5000 });
       mood('thinking', 4500);
-    } else if (r < 0.93) {
+    } else if (r < 0.98) {
       bubble(pickFromPool('self_aware'), { autoHide: 3800 });
       mood('smug', 3500);
     } else {
@@ -1149,10 +2050,22 @@
   function showWhatsUp() {
     const soundOn = state.preferences.sound_enabled !== false;
     const memCount = (state.memories || []).length;
+    const achCount = (state.preferences.achievements || []).length;
+    const persona = state.preferences.personality || 'normal';
+    const personaGlyph = PERSONALITIES[persona] ? PERSONALITIES[persona].glyph : '😊';
+    // v17.11: oracle available if cooldown elapsed (super-chat ready)
+    const lastSuper = state.preferences.super_chat_last;
+    const oracleReady = !lastSuper || (Date.now() - new Date(lastSuper).getTime()) >= 7 * 86400000;
     const actions = [
       { label: 'Open menu', cls: 'is-primary', onClick: openPalette },
-      { label: 'Set my name', onClick: askForName },
+      { label: '💬 Chat with me', onClick: () => openChat() },
     ];
+    if (oracleReady) {
+      actions.push({ label: '✨ Oracle (rare)', onClick: () => { triggerSuperChat(); } });
+    }
+    actions.push({ label: 'Set my name', onClick: askForName });
+    actions.push({ label: `${personaGlyph} Personality`, onClick: showPersonalityMenu });
+    actions.push({ label: `🏆 Badges (${achCount})`, onClick: showAchievements });
     if (memCount >= 3) {
       actions.push({ label: `🏛️ Tour palace (${memCount})`, onClick: tourPalace });
     }
@@ -2245,6 +3158,7 @@
     state.initialized = true;
     loadPoolHistory();
     loadMemories();                 // v17.7: load deposited memory nodes
+    loadFeelings();                 // v17.10: load persistent feelings model
     await loadDialog();
     await loadPreferences();
     wireGlobalListeners();
@@ -2260,15 +3174,35 @@
       startContentAwareness();
       setTimeout(() => moveToEmptyCorner(), 800);
       afterJoinSchedule();
-      // v17 fix: greet already-enabled users on each session too. Without
-      // this they see Clippy appear silently and report "no dialog" —
-      // the only path that called timeAwareGreeting was acceptJoin(),
-      // which only fires during onboarding.
-      timeAwareGreeting();
+      // v17.11: stage-aware greeting (formal/casual/inside-joke/old-friend
+      // depending on days_known). Falls back to time-aware on first day.
+      if (state.preferences.accepted_at) {
+        bubble(substituteVars(familiarityGreeting()), { autoHide: 4500 });
+        mood('happy', 4000);
+      } else {
+        timeAwareGreeting();
+      }
       // v17.6: daily streak + special day celebrations
       const streakInfo = checkDailyStreak();
       celebrateStreak(streakInfo.streak, streakInfo.isMilestone, streakInfo.event);
       celebrateSpecialDay(checkSpecialDay());
+      // v17.9: periodic checks + session-time achievement flags
+      const hour = new Date().getHours();
+      if (hour >= 0 && hour < 4) state.preferences.midnight_session = true;
+      if (hour >= 4 && hour < 6) state.preferences.dawn_session = true;
+      savePreferences();
+      checkAchievements(true);   // silent initial scan
+      setInterval(() => {
+        if (!state.enabled || state.suppressed) return;
+        checkAchievements();
+        checkIgnored();
+      }, 30000);
+      // v17.10: clock awareness — every 60s check for hour change
+      setInterval(() => { if (state.enabled && !state.suppressed) hourlyCheck(); }, 60000);
+      // v17.10: feelings drift — every 90s decay toward baseline
+      setInterval(() => { if (state.enabled) decayFeelings(); }, 90000);
+      // v17.10: stress check — once per 5min, attempts at most once per day
+      setInterval(() => { if (state.enabled && !state.suppressed) checkStressMarkers(); }, 5 * 60000);
     } else if (shouldShowComeback()) {
       // v17.5: peek with ONLY HIS EYES visible, from a random spot.
       // Each session a different place. The is-peek-eyes-only class
@@ -2342,6 +3276,11 @@
   // ─── Public API ─────────────────────────────────────────────────────
   function notifyTaskCompleted() {
     if (!state.enabled || state.preferences.do_not_disturb) return;
+    // v17.11: every 3rd-or-so completion gets the bigger celebration
+    if (Math.random() < 0.4) {
+      celebrateNexusTask();
+      return;
+    }
     if (Math.random() < 0.6) {
       mood('happy', 2200);
       play('hop');
@@ -2350,6 +3289,14 @@
   }
   function notifyStreak(days) {
     if (!state.enabled || state.preferences.do_not_disturb) return;
+    // v17.11: bigger streaks get the rich celebration
+    if (days >= 3) {
+      celebrateNexusStreak();
+      setTimeout(() => {
+        actionBubble(fmt(pickFromPool('streak_milestone'), { N: days }), { duration: 4500 });
+      }, 1500);
+      return;
+    }
     mood('happy', 4500);
     play('cartwheel');
     actionBubble(fmt(pickFromPool('streak_milestone'), { N: days }), { duration: 4500 });
@@ -2358,7 +3305,18 @@
     if (!state.enabled || state.preferences.do_not_disturb) return;
     if (Math.random() > 0.4) return;
     mood('sad', 3000);
-    bubble(pickFromPool('task_overdue_passive'));
+    // v17.11: pick the gentler nudge pool half the time
+    const pool = Math.random() < 0.5 ? 'nexus_overdue_check' : 'task_overdue_passive';
+    bubble(pickFromPool(pool));
+  }
+  // v17.11: NEXUS can call this when equipment is fixed/cleared
+  function notifyEquipmentFixed() {
+    if (!state.enabled || state.preferences.do_not_disturb) return;
+    mood('sparkle', 4500);
+    spawnParticles({ count: 8, type: 'sparkle' });
+    playTone('sparkle');
+    bubble(pickFromPool('nexus_equipment_fixed'), { autoHide: 4500, eyebrow: 'FIXED' });
+    adjustFeeling('happiness', +5);
   }
   function checkForStress(metrics) {
     if (!state.enabled || state.preferences.do_not_disturb) return;
@@ -2380,6 +3338,11 @@
     notifyTaskCompleted,
     notifyStreak,
     notifyOverdueDetected,
+    notifyEquipmentFixed,           // v17.11
+    celebrateNexusTask,             // v17.11
+    celebrateNexusStreak,           // v17.11
+    openChat,                       // v17.11 — programmatic chat
+    triggerSuperChat,               // v17.11 — force-open oracle (admin/test)
     checkForStress,
     addTrajanQuote,
     offerBrain, offerSong,
