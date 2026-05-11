@@ -143,6 +143,9 @@
     organized:     'is-organized',     // inventory — dot eyes + cat smile
     // v17.20 CONDESCENDING — for the smug lesson mode
     condescending: 'is-condescending', // half-lidded haughty + cat smirk + raised inner brows
+    // v17.23 SULKING — Duolingo-style turn-the-back
+    sulking:       'is-sulking',       // face hidden, back-tuft visible, dim glow
+    deep_sulking:  'is-deep-sulking',  // sulk + extra dim (after extended absence)
   };
 
 
@@ -162,6 +165,157 @@
     const u = getCurrentUser();
     return (u && u.id) ? `${base}_u${u.id}` : base;
   }
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.25 CLOUD SYNC — Supabase-backed cross-device persistence.
+  // Pattern: optimistic local writes, debounced cloud push, pull on
+  // session start. Last-Write-Wins by updated_at timestamp.
+  //
+  // Requires Supabase table `clippy_cloud_state` with columns:
+  //   user_id (integer PK)
+  //   memories (jsonb)
+  //   preferences (jsonb)
+  //   feelings (jsonb)
+  //   gacha (jsonb)
+  //   highscores (jsonb)
+  //   updated_at (timestamptz default now())
+  // ════════════════════════════════════════════════════════════════════
+
+  function getSupabaseClient() {
+    // Reuse the existing NEXUS-wide Supabase client if available
+    return (typeof window !== 'undefined') && (window.NX && window.NX.supabase) || null;
+  }
+
+  function showSyncIndicator(state_, message) {
+    let el = document.querySelector('.clippy-sync-indicator');
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'clippy-sync-indicator';
+      document.body.appendChild(el);
+    }
+    el.classList.remove('is-syncing', 'is-synced', 'is-failed');
+    if (state_) el.classList.add('is-' + state_);
+    el.textContent = message || (state_ === 'syncing' ? '☁ syncing…' : state_ === 'synced' ? '☁ ✓' : state_ === 'failed' ? '☁ retry' : '☁');
+    el.classList.add('is-visible');
+    setTimeout(() => el && el.classList.remove('is-visible'), 2500);
+  }
+
+  function collectLocalState() {
+    return {
+      memories:    state.memories || [],
+      preferences: state.preferences || {},
+      feelings:    state.feelings || {},
+      gacha:       (function() { try { return JSON.parse(localStorage.getItem(userKey('clippy_gacha')) || 'null'); } catch (e) { return null; } })(),
+      highscores:  (function() { try { return JSON.parse(localStorage.getItem(userKey('clippy_highscores')) || 'null'); } catch (e) { return null; } })(),
+    };
+  }
+
+  async function cloudPush() {
+    const sb = getSupabaseClient();
+    const user = getCurrentUser();
+    if (!sb || !user || !user.id) return false;
+    if (!navigator.onLine) {
+      state.cloudPushPending = true;
+      return false;
+    }
+    showSyncIndicator('syncing');
+    const payload = collectLocalState();
+    payload.user_id = user.id;
+    payload.updated_at = new Date().toISOString();
+    try {
+      const { error } = await sb.from('clippy_cloud_state')
+        .upsert(payload, { onConflict: 'user_id' });
+      if (error) {
+        showSyncIndicator('failed', '☁ retry later');
+        state.cloudPushPending = true;
+        return false;
+      }
+      showSyncIndicator('synced');
+      state.cloudPushPending = false;
+      state.cloudLastPushAt = Date.now();
+      return true;
+    } catch (e) {
+      showSyncIndicator('failed', '☁ offline');
+      state.cloudPushPending = true;
+      return false;
+    }
+  }
+
+  async function cloudPull() {
+    const sb = getSupabaseClient();
+    const user = getCurrentUser();
+    if (!sb || !user || !user.id) return false;
+    if (!navigator.onLine) return false;
+    try {
+      const { data, error } = await sb.from('clippy_cloud_state')
+        .select('*').eq('user_id', user.id).maybeSingle();
+      if (error || !data) return false;
+      // LWW: only apply if cloud is newer than our last local write
+      const cloudTime = new Date(data.updated_at || 0).getTime();
+      const localTime = state.preferences.last_local_write || 0;
+      if (cloudTime <= localTime) return false;   // local is newer, skip
+      // Merge cloud → local
+      if (Array.isArray(data.memories)) {
+        state.memories = data.memories;
+        localStorage.setItem(userKey('clippy_memories'), JSON.stringify(data.memories));
+      }
+      if (data.preferences && typeof data.preferences === 'object') {
+        Object.assign(state.preferences, data.preferences);
+        savePreferences();
+      }
+      if (data.feelings && typeof data.feelings === 'object') {
+        state.feelings = data.feelings;
+        localStorage.setItem(userKey('clippy_feelings'), JSON.stringify(data.feelings));
+      }
+      if (data.gacha) {
+        localStorage.setItem(userKey('clippy_gacha'), JSON.stringify(data.gacha));
+      }
+      if (data.highscores) {
+        localStorage.setItem(userKey('clippy_highscores'), JSON.stringify(data.highscores));
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Debounced push — accumulate changes, sync at most every 8 seconds
+  function cloudPushQueued() {
+    state.preferences.last_local_write = Date.now();
+    if (state.cloudPushTimer) clearTimeout(state.cloudPushTimer);
+    state.cloudPushTimer = setTimeout(() => cloudPush(), 8000);
+  }
+
+  function initCloudSync() {
+    if (state.cloudSyncInited) return;
+    state.cloudSyncInited = true;
+    // Pull on init (background — don't block)
+    cloudPull().then(applied => {
+      if (applied) {
+        applyPersistedCostume();   // re-apply if costume changed via cloud
+        // Discrete bubble informing the user we synced
+        setTimeout(() => {
+          if (!state.bubble && state.enabled) {
+            bubble('☁ Synced from cloud!', { autoHide: 2500, eyebrow: '☁ SYNC' });
+          }
+        }, 1800);
+      }
+    });
+    // Listen for connectivity changes — push pending writes when back online
+    window.addEventListener('online', () => {
+      showSyncIndicator('syncing', '☁ back online');
+      if (state.cloudPushPending) cloudPush();
+    });
+    window.addEventListener('offline', () => {
+      showSyncIndicator('failed', '☁ offline');
+    });
+    // Periodic push (safety net for missed debounce)
+    setInterval(() => {
+      if (state.cloudPushPending) cloudPush();
+    }, 5 * 60000);
+  }
+
+
   function fmt(line, vars) {
     if (!vars) return line;
     return line.replace(/\{(\w+)\}/g, (_, k) => (vars[k] != null ? vars[k] : ''));
@@ -496,6 +650,7 @@
       state.memories = sorted.slice(0, MAX_MEMORIES);
     }
     saveMemories();
+    if (typeof cloudPushQueued === 'function') cloudPushQueued();
     // Galaxy notification — try direct API first, then dispatch event
     try {
       if (window.NX && window.NX.galaxy && typeof window.NX.galaxy.addClippyMemory === 'function') {
@@ -1011,6 +1166,15 @@
     adjustFeeling('affection', +1);
     adjustFeeling('attention_need', -10);
     grantBondXP_chat_message();    // v17.20: bond XP grants per message
+    // v17.26: detect user-stated likes/dislikes from chat
+    detectChatPreference(text);
+    // v17.28: detect "what can you do" requests → show capability menu
+    if (detectSelfIntrospectionRequest(text)) {
+      bubble(pickFromPool('self_intro_full'),
+        { autoHide: 4500, eyebrow: '🤖 SELF-INTRO' });
+      setTimeout(() => showCapabilityMenu(), 4800);
+      return;
+    }
     const match = chatMatch(text);
     if (!match) {
       bubble(pickFromPool('chat_no_match'), { autoHide: 5000, eyebrow: 'HMM' });
@@ -1470,7 +1634,1117 @@
       bubble(`${PERSONALITIES[mode].glyph} Personality: ${PERSONALITIES[mode].label}`,
         { autoHide: 3500, eyebrow: 'MODE' });
     }
+    if (typeof cloudPushQueued === 'function') cloudPushQueued();
   }
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.25 COSTUME SYSTEM — laurel, helmet, party hat, scholar cap.
+  // Plus PROPS: broom, book, scroll. Sweep / read / scribe animations.
+  // ════════════════════════════════════════════════════════════════════
+
+  const COSTUMES = {
+    none:         { glyph: '🚫', label: 'None',          cls: '' },
+    laurel:       { glyph: '🌿', label: 'Laurel Crown',  cls: 'wear-laurel' },
+    helmet:       { glyph: '⚔️',  label: 'Galea',         cls: 'wear-helmet' },
+    party_hat:    { glyph: '🎉', label: 'Party Hat',     cls: 'wear-party-hat' },
+    scholar_cap:  { glyph: '🎓', label: 'Scholar Cap',   cls: 'wear-scholar-cap' },
+  };
+  const PROPS = {
+    none:   { glyph: '🚫', label: 'None',   cls: '' },
+    broom:  { glyph: '🧹', label: 'Broom',  cls: 'holding-broom' },
+    book:   { glyph: '📖', label: 'Book',   cls: 'holding-book' },
+    scroll: { glyph: '📜', label: 'Scroll', cls: 'holding-scroll' },
+  };
+
+  function setCostume(name) {
+    if (!COSTUMES[name]) return;
+    Object.values(COSTUMES).forEach(c => c.cls && state.shell && state.shell.classList.remove(c.cls));
+    state.preferences.costume = name;
+    if (state.shell && COSTUMES[name].cls) state.shell.classList.add(COSTUMES[name].cls);
+    savePreferences();
+    const pool = name === 'none' ? 'wear_none' : 'wear_' + name;
+    if (state.dialog && state.dialog[pool]) {
+      bubble(pickFromPool(pool), { autoHide: 3200, eyebrow: `${COSTUMES[name].glyph} ${COSTUMES[name].label.toUpperCase()}` });
+    }
+    depositMemory('costume_change', `Equipped costume: ${name}`, { name }, 1);
+    if (typeof cloudPushQueued === 'function') cloudPushQueued();
+  }
+  function setProp(name) {
+    if (!PROPS[name]) return;
+    Object.values(PROPS).forEach(p => p.cls && state.shell && state.shell.classList.remove(p.cls));
+    state.preferences.prop = name;
+    if (state.shell && PROPS[name].cls) state.shell.classList.add(PROPS[name].cls);
+    savePreferences();
+    const idlePool = 'holding_' + name + '_idle';
+    if (state.dialog && state.dialog[idlePool]) {
+      bubble(pickFromPool(idlePool), { autoHide: 3200, eyebrow: `${PROPS[name].glyph} ${PROPS[name].label.toUpperCase()}` });
+    }
+    depositMemory('prop_change', `Picked up prop: ${name}`, { name }, 1);
+    if (typeof cloudPushQueued === 'function') cloudPushQueued();
+  }
+  function applyPersistedCostume() {
+    const c = state.preferences.costume || 'none';
+    const p = state.preferences.prop || 'none';
+    if (state.shell) {
+      if (COSTUMES[c] && COSTUMES[c].cls) state.shell.classList.add(COSTUMES[c].cls);
+      if (PROPS[p] && PROPS[p].cls) state.shell.classList.add(PROPS[p].cls);
+    }
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.26 AFFINITY — Sims-style per-user relationship scoring.
+  // -100 to +100, decays slowly, gates moods + dialog tier.
+  // Each user gets their own score (uses userKey).
+  // ════════════════════════════════════════════════════════════════════
+
+  // Status thresholds (score → status label)
+  const AFFINITY_TIERS = [
+    { min:  85, key: 'cherished', label: 'Cherished',   glyph: '💛' },
+    { min:  50, key: 'friend',    label: 'Friend',      glyph: '💚' },
+    { min:  15, key: 'liked',     label: 'Liked',       glyph: '🙂' },
+    { min: -15, key: 'neutral',   label: 'Neutral',     glyph: '😐' },
+    { min: -50, key: 'disliked',  label: 'Disliked',    glyph: '😒' },
+    { min:-100, key: 'despised',  label: 'Despised',    glyph: '🙁' },
+  ];
+
+  function getAffinity() {
+    return Math.max(-100, Math.min(100,
+      Number(state.preferences.affinity || 0)));
+  }
+  function getAffinityTier() {
+    const s = getAffinity();
+    for (const t of AFFINITY_TIERS) if (s >= t.min) return t;
+    return AFFINITY_TIERS[AFFINITY_TIERS.length - 1];
+  }
+  function adjustAffinity(delta, reason) {
+    const before = getAffinity();
+    const beforeTier = getAffinityTier().key;
+    const after = Math.max(-100, Math.min(100, before + delta));
+    state.preferences.affinity = after;
+    state.preferences.affinity_last_changed = Date.now();
+    savePreferences();
+    const afterTier = getAffinityTier().key;
+    if (afterTier !== beforeTier) {
+      onAffinityTierChange(beforeTier, afterTier, reason);
+    }
+    // Subtle visual feedback for big movements (≥3)
+    if (Math.abs(delta) >= 3) {
+      if (delta > 0 && Math.random() < 0.30) {
+        setTimeout(() => {
+          if (!state.bubble && state.enabled && !state.sulkActive)
+            bubble(pickFromPool('affinity_uptick'), { autoHide: 2400, eyebrow: '💛 +AFFINITY' });
+        }, 800);
+      } else if (delta < 0 && Math.random() < 0.30) {
+        setTimeout(() => {
+          if (!state.bubble && state.enabled && !state.sulkActive)
+            bubble(pickFromPool('affinity_downtick'), { autoHide: 2400, eyebrow: '💔 -AFFINITY' });
+        }, 800);
+      }
+    }
+    if (typeof cloudPushQueued === 'function') cloudPushQueued();
+  }
+  function onAffinityTierChange(from, to, reason) {
+    // Big moments — crossed into Friend or down to Disliked etc.
+    const tier = AFFINITY_TIERS.find(t => t.key === to);
+    if (!tier) return;
+    // Going UP — celebration
+    if (['liked','friend','cherished'].includes(to) &&
+        ['neutral','disliked','despised'].includes(from)) {
+      setTimeout(() => {
+        if (!state.bubble && state.enabled && !state.sulkActive) {
+          const pool = 'affinity_' + to;
+          if (state.dialog && state.dialog[pool]) {
+            bubble(substituteVars(pickFromPool(pool)),
+              { autoHide: 5000, eyebrow: `${tier.glyph} ${tier.label.toUpperCase()}` });
+          }
+          if (to === 'cherished') {
+            spawnParticles({ count: 20, type: 'heart' });
+            adjustFeeling('happiness', +12);
+          } else if (to === 'friend') {
+            spawnParticles({ count: 12, type: 'heart' });
+            adjustFeeling('happiness', +8);
+          } else {
+            spawnParticles({ count: 6, type: 'sparkle' });
+            adjustFeeling('happiness', +4);
+          }
+        }
+      }, 1200);
+    }
+    // Going DOWN — disappointment
+    else if (['disliked','despised'].includes(to) &&
+             ['neutral','liked','friend','cherished'].includes(from)) {
+      adjustFeeling('happiness', -8);
+    }
+    depositMemory('affinity_tier_change',
+      `Affinity tier: ${from} → ${to}${reason ? ' (' + reason + ')' : ''}`,
+      { from, to, reason }, 2);
+  }
+
+  // Periodic decay — affinity drifts toward 0 over time.
+  // Daily drift: -1 if positive, +1 if negative (forgiving, slow).
+  function decayAffinity() {
+    const cur = getAffinity();
+    if (cur === 0) return;
+    const drift = cur > 0 ? -1 : +1;
+    state.preferences.affinity = cur + drift;
+    savePreferences();
+  }
+
+  // Show affinity-based greeting on session start (only one per session).
+  function maybeAffinityGreeting() {
+    if (state.affinityGreeted) return;
+    state.affinityGreeted = true;
+    const tier = getAffinityTier();
+    if (tier.key === 'neutral') return;   // skip neutral, no special greeting
+    const pool = 'affinity_' + tier.key;
+    if (!state.dialog || !state.dialog[pool]) return;
+    setTimeout(() => {
+      if (!state.bubble && state.enabled && !state.sulkActive) {
+        bubble(substituteVars(pickFromPool(pool)),
+          { autoHide: 5000, eyebrow: `${tier.glyph} ${tier.label.toUpperCase()}` });
+      }
+    }, 2500);
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.27 CONQUEROR ALTER EGOS — some days Trajan wakes up channeling
+  // a different historical conqueror. Sticks for ~12 hours. Signature
+  // hat + glow + quote pool while active.
+  // ════════════════════════════════════════════════════════════════════
+
+  const CONQUERORS = {
+    trajan: {
+      label: 'Trajan',
+      glyph: '🏛️',
+      hat: 'laurel',         // existing costume
+      personaClass: 'persona-trajan',
+      hatClass: 'wear-laurel',
+      quotePool: 'quote_trajan',
+      introPool: 'conqueror_intro_trajan',
+      eyebrow: '🏛️ TRAJAN',
+    },
+    napoleon: {
+      label: 'Napoleon',
+      glyph: '🎩',
+      hat: 'bicorne',
+      personaClass: 'persona-napoleon',
+      hatClass: 'wear-bicorne',
+      quotePool: 'quote_napoleon',
+      introPool: 'conqueror_intro_napoleon',
+      eyebrow: '🎩 NAPOLEON',
+    },
+    genghis: {
+      label: 'Genghis Khan',
+      glyph: '🏹',
+      hat: 'mongol',
+      personaClass: 'persona-genghis',
+      hatClass: 'wear-mongol',
+      quotePool: 'quote_genghis',
+      introPool: 'conqueror_intro_genghis',
+      eyebrow: '🏹 GENGHIS KHAN',
+    },
+    alexander: {
+      label: 'Alexander',
+      glyph: '⚔️',
+      hat: 'macedonian',
+      personaClass: 'persona-alexander',
+      hatClass: 'wear-macedonian',
+      quotePool: 'quote_alexander',
+      introPool: 'conqueror_intro_alexander',
+      eyebrow: '⚔️ ALEXANDER',
+    },
+    hannibal: {
+      label: 'Hannibal',
+      glyph: '🐘',
+      hat: 'carthaginian',
+      personaClass: 'persona-hannibal',
+      hatClass: 'wear-carthaginian',
+      quotePool: 'quote_hannibal',
+      introPool: 'conqueror_intro_hannibal',
+      eyebrow: '🐘 HANNIBAL',
+    },
+    cleopatra: {
+      label: 'Cleopatra',
+      glyph: '🐍',
+      hat: 'nemes',
+      personaClass: 'persona-cleopatra',
+      hatClass: 'wear-nemes',
+      quotePool: 'quote_cleopatra',
+      introPool: 'conqueror_intro_cleopatra',
+      eyebrow: '🐍 CLEOPATRA',
+    },
+  };
+
+  // All conqueror hat + persona classes — used to clear before applying a new one
+  const ALL_CONQUEROR_HAT_CLASSES = [
+    'wear-bicorne','wear-mongol','wear-macedonian','wear-carthaginian','wear-nemes'
+  ];
+  const ALL_CONQUEROR_PERSONA_CLASSES = [
+    'persona-trajan','persona-napoleon','persona-genghis',
+    'persona-alexander','persona-hannibal','persona-cleopatra'
+  ];
+
+  function getActiveConqueror() {
+    const ae = state.preferences.alter_ego;
+    if (!ae || !ae.key || !CONQUERORS[ae.key]) return null;
+    // Expires after 12 hours
+    const ageMs = Date.now() - (ae.startedAt || 0);
+    if (ageMs > 12 * 3600000) return null;
+    return CONQUERORS[ae.key];
+  }
+
+  // Roll on session start. 25% chance per fresh day to enter a conqueror mood.
+  function maybeRollConqueror() {
+    const existing = state.preferences.alter_ego;
+    // Already in an alter ego that's still valid?
+    if (existing && existing.startedAt && (Date.now() - existing.startedAt < 12 * 3600000)) {
+      return false;   // keep it
+    }
+    // Don't re-roll more than once per day (regardless of expiration)
+    const today = todayDateStr ? todayDateStr() :
+      new Date().toISOString().slice(0,10);
+    if (state.preferences.alter_ego_last_roll_date === today) return false;
+    state.preferences.alter_ego_last_roll_date = today;
+    // 25% to enter alter ego mode
+    if (Math.random() > 0.25) {
+      // Default mode — clear any expired alter ego
+      delete state.preferences.alter_ego;
+      savePreferences();
+      return false;
+    }
+    // Weighted pick — Trajan slightly more common as namesake
+    const weights = { trajan: 22, napoleon: 18, genghis: 15, alexander: 18, hannibal: 13, cleopatra: 14 };
+    let total = 0;
+    Object.values(weights).forEach(w => total += w);
+    let r = Math.random() * total;
+    let picked = 'trajan';
+    for (const [k, w] of Object.entries(weights)) {
+      r -= w;
+      if (r <= 0) { picked = k; break; }
+    }
+    state.preferences.alter_ego = { key: picked, startedAt: Date.now() };
+    savePreferences();
+    if (typeof cloudPushQueued === 'function') cloudPushQueued();
+    depositMemory('conqueror_day', `Became ${CONQUERORS[picked].label} for the day.`,
+                  { conqueror: picked }, 2);
+    return true;
+  }
+
+  function applyConquerorVisuals() {
+    if (!state.shell) return;
+    // Clear all conqueror visuals first
+    ALL_CONQUEROR_HAT_CLASSES.forEach(c => state.shell.classList.remove(c));
+    ALL_CONQUEROR_PERSONA_CLASSES.forEach(c => state.shell.classList.remove(c));
+    // Remove existing persona pill if any
+    const existingPill = document.querySelector('.clippy-persona-pill');
+    if (existingPill) existingPill.remove();
+
+    const active = getActiveConqueror();
+    if (!active) return;
+    state.shell.classList.add(active.hatClass);
+    state.shell.classList.add(active.personaClass);
+    // Also remove the regular costume class so we don't get double-hats
+    const userCostume = state.preferences.costume;
+    if (userCostume && userCostume !== 'none' && userCostume !== active.hat && COSTUMES[userCostume]) {
+      state.shell.classList.remove(COSTUMES[userCostume].cls);
+    }
+    // Add persona indicator pill
+    const pill = document.createElement('div');
+    pill.className = 'clippy-persona-pill is-' + (state.preferences.alter_ego.key);
+    pill.textContent = active.glyph + ' ' + active.label;
+    state.shell.appendChild(pill);
+    requestAnimationFrame(() => pill.classList.add('is-visible'));
+  }
+
+  function announceConqueror() {
+    const active = getActiveConqueror();
+    if (!active) return;
+    // Only announce once per session — track flag
+    if (state.conquerorAnnounced) return;
+    state.conquerorAnnounced = true;
+    setTimeout(() => {
+      if (state.bubble || !state.enabled || state.sulkActive) return;
+      const intro = substituteVars(pickFromPool(active.introPool));
+      bubble(intro, { autoHide: 5500, eyebrow: active.eyebrow });
+    }, 3000);
+  }
+
+  // Public — manually trigger a conqueror mood (for testing or wardrobe)
+  function setConqueror(key) {
+    if (key === 'none') {
+      // Outro
+      const wasActive = getActiveConqueror();
+      delete state.preferences.alter_ego;
+      savePreferences();
+      applyConquerorVisuals();
+      if (wasActive) {
+        bubble(pickFromPool('conqueror_outro'), { autoHide: 3500 });
+      }
+      if (typeof cloudPushQueued === 'function') cloudPushQueued();
+      return;
+    }
+    if (!CONQUERORS[key]) return;
+    state.preferences.alter_ego = { key: key, startedAt: Date.now() };
+    state.preferences.alter_ego_last_roll_date = todayDateStr ? todayDateStr() :
+      new Date().toISOString().slice(0,10);
+    state.conquerorAnnounced = false;
+    savePreferences();
+    applyConquerorVisuals();
+    announceConqueror();
+    if (typeof cloudPushQueued === 'function') cloudPushQueued();
+    depositMemory('conqueror_day', `Manually channeled ${CONQUERORS[key].label}.`,
+                  { conqueror: key, manual: true }, 2);
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.28 CAPABILITY REGISTRY — Trajan's formal self-knowledge of every
+  // system he can tap into. Inspired by 2025 agent papers on tool-use
+  // registries, world models (Meta/DeepSeek), and ReAct frameworks.
+  //
+  // Every capability declares: label, glyph, kind, desc, invoke.
+  // - "active" capabilities have invoke functions you can trigger
+  // - "passive" capabilities run autonomously and are observed only
+  // ════════════════════════════════════════════════════════════════════
+
+  function buildCapabilityRegistry() {
+    const reg = [];
+    // === ACTIVE — user-invocable ===
+    reg.push({
+      key: 'chat', kind: 'active', category: 'core',
+      glyph: '💬', label: 'Chat',
+      desc: 'Open conversation. Pattern-matched responses + procedural sentences.',
+      invoke: () => { if (typeof openChat === 'function') openChat(); }
+    });
+    reg.push({
+      key: 'games', kind: 'active', category: 'play',
+      glyph: '🎮', label: 'Mini-Games',
+      desc: '7 games: Tap, Catch, Reaction, Memory, Flappy Trajan, Cannon Battle, Snake.',
+      invoke: () => { if (typeof showGameMenu === 'function') showGameMenu(); }
+    });
+    reg.push({
+      key: 'gacha', kind: 'active', category: 'play',
+      glyph: '🎴', label: 'Daily Gacha',
+      desc: '24 cards, 4 rarities. One pull per streak-day.',
+      invoke: () => { if (typeof showGachaInvite === 'function') showGachaInvite(); }
+    });
+    reg.push({
+      key: 'wardrobe', kind: 'active', category: 'self',
+      glyph: '👗', label: 'Wardrobe',
+      desc: '9 hats (incl. 6 conqueror crowns) + 3 props.',
+      invoke: () => { if (typeof showCostumeMenu === 'function') showCostumeMenu(); }
+    });
+    reg.push({
+      key: 'memory_dex', kind: 'active', category: 'memory',
+      glyph: '🏛️', label: 'Memory Palace',
+      desc: '200 memories across 7 rooms. Cornerstone events permanent.',
+      invoke: () => { if (typeof showMemoryDex === 'function') showMemoryDex(); }
+    });
+    reg.push({
+      key: 'affinity', kind: 'active', category: 'relational',
+      glyph: '❤️', label: 'Affinity & Likes',
+      desc: 'My feelings about you (-100 to +100) plus what I\'ve learned you love.',
+      invoke: () => { if (typeof showAffinityMenu === 'function') showAffinityMenu(); }
+    });
+    reg.push({
+      key: 'personality', kind: 'active', category: 'self',
+      glyph: '🎭', label: 'Personality',
+      desc: '6 modes: Normal/Silly/Tsundere/Grumpy/Shy/Angry. I usually pick.',
+      invoke: () => { if (typeof showPersonalityMenu === 'function') showPersonalityMenu(); }
+    });
+    reg.push({
+      key: 'palace_tour', kind: 'active', category: 'memory',
+      glyph: '🚶', label: 'Palace Tour',
+      desc: 'Walk through the memory palace narratively.',
+      invoke: () => { if (typeof tourPalace === 'function') tourPalace(); }
+    });
+    // === PASSIVE — runs autonomously ===
+    reg.push({
+      key: 'view_awareness', kind: 'passive', category: 'observation',
+      glyph: '👁️', label: 'View Awareness',
+      desc: 'I notice which NEXUS view you visit and react with mood/dialogue.',
+    });
+    reg.push({
+      key: 'form_awareness', kind: 'passive', category: 'observation',
+      glyph: '📋', label: 'Form Submit Detector',
+      desc: 'When you submit any form, I celebrate. Confetti + bond XP.',
+    });
+    reg.push({
+      key: 'modal_awareness', kind: 'passive', category: 'observation',
+      glyph: '🪟', label: 'Modal Peek',
+      desc: 'I peek when overlays open. "What\'s in it?"',
+    });
+    reg.push({
+      key: 'scroll_awareness', kind: 'passive', category: 'observation',
+      glyph: '🔍', label: 'Scroll Watcher',
+      desc: 'Heavy scrolling = I ask what you\'re looking for.',
+    });
+    reg.push({
+      key: 'search_awareness', kind: 'passive', category: 'observation',
+      glyph: '🔎', label: 'Search Focus',
+      desc: 'When you focus a search input, I watch.',
+    });
+    reg.push({
+      key: 'idle_quirks', kind: 'passive', category: 'autonomous',
+      glyph: '😪', label: 'Idle Quirks',
+      desc: 'Yawn, hiccup, sneeze, spin, groom — random every 8-18 min.',
+    });
+    reg.push({
+      key: 'mood_weather', kind: 'passive', category: 'autonomous',
+      glyph: '🌤️', label: 'Mood Weather',
+      desc: 'My halo glow shifts color with my dominant feeling.',
+    });
+    reg.push({
+      key: 'mischief', kind: 'passive', category: 'autonomous',
+      glyph: '🎭', label: 'Mischief',
+      desc: 'Coin flips, status pokes, ghost-checks, bored drifts.',
+    });
+    reg.push({
+      key: 'prd_mischief', kind: 'passive', category: 'autonomous',
+      glyph: '🎲', label: 'PRD Bored Mischief',
+      desc: 'Dota 2-style pseudo-random. While bored, chance climbs 5%/30s. Guaranteed within 10 min.',
+    });
+    reg.push({
+      key: 'sulk', kind: 'passive', category: 'relational',
+      glyph: '😔', label: 'Sulk Mode',
+      desc: 'I turn my back if you break a streak or ghost me. Forgive after 6 taps.',
+    });
+    reg.push({
+      key: 'lessons', kind: 'passive', category: 'autonomous',
+      glyph: '📖', label: 'Smug Lessons',
+      desc: 'When I think you need teaching, I deliver a Roman or life lesson.',
+    });
+    reg.push({
+      key: 'conqueror', kind: 'passive', category: 'self',
+      glyph: '⚔️', label: 'Conqueror Days',
+      desc: '25% daily roll — I might wake up as Napoleon, Genghis, Alexander, Hannibal, or Cleopatra.',
+    });
+    reg.push({
+      key: 'streak_tracking', kind: 'passive', category: 'memory',
+      glyph: '🔥', label: 'Daily Streak',
+      desc: 'I count consecutive days you visit. Milestones at 2, 7, 30, 100, 365.',
+    });
+    reg.push({
+      key: 'bond_xp', kind: 'passive', category: 'relational',
+      glyph: '🌟', label: 'Bond Levels',
+      desc: '7 tiers from Stranger to Lifelong. XP from every interaction.',
+    });
+    reg.push({
+      key: 'procedural', kind: 'passive', category: 'autonomous',
+      glyph: '🧠', label: 'Procedural Sentences',
+      desc: '14 templates × Roman name/place/virtue/observation slots = 2,940+ unique sentences.',
+    });
+    reg.push({
+      key: 'autonomy', kind: 'passive', category: 'self',
+      glyph: '🤖', label: 'Autonomous Personality',
+      desc: 'I pick my own mood by hour, bond, streak, feeling, rejections.',
+    });
+    reg.push({
+      key: 'pref_learning', kind: 'passive', category: 'relational',
+      glyph: '👂', label: 'Preference Learning',
+      desc: '"I love X" / "I hate X" in chat → I remember it. View frequency = auto-likes.',
+    });
+    reg.push({
+      key: 'cloud_sync', kind: 'passive', category: 'memory',
+      glyph: '☁️', label: 'Cloud Sync',
+      desc: 'All my data follows you across devices via Supabase. Last-Write-Wins.',
+    });
+    reg.push({
+      key: 'voice', kind: 'passive', category: 'self',
+      glyph: '🎙️', label: 'Voice Synthesis',
+      desc: 'Web Speech API. Optional. Soft female voice preferred.',
+    });
+    reg.push({
+      key: 'dream', kind: 'passive', category: 'autonomous',
+      glyph: '💭', label: 'Dreams',
+      desc: 'Returning after 8+ hours, I might tell you what I dreamed about.',
+    });
+    return reg;
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.28 WORLD MODEL — Trajan's runtime snapshot of NEXUS + himself.
+  // Used for: status reporting, contextual suggestions, self-narration.
+  //
+  // Inspired by Meta's "Embodied AI Agents: Modeling the World" (2025):
+  // an explicit perception layer that the agent reasons over.
+  // ════════════════════════════════════════════════════════════════════
+
+  function buildWorldModel() {
+    const wm = {};
+    // Current NEXUS view (from DOM)
+    let activeView = 'unknown';
+    try {
+      const navBtn = document.querySelector('.nav-tab.active[data-view], .bnav-btn.active[data-view]');
+      if (navBtn) activeView = navBtn.getAttribute('data-view') || 'unknown';
+    } catch (e) {}
+    wm.view = activeView;
+    // Time of day
+    const h = new Date().getHours();
+    wm.time_of_day =
+      (h < 6)  ? 'late_night' :
+      (h < 11) ? 'morning' :
+      (h < 14) ? 'midday' :
+      (h < 18) ? 'afternoon' :
+      (h < 22) ? 'evening' : 'late_night';
+    // Self state
+    wm.personality = state.preferences.personality || 'normal';
+    wm.bond_level = (typeof getBondLevel === 'function') ? getBondLevel() : null;
+    wm.bond_xp = (typeof getBondXP === 'function') ? getBondXP() : 0;
+    wm.affinity = (typeof getAffinity === 'function') ? getAffinity() : 0;
+    wm.affinity_tier = (typeof getAffinityTier === 'function') ? getAffinityTier() : null;
+    wm.streak = state.preferences.daily_streak || 0;
+    wm.persona = (typeof getActiveConqueror === 'function') ? getActiveConqueror() : null;
+    wm.dominant_feeling = (typeof dominantFeeling === 'function') ? dominantFeeling() : 'content';
+    wm.sulking = !!state.sulkActive;
+    wm.do_not_disturb = !!state.preferences.do_not_disturb;
+    wm.memory_count = (state.memories || []).length;
+    wm.likes_count = ((state.preferences && state.preferences.likes) || []).length;
+    // Connectivity
+    wm.online = typeof navigator !== 'undefined' && navigator.onLine;
+    // Costume + prop
+    wm.costume = state.preferences.costume || 'none';
+    wm.prop = state.preferences.prop || 'none';
+    return wm;
+  }
+
+  // Format world model for human readable display
+  function formatWorldModel(wm) {
+    if (!wm) wm = buildWorldModel();
+    const rows = [];
+    rows.push(['VIEW',         wm.view]);
+    rows.push(['TIME OF DAY',  wm.time_of_day]);
+    rows.push(['PERSONALITY',  wm.personality]);
+    if (wm.bond_level) rows.push(['BOND',  `${wm.bond_level.lvl} (${wm.bond_level.label}) · ${wm.bond_xp} XP`]);
+    if (wm.affinity_tier) rows.push(['AFFINITY', `${wm.affinity > 0 ? '+' : ''}${wm.affinity} — ${wm.affinity_tier.label}`]);
+    rows.push(['STREAK',       wm.streak + (wm.streak === 1 ? ' day' : ' days')]);
+    rows.push(['PERSONA',      wm.persona ? wm.persona.label : '— (default)']);
+    rows.push(['FEELING',      wm.dominant_feeling]);
+    rows.push(['MEMORIES',     wm.memory_count]);
+    rows.push(['LIKES STORED', wm.likes_count]);
+    rows.push(['COSTUME',      wm.costume]);
+    rows.push(['PROP',         wm.prop]);
+    rows.push(['CLOUD',        wm.online ? 'online' : 'offline']);
+    // v17.30: PRD bored mischief status
+    if (typeof getMischiefStatus === 'function') {
+      const ms = getMischiefStatus();
+      if (ms.bored) {
+        rows.push(['BORED',           `yes — ${ms.idle_seconds}s idle`]);
+        rows.push(['NEXT MISCHIEF',   `${ms.next_chance_pct}% next tick`]);
+        rows.push(['GUARANTEED IN',   `${ms.guaranteed_in_seconds}s max`]);
+      } else {
+        rows.push(['BORED',           'no']);
+      }
+    }
+    if (wm.sulking) rows.push(['SULKING', 'YES']);
+    if (wm.do_not_disturb) rows.push(['DO-NOT-DISTURB', 'ON']);
+    return rows;
+  }
+
+  // Contextual suggestion: given current world state, what would help?
+  // This is the "ReAct" pattern — reason about state, then propose action.
+  function pickContextualSuggestion() {
+    // v17.29: 30-min cooldown — passive enjoyment trumps active suggestions
+    if (state.lastSuggestionAt && (Date.now() - state.lastSuggestionAt < 30 * 60_000)) return null;
+    const wm = buildWorldModel();
+    const sugg = [];
+    // Suggest gacha if streak active and (probably) haven't pulled today
+    if (wm.streak >= 1) {
+      try {
+        const g = (typeof getGachaState === 'function') ? getGachaState() : null;
+        const today = (typeof todayDateStr === 'function') ? todayDateStr() : null;
+        if (g && g.last_pull_date !== today) {
+          sugg.push({ score: 8, pool: 'suggest_pull_gacha', invoke: 'gacha' });
+        }
+      } catch (e) {}
+    }
+    // Suggest games if dominant feeling is sad/tired/lonely
+    if (['sad', 'lonely', 'tired'].includes(wm.dominant_feeling)) {
+      sugg.push({ score: 9, pool: 'suggest_play_game', invoke: 'games' });
+    }
+    // Suggest memories if high memory count
+    if (wm.memory_count >= 30) {
+      sugg.push({ score: 5, pool: 'suggest_check_memories', invoke: 'memory_dex' });
+    }
+    // Suggest chat if low affinity (warm up)
+    if (wm.affinity < 15 && wm.bond_level && wm.bond_level.lvl < 3) {
+      sugg.push({ score: 6, pool: 'suggest_chat', invoke: 'chat' });
+    }
+    // Suggest persona change if alter ego active for many hours
+    if (wm.persona && state.preferences.alter_ego && state.preferences.alter_ego.startedAt) {
+      const hoursActive = (Date.now() - state.preferences.alter_ego.startedAt) / 3600000;
+      if (hoursActive >= 10) {
+        sugg.push({ score: 4, pool: 'suggest_change_persona', invoke: 'wardrobe' });
+      }
+    }
+    // Pick highest score
+    sugg.sort((a, b) => b.score - a.score);
+    return sugg[0] || null;
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.28 SELF-INTROSPECTION MENU — Trajan shows the user every system
+  // he can tap into, with live world-model snapshot at the top.
+  // ════════════════════════════════════════════════════════════════════
+
+  function showCapabilityMenu() {
+    closeActionBubble();
+    if (typeof closeGameOverlay === 'function') closeGameOverlay();
+    const wm = buildWorldModel();
+    const rows = formatWorldModel(wm);
+    const reg = buildCapabilityRegistry();
+    const activeCaps = reg.filter(c => c.kind === 'active');
+    const passiveCaps = reg.filter(c => c.kind === 'passive');
+
+    const renderCard = (c) => `
+      <div class="clippy-cap-card ${c.kind === 'passive' ? 'is-passive' : ''}" data-cap="${c.key}">
+        <div class="clippy-cap-glyph">${c.glyph}</div>
+        <div class="clippy-cap-body">
+          <div class="clippy-cap-label">${esc(c.label)}
+            <span class="clippy-cap-tag ${c.kind === 'passive' ? 'is-passive' : ''}">${c.kind}</span>
+          </div>
+          <div class="clippy-cap-desc">${esc(c.desc)}</div>
+        </div>
+      </div>
+    `;
+
+    const ov = document.createElement('div');
+    ov.className = 'clippy-dex-overlay';
+    ov.innerHTML = `
+      <div class="clippy-dex-title">🤖 What I Am</div>
+      <div class="clippy-dex-headline">Every system I can tap into</div>
+
+      <div class="clippy-world-state">
+        <div class="clippy-world-state-title">🌐 Live World Model</div>
+        ${rows.map(([k, v]) => `
+          <div class="clippy-world-state-row">
+            <span class="clippy-world-state-key">${esc(k)}</span>
+            <span class="clippy-world-state-val">${esc(String(v))}</span>
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="clippy-cap-section-divider">ACTIVE — invoke me</div>
+      <div class="clippy-cap-grid">${activeCaps.map(renderCard).join('')}</div>
+
+      <div class="clippy-cap-section-divider">PASSIVE — I do these automatically</div>
+      <div class="clippy-cap-grid">${passiveCaps.map(renderCard).join('')}</div>
+
+      <div class="clippy-game-buttons" style="margin-top:28px;">
+        <button class="clippy-game-btn is-ghost" data-act="close">Close</button>
+      </div>
+    `;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('is-visible'));
+    state.suppressed = true;
+
+    // Wire invokes for active capabilities
+    ov.querySelectorAll('[data-cap]').forEach(el => {
+      const key = el.getAttribute('data-cap');
+      const cap = reg.find(c => c.key === key);
+      if (cap && cap.kind === 'active' && typeof cap.invoke === 'function') {
+        el.addEventListener('click', () => {
+          ov.classList.remove('is-visible');
+          setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
+          state.suppressed = false;
+          setTimeout(() => cap.invoke(), 320);
+        });
+      }
+    });
+    ov.querySelector('[data-act="close"]').addEventListener('click', () => {
+      ov.classList.remove('is-visible');
+      setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
+      state.suppressed = false;
+    });
+  }
+
+
+  // Chat hook — "what can you do" / "who are you" → show capability menu
+  function detectSelfIntrospectionRequest(text) {
+    if (!text) return false;
+    const t = text.toLowerCase();
+    const triggers = [
+      'what can you do',
+      'what do you do',
+      'who are you',
+      'help me',
+      'show me everything',
+      'all your features',
+      'what are your features',
+      'capabilities',
+      'what are you',
+      'what can i do with you',
+    ];
+    return triggers.some(p => t.includes(p));
+  }
+
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.26 LIKES & DISLIKES — Trajan tracks specific things he's grown
+  // to like or dislike. Subjects: restaurants, NEXUS views, foods, times
+  // of day, anything mentioned a lot. Each entry persists per user.
+  // ════════════════════════════════════════════════════════════════════
+
+  // Get likes (array of { subject, type, sentiment, reason, when })
+  function getLikes() {
+    return state.preferences.likes || [];
+  }
+  function findLike(subject) {
+    return getLikes().find(l => l.subject === subject);
+  }
+  // Add/update a like or dislike. sentiment: +3..+1 = like, -1..-3 = dislike.
+  function addLike(subject, type, sentiment, reason) {
+    if (!subject) return;
+    sentiment = Math.max(-3, Math.min(3, Number(sentiment) || 0));
+    if (sentiment === 0) return;
+    if (!state.preferences.likes) state.preferences.likes = [];
+    const existing = state.preferences.likes.find(l => l.subject === subject);
+    const wasNew = !existing;
+    let crossed = false;   // crossed from neutral to like/dislike
+    if (existing) {
+      // Adjust toward new sentiment (averaging effect)
+      const prev = existing.sentiment;
+      existing.sentiment = Math.max(-3, Math.min(3,
+        Math.round((existing.sentiment * 0.7) + (sentiment * 0.6))));
+      existing.when = Date.now();
+      // If sign flipped, treat as a fresh discovery
+      if ((prev <= 0 && existing.sentiment > 0) ||
+          (prev >= 0 && existing.sentiment < 0)) crossed = true;
+    } else {
+      state.preferences.likes.push({
+        subject: subject,
+        type: type || 'general',
+        sentiment: sentiment,
+        reason: reason || '',
+        when: Date.now(),
+      });
+    }
+    // Cap at 50 likes — drop oldest weakest first
+    if (state.preferences.likes.length > 50) {
+      state.preferences.likes.sort((a, b) =>
+        (Math.abs(b.sentiment) - Math.abs(a.sentiment)) || (b.when - a.when));
+      state.preferences.likes = state.preferences.likes.slice(0, 50);
+    }
+    savePreferences();
+    if ((wasNew && Math.abs(sentiment) >= 2) || crossed) {
+      const pool = sentiment > 0 ? 'pref_discovered_like' : 'pref_discovered_dislike';
+      setTimeout(() => {
+        if (!state.bubble && state.enabled) {
+          bubble(substituteVars(pickFromPool(pool)).replace('{subject}', subject),
+            { autoHide: 3800, eyebrow: sentiment > 0 ? '💚 NEW LIKE' : '💔 NEW DISLIKE' });
+        }
+      }, 1500);
+      depositMemory('pref_learned',
+        `${sentiment > 0 ? 'Likes' : 'Dislikes'} ${subject} (${reason || 'no reason'}).`,
+        { subject, sentiment, reason }, 2);
+    }
+    if (typeof cloudPushQueued === 'function') cloudPushQueued();
+  }
+  function removeLike(subject) {
+    if (!state.preferences.likes) return;
+    state.preferences.likes = state.preferences.likes.filter(l => l.subject !== subject);
+    savePreferences();
+    if (typeof cloudPushQueued === 'function') cloudPushQueued();
+  }
+
+  // Auto-discover likes from user behavior
+  // Hook: view visits — repeated visits to same view → like
+  function trackViewVisitForLikes(viewKey) {
+    if (!viewKey) return;
+    state.viewVisitCounts = state.viewVisitCounts || {};
+    state.viewVisitCounts[viewKey] = (state.viewVisitCounts[viewKey] || 0) + 1;
+    const count = state.viewVisitCounts[viewKey];
+    // After 8 visits, mild like; after 20, strong like
+    if (count === 8) addLike('the ' + viewKey + ' view', 'view', 1, '8+ visits noticed');
+    if (count === 20) addLike('the ' + viewKey + ' view', 'view', 2, 'frequent visits');
+    if (count === 50) addLike('the ' + viewKey + ' view', 'view', 3, 'constant return');
+  }
+  // Hook: chat keywords — detect "I love/hate X" patterns
+  // v17.29: tightened patterns — must be explicit, not partial-match
+  function detectChatPreference(text) {
+    if (!text) return;
+    // Positive patterns — require explicit subject after the verb
+    const posPatterns = [
+      /\bi\s+(?:really\s+|truly\s+)?(?:love|adore|enjoy)\s+([\w][\w\s]{2,28}[\w])(?:\.|!|\?|,|$)/i,
+      /^([\w][\w\s]{2,28}[\w])\s+is\s+(?:my\s+favorite|amazing|the\s+best|incredible)(?:\.|!|\?|,|$)/i,
+    ];
+    const negPatterns = [
+      /\bi\s+(?:really\s+|truly\s+)?(?:hate|despise|loathe|can'?t\s+stand)\s+([\w][\w\s]{2,28}[\w])(?:\.|!|\?|,|$)/i,
+      /^([\w][\w\s]{2,28}[\w])\s+is\s+(?:terrible|awful|the\s+worst|garbage)(?:\.|!|\?|,|$)/i,
+    ];
+    // Skip if message contains uncertainty / negation
+    if (/\b(?:don'?t|do\s+not|sometimes|maybe|might|kind\s+of|sort\s+of)\b/i.test(text)) return;
+    for (const re of posPatterns) {
+      const m = text.match(re);
+      if (m && m[1]) {
+        const subject = m[1].trim().toLowerCase();
+        // Reject common non-noun words (pronouns, weak nouns)
+        if (/^(?:it|this|that|you|me|him|her|them|us|stuff|things?|something|nothing|everything)$/i.test(subject)) return;
+        addLike(subject, 'mentioned', 2, 'user said they love it');
+        return;
+      }
+    }
+    for (const re of negPatterns) {
+      const m = text.match(re);
+      if (m && m[1]) {
+        const subject = m[1].trim().toLowerCase();
+        if (/^(?:it|this|that|you|me|him|her|them|us|stuff|things?|something|nothing|everything)$/i.test(subject)) return;
+        addLike(subject, 'mentioned', -2, 'user said they hate it');
+        return;
+      }
+    }
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.26 LIKES / AFFINITY VIEWER — combined heart menu
+  // ════════════════════════════════════════════════════════════════════
+
+  function showAffinityMenu() {
+    closeActionBubble();
+    if (typeof closeGameOverlay === 'function') closeGameOverlay();
+    const score = getAffinity();
+    const tier = getAffinityTier();
+    const pct = Math.abs(score);   // 0-100
+    const likes = getLikes();
+    const liked = likes.filter(l => l.sentiment > 0).sort((a,b) => b.sentiment - a.sentiment);
+    const disliked = likes.filter(l => l.sentiment < 0).sort((a,b) => a.sentiment - b.sentiment);
+
+    const ov = document.createElement('div');
+    ov.className = 'clippy-dex-overlay';
+    ov.innerHTML = `
+      <div class="clippy-dex-title">❤️ Affinity & Preferences</div>
+      <div class="clippy-dex-headline">My feelings about you and life</div>
+
+      <div class="clippy-affinity-meter">
+        <div class="clippy-affinity-label">My Opinion of ${esc(state.preferences.name || 'You')}</div>
+        <div class="clippy-affinity-status is-${tier.key}">${tier.glyph} ${esc(tier.label)}</div>
+        <div class="clippy-affinity-bar">
+          <div class="clippy-affinity-bar-center"></div>
+          <div class="clippy-affinity-bar-fill ${score >= 0 ? 'is-positive' : 'is-negative'}"
+               style="width: ${pct/2}%;"></div>
+        </div>
+        <div class="clippy-affinity-score">${score > 0 ? '+' : ''}${score} / 100</div>
+      </div>
+
+      <div class="clippy-likes-section">
+        <div class="clippy-likes-section-title">💚 I LIKE — ${liked.length}</div>
+        <div class="clippy-likes-list">
+          ${liked.length === 0
+            ? '<div class="clippy-like-empty">Nothing yet. Show me what you love.</div>'
+            : liked.map(l => `<span class="clippy-like-tag is-like">
+                <span class="clippy-like-tag-glyph">${'💚'.repeat(Math.max(1, l.sentiment))}</span>
+                ${esc(l.subject)}
+              </span>`).join('')
+          }
+        </div>
+      </div>
+
+      <div class="clippy-likes-section">
+        <div class="clippy-likes-section-title">💔 I DON'T LIKE — ${disliked.length}</div>
+        <div class="clippy-likes-list">
+          ${disliked.length === 0
+            ? '<div class="clippy-like-empty">Nothing earned this yet. Lucky world.</div>'
+            : disliked.map(l => `<span class="clippy-like-tag is-dislike">
+                <span class="clippy-like-tag-glyph">${'💔'.repeat(Math.max(1, -l.sentiment))}</span>
+                ${esc(l.subject)}
+              </span>`).join('')
+          }
+        </div>
+      </div>
+
+      <div class="clippy-game-buttons" style="margin-top:24px;">
+        <button class="clippy-game-btn" data-act="close">Close</button>
+      </div>
+    `;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('is-visible'));
+    state.suppressed = true;
+    ov.querySelector('[data-act="close"]').addEventListener('click', () => {
+      ov.classList.remove('is-visible');
+      setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
+      state.suppressed = false;
+    });
+  }
+
+  function doSweep(durationMs) {
+    if (!state.shell || state.sulkActive) return;
+    state.shell.classList.add('holding-broom', 'is-sweeping');
+    setTimeout(() => {
+      if (state.shell) {
+        state.shell.classList.remove('is-sweeping');
+        if (state.preferences.prop !== 'broom') state.shell.classList.remove('holding-broom');
+      }
+    }, durationMs || 6000);
+    if (Math.random() < 0.7) {
+      setTimeout(() => { if (!state.bubble) bubble(pickFromPool('holding_broom_idle'), { autoHide: 3000, eyebrow: '🧹 SWEEPING' }); }, 1200);
+    }
+  }
+  function doRead(durationMs) {
+    if (!state.shell || state.sulkActive) return;
+    state.shell.classList.add('holding-book', 'is-reading');
+    setTimeout(() => {
+      if (state.shell) {
+        state.shell.classList.remove('is-reading');
+        if (state.preferences.prop !== 'book') state.shell.classList.remove('holding-book');
+      }
+    }, durationMs || 8000);
+    if (Math.random() < 0.7) {
+      setTimeout(() => { if (!state.bubble) bubble(pickFromPool('holding_book_idle'), { autoHide: 3500, eyebrow: '📖 READING' }); }, 1400);
+    }
+  }
+  function doScribe(durationMs) {
+    if (!state.shell || state.sulkActive) return;
+    state.shell.classList.add('holding-scroll', 'is-scribing');
+    setTimeout(() => {
+      if (state.shell) {
+        state.shell.classList.remove('is-scribing');
+        if (state.preferences.prop !== 'scroll') state.shell.classList.remove('holding-scroll');
+      }
+    }, durationMs || 5000);
+    if (Math.random() < 0.6) {
+      setTimeout(() => { if (!state.bubble) bubble(pickFromPool('holding_scroll_idle'), { autoHide: 3000, eyebrow: '📜 SCRIBING' }); }, 1200);
+    }
+  }
+
+  function showCostumeMenu() {
+    closeActionBubble();
+    if (typeof closeGameOverlay === 'function') closeGameOverlay();
+    const curC = state.preferences.costume || 'none';
+    const curP = state.preferences.prop || 'none';
+    const ov = document.createElement('div');
+    ov.className = 'clippy-dex-overlay';
+    ov.innerHTML = `
+      <div class="clippy-dex-title">👗 Wardrobe</div>
+      <div class="clippy-dex-headline">Dress me up!</div>
+      <div class="clippy-dex-title" style="margin:18px 0 10px;">HEAD</div>
+      <div class="clippy-costume-grid">
+        ${Object.entries(COSTUMES).map(([k, c]) => `
+          <div class="clippy-costume-card ${curC === k ? 'is-active' : ''}" data-costume="${k}">
+            <div class="clippy-costume-glyph">${c.glyph}</div>
+            <div class="clippy-costume-label">${esc(c.label)}</div>
+          </div>`).join('')}
+      </div>
+      <div class="clippy-dex-title" style="margin:24px 0 10px;">PROP</div>
+      <div class="clippy-costume-grid">
+        ${Object.entries(PROPS).map(([k, p]) => `
+          <div class="clippy-costume-card ${curP === k ? 'is-active' : ''}" data-prop="${k}">
+            <div class="clippy-costume-glyph">${p.glyph}</div>
+            <div class="clippy-costume-label">${esc(p.label)}</div>
+          </div>`).join('')}
+      </div>
+      <div class="clippy-dex-title" style="margin:24px 0 10px;">ACTIONS</div>
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn" data-act="sweep">🧹 Sweep</button>
+        <button class="clippy-game-btn" data-act="read">📖 Read</button>
+        <button class="clippy-game-btn" data-act="scribe">📜 Scribe</button>
+      </div>
+
+      <div class="clippy-dex-title" style="margin:24px 0 10px;">CONQUEROR MOOD <span style="opacity:0.5;font-weight:normal;">(usually rolls daily)</span></div>
+      <div class="clippy-costume-grid">
+        ${[['none','Default'],['trajan','Trajan'],['napoleon','Napoleon'],
+           ['genghis','Genghis'],['alexander','Alexander'],['hannibal','Hannibal'],['cleopatra','Cleopatra']]
+          .map(([k, label]) => {
+            const isActive = (k === 'none')
+              ? !state.preferences.alter_ego
+              : (state.preferences.alter_ego && state.preferences.alter_ego.key === k);
+            const glyph = k === 'none' ? '🚫' : (CONQUERORS[k] && CONQUERORS[k].glyph) || '?';
+            return `<div class="clippy-costume-card ${isActive ? 'is-active' : ''}" data-conqueror="${k}">
+              <div class="clippy-costume-glyph">${glyph}</div>
+              <div class="clippy-costume-label">${esc(label)}</div>
+            </div>`;
+          }).join('')}
+      </div>
+
+      <div class="clippy-game-buttons" style="margin-top:14px;">
+        <button class="clippy-game-btn is-ghost" data-act="close">Done</button>
+      </div>
+    `;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('is-visible'));
+    state.suppressed = true;
+    ov.querySelectorAll('[data-costume]').forEach(el => {
+      el.addEventListener('click', () => {
+        setCostume(el.getAttribute('data-costume'));
+        ov.querySelectorAll('[data-costume]').forEach(o => o.classList.remove('is-active'));
+        el.classList.add('is-active');
+      });
+    });
+    ov.querySelectorAll('[data-prop]').forEach(el => {
+      el.addEventListener('click', () => {
+        setProp(el.getAttribute('data-prop'));
+        ov.querySelectorAll('[data-prop]').forEach(o => o.classList.remove('is-active'));
+        el.classList.add('is-active');
+      });
+    });
+    ov.querySelectorAll('[data-conqueror]').forEach(el => {
+      el.addEventListener('click', () => {
+        setConqueror(el.getAttribute('data-conqueror'));
+        ov.querySelectorAll('[data-conqueror]').forEach(o => o.classList.remove('is-active'));
+        el.classList.add('is-active');
+      });
+    });
+    ov.querySelector('[data-act="sweep"]').addEventListener('click', () => doSweep());
+    ov.querySelector('[data-act="read"]').addEventListener('click', () => doRead());
+    ov.querySelector('[data-act="scribe"]').addEventListener('click', () => doScribe());
+    ov.querySelector('[data-act="close"]').addEventListener('click', () => {
+      ov.classList.remove('is-visible');
+      setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
+      state.suppressed = false;
+    });
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.25 PROCEDURAL SENTENCE GENERATOR — Tracery-style template
+  // expansion. Trajan composes original sentences from slot pools.
+  // ════════════════════════════════════════════════════════════════════
+
+  const PROC_TEMPLATES = [
+    "{intro_thought} {emperor}, who {emperor_did}. {observation}",
+    "{emperor} once {emperor_did}. {observation}",
+    "{connector} {emperor} {emperor_did}. {observation}",
+    "{intro_thought} {virtue} — the Romans practiced it at {place}. {observation}",
+    "Tell me {virtue} isn't beautiful. {emperor} embodied it.",
+    "{connector} we should all aspire to {virtue}. {emperor} certainly did.",
+    "I'd love to visit {place} someday. {observation}",
+    "{place} saw {emperor} {emperor_did}. History layered on stone.",
+    "If walls could talk, those of {place} would have stories.",
+    "I think about {virtue} a lot, {name}. Probably you should too.",
+    "{intro_thought} how {emperor} {emperor_did}. Worth pondering.",
+    "Bzzt — sometimes I imagine {emperor} at {place}, watching us continue.",
+    "My namesake — Emperor Trajan — would {emperor_did} if alive today. {observation}",
+    "I'm named for one who knew {virtue}. That's a lot to live up to. *orb sighs*",
+  ];
+  function expandTemplate(tpl, ctx) {
+    return tpl.replace(/\{(\w+)\}/g, (_, key) => {
+      if (ctx && ctx[key] !== undefined) return ctx[key];
+      if (key === 'name') return state.preferences.name || 'friend';
+      const poolMap = {
+        emperor: 'proc_emperor',
+        emperor_did: 'proc_emperor_did',
+        virtue: 'proc_roman_virtue',
+        place: 'proc_roman_place',
+        observation: 'proc_observation',
+        connector: 'proc_connector',
+        intro_thought: 'proc_intro_thought',
+      };
+      const pool = poolMap[key];
+      if (pool && state.dialog && state.dialog[pool]) return pickFromPool(pool);
+      return '{' + key + '}';
+    });
+  }
+  function composeSentence() {
+    const tpl = PROC_TEMPLATES[Math.floor(Math.random() * PROC_TEMPLATES.length)];
+    return expandTemplate(tpl);
+  }
+
+
   function showPersonalityMenu() {
     closeActionBubble();
     const cur = state.preferences.personality || 'normal';
@@ -2014,7 +3288,7 @@
       savePreferences();
       mood('love', 4500);      // HEART EYES on milestone unlock!
       play('hop');
-      setCostume('chef', 8000);
+      setCostumeImg('chef', 8000);
       bubble(pickFromPool('100_clicks_unlock'));
       return;
     }
@@ -2074,6 +3348,13 @@
     if (state.shell) state.shell.classList.remove('is-bored');
     // v17.20: grant bond XP on every tap
     grantBondXP_tap();
+    // v17.23: SULK INTERCEPT — taps during sulk advance forgive counter,
+    // not normal behavior
+    if (state.sulkActive) {
+      spawnParticles({ count: 2, type: 'sparkle' });
+      handleSulkTap();
+      return;
+    }
     // v17.6: tactile feedback — sparkle + boop on every tap
     spawnParticles({ count: 4, type: 'sparkle' });
     playTone('boop');
@@ -2164,9 +3445,50 @@
     } else if (r < 0.74) {
       bubble(pickFromPool('roman_facts'), { eyebrow: 'ROMA', autoHide: 5800 });
       mood('thinking', 5500);
+    } else if (r < 0.755) {
+      // v17.23: longer contextual fact — "Did you know..." style
+      bubble(pickFromPool('did_you_know'), { eyebrow: '💡 DID YOU KNOW', autoHide: 11000 });
+      mood('studious', 9500);
+    } else if (r < 0.77) {
+      // v17.23: narrative anecdote
+      bubble(pickFromPool('roman_stories'), { eyebrow: '📜 STORY', autoHide: 11000 });
+      mood('thinking', 9500);
     } else if (r < 0.78) {
-      bubble(pickFromPool('whimsical_idle'), { autoHide: 3800 });
+      // v17.23: weird history
+      bubble(pickFromPool('weird_history'), { eyebrow: '🤨 WEIRD HISTORY', autoHide: 10000 });
+      mood('confused', 8500);
+    } else if (r < 0.81) {
+      // v17.25: PROCEDURAL — composed fresh, never the same twice
+      // v17.27: if a conqueror is active, ~50% chance of quote instead
+      const active = (typeof getActiveConqueror === 'function') ? getActiveConqueror() : null;
+      if (active && Math.random() < 0.50) {
+        bubble(pickFromPool(active.quotePool),
+          { autoHide: 9500, eyebrow: active.eyebrow });
+      } else {
+        bubble(composeSentence(), { eyebrow: '🧠 THOUGHT', autoHide: 9500 });
+      }
+      mood('thinking', 8500);
+    } else if (r < 0.812) {
+      // v17.28: CONTEXTUAL SUGGESTION — ReAct pattern. Rare slot (0.2%).
+      // v17.29: 30-min cooldown enforced inside pickContextualSuggestion()
+      const sugg = (typeof pickContextualSuggestion === 'function') ? pickContextualSuggestion() : null;
+      if (sugg && state.dialog && state.dialog[sugg.pool]) {
+        bubble(pickFromPool(sugg.pool), { autoHide: 6000, eyebrow: '💡 SUGGESTION' });
+        mood('thinking', 4500);
+        state.lastSuggestionAt = Date.now();
+      } else {
+        // v17.29: fallback to AMBIENT OBSERVATION — declarative, no questions
+        bubble(pickFromPool('ambient_observation'), { autoHide: 6500 });
+      }
     } else if (r < 0.82) {
+      // v17.29: half the time, an AMBIENT OBSERVATION instead of whimsical chatter.
+      // Pure self-narration, longer dwell, no demand on user.
+      if (Math.random() < 0.5) {
+        bubble(pickFromPool('ambient_observation'), { autoHide: 6500 });
+      } else {
+        bubble(pickFromPool('whimsical_idle'), { autoHide: 4500 });
+      }
+    } else if (r < 0.86) {
       bubble(pickFromPool('dad_jokes'), { autoHide: 4500 });
       // v17.16: 30% of jokes trigger the LAUGHING face (squint XX + open laugh)
       mood(Math.random() < 0.3 ? 'laughing' : 'winking', 3800);
@@ -2324,6 +3646,7 @@
     if (!state.shell) {
       el.style.top  = (window.innerHeight - eRect.height - 200) + 'px';
       el.style.left = (window.innerWidth  - eRect.width  - 24)  + 'px';
+      el.classList.remove('tail-left','tail-right','tail-up-left','tail-up-right');
       el.classList.add('tail-right');
       return;
     }
@@ -2331,22 +3654,30 @@
     if (rect.width === 0) {
       el.style.top  = (window.innerHeight - eRect.height - 200) + 'px';
       el.style.left = (window.innerWidth  - eRect.width  - 24)  + 'px';
+      el.classList.remove('tail-left','tail-right','tail-up-left','tail-up-right');
       el.classList.add('tail-right');
       return;
     }
     let top  = rect.top - eRect.height - 24;
     let left = rect.left + (rect.width / 2) - (eRect.width / 2);
-    // v17.18: if bubble would go off top, position it BELOW the shell instead
-    let tailDirection = 'top';   // tail points UP (bubble above shell)
+    // v17.18/v17.24: if bubble would clip top, position BELOW the shell
+    // and flip the tail to point UP
+    let tailBelow = false;
     if (top < 8) {
       top = rect.bottom + 24;
-      tailDirection = 'bottom';
+      tailBelow = true;
     }
     left = Math.max(8, Math.min(window.innerWidth  - eRect.width  - 8, left));
     el.style.top  = top  + 'px';
     el.style.left = left + 'px';
-    el.classList.remove('tail-left', 'tail-right');
-    el.classList.add(rect.left < window.innerWidth / 2 ? 'tail-left' : 'tail-right');
+    // Clear all tail classes, then set the right one
+    el.classList.remove('tail-left','tail-right','tail-up-left','tail-up-right');
+    const isLeft = rect.left < window.innerWidth / 2;
+    if (tailBelow) {
+      el.classList.add(isLeft ? 'tail-up-left' : 'tail-up-right');
+    } else {
+      el.classList.add(isLeft ? 'tail-left' : 'tail-right');
+    }
   }
 
   // v17.18: BUBBLE FOLLOW LOOP — while a bubble exists, re-position it on
@@ -2402,6 +3733,10 @@
       { label: 'Open menu', cls: 'is-primary', onClick: openPalette },
       { label: '💬 Chat with me', onClick: () => openChat() },
       { label: '🎮 Play a game', onClick: () => { closeActionBubble(); showGameMenu(); } },
+      { label: '🎴 Daily Gacha', onClick: () => { closeActionBubble(); showGachaInvite(); } },
+      { label: '👗 Wardrobe', onClick: () => { closeActionBubble(); showCostumeMenu(); } },
+      { label: '❤️ My feelings', onClick: () => { closeActionBubble(); showAffinityMenu(); } },
+      { label: '🤖 What I am', onClick: () => { closeActionBubble(); showCapabilityMenu(); } },
     ];
     if (oracleReady) {
       actions.push({ label: '✨ Oracle (rare)', onClick: () => { triggerSuperChat(); } });
@@ -2594,7 +3929,7 @@
     if (!state.quoteCorpus.length) return;
     const intro = pickFromPool('trajan_quote_intro');
     const quote = state.quoteCorpus[Math.floor(Math.random() * state.quoteCorpus.length)];
-    setCostume('laurel', 7000);
+    setCostumeImg('laurel', 7000);
     mood('concerned', 6000);
     play('magic');
     actionBubble(quote, { eyebrow: intro, trajan: true, duration: 6000 });
@@ -2934,10 +4269,8 @@
     };
     setInterval(() => {
       if (!state.enabled || !state.shell || state.suppressed) return;
-      // v17.17: COIN FLIP MISCHIEF — 0.4% chance per 2s tick
-      if (!state.bubble && !state.coinFlipInProgress && Math.random() < 0.004) {
-        if (maybeFlipCoin()) return;
-      }
+      // v17.30: coin flip moved to PRD-controlled bored mischief on 30s ticks.
+      // Removed inline 0.15% gate here — coin flip now fires via runBoredMischief().
       // v17.18: VIEW MISCHIEF — equipment/clean/board/inventory pokes
       if (maybeViewMischief()) return;
       // v17.18: BORED DRIFT — when idle 30s+, slow wander to new spot
@@ -2971,6 +4304,8 @@
           }[view] || view;
           depositMemory('first_view_visit', `You explored ${viewLabel} for the first time.`, { view }, 2);
         }
+        // v17.26: track view visits for likes auto-discovery
+        if (typeof trackViewVisitForLikes === 'function') trackViewVisitForLikes(view);
         // Only react if it's been 25+ seconds since last view bubble,
         // and a fresh switch (not initial detection). Also random gate.
         const now = Date.now();
@@ -3239,7 +4574,149 @@
       }, 600);
     }
     return true;
-  }  // ════════════════════════════════════════════════════════════════════
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.30 PSEUDO-RANDOM DISTRIBUTION (Dota 2-style)
+  //
+  // Standard random: each roll is independent. Can produce streaks
+  // (5 procs in a row) or droughts (50 rolls with nothing). Bad for
+  // ambient pet feel — Trajan would either spam or vanish.
+  //
+  // PRD: P(N) = C × N. Chance starts at C, climbs by C each failed
+  // roll, resets to 0 (effectively C) on success. Source: Valve's
+  // implementation for crits/bashes/evasion (Liquipedia, Dotabuff).
+  //
+  // For bored mischief: C = 0.05, tick every 30s.
+  //   Tick 1:  5% chance
+  //   Tick 2: 10%
+  //   Tick 5: 25%
+  //   Tick 10: 50%
+  //   Tick 20: GUARANTEED (5% × 20 = 100%)
+  //
+  // Average expected wait: ~4.5 ticks ≈ 2.25 minutes idle.
+  // Hard guarantee: within 10 minutes idle, mischief WILL fire.
+  // ════════════════════════════════════════════════════════════════════
+
+  function prdRoll(key, C) {
+    state.prdCounters = state.prdCounters || {};
+    state.prdCounters[key] = (state.prdCounters[key] || 0) + 1;
+    const N = state.prdCounters[key];
+    const P = C * N;
+    if (Math.random() < P) {
+      state.prdCounters[key] = 0;
+      return true;
+    }
+    return false;
+  }
+  function prdReset(key) {
+    state.prdCounters = state.prdCounters || {};
+    state.prdCounters[key] = 0;
+  }
+  function prdCurrentChance(key, C) {
+    state.prdCounters = state.prdCounters || {};
+    const N = (state.prdCounters[key] || 0) + 1;
+    return Math.min(1, C * N);
+  }
+  function prdTicksUntilGuaranteed(key, C) {
+    state.prdCounters = state.prdCounters || {};
+    const N = (state.prdCounters[key] || 0);
+    return Math.ceil(1 / C) - N;
+  }
+
+  const MISCHIEF_PRD_C = 0.05;          // 5% per tick (user's spec)
+  const MISCHIEF_PRD_INTERVAL_MS = 30000; // 30 seconds
+  const BORED_THRESHOLD_MS = 60000;     // 1 minute idle = bored
+
+  function isBored() {
+    if (!state.enabled || state.suppressed || state.sulkActive) return false;
+    if (state.bubble || state.coinFlipInProgress) return false;
+    const idle = Date.now() - (state.lastTapAt || state.bootedAt || 0);
+    return idle > BORED_THRESHOLD_MS;
+  }
+
+  function runBoredMischief() {
+    // Weighted menu — calmer behaviors heavier-weighted, chaos rarer
+    const choices = [
+      { weight: 28, fn: () => {
+        if (state.dialog && state.dialog.ambient_observation)
+          bubble(pickFromPool('ambient_observation'), { autoHide: 6500 });
+      }, label: 'ambient_obs' },
+      { weight: 16, fn: () => {
+        if (state.dialog && state.dialog.whimsical_idle)
+          bubble(pickFromPool('whimsical_idle'), { autoHide: 4500 });
+      }, label: 'whimsy' },
+      { weight: 14, fn: () => { if (typeof doQuirk === 'function') doQuirk(); }, label: 'quirk' },
+      { weight: 12, fn: () => {
+        if (state.dialog && state.dialog.bored_restless)
+          bubble(pickFromPool('bored_restless'),
+                 { autoHide: 4000, eyebrow: '😼 RESTLESS' });
+      }, label: 'restless' },
+      { weight: 10, fn: () => {
+        if (typeof maybeAutonomousAction === 'function') maybeAutonomousAction();
+      }, label: 'autonomous_action' },
+      { weight: 10, fn: () => {
+        if (typeof maybeFlipCoin === 'function') maybeFlipCoin();
+      }, label: 'coin_flip' },
+      { weight: 6, fn: () => {
+        if (state.dialog && state.dialog.peaceful_idle)
+          bubble(pickFromPool('peaceful_idle'), { autoHide: 5000 });
+      }, label: 'peace' },
+      { weight: 4, fn: () => {
+        // Rare meta-moment: he explains his own PRD
+        if (state.dialog && state.dialog.prd_explainer)
+          bubble(pickFromPool('prd_explainer'),
+                 { autoHide: 7000, eyebrow: '🎲 PRD' });
+      }, label: 'meta_prd' },
+    ];
+    const total = choices.reduce((s, c) => s + c.weight, 0);
+    let r = Math.random() * total;
+    let picked = choices[0];
+    for (const c of choices) {
+      r -= c.weight;
+      if (r <= 0) { picked = c; break; }
+    }
+    try { picked.fn(); } catch (e) {}
+    if (typeof depositMemory === 'function') {
+      depositMemory('bored_mischief',
+        `PRD-triggered mischief: ${picked.label}`,
+        { kind: picked.label }, 1);
+    }
+  }
+
+  function startBoredMischiefPRD() {
+    if (state.boredMischiefTimer) clearInterval(state.boredMischiefTimer);
+    state.boredMischiefTimer = setInterval(() => {
+      if (!isBored()) {
+        prdReset('bored_mischief');
+        return;
+      }
+      if (prdRoll('bored_mischief', MISCHIEF_PRD_C)) {
+        runBoredMischief();
+      }
+    }, MISCHIEF_PRD_INTERVAL_MS);
+  }
+
+  // For the capability menu — let the user inspect Trajan's current PRD state
+  function getMischiefStatus() {
+    state.prdCounters = state.prdCounters || {};
+    const N = state.prdCounters['bored_mischief'] || 0;
+    const idle = Date.now() - (state.lastTapAt || state.bootedAt || 0);
+    const idleSeconds = Math.floor(idle / 1000);
+    const nextChance = isBored() ? prdCurrentChance('bored_mischief', MISCHIEF_PRD_C) : 0;
+    const ticksLeft = prdTicksUntilGuaranteed('bored_mischief', MISCHIEF_PRD_C);
+    return {
+      bored: isBored(),
+      idle_seconds: idleSeconds,
+      prd_n: N,
+      prd_c: MISCHIEF_PRD_C,
+      next_chance_pct: Math.round(nextChance * 1000) / 10,
+      guaranteed_in_ticks: ticksLeft,
+      guaranteed_in_seconds: ticksLeft * 30,
+    };
+  }
+
+  // ════════════════════════════════════════════════════════════════════
   // v17.19 GAMES — 4 mini-games + high score system + invitation flow.
   // Per-user score storage via userKey(). When user accepts an invite,
   // happiness + affection get a real boost. Beating a high score
@@ -3421,6 +4898,39 @@
     }
     if (opts.style) Object.assign(mini.style, opts.style);
     return mini;
+  }
+
+  // v17.24 — universal 3-2-1-GO countdown shown over a game container.
+  // Calls onComplete() when GO! finishes. ~3.6 seconds total.
+  function runCountdown(container, onComplete) {
+    if (!container) { onComplete && onComplete(); return; }
+    const sequence = [
+      { text: '3', cls: '' },
+      { text: '2', cls: '' },
+      { text: '1', cls: '' },
+      { text: 'GO!', cls: 'is-go' },
+    ];
+    let i = 0;
+    function show() {
+      if (i >= sequence.length) {
+        onComplete && onComplete();
+        return;
+      }
+      const step = sequence[i++];
+      // Remove old countdown if present
+      const existing = container.querySelector('.clippy-game-countdown');
+      if (existing) existing.remove();
+      const el = document.createElement('div');
+      el.className = 'clippy-game-countdown ' + step.cls;
+      el.textContent = step.text;
+      container.appendChild(el);
+      playTone(step.cls === 'is-go' ? 'sparkle' : 'boop');
+      setTimeout(() => {
+        try { el.remove(); } catch (_) {}
+        show();
+      }, step.cls === 'is-go' ? 600 : 1000);
+    }
+    show();
   }
 
   // ─── GAME 1: TAP THE ORB (30s speed clicker — v17.22 extended) ─
@@ -3613,13 +5123,16 @@
     }
   }
 
-  // ─── GAME 4: MEMORY MATCH (4 mini-Trajans flash in sequence) ───
+  // ─── GAME 4: MEMORY MATCH (v17.24 — brighter, scales every 10 lvls) ───
   function startMemoryGame() {
     const ov = createGameOverlay();
-    const colors = ['r', 'g', 'b', 'y'];
+    // All 9 possible colors. Game starts with 4, adds 1 every 10 levels.
+    const ALL_COLORS = ['r', 'g', 'b', 'y', 'p', 'o', 'c', 'k', 'w'];
     const sequence = [];
     let userIdx = 0;
     let level = 0;
+    let acceptingInput = false;
+    let activeColors = ALL_COLORS.slice(0, 4);   // start with 4
     const intro = pickFromPool('game_intro_memory');
     ov.innerHTML = `
       <div class="clippy-game-title">🧠 Memory Match</div>
@@ -3630,62 +5143,113 @@
       </div>
     `;
     ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
-    ov.querySelector('[data-act="start"]').addEventListener('click', () => nextLevel());
-
-    function nextLevel() {
-      level++;
-      sequence.push(colors[Math.floor(Math.random() * 4)]);
-      userIdx = 0;
+    ov.querySelector('[data-act="start"]').addEventListener('click', () => {
+      // Build a temporary board for the countdown
       ov.innerHTML = `
-        <div class="clippy-game-title">🧠 MEMORY — Level ${level}</div>
-        <div class="clippy-game-instruction" data-msg>Watch carefully...</div>
-        <div style="display:flex; gap:24px; margin:24px 0;" data-orbs></div>
+        <div class="clippy-game-title">🧠 MEMORY MATCH</div>
+        <div class="clippy-flappy-board" style="height:300px;" data-countdown-board></div>
       `;
-      const orbsRow = ov.querySelector('[data-orbs]');
-      const cells = colors.map(c => {
-        const cell = createMiniOrb({ style: { position: 'relative', width: '70px', height: '70px' } });
-        cell.setAttribute('data-color', c);
-        orbsRow.appendChild(cell);
+      const cdBoard = ov.querySelector('[data-countdown-board]');
+      runCountdown(cdBoard, () => {
+        level = 0;
+        runNextLevel();
+      });
+    });
+
+    function colorsForLevel(lvl) {
+      // Start with 4 colors at level 1
+      // Level 11 → 5 colors. Level 21 → 6. Level 31 → 7. Etc.
+      const extra = Math.floor((lvl - 1) / 10);
+      const count = Math.min(ALL_COLORS.length, 4 + extra);
+      return ALL_COLORS.slice(0, count);
+    }
+
+    function runNextLevel() {
+      level++;
+      activeColors = colorsForLevel(level);
+      sequence.push(activeColors[Math.floor(Math.random() * activeColors.length)]);
+      userIdx = 0;
+      acceptingInput = false;
+
+      // Re-render with new orb count if needed
+      ov.innerHTML = `
+        <div class="clippy-game-title">🧠 MEMORY MATCH</div>
+        <div class="clippy-memory-level-banner">Level ${level} · ${activeColors.length} orbs · Watch...</div>
+        <div class="clippy-memory-grid" data-grid></div>
+        <div class="clippy-game-buttons">
+          <button class="clippy-game-btn is-ghost" data-act="quit">Quit</button>
+        </div>
+      `;
+      ov.querySelector('[data-act="quit"]').addEventListener('click', () => {
+        showGameResult('memory', Math.max(0, level - 1));
+      });
+      const grid = ov.querySelector('[data-grid]');
+      const banner = ov.querySelector('.clippy-memory-level-banner');
+
+      // Build mini-Trajans for each active color
+      const cells = activeColors.map(color => {
+        const cell = createMiniOrb();
+        cell.classList.remove('clippy-mini-shell');
+        cell.classList.add('clippy-memory-cell');
+        cell.classList.add('is-disabled');
+        cell.setAttribute('data-color', color);
+        grid.appendChild(cell);
         return cell;
       });
-      const msg = ov.querySelector('[data-msg]');
+
+      // Play the sequence
       let i = 0;
+      const flashEach = 520;       // ms per flash
+      const gapBetween = 180;
       const playInterval = setInterval(() => {
         if (i >= sequence.length) {
           clearInterval(playInterval);
-          msg.textContent = `Your turn! Tap the orbs in order.`;
+          acceptingInput = true;
+          cells.forEach(c => c.classList.remove('is-disabled'));
+          banner.textContent = `Level ${level} · Your turn — repeat the sequence`;
           cells.forEach(cell => {
-            cell.addEventListener('click', () => handleTap(cell.getAttribute('data-color')));
+            cell.addEventListener('click', () => {
+              if (!acceptingInput) return;
+              handleTap(cell.getAttribute('data-color'), cell);
+            });
           });
           return;
         }
         const c = sequence[i];
         const cell = cells.find(el => el.getAttribute('data-color') === c);
         if (cell) {
-          cell.classList.add('is-flash-' + c);
+          cell.classList.add('flash-' + c);
           playTone('boop');
-          setTimeout(() => cell.classList.remove('is-flash-' + c), 400);
+          setTimeout(() => cell.classList.remove('flash-' + c), flashEach - gapBetween);
         }
         i++;
-      }, 700);
+      }, flashEach);
       state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => clearInterval(playInterval)]);
 
-      function handleTap(color) {
+      function handleTap(color, cell) {
         const expected = sequence[userIdx];
         if (color !== expected) {
-          msg.textContent = `Wrong! Sequence was ${sequence.length} long.`;
-          setTimeout(() => showGameResult('memory', level - 1), 1500);
+          banner.textContent = `Wrong! Got to level ${level - 1}.`;
+          acceptingInput = false;
+          setTimeout(() => showGameResult('memory', Math.max(0, level - 1)), 1500);
           return;
         }
-        const cell = cells.find(el => el.getAttribute('data-color') === color);
-        if (cell) {
-          cell.classList.add('is-flash-' + color);
-          setTimeout(() => cell.classList.remove('is-flash-' + color), 300);
-        }
+        cell.classList.add('flash-' + color);
+        playTone('sparkle');
+        setTimeout(() => cell.classList.remove('flash-' + color), 280);
         userIdx++;
         if (userIdx >= sequence.length) {
-          msg.textContent = `Got it! Next level...`;
-          setTimeout(nextLevel, 1000);
+          acceptingInput = false;
+          banner.textContent = `Level ${level} cleared!`;
+          // v17.24 — fanfare on every 10th level (added orb!)
+          if (level % 10 === 0 && level > 0) {
+            spawnParticles({ count: 16, type: 'sparkle' });
+            playTone('milestone');
+            setTimeout(() => {
+              banner.textContent = `LEVEL ${level}! Adding orb #${activeColors.length + 1}...`;
+            }, 600);
+          }
+          setTimeout(runNextLevel, level % 10 === 0 ? 2200 : 1100);
         }
       }
     }
@@ -3747,11 +5311,22 @@
       const FLAP_V = -7.2;
       const SCROLL_SPEED = 2.2;
       let score = 0;
-      let running = true;
+      let running = false;     // v17.24: don't run until countdown completes
       let rafId = 0;
       const columns = [];
       let nextColumnX = W + 80;
       let columnSpacing = 220;
+
+      const birdX = 80;
+      bird.style.left = birdX + 'px';
+      bird.style.top = birdY + 'px';
+
+      // v17.24: countdown 3-2-1 before play starts
+      runCountdown(board, () => {
+        running = true;
+        spawnColumn();
+        rafId = requestAnimationFrame(tick);
+      });
 
       function spawnColumn() {
         const gapY = 60 + Math.random() * (GROUND_Y - GAP_SIZE - 120);
@@ -3779,7 +5354,6 @@
         columns.push({ top, bot, x: nextColumnX, gapY, scored: false });
         nextColumnX += columnSpacing;
       }
-      spawnColumn();
 
       function flap() {
         if (!running) return;
@@ -3788,9 +5362,6 @@
       }
       board.addEventListener('click', flap);
       board.addEventListener('touchstart', (e) => { e.preventDefault(); flap(); }, { passive: false });
-
-      const birdX = 80;
-      bird.style.left = birdX + 'px';
 
       function tick() {
         if (!running) return;
@@ -3845,7 +5416,7 @@
         bubble(pickFromPool('flappy_die'), { autoHide: 2500 });
         setTimeout(() => showGameResult('flappy', score), 800);
       }
-      rafId = requestAnimationFrame(tick);
+      // v17.24: countdown starts the RAF, not here
       state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => {
         running = false;
         cancelAnimationFrame(rafId);
@@ -3909,14 +5480,13 @@
       let score = 0;
       let hp = 3;
       let timeLeft = 60;
-      let running = true;
+      let running = false;     // v17.24: countdown gates start
       const bullets = [];
       const enemies = [];
       const enemyBullets = [];
       let lastEnemySpawn = 0;
       let lastEnemyShot = 0;
       let lastFire = 0;
-      let rafId = 0;
 
       player.style.left = playerX + 'px';
 
@@ -3987,12 +5557,8 @@
       board.addEventListener('mouseup', () => { dragActive = false; });
       board.addEventListener('mouseleave', () => { dragActive = false; });
 
-      const timerInt = setInterval(() => {
-        if (!running) return;
-        timeLeft--;
-        timeEl.textContent = timeLeft;
-        if (timeLeft <= 0) gameOver(true);
-      }, 1000);
+      let timerInt = null;       // v17.24: started by countdown
+      let rafId = 0;
 
       function tick() {
         if (!running) return;
@@ -4072,11 +5638,21 @@
         }
         setTimeout(() => showGameResult('cannon', score), 800);
       }
-      rafId = requestAnimationFrame(tick);
+      // v17.24: countdown 3-2-1 before play
+      runCountdown(board, () => {
+        running = true;
+        timerInt = setInterval(() => {
+          if (!running) return;
+          timeLeft--;
+          timeEl.textContent = timeLeft;
+          if (timeLeft <= 0) gameOver(true);
+        }, 1000);
+        rafId = requestAnimationFrame(tick);
+      });
       state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => {
         running = false;
         cancelAnimationFrame(rafId);
-        clearInterval(timerInt);
+        if (timerInt) clearInterval(timerInt);
       }]);
     });
   }
@@ -4293,6 +5869,185 @@
     }, delay);
   }
 
+  // v17.29 AUTONOMOUS ACTIONS — Trajan spontaneously sweeps, reads, or
+  // scribes on his own every 25-50 minutes. Pure background animation;
+  // user is just watching. No prompts, no asks.
+  function scheduleAutonomousActions() {
+    if (state.autonomousActionTimer) clearTimeout(state.autonomousActionTimer);
+    const delay = 1500000 + Math.random() * 1500000;   // 25-50 min
+    state.autonomousActionTimer = setTimeout(() => {
+      maybeAutonomousAction();
+      scheduleAutonomousActions();
+    }, delay);
+  }
+  function maybeAutonomousAction() {
+    if (!state.enabled || state.suppressed || state.sulkActive || state.bubble) return;
+    const actions = [
+      { fn: doSweep,   pool: 'autonomous_sweep',  eyebrow: '🧹 SWEEPING',  ms: 6000 },
+      { fn: doRead,    pool: 'autonomous_read',   eyebrow: '📖 READING',   ms: 8000 },
+      { fn: doScribe,  pool: 'autonomous_scribe', eyebrow: '📜 SCRIBING',  ms: 5000 },
+    ];
+    const pick = actions[Math.floor(Math.random() * actions.length)];
+    // Bubble first, then start the action
+    bubble(pickFromPool(pick.pool), { autoHide: 3500, eyebrow: pick.eyebrow });
+    setTimeout(() => pick.fn(pick.ms), 1400);
+  }
+
+  // v17.29 AUTONOMOUS PROP CYCLING — once per day, ~30% chance, he picks
+  // up a different prop without asking. Adds visual variety to passive watching.
+  function maybeAutonomousPropCycle() {
+    const today = (typeof todayDateStr === 'function') ? todayDateStr() :
+      new Date().toISOString().slice(0,10);
+    if (state.preferences.last_prop_cycle_date === today) return;
+    if (Math.random() > 0.30) {
+      state.preferences.last_prop_cycle_date = today;
+      savePreferences();
+      return;
+    }
+    const props = ['none', 'book', 'scroll', 'broom'];
+    // Don't re-pick the same prop
+    const current = state.preferences.prop || 'none';
+    const candidates = props.filter(p => p !== current);
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
+    state.preferences.last_prop_cycle_date = today;
+    if (pick === 'none') {
+      // Drop the prop, no fanfare
+      setProp('none');
+    } else {
+      const label = { book: 'book', scroll: 'scroll', broom: 'broom' }[pick];
+      setTimeout(() => {
+        bubble(pickFromPool('autonomous_prop_change').replace('{prop}', label),
+          { autoHide: 4200, eyebrow: '✨ MOOD' });
+        setTimeout(() => setProp(pick), 1500);
+      }, 4000);
+    }
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.23 SULK SUBSYSTEM — Duolingo-style. When the user breaks a
+  // streak or ignores Trajan for too long, he TURNS HIS BACK. Won't
+  // respond normally. Must be wooed back with multiple gentle taps.
+  // ════════════════════════════════════════════════════════════════════
+
+  function enterSulk(reason, deep) {
+    if (!state.enabled || !state.shell) return;
+    state.sulkActive = true;
+    state.sulkForgiveTaps = 0;
+    state.sulkStartedAt = Date.now();
+    state.sulkReason = reason || 'unknown';
+    state.shell.classList.add('is-sulking');
+    if (deep) state.shell.classList.add('is-deep-sulking');
+    mood('sulking', 60000);   // long mood, sticky
+    // Initial silent bubble
+    setTimeout(() => {
+      if (!state.bubble && state.enabled) {
+        bubble(pickFromPool('sulk_silent'), { autoHide: 4000, eyebrow: '...' });
+      }
+    }, 600);
+    depositMemory('sulk_start', `Started sulking (reason: ${reason}).`, { reason, deep }, 2);
+    adjustFeeling('happiness', -10);
+    adjustFeeling('affection', -3);
+    // Override autonomy briefly
+    state.preferences.last_sulk_at = Date.now();
+    savePreferences();
+    // v17.29: SOFT AUTO-FORGIVE — if user is just passively watching,
+    // Trajan turns back around on his own after 90 minutes. No tapping required.
+    if (state.sulkAutoForgiveTimer) clearTimeout(state.sulkAutoForgiveTimer);
+    state.sulkAutoForgiveTimer = setTimeout(() => {
+      if (state.sulkActive) {
+        // Self-forgive bubble first
+        bubble(pickFromPool('sulk_self_forgive'),
+          { autoHide: 5000, eyebrow: '💛 BACK' });
+        setTimeout(() => exitSulk(true), 3500);
+      }
+    }, deep ? 180 * 60_000 : 90 * 60_000);   // 90 min normal, 180 min deep
+  }
+
+  function exitSulk_v29_helper() {
+    // clear the auto-forgive timer if user explicitly forgave
+    if (state.sulkAutoForgiveTimer) {
+      clearTimeout(state.sulkAutoForgiveTimer);
+      state.sulkAutoForgiveTimer = null;
+    }
+  }
+
+  function exitSulk(forgiven) {
+    if (!state.sulkActive) return;
+    state.sulkActive = false;
+    exitSulk_v29_helper();   // clear auto-forgive timer if pending
+    if (state.shell) {
+      state.shell.classList.remove('is-sulking');
+      state.shell.classList.remove('is-deep-sulking');
+    }
+    if (forgiven) {
+      mood('happy', 6000);
+      spawnParticles({ count: 12, type: 'heart' });
+      playTone('sparkle');
+      const line = substituteVars(pickFromPool('sulk_forgive_full'));
+      bubble(line, { autoHide: 6500, eyebrow: '💛 FORGIVEN' });
+      adjustFeeling('happiness', +20);
+      adjustFeeling('affection', +15);
+      depositMemory('forgiven', 'Was forgiven after sulking.', { taps: state.sulkForgiveTaps }, 3);
+      addBondXP(10);
+    }
+    state.sulkForgiveTaps = 0;
+  }
+
+  // Tap handler during sulk — escalating responses based on tap count
+  function handleSulkTap() {
+    if (!state.sulkActive) return false;
+    state.sulkForgiveTaps = (state.sulkForgiveTaps || 0) + 1;
+    const taps = state.sulkForgiveTaps;
+    // Stage gates
+    if (taps < 3) {
+      // Still cold
+      bubble(pickFromPool('sulk_break_attempt'), { autoHide: 3000, eyebrow: '😒 HMPH' });
+    } else if (taps < 6) {
+      // Softening
+      bubble(pickFromPool('sulk_forgive_partial'), { autoHide: 3000, eyebrow: '🤔 MAYBE' });
+      // Slight visual warming — drop deep-sulk if present
+      if (state.shell) state.shell.classList.remove('is-deep-sulking');
+    } else {
+      // Forgive!
+      exitSulk(true);
+    }
+    return true;
+  }
+
+  // Check on session start: should we enter sulk mode?
+  function maybeAutoSulk() {
+    if (!state.shell || state.sulkActive) return false;
+    if (state.preferences.do_not_disturb) return false;
+    // Cooldown — don't re-sulk within 6 hours
+    const lastSulk = state.preferences.last_sulk_at || 0;
+    if (Date.now() - lastSulk < 6 * 3600000) return false;
+    // Reason 1: streak just broke
+    if (state.preferences.streak_just_broke) {
+      delete state.preferences.streak_just_broke;
+      savePreferences();
+      enterSulk('streak_broke', true);   // deep sulk on streak break
+      return true;
+    }
+    // Reason 2: extended absence (5+ days since last session)
+    const lastSession = state.preferences.last_session_at;
+    if (lastSession) {
+      const daysAway = (Date.now() - new Date(lastSession).getTime()) / 86400000;
+      if (daysAway >= 5) {
+        enterSulk('long_absence', daysAway >= 14);
+        return true;
+      }
+    }
+    // Reason 3: too many rejections in a row
+    if ((state.preferences.reject_count || 0) >= 8) {
+      state.preferences.reject_count = 0;
+      savePreferences();
+      enterSulk('rejection_pile', false);
+      return true;
+    }
+    return false;
+  }
+
 
   // ─── Hook: when bored 60s+, occasionally offer a game ──────────
   function maybeOfferGame() {
@@ -4439,12 +6194,12 @@
   }
 
   // Common XP grants — sprinkle these throughout interactions
-  function grantBondXP_tap() { addBondXP(1); }
-  function grantBondXP_session() { addBondXP(5); }
-  function grantBondXP_game_played() { addBondXP(15); }
-  function grantBondXP_game_high_score() { addBondXP(25); }
-  function grantBondXP_chat_message() { addBondXP(8); }
-  function grantBondXP_lesson_received() { addBondXP(3); }
+  function grantBondXP_tap() { addBondXP(1); adjustAffinity(0.05, 'tap'); }
+  function grantBondXP_session() { addBondXP(5); adjustAffinity(0.5, 'session_start'); }
+  function grantBondXP_game_played() { addBondXP(15); adjustAffinity(1, 'game_played'); }
+  function grantBondXP_game_high_score() { addBondXP(25); adjustAffinity(2, 'high_score'); }
+  function grantBondXP_chat_message() { addBondXP(8); adjustAffinity(1.5, 'chat'); }
+  function grantBondXP_lesson_received() { addBondXP(3); adjustAffinity(0.3, 'lesson'); }
 
 
   // ════════════════════════════════════════════════════════════════════
@@ -4697,6 +6452,249 @@
     { type: 'hello_return',    glyph: '🌅', label: 'Return',          rare: false },
   ];
 
+  // ════════════════════════════════════════════════════════════════════
+  // v17.24 STREAK GACHA — daily pull tied to streak. 24 cards across
+  // 4 rarities. Pity system: guaranteed Rare every 10 pulls without one,
+  // guaranteed Legendary every 30. Roman-themed: Virtues / Gods /
+  // Emperors / Wonders.
+  // ════════════════════════════════════════════════════════════════════
+
+  const GACHA_CARDS = [
+    // COMMON (60%) — Roman virtues
+    { id: 'gravitas',    rarity: 'common',    glyph: '⚖️',  name: 'Gravitas',    power: '+1 XP per tap',       desc: 'Moral weight. The unignorable presence.' },
+    { id: 'pietas',      rarity: 'common',    glyph: '🕊️',  name: 'Pietas',      power: '+10% streak bonus',    desc: 'Duty to gods, family, and country.' },
+    { id: 'justitia',    rarity: 'common',    glyph: '🏛️',  name: 'Justitia',    power: 'Fair luck',            desc: 'The Roman ideal of justice and balance.' },
+    { id: 'fortitudo',   rarity: 'common',    glyph: '🛡️',  name: 'Fortitudo',   power: 'Defense up',           desc: 'Strength to endure.' },
+    { id: 'prudentia',   rarity: 'common',    glyph: '🦉',  name: 'Prudentia',   power: 'Wisdom drips',         desc: 'Practical wisdom in action.' },
+    { id: 'temperantia', rarity: 'common',    glyph: '🍇',  name: 'Temperantia', power: 'Moderation',           desc: 'Restraint and proportion.' },
+    { id: 'fides',       rarity: 'common',    glyph: '🤝',  name: 'Fides',       power: 'Trust earned',         desc: 'Loyalty kept across years.' },
+    { id: 'clementia',   rarity: 'common',    glyph: '🌿',  name: 'Clementia',   power: 'Mercy buff',           desc: 'Mercy from strength, not weakness.' },
+    // UNCOMMON (25%) — Roman gods
+    { id: 'jupiter',     rarity: 'uncommon',  glyph: '⚡',   name: 'Jupiter',     power: 'Lightning crit',       desc: 'King of gods. Wielder of thunder.' },
+    { id: 'mars',        rarity: 'uncommon',  glyph: '⚔️',  name: 'Mars',        power: '+5 cannon score',      desc: 'God of war and Roman discipline.' },
+    { id: 'venus',       rarity: 'uncommon',  glyph: '🌹',  name: 'Venus',       power: '+15 affection',        desc: 'Goddess of love and persuasion.' },
+    { id: 'minerva',     rarity: 'uncommon',  glyph: '🦉',  name: 'Minerva',     power: '+1 memory level start',desc: 'Goddess of wisdom and strategy.' },
+    { id: 'mercury',     rarity: 'uncommon',  glyph: '🪶',  name: 'Mercury',     power: 'Faster transitions',   desc: 'Messenger of gods, patron of trade.' },
+    { id: 'neptune',     rarity: 'uncommon',  glyph: '🔱',  name: 'Neptune',     power: 'Storm-tested',         desc: 'Ruler of seas and earthquakes.' },
+    // RARE (12%) — Emperors
+    { id: 'augustus',    rarity: 'rare',      glyph: '👑',  name: 'Augustus',    power: 'Start at Bond Lv 2',   desc: 'First emperor. Built Rome of marble.' },
+    { id: 'trajan',      rarity: 'rare',      glyph: '🏛️',  name: 'Trajan',      power: 'Daily bonus +50%',     desc: 'My friend. Spanish-born. Empire at its peak.' },
+    { id: 'hadrian',     rarity: 'rare',      glyph: '🧱',  name: 'Hadrian',     power: 'Wall of protection',   desc: 'Built walls. Knew when to stop.' },
+    { id: 'marcus',      rarity: 'rare',      glyph: '📜',  name: 'Marcus Aurelius', power: 'Stoic +20 XP',    desc: 'Philosopher-emperor. Last good one.' },
+    // LEGENDARY (3%) — Wonders & artifacts
+    { id: 'pantheon',    rarity: 'legendary', glyph: '🏛️', name: 'Pantheon',    power: 'Unlocks GOLDEN mood',  desc: 'Hadrian\'s dome. Still standing 2,000 years.' },
+    { id: 'colosseum',   rarity: 'legendary', glyph: '🏟️', name: 'Colosseum',   power: '+100 cannon score',    desc: '50,000 capacity. Naval battle staging.' },
+    { id: 'aqueduct',    rarity: 'legendary', glyph: '🌊', name: 'Aqueduct',    power: 'Permanent flow',       desc: 'Aqua Virgo still feeds Trevi Fountain.' },
+    { id: 'meditations', rarity: 'legendary', glyph: '📖', name: 'Meditations', power: 'Lessons +100% wisdom', desc: 'Marcus\'s private journal. Survives by miracle.' },
+    { id: 'gladius',     rarity: 'legendary', glyph: '🗡️', name: 'Gladius',     power: 'War-honed crit',       desc: 'The short sword that built an empire.' },
+    { id: 'eagle',       rarity: 'legendary', glyph: '🦅', name: 'Aquila',      power: 'Legionary blessing',   desc: 'The eagle standard. Lost = ultimate shame.' },
+  ];
+
+  // Drop rates
+  const GACHA_RATES = { common: 0.60, uncommon: 0.25, rare: 0.12, legendary: 0.03 };
+
+  function getGachaState() {
+    try {
+      const raw = localStorage.getItem(userKey('clippy_gacha'));
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed || {
+        collection: {},          // id -> count
+        pity_no_rare: 0,
+        pity_no_legendary: 0,
+        last_pull_date: null,    // YYYY-MM-DD
+        total_pulls: 0,
+      };
+    } catch (e) { return { collection: {}, pity_no_rare: 0, pity_no_legendary: 0, last_pull_date: null, total_pulls: 0 }; }
+  }
+  function saveGachaState(s) {
+    try { localStorage.setItem(userKey('clippy_gacha'), JSON.stringify(s)); } catch (e) {}
+  }
+  function pickGachaRarity(g) {
+    // Pity overrides
+    if (g.pity_no_legendary >= 29) return 'legendary';
+    if (g.pity_no_rare >= 9) return 'rare';
+    const r = Math.random();
+    let cum = 0;
+    for (const rar of ['legendary', 'rare', 'uncommon', 'common']) {
+      cum += GACHA_RATES[rar];
+      if (r < cum) return rar;
+    }
+    return 'common';
+  }
+  function pickGachaCard(rarity) {
+    const pool = GACHA_CARDS.filter(c => c.rarity === rarity);
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  function todayDateStr() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  function canPullToday() {
+    const g = getGachaState();
+    return g.last_pull_date !== todayDateStr();
+  }
+  function hasStreakForGacha() {
+    return (state.preferences.daily_streak || 0) >= 1;
+  }
+
+  // The big pull flow — invitation modal, spin animation, card reveal
+  function showGachaInvite() {
+    if (!hasStreakForGacha()) {
+      bubble(pickFromPool('gacha_streak_required'), { autoHide: 4000, eyebrow: '🎴 GACHA' });
+      return;
+    }
+    if (!canPullToday()) {
+      bubble(substituteVars(pickFromPool('gacha_already_pulled_today')), { autoHide: 4000, eyebrow: '🎴 GACHA' });
+      return;
+    }
+    runGachaPull();
+  }
+
+  function runGachaPull() {
+    const ov = document.createElement('div');
+    ov.className = 'clippy-gacha-overlay';
+    ov.innerHTML = `
+      <div class="clippy-gacha-prompt">DAILY PULL · Streak Day ${state.preferences.daily_streak || 1}</div>
+      <div class="clippy-gacha-title">${esc(substituteVars(pickFromPool('gacha_invite')))}</div>
+      <div class="clippy-gacha-pull-orb">${state.svgMarkup || ''}</div>
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn" data-act="pull">🎴 Pull!</button>
+        <button class="clippy-game-btn is-ghost" data-act="later">Later</button>
+      </div>
+    `;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('is-visible'));
+    state.suppressed = true;
+    if (state.shell) state.shell.classList.add('is-suppressed');
+
+    function closeOv() {
+      ov.classList.remove('is-visible');
+      setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
+      state.suppressed = false;
+      if (state.shell) state.shell.classList.remove('is-suppressed');
+    }
+    ov.querySelector('[data-act="later"]').addEventListener('click', closeOv);
+    ov.querySelector('[data-act="pull"]').addEventListener('click', () => {
+      const orb = ov.querySelector('.clippy-gacha-pull-orb');
+      orb.classList.add('is-spinning');
+      ov.querySelector('.clippy-game-buttons').style.display = 'none';
+      ov.querySelector('.clippy-gacha-title').textContent = pickFromPool('gacha_anticipate');
+      setTimeout(() => revealCard(ov, closeOv), 1500);
+    });
+  }
+
+  function revealCard(ov, closeOv) {
+    const g = getGachaState();
+    const rarity = pickGachaRarity(g);
+    const card = pickGachaCard(rarity);
+    // Update gacha state
+    g.collection[card.id] = (g.collection[card.id] || 0) + 1;
+    const isDuplicate = g.collection[card.id] > 1;
+    if (rarity === 'rare' || rarity === 'legendary') g.pity_no_rare = 0;
+    else g.pity_no_rare++;
+    if (rarity === 'legendary') g.pity_no_legendary = 0;
+    else g.pity_no_legendary++;
+    g.last_pull_date = todayDateStr();
+    g.total_pulls++;
+    saveGachaState(g);
+
+    // Rarity bubble
+    const rarityPool = 'gacha_' + rarity;
+    const remarkLine = substituteVars(pickFromPool(rarityPool));
+
+    // Render the card
+    const rarityLabel = { common: 'COMMON', uncommon: 'UNCOMMON', rare: 'RARE', legendary: 'LEGENDARY' }[rarity];
+    ov.innerHTML = `
+      <div class="clippy-gacha-prompt">${esc(rarityLabel)}</div>
+      <div class="clippy-gacha-title">${esc(remarkLine)}</div>
+      <div class="clippy-gacha-card is-${rarity}">
+        <div class="clippy-gacha-card-rarity">${esc(rarityLabel)}</div>
+        <div class="clippy-gacha-card-glyph">${card.glyph}</div>
+        <div class="clippy-gacha-card-name">${esc(card.name)}</div>
+        <div class="clippy-gacha-card-desc">${esc(card.desc)}</div>
+        <div class="clippy-gacha-card-power">${esc(card.power)}</div>
+      </div>
+      ${isDuplicate ? `<div class="clippy-gacha-duplicate">${esc(pickFromPool('gacha_duplicate'))}</div>` : ''}
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn" data-act="collection">View Collection</button>
+        <button class="clippy-game-btn is-ghost" data-act="done">Done</button>
+      </div>
+    `;
+    // Celebration effects
+    if (rarity === 'legendary') {
+      spawnParticles({ count: 32, type: 'confetti' });
+      playTone('milestone');
+      adjustFeeling('happiness', +20);
+      addBondXP(50);
+    } else if (rarity === 'rare') {
+      spawnParticles({ count: 16, type: 'sparkle' });
+      playTone('sparkle');
+      adjustFeeling('happiness', +10);
+      addBondXP(20);
+    } else if (rarity === 'uncommon') {
+      spawnParticles({ count: 8, type: 'sparkle' });
+      playTone('boop');
+      adjustFeeling('happiness', +5);
+      addBondXP(10);
+    } else {
+      spawnParticles({ count: 4, type: 'sparkle' });
+      playTone('boop');
+      addBondXP(5);
+    }
+    if (isDuplicate) addBondXP(5);   // small consolation bond XP
+
+    // Memory deposit (especially for rares+)
+    if (rarity === 'rare' || rarity === 'legendary') {
+      depositMemory('gacha_pull', `Pulled ${rarityLabel}: ${card.name}`, { card: card.id, rarity }, rarity === 'legendary' ? 4 : 3);
+    }
+    ov.querySelector('[data-act="done"]').addEventListener('click', closeOv);
+    ov.querySelector('[data-act="collection"]').addEventListener('click', () => {
+      closeOv();
+      setTimeout(() => showGachaCollection(), 320);
+    });
+  }
+
+  function showGachaCollection() {
+    const g = getGachaState();
+    const collected = Object.keys(g.collection).length;
+    const total = GACHA_CARDS.length;
+    const remark = pickFromPool('gacha_collection_remark');
+    const ov = document.createElement('div');
+    ov.className = 'clippy-gacha-overlay';
+    ov.innerHTML = `
+      <div class="clippy-gacha-prompt">🎴 GACHA COLLECTION</div>
+      <div class="clippy-gacha-title">${esc(remark)}</div>
+      <div class="clippy-gacha-prompt" style="margin-bottom:14px;">
+        ${collected}/${total} unique · ${g.total_pulls} total pulls
+      </div>
+      <div class="clippy-gacha-collection">
+        ${GACHA_CARDS.map(c => {
+          const count = g.collection[c.id] || 0;
+          const lockedCls = count === 0 ? 'is-locked' : '';
+          return `<div class="clippy-gacha-coll-card is-${c.rarity} ${lockedCls}">
+            <div class="clippy-gacha-coll-glyph">${c.glyph}</div>
+            <div class="clippy-gacha-coll-name">${count === 0 ? '???' : esc(c.name)}</div>
+            <div class="clippy-gacha-coll-count">×${count}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="clippy-game-buttons" style="margin-top:24px;">
+        <button class="clippy-game-btn" data-act="close">Close</button>
+      </div>
+    `;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('is-visible'));
+    state.suppressed = true;
+    if (state.shell) state.shell.classList.add('is-suppressed');
+    ov.querySelector('[data-act="close"]').addEventListener('click', () => {
+      ov.classList.remove('is-visible');
+      setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
+      state.suppressed = false;
+      if (state.shell) state.shell.classList.remove('is-suppressed');
+    });
+  }
+
+
   function showMemoryDex() {
     closeActionBubble();
     closeGameOverlay();
@@ -4820,8 +6818,8 @@
   }
 
 
-  // ─── Costumes ───────────────────────────────────────────────────────
-  function setCostume(name, durationMs) {
+  // ─── Costumes (legacy image-based, pre-v17.25) ─────────────────────
+  function setCostumeImg(name, durationMs) {
     if (!state.costumeLayer) return;
     state.costumeLayer.innerHTML = '';
     if (!name) {
@@ -4841,7 +6839,7 @@
     state.costumeLayer.classList.add('is-active');
     if (durationMs) {
       setTimeout(() => {
-        if (state.costumeLayer.querySelector(`.clippy-costume-${name}`)) setCostume(null);
+        if (state.costumeLayer.querySelector(`.clippy-costume-${name}`)) setCostumeImg(null);
       }, durationMs);
     }
   }
@@ -5255,10 +7253,23 @@
   }
   function celebrateStreak(streak, isMilestone, event) {
     if (event === 'broken') {
+      // v17.23: flag for sulk subsystem so he turns his back next time
+      state.preferences.streak_just_broke = true;
+      savePreferences();
+      adjustAffinity(-10, 'streak_broken');   // v17.26: relationship cost
       setTimeout(() => bubble(pickFromPool('streak_broken'), { autoHide: 4500 }), 2500);
       return;
     }
+    if (event === 'continued' && streak === 1 && state.preferences.last_sulk_at) {
+      // v17.23: returning user after a sulk — special "you came back" bubble
+      setTimeout(() => bubble(substituteVars(pickFromPool('streak_returned')),
+        { autoHide: 5000, eyebrow: '💛 RETURN' }), 1500);
+      adjustAffinity(+5, 'returned_after_sulk');
+    }
     if (!isMilestone) return;
+    // v17.26: milestone streak = big affinity boost
+    const milestoneBoost = streak >= 365 ? 25 : streak >= 100 ? 18 : streak >= 30 ? 12 : streak >= 7 ? 7 : 3;
+    adjustAffinity(+milestoneBoost, 'streak_milestone_' + streak);
     const pool = 'streak_' + streak;
     setTimeout(() => {
       mood('sparkle', 5000);
@@ -5403,6 +7414,39 @@
       installNexusActionListener();
       // v17.22: QUIRKY IDLE BEHAVIORS — yawn/hiccup/sneeze/spin every 8-18 min
       scheduleQuirks();
+      // v17.29: AUTONOMOUS ACTIONS — sweep/read/scribe every 25-50 min
+      scheduleAutonomousActions();
+      // v17.29: AUTONOMOUS PROP CYCLE — daily ~30% chance to swap prop
+      setTimeout(() => maybeAutonomousPropCycle(), 8000);
+      // v17.30: DOTA 2-style PRD bored mischief — chance climbs 5%/30s
+      state.bootedAt = Date.now();
+      startBoredMischiefPRD();
+      // v17.23: SULK CHECK — turn the back if streak broken or long absence
+      setTimeout(() => maybeAutoSulk(), 3500);
+      // v17.25: apply saved costume + prop + start cloud sync
+      applyPersistedCostume();
+      initCloudSync();
+      // v17.27: roll for conqueror alter ego day + apply visuals
+      maybeRollConqueror();
+      applyConquerorVisuals();
+      announceConqueror();
+      // v17.26: affinity decay every hour + affinity-aware greeting on session start
+      setInterval(decayAffinity, 60 * 60000);
+      // First-meet vs returning recognition
+      if (state.preferences.affinity === undefined) {
+        // First session with this user
+        state.preferences.affinity = 0;
+        savePreferences();
+        setTimeout(() => {
+          if (!state.bubble && state.enabled && !state.sulkActive) {
+            bubble(substituteVars(pickFromPool('affinity_first_meet')),
+              { autoHide: 4500, eyebrow: '👋 NEW' });
+          }
+        }, 3500);
+      } else {
+        maybeAffinityGreeting();
+      }
+      grantBondXP_session();   // also boosts affinity slightly
     } else if (shouldShowComeback()) {
       // v17.5: peek with ONLY HIS EYES visible, from a random spot.
       // Each session a different place. The is-peek-eyes-only class
