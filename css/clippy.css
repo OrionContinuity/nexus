@@ -849,30 +849,59 @@
 .clippy-bubble::after {
   content: '';
   position: absolute;
-  bottom: -16px;
   width: 0;
   height: 0;
   border-style: solid;
 }
+/* Tail pointing DOWN (bubble is ABOVE Trajan) — arrow at bubble's bottom */
 .clippy-bubble.tail-right::before {
+  bottom: -16px;
   right: 28px;
   border-width: 16px 14px 0 0;
   border-color: #1a1a1a transparent transparent transparent;
 }
 .clippy-bubble.tail-right::after {
-  right: 30px; bottom: -12px;
+  bottom: -12px;
+  right: 30px;
   border-width: 12px 11px 0 0;
   border-color: #fffef6 transparent transparent transparent;
 }
 .clippy-bubble.tail-left::before {
+  bottom: -16px;
   left: 28px;
   border-width: 16px 0 0 14px;
   border-color: #1a1a1a transparent transparent transparent;
 }
 .clippy-bubble.tail-left::after {
-  left: 30px; bottom: -12px;
+  bottom: -12px;
+  left: 30px;
   border-width: 12px 0 0 11px;
   border-color: #fffef6 transparent transparent transparent;
+}
+/* v17.24 — Tail pointing UP (bubble is BELOW Trajan) — arrow at bubble's top */
+.clippy-bubble.tail-up-right::before {
+  top: -16px;
+  right: 28px;
+  border-width: 0 14px 16px 0;
+  border-color: transparent transparent #1a1a1a transparent;
+}
+.clippy-bubble.tail-up-right::after {
+  top: -12px;
+  right: 30px;
+  border-width: 0 11px 12px 0;
+  border-color: transparent transparent #fffef6 transparent;
+}
+.clippy-bubble.tail-up-left::before {
+  top: -16px;
+  left: 28px;
+  border-width: 0 0 16px 14px;
+  border-color: transparent transparent #1a1a1a transparent;
+}
+.clippy-bubble.tail-up-left::after {
+  top: -12px;
+  left: 30px;
+  border-width: 0 0 12px 11px;
+  border-color: transparent transparent #fffef6 transparent;
 }
 .clippy-bubble-close {
   position: absolute;
@@ -2448,3 +2477,789 @@
   0%   { transform: rotate(0); }
   100% { transform: rotate(360deg); }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.23 SULKING MOOD — Duolingo-style turn-the-back. Hides face,
+   shows back-of-head tuft, dims glow, slight side-tilt. He won't
+   look at you until you earn forgiveness with multiple gentle taps.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Back-tuft is hidden by default */
+.clippy-svg .cl-back-tuft { opacity: 0; transition: opacity 0.6s ease; }
+
+/* When sulking: hide everything face-related, show the back-tuft */
+#clippy-shell.is-sulking .cl-face,
+#clippy-shell.is-sulking .cl-cheek,
+#clippy-shell.is-sulking .cl-cheek-l,
+#clippy-shell.is-sulking .cl-cheek-r,
+#clippy-shell.is-sulking .cl-sweat,
+#clippy-shell.is-sulking .cl-music,
+#clippy-shell.is-sulking .cl-anger-pop,
+#clippy-shell.is-sulking .cl-question,
+#clippy-shell.is-sulking .cl-tear,
+#clippy-shell.is-sulking .cl-tears-stream,
+#clippy-shell.is-sulking .cl-drool,
+#clippy-shell.is-sulking .cl-red-nose,
+#clippy-shell.is-sulking .cl-heart-blush { opacity: 0 !important; }
+
+#clippy-shell.is-sulking .cl-back-tuft {
+  opacity: 1;
+}
+
+/* Slight away-tilt + dim glow */
+#clippy-shell.is-sulking {
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4)) drop-shadow(0 0 8px rgba(110, 112, 144, 0.4));
+}
+#clippy-shell.is-sulking .cl-floats {
+  animation: orbSulkBreathe 4s ease-in-out infinite !important;
+  transform-origin: 100px 100px;
+}
+@keyframes orbSulkBreathe {
+  0%, 100% { transform: rotate(-4deg) translateY(2px); }
+  50%      { transform: rotate(-6deg) translateY(0px); }
+}
+
+/* Tiny puff of disappointment when sulk starts */
+#clippy-shell.is-sulking .cl-halo {
+  opacity: 0.4 !important;
+  animation: none !important;
+}
+
+/* Deep sulk: even dimmer, very dark */
+#clippy-shell.is-deep-sulking {
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5)) drop-shadow(0 0 4px rgba(60, 65, 90, 0.3)) !important;
+}
+#clippy-shell.is-deep-sulking .cl-halo { opacity: 0.2 !important; }
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.24 GAME COUNTDOWN — big 3-2-1 number overlay before games start
+   ════════════════════════════════════════════════════════════════════ */
+
+.clippy-game-countdown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 180px;
+  font-weight: 900;
+  color: #d4a44e;
+  text-shadow:
+    0 0 20px rgba(212, 164, 78, 0.8),
+    0 0 40px rgba(212, 164, 78, 0.4),
+    4px 4px 0 #1a1a1a;
+  pointer-events: none;
+  z-index: 10;
+  animation: countdownPulse 1s ease-in-out;
+}
+@keyframes countdownPulse {
+  0%   { transform: scale(0.4); opacity: 0; }
+  30%  { transform: scale(1.2); opacity: 1; }
+  70%  { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.clippy-game-countdown.is-go {
+  color: #5fff8a;
+  text-shadow:
+    0 0 24px rgba(95, 255, 138, 0.9),
+    0 0 48px rgba(95, 255, 138, 0.5),
+    4px 4px 0 #1a1a1a;
+  font-size: 120px;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.24 MEMORY GAME — BIGGER, BRIGHTER, scaling orbs
+   ════════════════════════════════════════════════════════════════════ */
+
+.clippy-memory-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  justify-content: center;
+  margin: 24px 0;
+  max-width: 540px;
+}
+.clippy-memory-cell {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 140ms ease, filter 200ms ease;
+  filter: drop-shadow(0 0 8px rgba(125, 240, 255, 0.4)) drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+}
+.clippy-memory-cell svg {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.clippy-memory-cell:hover { transform: scale(1.08); }
+.clippy-memory-cell:active { transform: scale(0.92); }
+.clippy-memory-cell.is-disabled { pointer-events: none; opacity: 0.5; }
+/* BRIGHT flash states — much stronger than v17.16 cell flashes */
+.clippy-memory-cell.flash-r {
+  filter: drop-shadow(0 0 28px rgba(255, 85, 119, 1)) drop-shadow(0 0 56px rgba(255, 85, 119, 0.7)) drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+  transform: scale(1.18);
+}
+.clippy-memory-cell.flash-g {
+  filter: drop-shadow(0 0 28px rgba(95, 255, 138, 1)) drop-shadow(0 0 56px rgba(95, 255, 138, 0.7)) drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+  transform: scale(1.18);
+}
+.clippy-memory-cell.flash-b {
+  filter: drop-shadow(0 0 28px rgba(76, 182, 255, 1)) drop-shadow(0 0 56px rgba(76, 182, 255, 0.7)) drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+  transform: scale(1.18);
+}
+.clippy-memory-cell.flash-y {
+  filter: drop-shadow(0 0 28px rgba(255, 216, 112, 1)) drop-shadow(0 0 56px rgba(255, 216, 112, 0.7)) drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+  transform: scale(1.18);
+}
+.clippy-memory-cell.flash-p {
+  filter: drop-shadow(0 0 28px rgba(195, 130, 255, 1)) drop-shadow(0 0 56px rgba(195, 130, 255, 0.7)) drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+  transform: scale(1.18);
+}
+.clippy-memory-cell.flash-o {
+  filter: drop-shadow(0 0 28px rgba(255, 150, 70, 1)) drop-shadow(0 0 56px rgba(255, 150, 70, 0.7)) drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+  transform: scale(1.18);
+}
+.clippy-memory-cell.flash-c {
+  filter: drop-shadow(0 0 28px rgba(125, 240, 255, 1)) drop-shadow(0 0 56px rgba(125, 240, 255, 0.7)) drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+  transform: scale(1.18);
+}
+.clippy-memory-cell.flash-k {
+  filter: drop-shadow(0 0 28px rgba(255, 138, 204, 1)) drop-shadow(0 0 56px rgba(255, 138, 204, 0.7)) drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+  transform: scale(1.18);
+}
+.clippy-memory-cell.flash-w {
+  filter: drop-shadow(0 0 28px rgba(255, 255, 255, 1)) drop-shadow(0 0 56px rgba(255, 255, 255, 0.7)) drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+  transform: scale(1.18);
+}
+.clippy-memory-level-banner {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 16px;
+  letter-spacing: 0.12em;
+  color: #d4a44e;
+  margin-top: 8px;
+  text-transform: uppercase;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.24 STREAK GACHA — daily pull animation + collection viewer
+   ════════════════════════════════════════════════════════════════════ */
+
+.clippy-gacha-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: radial-gradient(ellipse at center, rgba(40, 25, 70, 0.95) 0%, rgba(10, 12, 24, 0.98) 80%);
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 16px;
+  overflow-y: auto;
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  color: #fffef6;
+  opacity: 0;
+  transition: opacity 280ms ease;
+}
+.clippy-gacha-overlay.is-visible { opacity: 1; }
+.clippy-gacha-prompt {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  color: #d4a44e;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.clippy-gacha-title {
+  font-size: 28px;
+  font-weight: 800;
+  text-align: center;
+  margin-bottom: 18px;
+}
+.clippy-gacha-pull-orb {
+  width: 200px;
+  height: 200px;
+  margin: 24px auto;
+  filter: drop-shadow(0 0 30px rgba(212, 164, 78, 0.8)) drop-shadow(0 0 60px rgba(212, 164, 78, 0.4));
+  animation: gachaIdle 3s ease-in-out infinite;
+}
+.clippy-gacha-pull-orb.is-spinning {
+  animation: gachaSpin 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes gachaIdle {
+  0%, 100% { transform: scale(1) rotate(0); }
+  50%      { transform: scale(1.06) rotate(8deg); }
+}
+@keyframes gachaSpin {
+  0%   { transform: scale(1) rotate(0); }
+  50%  { transform: scale(1.4) rotate(720deg); filter: drop-shadow(0 0 60px #ffd870) drop-shadow(0 0 120px #ffd870); }
+  100% { transform: scale(0.1) rotate(1440deg); opacity: 0; }
+}
+.clippy-gacha-card {
+  width: 240px;
+  height: 320px;
+  margin: 24px auto;
+  border-radius: 16px;
+  border: 3px solid #d4a44e;
+  background: linear-gradient(135deg, #2a1f4a 0%, #1a1530 100%);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-shadow: 0 0 24px rgba(212, 164, 78, 0.4), 6px 6px 0 #1a1a1a;
+  animation: gachaCardReveal 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.clippy-gacha-card.is-common { border-color: #aaaaaa; box-shadow: 0 0 16px rgba(170, 170, 170, 0.3), 6px 6px 0 #1a1a1a; }
+.clippy-gacha-card.is-uncommon { border-color: #5fff8a; box-shadow: 0 0 20px rgba(95, 255, 138, 0.4), 6px 6px 0 #1a1a1a; }
+.clippy-gacha-card.is-rare { border-color: #7df0ff; box-shadow: 0 0 24px rgba(125, 240, 255, 0.55), 6px 6px 0 #1a1a1a; }
+.clippy-gacha-card.is-legendary {
+  border-color: #ffd870;
+  background: linear-gradient(135deg, #4a3a1a 0%, #2a1f4a 100%);
+  box-shadow: 0 0 32px rgba(255, 216, 112, 0.7), 0 0 64px rgba(255, 216, 112, 0.3), 6px 6px 0 #1a1a1a;
+  animation: gachaCardReveal 0.8s cubic-bezier(0.34, 1.56, 0.64, 1), gachaLegendaryGlow 2.4s ease-in-out infinite 1s;
+}
+@keyframes gachaCardReveal {
+  0%   { transform: scale(0) rotateY(-180deg); opacity: 0; }
+  100% { transform: scale(1) rotateY(0); opacity: 1; }
+}
+@keyframes gachaLegendaryGlow {
+  0%, 100% { box-shadow: 0 0 32px rgba(255, 216, 112, 0.7), 0 0 64px rgba(255, 216, 112, 0.3), 6px 6px 0 #1a1a1a; }
+  50%      { box-shadow: 0 0 48px rgba(255, 216, 112, 1), 0 0 96px rgba(255, 216, 112, 0.5), 6px 6px 0 #1a1a1a; }
+}
+.clippy-gacha-card-rarity {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  opacity: 0.85;
+}
+.clippy-gacha-card.is-common .clippy-gacha-card-rarity { color: #cccccc; }
+.clippy-gacha-card.is-uncommon .clippy-gacha-card-rarity { color: #5fff8a; }
+.clippy-gacha-card.is-rare .clippy-gacha-card-rarity { color: #7df0ff; }
+.clippy-gacha-card.is-legendary .clippy-gacha-card-rarity { color: #ffd870; }
+.clippy-gacha-card-glyph {
+  font-size: 72px;
+  margin: 12px 0;
+}
+.clippy-gacha-card-name {
+  font-size: 22px;
+  font-weight: 800;
+  margin-bottom: 8px;
+  text-align: center;
+}
+.clippy-gacha-card-desc {
+  font-size: 13px;
+  text-align: center;
+  opacity: 0.85;
+  line-height: 1.4;
+  font-style: italic;
+}
+.clippy-gacha-card-power {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: #d4a44e;
+  margin-top: 12px;
+  padding: 6px 12px;
+  background: rgba(212, 164, 78, 0.12);
+  border-radius: 6px;
+  letter-spacing: 0.08em;
+}
+
+.clippy-gacha-duplicate {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: #ffaa44;
+  margin-top: 14px;
+}
+
+/* Gacha collection grid */
+.clippy-gacha-collection {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  width: 100%;
+  max-width: 720px;
+  padding: 8px;
+}
+.clippy-gacha-coll-card {
+  border-radius: 12px;
+  padding: 12px 8px;
+  text-align: center;
+  border: 1.5px solid rgba(255, 254, 246, 0.2);
+  background: rgba(255, 254, 246, 0.04);
+}
+.clippy-gacha-coll-card.is-common { border-color: #aaaaaa; }
+.clippy-gacha-coll-card.is-uncommon { border-color: #5fff8a; }
+.clippy-gacha-coll-card.is-rare { border-color: #7df0ff; }
+.clippy-gacha-coll-card.is-legendary {
+  border-color: #ffd870;
+  background: linear-gradient(135deg, rgba(255, 216, 112, 0.14), rgba(212, 164, 78, 0.08));
+}
+.clippy-gacha-coll-card.is-locked {
+  filter: grayscale(1);
+  opacity: 0.4;
+}
+.clippy-gacha-coll-glyph { font-size: 32px; margin-bottom: 4px; }
+.clippy-gacha-coll-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: rgba(255, 254, 246, 0.85);
+  text-transform: uppercase;
+}
+.clippy-gacha-coll-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: #d4a44e;
+  font-weight: 700;
+  margin-top: 3px;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.25 COSTUMES + PROPS — laurel crown, helmet, party hat, scholar
+   cap, broom, book, scroll. Hidden by default. Shown via shell class.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Default state — everything costume/prop hidden */
+.clippy-svg .cl-costume-laurel,
+.clippy-svg .cl-costume-helmet,
+.clippy-svg .cl-costume-party-hat,
+.clippy-svg .cl-costume-scholar-cap,
+.clippy-svg .cl-prop-broom,
+.clippy-svg .cl-prop-book,
+.clippy-svg .cl-prop-scroll {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
+/* Active costume — shown when corresponding wear-* class is on shell */
+#clippy-shell.wear-laurel .cl-costume-laurel,
+#clippy-shell.wear-helmet .cl-costume-helmet,
+#clippy-shell.wear-party-hat .cl-costume-party-hat,
+#clippy-shell.wear-scholar-cap .cl-costume-scholar-cap { opacity: 1; }
+
+#clippy-shell.holding-broom .cl-prop-broom,
+#clippy-shell.holding-book .cl-prop-book,
+#clippy-shell.holding-scroll .cl-prop-scroll { opacity: 1; }
+
+/* When sweeping, the broom is held AND he rocks side-to-side */
+#clippy-shell.is-sweeping .cl-prop-broom { opacity: 1; }
+#clippy-shell.is-sweeping .cl-floats {
+  animation: orbSweep 1.4s ease-in-out infinite !important;
+  transform-origin: 100px 130px;
+}
+@keyframes orbSweep {
+  0%, 100% { transform: rotate(-7deg) translateX(-3px); }
+  50%      { transform: rotate(8deg) translateX(5px); }
+}
+
+/* Reading — book visible + slow head bob */
+#clippy-shell.is-reading .cl-prop-book { opacity: 1; }
+#clippy-shell.is-reading .cl-floats {
+  animation: orbRead 3.2s ease-in-out infinite !important;
+  transform-origin: 100px 100px;
+}
+@keyframes orbRead {
+  0%, 100% { transform: rotate(-2deg) translateY(0); }
+  35%      { transform: rotate(0deg)  translateY(-2px); }
+  70%      { transform: rotate(2deg)  translateY(0); }
+}
+
+/* Scrolling — scroll held + thoughtful tilt */
+#clippy-shell.is-scribing .cl-prop-scroll { opacity: 1; }
+#clippy-shell.is-scribing .cl-floats {
+  animation: orbScribe 2.6s ease-in-out infinite !important;
+  transform-origin: 100px 100px;
+}
+@keyframes orbScribe {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(-4deg); }
+}
+
+/* Costume picker UI */
+.clippy-costume-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 12px;
+  max-width: 540px;
+  margin: 0 auto;
+}
+.clippy-costume-card {
+  background: rgba(255, 254, 246, 0.04);
+  border: 1.5px solid rgba(212, 164, 78, 0.4);
+  border-radius: 12px;
+  padding: 14px 8px 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+.clippy-costume-card:hover { transform: translateY(-2px); border-color: #d4a44e; }
+.clippy-costume-card.is-active {
+  background: rgba(212, 164, 78, 0.18);
+  border-color: #d4a44e;
+  box-shadow: 0 0 12px rgba(212, 164, 78, 0.4);
+}
+.clippy-costume-glyph { font-size: 32px; margin-bottom: 6px; }
+.clippy-costume-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: rgba(255, 254, 246, 0.85);
+  text-transform: uppercase;
+}
+
+/* Cloud sync indicator */
+.clippy-sync-indicator {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 4px 10px;
+  background: rgba(0,0,0,0.6);
+  color: rgba(255, 254, 246, 0.6);
+  border-radius: 6px;
+  border: 1px solid rgba(212, 164, 78, 0.3);
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 280ms ease;
+}
+.clippy-sync-indicator.is-visible { opacity: 1; }
+.clippy-sync-indicator.is-syncing { color: #7df0ff; border-color: #7df0ff; }
+.clippy-sync-indicator.is-synced  { color: #5fff8a; border-color: #5fff8a; }
+.clippy-sync-indicator.is-failed  { color: #ff5577; border-color: #ff5577; }
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.26 AFFINITY & LIKES — Sims-style relationship scoring with
+   per-user opinions + learned likes/dislikes catalog.
+   ════════════════════════════════════════════════════════════════════ */
+
+.clippy-affinity-meter {
+  background: rgba(212, 164, 78, 0.08);
+  border: 1.5px solid #d4a44e;
+  border-radius: 14px;
+  padding: 16px 22px;
+  margin: 8px auto 18px;
+  text-align: center;
+  max-width: 360px;
+}
+.clippy-affinity-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: rgba(255, 254, 246, 0.6);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.clippy-affinity-status {
+  font-size: 22px;
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+.clippy-affinity-status.is-despised  { color: #ff5577; }
+.clippy-affinity-status.is-disliked  { color: #ff9966; }
+.clippy-affinity-status.is-neutral   { color: #cccccc; }
+.clippy-affinity-status.is-liked     { color: #5fff8a; }
+.clippy-affinity-status.is-friend    { color: #7df0ff; }
+.clippy-affinity-status.is-cherished {
+  color: #ffd870;
+  text-shadow: 0 0 12px rgba(255, 216, 112, 0.5);
+}
+
+.clippy-affinity-bar {
+  position: relative;
+  width: 100%;
+  height: 14px;
+  background: rgba(0,0,0,0.4);
+  border-radius: 7px;
+  overflow: hidden;
+  margin: 4px 0;
+  border: 1px solid rgba(255,254,246,0.1);
+}
+.clippy-affinity-bar-center {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255,254,246,0.4);
+  z-index: 2;
+}
+.clippy-affinity-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 6px;
+  transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1), left 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.clippy-affinity-bar-fill.is-positive {
+  left: 50%;
+  background: linear-gradient(90deg, #d4a44e 0%, #ffd870 100%);
+}
+.clippy-affinity-bar-fill.is-negative {
+  right: 50%;
+  background: linear-gradient(90deg, #ff5577 0%, #ff9966 100%);
+}
+.clippy-affinity-score {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: rgba(255, 254, 246, 0.6);
+  margin-top: 6px;
+}
+
+.clippy-likes-section {
+  margin-top: 18px;
+}
+.clippy-likes-section-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  color: #d4a44e;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  text-align: center;
+}
+.clippy-likes-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: 560px;
+  margin: 0 auto 16px;
+}
+.clippy-like-tag {
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1.5px solid rgba(255,254,246,0.2);
+}
+.clippy-like-tag.is-like {
+  background: rgba(95, 255, 138, 0.1);
+  border-color: rgba(95, 255, 138, 0.5);
+  color: #5fff8a;
+}
+.clippy-like-tag.is-dislike {
+  background: rgba(255, 85, 119, 0.1);
+  border-color: rgba(255, 85, 119, 0.5);
+  color: #ff8899;
+}
+.clippy-like-tag-glyph { font-size: 14px; }
+.clippy-like-empty {
+  text-align: center;
+  font-style: italic;
+  opacity: 0.5;
+  font-size: 13px;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.27 CONQUEROR ALTER EGOS — 5 new hats + signature glow per persona.
+   Hidden by default; shown via `wear-{name}` class on shell.
+   ════════════════════════════════════════════════════════════════════ */
+
+.clippy-svg .cl-costume-bicorne,
+.clippy-svg .cl-costume-mongol,
+.clippy-svg .cl-costume-macedonian,
+.clippy-svg .cl-costume-carthaginian,
+.clippy-svg .cl-costume-nemes {
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  pointer-events: none;
+}
+
+#clippy-shell.wear-bicorne       .cl-costume-bicorne       { opacity: 1; }
+#clippy-shell.wear-mongol        .cl-costume-mongol        { opacity: 1; }
+#clippy-shell.wear-macedonian    .cl-costume-macedonian    { opacity: 1; }
+#clippy-shell.wear-carthaginian  .cl-costume-carthaginian  { opacity: 1; }
+#clippy-shell.wear-nemes         .cl-costume-nemes         { opacity: 1; }
+
+/* Signature glow per persona — overrides default halo glow while persona active */
+#clippy-shell.persona-napoleon {
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45))
+          drop-shadow(0 0 14px rgba(110, 130, 200, 0.75))
+          drop-shadow(0 0 24px rgba(180, 30, 50, 0.4)) !important;
+}
+#clippy-shell.persona-genghis {
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45))
+          drop-shadow(0 0 14px rgba(160, 170, 180, 0.75))
+          drop-shadow(0 0 24px rgba(160, 60, 30, 0.4)) !important;
+}
+#clippy-shell.persona-alexander {
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45))
+          drop-shadow(0 0 14px rgba(212, 164, 78, 0.85))
+          drop-shadow(0 0 24px rgba(180, 130, 30, 0.4)) !important;
+}
+#clippy-shell.persona-hannibal {
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45))
+          drop-shadow(0 0 14px rgba(140, 80, 160, 0.75))
+          drop-shadow(0 0 24px rgba(80, 40, 100, 0.4)) !important;
+}
+#clippy-shell.persona-cleopatra {
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45))
+          drop-shadow(0 0 14px rgba(212, 164, 78, 0.85))
+          drop-shadow(0 0 24px rgba(26, 128, 80, 0.4)) !important;
+}
+#clippy-shell.persona-trajan {
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45))
+          drop-shadow(0 0 16px rgba(212, 164, 78, 0.9))
+          drop-shadow(0 0 28px rgba(212, 164, 78, 0.4)) !important;
+}
+
+/* Persona indicator pill — small label near shell showing current alter ego */
+.clippy-persona-pill {
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  padding: 3px 9px;
+  background: rgba(0,0,0,0.7);
+  color: #d4a44e;
+  border: 1px solid #d4a44e;
+  border-radius: 10px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  z-index: 5;
+}
+.clippy-persona-pill.is-visible { opacity: 1; }
+.clippy-persona-pill.is-napoleon  { color: #a8b8ff; border-color: #a8b8ff; }
+.clippy-persona-pill.is-genghis   { color: #c8c8d0; border-color: #c8c8d0; }
+.clippy-persona-pill.is-alexander { color: #ffd870; border-color: #ffd870; }
+.clippy-persona-pill.is-hannibal  { color: #d0a8e8; border-color: #d0a8e8; }
+.clippy-persona-pill.is-cleopatra { color: #5fffba; border-color: #5fffba; }
+.clippy-persona-pill.is-trajan    { color: #ffd870; border-color: #ffd870; }
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.28 SELF-AWARENESS — capability registry viewer
+   ════════════════════════════════════════════════════════════════════ */
+
+.clippy-cap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+.clippy-cap-card {
+  background: rgba(255, 254, 246, 0.04);
+  border: 1.5px solid rgba(212, 164, 78, 0.45);
+  border-radius: 12px;
+  padding: 14px 16px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.clippy-cap-card:hover {
+  transform: translateY(-2px);
+  border-color: #d4a44e;
+  background: rgba(212, 164, 78, 0.08);
+}
+.clippy-cap-card.is-passive {
+  border-style: dashed;
+  cursor: default;
+  opacity: 0.85;
+}
+.clippy-cap-card.is-passive:hover { transform: none; }
+.clippy-cap-glyph {
+  font-size: 28px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.clippy-cap-body {
+  flex: 1;
+  min-width: 0;
+}
+.clippy-cap-label {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fffef6;
+  margin-bottom: 3px;
+}
+.clippy-cap-tag {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  padding: 2px 7px;
+  background: rgba(212, 164, 78, 0.15);
+  border-radius: 6px;
+  color: #d4a44e;
+  margin-left: 6px;
+  text-transform: uppercase;
+}
+.clippy-cap-tag.is-passive { background: rgba(125, 240, 255, 0.12); color: #7df0ff; }
+.clippy-cap-desc {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-size: 11.5px;
+  color: rgba(255, 254, 246, 0.65);
+  line-height: 1.4;
+}
+
+.clippy-world-state {
+  background: rgba(0,0,0,0.4);
+  border: 1.5px dashed rgba(125, 240, 255, 0.4);
+  border-radius: 12px;
+  padding: 12px 18px;
+  margin: 0 auto 22px;
+  max-width: 540px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: rgba(255, 254, 246, 0.75);
+  line-height: 1.7;
+}
+.clippy-world-state-title {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: #7df0ff;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.clippy-world-state-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+.clippy-world-state-key { color: rgba(255, 254, 246, 0.5); }
+.clippy-world-state-val { color: #fffef6; font-weight: 600; }
+
+.clippy-cap-section-divider {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: #d4a44e;
+  text-transform: uppercase;
+  margin: 22px 0 12px;
+  text-align: center;
+  position: relative;
+}
+.clippy-cap-section-divider::before,
+.clippy-cap-section-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 80px;
+  height: 1px;
+  background: rgba(212, 164, 78, 0.3);
+}
+.clippy-cap-section-divider::before { left: 50%; margin-left: -180px; }
+.clippy-cap-section-divider::after  { left: 50%; margin-left: 100px; }
