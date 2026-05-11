@@ -2822,65 +2822,312 @@
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   v17.25 COSTUMES + PROPS — laurel crown, helmet, party hat, scholar
-   cap, broom, book, scroll. Hidden by default. Shown via shell class.
+   v17.31 COSTUMES + PROPS — FULL REDESIGN
+   - 14 hats total (5 NEW: wizard/crown/tophat/cowboy/tricorn)
+   - 6 props total (3 NEW: cup/sword/apple)
+   - Prop animations focus on the PROP, not the orb (more natural)
+   - Telekinetic float effect on held items via cl-prop-float group
+   - Idle micro-animations on hats (plumes wave, crests sway, etc.)
    ════════════════════════════════════════════════════════════════════ */
 
-/* Default state — everything costume/prop hidden */
+/* All costumes/props hidden by default */
 .clippy-svg .cl-costume-laurel,
 .clippy-svg .cl-costume-helmet,
 .clippy-svg .cl-costume-party-hat,
 .clippy-svg .cl-costume-scholar-cap,
+.clippy-svg .cl-costume-wizard,
+.clippy-svg .cl-costume-crown,
+.clippy-svg .cl-costume-tophat,
+.clippy-svg .cl-costume-cowboy,
+.clippy-svg .cl-costume-tricorn,
 .clippy-svg .cl-prop-broom,
 .clippy-svg .cl-prop-book,
-.clippy-svg .cl-prop-scroll {
+.clippy-svg .cl-prop-scroll,
+.clippy-svg .cl-prop-cup,
+.clippy-svg .cl-prop-sword,
+.clippy-svg .cl-prop-apple {
   opacity: 0;
   transition: opacity 0.4s ease;
   pointer-events: none;
 }
 
-/* Active costume — shown when corresponding wear-* class is on shell */
-#clippy-shell.wear-laurel .cl-costume-laurel,
-#clippy-shell.wear-helmet .cl-costume-helmet,
-#clippy-shell.wear-party-hat .cl-costume-party-hat,
-#clippy-shell.wear-scholar-cap .cl-costume-scholar-cap { opacity: 1; }
+/* Show costume when its wear-* class is on shell */
+#clippy-shell.wear-laurel       .cl-costume-laurel       { opacity: 1; }
+#clippy-shell.wear-helmet       .cl-costume-helmet       { opacity: 1; }
+#clippy-shell.wear-party-hat    .cl-costume-party-hat    { opacity: 1; }
+#clippy-shell.wear-scholar-cap  .cl-costume-scholar-cap  { opacity: 1; }
+#clippy-shell.wear-wizard       .cl-costume-wizard       { opacity: 1; }
+#clippy-shell.wear-crown        .cl-costume-crown        { opacity: 1; }
+#clippy-shell.wear-tophat       .cl-costume-tophat       { opacity: 1; }
+#clippy-shell.wear-cowboy       .cl-costume-cowboy       { opacity: 1; }
+#clippy-shell.wear-tricorn      .cl-costume-tricorn      { opacity: 1; }
 
-#clippy-shell.holding-broom .cl-prop-broom,
-#clippy-shell.holding-book .cl-prop-book,
-#clippy-shell.holding-scroll .cl-prop-scroll { opacity: 1; }
+#clippy-shell.holding-broom   .cl-prop-broom   { opacity: 1; }
+#clippy-shell.holding-book    .cl-prop-book    { opacity: 1; }
+#clippy-shell.holding-scroll  .cl-prop-scroll  { opacity: 1; }
+#clippy-shell.holding-cup     .cl-prop-cup     { opacity: 1; }
+#clippy-shell.holding-sword   .cl-prop-sword   { opacity: 1; }
+#clippy-shell.holding-apple   .cl-prop-apple   { opacity: 1; }
 
-/* When sweeping, the broom is held AND he rocks side-to-side */
+/* ─── IDLE PROP FLOAT — telekinetic levitation on all held items ─── */
+.clippy-svg .cl-prop-float {
+  animation: propFloat 3.6s ease-in-out infinite;
+  transform-origin: 184px 110px;
+}
+@keyframes propFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-3px) rotate(0.6deg); }
+}
+
+/* ─── IDLE HAT MICRO-ANIMATIONS — subtle costume liveliness ─── */
+/* Helmet crest sways (red horsehair) */
+.clippy-svg .cl-helmet-crest {
+  animation: crestSway 2.8s ease-in-out infinite;
+  transform-origin: 100px 30px;
+}
+@keyframes crestSway {
+  0%, 100% { transform: skewX(0deg); }
+  50%      { transform: skewX(3deg); }
+}
+/* Macedonian crest — same kind of horsehair, gentler */
+.clippy-svg .cl-mac-crest {
+  animation: crestSway 3.2s ease-in-out infinite;
+  transform-origin: 100px 22px;
+}
+/* Pom-pom bounces */
+.clippy-svg .cl-pompom {
+  animation: pomBounce 2.4s ease-in-out infinite;
+  transform-origin: 100px 14px;
+}
+@keyframes pomBounce {
+  0%, 100% { transform: scale(1) translateY(0); }
+  50%      { transform: scale(1.05) translateY(-1.5px); }
+}
+/* Party sparkles twinkle */
+.clippy-svg .cl-party-sparkles {
+  animation: sparkleBlink 1.8s ease-in-out infinite;
+}
+@keyframes sparkleBlink {
+  0%, 100% { opacity: 0.95; }
+  50%      { opacity: 0.4; }
+}
+/* Wizard hat stars twinkle */
+.clippy-svg .cl-wizard-stars {
+  animation: sparkleBlink 2.2s ease-in-out infinite;
+}
+/* Tassel swings */
+.clippy-svg .cl-tassel {
+  animation: tasselSwing 3.2s ease-in-out infinite;
+  transform-origin: 154px 76px;
+}
+@keyframes tasselSwing {
+  0%, 100% { transform: rotate(-3deg); }
+  50%      { transform: rotate(4deg); }
+}
+/* Carthaginian feather and tricorn feather sway */
+.clippy-svg .cl-cart-feather,
+.clippy-svg .cl-tricorn-feather {
+  animation: featherSway 3.8s ease-in-out infinite;
+  transform-origin: 76px 32px;
+}
+@keyframes featherSway {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(4deg); }
+}
+/* Laurel leaves rustle */
+.clippy-svg .cl-laurel-leaves {
+  animation: leafRustle 4.5s ease-in-out infinite;
+  transform-origin: 100px 50px;
+}
+@keyframes leafRustle {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.015); }
+}
+/* Uraeus cobra bobs threateningly */
+.clippy-svg .cl-uraeus {
+  animation: uraeusBob 2.6s ease-in-out infinite;
+  transform-origin: 100px 56px;
+}
+@keyframes uraeusBob {
+  0%, 100% { transform: rotate(-1.5deg); }
+  50%      { transform: rotate(2deg); }
+}
+/* Cockade flutter on Napoleon bicorne */
+.clippy-svg .cl-bicorne-cockade {
+  animation: cockadePulse 3.4s ease-in-out infinite;
+  transform-origin: 48px 46px;
+}
+@keyframes cockadePulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.06); }
+}
+/* Mongol fur ruffles */
+.clippy-svg .cl-mongol-fur {
+  animation: furRuffle 5s ease-in-out infinite;
+  transform-origin: 100px 70px;
+}
+@keyframes furRuffle {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(0.8px); }
+}
+
+/* ─── ACTION ANIMATIONS — focus on the prop, not the orb ─── */
+
+/* SWEEPING — broom rocks left-right, orb does small tilt only */
 #clippy-shell.is-sweeping .cl-prop-broom { opacity: 1; }
+#clippy-shell.is-sweeping .cl-prop-broom-anim {
+  animation: broomSweep 0.95s ease-in-out infinite;
+  transform-origin: 184px 80px;
+}
 #clippy-shell.is-sweeping .cl-floats {
-  animation: orbSweep 1.4s ease-in-out infinite !important;
+  animation: orbSweepGentle 1.9s ease-in-out infinite !important;
   transform-origin: 100px 130px;
 }
-@keyframes orbSweep {
-  0%, 100% { transform: rotate(-7deg) translateX(-3px); }
-  50%      { transform: rotate(8deg) translateX(5px); }
+@keyframes broomSweep {
+  0%, 100% { transform: rotate(-15deg) translateX(-2px); }
+  50%      { transform: rotate(18deg) translateX(2px); }
+}
+@keyframes orbSweepGentle {
+  0%, 100% { transform: rotate(-2deg); }
+  50%      { transform: rotate(2deg); }
 }
 
-/* Reading — book visible + slow head bob */
+/* READING — book stays still and the ORB nods toward it; eyes look right */
 #clippy-shell.is-reading .cl-prop-book { opacity: 1; }
+#clippy-shell.is-reading .cl-prop-book .cl-prop-float {
+  animation: bookFloat 2.4s ease-in-out infinite;
+}
 #clippy-shell.is-reading .cl-floats {
-  animation: orbRead 3.2s ease-in-out infinite !important;
+  animation: orbReadNod 3.6s ease-in-out infinite !important;
   transform-origin: 100px 100px;
 }
-@keyframes orbRead {
-  0%, 100% { transform: rotate(-2deg) translateY(0); }
-  35%      { transform: rotate(0deg)  translateY(-2px); }
-  70%      { transform: rotate(2deg)  translateY(0); }
+@keyframes bookFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-1.5px) rotate(1.5deg); }
+}
+@keyframes orbReadNod {
+  0%, 100% { transform: rotate(8deg); }
+  50%      { transform: rotate(11deg); }
 }
 
-/* Scrolling — scroll held + thoughtful tilt */
+/* SCRIBING — scroll bobs more, orb concentrates */
 #clippy-shell.is-scribing .cl-prop-scroll { opacity: 1; }
+#clippy-shell.is-scribing .cl-prop-scroll .cl-prop-float {
+  animation: scrollFloat 2.2s ease-in-out infinite;
+}
 #clippy-shell.is-scribing .cl-floats {
-  animation: orbScribe 2.6s ease-in-out infinite !important;
+  animation: orbScribeNod 3s ease-in-out infinite !important;
   transform-origin: 100px 100px;
 }
-@keyframes orbScribe {
+@keyframes scrollFloat {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50%      { transform: translateY(-2px) rotate(1.5deg); }
+}
+@keyframes orbScribeNod {
+  0%, 100% { transform: rotate(5deg); }
+  50%      { transform: rotate(8deg); }
+}
+
+/* DRINKING — wine cup tips toward orb's "mouth" */
+#clippy-shell.is-drinking .cl-prop-cup { opacity: 1; }
+#clippy-shell.is-drinking .cl-prop-cup .cl-prop-float {
+  animation: cupDrink 2.4s ease-in-out infinite;
+  transform-origin: 184px 138px;
+}
+@keyframes cupDrink {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  40%      { transform: translate(-50px, -30px) rotate(-50deg); }
+  60%      { transform: translate(-50px, -30px) rotate(-50deg); }
+}
+
+/* SWORD POSE — sword swings */
+#clippy-shell.is-swording .cl-prop-sword { opacity: 1; }
+#clippy-shell.is-swording .cl-prop-sword .cl-prop-float {
+  animation: swordSwing 1.6s ease-in-out infinite;
+  transform-origin: 184px 62px;
+}
+@keyframes swordSwing {
   0%, 100% { transform: rotate(0deg); }
-  50%      { transform: rotate(-4deg); }
+  25%      { transform: rotate(-30deg); }
+  75%      { transform: rotate(30deg); }
+}
+
+/* EATING APPLE — apple lifts to mouth */
+#clippy-shell.is-eating .cl-prop-apple { opacity: 1; }
+#clippy-shell.is-eating .cl-prop-apple .cl-prop-float {
+  animation: appleEat 3s ease-in-out infinite;
+  transform-origin: 184px 116px;
+}
+@keyframes appleEat {
+  0%, 100% { transform: translate(0, 0); }
+  40%      { transform: translate(-55px, -10px) scale(0.95); }
+  60%      { transform: translate(-55px, -10px) scale(0.95); }
+}
+
+/* ─── SIGNATURE COSTUME GLOWS — conqueror personas keep theirs ─── */
+/* All conqueror persona glows preserved (declared earlier in file). */
+
+/* ─── WARDROBE UI ENHANCEMENTS ─── */
+
+/* Category section divider in wardrobe */
+.clippy-wardrobe-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 14px auto 18px;
+  flex-wrap: wrap;
+  max-width: 540px;
+}
+.clippy-wardrobe-tab {
+  padding: 6px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  background: rgba(255, 254, 246, 0.04);
+  border: 1.5px solid rgba(212, 164, 78, 0.35);
+  border-radius: 18px;
+  color: rgba(255, 254, 246, 0.7);
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+.clippy-wardrobe-tab:hover {
+  border-color: #d4a44e;
+  color: #fffef6;
+}
+.clippy-wardrobe-tab.is-active {
+  background: rgba(212, 164, 78, 0.22);
+  border-color: #d4a44e;
+  color: #ffd870;
+}
+
+/* Set-bonus pill (when matched outfit unlocked) */
+.clippy-set-bonus {
+  margin: 14px auto;
+  padding: 8px 18px;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  background: rgba(125, 240, 255, 0.10);
+  border: 1.5px solid #7df0ff;
+  border-radius: 22px;
+  color: #7df0ff;
+  max-width: 360px;
+  display: block;
+  box-shadow: 0 0 14px rgba(125, 240, 255, 0.25);
+}
+.clippy-set-bonus-label {
+  display: block;
+  font-size: 9px;
+  opacity: 0.65;
+  margin-bottom: 2px;
+}
+.clippy-set-bonus-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fffef6;
 }
 
 /* Costume picker UI */
@@ -3263,3 +3510,14 @@
 }
 .clippy-cap-section-divider::before { left: 50%; margin-left: -180px; }
 .clippy-cap-section-divider::after  { left: 50%; margin-left: 100px; }
+
+/* Locked costume styling */
+.clippy-costume-card.is-locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+.clippy-costume-card.is-locked:hover {
+  transform: none;
+  background: rgba(255, 254, 246, 0.04);
+}
