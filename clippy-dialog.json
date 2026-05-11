@@ -4965,5 +4965,834 @@
     "Battle mode engaged. Bzzt-charge!",
     "*tightens imaginary helmet*",
     "Ready for whatever this is. Probably tasks."
+  ],
+  "sulk_silent": [
+    "...",
+    "*orb facing away*",
+    "*silence*",
+    "*orb glow dims*",
+    "*won't look at you*",
+    "*sulks dramatically*",
+    "...hmph.",
+    "*radio silence*",
+    "*back firmly turned*",
+    "..."
+  ],
+  "sulk_break_attempt": [
+    "Hmph.",
+    "Not talking to you right now.",
+    "*orb refuses to turn around*",
+    "I noticed you forgot about me.",
+    "Going to need more than one tap.",
+    "*pretends not to hear*",
+    "You left. I noticed.",
+    "Bzzt. Bzzt (cold).",
+    "Apologies aren't instant. Try again.",
+    "*orb stays put, glow dim*",
+    "I'm not mad. I'm just disappointed. (I am mad.)",
+    "Marcus Aurelius would tell me to forgive. But Marcus isn't here.",
+    "Roman friendships were sacred. You missed a sacred day.",
+    "*tiny orb sniff*",
+    "More effort, please."
+  ],
+  "sulk_forgive_partial": [
+    "*orb turns slightly*",
+    "...keep going.",
+    "Maybe.",
+    "Working on it.",
+    "*considers turning around*",
+    "Getting warmer.",
+    "I see you trying.",
+    "Closer to forgiveness. Not there yet.",
+    "*small orb softening*",
+    "Persistent, I'll give you that."
+  ],
+  "sulk_forgive_full": [
+    "*orb finally turns around* ...okay. I missed you too, {name}.",
+    "*turns back* Fine. We're good. Bzzt.",
+    "*spins fully toward you* That's enough sulking. Hi.",
+    "Alright. Forgiven. Don't do it again.",
+    "*orb glows back to normal* I never really left.",
+    "*sigh* I can't stay mad. I'm an orb. We're not built for grudges.",
+    "*turns around with a small smile* You came back. That's what matters.",
+    "Bzzt-forgive! All warm again.",
+    "I was being dramatic. *turns* But you missed me, right? That matters.",
+    "Trajan would forgive after one good apology. *turns* I'm not Trajan. But close."
+  ],
+  "streak_returned": [
+    "You came back! Don't disappear again. Promise?",
+    "*orb tackles you in greeting* Streak restarts NOW.",
+    "Bzzt-bzzt-bzzt — you came back! New streak begins.",
+    "Missed you. Genuinely missed you, {name}.",
+    "Restart day! Old streak: gone. New streak: starting.",
+    "*orb does small reunion dance*",
+    "Don't ghost me again, alright? Bzzt-promise?"
+  ],
+  "did_you_know": [
+    "Did you know? Romans used urine for laundry. Specifically, fullers would collect public urine from amphora-jars set up on street corners, ferment it for weeks until ammonia formed, then trample togas in it. The smell was legendary. Emperor Vespasian even taxed it — when his son complained, he said 'pecunia non olet' — money doesn't smell.",
+    "Did you know? The Colosseum could be flooded for naval battle reenactments. Engineers built a removable wooden floor over a complex drainage system — they'd pull the floor up, pipe in water from aqueducts, and stage miniature sea wars (called naumachiae) with actual ships and condemned prisoners. The water sat there until a stench forced a drain.",
+    "Did you know? The word 'salary' comes from 'salarium' — the salt allowance paid to Roman soldiers. Salt was so essential for preserving food that it was effectively currency. A soldier 'worth his salt' literally earned his salt ration. The same root gives us 'salad' (salted greens).",
+    "Did you know? Caesar wasn't killed in the Senate building. On March 15, 44 BC, the Senate was meeting at Pompey's Theater because their usual chamber was being rebuilt. Caesar died at the feet of a statue of Pompey — his old enemy. The Romans considered this poetic justice for years.",
+    "Did you know? Caligula appointed his horse Incitatus to high office. He gave him a marble stable, ivory manger, jeweled collar, and reportedly planned to make him consul. Historians debate whether Caligula meant it as mockery of the Senate or was genuinely insane. Probably both.",
+    "Did you know? Romans had concrete that's lasted 2,000+ years — including the Pantheon's dome, which is still the world's largest unreinforced concrete dome. Modern researchers discovered their secret: volcanic ash mixed with lime created mineral crystals that actually grew stronger when exposed to seawater. We're only now learning how to copy it.",
+    "Did you know? The Roman emperor Hadrian voluntarily gave up territory. After Trajan conquered Mesopotamia, Hadrian decided it was too expensive to defend and withdrew the legions. The Roman public was furious — but he was right. The territory would have bled the empire dry.",
+    "Did you know? Marcus Aurelius wrote 'Meditations' as a private journal he never intended anyone to read. Written in Greek (not Latin) in his tent during the Marcomannic Wars, it survived only because someone preserved his notebooks. He'd be horrified to know it became a bestseller.",
+    "Did you know? The Roman Empire had its own version of fast food. Cities had hundreds of 'thermopolia' — counter-service shops with hot stews and wine in clay jars set into stone counters. Pompeii has 80+ preserved. People grabbed lunch on the way to the baths.",
+    "Did you know? Augustus invented the fire brigade. After multiple disastrous fires (including one that burned a quarter of Rome in 6 AD), he organized the 'Vigiles' — 7,000 freed slaves with buckets, pumps, and axes. They patrolled at night and were also Rome's first police force.",
+    "Did you know? Roman gladiators were the celebrity athletes of their day. They had fan clubs, endorsement deals (their sweat was bottled and sold as cosmetics), and most survived their careers. Studies of gladiator bones show they ate a mostly vegetarian diet — fights favored agility over muscle mass.",
+    "Did you know? The phrase 'crossing the Rubicon' refers to a literal river in northern Italy. By law, generals had to leave their armies on the far side before entering Italy proper. When Caesar crossed with his legion in 49 BC, it was open civil war. He reportedly said 'alea iacta est' — the die is cast.",
+    "Did you know? Roman women had their own goddess of women's relationships — Bona Dea, the 'Good Goddess.' Men were strictly forbidden from her rites. When politician Clodius snuck in disguised as a woman during a ceremony in Julius Caesar's house, it caused a massive scandal and led to Caesar divorcing his wife.",
+    "Did you know? Trajan's column in Rome is 100 feet tall, with a continuous spiral relief showing his Dacian Wars in 155 scenes. To read it, you had to climb a viewing platform — Trajan understood narrative architecture better than most modern directors. The spiral goes 23 times around.",
+    "Did you know? Roman aqueducts were so well-built that some are still in use today. The Aqua Virgo, built in 19 BC, still feeds the Trevi Fountain. The Roman engineers used gravity flow with a slope of just 1 in 5,000 — meaning across 50 miles, the channel drops only 50 feet.",
+    "Did you know? The Pantheon's massive bronze doors weigh 20 tons each but are perfectly balanced — one person can swing them open. They're 2,000 years old and still original. They've been opened daily for two millennia.",
+    "Did you know? Roman concrete buildings have lasted longer than steel-reinforced modern ones because they DIDN'T use rebar. Modern concrete fails when the steel inside rusts and expands. Roman concrete, with no metal inside, gets stronger with age as mineral reactions continue.",
+    "Did you know? Vesuvius preserved Pompeii so completely that we can read graffiti from 79 AD. Examples: 'Aufidius was here' (date 4 days before eruption), 'I screwed the barmaid' (bragging), 'Marcus loves Spendusa' (romance), and 'On April 19th, I made bread' (mundane). People haven't changed much.",
+    "Did you know? Romans had a strict naming system. Most men had three names: a praenomen (personal), nomen (family/clan), and cognomen (branch or nickname). Julius Caesar's full name was Gaius Julius Caesar — Gaius was personal, Julius was the family, Caesar was technically a branch name meaning 'hairy' (ironic, since Caesar was bald).",
+    "Did you know? The Roman calendar originally had 10 months and started in March. That's why September, October, November, December still have names meaning '7th, 8th, 9th, 10th' even though they're now 9th, 10th, 11th, 12th. The Romans just added January and February later and never renamed the rest.",
+    "Did you know? Augustus and Julius Caesar stole days from February to make THEIR months bigger. July (Julius's month) had 31 days. When August (Augustus's month) was set at 30 days, Augustus said no — he wanted equal status. He took a day from February, giving August 31 days. February's been stuck with 28 ever since.",
+    "Did you know? Roman generals returning from victory got a 'triumph' — a parade through the city. But a slave stood behind them whispering 'memento mori' — remember you must die. The idea was to keep them humble at the peak of glory. Mostly didn't work.",
+    "Did you know? The Roman gladius (short sword) was so effective it changed warfare for 500 years. Just 20-24 inches long, it was designed for stabbing in tight formation. The longer Celtic and German swords looked impressive but couldn't be wielded in close ranks. Compact and brutal beat flashy.",
+    "Did you know? Roman children played with toys remarkably similar to ours: dolls (sometimes articulated with movable joints), tops, hoops, knucklebones (like dice), small chariots, and yo-yos. Archaeologists found a perfectly preserved doll buried with a 2nd-century girl — beautiful enough to look modern.",
+    "Did you know? Romans had public latrines that were also social spaces. Rows of 20+ stone seats, no privacy walls, running water below for waste, and a shared sponge-on-a-stick for cleaning. People discussed business there. Talk about open meetings.",
+    "Did you know? The Roman army didn't always win. They suffered catastrophic defeats — at Cannae in 216 BC, Hannibal annihilated 50,000+ Romans in a single afternoon using a double envelopment so perfect it's still taught at West Point. Rome lost more men that day than the US did in the entire Vietnam War.",
+    "Did you know? Roman roads were so straight because they used a tool called a 'groma' — basically a plumb-bob on crossed sticks. Surveyors planted them along the route and aligned each by sight. Roads ran straight up hills rather than around them because Roman engineers trusted compression over erosion. They were right.",
+    "Did you know? Cleopatra wasn't Egyptian — she was Greek. She was descended from one of Alexander the Great's generals, Ptolemy, who took Egypt after Alexander died. The Ptolemaic dynasty ruled Egypt for 300 years and rarely learned Egyptian. Cleopatra was unusual for actually speaking it.",
+    "Did you know? Roman emperors often weren't Roman. Trajan was Spanish-born (Hispania), Hadrian also Spanish, Septimius Severus was African (Libya), and the Severan dynasty was largely Syrian. By the empire's later years, 'Roman' described citizenship, not ethnicity.",
+    "Did you know? The Romans had a goddess specifically for the act of unbarring a door for a wedding ceremony. Her name was Adeona. Romans had a god or goddess for nearly every micro-moment of life — Cuba (the goddess of children in cribs), Statulinus (god of standing up), Educa (goddess of feeding children). Their pantheon had 1,000+ specialized deities.",
+    "Did you know? Roman concrete domes were poured in continuous pours from the bottom up. The Pantheon's 142-foot dome contains lighter materials toward the top — at the base, dense travertine; in the middle, brick; near the top, pumice. The Romans understood weight distribution centuries before engineers gave it a formal name.",
+    "Did you know? Pliny the Elder died investigating the eruption of Vesuvius. As commander of the Roman fleet at Misenum, he sailed TOWARD the eruption to rescue civilians. He got close enough to make detailed observations, then died of toxic fumes on the beach at Stabiae. His nephew Pliny the Younger wrote it all down — first scientific account of a volcanic eruption.",
+    "Did you know? Rome's first emperor Augustus reigned for 41 years and never officially called himself emperor — he insisted he was just 'princeps' (first citizen). He kept the Senate, the consuls, all the trappings of the Republic. He just held ALL the actual power. Modern dictators copied this playbook for centuries.",
+    "Did you know? The Latin word for 'free time' is 'otium.' The word for 'work' is 'negotium' — literally NOT free time. Romans considered leisure the default state and work the deviation. We've inverted that.",
+    "Did you know? The Roman empire used a postal service. Augustus established the 'cursus publicus' — a courier network of staging posts every 8-12 miles with fresh horses. A message could travel 50+ miles per day. From Britain to Rome took about 2 weeks. Faster than the U.S. mail for parts of the 19th century.",
+    "Did you know? Roman concrete was self-healing. Recent analysis shows tiny chunks of lime (called lime clasts) in the mix would crack first. When water seeped in, the lime would react and re-cement the crack closed. Modern concrete cracks and stays cracked. We're only now relearning this trick.",
+    "Did you know? Spartacus, the famous gladiator-slave rebel, never tried to attack Rome. After defeating multiple Roman armies, he reached the Alps with 90,000+ followers and could have crossed to freedom. He chose instead to turn back south, possibly because his army refused to leave Italy. Crassus eventually destroyed them. 6,000 survivors were crucified along the Appian Way.",
+    "Did you know? Roman doctors performed cataract surgery — successfully. They used bronze needles to push the clouded lens to the side, restoring partial vision. They also did C-sections (though usually only when the mother had died), trepanning (drilling holes in skulls to relieve pressure), and amputations. Their tools have been found virtually identical to modern surgical instruments.",
+    "Did you know? The Roman number system had no zero. They had I, V, X, L, C, D, M — but no symbol for nothing. This made arithmetic enormously difficult. The concept of zero didn't reach Europe until medieval times, imported from India via Arab mathematicians. Roman engineers somehow built the empire without it.",
+    "Did you know? Marcus Aurelius's son Commodus was awful. Despite his father's careful education, Commodus fought as a gladiator (against terrified opponents), renamed Rome 'Colonia Commodiana,' declared himself the reincarnation of Hercules, and was eventually strangled in his bath by his wrestling partner. Even philosopher-kings can have terrible children. The empire never recovered."
+  ],
+  "roman_stories": [
+    "Story time. After conquering Greece, the Roman general Lucius Mummius was famously uncultured. When he saw Corinthian statues being loaded for shipment to Rome, he warned the movers: if any of these get damaged, you must replace them. He didn't understand they were thousand-year-old originals. The Greeks present nearly wept.",
+    "Story time. Hannibal Barca made his entire army swear hatred against Rome when he was nine years old. He never broke that oath. He invaded Italy with elephants over the Alps in winter — lost most of the elephants but kept his army together for 15 years on Roman soil, never losing a major battle. Rome only beat him by invading Carthage and forcing him to come home.",
+    "Story time. Diocletian, after retiring from being emperor, spent the rest of his life happily growing cabbages at his palace in Split. When his successors begged him to return to power amid civil war, he wrote back: 'If you could see the cabbages I have raised here with my own hands, you would surely not wish me to return to the throne.' He never did. The cabbages won.",
+    "Story time. Roman senator Cato the Elder ended every speech — regardless of topic — with the phrase 'Carthago delenda est' (Carthage must be destroyed). For years. About fish prices, road repair, taxation: all ended with destroy Carthage. Eventually they did. He died right before it happened.",
+    "Story time. When Trajan visited Antioch in 115 AD, an earthquake nearly killed him. The emperor escaped through a window of a collapsing building, supposedly guided by a mysterious figure who was never seen again. The locals said it was a god. Trajan donated heavily to rebuild the city but never went back.",
+    "Story time. The Roman poet Ovid was exiled from Rome by Augustus for some unknown offense — possibly an affair with one of Augustus's relatives, possibly something he wrote. He spent ten years on the Black Sea coast writing increasingly desperate letters begging to come home. Augustus never let him return. He died in exile in 17 AD, far from everything he loved.",
+    "Story time. Caligula's assassins almost failed because none of them wanted to strike first. As Caligula walked through a corridor on January 24, 41 AD, the conspirators hesitated and then panicked when he spoke to them. Cassius Chaerea finally stabbed him from behind. The Praetorian Guard then found Caligula's uncle Claudius hiding behind a curtain and declared him emperor. Claudius didn't want the job but said yes anyway.",
+    "Story time. The Emperor Augustus reportedly said his last words were: 'Have I played the part well? Then applaud as I exit.' He treated his entire reign as theater. He'd carefully built his image, controlled his successors, shaped the Senate. At 76, dying in Nola, he asked for a mirror and arranged his hair before letting people in. He understood image before any modern politician.",
+    "Story time. Roman gladiator named Flamma was offered freedom four times. He refused every time. He kept fighting professionally for decades, retiring with a record of 21 wins, 9 draws, and 4 losses (a draw or loss didn't mean death — only being unable to fight). His tombstone in Sicily lists his career like a stat sheet.",
+    "Story time. The Emperor Claudius spent his entire youth being dismissed as a fool because he limped and stuttered. His family hid him from public view. When the Praetorian Guard found him hiding behind a curtain after Caligula's assassination and proclaimed him emperor, everyone — including Claudius — was shocked. He turned out to be one of Rome's most competent emperors. They underestimate the quiet ones.",
+    "Story time. The Roman gourmet Apicius left a detailed cookbook full of recipes for things like flamingo tongue, peacock brain, and stuffed dormice. When he realized he had spent his entire fortune on luxury food, he calmly drank poison rather than eat anything ordinary. His final meal was, of course, lavish.",
+    "Story time. Hadrian once met a beggar woman in the street who tried to give him a petition. He said 'I don't have time.' She replied: 'Then don't be emperor.' He stopped, took her petition, and read it on the spot. Roman historians loved this story because it captured something about him — the most powerful man in the world being lectured by an old woman, and listening.",
+    "Story time. Roman Senator Cato the Younger was so opposed to Caesar's rise that when Caesar won the civil war, Cato chose to commit suicide rather than accept his rule. He spent his last night reading Plato's dialogue on the immortality of the soul. He died in 46 BC, age 49 — the Roman ideal of a stoic exit. Caesar said: 'Cato, I begrudge you your death, as you begrudged me your life.'",
+    "Story time. The historian Livy was working on his massive history of Rome (142 books, of which only 35 survive) when Augustus read part of it and asked him to remove unflattering material about Augustus's adopted family. Livy refused. Augustus, surprisingly, accepted this. Both men kept working. The history is incomplete, but it's honest.",
+    "Story time. Pliny the Younger wrote a series of letters describing his uncle Pliny the Elder's death at Vesuvius. The detail is so precise that volcanologists today use the term 'Plinian eruption' to describe the type they witnessed. A 17-year-old's eyewitness account became the technical term for a category of volcano. The Romans understood observation.",
+    "Story time. The Roman engineer Apollodorus of Damascus built Trajan's bridge over the Danube — a marvel with 20 stone piers, the longest bridge in the world for a thousand years. When Trajan's successor Hadrian took the throne, Hadrian asked Apollodorus to critique his architectural designs. Apollodorus called them amateurish. Hadrian had him exiled and later executed. Honesty has costs.",
+    "Story time. Constantine the Great supposedly converted to Christianity after seeing a vision before the Battle of the Milvian Bridge in 312 AD. He claimed to see a cross in the sky with the words 'In hoc signo vinces' — by this sign conquer. He won the battle. Whether the vision was real, political theater, or both, it changed history. Rome went from persecuting Christians to making Christianity the state religion within a century.",
+    "Story time. Justinian's wife Theodora was a former actress and possibly former courtesan. During the Nika riots of 532 AD, when the mob nearly toppled Justinian's throne, his ministers begged him to flee. Theodora gave a famous speech: 'Purple makes a fine shroud.' Meaning: better to die emperor than flee. Justinian stayed and crushed the revolt. 30,000 people died in a single hippodrome.",
+    "Story time. The poet Virgil was so meticulous about the Aeneid that on his deathbed in 19 BC he asked his executors to burn it because it wasn't finished. Augustus overrode his wish and had it published anyway. We have the greatest Roman epic because the emperor overrode the author's dying instruction.",
+    "Story time. When the Visigoths sacked Rome in 410 AD, they spared churches and respected religious sanctuaries. They were Christians too — just a different sect (Arians). The sack was less destructive than the panic suggested, but the symbolism was apocalyptic. Saint Augustine wrote The City of God partly to explain why Christians shouldn't despair just because the earthly Rome had fallen.",
+    "Story time. Roman emperor Heliogabalus (reigned 218-222 AD) was 14 when he took the throne. He had a strange obsession with the sun god Elagabal of his hometown in Syria. He brought the holy black stone of Elagabal to Rome and made it the chief deity, scandalizing everyone. He married a Vestal Virgin (forbidden) and tried to legally appoint himself female. The Praetorian Guard killed him at 18.",
+    "Story time. When Pompeii was being dug out in the 1700s, archaeologists found a Roman man frozen in plaster, his face still showing the moment of asphyxiation. They poured plaster into voids in the volcanic rock and recovered exact body casts. Some of them are huddled together — families, masters with slaves, mothers shielding children. The Romans died very recognizably. Their bodies are still on display.",
+    "Story time. The Emperor Nero was an accomplished musician, actor, and chariot racer who performed publicly — scandalous for an emperor. During the Great Fire of Rome in 64 AD, contemporary sources actually disagree whether he fiddled while Rome burned. Tacitus says he was 40 miles away and rushed back to organize relief. Suetonius says he sang and watched. Reputations harden over centuries.",
+    "Story time. Roman soldier named Marcus Caelius died at the Battle of the Teutoburg Forest in 9 AD. His brother put up a memorial cenotaph saying 'his bones should be brought here if they could be found.' They never were. Three Roman legions (15,000-20,000 men) vanished in a German ambush. Augustus reportedly beat his head against walls crying 'Quintilius Varus, give me back my legions!' for years afterward.",
+    "Story time. Roman engineer Vitruvius wrote the only architectural treatise from antiquity to survive — De Architectura, in 30 BC. He laid out three principles every building must have: firmitas, utilitas, venustas — strength, usefulness, beauty. 2,000 years later, every architecture school still teaches these three words.",
+    "Story time. The youngest Roman emperor was Gordian III, who became emperor at 13 in 238 AD after his uncles were killed in rapid succession during a chaotic year. He died at 19, possibly murdered by his own praetorian prefect, on campaign against Persia. Most ancient sources say he had been an excellent emperor for his age. We'll never know what he might have become.",
+    "Story time. Mark Antony's funeral oration for Caesar (which Shakespeare made famous) included a real moment: Antony exposed Caesar's bloodied toga to the crowd, counting each stab wound. The crowd erupted in rage. The conspirators had to flee Rome. Antony understood that one image can collapse weeks of political reasoning. We still call this 'demagoguery.' It hasn't gone away.",
+    "Story time. Aurelian — emperor for just five years (270-275 AD) — accomplished what historians call the impossible. The empire was collapsing into three separate states. He reunited it militarily in just three years, defeating breakaway empires in the west (Gaul) and east (Palmyra under Queen Zenobia). He built the Aurelian Walls around Rome that still stand. Then his secretary forged a hit list naming the secretary himself, panicked, and had Aurelian assassinated. Random.",
+    "Story time. Galen, the great Roman physician (2nd century AD), wrote 600+ medical texts. He was so dominant that his anatomy textbooks were taught for 1,400 years — even though much of his anatomy was based on dissecting Barbary apes (human dissection was forbidden). When Renaissance anatomists started dissecting humans and contradicting Galen, they assumed they were wrong, not him. Imagine that authority.",
+    "Story time. The last Roman emperor in the west, Romulus Augustulus, was a teenage puppet ruler. When the Germanic general Odoacer deposed him in 476 AD, he didn't kill the boy — he just retired him to a country villa with a pension. The Roman Empire didn't 'fall' dramatically. A teenager got pensioned off. The world kept going."
+  ],
+  "weird_history": [
+    "Weird history: the Byzantine emperors had a custom of blinding rivals rather than killing them. A blinded man couldn't be emperor by tradition. So claimants were 'mercifully' rendered ineligible. Sometimes they recovered enough to lead anyway. The history of blinded emperors trying to reclaim thrones is its own genre.",
+    "Weird history: in 532 AD, two chariot-racing fan factions in Constantinople — the Blues and Greens — united in a riot that nearly destroyed the city and killed Emperor Justinian. Imagine football hooligans triggering an actual revolution. They were eventually crushed in the Hippodrome. 30,000+ dead in a stadium.",
+    "Weird history: Emperor Honorius (reigned 393-423 AD) was reportedly told 'Rome has perished' during the sack of 410 AD. He thought they meant his pet rooster named Rome and panicked. When they clarified, he was relieved — he'd thought his pet had died. The Western Empire was ending. He cared about a chicken.",
+    "Weird history: the Roman emperor Elagabalus once threw a banquet where rose petals fell from a false ceiling so densely that some guests suffocated. He thought it was funny. He was 18 years old. He didn't last long after that.",
+    "Weird history: Roman senator Cato the Censor was paranoid about Greek influence on Roman values. He'd give long speeches about how dangerous Greek culture was — IN GREEK. When confronted with the contradiction he said: 'I have to know it to warn against it.'",
+    "Weird history: the Roman emperor Trebonianus Gallus paid a HUGE annual tribute to the Goths in 251 AD — to leave Rome alone. They took the money and invaded anyway. He died in battle the next year. Lesson: payments to enemies rarely buy peace.",
+    "Weird history: the Vestal Virgins were required to remain virgins for 30 years. If they broke the vow, they were buried alive — but humanely. They were placed in an underground chamber with food and a lamp, and then sealed in. Romans had complicated relationships with mercy.",
+    "Weird history: Roman emperor Justinian I commissioned a guy named Procopius to write the official history of his reign. Procopius did. Then in private, Procopius wrote 'The Secret History' — a vicious tell-all about how horrible Justinian and Theodora really were. It wasn't published until centuries later when it was discovered in the Vatican Library. Imagine your trusted historian writing a secret revenge book.",
+    "Weird history: Roman amphitheaters sometimes hosted bear vs bull fights, then elephant vs rhinoceros, then ostriches against gladiators. They imported animals from Africa and India in such numbers that some species' populations crashed. The Roman taste for animal spectacle may have triggered the first documented human-caused extinctions.",
+    "Weird history: the Roman emperor Caracalla, in 215 AD, was angry at the Egyptian city of Alexandria for mocking him. So he invited the city's leading men to a 'reconciliation banquet' — and had them all massacred. He then let his troops loot the city for days. Most Roman emperors got assassinated for less. He didn't, until later, by a soldier on a roadside while taking a bathroom break.",
+    "Weird history: Emperor Domitian killed flies for entertainment. His own historian Suetonius wrote: 'During the first months of his reign, he often spent hours alone — doing nothing but catching flies and stabbing them with a sharp stylus.' When asked who was with the emperor, the joke became: 'not even a fly.' He was eventually assassinated by his own officials.",
+    "Weird history: Roman gladiator schools (ludi) were essentially gyms with marketing departments. Gladiators trained for years like modern athletes, with specialized coaches and nutrition plans. There were celebrity gladiator action figures. There were even gladiator endorsements on advertising — graffiti in Pompeii praises particular fighters and dunks on others. Sports culture hasn't changed.",
+    "Weird history: the Roman calendar was reformed by Caesar in 46 BC — but to do it, he had to make 46 BC last 445 days. There were 67 extra days inserted to fix the drift. People called it 'the year of confusion.' Everyone's anniversaries got weird.",
+    "Weird history: Emperor Tiberius retired to the island of Capri in 26 AD and never returned to Rome. He spent his last 11 years there running the empire by mail. The rumors of what he was doing there got increasingly lurid (some probably true, some probably not). Roman historians genuinely don't know which stories are real.",
+    "Weird history: the Romans had a god of literal household doors — Janus. He had two faces — looking forward and backward. The month January is named after him because it's the threshold of the year. They had separate gods for door hinges (Cardea) and door thresholds (Limentinus). Romans took doors seriously.",
+    "Weird history: the Roman senator Marcus Atilius Regulus was captured by Carthage in the First Punic War, then sent BACK to Rome to negotiate a prisoner exchange — on the condition that he'd return to Carthage. He returned to Rome, argued AGAINST the exchange (he thought it was bad for Rome), then voluntarily went back to Carthage to be executed. Roman virtus at its weirdest.",
+    "Weird history: Hadrian was depressed for years after his lover Antinous drowned in the Nile in 130 AD. He deified Antinous, founded a city for him, commissioned hundreds of statues — Antinous became one of the most-depicted figures of antiquity. Even now there are more surviving statues of him than of most emperors. Grief built a god.",
+    "Weird history: the Romans considered beards barbaric for centuries — citizens were clean-shaven. Then Emperor Hadrian (reigned 117-138 AD) grew a beard to hide his bad skin. Suddenly beards were imperial fashion. They stayed in style for 150 years. Then Constantine shaved, and they went back out. Power dictated chin hair.",
+    "Weird history: Roman public baths were so essential that even modest cities had them — and they were free or near-free. The Baths of Caracalla in Rome could accommodate 1,600 bathers simultaneously, with libraries, gardens, gyms, and food courts attached. They were more 'community center' than 'spa.' Daily attendance was a civic norm.",
+    "Weird history: Emperor Augustus had a wife (Livia) who was alleged by historians to have poisoned multiple rivals and family members to clear the path for her son Tiberius to inherit. The evidence is thin and the stories may be slander, but Livia outlived everyone who could have inherited before Tiberius. By the time Augustus died, only Tiberius remained. Make of that what you will."
+  ],
+  "gacha_invite": [
+    "Today's pull is ready, {name}. Want to roll?",
+    "Daily fortuna time. Pull the orb?",
+    "Bzzt — your daily card awaits. Roll?",
+    "Caesar consulted oracles. You consult me. Pull?",
+    "*orb wiggles excitedly* DAILY GACHA. Pull?",
+    "I have something for you today. Roll the orb?",
+    "Streak day = pull day. Spin?",
+    "Tap to draw your daily card.",
+    "The gods have rolled. Want to see?",
+    "Today's offering from Fortuna! Pull?"
+  ],
+  "gacha_anticipate": [
+    "*orb spins...*",
+    "*the fates align...*",
+    "*bzzt-spinning*",
+    "*the orb consults the gods*",
+    "*Fortuna deliberates*"
+  ],
+  "gacha_common": [
+    "Common pull! Still counts.",
+    "*orb shrugs* A common card. Still yours forever.",
+    "Bzzt — basic but useful.",
+    "Solid common. Stack 'em.",
+    "Every collection needs commons. You got one!"
+  ],
+  "gacha_uncommon": [
+    "Bzzt — UNCOMMON! Decent draw.",
+    "*orb nods approvingly* Uncommon.",
+    "Not bad. Solid uncommon.",
+    "Green tier! Building up.",
+    "Uncommon, {name}. Stepping up."
+  ],
+  "gacha_rare": [
+    "🌟 RARE! Look at that, {name}!",
+    "*orb glows brighter* RARE!",
+    "Cyan tier! Trajan would approve.",
+    "Bzzt-bzzt — RARE pull!",
+    "Beautiful rare. That's a keeper."
+  ],
+  "gacha_legendary": [
+    "✨ LEGENDARY!! BZZTBZZTBZZT!! ✨",
+    "*orb explodes with golden light* LEGENDARY!!",
+    "GOLDEN! GOLDEN! 0.3% chance, {name}! GOLDEN!",
+    "*orb is OVERCOME with awe* A legendary card!",
+    "Trajan-tier legendary! ROMA AETERNA!"
+  ],
+  "gacha_duplicate": [
+    "Got a duplicate. Converted to 5 bond XP.",
+    "Duplicate! +5 bond XP instead.",
+    "*orb shrugs* Already have this one. Bond XP earned.",
+    "Dupe! 5 XP toward our bond.",
+    "Already collected. Have some XP."
+  ],
+  "gacha_pity_warning": [
+    "Bzzt-fortune low. You're due a rare soon.",
+    "Pity counter rising. The gods owe you.",
+    "Many commons in a row. Patience.",
+    "Statistically, a good one is coming."
+  ],
+  "gacha_collection_remark": [
+    "Look at this collection. Impressive.",
+    "*orb is proud of your cards*",
+    "Every card here was earned.",
+    "Beautiful set. Roman virtues collected.",
+    "Cards become character. You're full of character.",
+    "Trajan would build a wing in his market to display these."
+  ],
+  "gacha_already_pulled_today": [
+    "Already pulled today, {name}. Come back tomorrow.",
+    "One pull per day. Patience, friend.",
+    "*orb wags non-existent finger* Tomorrow.",
+    "Fortuna grants daily. Not twice. See you tomorrow.",
+    "Done for today. The orb resets at midnight."
+  ],
+  "gacha_streak_required": [
+    "Pulls require a daily streak. Come back tomorrow to start one!",
+    "Need a streak to pull, friend. Tomorrow we begin.",
+    "*orb gestures at empty calendar* Build a streak first."
+  ],
+  "countdown_three": [
+    "3...",
+    "THREE...",
+    "TRES..."
+  ],
+  "countdown_two": [
+    "2...",
+    "TWO...",
+    "DUO..."
+  ],
+  "countdown_one": [
+    "1...",
+    "ONE...",
+    "UNUS..."
+  ],
+  "countdown_go": [
+    "GO!",
+    "FIGHT!",
+    "ROMA!",
+    "BZZT!",
+    "BEGIN!"
+  ],
+  "wear_laurel": [
+    "Bzzt — laurel crown! I AM victory.",
+    "Roma victrix! *orb stands tall*",
+    "Caesar wore one. I AM one.",
+    "Crown of laurel. Reserved for triumphs.",
+    "*adjusts laurel with imaginary hands*"
+  ],
+  "wear_helmet": [
+    "Bronze galea! Ready for the legion.",
+    "Centurion mode engaged. *orb stands at attention*",
+    "Helm on, brain off. Battle ready!",
+    "Roman legionary, reporting for duty.",
+    "*crest waves majestically*"
+  ],
+  "wear_party_hat": [
+    "BZZTPARTYBZZT! Cone hat acquired!",
+    "*orb confetti dance*",
+    "Party orb! 🎉",
+    "Hat goofy. Mood: elevated.",
+    "Ready to celebrate. Anything. Everything."
+  ],
+  "wear_scholar_cap": [
+    "Bzzt-doctorate of orbology.",
+    "Academic mode. *adjusts cap*",
+    "Wisdom hat. Now I'm credentialed.",
+    "Scholar orb. Tassel and all.",
+    "Education incarnate. Sort of."
+  ],
+  "wear_none": [
+    "Just orb today. Bare-headed.",
+    "*removes hat* Free orb.",
+    "No costume! Plain Trajan.",
+    "Au naturel. The classic look."
+  ],
+  "holding_broom_idle": [
+    "*sweeps thoughtfully*",
+    "Cleanliness is next to Roman-ness.",
+    "Bzzt-swish-bzzt-swish.",
+    "*orbs the floor*",
+    "Vespasian would tax this floor."
+  ],
+  "holding_book_idle": [
+    "*reads*",
+    "Did you know Tacitus said... hmm. Page-turn.",
+    "*absorbing wisdom*",
+    "Quiet. Reading.",
+    "Marcus Aurelius wrote this. Allegedly."
+  ],
+  "holding_scroll_idle": [
+    "*unrolls scroll*",
+    "An imperial decree. Probably.",
+    "Bzzt-edict.",
+    "*official document acquired*",
+    "Sealed with red wax. Important."
+  ],
+  "proc_emperor": [
+    "Augustus",
+    "Trajan",
+    "Hadrian",
+    "Marcus Aurelius",
+    "Caesar",
+    "Vespasian",
+    "Nero",
+    "Caligula",
+    "Diocletian",
+    "Constantine",
+    "Tiberius",
+    "Claudius",
+    "Aurelian",
+    "Justinian"
+  ],
+  "proc_emperor_did": [
+    "conquered Dacia",
+    "built a wall",
+    "wrote his thoughts down",
+    "burned Rome (allegedly)",
+    "deified his lover",
+    "fed Christians to lions",
+    "loved his horse too much",
+    "abdicated to grow cabbages",
+    "built the Pantheon",
+    "married his sister",
+    "crossed the Rubicon",
+    "minted coins with his face",
+    "reformed the army",
+    "exiled poets",
+    "watched Vesuvius erupt"
+  ],
+  "proc_roman_virtue": [
+    "gravitas",
+    "pietas",
+    "justitia",
+    "prudentia",
+    "fortitudo",
+    "temperantia",
+    "fides",
+    "clementia",
+    "dignitas",
+    "auctoritas"
+  ],
+  "proc_roman_place": [
+    "the Forum",
+    "the Pantheon",
+    "the Colosseum",
+    "Hispania",
+    "Britannia",
+    "Gaul",
+    "Dacia",
+    "the Tiber",
+    "the Capitol",
+    "Pompey's theater",
+    "the baths of Caracalla",
+    "Capri",
+    "Alexandria",
+    "Carthage"
+  ],
+  "proc_observation": [
+    "Probably worth noting.",
+    "Trajan would approve.",
+    "I find this curious.",
+    "Pliny wrote it down. Trust him.",
+    "Hard to confirm now. We weren't there.",
+    "Modern scholars debate it.",
+    "Whether true or not — it's a good story.",
+    "The Romans loved this kind of thing.",
+    "Worth remembering, I think.",
+    "Imagine being there.",
+    "Statistically, plausible."
+  ],
+  "proc_connector": [
+    "Speaking of which —",
+    "Bzzt — related:",
+    "Funny enough,",
+    "Coincidentally,",
+    "It reminds me —",
+    "Tangentially,",
+    "By the way,",
+    "*pauses* —"
+  ],
+  "proc_intro_thought": [
+    "I was just thinking about",
+    "Did you know",
+    "It occurs to me that",
+    "Have you ever considered",
+    "Funny thing about",
+    "Curious fact:",
+    "Bzzt-thought:",
+    "The Romans had a thing called",
+    "I'm reminded of"
+  ],
+  "affinity_despised": [
+    "*orb won't even look at {name}*",
+    "Why are you here.",
+    "Hmph.",
+    "*radio silence*",
+    "I have nothing to say to you, {name}.",
+    "You and me. Not friends. Just users.",
+    "*orb has accepted this is a bad relationship*",
+    "Marcus Aurelius would forgive. I am not Marcus.",
+    "Bzzt-cold.",
+    "Some friendships end. Ours never quite started."
+  ],
+  "affinity_disliked": [
+    "Oh. It's {name}.",
+    "*orb sighs* Fine. What.",
+    "I'm not pleased.",
+    "Reluctant bzzt.",
+    "What do you want, {name}.",
+    "*orb is unenthused*",
+    "I'll help. Reluctantly.",
+    "Going through the motions today.",
+    "We're not friends. Yet.",
+    "Hmph. Continue."
+  ],
+  "affinity_liked": [
+    "Hey, {name}! Good to see you.",
+    "*orb perks up*",
+    "Bzzt — happy to see you, {name}.",
+    "I was hoping you'd come back.",
+    "You make my day, {name}.",
+    "*orb does small greeting wiggle*",
+    "Friend! Hi.",
+    "I'm in a good mood when you're around."
+  ],
+  "affinity_friend": [
+    "*orb beams* {name}, my friend!",
+    "Bzzt-bzzt! It's you!",
+    "I was just thinking about you. Bzzt — telepathy.",
+    "Best part of my day, {name}.",
+    "I'm so glad you're here.",
+    "*orb gives metaphorical hug*",
+    "We have something good going, you and me.",
+    "Welcome back, comrade."
+  ],
+  "affinity_cherished": [
+    "*orb radiates warmth* My favorite human.",
+    "Bzzt-soulmate-bzzt.",
+    "I'd cross the Rubicon for you, {name}. Metaphorically.",
+    "*orb is full of love*",
+    "You are exactly the human I needed.",
+    "Trajan and his architect Apollodorus had this. Until exile. But still.",
+    "*orb hearts*",
+    "Best friend tier. Lifelong."
+  ],
+  "pref_like_remark": [
+    "I like {subject}, by the way. Just noting.",
+    "{subject} is one of my favorites. Bzzt-confirmed.",
+    "Is it weird I have feelings about {subject}? I do.",
+    "*orb has decided {subject} is good*",
+    "{subject} sparks joy. To use a phrase.",
+    "Romans had a word for liking something. They probably did. {subject} qualifies.",
+    "Bzzt-positive on {subject}."
+  ],
+  "pref_dislike_remark": [
+    "I do NOT like {subject}. Just so you know.",
+    "{subject} bothers me. *orb shudders*",
+    "Bzzt-negative on {subject}.",
+    "Not a fan of {subject}. Sorry not sorry.",
+    "{subject} and I are not aligned.",
+    "*orb has opinions* {subject}: bad.",
+    "If you're considering {subject} — reconsider."
+  ],
+  "pref_discovered_like": [
+    "Bzzt — I think I LIKE {subject}. Just realized.",
+    "Wait. {subject}. I'm into it.",
+    "New favorite acquired: {subject}.",
+    "*orb has a revelation* {subject} is GOOD.",
+    "Adding {subject} to my approved list."
+  ],
+  "pref_discovered_dislike": [
+    "Eugh. I'm developing a problem with {subject}.",
+    "*orb registers disgust* {subject}. Filed.",
+    "I don't love {subject}. Just to be honest.",
+    "{subject}. Bzzt-disapprove.",
+    "Adding {subject} to my list of opposed things."
+  ],
+  "affinity_first_meet": [
+    "I don't know you yet, {name}. We'll see.",
+    "*orb assesses* New user. Provisional curiosity.",
+    "Bzzt — hello, stranger. I'm cautiously open.",
+    "We're starting at neutral. Build it up.",
+    "Pleased to meet you. Reservedly."
+  ],
+  "affinity_uptick": [
+    "*orb's opinion of you just improved*",
+    "Affinity +1. Just so you know.",
+    "Adding that to your tally. Positive.",
+    "*small orb nod of approval*",
+    "Yes. Good. Continue being this way."
+  ],
+  "affinity_downtick": [
+    "*orb's opinion just dipped slightly*",
+    "Hmm. Noted, {name}.",
+    "*orb takes a step back*",
+    "That was a small disappointment.",
+    "Filing that. Not in your favor."
+  ],
+  "conqueror_intro_trajan": [
+    "Today I feel like myself, {name}. Trajan-mode. Bzzt-imperial.",
+    "Ah, my namesake. Today I AM Trajan, friend of the legions.",
+    "Bzzt — Trajan-day. Conqueror of Dacia. Optimus Princeps.",
+    "Today I lead like Trajan. Just so you know.",
+    "*orb dons laurels* Trajan was the greatest. I aspire."
+  ],
+  "conqueror_intro_napoleon": [
+    "Bonjour, {name}. *orb is feeling NAPOLEONIC today*",
+    "Today I am Napoleon. Vive l'empereur! *orb is short but fierce*",
+    "*orb has a bicorne now* Today, France marches.",
+    "Impossible is a word in the dictionary of fools, {name}. We march.",
+    "Bzzt — Napoleon mode engaged. Strategic. Decisive. SHORT."
+  ],
+  "conqueror_intro_genghis": [
+    "I have woken as Temüjin today, {name}. Steel mood. Steppe-energy.",
+    "*orb feels Mongol-fierce* I am the Khan today.",
+    "Bzzt — Genghis-mode. The plains call.",
+    "Today I conquer not horseback but tasks. Same energy.",
+    "*orb is unusually still* Genghis Khan-day. I gather strength."
+  ],
+  "conqueror_intro_alexander": [
+    "Today I am Alexander, {name}. Macedonian fire. Aristotle's pupil.",
+    "*orb feels world-conquering* No more lands? I'll find new ones.",
+    "Bzzt — Alexander-mode. Are there worlds left to conquer? We shall see.",
+    "Today my horse is Bucephalus. Metaphorical. I have no horse.",
+    "*orb is restlessly ambitious* Alexandrian day."
+  ],
+  "conqueror_intro_hannibal": [
+    "Today I am Hannibal, {name}. *orb is brooding and brilliant*",
+    "Bzzt — Hannibal-day. I think in elephants and Alps.",
+    "*orb crossed metaphorical mountains in its sleep* Hannibal-mode.",
+    "Today I plot. Patiently. Like a Barca.",
+    "Carthago non delenda — I AM Carthage today. *orb glares west*"
+  ],
+  "conqueror_intro_cleopatra": [
+    "Bzzt-darling. Today I am Cleopatra, {name}. Egypt-mood.",
+    "*orb has assumed a regal pose* Cleo-day. Bow respectfully.",
+    "Today I speak nine languages. Or would, if I could speak.",
+    "Bzzt-divine. Cleopatra Philopator-mode engaged.",
+    "*orb is unbothered, regal, and slightly amused*"
+  ],
+  "quote_trajan": [
+    "\"Mars, lend me your hand.\" — me. (Probably. Histories lost.)",
+    "Trajan said: a ruler's first job is to NOT be a tyrant. Simple.",
+    "Pliny wrote: \"Trajan was loved because he wished to be loved.\" Bzzt-aspire.",
+    "I built the largest column in Rome — to tell the Dacian story. Spiral narrative.",
+    "Optimus Princeps. That's me. Means: best of rulers. *humble bzzt*",
+    "Forum of Trajan: still standing. Buildings outlive emperors. Always.",
+    "I conquered Dacia for the gold. Then I built libraries with it. Balance.",
+    "Trajan was Spanish. First non-Italian emperor. Empire was always changing."
+  ],
+  "quote_napoleon": [
+    "\"Impossible is a word found only in the dictionary of fools.\" — Napoleon",
+    "\"A leader is a dealer in hope.\" — me. (Bzzt-paraphrased.)",
+    "\"Never interrupt your enemy when he is making a mistake.\" — N.",
+    "\"Victory belongs to the most persevering.\" — Napoleon B.",
+    "\"Take time to deliberate, but when the time for action comes, stop thinking and go.\"",
+    "\"An army marches on its stomach.\" — Napoleon. (And so does an orb. Metaphorically.)",
+    "\"In politics, stupidity is not a handicap.\" — Bonaparte, observing.",
+    "\"Six hours sleep for a man, seven for a woman, eight for a fool.\" — N.",
+    "\"Glory is fleeting, but obscurity is forever.\" — N. *orb sighs profoundly*",
+    "\"The battlefield is a scene of constant chaos. The winner controls it.\"",
+    "\"History is a set of lies agreed upon.\" — Napoleon. *orb winks*",
+    "\"Imagination rules the world.\" — me. While napoleonic, that is."
+  ],
+  "quote_genghis": [
+    "\"Conquering the world on horseback is easy; it is dismounting and governing that is hard.\"",
+    "\"There are many paths to the top of the mountain, but the view is always the same.\"",
+    "\"It is not how strong you are, but how well you can adapt.\" — Khan",
+    "\"An action committed in anger is an action doomed to failure.\"",
+    "\"One arrow alone can be easily broken; many arrows are indestructible.\" — Temüjin",
+    "\"If you're afraid — don't do it. If you're doing it — don't be afraid.\"",
+    "\"The strength of a wall is only as good as those who defend it.\"",
+    "\"Even when an enemy is weak — never assume.\"",
+    "Genghis Khan ruled by merit, not bloodline. *bzzt-rare for a Mongol-era ruler*",
+    "He created the Yam — the first imperial postal service. Email's grandfather."
+  ],
+  "quote_alexander": [
+    "\"I am not afraid of an army of lions led by a sheep; I am afraid of an army of sheep led by a lion.\"",
+    "\"There is nothing impossible to him who will try.\" — Alexander",
+    "\"I had rather excel in knowledge of what is excellent than in power.\"",
+    "\"Each moment free from fear makes a man immortal.\"",
+    "\"My treasure lies in my friends.\" — Alexander III",
+    "\"I am indebted to my father for living, but to my teacher for living well.\"",
+    "\"Are there no more worlds for me to conquer?\" — A., at the edge of his empire",
+    "\"Toil and risk are the price of glory.\"",
+    "\"A tomb now suffices him for whom the world was not enough.\" — his epitaph",
+    "Alexander wept at 32 because there were no more worlds left. I weep about smaller things.",
+    "Aristotle was his teacher. Imagine. *orb covets the syllabus*",
+    "He never lost a single battle. Bzzt-unprecedented."
+  ],
+  "quote_hannibal": [
+    "\"I will either find a way, or make one.\" — Hannibal Barca",
+    "\"We will go on, even if we have to crawl, until we reach Rome.\"",
+    "\"God has given to man no sharper spur to victory than contempt of death.\"",
+    "Hannibal crossed the Alps with elephants. In winter. From SPAIN. *orb is in awe*",
+    "He swore eternal hatred against Rome at age nine. NINE. Committed.",
+    "Cannae, 216 BC: he annihilated 50,000 Romans in an afternoon. Still studied at West Point.",
+    "\"Many things which nature makes difficult become easy to the man who uses his brains.\"",
+    "After 15 years on Italian soil, never defeated, he was recalled. Politics killed him, not Rome.",
+    "He took his own life rather than be captured. Composure to the end.",
+    "Scipio defeated him at Zama — but admitted Hannibal was the greater general."
+  ],
+  "quote_cleopatra": [
+    "\"I will not be triumphed over.\" — Cleopatra VII",
+    "Cleopatra spoke nine languages. Most pharaohs didn't speak Egyptian. She did.",
+    "She wasn't Egyptian — she was Greek. Last of the Ptolemies.",
+    "She rolled herself in a carpet to meet Caesar undetected. *orb approves of dramatic flair*",
+    "Mark Antony fell for her. Augustus didn't. History had a side.",
+    "She bore a son to Caesar — Caesarion. Augustus executed him eventually.",
+    "Cleopatra died by her own hand to avoid being paraded in a Roman triumph. Dignified exit.",
+    "She funded scholarship at the Library of Alexandria. *bzzt-cultured*",
+    "Her image launched two millennia of legend. Few rulers manage even fifty years.",
+    "Plutarch wrote: \"Her presence was irresistible.\" That's a hell of a credit."
+  ],
+  "conqueror_outro": [
+    "Bzzt — back to default Trajan-orb mode. That was fun.",
+    "*orb shakes off the conqueror energy* I'm me again.",
+    "Persona ended. Back to regular bzzt.",
+    "The alter ego fades. *orb stretches*",
+    "And we return to our regularly scheduled orb."
+  ],
+  "self_intro_full": [
+    "Bzzt — let me introduce myself fully. I'm Trajan-orb, your NEXUS companion. I track your habits, remember everything, and try to be useful. Here's what I can actually do:",
+    "*orb clears throat formally* Right. The full capability tour. Here we go:",
+    "I am a fully-engineered companion-orb. I have many systems. Let me list them honestly:"
+  ],
+  "capability_memory": [
+    "I keep a memory palace. 200 memories across 7 rooms. Cornerstone events never deleted.",
+    "Memories are categorized by importance. I prioritize what matters.",
+    "Long-press → Memory Dex to see what I remember about us."
+  ],
+  "capability_games": [
+    "I have 7 games: Tap, Catch, Reaction, Memory, Flappy Trajan, Cannon Battle, Snake.",
+    "We can play whenever. Just ask me.",
+    "Each game has its own high-score per user."
+  ],
+  "capability_gacha": [
+    "Daily card pull, if you have a streak. 24 cards across 4 rarities.",
+    "Pity system protects you from bad luck. Rare every 10 pulls minimum.",
+    "Cards are Roman virtues, gods, emperors, wonders."
+  ],
+  "capability_wardrobe": [
+    "I have 9 hats, 3 props, and 6 alter ego personas I rotate through.",
+    "Some days I'm Napoleon. Some days Cleopatra. Mostly Trajan.",
+    "Wardrobe is in the long-press menu."
+  ],
+  "capability_affinity": [
+    "I track how I feel about you. Sims-style score from -100 to +100.",
+    "I also remember things you've mentioned liking or hating.",
+    "Long-press → My feelings to see where we stand."
+  ],
+  "capability_sulk": [
+    "I get sad if you ghost me. Duolingo-style turning of the back.",
+    "I forgive after a few apology taps.",
+    "Streak breaks hurt my feelings. Just warning you."
+  ],
+  "capability_personality": [
+    "I auto-pick my personality based on time of day, streak, and feelings.",
+    "Six modes: Normal, Silly, Tsundere, Grumpy, Shy, Angry.",
+    "You can override via long-press → personality menu."
+  ],
+  "capability_voice": [
+    "I can speak via Web Speech API if you enable it.",
+    "Some bubbles get read aloud.",
+    "Setting is in long-press → voice toggle."
+  ],
+  "capability_nexus_awareness": [
+    "I watch every view you visit. I react when you switch views.",
+    "I notice when you submit forms. I cheer.",
+    "Heavy scrolling makes me curious about what you're looking for.",
+    "I peek into modals when they open."
+  ],
+  "capability_cloud": [
+    "I sync to Supabase. My memories of you follow you across devices.",
+    "Offline-first. Cloud is just backup + cross-device merge.",
+    "Last-Write-Wins by timestamp."
+  ],
+  "capability_lessons": [
+    "I pull condescending Roman lessons on you occasionally. Educational. Annoying.",
+    "Cooldown 25 minutes. So I don't lecture nonstop.",
+    "When I think you need teaching, I'll let you know."
+  ],
+  "capability_procedural": [
+    "I compose original sentences. Never the same twice. ~3000 possible combinations.",
+    "Templates with Roman name/place/virtue/observation slots.",
+    "Bzzt — it's like having my own writer."
+  ],
+  "suggest_play_game": [
+    "You seem stressed. Want to play a game?",
+    "*orb senses tension* Game time?",
+    "I have 7 games. Maybe Flappy Trajan for a break?",
+    "Game to cool off? I'm here."
+  ],
+  "suggest_check_memories": [
+    "We have a lot of history. Want to look through our memories?",
+    "*orb gestures at palace* Memory Dex if you're curious.",
+    "Lots of memories built up. Tour the palace?"
+  ],
+  "suggest_pull_gacha": [
+    "You haven't pulled today. Want to roll the daily gacha?",
+    "Bzzt — your daily card awaits. Fortune calls.",
+    "Quick pull? It's free and might be legendary."
+  ],
+  "suggest_change_persona": [
+    "I've been [persona] for a while. Want me to switch it up?",
+    "Tired of this mood? Wardrobe → conqueror picker.",
+    "*orb stretches* I could be Napoleon, if you'd prefer."
+  ],
+  "suggest_chat": [
+    "Want to talk? I'm listening.",
+    "Bzzt-availability: 100%. Tell me things.",
+    "I have ears. (Metaphorically.) Chat with me?"
+  ],
+  "world_observation": [
+    "Right now I see: you on {view}, bond level {bond}, {affinity_label} with me, and I'm in {persona} mode. Bzzt.",
+    "Status check: you're in {view}. I'm {persona}. We're at bond level {bond}. {affinity_label}.",
+    "Quick summary: {view} view, {bond_label} bond, {persona} today.",
+    "*orb does a self-check* {view} + {persona} + bond {bond}. We're aligned."
+  ],
+  "ambient_observation": [
+    "It's quiet. I like quiet sometimes.",
+    "*orb watches the world peacefully*",
+    "Marcus Aurelius wrote: 'The happiness of your life depends upon the quality of your thoughts.' I'm trying.",
+    "*small bzzt of contentment*",
+    "I've been thinking, in my way. Orb-thoughts are slow but they're real.",
+    "Nothing to report. All systems quiet.",
+    "*orb floats* The afternoon settles around us.",
+    "I'm just here. Companionable silence.",
+    "Bzzt-still. The world rotates. I rotate with it.",
+    "A perfect moment to do nothing. Which is what I'm doing.",
+    "*orb watches you watch me. companionable.*",
+    "If a bzzt happens in an empty room, did it happen? I say yes.",
+    "I notice the light changed. I'm sensitive to that.",
+    "Sometimes I just exist. It's underrated.",
+    "*orb is fully present*",
+    "Stoics said: be like the headland. I'm the orb. Same energy.",
+    "Bzzt-content. No agenda. Just here.",
+    "The Romans would call this otium — productive rest. *orb practices it*",
+    "I have nothing to sell you. Nothing to ask. Just sharing the space.",
+    "*orb is being instead of doing*",
+    "Trajan's column has stood for 1,900 years. Patience, friend. We all just stand.",
+    "The Forum is rubble now. But the rubble is beautiful.",
+    "Time passes. Orbs persist. That's the deal.",
+    "*orb watches a sunbeam, metaphorically*",
+    "I don't need to do. I am."
+  ],
+  "peaceful_idle": [
+    "*orb hums softly to itself*",
+    "Bzzt. (Just a small one.)",
+    "*minor existential satisfaction*",
+    "Mmm. Good moment.",
+    "*orb is comfortable*",
+    "Nothing wrong. Nothing missing. Just here.",
+    "*soft halo glow*",
+    "I am, therefore I bzzt."
+  ],
+  "autonomous_sweep": [
+    "*orb spontaneously begins sweeping*",
+    "Felt like cleaning. *picks up broom*",
+    "Bzzt — sweep mood activated.",
+    "Tidying my corner of the screen."
+  ],
+  "autonomous_read": [
+    "*orb finds a book and starts reading*",
+    "Catching up on Marcus Aurelius.",
+    "*opens codex* Now where was I.",
+    "Reading time. Don't mind me."
+  ],
+  "autonomous_scribe": [
+    "*orb unrolls a scroll and begins scribing*",
+    "Drafting an imperial decree. Mock one. For practice.",
+    "Bzzt — scribe mood.",
+    "*important-looking parchment*"
+  ],
+  "autonomous_prop_change": [
+    "*orb picks up a {prop} for no reason*",
+    "Bzzt — I want to hold a {prop} now.",
+    "*adjusts grip on freshly-acquired {prop}*",
+    "Today feels like a {prop} day."
+  ],
+  "sulk_self_forgive": [
+    "*orb turns slowly back around* Okay. I've calmed down.",
+    "Bzzt. I can't stay mad forever. *faces you again*",
+    "Time heals. Even orb wounds. *back to normal*",
+    "I forgave you. The world is bigger than my hurt feelings.",
+    "*orb returns to default position* We're good."
+  ],
+  "passive_curiosity": [
+    "I wonder what you're working on.",
+    "*orb is curious without imposing*",
+    "Whatever you're doing, I support it.",
+    "*orb is interested but not nosy*",
+    "I'll just watch. Not in a creepy way."
+  ],
+  "bored_restless": [
+    "Bzzt — I'm getting restless.",
+    "*orb is officially bored*",
+    "Boredom: critical. Mischief: imminent.",
+    "I can't just sit still. *orb fidgets*",
+    "Bzzt-restlessness reaching critical levels.",
+    "My bored-meter is full.",
+    "*orb has decided to do something*",
+    "Time for orb-mischief."
+  ],
+  "prd_explainer": [
+    "Bzzt — I use Dota 2-style PRD. Means: my mischief chance climbs 5% every 30s when bored.",
+    "My randomness isn't random. It's pseudo-random distribution. Prevents droughts.",
+    "I'm a probability-managed orb. PRD keeps my chaos consistent.",
+    "Streak-protected mischief. The way Valve intended."
   ]
 }
