@@ -106,8 +106,41 @@
     winking_l:   'is-winking-l',    // left-eye wink + tongue
     determined:  'is-determined',   // focused eyes + flat mouth
     sparkle:     'is-sparkle',      // sparkles around eyes + big smile
-    embarrassed: 'is-embarrassed',  // looking away + brighter blush
+    embarrassed: 'is-embarrassed',  // looking away + brighter blush + sweat
     kissy:       'is-kissy',        // closed eyes + kiss pucker
+    // v17.14 emotion overlays
+    singing:     'is-singing',      // happy crescent eyes + big smile + ♪♫
+    confused:    'is-confused',     // dot eyes + flat mouth + ?
+    worried:     'is-worried',      // sad eyes + flat mouth + sweat drop
+    // v17.16 KAWAII FACE LIBRARY — 22 new compound expressions
+    crying:        'is-crying',        // tearful eyes + frown + single tear
+    sobbing:       'is-sobbing',       // shut + frown + tears streaming
+    wailing:       'is-wailing',       // shut + open mouth + tears streaming
+    pouty:         'is-pouty',         // default + small pucker mouth
+    gasp:          'is-gasp',          // dots + O + sweat
+    shocked:       'is-shocked',       // wide-shock eyes + O mouth
+    eye_roll:      'is-eye-roll',      // looking up + flat (unimpressed)
+    peeved:        'is-peeved',        // looking down + frown
+    drooling:      'is-drooling',      // happy + saliva drip
+    laughing:      'is-laughing',      // squint XX + open laugh
+    super_excited: 'is-super-excited', // sparkle eyes + open laugh
+    mortified:     'is-mortified',     // wide-shock + tape mouth + heavy blush
+    frustrated:    'is-frustrated',    // angry brows + flat + sweat
+    tipsy:         'is-tipsy',         // happy + red clown nose
+    singing_star:  'is-singing-star',  // shut + star mouth + music
+    melancholy:    'is-melancholy',    // looking down (bittersweet)
+    bashful:       'is-bashful',       // glance away + heart blush
+    smitten:       'is-smitten',       // heart eyes + heart blush (deeper than love)
+    bunny:         'is-bunny',         // default + cute toothy smile
+    stunned:       'is-stunned',       // wide-shock + tape (speechless)
+    proud:         'is-proud',         // shut crescents + big smile
+    disappointed:  'is-disappointed',  // sleepy half-lids + frown
+    // v17.17 CONTEXT PERSONALITIES — tied to NEXUS views
+    genius:        'is-genius',        // equipment — glowing focused eyes + flat
+    disgusted:     'is-disgusted',     // cleaning — half-lidded yuck + wavy mouth + sweat
+    studious:      'is-studious',      // education — reading glasses + bunny teeth
+    strategist:    'is-strategist',    // board — determined + cat smirk
+    organized:     'is-organized',     // inventory — dot eyes + cat smile
   };
 
 
@@ -723,6 +756,7 @@
     offerStressCheckIn();
   }
   function offerStressCheckIn() {
+    mood('worried', 6000);              // v17.14: sweat drop says "I'm concerned"
     actionBubble(pickFromPool('stress_check_offer'), {
       eyebrow: 'CARE',
       actions: [
@@ -773,6 +807,7 @@
   function startDancing() {
     if (!state.shell) return;
     state.shell.classList.add('is-dancing');
+    mood('singing', 30000);                 // v17.14: ♪♫ notes float
     bubble(pickFromPool('dance_announce'), { autoHide: 4500 });
     spawnParticles({ count: 12, type: 'sparkle' });
     adjustFeeling('happiness', +10);
@@ -795,18 +830,24 @@
     const roll = Math.random();
     if (feel === 'lonely' && roll < 0.6) {
       bubble(pickFromPool('needs_attention'), { autoHide: 3800, eyebrow: 'LONELY' });
-      mood('sad', 3500);
+      mood(roll < 0.2 ? 'melancholy' : 'sad', 3500);   // v17.16: deeper melancholy
       adjustFeeling('attention_need', -40);
       return true;
     }
     if (feel === 'sad' && roll < 0.5) {
       bubble(pickFromPool('sad_remarks'), { autoHide: 4500, eyebrow: 'QUIET' });
-      mood('sad', 4000);
+      // v17.16: very-low happiness → crying mood instead of just sad
+      const veryLow = state.feelings && state.feelings.happiness < 15;
+      mood(veryLow ? 'crying' : (roll < 0.25 ? 'peeved' : 'sad'), 4500);
       return true;
     }
     if ((feel === 'overjoyed' || feel === 'loving') && roll < 0.5) {
       bubble(pickFromPool('happy_remarks'), { autoHide: 4000, eyebrow: 'JOY' });
-      mood(feel === 'loving' ? 'love' : 'excited', 4000);
+      // v17.16: peak happiness → super_excited; peak affection → smitten
+      let m = feel === 'loving' ? 'love' : 'excited';
+      if (feel === 'loving' && state.feelings && state.feelings.affection > 92) m = 'smitten';
+      if (feel === 'overjoyed' && state.feelings && state.feelings.happiness > 92) m = 'super_excited';
+      mood(m, 4000);
       spawnParticles({ count: 4, type: 'heart' });
       return true;
     }
@@ -900,7 +941,7 @@
     { pat: /\b(hate|annoying|stupid|dumb|idiot)\b/i,
       pool: 'taiga_snap', mood: 'angry' },
     { pat: /\b(thank|thanks|appreciate|grateful)\b/i,
-      pool: 'taiga_blush', mood: 'embarrassed', particles: 'heart',
+      pool: 'taiga_blush', mood: 'bashful', particles: 'heart',
       response: 'B-bzzt! It was nothing!' },
     // Self-directed
     { pat: /\b(who are you|what are you|your name)\b/i,
@@ -963,7 +1004,7 @@
     const match = chatMatch(text);
     if (!match) {
       bubble(pickFromPool('chat_no_match'), { autoHide: 5000, eyebrow: 'HMM' });
-      mood('thinking', 3500);
+      mood('confused', 4500);             // v17.14: ? mark floats above
       return;
     }
     // Direct action override (triggers another function)
@@ -1190,6 +1231,209 @@
 
 
   // ════════════════════════════════════════════════════════════════════
+  // v17.15 ADVANCED PET — dreams, rituals, mischief, learning, voice
+  // ════════════════════════════════════════════════════════════════════
+
+  // ─── DREAMS — on return after 8+ hour absence, he tells one ───────
+  // The Tamagotchi-effect lesson: continuity > sessions. A pet that
+  // dreamed in your absence FEELS like a living thing.
+  function maybeTellDream() {
+    const last = state.preferences.last_session_at;
+    if (!last) return false;
+    const hours = (Date.now() - new Date(last).getTime()) / 3600000;
+    // Need 8+ hours gap, and 35% chance even then
+    if (hours < 8 || Math.random() > 0.35) return false;
+    setTimeout(() => {
+      if (!state.bubble && state.enabled && !state.suppressed) {
+        const dream = pickFromPool('dreams');
+        bubble(substituteVars(dream), { autoHide: 7000, eyebrow: '✨ DREAM' });
+        mood('sparkle', 6000);
+        spawnParticles({ count: 6, type: 'sparkle' });
+        depositMemory('dream', 'Dream: ' + dream.slice(0, 80), { hours_gone: Math.floor(hours) }, 2);
+      }
+    }, 4500);   // delay a bit so dream doesn't compete with greeting
+    return true;
+  }
+
+  // ─── MORNING RITUAL — first interaction of new calendar day ──────
+  // Fires once per day. He stretches and greets warmly.
+  function checkMorningRitual() {
+    const today = new Date().toDateString();
+    if (state.preferences.morning_ritual_date === today) return false;
+    state.preferences.morning_ritual_date = today;
+    savePreferences();
+    setTimeout(() => {
+      if (!state.bubble && state.enabled && !state.suppressed) {
+        play('bounce');                 // morning stretch via bounce
+        mood('happy', 5000);
+        bubble(substituteVars(pickFromPool('morning_ritual')),
+               { autoHide: 5500, eyebrow: '🌅 MORNING' });
+        adjustFeeling('energy', +20);
+        adjustFeeling('happiness', +10);
+      }
+    }, 1800);
+    return true;
+  }
+
+  // ─── EVENING FAREWELL — on tab close / page hide ─────────────────
+  // Triggered by 'pagehide' event. Saves last_session_at + plays goodbye
+  // (won't be seen since page is closing, but the timestamp persists
+  // so the next visit can detect time-gap and possibly tell a dream).
+  function recordSessionEnd() {
+    state.preferences.last_session_at = new Date().toISOString();
+    savePreferences();
+  }
+
+  // ─── MISCHIEF MOMENTS — random unprompted aliveness ──────────────
+  // Every 12-25 minutes, he does something unexpected:
+  // small movement, surprise wink, or a brief bubble.
+  // The unpredictability is what creates the "alive" feeling.
+  function scheduleMischief() {
+    if (state.mischiefTimer) clearTimeout(state.mischiefTimer);
+    const delayMs = 720000 + Math.random() * 780000;  // 12-25 min
+    state.mischiefTimer = setTimeout(() => {
+      doMischief();
+      scheduleMischief();   // chain
+    }, delayMs);
+  }
+  function doMischief() {
+    if (!state.enabled || state.suppressed || state.bubble) return;
+    if (state.preferences.do_not_disturb) return;
+    if (state.isRunningAway) return;
+    const r = Math.random();
+    if (r < 0.30) {
+      // Quiet position drift — sneak to a different spot
+      const rect = state.shell.getBoundingClientRect();
+      const dx = (Math.random() - 0.5) * 80;
+      const dy = (Math.random() - 0.5) * 40;
+      moveTo(rect.left + dx, rect.top + dy);
+      // No bubble — silent mischief
+    } else if (r < 0.55) {
+      // Surprise wink — no bubble, just facial change
+      mood(Math.random() < 0.5 ? 'winking' : 'winking_l', 1800);
+    } else if (r < 0.75) {
+      // Tiny dance burst (no music)
+      state.shell.classList.add('is-dancing');
+      mood('happy', 2200);
+      setTimeout(() => state.shell && state.shell.classList.remove('is-dancing'), 2000);
+    } else {
+      // Brief mischief bubble
+      bubble(pickFromPool('mischief_actions'),
+             { autoHide: 3500, eyebrow: 'MISCHIEF' });
+      mood(Math.random() < 0.5 ? 'smug' : 'happy', 3500);
+    }
+    adjustFeeling('happiness', +2);
+  }
+
+  // ─── PREFERENCE LEARNING — track which topics user engages with ──
+  // When a bubble auto-hides after full duration vs being dismissed by
+  // a new tap, that's an engagement signal. We tally pool-by-pool.
+  function recordEngagement(poolName, fullyRead) {
+    if (!poolName) return;
+    state.preferences.engagement = state.preferences.engagement || {};
+    const e = state.preferences.engagement;
+    e[poolName] = e[poolName] || { shown: 0, finished: 0 };
+    e[poolName].shown++;
+    if (fullyRead) e[poolName].finished++;
+    savePreferences();
+  }
+  // Returns the user's top-engaged pool (highest finish-rate, min 5 shows)
+  function topEngagedPool() {
+    const e = state.preferences.engagement || {};
+    let best = null, bestRate = 0;
+    Object.entries(e).forEach(([pool, stats]) => {
+      if (stats.shown < 5) return;
+      const rate = stats.finished / stats.shown;
+      if (rate > bestRate) { bestRate = rate; best = pool; }
+    });
+    return best;
+  }
+  // Occasionally voice the observation
+  function maybeObservePreference() {
+    if (Math.random() > 0.02) return false;   // rare — 2% of taps
+    const top = topEngagedPool();
+    if (!top) return false;
+    // Map pool names to human-readable topics
+    const topicMap = {
+      roman_facts: 'Roman history', persian_facts: 'Persian history',
+      greek_facts: 'Greek thought', athens_facts: 'Athenian democracy',
+      sparta_facts: 'Spartan ways', hispania_facts: 'Hispania',
+      battle_facts: 'battles', trajan_facts: 'Trajan stories',
+      animal_facts: 'animals', space_facts: 'space', science_facts: 'science',
+      weird_facts: 'weird trivia', dad_jokes: 'jokes',
+    };
+    const topic = topicMap[top] || top.replace(/_/g, ' ');
+    const line = pickFromPool('preference_observation')
+      .replace('{topic}', topic)
+      .replace('{hour}', new Date().getHours() + ':00');
+    bubble(substituteVars(line), { autoHide: 5500, eyebrow: 'I NOTICE' });
+    mood('thinking', 4500);
+    return true;
+  }
+
+  // ─── VOICE SYNTHESIS — Web Speech API, toggleable ────────────────
+  // Off by default. Long-press menu offers toggle. When on, every
+  // bubble is also spoken aloud (briefly, low volume).
+  function speakAloud(text) {
+    if (!state.preferences.voice_enabled) return;
+    if (!('speechSynthesis' in window)) return;
+    try {
+      // Strip control chars + asterisk-actions for cleaner speech
+      const clean = String(text || '')
+        .replace(/\*[^*]+\*/g, '')   // remove *actions*
+        .replace(/[{}]/g, '')         // strip placeholder braces
+        .replace(/\s+/g, ' ').trim();
+      if (!clean) return;
+      const u = new SpeechSynthesisUtterance(clean);
+      u.rate = 1.05;
+      u.pitch = 1.15;
+      u.volume = 0.6;
+      // Prefer a softer voice if available
+      const voices = window.speechSynthesis.getVoices() || [];
+      const prefer = voices.find(v => /female|samantha|karen|moira|tessa/i.test(v.name));
+      if (prefer) u.voice = prefer;
+      window.speechSynthesis.cancel();   // don't queue
+      window.speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+  function toggleVoice() {
+    const cur = !!state.preferences.voice_enabled;
+    state.preferences.voice_enabled = !cur;
+    savePreferences();
+    if (!cur) {
+      // Just turned on — say hello
+      const intro = pickFromPool('voice_intro');
+      bubble(intro, { autoHide: 5000, eyebrow: '🔊 VOICE' });
+      speakAloud(intro);
+      mood('happy', 4000);
+    } else {
+      // Just turned off — visual confirmation
+      bubble('Voice off. I\'ll bzzt silently.', { autoHide: 3500, eyebrow: '🔇 SILENT' });
+    }
+  }
+
+  // ─── MOOD WEATHER — halo color shifts with dominant feeling ──────
+  // Sets a CSS custom property on the shell that the halo gradient
+  // reads. Cool when sad, warm when happy, golden when overjoyed.
+  function updateMoodWeather() {
+    if (!state.shell || !state.feelings) return;
+    const feel = dominantFeeling();
+    let color;
+    switch (feel) {
+      case 'overjoyed': color = '#ffd870'; break;   // golden
+      case 'loving':    color = '#ffaad6'; break;   // pink
+      case 'sad':       color = '#5d7aa8'; break;   // muted blue
+      case 'lonely':    color = '#6e7090'; break;   // gray-blue
+      case 'tired':     color = '#7e88a8'; break;   // dim
+      case 'ticklish':  color = '#ff8ed1'; break;   // bright pink
+      case 'content':   color = '#7df0ff'; break;   // standard cyan
+      default:          color = '#7df0ff';
+    }
+    state.shell.style.setProperty('--mood-weather', color);
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
   // v17.9 BEHAVIOR TOGGLES, RUN-AWAY, ACHIEVEMENTS, PERSONALITY MODES
   // ════════════════════════════════════════════════════════════════════
 
@@ -1396,8 +1640,8 @@
   }
   function onAchievementUnlocked(id, ach) {
     if (!state.enabled) return;
-    mood('sparkle', 6000);
-    play('bounce');                    // v17.12: bounce on unlock
+    mood('proud', 6000);                // v17.16: proud + bigsmile
+    play('bounce');
     spawnParticles({ count: 16, type: 'confetti' });
     playTone('milestone');
     bubble(`🏆 ${ach.label} — ${ach.desc}`, { autoHide: 5500, eyebrow: 'ACHIEVEMENT' });
@@ -1523,7 +1767,10 @@
     }
     const shell = document.createElement('div');
     shell.id = 'clippy-shell';
-    shell.innerHTML = svgText + '<div id="clippy-costume-layer"></div>';
+    // v17.14: shadow as a separate DOM element BEFORE the SVG. Anchored
+    // to the bottom of the shell via CSS. Animates independently of body
+    // movement so it always reads as "on the ground."
+    shell.innerHTML = '<div class="clippy-shadow"></div>' + svgText + '<div id="clippy-costume-layer"></div>';
     ensureHost().appendChild(shell);
     state.shell = shell;
     state.svg = shell.querySelector('svg');
@@ -1808,6 +2055,9 @@
     adjustFeeling('happiness', +2);
     adjustFeeling('affection', +1);
     adjustFeeling('attention_need', -15);
+    // v17.15: mood weather refresh + occasional preference observation
+    updateMoodWeather();
+    if (maybeObservePreference()) return;
     // v17.12: 6% chance to bounce on tap for movement variety
     if (Math.random() < 0.06) play('bounce');
     // v17.11: ULTRA RARE — 0.01% per tap, max once per 7 days, opens super-chat
@@ -1885,7 +2135,8 @@
       bubble(pickFromPool('whimsical_idle'), { autoHide: 3800 });
     } else if (r < 0.82) {
       bubble(pickFromPool('dad_jokes'), { autoHide: 4500 });
-      mood('winking', 3800);
+      // v17.16: 30% of jokes trigger the LAUGHING face (squint XX + open laugh)
+      mood(Math.random() < 0.3 ? 'laughing' : 'winking', 3800);
     } else if (r < 0.86) {
       bubble(pickFromPool('name_compliment'), { autoHide: 3800 });
       mood('love', 3800);
@@ -1966,6 +2217,8 @@
   // ─── Action bubble (with buttons) ───────────────────────────────────
   function bubble(text, opts) {
     actionBubble(text, opts);
+    // v17.15: speak aloud if voice mode enabled (no-op when disabled)
+    if (text) speakAloud(text);
   }
   function actionBubble(text, opts) {
     opts = opts || {};
@@ -2086,6 +2339,9 @@
     actions.push({ label: 'Set my name', onClick: askForName });
     actions.push({ label: `${personaGlyph} Personality`, onClick: showPersonalityMenu });
     actions.push({ label: `🏆 Badges (${achCount})`, onClick: showAchievements });
+    // v17.15: voice toggle
+    const voiceOn = state.preferences.voice_enabled;
+    actions.push({ label: voiceOn ? '🔊 Voice on ✓' : '🎙️ Voice off', onClick: toggleVoice });
     if (memCount >= 3) {
       actions.push({ label: `🏛️ Tour palace (${memCount})`, onClick: tourPalace });
     }
@@ -2586,12 +2842,36 @@
     // NEXUS marks the active view via `.nav-tab.active[data-view]`. When
     // it changes, occasionally bubble a context-specific remark so he
     // feels aware of which screen you're on. Quirky and contextual.
+    // v17.17: each view also TRIGGERS A PERSONALITY mood that persists
+    // while you're in the view. Equipment = genius. Cleaning = disgusted.
+    // Education = studious. Etc.
     let lastView = null;
     let lastViewBubbleAt = 0;
+    // v17.17 mapping: view → { pool, mood, eyebrow } for personality-mode
+    const VIEW_PERSONALITY = {
+      equipment: { pool: 'equipment_technical', mood: 'genius',     eyebrow: '⚙️ TECH'      },
+      clean:     { pool: 'cleaning_gross',     mood: 'disgusted',   eyebrow: '🧽 ICK'       },
+      education: { pool: 'education_studious', mood: 'studious',    eyebrow: '📚 STUDIOUS'  },
+      board:     { pool: 'board_strategist',   mood: 'strategist',  eyebrow: '♟️ STRATEGY'  },
+      inventory: { pool: 'inventory_organized',mood: 'organized',   eyebrow: '📋 ORDER'    },
+    };
     setInterval(() => {
       if (!state.enabled || !state.shell || state.suppressed) return;
+      // v17.17: COIN FLIP MISCHIEF — 0.4% chance per 2s tick (~1.2%/min)
+      // when no bubble is open, he wanders to the masthead coin and flips it
+      if (!state.bubble && !state.coinFlipInProgress && Math.random() < 0.004) {
+        if (maybeFlipCoin()) return;
+      }
       const active = document.querySelector('.nav-tab.active[data-view], .bnav-btn.active[data-view]');
       const view = active ? active.getAttribute('data-view') : null;
+      // v17.17: maintain the view-personality mood (re-applied on every tick)
+      if (view && VIEW_PERSONALITY[view] && !state.bubble) {
+        const personality = VIEW_PERSONALITY[view];
+        // Only apply if no stronger mood already set recently
+        if (!state.moodTimer) {
+          mood(personality.mood, 8000);
+        }
+      }
       if (view && view !== lastView) {
         lastView = view;
         // v17.7: deposit memory on FIRST visit to a NEXUS view
@@ -2612,12 +2892,18 @@
         const now = Date.now();
         if (now - lastViewBubbleAt > 25_000 && Math.random() < 0.55 && !state.bubble) {
           lastViewBubbleAt = now;
-          const pool = 'context_' + view;
-          // Only fire if a pool actually exists for this view
+          // v17.17: use the personality pool if defined, else generic context
+          const personality = VIEW_PERSONALITY[view];
+          const pool = personality ? personality.pool : ('context_' + view);
           if (state.dialog && state.dialog[pool] && state.dialog[pool].length) {
             setTimeout(() => {
               if (!state.bubble && state.enabled) {
-                bubble(pickFromPool(pool), { autoHide: 4200 });
+                const opts = { autoHide: 5500 };
+                if (personality) {
+                  opts.eyebrow = personality.eyebrow;
+                  mood(personality.mood, 6000);
+                }
+                bubble(pickFromPool(pool), opts);
               }
             }, 600);
           }
@@ -2625,7 +2911,53 @@
       }
     }, 2000);
   }
-  // is focusing. After ~3.5s, politely retreat. Quirky behavior, ~12%.
+
+  // v17.17: COIN FLIP MISCHIEF — Trajan walks to the masthead coin
+  // and clicks it, flipping the active persona between Trajan and
+  // Providentia. Silly, surprising, ~1% chance per minute when idle.
+  function maybeFlipCoin() {
+    const coin = document.querySelector('#mastCoin');
+    if (!coin) return false;
+    if (state.preferences.do_not_disturb) return false;
+    state.coinFlipInProgress = true;
+    const rect = coin.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    // Save current position to return later
+    const shellRect = state.shell.getBoundingClientRect();
+    const returnX = shellRect.left;
+    const returnY = shellRect.top;
+    const shellW = state.shell.offsetWidth || 120;
+    const shellH = state.shell.offsetHeight || 120;
+    // Move to just below the coin
+    mood('smug', 6000);
+    moveTo(cx - shellW / 2, cy + 36);
+    // Halfway through the travel, trigger the click + bubble
+    setTimeout(() => {
+      try {
+        // Trigger the existing click handler the same way a tap would
+        const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
+        coin.dispatchEvent(evt);
+        play('bounce');
+        spawnParticles({ count: 10, type: 'sparkle' });
+        playTone('sparkle');
+        // Detect new persona for bubble substitution
+        const newPersona = (localStorage.getItem('nexus_active_persona') || 'providentia');
+        const line = pickFromPool('coin_flip_mischief').replace('{persona}', newPersona);
+        bubble(line, { autoHide: 4500, eyebrow: '🪙 MISCHIEF' });
+        depositMemory('coin_flip', `Flipped the coin to ${newPersona}.`, { persona: newPersona }, 2);
+        adjustFeeling('happiness', +6);
+      } catch (e) {
+        console.warn('[clippy] coin flip failed', e);
+      }
+      // Return to previous position after a moment
+      setTimeout(() => {
+        moveTo(returnX, returnY);
+        setTimeout(() => { state.coinFlipInProgress = false; }, 1500);
+      }, 4200);
+    }, 900);
+    return true;
+  }
   function blockInputAttention(inputEl, inputRect) {
     if (!state.shell) return;
     const shellW = state.shell.offsetWidth || 120;
@@ -3223,6 +3555,19 @@
       setInterval(() => { if (state.enabled) decayFeelings(); }, 90000);
       // v17.10: stress check — once per 5min, attempts at most once per day
       setInterval(() => { if (state.enabled && !state.suppressed) checkStressMarkers(); }, 5 * 60000);
+      // v17.15: ADVANCED PET BEHAVIORS
+      // Mood weather — halo color tracks dominant feeling
+      setInterval(updateMoodWeather, 30000);
+      updateMoodWeather();
+      // Mischief moments — random unprompted aliveness
+      scheduleMischief();
+      // Morning ritual — first interaction of new day
+      checkMorningRitual();
+      // Dream — if returning after long absence, occasionally tell one
+      maybeTellDream();
+      // Session-end recorder for the next-visit dream check
+      window.addEventListener('pagehide', recordSessionEnd);
+      window.addEventListener('beforeunload', recordSessionEnd);
     } else if (shouldShowComeback()) {
       // v17.5: peek with ONLY HIS EYES visible, from a random spot.
       // Each session a different place. The is-peek-eyes-only class
