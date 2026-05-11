@@ -528,6 +528,109 @@
   100% { transform: translate(var(--tx, 0), calc(var(--ty, 0) + 80px)) rotate(var(--rot, 360deg)); opacity: 0; }
 }
 
+/* ════════════════════════════════════════════════════════════════════
+   v17.10 DANCE + JIGGLE — visible feedback for new behaviors
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Dance: triggered when theme song plays. Bounces and twists. */
+#clippy-shell.is-dancing {
+  animation: clDance 0.7s cubic-bezier(0.4, 0, 0.6, 1) infinite !important;
+  filter: drop-shadow(0 0 14px rgba(255, 220, 100, 0.6)) !important;
+}
+@keyframes clDance {
+  0%, 100% { transform: translate(0, 0)    rotate(0deg)  scale(1); }
+  25%      { transform: translate(-6px, -8px) rotate(-10deg) scale(1.04); }
+  50%      { transform: translate(0, -12px) rotate(0deg)  scale(1.08); }
+  75%      { transform: translate(6px, -8px)  rotate(10deg)  scale(1.04); }
+}
+
+/* Jiggle: triggered when tickled. Rapid wobble + tiny scale pulse. */
+#clippy-shell.is-jiggling {
+  animation: clJiggle 0.16s ease-in-out 14 !important;
+}
+@keyframes clJiggle {
+  0%, 100% { transform: scale(1)    rotate(0deg); }
+  25%      { transform: scale(1.06) rotate(-5deg); }
+  75%      { transform: scale(1.06) rotate(5deg); }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.11 CHAT BUBBLE — input field, send button, close button.
+   The ".is-super" variant is the rare oracle mode: gold border + glow.
+   ════════════════════════════════════════════════════════════════════ */
+.clippy-bubble.clippy-chat-bubble {
+  min-width: 280px;
+  max-width: 340px;
+}
+.clippy-bubble.clippy-chat-bubble.is-super {
+  border-color: #ffd24a;
+  box-shadow: 0 0 24px rgba(255, 210, 74, 0.5),
+              0 4px 18px rgba(0, 0, 0, 0.4);
+}
+.clippy-bubble.clippy-chat-bubble.is-super .clippy-bubble-eyebrow {
+  color: #ffd24a;
+}
+.clippy-chat-input-row {
+  margin-top: 10px;
+}
+.clippy-chat-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.32);
+  color: #fff;
+  font-size: 14px;
+  font-family: inherit;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+}
+.clippy-chat-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+.clippy-chat-input:focus {
+  outline: none;
+  border-color: #5cb0ff;
+  background: rgba(0, 0, 0, 0.4);
+}
+.is-super .clippy-chat-input:focus {
+  border-color: #ffd24a;
+}
+.clippy-chat-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.clippy-chat-send,
+.clippy-chat-close {
+  flex: 1;
+  padding: 9px 12px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  transition: filter 0.12s ease, transform 0.06s ease;
+}
+.clippy-chat-send {
+  background: #5cb0ff;
+  color: #fff;
+}
+.clippy-chat-send:active {
+  transform: scale(0.97);
+  filter: brightness(0.9);
+}
+.clippy-chat-close {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.is-super .clippy-chat-send {
+  background: #ffd24a;
+  color: #1a1a2e;
+}
+
 
 /* ════════════════════════════════════════════════════════════════════
    COSTUME OVERLAY LAYER — for the 16 SVG hats/crowns/etc
