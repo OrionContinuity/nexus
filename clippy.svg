@@ -40,6 +40,8 @@
   </defs>
 
   <ellipse class="cl-floor" cx="100" cy="194" rx="42" ry="5.5" fill="#000" opacity="0.22"/>
+
+  <g class="cl-floats">
   <circle class="cl-halo" cx="100" cy="100" r="92" fill="url(#orb-halo)"/>
 
   <circle class="cl-body" cx="100" cy="100" r="58" fill="url(#orb-body)"/>
@@ -224,5 +226,6 @@
     <circle class="cl-node cl-node-5" cx="32"  cy="65"  r="6.5" fill="#cbb0f5"/>
     <circle class="cl-node cl-node-6" cx="135" cy="58"  r="5.5" fill="#9adff5"/>
     <circle class="cl-node cl-node-7" cx="62"  cy="138" r="5.5" fill="#cbb0f5"/>
+  </g>
   </g>
 </svg>
