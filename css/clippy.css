@@ -832,7 +832,12 @@
   opacity: 0;
   visibility: hidden;
   transform: translateY(8px) scale(0.94);
-  transition: opacity 220ms ease, transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* v17.18 — bubble follows shell with smooth transit: position transitions
+     during movement, opacity/scale on appear/disappear */
+  transition: opacity 220ms ease,
+              transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1),
+              top 600ms cubic-bezier(0.4, 0, 0.2, 1),
+              left 600ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .clippy-bubble.is-visible {
   opacity: 1;
@@ -1644,3 +1649,355 @@
 #clippy-shell.is-organized .cl-eyes-dots    { opacity: 1; }
 #clippy-shell.is-organized .cl-mouth-smile  { opacity: 0; }
 #clippy-shell.is-organized .cl-mouth-cat    { opacity: 1; }
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.18 NEXUS MISCHIEF VISUALS — applied to elements Trajan touches.
+   These classes get added TEMPORARILY to NEXUS DOM elements (not the
+   shell) when he pokes/checks/drags them. Always non-destructive: the
+   classes only affect appearance, never persist, never change data.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* When Trajan "pokes" a status pill, it wiggles + flashes gold */
+.is-trajan-poked {
+  animation: trajanPoke 1.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  position: relative;
+}
+.is-trajan-poked::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: inherit;
+  box-shadow: 0 0 0 3px rgba(212, 164, 78, 0.7);
+  animation: trajanPokeGlow 1.4s ease-out;
+  pointer-events: none;
+}
+@keyframes trajanPoke {
+  0%, 100% { transform: scale(1) rotate(0); }
+  20%      { transform: scale(1.12) rotate(-3deg); }
+  40%      { transform: scale(0.96) rotate(2deg); }
+  60%      { transform: scale(1.08) rotate(-2deg); }
+  80%      { transform: scale(1.02) rotate(1deg); }
+}
+@keyframes trajanPokeGlow {
+  0%   { opacity: 0; transform: scale(0.85); }
+  30%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.3); }
+}
+
+/* When Trajan "ghost-checks" a clean task, a temporary ✓ floats above it */
+.is-trajan-ghost-check {
+  position: relative;
+}
+.is-trajan-ghost-check::before {
+  content: '✓';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  z-index: 999;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #d4a44e;
+  color: #1a1a1a;
+  font-weight: 900;
+  font-size: 16px;
+  line-height: 24px;
+  text-align: center;
+  box-shadow: 2px 2px 0 #1a1a1a;
+  animation: trajanGhostCheck 2.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+}
+@keyframes trajanGhostCheck {
+  0%   { opacity: 0; transform: scale(0) rotate(-180deg); }
+  20%  { opacity: 1; transform: scale(1.2) rotate(0); }
+  70%  { opacity: 1; transform: scale(1) rotate(10deg); }
+  100% { opacity: 0; transform: scale(0.8) translateY(-12px) rotate(20deg); }
+}
+
+/* When Trajan "pretends to drag" a board card, it tilts + lifts shadow */
+.is-trajan-grabbing {
+  animation: trajanGrab 2.2s ease-in-out !important;
+  position: relative;
+  z-index: 50;
+}
+@keyframes trajanGrab {
+  0%, 100% { transform: rotate(0) translateY(0); box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+  20%      { transform: rotate(-3deg) translateY(-6px); box-shadow: 0 8px 20px rgba(0,0,0,0.25); }
+  50%      { transform: rotate(4deg) translateY(-8px); box-shadow: 0 12px 28px rgba(0,0,0,0.3); }
+  80%      { transform: rotate(-2deg) translateY(-3px); box-shadow: 0 6px 16px rgba(0,0,0,0.2); }
+}
+
+/* When Trajan "counts" an inventory item, a tally counter ticks up */
+.is-trajan-counting {
+  position: relative;
+}
+.is-trajan-counting::after {
+  content: '...';
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 11px;
+  color: #d4a44e;
+  text-shadow: 1px 1px 0 #1a1a1a;
+  animation: trajanCount 1.8s ease-in-out;
+  pointer-events: none;
+}
+@keyframes trajanCount {
+  0%   { opacity: 0; transform: translateY(0); }
+  20%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-20px); }
+}
+
+/* v17.18 BORED state — slow pulse on the body, sleepy idle look */
+#clippy-shell.is-bored .cl-body {
+  animation: trajanBoredPulse 4s ease-in-out infinite;
+}
+@keyframes trajanBoredPulse {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(125, 240, 255, 0.4)) saturate(0.85); }
+  50%      { filter: drop-shadow(0 0 8px rgba(125, 240, 255, 0.6)) saturate(1); }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.19 MOOD-REACTIVE BODY COLOR — orb itself tints with emotion.
+   Uses CSS filter (hue-rotate + saturate + brightness) on cl-body.
+   The body's base color is blue (#4cb6ff ~ hue 210). Filters rotate
+   from there. The transition is slow enough to feel emotional, not
+   jarring. The drop-shadow from mood-weather still applies on top.
+   ════════════════════════════════════════════════════════════════════ */
+
+#clippy-shell .cl-body {
+  transition: filter 1.4s ease;
+}
+
+/* HAPPY family — gold/yellow tint */
+#clippy-shell.is-happy .cl-body,
+#clippy-shell.is-laughing .cl-body,
+#clippy-shell.is-bunny .cl-body { filter: hue-rotate(140deg) saturate(1.4) brightness(1.1); }
+
+/* EXCITED / SUPER_EXCITED / SPARKLE / PROUD — bright gold + glow */
+#clippy-shell.is-excited .cl-body,
+#clippy-shell.is-super-excited .cl-body,
+#clippy-shell.is-sparkle .cl-body,
+#clippy-shell.is-proud .cl-body { filter: hue-rotate(160deg) saturate(1.6) brightness(1.18) drop-shadow(0 0 8px #ffd870); }
+
+/* LOVE / SMITTEN / KISSY / BASHFUL — pink */
+#clippy-shell.is-love .cl-body,
+#clippy-shell.is-smitten .cl-body,
+#clippy-shell.is-kissy .cl-body,
+#clippy-shell.is-bashful .cl-body,
+#clippy-shell.is-embarrassed .cl-body { filter: hue-rotate(190deg) saturate(1.5) brightness(1.1); }
+
+/* SAD / LONELY / MELANCHOLY / DISAPPOINTED — desaturated muted blue */
+#clippy-shell.is-sad .cl-body,
+#clippy-shell.is-melancholy .cl-body,
+#clippy-shell.is-disappointed .cl-body,
+#clippy-shell.is-peeved .cl-body,
+#clippy-shell.is-worried .cl-body { filter: saturate(0.5) brightness(0.85); }
+
+/* CRYING / SOBBING / WAILING — deeply desaturated blue */
+#clippy-shell.is-crying .cl-body,
+#clippy-shell.is-sobbing .cl-body,
+#clippy-shell.is-wailing .cl-body { filter: saturate(0.35) brightness(0.78); }
+
+/* ANGRY / FRUSTRATED — red/orange */
+#clippy-shell.is-angry .cl-body,
+#clippy-shell.is-frustrated .cl-body { filter: hue-rotate(150deg) saturate(1.9) brightness(1.05); }
+
+/* DISGUSTED — gross greenish-grey */
+#clippy-shell.is-disgusted .cl-body { filter: hue-rotate(80deg) saturate(0.55) brightness(0.92); }
+
+/* GENIUS — bright cyan + glow */
+#clippy-shell.is-genius .cl-body { filter: hue-rotate(15deg) saturate(1.6) brightness(1.15) drop-shadow(0 0 8px #7df0ff); }
+
+/* STUDIOUS — soft purple */
+#clippy-shell.is-studious .cl-body { filter: hue-rotate(-30deg) saturate(1.2) brightness(1.05); }
+
+/* STRATEGIST — darker purple-indigo */
+#clippy-shell.is-strategist .cl-body { filter: hue-rotate(-40deg) saturate(1.3) brightness(0.95); }
+
+/* ORGANIZED — soft teal */
+#clippy-shell.is-organized .cl-body { filter: hue-rotate(30deg) saturate(1.1) brightness(1.05); }
+
+/* CONFUSED — slightly desaturated */
+#clippy-shell.is-confused .cl-body { filter: saturate(0.8) brightness(0.95); }
+
+/* SLEEPY / TIRED — dimmed everything */
+#clippy-shell.is-sleeping .cl-body,
+#clippy-shell.is-sleepy .cl-body { filter: saturate(0.6) brightness(0.7); }
+
+/* DIZZY — saturated wild */
+#clippy-shell.is-dizzy .cl-body { filter: hue-rotate(60deg) saturate(1.5) brightness(1.05); }
+
+/* TIPSY — happy pink-red */
+#clippy-shell.is-tipsy .cl-body { filter: hue-rotate(170deg) saturate(1.4) brightness(1.12); }
+
+/* SINGING / SINGING_STAR — joyful gold */
+#clippy-shell.is-singing .cl-body,
+#clippy-shell.is-singing-star .cl-body { filter: hue-rotate(150deg) saturate(1.5) brightness(1.12); }
+
+/* DROOLING — happy-but-weird soft pink */
+#clippy-shell.is-drooling .cl-body { filter: hue-rotate(180deg) saturate(1.3) brightness(1.1); }
+
+/* SHOCKED / GASP / STUNNED / MORTIFIED — pale white-ish */
+#clippy-shell.is-shocked .cl-body,
+#clippy-shell.is-gasp .cl-body,
+#clippy-shell.is-stunned .cl-body,
+#clippy-shell.is-mortified .cl-body { filter: saturate(0.4) brightness(1.15); }
+
+/* EYE-ROLL — slightly mocking grey */
+#clippy-shell.is-eye-roll .cl-body { filter: saturate(0.65) brightness(0.9); }
+
+/* DETERMINED / THINKING / SUSPICIOUS — focused cool */
+#clippy-shell.is-determined .cl-body,
+#clippy-shell.is-thinking .cl-body { filter: saturate(1.1) brightness(0.97); }
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.19 GAMES UI — full-screen game overlay
+   ════════════════════════════════════════════════════════════════════ */
+
+.clippy-game-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(10, 12, 24, 0.92);
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  color: #fffef6;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 280ms ease;
+}
+.clippy-game-overlay.is-visible { opacity: 1; }
+
+.clippy-game-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  color: #d4a44e;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.clippy-game-instruction {
+  font-size: 17px;
+  font-weight: 600;
+  margin-bottom: 32px;
+  max-width: 320px;
+  line-height: 1.4;
+}
+.clippy-game-stat {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 48px;
+  font-weight: 700;
+  color: #fffef6;
+  margin: 16px 0;
+  letter-spacing: 0.05em;
+}
+.clippy-game-stat-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: rgba(255, 254, 246, 0.6);
+  text-transform: uppercase;
+}
+.clippy-game-timer {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 32px;
+  font-weight: 700;
+  color: #d4a44e;
+  margin: 16px 0 8px;
+}
+.clippy-game-board {
+  position: relative;
+  width: min(80vw, 400px);
+  height: min(80vw, 400px);
+  margin: 24px auto;
+  border: 2px dashed rgba(212, 164, 78, 0.4);
+  border-radius: 16px;
+}
+.clippy-game-target {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  background: radial-gradient(circle, #4cb6ff 0%, #2e8de0 100%);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: top 80ms ease-out, left 80ms ease-out, transform 120ms ease;
+  box-shadow: 0 0 16px rgba(125, 240, 255, 0.6), 4px 4px 0 #1a1a1a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  user-select: none;
+}
+.clippy-game-target:hover { transform: scale(1.05); }
+.clippy-game-target:active { transform: scale(0.92); }
+.clippy-game-target.is-go { background: radial-gradient(circle, #5fff8a 0%, #1aa848 100%); box-shadow: 0 0 24px #5fff8a, 4px 4px 0 #1a1a1a; }
+.clippy-game-target.is-wait { background: radial-gradient(circle, #ff5577 0%, #c62a4a 100%); box-shadow: 0 0 16px rgba(255, 85, 119, 0.6), 4px 4px 0 #1a1a1a; }
+
+.clippy-game-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+.clippy-game-btn {
+  background: #d4a44e;
+  color: #1a1a1a;
+  border: 2px solid #1a1a1a;
+  border-radius: 10px;
+  padding: 10px 22px;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 #1a1a1a;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.clippy-game-btn:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 #1a1a1a; }
+.clippy-game-btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 #1a1a1a; }
+.clippy-game-btn.is-ghost {
+  background: transparent;
+  color: #fffef6;
+  border-color: rgba(255, 254, 246, 0.4);
+  box-shadow: none;
+}
+
+.clippy-game-seq {
+  display: flex;
+  gap: 16px;
+  margin: 24px 0;
+}
+.clippy-game-seq-cell {
+  width: 60px;
+  height: 60px;
+  border-radius: 12px;
+  border: 2px solid rgba(212, 164, 78, 0.5);
+  background: rgba(255, 254, 246, 0.05);
+  transition: all 200ms ease;
+}
+.clippy-game-seq-cell.is-flash-r { background: #ff5577; transform: scale(1.15); }
+.clippy-game-seq-cell.is-flash-g { background: #5fff8a; transform: scale(1.15); }
+.clippy-game-seq-cell.is-flash-b { background: #4cb6ff; transform: scale(1.15); }
+.clippy-game-seq-cell.is-flash-y { background: #ffd870; transform: scale(1.15); }
+
+.clippy-game-highscore {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: rgba(212, 164, 78, 0.8);
+  margin-top: 8px;
+}
+.clippy-game-highscore-new {
+  color: #5fff8a;
+  font-weight: 700;
+  animation: highScorePulse 0.6s ease-in-out infinite alternate;
+}
+@keyframes highScorePulse {
+  from { opacity: 0.7; transform: scale(1); }
+  to   { opacity: 1;   transform: scale(1.05); }
+}
