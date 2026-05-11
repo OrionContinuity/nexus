@@ -529,29 +529,93 @@
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   v17.10 DANCE + JIGGLE — visible feedback for new behaviors
+   v17.10 DANCE + JIGGLE — visible feedback for behaviors
+   v17.12: animations target .cl-floats (body group) so .cl-floor (shadow)
+           stays anchored. Shadow has matched companion animations that
+           preserve ground contact while scaling for jump height.
    ════════════════════════════════════════════════════════════════════ */
 
-/* Dance: triggered when theme song plays. Bounces and twists. */
-#clippy-shell.is-dancing {
-  animation: clDance 0.7s cubic-bezier(0.4, 0, 0.6, 1) infinite !important;
-  filter: drop-shadow(0 0 14px rgba(255, 220, 100, 0.6)) !important;
+/* Pacing — default idle motion. Subtle side-to-side travel. Runs forever
+   on the body group, paired with a horizontal-only shadow slide. */
+#clippy-shell .cl-floats {
+  animation: clPace 9s ease-in-out infinite;
+  transform-origin: 50% 95%;
+  transform-box: fill-box;
 }
-@keyframes clDance {
-  0%, 100% { transform: translate(0, 0)    rotate(0deg)  scale(1); }
-  25%      { transform: translate(-6px, -8px) rotate(-10deg) scale(1.04); }
-  50%      { transform: translate(0, -12px) rotate(0deg)  scale(1.08); }
-  75%      { transform: translate(6px, -8px)  rotate(10deg)  scale(1.04); }
+@keyframes clPace {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-10px); }
+  50%      { transform: translateX(0); }
+  75%      { transform: translateX(10px); }
+}
+#clippy-shell .cl-floor {
+  animation: clFloorPace 9s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+@keyframes clFloorPace {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-10px); }
+  50%      { transform: translateX(0); }
+  75%      { transform: translateX(10px); }
 }
 
-/* Jiggle: triggered when tickled. Rapid wobble + tiny scale pulse. */
-#clippy-shell.is-jiggling {
+/* Dance: theme-song mode. Big side-to-side + jumps. */
+#clippy-shell.is-dancing .cl-floats {
+  animation: clDance 0.65s cubic-bezier(0.4, 0, 0.6, 1) infinite !important;
+}
+#clippy-shell.is-dancing {
+  filter: drop-shadow(0 0 14px rgba(255, 220, 100, 0.6));
+}
+@keyframes clDance {
+  0%, 100% { transform: translate(0, 0)         rotate(0deg)   scale(1); }
+  20%      { transform: translate(-14px, -10px) rotate(-12deg) scale(1.04); }
+  40%      { transform: translate(0, -22px)     rotate(0deg)   scale(1.08); }
+  60%      { transform: translate(14px, -10px)  rotate(12deg)  scale(1.04); }
+  80%      { transform: translate(0, -6px)      rotate(0deg)   scale(1.02); }
+}
+#clippy-shell.is-dancing .cl-floor {
+  animation: clFloorDance 0.65s cubic-bezier(0.4, 0, 0.6, 1) infinite !important;
+}
+@keyframes clFloorDance {
+  0%, 100% { transform: translateX(0)     scale(1, 1);    opacity: 0.22; }
+  20%      { transform: translateX(-14px) scale(0.85, 1); opacity: 0.16; }
+  40%      { transform: translateX(0)     scale(0.65, 1); opacity: 0.11; }
+  60%      { transform: translateX(14px)  scale(0.85, 1); opacity: 0.16; }
+  80%      { transform: translateX(0)     scale(0.95, 1); opacity: 0.20; }
+}
+
+/* Jiggle: tickle response. Body wobble, shadow steady. */
+#clippy-shell.is-jiggling .cl-floats {
   animation: clJiggle 0.16s ease-in-out 14 !important;
 }
 @keyframes clJiggle {
   0%, 100% { transform: scale(1)    rotate(0deg); }
   25%      { transform: scale(1.06) rotate(-5deg); }
   75%      { transform: scale(1.06) rotate(5deg); }
+}
+
+/* Bouncing: tall jumps with squash/stretch. Shadow stretches on squash,
+   shrinks at peak — sells the height illusion. */
+#clippy-shell.is-bouncing .cl-floats {
+  animation: clBounce 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) infinite !important;
+}
+@keyframes clBounce {
+  0%, 100% { transform: translateY(0)    scaleY(1)    scaleX(1); }
+  15%      { transform: translateY(0)    scaleY(0.85) scaleX(1.1); }
+  35%      { transform: translateY(-32px) scaleY(1.1)  scaleX(0.92); }
+  60%      { transform: translateY(-26px) scaleY(1.05) scaleX(0.96); }
+  85%      { transform: translateY(0)    scaleY(0.95) scaleX(1.04); }
+}
+#clippy-shell.is-bouncing .cl-floor {
+  animation: clFloorBounce 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) infinite !important;
+}
+@keyframes clFloorBounce {
+  0%, 100% { transform: scale(1, 1);    opacity: 0.22; }
+  15%      { transform: scale(1.15, 1); opacity: 0.26; }
+  35%      { transform: scale(0.5, 1);  opacity: 0.08; }
+  60%      { transform: scale(0.6, 1);  opacity: 0.10; }
+  85%      { transform: scale(1.05, 1); opacity: 0.20; }
 }
 
 /* ════════════════════════════════════════════════════════════════════
