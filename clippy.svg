@@ -37,16 +37,17 @@
       <path d="M11 1 L13.5 8 L21 8 L15 12.5 L17 20 L11 15.5 L5 20 L7 12.5 L1 8 L8.5 8 Z" fill="#ffec70" stroke="#d4a44e" stroke-width="0.8"/>
       <circle cx="11" cy="10" r="1.5" fill="#ffffff" opacity="0.9"/>
     </symbol>
+      <clipPath id="orb-clip">
+      <circle cx="100" cy="100" r="58"/>
+    </clipPath>
   </defs>
-
-  <ellipse class="cl-floor" cx="100" cy="194" rx="42" ry="5.5" fill="#000" opacity="0.22"/>
-
   <g class="cl-floats">
   <circle class="cl-halo" cx="100" cy="100" r="92" fill="url(#orb-halo)"/>
 
   <circle class="cl-body" cx="100" cy="100" r="58" fill="url(#orb-body)"/>
 
-  <ellipse class="cl-cheek cl-cheek-l" cx="73" cy="120" rx="11" ry="5.2" fill="url(#cheek-grad)"/>
+  <g class="cl-face" clip-path="url(#orb-clip)">
+    <ellipse class="cl-cheek cl-cheek-l" cx="73" cy="120" rx="11" ry="5.2" fill="url(#cheek-grad)"/>
   <ellipse class="cl-cheek cl-cheek-r" cx="127" cy="120" rx="11" ry="5.2" fill="url(#cheek-grad)"/>
 
   <g class="cl-eyes">
@@ -89,12 +90,14 @@
             fill="none" stroke="#04124a" stroke-width="1.6" stroke-linecap="round"/>
     </g>
     <g class="cl-eyes-angry">
-      <path d="M 73 92 L 92 99" stroke="#04124a" stroke-width="3.2" stroke-linecap="round"/>
-      <path d="M 127 92 L 108 99" stroke="#04124a" stroke-width="3.2" stroke-linecap="round"/>
-      <path d="M 74 104 Q 83 102 92 105 Q 83 110 74 108 Z" fill="#04124a"/>
-      <path d="M 126 104 Q 117 102 108 105 Q 117 110 126 108 Z" fill="#04124a"/>
-      <circle cx="85" cy="106" r="2.2" fill="#ff3a5a"/>
-      <circle cx="115" cy="106" r="2.2" fill="#ff3a5a"/>
+      <!-- v17.14 CUTE angry: still V-brows, but rounded happy-ish eyes
+           below, no red pupils, no slit eyes. Just a pouty look. -->
+      <path d="M 70 92 Q 80 88 92 93" stroke="#04124a" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M 130 92 Q 120 88 108 93" stroke="#04124a" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <ellipse cx="83" cy="108" rx="6" ry="5" fill="#04124a"/>
+      <ellipse cx="117" cy="108" rx="6" ry="5" fill="#04124a"/>
+      <ellipse class="cl-glint" cx="81" cy="106" rx="1.6" ry="2" fill="#ffffff"/>
+      <ellipse class="cl-glint" cx="115" cy="106" rx="1.6" ry="2" fill="#ffffff"/>
     </g>
     <g class="cl-eyes-sad">
       <ellipse cx="83" cy="106" rx="8.5" ry="9" fill="#04124a"/>
@@ -182,6 +185,94 @@
       <path d="M 108 116 Q 111 114 114 116 Q 117 118 120 116 Q 123 114 125 116"
             stroke="#ff6b95" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.85"/>
     </g>
+    <g class="cl-eyes-tearful">
+      <ellipse cx="83" cy="106" rx="8.5" ry="9" fill="#04124a"/>
+      <ellipse cx="117" cy="106" rx="8.5" ry="9" fill="#04124a"/>
+      <ellipse cx="80" cy="103" rx="2.6" ry="3" fill="#ffffff"/>
+      <ellipse cx="114" cy="103" rx="2.6" ry="3" fill="#ffffff"/>
+      <!-- Single shiny tear in inner corners -->
+      <path d="M 91 112 Q 89 118 91 122 Q 93 118 91 112 Z" fill="#7fd2ff" opacity="0.95"/>
+      <path d="M 109 112 Q 111 118 109 122 Q 107 118 109 112 Z" fill="#7fd2ff" opacity="0.95"/>
+    </g>
+    <g class="cl-eyes-up">
+      <!-- Looking UP — pupils high in eye whites -->
+      <ellipse cx="83" cy="103" rx="9" ry="12" fill="#ffffff"/>
+      <ellipse cx="117" cy="103" rx="9" ry="12" fill="#ffffff"/>
+      <ellipse cx="83" cy="96" rx="5.5" ry="6" fill="#04124a"/>
+      <ellipse cx="117" cy="96" rx="5.5" ry="6" fill="#04124a"/>
+      <circle cx="81.5" cy="94" r="1.5" fill="#ffffff"/>
+      <circle cx="115.5" cy="94" r="1.5" fill="#ffffff"/>
+    </g>
+    <g class="cl-eyes-down">
+      <!-- Looking DOWN — pupils low in eye whites -->
+      <ellipse cx="83" cy="103" rx="9" ry="12" fill="#ffffff"/>
+      <ellipse cx="117" cy="103" rx="9" ry="12" fill="#ffffff"/>
+      <ellipse cx="83" cy="110" rx="5.5" ry="6" fill="#04124a"/>
+      <ellipse cx="117" cy="110" rx="5.5" ry="6" fill="#04124a"/>
+      <circle cx="81.5" cy="108" r="1.2" fill="#ffffff" opacity="0.85"/>
+      <circle cx="115.5" cy="108" r="1.2" fill="#ffffff" opacity="0.85"/>
+      <!-- Slight downturn brows -->
+      <path d="M 73 92 Q 80 95 92 92" stroke="#04124a" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.6"/>
+      <path d="M 127 92 Q 120 95 108 92" stroke="#04124a" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.6"/>
+    </g>
+    <g class="cl-eyes-squint">
+      <!-- >< style squinted shut (manga laughing / wincing) -->
+      <path d="M 72 100 L 82 108 L 92 100" stroke="#04124a" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M 108 100 L 118 108 L 128 100" stroke="#04124a" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g class="cl-eyes-wide-shock">
+      <!-- Big surprised — large whites, small pupils -->
+      <ellipse cx="83" cy="103" rx="11" ry="14" fill="#ffffff" stroke="#04124a" stroke-width="1.4"/>
+      <ellipse cx="117" cy="103" rx="11" ry="14" fill="#ffffff" stroke="#04124a" stroke-width="1.4"/>
+      <circle cx="83" cy="103" r="3.5" fill="#04124a"/>
+      <circle cx="117" cy="103" r="3.5" fill="#04124a"/>
+      <circle cx="84.8" cy="101" r="1.1" fill="#ffffff"/>
+      <circle cx="118.8" cy="101" r="1.1" fill="#ffffff"/>
+    </g>
+    <g class="cl-eyes-glance">
+      <!-- Looking aside, slightly down — bashful/coy -->
+      <ellipse cx="83" cy="103" rx="9" ry="12" fill="#04124a"/>
+      <ellipse cx="117" cy="103" rx="9" ry="12" fill="#04124a"/>
+      <ellipse cx="86" cy="108" rx="3" ry="3.5" fill="#020a30"/>
+      <ellipse cx="120" cy="108" rx="3" ry="3.5" fill="#020a30"/>
+      <ellipse cx="85" cy="107" rx="1.4" ry="1.8" fill="#ffffff"/>
+      <ellipse cx="119" cy="107" rx="1.4" ry="1.8" fill="#ffffff"/>
+    </g>
+    <g class="cl-eyes-disgusted">
+      <!-- Half-lidded skeptical/grossed-out -->
+      <path d="M 73 102 Q 83 100 92 102" stroke="#04124a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <path d="M 108 102 Q 117 100 127 102" stroke="#04124a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <ellipse cx="83" cy="106" rx="3" ry="2.2" fill="#04124a"/>
+      <ellipse cx="117" cy="106" rx="3" ry="2.2" fill="#04124a"/>
+      <path d="M 75 92 Q 80 89 90 91" stroke="#04124a" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <path d="M 125 92 Q 120 89 110 91" stroke="#04124a" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </g>
+    <g class="cl-eyes-genius">
+      <!-- Focused intelligent eyes with cyan glow rings (parts/engineering) -->
+      <ellipse cx="83" cy="103" rx="9.5" ry="11.5" fill="#04124a"/>
+      <ellipse cx="117" cy="103" rx="9.5" ry="11.5" fill="#04124a"/>
+      <ellipse cx="83" cy="103" rx="8" ry="10" fill="url(#iris-grad)"/>
+      <ellipse cx="117" cy="103" rx="8" ry="10" fill="url(#iris-grad)"/>
+      <circle cx="83" cy="105" r="3.5" fill="#020a30"/>
+      <circle cx="117" cy="105" r="3.5" fill="#020a30"/>
+      <ellipse cx="80" cy="99" rx="2.4" ry="3" fill="#ffffff"/>
+      <ellipse cx="114" cy="99" rx="2.4" ry="3" fill="#ffffff"/>
+      <circle cx="83" cy="103" r="14" fill="none" stroke="#7df0ff" stroke-width="0.9" opacity="0.55"/>
+      <circle cx="117" cy="103" r="14" fill="none" stroke="#7df0ff" stroke-width="0.9" opacity="0.55"/>
+    </g>
+    <g class="cl-eyes-studious">
+      <!-- Round focused eyes wearing reading glasses (education mode) -->
+      <ellipse cx="83" cy="104" rx="9" ry="10" fill="#04124a"/>
+      <ellipse cx="117" cy="104" rx="9" ry="10" fill="#04124a"/>
+      <circle cx="83" cy="105" r="3.2" fill="#020a30"/>
+      <circle cx="117" cy="105" r="3.2" fill="#020a30"/>
+      <ellipse cx="80.5" cy="101" rx="2" ry="2.4" fill="#ffffff"/>
+      <ellipse cx="114.5" cy="101" rx="2" ry="2.4" fill="#ffffff"/>
+      <circle cx="83" cy="104" r="13" fill="none" stroke="#04124a" stroke-width="1.6" opacity="0.85"/>
+      <circle cx="117" cy="104" r="13" fill="none" stroke="#04124a" stroke-width="1.6" opacity="0.85"/>
+      <line x1="96" y1="104" x2="104" y2="104" stroke="#04124a" stroke-width="1.6"/>
+    </g>
+
   </g>
 
   <g class="cl-mouth">
@@ -198,14 +289,25 @@
     <path class="cl-mouth-wavy" d="M 90 132 Q 94 128 98 132 Q 102 136 106 132 Q 110 128 114 132"
           stroke="#04124a" stroke-width="2.2" fill="none" stroke-linecap="round"/>
     <g class="cl-mouth-fangs">
-      <path d="M 87 128 L 100 140 L 113 128 Z" fill="#04124a"/>
-      <path d="M 93 130 L 96 134 L 99 130 Z" fill="#ffffff"/>
-      <path d="M 101 130 L 104 134 L 107 130 Z" fill="#ffffff"/>
+      <!-- v17.14 CUTE huff: small pouty mouth, no fangs -->
+      <path d="M 93 134 Q 100 130 107 134" stroke="#04124a" stroke-width="2.4" fill="none" stroke-linecap="round"/>
     </g>
     <line class="cl-mouth-flat" x1="92" y1="132" x2="108" y2="132" stroke="#04124a" stroke-width="2.4" stroke-linecap="round"/>
     <path class="cl-mouth-frown" d="M 92 134 Q 100 128 108 134" stroke="#04124a" stroke-width="2.4" fill="none" stroke-linecap="round"/>
     <path class="cl-mouth-cat" d="M 92 130 Q 96 134 100 130 Q 104 134 108 130" stroke="#04124a" stroke-width="2.2" fill="none" stroke-linecap="round"/>
     <ellipse class="cl-mouth-kiss" cx="100" cy="132" rx="3.2" ry="2.4" fill="#ff5577"/>
+    <ellipse class="cl-mouth-pout" cx="100" cy="132" rx="2.4" ry="3" fill="#ff6e9e"/>
+    <text class="cl-mouth-star" x="92" y="139" font-family="sans-serif" font-size="14" font-weight="800" fill="#ff5577">✦</text>
+    <path class="cl-mouth-laugh" d="M 86 128 Q 100 148 114 128 Q 100 134 86 128 Z" fill="#04124a"/>
+    <rect class="cl-mouth-tape" x="92" y="130" width="16" height="5" rx="2.5" fill="#ffb6c8" stroke="#04124a" stroke-width="0.8"/>
+    <g class="cl-mouth-bunny">
+      <path d="M 90 130 Q 100 138 110 130" stroke="#04124a" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+      <rect x="96" y="130" width="3.5" height="4.5" rx="0.6" fill="#ffffff" stroke="#04124a" stroke-width="0.6"/>
+      <rect x="100.5" y="130" width="3.5" height="4.5" rx="0.6" fill="#ffffff" stroke="#04124a" stroke-width="0.6"/>
+    </g>
+    <path class="cl-mouth-triangle" d="M 94 130 L 100 138 L 106 130 Z" fill="#04124a"/>
+
+  </g>
   </g>
 
   <g class="cl-zzz">
@@ -227,5 +329,52 @@
     <circle class="cl-node cl-node-6" cx="135" cy="58"  r="5.5" fill="#9adff5"/>
     <circle class="cl-node cl-node-7" cx="62"  cy="138" r="5.5" fill="#cbb0f5"/>
   </g>
+  </g>
+
+  <!-- v17.14 EMOTION OVERLAYS — opacity 0 by default, mood class turns on -->
+  <g class="cl-sweat">
+    <path d="M 142 78 Q 138 86 142 92 Q 146 86 142 78 Z" fill="#7fcfff" opacity="0.92"/>
+    <ellipse cx="142" cy="88" rx="1.6" ry="1.2" fill="#ffffff" opacity="0.85"/>
+  </g>
+  <g class="cl-music">
+    <text x="148" y="58" font-family="serif" font-size="22" font-weight="700" fill="#ff8acc">♪</text>
+    <text x="160" y="44" font-family="serif" font-size="18" font-weight="700" fill="#9bc5ff">♫</text>
+  </g>
+  <g class="cl-anger-pop">
+    <!-- Manga-style cute anger mark -->
+    <path d="M 140 38 L 148 32 L 156 38 M 144 42 L 152 36 L 160 42 M 142 46 L 150 40 M 158 30 L 164 36"
+          stroke="#ff5577" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+  </g>
+  <g class="cl-question">
+    <text x="150" y="48" font-family="sans-serif" font-size="32" font-weight="800" fill="#7df0ff">?</text>
+  </g>
+  <g class="cl-tear">
+    <!-- Single big sparkle tear -->
+    <path d="M 85 118 Q 80 130 85 138 Q 90 130 85 118 Z" fill="#7fd2ff" opacity="0.95"/>
+    <ellipse cx="83" cy="128" rx="1.4" ry="1.8" fill="#ffffff" opacity="0.9"/>
+  </g>
+  <g class="cl-tears-stream">
+    <!-- Multiple streaming tears -->
+    <path d="M 80 116 Q 76 128 78 140" stroke="#7fd2ff" stroke-width="3.4" fill="none" stroke-linecap="round" opacity="0.9"/>
+    <path d="M 120 116 Q 124 128 122 140" stroke="#7fd2ff" stroke-width="3.4" fill="none" stroke-linecap="round" opacity="0.9"/>
+    <circle cx="77" cy="142" r="2.2" fill="#7fd2ff" opacity="0.9"/>
+    <circle cx="123" cy="142" r="2.2" fill="#7fd2ff" opacity="0.9"/>
+  </g>
+  <g class="cl-drool">
+    <!-- Saliva drip from mouth corner -->
+    <path d="M 110 138 Q 112 146 111 152" stroke="#9adff5" stroke-width="2.4" fill="none" stroke-linecap="round" opacity="0.85"/>
+    <circle cx="111" cy="153" r="1.8" fill="#9adff5" opacity="0.9"/>
+  </g>
+  <g class="cl-red-nose">
+    <!-- Drunk/sick clown-style round red nose -->
+    <circle cx="100" cy="120" r="5.5" fill="#ff5577" opacity="0.85"/>
+    <ellipse cx="98" cy="118" rx="1.6" ry="2" fill="#ffaac0" opacity="0.7"/>
+  </g>
+  <g class="cl-heart-blush">
+    <!-- Heart-shaped cheeks instead of regular -->
+    <path d="M 65 118 Q 60 113 65 110 Q 70 113 65 118 Z" fill="#ff80a0"/>
+    <path d="M 70 122 Q 65 117 70 114 Q 75 117 70 122 Z" fill="#ff80a0"/>
+    <path d="M 135 118 Q 140 113 135 110 Q 130 113 135 118 Z" fill="#ff80a0"/>
+    <path d="M 130 122 Q 135 117 130 114 Q 125 117 130 122 Z" fill="#ff80a0"/>
   </g>
 </svg>
