@@ -79,6 +79,7 @@
   const ACTIONS = {
     wave:        { cls: 'is-waving',       ms: 2200 },
     hop:         { cls: 'is-hopping',      ms: 600 },
+    bounce:      { cls: 'is-bouncing',     ms: 1600 },   // v17.12: tall jumps
     wobble:      { cls: 'is-wobbling',     ms: 800 },
     dizzy:       { cls: 'is-dizzy',        ms: 1300 },
     cartwheel:   { cls: 'is-cartwheeling', ms: 1000 },
@@ -1176,7 +1177,7 @@
   function celebrateNexusStreak() {
     if (!state.enabled || state.suppressed) return;
     mood('sparkle', 5500);
-    play('hop');
+    play('bounce');                    // v17.12: bounce for streaks
     spawnParticles({ count: 14, type: 'confetti' });
     playTone('milestone');
     setTimeout(() => {
@@ -1396,7 +1397,7 @@
   function onAchievementUnlocked(id, ach) {
     if (!state.enabled) return;
     mood('sparkle', 6000);
-    play('hop');
+    play('bounce');                    // v17.12: bounce on unlock
     spawnParticles({ count: 16, type: 'confetti' });
     playTone('milestone');
     bubble(`🏆 ${ach.label} — ${ach.desc}`, { autoHide: 5500, eyebrow: 'ACHIEVEMENT' });
@@ -1807,6 +1808,8 @@
     adjustFeeling('happiness', +2);
     adjustFeeling('affection', +1);
     adjustFeeling('attention_need', -15);
+    // v17.12: 6% chance to bounce on tap for movement variety
+    if (Math.random() < 0.06) play('bounce');
     // v17.11: ULTRA RARE — 0.01% per tap, max once per 7 days, opens super-chat
     if (maybeSuperChat()) return;
     // v17.10: feelings-driven bubble (short-circuits if strong feeling)
@@ -1858,22 +1861,39 @@
     } else if (r < 0.54) {
       bubble(pickFromPool('weird_facts'), { eyebrow: 'WEIRD', autoHide: 5500 });
       mood('sparkle', 4500);
+    } else if (r < 0.59) {
+      // v17.13: deep Trajan facts — his namesake
+      bubble(pickFromPool('trajan_facts'), { eyebrow: 'TRAJAN', autoHide: 6200 });
+      mood('determined', 5800);
     } else if (r < 0.62) {
-      bubble(pickFromPool('roman_facts'), { eyebrow: 'ROMA', autoHide: 5800 });
+      // v17.13: friendship moment — Trajan-orb speaks of Emperor Trajan
+      bubble(pickFromPool('trajan_friendship'), { eyebrow: '✨ FRIEND', autoHide: 6500 });
+      mood('sparkle', 5500);
+      spawnParticles({ count: 3, type: 'sparkle' });
+    } else if (r < 0.65) {
+      // v17.13: Augustus dossier
+      bubble(pickFromPool('augustus_facts'), { eyebrow: 'AUGUSTUS', autoHide: 6000 });
       mood('thinking', 5500);
     } else if (r < 0.68) {
-      bubble(pickFromPool('whimsical_idle'), { autoHide: 3800 });
+      // v17.13: Caligula dossier
+      bubble(pickFromPool('caligula_facts'), { eyebrow: 'CALIGULA', autoHide: 6000 });
+      mood('suspicious', 5500);
     } else if (r < 0.74) {
+      bubble(pickFromPool('roman_facts'), { eyebrow: 'ROMA', autoHide: 5800 });
+      mood('thinking', 5500);
+    } else if (r < 0.78) {
+      bubble(pickFromPool('whimsical_idle'), { autoHide: 3800 });
+    } else if (r < 0.82) {
       bubble(pickFromPool('dad_jokes'), { autoHide: 4500 });
       mood('winking', 3800);
-    } else if (r < 0.80) {
+    } else if (r < 0.86) {
       bubble(pickFromPool('name_compliment'), { autoHide: 3800 });
       mood('love', 3800);
       spawnParticles({ count: 3, type: 'heart' });
-    } else if (r < 0.85) {
+    } else if (r < 0.89) {
       bubble(pickFromPool('latin_phrases'), { eyebrow: 'LATINA', autoHide: 4500 });
       mood('determined', 4000);
-    } else if (r < 0.91) {
+    } else if (r < 0.93) {
       // v17.5: multilang hi or bye
       const which = Math.random() < 0.6 ? 'multilang_hi' : 'multilang_bye';
       bubble(pickFromPool(which), { eyebrow: 'POLYGLOT', autoHide: 4500 });
