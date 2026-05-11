@@ -140,7 +140,16 @@
 .clippy-svg .cl-eyes-suspicious,
 .clippy-svg .cl-eyes-determined,
 .clippy-svg .cl-eyes-sparkle,
-.clippy-svg .cl-eyes-embarrassed { opacity: 0; }
+.clippy-svg .cl-eyes-embarrassed,
+.clippy-svg .cl-eyes-tearful,
+.clippy-svg .cl-eyes-up,
+.clippy-svg .cl-eyes-down,
+.clippy-svg .cl-eyes-squint,
+.clippy-svg .cl-eyes-wide-shock,
+.clippy-svg .cl-eyes-glance,
+.clippy-svg .cl-eyes-disgusted,
+.clippy-svg .cl-eyes-genius,
+.clippy-svg .cl-eyes-studious { opacity: 0; }
 
 .clippy-svg .cl-mouth-smile { opacity: 1; }
 .clippy-svg .cl-mouth-bigsmile,
@@ -151,7 +160,20 @@
 .clippy-svg .cl-mouth-flat,
 .clippy-svg .cl-mouth-frown,
 .clippy-svg .cl-mouth-cat,
-.clippy-svg .cl-mouth-kiss { opacity: 0; }
+.clippy-svg .cl-mouth-kiss,
+.clippy-svg .cl-mouth-pout,
+.clippy-svg .cl-mouth-star,
+.clippy-svg .cl-mouth-laugh,
+.clippy-svg .cl-mouth-tape,
+.clippy-svg .cl-mouth-bunny,
+.clippy-svg .cl-mouth-triangle { opacity: 0; }
+
+/* v17.16 new overlays — hidden by default */
+.clippy-svg .cl-tear,
+.clippy-svg .cl-tears-stream,
+.clippy-svg .cl-drool,
+.clippy-svg .cl-red-nose,
+.clippy-svg .cl-heart-blush { opacity: 0; transition: opacity 0.25s ease; }
 
 /* Sleep Z's hidden by default (kept from prior version) */
 .clippy-svg .cl-zzz { opacity: 0; transition: opacity 280ms ease; }
@@ -251,19 +273,14 @@
 #clippy-shell.is-sad .cl-mouth-smile  { opacity: 0; }
 #clippy-shell.is-sad .cl-mouth-frown  { opacity: 1; }
 
-/* ANGRY — V-brow narrowed eyes + fangs */
+/* ANGRY — softened: V-brow + small round dark eyes + cute huff mouth.
+   v17.14: no red pupils, no fangs, no rage-shake. Anger pop "#" floats
+   above his head instead — manga-cute. */
 #clippy-shell.is-angry .cl-eyes-default { opacity: 0; }
 #clippy-shell.is-angry .cl-eyes-angry   { opacity: 1; }
 #clippy-shell.is-angry .cl-mouth-smile  { opacity: 0; }
 #clippy-shell.is-angry .cl-mouth-fangs  { opacity: 1; }
-/* Tiny rage shake */
-#clippy-shell.is-angry .clippy-svg {
-  animation: clRageShake 120ms steps(2, end) infinite;
-}
-@keyframes clRageShake {
-  0%, 100% { transform: translateX(0); }
-  50%      { transform: translateX(0.6px); }
-}
+/* anger-pop animation handled in main effects block above */
 
 /* DIZZY — spiral eyes + wavy mouth + slight tilt */
 #clippy-shell.is-dizzy .cl-eyes-default { opacity: 0; }
@@ -530,37 +547,74 @@
 
 /* ════════════════════════════════════════════════════════════════════
    v17.10 DANCE + JIGGLE — visible feedback for behaviors
-   v17.12: animations target .cl-floats (body group) so .cl-floor (shadow)
-           stays anchored. Shadow has matched companion animations that
-           preserve ground contact while scaling for jump height.
+   v17.12 → v17.14: shadow is now a separate DIV (not in SVG). Pacing
+           moved from full body to FACE-ONLY (eyes drift inside the
+           body, clipped at edge). Body stays put. Demon-angry softened.
    ════════════════════════════════════════════════════════════════════ */
 
-/* Pacing — default idle motion. Subtle side-to-side travel. Runs forever
-   on the body group, paired with a horizontal-only shadow slide. */
-#clippy-shell .cl-floats {
-  animation: clPace 9s ease-in-out infinite;
-  transform-origin: 50% 95%;
-  transform-box: fill-box;
+/* External shadow — separate DOM element, anchored below the SVG.
+   Sits in the shell at fixed position. Body can bounce/dance over it. */
+.clippy-shadow {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  width: 64%;
+  height: 7%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center,
+              rgba(0,0,0,0.32) 0%,
+              rgba(0,0,0,0.20) 60%,
+              rgba(0,0,0,0) 100%);
+  transform: translateX(-50%);
+  pointer-events: none;
+  transition: width 0.3s ease, opacity 0.3s ease, filter 0.3s ease;
+  z-index: 0;
 }
-@keyframes clPace {
-  0%, 100% { transform: translateX(0); }
-  25%      { transform: translateX(-10px); }
-  50%      { transform: translateX(0); }
-  75%      { transform: translateX(10px); }
+#clippy-shell .clippy-svg {
+  position: relative;
+  z-index: 1;
 }
-#clippy-shell .cl-floor {
-  animation: clFloorPace 9s ease-in-out infinite;
+
+/* Shadow reacts to body-state visually:
+   bouncing → shrinks horizontally + fades (body is high up)
+   dancing  → subtle pulse */
+#clippy-shell.is-bouncing .clippy-shadow {
+  animation: clShadowBounce 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+}
+@keyframes clShadowBounce {
+  0%, 100% { width: 64%; opacity: 1; }
+  15%      { width: 72%; opacity: 1; }     /* squash — wide and dark */
+  35%      { width: 32%; opacity: 0.5; }   /* peak — small, faded */
+  60%      { width: 38%; opacity: 0.6; }
+  85%      { width: 68%; opacity: 0.95; }
+}
+#clippy-shell.is-dancing .clippy-shadow {
+  animation: clShadowDance 0.65s ease-in-out infinite;
+}
+@keyframes clShadowDance {
+  0%, 100% { width: 64%; opacity: 1; }
+  40%      { width: 50%; opacity: 0.7; }
+  80%      { width: 62%; opacity: 0.95; }
+}
+
+/* FACE PANNING — the eyes look around inside the body.
+   Animation drifts cl-face horizontally; clipPath cuts off at body edge. */
+#clippy-shell .cl-face {
+  animation: clFacePan 9s ease-in-out infinite;
   transform-box: fill-box;
   transform-origin: 50% 50%;
 }
-@keyframes clFloorPace {
+@keyframes clFacePan {
   0%, 100% { transform: translateX(0); }
-  25%      { transform: translateX(-10px); }
-  50%      { transform: translateX(0); }
-  75%      { transform: translateX(10px); }
+  15%      { transform: translateX(-3px); }
+  30%      { transform: translateX(-12px); }
+  45%      { transform: translateX(-4px); }
+  60%      { transform: translateX(0); }
+  75%      { transform: translateX(12px); }
+  90%      { transform: translateX(4px); }
 }
 
-/* Dance: theme-song mode. Big side-to-side + jumps. */
+/* Dance: theme song mode. Body bounces/twists; shadow handled above. */
 #clippy-shell.is-dancing .cl-floats {
   animation: clDance 0.65s cubic-bezier(0.4, 0, 0.6, 1) infinite !important;
 }
@@ -574,18 +628,8 @@
   60%      { transform: translate(14px, -10px)  rotate(12deg)  scale(1.04); }
   80%      { transform: translate(0, -6px)      rotate(0deg)   scale(1.02); }
 }
-#clippy-shell.is-dancing .cl-floor {
-  animation: clFloorDance 0.65s cubic-bezier(0.4, 0, 0.6, 1) infinite !important;
-}
-@keyframes clFloorDance {
-  0%, 100% { transform: translateX(0)     scale(1, 1);    opacity: 0.22; }
-  20%      { transform: translateX(-14px) scale(0.85, 1); opacity: 0.16; }
-  40%      { transform: translateX(0)     scale(0.65, 1); opacity: 0.11; }
-  60%      { transform: translateX(14px)  scale(0.85, 1); opacity: 0.16; }
-  80%      { transform: translateX(0)     scale(0.95, 1); opacity: 0.20; }
-}
 
-/* Jiggle: tickle response. Body wobble, shadow steady. */
+/* Jiggle: tickle response. Body wobble. Face pan still runs inside. */
 #clippy-shell.is-jiggling .cl-floats {
   animation: clJiggle 0.16s ease-in-out 14 !important;
 }
@@ -595,8 +639,7 @@
   75%      { transform: scale(1.06) rotate(5deg); }
 }
 
-/* Bouncing: tall jumps with squash/stretch. Shadow stretches on squash,
-   shrinks at peak — sells the height illusion. */
+/* Bouncing: tall jumps with squash/stretch. Shadow scaled separately above. */
 #clippy-shell.is-bouncing .cl-floats {
   animation: clBounce 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) infinite !important;
 }
@@ -607,15 +650,50 @@
   60%      { transform: translateY(-26px) scaleY(1.05) scaleX(0.96); }
   85%      { transform: translateY(0)    scaleY(0.95) scaleX(1.04); }
 }
-#clippy-shell.is-bouncing .cl-floor {
-  animation: clFloorBounce 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) infinite !important;
+
+/* v17.14 NEW EMOTION OVERLAYS — all hidden by default, mood class shows */
+.clippy-svg .cl-sweat,
+.clippy-svg .cl-music,
+.clippy-svg .cl-anger-pop,
+.clippy-svg .cl-question { opacity: 0; transition: opacity 0.25s ease; }
+
+/* Embarrassed: sweat drop visible, blush boosted, eyes go winking-l */
+#clippy-shell.is-embarrassed .cl-sweat { opacity: 1; }
+
+/* Worried: sweat drop + sad eyes via existing sad mood mapping */
+#clippy-shell.is-worried .cl-sweat { opacity: 1; }
+#clippy-shell.is-worried .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-worried .cl-eyes-sad     { opacity: 1; }
+#clippy-shell.is-worried .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-worried .cl-mouth-flat   { opacity: 1; }
+
+/* Singing: music notes float above, eyes happy crescents, big smile */
+#clippy-shell.is-singing .cl-music { opacity: 1; animation: clMusicFloat 2s ease-in-out infinite; }
+#clippy-shell.is-singing .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-singing .cl-eyes-happy   { opacity: 1; }
+#clippy-shell.is-singing .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-singing .cl-mouth-bigsmile { opacity: 1; }
+@keyframes clMusicFloat {
+  0%, 100% { transform: translateY(0)   rotate(-4deg); }
+  50%      { transform: translateY(-4px) rotate(4deg); }
 }
-@keyframes clFloorBounce {
-  0%, 100% { transform: scale(1, 1);    opacity: 0.22; }
-  15%      { transform: scale(1.15, 1); opacity: 0.26; }
-  35%      { transform: scale(0.5, 1);  opacity: 0.08; }
-  60%      { transform: scale(0.6, 1);  opacity: 0.10; }
-  85%      { transform: scale(1.05, 1); opacity: 0.20; }
+
+/* Confused: question mark floats above, dot eyes, suspicious tilt */
+#clippy-shell.is-confused .cl-question { opacity: 1; animation: clQuestionWobble 1.5s ease-in-out infinite; }
+#clippy-shell.is-confused .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-confused .cl-eyes-dots    { opacity: 1; }
+#clippy-shell.is-confused .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-confused .cl-mouth-flat   { opacity: 1; }
+@keyframes clQuestionWobble {
+  0%, 100% { transform: rotate(-6deg) scale(1); }
+  50%      { transform: rotate(6deg)  scale(1.1); }
+}
+
+/* When angry, the cute manga "anger pop" appears above his head */
+#clippy-shell.is-angry .cl-anger-pop { opacity: 1; animation: clAngerPulse 0.6s ease-in-out infinite; }
+@keyframes clAngerPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.15); opacity: 0.8; }
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -1265,6 +1343,18 @@
   50%      { opacity: 1.00; transform: scale(1.04); }
 }
 
+/* v17.15 MOOD WEATHER — halo glow color shifts with dominant feeling.
+   JS sets --mood-weather on #clippy-shell based on dominantFeeling().
+   The body picks up a soft drop-shadow tint matching the mood. */
+#clippy-shell {
+  --mood-weather: #7df0ff;
+  transition: filter 1.2s ease;
+}
+#clippy-shell .cl-body {
+  filter: drop-shadow(0 0 8px var(--mood-weather));
+  transition: filter 1.2s ease;
+}
+
 /* v17.4: Orbital rotation around orb center (100,100).
    Each node has its own speed/direction so the cluster looks chaotic-
    organic, not robotically synchronized. Inner-orbit nodes (5,6,7) visibly
@@ -1381,3 +1471,176 @@
     animation: none !important;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.16 KAWAII FACE LIBRARY — 22 new compound expressions composing
+   the new SVG building blocks into recognizable faces from the
+   reference sheet.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* CRYING — sad eyes with a single shiny tear + frown */
+#clippy-shell.is-crying .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-crying .cl-eyes-tearful { opacity: 1; }
+#clippy-shell.is-crying .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-crying .cl-mouth-frown { opacity: 1; }
+#clippy-shell.is-crying .cl-tear { opacity: 1; }
+
+/* SOBBING — shut eyes squeezed + frown + streaming tears */
+#clippy-shell.is-sobbing .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-sobbing .cl-eyes-shut { opacity: 1; }
+#clippy-shell.is-sobbing .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-sobbing .cl-mouth-frown { opacity: 1; }
+#clippy-shell.is-sobbing .cl-tears-stream { opacity: 1; }
+
+/* WAILING — shut eyes + open laugh mouth + streaming tears (anime sob) */
+#clippy-shell.is-wailing .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-wailing .cl-eyes-shut { opacity: 1; }
+#clippy-shell.is-wailing .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-wailing .cl-mouth-laugh { opacity: 1; }
+#clippy-shell.is-wailing .cl-tears-stream { opacity: 1; }
+
+/* POUTY — default eyes + small puckered mouth */
+#clippy-shell.is-pouty .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-pouty .cl-mouth-pout { opacity: 1; }
+
+/* GASP — dot eyes + O mouth + sweat */
+#clippy-shell.is-gasp .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-gasp .cl-eyes-dots { opacity: 1; }
+#clippy-shell.is-gasp .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-gasp .cl-mouth-o { opacity: 1; }
+#clippy-shell.is-gasp .cl-sweat { opacity: 1; }
+
+/* SHOCKED — wide-shock eyes + flat mouth */
+#clippy-shell.is-shocked .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-shocked .cl-eyes-wide-shock { opacity: 1; }
+#clippy-shell.is-shocked .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-shocked .cl-mouth-o { opacity: 1; }
+
+/* EYE-ROLL — looking up + flat mouth (unimpressed) */
+#clippy-shell.is-eye-roll .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-eye-roll .cl-eyes-up { opacity: 1; }
+#clippy-shell.is-eye-roll .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-eye-roll .cl-mouth-flat { opacity: 1; }
+
+/* PEEVED — looking down + frown */
+#clippy-shell.is-peeved .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-peeved .cl-eyes-down { opacity: 1; }
+#clippy-shell.is-peeved .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-peeved .cl-mouth-frown { opacity: 1; }
+
+/* DROOLING — happy eyes + saliva drip (anime "delicious!") */
+#clippy-shell.is-drooling .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-drooling .cl-eyes-happy { opacity: 1; }
+#clippy-shell.is-drooling .cl-drool { opacity: 1; }
+
+/* LAUGHING-HARD — squint XX eyes + open laugh mouth */
+#clippy-shell.is-laughing .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-laughing .cl-eyes-squint { opacity: 1; }
+#clippy-shell.is-laughing .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-laughing .cl-mouth-laugh { opacity: 1; }
+
+/* SUPER-EXCITED — sparkle eyes + open laugh */
+#clippy-shell.is-super-excited .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-super-excited .cl-mouth-laugh { opacity: 1; }
+#clippy-shell.is-super-excited .cl-eyes-sparkle { opacity: 1; }
+
+/* MORTIFIED — wide shock + tape mouth + extra blush */
+#clippy-shell.is-mortified .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-mortified .cl-eyes-wide-shock { opacity: 1; }
+#clippy-shell.is-mortified .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-mortified .cl-mouth-tape { opacity: 1; }
+#clippy-shell.is-mortified .cl-cheek { opacity: 1; filter: saturate(2.3) brightness(1.05); }
+
+/* FRUSTRATED — angry brows + flat mouth + sweat drop */
+#clippy-shell.is-frustrated .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-frustrated .cl-eyes-angry { opacity: 1; }
+#clippy-shell.is-frustrated .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-frustrated .cl-mouth-flat { opacity: 1; }
+#clippy-shell.is-frustrated .cl-sweat { opacity: 1; }
+
+/* TIPSY — happy eyes + red clown nose */
+#clippy-shell.is-tipsy .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-tipsy .cl-eyes-happy { opacity: 1; }
+#clippy-shell.is-tipsy .cl-red-nose { opacity: 1; }
+
+/* SINGING-STAR — shut eyes + star mouth + music notes */
+#clippy-shell.is-singing-star .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-singing-star .cl-eyes-shut { opacity: 1; }
+#clippy-shell.is-singing-star .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-singing-star .cl-mouth-star { opacity: 1; }
+#clippy-shell.is-singing-star .cl-music { opacity: 1; }
+
+/* MELANCHOLY — looking down + small smile (bittersweet) */
+#clippy-shell.is-melancholy .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-melancholy .cl-eyes-down { opacity: 1; }
+
+/* BASHFUL — glance away eyes + smile + heart blush */
+#clippy-shell.is-bashful .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-bashful .cl-eyes-glance { opacity: 1; }
+#clippy-shell.is-bashful .cl-cheek { opacity: 1; filter: saturate(2.5) brightness(1.1); }
+
+/* SMITTEN — heart eyes + heart blush (deeper than love) */
+#clippy-shell.is-smitten .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-smitten .cl-eyes-love { opacity: 1; }
+#clippy-shell.is-smitten .cl-heart-blush { opacity: 1; }
+#clippy-shell.is-smitten .cl-cheek { opacity: 0; }
+
+/* BUNNY — default eyes + bunny tooth smile (cute toothy) */
+#clippy-shell.is-bunny .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-bunny .cl-mouth-bunny { opacity: 1; }
+
+/* STUNNED — wide-shock eyes + tape mouth */
+#clippy-shell.is-stunned .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-stunned .cl-eyes-wide-shock { opacity: 1; }
+#clippy-shell.is-stunned .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-stunned .cl-mouth-tape { opacity: 1; }
+
+/* PROUD — shut crescents + big smile (smug+happy combo) */
+#clippy-shell.is-proud .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-proud .cl-eyes-shut { opacity: 1; }
+#clippy-shell.is-proud .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-proud .cl-mouth-bigsmile { opacity: 1; }
+
+/* DISAPPOINTED — sleepy half-lids + frown */
+#clippy-shell.is-disappointed .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-disappointed .cl-eyes-sleepy { opacity: 1; }
+#clippy-shell.is-disappointed .cl-mouth-smile { opacity: 0; }
+#clippy-shell.is-disappointed .cl-mouth-frown { opacity: 1; }
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.17 CONTEXT PERSONALITIES — emotional modes tied to NEXUS views
+   ════════════════════════════════════════════════════════════════════ */
+
+/* GENIUS — equipment mode. Focused eyes + cyan glow rings + flat mouth.
+   Activates when user is in Equipment view. */
+#clippy-shell.is-genius .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-genius .cl-eyes-genius  { opacity: 1; }
+#clippy-shell.is-genius .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-genius .cl-mouth-flat   { opacity: 1; }
+
+/* DISGUSTED — cleaning mode. Squinted skeptical eyes + sweat drop.
+   Activates when user is in Duties view or cleaning_gross fires. */
+#clippy-shell.is-disgusted .cl-eyes-default   { opacity: 0; }
+#clippy-shell.is-disgusted .cl-eyes-disgusted { opacity: 1; }
+#clippy-shell.is-disgusted .cl-mouth-smile    { opacity: 0; }
+#clippy-shell.is-disgusted .cl-mouth-wavy     { opacity: 1; }
+#clippy-shell.is-disgusted .cl-sweat          { opacity: 1; }
+
+/* STUDIOUS — education mode. Reading glasses + small focused eyes +
+   bunny tooth smile (cute scholar). Activates in Education view. */
+#clippy-shell.is-studious .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-studious .cl-eyes-studious{ opacity: 1; }
+#clippy-shell.is-studious .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-studious .cl-mouth-bunny  { opacity: 1; }
+
+/* STRATEGIST — board mode. Determined + cat smirk. */
+#clippy-shell.is-strategist .cl-eyes-default    { opacity: 0; }
+#clippy-shell.is-strategist .cl-eyes-determined { opacity: 1; }
+#clippy-shell.is-strategist .cl-mouth-smile     { opacity: 0; }
+#clippy-shell.is-strategist .cl-mouth-cat       { opacity: 1; }
+
+/* ORGANIZED — inventory mode. Dot eyes + cat smile (peaceful order). */
+#clippy-shell.is-organized .cl-eyes-default { opacity: 0; }
+#clippy-shell.is-organized .cl-eyes-dots    { opacity: 1; }
+#clippy-shell.is-organized .cl-mouth-smile  { opacity: 0; }
+#clippy-shell.is-organized .cl-mouth-cat    { opacity: 1; }
