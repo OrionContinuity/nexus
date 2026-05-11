@@ -1643,18 +1643,123 @@
   // ════════════════════════════════════════════════════════════════════
 
   const COSTUMES = {
-    none:         { glyph: '🚫', label: 'None',          cls: '' },
-    laurel:       { glyph: '🌿', label: 'Laurel Crown',  cls: 'wear-laurel' },
-    helmet:       { glyph: '⚔️',  label: 'Galea',         cls: 'wear-helmet' },
-    party_hat:    { glyph: '🎉', label: 'Party Hat',     cls: 'wear-party-hat' },
-    scholar_cap:  { glyph: '🎓', label: 'Scholar Cap',   cls: 'wear-scholar-cap' },
+    none:         { glyph: '🚫', label: 'None',          cls: '',                category: 'basic',    unlock: 0 },
+    // Classical
+    laurel:       { glyph: '🌿', label: 'Laurel Crown',  cls: 'wear-laurel',     category: 'classical', unlock: 0 },
+    helmet:       { glyph: '⚔️',  label: 'Galea',         cls: 'wear-helmet',     category: 'classical', unlock: 0 },
+    macedonian:   { glyph: '🛡️', label: 'Macedonian',    cls: 'wear-macedonian', category: 'classical', unlock: 0 },
+    carthaginian: { glyph: '🐘', label: 'Carthaginian',  cls: 'wear-carthaginian', category: 'classical', unlock: 0 },
+    nemes:        { glyph: '🐍', label: 'Nemes',         cls: 'wear-nemes',      category: 'classical', unlock: 0 },
+    mongol:       { glyph: '🏹', label: 'Mongol Cap',    cls: 'wear-mongol',     category: 'classical', unlock: 0 },
+    bicorne:      { glyph: '🎩', label: 'Bicorne',       cls: 'wear-bicorne',    category: 'classical', unlock: 0 },
+    // Modern / formal
+    tophat:       { glyph: '🎩', label: 'Top Hat',       cls: 'wear-tophat',     category: 'formal',   unlock: 0 },
+    scholar_cap:  { glyph: '🎓', label: 'Scholar Cap',   cls: 'wear-scholar-cap', category: 'formal',  unlock: 0 },
+    crown:        { glyph: '👑', label: 'Royal Crown',   cls: 'wear-crown',      category: 'formal',   unlock: 3 },
+    // Fun / playful
+    party_hat:    { glyph: '🎉', label: 'Party Hat',     cls: 'wear-party-hat',  category: 'fun',      unlock: 0 },
+    cowboy:       { glyph: '🤠', label: 'Cowboy Hat',    cls: 'wear-cowboy',     category: 'fun',      unlock: 0 },
+    tricorn:      { glyph: '🏴‍☠️', label: 'Pirate Tricorn', cls: 'wear-tricorn',  category: 'fun',      unlock: 2 },
+    wizard:       { glyph: '🧙', label: 'Wizard Hat',    cls: 'wear-wizard',     category: 'fun',      unlock: 4 },
   };
+
   const PROPS = {
-    none:   { glyph: '🚫', label: 'None',   cls: '' },
-    broom:  { glyph: '🧹', label: 'Broom',  cls: 'holding-broom' },
-    book:   { glyph: '📖', label: 'Book',   cls: 'holding-book' },
-    scroll: { glyph: '📜', label: 'Scroll', cls: 'holding-scroll' },
+    none:   { glyph: '🚫', label: 'None',     cls: '',                category: 'basic',     unlock: 0 },
+    book:   { glyph: '📖', label: 'Book',     cls: 'holding-book',    category: 'study',     unlock: 0 },
+    scroll: { glyph: '📜', label: 'Scroll',   cls: 'holding-scroll',  category: 'study',     unlock: 0 },
+    broom:  { glyph: '🧹', label: 'Broom',    cls: 'holding-broom',   category: 'utility',   unlock: 0 },
+    cup:    { glyph: '🍷', label: 'Wine Cup', cls: 'holding-cup',     category: 'feast',     unlock: 0 },
+    sword:  { glyph: '⚔️',  label: 'Gladius',  cls: 'holding-sword',   category: 'warrior',  unlock: 1 },
+    apple:  { glyph: '🍎', label: 'Apple',    cls: 'holding-apple',   category: 'feast',     unlock: 0 },
   };
+
+  // v17.31 SET BONUSES — Wearing certain hat + prop combos unlocks
+  // a named "mode" with a celebratory bubble and a special memory.
+  const COSTUME_SETS = {
+    legionary:   { hat: 'helmet',  prop: 'sword',  label: 'Legionary',  glyph: '⚔️',  desc: 'Centurion armor.' },
+    emperor:     { hat: 'laurel',  prop: 'scroll', label: 'Emperor',    glyph: '🏛️', desc: 'Imperial decree.' },
+    scholar:     { hat: 'scholar_cap', prop: 'book', label: 'Scholar',  glyph: '🎓', desc: 'Pursuit of knowledge.' },
+    pharaoh:     { hat: 'nemes',   prop: 'cup',    label: 'Pharaoh',    glyph: '🐍', desc: 'Nile dynasty.' },
+    pirate:      { hat: 'tricorn', prop: 'sword',  label: 'Pirate',     glyph: '🏴‍☠️', desc: 'Yo ho ho.' },
+    wizard_pose: { hat: 'wizard',  prop: 'scroll', label: 'Archmage',   glyph: '🧙', desc: 'Magical decree.' },
+    cowboy_drink:{ hat: 'cowboy',  prop: 'cup',    label: 'Saloon',     glyph: '🤠', desc: 'Howdy.' },
+    napoleon_pose:{hat: 'bicorne', prop: 'sword',  label: "L'Empereur", glyph: '👑', desc: 'France marches.' },
+    party:       { hat: 'party_hat', prop: 'cup',  label: 'Celebrate',  glyph: '🎉', desc: 'Cheers!' },
+    feast:       { hat: 'crown',   prop: 'apple',  label: 'Bountiful',  glyph: '🍎', desc: 'Eden.' },
+  };
+
+  function detectSet() {
+    const h = state.preferences.costume || 'none';
+    const p = state.preferences.prop || 'none';
+    for (const [k, s] of Object.entries(COSTUME_SETS)) {
+      if (s.hat === h && s.prop === p) return { key: k, ...s };
+    }
+    return null;
+  }
+
+  function maybeAnnounceSet() {
+    const set = detectSet();
+    if (!set) {
+      state.lastSetKey = null;
+      return;
+    }
+    if (state.lastSetKey === set.key) return;
+    state.lastSetKey = set.key;
+    setTimeout(() => {
+      if (!state.bubble && state.enabled) {
+        bubble(`${set.glyph} ${set.label.toUpperCase()} unlocked! ${set.desc}`,
+          { autoHide: 4500, eyebrow: '✨ SET BONUS' });
+        if (typeof spawnParticles === 'function') spawnParticles({ count: 12, type: 'sparkle' });
+        if (typeof adjustFeeling === 'function') adjustFeeling('happiness', +6);
+      }
+    }, 800);
+    if (typeof depositMemory === 'function') {
+      depositMemory('set_unlock', `Unlocked outfit set: ${set.label}.`,
+                    { set: set.key }, 2);
+    }
+  }
+
+  // v17.31 OUTFIT SLOTS — save up to 3 favorite combos (hat + prop)
+  function getOutfitSlots() {
+    return state.preferences.outfit_slots || [null, null, null];
+  }
+  function saveOutfitSlot(idx) {
+    const slots = getOutfitSlots();
+    slots[idx] = {
+      costume: state.preferences.costume || 'none',
+      prop:    state.preferences.prop    || 'none',
+      saved_at: Date.now(),
+    };
+    state.preferences.outfit_slots = slots;
+    savePreferences();
+    if (typeof cloudPushQueued === 'function') cloudPushQueued();
+  }
+  function loadOutfitSlot(idx) {
+    const slots = getOutfitSlots();
+    const s = slots[idx];
+    if (!s) return false;
+    setCostume(s.costume);
+    setProp(s.prop);
+    return true;
+  }
+  function clearOutfitSlot(idx) {
+    const slots = getOutfitSlots();
+    slots[idx] = null;
+    state.preferences.outfit_slots = slots;
+    savePreferences();
+    if (typeof cloudPushQueued === 'function') cloudPushQueued();
+  }
+  // Random outfit — surprise pick from unlocked items
+  function randomizeOutfit() {
+    const bondLvl = (typeof getBondLevel === 'function' && getBondLevel()) ? getBondLevel().lvl : 1;
+    const hats = Object.keys(COSTUMES).filter(k => k !== 'none' && (COSTUMES[k].unlock || 0) <= bondLvl);
+    const props = Object.keys(PROPS).filter(k => k !== 'none' && (PROPS[k].unlock || 0) <= bondLvl);
+    if (!hats.length || !props.length) return;
+    const h = hats[Math.floor(Math.random() * hats.length)];
+    const p = props[Math.floor(Math.random() * props.length)];
+    setCostume(h);
+    setTimeout(() => setProp(p), 500);
+  }
 
   function setCostume(name) {
     if (!COSTUMES[name]) return;
@@ -1668,6 +1773,7 @@
     }
     depositMemory('costume_change', `Equipped costume: ${name}`, { name }, 1);
     if (typeof cloudPushQueued === 'function') cloudPushQueued();
+    if (typeof maybeAnnounceSet === 'function') setTimeout(() => maybeAnnounceSet(), 1500);
   }
   function setProp(name) {
     if (!PROPS[name]) return;
@@ -1681,6 +1787,7 @@
     }
     depositMemory('prop_change', `Picked up prop: ${name}`, { name }, 1);
     if (typeof cloudPushQueued === 'function') cloudPushQueued();
+    if (typeof maybeAnnounceSet === 'function') setTimeout(() => maybeAnnounceSet(), 1500);
   }
   function applyPersistedCostume() {
     const c = state.preferences.costume || 'none';
@@ -2033,7 +2140,7 @@
     reg.push({
       key: 'wardrobe', kind: 'active', category: 'self',
       glyph: '👗', label: 'Wardrobe',
-      desc: '9 hats (incl. 6 conqueror crowns) + 3 props.',
+      desc: '14 hats (incl. 6 conqueror crowns + wizard + crown + tophat + cowboy + pirate) · 6 props · 10 set bonuses · 3 outfit slots · 6 action animations.',
       invoke: () => { if (typeof showCostumeMenu === 'function') showCostumeMenu(); }
     });
     reg.push({
@@ -2612,40 +2719,185 @@
     }
   }
 
+  // v17.31 NEW PROP ACTIONS
+  function doDrink(durationMs) {
+    if (!state.shell || state.sulkActive) return;
+    state.shell.classList.add('holding-cup', 'is-drinking');
+    setTimeout(() => {
+      if (state.shell) {
+        state.shell.classList.remove('is-drinking');
+        if (state.preferences.prop !== 'cup') state.shell.classList.remove('holding-cup');
+      }
+    }, durationMs || 5000);
+    setTimeout(() => {
+      if (!state.bubble && state.dialog && state.dialog.holding_cup_idle) {
+        bubble(pickFromPool('holding_cup_idle'), { autoHide: 3200, eyebrow: '🍷 SIPPING' });
+      }
+    }, 1200);
+    if (typeof adjustFeeling === 'function') adjustFeeling('happiness', +2);
+  }
+
+  function doSwording(durationMs) {
+    if (!state.shell || state.sulkActive) return;
+    state.shell.classList.add('holding-sword', 'is-swording');
+    setTimeout(() => {
+      if (state.shell) {
+        state.shell.classList.remove('is-swording');
+        if (state.preferences.prop !== 'sword') state.shell.classList.remove('holding-sword');
+      }
+    }, durationMs || 4500);
+    setTimeout(() => {
+      if (!state.bubble && state.dialog && state.dialog.holding_sword_idle) {
+        bubble(pickFromPool('holding_sword_idle'), { autoHide: 3500, eyebrow: '⚔️ AT ARMS' });
+      }
+    }, 1000);
+  }
+
+  function doEat(durationMs) {
+    if (!state.shell || state.sulkActive) return;
+    state.shell.classList.add('holding-apple', 'is-eating');
+    setTimeout(() => {
+      if (state.shell) {
+        state.shell.classList.remove('is-eating');
+        if (state.preferences.prop !== 'apple') state.shell.classList.remove('holding-apple');
+      }
+    }, durationMs || 6000);
+    setTimeout(() => {
+      if (!state.bubble && state.dialog && state.dialog.holding_apple_idle) {
+        bubble(pickFromPool('holding_apple_idle'), { autoHide: 3500, eyebrow: '🍎 CRUNCH' });
+      }
+    }, 1500);
+    if (typeof adjustFeeling === 'function') adjustFeeling('happiness', +3);
+  }
+
   function showCostumeMenu() {
     closeActionBubble();
     if (typeof closeGameOverlay === 'function') closeGameOverlay();
     const curC = state.preferences.costume || 'none';
     const curP = state.preferences.prop || 'none';
+    const bondLvl = (typeof getBondLevel === 'function' && getBondLevel()) ? getBondLevel().lvl : 1;
+    const activeSet = detectSet();
+    const slots = getOutfitSlots();
+
+    // Group costumes by category
+    const costumesByCat = {};
+    Object.entries(COSTUMES).forEach(([k, c]) => {
+      const cat = c.category || 'basic';
+      if (!costumesByCat[cat]) costumesByCat[cat] = [];
+      costumesByCat[cat].push([k, c]);
+    });
+    const propsByCat = {};
+    Object.entries(PROPS).forEach(([k, p]) => {
+      const cat = p.category || 'basic';
+      if (!propsByCat[cat]) propsByCat[cat] = [];
+      propsByCat[cat].push([k, p]);
+    });
+
+    const renderCostumeCard = ([k, c]) => {
+      const locked = (c.unlock || 0) > bondLvl;
+      const isActive = curC === k;
+      return `<div class="clippy-costume-card ${isActive ? 'is-active' : ''} ${locked ? 'is-locked' : ''}"
+                   data-costume="${k}" ${locked ? 'data-locked="1"' : ''}>
+          <div class="clippy-costume-glyph">${locked ? '🔒' : c.glyph}</div>
+          <div class="clippy-costume-label">${esc(c.label)}</div>
+          ${locked ? `<div style="font-size:8px;opacity:0.6;margin-top:2px;font-family:'JetBrains Mono',monospace;">BOND ${c.unlock}+</div>` : ''}
+        </div>`;
+    };
+    const renderPropCard = ([k, p]) => {
+      const locked = (p.unlock || 0) > bondLvl;
+      const isActive = curP === k;
+      return `<div class="clippy-costume-card ${isActive ? 'is-active' : ''} ${locked ? 'is-locked' : ''}"
+                   data-prop="${k}" ${locked ? 'data-locked="1"' : ''}>
+          <div class="clippy-costume-glyph">${locked ? '🔒' : p.glyph}</div>
+          <div class="clippy-costume-label">${esc(p.label)}</div>
+          ${locked ? `<div style="font-size:8px;opacity:0.6;margin-top:2px;font-family:'JetBrains Mono',monospace;">BOND ${p.unlock}+</div>` : ''}
+        </div>`;
+    };
+
+    const renderSlotCard = (s, idx) => {
+      if (!s || !s.costume) {
+        return `<div class="clippy-costume-card" data-slot-empty="${idx}">
+          <div class="clippy-costume-glyph">＋</div>
+          <div class="clippy-costume-label">SLOT ${idx + 1}</div>
+          <div style="font-size:8px;opacity:0.6;margin-top:2px;font-family:'JetBrains Mono',monospace;">SAVE CURRENT</div>
+        </div>`;
+      }
+      const cGl = (COSTUMES[s.costume] && COSTUMES[s.costume].glyph) || '?';
+      const pGl = (PROPS[s.prop] && PROPS[s.prop].glyph) || '?';
+      return `<div class="clippy-costume-card" data-slot-load="${idx}">
+          <div class="clippy-costume-glyph">${cGl}${pGl}</div>
+          <div class="clippy-costume-label">SLOT ${idx + 1}</div>
+          <div style="font-size:8px;opacity:0.6;margin-top:2px;font-family:'JetBrains Mono',monospace;">TAP TO LOAD</div>
+        </div>`;
+    };
+
     const ov = document.createElement('div');
     ov.className = 'clippy-dex-overlay';
     ov.innerHTML = `
       <div class="clippy-dex-title">👗 Wardrobe</div>
-      <div class="clippy-dex-headline">Dress me up!</div>
-      <div class="clippy-dex-title" style="margin:18px 0 10px;">HEAD</div>
+      <div class="clippy-dex-headline">Dress me up — bond level ${bondLvl}</div>
+
+      ${activeSet ? `<div class="clippy-set-bonus">
+          <span class="clippy-set-bonus-label">✨ SET BONUS ACTIVE</span>
+          <span class="clippy-set-bonus-name">${activeSet.glyph} ${esc(activeSet.label)} — ${esc(activeSet.desc)}</span>
+        </div>` : ''}
+
+      <div class="clippy-dex-title" style="margin:18px 0 10px;">HEAD — CLASSICAL</div>
       <div class="clippy-costume-grid">
-        ${Object.entries(COSTUMES).map(([k, c]) => `
-          <div class="clippy-costume-card ${curC === k ? 'is-active' : ''}" data-costume="${k}">
-            <div class="clippy-costume-glyph">${c.glyph}</div>
-            <div class="clippy-costume-label">${esc(c.label)}</div>
-          </div>`).join('')}
+        ${(costumesByCat.classical || []).map(renderCostumeCard).join('')}
       </div>
-      <div class="clippy-dex-title" style="margin:24px 0 10px;">PROP</div>
+      <div class="clippy-dex-title" style="margin:22px 0 10px;">HEAD — FORMAL</div>
       <div class="clippy-costume-grid">
-        ${Object.entries(PROPS).map(([k, p]) => `
-          <div class="clippy-costume-card ${curP === k ? 'is-active' : ''}" data-prop="${k}">
-            <div class="clippy-costume-glyph">${p.glyph}</div>
-            <div class="clippy-costume-label">${esc(p.label)}</div>
-          </div>`).join('')}
+        ${(costumesByCat.formal || []).map(renderCostumeCard).join('')}
       </div>
-      <div class="clippy-dex-title" style="margin:24px 0 10px;">ACTIONS</div>
-      <div class="clippy-game-buttons">
+      <div class="clippy-dex-title" style="margin:22px 0 10px;">HEAD — FUN</div>
+      <div class="clippy-costume-grid">
+        ${(costumesByCat.fun || []).map(renderCostumeCard).join('')}
+      </div>
+      <div class="clippy-dex-title" style="margin:22px 0 10px;">HEAD — NONE</div>
+      <div class="clippy-costume-grid">
+        ${(costumesByCat.basic || []).map(renderCostumeCard).join('')}
+      </div>
+
+      <div class="clippy-dex-title" style="margin:26px 0 10px;">PROP — STUDY</div>
+      <div class="clippy-costume-grid">
+        ${(propsByCat.study || []).map(renderPropCard).join('')}
+      </div>
+      <div class="clippy-dex-title" style="margin:22px 0 10px;">PROP — FEAST</div>
+      <div class="clippy-costume-grid">
+        ${(propsByCat.feast || []).map(renderPropCard).join('')}
+      </div>
+      <div class="clippy-dex-title" style="margin:22px 0 10px;">PROP — UTILITY / WARRIOR</div>
+      <div class="clippy-costume-grid">
+        ${[...(propsByCat.utility || []), ...(propsByCat.warrior || [])].map(renderPropCard).join('')}
+      </div>
+      <div class="clippy-dex-title" style="margin:22px 0 10px;">PROP — NONE</div>
+      <div class="clippy-costume-grid">
+        ${(propsByCat.basic || []).map(renderPropCard).join('')}
+      </div>
+
+      <div class="clippy-dex-title" style="margin:26px 0 10px;">ACTIONS</div>
+      <div class="clippy-game-buttons" style="flex-wrap:wrap;gap:8px;">
         <button class="clippy-game-btn" data-act="sweep">🧹 Sweep</button>
         <button class="clippy-game-btn" data-act="read">📖 Read</button>
         <button class="clippy-game-btn" data-act="scribe">📜 Scribe</button>
+        <button class="clippy-game-btn" data-act="drink">🍷 Sip</button>
+        <button class="clippy-game-btn" data-act="sword">⚔️ At arms</button>
+        <button class="clippy-game-btn" data-act="eat">🍎 Eat</button>
       </div>
 
-      <div class="clippy-dex-title" style="margin:24px 0 10px;">CONQUEROR MOOD <span style="opacity:0.5;font-weight:normal;">(usually rolls daily)</span></div>
+      <div class="clippy-dex-title" style="margin:26px 0 10px;">OUTFIT SLOTS</div>
+      <div class="clippy-costume-grid">
+        ${slots.map((s, i) => renderSlotCard(s, i)).join('')}
+      </div>
+      <div class="clippy-game-buttons" style="margin-top:14px;flex-wrap:wrap;gap:8px;">
+        <button class="clippy-game-btn" data-act="save-slot-0">💾 Save → 1</button>
+        <button class="clippy-game-btn" data-act="save-slot-1">💾 Save → 2</button>
+        <button class="clippy-game-btn" data-act="save-slot-2">💾 Save → 3</button>
+        <button class="clippy-game-btn" data-act="randomize">🎲 Random outfit</button>
+      </div>
+
+      <div class="clippy-dex-title" style="margin:26px 0 10px;">CONQUEROR MOOD <span style="opacity:0.5;font-weight:normal;">(rolls daily)</span></div>
       <div class="clippy-costume-grid">
         ${[['none','Default'],['trajan','Trajan'],['napoleon','Napoleon'],
            ['genghis','Genghis'],['alexander','Alexander'],['hannibal','Hannibal'],['cleopatra','Cleopatra']]
@@ -2661,15 +2913,21 @@
           }).join('')}
       </div>
 
-      <div class="clippy-game-buttons" style="margin-top:14px;">
+      <div class="clippy-game-buttons" style="margin-top:22px;">
         <button class="clippy-game-btn is-ghost" data-act="close">Done</button>
       </div>
     `;
     document.body.appendChild(ov);
     requestAnimationFrame(() => ov.classList.add('is-visible'));
     state.suppressed = true;
+
     ov.querySelectorAll('[data-costume]').forEach(el => {
       el.addEventListener('click', () => {
+        if (el.getAttribute('data-locked') === '1') {
+          bubble(`🔒 Locked. Bond level ${COSTUMES[el.getAttribute('data-costume')].unlock} required.`,
+            { autoHide: 3000 });
+          return;
+        }
         setCostume(el.getAttribute('data-costume'));
         ov.querySelectorAll('[data-costume]').forEach(o => o.classList.remove('is-active'));
         el.classList.add('is-active');
@@ -2677,6 +2935,11 @@
     });
     ov.querySelectorAll('[data-prop]').forEach(el => {
       el.addEventListener('click', () => {
+        if (el.getAttribute('data-locked') === '1') {
+          bubble(`🔒 Locked. Bond level ${PROPS[el.getAttribute('data-prop')].unlock} required.`,
+            { autoHide: 3000 });
+          return;
+        }
         setProp(el.getAttribute('data-prop'));
         ov.querySelectorAll('[data-prop]').forEach(o => o.classList.remove('is-active'));
         el.classList.add('is-active');
@@ -2692,6 +2955,33 @@
     ov.querySelector('[data-act="sweep"]').addEventListener('click', () => doSweep());
     ov.querySelector('[data-act="read"]').addEventListener('click', () => doRead());
     ov.querySelector('[data-act="scribe"]').addEventListener('click', () => doScribe());
+    ov.querySelector('[data-act="drink"]').addEventListener('click', () => doDrink());
+    ov.querySelector('[data-act="sword"]').addEventListener('click', () => doSwording());
+    ov.querySelector('[data-act="eat"]').addEventListener('click', () => doEat());
+    [0,1,2].forEach(i => {
+      const saveBtn = ov.querySelector(`[data-act="save-slot-${i}"]`);
+      if (saveBtn) saveBtn.addEventListener('click', () => {
+        saveOutfitSlot(i);
+        bubble(`💾 Outfit saved to slot ${i+1}.`, { autoHide: 2400, eyebrow: '✓ SAVED' });
+      });
+    });
+    ov.querySelectorAll('[data-slot-load]').forEach(el => {
+      el.addEventListener('click', () => {
+        const idx = parseInt(el.getAttribute('data-slot-load'), 10);
+        if (loadOutfitSlot(idx)) {
+          bubble(`Outfit ${idx+1} loaded.`, { autoHide: 2400, eyebrow: '✓ LOADED' });
+          ov.classList.remove('is-visible');
+          setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
+          state.suppressed = false;
+        }
+      });
+    });
+    ov.querySelector('[data-act="randomize"]').addEventListener('click', () => {
+      randomizeOutfit();
+      ov.classList.remove('is-visible');
+      setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
+      state.suppressed = false;
+    });
     ov.querySelector('[data-act="close"]').addEventListener('click', () => {
       ov.classList.remove('is-visible');
       setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
@@ -5883,12 +6173,14 @@
   function maybeAutonomousAction() {
     if (!state.enabled || state.suppressed || state.sulkActive || state.bubble) return;
     const actions = [
-      { fn: doSweep,   pool: 'autonomous_sweep',  eyebrow: '🧹 SWEEPING',  ms: 6000 },
-      { fn: doRead,    pool: 'autonomous_read',   eyebrow: '📖 READING',   ms: 8000 },
-      { fn: doScribe,  pool: 'autonomous_scribe', eyebrow: '📜 SCRIBING',  ms: 5000 },
+      { fn: doSweep,    pool: 'autonomous_sweep',  eyebrow: '🧹 SWEEPING',  ms: 6000 },
+      { fn: doRead,     pool: 'autonomous_read',   eyebrow: '📖 READING',   ms: 8000 },
+      { fn: doScribe,   pool: 'autonomous_scribe', eyebrow: '📜 SCRIBING',  ms: 5000 },
+      { fn: doDrink,    pool: 'autonomous_drink',  eyebrow: '🍷 SIPPING',   ms: 5000 },
+      { fn: doSwording, pool: 'autonomous_sword',  eyebrow: '⚔️ DRILLING',  ms: 4500 },
+      { fn: doEat,      pool: 'autonomous_eat',    eyebrow: '🍎 SNACKING',  ms: 6000 },
     ];
     const pick = actions[Math.floor(Math.random() * actions.length)];
-    // Bubble first, then start the action
     bubble(pickFromPool(pick.pool), { autoHide: 3500, eyebrow: pick.eyebrow });
     setTimeout(() => pick.fn(pick.ms), 1400);
   }
