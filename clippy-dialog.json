@@ -4869,5 +4869,101 @@
     "Don't worry. I see things.",
     "*orb hovers protectively*",
     "Bzzt — protective formation."
+  ],
+  "game_intro_flappy": [
+    "FLAPPY TRAJAN! Tap to flap. Dodge the columns. Don't die. Easy.",
+    "Tap to flap, gravity does the rest. Roman columns ahead. Survive.",
+    "Flap mode engaged. The columns are real. I'm not. Begin.",
+    "Up and down. Through the columns. Tap. Survive. Score.",
+    "I'm a bird now, somehow. Help me fly. Tap to flap. GO."
+  ],
+  "game_intro_cannon": [
+    "CANNON BATTLE! Drag to move. Tap to FIRE. Defend against Carthaginian orbs!",
+    "Drag to aim. Tap to shoot. Don't let the red orbs land. Roma victor!",
+    "Roman artillery training. Drag to slide. Tap = laser. Survive 60s.",
+    "Galaga but Roman. Drag the orb. Tap to fire. Boom.",
+    "Defense mode. Move with drag. Tap to fire upward. Don't get hit!"
+  ],
+  "game_intro_snake": [
+    "SNAKE! I become a chain of orbs. Tap to turn. Eat sparkles. Don't bite yourself.",
+    "Trajan-snake mode. Eat. Grow. Don't crash. Tap left/right to turn.",
+    "I'm a snake now. Long. Orby. Hungry. Tap to turn. Don't loop on me.",
+    "Pythonical mode! Tap sides to turn. Avoid your own tail. Eat sparkles.",
+    "Snake. Classic. Roman. Orbs all the way down. Tap to turn."
+  ],
+  "flappy_die": [
+    "OOF. Column. Trajan does not compute walls.",
+    "Crashed! Marcus Aurelius would say: get back up.",
+    "RIP my flying career.",
+    "*orb plummets dramatically*",
+    "Gravity won. Tilt match."
+  ],
+  "cannon_die": [
+    "DEFEATED! Carthage wins this round.",
+    "Hit! *orb explodes*",
+    "*orb flickers and dies*",
+    "Failed defense. The orbs got through.",
+    "Game over. Hannibal would be smug."
+  ],
+  "snake_die": [
+    "Bit my own tail! Classic blunder.",
+    "*orb loops on itself*",
+    "Self-collision! Tragic.",
+    "Snake-Trajan has fallen.",
+    "Crashed! Even Romans died of self-inflicted wounds. Mostly Caligula."
+  ],
+  "yawn_remarks": [
+    "*yawwwwn* Mmf.",
+    "Bzzt-yaaaawn.",
+    "I'm a sleepy orb today.",
+    "*stretches with a yawn*",
+    "Did I yawn audibly? Sorry. Caffeine.",
+    "Yaaawn. Don't mind me.",
+    "Romans yawned too. Probably."
+  ],
+  "hiccup_remarks": [
+    "*hic* Bzzt!",
+    "Hic-bzzt. Hic-bzzt. Send help.",
+    "*hiccups* I drank... something. I don't have a mouth. CONFUSING.",
+    "*hic* Sorry. *hic*",
+    "Hiccups again. Hold breath? I don't have breath.",
+    "*bzzt-hic*"
+  ],
+  "sneeze_remarks": [
+    "*ATCHOO!* Sorry. Dust.",
+    "Bzzt-CHOO! Ugh.",
+    "AH-CHOO! In Latin: 'bonum tibi sit!' (Bless you, for me.)",
+    "*sneezes orbital nodes briefly out of orbit*",
+    "ACHOO! Romans believed sneezes meant the gods agreed with you.",
+    "Sneeze! *small particle burst*"
+  ],
+  "spin_remarks": [
+    "*orb pirouettes*",
+    "Just spinning! Bzzt-wheee.",
+    "Look mom, no hands. (Or feet. Or anything.)",
+    "*orb does a slow rotation*",
+    "Spinning helps me think. Or doesn't. Same thing.",
+    "Pirouette mode!"
+  ],
+  "groom_remarks": [
+    "*orb tidies imaginary feathers*",
+    "Just self-grooming. As one does.",
+    "*adjusts nodes carefully*",
+    "Sometimes the nodes get out of formation. Fixing.",
+    "Self-care, orb edition."
+  ],
+  "smirk_remarks": [
+    "*smug orb is smug*",
+    "I'm thinking SOMETHING and not saying it.",
+    "*tiny self-satisfied smile*",
+    "Bzzt of secret-knowing.",
+    "I know something you don't. Maybe."
+  ],
+  "battle_remarks": [
+    "*orb prepares for war*",
+    "WAR FACE. Caesar would approve.",
+    "Battle mode engaged. Bzzt-charge!",
+    "*tightens imaginary helmet*",
+    "Ready for whatever this is. Probably tasks."
   ]
 }
