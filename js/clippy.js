@@ -141,6 +141,8 @@
     studious:      'is-studious',      // education — reading glasses + bunny teeth
     strategist:    'is-strategist',    // board — determined + cat smirk
     organized:     'is-organized',     // inventory — dot eyes + cat smile
+    // v17.20 CONDESCENDING — for the smug lesson mode
+    condescending: 'is-condescending', // half-lidded haughty + cat smirk + raised inner brows
   };
 
 
@@ -1008,6 +1010,7 @@
     noteInteraction();
     adjustFeeling('affection', +1);
     adjustFeeling('attention_need', -10);
+    grantBondXP_chat_message();    // v17.20: bond XP grants per message
     const match = chatMatch(text);
     if (!match) {
       bubble(pickFromPool('chat_no_match'), { autoHide: 5000, eyebrow: 'HMM' });
@@ -1471,11 +1474,26 @@
   function showPersonalityMenu() {
     closeActionBubble();
     const cur = state.preferences.personality || 'normal';
+    const autonomyOn = !state.preferences.autonomy_off;
     const actions = Object.entries(PERSONALITIES).map(([key, p]) => ({
       label: `${p.glyph} ${p.label}${cur === key ? ' ✓' : ''}`,
       cls: cur === key ? 'is-primary' : undefined,
       onClick: () => setPersonality(key),
     }));
+    // v17.21: autonomy toggle — when ON, Trajan picks his own mood
+    actions.push({
+      label: autonomyOn ? '🤖 Auto-pick: ON ✓' : '🤖 Auto-pick: OFF',
+      onClick: () => {
+        state.preferences.autonomy_off = autonomyOn;   // flip
+        savePreferences();
+        bubble(autonomyOn ? "OK. I'll let you pick. *bzzt-bows*"
+                          : "Bzzt — I'll choose my own moods from now on!",
+               { autoHide: 3500, eyebrow: autonomyOn ? '🙇 OBEDIENT' : '🤖 FREE' });
+        if (!autonomyOn) {
+          setTimeout(() => maybeAutoPickPersonality('user_enabled'), 2000);
+        }
+      }
+    });
     actionBubble("Pick a mood:", { actions });
   }
 
@@ -1773,6 +1791,8 @@
       console.error('[clippy v3] svg load failed', e);
       svgText = '<svg viewBox="0 0 120 160"><circle cx="60" cy="80" r="40" fill="#888"/></svg>';
     }
+    // v17.21: cache SVG markup so games can render mini-orbs that ARE Trajan
+    state.svgMarkup = svgText;
     const shell = document.createElement('div');
     shell.id = 'clippy-shell';
     // v17.14: shadow as a separate DOM element BEFORE the SVG. Anchored
@@ -2052,6 +2072,8 @@
     // v17.18: stamp interaction time for boredom-drift sensing
     state.lastTapAt = Date.now();
     if (state.shell) state.shell.classList.remove('is-bored');
+    // v17.20: grant bond XP on every tap
+    grantBondXP_tap();
     // v17.6: tactile feedback — sparkle + boop on every tap
     spawnParticles({ count: 4, type: 'sparkle' });
     playTone('boop');
@@ -2391,7 +2413,8 @@
     const voiceOn = state.preferences.voice_enabled;
     actions.push({ label: voiceOn ? '🔊 Voice on ✓' : '🎙️ Voice off', onClick: toggleVoice });
     if (memCount >= 3) {
-      actions.push({ label: `🏛️ Tour palace (${memCount})`, onClick: tourPalace });
+      actions.push({ label: `🏛️ Memory Dex (${memCount})`, onClick: () => { closeActionBubble(); showMemoryDex(); } });
+      actions.push({ label: `🚶 Tour palace`, onClick: tourPalace });
     }
     actions.push(
       { label: soundOn ? '🔊 Mute' : '🔇 Unmute', onClick: toggleSound },
@@ -2921,6 +2944,8 @@
       maybeBoredDrift();
       // v17.19: GAME OFFER — when bored 60s+, occasionally invite to play
       if (maybeOfferGame()) return;
+      // v17.20: SMUG LESSON — when he thinks you need teaching, mini-lecture
+      if (maybePullLesson()) return;
       const active = document.querySelector('.nav-tab.active[data-view], .bnav-btn.active[data-view]');
       const view = active ? active.getAttribute('data-view') : null;
       // v17.17: maintain the view-personality mood (re-applied on every tick)
@@ -3354,7 +3379,9 @@
 
     // Celebration + bubble after a beat
     setTimeout(() => {
+      grantBondXP_game_played();
       if (newRecord) {
+        grantBondXP_game_high_score();
         mood('super_excited', 6000);
         spawnParticles({ count: 24, type: 'confetti' });
         playTone('milestone');
@@ -3368,6 +3395,22 @@
         adjustFeeling('happiness', +4);
       }
     }, 200);
+  }
+
+  // v17.21 — create a mini Trajan to use as the game tap target.
+  // The mini orb has the full SVG (body, eyes, mouth, nodes, halo) so it
+  // looks and feels like the real Trajan, just smaller. Pop animation on tap.
+  function createMiniOrb(opts) {
+    opts = opts || {};
+    const mini = document.createElement('div');
+    mini.className = 'clippy-mini-shell';
+    if (state.svgMarkup) {
+      mini.innerHTML = state.svgMarkup;
+    } else {
+      mini.innerHTML = '<svg viewBox="0 0 200 200"><circle cx="100" cy="100" r="60" fill="#4cb6ff"/></svg>';
+    }
+    if (opts.style) Object.assign(mini.style, opts.style);
+    return mini;
   }
 
   // ─── GAME 1: TAP THE ORB (15s speed clicker) ───────────────────
@@ -3393,19 +3436,23 @@
         <div class="clippy-game-timer">${timeLeft}s</div>
         <div class="clippy-game-stat-label">Taps</div>
         <div class="clippy-game-stat">${count}</div>
-        <div class="clippy-game-board">
-          <div class="clippy-game-target" style="left:50%;top:50%;transform:translate(-50%,-50%);">🟦</div>
-        </div>
+        <div class="clippy-game-board"></div>
       `;
-      const target = ov.querySelector('.clippy-game-target');
+      // v17.21: use mini-Trajan as the target instead of a placeholder div
+      const board = ov.querySelector('.clippy-game-board');
+      const target = createMiniOrb({ style: { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } });
+      board.appendChild(target);
       const statEl = ov.querySelector('.clippy-game-stat');
       const timerEl = ov.querySelector('.clippy-game-timer');
       target.addEventListener('click', () => {
         if (!running) return;
         count++;
         statEl.textContent = count;
-        target.style.transform = 'translate(-50%, -50%) scale(0.85)';
-        setTimeout(() => { target.style.transform = 'translate(-50%, -50%) scale(1)'; }, 80);
+        target.classList.remove('is-tapped');
+        // Force reflow so animation can re-trigger
+        void target.offsetWidth;
+        target.classList.add('is-tapped');
+        playTone('boop');
       });
       const tick = setInterval(() => {
         timeLeft--;
@@ -3420,7 +3467,7 @@
     });
   }
 
-  // ─── GAME 2: CATCH ME (target teleports, you tap before it moves) ─
+  // ─── GAME 2: CATCH ME (Trajan teleports, you catch him) ────────
   function startCatchGame() {
     const ov = createGameOverlay();
     let catches = 0;
@@ -3445,16 +3492,18 @@
         <div class="clippy-game-stat-label">Round</div>
         <div class="clippy-game-stat">${round}/${totalRounds}</div>
         <div class="clippy-game-stat-label">Catches: <span data-catches>${catches}</span></div>
-        <div class="clippy-game-board"><div class="clippy-game-target">🏃</div></div>
+        <div class="clippy-game-board"></div>
       `;
-      const target = ov.querySelector('.clippy-game-target');
+      const board = ov.querySelector('.clippy-game-board');
+      // v17.21: mini-Trajan teleports around the board
+      const target = createMiniOrb();
+      board.appendChild(target);
       const roundEl = ov.querySelector('.clippy-game-stat');
       const catchEl = ov.querySelector('[data-catches]');
       function reposition() {
-        const board = ov.querySelector('.clippy-game-board');
         const rect = board.getBoundingClientRect();
-        const x = Math.random() * (rect.width - 80);
-        const y = Math.random() * (rect.height - 80);
+        const x = Math.random() * Math.max(0, rect.width - 100);
+        const y = Math.random() * Math.max(0, rect.height - 100);
         target.style.left = x + 'px';
         target.style.top = y + 'px';
       }
@@ -3469,14 +3518,15 @@
         roundEl.textContent = round + '/' + totalRounds;
         reposition();
         if (moveTimer) clearTimeout(moveTimer);
-        moveTimer = setTimeout(nextRound, 1200);   // 1.2s before it moves
+        moveTimer = setTimeout(nextRound, 1200);
       }
       target.addEventListener('click', () => {
         if (!running) return;
         catches++;
         catchEl.textContent = catches;
-        target.style.transform = 'scale(1.3)';
-        setTimeout(() => { target.style.transform = ''; }, 120);
+        target.classList.add('is-tapped');
+        setTimeout(() => target.classList.remove('is-tapped'), 280);
+        playTone('boop');
         nextRound();
       });
       nextRound();
@@ -3484,7 +3534,7 @@
     });
   }
 
-  // ─── GAME 3: REACTION TIME (3 rounds, average ms, lower=better) ───
+  // ─── GAME 3: REACTION TIME (mini-Trajan flashes red→green) ──────
   function startReactionGame() {
     const ov = createGameOverlay();
     let round = 0;
@@ -3505,22 +3555,22 @@
       round++;
       ov.innerHTML = `
         <div class="clippy-game-title">⚡ REACTION ${round}/${totalRounds}</div>
-        <div class="clippy-game-instruction" data-msg>Wait for GREEN...</div>
-        <div class="clippy-game-board">
-          <div class="clippy-game-target is-wait" style="left:50%;top:50%;transform:translate(-50%,-50%);">⏸</div>
-        </div>
+        <div class="clippy-game-instruction" data-msg>Wait for GREEN glow...</div>
+        <div class="clippy-game-board"></div>
       `;
-      const target = ov.querySelector('.clippy-game-target');
+      const board = ov.querySelector('.clippy-game-board');
+      // v17.21: mini-Trajan in center, glows red → flips to green
+      const target = createMiniOrb({ style: { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } });
+      target.classList.add('is-wait');
+      board.appendChild(target);
       const msg = ov.querySelector('[data-msg]');
-      const delay = 1200 + Math.random() * 2800;   // 1.2-4s
+      const delay = 1200 + Math.random() * 2800;
       let goAt = 0;
       let earlyClick = false;
       const earlyHandler = () => {
         if (goAt === 0) {
           earlyClick = true;
           msg.textContent = 'Too early! Try again.';
-          target.classList.remove('is-wait');
-          target.classList.add('is-wait');
           setTimeout(() => { round--; runRound(); }, 1200);
         }
       };
@@ -3530,8 +3580,8 @@
         goAt = performance.now();
         target.classList.remove('is-wait');
         target.classList.add('is-go');
-        target.textContent = 'TAP!';
-        msg.textContent = 'GO!';
+        msg.textContent = 'TAP NOW!';
+        playTone('sparkle');
         const goHandler = () => {
           if (!goAt) return;
           const reactMs = Math.round(performance.now() - goAt);
@@ -3553,7 +3603,7 @@
     }
   }
 
-  // ─── GAME 4: MEMORY MATCH (Simon-style, growing sequence) ──────
+  // ─── GAME 4: MEMORY MATCH (4 mini-Trajans flash in sequence) ───
   function startMemoryGame() {
     const ov = createGameOverlay();
     const colors = ['r', 'g', 'b', 'y'];
@@ -3579,20 +3629,21 @@
       ov.innerHTML = `
         <div class="clippy-game-title">🧠 MEMORY — Level ${level}</div>
         <div class="clippy-game-instruction" data-msg>Watch carefully...</div>
-        <div class="clippy-game-seq">
-          ${colors.map(c => `<div class="clippy-game-seq-cell" data-color="${c}"></div>`).join('')}
-        </div>
+        <div style="display:flex; gap:24px; margin:24px 0;" data-orbs></div>
       `;
+      const orbsRow = ov.querySelector('[data-orbs]');
+      const cells = colors.map(c => {
+        const cell = createMiniOrb({ style: { position: 'relative', width: '70px', height: '70px' } });
+        cell.setAttribute('data-color', c);
+        orbsRow.appendChild(cell);
+        return cell;
+      });
       const msg = ov.querySelector('[data-msg]');
-      // Disable cells during playback
-      const cells = Array.from(ov.querySelectorAll('.clippy-game-seq-cell'));
-      // Play the sequence
       let i = 0;
       const playInterval = setInterval(() => {
         if (i >= sequence.length) {
           clearInterval(playInterval);
-          msg.textContent = `Your turn! Tap the colors in order.`;
-          // Enable input
+          msg.textContent = `Your turn! Tap the orbs in order.`;
           cells.forEach(cell => {
             cell.addEventListener('click', () => handleTap(cell.getAttribute('data-color')));
           });
@@ -3602,16 +3653,16 @@
         const cell = cells.find(el => el.getAttribute('data-color') === c);
         if (cell) {
           cell.classList.add('is-flash-' + c);
+          playTone('boop');
           setTimeout(() => cell.classList.remove('is-flash-' + c), 400);
         }
         i++;
-      }, 600);
+      }, 700);
       state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => clearInterval(playInterval)]);
 
       function handleTap(color) {
         const expected = sequence[userIdx];
         if (color !== expected) {
-          // Wrong — game over
           msg.textContent = `Wrong! Sequence was ${sequence.length} long.`;
           setTimeout(() => showGameResult('memory', level - 1), 1500);
           return;
@@ -3647,6 +3698,480 @@
     return true;
   }
 
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.20 SMUG LESSON MODE — when he thinks you need teaching, he
+  // pulls you aside for a Roman or general-wisdom mini-lecture. The
+  // condescending mood appears: half-lidded smug face + purple glow.
+  // ════════════════════════════════════════════════════════════════════
+
+  function pullLesson(opts) {
+    opts = opts || {};
+    if (state.bubble || state.suppressed) return false;
+    if (state.preferences.do_not_disturb) return false;
+    // 30% Roman, 70% general (Roman lessons feel more on-brand)
+    const isRoman = Math.random() < 0.30;
+    const introLine = pickFromPool('lesson_intro');
+    const lessonLine = pickFromPool(isRoman ? 'lesson_roman' : 'lesson_general');
+    const outroLine = pickFromPool('lesson_outro');
+    mood('condescending', 14000);
+    // Step 1: intro
+    bubble(introLine, { autoHide: 3500, eyebrow: '📖 LESSON' });
+    // Step 2: the actual lesson (after intro fades)
+    setTimeout(() => {
+      if (!state.enabled) return;
+      bubble(lessonLine, { autoHide: 8000, eyebrow: isRoman ? '🏛️ ROMAN WISDOM' : '💡 LIFE TIP' });
+    }, 4200);
+    // Step 3: smug outro
+    setTimeout(() => {
+      if (!state.enabled) return;
+      bubble(outroLine, { autoHide: 3500, eyebrow: '📖 LESSON' });
+    }, 13500);
+    // Memory deposit — lessons are remembered
+    depositMemory('lesson', `Pulled a ${isRoman ? 'Roman' : 'life'} lesson on you.`, { type: isRoman ? 'roman' : 'general' }, 2);
+    state.preferences.last_lesson_at = Date.now();
+    savePreferences();
+    adjustFeeling('happiness', +1);   // he enjoys being smart
+    return true;
+  }
+
+  // Lesson trigger heuristic — fires when he detects user might benefit.
+  // Conditions accumulate "lesson points"; threshold = pull lesson.
+  function maybePullLesson() {
+    if (state.bubble || state.coinFlipInProgress || state.suppressed) return false;
+    if (state.preferences.do_not_disturb) return false;
+    // Cooldown: at most one lesson per 25 minutes
+    const last = state.preferences.last_lesson_at || 0;
+    if (Date.now() - last < 25 * 60000) return false;
+    // Conditions that "earn" a lesson
+    let points = 0;
+    // 1. After a bad game loss (rejected high score boost)
+    const scores = getHighScores();
+    if (state.lastGameScore && state.lastGameScore < (scores[state.lastGameId] || 0) * 0.4) points += 2;
+    // 2. Lonely or sad feeling
+    const feel = dominantFeeling();
+    if (feel === 'lonely' || feel === 'sad') points += 1;
+    // 3. Has been idle 5+ minutes
+    const idle = Date.now() - (state.lastTapAt || 0);
+    if (idle > 5 * 60000) points += 1;
+    // 4. Has rejected several action bubbles
+    if ((state.preferences.reject_count || 0) > 3) points += 1;
+    // 5. Pure random — 0.3% per tap roll
+    if (Math.random() < 0.003) points += 2;
+    // Need 2+ points to trigger
+    if (points < 2) return false;
+    return pullLesson();
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.20 BONDING XP — Pokemon-style relationship progression. Every
+  // meaningful interaction grants XP. Crossing thresholds = level up,
+  // celebration, memory deposit. Visible in the memory dex.
+  // ════════════════════════════════════════════════════════════════════
+
+  const BOND_LEVEL_THRESHOLDS = [
+    { lvl: 1, xp: 0,    label: 'Stranger' },
+    { lvl: 2, xp: 50,   label: 'Acquaintance' },
+    { lvl: 3, xp: 150,  label: 'Friend' },
+    { lvl: 4, xp: 400,  label: 'Close Friend' },
+    { lvl: 5, xp: 900,  label: 'Best Friend' },
+    { lvl: 6, xp: 2000, label: 'Beloved' },
+    { lvl: 7, xp: 4500, label: 'Lifelong' },
+  ];
+
+  function getBondXP() {
+    return state.preferences.bond_xp || 0;
+  }
+  function getBondLevel() {
+    const xp = getBondXP();
+    let lvl = BOND_LEVEL_THRESHOLDS[0];
+    for (const t of BOND_LEVEL_THRESHOLDS) {
+      if (xp >= t.xp) lvl = t;
+    }
+    return lvl;
+  }
+  function nextBondThreshold() {
+    const lvl = getBondLevel();
+    const idx = BOND_LEVEL_THRESHOLDS.findIndex(t => t.lvl === lvl.lvl);
+    return BOND_LEVEL_THRESHOLDS[idx + 1] || null;
+  }
+  function addBondXP(amount) {
+    const before = getBondLevel();
+    state.preferences.bond_xp = (state.preferences.bond_xp || 0) + amount;
+    savePreferences();
+    const after = getBondLevel();
+    if (after.lvl > before.lvl) {
+      // LEVEL UP
+      onBondLevelUp(after);
+    }
+  }
+  function onBondLevelUp(newLevel) {
+    if (!state.enabled) return;
+    setTimeout(() => {
+      if (state.bubble) return;
+      mood('super_excited', 7000);
+      spawnParticles({ count: 20, type: 'confetti' });
+      playTone('milestone');
+      const line = substituteVars(pickFromPool('bond_level_up'));
+      bubble(`🎉 BOND LEVEL ${newLevel.lvl}: ${newLevel.label}\n${line}`, {
+        autoHide: 7000,
+        eyebrow: '🌟 BOND UP'
+      });
+      depositMemory('bond_level', `Reached bond level ${newLevel.lvl}: ${newLevel.label}`,
+                    { level: newLevel.lvl, label: newLevel.label }, 4);
+      adjustFeeling('happiness', +15);
+      adjustFeeling('affection', +8);
+    }, 800);
+  }
+
+  // Common XP grants — sprinkle these throughout interactions
+  function grantBondXP_tap() { addBondXP(1); }
+  function grantBondXP_session() { addBondXP(5); }
+  function grantBondXP_game_played() { addBondXP(15); }
+  function grantBondXP_game_high_score() { addBondXP(25); }
+  function grantBondXP_chat_message() { addBondXP(8); }
+  function grantBondXP_lesson_received() { addBondXP(3); }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.21 AUTONOMY — Trajan picks his own personality + mood based on
+  // context. The user can still override via the menu, but by default
+  // Trajan now makes these choices himself.
+  // ════════════════════════════════════════════════════════════════════
+
+  function pickAutonomousPersonality() {
+    if (state.preferences.autonomy_off) return null;
+    const hour = new Date().getHours();
+    const bond = getBondLevel().lvl;
+    const streak = state.preferences.daily_streak || 0;
+    const feel = state.feelings ? dominantFeeling() : 'content';
+    const idleMin = (Date.now() - (state.lastTapAt || 0)) / 60000;
+    const rejects = state.preferences.reject_count || 0;
+    const scores = { normal: 5, silly: 0, grumpy: 0, shy: 0, tsundere: 0, angry: 0 };
+    if (hour >= 6 && hour <= 10) { scores.normal += 3; scores.silly += 2; }
+    if (hour >= 11 && hour <= 16) { scores.normal += 3; scores.silly += 1; }
+    if (hour >= 17 && hour <= 21) { scores.normal += 2; scores.silly += 2; scores.shy += 1; }
+    if (hour >= 22 || hour <= 5) { scores.shy += 4; scores.grumpy += 2; }
+    if (bond <= 2) { scores.normal += 4; scores.shy += 2; }
+    else if (bond >= 5) { scores.silly += 4; scores.tsundere += 2; }
+    if (streak >= 7) { scores.silly += 3; scores.normal += 2; }
+    if (streak === 0) { scores.grumpy += 3; }
+    if (feel === 'overjoyed') { scores.silly += 4; }
+    if (feel === 'loving') { scores.tsundere += 3; scores.silly += 1; }
+    if (feel === 'sad' || feel === 'lonely') { scores.shy += 4; }
+    if (feel === 'tired') { scores.grumpy += 3; scores.shy += 2; }
+    if (idleMin > 30) scores.grumpy += 2;
+    if (rejects > 5) scores.grumpy += 3;
+    Object.keys(scores).forEach(k => scores[k] += Math.random() * 2);
+    let best = 'normal', bestScore = -1;
+    Object.entries(scores).forEach(([p, s]) => { if (s > bestScore) { bestScore = s; best = p; } });
+    return best;
+  }
+
+  function maybeAutoPickPersonality(reason) {
+    if (state.preferences.autonomy_off) return;
+    const cur = state.preferences.personality || 'normal';
+    const picked = pickAutonomousPersonality();
+    if (!picked || picked === cur) return;
+    state.preferences.personality = picked;
+    savePreferences();
+    if (state.shell && !state.bubble && Math.random() < 0.55) {
+      setTimeout(() => {
+        if (!state.bubble && state.enabled) {
+          const pool = 'persona_self_pick_' + picked;
+          bubble(substituteVars(pickFromPool(pool)),
+                 { autoHide: 4500, eyebrow: `${PERSONALITIES[picked].glyph} ${PERSONALITIES[picked].label.toUpperCase()}` });
+          const reactMood = picked === 'silly' ? 'happy' :
+                            picked === 'grumpy' ? 'peeved' :
+                            picked === 'shy' ? 'bashful' :
+                            picked === 'tsundere' ? 'embarrassed' :
+                            picked === 'angry' ? 'angry' : 'thinking';
+          mood(reactMood, 4000);
+        }
+      }, 1500);
+    }
+    depositMemory('personality_chg', `Autonomously chose ${picked} mode${reason ? ' (' + reason + ')' : ''}.`,
+                  { from: cur, to: picked, reason }, 2);
+  }
+
+  function chooseMoodForMoment(hint) {
+    const personality = state.preferences.personality || 'normal';
+    const feel = state.feelings ? dominantFeeling() : 'content';
+    if (hint === 'celebrate') {
+      if (personality === 'tsundere') return 'embarrassed';
+      if (personality === 'grumpy') return 'happy';
+      return feel === 'overjoyed' ? 'super_excited' : 'proud';
+    }
+    if (hint === 'console') {
+      if (personality === 'grumpy') return 'sad';
+      if (personality === 'tsundere') return 'pouty';
+      return 'worried';
+    }
+    if (hint === 'curious') {
+      if (personality === 'shy') return 'gasp';
+      return 'confused';
+    }
+    if (hint === 'proud_user') return personality === 'tsundere' ? 'bashful' : 'proud';
+    if (hint === 'grateful') return 'bashful';
+    if (hint === 'nostalgic') return 'melancholy';
+    if (hint === 'protective') return 'determined';
+    return feel === 'overjoyed' ? 'happy' :
+           feel === 'loving' ? 'love' :
+           feel === 'sad' ? 'sad' :
+           feel === 'lonely' ? 'melancholy' :
+           feel === 'tired' ? 'sleepy' :
+           feel === 'ticklish' ? 'laughing' :
+           'happy';
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.21 NEXUS ACTION AWARENESS — global click/form/modal/scroll
+  // listeners. Trajan reacts to meaningful user actions.
+  // ════════════════════════════════════════════════════════════════════
+
+  function installNexusActionListener() {
+    if (state.nxActionInstalled) return;
+    state.nxActionInstalled = true;
+
+    // 1. PRIMARY BUTTONS — ~10% reaction rate, 8s cooldown
+    document.addEventListener('click', (e) => {
+      if (!state.enabled || state.suppressed || state.bubble) return;
+      const btn = e.target.closest(
+        'button.ig-btn-primary, button.is-primary, .nx-btn-primary, ' +
+        '[data-action="primary"], button[type="submit"]'
+      );
+      if (!btn) return;
+      if (btn.closest('.clippy-bubble, .clippy-game-overlay, .clippy-dex-overlay, .clippy-palette')) return;
+      if (state.nxLastReact && Date.now() - state.nxLastReact < 8000) return;
+      if (Math.random() > 0.10) return;
+      state.nxLastReact = Date.now();
+      const isSubmit = btn.type === 'submit' || btn.matches('[data-action="submit"]');
+      const pool = isSubmit ? 'nx_form_submit' : 'nx_button_click';
+      setTimeout(() => {
+        if (!state.bubble && state.enabled) {
+          bubble(pickFromPool(pool), { autoHide: 3200, eyebrow: isSubmit ? '✅ DONE' : '👀 NOTED' });
+          mood(chooseMoodForMoment(isSubmit ? 'celebrate' : 'curious'), 3500);
+          if (isSubmit) {
+            spawnParticles({ count: 6, type: 'sparkle' });
+            adjustFeeling('happiness', +2);
+          }
+        }
+      }, 350);
+    }, { capture: false });
+
+    // 2. FORM SUBMITS — capture phase for forms via Enter key
+    document.addEventListener('submit', (e) => {
+      if (!state.enabled || state.suppressed || state.bubble) return;
+      const form = e.target;
+      if (!form || !form.matches('form')) return;
+      if (form.closest('.clippy-bubble, .clippy-game-overlay, .clippy-dex-overlay')) return;
+      if (state.nxLastReact && Date.now() - state.nxLastReact < 8000) return;
+      state.nxLastReact = Date.now();
+      setTimeout(() => {
+        if (!state.bubble && state.enabled) {
+          bubble(pickFromPool('nx_form_submit'), { autoHide: 3500, eyebrow: '✅ SUBMIT' });
+          mood('proud', 3800);
+          spawnParticles({ count: 8, type: 'confetti' });
+          adjustFeeling('happiness', +3);
+          addBondXP(2);
+        }
+      }, 350);
+    }, { capture: true });
+
+    // 3. MODAL OPENS — MutationObserver for new dialogs
+    const modalObserver = new MutationObserver((muts) => {
+      for (const m of muts) {
+        for (const node of m.addedNodes) {
+          if (!(node instanceof HTMLElement)) continue;
+          if (node.classList && (
+            node.classList.contains('clippy-bubble') ||
+            node.classList.contains('clippy-game-overlay') ||
+            node.classList.contains('clippy-dex-overlay') ||
+            node.classList.contains('clippy-palette')
+          )) continue;
+          const isModal = node.matches && node.matches(
+            '.nx-takeover, .nx-overlay-active, .nx-modal-backdrop, ' +
+            'dialog[open], [role="dialog"], [data-overlay-active="true"]'
+          );
+          if (isModal) {
+            if (state.nxLastReact && Date.now() - state.nxLastReact < 12000) return;
+            if (Math.random() > 0.20) return;
+            state.nxLastReact = Date.now();
+            setTimeout(() => {
+              if (!state.bubble && state.enabled && !state.suppressed) {
+                bubble(pickFromPool('nx_modal_open'), { autoHide: 3500, eyebrow: '👁️ PEEK' });
+                mood('gasp', 3200);
+              }
+            }, 600);
+            return;
+          }
+        }
+      }
+    });
+    modalObserver.observe(document.body, { childList: true, subtree: true });
+    state.nxModalObserver = modalObserver;
+
+    // 4. HEAVY SCROLLING — 25+ scroll events in 4 seconds
+    let scrollEvents = [];
+    document.addEventListener('scroll', () => {
+      if (!state.enabled || state.suppressed || state.bubble) return;
+      const now = Date.now();
+      scrollEvents = scrollEvents.filter(t => now - t < 4000).concat([now]);
+      if (scrollEvents.length >= 25) {
+        scrollEvents = [];
+        if (state.nxLastReact && now - state.nxLastReact < 30000) return;
+        state.nxLastReact = now;
+        setTimeout(() => {
+          if (!state.bubble && state.enabled && !state.suppressed) {
+            bubble(pickFromPool('nx_scroll_heavy'), { autoHide: 3800, eyebrow: '🔍 LOOKING' });
+            mood('confused', 3500);
+          }
+        }, 200);
+      }
+    }, { passive: true });
+
+    // 5. SEARCH FOCUS — react ~18% to search-input focus
+    document.addEventListener('focusin', (e) => {
+      if (!state.enabled || state.suppressed || state.bubble) return;
+      const el = e.target;
+      if (!el || !el.matches) return;
+      const isSearch = el.matches(
+        'input[type="search"], input[placeholder*="earch" i], input[aria-label*="earch" i]'
+      );
+      if (!isSearch) return;
+      if (state.nxLastSearchFocus && Date.now() - state.nxLastSearchFocus < 60000) return;
+      state.nxLastSearchFocus = Date.now();
+      if (Math.random() > 0.18) return;
+      setTimeout(() => {
+        if (!state.bubble && state.enabled && !state.suppressed) {
+          bubble(pickFromPool('nx_search_focus'), { autoHide: 3000, eyebrow: '🔎 WATCH' });
+          mood('determined', 3000);
+        }
+      }, 500);
+    }, { capture: true });
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.20 MEMORY DEX — Pokemon-style grid of collected memory types.
+  // Shows all 20+ memory types as cards. Greyed-out = uncollected.
+  // Highlighted = collected. Sparkle = rare ones. Shows bond level too.
+  // ════════════════════════════════════════════════════════════════════
+
+  // Catalog of memory types — used to build the dex grid
+  const DEX_TYPES = [
+    { type: 'tap_pop',         glyph: '👋', label: 'First Tap',       rare: false },
+    { type: 'name_set',        glyph: '🪪', label: 'Named',           rare: false },
+    { type: 'first_view_visit',glyph: '🗺️', label: 'View Visit',      rare: false },
+    { type: 'streak',          glyph: '🔥', label: 'Streak',          rare: false },
+    { type: 'achievement',     glyph: '🏆', label: 'Achievement',     rare: true  },
+    { type: 'dream',           glyph: '💭', label: 'Dream',           rare: true  },
+    { type: 'super_chat',      glyph: '✨', label: 'Oracle',          rare: true  },
+    { type: 'coin_flip',       glyph: '🪙', label: 'Coin Flip',       rare: false },
+    { type: 'mischief',        glyph: '🎭', label: 'Mischief',        rare: false },
+    { type: 'high_score',      glyph: '🎮', label: 'High Score',      rare: true  },
+    { type: 'bond_level',      glyph: '🌟', label: 'Bond Up',         rare: true  },
+    { type: 'lesson',          glyph: '📖', label: 'Lesson',          rare: false },
+    { type: 'special_day',     glyph: '🎉', label: 'Holiday',         rare: true  },
+    { type: 'tickle',          glyph: '😂', label: 'Tickle',          rare: false },
+    { type: 'song_played',     glyph: '🎵', label: 'Song',            rare: false },
+    { type: 'palace_tour',     glyph: '🏛️', label: 'Palace Tour',     rare: false },
+    { type: 'personality_chg', glyph: '🎭', label: 'Personality',     rare: false },
+    { type: 'voice_enabled',   glyph: '🎙️', label: 'Voice On',        rare: false },
+    { type: 'goodbye',         glyph: '🌙', label: 'Goodbye',         rare: false },
+    { type: 'hello_return',    glyph: '🌅', label: 'Return',          rare: false },
+  ];
+
+  function showMemoryDex() {
+    closeActionBubble();
+    closeGameOverlay();
+    const memories = state.memories || [];
+    // Build type → count map
+    const counts = {};
+    memories.forEach(m => {
+      counts[m.type] = (counts[m.type] || 0) + 1;
+    });
+    const collected = DEX_TYPES.filter(t => counts[t.type]).length;
+    const total = DEX_TYPES.length;
+    const bond = getBondLevel();
+    const next = nextBondThreshold();
+    const xp = getBondXP();
+    const progressPct = next
+      ? Math.min(100, ((xp - bond.xp) / (next.xp - bond.xp)) * 100)
+      : 100;
+    const remarkLine = pickFromPool('dex_remarks');
+    const ov = document.createElement('div');
+    ov.className = 'clippy-dex-overlay';
+    ov.innerHTML = `
+      <div class="clippy-dex-title">🏛️ Memory Dex</div>
+      <div class="clippy-dex-headline">${esc(remarkLine)}</div>
+      <div class="clippy-dex-bond">
+        <div class="clippy-dex-bond-label">Bond Level</div>
+        <div class="clippy-dex-bond-level">${bond.lvl} · ${esc(bond.label)}</div>
+        <div class="clippy-dex-bond-bar">
+          <div class="clippy-dex-bond-bar-fill" style="width:${progressPct}%"></div>
+        </div>
+        <div class="clippy-dex-bond-label" style="margin-top:8px;">
+          ${esc(String(xp))} XP ${next ? `· next: ${esc(String(next.xp))} XP (${esc(next.label)})` : '· MAX'}
+        </div>
+      </div>
+      <div class="clippy-dex-title" style="margin-bottom:8px;">
+        Collected ${collected}/${total} types · ${esc(String(memories.length))} memories total
+      </div>
+      <div class="clippy-dex-grid">
+        ${DEX_TYPES.map(t => {
+          const c = counts[t.type] || 0;
+          const collectedCls = c > 0 ? 'is-collected' : '';
+          const rareCls = (t.rare && c > 0) ? 'is-rare' : '';
+          return `<div class="clippy-dex-card ${collectedCls} ${rareCls}">
+            <div class="clippy-dex-card-glyph">${t.glyph}</div>
+            <div class="clippy-dex-card-label">${esc(t.label)}</div>
+            <div class="clippy-dex-card-count">${c}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="clippy-game-buttons" style="margin-top:24px;">
+        <button class="clippy-game-btn" data-act="close">Close</button>
+      </div>
+    `;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('is-visible'));
+    state.dexOverlay = ov;
+    ov.querySelector('[data-act="close"]').addEventListener('click', () => {
+      ov.classList.remove('is-visible');
+      setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
+      state.dexOverlay = null;
+    });
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.20 OFFLINE-FIRST HARDENING — synchronous localStorage writes,
+  // cross-tab sync via storage event, retry queue for Supabase writes.
+  // ════════════════════════════════════════════════════════════════════
+
+  // Listen for storage events from OTHER tabs and re-load relevant data
+  window.addEventListener('storage', (e) => {
+    if (!e.key) return;
+    if (e.key === userKey('clippy_memories')) {
+      try {
+        state.memories = e.newValue ? JSON.parse(e.newValue) : [];
+      } catch (_) {}
+    } else if (e.key === userKey('clippy_prefs')) {
+      try {
+        if (e.newValue) {
+          const fresh = JSON.parse(e.newValue);
+          Object.assign(state.preferences, fresh);
+        }
+      } catch (_) {}
+    } else if (e.key === userKey('clippy_feelings')) {
+      try {
+        state.feelings = e.newValue ? JSON.parse(e.newValue) : state.feelings;
+      } catch (_) {}
+    }
+  });
   function blockInputAttention(inputEl, inputRect) {
     if (!state.shell) return;
     const shellW = state.shell.offsetWidth || 120;
@@ -4257,6 +4782,12 @@
       // Session-end recorder for the next-visit dream check
       window.addEventListener('pagehide', recordSessionEnd);
       window.addEventListener('beforeunload', recordSessionEnd);
+      // v17.21: AUTONOMY — Trajan picks his own personality on session
+      // start and then re-evaluates every hour. The user can override.
+      maybeAutoPickPersonality('session_start');
+      setInterval(() => maybeAutoPickPersonality('hourly_check'), 60 * 60000);
+      // v17.21: NEXUS ACTION LISTENER — global button/form/modal/scroll awareness
+      installNexusActionListener();
     } else if (shouldShowComeback()) {
       // v17.5: peek with ONLY HIS EYES visible, from a random spot.
       // Each session a different place. The is-peek-eyes-only class
