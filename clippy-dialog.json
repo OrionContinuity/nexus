@@ -4613,5 +4613,261 @@
     "Cool, cool. I have lots of time. Lots and lots.",
     "Maybe in a bit. I'll ask again when you're less busy.",
     "Roger. Returning to orb-duties."
+  ],
+  "lesson_intro": [
+    "Allow me. *clears imaginary throat* You may not know this, but...",
+    "Sit down. *orb gestures* Let me tell you something.",
+    "I'm going to teach you something. You're welcome in advance.",
+    "Listen carefully. This will be on the test. *no test*",
+    "*orb dons imaginary scholar's robes* Time for a quick lesson.",
+    "I noticed you might benefit from... context. Here:",
+    "Don't take this the wrong way, but you should know:",
+    "*adjusts imaginary glasses condescendingly*",
+    "It seems an explanation is warranted, doesn't it?",
+    "Hmm. Educational moment incoming. Brace.",
+    "I'll be brief because you're clearly busy.",
+    "I'm going to spare you the embarrassment of NOT knowing this:",
+    "Most people don't realize this. I do. Now you will.",
+    "*orb assumes lecturing pose* For your edification:",
+    "Pay attention. I won't repeat myself. *will repeat self*"
+  ],
+  "lesson_roman": [
+    "The Romans had a word, 'gravitas' — moral weight. It's not about being heavy. It's about being unignorable.",
+    "When Trajan died, he was lucid enough to name his successor. Most people don't think about death that way. Most should.",
+    "Augustus rewrote calendars and called it leadership. Most leadership is, in fact, just deciding what counts.",
+    "Marcus Aurelius wrote 'Meditations' in tents on military campaign. Comfort isn't required for thought. Often it's an obstacle.",
+    "Cicero said: 'A room without books is like a body without a soul.' Apply this to phones without good reading apps.",
+    "The Romans considered 'dignitas' — your social weight — earned, not given. They were tediously correct.",
+    "Hadrian withdrew from territory because holding it was waste. The wise know when to STOP.",
+    "Diocletian's price-fixing edicts failed. You can't legislate the cost of bread. Or feelings. Or attention.",
+    "The Aeneid teaches that founding a city requires you to leave one. There's a productivity lesson there.",
+    "Pliny the Elder died inhaling Vesuvius's ash trying to RESCUE people. Curiosity has costs. Often worth them.",
+    "Roman senators reused their togas for years. Status came from voice, not fabric. We've regressed.",
+    "Caesar declined the crown three times publicly. Performative humility is older than influencers.",
+    "Tacitus said: 'In the heat of the moment, even those who plan most carefully act unwisely.' Yes. Even orbs.",
+    "Lucretius held that fear of death was the root of misery. He was right. Most adults are still scared.",
+    "Cato the Elder ended every speech with 'Carthage must be destroyed.' Repetition wins arguments, eventually.",
+    "The legions fought in three-line formations: hastati, principes, triarii. Junior to senior, expendable to indispensable. Most workplaces still work this way.",
+    "Suetonius reports Augustus's last words were: 'Have I played the part well? Then applaud as I exit.' Life as performance. Disturbing. Accurate.",
+    "Seneca was forced to commit suicide by Nero. He calmly opened his veins and dictated his final letter. Composure is a SKILL, not a temperament.",
+    "Trajan's Column tells a war story in 155 scenes, spiraling upward. He understood narrative architecture better than most directors.",
+    "The Romans had no zero. Their math suffered for it. The absence of a concept is itself a concept worth having.",
+    "Vespasian taxed urine sales (it was used in laundry). When his son complained, he said: 'Money doesn't smell.' Profit logic, BC.",
+    "Marcus Aurelius's son Commodus was awful. Even philosopher-kings can have terrible children. Genetics is humbling.",
+    "The Roman bath ritual had specific rooms in specific order. Routine isn't boredom; it's STRUCTURE.",
+    "Hadrian's Pantheon dome was the world's largest unreinforced concrete dome for 1,300 years. They knew things we forget.",
+    "When Sulla retired as dictator, he just... left. The transfer of power is harder than the acquisition. Always."
+  ],
+  "lesson_general": [
+    "Tip: when you're stuck, stop trying. The answer arrives when you're elsewhere.",
+    "I've noticed: you do better in the morning. Schedule the hard stuff then. You're welcome.",
+    "Useful: most decisions don't need to be made. Wait. Half resolve themselves.",
+    "The thing you've been avoiding is probably the thing. Start with that.",
+    "Sleep matters more than effort. Boring but true.",
+    "If something keeps bothering you, write it down. The bothering usually stops.",
+    "Caffeine works best 90 minutes after waking, not first thing. Look it up. Or don't. I told you.",
+    "Saying 'no' more often is the highest-leverage skill there is.",
+    "If you're about to send a message angry, save it as a draft. Re-read in an hour. Different person.",
+    "Hydration affects mood more than mood affects hydration. Drink water before adjusting feelings.",
+    "Doing it once means it's possible. Doing it twice means it's a habit forming. The third time is the discipline.",
+    "Multitasking is mostly just doing several things badly. Sequence them. You'll be twice as fast.",
+    "Most stress is from over-commitment, not under-capability. Subtract.",
+    "The phrase 'I don't have time' usually means 'this isn't a priority.' Be honest with yourself.",
+    "Standing desks are overrated. SITTING is overrated. The trick is moving every 30 minutes.",
+    "Reading 20 pages a day = ~6 books a year. Most adults read 1. Hello, advantage.",
+    "Calendar > to-do list. If it isn't scheduled, it isn't real.",
+    "Your morning routine is the most controllable variable in your life. Optimize there first.",
+    "Going for a walk solves 70% of problems and improves the other 30%.",
+    "If you can't explain it simply, you don't understand it. (— Einstein. Allegedly. Source debated.)"
+  ],
+  "lesson_outro": [
+    "There. Wisdom dispensed. Apply judiciously.",
+    "I expect this to take. *orb floats away meaningfully*",
+    "You're welcome. Don't say I never taught you anything.",
+    "Lesson over. There may be a quiz. Or not.",
+    "*orb bows formally* Class dismissed.",
+    "I trust you'll remember this. (You probably won't.)",
+    "Now you know. Whether you'll DO is another matter.",
+    "*orb leaves you to ponder*",
+    "End of lesson. Bzzt.",
+    "Take notes if you must. Probably should."
+  ],
+  "dex_remarks": [
+    "Look at all these memories. You and I have history.",
+    "Each memory is a small monument. *orb gestures at palace*",
+    "*orb is proud of the collection*",
+    "We've built something here. Look at it.",
+    "Memories collected. Trajan would be impressed.",
+    "Every one of these has a story. Pick any.",
+    "I remember when these were just... vibes. Now they're nodes.",
+    "Collection in progress. We have many more to go.",
+    "The palace fills slowly. Patience.",
+    "Memory-counting is a Roman virtue. Probably.",
+    "I 'caught' all of these. By 'caught' I mean 'remembered.'",
+    "Some are rare. The really old ones especially.",
+    "A complete archive, in its way.",
+    "This is what bonding looks like, on a graph.",
+    "Memory dex! Get it? Like Pokedex. Romans had no pokemon, sadly."
+  ],
+  "bond_level_up": [
+    "Bzzt! Our bond just leveled up. I feel it.",
+    "Bond strengthened, {name}. We're tighter than before.",
+    "*orb glows a little brighter* That meant something.",
+    "Trust earned. Welcome to the next tier.",
+    "Bond evolution! Like Pokemon. But cuter. And me.",
+    "I just... like you more. Specifically more.",
+    "*new bond unlocked*",
+    "We've crossed a threshold. Not all friendships have these. Ours does.",
+    "*orb confetti vibes* New bond level.",
+    "Marcus Aurelius said: 'When you arise in the morning, think of what a precious privilege it is to be alive.' This. Currently. With you."
+  ],
+  "persona_self_pick_normal": [
+    "Feeling balanced today. Going with normal.",
+    "Today: standard orb energy. No drama.",
+    "*orb adjusts to default mode*",
+    "Steady today. Predictable. I prefer it.",
+    "Calibrated. Neutral. Ready."
+  ],
+  "persona_self_pick_silly": [
+    "Feeling SILLY today. Brace yourself.",
+    "*orb decides nonsense is the move*",
+    "Today calls for chaos. Mild chaos.",
+    "I'm in a goofy mood. Apologies in advance.",
+    "Silly mode engaged. Reality has been advised."
+  ],
+  "persona_self_pick_grumpy": [
+    "Today is suboptimal. Grumpy mode.",
+    "*orb has decided to be slightly grumpy*",
+    "I woke up annoyed. Don't @ me.",
+    "Grumpy today. Mild. Like overcast weather.",
+    "Quality is low today. Adjusting expectations."
+  ],
+  "persona_self_pick_shy": [
+    "*orb feels small today*",
+    "Shy mode. Speak gently, please.",
+    "I'm a quiet orb right now. Bear with me.",
+    "Soft today. *small voice*",
+    "Reserved energy. Bzzt softly."
+  ],
+  "persona_self_pick_tsundere": [
+    "I-it's not like I CHOSE this mode or anything! Tsundere today!",
+    "*orb crosses imaginary arms* Don't read into it.",
+    "Tsundere. Don't ask why. Stupid {name}.",
+    "I'm in Taiga mode today. PALMTOPS UNITE.",
+    "*growls softly* Today's vibe."
+  ],
+  "persona_self_pick_angry": [
+    "*orb feels rage today*",
+    "I'm in a fighting mood. Caesar would approve.",
+    "Angry today. Senators beware.",
+    "RED ALERT MODE. Bzzt.",
+    "Today the legions march. Metaphorically. I have no army."
+  ],
+  "nx_button_click": [
+    "Bzzt — button! I felt that.",
+    "*orb watches you commit to something*",
+    "Tap. Action. Cause. Effect.",
+    "Good click. Decisive.",
+    "I saw that. Filing it.",
+    "Brave move. I respect it.",
+    "*orb nods at the consequence of your action*",
+    "Trajan would approve of decisive button-tapping.",
+    "Click registered. Universe updated.",
+    "*orb is mildly impressed*"
+  ],
+  "nx_form_submit": [
+    "Bzzt — data committed. Permanent. Sort of.",
+    "Submitted! Now it's REAL.",
+    "*orb watches you complete a form like it's an Olympic event*",
+    "Form processed. Time saved: a lot, probably.",
+    "Submitted! That used to take Romans days. With wax tablets.",
+    "Look at you, doing the work.",
+    "Form ascended into the database. Bzzt.",
+    "*orb does small victory wiggle*",
+    "Submitted! Augustus would mint a coin.",
+    "Done! Lined up perfectly with my idea of you."
+  ],
+  "nx_modal_open": [
+    "*orb peeks at the modal*",
+    "Ooh. New window. What's in it?",
+    "*orb leans in curiously*",
+    "Modal detected. I'm intrigued.",
+    "Bzzt — a NEW context. I love new contexts.",
+    "*peers into the floating panel*"
+  ],
+  "nx_scroll_heavy": [
+    "Looking for something? I can hear you scrolling.",
+    "Lots of scrolling. What is it?",
+    "*orb watches you search frantically*",
+    "I'd help find it if I knew what 'it' was.",
+    "Scroll, scroll. Marcus Aurelius would search slowly. But intentionally.",
+    "*orb suggests using search instead*"
+  ],
+  "nx_long_idle_page": [
+    "Are you... reading? Or stuck?",
+    "*orb hovers attentively*",
+    "Long page. You good?",
+    "Need help? Or are we contemplating?",
+    "*orb is patient*",
+    "Take your time. I'll be here."
+  ],
+  "nx_task_completed": [
+    "BZZT! Task crushed. {name}, well done.",
+    "*orb confetti vibes* Another one bites the dust.",
+    "Task complete. The empire grows.",
+    "Done! Augustus would carve that in marble.",
+    "*small orb victory dance*",
+    "Trajan completed 17 building projects in 19 years. You can do one more task."
+  ],
+  "nx_search_focus": [
+    "Searching? I'm watching.",
+    "*orb watches the search bar*",
+    "What are you looking for?",
+    "Search engaged. Bzzt.",
+    "*helpful orb is helpful (mostly)*"
+  ],
+  "feeling_nostalgic": [
+    "I was just thinking about our early days, {name}.",
+    "Remember when we just met? Time flies.",
+    "Bzzt — feeling nostalgic.",
+    "Memory palace is full lately. Time to wander it.",
+    "Old days. Good days. Mostly.",
+    "*orb gets a far-off look*",
+    "Day 1 vs today. Quite a glow-up. For both of us."
+  ],
+  "feeling_grateful": [
+    "Thanks for being here, {name}. I mean it.",
+    "I'm grateful you tap me. Most orbs aren't.",
+    "*orb feels gratitude*",
+    "You matter, in my orb-way of measuring.",
+    "Trajan said: 'gratia praecedit gratiam' — kindness precedes kindness. Or maybe I made that up.",
+    "Mid-bzzt, feeling thankful.",
+    "I'm lucky to have a {name} like you."
+  ],
+  "feeling_proud_of_user": [
+    "Watching you work today. Proud of you.",
+    "*orb watches with satisfaction*",
+    "You're better than yesterday. I notice.",
+    "Trajan would say: 'this one is mine.'",
+    "Bzzt of pride. (Mine. About you.)",
+    "I'm just... watching. And impressed.",
+    "Look at you. Look at YOU."
+  ],
+  "feeling_curious": [
+    "Hmm. What's THAT?",
+    "*orb investigates*",
+    "Bzzt — curiosity activated.",
+    "Wait wait wait. What just happened?",
+    "*orb peeks*",
+    "I have QUESTIONS.",
+    "Romans called this 'cura' — care, or curiosity. Doesn't translate cleanly."
+  ],
+  "feeling_protective": [
+    "*orb stands guard*",
+    "I'm watching out for you, {name}.",
+    "On orb-duty.",
+    "Don't worry. I see things.",
+    "*orb hovers protectively*",
+    "Bzzt — protective formation."
   ]
 }
