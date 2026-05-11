@@ -5794,5 +5794,85 @@
     "My randomness isn't random. It's pseudo-random distribution. Prevents droughts.",
     "I'm a probability-managed orb. PRD keeps my chaos consistent.",
     "Streak-protected mischief. The way Valve intended."
+  ],
+  "wear_wizard": [
+    "Bzzt-magical. I am the orb-wizard now.",
+    "*adjusts pointy hat* Wisdom: maximized.",
+    "Wizard mode. I might cast spells. Don't test me.",
+    "I see futures. Mostly: nap futures.",
+    "*orb glows mysteriously* Magicus orbicus."
+  ],
+  "wear_crown": [
+    "*orb is royalty now* Bow if you wish.",
+    "Bzzt-regal. The crown changes a person. Or orb.",
+    "I have decreed: today is good.",
+    "Long live the orb. *self-applauds*",
+    "Heavy is the head that wears it. Except I don't have a head per se."
+  ],
+  "wear_tophat": [
+    "Bzzt-dignified. Top hat acquired.",
+    "*orb tips its hat* Good day.",
+    "Victorian orb-gentleman, at your service.",
+    "I feel very formal. Don't ruin it.",
+    "*orb has business to attend to*"
+  ],
+  "wear_cowboy": [
+    "Yeehaw, partner.",
+    "*orb is now from Texas* Howdy.",
+    "Bzzt-saddle up. We ride at sundown.",
+    "This town ain't big enough for two orbs.",
+    "*orb tips hat sideways*"
+  ],
+  "wear_tricorn": [
+    "Yo ho ho, {name}. Tricorn equipped.",
+    "*orb has plundered the seas* Arrr.",
+    "Bzzt-piracy. I disavow nothing.",
+    "Where be the treasure?",
+    "*orb is dangerously adventurous*"
+  ],
+  "holding_cup_idle": [
+    "*orb sips thoughtfully*",
+    "To your health, {name}.",
+    "Bzzt-cheers.",
+    "Wine of the gods. Or grape juice. Same energy.",
+    "*orb appreciates the vintage*"
+  ],
+  "holding_sword_idle": [
+    "*orb at the ready*",
+    "Bzzt-vigilant. The gladius is mine.",
+    "Per ardua ad astra. Or whatever.",
+    "I will defend you, {name}. Probably.",
+    "*orb tests the blade in the air*"
+  ],
+  "holding_apple_idle": [
+    "*orb contemplates the fruit*",
+    "An apple a day keeps the empire away.",
+    "*crunches a bite from nowhere*",
+    "Bzzt-snack. Wholesome.",
+    "Tempting. Adam knew."
+  ],
+  "autonomous_drink": [
+    "*orb pours itself a wine*",
+    "Bzzt — sip time.",
+    "*hoists kylix*",
+    "I have decided: refreshment."
+  ],
+  "autonomous_sword": [
+    "*orb practices forms with the gladius*",
+    "Drills. Important.",
+    "Bzzt-vigilance.",
+    "Muscle memory. (I have no muscles.)"
+  ],
+  "autonomous_eat": [
+    "*orb apples thoughtfully*",
+    "Snack break.",
+    "Bzzt-crunch.",
+    "Fruit. Good orbs eat fruit."
+  ],
+  "set_unlock_remarks": [
+    "Bzzt-combo! Set bonus active.",
+    "*orb senses harmony in the outfit*",
+    "These pieces go together. I feel it.",
+    "Outfit math: working out."
   ]
 }
