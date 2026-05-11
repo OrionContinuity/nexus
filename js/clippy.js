@@ -3251,6 +3251,10 @@
     catch:    { label: '🏃 Catch Me',     pool: 'game_intro_catch',    higherIsBetter: true,  unit: '/10'  },
     reaction: { label: '⚡ Reaction',     pool: 'game_intro_reaction', higherIsBetter: false, unit: 'ms'   },
     memory:   { label: '🧠 Memory Match', pool: 'game_intro_memory',   higherIsBetter: true,  unit: 'level'},
+    // v17.22 RETRO ARCADE
+    flappy:   { label: '🕊️ Flappy Trajan',  pool: 'game_intro_flappy', higherIsBetter: true, unit: 'columns' },
+    cannon:   { label: '🚀 Cannon Battle',   pool: 'game_intro_cannon', higherIsBetter: true, unit: 'pts' },
+    snake:    { label: '🐍 Snake',           pool: 'game_intro_snake',  higherIsBetter: true, unit: 'length' },
   };
 
   function getHighScores() {
@@ -3340,6 +3344,12 @@
           onClick: () => { closeActionBubble(); startReactionGame(); } },
         { label: `🧠 Memory (best: ${fmt('memory', scores.memory)})`,
           onClick: () => { closeActionBubble(); startMemoryGame(); } },
+        { label: `🕊️ Flappy Trajan (best: ${fmt('flappy', scores.flappy)})`,
+          onClick: () => { closeActionBubble(); startFlappyGame(); } },
+        { label: `🚀 Cannon Battle (best: ${fmt('cannon', scores.cannon)})`,
+          onClick: () => { closeActionBubble(); startCannonGame(); } },
+        { label: `🐍 Snake (best: ${fmt('snake', scores.snake)})`,
+          onClick: () => { closeActionBubble(); startSnakeGame(); } },
         { label: 'Never mind', onClick: closeActionBubble },
       ]
     });
@@ -3413,11 +3423,11 @@
     return mini;
   }
 
-  // ─── GAME 1: TAP THE ORB (15s speed clicker) ───────────────────
+  // ─── GAME 1: TAP THE ORB (30s speed clicker — v17.22 extended) ─
   function startTapGame() {
     const ov = createGameOverlay();
     let count = 0;
-    let timeLeft = 15;
+    let timeLeft = 30;     // v17.22: doubled from 15s
     let running = false;
     const intro = pickFromPool('game_intro_tap');
     ov.innerHTML = `
@@ -3680,6 +3690,609 @@
       }
     }
   }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.22 GAME 5: FLAPPY TRAJAN — tap to flap, dodge Roman columns
+  // ════════════════════════════════════════════════════════════════════
+
+  function startFlappyGame() {
+    const ov = createGameOverlay();
+    const intro = pickFromPool('game_intro_flappy');
+    ov.innerHTML = `
+      <div class="clippy-game-title">🕊️ Flappy Trajan</div>
+      <div class="clippy-game-instruction">${esc(intro)}</div>
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn" data-act="start">Start!</button>
+        <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
+      </div>
+    `;
+    ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
+    ov.querySelector('[data-act="start"]').addEventListener('click', () => {
+      ov.innerHTML = `
+        <div class="clippy-game-title">🕊️ FLAPPY TRAJAN</div>
+        <div class="clippy-flappy-board" data-board>
+          <div class="clippy-flappy-score" data-score>0</div>
+          <div class="clippy-flappy-ground"></div>
+        </div>
+        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;">Tap the board to flap!</div>
+        <div class="clippy-game-buttons">
+          <button class="clippy-game-btn is-ghost" data-act="quit">Quit</button>
+        </div>
+      `;
+      const board = ov.querySelector('[data-board]');
+      const scoreEl = ov.querySelector('[data-score]');
+      ov.querySelector('[data-act="quit"]').addEventListener('click', () => {
+        running = false;
+        cancelAnimationFrame(rafId);
+        closeGameOverlay();
+      });
+
+      // Build Trajan bird
+      const bird = document.createElement('div');
+      bird.className = 'clippy-flappy-bird';
+      bird.innerHTML = state.svgMarkup || '';
+      board.appendChild(bird);
+
+      const boardRect = board.getBoundingClientRect();
+      const W = boardRect.width;
+      const H = boardRect.height;
+      const GROUND_Y = H - 28;
+      const BIRD_SIZE = 60;
+      const COLUMN_W = 56;
+      const GAP_SIZE = 150;
+      let birdY = H / 2;
+      let birdV = 0;
+      const GRAVITY = 0.45;
+      const FLAP_V = -7.2;
+      const SCROLL_SPEED = 2.2;
+      let score = 0;
+      let running = true;
+      let rafId = 0;
+      const columns = [];
+      let nextColumnX = W + 80;
+      let columnSpacing = 220;
+
+      function spawnColumn() {
+        const gapY = 60 + Math.random() * (GROUND_Y - GAP_SIZE - 120);
+        const topH = gapY;
+        const botY = gapY + GAP_SIZE;
+        const botH = GROUND_Y - botY;
+        const top = document.createElement('div');
+        top.className = 'clippy-flappy-column is-top';
+        top.style.left = nextColumnX + 'px';
+        top.style.top = '0px';
+        top.style.height = topH + 'px';
+        const topCap = document.createElement('div');
+        topCap.className = 'clippy-flappy-column-cap';
+        top.appendChild(topCap);
+        const bot = document.createElement('div');
+        bot.className = 'clippy-flappy-column is-bot';
+        bot.style.left = nextColumnX + 'px';
+        bot.style.top = botY + 'px';
+        bot.style.height = botH + 'px';
+        const botCap = document.createElement('div');
+        botCap.className = 'clippy-flappy-column-cap';
+        bot.appendChild(botCap);
+        board.appendChild(top);
+        board.appendChild(bot);
+        columns.push({ top, bot, x: nextColumnX, gapY, scored: false });
+        nextColumnX += columnSpacing;
+      }
+      spawnColumn();
+
+      function flap() {
+        if (!running) return;
+        birdV = FLAP_V;
+        playTone('boop');
+      }
+      board.addEventListener('click', flap);
+      board.addEventListener('touchstart', (e) => { e.preventDefault(); flap(); }, { passive: false });
+
+      const birdX = 80;
+      bird.style.left = birdX + 'px';
+
+      function tick() {
+        if (!running) return;
+        birdV += GRAVITY;
+        birdY += birdV;
+        const angle = Math.max(-25, Math.min(70, birdV * 4));
+        bird.style.top = birdY + 'px';
+        bird.style.transform = `rotate(${angle}deg)`;
+
+        // Move columns
+        for (let i = columns.length - 1; i >= 0; i--) {
+          const c = columns[i];
+          c.x -= SCROLL_SPEED;
+          c.top.style.left = c.x + 'px';
+          c.bot.style.left = c.x + 'px';
+          if (!c.scored && c.x + COLUMN_W < birdX) {
+            c.scored = true;
+            score++;
+            scoreEl.textContent = score;
+            playTone('sparkle');
+          }
+          if (c.x < -COLUMN_W) {
+            c.top.remove();
+            c.bot.remove();
+            columns.splice(i, 1);
+          }
+        }
+
+        if (columns.length === 0 || columns[columns.length - 1].x < W - columnSpacing) {
+          spawnColumn();
+        }
+
+        // Collision
+        const birdRect = { x: birdX, y: birdY, w: BIRD_SIZE, h: BIRD_SIZE };
+        if (birdY < 0 || birdY + BIRD_SIZE > GROUND_Y) {
+          gameOver();
+          return;
+        }
+        for (const c of columns) {
+          if (birdRect.x + birdRect.w > c.x && birdRect.x < c.x + COLUMN_W) {
+            if (birdY < c.gapY || birdY + BIRD_SIZE > c.gapY + GAP_SIZE) {
+              gameOver();
+              return;
+            }
+          }
+        }
+        rafId = requestAnimationFrame(tick);
+      }
+      function gameOver() {
+        running = false;
+        cancelAnimationFrame(rafId);
+        bubble(pickFromPool('flappy_die'), { autoHide: 2500 });
+        setTimeout(() => showGameResult('flappy', score), 800);
+      }
+      rafId = requestAnimationFrame(tick);
+      state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => {
+        running = false;
+        cancelAnimationFrame(rafId);
+      }]);
+    });
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.22 GAME 6: CANNON BATTLE — drag to move, tap to fire upward
+  // ════════════════════════════════════════════════════════════════════
+
+  function startCannonGame() {
+    const ov = createGameOverlay();
+    const intro = pickFromPool('game_intro_cannon');
+    ov.innerHTML = `
+      <div class="clippy-game-title">🚀 Cannon Battle</div>
+      <div class="clippy-game-instruction">${esc(intro)}</div>
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn" data-act="start">Start!</button>
+        <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
+      </div>
+    `;
+    ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
+    ov.querySelector('[data-act="start"]').addEventListener('click', () => {
+      ov.innerHTML = `
+        <div class="clippy-game-title">🚀 CANNON BATTLE</div>
+        <div class="clippy-cannon-board" data-board>
+          <div class="clippy-cannon-hud">
+            <div class="hud-stat">SCORE <span data-score>0</span></div>
+            <div class="hud-stat">HP <span data-hp>3</span></div>
+            <div class="hud-stat">TIME <span data-time>60</span>s</div>
+          </div>
+        </div>
+        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;">Drag to move · Tap to fire</div>
+        <div class="clippy-game-buttons">
+          <button class="clippy-game-btn is-ghost" data-act="quit">Quit</button>
+        </div>
+      `;
+      const board = ov.querySelector('[data-board]');
+      const scoreEl = ov.querySelector('[data-score]');
+      const hpEl = ov.querySelector('[data-hp]');
+      const timeEl = ov.querySelector('[data-time]');
+      ov.querySelector('[data-act="quit"]').addEventListener('click', () => {
+        running = false;
+        cancelAnimationFrame(rafId);
+        clearInterval(timerInt);
+        closeGameOverlay();
+      });
+
+      const player = document.createElement('div');
+      player.className = 'clippy-cannon-player';
+      player.innerHTML = state.svgMarkup || '';
+      board.appendChild(player);
+
+      const boardRect = board.getBoundingClientRect();
+      const W = boardRect.width;
+      const H = boardRect.height;
+      const PLAYER_W = 60;
+      let playerX = W / 2 - PLAYER_W / 2;
+      let score = 0;
+      let hp = 3;
+      let timeLeft = 60;
+      let running = true;
+      const bullets = [];
+      const enemies = [];
+      const enemyBullets = [];
+      let lastEnemySpawn = 0;
+      let lastEnemyShot = 0;
+      let lastFire = 0;
+      let rafId = 0;
+
+      player.style.left = playerX + 'px';
+
+      function fire() {
+        if (!running) return;
+        const now = Date.now();
+        if (now - lastFire < 220) return;   // fire rate limit
+        lastFire = now;
+        const b = document.createElement('div');
+        b.className = 'clippy-cannon-bullet';
+        const bx = playerX + PLAYER_W / 2 - 3;
+        const by = H - 80;
+        b.style.left = bx + 'px';
+        b.style.top = by + 'px';
+        board.appendChild(b);
+        bullets.push({ el: b, x: bx, y: by });
+        playTone('boop');
+      }
+      function spawnEnemy() {
+        const e = document.createElement('div');
+        e.className = 'clippy-cannon-enemy';
+        const ex = Math.random() * (W - 36);
+        e.style.left = ex + 'px';
+        e.style.top = '20px';
+        board.appendChild(e);
+        enemies.push({ el: e, x: ex, y: 20, vx: (Math.random() - 0.5) * 1.4, vy: 0.4 + Math.random() * 0.6 });
+      }
+      function enemyShoot(enemy) {
+        const b = document.createElement('div');
+        b.className = 'clippy-cannon-enemy-bullet';
+        b.style.left = (enemy.x + 16) + 'px';
+        b.style.top = (enemy.y + 36) + 'px';
+        board.appendChild(b);
+        enemyBullets.push({ el: b, x: enemy.x + 16, y: enemy.y + 36 });
+      }
+      function explode(x, y) {
+        const e = document.createElement('div');
+        e.className = 'clippy-cannon-explosion';
+        e.style.left = (x - 30) + 'px';
+        e.style.top = (y - 30) + 'px';
+        board.appendChild(e);
+        setTimeout(() => e.remove(), 400);
+      }
+
+      // Touch / drag handlers — set player X to finger pos
+      let dragActive = false;
+      function setPlayerFromPoint(clientX) {
+        const rect = board.getBoundingClientRect();
+        const px = Math.max(0, Math.min(W - PLAYER_W, clientX - rect.left - PLAYER_W / 2));
+        playerX = px;
+        player.style.left = playerX + 'px';
+      }
+      board.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (e.touches.length) {
+          dragActive = true;
+          setPlayerFromPoint(e.touches[0].clientX);
+          fire();   // tap = also fire
+        }
+      }, { passive: false });
+      board.addEventListener('touchmove', (e) => {
+        if (dragActive && e.touches.length) setPlayerFromPoint(e.touches[0].clientX);
+      }, { passive: false });
+      board.addEventListener('touchend', () => { dragActive = false; });
+      // Mouse desktop fallback
+      board.addEventListener('mousedown', (e) => { dragActive = true; setPlayerFromPoint(e.clientX); fire(); });
+      board.addEventListener('mousemove', (e) => { if (dragActive) setPlayerFromPoint(e.clientX); });
+      board.addEventListener('mouseup', () => { dragActive = false; });
+      board.addEventListener('mouseleave', () => { dragActive = false; });
+
+      const timerInt = setInterval(() => {
+        if (!running) return;
+        timeLeft--;
+        timeEl.textContent = timeLeft;
+        if (timeLeft <= 0) gameOver(true);
+      }, 1000);
+
+      function tick() {
+        if (!running) return;
+        const now = Date.now();
+        // Move bullets up
+        for (let i = bullets.length - 1; i >= 0; i--) {
+          const b = bullets[i];
+          b.y -= 9;
+          b.el.style.top = b.y + 'px';
+          if (b.y < -20) { b.el.remove(); bullets.splice(i, 1); continue; }
+          // Check enemy hits
+          for (let j = enemies.length - 1; j >= 0; j--) {
+            const e = enemies[j];
+            if (b.x + 6 > e.x && b.x < e.x + 36 && b.y + 16 > e.y && b.y < e.y + 36) {
+              explode(e.x + 18, e.y + 18);
+              e.el.remove(); enemies.splice(j, 1);
+              b.el.remove(); bullets.splice(i, 1);
+              score += 10;
+              scoreEl.textContent = score;
+              playTone('sparkle');
+              break;
+            }
+          }
+        }
+        // Spawn enemies
+        if (now - lastEnemySpawn > 1500 - Math.min(800, score * 8)) {
+          spawnEnemy();
+          lastEnemySpawn = now;
+        }
+        // Move enemies down
+        for (let i = enemies.length - 1; i >= 0; i--) {
+          const e = enemies[i];
+          e.x += e.vx;
+          e.y += e.vy;
+          if (e.x < 0 || e.x > W - 36) e.vx *= -1;
+          e.el.style.left = e.x + 'px';
+          e.el.style.top = e.y + 'px';
+          // Reached bottom = damage
+          if (e.y > H - 80) {
+            e.el.remove();
+            enemies.splice(i, 1);
+            hp--;
+            hpEl.textContent = hp;
+            if (hp <= 0) { gameOver(false); return; }
+          }
+        }
+        // Enemy shoots randomly
+        if (enemies.length && now - lastEnemyShot > 1200) {
+          const shooter = enemies[Math.floor(Math.random() * enemies.length)];
+          enemyShoot(shooter);
+          lastEnemyShot = now;
+        }
+        // Move enemy bullets
+        for (let i = enemyBullets.length - 1; i >= 0; i--) {
+          const b = enemyBullets[i];
+          b.y += 6;
+          b.el.style.top = b.y + 'px';
+          if (b.y > H) { b.el.remove(); enemyBullets.splice(i, 1); continue; }
+          // Player hit?
+          if (b.x + 5 > playerX && b.x < playerX + PLAYER_W &&
+              b.y + 14 > H - 80 && b.y < H - 20) {
+            b.el.remove(); enemyBullets.splice(i, 1);
+            hp--;
+            hpEl.textContent = hp;
+            explode(playerX + 30, H - 50);
+            if (hp <= 0) { gameOver(false); return; }
+          }
+        }
+        rafId = requestAnimationFrame(tick);
+      }
+      function gameOver(survived) {
+        running = false;
+        cancelAnimationFrame(rafId);
+        clearInterval(timerInt);
+        if (!survived) {
+          bubble(pickFromPool('cannon_die'), { autoHide: 2500 });
+        }
+        setTimeout(() => showGameResult('cannon', score), 800);
+      }
+      rafId = requestAnimationFrame(tick);
+      state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => {
+        running = false;
+        cancelAnimationFrame(rafId);
+        clearInterval(timerInt);
+      }]);
+    });
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.22 GAME 7: SNAKE — tap left/right of head to turn
+  // ════════════════════════════════════════════════════════════════════
+
+  function startSnakeGame() {
+    const ov = createGameOverlay();
+    const intro = pickFromPool('game_intro_snake');
+    ov.innerHTML = `
+      <div class="clippy-game-title">🐍 Snake</div>
+      <div class="clippy-game-instruction">${esc(intro)}</div>
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn" data-act="start">Start!</button>
+        <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
+      </div>
+    `;
+    ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
+    ov.querySelector('[data-act="start"]').addEventListener('click', () => {
+      ov.innerHTML = `
+        <div class="clippy-game-title">🐍 SNAKE — Length: <span data-score>3</span></div>
+        <div class="clippy-snake-board" data-board></div>
+        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;">Tap any side to turn ⇦⇧⇨⇩</div>
+        <div class="clippy-game-buttons">
+          <button class="clippy-game-btn is-ghost" data-act="quit">Quit</button>
+        </div>
+      `;
+      const board = ov.querySelector('[data-board]');
+      const scoreEl = ov.querySelector('[data-score]');
+      ov.querySelector('[data-act="quit"]').addEventListener('click', () => {
+        running = false;
+        clearInterval(tickInt);
+        closeGameOverlay();
+      });
+
+      const boardRect = board.getBoundingClientRect();
+      const W = boardRect.width;
+      const H = boardRect.height;
+      const CELL = 20;
+      const COLS = Math.floor(W / CELL);
+      const ROWS = Math.floor(H / CELL);
+      const snake = [
+        { x: Math.floor(COLS / 2), y: Math.floor(ROWS / 2) },
+        { x: Math.floor(COLS / 2) - 1, y: Math.floor(ROWS / 2) },
+        { x: Math.floor(COLS / 2) - 2, y: Math.floor(ROWS / 2) },
+      ];
+      let dir = { x: 1, y: 0 };   // moving right
+      let nextDir = dir;
+      let food = spawnFood();
+      let running = true;
+      let lastMove = 0;
+      let STEP_MS = 140;
+
+      function spawnFood() {
+        let f;
+        do {
+          f = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS) };
+        } while (snake.some(s => s.x === f.x && s.y === f.y));
+        return f;
+      }
+      function draw() {
+        board.innerHTML = '';
+        // food
+        const fEl = document.createElement('div');
+        fEl.className = 'clippy-snake-food';
+        fEl.style.left = (food.x * CELL + (CELL - 16) / 2) + 'px';
+        fEl.style.top = (food.y * CELL + (CELL - 16) / 2) + 'px';
+        board.appendChild(fEl);
+        // snake
+        snake.forEach((seg, i) => {
+          const el = document.createElement('div');
+          el.className = 'clippy-snake-cell' + (i === 0 ? ' clippy-snake-head' : '');
+          const size = i === 0 ? 22 : 18;
+          el.style.left = (seg.x * CELL + (CELL - size) / 2) + 'px';
+          el.style.top = (seg.y * CELL + (CELL - size) / 2) + 'px';
+          board.appendChild(el);
+        });
+      }
+      draw();
+
+      // Tap to turn: tap left half → turn left relative to direction, etc.
+      function handleTap(clientX, clientY) {
+        const rect = board.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        const head = snake[0];
+        const hx = head.x * CELL + CELL / 2;
+        const hy = head.y * CELL + CELL / 2;
+        const dx = x - hx;
+        const dy = y - hy;
+        // Choose dominant axis from tap
+        if (Math.abs(dx) > Math.abs(dy)) {
+          nextDir = dx > 0 ? { x: 1, y: 0 } : { x: -1, y: 0 };
+        } else {
+          nextDir = dy > 0 ? { x: 0, y: 1 } : { x: 0, y: -1 };
+        }
+        // Disallow reverse into self
+        if (snake.length > 1 && nextDir.x === -dir.x && nextDir.y === -dir.y) {
+          nextDir = dir;
+        }
+      }
+      board.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (e.touches.length) handleTap(e.touches[0].clientX, e.touches[0].clientY);
+      }, { passive: false });
+      board.addEventListener('click', (e) => handleTap(e.clientX, e.clientY));
+
+      const tickInt = setInterval(() => {
+        if (!running) return;
+        dir = nextDir;
+        const head = snake[0];
+        const newHead = { x: head.x + dir.x, y: head.y + dir.y };
+        // Wall collision
+        if (newHead.x < 0 || newHead.x >= COLS || newHead.y < 0 || newHead.y >= ROWS) {
+          running = false;
+          clearInterval(tickInt);
+          bubble(pickFromPool('snake_die'), { autoHide: 2500 });
+          setTimeout(() => showGameResult('snake', snake.length), 800);
+          return;
+        }
+        // Self collision
+        if (snake.some(s => s.x === newHead.x && s.y === newHead.y)) {
+          running = false;
+          clearInterval(tickInt);
+          bubble(pickFromPool('snake_die'), { autoHide: 2500 });
+          setTimeout(() => showGameResult('snake', snake.length), 800);
+          return;
+        }
+        snake.unshift(newHead);
+        // Food eaten?
+        if (newHead.x === food.x && newHead.y === food.y) {
+          food = spawnFood();
+          playTone('boop');
+          scoreEl.textContent = snake.length;
+          // Speed up slightly
+          if (snake.length % 5 === 0 && STEP_MS > 70) {
+            STEP_MS -= 8;
+          }
+        } else {
+          snake.pop();
+        }
+        draw();
+      }, STEP_MS);
+      state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => {
+        running = false;
+        clearInterval(tickInt);
+      }]);
+    });
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v17.22 QUIRKY IDLE BEHAVIORS — yawn, hiccup, sneeze, spin, groom
+  // Triggered occasionally during idle. Each has a unique animation +
+  // dialog pool. Adds personality without bubbles.
+  // ════════════════════════════════════════════════════════════════════
+
+  function doQuirk() {
+    if (!state.enabled || state.suppressed || state.bubble) return;
+    if (state.coinFlipInProgress) return;
+    const feel = state.feelings ? dominantFeeling() : 'content';
+    const candidates = [];
+    // Yawn — more likely when tired
+    candidates.push({ name: 'yawn', weight: feel === 'tired' ? 5 : 1 });
+    // Hiccup — random
+    candidates.push({ name: 'hiccup', weight: 1 });
+    // Sneeze — random
+    candidates.push({ name: 'sneeze', weight: 1 });
+    // Spin — when happy
+    candidates.push({ name: 'spin', weight: feel === 'overjoyed' ? 4 : 2 });
+    // Groom — when content
+    candidates.push({ name: 'groom', weight: 2 });
+    const totalW = candidates.reduce((sum, c) => sum + c.weight, 0);
+    let r = Math.random() * totalW;
+    let pick = candidates[0];
+    for (const c of candidates) {
+      r -= c.weight;
+      if (r <= 0) { pick = c; break; }
+    }
+    runQuirk(pick.name);
+  }
+  function runQuirk(name) {
+    if (!state.shell) return;
+    const cls = 'is-' + name + 'ing';
+    state.shell.classList.add(cls);
+    const dur = name === 'yawn' ? 1600 :
+                name === 'hiccup' ? 1600 :
+                name === 'sneeze' ? 500 :
+                name === 'spin' ? 1400 : 1200;
+    setTimeout(() => state.shell && state.shell.classList.remove(cls), dur);
+    // Bubble accompanies the quirk
+    const pool = name + '_remarks';
+    if (state.dialog && state.dialog[pool]) {
+      setTimeout(() => {
+        if (!state.bubble && state.enabled) {
+          bubble(pickFromPool(pool), { autoHide: 2800 });
+        }
+      }, name === 'sneeze' ? 100 : 400);
+    }
+    if (name === 'sneeze') spawnParticles({ count: 5, type: 'sparkle' });
+    if (name === 'spin')   spawnParticles({ count: 3, type: 'sparkle' });
+    depositMemory('quirk', `Did a ${name}.`, { name }, 1);
+  }
+  // Periodic quirk scheduler — every 8-18 minutes
+  function scheduleQuirks() {
+    if (state.quirkTimer) clearTimeout(state.quirkTimer);
+    const delay = 480000 + Math.random() * 600000;   // 8-18 min
+    state.quirkTimer = setTimeout(() => {
+      doQuirk();
+      scheduleQuirks();
+    }, delay);
+  }
+
 
   // ─── Hook: when bored 60s+, occasionally offer a game ──────────
   function maybeOfferGame() {
@@ -4788,6 +5401,8 @@
       setInterval(() => maybeAutoPickPersonality('hourly_check'), 60 * 60000);
       // v17.21: NEXUS ACTION LISTENER — global button/form/modal/scroll awareness
       installNexusActionListener();
+      // v17.22: QUIRKY IDLE BEHAVIORS — yawn/hiccup/sneeze/spin every 8-18 min
+      scheduleQuirks();
     } else if (shouldShowComeback()) {
       // v17.5: peek with ONLY HIS EYES visible, from a random spot.
       // Each session a different place. The is-peek-eyes-only class
