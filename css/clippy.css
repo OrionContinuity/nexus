@@ -2186,3 +2186,265 @@
   70%  { transform: scale(1.12) rotate(2deg); }
   100% { transform: scale(1) rotate(0); }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.22 NEW GAMES — Flappy, Cannon Battle, Snake. Plus quirky idle
+   animations (yawn, hiccup, sneeze, spin).
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Flappy game — columns scroll right-to-left */
+.clippy-flappy-board {
+  position: relative;
+  width: min(90vw, 420px);
+  height: min(70vh, 500px);
+  background: linear-gradient(180deg, #2a3f6a 0%, #4a6088 70%, #6b7a99 100%);
+  border-radius: 16px;
+  overflow: hidden;
+  border: 2.5px solid #1a1a1a;
+  box-shadow: 4px 4px 0 #1a1a1a;
+  margin: 18px auto;
+  touch-action: manipulation;
+  user-select: none;
+}
+.clippy-flappy-column {
+  position: absolute;
+  width: 56px;
+  background: linear-gradient(180deg, #c9a063 0%, #8b6f3d 100%);
+  border-left: 3px solid #1a1a1a;
+  border-right: 3px solid #1a1a1a;
+  /* Roman column decoration */
+  background-image:
+    linear-gradient(180deg, #c9a063 0%, #8b6f3d 100%),
+    repeating-linear-gradient(0deg,
+      rgba(0,0,0,0.18) 0px, rgba(0,0,0,0.18) 2px,
+      transparent 2px, transparent 14px);
+}
+.clippy-flappy-column-cap {
+  position: absolute;
+  width: 64px;
+  height: 14px;
+  left: -4px;
+  background: #6b4a1f;
+  border: 2px solid #1a1a1a;
+}
+.clippy-flappy-column.is-top .clippy-flappy-column-cap { bottom: -2px; }
+.clippy-flappy-column.is-bot .clippy-flappy-column-cap { top: -2px; }
+.clippy-flappy-bird {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  transition: transform 80ms ease-out;
+  filter: drop-shadow(0 0 10px rgba(125, 240, 255, 0.6)) drop-shadow(0 4px 8px rgba(0,0,0,0.5));
+  pointer-events: none;
+  z-index: 5;
+}
+.clippy-flappy-bird svg { width: 100%; height: 100%; }
+.clippy-flappy-ground {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 28px;
+  background: repeating-linear-gradient(90deg, #4a6033 0px, #4a6033 12px, #3a5028 12px, #3a5028 24px);
+  border-top: 3px solid #1a1a1a;
+}
+.clippy-flappy-score {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 38px;
+  font-weight: 900;
+  color: #fffef6;
+  text-shadow: 3px 3px 0 #1a1a1a;
+  z-index: 6;
+  letter-spacing: 0.05em;
+}
+
+/* Cannon Battle */
+.clippy-cannon-board {
+  position: relative;
+  width: min(90vw, 420px);
+  height: min(70vh, 500px);
+  background: linear-gradient(180deg, #06081a 0%, #0d1330 60%, #1a2548 100%);
+  border-radius: 16px;
+  overflow: hidden;
+  border: 2.5px solid #1a1a1a;
+  box-shadow: 4px 4px 0 #1a1a1a;
+  margin: 18px auto;
+  touch-action: none;
+  user-select: none;
+}
+/* Starfield bg */
+.clippy-cannon-board::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(2px 2px at 12% 25%, #ffffff, transparent),
+    radial-gradient(1.5px 1.5px at 28% 67%, #d4a44e, transparent),
+    radial-gradient(2px 2px at 58% 18%, #fffef6, transparent),
+    radial-gradient(1.5px 1.5px at 78% 82%, #7df0ff, transparent),
+    radial-gradient(2px 2px at 92% 42%, #ffffff, transparent),
+    radial-gradient(1px 1px at 44% 50%, #d4a44e, transparent),
+    radial-gradient(1.5px 1.5px at 36% 88%, #ffffff, transparent);
+  opacity: 0.6;
+}
+.clippy-cannon-player {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  bottom: 20px;
+  filter: drop-shadow(0 0 12px rgba(125, 240, 255, 0.7));
+  z-index: 5;
+  transition: left 60ms linear;
+  pointer-events: none;
+}
+.clippy-cannon-enemy {
+  position: absolute;
+  width: 36px;
+  height: 36px;
+  background: radial-gradient(circle, #ff5577 0%, #c62a4a 100%);
+  border-radius: 50%;
+  border: 2px solid #1a1a1a;
+  box-shadow: 0 0 10px rgba(255, 85, 119, 0.7);
+  z-index: 3;
+}
+.clippy-cannon-enemy::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 8px; right: 8px; height: 4px;
+  background: rgba(0,0,0,0.5);
+  transform: translateY(-50%);
+  border-radius: 2px;
+}
+.clippy-cannon-bullet {
+  position: absolute;
+  width: 6px;
+  height: 16px;
+  background: linear-gradient(180deg, #ffd870 0%, #d4a44e 100%);
+  border-radius: 3px;
+  box-shadow: 0 0 8px #ffd870;
+  z-index: 4;
+}
+.clippy-cannon-enemy-bullet {
+  position: absolute;
+  width: 5px;
+  height: 14px;
+  background: #ff5577;
+  border-radius: 2.5px;
+  box-shadow: 0 0 6px #ff5577;
+  z-index: 4;
+}
+.clippy-cannon-explosion {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  pointer-events: none;
+  z-index: 6;
+  animation: cannonExplode 0.4s ease-out forwards;
+}
+.clippy-cannon-explosion::before,
+.clippy-cannon-explosion::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffd870 0%, #ff5577 50%, transparent 70%);
+}
+@keyframes cannonExplode {
+  0%   { transform: scale(0.3); opacity: 1; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+.clippy-cannon-hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  justify-content: space-between;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  color: #fffef6;
+  text-shadow: 1px 1px 0 #1a1a1a;
+  z-index: 7;
+  pointer-events: none;
+}
+.clippy-cannon-hud .hud-stat {
+  background: rgba(0,0,0,0.5);
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #d4a44e;
+}
+
+/* Snake */
+.clippy-snake-board {
+  position: relative;
+  width: min(90vw, 400px);
+  height: min(90vw, 400px);
+  background: #0d1330;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 2.5px solid #1a1a1a;
+  box-shadow: 4px 4px 0 #1a1a1a;
+  margin: 18px auto;
+  touch-action: none;
+  user-select: none;
+  background-image:
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 1px, transparent 1px, transparent 20px),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 1px, transparent 1px, transparent 20px);
+}
+.clippy-snake-cell {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #4cb6ff 0%, #2e8de0 100%);
+  box-shadow: 0 0 8px rgba(125, 240, 255, 0.5);
+}
+.clippy-snake-head {
+  width: 22px;
+  height: 22px;
+  background: radial-gradient(circle, #7df0ff 0%, #4cb6ff 100%);
+  box-shadow: 0 0 12px rgba(125, 240, 255, 0.8);
+  z-index: 3;
+}
+.clippy-snake-food {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  background: radial-gradient(circle, #ffd870 0%, #d4a44e 100%);
+  border-radius: 50%;
+  box-shadow: 0 0 10px #ffd870;
+  animation: snakeFoodPulse 1s ease-in-out infinite;
+}
+@keyframes snakeFoodPulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.2); }
+}
+
+/* Quirk animations on the main shell */
+#clippy-shell.is-yawning .cl-floats { animation: orbYawn 1.6s ease-in-out; }
+@keyframes orbYawn {
+  0%, 100% { transform: scale(1) translateY(0); }
+  20%      { transform: scale(1.05, 0.95) translateY(2px); }
+  50%      { transform: scale(0.92, 1.1) translateY(-4px); }
+  80%      { transform: scale(1.08, 0.92) translateY(1px); }
+}
+#clippy-shell.is-hiccupping .cl-floats { animation: orbHiccup 0.4s ease-in-out 4; }
+@keyframes orbHiccup {
+  0%, 100% { transform: translateY(0); }
+  40%      { transform: translateY(-8px) scale(1.06); }
+  60%      { transform: translateY(-4px) scale(0.96); }
+}
+#clippy-shell.is-sneezing .cl-floats { animation: orbSneeze 0.5s ease-in-out; }
+@keyframes orbSneeze {
+  0%, 100% { transform: translateY(0) scale(1); }
+  10%      { transform: translateY(2px) scale(0.92, 1.06); }
+  30%      { transform: translateY(-12px) scale(1.15, 0.88); }
+  60%      { transform: translateY(4px) scale(1.05, 0.96); }
+}
+#clippy-shell.is-spinning .cl-floats { animation: orbSpin 1.4s linear; }
+@keyframes orbSpin {
+  0%   { transform: rotate(0); }
+  100% { transform: rotate(360deg); }
+}
