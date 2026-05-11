@@ -149,7 +149,8 @@
 .clippy-svg .cl-eyes-glance,
 .clippy-svg .cl-eyes-disgusted,
 .clippy-svg .cl-eyes-genius,
-.clippy-svg .cl-eyes-studious { opacity: 0; }
+.clippy-svg .cl-eyes-studious,
+.clippy-svg .cl-eyes-condescend { opacity: 0; }
 
 .clippy-svg .cl-mouth-smile { opacity: 1; }
 .clippy-svg .cl-mouth-bigsmile,
@@ -1760,100 +1761,6 @@
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   v17.19 MOOD-REACTIVE BODY COLOR — orb itself tints with emotion.
-   Uses CSS filter (hue-rotate + saturate + brightness) on cl-body.
-   The body's base color is blue (#4cb6ff ~ hue 210). Filters rotate
-   from there. The transition is slow enough to feel emotional, not
-   jarring. The drop-shadow from mood-weather still applies on top.
-   ════════════════════════════════════════════════════════════════════ */
-
-#clippy-shell .cl-body {
-  transition: filter 1.4s ease;
-}
-
-/* HAPPY family — gold/yellow tint */
-#clippy-shell.is-happy .cl-body,
-#clippy-shell.is-laughing .cl-body,
-#clippy-shell.is-bunny .cl-body { filter: hue-rotate(140deg) saturate(1.4) brightness(1.1); }
-
-/* EXCITED / SUPER_EXCITED / SPARKLE / PROUD — bright gold + glow */
-#clippy-shell.is-excited .cl-body,
-#clippy-shell.is-super-excited .cl-body,
-#clippy-shell.is-sparkle .cl-body,
-#clippy-shell.is-proud .cl-body { filter: hue-rotate(160deg) saturate(1.6) brightness(1.18) drop-shadow(0 0 8px #ffd870); }
-
-/* LOVE / SMITTEN / KISSY / BASHFUL — pink */
-#clippy-shell.is-love .cl-body,
-#clippy-shell.is-smitten .cl-body,
-#clippy-shell.is-kissy .cl-body,
-#clippy-shell.is-bashful .cl-body,
-#clippy-shell.is-embarrassed .cl-body { filter: hue-rotate(190deg) saturate(1.5) brightness(1.1); }
-
-/* SAD / LONELY / MELANCHOLY / DISAPPOINTED — desaturated muted blue */
-#clippy-shell.is-sad .cl-body,
-#clippy-shell.is-melancholy .cl-body,
-#clippy-shell.is-disappointed .cl-body,
-#clippy-shell.is-peeved .cl-body,
-#clippy-shell.is-worried .cl-body { filter: saturate(0.5) brightness(0.85); }
-
-/* CRYING / SOBBING / WAILING — deeply desaturated blue */
-#clippy-shell.is-crying .cl-body,
-#clippy-shell.is-sobbing .cl-body,
-#clippy-shell.is-wailing .cl-body { filter: saturate(0.35) brightness(0.78); }
-
-/* ANGRY / FRUSTRATED — red/orange */
-#clippy-shell.is-angry .cl-body,
-#clippy-shell.is-frustrated .cl-body { filter: hue-rotate(150deg) saturate(1.9) brightness(1.05); }
-
-/* DISGUSTED — gross greenish-grey */
-#clippy-shell.is-disgusted .cl-body { filter: hue-rotate(80deg) saturate(0.55) brightness(0.92); }
-
-/* GENIUS — bright cyan + glow */
-#clippy-shell.is-genius .cl-body { filter: hue-rotate(15deg) saturate(1.6) brightness(1.15) drop-shadow(0 0 8px #7df0ff); }
-
-/* STUDIOUS — soft purple */
-#clippy-shell.is-studious .cl-body { filter: hue-rotate(-30deg) saturate(1.2) brightness(1.05); }
-
-/* STRATEGIST — darker purple-indigo */
-#clippy-shell.is-strategist .cl-body { filter: hue-rotate(-40deg) saturate(1.3) brightness(0.95); }
-
-/* ORGANIZED — soft teal */
-#clippy-shell.is-organized .cl-body { filter: hue-rotate(30deg) saturate(1.1) brightness(1.05); }
-
-/* CONFUSED — slightly desaturated */
-#clippy-shell.is-confused .cl-body { filter: saturate(0.8) brightness(0.95); }
-
-/* SLEEPY / TIRED — dimmed everything */
-#clippy-shell.is-sleeping .cl-body,
-#clippy-shell.is-sleepy .cl-body { filter: saturate(0.6) brightness(0.7); }
-
-/* DIZZY — saturated wild */
-#clippy-shell.is-dizzy .cl-body { filter: hue-rotate(60deg) saturate(1.5) brightness(1.05); }
-
-/* TIPSY — happy pink-red */
-#clippy-shell.is-tipsy .cl-body { filter: hue-rotate(170deg) saturate(1.4) brightness(1.12); }
-
-/* SINGING / SINGING_STAR — joyful gold */
-#clippy-shell.is-singing .cl-body,
-#clippy-shell.is-singing-star .cl-body { filter: hue-rotate(150deg) saturate(1.5) brightness(1.12); }
-
-/* DROOLING — happy-but-weird soft pink */
-#clippy-shell.is-drooling .cl-body { filter: hue-rotate(180deg) saturate(1.3) brightness(1.1); }
-
-/* SHOCKED / GASP / STUNNED / MORTIFIED — pale white-ish */
-#clippy-shell.is-shocked .cl-body,
-#clippy-shell.is-gasp .cl-body,
-#clippy-shell.is-stunned .cl-body,
-#clippy-shell.is-mortified .cl-body { filter: saturate(0.4) brightness(1.15); }
-
-/* EYE-ROLL — slightly mocking grey */
-#clippy-shell.is-eye-roll .cl-body { filter: saturate(0.65) brightness(0.9); }
-
-/* DETERMINED / THINKING / SUSPICIOUS — focused cool */
-#clippy-shell.is-determined .cl-body,
-#clippy-shell.is-thinking .cl-body { filter: saturate(1.1) brightness(0.97); }
-
-/* ════════════════════════════════════════════════════════════════════
    v17.19 GAMES UI — full-screen game overlay
    ════════════════════════════════════════════════════════════════════ */
 
@@ -2000,4 +1907,282 @@
 @keyframes highScorePulse {
   from { opacity: 0.7; transform: scale(1); }
   to   { opacity: 1;   transform: scale(1.05); }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.20 MOOD-REACTIVE HALO LIGHT — only the GLOW around him shifts
+   color based on mood. The body stays its standard blue. The halo
+   (outer drop-shadow on the shell + halo gradient opacity) is what
+   reflects emotion. Like a mood ring around him, not changing him.
+   ════════════════════════════════════════════════════════════════════ */
+
+#clippy-shell {
+  transition: filter 1.4s ease;
+}
+
+/* HAPPY family — warm gold glow */
+#clippy-shell.is-happy,
+#clippy-shell.is-laughing,
+#clippy-shell.is-bunny { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 12px rgba(255, 216, 112, 0.7)); }
+
+/* EXCITED / SUPER_EXCITED / SPARKLE / PROUD — bright triumphant gold */
+#clippy-shell.is-excited,
+#clippy-shell.is-super-excited,
+#clippy-shell.is-sparkle,
+#clippy-shell.is-proud { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 18px rgba(255, 216, 112, 0.9)) drop-shadow(0 0 28px rgba(255, 180, 50, 0.5)); }
+
+/* LOVE family — pink glow */
+#clippy-shell.is-love,
+#clippy-shell.is-smitten,
+#clippy-shell.is-kissy,
+#clippy-shell.is-bashful,
+#clippy-shell.is-embarrassed { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 14px rgba(255, 138, 204, 0.75)); }
+
+/* SAD family — cool muted blue glow */
+#clippy-shell.is-sad,
+#clippy-shell.is-melancholy,
+#clippy-shell.is-disappointed,
+#clippy-shell.is-peeved,
+#clippy-shell.is-worried { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 10px rgba(93, 122, 168, 0.55)); }
+
+/* DEEP SAD — barely visible glow */
+#clippy-shell.is-crying,
+#clippy-shell.is-sobbing,
+#clippy-shell.is-wailing { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 8px rgba(110, 112, 144, 0.4)); }
+
+/* ANGRY — red glow */
+#clippy-shell.is-angry,
+#clippy-shell.is-frustrated { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 14px rgba(255, 70, 90, 0.75)); }
+
+/* DISGUSTED — sickly green-grey glow */
+#clippy-shell.is-disgusted { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 10px rgba(140, 180, 100, 0.55)); }
+
+/* GENIUS — bright cyan glow */
+#clippy-shell.is-genius { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 16px rgba(125, 240, 255, 0.85)) drop-shadow(0 0 28px rgba(125, 240, 255, 0.4)); }
+
+/* STUDIOUS — soft purple glow */
+#clippy-shell.is-studious { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 12px rgba(180, 130, 220, 0.65)); }
+
+/* STRATEGIST — deep indigo glow */
+#clippy-shell.is-strategist { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 12px rgba(130, 110, 200, 0.65)); }
+
+/* ORGANIZED — soft teal glow */
+#clippy-shell.is-organized { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 12px rgba(100, 200, 200, 0.65)); }
+
+/* TIPSY — happy pink-red glow */
+#clippy-shell.is-tipsy { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 14px rgba(255, 130, 170, 0.75)); }
+
+/* SINGING — joyful gold + pink glow */
+#clippy-shell.is-singing,
+#clippy-shell.is-singing-star { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 14px rgba(255, 200, 130, 0.75)); }
+
+/* DROOLING — soft pink glow */
+#clippy-shell.is-drooling { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 12px rgba(255, 170, 200, 0.7)); }
+
+/* SLEEPY family — barely-there dim glow */
+#clippy-shell.is-sleeping,
+#clippy-shell.is-sleepy { filter: drop-shadow(0 4px 8px rgba(0,0,0,0.3)) drop-shadow(0 0 6px rgba(150, 160, 180, 0.3)); }
+
+/* DIZZY — wild yellow-green glow */
+#clippy-shell.is-dizzy { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 14px rgba(200, 230, 100, 0.75)); }
+
+/* SHOCK family — bright white-ish glow */
+#clippy-shell.is-shocked,
+#clippy-shell.is-gasp,
+#clippy-shell.is-stunned,
+#clippy-shell.is-mortified { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 14px rgba(255, 255, 240, 0.85)); }
+
+/* CONFUSED — slightly dim cyan glow */
+#clippy-shell.is-confused { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 10px rgba(125, 200, 220, 0.55)); }
+
+/* CONDESCENDING — cool authoritative purple glow */
+#clippy-shell.is-condescending { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 12px rgba(160, 120, 200, 0.7)); }
+
+/* THINKING / DETERMINED — focused cyan */
+#clippy-shell.is-thinking,
+#clippy-shell.is-determined { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 11px rgba(125, 240, 255, 0.5)); }
+
+/* EYE-ROLL — mocking grey-blue */
+#clippy-shell.is-eye-roll { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45)) drop-shadow(0 0 10px rgba(140, 150, 170, 0.5)); }
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.20 CONDESCENDING — face composition for "smug lesson" mode
+   ════════════════════════════════════════════════════════════════════ */
+
+#clippy-shell.is-condescending .cl-eyes-default    { opacity: 0; }
+#clippy-shell.is-condescending .cl-eyes-condescend { opacity: 1; }
+#clippy-shell.is-condescending .cl-mouth-smile     { opacity: 0; }
+#clippy-shell.is-condescending .cl-mouth-cat       { opacity: 1; }
+
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.20 MEMORY DEX — Pokemon-style grid of collected memory types
+   ════════════════════════════════════════════════════════════════════ */
+
+.clippy-dex-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(10, 12, 24, 0.94);
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 16px;
+  overflow-y: auto;
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  color: #fffef6;
+  opacity: 0;
+  transition: opacity 280ms ease;
+}
+.clippy-dex-overlay.is-visible { opacity: 1; }
+
+.clippy-dex-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  color: #d4a44e;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.clippy-dex-headline {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 22px;
+}
+.clippy-dex-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 10px;
+  width: 100%;
+  max-width: 720px;
+  padding: 8px;
+}
+.clippy-dex-card {
+  background: rgba(255, 254, 246, 0.04);
+  border: 1.5px solid rgba(212, 164, 78, 0.4);
+  border-radius: 12px;
+  padding: 12px 8px;
+  text-align: center;
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+.clippy-dex-card.is-collected {
+  background: rgba(212, 164, 78, 0.12);
+  border-color: #d4a44e;
+}
+.clippy-dex-card.is-rare {
+  background: linear-gradient(135deg, rgba(212, 164, 78, 0.18), rgba(125, 240, 255, 0.12));
+  border-color: #7df0ff;
+  box-shadow: 0 0 12px rgba(125, 240, 255, 0.3);
+}
+.clippy-dex-card-glyph { font-size: 28px; margin-bottom: 6px; }
+.clippy-dex-card-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: rgba(255, 254, 246, 0.85);
+  text-transform: uppercase;
+}
+.clippy-dex-card-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 16px;
+  font-weight: 700;
+  color: #d4a44e;
+  margin-top: 4px;
+}
+.clippy-dex-card:not(.is-collected) {
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+
+.clippy-dex-bond {
+  background: rgba(212, 164, 78, 0.12);
+  border: 1.5px solid #d4a44e;
+  border-radius: 14px;
+  padding: 18px 22px;
+  margin: 8px auto 22px;
+  text-align: center;
+  max-width: 360px;
+}
+.clippy-dex-bond-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: rgba(255, 254, 246, 0.6);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.clippy-dex-bond-level {
+  font-size: 28px;
+  font-weight: 800;
+  color: #d4a44e;
+  margin-bottom: 8px;
+}
+.clippy-dex-bond-bar {
+  width: 100%;
+  height: 10px;
+  background: rgba(255, 254, 246, 0.1);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.clippy-dex-bond-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #d4a44e, #ffd870);
+  transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   v17.21 MINI TRAJAN GAME TARGET — the actual orb is the click target.
+   Wraps the full SVG markup (body, eyes, mouth, nodes, halo, shadow).
+   Scaled to game size. Fully expressive — mood classes can apply here
+   too via the mini-shell wrapper.
+   ════════════════════════════════════════════════════════════════════ */
+
+.clippy-mini-shell {
+  position: absolute;
+  width: 100px;
+  height: 100px;
+  cursor: pointer;
+  user-select: none;
+  transition: top 80ms ease-out, left 80ms ease-out, transform 140ms ease;
+  filter: drop-shadow(0 0 14px rgba(125, 240, 255, 0.55)) drop-shadow(0 4px 10px rgba(0,0,0,0.45));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.clippy-mini-shell svg {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.clippy-mini-shell:hover { transform: scale(1.05); }
+.clippy-mini-shell.is-pop {
+  animation: miniOrbPop 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes miniOrbPop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(0.78); }
+  100% { transform: scale(1); }
+}
+
+/* Mood states on mini-shell — same classes as main shell, glow differently */
+.clippy-mini-shell.is-go    { filter: drop-shadow(0 0 20px rgba(95, 255, 138, 0.95)) drop-shadow(0 4px 10px rgba(0,0,0,0.45)); }
+.clippy-mini-shell.is-wait  { filter: drop-shadow(0 0 14px rgba(255, 85, 119, 0.7)) drop-shadow(0 4px 10px rgba(0,0,0,0.45)); }
+.clippy-mini-shell.is-genius { filter: drop-shadow(0 0 16px rgba(125, 240, 255, 0.85)) drop-shadow(0 4px 10px rgba(0,0,0,0.45)); }
+.clippy-mini-shell.is-proud { filter: drop-shadow(0 0 18px rgba(255, 216, 112, 0.85)) drop-shadow(0 4px 10px rgba(0,0,0,0.45)); }
+
+/* Memory cells in Memory game — use mini-orb but flash colors */
+.clippy-mini-shell.is-flash-r { filter: drop-shadow(0 0 18px rgba(255, 85, 119, 0.9)) drop-shadow(0 4px 10px rgba(0,0,0,0.45)); transform: scale(1.1); }
+.clippy-mini-shell.is-flash-g { filter: drop-shadow(0 0 18px rgba(95, 255, 138, 0.9)) drop-shadow(0 4px 10px rgba(0,0,0,0.45)); transform: scale(1.1); }
+.clippy-mini-shell.is-flash-b { filter: drop-shadow(0 0 18px rgba(76, 182, 255, 0.9)) drop-shadow(0 4px 10px rgba(0,0,0,0.45)); transform: scale(1.1); }
+.clippy-mini-shell.is-flash-y { filter: drop-shadow(0 0 18px rgba(255, 216, 112, 0.9)) drop-shadow(0 4px 10px rgba(0,0,0,0.45)); transform: scale(1.1); }
+
+.clippy-mini-shell.is-tapped {
+  animation: miniOrbTapped 280ms ease;
+}
+@keyframes miniOrbTapped {
+  0%   { transform: scale(1) rotate(0); }
+  35%  { transform: scale(0.7) rotate(-4deg); }
+  70%  { transform: scale(1.12) rotate(2deg); }
+  100% { transform: scale(1) rotate(0); }
 }
