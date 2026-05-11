@@ -45,6 +45,13 @@
   <circle class="cl-halo" cx="100" cy="100" r="92" fill="url(#orb-halo)"/>
 
   <circle class="cl-body" cx="100" cy="100" r="58" fill="url(#orb-body)"/>
+  <!-- v17.23 Back-of-head detail — only visible when sulking. Small
+       dark crescent + dim glint suggests "this is the back of the orb." -->
+  <g class="cl-back-tuft">
+    <path d="M 78 84 Q 100 70 122 84 Q 100 78 78 84 Z" fill="#0a1840" opacity="0.55"/>
+    <ellipse cx="95" cy="98" rx="3" ry="1.4" fill="#1a2860" opacity="0.6"/>
+    <ellipse cx="105" cy="98" rx="3" ry="1.4" fill="#1a2860" opacity="0.6"/>
+  </g>
 
   <g class="cl-face" clip-path="url(#orb-clip)">
     <ellipse class="cl-cheek cl-cheek-l" cx="73" cy="120" rx="11" ry="5.2" fill="url(#cheek-grad)"/>
@@ -272,6 +279,19 @@
       <circle cx="117" cy="104" r="13" fill="none" stroke="#04124a" stroke-width="1.6" opacity="0.85"/>
       <line x1="96" y1="104" x2="104" y2="104" stroke="#04124a" stroke-width="1.6"/>
     </g>
+    <g class="cl-eyes-condescend">
+      <!-- Half-lidded SUPERIOR look. Raised inner brows = haughty.
+           Smug little eyes peeking through narrow slits. -->
+      <path d="M 70 100 Q 82 102 92 100" stroke="#04124a" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+      <path d="M 108 100 Q 118 102 130 100" stroke="#04124a" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+      <ellipse cx="83" cy="106" rx="3.4" ry="2.4" fill="#04124a"/>
+      <ellipse cx="117" cy="106" rx="3.4" ry="2.4" fill="#04124a"/>
+      <circle cx="82" cy="105.5" r="1" fill="#ffffff"/>
+      <circle cx="116" cy="105.5" r="1" fill="#ffffff"/>
+      <!-- Smug raised-inner-brow line -->
+      <path d="M 86 89 Q 92 92 96 91" stroke="#04124a" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <path d="M 114 89 Q 108 92 104 91" stroke="#04124a" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </g>
 
   </g>
 
@@ -377,4 +397,215 @@
     <path d="M 135 118 Q 140 113 135 110 Q 130 113 135 118 Z" fill="#ff80a0"/>
     <path d="M 130 122 Q 135 117 130 114 Q 125 117 130 122 Z" fill="#ff80a0"/>
   </g>
+
+  <!-- v17.25 COSTUMES (head-worn) — all hidden by default, shown via mood class -->
+  <g class="cl-costume-laurel">
+    <!-- Roman laurel crown of victory — green leaves wrapping the head -->
+    <path d="M 56 62 Q 50 50 58 42 Q 64 48 62 58 Z" fill="#4a7c3a" stroke="#2d5020" stroke-width="0.8"/>
+    <path d="M 68 50 Q 64 38 72 32 Q 78 40 74 50 Z" fill="#588a45" stroke="#2d5020" stroke-width="0.8"/>
+    <path d="M 82 42 Q 80 30 90 26 Q 94 36 88 44 Z" fill="#4a7c3a" stroke="#2d5020" stroke-width="0.8"/>
+    <path d="M 118 42 Q 120 30 110 26 Q 106 36 112 44 Z" fill="#4a7c3a" stroke="#2d5020" stroke-width="0.8"/>
+    <path d="M 132 50 Q 136 38 128 32 Q 122 40 126 50 Z" fill="#588a45" stroke="#2d5020" stroke-width="0.8"/>
+    <path d="M 144 62 Q 150 50 142 42 Q 136 48 138 58 Z" fill="#4a7c3a" stroke="#2d5020" stroke-width="0.8"/>
+    <!-- Tiny gold berries -->
+    <circle cx="76" cy="42" r="2" fill="#d4a44e"/>
+    <circle cx="100" cy="32" r="2.5" fill="#d4a44e"/>
+    <circle cx="124" cy="42" r="2" fill="#d4a44e"/>
+  </g>
+  <g class="cl-costume-helmet">
+    <!-- Roman gladiator/legionary helmet (galea) — bronze with red crest -->
+    <path d="M 50 70 Q 50 36 100 30 Q 150 36 150 70 L 144 76 Q 100 60 56 76 Z" fill="#a87832" stroke="#5a4018" stroke-width="1.2"/>
+    <!-- Bronze brow band -->
+    <rect x="56" y="70" width="88" height="8" fill="#7a5818" stroke="#5a4018" stroke-width="0.8"/>
+    <!-- Red horsehair crest on top -->
+    <path d="M 92 30 Q 100 12 108 30 L 106 36 Q 100 26 94 36 Z" fill="#c62a4a" stroke="#7a1828" stroke-width="0.8"/>
+    <path d="M 90 26 L 110 26" stroke="#c62a4a" stroke-width="3"/>
+    <!-- Side cheek-guards -->
+    <path d="M 54 70 Q 50 86 60 90 L 64 76 Z" fill="#a87832" stroke="#5a4018" stroke-width="0.8"/>
+    <path d="M 146 70 Q 150 86 140 90 L 136 76 Z" fill="#a87832" stroke="#5a4018" stroke-width="0.8"/>
+    <!-- Bronze rivets -->
+    <circle cx="64" cy="74" r="1.5" fill="#5a4018"/>
+    <circle cx="100" cy="68" r="1.5" fill="#5a4018"/>
+    <circle cx="136" cy="74" r="1.5" fill="#5a4018"/>
+  </g>
+  <g class="cl-costume-party-hat">
+    <!-- Cone party hat with pom-pom -->
+    <path d="M 80 60 L 100 18 L 120 60 Z" fill="#ff5577" stroke="#1a1a1a" stroke-width="1.4"/>
+    <!-- Zigzag pattern -->
+    <path d="M 85 50 L 92 46 L 99 50 L 106 46 L 113 50 L 115 54 L 109 56 L 102 52 L 95 56 L 88 52 L 86 56 Z" fill="#ffd870" opacity="0.95"/>
+    <!-- Pom-pom on top -->
+    <circle cx="100" cy="18" r="6" fill="#fffef6" stroke="#1a1a1a" stroke-width="1.2"/>
+    <circle cx="98" cy="16" r="2" fill="#ffffff"/>
+    <circle cx="102" cy="20" r="2" fill="#ffffff"/>
+    <!-- Hat band -->
+    <rect x="80" y="56" width="40" height="4" fill="#7df0ff" stroke="#1a1a1a" stroke-width="0.6"/>
+  </g>
+  <g class="cl-costume-scholar-cap">
+    <!-- Scholar's mortarboard with tassel -->
+    <rect x="62" y="55" width="76" height="8" fill="#1a1530" stroke="#000" stroke-width="0.8"/>
+    <polygon points="55,55 100,40 145,55 100,60" fill="#1a1530" stroke="#000" stroke-width="1.2"/>
+    <!-- Tassel -->
+    <line x1="145" y1="48" x2="158" y2="78" stroke="#d4a44e" stroke-width="1.4"/>
+    <circle cx="158" cy="78" r="4" fill="#d4a44e"/>
+    <path d="M 156 80 L 156 86 M 158 80 L 158 87 M 160 80 L 160 86" stroke="#a07820" stroke-width="0.8"/>
+  </g>
+
+  <!-- v17.25 PROPS — held items. Positioned off to the side of the orb. -->
+  <g class="cl-prop-broom">
+    <!-- Roman broom (modeled like a hand-broom). Stick + straw head. -->
+    <!-- Stick — angled down-right -->
+    <line x1="156" y1="92" x2="184" y2="156" stroke="#6b4f1f" stroke-width="3.2" stroke-linecap="round"/>
+    <!-- Straw bundle -->
+    <path d="M 178 142 L 198 138 L 200 156 L 180 162 Z" fill="#d4a44e" stroke="#7a5828" stroke-width="1"/>
+    <!-- Straw lines -->
+    <line x1="182" y1="142" x2="186" y2="160" stroke="#7a5828" stroke-width="0.6"/>
+    <line x1="186" y1="141" x2="190" y2="160" stroke="#7a5828" stroke-width="0.6"/>
+    <line x1="190" y1="140" x2="194" y2="159" stroke="#7a5828" stroke-width="0.6"/>
+    <line x1="194" y1="139" x2="197" y2="158" stroke="#7a5828" stroke-width="0.6"/>
+    <!-- Binding rope -->
+    <ellipse cx="178" cy="144" rx="2.5" ry="6" fill="#3a2818"/>
+  </g>
+  <g class="cl-prop-book">
+    <!-- Roman scroll-book hybrid (codex). Open, two pages. -->
+    <!-- Page backings -->
+    <path d="M 40 124 L 100 122 L 100 160 L 38 162 Z" fill="#f5ecd5" stroke="#7a6028" stroke-width="1.2"/>
+    <path d="M 100 122 L 160 124 L 162 162 L 100 160 Z" fill="#f5ecd5" stroke="#7a6028" stroke-width="1.2"/>
+    <!-- Center spine shadow -->
+    <line x1="100" y1="122" x2="100" y2="160" stroke="#7a6028" stroke-width="1"/>
+    <!-- Text lines (Lorem-style scribbles) -->
+    <line x1="48" y1="132" x2="92" y2="131" stroke="#3a2818" stroke-width="0.9"/>
+    <line x1="48" y1="138" x2="88" y2="137" stroke="#3a2818" stroke-width="0.9"/>
+    <line x1="48" y1="144" x2="90" y2="143" stroke="#3a2818" stroke-width="0.9"/>
+    <line x1="48" y1="150" x2="84" y2="149" stroke="#3a2818" stroke-width="0.9"/>
+    <line x1="108" y1="132" x2="154" y2="133" stroke="#3a2818" stroke-width="0.9"/>
+    <line x1="108" y1="138" x2="152" y2="139" stroke="#3a2818" stroke-width="0.9"/>
+    <line x1="108" y1="144" x2="150" y2="145" stroke="#3a2818" stroke-width="0.9"/>
+    <line x1="108" y1="150" x2="148" y2="151" stroke="#3a2818" stroke-width="0.9"/>
+    <!-- Decorative initial capital -->
+    <text x="50" y="129" font-family="serif" font-size="6" fill="#c62a4a" font-weight="bold">A</text>
+    <text x="108" y="129" font-family="serif" font-size="6" fill="#c62a4a" font-weight="bold">B</text>
+  </g>
+  <g class="cl-prop-scroll">
+    <!-- Unrolled scroll diagonally -->
+    <!-- Rolled ends -->
+    <ellipse cx="42" cy="140" rx="6" ry="14" fill="#d4b87a" stroke="#7a6028" stroke-width="1.2"/>
+    <ellipse cx="162" cy="140" rx="6" ry="14" fill="#d4b87a" stroke="#7a6028" stroke-width="1.2"/>
+    <!-- Parchment middle -->
+    <rect x="42" y="126" width="120" height="28" fill="#f5ecd5" stroke="#7a6028" stroke-width="1"/>
+    <!-- Text scribbles -->
+    <line x1="52" y1="134" x2="152" y2="134" stroke="#3a2818" stroke-width="0.8"/>
+    <line x1="52" y1="140" x2="148" y2="140" stroke="#3a2818" stroke-width="0.8"/>
+    <line x1="52" y1="146" x2="150" y2="146" stroke="#3a2818" stroke-width="0.8"/>
+    <!-- Red seal -->
+    <circle cx="142" cy="148" r="3" fill="#c62a4a"/>
+  </g>
+
+  <!-- v17.27 CONQUEROR HATS — 5 new alter-ego head items.
+       Hidden by default; shown via shell class `wear-{name}`. -->
+
+  <g class="cl-costume-bicorne">
+    <!-- Napoleon's bicorne — sideways crescent shape, dark navy, gold trim -->
+    <!-- Lower brim/band -->
+    <path d="M 36 64 Q 100 50 164 64 L 158 72 Q 100 60 42 72 Z"
+          fill="#1a1f3a" stroke="#000" stroke-width="1.2"/>
+    <!-- Upper crescent (the iconic bicorne shape) -->
+    <path d="M 32 58 Q 100 16 168 58 Q 158 36 100 30 Q 42 36 32 58 Z"
+          fill="#1a1f3a" stroke="#000" stroke-width="1.4"/>
+    <!-- Inner highlight -->
+    <path d="M 40 56 Q 100 24 160 56 Q 154 42 100 38 Q 46 42 40 56 Z"
+          fill="#2a3050" opacity="0.6"/>
+    <!-- Gold trim along brim -->
+    <path d="M 36 64 Q 100 50 164 64" stroke="#d4a44e" stroke-width="1.6" fill="none"/>
+    <!-- Cockade (tricolor rosette) on left peak -->
+    <circle cx="46" cy="48" r="5" fill="#1a4ea0"/>
+    <circle cx="46" cy="48" r="3.5" fill="#fffef6"/>
+    <circle cx="46" cy="48" r="2" fill="#c62a4a"/>
+  </g>
+
+  <g class="cl-costume-mongol">
+    <!-- Genghis Khan Mongol warrior cap — tall pointed with fur trim -->
+    <!-- Body of cap -->
+    <path d="M 60 64 L 64 28 Q 100 16 136 28 L 140 64 Z"
+          fill="#5a3818" stroke="#2a1808" stroke-width="1.4"/>
+    <!-- Pointed top with finial -->
+    <path d="M 100 16 L 96 8 L 100 4 L 104 8 Z" fill="#c0a040" stroke="#7a5818" stroke-width="0.8"/>
+    <!-- Fur trim around base -->
+    <path d="M 56 60 Q 100 78 144 60 L 142 70 Q 100 86 58 70 Z"
+          fill="#fffef6" stroke="#888" stroke-width="0.6"/>
+    <!-- Fur texture lines -->
+    <line x1="62" y1="64" x2="64" y2="74" stroke="#aaa" stroke-width="0.8"/>
+    <line x1="78" y1="68" x2="80" y2="78" stroke="#aaa" stroke-width="0.8"/>
+    <line x1="100" y1="70" x2="100" y2="80" stroke="#aaa" stroke-width="0.8"/>
+    <line x1="120" y1="68" x2="118" y2="78" stroke="#aaa" stroke-width="0.8"/>
+    <line x1="138" y1="64" x2="134" y2="74" stroke="#aaa" stroke-width="0.8"/>
+    <!-- Central gold medallion -->
+    <circle cx="100" cy="46" r="6" fill="#d4a44e" stroke="#7a5818" stroke-width="1"/>
+    <circle cx="100" cy="46" r="2.5" fill="#2a1808"/>
+  </g>
+
+  <g class="cl-costume-macedonian">
+    <!-- Alexander's Macedonian/Greek helm with side plumes -->
+    <!-- Helmet body — rounder than Roman -->
+    <path d="M 52 70 Q 50 32 100 26 Q 150 32 148 70 L 142 76 Q 100 60 58 76 Z"
+          fill="#c0a040" stroke="#5a4018" stroke-width="1.2"/>
+    <!-- Bronze ridge along center -->
+    <line x1="100" y1="26" x2="100" y2="64" stroke="#7a5818" stroke-width="2"/>
+    <!-- Nose-guard (Greek style) -->
+    <path d="M 96 60 L 96 78 L 100 84 L 104 78 L 104 60 Z" fill="#a08020" stroke="#5a4018" stroke-width="0.8"/>
+    <!-- Side plumes — white/red horsehair -->
+    <path d="M 50 50 Q 30 40 24 60 Q 28 58 36 56 Q 44 58 50 56 Z" fill="#fffef6" stroke="#888" stroke-width="0.6"/>
+    <path d="M 150 50 Q 170 40 176 60 Q 172 58 164 56 Q 156 58 150 56 Z" fill="#fffef6" stroke="#888" stroke-width="0.6"/>
+    <!-- Plume bases (red base) -->
+    <ellipse cx="50" cy="50" rx="4" ry="3" fill="#c62a4a"/>
+    <ellipse cx="150" cy="50" rx="4" ry="3" fill="#c62a4a"/>
+    <!-- Decorative bronze nubs -->
+    <circle cx="68" cy="68" r="1.4" fill="#7a5818"/>
+    <circle cx="132" cy="68" r="1.4" fill="#7a5818"/>
+  </g>
+
+  <g class="cl-costume-carthaginian">
+    <!-- Hannibal's Carthaginian helm — Phrygian-style, pointed top, cheek-guards -->
+    <!-- Main body with forward-curving point -->
+    <path d="M 56 70 Q 54 38 100 30 Q 124 32 130 26 Q 136 32 140 50 Q 144 64 144 70 L 138 76 Q 100 60 60 76 Z"
+          fill="#7a5028" stroke="#3a2010" stroke-width="1.2"/>
+    <!-- Forward-curve highlight -->
+    <path d="M 126 28 Q 142 36 144 50" stroke="#c0a040" stroke-width="2.4" fill="none"/>
+    <!-- Brow band -->
+    <rect x="60" y="68" width="80" height="6" fill="#5a3818" stroke="#3a2010" stroke-width="0.6"/>
+    <!-- Cheek guards (longer than Roman) -->
+    <path d="M 58 70 Q 52 92 64 96 L 70 76 Z" fill="#7a5028" stroke="#3a2010" stroke-width="0.8"/>
+    <path d="M 142 70 Q 148 92 136 96 L 130 76 Z" fill="#7a5028" stroke="#3a2010" stroke-width="0.8"/>
+    <!-- Bronze ornament (Tanit symbol stylized) -->
+    <circle cx="100" cy="50" r="5" fill="#c0a040" stroke="#3a2010" stroke-width="0.8"/>
+    <rect x="96.5" y="45" width="7" height="2" fill="#c0a040"/>
+    <!-- Small purple/violet feather (Carthaginian color) -->
+    <path d="M 86 32 Q 76 22 78 14 Q 84 18 88 28 Z" fill="#5a2860" stroke="#2a1030" stroke-width="0.6"/>
+  </g>
+
+  <g class="cl-costume-nemes">
+    <!-- Cleopatra's nemes — Egyptian striped headdress with uraeus snake -->
+    <!-- Outer headdress shape (drapes down sides) -->
+    <path d="M 44 60 Q 50 30 100 22 Q 150 30 156 60 L 150 96 Q 146 100 138 98 L 134 80 L 128 96 Q 100 94 72 96 L 66 80 L 62 98 Q 54 100 50 96 Z"
+          fill="#d4a44e" stroke="#5a4018" stroke-width="1.4"/>
+    <!-- Iconic blue/gold stripes on the side flaps -->
+    <line x1="52" y1="66" x2="56" y2="98" stroke="#1a3e7a" stroke-width="3"/>
+    <line x1="58" y1="62" x2="62" y2="98" stroke="#d4a44e" stroke-width="3"/>
+    <line x1="64" y1="60" x2="68" y2="98" stroke="#1a3e7a" stroke-width="3"/>
+    <line x1="132" y1="60" x2="136" y2="98" stroke="#1a3e7a" stroke-width="3"/>
+    <line x1="138" y1="62" x2="142" y2="98" stroke="#d4a44e" stroke-width="3"/>
+    <line x1="144" y1="66" x2="148" y2="98" stroke="#1a3e7a" stroke-width="3"/>
+    <!-- Center blue band on forehead -->
+    <path d="M 60 60 Q 100 50 140 60" stroke="#1a3e7a" stroke-width="3" fill="none"/>
+    <!-- URAEUS — cobra on the brow -->
+    <!-- Cobra hood -->
+    <path d="M 94 42 Q 100 30 106 42 Q 104 36 100 34 Q 96 36 94 42 Z" fill="#1a8050" stroke="#0a4020" stroke-width="0.8"/>
+    <!-- Cobra body curling down to brow -->
+    <path d="M 100 42 Q 96 50 100 56" stroke="#1a8050" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <!-- Cobra eyes -->
+    <circle cx="97" cy="38" r="0.8" fill="#c62a4a"/>
+    <circle cx="103" cy="38" r="0.8" fill="#c62a4a"/>
+    <!-- Gold uraeus base -->
+    <ellipse cx="100" cy="56" rx="3" ry="1.4" fill="#d4a44e" stroke="#5a4018" stroke-width="0.6"/>
+  </g>
+
 </svg>
