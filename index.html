@@ -54,6 +54,8 @@
      so it wins over the older equipment-public-* stylesheets without
      editing them). Scoped via body.public-view + the .public-* classes. -->
 <link rel="stylesheet" href="css/public-views.css">
+<!-- NEXUS · R&M — single stylesheet for inbox, detail, vendors, pm, money, brief -->
+<link rel="stylesheet" href="css/nexus-rm.css">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0a0a0c">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1338,6 +1340,12 @@
     <button class="nav-tab" data-view="education" title="Education"><i data-lucide="book-open" class="nav-icon"></i> <span>Education</span></button>
     <button class="nav-tab" data-view="train" data-perm="train" title="Training" hidden style="display:none"><i data-lucide="graduation-cap" class="nav-icon"></i> <span data-i18n="training">Training</span><span class="nav-tab-badge" id="navTrainBadge" aria-hidden="true" hidden></span></button>
     <button class="nav-tab" data-view="inventory" data-perm="inventory" title="Inventory"><i data-lucide="boxes" class="nav-icon"></i> <span data-i18n="inventory">Inventory</span></button>
+    <!-- NEXUS · R&M — Brief / Issues / Spend / Vendors / PM -->
+    <button class="nav-tab" data-view="brief"   data-perm="equipment" title="Daily Brief"><i data-lucide="sun"            class="nav-icon"></i> <span>Brief</span></button>
+    <button class="nav-tab" data-view="issues"  data-perm="equipment" title="Work Orders"><i data-lucide="alert-triangle" class="nav-icon"></i> <span>Issues</span></button>
+    <button class="nav-tab" data-view="spend"   data-perm="equipment" title="Spend"><i data-lucide="dollar-sign"            class="nav-icon"></i> <span>Spend</span></button>
+    <button class="nav-tab" data-view="vendors" data-perm="equipment" title="Vendors"><i data-lucide="hard-hat"             class="nav-icon"></i> <span>Vendors</span></button>
+    <button class="nav-tab" data-view="pm"      data-perm="equipment" title="PM Schedules"><i data-lucide="calendar-clock"  class="nav-icon"></i> <span>PM</span></button>
   </div>
   <button class="nav-more" id="navMore" title="More"><i data-lucide="menu" class="nav-icon"></i></button>
 </nav>
@@ -1569,6 +1577,13 @@
 
   <!-- INVENTORY (Phase A — placeholder for the real module that arrives in Phase B/C) -->
   <div class="view" id="inventoryView" data-view="inventory"></div>
+
+  <!-- NEXUS · R&M — view containers (modules render into these on first show) -->
+  <div class="view" id="briefView"   data-view="brief"></div>
+  <div class="view" id="issuesView"  data-view="issues"></div>
+  <div class="view" id="spendView"   data-view="spend"></div>
+  <div class="view" id="vendorsView" data-view="vendors"></div>
+  <div class="view" id="pmView"      data-view="pm"></div>
 
   <!-- INGEST -->
   <div class="view" id="ingestView" data-view="ingest">
@@ -2940,6 +2955,17 @@
 <script src="js/daily-card.js"></script>
 <script src="js/home.js"></script>
 <script src="js/native-bridge.js"></script>
+
+<!-- NEXUS · R&M — load core.js FIRST (others destructure NXRM.* from it) -->
+<script defer src="js/core.js"></script>
+<script defer src="js/inbox.js"></script>
+<script defer src="js/detail.js"></script>
+<script defer src="js/vendors.js"></script>
+<script defer src="js/pm.js"></script>
+<script defer src="js/money.js"></script>
+<script defer src="js/brief.js"></script>
+<!-- home extension — mounts Trajan's read, R&M tiles, decisions card, work orders, wins onto Home -->
+<script defer src="js/home-rm.js"></script>
 <script>
 // ─── Theme bootstrap ───────────────────────────────────────────────
 // Sets the initial [data-theme] BEFORE any CSS paints, to avoid a
