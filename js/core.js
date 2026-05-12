@@ -625,7 +625,7 @@
 
   const ROUTES = {
     'g h': 'home', 'g b': 'brief',  'g i': 'issues',
-    'g s': 'spend','g v': 'vendors','g p': 'pm-schedules',
+    'g s': 'spend','g v': 'vendors','g p': 'pm',
     'g e': 'equipment','g c': 'board',
   };
 
