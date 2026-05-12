@@ -3,7 +3,7 @@
    ─────────────────────────────────────────────────────────────────────
    Three preventive surfaces, one module:
 
-     §1   /pm-schedules view  — recurring PM with auto-advance
+     §1   /pm view  — recurring PM with auto-advance
      §2   Quick-Create        — one-tap templates (window.NXQuickCreate)
      §3   Troubleshooting     — pre-call wizard (window.NXTroubleshoot)
 
@@ -96,7 +96,7 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  // §1 — /pm-schedules VIEW
+  // §1 — /pm VIEW
   // ─────────────────────────────────────────────────────────────────────
 
   function filteredSchedules() {
@@ -120,7 +120,7 @@
   }
 
   function renderPMView() {
-    const view = NXRM.view.ensure('pmSchedulesView', 'pm-schedules');
+    const view = NXRM.view.ensure('pmView', 'pm');
     const f = state.filter;
     const overdue  = state.schedules.filter(s => s.urgency === 'overdue').length;
     const dueSoon  = state.schedules.filter(s => s.urgency === 'due_soon').length;
@@ -650,8 +650,8 @@
 
   const debouncedReload = NXRM.realtime.debounce(async () => {
     await loadSchedules();
-    if (document.querySelector('#pmSchedulesView')?.classList.contains('active')
-        || document.querySelector('#pmSchedulesView')) {
+    if (document.querySelector('#pmView')?.classList.contains('active')
+        || document.querySelector('#pmView')) {
       renderPMView();
     }
   }, 600);
@@ -665,7 +665,7 @@
 
   const mod = {
     async init() {
-      NXRM.view.ensure('pmSchedulesView', 'pm-schedules');
+      NXRM.view.ensure('pmView', 'pm');
       await Promise.all([loadSchedules(), loadTemplates(), loadTroubleSteps(), loadEquipment()]);
       subscribe();
       state.loaded = true;
@@ -680,7 +680,7 @@
 
   if (window.NX) {
     NX.modules = NX.modules || {};
-    NX.modules['pm-schedules'] = mod;
+    NX.modules.pm = mod;
   }
 
   // ─────────────────────────────────────────────────────────────────────
