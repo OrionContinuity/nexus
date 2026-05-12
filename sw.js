@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v71-clippy-v17-31';
+const CACHE_NAME = 'nexus-v73-rm-home-1';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -222,6 +222,9 @@ const APP_SHELL = [
   './css/education-system.css',
   './css/clippy.css',
 
+  // NEXUS · R&M — single stylesheet for the whole module
+  './css/nexus-rm.css',
+
   // JS — all current modules
   './js/app.js',
   './js/admin.js',
@@ -253,6 +256,16 @@ const APP_SHELL = [
   './js/log.js',
   './js/native-bridge.js',
   './js/translate.js',
+
+  // NEXUS · R&M — 7 modules, core.js must load first
+  './js/core.js',
+  './js/inbox.js',
+  './js/detail.js',
+  './js/vendors.js',
+  './js/pm.js',
+  './js/money.js',
+  './js/brief.js',
+  './js/home-rm.js',
 
   // Data + audio
   './clippy-dialog.json',
