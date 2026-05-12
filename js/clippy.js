@@ -5940,55 +5940,93 @@
     }
 
     // ─── Cheek blush ─────────────────────────────────────────────
-    // Always-on for blue/gold; lighter for silver. Draws after body,
-    // under the eyes, so they sit on the lower-half of the face.
+    // Pink ovals on lower cheeks — chibi signature. Pumped opacity
+    // and slight outer glow so it reads clearly at game sizes.
     if (hue !== 'silver') {
-      ctx.fillStyle = hue === 'gold'
-        ? 'rgba(255, 100, 130, 0.42)'
-        : 'rgba(255, 140, 170, 0.55)';
-      ctx.beginPath(); ctx.ellipse(x - CHEEK_DX, y + CHEEK_DY, CHEEK_RX, CHEEK_RY, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(x + CHEEK_DX, y + CHEEK_DY, CHEEK_RX, CHEEK_RY, 0, 0, Math.PI * 2); ctx.fill();
+      const blushColor = hue === 'gold'
+        ? 'rgba(255, 110, 140, 0.55)'
+        : 'rgba(255, 130, 165, 0.70)';
+      ctx.fillStyle = blushColor;
+      ctx.beginPath(); ctx.ellipse(x - CHEEK_DX, y + CHEEK_DY, CHEEK_RX * 1.05, CHEEK_RY * 1.1, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + CHEEK_DX, y + CHEEK_DY, CHEEK_RX * 1.05, CHEEK_RY * 1.1, 0, 0, Math.PI * 2); ctx.fill();
     }
 
-    // ─── Eyes ────────────────────────────────────────────────────
+    // ─── Eyes — chibi style ──────────────────────────────────────
     const eyeY = y + eyeDY;
     if (eyeShape === 'happy') {
-      // Curved happy arcs ^^
+      // Closed happy curves ^^ — for when overjoyed/excited.
+      // Thicker stroke + slight upward arc so it reads as eyes squinting in joy.
       ctx.strokeStyle = faceColor;
-      ctx.lineWidth = Math.max(1.4, r * 0.10);
+      ctx.lineWidth = Math.max(1.8, r * 0.12);
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.arc(x - EYE_DX, eyeY + r * 0.05, r * 0.17, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.arc(x - EYE_DX, eyeY + r * 0.06, r * 0.19, Math.PI * 1.18, Math.PI * 1.82);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(x + EYE_DX, eyeY + r * 0.05, r * 0.17, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.arc(x + EYE_DX, eyeY + r * 0.06, r * 0.19, Math.PI * 1.18, Math.PI * 1.82);
       ctx.stroke();
     } else if (eyeShape === 'x') {
+      // X eyes — KO'd. Thicker for emphasis.
       ctx.strokeStyle = faceColor;
-      ctx.lineWidth = Math.max(1.4, r * 0.10);
+      ctx.lineWidth = Math.max(1.8, r * 0.12);
       ctx.lineCap = 'round';
       for (const ex of [x - EYE_DX, x + EYE_DX]) {
         ctx.beginPath();
-        ctx.moveTo(ex - r * 0.11, eyeY - r * 0.11);
-        ctx.lineTo(ex + r * 0.11, eyeY + r * 0.11);
-        ctx.moveTo(ex + r * 0.11, eyeY - r * 0.11);
-        ctx.lineTo(ex - r * 0.11, eyeY + r * 0.11);
+        ctx.moveTo(ex - r * 0.12, eyeY - r * 0.12);
+        ctx.lineTo(ex + r * 0.12, eyeY + r * 0.12);
+        ctx.moveTo(ex + r * 0.12, eyeY - r * 0.12);
+        ctx.lineTo(ex - r * 0.12, eyeY + r * 0.12);
         ctx.stroke();
       }
     } else {
-      // Default: small dark dots with white glint
-      const eyeR = r * 0.13;
-      ctx.fillStyle = faceColor;
-      ctx.beginPath(); ctx.arc(x - EYE_DX, eyeY, eyeR, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(x + EYE_DX, eyeY, eyeR, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = glintColor;
-      ctx.beginPath(); ctx.arc(x - EYE_DX + r * 0.05, eyeY - r * 0.05, r * 0.045, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(x + EYE_DX + r * 0.05, eyeY - r * 0.05, r * 0.045, 0, Math.PI * 2); ctx.fill();
+      // ▶ DEFAULT CHIBI SPARKLE EYE ◀
+      // Big tall ovals (taller than wide — the kawaii proportion) with
+      // a large primary glint in the upper-left and a tiny secondary
+      // glint in the lower-right. Matches clippy.svg's eyes-default.
+      const eyeRX = r * 0.15;     // width
+      const eyeRY = r * 0.22;     // height — taller for chibi look
+      for (const dir of [-1, 1]) {
+        const ex = x + EYE_DX * dir;
+        // Dark eye fill
+        ctx.fillStyle = faceColor;
+        ctx.beginPath();
+        ctx.ellipse(ex, eyeY, eyeRX, eyeRY, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Subtle inner blue tint along the bottom — sells the depth.
+        // Skip for silver hue (looks weird).
+        if (hue !== 'silver') {
+          ctx.fillStyle = 'rgba(90, 127, 255, 0.35)';
+          ctx.beginPath();
+          ctx.ellipse(ex, eyeY + eyeRY * 0.45, eyeRX * 0.78, eyeRY * 0.20, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // PRIMARY GLINT — big slanted oval, upper-left of eye
+        ctx.fillStyle = glintColor;
+        ctx.beginPath();
+        ctx.ellipse(
+          ex - eyeRX * 0.32,
+          eyeY - eyeRY * 0.42,
+          eyeRX * 0.46,
+          eyeRY * 0.42,
+          -0.35,             // tilt for sparkle feel
+          0, Math.PI * 2
+        );
+        ctx.fill();
+        // SECONDARY GLINT — small dot, lower-right
+        ctx.beginPath();
+        ctx.arc(
+          ex + eyeRX * 0.32,
+          eyeY + eyeRY * 0.32,
+          Math.max(0.8, eyeRX * 0.22),
+          0, Math.PI * 2
+        );
+        ctx.fill();
+      }
     }
 
     // ─── Mouth ───────────────────────────────────────────────────
     ctx.strokeStyle = faceColor;
-    ctx.lineWidth = Math.max(1.4, r * 0.08);
+    ctx.lineWidth = Math.max(1.6, r * 0.09);
     ctx.lineCap = 'round';
     ctx.beginPath();
     if (mouthShape === 'flat') {
