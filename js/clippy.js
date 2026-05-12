@@ -6085,6 +6085,206 @@
     return handle;
   }
 
+  // ────────────────────────────────────────────────────────────────
+  // v18.4 SHARED JUICE TOOLKIT — game-feel primitives used by every
+  // canvas game. Built around principles from Vlambeer (Nijman, GDC
+  // 2014) and Swink's "Game Feel" (2009):
+  //
+  //   • Screen shake with exponential decay (not linear)
+  //   • Hitstop — freeze simulation 3-6 frames on impact for weight
+  //   • Score flyers — numbers that float up+fade from where points hit
+  //   • Full-screen flash — white/red tint that decays
+  //   • Particle bursts — far more than feels reasonable (Vlambeer: 50+)
+  //
+  // Usage pattern per game:
+  //   const juice = makeJuice(W, H);
+  //   function update(dt) {
+  //     if (juice.update(dt)) return;   // hitstop pauses game logic
+  //     // ... normal update
+  //   }
+  //   function render() {
+  //     ctx.save();
+  //     juice.applyShake(ctx);          // shake translates the world
+  //     // ... draw world
+  //     ctx.restore();
+  //     juice.drawOverlay(ctx);         // flyers + flash above shake
+  //   }
+  //
+  //   juice.shake(intensity)   // intensity ~8-18 typical; auto-decays
+  //   juice.hitstop(frames)    // 3-5 frames typical; pauses update
+  //   juice.flyScore(text, x, y, color?)
+  //   juice.flash(color, alpha, frames)
+  //   juice.particles.push({...}) for ad-hoc bursts
+  // ────────────────────────────────────────────────────────────────
+  function makeJuice(W, H) {
+    return {
+      W, H,
+      shakeAmount: 0,
+      flashColor: '#ffffff',
+      flashAlpha: 0,
+      flyers: [],
+      particles: [],
+      _hitstop: 0,
+
+      shake(intensity) {
+        this.shakeAmount = Math.max(this.shakeAmount, intensity || 8);
+      },
+      hitstop(frames) {
+        this._hitstop = Math.max(this._hitstop, frames || 4);
+      },
+      flyScore(text, x, y, color) {
+        this.flyers.push({
+          text: String(text), x, y,
+          vy: -1.8, vx: (Math.random() - 0.5) * 0.6,
+          life: 38, maxLife: 38,
+          color: color || '#ffd870',
+          size: 28,
+        });
+      },
+      flash(color, alpha, frames) {
+        this.flashColor = color || '#ffffff';
+        this.flashAlpha = Math.max(this.flashAlpha, alpha || 0.5);
+        this._flashLife = frames || 10;
+        this._flashMax  = frames || 10;
+      },
+      burst(x, y, count, opts) {
+        opts = opts || {};
+        const colors = opts.colors || ['#ffd870', '#fffef6', '#ff9a55'];
+        const speed = opts.speed || 3.2;
+        for (let i = 0; i < count; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const v = 0.4 + Math.random() * speed;
+          this.particles.push({
+            x, y,
+            vx: Math.cos(a) * v,
+            vy: Math.sin(a) * v,
+            life: 24 + Math.random() * 26,
+            maxLife: 50,
+            r: 1.5 + Math.random() * 2.4,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            gravity: opts.gravity != null ? opts.gravity : 0.10,
+          });
+        }
+      },
+
+      // Returns true if game logic should be paused (hitstop active).
+      update(dt) {
+        if (this._hitstop > 0) {
+          this._hitstop -= dt;
+          // Still decay shake during hitstop so the freeze feels punchy
+          if (this.shakeAmount > 0) this.shakeAmount *= 0.94;
+          return true;
+        }
+        // Shake decays with exponential easing — feels more natural
+        if (this.shakeAmount > 0.05) this.shakeAmount *= 0.86;
+        else this.shakeAmount = 0;
+        // Flyers
+        for (let i = this.flyers.length - 1; i >= 0; i--) {
+          const f = this.flyers[i];
+          f.y += f.vy * dt;
+          f.x += f.vx * dt;
+          f.vy *= 0.96;
+          f.life -= dt;
+          if (f.life <= 0) this.flyers.splice(i, 1);
+        }
+        // Particles
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+          const p = this.particles[i];
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.vy += p.gravity * dt;
+          p.vx *= 0.985;
+          p.life -= dt;
+          if (p.life <= 0) this.particles.splice(i, 1);
+        }
+        // Flash decay
+        if (this._flashLife > 0) {
+          this._flashLife -= dt;
+          if (this._flashLife <= 0) this.flashAlpha = 0;
+        }
+        return false;
+      },
+
+      applyShake(ctx) {
+        if (this.shakeAmount > 0.1) {
+          const dx = (Math.random() - 0.5) * this.shakeAmount * 2;
+          const dy = (Math.random() - 0.5) * this.shakeAmount * 2;
+          ctx.translate(dx, dy);
+        }
+      },
+
+      drawParticles(ctx) {
+        for (const p of this.particles) {
+          const a = Math.max(0, p.life / p.maxLife);
+          const c = p.color || '#ffd870';
+          if (c[0] === '#') {
+            const v = parseInt(c.slice(1), 16);
+            ctx.fillStyle = 'rgba(' + ((v >> 16) & 255) + ',' + ((v >> 8) & 255) + ',' + (v & 255) + ',' + a.toFixed(2) + ')';
+          } else {
+            ctx.fillStyle = c;
+          }
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      },
+
+      drawOverlay(ctx) {
+        // Flyers (no shake — they're UI)
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (const f of this.flyers) {
+          const a = Math.max(0, f.life / f.maxLife);
+          const sz = f.size || 24;
+          ctx.font = '900 ' + sz + 'px JetBrains Mono, monospace';
+          ctx.strokeStyle = 'rgba(0,0,0,' + (a * 0.85).toFixed(2) + ')';
+          ctx.lineWidth = 4;
+          // Color with alpha
+          const c = f.color;
+          if (c[0] === '#') {
+            const v = parseInt(c.slice(1), 16);
+            ctx.fillStyle = 'rgba(' + ((v >> 16) & 255) + ',' + ((v >> 8) & 255) + ',' + (v & 255) + ',' + a.toFixed(2) + ')';
+          } else { ctx.fillStyle = c; }
+          ctx.strokeText(f.text, f.x, f.y);
+          ctx.fillText(f.text, f.x, f.y);
+        }
+        // Flash
+        if (this.flashAlpha > 0 && this._flashLife > 0) {
+          const a = this.flashAlpha * Math.max(0, this._flashLife / this._flashMax);
+          ctx.fillStyle = this.flashColor;
+          ctx.globalAlpha = a;
+          ctx.fillRect(0, 0, this.W, this.H);
+          ctx.globalAlpha = 1;
+        }
+      },
+    };
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // Medals for Flappy/Cannon-style scoring games. Returns the tier
+  // object or null if score below bronze threshold.
+  // ────────────────────────────────────────────────────────────────
+  function flappyMedalFor(score) {
+    if (score >= 100) return { tier: 'platinum', label: 'Platinum', glyph: '◆', color: '#e0f0ff', edge: '#90b8e0' };
+    if (score >= 50)  return { tier: 'gold',     label: 'Gold',     glyph: '●', color: '#ffe488', edge: '#c89010' };
+    if (score >= 25)  return { tier: 'silver',   label: 'Silver',   glyph: '●', color: '#e8e8ec', edge: '#909098' };
+    if (score >= 10)  return { tier: 'bronze',   label: 'Bronze',   glyph: '●', color: '#e0a060', edge: '#8c5418' };
+    return null;
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // Persistent best-score store for any game. Keyed per-game, per-user.
+  // ────────────────────────────────────────────────────────────────
+  function getBest(gameId) {
+    try {
+      const raw = localStorage.getItem(userKey('clippy_best_' + gameId));
+      return raw ? parseInt(raw, 10) || 0 : 0;
+    } catch (_) { return 0; }
+  }
+  function setBest(gameId, value) {
+    try { localStorage.setItem(userKey('clippy_best_' + gameId), String(value)); } catch (_) {}
+  }
+
   // ════════════════════════════════════════════════════════════════
   // GAME 1: TAP THE ORB — 30s, combo chains, gold bonus orbs
   // ════════════════════════════════════════════════════════════════
@@ -6488,19 +6688,35 @@
     }
   }
 
+
   // ════════════════════════════════════════════════════════════════
-  // GAME 5: FLAPPY TRAJAN — v18.2 full revamp
-  //   • Trajan IS the bird (canvas-drawn with mood-state face cues)
-  //   • Day → sunset → night sky cycle as score climbs
-  //   • Three-layer parallax (mountains + far clouds + near clouds)
-  //   • Trail of fading gold orbs behind Trajan in flight
-  //   • Tap flap = visual puff + wing flick + audio
-  //   • Bonus stars in some gaps (+5 pts each)
-  //   • Combo system: consecutive scored columns build "flow"; milestone
-  //     bursts at 5/10/15... reward the streak
-  //   • Inline restart after death (no overlay teardown)
-  //   • Difficulty curve smoother than v18.0: gap 170→102 over 40 cols,
-  //     speed 2.0→3.6 over 60 cols, spacing 230→160 over 40 cols
+  // GAME 5: FLAPPY TRAJAN — v18.4 overhaul with real game feel
+  //
+  //   Studied: Flappy Bird's feel (Dong Nguyen), Vlambeer screenshake
+  //   talk, Swink's Game Feel book. Concretely applied:
+  //
+  //   PHYSICS (canonical Flappy values, not the soft v18.2 set):
+  //     • GRAVITY = 0.62, FLAP_V = -9.4 — snappy + weighty fall
+  //     • Bird rotates with velocity (banking up + nose-dive down)
+  //
+  //   JUICE (every input has loud feedback):
+  //     • Each scored pillar = "+1" big flyer popping up from pillar
+  //       location + ascending chime per combo level
+  //     • Bonus star = "+5" gold flyer + 18-particle burst + bright flash
+  //     • Combo milestones (5/10/15...) = banner flyer + chord
+  //     • Collision = 5-frame hitstop + shake intensity 16 + 32-particle
+  //       burst + dark red flash. The freeze sells the impact.
+  //     • New best = confetti burst + "NEW BEST!" stencil flyer
+  //
+  //   PROGRESSION (the addiction loop):
+  //     • Persistent best score per user, shown always
+  //     • Medals: bronze 10, silver 25, gold 50, platinum 100 — drawn
+  //       with brass-relief style on game over
+  //     • Day → sunset → night sky cycle (kept from v18.2)
+  //     • Difficulty curve: gap 170→100, speed 2.2→3.6
+  //
+  //   RETRY: one tap. No overlay teardown. Hint row + button row swap
+  //   in place, countdown re-runs.
   // ════════════════════════════════════════════════════════════════
   function startFlappyGame() {
     const ov = createGameOverlay();
@@ -6508,6 +6724,7 @@
     ov.innerHTML = `
       <div class="clippy-game-title">🕊️ Flappy Trajan</div>
       <div class="clippy-game-instruction">${esc(intro)}</div>
+      <div class="clippy-game-stat" data-stats>Best: <b>${getBest('flappy')}</b></div>
       <div class="clippy-game-buttons">
         <button class="clippy-game-btn" data-act="start">Start!</button>
         <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
@@ -6517,62 +6734,52 @@
       ov.innerHTML = `
         <div class="clippy-game-title">🕊️ FLAPPY TRAJAN</div>
         <div class="clippy-canvas-wrap" data-wrap></div>
-        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;" data-hint>Tap to flap. First tap starts the run.</div>
+        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;" data-hint>Tap to flap.  Best: ${getBest('flappy')}</div>
         <div class="clippy-game-buttons"><button class="clippy-game-btn is-ghost" data-act="quit">Quit</button></div>`;
       const wrap = ov.querySelector('[data-wrap]');
       const hint = ov.querySelector('[data-hint]');
-      const board = makeCanvasBoard(wrap, { bg: 'transparent' });    // sky painted in render
+      const board = makeCanvasBoard(wrap, { bg: 'transparent' });
       const { ctx, w: W, h: H } = board;
       ov.querySelector('[data-act="quit"]').addEventListener('click', () => { loop.stop(); closeGameOverlay(); });
 
-      // ─── Constants ─────────────────────────────────────────────
+      // ─── Constants — canonical Flappy feel ──────────────────────
       const GROUND_Y = H - 28;
-      const BIRD_R   = 17;             // collision radius
-      const BIRD_VR  = 22;             // visual radius
+      const BIRD_R   = 16;
+      const BIRD_VR  = 22;
       const BIRD_X   = Math.floor(W * 0.28);
-      const GRAVITY  = 0.42;
-      const FLAP_V   = -7.0;
+      const GRAVITY  = 0.62;
+      const FLAP_V   = -9.4;
       const PILLAR_W = 56;
 
-      // ─── State ─────────────────────────────────────────────────
+      // ─── State ──────────────────────────────────────────────────
       let birdY = H * 0.42, birdV = 0, birdRot = 0;
-      let score = 0, best = 0, combo = 0, bestCombo = 0;
-      let started = false, alive = true;
+      let score = 0, combo = 0, bestCombo = 0;
+      let best  = getBest('flappy');
+      let started = false, alive = true, isRetryShown = false;
       const columns = [];
-      const trail = [];                // {x,y,life,maxLife}
-      const particles = [];            // death/score particles {x,y,vx,vy,life,r,color}
-      const bonusStars = [];           // {colIdx,taken,phase}
+      const trail = [];
+      const bonusStars = [];
       let nextColumnX = W + 60;
       let groundOff = 0, t = 0;
-      let flapPulse = 0;               // 0..1 visual flap feedback, decays
-      let comboFlash = 0;              // 0..1 flash strength for combo milestone
-      let comboFlashLabel = '';
+      let flapPulse = 0;
+      let comboFlash = 0, comboFlashLabel = '';
       let nearMissPulse = 0;
-      let isRetryShown = false;
+      const juice = makeJuice(W, H);
 
-      // ─── Difficulty curves (smoother than v18.0) ───────────────
-      function gapAt(s)     { return Math.max(102, 170 - s * 1.7); }
-      function speedAt(s)   { return Math.min(3.6, 2.0 + s * 0.027); }
-      function spacingAt(s) { return Math.max(160, 230 - s * 1.75); }
+      // ─── Difficulty ─────────────────────────────────────────────
+      function gapAt(s)     { return Math.max(100, 170 - s * 1.6); }
+      function speedAt(s)   { return Math.min(3.6, 2.2 + s * 0.026); }
+      function spacingAt(s) { return Math.max(155, 220 - s * 1.7); }
 
-      // ─── Sky palette (day → sunset → night) ────────────────────
+      // ─── Sky palette (day → sunset → night) ─────────────────────
       function skyColors(s) {
-        // 0..20 day, 20..40 sunset, 40+ night
         if (s < 20) {
           const k = s / 20;
-          return [
-            mixColor('#5fa8e8', '#e89a64', k),   // top
-            mixColor('#a6c4e0', '#ffc89a', k),   // mid
-            mixColor('#dbe5f2', '#ffd8a8', k),   // bottom (above ground)
-          ];
+          return [mixColor('#5fa8e8', '#e89a64', k), mixColor('#a6c4e0', '#ffc89a', k), mixColor('#dbe5f2', '#ffd8a8', k)];
         }
         if (s < 40) {
           const k = (s - 20) / 20;
-          return [
-            mixColor('#e89a64', '#1a2858', k),
-            mixColor('#ffc89a', '#3a3870', k),
-            mixColor('#ffd8a8', '#4a4078', k),
-          ];
+          return [mixColor('#e89a64', '#1a2858', k), mixColor('#ffc89a', '#3a3870', k), mixColor('#ffd8a8', '#4a4078', k)];
         }
         return ['#0a1430', '#1c1b40', '#2a2658'];
       }
@@ -6580,23 +6787,17 @@
         const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
         const ar = (pa >> 16) & 255, ag = (pa >> 8) & 255, ab = pa & 255;
         const br = (pb >> 16) & 255, bg = (pb >> 8) & 255, bb = pb & 255;
-        const r = Math.round(ar + (br - ar) * t);
-        const g = Math.round(ag + (bg - ag) * t);
-        const bl = Math.round(ab + (bb - ab) * t);
-        return 'rgb(' + r + ',' + g + ',' + bl + ')';
+        return 'rgb(' + Math.round(ar + (br - ar) * t) + ',' + Math.round(ag + (bg - ag) * t) + ',' + Math.round(ab + (bb - ab) * t) + ')';
       }
 
-      // ─── Parallax layers ───────────────────────────────────────
-      const farClouds = [];
-      const nearClouds = [];
-      const mountains = [];
-      const nightStars = [];
+      // ─── Parallax layers ────────────────────────────────────────
+      const farClouds = [], nearClouds = [], mountains = [], nightStars = [];
       for (let i = 0; i < 5; i++) farClouds.push({ x: Math.random() * W, y: 25 + Math.random() * (H * 0.3), r: 18 + Math.random() * 14, v: 0.10 + Math.random() * 0.10 });
       for (let i = 0; i < 4; i++) nearClouds.push({ x: Math.random() * W, y: 60 + Math.random() * (H * 0.35), r: 22 + Math.random() * 18, v: 0.25 + Math.random() * 0.20 });
       for (let i = 0; i < 6; i++) mountains.push({ x: i * (W / 5) + Math.random() * 40 - 20, h: 60 + Math.random() * 40, w: 110 + Math.random() * 60 });
-      for (let i = 0; i < 35; i++) nightStars.push({ x: Math.random() * W, y: Math.random() * (H * 0.55), r: Math.random() * 1.2 + 0.3, p: Math.random() * Math.PI * 2 });
+      for (let i = 0; i < 38; i++) nightStars.push({ x: Math.random() * W, y: Math.random() * (H * 0.55), r: Math.random() * 1.2 + 0.3, p: Math.random() * Math.PI * 2 });
 
-      // ─── Helpers ───────────────────────────────────────────────
+      // ─── Spawning ───────────────────────────────────────────────
       function spawnColumn() {
         const lastScore = columns.length ? Math.max(score, columns.length - 1) : score;
         const GAP = gapAt(lastScore);
@@ -6604,90 +6805,86 @@
         const col = { x: nextColumnX, gapY, gap: GAP, scored: false, idx: columns.length };
         columns.push(col);
         nextColumnX += spacingAt(lastScore);
-        // Bonus star in 35% of gaps once score >= 6
-        if (score >= 6 && Math.random() < 0.35) {
+        if (score >= 6 && Math.random() < 0.40) {
           bonusStars.push({ colIdx: col.idx, taken: false, phase: Math.random() * Math.PI * 2 });
         }
       }
       function flap() {
-        if (!alive) {
-          if (isRetryShown) restart();
-          return;
-        }
+        if (!alive) { if (isRetryShown) restart(); return; }
         if (!started) { started = true; hint.textContent = 'Dodge the columns. Catch the stars.'; }
         birdV = FLAP_V;
         flapPulse = 1;
-        playTone('boop');
+        // Thock: low percussive triangle wave — distinctly Flappy
+        playPitch(280, 0.07, 'triangle');
       }
       function restart() {
-        // Reset state and run countdown again
         birdY = H * 0.42; birdV = 0; birdRot = 0;
         score = 0; combo = 0;
         started = false; alive = true;
-        columns.length = 0;
-        trail.length = 0;
-        particles.length = 0;
-        bonusStars.length = 0;
+        columns.length = 0; trail.length = 0; bonusStars.length = 0;
         nextColumnX = W + 60;
         groundOff = 0; t = 0;
         flapPulse = 0; comboFlash = 0; nearMissPulse = 0;
         isRetryShown = false;
-        hint.textContent = 'Tap to flap. First tap starts the run.';
-        // Restore the Quit button (death replaces it with Retry/Finish)
+        juice.flyers.length = 0;
+        juice.particles.length = 0;
+        juice.shakeAmount = 0;
+        juice._hitstop = 0;
+        hint.textContent = 'Tap to flap.  Best: ' + best;
         const btnRow = ov.querySelector('.clippy-game-buttons');
         btnRow.innerHTML = '<button class="clippy-game-btn is-ghost" data-act="quit">Quit</button>';
         btnRow.querySelector('[data-act="quit"]').addEventListener('click', () => { loop.stop(); closeGameOverlay(); });
-        runCountdown(board.wrap, () => { /* loop continues, just unfreeze */ });
+        runCountdown(board.wrap, () => {});
       }
       board.wrap.addEventListener('click', flap);
       board.wrap.addEventListener('touchstart', (e) => { e.preventDefault(); flap(); }, { passive: false });
 
-      // ─── Update ────────────────────────────────────────────────
+      // ─── Update ─────────────────────────────────────────────────
       function update(dt) {
         t += dt;
-        // Parallax always animates (background lives even during pause)
-        for (const c of farClouds) {
-          c.x -= c.v * dt;
-          if (c.x + c.r * 2 < 0) { c.x = W + c.r * 2; c.y = 25 + Math.random() * (H * 0.3); }
-        }
-        for (const c of nearClouds) {
-          c.x -= c.v * dt;
-          if (c.x + c.r * 2 < 0) { c.x = W + c.r * 2; c.y = 60 + Math.random() * (H * 0.35); }
-        }
-        if (flapPulse > 0)    flapPulse    = Math.max(0, flapPulse    - 0.08 * dt);
-        if (comboFlash > 0)   comboFlash   = Math.max(0, comboFlash   - 0.03 * dt);
-        if (nearMissPulse > 0) nearMissPulse = Math.max(0, nearMissPulse - 0.05 * dt);
+
+        // Parallax always animates
+        for (const c of farClouds)  { c.x -= c.v * dt; if (c.x + c.r * 2 < 0) { c.x = W + c.r * 2; c.y = 25 + Math.random() * (H * 0.3); } }
+        for (const c of nearClouds) { c.x -= c.v * dt; if (c.x + c.r * 2 < 0) { c.x = W + c.r * 2; c.y = 60 + Math.random() * (H * 0.35); } }
+
+        if (flapPulse > 0)     flapPulse     = Math.max(0, flapPulse     - 0.085 * dt);
+        if (comboFlash > 0)    comboFlash    = Math.max(0, comboFlash    - 0.035 * dt);
+        if (nearMissPulse > 0) nearMissPulse = Math.max(0, nearMissPulse - 0.05  * dt);
+
+        // Juice update (handles hitstop — we run our death animation
+        // even during hitstop, so don't early-return)
+        const frozen = juice.update(dt);
+
         if (!started) return;
 
         if (!alive) {
-          // Death animation: bird falls, particles fade
-          birdV += GRAVITY * dt;
-          birdY += birdV * dt;
-          for (const p of particles) {
-            p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 0.18 * dt; p.life -= dt;
-          }
-          for (let i = particles.length - 1; i >= 0; i--) if (particles[i].life <= 0) particles.splice(i, 1);
+          // Death animation continues even during hitstop, but slower
+          const tick = frozen ? 0.25 : 1;
+          birdV += GRAVITY * dt * tick;
+          birdY += birdV * dt * tick;
           if (birdY > GROUND_Y - BIRD_R) {
             birdY = GROUND_Y - BIRD_R;
             birdV = 0;
             if (!isRetryShown) {
               isRetryShown = true;
+              juice.shake(6);
+              juice.burst(BIRD_X, birdY, 14, { colors: ['#8c6418', '#4a3a20'], speed: 2.0, gravity: 0.4 });
               setTimeout(showDeathOptions, 380);
             }
           }
           return;
         }
+        if (frozen) return;   // hitstop pauses live gameplay
 
         // Physics
         birdV += GRAVITY * dt;
         birdY += birdV * dt;
-        birdRot = Math.max(-0.55, Math.min(1.3, birdV * 0.08));
+        birdRot = Math.max(-0.55, Math.min(1.35, birdV * 0.08));
         groundOff = (groundOff + speedAt(score) * dt) % 24;
 
-        // Trail emit
-        if (t % 0.5 < dt) {/* throttle */}
-        if (Math.random() < 0.45) {
-          trail.push({ x: BIRD_X - BIRD_VR * 0.4, y: birdY + (Math.random() - 0.5) * 6, life: 24, maxLife: 24, r: 2 + Math.random() * 1.5 });
+        // Trail emit (more particles → meatier feel)
+        if (Math.random() < 0.55) {
+          trail.push({ x: BIRD_X - BIRD_VR * 0.4, y: birdY + (Math.random() - 0.5) * 6, life: 20, maxLife: 20, r: 2 + Math.random() * 1.6 });
         }
         for (let i = trail.length - 1; i >= 0; i--) {
           trail[i].life -= dt;
@@ -6702,32 +6899,42 @@
           const c = columns[i];
           c.x -= SCROLL * dt;
           if (c.x + PILLAR_W < 0) { columns.splice(i, 1); continue; }
-          // Score
+
+          // Score the moment the bird passes the column's right edge
           if (!c.scored && c.x + PILLAR_W < BIRD_X - BIRD_R) {
             c.scored = true;
             score++;
             combo++;
-            playPitch(440 + Math.min(440, combo * 24), 0.10, 'triangle');
-            // Combo milestone
+            // Ascending chime per combo level
+            const pitch = 440 + Math.min(660, combo * 32);
+            playPitch(pitch, 0.10, 'triangle');
+            // Score flyer pops from the gap center
+            const fx = c.x + PILLAR_W / 2;
+            const fy = c.gapY + c.gap / 2;
+            juice.flyScore('+1', fx, fy, '#ffd870');
+            juice.burst(fx, fy, 6, { colors: ['#ffd870', '#fffef6'], speed: 1.6, gravity: -0.02 });
+            // Combo milestone (5/10/15...)
             if (combo > 0 && combo % 5 === 0) {
               comboFlash = 1;
               comboFlashLabel = combo + ' FLOW!';
-              spawnPuff(W / 2, H * 0.32, '#ffd870', 14);
+              juice.flash('#ffd870', 0.25, 10);
+              juice.burst(W / 2, H * 0.32, 18, { colors: ['#ffd870', '#fff4c8'], speed: 4 });
+              // Chord
+              playPitch(523, 0.12, 'triangle');
+              setTimeout(() => playPitch(659, 0.12, 'triangle'), 60);
+              setTimeout(() => playPitch(784, 0.14, 'triangle'), 120);
             }
-            // Tiny score-puff at the column
-            spawnPuff(c.x + PILLAR_W / 2, c.gapY + c.gap / 2, '#ffd870', 6);
           }
-          // Collision (circle-vs-AABB on top + bottom pillars)
-          const top    = { x: c.x, y: 0,            w: PILLAR_W, h: c.gapY };
+          // Collision
+          const top    = { x: c.x, y: 0,              w: PILLAR_W, h: c.gapY };
           const bottom = { x: c.x, y: c.gapY + c.gap, w: PILLAR_W, h: GROUND_Y - (c.gapY + c.gap) };
           if (circleAABB(BIRD_X, birdY, BIRD_R, top) || circleAABB(BIRD_X, birdY, BIRD_R, bottom)) {
             return killBird();
           }
-          // Near-miss detection (visual cue only)
+          // Near-miss visual (no score, just feel)
           if (!c.scored && Math.abs((c.x + PILLAR_W) - (BIRD_X - BIRD_R)) < 12) {
-            const gapMid = c.gapY + c.gap / 2;
             const gapEdge = Math.min(Math.abs(birdY - c.gapY), Math.abs(birdY - (c.gapY + c.gap)));
-            if (gapEdge < 24) nearMissPulse = Math.max(nearMissPulse, 0.8);
+            if (gapEdge < 22) nearMissPulse = Math.max(nearMissPulse, 0.9);
           }
         }
 
@@ -6740,15 +6947,15 @@
           const sx = col.x + PILLAR_W / 2;
           const sy = col.gapY + col.gap / 2;
           if (sx + 12 < 0) { bonusStars.splice(i, 1); continue; }
-          // Collision with bird
           const dx = sx - BIRD_X, dy = sy - birdY;
           if (dx * dx + dy * dy < (BIRD_R + 11) * (BIRD_R + 11)) {
             s.taken = true;
             score += 5;
-            spawnPuff(sx, sy, '#fffef6', 10);
-            playPitch(880, 0.16, 'triangle');
-            comboFlash = Math.max(comboFlash, 0.6);
-            comboFlashLabel = '+5';
+            juice.flyScore('+5', sx, sy, '#ffe488');
+            juice.burst(sx, sy, 18, { colors: ['#ffd870', '#fff4c8', '#ffffff'], speed: 4 });
+            juice.flash('#fff4c8', 0.30, 8);
+            playPitch(880, 0.18, 'triangle');
+            setTimeout(() => playPitch(1320, 0.12, 'triangle'), 70);
           }
         }
 
@@ -6757,47 +6964,47 @@
         if (birdY + BIRD_R > GROUND_Y) return killBird();
       }
 
-      // ─── Collision helper ─────────────────────────────────────
       function circleAABB(cx, cy, cr, rect) {
         const nx = Math.max(rect.x, Math.min(cx, rect.x + rect.w));
         const ny = Math.max(rect.y, Math.min(cy, rect.y + rect.h));
         const dx = cx - nx, dy = cy - ny;
         return dx * dx + dy * dy < cr * cr;
       }
+
       function killBird() {
         if (!alive) return;
         alive = false;
-        playTone('thud');
-        // Burst death particles
-        for (let i = 0; i < 14; i++) {
-          particles.push({
-            x: BIRD_X, y: birdY,
-            vx: (Math.random() - 0.5) * 5,
-            vy: -2 - Math.random() * 3,
-            life: 36 + Math.random() * 24, maxLife: 60,
-            r: 2 + Math.random() * 2,
-            color: '#d4a44e',
-          });
-        }
-        if (score > best) best = score;
+        // Big impact moment: hitstop + shake + flash + burst
+        juice.hitstop(5);
+        juice.shake(18);
+        juice.flash('#c83a3a', 0.55, 12);
+        juice.burst(BIRD_X, birdY, 36, { colors: ['#d4a44e', '#fff4c8', '#ff8855'], speed: 5.4 });
+        // Stronger sound — thud + scrape
+        playPitch(140, 0.18, 'sawtooth');
+        setTimeout(() => playPitch(90, 0.30, 'sawtooth'), 60);
+        // Slight upward bounce on death
+        birdV = -2;
         if (combo > bestCombo) bestCombo = combo;
         combo = 0;
       }
-      function spawnPuff(x, y, color, count) {
-        for (let i = 0; i < count; i++) {
-          particles.push({
-            x, y,
-            vx: (Math.random() - 0.5) * 3,
-            vy: (Math.random() - 0.5) * 3,
-            life: 18 + Math.random() * 18, maxLife: 36,
-            r: 1.5 + Math.random() * 1.5,
-            color,
-          });
-        }
-      }
+
       function showDeathOptions() {
-        // Inline restart option — replaces the hint text, adds a Retry button
-        hint.innerHTML = `Game over · Score: <b>${score}</b> · Best run: <b>${best}</b>`;
+        const isNewBest = score > best;
+        if (isNewBest) {
+          best = score;
+          setBest('flappy', best);
+          // Confetti for new best
+          for (let k = 0; k < 50; k++) {
+            juice.burst(W / 2 + (Math.random() - 0.5) * W * 0.6, H * 0.3 + (Math.random() - 0.5) * 40, 1, {
+              colors: ['#ffd870', '#c896f5', '#5fff8a', '#ff8855'],
+              speed: 5.5, gravity: 0.05,
+            });
+          }
+          juice.flyScore('NEW BEST!', W / 2, H * 0.28, '#ffd870');
+        }
+        const medal = flappyMedalFor(score);
+        hint.innerHTML = `Score: <b>${score}</b> · Best: <b>${best}</b>` +
+          (medal ? ` · <span style="color:${medal.color};">${medal.label}</span>` : '');
         const btnRow = ov.querySelector('.clippy-game-buttons');
         btnRow.innerHTML = `
           <button class="clippy-game-btn" data-act="retry">↺ Retry</button>
@@ -6809,10 +7016,12 @@
         });
       }
 
-      // ─── Render ────────────────────────────────────────────────
+      // ─── Render ─────────────────────────────────────────────────
       function render() {
+        ctx.save();
+        juice.applyShake(ctx);
+
         const sky = skyColors(score);
-        // Sky gradient
         const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
         skyGrad.addColorStop(0,   sky[0]);
         skyGrad.addColorStop(0.55, sky[1]);
@@ -6820,7 +7029,7 @@
         ctx.fillStyle = skyGrad;
         ctx.fillRect(0, 0, W, GROUND_Y);
 
-        // Night stars (visible after score >= 30, fading in)
+        // Night stars
         if (score >= 30) {
           const alpha = Math.min(1, (score - 30) / 10);
           for (const s of nightStars) {
@@ -6830,10 +7039,9 @@
           }
         }
 
-        // Mountains silhouette (very slow)
+        // Mountains
         ctx.fillStyle = score >= 30 ? 'rgba(20,18,40,0.85)' : 'rgba(60,72,96,0.55)';
-        for (let i = 0; i < mountains.length; i++) {
-          const m = mountains[i];
+        for (const m of mountains) {
           const mx = ((m.x - groundOff * 0.05) % (W + 200) + W + 200) % (W + 200) - 100;
           ctx.beginPath();
           ctx.moveTo(mx, GROUND_Y);
@@ -6843,10 +7051,8 @@
           ctx.fill();
         }
 
-        // Far clouds
         ctx.fillStyle = 'rgba(255,255,255,0.40)';
         for (const c of farClouds) drawCloud(c.x, c.y, c.r);
-        // Near clouds (brighter)
         ctx.fillStyle = 'rgba(255,255,255,0.62)';
         for (const c of nearClouds) drawCloud(c.x, c.y, c.r);
 
@@ -6855,34 +7061,30 @@
           drawColumn(c.x, 0, c.gapY, true);
           drawColumn(c.x, c.gapY + c.gap, GROUND_Y - (c.gapY + c.gap), false);
         }
-        // Bonus stars (drawn in the column gaps)
+        // Bonus stars
         for (const s of bonusStars) {
           if (s.taken) continue;
           const col = columns.find(c => c.idx === s.colIdx);
           if (!col) continue;
-          const sx = col.x + PILLAR_W / 2;
-          const sy = col.gapY + col.gap / 2;
-          drawBonusStar(sx, sy, 11, t * 0.02 + s.phase);
+          drawBonusStar(col.x + PILLAR_W / 2, col.gapY + col.gap / 2, 11, t * 0.02 + s.phase);
         }
         // Ground
         ctx.fillStyle = '#4a6033';
         ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
         ctx.fillStyle = '#3a5028';
-        for (let x = -groundOff; x < W; x += 24) {
-          ctx.fillRect(x, GROUND_Y, 12, H - GROUND_Y);
-        }
+        for (let x = -groundOff; x < W; x += 24) ctx.fillRect(x, GROUND_Y, 12, H - GROUND_Y);
         ctx.strokeStyle = '#1a1a1a';
         ctx.lineWidth = 3;
         ctx.beginPath(); ctx.moveTo(0, GROUND_Y); ctx.lineTo(W, GROUND_Y); ctx.stroke();
 
-        // Trail behind Trajan
+        // Trail
         for (const p of trail) {
           const a = p.life / p.maxLife;
-          ctx.fillStyle = 'rgba(212,164,78,' + (a * 0.6).toFixed(2) + ')';
+          ctx.fillStyle = 'rgba(212,164,78,' + (a * 0.65).toFixed(2) + ')';
           ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
         }
 
-        // Flap puff (radial behind bird when flapping)
+        // Flap puff
         if (flapPulse > 0.05) {
           const fr = BIRD_VR * (1.6 + (1 - flapPulse) * 1.2);
           const g = ctx.createRadialGradient(BIRD_X - 4, birdY + 6, BIRD_VR * 0.5, BIRD_X - 4, birdY + 6, fr);
@@ -6892,16 +7094,12 @@
           ctx.beginPath(); ctx.arc(BIRD_X - 4, birdY + 6, fr, 0, Math.PI * 2); ctx.fill();
         }
 
-        // Trajan himself — face state shifts with flight
-        const faceState = !alive ? 'dead'
-                       : flapPulse > 0.3 ? 'flap'
-                       : birdV > 2 ? 'fall'
-                       : 'happy';
+        // Trajan
+        const faceState = !alive ? 'dead' : flapPulse > 0.3 ? 'flap' : birdV > 2 ? 'fall' : 'happy';
         ctx.save();
         ctx.translate(BIRD_X, birdY);
         ctx.rotate(birdRot);
         drawTrajanOrb(ctx, 0, 0, BIRD_VR, { face: faceState });
-        // Wings during flap pulse — drawn over the body for emphasis
         if (flapPulse > 0.15) {
           const wingY = -BIRD_VR * 0.15;
           ctx.strokeStyle = 'rgba(255, 244, 208, 0.85)';
@@ -6916,7 +7114,7 @@
         }
         ctx.restore();
 
-        // Near-miss highlight ring
+        // Near-miss ring
         if (nearMissPulse > 0.05) {
           ctx.strokeStyle = 'rgba(255,180,90,' + (nearMissPulse * 0.7).toFixed(2) + ')';
           ctx.lineWidth = 2;
@@ -6925,32 +7123,36 @@
           ctx.stroke();
         }
 
-        // Particles
-        for (const p of particles) {
-          const a = Math.max(0, p.life / p.maxLife);
-          ctx.fillStyle = p.color.startsWith('#')
-            ? hexAlpha(p.color, a)
-            : p.color;
-          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
-        }
+        // Juice particles (in world space, so under shake)
+        juice.drawParticles(ctx);
 
-        // Score
-        ctx.font = '900 38px JetBrains Mono, monospace';
+        ctx.restore();   // end shake
+
+        // ─── HUD (no shake) ───────────────────────────────────────
+        // Score in the middle
+        ctx.font = '900 42px JetBrains Mono, monospace';
         ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
         ctx.strokeStyle = '#1a1a1a';
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 5;
         ctx.fillStyle = '#fffef6';
-        ctx.strokeText(String(score), W / 2, 50);
-        ctx.fillText(String(score), W / 2, 50);
-        // Combo small under
+        ctx.strokeText(String(score), W / 2, 52);
+        ctx.fillText(String(score), W / 2, 52);
         if (combo >= 2) {
           ctx.font = '700 14px JetBrains Mono, monospace';
           ctx.fillStyle = '#ffd870';
-          ctx.fillText('×' + combo, W / 2, 70);
+          ctx.fillText('×' + combo, W / 2, 72);
         }
+        // Best score top-right
+        ctx.font = '700 11px JetBrains Mono, monospace';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = 'rgba(255,254,246,0.65)';
+        ctx.fillText('BEST  ' + best, W - 8, 22);
+
         // Combo flash banner
         if (comboFlash > 0.05) {
           ctx.font = '900 28px Outfit, sans-serif';
+          ctx.textAlign = 'center';
           ctx.fillStyle = 'rgba(255,216,112,' + comboFlash.toFixed(2) + ')';
           ctx.strokeStyle = 'rgba(26,26,26,' + comboFlash.toFixed(2) + ')';
           ctx.lineWidth = 4;
@@ -6958,14 +7160,60 @@
           ctx.fillText(comboFlashLabel, W / 2, H * 0.32);
         }
 
-        // Tap-to-start / Tap-to-retry overlay
+        // Tap-to-start
         if (!started && alive) {
           ctx.fillStyle = 'rgba(0,0,0,0.35)';
           ctx.fillRect(0, H / 2 - 30, W, 60);
           ctx.fillStyle = '#fffef6';
           ctx.font = '700 18px Outfit, sans-serif';
+          ctx.textAlign = 'center';
           ctx.fillText('TAP TO START', W / 2, H / 2 + 6);
         }
+
+        // Game over panel — medal + score
+        if (!alive && isRetryShown) {
+          const medal = flappyMedalFor(score);
+          const panelW = 240, panelH = medal ? 160 : 130;
+          const px = W / 2 - panelW / 2;
+          const py = H / 2 - panelH / 2 - 20;
+          ctx.fillStyle = 'rgba(20,18,30,0.92)';
+          ctx.strokeStyle = '#d4a44e';
+          ctx.lineWidth = 2;
+          ctx.fillRect(px, py, panelW, panelH);
+          ctx.strokeRect(px, py, panelW, panelH);
+          ctx.textAlign = 'center';
+          ctx.font = '900 22px Outfit, sans-serif';
+          ctx.fillStyle = '#fffef6';
+          ctx.fillText('GAME OVER', W / 2, py + 28);
+          ctx.font = '700 14px JetBrains Mono, monospace';
+          ctx.fillStyle = 'rgba(255,254,246,0.75)';
+          ctx.fillText('Score', W / 2 - 60, py + 56);
+          ctx.fillText('Best',  W / 2 + 60, py + 56);
+          ctx.font = '900 24px JetBrains Mono, monospace';
+          ctx.fillStyle = '#fffef6';
+          ctx.fillText(String(score), W / 2 - 60, py + 80);
+          ctx.fillText(String(best),  W / 2 + 60, py + 80);
+          if (medal) {
+            // Brass medal disc
+            const cx = W / 2, cy = py + 124, r = 16;
+            const mgrad = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.2, cx, cy, r);
+            mgrad.addColorStop(0, '#ffffff');
+            mgrad.addColorStop(0.4, medal.color);
+            mgrad.addColorStop(1, medal.edge);
+            ctx.fillStyle = mgrad;
+            ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = medal.edge;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.font = '700 11px Outfit, sans-serif';
+            ctx.fillStyle = medal.edge;
+            ctx.textAlign = 'left';
+            ctx.fillText(medal.label.toUpperCase(), cx + r + 8, cy + 4);
+          }
+        }
+
+        // Juice overlay (flyers + flash) — drawn last, no shake
+        juice.drawOverlay(ctx);
       }
 
       function drawCloud(x, y, r) {
@@ -6986,14 +7234,12 @@
         ctx.strokeStyle = '#1a1a1a';
         ctx.lineWidth = 2;
         ctx.strokeRect(x, y, PILLAR_W, h);
-        // Fluting
         ctx.strokeStyle = 'rgba(0,0,0,0.18)';
         ctx.lineWidth = 1;
         for (let i = 1; i < 5; i++) {
           const fx = x + (PILLAR_W / 5) * i;
           ctx.beginPath(); ctx.moveTo(fx, y); ctx.lineTo(fx, y + h); ctx.stroke();
         }
-        // Capital
         ctx.fillStyle = '#6b4a1f';
         const capY = isTop ? y + h - 14 : y;
         ctx.fillRect(x - 4, capY, PILLAR_W + 8, 14);
@@ -7006,13 +7252,11 @@
         ctx.save();
         ctx.translate(x, y + wob);
         ctx.rotate(Math.sin(phase * 0.5) * 0.15);
-        // Glow
         const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 2.5);
         g.addColorStop(0, 'rgba(255,238,180,0.65)');
         g.addColorStop(1, 'rgba(255,238,180,0)');
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.arc(0, 0, r * 2.5, 0, Math.PI * 2); ctx.fill();
-        // Star
         ctx.beginPath();
         for (let i = 0; i < 10; i++) {
           const a = (Math.PI / 5) * i - Math.PI / 2;
@@ -7028,12 +7272,8 @@
         ctx.stroke();
         ctx.restore();
       }
-      function hexAlpha(hex, a) {
-        const v = parseInt(hex.slice(1), 16);
-        return 'rgba(' + ((v >> 16) & 255) + ',' + ((v >> 8) & 255) + ',' + (v & 255) + ',' + a.toFixed(2) + ')';
-      }
 
-      render(); // v18.2: paint initial frame so countdown sits over the populated scene
+      render();
       const loop = gameLoop((dt) => { update(dt); render(); });
       runCountdown(board.wrap, () => loop.start());
     });
@@ -7067,13 +7307,16 @@
       const PLAYER_W = 60, PLAYER_R = 22;
       let playerX = W / 2 - PLAYER_W / 2;
       let score = 0, hp = 3, timeLeft = 90;
+      let best = getBest('cannon');
       const bullets = [], enemies = [], enemyBullets = [], powerups = [], explosions = [];
       const stars = [];
       for (let i = 0; i < 32; i++) stars.push({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.4 + 0.4, a: 0.4 + Math.random() * 0.5 });
       let lastEnemySpawn = 0, lastFire = 0, t = 0;
-      let powerTriple = 0, powerRapid = 0;   // remaining frames of buff
-      let bossAt = 30 * 60;   // boss every 30s = 1800 frames
+      let powerTriple = 0, powerRapid = 0;
+      let bossAt = 30 * 60;
       let dragActive = false;
+      let kills = 0;
+      const juice = makeJuice(W, H);
 
       const MAX_BULLETS = 12;
       function fire() {
@@ -7125,6 +7368,7 @@
 
       let timerInt = null;
       function update(dt) {
+        if (juice.update(dt)) return;   // hitstop pauses game
         t += dt;
         if (powerTriple > 0) powerTriple = Math.max(0, powerTriple - dt);
         if (powerRapid  > 0) powerRapid  = Math.max(0, powerRapid  - dt);
@@ -7141,11 +7385,33 @@
             if (b.x + 6 > e.x && b.x < e.x + e.w && b.y + 16 > e.y && b.y < e.y + e.h) {
               e.hp--;
               if (e.hp <= 0) {
-                explosions.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, life: 24, max: 24 });
-                spawnPowerup(e.x + e.w / 2, e.y + e.h / 2);
-                score += e.isBoss ? 50 : 10;
+                const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
+                explosions.push({ x: ex, y: ey, life: 24, max: 24 });
+                spawnPowerup(ex, ey);
+                const pts = e.isBoss ? 50 : 10;
+                score += pts;
+                kills++;
                 enemies.splice(j, 1);
-                playTone('sparkle');
+                // JUICE: shake proportional to kill size, score flyer, particle burst
+                juice.shake(e.isBoss ? 14 : 5);
+                juice.flyScore('+' + pts, ex, ey, e.isBoss ? '#ffd870' : '#fffef6');
+                juice.burst(ex, ey, e.isBoss ? 28 : 14, {
+                  colors: ['#ffd870', '#ff8855', '#fff4c8'],
+                  speed: e.isBoss ? 5 : 3.5,
+                  gravity: 0.05,
+                });
+                if (e.isBoss) {
+                  juice.hitstop(4);
+                  juice.flash('#ffd870', 0.35, 8);
+                  playPitch(660, 0.14, 'triangle');
+                  setTimeout(() => playPitch(880, 0.16, 'triangle'), 90);
+                } else {
+                  playPitch(540 + Math.min(440, kills * 6), 0.08, 'triangle');
+                }
+              } else {
+                // Hit but not killed — small shake + flash
+                juice.shake(2);
+                juice.burst(b.x + 3, b.y, 4, { colors: ['#ff8855'], speed: 1.5 });
               }
               bullets.splice(i, 1);
               hit = true;
@@ -7171,6 +7437,11 @@
           if (e.y > H - 80) {
             enemies.splice(i, 1);
             hp--;
+            // Enemy broke through — bigger shake
+            juice.shake(10);
+            juice.flash('#c83a3a', 0.4, 8);
+            juice.burst(e.x + e.w / 2, H - 70, 12, { colors: ['#c83a3a', '#ff8855'], speed: 4 });
+            playPitch(180, 0.18, 'sawtooth');
             if (hp <= 0) return gameOver(false);
           }
         }
@@ -7183,6 +7454,14 @@
             enemyBullets.splice(i, 1);
             hp--;
             explosions.push({ x: playerX + PLAYER_W / 2, y: H - 50, life: 20, max: 20 });
+            // Player hit — heavy juice
+            juice.shake(12);
+            juice.hitstop(3);
+            juice.flash('#c83a3a', 0.45, 10);
+            juice.burst(playerX + PLAYER_W / 2, H - 50, 16, {
+              colors: ['#c83a3a', '#ff8855', '#fff4c8'], speed: 4, gravity: 0.1,
+            });
+            playPitch(140, 0.20, 'sawtooth');
             if (hp <= 0) return gameOver(false);
           }
         }
@@ -7192,12 +7471,17 @@
           p.y += p.vy * dt;
           if (p.y > H) { powerups.splice(i, 1); continue; }
           if (p.x > playerX && p.x < playerX + PLAYER_W && p.y > H - 80) {
-            if (p.kind === 'triple')  powerTriple = 60 * 8;       // 8 seconds
+            if (p.kind === 'triple')  powerTriple = 60 * 8;
             else if (p.kind === 'rapid') powerRapid = 60 * 6;
             else if (p.kind === 'hp')    hp = Math.min(hp + 1, 5);
             powerups.splice(i, 1);
-            playTone('milestone');
-            spawnParticles({ count: 8, type: 'sparkle' });
+            // POWERUP JUICE
+            juice.flash(p.kind === 'hp' ? '#5fff8a' : p.kind === 'rapid' ? '#7df0ff' : '#ff8855', 0.35, 8);
+            juice.flyScore(p.kind === 'hp' ? '+HP' : p.kind === 'rapid' ? 'RAPID' : 'TRIPLE',
+                           p.x, p.y, p.kind === 'hp' ? '#5fff8a' : p.kind === 'rapid' ? '#7df0ff' : '#ff8855');
+            juice.burst(p.x, p.y, 12, { colors: ['#fff4c8', '#ffd870'], speed: 3, gravity: -0.05 });
+            playPitch(700, 0.12, 'triangle');
+            setTimeout(() => playPitch(1050, 0.16, 'triangle'), 80);
           }
         }
         // Explosions
@@ -7209,6 +7493,10 @@
 
       function render() {
         ctx.clearRect(0, 0, W, H);
+        // ─── Shake-wrapped world ────────────────────────────────────
+        ctx.save();
+        juice.applyShake(ctx);
+
         // Stars
         for (const s of stars) {
           ctx.globalAlpha = s.a;
@@ -7216,24 +7504,33 @@
           ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
         }
         ctx.globalAlpha = 1;
-        // Bullets (player)
+        // Bullets (player) — bigger, with motion trail
         for (const b of bullets) {
+          // Trail
+          const tgrad = ctx.createLinearGradient(b.x + 4, b.y, b.x + 4, b.y + 32);
+          tgrad.addColorStop(0,   'rgba(255,216,112,0.85)');
+          tgrad.addColorStop(1,   'rgba(255,216,112,0)');
+          ctx.fillStyle = tgrad;
+          ctx.fillRect(b.x + 1, b.y, 6, 32);
+          // Core bullet
+          ctx.fillStyle = '#fffef6';
+          ctx.fillRect(b.x, b.y, 8, 20);
           ctx.fillStyle = '#ffd870';
-          ctx.fillRect(b.x, b.y, 6, 16);
+          ctx.fillRect(b.x + 1, b.y + 2, 6, 16);
         }
-        // Enemy bullets
+        // Enemy bullets — slightly bigger with red core
         for (const b of enemyBullets) {
-          ctx.fillStyle = '#ff5577';
-          ctx.fillRect(b.x, b.y, 5, 14);
+          ctx.fillStyle = '#ff8888';
+          ctx.fillRect(b.x - 1, b.y, 8, 18);
+          ctx.fillStyle = '#ff3344';
+          ctx.fillRect(b.x, b.y + 2, 6, 14);
         }
-        // Enemies
+        // Enemies — silver Trajans with crimson sash
         for (const e of enemies) {
           drawTrajanOrb(ctx, e.x + e.w / 2, e.y + e.h / 2, e.w / 2, { hue: 'silver' });
-          // Crimson sash bar to mark Carthage
           ctx.fillStyle = '#c62a4a';
           ctx.fillRect(e.x + 6, e.y + e.h / 2 - 2, e.w - 12, 4);
           if (e.isBoss) {
-            // HP pip strip
             const pipW = (e.w - 8) / 5;
             for (let i = 0; i < 5; i++) {
               ctx.fillStyle = i < e.hp ? '#5fff8a' : '#444';
@@ -7252,7 +7549,7 @@
         }
         // Player
         drawTrajanOrb(ctx, playerX + PLAYER_W / 2, H - 50, PLAYER_R);
-        // Explosions
+        // Old-style explosions (kept for variety)
         for (const x of explosions) {
           const k = 1 - x.life / x.max;
           ctx.globalAlpha = 1 - k;
@@ -7265,7 +7562,12 @@
           ctx.beginPath(); ctx.arc(x.x, x.y, r, 0, Math.PI * 2); ctx.fill();
         }
         ctx.globalAlpha = 1;
-        // HUD
+        // Juice particles in world space
+        juice.drawParticles(ctx);
+
+        ctx.restore();   // end shake
+
+        // ─── HUD (no shake) ─────────────────────────────────────────
         ctx.fillStyle = 'rgba(0,0,0,0.55)';
         ctx.fillRect(8, 8, W - 16, 26);
         ctx.strokeStyle = '#d4a44e';
@@ -7276,9 +7578,18 @@
         ctx.textAlign = 'left';
         ctx.fillText('SCORE ' + score, 16, 26);
         ctx.textAlign = 'center';
-        ctx.fillText('HP ' + hp, W / 2, 26);
+        // HP as heart pips for clarity
+        const heartChars = '♥'.repeat(Math.max(0, hp)) + '·'.repeat(Math.max(0, 3 - hp));
+        ctx.fillStyle = hp <= 1 ? '#ff5577' : '#fffef6';
+        ctx.fillText(heartChars, W / 2, 26);
+        ctx.fillStyle = '#fffef6';
         ctx.textAlign = 'right';
         ctx.fillText(Math.ceil(timeLeft) + 's', W - 16, 26);
+        // Best score line
+        ctx.font = '700 10px JetBrains Mono, monospace';
+        ctx.fillStyle = 'rgba(255,254,246,0.55)';
+        ctx.textAlign = 'right';
+        ctx.fillText('BEST ' + best, W - 16, 46);
         // Power-up badges
         if (powerTriple > 0 || powerRapid > 0) {
           ctx.textAlign = 'left';
@@ -7288,11 +7599,15 @@
           if (powerTriple > 0) { ctx.fillText('3× ' + Math.ceil(powerTriple / 60) + 's', bx, by); bx += 70; }
           if (powerRapid  > 0) { ctx.fillText('⚡ ' + Math.ceil(powerRapid  / 60) + 's', bx, by); }
         }
+
+        // Juice overlay (flyers + flash) on top, unaffected by shake
+        juice.drawOverlay(ctx);
       }
 
       function gameOver(survived) {
         loop.stop();
         clearInterval(timerInt);
+        if (score > best) { best = score; setBest('cannon', best); }
         if (!survived) bubble(pickFromPool('cannon_die'), { autoHide: 2500 });
         setTimeout(() => showGameResult('cannon', score, {
           stats: [{ label: 'Time', value: (90 - Math.ceil(timeLeft)) + 's' }],
@@ -7355,6 +7670,8 @@
       let eatenSinceGold = 0;
       let stepMs = 140;
       let timeToNext = stepMs;
+      let best = getBest('snake');
+      const juice = makeJuice(W, H);
 
       function spawnFood(gold) {
         let f;
@@ -7380,6 +7697,7 @@
       board.wrap.addEventListener('click', (e) => handleTap(e.clientX, e.clientY));
 
       function update(dt) {
+        if (juice.update(dt)) return;
         timeToNext -= dt * 16.67;     // dt is in frames @ 60fps; convert back to ms
         if (timeToNext > 0) return;
         timeToNext += stepMs;
@@ -7390,22 +7708,29 @@
         if (snake.some(s => s.x === newHead.x && s.y === newHead.y)) return die();
         snake.unshift(newHead);
         if (newHead.x === food.x && newHead.y === food.y) {
+          const fx = food.x * CELL + CELL / 2;
+          const fy = food.y * CELL + CELL / 2;
           if (food.gold) {
             // +3 length: skip pop twice more
             snake.push({ ...snake[snake.length - 1] });
             snake.push({ ...snake[snake.length - 1] });
-            playTone('milestone');
-            spawnParticles({ count: 10, type: 'sparkle' });
+            juice.flyScore('+3', fx, fy, '#ffd870');
+            juice.burst(fx, fy, 18, { colors: ['#ffd870', '#fff4c8', '#ffffff'], speed: 3.5 });
+            juice.flash('#fff4c8', 0.22, 6);
+            playPitch(880, 0.14, 'triangle');
+            setTimeout(() => playPitch(1320, 0.12, 'triangle'), 70);
             eatenSinceGold = 0;
           } else {
-            playTone('boop');
-            spawnParticles({ count: 4, type: 'sparkle' });
+            juice.flyScore('+1', fx, fy, '#fffef6');
+            juice.burst(fx, fy, 8, { colors: ['#ffd870', '#fff4c8'], speed: 2.5 });
+            const pitch = 440 + Math.min(440, snake.length * 8);
+            playPitch(pitch, 0.08, 'triangle');
             eatenSinceGold++;
           }
           food = spawnFood(eatenSinceGold >= goldFoodEvery);
           if (food.gold) eatenSinceGold = 0;
           scoreEl.textContent = snake.length;
-          // Real speed-up (was dead code in v17.22)
+          // Real speed-up
           if (snake.length % 5 === 0 && stepMs > 70) stepMs = Math.max(70, stepMs - 8);
         } else {
           snake.pop();
@@ -7413,6 +7738,16 @@
       }
       function die() {
         loop.stop();
+        // Death: shake + flash + burst at head
+        const head = snake[0];
+        const hx = head.x * CELL + CELL / 2;
+        const hy = head.y * CELL + CELL / 2;
+        juice.shake(16);
+        juice.hitstop(4);
+        juice.flash('#c83a3a', 0.45, 10);
+        juice.burst(hx, hy, 24, { colors: ['#4cb6ff', '#fffef6', '#ff8855'], speed: 4.5 });
+        playPitch(160, 0.20, 'sawtooth');
+        if (snake.length > best) { best = snake.length; setBest('snake', best); }
         bubble(pickFromPool('snake_die'), { autoHide: 2500 });
         setTimeout(() => showGameResult('snake', snake.length, {
           stats: [{ label: 'Speed', value: (140 - stepMs) + ' ms faster' }],
@@ -7420,6 +7755,8 @@
       }
       function render() {
         ctx.clearRect(0, 0, W, H);
+        ctx.save();
+        juice.applyShake(ctx);
         // Grid lines
         ctx.strokeStyle = 'rgba(255,255,255,0.03)';
         ctx.lineWidth = 1;
@@ -7436,7 +7773,7 @@
           const pulse = 10 + Math.sin(Date.now() / 150) * 3;
           ctx.beginPath(); ctx.arc(fx, fy, pulse, 0, Math.PI * 2); ctx.stroke();
         }
-        // Snake
+        // Snake — head is full Trajan, body fades toward tail
         for (let i = snake.length - 1; i >= 0; i--) {
           const seg = snake[i];
           const sx = seg.x * CELL + CELL / 2;
@@ -7444,14 +7781,24 @@
           if (i === 0) {
             drawTrajanOrb(ctx, sx, sy, 10);
           } else {
-            const t = i / snake.length;
+            const tt = i / snake.length;
             ctx.fillStyle = '#4cb6ff';
-            ctx.beginPath(); ctx.arc(sx, sy, 8 - t * 2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(sx, sy, 8 - tt * 2, 0, Math.PI * 2); ctx.fill();
             ctx.strokeStyle = '#1a1a1a';
             ctx.lineWidth = 1.5;
             ctx.stroke();
           }
         }
+        // Juice particles inside shake
+        juice.drawParticles(ctx);
+        ctx.restore();
+        // HUD: best score (no shake)
+        ctx.font = '700 10px JetBrains Mono, monospace';
+        ctx.fillStyle = 'rgba(255,254,246,0.55)';
+        ctx.textAlign = 'right';
+        ctx.fillText('BEST ' + best, W - 8, H - 8);
+        // Juice overlay
+        juice.drawOverlay(ctx);
       }
 
       render(); // v18.2: paint initial frame so countdown sits over the populated scene
@@ -7509,8 +7856,11 @@
       }
       const powerups = [];
       let score = 0, lives = 3, started = false;
+      let best = getBest('breaker');
       let stickyTimer = 0;
       let dragActive = false;
+      let paddleSquish = 0;   // 0..1 — squashes briefly on ball hit
+      const juice = makeJuice(W, H);
 
       function setPaddleFromPoint(clientX) {
         const rect = board.wrap.getBoundingClientRect();
@@ -7528,29 +7878,36 @@
       board.wrap.addEventListener('mouseleave', () => { dragActive = false; });
 
       function update(dt) {
+        if (juice.update(dt)) return;
+        if (paddleSquish > 0) paddleSquish = Math.max(0, paddleSquish - 0.07 * dt);
         if (!started) return;
         if (stickyTimer > 0) stickyTimer = Math.max(0, stickyTimer - dt);
         for (let bi = balls.length - 1; bi >= 0; bi--) {
           const b = balls[bi];
           b.x += b.vx * dt; b.y += b.vy * dt;
-          if (b.x - b.r < 0) { b.x = b.r; b.vx *= -1; }
-          if (b.x + b.r > W) { b.x = W - b.r; b.vx *= -1; }
-          if (b.y - b.r < 0) { b.y = b.r; b.vy *= -1; }
+          if (b.x - b.r < 0) { b.x = b.r; b.vx *= -1; juice.shake(2); }
+          if (b.x + b.r > W) { b.x = W - b.r; b.vx *= -1; juice.shake(2); }
+          if (b.y - b.r < 0) { b.y = b.r; b.vy *= -1; juice.shake(2); }
           // Paddle collision
           if (b.y + b.r > paddleY && b.y + b.r < paddleY + paddleH + 6 && b.x > paddleX - b.r && b.x < paddleX + paddleW + b.r && b.vy > 0) {
             b.y = paddleY - b.r;
             const offset = (b.x - (paddleX + paddleW / 2)) / (paddleW / 2);
-            const ang = offset * 1.0;     // ±1 radian
+            const ang = offset * 1.0;
             const sp = Math.hypot(b.vx, b.vy);
             b.vx = Math.sin(ang) * sp;
             b.vy = -Math.abs(Math.cos(ang) * sp);
-            playTone('hop');
+            paddleSquish = 1;
+            playPitch(440 + Math.abs(offset) * 220, 0.06, 'triangle');
+            juice.burst(b.x, paddleY, 3, { colors: ['#7df0ff'], speed: 2 });
           }
-          // Below paddle = lost ball
+          // Below paddle
           if (b.y - b.r > H) {
             balls.splice(bi, 1);
             if (balls.length === 0) {
               lives--;
+              juice.shake(10);
+              juice.flash('#c83a3a', 0.30, 8);
+              playPitch(180, 0.16, 'sawtooth');
               if (lives <= 0) return gameOver();
               balls.push({ x: W / 2, y: paddleY - 14, vx: 2.4, vy: -3.4, r: 7 });
               started = false;
@@ -7562,21 +7919,28 @@
             if (!br.alive) continue;
             if (b.x + b.r > br.x && b.x - b.r < br.x + br.w && b.y + b.r > br.y && b.y - b.r < br.y + br.h) {
               br.hp--;
+              const cx = br.x + br.w / 2, cy = br.y + br.h / 2;
               if (br.hp <= 0) {
                 br.alive = false;
                 score += 10;
+                juice.flyScore('+10', cx, cy, '#fffef6');
+                juice.burst(cx, cy, 14, {
+                  colors: br.isPower ? ['#ff8855', '#ffd870', '#7df0ff'] : ['#c9a063', '#8b6f3d', '#fff4c8'],
+                  speed: 3.5, gravity: 0.08,
+                });
+                juice.shake(3);
                 if (br.isPower) {
                   const kinds = ['wide', 'multi', 'slow'];
-                  powerups.push({ x: br.x + br.w / 2, y: br.y + br.h / 2, kind: kinds[Math.floor(Math.random() * kinds.length)], vy: 1.6 });
+                  powerups.push({ x: cx, y: cy, kind: kinds[Math.floor(Math.random() * kinds.length)], vy: 1.6 });
                 }
-                spawnParticles({ count: 5, type: 'sparkle' });
-                playTone('sparkle');
+                playPitch(660, 0.08, 'triangle');
               } else {
-                playTone('boop');
+                juice.burst(cx, cy, 4, { colors: ['#c9a063'], speed: 1.5 });
+                playPitch(440, 0.06, 'triangle');
               }
-              // bounce direction
-              const dx = (b.x - (br.x + br.w / 2)) / (br.w / 2);
-              const dy = (b.y - (br.y + br.h / 2)) / (br.h / 2);
+              // bounce
+              const dx = (b.x - cx) / (br.w / 2);
+              const dy = (b.y - cy) / (br.h / 2);
               if (Math.abs(dx) > Math.abs(dy)) b.vx *= -1;
               else b.vy *= -1;
               break;
@@ -7591,7 +7955,6 @@
           if (p.y > paddleY - 8 && p.y < paddleY + paddleH + 8 && p.x > paddleX && p.x < paddleX + paddleW) {
             if (p.kind === 'wide')  paddleW = Math.min(160, paddleW + 30);
             else if (p.kind === 'multi') {
-              // split each existing ball
               const newBalls = [];
               for (const b of balls) {
                 const sp = Math.hypot(b.vx, b.vy);
@@ -7604,20 +7967,34 @@
               for (const b of balls) { b.vx *= 0.7; b.vy *= 0.7; }
             }
             powerups.splice(i, 1);
-            playTone('milestone');
+            juice.flash(p.kind === 'multi' ? '#ff8855' : p.kind === 'wide' ? '#5fff8a' : '#7df0ff', 0.30, 8);
+            juice.flyScore(p.kind.toUpperCase(), p.x, p.y, '#ffd870');
+            juice.burst(p.x, p.y, 10, { colors: ['#ffd870', '#fff4c8'], speed: 3 });
+            playPitch(700, 0.12, 'triangle');
           }
         }
         // Cleared all bricks?
         if (bricks.every(b => !b.alive)) {
           loop.stop();
+          // CELEBRATION
+          juice.flash('#ffd870', 0.45, 16);
+          juice.shake(12);
+          for (let k = 0; k < 40; k++) {
+            juice.burst(Math.random() * W, Math.random() * H * 0.6, 1, {
+              colors: ['#ffd870', '#fff4c8', '#7df0ff', '#ff8855'], speed: 5, gravity: 0.05,
+            });
+          }
+          if (score + 100 > best) { best = score + 100; setBest('breaker', best); }
           setTimeout(() => showGameResult('breaker', score + 100, {
             stats: [{ label: 'Bonus', value: 'Cleared! +100' }, { label: 'Lives left', value: lives }],
-          }), 600);
+          }), 800);
         }
       }
 
       function gameOver() {
         loop.stop();
+        juice.shake(18); juice.flash('#c83a3a', 0.5, 14);
+        if (score > best) { best = score; setBest('breaker', best); }
         bubble(pickFromPool('breaker_die'), { autoHide: 2500 });
         setTimeout(() => showGameResult('breaker', score, {
           stats: [{ label: 'Bricks broken', value: bricks.filter(b => !b.alive).length }],
@@ -7626,6 +8003,8 @@
 
       function render() {
         ctx.clearRect(0, 0, W, H);
+        ctx.save();
+        juice.applyShake(ctx);
         // Bricks
         for (const br of bricks) {
           if (!br.alive) continue;
@@ -7650,7 +8029,15 @@
             ctx.beginPath(); ctx.moveTo(fx, br.y + 2); ctx.lineTo(fx, br.y + br.h - 2); ctx.stroke();
           }
         }
-        // Paddle
+        // Paddle — squashes on ball hit (squish decays per frame)
+        ctx.save();
+        const sx = 1 + paddleSquish * 0.18;
+        const sy = 1 - paddleSquish * 0.28;
+        const pcx = paddleX + paddleW / 2;
+        const pcy = paddleY + paddleH / 2;
+        ctx.translate(pcx, pcy);
+        ctx.scale(sx, sy);
+        ctx.translate(-pcx, -pcy);
         const pg = ctx.createLinearGradient(paddleX, paddleY, paddleX, paddleY + paddleH);
         pg.addColorStop(0, '#fffef6'); pg.addColorStop(1, '#a8b5c2');
         ctx.fillStyle = pg;
@@ -7658,6 +8045,7 @@
         ctx.strokeStyle = '#1a1a1a';
         ctx.lineWidth = 2;
         ctx.strokeRect(paddleX, paddleY, paddleW, paddleH);
+        ctx.restore();
         // Powerups
         for (const p of powerups) {
           ctx.fillStyle = p.kind === 'wide' ? '#5fff8a' : p.kind === 'multi' ? '#ff8855' : '#7df0ff';
@@ -7669,19 +8057,28 @@
         }
         // Balls
         for (const b of balls) drawTrajanOrb(ctx, b.x, b.y, b.r + 3);
-        // HUD
+        // Juice particles inside shake
+        juice.drawParticles(ctx);
+        ctx.restore();
+        // HUD (no shake)
         ctx.fillStyle = '#fffef6';
         ctx.font = '700 14px JetBrains Mono, monospace';
         ctx.textAlign = 'left';
         ctx.fillText('SCORE ' + score, 8, 22);
         ctx.textAlign = 'right';
         ctx.fillText('♥ '.repeat(lives), W - 8, 22);
+        // Best score line
+        ctx.font = '700 10px JetBrains Mono, monospace';
+        ctx.fillStyle = 'rgba(255,254,246,0.55)';
+        ctx.fillText('BEST ' + best, W - 8, 40);
         if (!started) {
           ctx.textAlign = 'center';
           ctx.fillStyle = 'rgba(255,255,255,0.85)';
           ctx.font = '700 16px Outfit, sans-serif';
           ctx.fillText('TAP & DRAG TO BEGIN', W / 2, H / 2);
         }
+        // Juice overlay (flyers + flash) above everything
+        juice.drawOverlay(ctx);
       }
 
       render(); // v18.2: paint initial frame so countdown sits over the populated scene
@@ -7729,9 +8126,11 @@
       const basketY = H - 36;
       const coins = [];
       let score = 0, missed = 0, wrongCaught = 0, timeLeft = 60;
+      let combo = 0;
+      let best = getBest('coincatch');
       let spawnTimer = 0;
-      let shake = 0;
       let dragActive = false;
+      const juice = makeJuice(W, H);
 
       function setBasketFromPoint(clientX) {
         const rect = board.wrap.getBoundingClientRect();
@@ -7749,6 +8148,7 @@
       board.wrap.addEventListener('mouseleave', () => { dragActive = false; });
 
       function update(dt) {
+        if (juice.update(dt)) return;
         spawnTimer -= dt;
         const elapsed = 60 - timeLeft;
         const spawnEvery = Math.max(18, 50 - elapsed);
@@ -7765,29 +8165,50 @@
           if (c.y + c.r > basketY && c.y - c.r < basketY + BASKET_H && c.x > basketX && c.x < basketX + BASKET_W) {
             if (c.hue === wantHue) {
               score++;
-              playTone('boop');
-              spawnParticles({ count: 4, type: 'sparkle' });
+              combo++;
+              // Pitch rises with combo
+              const pitch = 440 + Math.min(660, combo * 26);
+              playPitch(pitch, 0.08, 'triangle');
+              juice.flyScore('+1', c.x, c.y, c.hue === 'gold' ? '#ffd870' : '#e8e8ec');
+              juice.burst(c.x, c.y, 6, {
+                colors: c.hue === 'gold' ? ['#ffd870', '#fff4c8'] : ['#e8e8ec', '#fff'],
+                speed: 2.4,
+              });
+              if (combo > 0 && combo % 8 === 0) {
+                juice.flash('#ffd870', 0.22, 8);
+                juice.flyScore('×' + combo + ' STREAK', W / 2, H * 0.4, '#ffd870');
+                playPitch(660, 0.10, 'triangle');
+                setTimeout(() => playPitch(880, 0.12, 'triangle'), 60);
+              }
             } else {
               wrongCaught++;
               score = Math.max(0, score - 1);
-              shake = 12;
-              playTone('bzzt');
+              combo = 0;
+              juice.shake(12);
+              juice.hitstop(2);
+              juice.flash('#c83a3a', 0.30, 8);
+              juice.flyScore('-1', c.x, c.y, '#ff5577');
+              juice.burst(c.x, c.y, 8, { colors: ['#ff5577', '#c83a3a'], speed: 3 });
+              playPitch(180, 0.16, 'sawtooth');
             }
             coins.splice(i, 1);
             continue;
           }
           if (c.y - c.r > H) {
-            if (c.hue === wantHue) missed++;
+            if (c.hue === wantHue) {
+              missed++;
+              combo = 0;
+              juice.flash('#c83a3a', 0.18, 5);
+            }
             coins.splice(i, 1);
           }
         }
-        if (shake > 0) shake = Math.max(0, shake - dt);
       }
 
       function render() {
-        ctx.save();
-        if (shake > 0) ctx.translate((Math.random() - 0.5) * shake * 0.6, 0);
         ctx.clearRect(0, 0, W, H);
+        ctx.save();
+        juice.applyShake(ctx);
         // Coins
         for (const c of coins) drawTrajanOrb(ctx, c.x, c.y, c.r, { hue: c.hue });
         // Basket
@@ -7805,8 +8226,10 @@
           const xL = basketX + (BASKET_W / 5) * i;
           ctx.beginPath(); ctx.moveTo(xL, basketY + 2); ctx.lineTo(xL, basketY + BASKET_H - 2); ctx.stroke();
         }
+        // Juice particles inside shake
+        juice.drawParticles(ctx);
         ctx.restore();
-        // HUD
+        // HUD (no shake)
         ctx.fillStyle = '#fffef6';
         ctx.font = '700 14px JetBrains Mono, monospace';
         ctx.textAlign = 'left';
@@ -7815,6 +8238,18 @@
         ctx.fillText('MISS ' + missed, W / 2, 22);
         ctx.textAlign = 'right';
         ctx.fillText(timeLeft + 's', W - 8, 22);
+        // Best + combo
+        ctx.font = '700 10px JetBrains Mono, monospace';
+        ctx.fillStyle = 'rgba(255,254,246,0.55)';
+        ctx.textAlign = 'right';
+        ctx.fillText('BEST ' + best, W - 8, 40);
+        if (combo >= 2) {
+          ctx.fillStyle = '#ffd870';
+          ctx.textAlign = 'left';
+          ctx.fillText('×' + combo, 8, 40);
+        }
+        // Juice overlay
+        juice.drawOverlay(ctx);
       }
 
       let timerInt = null;
@@ -7828,6 +8263,7 @@
           if (timeLeft <= 0) {
             loop.stop();
             clearInterval(timerInt);
+            if (score > best) { best = score; setBest('coincatch', best); }
             setTimeout(() => showGameResult('coins', score, {
               stats: [
                 { label: 'Missed', value: missed },
@@ -7875,8 +8311,9 @@
       const bgStars = [];
       for (let i = 0; i < 50; i++) bgStars.push({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.4 + 0.3, v: 0.3 + Math.random() * 1.2, a: 0.4 + Math.random() * 0.6 });
       let score = 0, starsCaught = 0, t = 0, lastAst = 0, lastStar = 0;
+      let best = getBest('asteroids');
       let dragActive = false;
-      let shake = 0;
+      const juice = makeJuice(W, H);
 
       function setTargetFromPoint(clientX, clientY) {
         const rect = board.wrap.getBoundingClientRect();
@@ -7911,6 +8348,7 @@
       }
 
       function update(dt) {
+        if (juice.update(dt)) return;
         t += dt;
         // Player steering via spring towards target
         if (dragActive) {
@@ -7953,18 +8391,28 @@
           const dx = s.x - px, dy = s.y - py;
           if (dx * dx + dy * dy < (s.r + PLAYER_R) * (s.r + PLAYER_R)) {
             score += 5; starsCaught++;
-            playTone('sparkle');
-            spawnParticles({ count: 8, type: 'sparkle' });
+            // JUICE
+            juice.flyScore('+5', s.x, s.y, '#ffd870');
+            juice.burst(s.x, s.y, 16, { colors: ['#ffd870', '#fff4c8', '#ffffff'], speed: 4 });
+            juice.flash('#fff4c8', 0.20, 6);
+            const pitch = 660 + Math.min(880, starsCaught * 20);
+            playPitch(pitch, 0.10, 'triangle');
             starsFx.splice(i, 1);
           }
         }
-        if (shake > 0) shake = Math.max(0, shake - dt);
         // Survival scoring: +1 per second
         score = Math.floor(t / 60) + starsCaught * 5;
       }
       function die() {
         loop.stop();
-        shake = 18;
+        // Big death moment
+        juice.hitstop(5);
+        juice.shake(22);
+        juice.flash('#c83a3a', 0.55, 14);
+        juice.burst(px, py, 40, { colors: ['#7df0ff', '#fffef6', '#ff8855', '#4cb6ff'], speed: 6 });
+        playPitch(140, 0.20, 'sawtooth');
+        setTimeout(() => playPitch(85, 0.35, 'sawtooth'), 80);
+        if (score > best) { best = score; setBest('asteroids', best); }
         bubble(pickFromPool('asteroids_die'), { autoHide: 2500 });
         setTimeout(() => showGameResult('asteroids', score, {
           stats: [
@@ -7974,11 +8422,9 @@
         }), 700);
       }
       function render() {
-        ctx.save();
-        if (shake > 0) {
-          ctx.translate((Math.random() - 0.5) * shake * 0.8, (Math.random() - 0.5) * shake * 0.8);
-        }
         ctx.clearRect(0, 0, W, H);
+        ctx.save();
+        juice.applyShake(ctx);
         // BG stars
         for (const s of bgStars) {
           ctx.globalAlpha = s.a;
@@ -8032,16 +8478,27 @@
         }
         // Player Trajan
         drawTrajanOrb(ctx, px, py, PLAYER_R);
-        // Engine trail
+        // Engine trail — fatter when moving fast
         if (alive && (Math.abs(vx) > 0.3 || Math.abs(vy) > 0.3)) {
           const speed = Math.hypot(vx, vy);
-          ctx.fillStyle = 'rgba(125, 240, 255, 0.5)';
+          // Outer halo
+          const tg = ctx.createRadialGradient(px - vx * 2, py - vy * 2, 0, px - vx * 2, py - vy * 2, Math.min(14, speed * 2));
+          tg.addColorStop(0, 'rgba(125, 240, 255, 0.7)');
+          tg.addColorStop(1, 'rgba(125, 240, 255, 0)');
+          ctx.fillStyle = tg;
           ctx.beginPath();
-          ctx.arc(px - vx * 2, py - vy * 2, Math.min(8, speed * 1.2), 0, Math.PI * 2);
+          ctx.arc(px - vx * 2, py - vy * 2, Math.min(14, speed * 2), 0, Math.PI * 2);
+          ctx.fill();
+          // Core
+          ctx.fillStyle = 'rgba(125, 240, 255, 0.7)';
+          ctx.beginPath();
+          ctx.arc(px - vx * 2, py - vy * 2, Math.min(6, speed * 1.0), 0, Math.PI * 2);
           ctx.fill();
         }
+        // Juice particles
+        juice.drawParticles(ctx);
         ctx.restore();
-        // HUD
+        // HUD (no shake)
         ctx.fillStyle = '#fffef6';
         ctx.font = '700 14px JetBrains Mono, monospace';
         ctx.textAlign = 'left';
@@ -8050,6 +8507,13 @@
         ctx.fillText('★ ' + starsCaught, W - 8, 22);
         ctx.textAlign = 'center';
         ctx.fillText(Math.floor(t / 60) + 's', W / 2, 22);
+        // Best score
+        ctx.font = '700 10px JetBrains Mono, monospace';
+        ctx.fillStyle = 'rgba(255,254,246,0.55)';
+        ctx.textAlign = 'right';
+        ctx.fillText('BEST ' + best, W - 8, 40);
+        // Juice overlay
+        juice.drawOverlay(ctx);
       }
 
       render(); // v18.2: paint initial frame so countdown sits over the populated scene
