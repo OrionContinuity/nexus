@@ -2337,10 +2337,14 @@
   function applyPersistedCostume() {
     const c = state.preferences.costume || 'none';
     const p = state.preferences.prop || 'none';
-    if (state.shell) {
-      if (COSTUMES[c] && COSTUMES[c].cls) state.shell.classList.add(COSTUMES[c].cls);
-      if (PROPS[p] && PROPS[p].cls) state.shell.classList.add(PROPS[p].cls);
-    }
+    if (!state.shell) return;
+    // v18.3: clear ALL wear-* and holding-* classes before re-applying.
+    // Without this, cloud-sync between sessions stacks hats (the shell
+    // accumulates wear-beanie + wear-bunny-ears + wear-flower-crown etc).
+    Object.values(COSTUMES).forEach(co => co.cls && state.shell.classList.remove(co.cls));
+    Object.values(PROPS).forEach(pr => pr.cls && state.shell.classList.remove(pr.cls));
+    if (COSTUMES[c] && COSTUMES[c].cls) state.shell.classList.add(COSTUMES[c].cls);
+    if (PROPS[p] && PROPS[p].cls)       state.shell.classList.add(PROPS[p].cls);
   }
 
 
@@ -5836,37 +5840,172 @@
   }
 
   // ─── Trajan orb sprite (canvas) ────────────────────────────────
+  // v18.3: matches the actual Clippy SVG. Body is blue (#4cb6ff) by
+  // default — same as clippy.svg's orb-body gradient. For game props
+  // like coins/food that AREN'T supposed to be Trajan, pass hue:'gold'
+  // or 'silver'. The kawaii face (eyes + cheek blush + smile) auto-
+  // draws when r >= 14; below that it's a simple body (too small for
+  // legible facial features).
+  //
+  // opts.hue:   'blue' (default) | 'silver' | 'gold'
+  // opts.face:  'happy' (default) | 'flap' | 'fall' | 'dead' | 'none'
+  // opts.halo:  true (default) | false
   function drawTrajanOrb(ctx, x, y, r, opts) {
     opts = opts || {};
-    const isGold = opts.hue !== 'silver';
+    const hue = opts.hue || 'blue';
+    // ─── Palettes ─────────────────────────────────────────────────
+    let bodyTop, bodyEdge, haloRGB, faceColor, glintColor;
+    if (hue === 'silver') {
+      bodyTop    = '#f0f4f8';
+      bodyEdge   = '#6a7480';
+      haloRGB    = '180, 200, 220';
+      faceColor  = '#1a2030';
+      glintColor = '#ffffff';
+    } else if (hue === 'gold') {
+      bodyTop    = '#ffe488';
+      bodyEdge   = '#8c6418';
+      haloRGB    = '212, 164, 78';
+      faceColor  = '#3a2410';
+      glintColor = '#fff8d8';
+    } else {
+      // Default: blue — matches the actual Clippy
+      bodyTop    = '#4cb6ff';
+      bodyEdge   = '#2e8de0';
+      haloRGB    = '92, 176, 255';
+      faceColor  = '#04124a';
+      glintColor = '#ffffff';
+    }
+
+    // ─── Halo glow ───────────────────────────────────────────────
     if (opts.halo !== false) {
-      const halo = ctx.createRadialGradient(x, y, r * 0.7, x, y, r * 1.7);
-      const haloRGB = isGold ? '212, 164, 78' : '180, 200, 220';
-      halo.addColorStop(0, 'rgba(' + haloRGB + ', 0.45)');
+      const halo = ctx.createRadialGradient(x, y, r * 0.85, x, y, r * 1.65);
+      halo.addColorStop(0, 'rgba(' + haloRGB + ', 0.42)');
       halo.addColorStop(1, 'rgba(' + haloRGB + ', 0)');
       ctx.fillStyle = halo;
-      ctx.beginPath(); ctx.arc(x, y, r * 1.7, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, r * 1.65, 0, Math.PI * 2); ctx.fill();
     }
-    const body = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r);
-    if (isGold) {
-      body.addColorStop(0, '#fff4d0');
-      body.addColorStop(0.4, '#e8c264');
-      body.addColorStop(0.75, '#d4a44e');
-      body.addColorStop(1, '#7a5b2e');
-    } else {
-      body.addColorStop(0, '#ffffff');
-      body.addColorStop(0.4, '#dde5ec');
-      body.addColorStop(0.75, '#a8b5c2');
-      body.addColorStop(1, '#5a6873');
-    }
+
+    // ─── Body ────────────────────────────────────────────────────
+    // Flat-ish radial: most of the body solid, slight vignette at edge —
+    // matches the v17.3 "FLAT 2D body" comment in clippy.svg.
+    const body = ctx.createRadialGradient(x, y, r * 0.1, x, y, r);
+    body.addColorStop(0,    bodyTop);
+    body.addColorStop(0.80, bodyTop);
+    body.addColorStop(1,    bodyEdge);
     ctx.fillStyle = body;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#1a1a1a';
-    ctx.lineWidth = Math.max(1.5, r * 0.06);
+
+    // ─── Face ────────────────────────────────────────────────────
+    // Skip face for very small orbs (snake body/food, tiny bricks) —
+    // facial features under r=14 are illegible noise.
+    const face = opts.face || 'happy';
+    if (face === 'none' || r < 14) return;
+
+    // Reference proportions from clippy.svg (viewBox 200, body r=58):
+    //   Eyes:   x ±17 (±0.293r), y +3 (+0.052r) below center, rx=10/ry=13
+    //   Cheek:  x ±27 (±0.466r), y +20 (+0.345r), rx=11/ry=5.2
+    //   Mouth:  y ~+30 (+0.517r), width ~16 (~0.276r)
+    const EYE_DX    = r * 0.29;
+    const CHEEK_DX  = r * 0.46;
+    const CHEEK_DY  = r * 0.35;
+    const CHEEK_RX  = r * 0.19;
+    const CHEEK_RY  = r * 0.09;
+
+    // Eye + mouth Y by face state
+    let eyeDY, mouthY, mouthShape, eyeShape;
+    if (face === 'flap') {
+      // Excited: eyes wide & shining, big smile, blush
+      eyeDY = r * -0.05;
+      mouthY = r * 0.42;
+      mouthShape = 'bigSmile';
+      eyeShape = 'happy';
+    } else if (face === 'fall') {
+      // Worried: eyes look down, frown
+      eyeDY = r * 0.10;
+      mouthY = r * 0.48;
+      mouthShape = 'frown';
+      eyeShape = 'dots';
+    } else if (face === 'dead') {
+      // X eyes, flat mouth
+      eyeDY = r * 0.05;
+      mouthY = r * 0.45;
+      mouthShape = 'flat';
+      eyeShape = 'x';
+    } else {
+      // Default kawaii: small dots, gentle smile
+      eyeDY = r * 0.05;
+      mouthY = r * 0.45;
+      mouthShape = 'smile';
+      eyeShape = 'dots';
+    }
+
+    // ─── Cheek blush ─────────────────────────────────────────────
+    // Always-on for blue/gold; lighter for silver. Draws after body,
+    // under the eyes, so they sit on the lower-half of the face.
+    if (hue !== 'silver') {
+      ctx.fillStyle = hue === 'gold'
+        ? 'rgba(255, 100, 130, 0.42)'
+        : 'rgba(255, 140, 170, 0.55)';
+      ctx.beginPath(); ctx.ellipse(x - CHEEK_DX, y + CHEEK_DY, CHEEK_RX, CHEEK_RY, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + CHEEK_DX, y + CHEEK_DY, CHEEK_RX, CHEEK_RY, 0, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // ─── Eyes ────────────────────────────────────────────────────
+    const eyeY = y + eyeDY;
+    if (eyeShape === 'happy') {
+      // Curved happy arcs ^^
+      ctx.strokeStyle = faceColor;
+      ctx.lineWidth = Math.max(1.4, r * 0.10);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(x - EYE_DX, eyeY + r * 0.05, r * 0.17, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x + EYE_DX, eyeY + r * 0.05, r * 0.17, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+    } else if (eyeShape === 'x') {
+      ctx.strokeStyle = faceColor;
+      ctx.lineWidth = Math.max(1.4, r * 0.10);
+      ctx.lineCap = 'round';
+      for (const ex of [x - EYE_DX, x + EYE_DX]) {
+        ctx.beginPath();
+        ctx.moveTo(ex - r * 0.11, eyeY - r * 0.11);
+        ctx.lineTo(ex + r * 0.11, eyeY + r * 0.11);
+        ctx.moveTo(ex + r * 0.11, eyeY - r * 0.11);
+        ctx.lineTo(ex - r * 0.11, eyeY + r * 0.11);
+        ctx.stroke();
+      }
+    } else {
+      // Default: small dark dots with white glint
+      const eyeR = r * 0.13;
+      ctx.fillStyle = faceColor;
+      ctx.beginPath(); ctx.arc(x - EYE_DX, eyeY, eyeR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + EYE_DX, eyeY, eyeR, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = glintColor;
+      ctx.beginPath(); ctx.arc(x - EYE_DX + r * 0.05, eyeY - r * 0.05, r * 0.045, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + EYE_DX + r * 0.05, eyeY - r * 0.05, r * 0.045, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // ─── Mouth ───────────────────────────────────────────────────
+    ctx.strokeStyle = faceColor;
+    ctx.lineWidth = Math.max(1.4, r * 0.08);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    if (mouthShape === 'flat') {
+      ctx.moveTo(x - r * 0.16, y + mouthY);
+      ctx.lineTo(x + r * 0.16, y + mouthY);
+    } else if (mouthShape === 'frown') {
+      // Inverted arc — sad frown
+      ctx.arc(x, y + mouthY + r * 0.20, r * 0.18, Math.PI * 1.15, Math.PI * 1.85);
+    } else if (mouthShape === 'bigSmile') {
+      // Bigger happy mouth
+      ctx.arc(x, y + mouthY - r * 0.10, r * 0.22, Math.PI * 0.18, Math.PI * 0.82);
+    } else {
+      // Default smile: gentle upward arc — matches clippy.svg's cl-mouth-smile
+      // M 92 130 Q 100 137 108 130  → centered Q below
+      ctx.arc(x, y + mouthY - r * 0.08, r * 0.18, Math.PI * 0.22, Math.PI * 0.78);
+    }
     ctx.stroke();
-    // Inner eye
-    ctx.fillStyle = isGold ? '#3a2810' : '#2c3640';
-    ctx.beginPath(); ctx.arc(x, y - r * 0.08, r * 0.18, 0, Math.PI * 2); ctx.fill();
   }
 
   // ─── Arbitrary-pitch tone (Memory color tones, combo pitch) ───
@@ -6753,17 +6892,19 @@
           ctx.beginPath(); ctx.arc(BIRD_X - 4, birdY + 6, fr, 0, Math.PI * 2); ctx.fill();
         }
 
-        // Trajan himself
+        // Trajan himself — face state shifts with flight
+        const faceState = !alive ? 'dead'
+                       : flapPulse > 0.3 ? 'flap'
+                       : birdV > 2 ? 'fall'
+                       : 'happy';
         ctx.save();
         ctx.translate(BIRD_X, birdY);
         ctx.rotate(birdRot);
-        drawTrajanOrb(ctx, 0, 0, BIRD_VR);
-        // Face cues (drawn directly so they animate w/ flight)
-        drawFlappyFace(0, 0, BIRD_VR);
-        // Wings during flap pulse
+        drawTrajanOrb(ctx, 0, 0, BIRD_VR, { face: faceState });
+        // Wings during flap pulse — drawn over the body for emphasis
         if (flapPulse > 0.15) {
           const wingY = -BIRD_VR * 0.15;
-          ctx.strokeStyle = '#fff4d0';
+          ctx.strokeStyle = 'rgba(255, 244, 208, 0.85)';
           ctx.lineWidth = 2;
           ctx.lineCap = 'round';
           ctx.beginPath();
@@ -6886,63 +7027,6 @@
         ctx.lineWidth = 1.2;
         ctx.stroke();
         ctx.restore();
-      }
-      function drawFlappyFace(x, y, r) {
-        // Eye direction + mouth shape based on flight state
-        const flapping = flapPulse > 0.3;
-        const falling = birdV > 2;
-        const stunned = !alive;
-        const eyeY = stunned ? y + r * 0.05 : flapping ? y - r * 0.18 : falling ? y + r * 0.05 : y - r * 0.05;
-        const eyeOffX = r * 0.28;
-        // Eyes
-        if (stunned) {
-          // X eyes
-          ctx.strokeStyle = '#1a1a1a';
-          ctx.lineWidth = r * 0.10;
-          ctx.lineCap = 'round';
-          for (const ex of [x - eyeOffX, x + eyeOffX]) {
-            ctx.beginPath();
-            ctx.moveTo(ex - r * 0.10, eyeY - r * 0.10);
-            ctx.lineTo(ex + r * 0.10, eyeY + r * 0.10);
-            ctx.moveTo(ex + r * 0.10, eyeY - r * 0.10);
-            ctx.lineTo(ex - r * 0.10, eyeY + r * 0.10);
-            ctx.stroke();
-          }
-        } else {
-          ctx.fillStyle = '#1a1a1a';
-          ctx.beginPath(); ctx.arc(x - eyeOffX, eyeY, r * 0.13, 0, Math.PI * 2); ctx.fill();
-          ctx.beginPath(); ctx.arc(x + eyeOffX, eyeY, r * 0.13, 0, Math.PI * 2); ctx.fill();
-          // Eye glints
-          ctx.fillStyle = '#fffef6';
-          ctx.beginPath(); ctx.arc(x - eyeOffX + r * 0.05, eyeY - r * 0.05, r * 0.045, 0, Math.PI * 2); ctx.fill();
-          ctx.beginPath(); ctx.arc(x + eyeOffX + r * 0.05, eyeY - r * 0.05, r * 0.045, 0, Math.PI * 2); ctx.fill();
-        }
-        // Mouth
-        ctx.strokeStyle = '#1a1a1a';
-        ctx.lineWidth = r * 0.08;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        const my = y + r * 0.32;
-        if (stunned) {
-          ctx.moveTo(x - r * 0.18, my);
-          ctx.lineTo(x + r * 0.18, my);
-        } else if (flapping) {
-          // wide :D
-          ctx.arc(x, my - r * 0.05, r * 0.22, 0.15 * Math.PI, 0.85 * Math.PI);
-        } else if (falling) {
-          // worried frown
-          ctx.arc(x, my + r * 0.20, r * 0.20, 1.15 * Math.PI, 1.85 * Math.PI);
-        } else {
-          // gentle smile
-          ctx.arc(x, my - r * 0.10, r * 0.20, 0.20 * Math.PI, 0.80 * Math.PI);
-        }
-        ctx.stroke();
-        // Cheek blush when flapping
-        if (flapping) {
-          ctx.fillStyle = 'rgba(255,140,160,0.5)';
-          ctx.beginPath(); ctx.arc(x - r * 0.50, y + r * 0.18, r * 0.14, 0, Math.PI * 2); ctx.fill();
-          ctx.beginPath(); ctx.arc(x + r * 0.50, y + r * 0.18, r * 0.14, 0, Math.PI * 2); ctx.fill();
-        }
       }
       function hexAlpha(hex, a) {
         const v = parseInt(hex.slice(1), 16);
@@ -7344,7 +7428,7 @@
         // Food
         const fx = food.x * CELL + CELL / 2;
         const fy = food.y * CELL + CELL / 2;
-        drawTrajanOrb(ctx, fx, fy, 8, { hue: food.gold ? 'gold' : 'gold' });
+        drawTrajanOrb(ctx, fx, fy, 8, { hue: 'gold' });
         if (food.gold) {
           // pulsing ring
           ctx.strokeStyle = 'rgba(255, 216, 112, 0.7)';
