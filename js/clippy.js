@@ -5644,6 +5644,17 @@
   // ─── Game overlay shell ────────────────────────────────────────
   function createGameOverlay() {
     closeGameOverlay();
+    // v18.2: force-close any active bubble/chat so Clippy is fully hidden
+    // for the duration of the game. If the game itself needs to surface
+    // a message (e.g. high-score), bubble() is wrapped to render on top
+    // of the game overlay via the .clippy-bubble-on-top class.
+    try { closeActionBubble(); } catch (_) {}
+    try {
+      if (state.bubble && state.bubble.remove) state.bubble.remove();
+    } catch (_) {}
+    state.bubble = null;
+    if (state._driftTimer) clearTimeout(state._driftTimer);
+    if (state._emoFollowupTimer) clearTimeout(state._emoFollowupTimer);
     const ov = document.createElement('div');
     ov.className = 'clippy-game-overlay';
     document.body.appendChild(ov);
@@ -5651,6 +5662,7 @@
     state.gameOverlay = ov;
     state.suppressed = true;
     if (state.shell) state.shell.classList.add('is-suppressed');
+    document.body.classList.add('clippy-game-open');
     return ov;
   }
   function closeGameOverlay() {
@@ -5662,6 +5674,7 @@
     }
     state.suppressed = false;
     if (state.shell) state.shell.classList.remove('is-suppressed');
+    document.body.classList.remove('clippy-game-open');
     if (state.gameCleanupFns) {
       state.gameCleanupFns.forEach(fn => { try { fn(); } catch (e) {} });
       state.gameCleanupFns = [];
@@ -6337,11 +6350,18 @@
   }
 
   // ════════════════════════════════════════════════════════════════
-  // GAME 5: FLAPPY TRAJAN — full canvas rewrite
-  //   • Circular collision (forgiving) vs prior 60×60 square
-  //   • Difficulty curve: gap 160→100, speed 2.2→3.4 over first 30 cols
-  //   • Tap-to-begin (no auto-fall after countdown)
-  //   • Parallax clouds + ground stripes, particle burst per scored col
+  // GAME 5: FLAPPY TRAJAN — v18.2 full revamp
+  //   • Trajan IS the bird (canvas-drawn with mood-state face cues)
+  //   • Day → sunset → night sky cycle as score climbs
+  //   • Three-layer parallax (mountains + far clouds + near clouds)
+  //   • Trail of fading gold orbs behind Trajan in flight
+  //   • Tap flap = visual puff + wing flick + audio
+  //   • Bonus stars in some gaps (+5 pts each)
+  //   • Combo system: consecutive scored columns build "flow"; milestone
+  //     bursts at 5/10/15... reward the streak
+  //   • Inline restart after death (no overlay teardown)
+  //   • Difficulty curve smoother than v18.0: gap 170→102 over 40 cols,
+  //     speed 2.0→3.6 over 60 cols, spacing 230→160 over 40 cols
   // ════════════════════════════════════════════════════════════════
   function startFlappyGame() {
     const ov = createGameOverlay();
@@ -6362,128 +6382,348 @@
         <div class="clippy-game-buttons"><button class="clippy-game-btn is-ghost" data-act="quit">Quit</button></div>`;
       const wrap = ov.querySelector('[data-wrap]');
       const hint = ov.querySelector('[data-hint]');
-      const board = makeCanvasBoard(wrap, { bg: 'linear-gradient(180deg, #2a3f6a 0%, #4a6088 70%, #6b7a99 100%)' });
+      const board = makeCanvasBoard(wrap, { bg: 'transparent' });    // sky painted in render
       const { ctx, w: W, h: H } = board;
       ov.querySelector('[data-act="quit"]').addEventListener('click', () => { loop.stop(); closeGameOverlay(); });
 
+      // ─── Constants ─────────────────────────────────────────────
       const GROUND_Y = H - 28;
-      const BIRD_R = 18;          // collision radius (smaller than visual ~22)
-      const BIRD_VR = 22;         // visual radius
-      const BIRD_X = Math.floor(W * 0.28);
-      let birdY = H / 2, birdV = 0, birdRot = 0;
-      let score = 0, started = false, alive = true;
+      const BIRD_R   = 17;             // collision radius
+      const BIRD_VR  = 22;             // visual radius
+      const BIRD_X   = Math.floor(W * 0.28);
+      const GRAVITY  = 0.42;
+      const FLAP_V   = -7.0;
+      const PILLAR_W = 56;
+
+      // ─── State ─────────────────────────────────────────────────
+      let birdY = H * 0.42, birdV = 0, birdRot = 0;
+      let score = 0, best = 0, combo = 0, bestCombo = 0;
+      let started = false, alive = true;
       const columns = [];
-      let nextColumnX = W + 80;
-      // Difficulty
-      function gapAt(s)   { return Math.max(100, 160 - s * 2); }
-      function speedAt(s) { return Math.min(3.4, 2.2 + s * 0.04); }
-      function spacingAt(s){ return Math.max(170, 220 - s * 1.5); }
-      const GRAVITY = 0.45, FLAP_V = -7.2;
+      const trail = [];                // {x,y,life,maxLife}
+      const particles = [];            // death/score particles {x,y,vx,vy,life,r,color}
+      const bonusStars = [];           // {colIdx,taken,phase}
+      let nextColumnX = W + 60;
+      let groundOff = 0, t = 0;
+      let flapPulse = 0;               // 0..1 visual flap feedback, decays
+      let comboFlash = 0;              // 0..1 flash strength for combo milestone
+      let comboFlashLabel = '';
+      let nearMissPulse = 0;
+      let isRetryShown = false;
 
-      // Parallax clouds
-      const clouds = [];
-      for (let i = 0; i < 5; i++) {
-        clouds.push({ x: Math.random() * W, y: 30 + Math.random() * (H * 0.4), r: 18 + Math.random() * 20, v: 0.15 + Math.random() * 0.25 });
+      // ─── Difficulty curves (smoother than v18.0) ───────────────
+      function gapAt(s)     { return Math.max(102, 170 - s * 1.7); }
+      function speedAt(s)   { return Math.min(3.6, 2.0 + s * 0.027); }
+      function spacingAt(s) { return Math.max(160, 230 - s * 1.75); }
+
+      // ─── Sky palette (day → sunset → night) ────────────────────
+      function skyColors(s) {
+        // 0..20 day, 20..40 sunset, 40+ night
+        if (s < 20) {
+          const k = s / 20;
+          return [
+            mixColor('#5fa8e8', '#e89a64', k),   // top
+            mixColor('#a6c4e0', '#ffc89a', k),   // mid
+            mixColor('#dbe5f2', '#ffd8a8', k),   // bottom (above ground)
+          ];
+        }
+        if (s < 40) {
+          const k = (s - 20) / 20;
+          return [
+            mixColor('#e89a64', '#1a2858', k),
+            mixColor('#ffc89a', '#3a3870', k),
+            mixColor('#ffd8a8', '#4a4078', k),
+          ];
+        }
+        return ['#0a1430', '#1c1b40', '#2a2658'];
       }
-      // Ground stripe offset
-      let groundOff = 0;
-      // Death particles
-      const particles = [];
+      function mixColor(a, b, t) {
+        const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+        const ar = (pa >> 16) & 255, ag = (pa >> 8) & 255, ab = pa & 255;
+        const br = (pb >> 16) & 255, bg = (pb >> 8) & 255, bb = pb & 255;
+        const r = Math.round(ar + (br - ar) * t);
+        const g = Math.round(ag + (bg - ag) * t);
+        const bl = Math.round(ab + (bb - ab) * t);
+        return 'rgb(' + r + ',' + g + ',' + bl + ')';
+      }
 
+      // ─── Parallax layers ───────────────────────────────────────
+      const farClouds = [];
+      const nearClouds = [];
+      const mountains = [];
+      const nightStars = [];
+      for (let i = 0; i < 5; i++) farClouds.push({ x: Math.random() * W, y: 25 + Math.random() * (H * 0.3), r: 18 + Math.random() * 14, v: 0.10 + Math.random() * 0.10 });
+      for (let i = 0; i < 4; i++) nearClouds.push({ x: Math.random() * W, y: 60 + Math.random() * (H * 0.35), r: 22 + Math.random() * 18, v: 0.25 + Math.random() * 0.20 });
+      for (let i = 0; i < 6; i++) mountains.push({ x: i * (W / 5) + Math.random() * 40 - 20, h: 60 + Math.random() * 40, w: 110 + Math.random() * 60 });
+      for (let i = 0; i < 35; i++) nightStars.push({ x: Math.random() * W, y: Math.random() * (H * 0.55), r: Math.random() * 1.2 + 0.3, p: Math.random() * Math.PI * 2 });
+
+      // ─── Helpers ───────────────────────────────────────────────
       function spawnColumn() {
         const lastScore = columns.length ? Math.max(score, columns.length - 1) : score;
         const GAP = gapAt(lastScore);
         const gapY = 40 + Math.random() * (GROUND_Y - GAP - 80);
-        columns.push({ x: nextColumnX, gapY, gap: GAP, scored: false });
+        const col = { x: nextColumnX, gapY, gap: GAP, scored: false, idx: columns.length };
+        columns.push(col);
         nextColumnX += spacingAt(lastScore);
+        // Bonus star in 35% of gaps once score >= 6
+        if (score >= 6 && Math.random() < 0.35) {
+          bonusStars.push({ colIdx: col.idx, taken: false, phase: Math.random() * Math.PI * 2 });
+        }
       }
-
       function flap() {
-        if (!alive) return;
-        if (!started) { started = true; hint.textContent = 'Dodge the columns. Good luck.'; }
+        if (!alive) {
+          if (isRetryShown) restart();
+          return;
+        }
+        if (!started) { started = true; hint.textContent = 'Dodge the columns. Catch the stars.'; }
         birdV = FLAP_V;
+        flapPulse = 1;
         playTone('boop');
+      }
+      function restart() {
+        // Reset state and run countdown again
+        birdY = H * 0.42; birdV = 0; birdRot = 0;
+        score = 0; combo = 0;
+        started = false; alive = true;
+        columns.length = 0;
+        trail.length = 0;
+        particles.length = 0;
+        bonusStars.length = 0;
+        nextColumnX = W + 60;
+        groundOff = 0; t = 0;
+        flapPulse = 0; comboFlash = 0; nearMissPulse = 0;
+        isRetryShown = false;
+        hint.textContent = 'Tap to flap. First tap starts the run.';
+        // Restore the Quit button (death replaces it with Retry/Finish)
+        const btnRow = ov.querySelector('.clippy-game-buttons');
+        btnRow.innerHTML = '<button class="clippy-game-btn is-ghost" data-act="quit">Quit</button>';
+        btnRow.querySelector('[data-act="quit"]').addEventListener('click', () => { loop.stop(); closeGameOverlay(); });
+        runCountdown(board.wrap, () => { /* loop continues, just unfreeze */ });
       }
       board.wrap.addEventListener('click', flap);
       board.wrap.addEventListener('touchstart', (e) => { e.preventDefault(); flap(); }, { passive: false });
 
+      // ─── Update ────────────────────────────────────────────────
       function update(dt) {
-        // Clouds always animate
-        for (const c of clouds) {
+        t += dt;
+        // Parallax always animates (background lives even during pause)
+        for (const c of farClouds) {
           c.x -= c.v * dt;
-          if (c.x + c.r * 2 < 0) { c.x = W + c.r * 2; c.y = 30 + Math.random() * (H * 0.4); }
+          if (c.x + c.r * 2 < 0) { c.x = W + c.r * 2; c.y = 25 + Math.random() * (H * 0.3); }
         }
-        if (!started) return;       // wait for first tap
+        for (const c of nearClouds) {
+          c.x -= c.v * dt;
+          if (c.x + c.r * 2 < 0) { c.x = W + c.r * 2; c.y = 60 + Math.random() * (H * 0.35); }
+        }
+        if (flapPulse > 0)    flapPulse    = Math.max(0, flapPulse    - 0.08 * dt);
+        if (comboFlash > 0)   comboFlash   = Math.max(0, comboFlash   - 0.03 * dt);
+        if (nearMissPulse > 0) nearMissPulse = Math.max(0, nearMissPulse - 0.05 * dt);
+        if (!started) return;
+
         if (!alive) {
-          // Bird falls + particles drift
+          // Death animation: bird falls, particles fade
           birdV += GRAVITY * dt;
           birdY += birdV * dt;
           for (const p of particles) {
-            p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 0.15 * dt; p.life -= dt;
+            p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 0.18 * dt; p.life -= dt;
           }
           for (let i = particles.length - 1; i >= 0; i--) if (particles[i].life <= 0) particles.splice(i, 1);
-          if (birdY > GROUND_Y + 50 && particles.length === 0) {
-            loop.stop();
-            bubble(pickFromPool('flappy_die'), { autoHide: 2500 });
-            setTimeout(() => showGameResult('flappy', score), 600);
+          if (birdY > GROUND_Y - BIRD_R) {
+            birdY = GROUND_Y - BIRD_R;
+            birdV = 0;
+            if (!isRetryShown) {
+              isRetryShown = true;
+              setTimeout(showDeathOptions, 380);
+            }
           }
           return;
         }
+
         // Physics
         birdV += GRAVITY * dt;
         birdY += birdV * dt;
-        birdRot = Math.max(-0.5, Math.min(1.3, birdV * 0.07));
+        birdRot = Math.max(-0.55, Math.min(1.3, birdV * 0.08));
         groundOff = (groundOff + speedAt(score) * dt) % 24;
+
+        // Trail emit
+        if (t % 0.5 < dt) {/* throttle */}
+        if (Math.random() < 0.45) {
+          trail.push({ x: BIRD_X - BIRD_VR * 0.4, y: birdY + (Math.random() - 0.5) * 6, life: 24, maxLife: 24, r: 2 + Math.random() * 1.5 });
+        }
+        for (let i = trail.length - 1; i >= 0; i--) {
+          trail[i].life -= dt;
+          trail[i].x -= speedAt(score) * dt;
+          if (trail[i].life <= 0) trail.splice(i, 1);
+        }
+
         // Columns
         const SCROLL = speedAt(score);
         if (columns.length === 0 || columns[columns.length - 1].x < W - spacingAt(score)) spawnColumn();
         for (let i = columns.length - 1; i >= 0; i--) {
           const c = columns[i];
           c.x -= SCROLL * dt;
-          if (!c.scored && c.x + 56 < BIRD_X) {
+          if (c.x + PILLAR_W < 0) { columns.splice(i, 1); continue; }
+          // Score
+          if (!c.scored && c.x + PILLAR_W < BIRD_X - BIRD_R) {
             c.scored = true;
             score++;
-            playTone('sparkle');
-            spawnParticles({ count: 4, type: 'sparkle' });
+            combo++;
+            playPitch(440 + Math.min(440, combo * 24), 0.10, 'triangle');
+            // Combo milestone
+            if (combo > 0 && combo % 5 === 0) {
+              comboFlash = 1;
+              comboFlashLabel = combo + ' FLOW!';
+              spawnPuff(W / 2, H * 0.32, '#ffd870', 14);
+            }
+            // Tiny score-puff at the column
+            spawnPuff(c.x + PILLAR_W / 2, c.gapY + c.gap / 2, '#ffd870', 6);
           }
-          if (c.x < -80) columns.splice(i, 1);
+          // Collision (circle-vs-AABB on top + bottom pillars)
+          const top    = { x: c.x, y: 0,            w: PILLAR_W, h: c.gapY };
+          const bottom = { x: c.x, y: c.gapY + c.gap, w: PILLAR_W, h: GROUND_Y - (c.gapY + c.gap) };
+          if (circleAABB(BIRD_X, birdY, BIRD_R, top) || circleAABB(BIRD_X, birdY, BIRD_R, bottom)) {
+            return killBird();
+          }
+          // Near-miss detection (visual cue only)
+          if (!c.scored && Math.abs((c.x + PILLAR_W) - (BIRD_X - BIRD_R)) < 12) {
+            const gapMid = c.gapY + c.gap / 2;
+            const gapEdge = Math.min(Math.abs(birdY - c.gapY), Math.abs(birdY - (c.gapY + c.gap)));
+            if (gapEdge < 24) nearMissPulse = Math.max(nearMissPulse, 0.8);
+          }
         }
-        // Collision: floor/ceiling
-        if (birdY + BIRD_R > GROUND_Y || birdY - BIRD_R < 0) return die();
-        // Collision: columns (circle vs AABB)
-        for (const c of columns) {
-          const inX = BIRD_X + BIRD_R > c.x && BIRD_X - BIRD_R < c.x + 56;
-          if (!inX) continue;
-          const inGapY = birdY - BIRD_R > c.gapY && birdY + BIRD_R < c.gapY + c.gap;
-          if (!inGapY) return die();
+
+        // Bonus stars
+        for (let i = bonusStars.length - 1; i >= 0; i--) {
+          const s = bonusStars[i];
+          if (s.taken) { bonusStars.splice(i, 1); continue; }
+          const col = columns.find(c => c.idx === s.colIdx);
+          if (!col) { bonusStars.splice(i, 1); continue; }
+          const sx = col.x + PILLAR_W / 2;
+          const sy = col.gapY + col.gap / 2;
+          if (sx + 12 < 0) { bonusStars.splice(i, 1); continue; }
+          // Collision with bird
+          const dx = sx - BIRD_X, dy = sy - birdY;
+          if (dx * dx + dy * dy < (BIRD_R + 11) * (BIRD_R + 11)) {
+            s.taken = true;
+            score += 5;
+            spawnPuff(sx, sy, '#fffef6', 10);
+            playPitch(880, 0.16, 'triangle');
+            comboFlash = Math.max(comboFlash, 0.6);
+            comboFlashLabel = '+5';
+          }
         }
+
+        // Ceiling / ground
+        if (birdY - BIRD_R < 0) { birdY = BIRD_R; birdV = 0; }
+        if (birdY + BIRD_R > GROUND_Y) return killBird();
       }
-      function die() {
+
+      // ─── Collision helper ─────────────────────────────────────
+      function circleAABB(cx, cy, cr, rect) {
+        const nx = Math.max(rect.x, Math.min(cx, rect.x + rect.w));
+        const ny = Math.max(rect.y, Math.min(cy, rect.y + rect.h));
+        const dx = cx - nx, dy = cy - ny;
+        return dx * dx + dy * dy < cr * cr;
+      }
+      function killBird() {
         if (!alive) return;
         alive = false;
-        playTone('bzzt');
-        for (let i = 0; i < 18; i++) {
-          const ang = Math.random() * Math.PI * 2;
-          const sp = 1 + Math.random() * 3;
-          particles.push({ x: BIRD_X, y: birdY, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 1, r: 2 + Math.random() * 3, life: 40 + Math.random() * 20 });
+        playTone('thud');
+        // Burst death particles
+        for (let i = 0; i < 14; i++) {
+          particles.push({
+            x: BIRD_X, y: birdY,
+            vx: (Math.random() - 0.5) * 5,
+            vy: -2 - Math.random() * 3,
+            life: 36 + Math.random() * 24, maxLife: 60,
+            r: 2 + Math.random() * 2,
+            color: '#d4a44e',
+          });
         }
-        birdV = -2;
+        if (score > best) best = score;
+        if (combo > bestCombo) bestCombo = combo;
+        combo = 0;
       }
+      function spawnPuff(x, y, color, count) {
+        for (let i = 0; i < count; i++) {
+          particles.push({
+            x, y,
+            vx: (Math.random() - 0.5) * 3,
+            vy: (Math.random() - 0.5) * 3,
+            life: 18 + Math.random() * 18, maxLife: 36,
+            r: 1.5 + Math.random() * 1.5,
+            color,
+          });
+        }
+      }
+      function showDeathOptions() {
+        // Inline restart option — replaces the hint text, adds a Retry button
+        hint.innerHTML = `Game over · Score: <b>${score}</b> · Best run: <b>${best}</b>`;
+        const btnRow = ov.querySelector('.clippy-game-buttons');
+        btnRow.innerHTML = `
+          <button class="clippy-game-btn" data-act="retry">↺ Retry</button>
+          <button class="clippy-game-btn is-ghost" data-act="finish">Finish</button>`;
+        btnRow.querySelector('[data-act="retry"]').addEventListener('click', restart);
+        btnRow.querySelector('[data-act="finish"]').addEventListener('click', () => {
+          loop.stop();
+          showGameResult('flappy', best);
+        });
+      }
+
+      // ─── Render ────────────────────────────────────────────────
       function render() {
-        // Sky already CSS gradient on wrap; draw clouds
-        ctx.clearRect(0, 0, W, H);
-        ctx.fillStyle = 'rgba(255,255,255,0.55)';
-        for (const c of clouds) {
+        const sky = skyColors(score);
+        // Sky gradient
+        const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+        skyGrad.addColorStop(0,   sky[0]);
+        skyGrad.addColorStop(0.55, sky[1]);
+        skyGrad.addColorStop(1,   sky[2]);
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, W, GROUND_Y);
+
+        // Night stars (visible after score >= 30, fading in)
+        if (score >= 30) {
+          const alpha = Math.min(1, (score - 30) / 10);
+          for (const s of nightStars) {
+            const tw = 0.7 + Math.sin(t * 0.03 + s.p) * 0.3;
+            ctx.fillStyle = 'rgba(255,255,240,' + (alpha * tw).toFixed(2) + ')';
+            ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+          }
+        }
+
+        // Mountains silhouette (very slow)
+        ctx.fillStyle = score >= 30 ? 'rgba(20,18,40,0.85)' : 'rgba(60,72,96,0.55)';
+        for (let i = 0; i < mountains.length; i++) {
+          const m = mountains[i];
+          const mx = ((m.x - groundOff * 0.05) % (W + 200) + W + 200) % (W + 200) - 100;
           ctx.beginPath();
-          ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
-          ctx.arc(c.x + c.r * 0.7, c.y + 2, c.r * 0.8, 0, Math.PI * 2);
-          ctx.arc(c.x - c.r * 0.7, c.y + 2, c.r * 0.7, 0, Math.PI * 2);
+          ctx.moveTo(mx, GROUND_Y);
+          ctx.lineTo(mx + m.w / 2, GROUND_Y - m.h);
+          ctx.lineTo(mx + m.w, GROUND_Y);
+          ctx.closePath();
           ctx.fill();
         }
-        // Columns (Roman pillars)
+
+        // Far clouds
+        ctx.fillStyle = 'rgba(255,255,255,0.40)';
+        for (const c of farClouds) drawCloud(c.x, c.y, c.r);
+        // Near clouds (brighter)
+        ctx.fillStyle = 'rgba(255,255,255,0.62)';
+        for (const c of nearClouds) drawCloud(c.x, c.y, c.r);
+
+        // Columns
         for (const c of columns) {
           drawColumn(c.x, 0, c.gapY, true);
           drawColumn(c.x, c.gapY + c.gap, GROUND_Y - (c.gapY + c.gap), false);
+        }
+        // Bonus stars (drawn in the column gaps)
+        for (const s of bonusStars) {
+          if (s.taken) continue;
+          const col = columns.find(c => c.idx === s.colIdx);
+          if (!col) continue;
+          const sx = col.x + PILLAR_W / 2;
+          const sy = col.gapY + col.gap / 2;
+          drawBonusStar(sx, sy, 11, t * 0.02 + s.phase);
         }
         // Ground
         ctx.fillStyle = '#4a6033';
@@ -6495,19 +6735,64 @@
         ctx.strokeStyle = '#1a1a1a';
         ctx.lineWidth = 3;
         ctx.beginPath(); ctx.moveTo(0, GROUND_Y); ctx.lineTo(W, GROUND_Y); ctx.stroke();
-        // Bird
+
+        // Trail behind Trajan
+        for (const p of trail) {
+          const a = p.life / p.maxLife;
+          ctx.fillStyle = 'rgba(212,164,78,' + (a * 0.6).toFixed(2) + ')';
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+        }
+
+        // Flap puff (radial behind bird when flapping)
+        if (flapPulse > 0.05) {
+          const fr = BIRD_VR * (1.6 + (1 - flapPulse) * 1.2);
+          const g = ctx.createRadialGradient(BIRD_X - 4, birdY + 6, BIRD_VR * 0.5, BIRD_X - 4, birdY + 6, fr);
+          g.addColorStop(0, 'rgba(255,238,180,' + (0.55 * flapPulse).toFixed(2) + ')');
+          g.addColorStop(1, 'rgba(255,238,180,0)');
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(BIRD_X - 4, birdY + 6, fr, 0, Math.PI * 2); ctx.fill();
+        }
+
+        // Trajan himself
         ctx.save();
         ctx.translate(BIRD_X, birdY);
         ctx.rotate(birdRot);
         drawTrajanOrb(ctx, 0, 0, BIRD_VR);
+        // Face cues (drawn directly so they animate w/ flight)
+        drawFlappyFace(0, 0, BIRD_VR);
+        // Wings during flap pulse
+        if (flapPulse > 0.15) {
+          const wingY = -BIRD_VR * 0.15;
+          ctx.strokeStyle = '#fff4d0';
+          ctx.lineWidth = 2;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(-BIRD_VR * 0.4, wingY);
+          ctx.quadraticCurveTo(-BIRD_VR * 1.1, wingY - BIRD_VR * 0.6 * flapPulse, -BIRD_VR * 1.4, wingY - BIRD_VR * 0.2);
+          ctx.moveTo(BIRD_VR * 0.4, wingY);
+          ctx.quadraticCurveTo(BIRD_VR * 1.1, wingY - BIRD_VR * 0.6 * flapPulse, BIRD_VR * 1.4, wingY - BIRD_VR * 0.2);
+          ctx.stroke();
+        }
         ctx.restore();
+
+        // Near-miss highlight ring
+        if (nearMissPulse > 0.05) {
+          ctx.strokeStyle = 'rgba(255,180,90,' + (nearMissPulse * 0.7).toFixed(2) + ')';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(BIRD_X, birdY, BIRD_VR + 4 + (1 - nearMissPulse) * 8, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
         // Particles
-        ctx.fillStyle = '#d4a44e';
         for (const p of particles) {
-          ctx.globalAlpha = Math.max(0, p.life / 60);
+          const a = Math.max(0, p.life / p.maxLife);
+          ctx.fillStyle = p.color.startsWith('#')
+            ? hexAlpha(p.color, a)
+            : p.color;
           ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
         }
-        ctx.globalAlpha = 1;
+
         // Score
         ctx.font = '900 38px JetBrains Mono, monospace';
         ctx.textAlign = 'center';
@@ -6516,8 +6801,24 @@
         ctx.fillStyle = '#fffef6';
         ctx.strokeText(String(score), W / 2, 50);
         ctx.fillText(String(score), W / 2, 50);
-        // Hint overlay before first tap
-        if (!started) {
+        // Combo small under
+        if (combo >= 2) {
+          ctx.font = '700 14px JetBrains Mono, monospace';
+          ctx.fillStyle = '#ffd870';
+          ctx.fillText('×' + combo, W / 2, 70);
+        }
+        // Combo flash banner
+        if (comboFlash > 0.05) {
+          ctx.font = '900 28px Outfit, sans-serif';
+          ctx.fillStyle = 'rgba(255,216,112,' + comboFlash.toFixed(2) + ')';
+          ctx.strokeStyle = 'rgba(26,26,26,' + comboFlash.toFixed(2) + ')';
+          ctx.lineWidth = 4;
+          ctx.strokeText(comboFlashLabel, W / 2, H * 0.32);
+          ctx.fillText(comboFlashLabel, W / 2, H * 0.32);
+        }
+
+        // Tap-to-start / Tap-to-retry overlay
+        if (!started && alive) {
           ctx.fillStyle = 'rgba(0,0,0,0.35)';
           ctx.fillRect(0, H / 2 - 30, W, 60);
           ctx.fillStyle = '#fffef6';
@@ -6525,33 +6826,130 @@
           ctx.fillText('TAP TO START', W / 2, H / 2 + 6);
         }
       }
+
+      function drawCloud(x, y, r) {
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.arc(x + r * 0.7, y + 2, r * 0.8, 0, Math.PI * 2);
+        ctx.arc(x - r * 0.7, y + 2, r * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+      }
       function drawColumn(x, y, h, isTop) {
         if (h <= 0) return;
-        const grad = ctx.createLinearGradient(x, 0, x + 56, 0);
-        grad.addColorStop(0, '#8b6f3d');
+        const grad = ctx.createLinearGradient(x, 0, x + PILLAR_W, 0);
+        grad.addColorStop(0,   '#8b6f3d');
         grad.addColorStop(0.5, '#c9a063');
-        grad.addColorStop(1, '#8b6f3d');
+        grad.addColorStop(1,   '#8b6f3d');
         ctx.fillStyle = grad;
-        ctx.fillRect(x, y, 56, h);
+        ctx.fillRect(x, y, PILLAR_W, h);
         ctx.strokeStyle = '#1a1a1a';
         ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, 56, h);
+        ctx.strokeRect(x, y, PILLAR_W, h);
         // Fluting
         ctx.strokeStyle = 'rgba(0,0,0,0.18)';
         ctx.lineWidth = 1;
         for (let i = 1; i < 5; i++) {
-          const fx = x + (56 / 5) * i;
+          const fx = x + (PILLAR_W / 5) * i;
           ctx.beginPath(); ctx.moveTo(fx, y); ctx.lineTo(fx, y + h); ctx.stroke();
         }
         // Capital
         ctx.fillStyle = '#6b4a1f';
         const capY = isTop ? y + h - 14 : y;
-        ctx.fillRect(x - 4, capY, 64, 14);
+        ctx.fillRect(x - 4, capY, PILLAR_W + 8, 14);
         ctx.strokeStyle = '#1a1a1a';
         ctx.lineWidth = 2;
-        ctx.strokeRect(x - 4, capY, 64, 14);
+        ctx.strokeRect(x - 4, capY, PILLAR_W + 8, 14);
+      }
+      function drawBonusStar(x, y, r, phase) {
+        const wob = Math.sin(phase) * 1.5;
+        ctx.save();
+        ctx.translate(x, y + wob);
+        ctx.rotate(Math.sin(phase * 0.5) * 0.15);
+        // Glow
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 2.5);
+        g.addColorStop(0, 'rgba(255,238,180,0.65)');
+        g.addColorStop(1, 'rgba(255,238,180,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(0, 0, r * 2.5, 0, Math.PI * 2); ctx.fill();
+        // Star
+        ctx.beginPath();
+        for (let i = 0; i < 10; i++) {
+          const a = (Math.PI / 5) * i - Math.PI / 2;
+          const rr = i % 2 === 0 ? r : r * 0.45;
+          const px = Math.cos(a) * rr, py = Math.sin(a) * rr;
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fillStyle = '#ffd870';
+        ctx.fill();
+        ctx.strokeStyle = '#8c6418';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.restore();
+      }
+      function drawFlappyFace(x, y, r) {
+        // Eye direction + mouth shape based on flight state
+        const flapping = flapPulse > 0.3;
+        const falling = birdV > 2;
+        const stunned = !alive;
+        const eyeY = stunned ? y + r * 0.05 : flapping ? y - r * 0.18 : falling ? y + r * 0.05 : y - r * 0.05;
+        const eyeOffX = r * 0.28;
+        // Eyes
+        if (stunned) {
+          // X eyes
+          ctx.strokeStyle = '#1a1a1a';
+          ctx.lineWidth = r * 0.10;
+          ctx.lineCap = 'round';
+          for (const ex of [x - eyeOffX, x + eyeOffX]) {
+            ctx.beginPath();
+            ctx.moveTo(ex - r * 0.10, eyeY - r * 0.10);
+            ctx.lineTo(ex + r * 0.10, eyeY + r * 0.10);
+            ctx.moveTo(ex + r * 0.10, eyeY - r * 0.10);
+            ctx.lineTo(ex - r * 0.10, eyeY + r * 0.10);
+            ctx.stroke();
+          }
+        } else {
+          ctx.fillStyle = '#1a1a1a';
+          ctx.beginPath(); ctx.arc(x - eyeOffX, eyeY, r * 0.13, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(x + eyeOffX, eyeY, r * 0.13, 0, Math.PI * 2); ctx.fill();
+          // Eye glints
+          ctx.fillStyle = '#fffef6';
+          ctx.beginPath(); ctx.arc(x - eyeOffX + r * 0.05, eyeY - r * 0.05, r * 0.045, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(x + eyeOffX + r * 0.05, eyeY - r * 0.05, r * 0.045, 0, Math.PI * 2); ctx.fill();
+        }
+        // Mouth
+        ctx.strokeStyle = '#1a1a1a';
+        ctx.lineWidth = r * 0.08;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        const my = y + r * 0.32;
+        if (stunned) {
+          ctx.moveTo(x - r * 0.18, my);
+          ctx.lineTo(x + r * 0.18, my);
+        } else if (flapping) {
+          // wide :D
+          ctx.arc(x, my - r * 0.05, r * 0.22, 0.15 * Math.PI, 0.85 * Math.PI);
+        } else if (falling) {
+          // worried frown
+          ctx.arc(x, my + r * 0.20, r * 0.20, 1.15 * Math.PI, 1.85 * Math.PI);
+        } else {
+          // gentle smile
+          ctx.arc(x, my - r * 0.10, r * 0.20, 0.20 * Math.PI, 0.80 * Math.PI);
+        }
+        ctx.stroke();
+        // Cheek blush when flapping
+        if (flapping) {
+          ctx.fillStyle = 'rgba(255,140,160,0.5)';
+          ctx.beginPath(); ctx.arc(x - r * 0.50, y + r * 0.18, r * 0.14, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(x + r * 0.50, y + r * 0.18, r * 0.14, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      function hexAlpha(hex, a) {
+        const v = parseInt(hex.slice(1), 16);
+        return 'rgba(' + ((v >> 16) & 255) + ',' + ((v >> 8) & 255) + ',' + (v & 255) + ',' + a.toFixed(2) + ')';
       }
 
+      render(); // v18.2: paint initial frame so countdown sits over the populated scene
       const loop = gameLoop((dt) => { update(dt); render(); });
       runCountdown(board.wrap, () => loop.start());
     });
@@ -6817,6 +7215,7 @@
         }), 700);
       }
 
+      render(); // v18.2: paint initial frame so countdown sits over the populated scene
       const loop = gameLoop((dt) => { update(dt); render(); });
       runCountdown(board.wrap, () => {
         loop.start();
@@ -6971,6 +7370,7 @@
         }
       }
 
+      render(); // v18.2: paint initial frame so countdown sits over the populated scene
       const loop = gameLoop((dt) => { update(dt); render(); });
       runCountdown(board.wrap, () => loop.start());
     });
@@ -7200,6 +7600,7 @@
         }
       }
 
+      render(); // v18.2: paint initial frame so countdown sits over the populated scene
       const loop = gameLoop((dt) => { update(dt); render(); });
       runCountdown(board.wrap, () => loop.start());
     });
@@ -7333,6 +7734,7 @@
       }
 
       let timerInt = null;
+      render(); // v18.2: paint initial frame so countdown sits over the populated scene
       const loop = gameLoop((dt) => { update(dt); render(); });
       runCountdown(board.wrap, () => {
         loop.start();
@@ -7566,6 +7968,7 @@
         ctx.fillText(Math.floor(t / 60) + 's', W / 2, 22);
       }
 
+      render(); // v18.2: paint initial frame so countdown sits over the populated scene
       const loop = gameLoop((dt) => { update(dt); render(); });
       runCountdown(board.wrap, () => loop.start());
     });
