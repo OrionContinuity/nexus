@@ -3326,7 +3326,17 @@ body.clippy-game-open .clippy-bubble {
 .clippy-svg .cl-costume-mongol,
 .clippy-svg .cl-costume-macedonian,
 .clippy-svg .cl-costume-carthaginian,
-.clippy-svg .cl-costume-nemes {
+.clippy-svg .cl-costume-nemes,
+/* v18.4 BUGFIX — kawaii costumes were missing from the default-hide
+   block, so chef-hat + cat-ears + bunny-ears + flower-crown +
+   heart-crown + beanie all rendered AT THE SAME TIME regardless of
+   the wear-X class. Three-hats-stacked bug. Hide by default now. */
+.clippy-svg .cl-costume-chef-hat,
+.clippy-svg .cl-costume-cat-ears,
+.clippy-svg .cl-costume-bunny-ears,
+.clippy-svg .cl-costume-flower-crown,
+.clippy-svg .cl-costume-heart-crown,
+.clippy-svg .cl-costume-beanie {
   opacity: 0;
   transition: opacity 0.5s ease;
   pointer-events: none;
