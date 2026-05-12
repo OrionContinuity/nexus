@@ -793,12 +793,44 @@
   // ════════════════════════════════════════════════════════════════════
 
   // ─── FEELINGS MODEL ────────────────────────────────────────────────
-  // Five gauges. Each 0-100, persistent across sessions. Update from
-  // user behavior — interactions, idle, time, etc. The dominant feeling
-  // shapes mood expression + pool selection. The user never SEES the
-  // numbers; they just feel the personality shift.
+  // v18.1: 8 gauges (was 5). Each 0-100, persistent across sessions.
+  // Update from user behavior — interactions, idle, time, etc. The
+  // dominant feeling shapes mood expression + pool selection. The user
+  // never SEES the numbers; they just feel the personality shift.
+  //
+  // CHANGES FROM v17.10:
+  //   • Baseline happiness 60 → 55 (slightly more earned)
+  //   • Baseline affection 50 → 45 (must invest to reach loving)
+  //   • Decay target 50 → 45 (mild pessimism without being grumpy)
+  //   • +curiosity (rises with new topics, drops with repetition)
+  //   • +boredom (rises with repetitive interactions, decays on novelty)
+  //   • +confidence (rises with task completion, errors knock it)
+  //   • adjustFeeling now applies diminishing returns above 70 happiness
+  //   • dailyMoodOffset: deterministic per-day ±5 happiness baseline
   function defaultFeelings() {
-    return { happiness: 60, energy: 60, affection: 50, attention_need: 0, ticklish: 0 };
+    return {
+      happiness:      55,
+      energy:         55,
+      affection:      45,
+      attention_need: 0,
+      ticklish:       0,
+      curiosity:      55,   // v18.1
+      boredom:        25,   // v18.1
+      confidence:     45,   // v18.1
+    };
+  }
+  // Deterministic per-calendar-day offset to baseline happiness.
+  // Some days Trajan wakes up cheerier than others; some days grumpier.
+  // No randomness — same answer all day, changes at midnight local.
+  function getDailyMoodOffset() {
+    const d = new Date();
+    const key = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+    // FNV-1a-ish hash → 0..1 → -6..+6
+    let h = 2166136261;
+    const s = String(key);
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 16777619) >>> 0; }
+    const norm = (h % 1000) / 1000;     // 0..1
+    return Math.round((norm - 0.5) * 12); // -6..+6
   }
   function loadFeelings() {
     try {
@@ -810,26 +842,54 @@
   function saveFeelings() {
     try { localStorage.setItem(userKey('clippy_feelings'), JSON.stringify(state.feelings || {})); } catch (e) {}
   }
+  // v18.1: diminishing returns on POSITIVE happiness/affection gains so
+  // it's harder to reach the top end. Negatives apply at full force —
+  // bad days cost more than good ones reward. This is the "earned, not
+  // given" curve.
   function adjustFeeling(key, delta) {
     if (!state.feelings) loadFeelings();
-    state.feelings[key] = Math.max(0, Math.min(100, (state.feelings[key] || 0) + delta));
+    let actual = delta;
+    if (delta > 0 && (key === 'happiness' || key === 'affection')) {
+      const cur = state.feelings[key] || 0;
+      if (cur > 85)      actual = delta * 0.20;
+      else if (cur > 75) actual = delta * 0.40;
+      else if (cur > 65) actual = delta * 0.65;
+    }
+    // Confidence and curiosity are also dampened at the top but less so
+    if (delta > 0 && (key === 'curiosity' || key === 'confidence')) {
+      const cur = state.feelings[key] || 0;
+      if (cur > 85)      actual = delta * 0.35;
+      else if (cur > 75) actual = delta * 0.55;
+    }
+    state.feelings[key] = Math.max(0, Math.min(100, (state.feelings[key] || 0) + actual));
     saveFeelings();
   }
-  // Returns the dominant emotional state — drives behavior choices
+  // Returns the dominant emotional state — drives behavior choices.
+  // v18.1: stricter thresholds for high-end states. Overjoyed now requires
+  // BOTH happiness 88+ AND energy 60+ (was just happiness 80). Adds new
+  // states: bored, curious, confident.
   function dominantFeeling() {
     if (!state.feelings) loadFeelings();
     const f = state.feelings;
-    if (f.ticklish > 50)      return 'ticklish';
-    if (f.attention_need > 70) return 'lonely';
-    if (f.happiness < 25)     return 'sad';
-    if (f.happiness > 80 && f.energy > 60) return 'overjoyed';
-    if (f.energy < 25)        return 'tired';
-    if (f.affection > 80)     return 'loving';
-    if (f.happiness > 60 && f.affection > 60) return 'content';
+    if (f.ticklish > 50)                                          return 'ticklish';
+    if (f.attention_need > 70)                                    return 'lonely';
+    if (f.happiness < 25)                                         return 'sad';
+    if (f.happiness >= 88 && f.energy >= 60)                      return 'overjoyed';
+    if (f.energy < 25)                                            return 'tired';
+    if (f.affection >= 85)                                        return 'loving';
+    if (f.boredom >= 70 && f.curiosity < 50)                      return 'bored';
+    if (f.curiosity >= 80 && f.boredom < 50)                      return 'curious';
+    if (f.confidence >= 80 && f.happiness >= 60)                  return 'confident';
+    if (f.happiness >= 70 && f.affection >= 60)                   return 'content';
     return 'neutral';
   }
   // Periodic decay: feelings drift toward baseline when nothing happens.
-  // Attention_need rises when ignored. Energy drops over a session.
+  // v18.1 changes:
+  //   • Target is 45, not 50 (slight pessimism — must engage to feel good)
+  //   • Above 70, happiness decays 2× faster (peaks are temporary)
+  //   • Boredom rises with idle time
+  //   • Curiosity decays when nothing interesting has happened
+  //   • Apply dailyMoodOffset (±6) to the happiness target ONLY
   function decayFeelings() {
     if (!state.feelings) loadFeelings();
     const idle = Date.now() - (state.lastInteractionAt || Date.now());
@@ -837,11 +897,29 @@
     if (minutes > 2) adjustFeeling('attention_need', +2);
     if (minutes > 5) adjustFeeling('happiness', -1);
     if (minutes > 10) adjustFeeling('affection', -1);
-    // Gentle pull toward 50 baseline
-    ['happiness', 'energy', 'affection'].forEach(k => {
+    if (minutes > 4) adjustFeeling('boredom', +1.5);
+    if (minutes > 6) adjustFeeling('curiosity', -1);
+    if (minutes > 8) adjustFeeling('confidence', -0.5);
+    // Gentle pull toward target. Target = 45 (mild pessimism) +
+    // dailyMoodOffset for happiness only.
+    const dailyOff = getDailyMoodOffset();
+    const targetHappy = 45 + dailyOff;
+    const targets = {
+      happiness:  targetHappy,
+      energy:     45,
+      affection:  45,
+      curiosity:  50,
+      confidence: 45,
+      boredom:    25,
+    };
+    Object.keys(targets).forEach(k => {
       const v = state.feelings[k];
-      if (v > 50) adjustFeeling(k, -0.5);
-      else if (v < 50) adjustFeeling(k, 0.5);
+      if (v == null) return;
+      const target = targets[k];
+      // Faster decay from extreme happiness
+      const speed = (k === 'happiness' && v > 70) ? 1.0 : 0.5;
+      if (v > target) adjustFeeling(k, -speed);
+      else if (v < target) adjustFeeling(k, +speed * 0.7);   // climb back slower than fall
     });
     if (state.feelings.ticklish > 0) adjustFeeling('ticklish', -3);
     saveFeelings();
@@ -1144,18 +1222,448 @@
     }
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  // v18.1 CHEF & SOMMELIER — structured offline knowledge
+  //
+  //   Pattern matchers + lookup tables for cooking technique, temperatures,
+  //   knife use, and wine pairings. No network, no LLM. Every response
+  //   draws from local dialog pools (clippy-dialog.json) or these tables.
+  //   Goal: feel like a real chef + sommelier in a 9 KB script.
+  //
+  //   Dispatch shape:
+  //     • Specific lookups (wine pairing for X, technique for Y) → custom
+  //       respond() that consults the table + falls back to a pool
+  //     • Generic topic keywords (kitchen, wine, sommelier) → tagged pool
+  //
+  //   Tables are deliberately phrase-keyed so they're easy to grow.
+  // ════════════════════════════════════════════════════════════════════
+
+  // Wine pairings keyed by food. Synonyms map to canonical keys below.
+  const WINE_PAIRINGS = {
+    steak:        'Cabernet Sauvignon, Malbec, or Syrah. Tannin cuts the marbled fat. Napa Cab is the safe choice; Argentine Malbec is the fun one.',
+    beef:         'Cabernet, Malbec, or Syrah. Reds with structure. If it\'s slow-braised, Barolo or Brunello — earth meets earth.',
+    burger:       'Zinfandel or Malbec. Big juicy fruit for big juicy fat. A cold Lambrusco is the dark-horse pick.',
+    lamb:         'Rioja Reserva, Bordeaux, or Châteauneuf-du-Pape. Earthy enough to meet the gaminess. Mint? Try Cabernet Franc.',
+    pork:         'Pinot Noir for roasts, Riesling (off-dry) for chops with sauce. The fat-acid dance.',
+    bacon:        'Crémant or dry Riesling. Bubbles cut salt. Or a chilled Beaujolais if you\'re committing.',
+    chicken:      'Roast chicken: oaked Chardonnay. Braised: Pinot Noir. Fried: Champagne — yes, really.',
+    poultry:      'Match the cooking method: roast wants oaked Chardonnay, braised wants Pinot Noir, smoked wants Zinfandel.',
+    duck:         'Pinot Noir from Burgundy. Cherry and earth, meet duck fat. Confit? Older Burgundy or Côtes du Rhône.',
+    turkey:       'Pinot Noir or Beaujolais Cru. Don\'t outweight the bird. Gewürz also works for spiced stuffing.',
+    fish:         'Sauvignon Blanc, Albariño, or Muscadet. Bright acid for delicate flesh.',
+    salmon:       'Pinot Noir, surprisingly — or oaked Chardonnay. Salmon punches above its weight; light reds work.',
+    tuna:         'Provence rosé or light Pinot Noir. Tuna is closer to "meat" than "fish."',
+    halibut:      'Chablis or unoaked Chardonnay. Halibut is delicate — don\'t bury it.',
+    cod:          'Albariño or dry Riesling. Salt-cod (bacalao): Vinho Verde.',
+    shellfish:    'Muscadet, Chablis, Champagne, or Albariño. Cold, mineral, briny. Match the brine.',
+    oyster:       'Muscadet sur Lie. Chablis. Champagne brut nature. Mineral wins.',
+    oysters:      'Muscadet sur Lie. Chablis. Champagne brut nature. Mineral wins.',
+    lobster:      'White Burgundy or vintage Champagne. Butter wants oak and bubbles.',
+    crab:         'Riesling Kabinett or Albariño. Sweet meat, off-dry acidity.',
+    shrimp:       'Sauvignon Blanc or Grüner Veltliner. If garlic-heavy, lean drier.',
+    scallop:      'Chardonnay (lightly oaked) or Champagne. Brown butter loves both.',
+    scallops:     'Chardonnay (lightly oaked) or Champagne. Brown butter loves both.',
+    sushi:        'Champagne, Grüner Veltliner, or junmai sake. Skip tannic reds; they fight soy.',
+    pasta:        'Italian wine for Italian food. Red sauce: Chianti, Sangiovese, Barbera. Cream: Verdicchio, Soave. Pesto: Vermentino.',
+    pizza:        'Sangiovese, Aglianico, or a cold lager. Truth: pizza forgives almost everything.',
+    risotto:      'White Burgundy for mushroom; Barolo for truffle; Pinot Grigio for seafood. Match the dominant.',
+    truffle:      'Barolo or aged Burgundy. Earth meets earth. Don\'t bring a tannic young red — it fights the perfume.',
+    mushroom:     'Pinot Noir, Nebbiolo, or Beaujolais Cru. Forest floor harmony.',
+    cheese:       'By style: hard aged → red (Rioja Gran Reserva, Bordeaux); soft bloom → Champagne or Sancerre; blue → Sauternes, Port, or sweet Riesling. The rule: salty wants sweet.',
+    chocolate:    'Banyuls (the cheat code), Port, or Amarone. Bittersweet meets bittersweet. Skip Cabernet — too tannic.',
+    dessert:      'Sauternes, late-harvest Riesling, or Tokaji. The wine must always be sweeter than the dessert. Always.',
+    cake:         'Moscato d\'Asti for fruit cakes. Madeira for nut cakes. Champagne demi-sec for wedding cake.',
+    chili:        'Off-dry Riesling, Zinfandel (high alcohol balances heat), or a cold Pilsner. Spice cools with sugar, not tannin.',
+    curry:        'Off-dry Riesling or Gewürztraminer. Aromatic for aromatic. Heavy reds will burn.',
+    thai:         'Riesling, Gewürztraminer, or Grüner. The trinity for Thai food. Beer is also legitimate.',
+    indian:       'Riesling for korma, Shiraz for vindaloo, Gewürz for tikka. Tannic Bordeaux is a mistake here.',
+    bbq:          'Zinfandel, Shiraz, or Malbec. Big fruit meets smoke. Brisket = Cab. Pulled pork = Riesling, surprise.',
+    ramen:        'Junmai sake, Riesling, or a clean Pilsner. Pork broth needs acid, not tannin.',
+    burrata:      'Vermentino, Falanghina, or rosé. Stone fruit notes meet fresh dairy.',
+    charcuterie:  'Beaujolais, dry Lambrusco, or fino Sherry. Salty cured meat wants bright fruit.',
+    salad:        'Sauvignon Blanc, Vinho Verde, or rosé. But: vinegar-heavy dressings fight ALL wine. Lemon-dressed only.',
+    soup:         'Fino or Manzanilla Sherry. Especially clear broths. Pair the savory.',
+    vegetable:    'Grüner Veltliner is the green-vegetable specialist. Beaujolais for roasted; rosé for grilled.',
+    vegetarian:   'Grüner, Beaujolais Cru, Pinot Noir — forgiving versatility. Heavy tannin clashes with vegetal bitterness.',
+    egg:          'Champagne for omelette. Pinot Blanc for quiche. Eggs and wine are tricky — bubbles help.',
+    omelette:     'Champagne or Crémant. Eggs coat the palate — bubbles scrub it.',
+    foie:         'Sauternes is the textbook. Tokaji also. Late-harvest Pinot Gris is the dark horse.',
+    caviar:       'Brut Champagne. Iced vodka if you\'re committing. Anything else fights the salt.',
+  };
+  // Synonyms → canonical pairing key
+  const WINE_PAIRING_SYNONYMS = {
+    'rib eye':'steak','ribeye':'steak','filet':'steak','sirloin':'steak','wagyu':'steak','t-bone':'steak','tomahawk':'steak',
+    'cow':'beef','brisket':'beef','short rib':'beef','prime rib':'beef',
+    'cheeseburger':'burger','hamburger':'burger',
+    'rack of lamb':'lamb','lamb chop':'lamb',
+    'pork chop':'pork','pork belly':'pork','tenderloin':'pork',
+    'roast chicken':'chicken','fried chicken':'chicken','chicken thigh':'chicken','chicken breast':'chicken',
+    'thanksgiving':'turkey',
+    'salmon fillet':'salmon','seared salmon':'salmon',
+    'ahi':'tuna','sashimi':'sushi',
+    'mussels':'shellfish','clams':'shellfish','prawns':'shrimp','langoustine':'shrimp',
+    'fettuccine':'pasta','spaghetti':'pasta','linguine':'pasta','tagliatelle':'pasta','rigatoni':'pasta','carbonara':'pasta','alfredo':'pasta',
+    'porcini':'mushroom','morel':'mushroom','chanterelle':'mushroom','shiitake':'mushroom',
+    'cheddar':'cheese','parmesan':'cheese','parmigiano':'cheese','manchego':'cheese','gruyère':'cheese','gruyere':'cheese',
+    'brie':'cheese','camembert':'cheese','goat cheese':'cheese','chèvre':'cheese','chevre':'cheese',
+    'gorgonzola':'cheese','roquefort':'cheese','stilton':'cheese','blue cheese':'cheese',
+    'dark chocolate':'chocolate','milk chocolate':'chocolate','flourless':'chocolate',
+    'tiramisu':'dessert','crème brûlée':'dessert','creme brulee':'dessert','panna cotta':'dessert','sorbet':'dessert',
+    'pad thai':'thai','tom yum':'thai','green curry':'curry','red curry':'curry','massaman':'curry',
+    'butter chicken':'indian','tikka':'indian','vindaloo':'indian','biryani':'indian',
+    'ribs':'bbq','pulled pork':'bbq','smoked':'bbq',
+    'foie gras':'foie',
+  };
+  // Wine variety descriptions for "what is X" queries
+  const WINE_VARIETALS = {
+    'pinot noir':       'Pinot Noir — the heartbreak grape. Thin-skinned, terroir-revealing, all about elegance. Burgundy is its home; Oregon is the New World champion.',
+    'cabernet':         'Cabernet Sauvignon — the king. Tannic, structured, ages 20+ years. Napa for new-world ripeness, Bordeaux Left Bank for restraint.',
+    'cabernet sauvignon':'Cabernet Sauvignon — the king. Tannic, structured, ages 20+ years. Napa for new-world ripeness, Bordeaux Left Bank for restraint.',
+    'merlot':           'Merlot — wrongly maligned by one movie. Soft, plush, plum-and-chocolate. Right Bank Bordeaux (Pomerol, Saint-Émilion) makes the world\'s greatest.',
+    'chardonnay':       'Chardonnay — the most planted white. Steel-tank Chablis to oaked Meursault: the same grape behaves differently in every soil.',
+    'sauvignon blanc':  'Sauvignon Blanc — grass, gooseberry, grapefruit. Sancerre is the elegant version; Marlborough (New Zealand) is the loud one.',
+    'riesling':         'Riesling — the world\'s most age-worthy white grape. Mosel for ethereal; Alsace for dry; Australia (Eden Valley) for lime-and-petrol drama.',
+    'syrah':            'Syrah — black pepper, smoke, blueberry. Northern Rhône (Côte-Rôtie, Hermitage) shows what it can do. Australians call it Shiraz.',
+    'shiraz':           'Shiraz is just Syrah, Australian-style. Bigger, riper, more chocolate. Barossa Valley is the headquarters.',
+    'malbec':           'Malbec — moved from Bordeaux to Argentina and became famous. Mendoza altitude gives it both ripeness and bright acid.',
+    'pinot grigio':     'Pinot Grigio (Italy) and Pinot Gris (Alsace) are the same grape, different aspirations. Italy = crisp and clean; Alsace = rich and spiced.',
+    'gewürztraminer':   'Gewürztraminer — lychee, rose petal, ginger. Pairs with food other wines flee from: spicy Asian, smoked salmon, Munster cheese.',
+    'grüner veltliner': 'Grüner Veltliner — Austria\'s national grape. White pepper, lentil, lime. The world\'s best vegetable wine.',
+    'gruner veltliner': 'Grüner Veltliner — Austria\'s national grape. White pepper, lentil, lime. The world\'s best vegetable wine.',
+    'champagne':        'Champagne — the only sparkling wine that can legally be called Champagne. Method: secondary fermentation in bottle. Houses vs. growers — drink growers.',
+    'prosecco':         'Prosecco — fresh, fruity, made by tank method. Easier, more affordable, doesn\'t pretend to be Champagne.',
+    'sangiovese':       'Sangiovese — Tuscany\'s grape. Cherry, tobacco, leather. Chianti Classico, Brunello, Vino Nobile — same grape, different villages.',
+    'nebbiolo':         'Nebbiolo — Barolo and Barbaresco. Tar and roses. Pale color, monstrous tannin. Needs 10+ years.',
+    'tempranillo':      'Tempranillo — Spain\'s grape. Rioja in its homeland; Ribera del Duero for the powerful version. Leather, vanilla, dried cherry.',
+    'zinfandel':        'Zinfandel — California claim to fame, genetically identical to Italian Primitivo. Big, jammy, peppery. Goes with BBQ like nothing else.',
+    'rosé':             'Rosé — made by limited skin contact with red grapes. Provence is the gold standard. Drink it cold and young.',
+    'rose':             'Rosé — made by limited skin contact with red grapes. Provence is the gold standard. Drink it cold and young.',
+    'sake':             'Sake — rice wine, technically rice beer. Junmai is purest. Daiginjō is the most polished. Serve chilled for top grades.',
+    'sherry':           'Sherry — fortified white from Jerez. Fino and Manzanilla are dry, briny, perfect with food. Pedro Ximénez is dessert in a glass.',
+    'port':             'Port — fortified red from Portugal\'s Douro. Tawny for nuts and caramel; Vintage for cellar-aging.',
+    'sauternes':        'Sauternes — Bordeaux\'s noble-rot sweet wine. Honey, apricot, beeswax. Pairs with foie gras and blue cheese.',
+    'amarone':          'Amarone della Valpolicella — made from dried grapes. Concentrated, raisinated, 15%+ alcohol. Stew wine.',
+    'barolo':           'Barolo — Nebbiolo from a tiny corner of Piedmont. The "wine of kings." Tar, roses, two-decade ageing. Patience required.',
+    'burgundy':         'Burgundy (Bourgogne) — red is Pinot Noir, white is Chardonnay. Grand Cru < Premier Cru < Village < Régionale. Terroir is the religion.',
+    'bordeaux':         'Bordeaux — blended reds (Cab, Merlot, Cab Franc) on Left Bank; Merlot-led on Right Bank. The 1855 classification still matters.',
+  };
+
+  function normalizeFood(s) {
+    return s.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, ' ').trim();
+  }
+  function lookupWinePairing(food) {
+    const norm = normalizeFood(food);
+    if (WINE_PAIRINGS[norm]) return WINE_PAIRINGS[norm];
+    // synonym map
+    for (const key of Object.keys(WINE_PAIRING_SYNONYMS)) {
+      if (norm.includes(key)) return WINE_PAIRINGS[WINE_PAIRING_SYNONYMS[key]];
+    }
+    // word-token overlap
+    const tokens = norm.split(/\s+/);
+    for (const key of Object.keys(WINE_PAIRINGS)) {
+      if (tokens.some(t => t === key || (t.length > 4 && key.startsWith(t)))) return WINE_PAIRINGS[key];
+    }
+    return null;
+  }
+  function lookupVarietal(text) {
+    const norm = normalizeFood(text);
+    for (const key of Object.keys(WINE_VARIETALS)) {
+      if (norm.includes(key)) return WINE_VARIETALS[key];
+    }
+    return null;
+  }
+
+  // Cooking knowledge — keyword → tip. Many entries share keys for fuzziness.
+  const COOKING_KNOWLEDGE = {
+    'mise en place':     'Mise en place — "everything in its place." Prep, weigh, and arrange ALL ingredients before fire. It\'s half the cook.',
+    'mise':              'Mise en place — "everything in its place." Prep all your ingredients before fire. It\'s half the cook.',
+    'maillard':          'Maillard reaction — amino acids + reducing sugars + heat above 285°F. The brown crust on a steak, the crust on bread. It is not caramelization.',
+    'caramelize':        'Caramelize — pure sugar browning, 320°F+. Slow, patient. Don\'t confuse with Maillard (which needs protein).',
+    'caramelization':    'Caramelization — sugars decomposing to brown. Onions take 45 minutes, not 10. Anyone who says 10 is lying.',
+    'sear':              'Sear — high heat, dry surface, 2-3 minutes per side. The pan must be screaming hot. Don\'t move the meat until it releases.',
+    'braise':            'Braise — sear first, then long simmer in liquid that doesn\'t fully cover the protein. Low and slow. 2-3 hours minimum.',
+    'sauté':             'Sauté — toss in hot fat. From "sauter," to jump. Pan must be hot enough that food doesn\'t crowd into a steam.',
+    'saute':             'Sauté — toss in hot fat. From "sauter," to jump. Pan must be hot enough that food doesn\'t crowd into a steam.',
+    'sous vide':         'Sous-vide — vacuum-seal, water-bath at precise temperature. Edge-to-edge doneness. Finish with a hot sear for crust.',
+    'sous-vide':         'Sous-vide — vacuum-seal, water-bath at precise temperature. Edge-to-edge doneness. Finish with a hot sear for crust.',
+    'reduce':            'Reduce — simmer to evaporate water, concentrate flavor. Always taste BEFORE seasoning. A reduction triples in saltiness.',
+    'reduction':         'Reduction — simmer to evaporate water, concentrate flavor. Always taste BEFORE you season a reduction.',
+    'deglaze':           'Deglaze — add wine/stock to a hot pan, scrape the fond. Those brown bits ARE the flavor.',
+    'fond':              'Fond — the brown caramelized bits stuck to the pan. The foundation of every great pan sauce.',
+    'roux':              'Roux — equal parts fat and flour, cooked. White roux for béchamel, blond for velouté, brown for gumbo. Patience changes the color.',
+    'emulsion':          'Emulsion — fat in liquid, stabilized. Mayonnaise, hollandaise, vinaigrette. The secret is slow addition while whisking.',
+    'hollandaise':       'Hollandaise — egg yolks + warm butter + lemon over double boiler. Breaks above 160°F. Save it with a splash of cold water if it splits.',
+    'béarnaise':         'Béarnaise — hollandaise + tarragon and shallot reduction. The classic steak sauce. Knife-thin tarragon.',
+    'bearnaise':         'Béarnaise — hollandaise + tarragon and shallot reduction. The classic steak sauce. Knife-thin tarragon.',
+    'stock':             'Stock — bones (roasted for brown, raw for white), cold water start, never boil — only simmer. Six hours minimum.',
+    'broth':             'Broth — like stock but flesh-based, shorter cook. Lighter, more delicate. Stock has gelatin; broth has flavor.',
+    'risotto':           'Risotto wants attention, not heat. Toast the rice in butter, deglaze with wine, add hot stock a ladle at a time. Constant stirring.',
+    'knife':             'Knife: pinch the blade between thumb and index, fingers curled. The handle is for control, not power. Sharp knives respect you.',
+    'julienne':          'Julienne — matchsticks, 1/8 inch x 1/8 inch x 2 inches. Stack rectangles, slice down. Use it for stir-fry, salads.',
+    'brunoise':          'Brunoise — 1/8 inch dice. Julienne first, then turn 90° and cut across. The smallest classical cut.',
+    'chiffonade':        'Chiffonade — stack leaves, roll tight like a cigar, slice across. Ribbons. Basil, mint, sorrel.',
+    'mirepoix':          'Mirepoix — onion 2, carrot 1, celery 1 (by weight). The aromatic base of French cooking. Sweat low, never brown.',
+    'sofrito':           'Sofrito — onion, garlic, peppers, tomato, slow-cooked in olive oil. The Spanish/Caribbean mirepoix.',
+    'soffritto':         'Soffritto — Italian: onion, carrot, celery in olive oil, cooked LOW until soft and sweet. Forty minutes if you mean it.',
+    'tempering':         'Tempering eggs — drizzle hot liquid into eggs while whisking. Stops them from scrambling when added to a sauce.',
+    'blanch':            'Blanch — drop in heavily salted boiling water for seconds, then shock in ice. Sets color, halts cooking.',
+    'poach':             'Poach — bare ripple in liquid, never a bubble. 160-180°F. Eggs, fish, fruit. Gentle is the whole game.',
+    'confit':            'Confit — slow-cook in fat, low heat (200°F), long time. Duck legs, garlic, tomatoes. Pure indulgence.',
+    'cure':              'Cure — salt (and often sugar) draws moisture out of protein. Days for gravlax, weeks for prosciutto. Patience pays.',
+    'brine':             'Brine — salt water (sometimes with sugar, aromatics). Use 4 hours minimum, 24 best for whole birds. Magic for poultry.',
+    'pickle':            'Pickle — vinegar + salt + sugar + spice. Quick pickle is hot brine over veg, refrigerator 24h. Fermented pickle is salt + time.',
+    'rest':              'Resting meat — 5 minutes per inch of thickness. Juices redistribute. Cutting too soon = bloody plate, dry meat.',
+    'carryover':         'Carryover cooking — internal temp rises 5-10°F after pulling. Pull EARLY. Always.',
+    'butterfly':         'Butterfly — slice horizontally without cutting through. Open like a book. Doubles surface, halves cook time.',
+    'truss':              'Truss — tie up a bird so legs hug the body. Even cooking, retains shape, looks professional.',
+    'fold':              'Fold — gentle mixing to preserve air. Cut down with the spatula, sweep across the bottom, fold over the top. Quarter turn.',
+    'crème fraîche':     'Crème fraîche — cultured cream. Won\'t break when heated, unlike sour cream. Use in pan sauces.',
+    'creme fraiche':     'Crème fraîche — cultured cream. Won\'t break when heated, unlike sour cream. Use in pan sauces.',
+    'demi-glace':        'Demi-glace — espagnole sauce + brown stock, reduced by half. Days of work, mahogany result. Restaurant magic.',
+    'demi glace':        'Demi-glace — espagnole sauce + brown stock, reduced by half. Days of work, mahogany result. Restaurant magic.',
+    'salt':              'Salt: kosher (Diamond Crystal) for everything. Sea salt for finishing. Salt early for meat (osmosis), late for vegetables (no leeching).',
+    'acid':              'Acid balances. A squeeze of lemon at the end is 30 minutes of flavor development. Vinegar, citrus, wine — all bring brightness.',
+    'season':            'Seasoning: salt, fat, acid, heat. Samin Nosrat\'s four pillars. Most "underwhelming" food is underseasoned, not underflavored.',
+  };
+  // Temperatures for common doneness — answers to "what temp for X"
+  const COOKING_TEMPS = {
+    'beef rare':         '120-125°F internal. Cool red center.',
+    'beef medium-rare':  '130-135°F. Warm red center. The default for steak.',
+    'beef medium':       '140-145°F. Pink center.',
+    'beef well':         '160°F+. No pink. Acceptable for ground beef only.',
+    'pork':              '145°F internal + 3-min rest (USDA, changed from 160°F in 2011). Slight pink is FINE.',
+    'pork ribs':         '195-203°F internal — the collagen breakdown range. Tender, not safe-only.',
+    'chicken':           '165°F at the thickest part of the breast. Thigh: 175°F (more tolerant of higher temp).',
+    'chicken thigh':     '175°F. Dark meat wants the extra heat to render fat.',
+    'turkey':            '165°F breast, 175°F thigh. Spatchcock for even cook.',
+    'fish':              '125°F for salmon medium; 130°F for tuna rare; 140°F for white fish.',
+    'salmon':            '120-125°F for medium-rare. Goes from translucent to flaky fast — pull early.',
+    'duck breast':       '130-135°F. Render the fat first, skin-side down, low heat, 8-10 min before flipping.',
+    'lamb':              '130-135°F medium-rare. Lamb is like beef — most people overcook it.',
+    'bread':             '200-210°F internal. Sounds hollow when tapped. Cool 30 min before slicing.',
+    'oven sear':         '450-500°F. Heavy preheat (15 min). Cast iron or carbon steel only.',
+    'caramelize onion':  '300°F over LOW heat. Stir occasionally. 35-45 minutes if you mean it.',
+    'maillard':          '285°F minimum surface temp. Dry surface required.',
+  };
+
+  function lookupCookingTip(text) {
+    const norm = text.toLowerCase();
+    // longest-key-first so "mise en place" beats "mise"
+    const keys = Object.keys(COOKING_KNOWLEDGE).sort((a, b) => b.length - a.length);
+    for (const key of keys) {
+      if (norm.includes(key)) return COOKING_KNOWLEDGE[key];
+    }
+    return null;
+  }
+  function lookupCookingTemp(text) {
+    const norm = text.toLowerCase();
+    const keys = Object.keys(COOKING_TEMPS).sort((a, b) => b.length - a.length);
+    for (const key of keys) {
+      if (norm.includes(key)) return COOKING_TEMPS[key];
+    }
+    // single-token match — try food noun alone (e.g. "what temp for chicken")
+    const m = norm.match(/\b(beef|chicken|pork|fish|salmon|duck|lamb|turkey|bread)\b/);
+    if (m && COOKING_TEMPS[m[1]]) return COOKING_TEMPS[m[1]];
+    return null;
+  }
+
+  // v18.1 NEW CHAT RULES — inserted at the front so cooking/wine matches
+  // win over the generic ^why/^how/^what fallbacks. Order within the list
+  // is most-specific → most-general.
+  const v18_CHAT_RULES = [
+    // ─── Wine pairing with specific food: "what wine with X" ────────
+    { pat: /\b(?:what|which|good|best)\s+wine\s+(?:goes\s+)?(?:with|for|pairs?\s+with)\s+(.+?)\s*\??$/i,
+      respond: (input, m) => {
+        const food = m && m[1] ? m[1].trim() : '';
+        const pairing = food ? lookupWinePairing(food) : null;
+        if (pairing) return pairing;
+        return pickFromPool('wine_pairing_default');
+      },
+      mood: 'thinking', eyebrow: '🍷 PAIRING' },
+    // ─── Pairing in reverse: "X with wine" / "what to drink with X" ─
+    { pat: /\b(?:what\s+(?:to\s+)?drink|drink)\s+with\s+(.+?)\s*\??$/i,
+      respond: (input, m) => {
+        const food = m && m[1] ? m[1].trim() : '';
+        const pairing = food ? lookupWinePairing(food) : null;
+        if (pairing) return pairing;
+        return pickFromPool('wine_pairing_default');
+      },
+      mood: 'thinking', eyebrow: '🍷 PAIRING' },
+    // ─── "What is X" for a grape/varietal/region ───────────────────
+    { pat: /\b(?:what|tell me about|describe|explain)\s+(?:is\s+)?(.+?)\s*\??$/i,
+      respond: (input, m) => {
+        const term = m && m[1] ? m[1].trim() : '';
+        const desc = term ? lookupVarietal(term) : null;
+        if (desc) return desc;
+        return null;   // null = let it fall through to other matchers
+      },
+      mood: 'thinking', eyebrow: '🍇 GRAPE',
+      _conditional: true },   // only fires if respond() returns a string
+    // ─── Cooking technique / glossary lookup ───────────────────────
+    { pat: /\b(?:what\s+(?:is|are)|how\s+do\s+(?:i|you)|explain|tell me about)\s+(.+?)\s*\??$/i,
+      respond: (input) => lookupCookingTip(input) || null,
+      mood: 'genius', eyebrow: '👨‍🍳 KITCHEN',
+      _conditional: true },
+    // ─── "What temp for X" / "internal temp" ───────────────────────
+    { pat: /\b(?:what\s+temp(?:erature)?|internal\s+temp|how\s+hot|temperature\s+for|temp\s+for)\b/i,
+      respond: (input) => {
+        const tip = lookupCookingTemp(input);
+        if (tip) return tip;
+        return pickFromPool('cooking_temp_default');
+      },
+      mood: 'genius', eyebrow: '🌡 TEMP' },
+    // ─── Knife / sharp / cut question ──────────────────────────────
+    { pat: /\b(knife|julienne|brunoise|chiffonade|mince|dice|chop|sharpen)\b/i,
+      respond: (input) => lookupCookingTip(input) || pickFromPool('cooking_tips'),
+      mood: 'genius', eyebrow: '🔪 KNIFE' },
+    // ─── Generic cooking topic (no specific lookup matched) ────────
+    { pat: /\b(cook|cooking|chef|kitchen|recipe|sear|braise|sauté|saute|risotto|stock|broth|reduce|deglaze|mise|maillard|caramelize|brine|sous[-\s]?vide|roux|hollandaise|béarnaise|bearnaise|emulsion|fond)\b/i,
+      respond: (input) => {
+        const direct = lookupCookingTip(input);
+        if (direct) return direct;
+        return pickFromPool('cooking_wisdom');
+      },
+      mood: 'genius', eyebrow: '👨‍🍳 CHEF' },
+    // ─── Generic wine topic (no pairing requested) ─────────────────
+    { pat: /\b(wine|sommelier|vintage|tannin|terroir|varietal|grape|pinot|cabernet|chardonnay|burgundy|bordeaux|napa|champagne|riesling|sancerre|syrah|merlot|sangiovese|rioja|amarone|barolo|prosecco|sauternes|sherry|port|nebbiolo|gewürztraminer|malbec|zinfandel|rosé|sake)\b/i,
+      respond: (input) => {
+        const varietal = lookupVarietal(input);
+        if (varietal) return varietal;
+        return pickFromPool('wine_wisdom');
+      },
+      mood: 'thinking', eyebrow: '🍷 SOMMELIER' },
+  ];
+  // Wrap respond() so _conditional rules can return null to opt out of matching
+  v18_CHAT_RULES.forEach(rule => {
+    if (rule._conditional && rule.respond) {
+      const origRespond = rule.respond;
+      const origPat = rule.pat;
+      // Replace .pat with a wrapped tester that requires respond() to also succeed
+      rule.pat = {
+        source: origPat.source,
+        test(text) {
+          if (!origPat.test(text)) return false;
+          const m = text.match(origPat);
+          const out = origRespond(text, m);
+          rule._cachedResponse = out;
+          return out != null;
+        },
+      };
+      rule.respond = () => rule._cachedResponse;
+    }
+  });
+  // Insert at the FRONT of CHAT_KEYWORDS so cooking/wine matches first.
+  CHAT_KEYWORDS.unshift(...v18_CHAT_RULES);
+
+  // Patch chatMatch to pass the matched groups into respond() — the
+  // original only stored the rule but didn't capture groups. We replace
+  // the simple loop with one that captures and forwards them.
+  // NOTE: We re-declare chatMatch below (after this block) so it forwards
+  // the capture groups. The earlier definition is shadowed by hoisting
+  // order — see below.
+
+  // ─── Conversational drift + emotional follow-up ─────────────────
+  // After a chat reply, a small chance to surface a second off-topic
+  // thought 4-7s later. Drives the "more random" feel. Skipped when
+  // we're already mid-emotional-followup or just opened the chat.
+  function scheduleConversationalDrift() {
+    if (state.suppressed) return;
+    if (state._driftTimer) clearTimeout(state._driftTimer);
+    const delay = 4000 + Math.random() * 3000;
+    state._driftTimer = setTimeout(() => {
+      if (state.suppressed || state.bubble) return;
+      const f = state.feelings || {};
+      // Higher boredom + curiosity → higher chance, capped 30%
+      const base = 0.10;
+      const bonus = ((f.curiosity || 50) - 50 + (f.boredom || 25) - 25) / 400;
+      const chance = Math.min(0.30, base + Math.max(0, bonus));
+      if (Math.random() > chance) return;
+      shareRandomThought({ tag: 'drift' });
+    }, delay);
+  }
+  // Pick a random thought from cooking, wine, history, weird, or whimsical
+  // pools, weighted by current curiosity/boredom and which pools have content.
+  function shareRandomThought(opts) {
+    opts = opts || {};
+    if (!state.enabled || state.suppressed || state.bubble) return;
+    const pools = [
+      { pool: 'cooking_tips',     weight: 3, mood: 'genius',   eyebrow: '👨‍🍳 KITCHEN' },
+      { pool: 'cooking_wisdom',   weight: 2, mood: 'genius',   eyebrow: '👨‍🍳 CHEF' },
+      { pool: 'cooking_facts',    weight: 2, mood: 'genius',   eyebrow: '🔬 FOOD SCI' },
+      { pool: 'wine_facts',       weight: 3, mood: 'thinking', eyebrow: '🍷 WINE' },
+      { pool: 'wine_wisdom',      weight: 2, mood: 'thinking', eyebrow: '🍷 SOMM' },
+      { pool: 'chef_voice',       weight: 2, mood: 'smug',     eyebrow: '👨‍🍳 KITCHEN' },
+      { pool: 'random_thoughts',  weight: 2, mood: 'thinking', eyebrow: '💭' },
+      { pool: 'weird_facts',      weight: 1, mood: 'sparkle',  eyebrow: '🤯 WEIRD' },
+      { pool: 'whimsical_idle',   weight: 1, mood: 'thinking' },
+    ];
+    // Filter out pools the dialog doesn't have
+    const available = pools.filter(p =>
+      state.dialog && Array.isArray(state.dialog[p.pool]) && state.dialog[p.pool].length > 0
+    );
+    if (!available.length) return;
+    const totalW = available.reduce((s, p) => s + p.weight, 0);
+    let r = Math.random() * totalW;
+    let pick = available[0];
+    for (const p of available) {
+      r -= p.weight;
+      if (r <= 0) { pick = p; break; }
+    }
+    const text = pickFromPool(pick.pool);
+    if (!text) return;
+    bubble(text, { autoHide: 5500, eyebrow: pick.eyebrow });
+    if (pick.mood) mood(pick.mood, 4500);
+    // A thought breaks boredom and feeds curiosity
+    adjustFeeling('boredom', -8);
+    adjustFeeling('curiosity', +3);
+  }
+  // After a sad/stress/tired hit, follow up 4-6s later with a check-in line.
+  function scheduleEmotionalFollowup(emotion) {
+    if (state._emoFollowupTimer) clearTimeout(state._emoFollowupTimer);
+    const map = {
+      sad:     'emotional_followup_sad',
+      stress:  'emotional_followup_stress',
+      tired:   'emotional_followup_tired',
+      angry:   'emotional_followup_angry',
+      happy:   'emotional_followup_happy',
+    };
+    const pool = map[emotion];
+    if (!pool) return;
+    state._emoFollowupTimer = setTimeout(() => {
+      if (state.suppressed || state.bubble) return;
+      if (state.dialog && Array.isArray(state.dialog[pool]) && state.dialog[pool].length) {
+        bubble(pickFromPool(pool), { autoHide: 5000, eyebrow: '💭' });
+        // Emotional follow-ups deepen affection slightly
+        adjustFeeling('affection', +1);
+      }
+    }, 4000 + Math.random() * 2500);
+  }
+
   function chatMatch(input) {
     if (!input || typeof input !== 'string') return null;
     const trimmed = input.trim();
     if (trimmed.length === 0) return null;
     for (const rule of CHAT_KEYWORDS) {
-      if (rule.pat.test(trimmed)) return rule;
+      // Rules with a wrapped pat object (v18.1 _conditional) expose .test
+      if (rule.pat && typeof rule.pat.test === 'function') {
+        if (rule.pat.test(trimmed)) {
+          // For wrapped patterns, the raw match comes from rule.pat.source
+          let m = null;
+          if (rule.pat instanceof RegExp) m = trimmed.match(rule.pat);
+          else if (rule.pat.source) {
+            try { m = trimmed.match(new RegExp(rule.pat.source, 'i')); } catch (_) {}
+          }
+          return { rule, m };
+        }
+      }
     }
     return null;
   }
 
   // Handle a chat input — pattern match → respond. Side effects allowed
   // (mood, particles, actions). Persists conversation history per-session.
+  // v18.1: boosts curiosity, drains boredom on chat, schedules
+  // conversational drift, schedules emotional follow-up for sentiment hits.
   function handleChatInput(text) {
     if (!text || !text.trim()) return;
     text = text.trim().slice(0, 280);
@@ -1165,22 +1673,31 @@
     noteInteraction();
     adjustFeeling('affection', +1);
     adjustFeeling('attention_need', -10);
-    grantBondXP_chat_message();    // v17.20: bond XP grants per message
-    // v17.26: detect user-stated likes/dislikes from chat
+    // v18.1: chatting feeds curiosity, drains boredom
+    adjustFeeling('curiosity', +2);
+    adjustFeeling('boredom',  -4);
+    grantBondXP_chat_message();
     detectChatPreference(text);
-    // v17.28: detect "what can you do" requests → show capability menu
     if (detectSelfIntrospectionRequest(text)) {
       bubble(pickFromPool('self_intro_full'),
         { autoHide: 4500, eyebrow: '🤖 SELF-INTRO' });
       setTimeout(() => showCapabilityMenu(), 4800);
       return;
     }
-    const match = chatMatch(text);
-    if (!match) {
+    const found = chatMatch(text);
+    if (!found) {
       bubble(pickFromPool('chat_no_match'), { autoHide: 5000, eyebrow: 'HMM' });
-      mood('confused', 4500);             // v17.14: ? mark floats above
+      mood('confused', 4500);
+      // After confusion, raise the chance of a drift follow-up — he tries
+      // to recover with an off-topic thought.
+      setTimeout(() => {
+        if (Math.random() < 0.35) shareRandomThought({ tag: 'recovery' });
+      }, 5500);
       return;
     }
+    const match = found.rule;
+    const captures = found.m;
+
     // Direct action override (triggers another function)
     if (match.action) {
       const fn = {
@@ -1193,19 +1710,33 @@
         return;
       }
     }
-    // Direct response (string or function returning string)
-    if (match.response) {
-      const text = typeof match.response === 'function' ? match.response() : match.response;
-      bubble(text, { autoHide: 5500, eyebrow: match.eyebrow });
+    // Direct response (string or function returning string).
+    // v18.1: accept either `response` or `respond`. Forward captures to fn.
+    const responder = match.response || match.respond;
+    if (responder) {
+      let out = typeof responder === 'function' ? responder(text, captures) : responder;
+      if (out) bubble(out, { autoHide: 5500, eyebrow: match.eyebrow });
     } else if (match.pool) {
       bubble(pickFromPool(match.pool), { autoHide: 5500, eyebrow: match.eyebrow });
     }
     if (match.mood) mood(match.mood, 4500);
     if (match.particles) spawnParticles({ count: 5, type: match.particles });
     if (match.effect === 'affectionBoost') {
-      adjustFeeling('affection', +10);
-      adjustFeeling('happiness', +5);
+      adjustFeeling('affection', +5);     // halved from +10
+      adjustFeeling('happiness', +3);     // halved from +5
     }
+    // v18.1: emotional follow-up for sentiment hits
+    const sentimentMap = {
+      sad_remarks:       'sad',
+      stress_resp_calm:  'tired',
+      happy_remarks:     'happy',
+      angry_remarks:     'angry',
+    };
+    const emotion = sentimentMap[match.pool];
+    if (emotion) scheduleEmotionalFollowup(emotion);
+    // v18.1: conversational drift — small chance to schedule a follow-up
+    // off-topic thought after a normal reply.
+    if (match.pool && !emotion) scheduleConversationalDrift();
   }
 
   // Open the conversation panel via an actionBubble with text input.
@@ -1661,6 +2192,13 @@
     cowboy:       { glyph: '🤠', label: 'Cowboy Hat',    cls: 'wear-cowboy',     category: 'fun',      unlock: 0 },
     tricorn:      { glyph: '🏴‍☠️', label: 'Pirate Tricorn', cls: 'wear-tricorn',  category: 'fun',      unlock: 2 },
     wizard:       { glyph: '🧙', label: 'Wizard Hat',    cls: 'wear-wizard',     category: 'fun',      unlock: 4 },
+    // v18.1 — cuter hats (kawaii + culinary)
+    chef_hat:     { glyph: '👨‍🍳', label: 'Chef Toque',    cls: 'wear-chef-hat',   category: 'kawaii',   unlock: 0 },
+    cat_ears:     { glyph: '🐱', label: 'Cat Ears',      cls: 'wear-cat-ears',   category: 'kawaii',   unlock: 0 },
+    bunny_ears:   { glyph: '🐰', label: 'Bunny Ears',    cls: 'wear-bunny-ears', category: 'kawaii',   unlock: 0 },
+    flower_crown: { glyph: '🌸', label: 'Flower Crown',  cls: 'wear-flower-crown', category: 'kawaii', unlock: 1 },
+    heart_crown:  { glyph: '💗', label: 'Heart Crown',   cls: 'wear-heart-crown', category: 'kawaii',  unlock: 2 },
+    beanie:       { glyph: '🧢', label: 'Pom Beanie',    cls: 'wear-beanie',     category: 'kawaii',   unlock: 0 },
   };
 
   const PROPS = {
@@ -1686,6 +2224,13 @@
     napoleon_pose:{hat: 'bicorne', prop: 'sword',  label: "L'Empereur", glyph: '👑', desc: 'France marches.' },
     party:       { hat: 'party_hat', prop: 'cup',  label: 'Celebrate',  glyph: '🎉', desc: 'Cheers!' },
     feast:       { hat: 'crown',   prop: 'apple',  label: 'Bountiful',  glyph: '🍎', desc: 'Eden.' },
+    // v18.1 — culinary + kawaii sets
+    sommelier:   { hat: 'chef_hat', prop: 'cup',   label: 'Sommelier',  glyph: '🍷', desc: 'Tannin, terroir, ten thousand bottles.' },
+    patissier:   { hat: 'chef_hat', prop: 'apple', label: 'Pâtissier',  glyph: '🍎', desc: 'Pastry kingdom.' },
+    chef_de_cuisine:{hat:'chef_hat',prop: 'sword', label: 'Chef de Cuisine', glyph: '🔪', desc: 'Yes, chef.' },
+    garden_princess:{hat:'flower_crown', prop:'apple', label:'Garden Princess', glyph: '🌸', desc: 'Petals and orchard.' },
+    kitten_scholar:{ hat:'cat_ears', prop:'book',  label:'Kitten Scholar', glyph: '🐱', desc: 'Curious paws.' },
+    sweetheart:  { hat: 'heart_crown', prop:'cup', label:'Sweetheart',  glyph: '💗', desc: 'Heartbeat.' },
   };
 
   function detectSet() {
@@ -2128,7 +2673,7 @@
     reg.push({
       key: 'games', kind: 'active', category: 'play',
       glyph: '🎮', label: 'Mini-Games',
-      desc: '7 games: Tap, Catch, Reaction, Memory, Flappy Trajan, Cannon Battle, Snake.',
+      desc: '10 games: Tap, Catch, Reaction, Memory, Flappy Trajan, Cannon Battle, Snake, Orb Breaker, Coin Catch, Asteroid Field.',
       invoke: () => { if (typeof showGameMenu === 'function') showGameMenu(); }
     });
     reg.push({
@@ -3829,13 +4374,45 @@
 
   // mood(name, durationMs?) — set facial expression. Without duration,
   // the mood persists until changed. With duration, auto-reverts.
+  // v18.1 MOOD POLARITY — classifies the emotion-direction of each mood
+  // so mood() can resist whiplash (rapid positive→negative flips). A
+  // sustained mood gets a 4-second "inertia window" before a short,
+  // opposite-polarity flip can override it.
+  const MOOD_POLARITY = {
+    // positive
+    happy:'+', love:'+', excited:'+', sparkle:'+', smitten:'+', kissy:'+',
+    bashful:'+', super_excited:'+', laughing:'+', drooling:'+', proud:'+',
+    singing:'+', singing_star:'+', tipsy:'+', smug:'+', winking:'+', winking_l:'+',
+    bunny:'+',
+    // negative
+    sad:'-', angry:'-', peeved:'-', crying:'-', sobbing:'-', wailing:'-',
+    frustrated:'-', eye_roll:'-', melancholy:'-', disappointed:'-',
+    mortified:'-', pouty:'-', disgusted:'-',
+    // 0 = neutral / cognitive — never blocks anything
+  };
+
   function mood(moodName, durationMs) {
     if (!state.shell) return;
+    // v18.1: mood inertia. If the current mood was set less than 4s ago
+    // and the incoming mood flips polarity AND its duration is short
+    // (transient), ignore it. Long-duration moods (4s+) always win.
+    const now = Date.now();
+    const newPol = MOOD_POLARITY[moodName] || '0';
+    if (state.moodLastPolarity && state.moodLastSetAt && newPol !== '0') {
+      const sinceLast = now - state.moodLastSetAt;
+      const oppositeFlip = (state.moodLastPolarity === '+' && newPol === '-') ||
+                          (state.moodLastPolarity === '-' && newPol === '+');
+      if (oppositeFlip && sinceLast < 4000 && (durationMs || 0) < 3800) {
+        return;   // resist the whiplash; current emotion rides on
+      }
+    }
     Object.values(MOODS).forEach(c => {
       if (c) state.shell.classList.remove(c);
     });
     const cls = MOODS[moodName];
     if (cls) state.shell.classList.add(cls);
+    state.moodLastSetAt = now;
+    if (newPol !== '0') state.moodLastPolarity = newPol;
     if (state.moodTimer) clearTimeout(state.moodTimer);
     if (durationMs) {
       state.moodTimer = setTimeout(() => {
@@ -5007,21 +5584,40 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // v17.19 GAMES — 4 mini-games + high score system + invitation flow.
-  // Per-user score storage via userKey(). When user accepts an invite,
-  // happiness + affection get a real boost. Beating a high score
-  // deposits a memory + celebrates with confetti.
+  // v18.0 GAMES — 10 mini-games. Complete overhaul of v17.22.
+  //
+  //   1. ⚡ Tap the Orb        2. 🏃 Catch Me           3. ⚡ Reaction
+  //   4. 🧠 Memory Match       5. 🕊️ Flappy Trajan      6. 🚀 Cannon Battle
+  //   7. 🐍 Snake              8. 🧱 Orb Breaker        9. 🪙 Coin Catch
+  //  10. 🌌 Asteroid Field
+  //
+  //   Architecture changes from v17.22:
+  //     • Play Again now routes through GAMES[gameId].start, so it
+  //       works for ALL games (was broken for flappy/cannon/snake).
+  //     • Canvas-based rendering for 5–10 (was DOM thrash). Shared
+  //       helper drawTrajanOrb() for visual identity. dt-based loops
+  //       (frame-rate-independent).
+  //     • Per-game difficulty curves; medal tiers; richer result stats.
+  //     • Snake speed-up actually works (was dead code — setInterval
+  //       captured initial STEP_MS forever).
+  //     • Flappy: circular hitbox (forgiving), tap-to-begin, parallax.
+  //     • Memory: per-orb musical pitches; +1 orb every 5 lvls (was 10).
+  //
+  //   Per-user scores via userKey(). Beating a high score deposits a
+  //   memory + grants bond XP + confetti.
   // ════════════════════════════════════════════════════════════════════
 
   const GAMES = {
-    tap:      { label: '⚡ Tap the Orb',  pool: 'game_intro_tap',      higherIsBetter: true,  unit: 'taps' },
-    catch:    { label: '🏃 Catch Me',     pool: 'game_intro_catch',    higherIsBetter: true,  unit: '/10'  },
-    reaction: { label: '⚡ Reaction',     pool: 'game_intro_reaction', higherIsBetter: false, unit: 'ms'   },
-    memory:   { label: '🧠 Memory Match', pool: 'game_intro_memory',   higherIsBetter: true,  unit: 'level'},
-    // v17.22 RETRO ARCADE
-    flappy:   { label: '🕊️ Flappy Trajan',  pool: 'game_intro_flappy', higherIsBetter: true, unit: 'columns' },
-    cannon:   { label: '🚀 Cannon Battle',   pool: 'game_intro_cannon', higherIsBetter: true, unit: 'pts' },
-    snake:    { label: '🐍 Snake',           pool: 'game_intro_snake',  higherIsBetter: true, unit: 'length' },
+    tap:       { label: '⚡ Tap the Orb',    pool: 'game_intro_tap',       higherIsBetter: true,  unit: 'pts',  start: () => startTapGame() },
+    catch:     { label: '🏃 Catch Me',       pool: 'game_intro_catch',     higherIsBetter: true,  unit: '/15',  start: () => startCatchGame() },
+    reaction:  { label: '⚡ Reaction',       pool: 'game_intro_reaction',  higherIsBetter: false, unit: 'ms',   start: () => startReactionGame() },
+    memory:    { label: '🧠 Memory Match',   pool: 'game_intro_memory',    higherIsBetter: true,  unit: 'lvl',  start: () => startMemoryGame() },
+    flappy:    { label: '🕊️ Flappy Trajan',  pool: 'game_intro_flappy',    higherIsBetter: true,  unit: 'cols', start: () => startFlappyGame() },
+    cannon:    { label: '🚀 Cannon Battle',  pool: 'game_intro_cannon',    higherIsBetter: true,  unit: 'pts',  start: () => startCannonGame() },
+    snake:     { label: '🐍 Snake',          pool: 'game_intro_snake',     higherIsBetter: true,  unit: 'len',  start: () => startSnakeGame() },
+    breaker:   { label: '🧱 Orb Breaker',    pool: 'game_intro_breaker',   higherIsBetter: true,  unit: 'pts',  start: () => startBreakerGame() },
+    coins:     { label: '🪙 Coin Catch',     pool: 'game_intro_coins',     higherIsBetter: true,  unit: 'pts',  start: () => startCoinCatchGame() },
+    asteroids: { label: '🌌 Asteroid Field', pool: 'game_intro_asteroids', higherIsBetter: true,  unit: 'pts',  start: () => startAsteroidsGame() },
   };
 
   function getHighScores() {
@@ -5040,7 +5636,7 @@
     if (better) {
       scores[gameId] = score;
       try { localStorage.setItem(userKey('clippy_highscores'), JSON.stringify(scores)); } catch (e) {}
-      return true;   // new record
+      return true;
     }
     return false;
   }
@@ -5072,7 +5668,7 @@
     }
   }
 
-  // ─── Offer flow: he asks, user accepts/declines ────────────────
+  // ─── Offer flow ────────────────────────────────────────────────
   function offerGame() {
     if (state.bubble || state.coinFlipInProgress || state.suppressed) return;
     mood('happy', 6000);
@@ -5089,49 +5685,55 @@
         },
       ]
     });
-    // Accepting any game grants instant relationship boost
     adjustFeeling('happiness', +4);
   }
 
   function showGameMenu() {
     const scores = getHighScores();
-    const fmt = (id, score) => {
-      if (score == null) return '—';
-      return GAMES[id].higherIsBetter ? score + ' ' + GAMES[id].unit : score + GAMES[id].unit;
+    const fmt = (id) => {
+      const s = scores[id];
+      if (s == null) return '—';
+      const g = GAMES[id];
+      return g.higherIsBetter ? s + ' ' + g.unit : s + g.unit;
     };
     actionBubble('Pick a game!', {
       eyebrow: '🎮 GAMES',
       autoHide: 0,
       actions: [
-        { label: `⚡ Tap (best: ${fmt('tap', scores.tap)})`,
-          onClick: () => { closeActionBubble(); startTapGame(); } },
-        { label: `🏃 Catch (best: ${fmt('catch', scores.catch)})`,
-          onClick: () => { closeActionBubble(); startCatchGame(); } },
-        { label: `⚡ Reaction (best: ${fmt('reaction', scores.reaction)})`,
-          onClick: () => { closeActionBubble(); startReactionGame(); } },
-        { label: `🧠 Memory (best: ${fmt('memory', scores.memory)})`,
-          onClick: () => { closeActionBubble(); startMemoryGame(); } },
-        { label: `🕊️ Flappy Trajan (best: ${fmt('flappy', scores.flappy)})`,
-          onClick: () => { closeActionBubble(); startFlappyGame(); } },
-        { label: `🚀 Cannon Battle (best: ${fmt('cannon', scores.cannon)})`,
-          onClick: () => { closeActionBubble(); startCannonGame(); } },
-        { label: `🐍 Snake (best: ${fmt('snake', scores.snake)})`,
-          onClick: () => { closeActionBubble(); startSnakeGame(); } },
+        ...Object.keys(GAMES).map(id => ({
+          label: `${GAMES[id].label} (best: ${fmt(id)})`,
+          onClick: () => { closeActionBubble(); GAMES[id].start(); }
+        })),
         { label: 'Never mind', onClick: closeActionBubble },
-      ]
+      ],
     });
   }
 
   // ─── End-of-game shared screen ─────────────────────────────────
-  function showGameResult(gameId, score) {
+  // v18.0 FIX: Play Again now routes through GAMES[gameId].start so
+  // it works for all 10 games (was broken for flappy/cannon/snake).
+  function showGameResult(gameId, score, extra) {
+    extra = extra || {};
     const game = GAMES[gameId];
+    if (!game) { closeGameOverlay(); return; }
     const newRecord = saveHighScore(gameId, score);
     const allScores = getHighScores();
+    const medal = medalForScore(gameId, score);
     const ov = state.gameOverlay || createGameOverlay();
+    const medalHTML = medal
+      ? `<div class="clippy-game-medal is-${medal}">${medalEmoji(medal)} ${medal.toUpperCase()}</div>`
+      : '';
+    const extraStatsHTML = (extra.stats && extra.stats.length)
+      ? `<div class="clippy-game-extra-stats">${extra.stats.map(s =>
+          `<div><span class="lbl">${esc(s.label)}</span><span class="val">${esc(String(s.value))}</span></div>`
+        ).join('')}</div>`
+      : '';
     ov.innerHTML = `
       <div class="clippy-game-title">${esc(game.label)} — RESULTS</div>
       <div class="clippy-game-stat-label">Your Score</div>
       <div class="clippy-game-stat">${esc(String(score))} <span style="font-size:18px;opacity:0.5;">${esc(game.unit)}</span></div>
+      ${medalHTML}
+      ${extraStatsHTML}
       <div class="clippy-game-highscore ${newRecord ? 'clippy-game-highscore-new' : ''}">
         ${newRecord ? '🏆 NEW HIGH SCORE!' : `Best: ${esc(String(allScores[gameId] != null ? allScores[gameId] : score))} ${esc(game.unit)}`}
       </div>
@@ -5143,10 +5745,7 @@
     `;
     ov.querySelector('[data-act="again"]').addEventListener('click', () => {
       closeGameOverlay();
-      if      (gameId === 'tap')      startTapGame();
-      else if (gameId === 'catch')    startCatchGame();
-      else if (gameId === 'reaction') startReactionGame();
-      else if (gameId === 'memory')   startMemoryGame();
+      if (typeof game.start === 'function') game.start();
     });
     ov.querySelector('[data-act="menu"]').addEventListener('click', () => {
       closeGameOverlay();
@@ -5154,7 +5753,6 @@
     });
     ov.querySelector('[data-act="done"]').addEventListener('click', closeGameOverlay);
 
-    // Celebration + bubble after a beat
     setTimeout(() => {
       grantBondXP_game_played();
       if (newRecord) {
@@ -5167,31 +5765,126 @@
         depositMemory('high_score', `New high score in ${game.label}: ${score} ${game.unit}`,
                       { game: gameId, score }, 3);
       } else {
-        // Decent or bad — encouraging bubble outside the overlay
         mood(score > 0 ? 'happy' : 'thinking', 4500);
         adjustFeeling('happiness', +4);
       }
     }, 200);
   }
 
-  // v17.21 — create a mini Trajan to use as the game tap target.
-  // The mini orb has the full SVG (body, eyes, mouth, nodes, halo) so it
-  // looks and feels like the real Trajan, just smaller. Pop animation on tap.
+  // ─── Medal tiers ───────────────────────────────────────────────
+  // cmp: 'lt' means lower-is-better (reaction). Default ascending.
+  const MEDALS = {
+    tap:       [{ t: 200, k: 'platinum' }, { t: 130, k: 'gold' }, { t: 80, k: 'silver' }, { t: 40, k: 'bronze' }],
+    catch:     [{ t: 15,  k: 'platinum' }, { t: 12,  k: 'gold' }, { t: 9,  k: 'silver' }, { t: 6,  k: 'bronze' }],
+    reaction:  [{ t: 200, k: 'platinum', cmp: 'lt' }, { t: 260, k: 'gold', cmp: 'lt' }, { t: 320, k: 'silver', cmp: 'lt' }, { t: 400, k: 'bronze', cmp: 'lt' }],
+    memory:    [{ t: 20,  k: 'platinum' }, { t: 15,  k: 'gold' }, { t: 10, k: 'silver' }, { t: 5,  k: 'bronze' }],
+    flappy:    [{ t: 50,  k: 'platinum' }, { t: 25,  k: 'gold' }, { t: 10, k: 'silver' }, { t: 3,  k: 'bronze' }],
+    cannon:    [{ t: 500, k: 'platinum' }, { t: 300, k: 'gold' }, { t: 150,k: 'silver' }, { t: 50, k: 'bronze' }],
+    snake:     [{ t: 30,  k: 'platinum' }, { t: 20,  k: 'gold' }, { t: 12, k: 'silver' }, { t: 7,  k: 'bronze' }],
+    breaker:   [{ t: 500, k: 'platinum' }, { t: 300, k: 'gold' }, { t: 150,k: 'silver' }, { t: 50, k: 'bronze' }],
+    coins:     [{ t: 60,  k: 'platinum' }, { t: 40,  k: 'gold' }, { t: 25, k: 'silver' }, { t: 10, k: 'bronze' }],
+    asteroids: [{ t: 600, k: 'platinum' }, { t: 400, k: 'gold' }, { t: 200,k: 'silver' }, { t: 80, k: 'bronze' }],
+  };
+  function medalForScore(gameId, score) {
+    const tiers = MEDALS[gameId];
+    if (!tiers) return null;
+    for (const tier of tiers) {
+      const pass = tier.cmp === 'lt' ? score < tier.t : score >= tier.t;
+      if (pass) return tier.k;
+    }
+    return null;
+  }
+  function medalEmoji(kind) {
+    return { platinum: '💎', gold: '🥇', silver: '🥈', bronze: '🥉' }[kind] || '🏅';
+  }
+
+  // ─── Canvas board factory ──────────────────────────────────────
+  function makeCanvasBoard(container, opts) {
+    opts = opts || {};
+    const maxW = Math.min(420, Math.floor(window.innerWidth * 0.9));
+    const w = opts.w || maxW;
+    const h = opts.h || Math.min(500, Math.floor(window.innerHeight * 0.62));
+    const wrap = document.createElement('div');
+    wrap.className = 'clippy-canvas-board';
+    wrap.style.width = w + 'px';
+    wrap.style.height = h + 'px';
+    if (opts.bg) wrap.style.background = opts.bg;
+    const canvas = document.createElement('canvas');
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    wrap.appendChild(canvas);
+    container.appendChild(wrap);
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    return { wrap, canvas, ctx, w, h };
+  }
+
+  // ─── Trajan orb sprite (canvas) ────────────────────────────────
+  function drawTrajanOrb(ctx, x, y, r, opts) {
+    opts = opts || {};
+    const isGold = opts.hue !== 'silver';
+    if (opts.halo !== false) {
+      const halo = ctx.createRadialGradient(x, y, r * 0.7, x, y, r * 1.7);
+      const haloRGB = isGold ? '212, 164, 78' : '180, 200, 220';
+      halo.addColorStop(0, 'rgba(' + haloRGB + ', 0.45)');
+      halo.addColorStop(1, 'rgba(' + haloRGB + ', 0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(x, y, r * 1.7, 0, Math.PI * 2); ctx.fill();
+    }
+    const body = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r);
+    if (isGold) {
+      body.addColorStop(0, '#fff4d0');
+      body.addColorStop(0.4, '#e8c264');
+      body.addColorStop(0.75, '#d4a44e');
+      body.addColorStop(1, '#7a5b2e');
+    } else {
+      body.addColorStop(0, '#ffffff');
+      body.addColorStop(0.4, '#dde5ec');
+      body.addColorStop(0.75, '#a8b5c2');
+      body.addColorStop(1, '#5a6873');
+    }
+    ctx.fillStyle = body;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.lineWidth = Math.max(1.5, r * 0.06);
+    ctx.stroke();
+    // Inner eye
+    ctx.fillStyle = isGold ? '#3a2810' : '#2c3640';
+    ctx.beginPath(); ctx.arc(x, y - r * 0.08, r * 0.18, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // ─── Arbitrary-pitch tone (Memory color tones, combo pitch) ───
+  function playPitch(freq, dur, type) {
+    if (state.preferences.sound_enabled === false) return;
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type || 'triangle';
+    osc.frequency.setValueAtTime(freq, now);
+    osc.connect(gain); gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.08, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + (dur || 0.25));
+    osc.start(now); osc.stop(now + (dur || 0.25) + 0.05);
+  }
+
+  // ─── Mini-Trajan for DOM games (kept from v17.21) ──────────────
   function createMiniOrb(opts) {
     opts = opts || {};
     const mini = document.createElement('div');
     mini.className = 'clippy-mini-shell';
-    if (state.svgMarkup) {
-      mini.innerHTML = state.svgMarkup;
-    } else {
-      mini.innerHTML = '<svg viewBox="0 0 200 200"><circle cx="100" cy="100" r="60" fill="#4cb6ff"/></svg>';
-    }
+    if (state.svgMarkup) mini.innerHTML = state.svgMarkup;
+    else mini.innerHTML = '<svg viewBox="0 0 200 200"><circle cx="100" cy="100" r="60" fill="#d4a44e"/></svg>';
     if (opts.style) Object.assign(mini.style, opts.style);
     return mini;
   }
 
-  // v17.24 — universal 3-2-1-GO countdown shown over a game container.
-  // Calls onComplete() when GO! finishes. ~3.6 seconds total.
+  // ─── 3-2-1-GO countdown ────────────────────────────────────────
   function runCountdown(container, onComplete) {
     if (!container) { onComplete && onComplete(); return; }
     const sequence = [
@@ -5202,12 +5895,8 @@
     ];
     let i = 0;
     function show() {
-      if (i >= sequence.length) {
-        onComplete && onComplete();
-        return;
-      }
+      if (i >= sequence.length) { onComplete && onComplete(); return; }
       const step = sequence[i++];
-      // Remove old countdown if present
       const existing = container.querySelector('.clippy-game-countdown');
       if (existing) existing.remove();
       const el = document.createElement('div');
@@ -5223,12 +5912,35 @@
     show();
   }
 
-  // ─── GAME 1: TAP THE ORB (30s speed clicker — v17.22 extended) ─
+  // ─── Shared dt-driven loop helper ──────────────────────────────
+  // Returns a start() that kicks off the rAF loop, and registers a
+  // cleanup so closeGameOverlay() stops it cleanly.
+  function gameLoop(update) {
+    let running = false, rafId = 0, lastT = 0;
+    function tick(now) {
+      if (!running) return;
+      const dt = Math.min(2, (now - lastT) / 16.67);   // cap dt to 2 frames
+      lastT = now;
+      update(dt);
+      if (running) rafId = requestAnimationFrame(tick);
+    }
+    const handle = {
+      start() { running = true; lastT = performance.now(); rafId = requestAnimationFrame(tick); },
+      stop()  { running = false; cancelAnimationFrame(rafId); },
+      get running() { return running; },
+    };
+    state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => handle.stop()]);
+    return handle;
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // GAME 1: TAP THE ORB — 30s, combo chains, gold bonus orbs
+  // ════════════════════════════════════════════════════════════════
   function startTapGame() {
     const ov = createGameOverlay();
-    let count = 0;
-    let timeLeft = 30;     // v17.22: doubled from 15s
-    let running = false;
+    let score = 0, taps = 0, combo = 0, maxCombo = 0, bonuses = 0;
+    let timeLeft = 30, lastTapAt = 0;
+    let running = false, bonusTimer = null;
     const intro = pickFromPool('game_intro_tap');
     ov.innerHTML = `
       <div class="clippy-game-title">⚡ Tap the Orb</div>
@@ -5236,55 +5948,123 @@
       <div class="clippy-game-buttons">
         <button class="clippy-game-btn" data-act="start">Start!</button>
         <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
-      </div>
-    `;
+      </div>`;
     ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
     ov.querySelector('[data-act="start"]').addEventListener('click', () => {
-      running = true;
       ov.innerHTML = `
         <div class="clippy-game-title">⚡ TAP THE ORB</div>
-        <div class="clippy-game-timer">${timeLeft}s</div>
-        <div class="clippy-game-stat-label">Taps</div>
-        <div class="clippy-game-stat">${count}</div>
-        <div class="clippy-game-board"></div>
-      `;
-      // v17.21: use mini-Trajan as the target instead of a placeholder div
-      const board = ov.querySelector('.clippy-game-board');
+        <div class="clippy-tap-hud">
+          <div class="hud-stat">⏱ <span data-time>${timeLeft}</span>s</div>
+          <div class="hud-stat">PTS <span data-score>0</span></div>
+          <div class="hud-stat clippy-tap-combo" data-combo-wrap><span>🔥</span><span data-combo>0</span></div>
+        </div>
+        <div class="clippy-game-board" data-board></div>
+        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;">Chain taps for combos. Gold orbs = +10!</div>
+        <div class="clippy-game-buttons"><button class="clippy-game-btn is-ghost" data-act="quit">Quit</button></div>`;
+      const board = ov.querySelector('[data-board]');
+      const timeEl = ov.querySelector('[data-time]');
+      const scoreEl = ov.querySelector('[data-score]');
+      const comboEl = ov.querySelector('[data-combo]');
+      const comboWrap = ov.querySelector('[data-combo-wrap]');
+      ov.querySelector('[data-act="quit"]').addEventListener('click', () => {
+        running = false; if (bonusTimer) clearTimeout(bonusTimer); closeGameOverlay();
+      });
+
       const target = createMiniOrb({ style: { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } });
       board.appendChild(target);
-      const statEl = ov.querySelector('.clippy-game-stat');
-      const timerEl = ov.querySelector('.clippy-game-timer');
+
+      function mult() { return combo >= 10 ? 3 : combo >= 5 ? 2 : 1; }
+      function refreshCombo() {
+        comboEl.textContent = combo;
+        comboWrap.classList.remove('is-hot', 'is-blazing');
+        if (combo >= 10) comboWrap.classList.add('is-blazing');
+        else if (combo >= 5) comboWrap.classList.add('is-hot');
+      }
+
       target.addEventListener('click', () => {
         if (!running) return;
-        count++;
-        statEl.textContent = count;
+        const now = performance.now();
+        if (lastTapAt && now - lastTapAt < 400) combo++;
+        else combo = 1;
+        if (combo > maxCombo) maxCombo = combo;
+        lastTapAt = now;
+        taps++;
+        score += mult();
+        scoreEl.textContent = score;
+        refreshCombo();
         target.classList.remove('is-tapped');
-        // Force reflow so animation can re-trigger
         void target.offsetWidth;
         target.classList.add('is-tapped');
-        playTone('boop');
+        playPitch(660 + Math.min(combo, 20) * 30, 0.06, 'triangle');
+        if (mult() >= 3) spawnParticles({ count: 3, type: 'sparkle' });
       });
-      const tick = setInterval(() => {
-        timeLeft--;
-        timerEl.textContent = timeLeft + 's';
-        if (timeLeft <= 0) {
-          clearInterval(tick);
-          running = false;
-          showGameResult('tap', count);
-        }
-      }, 1000);
-      state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => clearInterval(tick)]);
+
+      function spawnBonus() {
+        if (!running) return;
+        const bonus = document.createElement('div');
+        bonus.className = 'clippy-tap-bonus';
+        const bw = board.getBoundingClientRect();
+        bonus.style.left = (40 + Math.random() * Math.max(1, bw.width - 80) - 30) + 'px';
+        bonus.style.top = (40 + Math.random() * Math.max(1, bw.height - 80) - 30) + 'px';
+        bonus.innerHTML = state.svgMarkup || '';
+        board.appendChild(bonus);
+        const life = setTimeout(() => {
+          try { bonus.classList.add('is-fading'); } catch (_) {}
+          setTimeout(() => { try { bonus.remove(); } catch (_) {} }, 250);
+          combo = 0; refreshCombo();
+        }, 2500);
+        bonus.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (!running) return;
+          clearTimeout(life);
+          score += 10; bonuses++; combo++;
+          if (combo > maxCombo) maxCombo = combo;
+          scoreEl.textContent = score;
+          refreshCombo();
+          bonus.classList.add('is-caught');
+          spawnParticles({ count: 8, type: 'sparkle' });
+          playPitch(1200, 0.20, 'triangle');
+          setTimeout(() => { try { bonus.remove(); } catch (_) {} }, 350);
+        });
+        bonusTimer = setTimeout(spawnBonus, 5000 + Math.random() * 4000);
+      }
+
+      runCountdown(board, () => {
+        running = true;
+        const tick = setInterval(() => {
+          if (!running) return;
+          timeLeft--;
+          timeEl.textContent = timeLeft;
+          if (timeLeft <= 0) {
+            clearInterval(tick);
+            if (bonusTimer) clearTimeout(bonusTimer);
+            running = false;
+            showGameResult('tap', score, {
+              stats: [
+                { label: 'Taps', value: taps },
+                { label: 'Bonuses', value: bonuses },
+                { label: 'Max combo', value: maxCombo },
+              ],
+            });
+          }
+        }, 1000);
+        bonusTimer = setTimeout(spawnBonus, 4000 + Math.random() * 3000);
+        state.gameCleanupFns = (state.gameCleanupFns || []).concat([
+          () => clearInterval(tick),
+          () => { if (bonusTimer) clearTimeout(bonusTimer); },
+        ]);
+      });
     });
   }
 
-  // ─── GAME 2: CATCH ME (Trajan teleports, you catch him) ────────
+  // ════════════════════════════════════════════════════════════════
+  // GAME 2: CATCH ME — 15 rounds, shrinking window + shrinking target
+  // ════════════════════════════════════════════════════════════════
   function startCatchGame() {
     const ov = createGameOverlay();
-    let catches = 0;
-    let round = 0;
-    const totalRounds = 10;
-    let running = false;
-    let moveTimer = null;
+    let catches = 0, round = 0;
+    const totalRounds = 15;
+    let running = false, moveTimer = null;
     const intro = pickFromPool('game_intro_catch');
     ov.innerHTML = `
       <div class="clippy-game-title">🏃 Catch Me</div>
@@ -5292,28 +6072,35 @@
       <div class="clippy-game-buttons">
         <button class="clippy-game-btn" data-act="start">Start!</button>
         <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
-      </div>
-    `;
+      </div>`;
     ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
     ov.querySelector('[data-act="start"]').addEventListener('click', () => {
       running = true;
       ov.innerHTML = `
         <div class="clippy-game-title">🏃 CATCH ME</div>
-        <div class="clippy-game-stat-label">Round</div>
-        <div class="clippy-game-stat">${round}/${totalRounds}</div>
-        <div class="clippy-game-stat-label">Catches: <span data-catches>${catches}</span></div>
-        <div class="clippy-game-board"></div>
-      `;
-      const board = ov.querySelector('.clippy-game-board');
-      // v17.21: mini-Trajan teleports around the board
+        <div class="clippy-tap-hud">
+          <div class="hud-stat">ROUND <span data-round>0</span>/${totalRounds}</div>
+          <div class="hud-stat">CAUGHT <span data-catches>0</span></div>
+        </div>
+        <div class="clippy-game-board" data-board></div>
+        <div class="clippy-game-buttons"><button class="clippy-game-btn is-ghost" data-act="quit">Quit</button></div>`;
+      ov.querySelector('[data-act="quit"]').addEventListener('click', () => {
+        running = false; if (moveTimer) clearTimeout(moveTimer); closeGameOverlay();
+      });
+      const board = ov.querySelector('[data-board]');
       const target = createMiniOrb();
       board.appendChild(target);
-      const roundEl = ov.querySelector('.clippy-game-stat');
+      const roundEl = ov.querySelector('[data-round]');
       const catchEl = ov.querySelector('[data-catches]');
+      function windowMs() { return Math.max(450, 1300 - round * 60); }
+      function sizePx()   { return Math.max(54, 100 - round * 3); }
       function reposition() {
         const rect = board.getBoundingClientRect();
-        const x = Math.random() * Math.max(0, rect.width - 100);
-        const y = Math.random() * Math.max(0, rect.height - 100);
+        const s = sizePx();
+        target.style.width = s + 'px';
+        target.style.height = s + 'px';
+        const x = Math.random() * Math.max(0, rect.width - s);
+        const y = Math.random() * Math.max(0, rect.height - s);
         target.style.left = x + 'px';
         target.style.top = y + 'px';
       }
@@ -5322,34 +6109,42 @@
         if (round > totalRounds) {
           if (moveTimer) clearTimeout(moveTimer);
           running = false;
-          showGameResult('catch', catches);
+          showGameResult('catch', catches, { stats: [
+            { label: 'Hit rate', value: Math.round((catches / totalRounds) * 100) + '%' },
+          ] });
           return;
         }
-        roundEl.textContent = round + '/' + totalRounds;
+        roundEl.textContent = round;
         reposition();
         if (moveTimer) clearTimeout(moveTimer);
-        moveTimer = setTimeout(nextRound, 1200);
+        moveTimer = setTimeout(nextRound, windowMs());
       }
       target.addEventListener('click', () => {
         if (!running) return;
         catches++;
         catchEl.textContent = catches;
         target.classList.add('is-tapped');
-        setTimeout(() => target.classList.remove('is-tapped'), 280);
+        setTimeout(() => target.classList.remove('is-tapped'), 220);
         playTone('boop');
+        spawnParticles({ count: 4, type: 'sparkle' });
         nextRound();
       });
-      nextRound();
-      state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => moveTimer && clearTimeout(moveTimer)]);
+      runCountdown(board, () => {
+        nextRound();
+        state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => moveTimer && clearTimeout(moveTimer)]);
+      });
     });
   }
 
-  // ─── GAME 3: REACTION TIME (mini-Trajan flashes red→green) ──────
+  // ════════════════════════════════════════════════════════════════
+  // GAME 3: REACTION — 5 rounds, anti-cheat aborts after 2 early taps
+  // ════════════════════════════════════════════════════════════════
   function startReactionGame() {
     const ov = createGameOverlay();
     let round = 0;
-    const totalRounds = 3;
+    const totalRounds = 5;
     const times = [];
+    let earlyCount = 0;
     const intro = pickFromPool('game_intro_reaction');
     ov.innerHTML = `
       <div class="clippy-game-title">⚡ Reaction Time</div>
@@ -5357,8 +6152,7 @@
       <div class="clippy-game-buttons">
         <button class="clippy-game-btn" data-act="start">Start!</button>
         <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
-      </div>
-    `;
+      </div>`;
     ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
     ov.querySelector('[data-act="start"]').addEventListener('click', runRound);
     function runRound() {
@@ -5366,21 +6160,26 @@
       ov.innerHTML = `
         <div class="clippy-game-title">⚡ REACTION ${round}/${totalRounds}</div>
         <div class="clippy-game-instruction" data-msg>Wait for GREEN glow...</div>
-        <div class="clippy-game-board"></div>
-      `;
+        <div class="clippy-game-board"></div>`;
       const board = ov.querySelector('.clippy-game-board');
-      // v17.21: mini-Trajan in center, glows red → flips to green
       const target = createMiniOrb({ style: { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } });
       target.classList.add('is-wait');
       board.appendChild(target);
       const msg = ov.querySelector('[data-msg]');
       const delay = 1200 + Math.random() * 2800;
-      let goAt = 0;
-      let earlyClick = false;
+      let goAt = 0, earlyClick = false;
       const earlyHandler = () => {
         if (goAt === 0) {
           earlyClick = true;
-          msg.textContent = 'Too early! Try again.';
+          earlyCount++;
+          if (earlyCount >= 2) {
+            msg.textContent = 'Two false starts — game over.';
+            setTimeout(() => showGameResult('reaction', 999, {
+              stats: [{ label: 'Aborted', value: 'too many false starts' }],
+            }), 1400);
+            return;
+          }
+          msg.textContent = 'Too early! Retrying...';
           setTimeout(() => { round--; runRound(); }, 1200);
         }
       };
@@ -5400,8 +6199,16 @@
           msg.textContent = reactMs + ' ms';
           if (round >= totalRounds) {
             setTimeout(() => {
-              const avg = Math.round(times.reduce((a,b) => a+b, 0) / times.length);
-              showGameResult('reaction', avg);
+              const avg = Math.round(times.reduce((a, b) => a + b, 0) / times.length);
+              const best = Math.min(...times);
+              const worst = Math.max(...times);
+              showGameResult('reaction', avg, {
+                stats: [
+                  { label: 'Best', value: best + ' ms' },
+                  { label: 'Worst', value: worst + ' ms' },
+                  { label: 'All', value: times.join(', ') + ' ms' },
+                ],
+              });
             }, 900);
           } else {
             setTimeout(runRound, 1200);
@@ -5413,16 +6220,17 @@
     }
   }
 
-  // ─── GAME 4: MEMORY MATCH (v17.24 — brighter, scales every 10 lvls) ───
+  // ════════════════════════════════════════════════════════════════
+  // GAME 4: MEMORY MATCH — +1 orb every 5 levels, per-orb pitches
+  // ════════════════════════════════════════════════════════════════
   function startMemoryGame() {
     const ov = createGameOverlay();
-    // All 9 possible colors. Game starts with 4, adds 1 every 10 levels.
     const ALL_COLORS = ['r', 'g', 'b', 'y', 'p', 'o', 'c', 'k', 'w'];
+    // Pentatonic-ish C-major pitches per color so any sequence is musical
+    const PITCHES = { r: 392, g: 440, b: 523, y: 587, p: 659, o: 698, c: 784, k: 880, w: 988 };
     const sequence = [];
-    let userIdx = 0;
-    let level = 0;
-    let acceptingInput = false;
-    let activeColors = ALL_COLORS.slice(0, 4);   // start with 4
+    let userIdx = 0, level = 0, acceptingInput = false;
+    let activeColors = ALL_COLORS.slice(0, 4);
     const intro = pickFromPool('game_intro_memory');
     ov.innerHTML = `
       <div class="clippy-game-title">🧠 Memory Match</div>
@@ -5430,26 +6238,18 @@
       <div class="clippy-game-buttons">
         <button class="clippy-game-btn" data-act="start">Start!</button>
         <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
-      </div>
-    `;
+      </div>`;
     ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
     ov.querySelector('[data-act="start"]').addEventListener('click', () => {
-      // Build a temporary board for the countdown
       ov.innerHTML = `
         <div class="clippy-game-title">🧠 MEMORY MATCH</div>
-        <div class="clippy-flappy-board" style="height:300px;" data-countdown-board></div>
-      `;
+        <div class="clippy-flappy-board" style="height:300px;" data-countdown-board></div>`;
       const cdBoard = ov.querySelector('[data-countdown-board]');
-      runCountdown(cdBoard, () => {
-        level = 0;
-        runNextLevel();
-      });
+      runCountdown(cdBoard, () => { level = 0; runNextLevel(); });
     });
 
     function colorsForLevel(lvl) {
-      // Start with 4 colors at level 1
-      // Level 11 → 5 colors. Level 21 → 6. Level 31 → 7. Etc.
-      const extra = Math.floor((lvl - 1) / 10);
+      const extra = Math.floor((lvl - 1) / 5);   // +1 orb every 5 levels (was 10)
       const count = Math.min(ALL_COLORS.length, 4 + extra);
       return ALL_COLORS.slice(0, count);
     }
@@ -5460,43 +6260,34 @@
       sequence.push(activeColors[Math.floor(Math.random() * activeColors.length)]);
       userIdx = 0;
       acceptingInput = false;
-
-      // Re-render with new orb count if needed
       ov.innerHTML = `
         <div class="clippy-game-title">🧠 MEMORY MATCH</div>
         <div class="clippy-memory-level-banner">Level ${level} · ${activeColors.length} orbs · Watch...</div>
         <div class="clippy-memory-grid" data-grid></div>
-        <div class="clippy-game-buttons">
-          <button class="clippy-game-btn is-ghost" data-act="quit">Quit</button>
-        </div>
-      `;
+        <div class="clippy-game-buttons"><button class="clippy-game-btn is-ghost" data-act="quit">Quit</button></div>`;
       ov.querySelector('[data-act="quit"]').addEventListener('click', () => {
         showGameResult('memory', Math.max(0, level - 1));
       });
       const grid = ov.querySelector('[data-grid]');
       const banner = ov.querySelector('.clippy-memory-level-banner');
-
-      // Build mini-Trajans for each active color
       const cells = activeColors.map(color => {
         const cell = createMiniOrb();
         cell.classList.remove('clippy-mini-shell');
-        cell.classList.add('clippy-memory-cell');
-        cell.classList.add('is-disabled');
+        cell.classList.add('clippy-memory-cell', 'is-disabled');
         cell.setAttribute('data-color', color);
         grid.appendChild(cell);
         return cell;
       });
-
-      // Play the sequence
+      // Faster playback as levels increase
+      const flashEach = Math.max(280, 520 - Math.floor(level / 3) * 30);
+      const gapBetween = Math.max(120, flashEach - 340);
       let i = 0;
-      const flashEach = 520;       // ms per flash
-      const gapBetween = 180;
       const playInterval = setInterval(() => {
         if (i >= sequence.length) {
           clearInterval(playInterval);
           acceptingInput = true;
           cells.forEach(c => c.classList.remove('is-disabled'));
-          banner.textContent = `Level ${level} · Your turn — repeat the sequence`;
+          banner.textContent = `Level ${level} · Your turn`;
           cells.forEach(cell => {
             cell.addEventListener('click', () => {
               if (!acceptingInput) return;
@@ -5509,7 +6300,7 @@
         const cell = cells.find(el => el.getAttribute('data-color') === c);
         if (cell) {
           cell.classList.add('flash-' + c);
-          playTone('boop');
+          playPitch(PITCHES[c] || 660, 0.18, 'triangle');
           setTimeout(() => cell.classList.remove('flash-' + c), flashEach - gapBetween);
         }
         i++;
@@ -5519,37 +6310,39 @@
       function handleTap(color, cell) {
         const expected = sequence[userIdx];
         if (color !== expected) {
-          banner.textContent = `Wrong! Got to level ${level - 1}.`;
+          banner.textContent = `Wrong! Reached level ${level - 1}.`;
           acceptingInput = false;
-          setTimeout(() => showGameResult('memory', Math.max(0, level - 1)), 1500);
+          playPitch(180, 0.4, 'square');
+          setTimeout(() => showGameResult('memory', Math.max(0, level - 1)), 1400);
           return;
         }
         cell.classList.add('flash-' + color);
-        playTone('sparkle');
+        playPitch(PITCHES[color] || 660, 0.18, 'triangle');
         setTimeout(() => cell.classList.remove('flash-' + color), 280);
         userIdx++;
         if (userIdx >= sequence.length) {
           acceptingInput = false;
           banner.textContent = `Level ${level} cleared!`;
-          // v17.24 — fanfare on every 10th level (added orb!)
-          if (level % 10 === 0 && level > 0) {
+          if (level % 5 === 0 && level > 0) {
             spawnParticles({ count: 16, type: 'sparkle' });
             playTone('milestone');
             setTimeout(() => {
-              banner.textContent = `LEVEL ${level}! Adding orb #${activeColors.length + 1}...`;
+              banner.textContent = `LEVEL ${level}! +1 orb...`;
             }, 600);
           }
-          setTimeout(runNextLevel, level % 10 === 0 ? 2200 : 1100);
+          setTimeout(runNextLevel, level % 5 === 0 ? 1800 : 950);
         }
       }
     }
   }
 
-
-  // ════════════════════════════════════════════════════════════════════
-  // v17.22 GAME 5: FLAPPY TRAJAN — tap to flap, dodge Roman columns
-  // ════════════════════════════════════════════════════════════════════
-
+  // ════════════════════════════════════════════════════════════════
+  // GAME 5: FLAPPY TRAJAN — full canvas rewrite
+  //   • Circular collision (forgiving) vs prior 60×60 square
+  //   • Difficulty curve: gap 160→100, speed 2.2→3.4 over first 30 cols
+  //   • Tap-to-begin (no auto-fall after countdown)
+  //   • Parallax clouds + ground stripes, particle burst per scored col
+  // ════════════════════════════════════════════════════════════════
   function startFlappyGame() {
     const ov = createGameOverlay();
     const intro = pickFromPool('game_intro_flappy');
@@ -5559,166 +6352,214 @@
       <div class="clippy-game-buttons">
         <button class="clippy-game-btn" data-act="start">Start!</button>
         <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
-      </div>
-    `;
+      </div>`;
     ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
     ov.querySelector('[data-act="start"]').addEventListener('click', () => {
       ov.innerHTML = `
         <div class="clippy-game-title">🕊️ FLAPPY TRAJAN</div>
-        <div class="clippy-flappy-board" data-board>
-          <div class="clippy-flappy-score" data-score>0</div>
-          <div class="clippy-flappy-ground"></div>
-        </div>
-        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;">Tap the board to flap!</div>
-        <div class="clippy-game-buttons">
-          <button class="clippy-game-btn is-ghost" data-act="quit">Quit</button>
-        </div>
-      `;
-      const board = ov.querySelector('[data-board]');
-      const scoreEl = ov.querySelector('[data-score]');
-      ov.querySelector('[data-act="quit"]').addEventListener('click', () => {
-        running = false;
-        cancelAnimationFrame(rafId);
-        closeGameOverlay();
-      });
+        <div class="clippy-canvas-wrap" data-wrap></div>
+        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;" data-hint>Tap to flap. First tap starts the run.</div>
+        <div class="clippy-game-buttons"><button class="clippy-game-btn is-ghost" data-act="quit">Quit</button></div>`;
+      const wrap = ov.querySelector('[data-wrap]');
+      const hint = ov.querySelector('[data-hint]');
+      const board = makeCanvasBoard(wrap, { bg: 'linear-gradient(180deg, #2a3f6a 0%, #4a6088 70%, #6b7a99 100%)' });
+      const { ctx, w: W, h: H } = board;
+      ov.querySelector('[data-act="quit"]').addEventListener('click', () => { loop.stop(); closeGameOverlay(); });
 
-      // Build Trajan bird
-      const bird = document.createElement('div');
-      bird.className = 'clippy-flappy-bird';
-      bird.innerHTML = state.svgMarkup || '';
-      board.appendChild(bird);
-
-      const boardRect = board.getBoundingClientRect();
-      const W = boardRect.width;
-      const H = boardRect.height;
       const GROUND_Y = H - 28;
-      const BIRD_SIZE = 60;
-      const COLUMN_W = 56;
-      const GAP_SIZE = 150;
-      let birdY = H / 2;
-      let birdV = 0;
-      const GRAVITY = 0.45;
-      const FLAP_V = -7.2;
-      const SCROLL_SPEED = 2.2;
-      let score = 0;
-      let running = false;     // v17.24: don't run until countdown completes
-      let rafId = 0;
+      const BIRD_R = 18;          // collision radius (smaller than visual ~22)
+      const BIRD_VR = 22;         // visual radius
+      const BIRD_X = Math.floor(W * 0.28);
+      let birdY = H / 2, birdV = 0, birdRot = 0;
+      let score = 0, started = false, alive = true;
       const columns = [];
       let nextColumnX = W + 80;
-      let columnSpacing = 220;
+      // Difficulty
+      function gapAt(s)   { return Math.max(100, 160 - s * 2); }
+      function speedAt(s) { return Math.min(3.4, 2.2 + s * 0.04); }
+      function spacingAt(s){ return Math.max(170, 220 - s * 1.5); }
+      const GRAVITY = 0.45, FLAP_V = -7.2;
 
-      const birdX = 80;
-      bird.style.left = birdX + 'px';
-      bird.style.top = birdY + 'px';
-
-      // v17.24: countdown 3-2-1 before play starts
-      runCountdown(board, () => {
-        running = true;
-        spawnColumn();
-        rafId = requestAnimationFrame(tick);
-      });
+      // Parallax clouds
+      const clouds = [];
+      for (let i = 0; i < 5; i++) {
+        clouds.push({ x: Math.random() * W, y: 30 + Math.random() * (H * 0.4), r: 18 + Math.random() * 20, v: 0.15 + Math.random() * 0.25 });
+      }
+      // Ground stripe offset
+      let groundOff = 0;
+      // Death particles
+      const particles = [];
 
       function spawnColumn() {
-        const gapY = 60 + Math.random() * (GROUND_Y - GAP_SIZE - 120);
-        const topH = gapY;
-        const botY = gapY + GAP_SIZE;
-        const botH = GROUND_Y - botY;
-        const top = document.createElement('div');
-        top.className = 'clippy-flappy-column is-top';
-        top.style.left = nextColumnX + 'px';
-        top.style.top = '0px';
-        top.style.height = topH + 'px';
-        const topCap = document.createElement('div');
-        topCap.className = 'clippy-flappy-column-cap';
-        top.appendChild(topCap);
-        const bot = document.createElement('div');
-        bot.className = 'clippy-flappy-column is-bot';
-        bot.style.left = nextColumnX + 'px';
-        bot.style.top = botY + 'px';
-        bot.style.height = botH + 'px';
-        const botCap = document.createElement('div');
-        botCap.className = 'clippy-flappy-column-cap';
-        bot.appendChild(botCap);
-        board.appendChild(top);
-        board.appendChild(bot);
-        columns.push({ top, bot, x: nextColumnX, gapY, scored: false });
-        nextColumnX += columnSpacing;
+        const lastScore = columns.length ? Math.max(score, columns.length - 1) : score;
+        const GAP = gapAt(lastScore);
+        const gapY = 40 + Math.random() * (GROUND_Y - GAP - 80);
+        columns.push({ x: nextColumnX, gapY, gap: GAP, scored: false });
+        nextColumnX += spacingAt(lastScore);
       }
 
       function flap() {
-        if (!running) return;
+        if (!alive) return;
+        if (!started) { started = true; hint.textContent = 'Dodge the columns. Good luck.'; }
         birdV = FLAP_V;
         playTone('boop');
       }
-      board.addEventListener('click', flap);
-      board.addEventListener('touchstart', (e) => { e.preventDefault(); flap(); }, { passive: false });
+      board.wrap.addEventListener('click', flap);
+      board.wrap.addEventListener('touchstart', (e) => { e.preventDefault(); flap(); }, { passive: false });
 
-      function tick() {
-        if (!running) return;
-        birdV += GRAVITY;
-        birdY += birdV;
-        const angle = Math.max(-25, Math.min(70, birdV * 4));
-        bird.style.top = birdY + 'px';
-        bird.style.transform = `rotate(${angle}deg)`;
-
-        // Move columns
-        for (let i = columns.length - 1; i >= 0; i--) {
-          const c = columns[i];
-          c.x -= SCROLL_SPEED;
-          c.top.style.left = c.x + 'px';
-          c.bot.style.left = c.x + 'px';
-          if (!c.scored && c.x + COLUMN_W < birdX) {
-            c.scored = true;
-            score++;
-            scoreEl.textContent = score;
-            playTone('sparkle');
-          }
-          if (c.x < -COLUMN_W) {
-            c.top.remove();
-            c.bot.remove();
-            columns.splice(i, 1);
-          }
+      function update(dt) {
+        // Clouds always animate
+        for (const c of clouds) {
+          c.x -= c.v * dt;
+          if (c.x + c.r * 2 < 0) { c.x = W + c.r * 2; c.y = 30 + Math.random() * (H * 0.4); }
         }
-
-        if (columns.length === 0 || columns[columns.length - 1].x < W - columnSpacing) {
-          spawnColumn();
-        }
-
-        // Collision
-        const birdRect = { x: birdX, y: birdY, w: BIRD_SIZE, h: BIRD_SIZE };
-        if (birdY < 0 || birdY + BIRD_SIZE > GROUND_Y) {
-          gameOver();
+        if (!started) return;       // wait for first tap
+        if (!alive) {
+          // Bird falls + particles drift
+          birdV += GRAVITY * dt;
+          birdY += birdV * dt;
+          for (const p of particles) {
+            p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 0.15 * dt; p.life -= dt;
+          }
+          for (let i = particles.length - 1; i >= 0; i--) if (particles[i].life <= 0) particles.splice(i, 1);
+          if (birdY > GROUND_Y + 50 && particles.length === 0) {
+            loop.stop();
+            bubble(pickFromPool('flappy_die'), { autoHide: 2500 });
+            setTimeout(() => showGameResult('flappy', score), 600);
+          }
           return;
         }
-        for (const c of columns) {
-          if (birdRect.x + birdRect.w > c.x && birdRect.x < c.x + COLUMN_W) {
-            if (birdY < c.gapY || birdY + BIRD_SIZE > c.gapY + GAP_SIZE) {
-              gameOver();
-              return;
-            }
+        // Physics
+        birdV += GRAVITY * dt;
+        birdY += birdV * dt;
+        birdRot = Math.max(-0.5, Math.min(1.3, birdV * 0.07));
+        groundOff = (groundOff + speedAt(score) * dt) % 24;
+        // Columns
+        const SCROLL = speedAt(score);
+        if (columns.length === 0 || columns[columns.length - 1].x < W - spacingAt(score)) spawnColumn();
+        for (let i = columns.length - 1; i >= 0; i--) {
+          const c = columns[i];
+          c.x -= SCROLL * dt;
+          if (!c.scored && c.x + 56 < BIRD_X) {
+            c.scored = true;
+            score++;
+            playTone('sparkle');
+            spawnParticles({ count: 4, type: 'sparkle' });
           }
+          if (c.x < -80) columns.splice(i, 1);
         }
-        rafId = requestAnimationFrame(tick);
+        // Collision: floor/ceiling
+        if (birdY + BIRD_R > GROUND_Y || birdY - BIRD_R < 0) return die();
+        // Collision: columns (circle vs AABB)
+        for (const c of columns) {
+          const inX = BIRD_X + BIRD_R > c.x && BIRD_X - BIRD_R < c.x + 56;
+          if (!inX) continue;
+          const inGapY = birdY - BIRD_R > c.gapY && birdY + BIRD_R < c.gapY + c.gap;
+          if (!inGapY) return die();
+        }
       }
-      function gameOver() {
-        running = false;
-        cancelAnimationFrame(rafId);
-        bubble(pickFromPool('flappy_die'), { autoHide: 2500 });
-        setTimeout(() => showGameResult('flappy', score), 800);
+      function die() {
+        if (!alive) return;
+        alive = false;
+        playTone('bzzt');
+        for (let i = 0; i < 18; i++) {
+          const ang = Math.random() * Math.PI * 2;
+          const sp = 1 + Math.random() * 3;
+          particles.push({ x: BIRD_X, y: birdY, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 1, r: 2 + Math.random() * 3, life: 40 + Math.random() * 20 });
+        }
+        birdV = -2;
       }
-      // v17.24: countdown starts the RAF, not here
-      state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => {
-        running = false;
-        cancelAnimationFrame(rafId);
-      }]);
+      function render() {
+        // Sky already CSS gradient on wrap; draw clouds
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        for (const c of clouds) {
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+          ctx.arc(c.x + c.r * 0.7, c.y + 2, c.r * 0.8, 0, Math.PI * 2);
+          ctx.arc(c.x - c.r * 0.7, c.y + 2, c.r * 0.7, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Columns (Roman pillars)
+        for (const c of columns) {
+          drawColumn(c.x, 0, c.gapY, true);
+          drawColumn(c.x, c.gapY + c.gap, GROUND_Y - (c.gapY + c.gap), false);
+        }
+        // Ground
+        ctx.fillStyle = '#4a6033';
+        ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+        ctx.fillStyle = '#3a5028';
+        for (let x = -groundOff; x < W; x += 24) {
+          ctx.fillRect(x, GROUND_Y, 12, H - GROUND_Y);
+        }
+        ctx.strokeStyle = '#1a1a1a';
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(0, GROUND_Y); ctx.lineTo(W, GROUND_Y); ctx.stroke();
+        // Bird
+        ctx.save();
+        ctx.translate(BIRD_X, birdY);
+        ctx.rotate(birdRot);
+        drawTrajanOrb(ctx, 0, 0, BIRD_VR);
+        ctx.restore();
+        // Particles
+        ctx.fillStyle = '#d4a44e';
+        for (const p of particles) {
+          ctx.globalAlpha = Math.max(0, p.life / 60);
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        // Score
+        ctx.font = '900 38px JetBrains Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = '#1a1a1a';
+        ctx.lineWidth = 4;
+        ctx.fillStyle = '#fffef6';
+        ctx.strokeText(String(score), W / 2, 50);
+        ctx.fillText(String(score), W / 2, 50);
+        // Hint overlay before first tap
+        if (!started) {
+          ctx.fillStyle = 'rgba(0,0,0,0.35)';
+          ctx.fillRect(0, H / 2 - 30, W, 60);
+          ctx.fillStyle = '#fffef6';
+          ctx.font = '700 18px Outfit, sans-serif';
+          ctx.fillText('TAP TO START', W / 2, H / 2 + 6);
+        }
+      }
+      function drawColumn(x, y, h, isTop) {
+        if (h <= 0) return;
+        const grad = ctx.createLinearGradient(x, 0, x + 56, 0);
+        grad.addColorStop(0, '#8b6f3d');
+        grad.addColorStop(0.5, '#c9a063');
+        grad.addColorStop(1, '#8b6f3d');
+        ctx.fillStyle = grad;
+        ctx.fillRect(x, y, 56, h);
+        ctx.strokeStyle = '#1a1a1a';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, 56, h);
+        // Fluting
+        ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 5; i++) {
+          const fx = x + (56 / 5) * i;
+          ctx.beginPath(); ctx.moveTo(fx, y); ctx.lineTo(fx, y + h); ctx.stroke();
+        }
+        // Capital
+        ctx.fillStyle = '#6b4a1f';
+        const capY = isTop ? y + h - 14 : y;
+        ctx.fillRect(x - 4, capY, 64, 14);
+        ctx.strokeStyle = '#1a1a1a';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x - 4, capY, 64, 14);
+      }
+
+      const loop = gameLoop((dt) => { update(dt); render(); });
+      runCountdown(board.wrap, () => loop.start());
     });
   }
 
-
-  // ════════════════════════════════════════════════════════════════════
-  // v17.22 GAME 6: CANNON BATTLE — drag to move, tap to fire upward
-  // ════════════════════════════════════════════════════════════════════
-
+  // ════════════════════════════════════════════════════════════════
+  // GAME 6: CANNON BATTLE — per-enemy fire cooldown, bullet cap, power-ups
+  // ════════════════════════════════════════════════════════════════
   function startCannonGame() {
     const ov = createGameOverlay();
     const intro = pickFromPool('game_intro_cannon');
@@ -5728,230 +6569,270 @@
       <div class="clippy-game-buttons">
         <button class="clippy-game-btn" data-act="start">Start!</button>
         <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
-      </div>
-    `;
+      </div>`;
     ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
     ov.querySelector('[data-act="start"]').addEventListener('click', () => {
       ov.innerHTML = `
         <div class="clippy-game-title">🚀 CANNON BATTLE</div>
-        <div class="clippy-cannon-board" data-board>
-          <div class="clippy-cannon-hud">
-            <div class="hud-stat">SCORE <span data-score>0</span></div>
-            <div class="hud-stat">HP <span data-hp>3</span></div>
-            <div class="hud-stat">TIME <span data-time>60</span>s</div>
-          </div>
-        </div>
-        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;">Drag to move · Tap to fire</div>
-        <div class="clippy-game-buttons">
-          <button class="clippy-game-btn is-ghost" data-act="quit">Quit</button>
-        </div>
-      `;
-      const board = ov.querySelector('[data-board]');
-      const scoreEl = ov.querySelector('[data-score]');
-      const hpEl = ov.querySelector('[data-hp]');
-      const timeEl = ov.querySelector('[data-time]');
-      ov.querySelector('[data-act="quit"]').addEventListener('click', () => {
-        running = false;
-        cancelAnimationFrame(rafId);
-        clearInterval(timerInt);
-        closeGameOverlay();
-      });
+        <div class="clippy-canvas-wrap" data-wrap></div>
+        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;">Drag to move · Tap to fire · Catch power-ups</div>
+        <div class="clippy-game-buttons"><button class="clippy-game-btn is-ghost" data-act="quit">Quit</button></div>`;
+      const wrap = ov.querySelector('[data-wrap]');
+      const board = makeCanvasBoard(wrap, { bg: 'linear-gradient(180deg, #06081a 0%, #0d1330 60%, #1a2548 100%)' });
+      const { ctx, w: W, h: H } = board;
+      ov.querySelector('[data-act="quit"]').addEventListener('click', () => { loop.stop(); closeGameOverlay(); });
 
-      const player = document.createElement('div');
-      player.className = 'clippy-cannon-player';
-      player.innerHTML = state.svgMarkup || '';
-      board.appendChild(player);
-
-      const boardRect = board.getBoundingClientRect();
-      const W = boardRect.width;
-      const H = boardRect.height;
-      const PLAYER_W = 60;
+      const PLAYER_W = 60, PLAYER_R = 22;
       let playerX = W / 2 - PLAYER_W / 2;
-      let score = 0;
-      let hp = 3;
-      let timeLeft = 60;
-      let running = false;     // v17.24: countdown gates start
-      const bullets = [];
-      const enemies = [];
-      const enemyBullets = [];
-      let lastEnemySpawn = 0;
-      let lastEnemyShot = 0;
-      let lastFire = 0;
+      let score = 0, hp = 3, timeLeft = 90;
+      const bullets = [], enemies = [], enemyBullets = [], powerups = [], explosions = [];
+      const stars = [];
+      for (let i = 0; i < 32; i++) stars.push({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.4 + 0.4, a: 0.4 + Math.random() * 0.5 });
+      let lastEnemySpawn = 0, lastFire = 0, t = 0;
+      let powerTriple = 0, powerRapid = 0;   // remaining frames of buff
+      let bossAt = 30 * 60;   // boss every 30s = 1800 frames
+      let dragActive = false;
 
-      player.style.left = playerX + 'px';
-
+      const MAX_BULLETS = 12;
       function fire() {
-        if (!running) return;
+        if (bullets.length >= MAX_BULLETS) return;
+        const cooldown = powerRapid > 0 ? 100 : 220;
         const now = Date.now();
-        if (now - lastFire < 220) return;   // fire rate limit
+        if (now - lastFire < cooldown) return;
         lastFire = now;
-        const b = document.createElement('div');
-        b.className = 'clippy-cannon-bullet';
         const bx = playerX + PLAYER_W / 2 - 3;
         const by = H - 80;
-        b.style.left = bx + 'px';
-        b.style.top = by + 'px';
-        board.appendChild(b);
-        bullets.push({ el: b, x: bx, y: by });
+        if (powerTriple > 0) {
+          bullets.push({ x: bx, y: by, vx: -2 });
+          bullets.push({ x: bx, y: by, vx: 0 });
+          bullets.push({ x: bx, y: by, vx: 2 });
+        } else {
+          bullets.push({ x: bx, y: by, vx: 0 });
+        }
         playTone('boop');
       }
-      function spawnEnemy() {
-        const e = document.createElement('div');
-        e.className = 'clippy-cannon-enemy';
+      function spawnEnemy(isBoss) {
         const ex = Math.random() * (W - 36);
-        e.style.left = ex + 'px';
-        e.style.top = '20px';
-        board.appendChild(e);
-        enemies.push({ el: e, x: ex, y: 20, vx: (Math.random() - 0.5) * 1.4, vy: 0.4 + Math.random() * 0.6 });
+        enemies.push({
+          x: ex, y: 20, vx: (Math.random() - 0.5) * 1.4, vy: 0.4 + Math.random() * 0.5,
+          hp: isBoss ? 5 : 1, lastShot: Date.now() + Math.random() * 1200,
+          shotInterval: isBoss ? 800 : 1500 + Math.random() * 800,
+          isBoss: !!isBoss, w: isBoss ? 56 : 36, h: isBoss ? 56 : 36,
+        });
       }
-      function enemyShoot(enemy) {
-        const b = document.createElement('div');
-        b.className = 'clippy-cannon-enemy-bullet';
-        b.style.left = (enemy.x + 16) + 'px';
-        b.style.top = (enemy.y + 36) + 'px';
-        board.appendChild(b);
-        enemyBullets.push({ el: b, x: enemy.x + 16, y: enemy.y + 36 });
-      }
-      function explode(x, y) {
-        const e = document.createElement('div');
-        e.className = 'clippy-cannon-explosion';
-        e.style.left = (x - 30) + 'px';
-        e.style.top = (y - 30) + 'px';
-        board.appendChild(e);
-        setTimeout(() => e.remove(), 400);
+      function spawnPowerup(x, y) {
+        if (Math.random() > 0.18) return;
+        const kinds = ['triple', 'rapid', 'hp'];
+        powerups.push({ x, y, kind: kinds[Math.floor(Math.random() * kinds.length)], vy: 1.4 });
       }
 
-      // Touch / drag handlers — set player X to finger pos
-      let dragActive = false;
       function setPlayerFromPoint(clientX) {
-        const rect = board.getBoundingClientRect();
-        const px = Math.max(0, Math.min(W - PLAYER_W, clientX - rect.left - PLAYER_W / 2));
-        playerX = px;
-        player.style.left = playerX + 'px';
+        const rect = board.wrap.getBoundingClientRect();
+        playerX = Math.max(0, Math.min(W - PLAYER_W, clientX - rect.left - PLAYER_W / 2));
       }
-      board.addEventListener('touchstart', (e) => {
+      board.wrap.addEventListener('touchstart', (e) => {
         e.preventDefault();
-        if (e.touches.length) {
-          dragActive = true;
-          setPlayerFromPoint(e.touches[0].clientX);
-          fire();   // tap = also fire
-        }
+        if (e.touches.length) { dragActive = true; setPlayerFromPoint(e.touches[0].clientX); fire(); }
       }, { passive: false });
-      board.addEventListener('touchmove', (e) => {
-        if (dragActive && e.touches.length) setPlayerFromPoint(e.touches[0].clientX);
-      }, { passive: false });
-      board.addEventListener('touchend', () => { dragActive = false; });
-      // Mouse desktop fallback
-      board.addEventListener('mousedown', (e) => { dragActive = true; setPlayerFromPoint(e.clientX); fire(); });
-      board.addEventListener('mousemove', (e) => { if (dragActive) setPlayerFromPoint(e.clientX); });
-      board.addEventListener('mouseup', () => { dragActive = false; });
-      board.addEventListener('mouseleave', () => { dragActive = false; });
+      board.wrap.addEventListener('touchmove', (e) => { if (dragActive && e.touches.length) setPlayerFromPoint(e.touches[0].clientX); }, { passive: false });
+      board.wrap.addEventListener('touchend', () => { dragActive = false; });
+      board.wrap.addEventListener('mousedown', (e) => { dragActive = true; setPlayerFromPoint(e.clientX); fire(); });
+      board.wrap.addEventListener('mousemove', (e) => { if (dragActive) setPlayerFromPoint(e.clientX); });
+      board.wrap.addEventListener('mouseup', () => { dragActive = false; });
+      board.wrap.addEventListener('mouseleave', () => { dragActive = false; });
 
-      let timerInt = null;       // v17.24: started by countdown
-      let rafId = 0;
-
-      function tick() {
-        if (!running) return;
+      let timerInt = null;
+      function update(dt) {
+        t += dt;
+        if (powerTriple > 0) powerTriple = Math.max(0, powerTriple - dt);
+        if (powerRapid  > 0) powerRapid  = Math.max(0, powerRapid  - dt);
         const now = Date.now();
-        // Move bullets up
+
+        // Bullets
         for (let i = bullets.length - 1; i >= 0; i--) {
           const b = bullets[i];
-          b.y -= 9;
-          b.el.style.top = b.y + 'px';
-          if (b.y < -20) { b.el.remove(); bullets.splice(i, 1); continue; }
-          // Check enemy hits
+          b.y -= 9 * dt; b.x += (b.vx || 0) * dt;
+          if (b.y < -20 || b.x < -10 || b.x > W + 10) { bullets.splice(i, 1); continue; }
+          let hit = false;
           for (let j = enemies.length - 1; j >= 0; j--) {
             const e = enemies[j];
-            if (b.x + 6 > e.x && b.x < e.x + 36 && b.y + 16 > e.y && b.y < e.y + 36) {
-              explode(e.x + 18, e.y + 18);
-              e.el.remove(); enemies.splice(j, 1);
-              b.el.remove(); bullets.splice(i, 1);
-              score += 10;
-              scoreEl.textContent = score;
-              playTone('sparkle');
+            if (b.x + 6 > e.x && b.x < e.x + e.w && b.y + 16 > e.y && b.y < e.y + e.h) {
+              e.hp--;
+              if (e.hp <= 0) {
+                explosions.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, life: 24, max: 24 });
+                spawnPowerup(e.x + e.w / 2, e.y + e.h / 2);
+                score += e.isBoss ? 50 : 10;
+                enemies.splice(j, 1);
+                playTone('sparkle');
+              }
+              bullets.splice(i, 1);
+              hit = true;
               break;
             }
           }
+          if (hit) continue;
         }
-        // Spawn enemies
-        if (now - lastEnemySpawn > 1500 - Math.min(800, score * 8)) {
-          spawnEnemy();
-          lastEnemySpawn = now;
-        }
-        // Move enemies down
+        // Spawn regular enemies (rate scales gently with score)
+        const spawnEvery = Math.max(700, 1500 - Math.min(800, score * 4));
+        if (now - lastEnemySpawn > spawnEvery) { spawnEnemy(false); lastEnemySpawn = now; }
+        // Spawn boss
+        if (t > bossAt) { spawnEnemy(true); bossAt = t + 30 * 60; }
+        // Enemy motion + shooting
         for (let i = enemies.length - 1; i >= 0; i--) {
           const e = enemies[i];
-          e.x += e.vx;
-          e.y += e.vy;
-          if (e.x < 0 || e.x > W - 36) e.vx *= -1;
-          e.el.style.left = e.x + 'px';
-          e.el.style.top = e.y + 'px';
-          // Reached bottom = damage
+          e.x += e.vx * dt; e.y += e.vy * dt;
+          if (e.x < 0 || e.x > W - e.w) e.vx *= -1;
+          if (now - e.lastShot > e.shotInterval) {
+            enemyBullets.push({ x: e.x + e.w / 2 - 2, y: e.y + e.h });
+            e.lastShot = now;
+          }
           if (e.y > H - 80) {
-            e.el.remove();
             enemies.splice(i, 1);
             hp--;
-            hpEl.textContent = hp;
-            if (hp <= 0) { gameOver(false); return; }
+            if (hp <= 0) return gameOver(false);
           }
         }
-        // Enemy shoots randomly
-        if (enemies.length && now - lastEnemyShot > 1200) {
-          const shooter = enemies[Math.floor(Math.random() * enemies.length)];
-          enemyShoot(shooter);
-          lastEnemyShot = now;
-        }
-        // Move enemy bullets
+        // Enemy bullets
         for (let i = enemyBullets.length - 1; i >= 0; i--) {
           const b = enemyBullets[i];
-          b.y += 6;
-          b.el.style.top = b.y + 'px';
-          if (b.y > H) { b.el.remove(); enemyBullets.splice(i, 1); continue; }
-          // Player hit?
-          if (b.x + 5 > playerX && b.x < playerX + PLAYER_W &&
-              b.y + 14 > H - 80 && b.y < H - 20) {
-            b.el.remove(); enemyBullets.splice(i, 1);
+          b.y += 6 * dt;
+          if (b.y > H) { enemyBullets.splice(i, 1); continue; }
+          if (b.x + 5 > playerX && b.x < playerX + PLAYER_W && b.y + 14 > H - 80 && b.y < H - 20) {
+            enemyBullets.splice(i, 1);
             hp--;
-            hpEl.textContent = hp;
-            explode(playerX + 30, H - 50);
-            if (hp <= 0) { gameOver(false); return; }
+            explosions.push({ x: playerX + PLAYER_W / 2, y: H - 50, life: 20, max: 20 });
+            if (hp <= 0) return gameOver(false);
           }
         }
-        rafId = requestAnimationFrame(tick);
-      }
-      function gameOver(survived) {
-        running = false;
-        cancelAnimationFrame(rafId);
-        clearInterval(timerInt);
-        if (!survived) {
-          bubble(pickFromPool('cannon_die'), { autoHide: 2500 });
+        // Powerups
+        for (let i = powerups.length - 1; i >= 0; i--) {
+          const p = powerups[i];
+          p.y += p.vy * dt;
+          if (p.y > H) { powerups.splice(i, 1); continue; }
+          if (p.x > playerX && p.x < playerX + PLAYER_W && p.y > H - 80) {
+            if (p.kind === 'triple')  powerTriple = 60 * 8;       // 8 seconds
+            else if (p.kind === 'rapid') powerRapid = 60 * 6;
+            else if (p.kind === 'hp')    hp = Math.min(hp + 1, 5);
+            powerups.splice(i, 1);
+            playTone('milestone');
+            spawnParticles({ count: 8, type: 'sparkle' });
+          }
         }
-        setTimeout(() => showGameResult('cannon', score), 800);
+        // Explosions
+        for (let i = explosions.length - 1; i >= 0; i--) {
+          explosions[i].life -= dt;
+          if (explosions[i].life <= 0) explosions.splice(i, 1);
+        }
       }
-      // v17.24: countdown 3-2-1 before play
-      runCountdown(board, () => {
-        running = true;
+
+      function render() {
+        ctx.clearRect(0, 0, W, H);
+        // Stars
+        for (const s of stars) {
+          ctx.globalAlpha = s.a;
+          ctx.fillStyle = '#fffef6';
+          ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        // Bullets (player)
+        for (const b of bullets) {
+          ctx.fillStyle = '#ffd870';
+          ctx.fillRect(b.x, b.y, 6, 16);
+        }
+        // Enemy bullets
+        for (const b of enemyBullets) {
+          ctx.fillStyle = '#ff5577';
+          ctx.fillRect(b.x, b.y, 5, 14);
+        }
+        // Enemies
+        for (const e of enemies) {
+          drawTrajanOrb(ctx, e.x + e.w / 2, e.y + e.h / 2, e.w / 2, { hue: 'silver' });
+          // Crimson sash bar to mark Carthage
+          ctx.fillStyle = '#c62a4a';
+          ctx.fillRect(e.x + 6, e.y + e.h / 2 - 2, e.w - 12, 4);
+          if (e.isBoss) {
+            // HP pip strip
+            const pipW = (e.w - 8) / 5;
+            for (let i = 0; i < 5; i++) {
+              ctx.fillStyle = i < e.hp ? '#5fff8a' : '#444';
+              ctx.fillRect(e.x + 4 + i * pipW, e.y - 8, pipW - 2, 4);
+            }
+          }
+        }
+        // Powerups
+        for (const p of powerups) {
+          ctx.fillStyle = p.kind === 'triple' ? '#ff8855' : p.kind === 'rapid' ? '#7df0ff' : '#ff5577';
+          ctx.fillRect(p.x - 10, p.y - 10, 20, 20);
+          ctx.fillStyle = '#1a1a1a';
+          ctx.font = 'bold 14px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(p.kind === 'triple' ? '3' : p.kind === 'rapid' ? '⚡' : '+', p.x, p.y + 5);
+        }
+        // Player
+        drawTrajanOrb(ctx, playerX + PLAYER_W / 2, H - 50, PLAYER_R);
+        // Explosions
+        for (const x of explosions) {
+          const k = 1 - x.life / x.max;
+          ctx.globalAlpha = 1 - k;
+          const r = 8 + k * 30;
+          const grad = ctx.createRadialGradient(x.x, x.y, 0, x.x, x.y, r);
+          grad.addColorStop(0, '#ffd870');
+          grad.addColorStop(0.5, '#ff5577');
+          grad.addColorStop(1, 'rgba(255,85,119,0)');
+          ctx.fillStyle = grad;
+          ctx.beginPath(); ctx.arc(x.x, x.y, r, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        // HUD
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(8, 8, W - 16, 26);
+        ctx.strokeStyle = '#d4a44e';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(8, 8, W - 16, 26);
+        ctx.fillStyle = '#fffef6';
+        ctx.font = '700 14px JetBrains Mono, monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('SCORE ' + score, 16, 26);
+        ctx.textAlign = 'center';
+        ctx.fillText('HP ' + hp, W / 2, 26);
+        ctx.textAlign = 'right';
+        ctx.fillText(Math.ceil(timeLeft) + 's', W - 16, 26);
+        // Power-up badges
+        if (powerTriple > 0 || powerRapid > 0) {
+          ctx.textAlign = 'left';
+          ctx.fillStyle = '#7df0ff';
+          ctx.font = '700 12px JetBrains Mono, monospace';
+          let bx = 16, by = 50;
+          if (powerTriple > 0) { ctx.fillText('3× ' + Math.ceil(powerTriple / 60) + 's', bx, by); bx += 70; }
+          if (powerRapid  > 0) { ctx.fillText('⚡ ' + Math.ceil(powerRapid  / 60) + 's', bx, by); }
+        }
+      }
+
+      function gameOver(survived) {
+        loop.stop();
+        clearInterval(timerInt);
+        if (!survived) bubble(pickFromPool('cannon_die'), { autoHide: 2500 });
+        setTimeout(() => showGameResult('cannon', score, {
+          stats: [{ label: 'Time', value: (90 - Math.ceil(timeLeft)) + 's' }],
+        }), 700);
+      }
+
+      const loop = gameLoop((dt) => { update(dt); render(); });
+      runCountdown(board.wrap, () => {
+        loop.start();
         timerInt = setInterval(() => {
-          if (!running) return;
+          if (!loop.running) return;
           timeLeft--;
-          timeEl.textContent = timeLeft;
           if (timeLeft <= 0) gameOver(true);
         }, 1000);
-        rafId = requestAnimationFrame(tick);
+        state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => clearInterval(timerInt)]);
       });
-      state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => {
-        running = false;
-        cancelAnimationFrame(rafId);
-        if (timerInt) clearInterval(timerInt);
-      }]);
     });
   }
 
-
-  // ════════════════════════════════════════════════════════════════════
-  // v17.22 GAME 7: SNAKE — tap left/right of head to turn
-  // ════════════════════════════════════════════════════════════════════
-
+  // ════════════════════════════════════════════════════════════════
+  // GAME 7: SNAKE — canvas, dt-driven, real speed-up, bonus food
+  // ════════════════════════════════════════════════════════════════
   function startSnakeGame() {
     const ov = createGameOverlay();
     const intro = pickFromPool('game_intro_snake');
@@ -5961,29 +6842,21 @@
       <div class="clippy-game-buttons">
         <button class="clippy-game-btn" data-act="start">Start!</button>
         <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
-      </div>
-    `;
+      </div>`;
     ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
     ov.querySelector('[data-act="start"]').addEventListener('click', () => {
       ov.innerHTML = `
         <div class="clippy-game-title">🐍 SNAKE — Length: <span data-score>3</span></div>
-        <div class="clippy-snake-board" data-board></div>
-        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;">Tap any side to turn ⇦⇧⇨⇩</div>
-        <div class="clippy-game-buttons">
-          <button class="clippy-game-btn is-ghost" data-act="quit">Quit</button>
-        </div>
-      `;
-      const board = ov.querySelector('[data-board]');
+        <div class="clippy-canvas-wrap" data-wrap></div>
+        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;">Tap any side to turn ⇦⇧⇨⇩  ·  gold food = +3</div>
+        <div class="clippy-game-buttons"><button class="clippy-game-btn is-ghost" data-act="quit">Quit</button></div>`;
+      const wrap = ov.querySelector('[data-wrap]');
+      const side = Math.min(400, Math.floor(window.innerWidth * 0.9));
+      const board = makeCanvasBoard(wrap, { w: side, h: side, bg: '#0d1330' });
+      const { ctx, w: W, h: H } = board;
       const scoreEl = ov.querySelector('[data-score]');
-      ov.querySelector('[data-act="quit"]').addEventListener('click', () => {
-        running = false;
-        clearInterval(tickInt);
-        closeGameOverlay();
-      });
+      ov.querySelector('[data-act="quit"]').addEventListener('click', () => { loop.stop(); closeGameOverlay(); });
 
-      const boardRect = board.getBoundingClientRect();
-      const W = boardRect.width;
-      const H = boardRect.height;
       const CELL = 20;
       const COLS = Math.floor(W / CELL);
       const ROWS = Math.floor(H / CELL);
@@ -5992,107 +6865,709 @@
         { x: Math.floor(COLS / 2) - 1, y: Math.floor(ROWS / 2) },
         { x: Math.floor(COLS / 2) - 2, y: Math.floor(ROWS / 2) },
       ];
-      let dir = { x: 1, y: 0 };   // moving right
+      let dir = { x: 1, y: 0 };
       let nextDir = dir;
-      let food = spawnFood();
-      let running = true;
-      let lastMove = 0;
-      let STEP_MS = 140;
+      let food = spawnFood(false);
+      let goldFoodEvery = 5;
+      let eatenSinceGold = 0;
+      let stepMs = 140;
+      let timeToNext = stepMs;
 
-      function spawnFood() {
+      function spawnFood(gold) {
         let f;
-        do {
-          f = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS) };
-        } while (snake.some(s => s.x === f.x && s.y === f.y));
+        do { f = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS), gold: !!gold }; }
+        while (snake.some(s => s.x === f.x && s.y === f.y));
         return f;
       }
-      function draw() {
-        board.innerHTML = '';
-        // food
-        const fEl = document.createElement('div');
-        fEl.className = 'clippy-snake-food';
-        fEl.style.left = (food.x * CELL + (CELL - 16) / 2) + 'px';
-        fEl.style.top = (food.y * CELL + (CELL - 16) / 2) + 'px';
-        board.appendChild(fEl);
-        // snake
-        snake.forEach((seg, i) => {
-          const el = document.createElement('div');
-          el.className = 'clippy-snake-cell' + (i === 0 ? ' clippy-snake-head' : '');
-          const size = i === 0 ? 22 : 18;
-          el.style.left = (seg.x * CELL + (CELL - size) / 2) + 'px';
-          el.style.top = (seg.y * CELL + (CELL - size) / 2) + 'px';
-          board.appendChild(el);
-        });
-      }
-      draw();
-
-      // Tap to turn: tap left half → turn left relative to direction, etc.
       function handleTap(clientX, clientY) {
-        const rect = board.getBoundingClientRect();
-        const x = clientX - rect.left;
-        const y = clientY - rect.top;
+        const rect = board.wrap.getBoundingClientRect();
+        const x = clientX - rect.left, y = clientY - rect.top;
         const head = snake[0];
         const hx = head.x * CELL + CELL / 2;
         const hy = head.y * CELL + CELL / 2;
-        const dx = x - hx;
-        const dy = y - hy;
-        // Choose dominant axis from tap
-        if (Math.abs(dx) > Math.abs(dy)) {
-          nextDir = dx > 0 ? { x: 1, y: 0 } : { x: -1, y: 0 };
-        } else {
-          nextDir = dy > 0 ? { x: 0, y: 1 } : { x: 0, y: -1 };
-        }
-        // Disallow reverse into self
-        if (snake.length > 1 && nextDir.x === -dir.x && nextDir.y === -dir.y) {
-          nextDir = dir;
-        }
+        const dx = x - hx, dy = y - hy;
+        if (Math.abs(dx) > Math.abs(dy)) nextDir = dx > 0 ? { x: 1, y: 0 } : { x: -1, y: 0 };
+        else nextDir = dy > 0 ? { x: 0, y: 1 } : { x: 0, y: -1 };
+        if (snake.length > 1 && nextDir.x === -dir.x && nextDir.y === -dir.y) nextDir = dir;
       }
-      board.addEventListener('touchstart', (e) => {
+      board.wrap.addEventListener('touchstart', (e) => {
         e.preventDefault();
         if (e.touches.length) handleTap(e.touches[0].clientX, e.touches[0].clientY);
       }, { passive: false });
-      board.addEventListener('click', (e) => handleTap(e.clientX, e.clientY));
+      board.wrap.addEventListener('click', (e) => handleTap(e.clientX, e.clientY));
 
-      const tickInt = setInterval(() => {
-        if (!running) return;
+      function update(dt) {
+        timeToNext -= dt * 16.67;     // dt is in frames @ 60fps; convert back to ms
+        if (timeToNext > 0) return;
+        timeToNext += stepMs;
         dir = nextDir;
         const head = snake[0];
         const newHead = { x: head.x + dir.x, y: head.y + dir.y };
-        // Wall collision
-        if (newHead.x < 0 || newHead.x >= COLS || newHead.y < 0 || newHead.y >= ROWS) {
-          running = false;
-          clearInterval(tickInt);
-          bubble(pickFromPool('snake_die'), { autoHide: 2500 });
-          setTimeout(() => showGameResult('snake', snake.length), 800);
-          return;
-        }
-        // Self collision
-        if (snake.some(s => s.x === newHead.x && s.y === newHead.y)) {
-          running = false;
-          clearInterval(tickInt);
-          bubble(pickFromPool('snake_die'), { autoHide: 2500 });
-          setTimeout(() => showGameResult('snake', snake.length), 800);
-          return;
-        }
+        if (newHead.x < 0 || newHead.x >= COLS || newHead.y < 0 || newHead.y >= ROWS) return die();
+        if (snake.some(s => s.x === newHead.x && s.y === newHead.y)) return die();
         snake.unshift(newHead);
-        // Food eaten?
         if (newHead.x === food.x && newHead.y === food.y) {
-          food = spawnFood();
-          playTone('boop');
-          scoreEl.textContent = snake.length;
-          // Speed up slightly
-          if (snake.length % 5 === 0 && STEP_MS > 70) {
-            STEP_MS -= 8;
+          if (food.gold) {
+            // +3 length: skip pop twice more
+            snake.push({ ...snake[snake.length - 1] });
+            snake.push({ ...snake[snake.length - 1] });
+            playTone('milestone');
+            spawnParticles({ count: 10, type: 'sparkle' });
+            eatenSinceGold = 0;
+          } else {
+            playTone('boop');
+            spawnParticles({ count: 4, type: 'sparkle' });
+            eatenSinceGold++;
           }
+          food = spawnFood(eatenSinceGold >= goldFoodEvery);
+          if (food.gold) eatenSinceGold = 0;
+          scoreEl.textContent = snake.length;
+          // Real speed-up (was dead code in v17.22)
+          if (snake.length % 5 === 0 && stepMs > 70) stepMs = Math.max(70, stepMs - 8);
         } else {
           snake.pop();
         }
-        draw();
-      }, STEP_MS);
-      state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => {
-        running = false;
-        clearInterval(tickInt);
-      }]);
+      }
+      function die() {
+        loop.stop();
+        bubble(pickFromPool('snake_die'), { autoHide: 2500 });
+        setTimeout(() => showGameResult('snake', snake.length, {
+          stats: [{ label: 'Speed', value: (140 - stepMs) + ' ms faster' }],
+        }), 700);
+      }
+      function render() {
+        ctx.clearRect(0, 0, W, H);
+        // Grid lines
+        ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= COLS; i++) { ctx.beginPath(); ctx.moveTo(i * CELL, 0); ctx.lineTo(i * CELL, H); ctx.stroke(); }
+        for (let i = 0; i <= ROWS; i++) { ctx.beginPath(); ctx.moveTo(0, i * CELL); ctx.lineTo(W, i * CELL); ctx.stroke(); }
+        // Food
+        const fx = food.x * CELL + CELL / 2;
+        const fy = food.y * CELL + CELL / 2;
+        drawTrajanOrb(ctx, fx, fy, 8, { hue: food.gold ? 'gold' : 'gold' });
+        if (food.gold) {
+          // pulsing ring
+          ctx.strokeStyle = 'rgba(255, 216, 112, 0.7)';
+          ctx.lineWidth = 2;
+          const pulse = 10 + Math.sin(Date.now() / 150) * 3;
+          ctx.beginPath(); ctx.arc(fx, fy, pulse, 0, Math.PI * 2); ctx.stroke();
+        }
+        // Snake
+        for (let i = snake.length - 1; i >= 0; i--) {
+          const seg = snake[i];
+          const sx = seg.x * CELL + CELL / 2;
+          const sy = seg.y * CELL + CELL / 2;
+          if (i === 0) {
+            drawTrajanOrb(ctx, sx, sy, 10);
+          } else {
+            const t = i / snake.length;
+            ctx.fillStyle = '#4cb6ff';
+            ctx.beginPath(); ctx.arc(sx, sy, 8 - t * 2, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#1a1a1a';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          }
+        }
+      }
+
+      const loop = gameLoop((dt) => { update(dt); render(); });
+      runCountdown(board.wrap, () => loop.start());
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // GAME 8: ORB BREAKER — breakout w/ Roman-pillar bricks, power-ups
+  // ════════════════════════════════════════════════════════════════
+  function startBreakerGame() {
+    const ov = createGameOverlay();
+    const intro = pickFromPool('game_intro_breaker');
+    ov.innerHTML = `
+      <div class="clippy-game-title">🧱 Orb Breaker</div>
+      <div class="clippy-game-instruction">${esc(intro)}</div>
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn" data-act="start">Start!</button>
+        <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
+      </div>`;
+    ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
+    ov.querySelector('[data-act="start"]').addEventListener('click', () => {
+      ov.innerHTML = `
+        <div class="clippy-game-title">🧱 ORB BREAKER</div>
+        <div class="clippy-canvas-wrap" data-wrap></div>
+        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;">Drag the paddle. Don't drop the orb.</div>
+        <div class="clippy-game-buttons"><button class="clippy-game-btn is-ghost" data-act="quit">Quit</button></div>`;
+      const wrap = ov.querySelector('[data-wrap]');
+      const board = makeCanvasBoard(wrap, { bg: 'linear-gradient(180deg, #1a1330 0%, #0d0d24 100%)' });
+      const { ctx, w: W, h: H } = board;
+      ov.querySelector('[data-act="quit"]').addEventListener('click', () => { loop.stop(); closeGameOverlay(); });
+
+      let paddleW = 90;
+      const paddleH = 12;
+      let paddleX = W / 2 - paddleW / 2;
+      const paddleY = H - 36;
+      const balls = [{ x: W / 2, y: paddleY - 14, vx: 2.4, vy: -3.4, r: 7 }];
+      const bricks = [];
+      const COLS = 7, ROWS = 5, BPAD = 4;
+      const TOP = 40;
+      const BW = (W - BPAD * 2 - (COLS - 1) * 4) / COLS;
+      const BH = 18;
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          bricks.push({
+            x: BPAD + c * (BW + 4),
+            y: TOP + r * (BH + 4),
+            w: BW, h: BH,
+            hp: r < 1 ? 2 : 1,
+            isPower: Math.random() < 0.1,
+            alive: true,
+          });
+        }
+      }
+      const powerups = [];
+      let score = 0, lives = 3, started = false;
+      let stickyTimer = 0;
+      let dragActive = false;
+
+      function setPaddleFromPoint(clientX) {
+        const rect = board.wrap.getBoundingClientRect();
+        paddleX = Math.max(0, Math.min(W - paddleW, clientX - rect.left - paddleW / 2));
+      }
+      board.wrap.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (e.touches.length) { dragActive = true; setPaddleFromPoint(e.touches[0].clientX); started = true; }
+      }, { passive: false });
+      board.wrap.addEventListener('touchmove', (e) => { if (dragActive && e.touches.length) setPaddleFromPoint(e.touches[0].clientX); }, { passive: false });
+      board.wrap.addEventListener('touchend', () => { dragActive = false; });
+      board.wrap.addEventListener('mousedown', (e) => { dragActive = true; setPaddleFromPoint(e.clientX); started = true; });
+      board.wrap.addEventListener('mousemove', (e) => { if (dragActive) setPaddleFromPoint(e.clientX); });
+      board.wrap.addEventListener('mouseup', () => { dragActive = false; });
+      board.wrap.addEventListener('mouseleave', () => { dragActive = false; });
+
+      function update(dt) {
+        if (!started) return;
+        if (stickyTimer > 0) stickyTimer = Math.max(0, stickyTimer - dt);
+        for (let bi = balls.length - 1; bi >= 0; bi--) {
+          const b = balls[bi];
+          b.x += b.vx * dt; b.y += b.vy * dt;
+          if (b.x - b.r < 0) { b.x = b.r; b.vx *= -1; }
+          if (b.x + b.r > W) { b.x = W - b.r; b.vx *= -1; }
+          if (b.y - b.r < 0) { b.y = b.r; b.vy *= -1; }
+          // Paddle collision
+          if (b.y + b.r > paddleY && b.y + b.r < paddleY + paddleH + 6 && b.x > paddleX - b.r && b.x < paddleX + paddleW + b.r && b.vy > 0) {
+            b.y = paddleY - b.r;
+            const offset = (b.x - (paddleX + paddleW / 2)) / (paddleW / 2);
+            const ang = offset * 1.0;     // ±1 radian
+            const sp = Math.hypot(b.vx, b.vy);
+            b.vx = Math.sin(ang) * sp;
+            b.vy = -Math.abs(Math.cos(ang) * sp);
+            playTone('hop');
+          }
+          // Below paddle = lost ball
+          if (b.y - b.r > H) {
+            balls.splice(bi, 1);
+            if (balls.length === 0) {
+              lives--;
+              if (lives <= 0) return gameOver();
+              balls.push({ x: W / 2, y: paddleY - 14, vx: 2.4, vy: -3.4, r: 7 });
+              started = false;
+            }
+            continue;
+          }
+          // Brick collisions
+          for (const br of bricks) {
+            if (!br.alive) continue;
+            if (b.x + b.r > br.x && b.x - b.r < br.x + br.w && b.y + b.r > br.y && b.y - b.r < br.y + br.h) {
+              br.hp--;
+              if (br.hp <= 0) {
+                br.alive = false;
+                score += 10;
+                if (br.isPower) {
+                  const kinds = ['wide', 'multi', 'slow'];
+                  powerups.push({ x: br.x + br.w / 2, y: br.y + br.h / 2, kind: kinds[Math.floor(Math.random() * kinds.length)], vy: 1.6 });
+                }
+                spawnParticles({ count: 5, type: 'sparkle' });
+                playTone('sparkle');
+              } else {
+                playTone('boop');
+              }
+              // bounce direction
+              const dx = (b.x - (br.x + br.w / 2)) / (br.w / 2);
+              const dy = (b.y - (br.y + br.h / 2)) / (br.h / 2);
+              if (Math.abs(dx) > Math.abs(dy)) b.vx *= -1;
+              else b.vy *= -1;
+              break;
+            }
+          }
+        }
+        // Powerups fall
+        for (let i = powerups.length - 1; i >= 0; i--) {
+          const p = powerups[i];
+          p.y += p.vy * dt;
+          if (p.y > H) { powerups.splice(i, 1); continue; }
+          if (p.y > paddleY - 8 && p.y < paddleY + paddleH + 8 && p.x > paddleX && p.x < paddleX + paddleW) {
+            if (p.kind === 'wide')  paddleW = Math.min(160, paddleW + 30);
+            else if (p.kind === 'multi') {
+              // split each existing ball
+              const newBalls = [];
+              for (const b of balls) {
+                const sp = Math.hypot(b.vx, b.vy);
+                newBalls.push({ ...b, vx: b.vx * 0.7 + Math.cos(Math.PI / 4) * sp * 0.5, vy: -Math.abs(b.vy) });
+                newBalls.push({ ...b, vx: b.vx * 0.7 - Math.cos(Math.PI / 4) * sp * 0.5, vy: -Math.abs(b.vy) });
+              }
+              for (const nb of newBalls) balls.push(nb);
+            }
+            else if (p.kind === 'slow') {
+              for (const b of balls) { b.vx *= 0.7; b.vy *= 0.7; }
+            }
+            powerups.splice(i, 1);
+            playTone('milestone');
+          }
+        }
+        // Cleared all bricks?
+        if (bricks.every(b => !b.alive)) {
+          loop.stop();
+          setTimeout(() => showGameResult('breaker', score + 100, {
+            stats: [{ label: 'Bonus', value: 'Cleared! +100' }, { label: 'Lives left', value: lives }],
+          }), 600);
+        }
+      }
+
+      function gameOver() {
+        loop.stop();
+        bubble(pickFromPool('breaker_die'), { autoHide: 2500 });
+        setTimeout(() => showGameResult('breaker', score, {
+          stats: [{ label: 'Bricks broken', value: bricks.filter(b => !b.alive).length }],
+        }), 700);
+      }
+
+      function render() {
+        ctx.clearRect(0, 0, W, H);
+        // Bricks
+        for (const br of bricks) {
+          if (!br.alive) continue;
+          const grad = ctx.createLinearGradient(br.x, br.y, br.x, br.y + br.h);
+          if (br.isPower) {
+            grad.addColorStop(0, '#7df0ff'); grad.addColorStop(1, '#2e8de0');
+          } else if (br.hp === 2) {
+            grad.addColorStop(0, '#a8b5c2'); grad.addColorStop(1, '#5a6873');
+          } else {
+            grad.addColorStop(0, '#e8c264'); grad.addColorStop(1, '#8b6f3d');
+          }
+          ctx.fillStyle = grad;
+          ctx.fillRect(br.x, br.y, br.w, br.h);
+          ctx.strokeStyle = '#1a1a1a';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(br.x, br.y, br.w, br.h);
+          // pillar fluting
+          ctx.strokeStyle = 'rgba(0,0,0,0.16)';
+          ctx.lineWidth = 1;
+          for (let i = 1; i < 4; i++) {
+            const fx = br.x + (br.w / 4) * i;
+            ctx.beginPath(); ctx.moveTo(fx, br.y + 2); ctx.lineTo(fx, br.y + br.h - 2); ctx.stroke();
+          }
+        }
+        // Paddle
+        const pg = ctx.createLinearGradient(paddleX, paddleY, paddleX, paddleY + paddleH);
+        pg.addColorStop(0, '#fffef6'); pg.addColorStop(1, '#a8b5c2');
+        ctx.fillStyle = pg;
+        ctx.fillRect(paddleX, paddleY, paddleW, paddleH);
+        ctx.strokeStyle = '#1a1a1a';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(paddleX, paddleY, paddleW, paddleH);
+        // Powerups
+        for (const p of powerups) {
+          ctx.fillStyle = p.kind === 'wide' ? '#5fff8a' : p.kind === 'multi' ? '#ff8855' : '#7df0ff';
+          ctx.fillRect(p.x - 12, p.y - 8, 24, 16);
+          ctx.fillStyle = '#1a1a1a';
+          ctx.font = 'bold 12px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(p.kind === 'wide' ? '↔' : p.kind === 'multi' ? '×3' : '◐', p.x, p.y + 4);
+        }
+        // Balls
+        for (const b of balls) drawTrajanOrb(ctx, b.x, b.y, b.r + 3);
+        // HUD
+        ctx.fillStyle = '#fffef6';
+        ctx.font = '700 14px JetBrains Mono, monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('SCORE ' + score, 8, 22);
+        ctx.textAlign = 'right';
+        ctx.fillText('♥ '.repeat(lives), W - 8, 22);
+        if (!started) {
+          ctx.textAlign = 'center';
+          ctx.fillStyle = 'rgba(255,255,255,0.85)';
+          ctx.font = '700 16px Outfit, sans-serif';
+          ctx.fillText('TAP & DRAG TO BEGIN', W / 2, H / 2);
+        }
+      }
+
+      const loop = gameLoop((dt) => { update(dt); render(); });
+      runCountdown(board.wrap, () => loop.start());
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // GAME 9: COIN CATCH — catch your persona's coins, avoid the other
+  // ════════════════════════════════════════════════════════════════
+  function startCoinCatchGame() {
+    const ov = createGameOverlay();
+    const intro = pickFromPool('game_intro_coins');
+    ov.innerHTML = `
+      <div class="clippy-game-title">🪙 Coin Catch</div>
+      <div class="clippy-game-instruction">${esc(intro)}</div>
+      <div class="clippy-coin-side-pick">
+        <button class="clippy-game-btn" data-side="gold">🥇 Catch Trajan (gold)</button>
+        <button class="clippy-game-btn" data-side="silver">🥈 Catch Providentia (silver)</button>
+      </div>
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
+      </div>`;
+      ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
+      ov.querySelectorAll('[data-side]').forEach(btn => {
+        btn.addEventListener('click', () => beginRound(btn.getAttribute('data-side')));
+      });
+
+    function beginRound(side) {
+      const wantHue = side;     // 'gold' | 'silver'
+      const otherHue = wantHue === 'gold' ? 'silver' : 'gold';
+      ov.innerHTML = `
+        <div class="clippy-game-title">🪙 COIN CATCH</div>
+        <div class="clippy-canvas-wrap" data-wrap></div>
+        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;">Drag the basket. Catch ${wantHue}, dodge ${otherHue}.</div>
+        <div class="clippy-game-buttons"><button class="clippy-game-btn is-ghost" data-act="quit">Quit</button></div>`;
+      const wrap = ov.querySelector('[data-wrap]');
+      const board = makeCanvasBoard(wrap, { bg: 'linear-gradient(180deg, #2a2540 0%, #1a1530 100%)' });
+      const { ctx, w: W, h: H } = board;
+      ov.querySelector('[data-act="quit"]').addEventListener('click', () => { loop.stop(); clearInterval(timerInt); closeGameOverlay(); });
+
+      const BASKET_W = 70, BASKET_H = 18;
+      let basketX = W / 2 - BASKET_W / 2;
+      const basketY = H - 36;
+      const coins = [];
+      let score = 0, missed = 0, wrongCaught = 0, timeLeft = 60;
+      let spawnTimer = 0;
+      let shake = 0;
+      let dragActive = false;
+
+      function setBasketFromPoint(clientX) {
+        const rect = board.wrap.getBoundingClientRect();
+        basketX = Math.max(0, Math.min(W - BASKET_W, clientX - rect.left - BASKET_W / 2));
+      }
+      board.wrap.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (e.touches.length) { dragActive = true; setBasketFromPoint(e.touches[0].clientX); }
+      }, { passive: false });
+      board.wrap.addEventListener('touchmove', (e) => { if (dragActive && e.touches.length) setBasketFromPoint(e.touches[0].clientX); }, { passive: false });
+      board.wrap.addEventListener('touchend', () => { dragActive = false; });
+      board.wrap.addEventListener('mousedown', (e) => { dragActive = true; setBasketFromPoint(e.clientX); });
+      board.wrap.addEventListener('mousemove', (e) => { if (dragActive) setBasketFromPoint(e.clientX); });
+      board.wrap.addEventListener('mouseup', () => { dragActive = false; });
+      board.wrap.addEventListener('mouseleave', () => { dragActive = false; });
+
+      function update(dt) {
+        spawnTimer -= dt;
+        const elapsed = 60 - timeLeft;
+        const spawnEvery = Math.max(18, 50 - elapsed);
+        if (spawnTimer <= 0) {
+          const r = Math.random();
+          const hue = r < 0.55 ? wantHue : otherHue;
+          coins.push({ x: 20 + Math.random() * (W - 40), y: -16, vy: 2.4 + Math.random() * 1.6 + elapsed * 0.03, r: 12, hue });
+          spawnTimer = spawnEvery;
+        }
+        for (let i = coins.length - 1; i >= 0; i--) {
+          const c = coins[i];
+          c.y += c.vy * dt;
+          // Caught?
+          if (c.y + c.r > basketY && c.y - c.r < basketY + BASKET_H && c.x > basketX && c.x < basketX + BASKET_W) {
+            if (c.hue === wantHue) {
+              score++;
+              playTone('boop');
+              spawnParticles({ count: 4, type: 'sparkle' });
+            } else {
+              wrongCaught++;
+              score = Math.max(0, score - 1);
+              shake = 12;
+              playTone('bzzt');
+            }
+            coins.splice(i, 1);
+            continue;
+          }
+          if (c.y - c.r > H) {
+            if (c.hue === wantHue) missed++;
+            coins.splice(i, 1);
+          }
+        }
+        if (shake > 0) shake = Math.max(0, shake - dt);
+      }
+
+      function render() {
+        ctx.save();
+        if (shake > 0) ctx.translate((Math.random() - 0.5) * shake * 0.6, 0);
+        ctx.clearRect(0, 0, W, H);
+        // Coins
+        for (const c of coins) drawTrajanOrb(ctx, c.x, c.y, c.r, { hue: c.hue });
+        // Basket
+        ctx.fillStyle = '#5a3a1f';
+        ctx.fillRect(basketX, basketY, BASKET_W, BASKET_H);
+        ctx.fillStyle = '#7a5b2e';
+        ctx.fillRect(basketX, basketY, BASKET_W, 4);
+        ctx.strokeStyle = '#1a1a1a';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(basketX, basketY, BASKET_W, BASKET_H);
+        // Weave lines
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 5; i++) {
+          const xL = basketX + (BASKET_W / 5) * i;
+          ctx.beginPath(); ctx.moveTo(xL, basketY + 2); ctx.lineTo(xL, basketY + BASKET_H - 2); ctx.stroke();
+        }
+        ctx.restore();
+        // HUD
+        ctx.fillStyle = '#fffef6';
+        ctx.font = '700 14px JetBrains Mono, monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('PTS ' + score, 8, 22);
+        ctx.textAlign = 'center';
+        ctx.fillText('MISS ' + missed, W / 2, 22);
+        ctx.textAlign = 'right';
+        ctx.fillText(timeLeft + 's', W - 8, 22);
+      }
+
+      let timerInt = null;
+      const loop = gameLoop((dt) => { update(dt); render(); });
+      runCountdown(board.wrap, () => {
+        loop.start();
+        timerInt = setInterval(() => {
+          if (!loop.running) return;
+          timeLeft--;
+          if (timeLeft <= 0) {
+            loop.stop();
+            clearInterval(timerInt);
+            setTimeout(() => showGameResult('coins', score, {
+              stats: [
+                { label: 'Missed', value: missed },
+                { label: 'Wrong caught', value: wrongCaught },
+              ],
+            }), 500);
+          }
+        }, 1000);
+        state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => clearInterval(timerInt)]);
+      });
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // GAME 10: ASTEROID FIELD — swipe to drift, collect stars, survive
+  // ════════════════════════════════════════════════════════════════
+  function startAsteroidsGame() {
+    const ov = createGameOverlay();
+    const intro = pickFromPool('game_intro_asteroids');
+    ov.innerHTML = `
+      <div class="clippy-game-title">🌌 Asteroid Field</div>
+      <div class="clippy-game-instruction">${esc(intro)}</div>
+      <div class="clippy-game-buttons">
+        <button class="clippy-game-btn" data-act="start">Start!</button>
+        <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
+      </div>`;
+    ov.querySelector('[data-act="cancel"]').addEventListener('click', closeGameOverlay);
+    ov.querySelector('[data-act="start"]').addEventListener('click', () => {
+      ov.innerHTML = `
+        <div class="clippy-game-title">🌌 ASTEROID FIELD</div>
+        <div class="clippy-canvas-wrap" data-wrap></div>
+        <div class="clippy-game-instruction" style="font-size:13px;opacity:0.6;">Drag anywhere to steer. Grab stars. Survive.</div>
+        <div class="clippy-game-buttons"><button class="clippy-game-btn is-ghost" data-act="quit">Quit</button></div>`;
+      const wrap = ov.querySelector('[data-wrap]');
+      const board = makeCanvasBoard(wrap, { bg: 'radial-gradient(ellipse at center, #1a1a3e 0%, #06081a 100%)' });
+      const { ctx, w: W, h: H } = board;
+      ov.querySelector('[data-act="quit"]').addEventListener('click', () => { loop.stop(); closeGameOverlay(); });
+
+      const PLAYER_R = 18;
+      let px = W / 2, py = H * 0.7;
+      let vx = 0, vy = 0;
+      let targetX = px, targetY = py;
+      let alive = true;
+      const asteroids = [], starsFx = [];
+      const bgStars = [];
+      for (let i = 0; i < 50; i++) bgStars.push({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.4 + 0.3, v: 0.3 + Math.random() * 1.2, a: 0.4 + Math.random() * 0.6 });
+      let score = 0, starsCaught = 0, t = 0, lastAst = 0, lastStar = 0;
+      let dragActive = false;
+      let shake = 0;
+
+      function setTargetFromPoint(clientX, clientY) {
+        const rect = board.wrap.getBoundingClientRect();
+        targetX = clientX - rect.left;
+        targetY = clientY - rect.top;
+      }
+      board.wrap.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (e.touches.length) { dragActive = true; setTargetFromPoint(e.touches[0].clientX, e.touches[0].clientY); }
+      }, { passive: false });
+      board.wrap.addEventListener('touchmove', (e) => { if (dragActive && e.touches.length) setTargetFromPoint(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+      board.wrap.addEventListener('touchend', () => { dragActive = false; });
+      board.wrap.addEventListener('mousedown', (e) => { dragActive = true; setTargetFromPoint(e.clientX, e.clientY); });
+      board.wrap.addEventListener('mousemove', (e) => { if (dragActive) setTargetFromPoint(e.clientX, e.clientY); });
+      board.wrap.addEventListener('mouseup', () => { dragActive = false; });
+      board.wrap.addEventListener('mouseleave', () => { dragActive = false; });
+
+      function spawnAsteroid() {
+        // Spawn from one of the four edges
+        const side = Math.floor(Math.random() * 4);
+        const r = 14 + Math.random() * 22;
+        let x, y, vx2, vy2;
+        const sp = 1.4 + Math.random() * 1.6 + Math.min(2.5, t / 600);
+        if (side === 0)      { x = Math.random() * W; y = -r;          vx2 = (Math.random() - 0.5) * 1; vy2 =  sp; }
+        else if (side === 1) { x = W + r;             y = Math.random() * H; vx2 = -sp;                vy2 = (Math.random() - 0.5) * 1; }
+        else if (side === 2) { x = Math.random() * W; y = H + r;       vx2 = (Math.random() - 0.5) * 1; vy2 = -sp; }
+        else                 { x = -r;                y = Math.random() * H; vx2 =  sp;                vy2 = (Math.random() - 0.5) * 1; }
+        asteroids.push({ x, y, vx: vx2, vy: vy2, r, rot: 0, rotV: (Math.random() - 0.5) * 0.06 });
+      }
+      function spawnStar() {
+        starsFx.push({ x: 20 + Math.random() * (W - 40), y: 20 + Math.random() * (H - 40), r: 9, life: 0, phase: Math.random() * Math.PI * 2 });
+      }
+
+      function update(dt) {
+        t += dt;
+        // Player steering via spring towards target
+        if (dragActive) {
+          const ax = (targetX - px) * 0.012;
+          const ay = (targetY - py) * 0.012;
+          vx += ax * dt; vy += ay * dt;
+        }
+        vx *= 0.93; vy *= 0.93;
+        px += vx * dt; py += vy * dt;
+        if (px - PLAYER_R < 0)   { px = PLAYER_R;   vx *= -0.6; }
+        if (px + PLAYER_R > W)   { px = W - PLAYER_R; vx *= -0.6; }
+        if (py - PLAYER_R < 0)   { py = PLAYER_R;   vy *= -0.6; }
+        if (py + PLAYER_R > H)   { py = H - PLAYER_R; vy *= -0.6; }
+        // BG stars
+        for (const s of bgStars) {
+          s.y += s.v * dt;
+          if (s.y > H) { s.y = -2; s.x = Math.random() * W; }
+        }
+        // Spawn rate scales with time
+        const astEvery = Math.max(20, 60 - t / 30);
+        if (t - lastAst > astEvery) { spawnAsteroid(); lastAst = t; }
+        if (t - lastStar > 200) { spawnStar(); lastStar = t; }
+        // Move asteroids
+        for (let i = asteroids.length - 1; i >= 0; i--) {
+          const a = asteroids[i];
+          a.x += a.vx * dt; a.y += a.vy * dt; a.rot += a.rotV * dt;
+          if (a.x < -100 || a.x > W + 100 || a.y < -100 || a.y > H + 100) { asteroids.splice(i, 1); continue; }
+          // Collision (circle)
+          const dx = a.x - px, dy = a.y - py;
+          if (dx * dx + dy * dy < (a.r + PLAYER_R - 2) * (a.r + PLAYER_R - 2)) {
+            alive = false;
+            return die();
+          }
+        }
+        // Stars (collect)
+        for (let i = starsFx.length - 1; i >= 0; i--) {
+          const s = starsFx[i];
+          s.life += dt; s.phase += 0.08 * dt;
+          if (s.life > 60 * 6) { starsFx.splice(i, 1); continue; }
+          const dx = s.x - px, dy = s.y - py;
+          if (dx * dx + dy * dy < (s.r + PLAYER_R) * (s.r + PLAYER_R)) {
+            score += 5; starsCaught++;
+            playTone('sparkle');
+            spawnParticles({ count: 8, type: 'sparkle' });
+            starsFx.splice(i, 1);
+          }
+        }
+        if (shake > 0) shake = Math.max(0, shake - dt);
+        // Survival scoring: +1 per second
+        score = Math.floor(t / 60) + starsCaught * 5;
+      }
+      function die() {
+        loop.stop();
+        shake = 18;
+        bubble(pickFromPool('asteroids_die'), { autoHide: 2500 });
+        setTimeout(() => showGameResult('asteroids', score, {
+          stats: [
+            { label: 'Survived', value: Math.floor(t / 60) + 's' },
+            { label: 'Stars', value: starsCaught },
+          ],
+        }), 700);
+      }
+      function render() {
+        ctx.save();
+        if (shake > 0) {
+          ctx.translate((Math.random() - 0.5) * shake * 0.8, (Math.random() - 0.5) * shake * 0.8);
+        }
+        ctx.clearRect(0, 0, W, H);
+        // BG stars
+        for (const s of bgStars) {
+          ctx.globalAlpha = s.a;
+          ctx.fillStyle = '#fffef6';
+          ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        // Stars (collectible)
+        for (const s of starsFx) {
+          const pulse = 1 + Math.sin(s.phase) * 0.18;
+          ctx.fillStyle = '#ffd870';
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 1.5;
+          ctx.save();
+          ctx.translate(s.x, s.y);
+          ctx.scale(pulse, pulse);
+          ctx.beginPath();
+          for (let i = 0; i < 5; i++) {
+            const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
+            const r1 = s.r, r2 = s.r * 0.45;
+            ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1);
+            const a2 = a + Math.PI / 5;
+            ctx.lineTo(Math.cos(a2) * r2, Math.sin(a2) * r2);
+          }
+          ctx.closePath();
+          ctx.fill(); ctx.stroke();
+          ctx.restore();
+        }
+        // Asteroids
+        for (const a of asteroids) {
+          ctx.save();
+          ctx.translate(a.x, a.y);
+          ctx.rotate(a.rot);
+          const g = ctx.createRadialGradient(-a.r * 0.3, -a.r * 0.3, a.r * 0.2, 0, 0, a.r);
+          g.addColorStop(0, '#9a8c75');
+          g.addColorStop(1, '#3a2f24');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          const sides = 8;
+          for (let i = 0; i < sides; i++) {
+            const ang = (i / sides) * Math.PI * 2;
+            const rr = a.r * (0.78 + (i % 2 === 0 ? 0.18 : 0));
+            ctx.lineTo(Math.cos(ang) * rr, Math.sin(ang) * rr);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = '#1a1a1a';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.restore();
+        }
+        // Player Trajan
+        drawTrajanOrb(ctx, px, py, PLAYER_R);
+        // Engine trail
+        if (alive && (Math.abs(vx) > 0.3 || Math.abs(vy) > 0.3)) {
+          const speed = Math.hypot(vx, vy);
+          ctx.fillStyle = 'rgba(125, 240, 255, 0.5)';
+          ctx.beginPath();
+          ctx.arc(px - vx * 2, py - vy * 2, Math.min(8, speed * 1.2), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+        // HUD
+        ctx.fillStyle = '#fffef6';
+        ctx.font = '700 14px JetBrains Mono, monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('PTS ' + score, 8, 22);
+        ctx.textAlign = 'right';
+        ctx.fillText('★ ' + starsCaught, W - 8, 22);
+        ctx.textAlign = 'center';
+        ctx.fillText(Math.floor(t / 60) + 's', W / 2, 22);
+      }
+
+      const loop = gameLoop((dt) => { update(dt); render(); });
+      runCountdown(board.wrap, () => loop.start());
     });
   }
 
