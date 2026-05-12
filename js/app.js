@@ -1552,7 +1552,26 @@ td.check{background:#F0EDE6 !important}
       retranslate();
       return;
     }
-    const file = moduleMap[view]; if (!file) return;
+    const file = moduleMap[view];
+
+    // ── NEXUS · R&M self-registered modules ─────────────────────────
+    // brief / issues / spend / vendors / pm are loaded up-front via
+    // <script> tags in index.html and register themselves at NX.modules.
+    // No moduleMap entry — they're already in memory. Just call show().
+    if (!file && this.modules[view]) {
+      const mod = this.modules[view];
+      if (this.loaded[view]) {
+        if (mod.show) mod.show();
+      } else {
+        this.loaded[view] = true;
+        if (mod.init) mod.init();
+        else if (mod.show) mod.show();
+      }
+      retranslate();
+      return;
+    }
+
+    if (!file) return;
     if (this.loaded[view]) {
       const mod = this.modules[view]; if (mod && mod.show) mod.show();
       // Clean view re-activation — also poke duties so it refreshes
