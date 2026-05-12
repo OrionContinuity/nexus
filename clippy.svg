@@ -894,6 +894,183 @@
   </g>
 
   <!-- ═══════════════════════════════════════════════════════════════
+       v18.1 KAWAII + CULINARY HATS — cuter, more emotive.
+       Each hat: hidden by default (CSS opacity 0). Shown via
+       #clippy-shell.wear-X .cl-costume-X { opacity: 1; }.
+       Sub-elements with named classes get idle animations in CSS.
+       ═══════════════════════════════════════════════════════════════ -->
+
+  <!-- ─── CHEF TOQUE (white puffy chef hat) ────────────────────── -->
+  <g class="cl-costume-chef-hat">
+    <!-- Band (bottom cylinder) -->
+    <rect x="62" y="54" width="76" height="14" fill="#fffef6" stroke="#3a3a36" stroke-width="0.7"/>
+    <line x1="62" y1="62" x2="138" y2="62" stroke="#d0d0c8" stroke-width="0.5"/>
+    <!-- Puffy top — three overlapping bulges that wobble in idle -->
+    <g class="cl-chef-puff">
+      <ellipse cx="78" cy="36" rx="20" ry="24" fill="#fffef6" stroke="#3a3a36" stroke-width="0.7"/>
+      <ellipse cx="100" cy="28" rx="24" ry="28" fill="#fffef6" stroke="#3a3a36" stroke-width="0.7"/>
+      <ellipse cx="122" cy="36" rx="20" ry="24" fill="#fffef6" stroke="#3a3a36" stroke-width="0.7"/>
+      <!-- Shadow lines between bulges -->
+      <path d="M 90 38 Q 92 48 86 56" stroke="#c8c8c0" stroke-width="0.6" fill="none" opacity="0.6"/>
+      <path d="M 110 38 Q 108 48 114 56" stroke="#c8c8c0" stroke-width="0.6" fill="none" opacity="0.6"/>
+      <!-- Highlight dots for puff softness -->
+      <circle cx="74" cy="30" r="3" fill="#ffffff" opacity="0.55"/>
+      <circle cx="96" cy="22" r="3.6" fill="#ffffff" opacity="0.6"/>
+      <circle cx="118" cy="30" r="3" fill="#ffffff" opacity="0.55"/>
+    </g>
+    <!-- Tiny gold chef pin -->
+    <circle cx="100" cy="61" r="2.6" fill="url(#grad-gold)" stroke="#8c6418" stroke-width="0.4"/>
+    <text x="100" y="63" font-size="3.2" text-anchor="middle" fill="#3a2410" font-weight="bold">C</text>
+  </g>
+
+  <!-- ─── CAT EARS (gold outer, pink inner) ────────────────────── -->
+  <g class="cl-costume-cat-ears">
+    <g class="cl-cat-ear-l">
+      <path d="M 56 10 L 86 52 L 44 54 Z" fill="url(#grad-gold)" stroke="#3a2410" stroke-width="0.9"/>
+      <path d="M 60 22 L 80 50 L 54 50 Z" fill="url(#grad-pink)" opacity="0.95"/>
+      <!-- Inner glint -->
+      <ellipse cx="65" cy="34" rx="2.5" ry="6" fill="#ffeef2" opacity="0.7"/>
+    </g>
+    <g class="cl-cat-ear-r">
+      <path d="M 144 10 L 156 54 L 114 52 Z" fill="url(#grad-gold)" stroke="#3a2410" stroke-width="0.9"/>
+      <path d="M 140 22 L 146 50 L 120 50 Z" fill="url(#grad-pink)" opacity="0.95"/>
+      <ellipse cx="135" cy="34" rx="2.5" ry="6" fill="#ffeef2" opacity="0.7"/>
+    </g>
+    <!-- Tiny tuft hairs at ear-base -->
+    <line x1="48" y1="48" x2="44" y2="44" stroke="#fff4c8" stroke-width="0.8" opacity="0.85"/>
+    <line x1="152" y1="48" x2="156" y2="44" stroke="#fff4c8" stroke-width="0.8" opacity="0.85"/>
+  </g>
+
+  <!-- ─── BUNNY EARS (long pastel ovals) ───────────────────────── -->
+  <g class="cl-costume-bunny-ears">
+    <g class="cl-bunny-ear-l">
+      <ellipse cx="74" cy="22" rx="11" ry="30" fill="#fff0f5" stroke="#3a2410" stroke-width="0.9"/>
+      <ellipse cx="74" cy="24" rx="5" ry="24" fill="#ffa8c0" opacity="0.95"/>
+      <ellipse cx="72" cy="14" rx="2" ry="5" fill="#fff8fa" opacity="0.8"/>
+    </g>
+    <g class="cl-bunny-ear-r">
+      <ellipse cx="126" cy="22" rx="11" ry="30" fill="#fff0f5" stroke="#3a2410" stroke-width="0.9"/>
+      <ellipse cx="126" cy="24" rx="5" ry="24" fill="#ffa8c0" opacity="0.95"/>
+      <ellipse cx="128" cy="14" rx="2" ry="5" fill="#fff8fa" opacity="0.8"/>
+    </g>
+  </g>
+
+  <!-- ─── FLOWER CROWN (5 cute flowers + leaves on a stem arc) ─── -->
+  <g class="cl-costume-flower-crown">
+    <g class="cl-flower-wreath">
+      <!-- Green stem band -->
+      <path d="M 40 58 Q 100 22 160 58" stroke="#3a8038" stroke-width="3.2" fill="none" opacity="0.8"/>
+      <path d="M 40 58 Q 100 22 160 58" stroke="#5fb04c" stroke-width="1.4" fill="none" opacity="0.85"/>
+      <!-- Small leaves -->
+      <path d="M 60 52 Q 64 42 72 44 Q 70 50 64 52" fill="#3a8038" opacity="0.85"/>
+      <path d="M 140 52 Q 136 42 128 44 Q 130 50 136 52" fill="#3a8038" opacity="0.85"/>
+      <!-- Flower 1 (pink, left) -->
+      <g class="cl-flower cl-flower-1" transform="translate(50, 52)">
+        <circle cx="0" cy="-5" r="3.6" fill="#ff7faa"/>
+        <circle cx="-4" cy="0"  r="3.6" fill="#ff7faa"/>
+        <circle cx="4"  cy="0"  r="3.6" fill="#ff7faa"/>
+        <circle cx="-2" cy="4"  r="3.6" fill="#ff7faa"/>
+        <circle cx="2"  cy="4"  r="3.6" fill="#ff7faa"/>
+        <circle cx="0"  cy="0"  r="2.4" fill="#ffd870" stroke="#c89010" stroke-width="0.4"/>
+      </g>
+      <!-- Flower 2 (cream) -->
+      <g class="cl-flower cl-flower-2" transform="translate(72, 38)">
+        <circle cx="0" cy="-5" r="3.6" fill="#fff4c8"/>
+        <circle cx="-4" cy="0"  r="3.6" fill="#fff4c8"/>
+        <circle cx="4"  cy="0"  r="3.6" fill="#fff4c8"/>
+        <circle cx="-2" cy="4"  r="3.6" fill="#fff4c8"/>
+        <circle cx="2"  cy="4"  r="3.6" fill="#fff4c8"/>
+        <circle cx="0"  cy="0"  r="2.4" fill="#ffd870" stroke="#c89010" stroke-width="0.4"/>
+      </g>
+      <!-- Flower 3 (lavender, center, bigger) -->
+      <g class="cl-flower cl-flower-3" transform="translate(100, 26)">
+        <circle cx="0" cy="-6" r="4.2" fill="#c896f5"/>
+        <circle cx="-5" cy="0"  r="4.2" fill="#c896f5"/>
+        <circle cx="5"  cy="0"  r="4.2" fill="#c896f5"/>
+        <circle cx="-3" cy="5"  r="4.2" fill="#c896f5"/>
+        <circle cx="3"  cy="5"  r="4.2" fill="#c896f5"/>
+        <circle cx="0"  cy="0"  r="2.8" fill="#ffd870" stroke="#c89010" stroke-width="0.4"/>
+      </g>
+      <!-- Flower 4 (cream) -->
+      <g class="cl-flower cl-flower-4" transform="translate(128, 38)">
+        <circle cx="0" cy="-5" r="3.6" fill="#fff4c8"/>
+        <circle cx="-4" cy="0"  r="3.6" fill="#fff4c8"/>
+        <circle cx="4"  cy="0"  r="3.6" fill="#fff4c8"/>
+        <circle cx="-2" cy="4"  r="3.6" fill="#fff4c8"/>
+        <circle cx="2"  cy="4"  r="3.6" fill="#fff4c8"/>
+        <circle cx="0"  cy="0"  r="2.4" fill="#ffd870" stroke="#c89010" stroke-width="0.4"/>
+      </g>
+      <!-- Flower 5 (pink, right) -->
+      <g class="cl-flower cl-flower-5" transform="translate(150, 52)">
+        <circle cx="0" cy="-5" r="3.6" fill="#ff7faa"/>
+        <circle cx="-4" cy="0"  r="3.6" fill="#ff7faa"/>
+        <circle cx="4"  cy="0"  r="3.6" fill="#ff7faa"/>
+        <circle cx="-2" cy="4"  r="3.6" fill="#ff7faa"/>
+        <circle cx="2"  cy="4"  r="3.6" fill="#ff7faa"/>
+        <circle cx="0"  cy="0"  r="2.4" fill="#ffd870" stroke="#c89010" stroke-width="0.4"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- ─── HEART CROWN (pink-gold band with 5 hearts + sparkles) ── -->
+  <g class="cl-costume-heart-crown">
+    <!-- Crown band -->
+    <path d="M 44 60 Q 100 48 156 60 L 156 66 Q 100 56 44 66 Z"
+          fill="url(#grad-pink)" stroke="#1a1a1a" stroke-width="0.9"/>
+    <!-- Gold band trim -->
+    <path d="M 46 60 Q 100 49 154 60" stroke="url(#grad-gold)" stroke-width="0.9" fill="none"/>
+    <!-- 5 hearts of varying size -->
+    <g class="cl-heart-crown-hearts">
+      <use href="#sym-heart" x="46" y="40" width="14" height="13"/>
+      <use href="#sym-heart" x="68" y="32" width="16" height="15"/>
+      <use href="#sym-heart" x="90" y="24" width="20" height="18"/>
+      <use href="#sym-heart" x="118" y="32" width="16" height="15"/>
+      <use href="#sym-heart" x="140" y="40" width="14" height="13"/>
+    </g>
+    <!-- Sparkle dots between hearts -->
+    <g class="cl-heart-crown-sparkles">
+      <circle cx="58" cy="38" r="1.2" fill="#fffef6" opacity="0.95"/>
+      <circle cx="100" cy="20" r="1.5" fill="#fffef6" opacity="0.95"/>
+      <circle cx="142" cy="38" r="1.2" fill="#fffef6" opacity="0.95"/>
+    </g>
+  </g>
+
+  <!-- ─── POM BEANIE (knit cap with pom-pom) ──────────────────── -->
+  <g class="cl-costume-beanie">
+    <!-- Dome -->
+    <path d="M 50 64 Q 50 28 100 22 Q 150 28 150 64 Z"
+          fill="#7d8ad8" stroke="#1a1a1a" stroke-width="1"/>
+    <!-- Knit horizontal rows -->
+    <path d="M 60 60 Q 100 56 140 60" stroke="#5a68b0" stroke-width="0.8" fill="none" opacity="0.7"/>
+    <path d="M 60 50 Q 100 44 140 50" stroke="#5a68b0" stroke-width="0.8" fill="none" opacity="0.7"/>
+    <path d="M 60 40 Q 100 32 140 40" stroke="#5a68b0" stroke-width="0.8" fill="none" opacity="0.7"/>
+    <path d="M 64 30 Q 100 24 136 30" stroke="#5a68b0" stroke-width="0.6" fill="none" opacity="0.6"/>
+    <!-- Rolled cuff (lighter shade) -->
+    <rect x="48" y="60" width="104" height="9" fill="#9aa6e0" stroke="#1a1a1a" stroke-width="0.8"/>
+    <!-- Cuff ribbing — vertical lines -->
+    <line x1="58" y1="60" x2="58" y2="69" stroke="#5a68b0" stroke-width="0.5"/>
+    <line x1="68" y1="60" x2="68" y2="69" stroke="#5a68b0" stroke-width="0.5"/>
+    <line x1="78" y1="60" x2="78" y2="69" stroke="#5a68b0" stroke-width="0.5"/>
+    <line x1="88" y1="60" x2="88" y2="69" stroke="#5a68b0" stroke-width="0.5"/>
+    <line x1="98" y1="60" x2="98" y2="69" stroke="#5a68b0" stroke-width="0.5"/>
+    <line x1="108" y1="60" x2="108" y2="69" stroke="#5a68b0" stroke-width="0.5"/>
+    <line x1="118" y1="60" x2="118" y2="69" stroke="#5a68b0" stroke-width="0.5"/>
+    <line x1="128" y1="60" x2="128" y2="69" stroke="#5a68b0" stroke-width="0.5"/>
+    <line x1="138" y1="60" x2="138" y2="69" stroke="#5a68b0" stroke-width="0.5"/>
+    <!-- Pom-pom on top -->
+    <g class="cl-beanie-pom">
+      <circle cx="100" cy="14" r="10" fill="#ffd0d8" stroke="#1a1a1a" stroke-width="0.7"/>
+      <circle cx="97" cy="11" r="2.4" fill="#fffef6" opacity="0.85"/>
+      <!-- Fluff strands -->
+      <line x1="92" y1="14" x2="87" y2="12" stroke="#c89aa2" stroke-width="0.5"/>
+      <line x1="108" y1="14" x2="113" y2="12" stroke="#c89aa2" stroke-width="0.5"/>
+      <line x1="100" y1="6" x2="100" y2="2" stroke="#c89aa2" stroke-width="0.5"/>
+      <line x1="93" y1="8" x2="90" y2="4" stroke="#c89aa2" stroke-width="0.5"/>
+      <line x1="107" y1="8" x2="110" y2="4" stroke="#c89aa2" stroke-width="0.5"/>
+    </g>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════════════════════
        v17.31 PROPS — REDESIGNED — float beside orb like telekinesis
        Each wrapped in `cl-prop-float` group so they bob naturally.
        Positioned to LEFT of orb at face-level — looks like he's
