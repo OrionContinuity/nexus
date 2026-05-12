@@ -71,8 +71,9 @@
   transform: translateY(120%) scale(0.6);
 }
 #clippy-shell.is-suppressed {
-  opacity: 0;
-  pointer-events: none;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden;
 }
 
 /* SVG fills the shell */
@@ -844,6 +845,12 @@
   opacity: 1;
   visibility: visible;
   transform: translateY(0) scale(1);
+}
+/* v18.2: when a game is open, any bubble that DOES manage to fire
+   (e.g. game-over toast, high-score celebration) should appear ABOVE
+   the game overlay, not behind it. Game overlay is z-index 999. */
+body.clippy-game-open .clippy-bubble {
+  z-index: 1100 !important;
 }
 .clippy-bubble::before,
 .clippy-bubble::after {
