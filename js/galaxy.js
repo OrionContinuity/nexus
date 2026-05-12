@@ -77,6 +77,12 @@
     commCenters: {},            // community_id → {x, y, color, label} (for outside code)
     communities: [],
 
+    // v18.1 Clippy memory stars — blue halo nodes for memories Clippy
+    // deposited from chats. Separate orbit / palette from regular knowledge
+    // stars. Each star has its own omega so the halo rotates slower than
+    // the disc. Hit-testable for tap → preview of the memory label.
+    clippyStars: [],
+
     // Audio-reactive
     audio: null,
     audioCtx: null,
@@ -1253,6 +1259,7 @@
     drawDistantField(dt);
     drawSearchConnections();   // strings underneath stars so they don't obscure
     drawActiveStars(dt);
+    drawClippyStars(dt);       // v18.1 — blue clippy memory halo
     drawMeteors();
     drawSparkles();
     drawBlackHole(dt);
@@ -1285,6 +1292,13 @@
         closest = p;
         closestD = d2;
       }
+    }
+    // v18.1 — also test clippy memory stars (separate halo)
+    const cs = findClippyStarAt(sx, sy);
+    if (cs) {
+      const dx = cs.screenX - sx, dy = cs.screenY - sy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < closestD) closest = cs;
     }
     return closest;
   }
@@ -1364,6 +1378,12 @@
       }
       const node = findNodeAt(p.x, p.y);
       if (node) {
+        // v18.1 — clippy memory stars are previewed inline (no full panel)
+        if (node.kind === 'clippy' && node.memory) {
+          state.activeNode = node;
+          showClippyMemoryPreview(node.memory, p.x, p.y);
+          return;
+        }
         state.activeNode = node.node;
         state.frozenNode = node;
         openPanel(node.node);
@@ -1371,6 +1391,9 @@
       } else {
         // Tap on empty space — close panel if open
         if (state.activeNode) closePanel();
+        // Also close memory preview if open
+        const prev = document.getElementById('clippyMemoryPreview');
+        if (prev) prev.remove();
       }
     });
 
@@ -1952,6 +1975,201 @@
     state._resizeT = setTimeout(resize, 180);
   });
 
+  /* ─── v18.1 CLIPPY MEMORY STARS — blue halo nodes ────────────────────────
+     Clippy.js deposits memories from chats (depositMemory). Each one lands
+     here as a blue star on a separate inner halo orbit so they're visibly
+     distinct from the knowledge disc. Hit-testable, importance maps to size
+     and brightness. Hooked via:
+       window.NX.galaxy.addClippyMemory(node)
+       window.NX.galaxy.refreshClippyMemoriesFromStorage()
+       window.addEventListener('clippy:memory-deposited', ...)
+     Palette: cool blue [120,180,255] → [180,210,255] by importance.
+  ───────────────────────────────────────────────────────────────────────── */
+  const CLIPPY_BLUE      = [120, 180, 255];
+  const CLIPPY_BLUE_HOT  = [200, 225, 255];
+
+  function placeClippyMemoryStar(mem, idx, total) {
+    // Halo orbit — inside the active arms but outside the black hole.
+    // Distribute around a circle with slight radial scatter; importance
+    // pulls toward the center.
+    const minDim = Math.min(state.W, state.H);
+    const innerR = minDim * INNER_R_FRAC;
+    const outerR = minDim * OUTER_R_FRAC;
+    const haloR  = innerR * 0.85 + (outerR - innerR) * 0.10;   // inside the bulge halo
+    const imp = Math.max(1, Math.min(5, mem.importance || 2));
+    const radialPull = (imp - 1) / 4;                          // 0..1
+    const radius = haloR * (1.0 - radialPull * 0.18) + (hash01(mem.id + ':r') - 0.5) * minDim * 0.04;
+    const baseTheta = (idx / Math.max(1, total)) * Math.PI * 2 + hash01(mem.id + ':theta') * 0.6;
+    return {
+      id: mem.id,
+      kind: 'clippy',
+      memory: mem,
+      baseR: radius,
+      baseTheta,
+      omega: BASE_OMEGA * 0.55,                                 // slower than inner disc
+      size: 2.2 + imp * 0.9,                                    // 3.1 .. 6.7
+      brightness: 0.55 + imp * 0.08,                            // 0.63 .. 0.95
+      twinklePhase: hash01(mem.id + ':twinkle') * Math.PI * 2,
+      twinkleSpeed: 0.6 + hash01(mem.id + ':speed') * 0.6,      // a bit faster than disc
+      x: 0, y: 0, screenX: 0, screenY: 0,
+    };
+  }
+  function rebuildClippyStarsPlacements() {
+    // Re-pack indices so they stay distributed when count changes.
+    const arr = state.clippyStars;
+    const n = arr.length;
+    for (let i = 0; i < n; i++) {
+      const placed = placeClippyMemoryStar(arr[i].memory, i, n);
+      arr[i].baseR = placed.baseR;
+      arr[i].baseTheta = placed.baseTheta;
+    }
+  }
+  function addClippyMemory(memNode) {
+    if (!memNode || !memNode.id) return null;
+    // Dedupe by id
+    if (state.clippyStars.some(s => s.id === memNode.id)) return null;
+    const star = placeClippyMemoryStar(memNode, state.clippyStars.length, state.clippyStars.length + 1);
+    state.clippyStars.push(star);
+    // Re-balance theta so stars stay evenly distributed
+    rebuildClippyStarsPlacements();
+    return star;
+  }
+  function refreshClippyMemoriesFromStorage() {
+    let mems = [];
+    try {
+      if (window.NX && window.NX.clippy && typeof window.NX.clippy.getMemories === 'function') {
+        mems = window.NX.clippy.getMemories() || [];
+      }
+    } catch (_) { mems = []; }
+    state.clippyStars = [];
+    for (let i = 0; i < mems.length; i++) {
+      state.clippyStars.push(placeClippyMemoryStar(mems[i], i, mems.length));
+    }
+  }
+  function removeClippyMemory(id) {
+    state.clippyStars = state.clippyStars.filter(s => s.id !== id);
+    rebuildClippyStarsPlacements();
+  }
+
+  function drawClippyStars(dt) {
+    if (!state.clippyStars.length) return;
+    const W = state.W, H = state.H;
+    const cx = W / 2, cy = H / 2;
+    ctx.save();
+    ctx.translate(cx + state.cam.x, cy + state.cam.y);
+    ctx.scale(state.cam.zoom, state.cam.zoom);
+    ctx.translate(-cx, -cy);
+    for (let i = 0; i < state.clippyStars.length; i++) {
+      const s = state.clippyStars[i];
+      const theta = s.baseTheta + s.omega * state.t;
+      s.x = cx + Math.cos(theta) * s.baseR;
+      s.y = cy + Math.sin(theta) * s.baseR;
+      if (s.x < -30 || s.x > W + 30 || s.y < -30 || s.y > H + 30) continue;
+      const twinkle = 0.85 + Math.sin(state.t * s.twinkleSpeed + s.twinklePhase) * 0.15;
+      const alpha = Math.min(1, s.brightness * twinkle);
+      const isActive = state.activeNode && state.activeNode.id === s.id;
+      const isHover  = state.hoverNode && state.hoverNode.id === s.id;
+      const tint = (isActive || isHover) ? CLIPPY_BLUE_HOT : CLIPPY_BLUE;
+      const size = isActive ? s.size * 1.55 : isHover ? s.size * 1.3 : s.size;
+      // Halo glow
+      const haloGrad = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, size * 3.4);
+      haloGrad.addColorStop(0, rgba(tint, alpha * 0.55));
+      haloGrad.addColorStop(0.6, rgba(tint, alpha * 0.16));
+      haloGrad.addColorStop(1, rgba(tint, 0));
+      ctx.fillStyle = haloGrad;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, size * 3.4, 0, Math.PI * 2);
+      ctx.fill();
+      // Core
+      ctx.fillStyle = rgba(tint, Math.min(1, alpha + 0.15));
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, size, 0, Math.PI * 2);
+      ctx.fill();
+      // Inner white spark
+      ctx.fillStyle = 'rgba(255,255,255,' + (alpha * 0.75).toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, size * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      // Track screen coords for hit-testing (account for camera transform)
+      s.screenX = (s.x - cx) * state.cam.zoom + cx + state.cam.x;
+      s.screenY = (s.y - cy) * state.cam.zoom + cy + state.cam.y;
+    }
+    ctx.restore();
+  }
+
+  // Hit-test against clippy stars too (called from findNodeAt — see patch)
+  function findClippyStarAt(sx, sy) {
+    let closest = null, closestD = TAP_SLOP * TAP_SLOP;
+    for (let i = 0; i < state.clippyStars.length; i++) {
+      const s = state.clippyStars[i];
+      const dx = s.screenX - sx, dy = s.screenY - sy;
+      const d2 = dx * dx + dy * dy;
+      const reach = Math.max(TAP_SLOP, s.size * state.cam.zoom + 8);
+      if (d2 < reach * reach && d2 < closestD) {
+        closest = s;
+        closestD = d2;
+      }
+    }
+    return closest;
+  }
+
+  // Wire the event listeners — runs at module load, fires whenever Clippy
+  // deposits / forgets / clears memories.
+  window.addEventListener('clippy:memory-deposited', (e) => {
+    if (e && e.detail) addClippyMemory(e.detail);
+  });
+  window.addEventListener('clippy:memory-forgotten', (e) => {
+    if (e && e.detail && e.detail.id) removeClippyMemory(e.detail.id);
+  });
+  window.addEventListener('clippy:memories-cleared', () => {
+    state.clippyStars = [];
+  });
+
+  // Lightweight inline preview for a clippy memory tap — overlays the
+  // canvas with a small card. No full panel needed.
+  function showClippyMemoryPreview(mem, x, y) {
+    const existing = document.getElementById('clippyMemoryPreview');
+    if (existing) existing.remove();
+    const card = document.createElement('div');
+    card.id = 'clippyMemoryPreview';
+    card.style.cssText = [
+      'position:fixed',
+      'left:' + Math.max(12, Math.min(window.innerWidth - 280, x - 130)) + 'px',
+      'top:'  + Math.max(40, Math.min(window.innerHeight - 140, y - 90)) + 'px',
+      'width:260px',
+      'background:rgba(8,14,28,0.95)',
+      'color:#dfeaff',
+      'padding:12px 14px',
+      'border-radius:10px',
+      'border:1.5px solid rgba(120,180,255,0.55)',
+      'box-shadow:0 6px 20px rgba(0,0,0,0.55), 0 0 16px rgba(120,180,255,0.25)',
+      'font:500 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      'z-index:9000',
+      'pointer-events:auto',
+    ].join(';');
+    const days = Math.floor((Date.now() - new Date(mem.timestamp).getTime()) / 86400000);
+    const when = days <= 0 ? 'today' : days === 1 ? 'yesterday' : days < 7 ? days + ' days ago' : days < 31 ? 'weeks ago' : days < 365 ? 'months ago' : 'a year+ ago';
+    const safe = (s) => String(s).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+    card.innerHTML =
+      '<div style="font:700 10px/1.1 \'JetBrains Mono\',monospace;letter-spacing:0.12em;color:#9bc2ff;margin-bottom:6px;">💙 CLIPPY MEMORY · ' + safe(when.toUpperCase()) + '</div>' +
+      '<div style="margin-bottom:6px;">' + safe(mem.label || '') + '</div>' +
+      '<div style="font:500 11px/1.3 -apple-system,sans-serif;color:rgba(223,234,255,0.55);">' +
+      safe(String(mem.type || '').replace(/_/g, ' ')) +
+      (mem.importance ? ' · importance ' + mem.importance : '') +
+      '</div>';
+    document.body.appendChild(card);
+    // Auto-dismiss
+    setTimeout(() => { try { card.remove(); } catch (_) {} }, 5200);
+    // Dismiss on outside tap
+    const dismiss = (ev) => {
+      if (!card.contains(ev.target)) {
+        try { card.remove(); } catch (_) {}
+        document.removeEventListener('pointerdown', dismiss, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('pointerdown', dismiss, true), 30);
+  }
+
   /* ─── PUBLIC API ───────────────────────────────────────────────────────── */
   NX.brain = {
     init,
@@ -1970,6 +2188,20 @@
   NX.modules.brain = NX.brain;
   NX.loaded = NX.loaded || {};
   NX.loaded.brain = true;
+
+  // v18.1 — Clippy memory star surface. Wired so depositMemory()'s direct
+  // call from clippy.js (`window.NX.galaxy.addClippyMemory(node)`) lands here.
+  NX.galaxy = {
+    addClippyMemory,
+    removeClippyMemory,
+    refreshClippyMemoriesFromStorage,
+    clippyStars: () => state.clippyStars.slice(),
+  };
+
+  // Pull any pre-existing memories Clippy already had at startup. Wait a
+  // beat so clippy.js has had time to load and register NX.clippy.
+  setTimeout(refreshClippyMemoriesFromStorage, 1200);
+  setTimeout(refreshClippyMemoriesFromStorage, 4000);   // safety re-pull
 
   console.log('[Galaxy] loaded — procedural spiral, audio-reactive, ' + ACTIVE_MAX + ' active stars max');
 
