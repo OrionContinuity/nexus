@@ -3650,6 +3650,166 @@
   }
 
 
+  // ════════════════════════════════════════════════════════════════
+  // v18.11 EMOTION SYSTEM — Plutchik-grounded primary emotion model
+  // ────────────────────────────────────────────────────────────────
+  // Architecture grounded in three well-cited published frameworks:
+  //
+  //   1. Plutchik's Wheel of Emotions (1980) — 8 primary emotions in
+  //      4 opposing pairs: joy↔sadness, trust↔disgust, fear↔anger,
+  //      anticipation↔surprise. Adjacent primary pairs form dyads:
+  //      love (joy+trust), hope/optimism (anticipation+joy),
+  //      submission (trust+fear), awe (fear+surprise), etc.
+  //
+  //   2. Russell's Circumplex (1980) — valence × arousal dimensions
+  //      for intensity scaling. High arousal positives feel like
+  //      excitement; low arousal positives feel like contentment.
+  //
+  //   3. OCC Model (Ortony/Clore/Collins 1988) — emotions are
+  //      reactions to events evaluated against goals, standards, and
+  //      attitudes. Used in computational agent architectures.
+  //
+  // Decay rates loosely calibrated to affective neuroscience time-
+  // scales: surprise fades in minutes, anger/fear in ~10 min, joy/
+  // sadness in tens of minutes, trust shifts over hours.
+  //
+  // 10 named emotions Orion requested map onto this model:
+  //   PRIMARY: joy, sadness, anger, fear (all direct)
+  //   DYAD:    love (joy+trust), hope (ant+joy), excitement (joy+ant)
+  //   COMPND:  worry (fear+ant), guilt (fear+sad+disgust), jealousy
+  //            (sad+anger)
+  // Plus internal: trust, disgust, anticipation, surprise as primary
+  // building blocks.
+  // ════════════════════════════════════════════════════════════════
+  const EMOTION_BASELINE = {
+    joy:          0.40,  // mild contentment baseline
+    sadness:      0.00,
+    trust:        0.55,  // Trajan's Roman virtus — high baseline trust
+    disgust:      0.00,
+    fear:         0.00,
+    anger:        0.00,
+    anticipation: 0.30,  // mild curiosity baseline
+    surprise:     0.00,
+  };
+
+  // Decay constants — fraction approached toward baseline per second
+  // when no event reinforces the emotion. Higher = faster return.
+  const EMOTION_DECAY = {
+    joy:          0.0008,  // ~14 min half-life from peak
+    sadness:      0.0003,  // ~40 min — sadness lingers
+    trust:        0.0001,  // ~100 min — slow to gain or lose
+    disgust:      0.0010,  // ~12 min
+    fear:         0.0015,  // ~8 min — fear processes quickly
+    anger:        0.0020,  // ~6 min — anger burns hot, fades fast
+    anticipation: 0.0010,  // ~12 min
+    surprise:     0.0050,  // ~2 min — surprise burns off fastest
+  };
+
+  state.emotions = state.emotions || { ...EMOTION_BASELINE };
+  state.lastEmotionTick = state.lastEmotionTick || Date.now();
+
+  function feel(emotion, delta) {
+    if (!(emotion in state.emotions)) {
+      // Allow setting derived emotions by routing to primary components
+      const routes = {
+        love:       () => { feel('joy', delta * 0.7);          feel('trust', delta * 0.5);        },
+        hope:       () => { feel('anticipation', delta * 0.7); feel('joy',   delta * 0.5);        },
+        excitement: () => { feel('joy', delta * 0.7);          feel('anticipation', delta * 0.7); },
+        worry:      () => { feel('fear', delta * 0.6);         feel('anticipation', delta * 0.4); },
+        guilt:      () => { feel('fear', delta * 0.4);         feel('sadness', delta * 0.5);
+                            feel('disgust', delta * 0.3);      },
+        jealousy:   () => { feel('sadness', delta * 0.5);      feel('anger', delta * 0.5);        },
+      };
+      if (routes[emotion]) routes[emotion]();
+      return;
+    }
+    state.emotions[emotion] = Math.max(0, Math.min(1, state.emotions[emotion] + delta));
+  }
+
+  function emotionTick() {
+    const now = Date.now();
+    const dt = Math.min(60, (now - state.lastEmotionTick) / 1000);
+    state.lastEmotionTick = now;
+    for (const k in state.emotions) {
+      const drift = (EMOTION_BASELINE[k] - state.emotions[k]) * EMOTION_DECAY[k] * dt;
+      state.emotions[k] = Math.max(0, Math.min(1, state.emotions[k] + drift));
+    }
+  }
+
+  function getDerivedEmotions() {
+    const e = state.emotions;
+    return {
+      // Plutchik dyads — products of adjacent primaries, amplified
+      // because (0.5 * 0.5 = 0.25) needs scaling to be expressive
+      love:       Math.min(1, e.joy * e.trust * 1.7),
+      hope:       Math.min(1, e.anticipation * e.joy * 1.6),
+      excitement: Math.min(1, e.joy * e.anticipation * 1.9),
+      submission: Math.min(1, e.trust * e.fear * 1.5),
+      awe:        Math.min(1, e.fear * e.surprise * 1.5),
+      // Complex compounds — three primaries with cube-root smoothing
+      worry:      Math.min(1, e.fear * e.anticipation * 1.5),
+      guilt:      Math.min(1, Math.cbrt(e.fear * e.sadness * Math.max(e.disgust, 0.1)) * 1.8),
+      jealousy:   Math.min(1, Math.sqrt(e.sadness * e.anger) * 1.4),
+      contempt:   Math.min(1, e.disgust * e.anger * 1.4),
+    };
+  }
+
+  function getDominantEmotion(threshold) {
+    emotionTick();
+    if (threshold == null) threshold = 0.20;
+    const all = { ...state.emotions, ...getDerivedEmotions() };
+    let max = threshold, name = 'neutral';
+    for (const k in all) {
+      if (all[k] > max) { max = all[k]; name = k; }
+    }
+    return { name, intensity: max };
+  }
+
+  // Emotion → CSS mood class. Each emotion has 3 intensity tiers
+  // matched to the existing kawaii face library (clippy.svg + clippy.css).
+  const EXPRESSION_MAP = {
+    joy:          { high: 'super_excited', mid: 'happy',       low: 'happy'      },
+    sadness:      { high: 'crying',        mid: 'sad',         low: 'melancholy' },
+    trust:        { high: 'love',          mid: 'happy',       low: 'happy'      },
+    disgust:      { high: 'disgusted',     mid: 'disgusted',   low: 'peeved'     },
+    fear:         { high: 'shocked',       mid: 'worried',     low: 'worried'    },
+    anger:        { high: 'frustrated',    mid: 'angry',       low: 'peeved'     },
+    anticipation: { high: 'sparkle',       mid: 'thinking',    low: 'thinking'   },
+    surprise:     { high: 'gasp',          mid: 'shocked',     low: 'thinking'   },
+    love:         { high: 'smitten',       mid: 'love',        low: 'bashful'    },
+    hope:         { high: 'sparkle',       mid: 'sparkle',     low: 'happy'      },
+    excitement:   { high: 'super_excited', mid: 'happy',       low: 'happy'      },
+    submission:   { high: 'bashful',       mid: 'embarrassed', low: 'pouty'      },
+    awe:          { high: 'shocked',       mid: 'shocked',     low: 'sparkle'    },
+    worry:        { high: 'worried',       mid: 'worried',     low: 'pouty'      },
+    guilt:        { high: 'mortified',     mid: 'embarrassed', low: 'sad'        },
+    jealousy:     { high: 'peeved',        mid: 'pouty',       low: 'pouty'      },
+    contempt:     { high: 'condescending', mid: 'peeved',      low: 'eye_roll'   },
+    neutral:      { high: 'happy',         mid: 'happy',       low: 'happy'      },
+  };
+
+  function moodFromEmotion() {
+    const { name, intensity } = getDominantEmotion();
+    const map = EXPRESSION_MAP[name];
+    if (!map) return null;
+    if (intensity > 0.7) return map.high;
+    if (intensity > 0.4) return map.mid;
+    return map.low;
+  }
+
+  function getEmotionSnapshot() {
+    emotionTick();
+    const dom = getDominantEmotion();
+    return {
+      primary: { ...state.emotions },
+      derived: getDerivedEmotions(),
+      dominant: dom.name,
+      intensity: dom.intensity,
+      face: moodFromEmotion(),
+    };
+  }
+
+
   // ─── BOOTSTRAP ─────────────────────────────────────────────────────
   // Called from init() once the shell is ready. Installs sensors,
   // primes the operational score with an immediate poll, and starts
@@ -5617,7 +5777,17 @@
                     state.shell.classList.contains('is-sulking') ||
                     state.shell.classList.contains('is-sleeping');
       if (!quiet) {
-        const m = AMBIENT_MOOD_POOL[Math.floor(Math.random() * AMBIENT_MOOD_POOL.length)];
+        // v18.11: 55% of the time bias toward whatever Trajan is
+        // currently FEELING (dominant emotion). 45% pure-random from
+        // the chibi pool. This makes his face reflect his inner state
+        // most of the time without becoming monotonous.
+        let m;
+        if (Math.random() < 0.55) {
+          m = moodFromEmotion();
+        }
+        if (!m) {
+          m = AMBIENT_MOOD_POOL[Math.floor(Math.random() * AMBIENT_MOOD_POOL.length)];
+        }
         try { mood(m, 8000 + Math.random() * 6000); } catch(_) {}
       }
       // 90-180s between rotations
@@ -6503,7 +6673,7 @@
 
   const GAMES = {
     tap:       { label: '⚡ Tap the Orb',    pool: 'game_intro_tap',       higherIsBetter: true,  unit: 'pts',  start: () => startTapGame() },
-    catch:     { label: '🏃 Catch Me',       pool: 'game_intro_catch',     higherIsBetter: true,  unit: '/15',  start: () => startCatchGame() },
+    catch:     { label: '🏃 Catch Me',       pool: 'game_intro_catch',     higherIsBetter: true,  unit: '/20',  start: () => startCatchGame() },
     reaction:  { label: '⚡ Reaction',       pool: 'game_intro_reaction',  higherIsBetter: false, unit: 'ms',   start: () => startReactionGame() },
     memory:    { label: '🧠 Memory Match',   pool: 'game_intro_memory',    higherIsBetter: true,  unit: 'lvl',  start: () => startMemoryGame() },
     flappy:    { label: '🕊️ Flappy Trajan',  pool: 'game_intro_flappy',    higherIsBetter: true,  unit: 'cols', start: () => startFlappyGame() },
@@ -6626,6 +6796,26 @@
     const newRecord = saveHighScore(gameId, score);
     const allScores = getHighScores();
     const medal = medalForScore(gameId, score);
+    // v18.11 — wire game outcomes to emotion deltas.
+    // New best: large joy + excitement + small trust ("Trajan believes in you more")
+    // Medal: smaller joy proportional to medal tier
+    // No medal: tiny sadness (sympathy, not crushing — "we'll get it next time")
+    try {
+      if (newRecord) {
+        feel('joy',     0.30);
+        feel('excitement', 0.25);
+        feel('trust',   0.05);
+        feel('surprise', 0.15);
+      } else if (medal === 'platinum' || medal === 'gold') {
+        feel('joy',     0.18);
+        feel('excitement', 0.12);
+      } else if (medal === 'silver' || medal === 'bronze') {
+        feel('joy',     0.10);
+      } else {
+        feel('sadness', 0.05);
+        feel('anticipation', 0.05);  // "next time" — hope for the rematch
+      }
+    } catch (_) {}
     const ov = state.gameOverlay || createGameOverlay();
     const medalHTML = medal
       ? `<div class="clippy-game-medal is-${medal}">${medalEmoji(medal)} ${medal.toUpperCase()}</div>`
@@ -7338,17 +7528,34 @@
   }
 
   // ════════════════════════════════════════════════════════════════
-  // GAME 2: CATCH ME — 15 rounds, shrinking window + shrinking target
+  // GAME 2: CATCH ME — v18.11 leveled progression
+  //
+  //   20 levels, 5 rounds each. Need 4/5 hits (80%) to advance.
+  //   First 5 levels are deliberately forgiving so onboarding feels
+  //   good; difficulty ramps sharply after that. Score = highest
+  //   level cleared. Game ends when player fails to advance.
+  //
+  //   Phases (each = 5 levels):
+  //     1-5   EASY    — large target, long window, no decoys
+  //     6-10  MEDIUM  — smaller, faster, optional decoy at lvl 8+
+  //     11-15 HARD    — tight, 1 decoy
+  //     16-20 EXTREME — tiny, lightning fast, 2 decoys
   // ════════════════════════════════════════════════════════════════
   function startCatchGame() {
     const ov = createGameOverlay();
-    let catches = 0, round = 0;
-    const totalRounds = 15;
+    const TOTAL_LEVELS = 20;
+    const ROUNDS_PER_LEVEL = 5;
+    const PASS_THRESHOLD = 4; // 80% of 5
+
+    let level = 1, roundInLevel = 0, hitsThisLevel = 0;
     let running = false, moveTimer = null;
     const intro = pickFromPool('game_intro_catch');
     ov.innerHTML = `
       <div class="clippy-game-title">🏃 Catch Me</div>
       <div class="clippy-game-instruction">${esc(intro)}</div>
+      <div class="clippy-game-instruction" style="font-size:12px;opacity:0.65;">
+        20 levels. Hit 4 of 5 to advance. The first five are slow on purpose.
+      </div>
       <div class="clippy-game-buttons">
         <button class="clippy-game-btn" data-act="start">Start!</button>
         <button class="clippy-game-btn is-ghost" data-act="cancel">Cancel</button>
@@ -7359,59 +7566,203 @@
       ov.innerHTML = `
         <div class="clippy-game-title">🏃 CATCH ME</div>
         <div class="clippy-tap-hud">
-          <div class="hud-stat">ROUND <span data-round>0</span>/${totalRounds}</div>
-          <div class="hud-stat">CAUGHT <span data-catches>0</span></div>
+          <div class="hud-stat">LVL <span data-level>1</span>/${TOTAL_LEVELS}</div>
+          <div class="hud-stat">HIT <span data-hits>0</span>/${ROUNDS_PER_LEVEL}</div>
+          <div class="hud-stat" data-phase>EASY</div>
         </div>
         <div class="clippy-game-board" data-board></div>
         <div class="clippy-game-buttons"><button class="clippy-game-btn is-ghost" data-act="quit">Quit</button></div>`;
       ov.querySelector('[data-act="quit"]').addEventListener('click', () => {
-        running = false; if (moveTimer) clearTimeout(moveTimer); closeGameOverlay();
+        running = false;
+        if (moveTimer) clearTimeout(moveTimer);
+        closeGameOverlay();
       });
       const board = ov.querySelector('[data-board]');
       const target = createMiniOrb();
+      target.style.transition = 'transform 0.12s ease';
       board.appendChild(target);
-      const roundEl = ov.querySelector('[data-round]');
-      const catchEl = ov.querySelector('[data-catches]');
-      function windowMs() { return Math.max(450, 1300 - round * 60); }
-      function sizePx()   { return Math.max(54, 100 - round * 3); }
-      function reposition() {
-        const rect = board.getBoundingClientRect();
-        const s = sizePx();
-        target.style.width = s + 'px';
-        target.style.height = s + 'px';
-        const x = Math.random() * Math.max(0, rect.width - s);
-        const y = Math.random() * Math.max(0, rect.height - s);
-        target.style.left = x + 'px';
-        target.style.top = y + 'px';
+      const decoys = [];
+
+      const levelEl = ov.querySelector('[data-level]');
+      const hitsEl  = ov.querySelector('[data-hits]');
+      const phaseEl = ov.querySelector('[data-phase]');
+
+      // Level-based difficulty. First 5 levels are GENTLE — large
+      // target, long reaction window, zero decoys. After that the
+      // curve gets meaningfully tighter at every level.
+      function levelParams(lv) {
+        let windowMs, sizePx, decoyCount, phase;
+        if (lv <= 5) {
+          // EASY phase: 1900 → 1400ms, 115 → 95px
+          windowMs   = 1900 - (lv - 1) * 125;
+          sizePx     = 115  - (lv - 1) * 5;
+          decoyCount = 0;
+          phase      = 'EASY';
+        } else if (lv <= 10) {
+          // MEDIUM phase: 1300 → 850ms, 88 → 70px, decoy from lvl 8
+          windowMs   = 1300 - (lv - 6) * 110;
+          sizePx     = 88   - (lv - 6) * 4;
+          decoyCount = lv >= 8 ? 1 : 0;
+          phase      = 'MEDIUM';
+        } else if (lv <= 15) {
+          // HARD: 780 → 560ms, 64 → 50px, always 1 decoy
+          windowMs   = 780  - (lv - 11) * 55;
+          sizePx     = 64   - (lv - 11) * 3;
+          decoyCount = 1;
+          phase      = 'HARD';
+        } else {
+          // EXTREME: 520 → 380ms, 46 → 38px, 2 decoys
+          windowMs   = 520  - (lv - 16) * 35;
+          sizePx     = 46   - (lv - 16) * 2;
+          decoyCount = 2;
+          phase      = 'EXTREME';
+        }
+        return { windowMs, sizePx, decoyCount, phase };
       }
-      function nextRound() {
-        round++;
-        if (round > totalRounds) {
-          if (moveTimer) clearTimeout(moveTimer);
-          running = false;
-          showGameResult('catch', catches, { stats: [
-            { label: 'Hit rate', value: Math.round((catches / totalRounds) * 100) + '%' },
-          ] });
+
+      function clearDecoys() {
+        for (const d of decoys) { try { d.remove(); } catch (_) {} }
+        decoys.length = 0;
+      }
+
+      function makeDecoy(sz) {
+        const d = document.createElement('div');
+        d.className = 'clippy-tap-target clippy-decoy';
+        // Decoys are visually similar but slightly dimmed + tinted red
+        d.style.width = sz + 'px';
+        d.style.height = sz + 'px';
+        d.style.position = 'absolute';
+        d.style.borderRadius = '50%';
+        d.style.background = 'radial-gradient(circle, rgba(255,140,140,0.85) 35%, rgba(180,60,60,0.6) 80%)';
+        d.style.boxShadow = '0 0 8px rgba(255,80,80,0.5)';
+        d.style.cursor = 'pointer';
+        d.addEventListener('click', () => {
+          if (!running) return;
+          // Tapping a decoy = miss penalty (counts as missed round)
+          d.classList.add('is-tapped');
+          playPitch(180, 0.08, 'square');
+          try { feel('surprise', 0.10); feel('disgust', 0.05); } catch(_){}
+          nextRound(false); // explicit miss
+        });
+        board.appendChild(d);
+        return d;
+      }
+
+      function reposition() {
+        const params = levelParams(level);
+        const rect = board.getBoundingClientRect();
+        // Real target
+        target.style.width  = params.sizePx + 'px';
+        target.style.height = params.sizePx + 'px';
+        target.style.left = (Math.random() * Math.max(0, rect.width  - params.sizePx)) + 'px';
+        target.style.top  = (Math.random() * Math.max(0, rect.height - params.sizePx)) + 'px';
+        // Decoys
+        clearDecoys();
+        for (let i = 0; i < params.decoyCount; i++) {
+          const d = makeDecoy(params.sizePx);
+          d.style.left = (Math.random() * Math.max(0, rect.width  - params.sizePx)) + 'px';
+          d.style.top  = (Math.random() * Math.max(0, rect.height - params.sizePx)) + 'px';
+          decoys.push(d);
+        }
+      }
+
+      function nextRound(hit) {
+        if (moveTimer) clearTimeout(moveTimer);
+        // Score the round we just finished (if there was one)
+        if (roundInLevel > 0) {
+          if (hit) hitsThisLevel++;
+        }
+        // Did we just finish a level?
+        if (roundInLevel >= ROUNDS_PER_LEVEL) {
+          finishLevel();
           return;
         }
-        roundEl.textContent = round;
+        roundInLevel++;
+        hitsEl.textContent = hitsThisLevel;
         reposition();
-        if (moveTimer) clearTimeout(moveTimer);
-        moveTimer = setTimeout(nextRound, windowMs());
+        const params = levelParams(level);
+        moveTimer = setTimeout(() => nextRound(false), params.windowMs);
       }
+
+      function finishLevel() {
+        const passed = hitsThisLevel >= PASS_THRESHOLD;
+        // Show a brief banner
+        const banner = document.createElement('div');
+        banner.className = 'clippy-game-level-banner';
+        banner.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);' +
+          'padding:14px 22px;border-radius:14px;font-weight:700;font-size:18px;' +
+          'background:rgba(0,0,0,0.85);color:#fff;z-index:10;';
+        if (passed) {
+          banner.textContent = `LEVEL ${level} CLEARED — ${hitsThisLevel}/5`;
+          banner.style.border = '2px solid #4cb6ff';
+          banner.style.color = '#7fd0ff';
+          try { feel('joy', 0.18); feel('excitement', 0.08); } catch(_){}
+        } else {
+          banner.textContent = `Got ${hitsThisLevel}/5. Need 4 to advance.`;
+          banner.style.border = '2px solid #ffa8c4';
+          banner.style.color = '#ffc8d8';
+          try { feel('sadness', 0.10); feel('anticipation', 0.10); } catch(_){}
+        }
+        board.appendChild(banner);
+        clearDecoys();
+        try { target.style.opacity = '0'; } catch(_){}
+
+        setTimeout(() => {
+          try { banner.remove(); } catch(_){}
+          try { target.style.opacity = '1'; } catch(_){}
+          if (!passed) {
+            // Game over — score = last cleared level
+            running = false;
+            const cleared = level - 1;
+            showGameResult('catch', cleared, {
+              stats: [
+                { label: 'Phase reached', value: levelParams(level).phase },
+                { label: 'Final round',   value: `${hitsThisLevel}/5 hits` },
+              ],
+            });
+            return;
+          }
+          // Advance
+          if (level >= TOTAL_LEVELS) {
+            // Beat the game
+            running = false;
+            try { feel('joy', 0.40); feel('excitement', 0.35); feel('trust', 0.10); } catch(_){}
+            showGameResult('catch', TOTAL_LEVELS, {
+              stats: [
+                { label: 'Perfect run',   value: 'all 20 levels' },
+                { label: 'Phase reached', value: 'EXTREME' },
+              ],
+            });
+            return;
+          }
+          level++;
+          roundInLevel = 0;
+          hitsThisLevel = 0;
+          levelEl.textContent = level;
+          hitsEl.textContent  = 0;
+          phaseEl.textContent = levelParams(level).phase;
+          nextRound(false);
+        }, 1400);
+      }
+
       target.addEventListener('click', () => {
         if (!running) return;
-        catches++;
-        catchEl.textContent = catches;
+        if (moveTimer) clearTimeout(moveTimer);
         target.classList.add('is-tapped');
         setTimeout(() => target.classList.remove('is-tapped'), 220);
         playTone('boop');
         spawnParticles({ count: 4, type: 'sparkle' });
-        nextRound();
+        nextRound(true);
       });
+
+      // Initial state + first round
+      phaseEl.textContent = levelParams(1).phase;
       runCountdown(board, () => {
-        nextRound();
-        state.gameCleanupFns = (state.gameCleanupFns || []).concat([() => moveTimer && clearTimeout(moveTimer)]);
+        nextRound(false);
+        state.gameCleanupFns = (state.gameCleanupFns || []).concat([
+          () => moveTimer && clearTimeout(moveTimer),
+          () => clearDecoys(),
+        ]);
       });
     });
   }
@@ -7695,9 +8046,29 @@
       const juice = makeJuice(W, H);
 
       // ─── Difficulty ─────────────────────────────────────────────
-      function gapAt(s)     { return Math.max(100, 170 - s * 1.6); }
-      function speedAt(s)   { return Math.min(3.6, 2.2 + s * 0.026); }
-      function spacingAt(s) { return Math.max(155, 220 - s * 1.7); }
+      // v18.11 — two-stage curves. Linear ramp up to score 50-ish,
+      // then a slower continued ramp toward harder floors. Difficulty
+      // never plateaus.
+      function gapAt(s) {
+        if (s <= 50) return Math.max(100, 170 - s * 1.4);
+        return Math.max(75, 100 - (s - 50) * 0.5);
+      }
+      function speedAt(s) {
+        if (s <= 50) return Math.min(3.6, 2.2 + s * 0.028);
+        return Math.min(5.0, 3.6 + (s - 50) * 0.014);
+      }
+      function spacingAt(s) {
+        if (s <= 40) return Math.max(155, 220 - s * 1.6);
+        return Math.max(130, 155 - (s - 40) * 0.4);
+      }
+      // v18.11 — moving pipes get more common as score climbs.
+      // 0% before score 15. 30% by 15-30. 55% by 30-50. 75% past 50.
+      function oscChanceAt(s) {
+        if (s < 15) return 0;
+        if (s < 30) return 0.30;
+        if (s < 50) return 0.55;
+        return 0.75;
+      }
 
       // ─── Sky palette (day → sunset → night) ─────────────────────
       function skyColors(s) {
@@ -7729,8 +8100,20 @@
       function spawnColumn() {
         const lastScore = columns.length ? Math.max(score, columns.length - 1) : score;
         const GAP = gapAt(lastScore);
-        const gapY = 40 + Math.random() * (GROUND_Y - GAP - 80);
-        const col = { x: nextColumnX, gapY, gap: GAP, scored: false, idx: columns.length };
+        const baseGapY = 40 + Math.random() * (GROUND_Y - GAP - 80);
+        // v18.11 — moving pipes. Probability scales with score. Each
+        // oscillating pipe gets its own amplitude, frequency, phase
+        // so they don't all bob in unison.
+        const oscillate = Math.random() < oscChanceAt(lastScore);
+        const oscAmp   = oscillate ? 18 + Math.random() * 22 : 0;
+        const oscFreq  = 0.0016 + Math.random() * 0.0014;
+        const oscPhase = Math.random() * Math.PI * 2;
+        const col = {
+          x: nextColumnX,
+          gapY: baseGapY, baseGapY,
+          gap: GAP, scored: false, idx: columns.length,
+          oscillate, oscAmp, oscFreq, oscPhase,
+        };
         columns.push(col);
         nextColumnX += spacingAt(lastScore);
         if (score >= 6 && Math.random() < 0.40) {
@@ -7742,8 +8125,10 @@
         if (!started) { started = true; hint.textContent = 'Dodge the columns. Catch the stars.'; }
         birdV = FLAP_V;
         flapPulse = 1;
-        // Thock: low percussive triangle wave — distinctly Flappy
+        // Thock: low percussive triangle wave — distinctly punchy
         playPitch(280, 0.07, 'triangle');
+        // v18.11 — every flap is a small anticipatory beat
+        try { feel('anticipation', 0.015); } catch(_){}
       }
       function restart() {
         birdY = H * 0.42; birdV = 0; birdRot = 0;
@@ -7826,6 +8211,10 @@
         for (let i = columns.length - 1; i >= 0; i--) {
           const c = columns[i];
           c.x -= SCROLL * dt;
+          // v18.11 — moving pipes: shift gapY along a sine wave per column.
+          if (c.oscillate) {
+            c.gapY = c.baseGapY + Math.sin(t * c.oscFreq + c.oscPhase) * c.oscAmp;
+          }
           if (c.x + PILLAR_W < 0) { columns.splice(i, 1); continue; }
 
           // Score the moment the bird passes the column's right edge
@@ -7851,6 +8240,8 @@
               playPitch(523, 0.12, 'triangle');
               setTimeout(() => playPitch(659, 0.12, 'triangle'), 60);
               setTimeout(() => playPitch(784, 0.14, 'triangle'), 120);
+              // v18.11 — milestone = joy + excitement burst
+              try { feel('joy', 0.10); feel('excitement', 0.08); } catch(_){}
             }
           }
           // Collision
@@ -7862,7 +8253,11 @@
           // Near-miss visual (no score, just feel)
           if (!c.scored && Math.abs((c.x + PILLAR_W) - (BIRD_X - BIRD_R)) < 12) {
             const gapEdge = Math.min(Math.abs(birdY - c.gapY), Math.abs(birdY - (c.gapY + c.gap)));
-            if (gapEdge < 22) nearMissPulse = Math.max(nearMissPulse, 0.9);
+            if (gapEdge < 22) {
+              nearMissPulse = Math.max(nearMissPulse, 0.9);
+              // v18.11 — near miss = surprise spike (small, repeating)
+              try { feel('surprise', 0.04); } catch(_){}
+            }
           }
         }
 
@@ -7914,6 +8309,12 @@
         birdV = -2;
         if (combo > bestCombo) bestCombo = combo;
         combo = 0;
+        // v18.11 — emotion response to death. Higher score = more
+        // disappointment (player was invested). Always a surprise spike.
+        try {
+          feel('surprise', 0.20);
+          feel('sadness',  0.05 + Math.min(0.15, score * 0.004));
+        } catch(_){}
       }
 
       function showDeathOptions() {
@@ -11247,6 +11648,11 @@
     // v18.7 — affective awareness API. Other modules can read this to
     // surface Trajan's read of the room in status panels or the AI brain.
     getAwareness: getAwarenessSnapshot,
+    // v18.11 — emotion API (Plutchik-grounded). External modules
+    // (games, app.js, habits.js) can bump Trajan's emotions via feel()
+    // and read his current state via getEmotions().
+    feel: feel,
+    getEmotions: getEmotionSnapshot,
     // v18.10 — bridge accessor so interests.js can pull from the
     // existing dialog.json knowledge pools (roman_facts, augustus_facts,
     // caligula_facts, trajan_facts, hispania_facts, persian_facts,
