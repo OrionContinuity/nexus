@@ -463,10 +463,7 @@
         </div>
       </div>
     `;
-    document.getElementById('eduTkClose').addEventListener('click', () => {
-      viewingGuideId = null;
-      renderListView();
-    });
+    document.getElementById('eduTkClose').addEventListener('click', closeTakeoverAndReturn);
     document.getElementById('eduTkEdit').addEventListener('click', () => {
       openGuideEditor(guide, guide.category_id);
     });
@@ -486,10 +483,7 @@
           </div>
         </div>
       `;
-      document.getElementById('eduTkClose').addEventListener('click', () => {
-        viewingGuideId = null;
-        renderListView();
-      });
+      document.getElementById('eduTkClose').addEventListener('click', closeTakeoverAndReturn);
       document.getElementById('eduTkEdit').addEventListener('click', () => {
         openGuideEditor(guide, guide.category_id);
       });
@@ -537,10 +531,7 @@
       </div>
     `;
 
-    document.getElementById('eduTkClose').addEventListener('click', () => {
-      viewingGuideId = null;
-      renderListView();
-    });
+    document.getElementById('eduTkClose').addEventListener('click', closeTakeoverAndReturn);
     document.getElementById('eduTkEdit').addEventListener('click', () => {
       openGuideEditor(guide, guide.category_id);
     });
@@ -1195,9 +1186,23 @@
     if (error) throw error;
   }
 
+  // v18.6 — track where the guide viewer was opened FROM so the close
+  // button can return there instead of always dumping the user on the
+  // education list view. Set by openGuideViewer({returnToView:'clean'})
+  // and consumed by the three eduTkClose handlers below.
+  let _returnToView = null;
+
   // Open the takeover viewer directly for a given guide id (called from
   // the cleaning view's 📖 button).
-  async function openGuideViewer(guideId) {
+  //
+  // PARAMS:
+  //   guideId — required, equipment_guides.id (or whatever your guides
+  //             primary key is named in your schema)
+  //   opts.returnToView — optional view name ('clean', 'equipment',
+  //             etc.) to switch back to when the takeover closes.
+  //             When set, the close button calls NX.switchTo(returnView)
+  //             instead of falling through to renderListView().
+  async function openGuideViewer(guideId, opts) {
     // Make sure an educationView exists; if not, navigate
     let view = document.getElementById('educationView');
     if (!view) {
@@ -1208,8 +1213,23 @@
     if (!allGuides.length) await loadAll();
     viewingGuideId = guideId;
     stepIndex = 0;
+    _returnToView = (opts && opts.returnToView) || null;
     if (window.NX && typeof NX.switchTo === 'function') NX.switchTo('education');
     renderTakeover();
+  }
+
+  // Internal helper used by all three eduTkClose handlers. If a
+  // returnToView was set when openGuideViewer was called, switch back
+  // to that view; otherwise fall through to the education list.
+  function closeTakeoverAndReturn() {
+    viewingGuideId = null;
+    const target = _returnToView;
+    _returnToView = null;   // clear so the next visit starts clean
+    if (target && window.NX && typeof NX.switchTo === 'function') {
+      NX.switchTo(target);
+    } else {
+      renderListView();
+    }
   }
 
   async function init() {
