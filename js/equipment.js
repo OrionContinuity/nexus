@@ -9219,7 +9219,7 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
     // The Postgres trigger on dispatch_events INSERT writes a rich "[SYS] call_made"
     // entry to daily_logs automatically — no direct daily_logs insert needed.
     try {
-      await NX.sb.from('dispatch_events').insert({
+      const { data: disp, error: dispErr } = await NX.sb.from('dispatch_events').insert({
         equipment_id: equipId,
         contractor_node_id: contractorNodeId || null,
         contractor_name: contactName,
@@ -9228,7 +9228,23 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
         issue_description: issue,
         dispatched_by: NX.currentUser?.name || null,
         outcome: 'pending',
-      });
+      }).select('id').single();
+      if (dispErr) throw dispErr;
+
+      // ── DOMAIN ORCHESTRATION ────────────────────────────────────
+      // Back-link this dispatch to any open board card for the equipment
+      // (fills the kanban_cards.dispatch_event_id column that was a
+      // dead schema slot before). Non-fatal.
+      if (disp?.id && NX.domain?.recordDispatch) {
+        try {
+          await NX.domain.recordDispatch({
+            equipmentId: equipId,
+            dispatchEventId: disp.id,
+          });
+        } catch (e) {
+          console.warn('[dispatch] domain hook failed (non-fatal):', e);
+        }
+      }
     } catch (err) { console.warn('dispatch_events log failed:', err); }
     setTimeout(close, 100);
   });
@@ -9916,8 +9932,19 @@ async function approvePmLog(logId, equipmentId) {
       try { await NX.eqBrainSync.syncOne(log.equipment_id); } catch (_) {}
     }
 
+    // 6. v18.4 DOMAIN ORCHESTRATION — archive any "Review PM" board
+    //    cards that were auto-created when the contractor submitted
+    //    via QR. Non-fatal.
+    if (NX.domain?.approvePM) {
+      try {
+        await NX.domain.approvePM({ pmLogId: logId, equipmentId });
+      } catch (e) {
+        console.warn('[approvePmLog] domain hook failed (non-fatal):', e);
+      }
+    }
+
     NX.toast?.('Service log approved ✓', 'success');
-    // 6. Reload the equipment detail to reflect the change
+    // 7. Reload the equipment detail to reflect the change
     await openDetail(equipmentId);
   } catch (err) {
     console.error('[approvePmLog] failed:', err);
@@ -9934,6 +9961,10 @@ async function rejectPmLog(logId, equipmentId) {
       reviewed_by: NX.currentUser?.name || 'Admin',
     }).eq('id', logId);
     if (error) throw error;
+    // v18.4 DOMAIN — also archive any "Review PM" cards for this equipment
+    if (NX.domain?.rejectPM) {
+      try { await NX.domain.rejectPM({ pmLogId: logId, equipmentId }); } catch (_) {}
+    }
     NX.toast?.('Log rejected', 'info');
     await openDetail(equipmentId);
   } catch (err) {
@@ -9951,6 +9982,10 @@ async function markPmSpam(logId, equipmentId) {
       reviewed_by: NX.currentUser?.name || 'Admin',
     }).eq('id', logId);
     if (error) throw error;
+    // v18.4 DOMAIN — also archive any "Review PM" cards for this equipment
+    if (NX.domain?.rejectPM) {
+      try { await NX.domain.rejectPM({ pmLogId: logId, equipmentId }); } catch (_) {}
+    }
     NX.toast?.('Marked as spam', 'info');
     await openDetail(equipmentId);
   } catch (err) {
@@ -10333,6 +10368,35 @@ async function promptNewIssue(equipment) {
       renderIssueTracker();
     }
     NX.toast && NX.toast('Issue reported', 'info', 1200);
+
+    // ── DOMAIN ORCHESTRATION ──────────────────────────────────────
+    // Mirror the issue onto the kanban board. The card is labeled
+    // `issue:<id>` so when it later moves to Done, board.js's domain
+    // hook can mark this row as repaired. Also returns a proposed
+    // equipment.status change (high-priority issue → 'down').
+    if (NX.domain?.recordEquipmentIssue) {
+      try {
+        const res = await NX.domain.recordEquipmentIssue({
+          issueId: data.id,
+          equipmentId: data.equipment_id,
+          title: data.title,
+          description: data.description,
+          priority: 'high',
+        });
+        if (res?.statusProposal) {
+          const p = res.statusProposal;
+          const STATUS_LABEL = { operational: 'Operational', needs_service: 'Needs Service', down: 'Down' };
+          if (confirm(`${p.reason}\n\nMark ${p.equipmentName} as ${STATUS_LABEL[p.suggestedStatus]}?\n(currently: ${STATUS_LABEL[p.currentStatus] || p.currentStatus})`)) {
+            const did = await NX.domain.applyEquipmentStatusChange({
+              equipmentId: p.equipmentId, newStatus: p.suggestedStatus,
+            });
+            if (did) NX.toast?.(`${p.equipmentName}: ${STATUS_LABEL[p.suggestedStatus]}`, 'success', 1300);
+          }
+        }
+      } catch (e) {
+        console.warn('[promptNewIssue] domain hook failed (non-fatal):', e);
+      }
+    }
   } catch (e) {
     console.error('[equipment] promptNewIssue:', e);
     const msg = (e.message || '') + '';
@@ -10372,6 +10436,34 @@ async function transitionIssueTo(issueId, newStatus) {
     renderIssueTracker();
   }
   NX.toast && NX.toast(`Marked ${ISSUE_LIFECYCLE_LABELS[newStatus]}`, 'info', 1100);
+
+  // ── DOMAIN ORCHESTRATION ────────────────────────────────────────
+  // Propose an equipment.status change. The domain layer decides
+  // what makes sense (e.g., 'repaired' + no other open issues →
+  // propose 'operational'). User confirms before any flip happens.
+  // Restricted to operational/needs_service/down — never touches
+  // loaned/relocated/missing/retired/broken.
+  if (NX.domain?.transitionEquipmentIssue) {
+    // Re-fire through the domain transition to get the proposal.
+    // (We already did the DB write above for legacy reasons; the
+    // domain version is idempotent — setting status to the same value
+    // with a fresh timestamp is fine.)
+    try {
+      const res = await NX.domain.transitionEquipmentIssue({ issueId, newStatus });
+      if (res.statusProposal) {
+        const p = res.statusProposal;
+        const STATUS_LABEL = { operational: 'Operational', needs_service: 'Needs Service', down: 'Down' };
+        if (confirm(`${p.reason}\n\nMark ${p.equipmentName} as ${STATUS_LABEL[p.suggestedStatus]}?\n(currently: ${STATUS_LABEL[p.currentStatus] || p.currentStatus})`)) {
+          const did = await NX.domain.applyEquipmentStatusChange({
+            equipmentId: p.equipmentId, newStatus: p.suggestedStatus,
+          });
+          if (did) NX.toast?.(`${p.equipmentName}: ${STATUS_LABEL[p.suggestedStatus]}`, 'success', 1300);
+        }
+      }
+    } catch (e) {
+      console.warn('[equipment] domain transition proposal failed (non-fatal):', e);
+    }
+  }
 }
 
 /** Prompt for ETA datetime then save it on the issue. */
