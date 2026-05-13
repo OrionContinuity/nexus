@@ -176,15 +176,36 @@
       <ellipse class="cl-glint" cx="115" cy="106" rx="1.6" ry="2" fill="#ffffff"/>
     </g>
     <g class="cl-eyes-sad">
-      <ellipse cx="83" cy="106" rx="8.5" ry="9" fill="#04124a"/>
-      <ellipse cx="117" cy="106" rx="8.5" ry="9" fill="#04124a"/>
-      <circle cx="83" cy="110" r="2.5" fill="#020a30"/>
-      <circle cx="117" cy="110" r="2.5" fill="#020a30"/>
-      <circle cx="81.5" cy="108" r="1" fill="#ffffff" opacity="0.7"/>
-      <circle cx="115.5" cy="108" r="1" fill="#ffffff" opacity="0.7"/>
-      <path d="M 72 92 Q 78 90 90 94" stroke="#04124a" stroke-width="2.4" fill="none" stroke-linecap="round"/>
-      <path d="M 128 92 Q 122 90 110 94" stroke="#04124a" stroke-width="2.4" fill="none" stroke-linecap="round"/>
-      <path d="M 91 115 Q 93 119 92 124 Q 89 122 88 117 Z" fill="#7fc8ff" opacity="0.9"/>
+      <!-- v18.10 CHIBI sad — big eyes (same size as default) with droopy
+           upper lids, shimmery lower-lid highlights, and a tiny welling tear.
+           No angry sharp brows. The droopy lid + slight downward iris tilt
+           is what reads as "sad" without making him look mean. -->
+      <!-- Left eye -->
+      <ellipse cx="83" cy="105" rx="10" ry="13" fill="#04124a"/>
+      <ellipse cx="83" cy="105" rx="9"  ry="12" fill="url(#iris-grad)"/>
+      <ellipse cx="83" cy="113" rx="6.5" ry="1.8" fill="#7fc8ff" opacity="0.7"/>
+      <circle  cx="83" cy="108" r="3.5" fill="#020a30"/>
+      <ellipse cx="79.5" cy="100" rx="2.6" ry="3.2" fill="#ffffff"/>
+      <circle  cx="85.8" cy="108" r="1.1" fill="#ffffff" opacity="0.9"/>
+      <!-- Droopy upper lid (covers the top 30% of eye) -->
+      <path d="M 73 99 Q 83 104 93 99 L 93 92 L 73 92 Z" fill="#4cb6ff"/>
+      <path d="M 73 99 Q 83 104 93 99" stroke="#04124a" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <!-- Right eye (mirror) -->
+      <ellipse cx="117" cy="105" rx="10" ry="13" fill="#04124a"/>
+      <ellipse cx="117" cy="105" rx="9"  ry="12" fill="url(#iris-grad)"/>
+      <ellipse cx="117" cy="113" rx="6.5" ry="1.8" fill="#7fc8ff" opacity="0.7"/>
+      <circle  cx="117" cy="108" r="3.5" fill="#020a30"/>
+      <ellipse cx="113.5" cy="100" rx="2.6" ry="3.2" fill="#ffffff"/>
+      <circle  cx="119.8" cy="108" r="1.1" fill="#ffffff" opacity="0.9"/>
+      <path d="M 107 99 Q 117 104 127 99 L 127 92 L 107 92 Z" fill="#4cb6ff"/>
+      <path d="M 107 99 Q 117 104 127 99" stroke="#04124a" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <!-- Sad eyebrows — soft curves above the lids, going DOWN at the outside.
+           This is the classic chibi sad-brow shape. -->
+      <path d="M 70 88 Q 78 84 92 90" stroke="#04124a" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <path d="M 130 88 Q 122 84 108 90" stroke="#04124a" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <!-- Welling tear at outside corner of left eye -->
+      <path d="M 73 113 Q 71 117 72 121 Q 75 119 76 115 Z" fill="#7fc8ff" opacity="0.95"/>
+      <circle cx="73.5" cy="115" r="0.8" fill="#ffffff" opacity="0.9"/>
     </g>
     <g class="cl-eyes-sleepy">
       <path d="M 74 103 Q 83 113 92 103 L 92 105 L 74 105 Z" fill="#04124a"/>
