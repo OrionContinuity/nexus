@@ -41,8 +41,10 @@
   position: fixed;
   bottom: 16px;
   right: 16px;
-  width: 120px;
-  height: 120px;
+  /* v18.10 — slimmed from 120px so he takes less screen real estate.
+     SVG scales automatically via viewBox. */
+  width: 92px;
+  height: 92px;
   pointer-events: auto;
   cursor: grab;
   touch-action: none;
@@ -58,6 +60,54 @@
                     bottom 700ms cubic-bezier(0.34, 1.36, 0.64, 1),
                     right  700ms cubic-bezier(0.34, 1.36, 0.64, 1);
   transition: var(--pos-transition), opacity 280ms ease, filter 200ms ease;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   v18.10 ORBITAL PARTICLES — soft glowing dots that orbit Trajan.
+   Adds visual interest without distracting. Five dots evenly spaced
+   around the shell, each pulsing on a slightly different rhythm so
+   they twinkle in sequence. Container spins once every 22 seconds.
+   ════════════════════════════════════════════════════════════════════ */
+.clippy-orbit {
+  position: absolute;
+  inset: -10px;
+  pointer-events: none;
+  z-index: -1;
+  animation: clippy-orbit-spin 22s linear infinite;
+}
+.clippy-orbital {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #d4ecff 25%, rgba(124, 196, 255, 0.6) 70%, transparent 100%);
+  box-shadow: 0 0 8px rgba(124, 196, 255, 0.75),
+              0 0 14px rgba(92, 176, 255, 0.35);
+}
+.clippy-orbital:nth-child(1) { top: -2px;       left: 50%;       transform: translateX(-50%);
+  animation: clippy-orbital-pulse 2.2s ease-in-out infinite;        }
+.clippy-orbital:nth-child(2) { top: 22%;        right: -2px;
+  animation: clippy-orbital-pulse 2.5s ease-in-out -0.4s infinite;  }
+.clippy-orbital:nth-child(3) { bottom: 14%;     right: 4%;
+  animation: clippy-orbital-pulse 2.8s ease-in-out -0.8s infinite;  }
+.clippy-orbital:nth-child(4) { bottom: 14%;     left: 4%;
+  animation: clippy-orbital-pulse 2.4s ease-in-out -1.2s infinite;  }
+.clippy-orbital:nth-child(5) { top: 22%;        left: -2px;
+  animation: clippy-orbital-pulse 2.6s ease-in-out -1.6s infinite;  }
+@keyframes clippy-orbit-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes clippy-orbital-pulse {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 1;    }
+}
+/* Suppress orbitals when Trajan is hidden/sleeping/sulking — quiet states */
+#clippy-shell.is-hidden     .clippy-orbit,
+#clippy-shell.is-suppressed .clippy-orbit,
+#clippy-shell.is-sleeping   .clippy-orbit,
+#clippy-shell.is-sulking    .clippy-orbit {
+  opacity: 0;
 }
 #clippy-shell.is-dragging {
   cursor: grabbing;
