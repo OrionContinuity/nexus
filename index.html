@@ -2039,29 +2039,64 @@
 
     if (target === 'equipment') return;
 
-    // Fire overlay function with retry budget (10s)
-    const overlayFnName = (target === 'parts') ? 'openParts' : 'openArchiveWorld';
+    // ─── Multi-path overlay invocation ────────────────────────────
+    // The previous fix kept reporting "NX.modules missing" even though
+    // equipment.js had clearly rendered the view (proving NX.modules
+    // was set at some point — something downstream is clearing it).
+    // So we use a 3-tier strategy:
+    //   1. window.__nxOpenParts / __nxOpenArchiveWorld (direct globals
+    //      set by equipment.js, survive NX.modules wipes)
+    //   2. NX.modules.equipment.openParts / openArchiveWorld (legacy
+    //      path, works when NX.modules is intact)
+    //   3. For Parts only: programmatically click #eqToolParts in the
+    //      equipment view, which calls openParts via closure scope.
+    //      Bypasses every namespace; only requires the view to be rendered.
+    const globalKey = (target === 'parts') ? '__nxOpenParts' : '__nxOpenArchiveWorld';
+    const modKey    = (target === 'parts') ? 'openParts'     : 'openArchiveWorld';
     let tries = 0;
-    const MAX_TRIES = 200;
+    const MAX_TRIES = 200;     // 200 × 50ms = 10s budget
     (function fire() {
-      const eq = window.NX && window.NX.modules && window.NX.modules.equipment;
-      const fn = eq && eq[overlayFnName];
-      if (typeof fn === 'function') {
-        console.log('[NXEquipDial] firing ' + overlayFnName + ' after ' + tries + ' tries');
-        try { fn(); }
+      // Path 1: direct window global
+      const direct = window[globalKey];
+      if (typeof direct === 'function') {
+        console.log('[NXEquipDial] firing ' + globalKey + ' (direct global) after ' + tries + ' tries');
+        try { direct(); }
         catch (err) {
-          console.error('[NXEquipDial] ' + overlayFnName + ' threw:', err);
+          console.error('[NXEquipDial] ' + globalKey + ' threw:', err);
           showDialToast(target + ' error: ' + (err.message || 'unknown'));
         }
         return;
       }
+      // Path 2: NX.modules.equipment
+      const eq = window.NX && window.NX.modules && window.NX.modules.equipment;
+      const fn = eq && eq[modKey];
+      if (typeof fn === 'function') {
+        console.log('[NXEquipDial] firing NX.modules.equipment.' + modKey + ' after ' + tries + ' tries');
+        try { fn(); }
+        catch (err) {
+          console.error('[NXEquipDial] ' + modKey + ' threw:', err);
+          showDialToast(target + ' error: ' + (err.message || 'unknown'));
+        }
+        return;
+      }
+      // Path 3 (Parts only): programmatically click the in-view button
+      // which calls openParts via closure inside equipment.js
+      if (target === 'parts') {
+        const partsBtn = document.getElementById('eqToolParts');
+        if (partsBtn) {
+          console.log('[NXEquipDial] firing via #eqToolParts click (closure path) after ' + tries + ' tries');
+          partsBtn.click();
+          return;
+        }
+      }
+      // No path worked yet — keep retrying
       if (tries++ < MAX_TRIES) {
         setTimeout(fire, 50);
       } else {
         const reason = !window.NX ? 'NX missing'
-                     : !window.NX.modules ? 'NX.modules missing'
-                     : !eq ? 'equipment module did not load (10s budget)'
-                     : overlayFnName + ' not in exports';
+                     : !window.NX.modules ? ('NX.modules missing — NX has: ' + Object.keys(window.NX).slice(0,8).join(','))
+                     : !eq ? ('equipment module did not load — modules: ' + Object.keys(window.NX.modules).join(','))
+                     : modKey + ' not in exports — eq keys: ' + Object.keys(eq).slice(0,6).join(',');
         console.error('[NXEquipDial] gave up: ' + reason);
         showDialToast(target + ' failed: ' + reason);
       }
