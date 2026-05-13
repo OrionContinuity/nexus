@@ -4681,7 +4681,12 @@
     // v17.14: shadow as a separate DOM element BEFORE the SVG. Anchored
     // to the bottom of the shell via CSS. Animates independently of body
     // movement so it always reads as "on the ground."
-    shell.innerHTML = '<div class="clippy-shadow"></div>' + svgText + '<div id="clippy-costume-layer"></div>';
+    // v18.10: orbital particle ring — 5 dots that pulse + spin around him.
+    const orbitalLayer = '<div class="clippy-orbit">' +
+      '<span class="clippy-orbital"></span>'.repeat(5) +
+      '</div>';
+    shell.innerHTML = '<div class="clippy-shadow"></div>' + orbitalLayer +
+                      svgText + '<div id="clippy-costume-layer"></div>';
     ensureHost().appendChild(shell);
     state.shell = shell;
     state.svg = shell.querySelector('svg');
@@ -5239,13 +5244,24 @@
     ensureHost().appendChild(el);
     state.bubble = el;
 
-    // autoHide: dismiss bubble after N ms. v17.4 bumps all autoHide
-    // values 1.6× so dialog stays readable longer. A 3.5s bubble now
-    // sticks ~5.6s; a 5.8s Roman fact bubble now sticks ~9.3s.
-    if (typeof opts.autoHide === 'number' && opts.autoHide > 0) {
+    // v18.10 — reading-time-based duration. UX research:
+    //   • Avg adult reads ~250 wpm ≈ 60ms/character
+    //   • +800ms cognitive overhead (fixation, processing)
+    //   • Min 2200ms even for "hi" (people need time to register)
+    //   • Max 10s cap (longer linger feels stale)
+    // Caller's autoHide becomes a MINIMUM — short messages with a long
+    // explicit autoHide still stick around for emphasis. Long messages
+    // get scaled up automatically even if caller passed a small value.
+    function computeBubbleDuration(t) {
+      if (!t) return 3000;
+      return Math.max(2200, Math.min(10000, t.length * 60 + 800));
+    }
+    const computed = computeBubbleDuration(text);
+    const target = Math.max(opts.autoHide || 0, computed);
+    if (target > 0) {
       const hideTimer = setTimeout(() => {
         if (state.bubble === el) closeActionBubble();
-      }, opts.autoHide * 1.6);
+      }, target);
       el._clippyHideTimer = hideTimer;
     }
 
@@ -5485,6 +5501,7 @@
     setTimeout(() => bubble(pickFromPool('after_yes')), 1200);
     startBlinking();
     startRandomBehaviors();
+    startAmbientMoodRotation();   // v18.10 — cycle through chibi expressions
     startMovingAround();
     afterJoinSchedule();
     timeAwareGreeting();
@@ -5552,7 +5569,9 @@
     if (state.randomTimer) clearTimeout(state.randomTimer);
     function loop() {
       if (!state.enabled) return;
-      if (!state.preferences.do_not_disturb && !state.bubble && !state.suppressed && Math.random() < 0.04) {
+      // v18.10 — chat frequency lowered. Was 4% per 90s tick (~2.7%/min).
+      // Now 2% per 120s tick (~1%/min). About 60% less spontaneous chat.
+      if (!state.preferences.do_not_disturb && !state.bubble && !state.suppressed && Math.random() < 0.02) {
         const r = Math.random();
         if      (r < 0.25) bubble(pickFromPool('idle_random'));
         else if (r < 0.35) { play('wobble'); bubble(pickFromPool('sneeze')); }
@@ -5562,9 +5581,43 @@
         else if (r < 0.85) maybeInterestMoment();    // v18.9 — interest-tied
         else               maybeDiscoveryTip();
       }
-      state.randomTimer = setTimeout(loop, 90000);
+      state.randomTimer = setTimeout(loop, 120000);
     }
-    state.randomTimer = setTimeout(loop, 60000);
+    state.randomTimer = setTimeout(loop, 90000);
+  }
+
+  // ─── v18.10 AMBIENT MOOD ROTATION ──────────────────────────────────
+  // Periodically pick a random chibi mood so Trajan visibly cycles through
+  // his full expression library instead of staying on the same 2-3 faces
+  // for the whole session. Fires every 90-180 seconds, skips when there's
+  // an active bubble, sulking, or do-not-disturb. Each pick reverts to
+  // default after 8-14 seconds.
+  const AMBIENT_MOOD_POOL = [
+    'happy', 'sparkle', 'love', 'bashful', 'smitten', 'bunny', 'proud',
+    'pouty', 'eye_roll', 'wink', 'sleepy', 'thinking', 'embarrassed',
+    'kissy', 'laughing', 'super_excited', 'melancholy', 'singing',
+    'tipsy', 'drooling', 'peeved', 'confused', 'disappointed',
+    'singing_star',
+  ];
+  function startAmbientMoodRotation() {
+    if (state.ambientMoodTimer) clearTimeout(state.ambientMoodTimer);
+    function loop() {
+      if (!state.enabled || !state.shell) return;
+      // Skip while user is engaged, sulking, or DND
+      const quiet = state.bubble ||
+                    state.sulkActive ||
+                    (state.preferences && state.preferences.do_not_disturb) ||
+                    state.shell.classList.contains('is-sulking') ||
+                    state.shell.classList.contains('is-sleeping');
+      if (!quiet) {
+        const m = AMBIENT_MOOD_POOL[Math.floor(Math.random() * AMBIENT_MOOD_POOL.length)];
+        try { mood(m, 8000 + Math.random() * 6000); } catch(_) {}
+      }
+      // 90-180s between rotations
+      state.ambientMoodTimer = setTimeout(loop, 90000 + Math.random() * 90000);
+    }
+    // First rotation starts ~45s after init so user sees default first
+    state.ambientMoodTimer = setTimeout(loop, 45000);
   }
 
   // v18.9 — drop a "did you know" / quote / quip tied to one of the
@@ -5609,13 +5662,31 @@
   }
   function maybeTrajanQuote() {
     if (Date.now() < state.quoteCooldownAt) return;
-    if (!state.quoteCorpus.length) return;
-    const intro = pickFromPool('trajan_quote_intro');
-    const quote = state.quoteCorpus[Math.floor(Math.random() * state.quoteCorpus.length)];
+    // v18.10 — prefer interest-tied quote when the current user has
+    // tagged interests. Falls back to the legacy quoteCorpus for users
+    // without tags. Ritual (laurel + concerned mood + magic) preserved.
+    let quote = null, intro = null, glyph = null, label = null;
+    try {
+      if (window.NX && NX.interests && window.app && app.currentUser) {
+        const pick = NX.interests.pickForUser(app.currentUser, 'quote');
+        if (pick && pick.text) {
+          quote = pick.text;
+          glyph = pick.glyph;
+          label = pick.label;
+          intro = `${glyph} ${label.toUpperCase()}`;
+        }
+      }
+    } catch(_){}
+    // Legacy fallback: random from corpus + classic intro pool
+    if (!quote) {
+      if (!state.quoteCorpus.length) return;
+      intro = pickFromPool('trajan_quote_intro');
+      quote = state.quoteCorpus[Math.floor(Math.random() * state.quoteCorpus.length)];
+    }
     setCostumeImg('laurel', 7000);
     mood('concerned', 6000);
     play('magic');
-    actionBubble(quote, { eyebrow: intro, trajan: true, duration: 6000 });
+    actionBubble(quote, { eyebrow: intro, trajan: true, duration: 6500 });
     state.quoteCooldownAt = Date.now() + 1000 * 60 * 30;
   }
   function maybeDiscoveryTip() {
@@ -11169,6 +11240,12 @@
     // v18.7 — affective awareness API. Other modules can read this to
     // surface Trajan's read of the room in status panels or the AI brain.
     getAwareness: getAwarenessSnapshot,
+    // v18.10 — bridge accessor so interests.js can pull from the
+    // existing dialog.json knowledge pools (roman_facts, augustus_facts,
+    // caligula_facts, trajan_facts, hispania_facts, persian_facts,
+    // greek_facts, athens_facts, sparta_facts, battle_facts, etc.).
+    // Returns the pool array or empty array if missing.
+    getDialogPool: (name) => (state.dialog && state.dialog[name]) || [],
     onViewChange: () => {},
     switchAgent: () => {},   // no-op (legacy API, no longer applies)
     enable: () => { state.preferences.enabled = true; savePreferences(); init(); },
