@@ -444,6 +444,26 @@
     return perLoc || perItem || vendor || '(unnamed item)';
   }
 
+  /* Compress a unit string to its shortest natural form for the order
+     email. Catalog units like "3/1 GA" (3 cases of 1 gallon each) become
+     just "ga". Plain units like "CS"/"EA"/"LB" lowercase to "cs"/"ea"/"lb".
+     Empty falls back to "ea".
+
+     Used so the line list reads naturally:
+       5cs sunflower oil          (from unit "CS")
+       1gal red wine vinegar       (from unit "1/1 GA" → "ga")
+       20lbs garlic                (from unit "LBS")
+
+     Whatever the user typed in the catalog flows through directly. */
+  function shortUnit(u) {
+    if (!u) return 'ea';
+    const s = String(u).trim();
+    // "N/M UNIT" pattern → take the part after the slash group
+    const m = s.match(/^\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?\s+(.+)$/);
+    const base = m ? m[1] : s;
+    return base.toLowerCase().replace(/\s+/g, '');
+  }
+
   async function loadOrderById(orderId) {
     if (!NX.sb) return null;
     const { data: order, error } = await NX.sb
@@ -2290,14 +2310,17 @@
 
     const subject = `Issue with order ${orderShortId} — ${locLabel}${delivDate ? ' (' + delivDate + ')' : ''}`;
     const lines = (order.lines || []).filter(l => l.item_name);
-    // Match the order-send email's qty × name layout so the followup
-    // reads like a continuation of the original order. Pack size goes
-    // in parens, prettified the same way.
+    // Match the order-send email's simple {qty}{unit} {name} #{sku} layout
+    // so the followup reads like a continuation of the original order.
+    // Name uses house_name (team name) when present, fallback to item_name.
     const lineList = lines.length
       ? '\n\nItems on this order:\n' + lines.map(l => {
-          const pack = (l.unit || '').trim();
-          const prettyPack = pack ? prettyPackSize(pack).primary : '';
-          return `  [ ] ${l.qty || 0} \u00D7 ${l.item_name}${prettyPack ? ' (' + prettyPack + ')' : ''}`;
+          const name = (l.house_name || '').trim() || l.item_name;
+          const u = shortUnit(l.unit);
+          const sku = (l.vendor_sku || '').trim();
+          let s = `  [ ] ${l.qty || 0}${u} ${name}`;
+          if (sku) s += `  #${sku}`;
+          return s;
         }).join('\n')
       : '';
 
@@ -3838,8 +3861,8 @@ Thanks for your help sorting this out.`;
   }
 
   /* Render a preview of the default email body using sample data, for
-     display in the vendor template editor. Two sample line groups so
-     the user sees how sections look. Doesn't touch live state. */
+     display in the vendor template editor. Sample lines mirror the
+     simple {qty}{unit} {name} #{sku} format used in real emails. */
   function buildDefaultPreview(vendor) {
     const sampleCtx = {
       vendor: vendor.name || 'Vendor',
@@ -3848,15 +3871,12 @@ Thanks for your help sorting this out.`;
       delivery_date: '5/11',
     };
     const sampleLines =
-      `PRODUCE  (2)\n\n` +
-      `  4 \u00D7 Romaine Hearts, 24ct\n` +
-      `      24 \u00D7 1 EA \u00B7 #PFG-12345\n` +
-      `  6 \u00D7 Tomatoes, slicing\n` +
-      `      LB \u00B7 #PFG-67890\n\n` +
-      `DAIRY  (1)\n\n` +
-      `  2 \u00D7 Whole Milk\n` +
-      `      4 \u00D7 1 GA \u00B7 #PFG-22100`;
-    return defaultEmailBody(vendor, sampleCtx, sampleLines, '', 3);
+      `1cs degreaser spray bottles\n` +
+      `1gal red wine vinegar  #RWV-1G\n` +
+      `5cs sunflower oil\n` +
+      `20lbs garlic  #GARLIC-WHL\n` +
+      `1ea leg of prosciutto`;
+    return defaultEmailBody(vendor, sampleCtx, sampleLines, '', 5);
   }
 
   function buildBody(vendor, location, deliveryDate, lines, notes) {
@@ -3878,76 +3898,37 @@ Thanks for your help sorting this out.`;
       .sort((a, b) => (a.section || '').localeCompare(b.section || '') || a.sort_order - b.sort_order);
 
     /* ─────────────────────────────────────────────────────────────────
-       Format the line list.
+       Format the line list — one item per line, simple form:
 
-       Each item gets two lines:
-         {qty} × {name}
-             {pack} · #{sku}
+         {qty}{unit} {team_name_or_vendor_name}  #{sku}
 
-       The two-line shape solves three problems at once:
-         - "7 3/1 GA" was unreadable as a single token (qty merged with
-           pack size). Now they're on separate lines.
-         - SKU in [brackets] looked like a code comment. The # prefix
-           is more invoicing-conventional.
-         - Long item names + long packs + long SKUs no longer wrap
-           awkwardly mid-content because each piece has its own line.
+       Examples:
+         1cs degreaser spray bottles
+         1gal red wine vinegar  #RWV-1G
+         5cs sunflower oil
+         20lbs garlic
 
-       Sections become empty-line-delimited blocks rather than just
-       capitalized labels, giving the eye somewhere to rest in long
-       orders. Item count at the start of each section header helps
-       the vendor verify completeness. The two-space indent on items
-       is a soft visual hierarchy that survives proportional fonts.
+       Name uses team name (per-location override → catalog → vendor's
+       item_name) so the vendor sees the human-friendly label everyone
+       on the team uses internally. SKU appears to the right only when
+       set, prefixed with # for invoice convention. No section headers,
+       no two-line metadata, no per-item notes — just the order list.
        ───────────────────────────────────────────────────────────── */
     let linesText = '';
-    let lastSection = null;
-    let sectionItemCount = 0;
-    let sectionItems = [];
-
-    // Group by section first so we can emit "(N items)" alongside the
-    // header — needs the count before printing items.
-    const groupedBySection = new Map();
-    for (const l of linesArr) {
-      const key = l.section || '__uncategorized__';
-      if (!groupedBySection.has(key)) groupedBySection.set(key, []);
-      groupedBySection.get(key).push(l);
-    }
-
     let totalItemCount = 0;
-    for (const [section, items] of groupedBySection.entries()) {
-      if (section !== '__uncategorized__') {
-        // Blank line before section unless first section
-        if (linesText) linesText += '\n';
-        linesText += `${section.toUpperCase()}  (${items.length})\n\n`;
-      }
-      for (const l of items) {
-        const qty = l.qty;
-        // Run the same pack-size prettifier the on-screen item rows use,
-        // so the email mirrors what the user picked from. Vendor strings
-        // like "3/1 GA" become "3 × 1 GA" — the slash that confused the
-        // user is replaced with a multiplication symbol that makes the
-        // case-of-N structure unambiguous. Singular packs ("1/1 CT")
-        // collapse to just "1 CT".
-        const pack = (l.unit || '').trim();
-        const prettyPack = pack ? prettyPackSize(pack).primary : '';
-        const sku = (l.vendor_sku || '').trim();
-        // Build the meta line — pack and sku each conditional, joined
-        // by middle dot when both present.
-        let metaParts = [];
-        if (prettyPack) metaParts.push(prettyPack);
-        if (sku)        metaParts.push(`#${sku}`);
-        const metaLine = metaParts.join(' \u00B7 ');
-
-        linesText += `  ${qty} \u00D7 ${l.item_name}\n`;
-        if (metaLine) linesText += `      ${metaLine}\n`;
-        // Note (if user added one to this line item) gets its own
-        // indented line below the meta.
-        if (l.note && l.note.trim()) {
-          linesText += `      Note: ${l.note.trim()}\n`;
-        }
-        totalItemCount++;
-      }
+    for (const l of linesArr) {
+      const item = itemById[l.item_id];
+      const parOverride = entryState && entryState.par_overrides && entryState.par_overrides[l.item_id];
+      const name = pickHouseName(item, parOverride);
+      const qty = l.qty;
+      const u = shortUnit(l.unit || (item && item.unit));
+      const sku = (l.vendor_sku || (item && item.vendor_sku) || '').trim();
+      linesText += `${qty}${u} ${name}`;
+      if (sku) linesText += `  #${sku}`;
+      linesText += `\n`;
+      totalItemCount++;
     }
-    linesText = linesText.replace(/\n+$/, '');  // trim trailing blanks
+    linesText = linesText.replace(/\n+$/, '');
 
     // If the vendor has a custom body_template, expand its tokens.
     // Otherwise use the standard hi-team / please-prepare / lines format.
