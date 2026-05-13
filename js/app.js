@@ -1165,49 +1165,6 @@ td.check{background:#F0EDE6 !important}
         }
       }, 80);
     });
-
-    // ─── EQUIP SPEED-DIAL ───────────────────────────────────────────
-    // v18.12 — same pattern as Duties dial above. Was wired by a
-    // bespoke inline IIFE in index.html with a 4.8s retry loop that
-    // tried to call NX.modules.equipment.openParts/openArchiveWorld
-    // directly. That fought a race with lazy-loaded equipment.js and
-    // reportedly didn't work reliably. New approach: persist the
-    // pending action to localStorage, switchTo('equipment') which
-    // triggers the lazy load through the normal path, and equipment.js
-    // reads the pending action when it initializes/renders. Identical
-    // pattern to Duties dial, which Orion confirms works.
-    const equipBtn  = document.querySelector('.bnav-btn[data-equip-dial]');
-    const equipDial = document.getElementById('equipDial');
-    bindSpeedDial(equipBtn, equipDial, (target) => {
-      // 'equipment' target — user already arriving at equipment view
-      // via the underlying nav handler. No special action needed.
-      if (target === 'equipment') {
-        switchTo('equipment');
-        return;
-      }
-      // Parts / Archive — persist first so equipment.js can pick up
-      // the pending action when it loads. The persist + switchTo
-      // combo works regardless of load order: if equipment.js is
-      // already loaded, our setTimeout fires the overlay directly;
-      // if it isn't, init() picks up the localStorage value when it
-      // does load.
-      try { localStorage.setItem('nexus_equip_pending_action', target); } catch(_){}
-      switchTo('equipment');
-      // If equipment.js is already loaded (re-tap of dial after first
-      // navigation), init() won't re-run — push state manually.
-      setTimeout(() => {
-        const eq = NX.modules && NX.modules.equipment;
-        if (!eq) return;
-        try {
-          if (target === 'parts' && typeof eq.openParts === 'function') eq.openParts();
-          else if (target === 'archive' && typeof eq.openArchiveWorld === 'function') eq.openArchiveWorld();
-          // Clear once consumed so it doesn't fire again on next nav
-          try { localStorage.removeItem('nexus_equip_pending_action'); } catch(_){}
-        } catch (err) {
-          console.error('[equipDial] action threw:', err);
-        }
-      }, 120);
-    });
     // ──────────────────────────────────────────────────────────────────
     // ─── DEFAULT LANDING VIEW: Home ──────────────────────────────────
     // The first thing after login is the Home dashboard (mini-galaxy,
