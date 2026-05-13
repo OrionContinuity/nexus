@@ -1967,92 +1967,83 @@
 </div>
 
 <!-- ════════════════════════════════════════════════════════════════════
-     EQUIP FAB DIAL — direct inline wiring. v18.13 complete rewrite.
-     History: was wired through bindSpeedDial + closure-captured switchTo
-     + localStorage relay + buildUI pending-action lookup. Multiple layers
-     of abstraction, multiple races, didn't work. This version: zero
-     abstraction. Each dial button has an inline onclick that calls
-     window.NXEquipDial(target). The function does the navigation and
-     overlay-opening directly with a long retry budget and visible
-     failure paths.
+     EQUIP FAB DIAL — v18.14 nuclear. Three redundant mechanisms:
+       1. window.NXEquipDial function for inline onclick attrs
+       2. Document-level click delegation in CAPTURE phase (fires before
+          any other handler, regardless of stopPropagation downstream)
+       3. Self-contained on-screen toast that proves wiring works even
+          if no other framework is available
+     The first tap shows a confirmation toast so you can SEE the dial
+     fired. Suppressed after first confirmation via localStorage flag.
      ════════════════════════════════════════════════════════════════════ -->
 <script>
 (function () {
   'use strict';
 
-  // ─── Open dial when user taps the Equip nav button ───────────────
-  // Runs on DOMContentLoaded since the bottom nav exists in static HTML.
-  function wireTrigger() {
-    const dial = document.getElementById('equipDial');
-    const btn  = document.querySelector('.bnav-btn[data-equip-dial]');
-    if (!dial || !btn) return;
-    btn.addEventListener('click', function (e) {
-      // Open the dial. The button ALSO carries data-view="equipment"
-      // so app.js's setupNav will simultaneously switchTo('equipment'),
-      // beginning the lazy load. Both behaviors run in parallel.
-      // Tiny delay so view-switch begins painting before the dial slides in.
-      setTimeout(function () {
-        dial.classList.add('is-open');
-        dial.setAttribute('aria-hidden', 'false');
-      }, 30);
-    });
-    // Backdrop tap dismisses
-    const backdrop = dial.querySelector('[data-dial-close]');
-    if (backdrop) {
-      backdrop.addEventListener('click', function () {
-        dial.classList.remove('is-open');
-        dial.setAttribute('aria-hidden', 'true');
-      });
+  // ─── Self-contained on-screen toast (no framework dependency) ────
+  // Shows above the bottom nav with the gold border so it can't be
+  // missed visually. Auto-dismisses after 4 seconds.
+  function showDialToast(msg) {
+    let el = document.getElementById('nx-dial-debug-toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'nx-dial-debug-toast';
+      el.style.cssText = 'position:fixed;bottom:100px;left:50%;transform:translateX(-50%);' +
+        'background:rgba(20,20,30,0.95);color:#fff;padding:12px 18px;border-radius:12px;' +
+        'font:14px system-ui,sans-serif;z-index:999999;border:2px solid #d4a44e;' +
+        'max-width:80vw;text-align:center;transition:opacity 400ms ease;';
+      document.body.appendChild(el);
     }
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', wireTrigger);
-  } else {
-    wireTrigger();
+    el.textContent = msg;
+    el.style.opacity = '1';
+    clearTimeout(el._hide);
+    el._hide = setTimeout(function () { el.style.opacity = '0'; }, 4000);
   }
 
-  // ─── The action handler — called by inline onclick on each button ─
-  // Defined on `window` so the inline `onclick="window.NXEquipDial(...)"`
-  // attributes can find it. Defensive about every step — if anything is
-  // missing we log + show a visible alert so failures are obvious.
-  window.NXEquipDial = function NXEquipDial(target, event) {
-    if (event) { try { event.stopPropagation(); } catch (_) {} }
+  // ─── The action handler ──────────────────────────────────────────
+  // Called from THREE places: inline onclick (legacy), document
+  // delegation (capture phase), and direct window.NXEquipDial calls.
+  function handleDialAction(target) {
     console.log('[NXEquipDial] tap:', target);
 
-    // 1. Close the dial immediately so the UI feels responsive
+    // First-tap confirmation. Once Orion sees this once, the localStorage
+    // flag suppresses it forever. Proves the wiring works visually.
+    try {
+      if (!localStorage.getItem('nx_dial_confirmed')) {
+        showDialToast('✓ Dial works: ' + target);
+        localStorage.setItem('nx_dial_confirmed', '1');
+      }
+    } catch (_) {}
+
+    // Close the dial
     const dial = document.getElementById('equipDial');
     if (dial) {
       dial.classList.remove('is-open');
       dial.setAttribute('aria-hidden', 'true');
     }
 
-    // 2. Navigate to equipment view. Prefer NX.switchTo (exposed by
-    //    app.js's setupNav). Fall back to clicking the nav tab.
-    function gotoEquipment() {
-      if (window.NX && typeof window.NX.switchTo === 'function') {
-        try { window.NX.switchTo('equipment'); return true; } catch (_) {}
-      }
+    // Navigate to equipment view (multiple fallbacks)
+    let navigated = false;
+    if (window.NX && typeof window.NX.switchTo === 'function') {
+      try { window.NX.switchTo('equipment'); navigated = true; } catch (_) {}
+    }
+    if (!navigated) {
       const tab = document.querySelector('.nav-tab[data-view="equipment"]')
                || document.querySelector('.bnav-btn[data-view="equipment"]');
-      if (tab) { tab.click(); return true; }
-      return false;
+      if (tab) { tab.click(); navigated = true; }
     }
-
-    // 3. Equipment-only target: just navigate, no overlay
-    if (target === 'equipment') {
-      gotoEquipment();
+    if (!navigated) {
+      showDialToast('Cannot navigate to Equipment view');
       return;
     }
 
-    // 4. Parts / Archive: navigate first, then fire overlay function
-    //    with a long retry budget. Equipment.js may need a few seconds
-    //    on first load, including its phase-2 dependencies.
-    gotoEquipment();
+    if (target === 'equipment') return;
 
+    // Fire overlay function with retry budget (10s)
     const overlayFnName = (target === 'parts') ? 'openParts' : 'openArchiveWorld';
     let tries = 0;
-    const MAX_TRIES = 200;     // 200 × 50ms = 10s budget
-    function fire() {
+    const MAX_TRIES = 200;
+    (function fire() {
       const eq = window.NX && window.NX.modules && window.NX.modules.equipment;
       const fn = eq && eq[overlayFnName];
       if (typeof fn === 'function') {
@@ -2060,33 +2051,67 @@
         try { fn(); }
         catch (err) {
           console.error('[NXEquipDial] ' + overlayFnName + ' threw:', err);
-          if (window.NX && window.NX.toast) {
-            window.NX.toast(target + ': ' + (err && err.message || 'error'), 'error', 4000);
-          } else {
-            alert(target + ' failed: ' + (err && err.message || 'unknown'));
-          }
+          showDialToast(target + ' error: ' + (err.message || 'unknown'));
         }
         return;
       }
       if (tries++ < MAX_TRIES) {
         setTimeout(fire, 50);
       } else {
-        // Diagnose exactly why we gave up
-        const reason = !window.NX                ? 'window.NX missing'
-                     : !window.NX.modules        ? 'NX.modules missing'
-                     : !eq                       ? 'NX.modules.equipment missing (equipment.js did not load)'
-                     :                              overlayFnName + ' not in NX.modules.equipment exports';
-        console.error('[NXEquipDial] gave up after ' + MAX_TRIES + ' tries — ' + reason);
-        if (window.NX && window.NX.toast) {
-          window.NX.toast(target + ' failed: ' + reason, 'error', 6000);
-        } else {
-          alert(target + ' failed:\n' + reason);
-        }
+        const reason = !window.NX ? 'NX missing'
+                     : !window.NX.modules ? 'NX.modules missing'
+                     : !eq ? 'equipment module did not load (10s budget)'
+                     : overlayFnName + ' not in exports';
+        console.error('[NXEquipDial] gave up: ' + reason);
+        showDialToast(target + ' failed: ' + reason);
       }
-    }
-    // Start trying 50ms after navigation so the view-switch can begin
-    setTimeout(fire, 50);
+    })();
+  }
+
+  // ─── Mechanism 1: Window function for inline onclick ─────────────
+  window.NXEquipDial = function NXEquipDial(target, event) {
+    if (event) { try { event.stopPropagation(); } catch (_) {} }
+    handleDialAction(target);
   };
+
+  // ─── Mechanism 2: Document-level CAPTURE delegation ──────────────
+  // Fires before any bubble-phase handler, regardless of what other
+  // scripts try to intercept. Works even if the inline onclick attrs
+  // are missing from cached HTML.
+  document.addEventListener('click', function (e) {
+    const action = e.target.closest && e.target.closest('.nx-speed-dial-action');
+    if (!action) return;
+    const dial = action.closest('#equipDial');
+    if (!dial) return;
+    // Support BOTH new (data-target) and old (data-equip-target) markup
+    const target = action.dataset.target || action.dataset.equipTarget;
+    if (!target) return;
+    e.preventDefault();
+    handleDialAction(target);
+  }, true /* capture phase */);
+
+  // ─── Trigger: open dial when Equip nav button is tapped ──────────
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest && e.target.closest('.bnav-btn[data-equip-dial]');
+    if (!btn) return;
+    setTimeout(function () {
+      const dial = document.getElementById('equipDial');
+      if (dial) {
+        dial.classList.add('is-open');
+        dial.setAttribute('aria-hidden', 'false');
+      }
+    }, 30);
+  });
+
+  // ─── Backdrop dismiss ────────────────────────────────────────────
+  document.addEventListener('click', function (e) {
+    const close = e.target.closest && e.target.closest('[data-dial-close]');
+    if (!close) return;
+    const d = close.closest('.nx-speed-dial');
+    if (!d) return;
+    d.classList.remove('is-open');
+    d.setAttribute('aria-hidden', 'true');
+  });
 })();
 </script>
 
