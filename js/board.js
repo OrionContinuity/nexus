@@ -1312,6 +1312,15 @@ async function moveCard(card, targetList){
     if (movingToDone && wasNotDone && card.cleaning_link_location && card.cleaning_link_section) {
       closeOutCleaningSection(card);
     }
+    // If this card is linked to an equipment_issues row (via the
+    // labels sentinel `issue:<uuid>`), mark that issue as repaired so
+    // the equipment detail's issue tracker reflects reality. Fully
+    // handled inside the domain layer — fire-and-forget here.
+    if (movingToDone && wasNotDone && NX.domain?.resolveEquipmentIssue) {
+      NX.domain.resolveEquipmentIssue({ card }).catch(e => {
+        console.warn('[board] resolveEquipmentIssue hook failed:', e);
+      });
+    }
   }catch(e){
     console.error('[board] moveCard:', e);
     // Revert
@@ -1464,6 +1473,29 @@ async function openCardDetail(card){
         <div id="bEqEmbed"><!-- populated async --></div>
       </div>
 
+      <!-- ── Issue Lifecycle (v18.5) ────────────────────────────────
+           Shown only when the card has an issue:UUID label, i.e.
+           it's linked to an equipment_issues row. Surfaces the same
+           timeline equipment view shows, but lets you drive it from
+           the board. Populated async by renderIssueTimeline(). -->
+      <div class="b-section" id="bIssueSection" style="display:none">
+        <div class="b-section-label" id="bIssueLabel">Issue Lifecycle</div>
+        <div id="bIssueTimeline"><!-- populated async --></div>
+      </div>
+
+      <!-- ── Repair Attempts (v18.5) ────────────────────────────────
+           Shown when the card has an equipment_id. Lists dispatch_events
+           for the equipment with method, contractor, outcome, notes,
+           and per-attempt action buttons. Populated async by
+           renderRepairAttempts(). -->
+      <div class="b-section" id="bAttemptsSection" style="display:none">
+        <div class="b-section-label">
+          Repair Attempts
+          <button type="button" class="b-tr-btn" id="bAddAttempt" title="Log a new repair attempt"><i data-lucide="plus" class="b-btn-icon"></i> Add</button>
+        </div>
+        <div id="bAttempts"><!-- populated async --></div>
+      </div>
+
       <div class="b-section">
         <div class="b-section-label">Photos</div>
         <div class="b-photos" id="bPhotos">
@@ -1584,6 +1616,17 @@ async function openCardDetail(card){
 
   // Equipment embed (async — fetches the equipment row)
   renderEquipmentEmbed(card, bg.querySelector('#bEqEmbed'));
+
+  // Issue lifecycle timeline (v18.5 — only if card links to an
+  // equipment_issue via `issue:<uuid>` label). Loads the issue row
+  // and renders the 6-step ordering-style timeline. Tap a step to
+  // advance; "Reopen" button appears once status === 'repaired'.
+  renderIssueTimeline(card, bg);
+
+  // Repair Attempts (v18.5 — dispatch_events for the linked equipment).
+  // Each row shows method, contractor, outcome, notes, photos +
+  // per-row "Mark resolved" / "Mark failed" buttons.
+  renderRepairAttempts(card, bg);
 
   // Parts BOM picker (async — fetches the equipment's bill of
   // materials so the user can quick-pick from real parts instead of
@@ -2581,6 +2624,443 @@ async function getOpenCardsForEquipment(equipmentId){
     return [];
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// v18.5 — Issue Lifecycle Timeline + Repair Attempts
+// ═══════════════════════════════════════════════════════════════════════
+//
+// These two functions populate the new sections in openCardDetail():
+//
+//   - renderIssueTimeline(card, bg)   → reads `issue:<uuid>` from
+//                                       card.labels, fetches the
+//                                       equipment_issues row, renders
+//                                       a 6-step ordering-style timeline
+//                                       and wires tap-to-advance +
+//                                       Reopen button.
+//
+//   - renderRepairAttempts(card, bg)  → fetches the last N dispatch_events
+//                                       for card.equipment_id, renders
+//                                       each as a card with Mark Resolved
+//                                       / Mark Failed buttons.
+//
+// All status-change ripples (equipment.status proposals) go through
+// the domain layer. Board.js just collects the user's confirmation.
+// ═══════════════════════════════════════════════════════════════════════
+
+const ISSUE_LIFECYCLE_LABELS_B = {
+  reported:           'Reported',
+  contractor_called:  'Called',
+  eta_set:            'ETA Set',
+  in_progress:        'In Progress',
+  awaiting_parts:     'Parts',
+  repaired:           'Repaired',
+};
+const ISSUE_LIFECYCLE_STEPS_B = ['reported', 'contractor_called', 'eta_set', 'in_progress', 'awaiting_parts', 'repaired'];
+
+function issueTsForStep(issue, step) {
+  if (!issue) return null;
+  switch (step) {
+    case 'reported':           return issue.reported_at;
+    case 'contractor_called':  return issue.contractor_called_at;
+    case 'eta_set':            return issue.eta_set_at;
+    case 'in_progress':        return issue.in_progress_at;
+    case 'awaiting_parts':     return issue.awaiting_parts_at;
+    case 'repaired':           return issue.repaired_at;
+    default:                   return null;
+  }
+}
+
+function fmtIssueTs(ts) {
+  if (!ts) return '';
+  try {
+    const d = new Date(ts);
+    const now = new Date();
+    const sameYear = d.getFullYear() === now.getFullYear();
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+  } catch (_) { return ''; }
+}
+
+function extractIssueIdFromLabels(labels) {
+  if (!Array.isArray(labels)) return null;
+  for (const l of labels) {
+    if (typeof l === 'string' && l.startsWith('issue:')) return l.slice(6);
+  }
+  return null;
+}
+
+async function renderIssueTimeline(card, bg) {
+  const issueId = extractIssueIdFromLabels(card.labels);
+  const sect = bg.querySelector('#bIssueSection');
+  const host = bg.querySelector('#bIssueTimeline');
+  if (!sect || !host) return;
+  if (!issueId) {
+    sect.style.display = 'none';
+    return;
+  }
+
+  // Fetch the linked issue
+  let issue;
+  try {
+    const { data, error } = await NX.sb.from('equipment_issues')
+      .select('*').eq('id', issueId).maybeSingle();
+    if (error) throw error;
+    issue = data;
+  } catch (e) {
+    console.warn('[board] renderIssueTimeline fetch failed:', e?.message || e);
+  }
+  if (!issue) {
+    sect.style.display = 'none';
+    return;
+  }
+
+  sect.style.display = '';
+  const currentIdx = ISSUE_LIFECYCLE_STEPS_B.indexOf(issue.status);
+
+  function paint() {
+    const idx = ISSUE_LIFECYCLE_STEPS_B.indexOf(issue.status);
+    const stepsHtml = ISSUE_LIFECYCLE_STEPS_B.map((s, i) => {
+      const reached = i <= idx;
+      const isCurrent = i === idx;
+      const ts = reached ? fmtIssueTs(issueTsForStep(issue, s)) : '';
+      const cls = ['b-il-step'];
+      if (reached) cls.push('is-reached');
+      if (isCurrent) cls.push('is-current');
+      return `
+        <div class="${cls.join(' ')}" data-step="${esc(s)}" role="button" aria-label="Advance to ${esc(ISSUE_LIFECYCLE_LABELS_B[s])}">
+          <div class="b-il-marker">${reached ? '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}</div>
+          <div class="b-il-text">
+            <div class="b-il-label">${esc(ISSUE_LIFECYCLE_LABELS_B[s])}</div>
+            ${ts ? `<div class="b-il-ts">${esc(ts)}</div>` : ''}
+          </div>
+        </div>
+        ${i < ISSUE_LIFECYCLE_STEPS_B.length - 1 ? `<div class="b-il-bar ${i < idx ? 'is-reached' : ''}"></div>` : ''}
+      `;
+    }).join('');
+
+    const reopenBtn = issue.status === 'repaired'
+      ? `<button class="b-btn b-il-reopen" id="bIssueReopen"><i data-lucide="rotate-ccw" class="b-btn-icon"></i> Reopen / Continue</button>`
+      : '';
+
+    host.innerHTML = `
+      <div class="b-il-timeline">${stepsHtml}</div>
+      <div class="b-il-actions">${reopenBtn}</div>
+    `;
+    if (window.lucide) try { lucide.createIcons(); } catch (_) {}
+
+    // Wire taps on steps. Forward-advance only (can't tap backward
+    // except via Reopen). Tap a future step → advances issue to that
+    // status, then proposes equipment.status change.
+    host.querySelectorAll('.b-il-step').forEach(stepEl => {
+      stepEl.addEventListener('click', async () => {
+        const target = stepEl.getAttribute('data-step');
+        const targetIdx = ISSUE_LIFECYCLE_STEPS_B.indexOf(target);
+        if (targetIdx <= idx) return;                // can't go backward via tap
+        if (!confirm(`Mark issue as "${ISSUE_LIFECYCLE_LABELS_B[target]}"?`)) return;
+        stepEl.classList.add('is-loading');
+        try {
+          const res = await NX.domain.transitionEquipmentIssue({
+            issueId: issue.id, newStatus: target,
+          });
+          if (!res.ok) { NX.toast?.('Could not advance issue', 'error'); return; }
+          issue = res.issue;
+          paint();
+          await maybeApplyProposal(res.statusProposal);
+          NX.toast?.(`Marked ${ISSUE_LIFECYCLE_LABELS_B[target]}`, 'info', 1100);
+        } finally {
+          stepEl.classList.remove('is-loading');
+        }
+      });
+    });
+
+    // Reopen button
+    const reopen = host.querySelector('#bIssueReopen');
+    if (reopen) reopen.addEventListener('click', () => openReopenPicker(issue, paint));
+  }
+  paint();
+}
+
+// Modal asking "Same issue continued, or new problem?"
+function openReopenPicker(issue, repaintTimeline) {
+  const m = document.createElement('div');
+  m.className = 'b-modal-bg b-modal-bg-stack';
+  m.innerHTML = `
+    <div class="b-modal b-modal-narrow">
+      <div class="b-modal-head">
+        <div class="b-modal-title-static">Reopen this ticket?</div>
+        <button class="b-modal-close">✕</button>
+      </div>
+      <div class="b-modal-body">
+        <div class="b-il-reopen-hint">What's happening with this equipment?</div>
+        <div class="b-il-reopen-options">
+          <button class="b-il-reopen-opt" data-mode="continue">
+            <div class="b-il-reopen-opt-title">It broke again — same issue</div>
+            <div class="b-il-reopen-opt-sub">Continue this ticket. Past attempts stay as history. Status goes back to "In Progress".</div>
+          </button>
+          <button class="b-il-reopen-opt" data-mode="newProblem">
+            <div class="b-il-reopen-opt-title">It's a different problem</div>
+            <div class="b-il-reopen-opt-sub">Keep this ticket closed. Start a fresh ticket for the new issue.</div>
+          </button>
+        </div>
+        <div id="bReopenNewForm" style="display:none">
+          <input class="b-field" id="bReopenNewTitle" placeholder="What's the new problem? (brief title)" style="margin-bottom:6px">
+          <textarea class="b-field" id="bReopenNewDesc" rows="2" placeholder="More details (optional)"></textarea>
+          <button class="b-btn b-btn-primary" id="bReopenNewSubmit" style="margin-top:8px;width:100%">Create new ticket</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  const close = () => m.remove();
+  m.querySelector('.b-modal-close').addEventListener('click', close);
+  m.addEventListener('click', e => { if (e.target === m) close(); });
+
+  m.querySelectorAll('.b-il-reopen-opt').forEach(opt => {
+    opt.addEventListener('click', async () => {
+      const mode = opt.getAttribute('data-mode');
+      if (mode === 'continue') {
+        if (!confirm('Continue this ticket and reopen for more work?')) return;
+        const res = await NX.domain.reopenEquipmentIssue({ issueId: issue.id, mode: 'continue' });
+        if (!res.ok) { NX.toast?.('Could not reopen', 'error'); return; }
+        // Update local issue copy to the new state
+        Object.assign(issue, res.issue);
+        await maybeApplyProposal(res.statusProposal);
+        NX.toast?.('Ticket reopened', 'info', 1200);
+        close();
+        if (repaintTimeline) repaintTimeline();
+      } else if (mode === 'newProblem') {
+        const form = m.querySelector('#bReopenNewForm');
+        form.style.display = '';
+        m.querySelector('#bReopenNewTitle')?.focus();
+      }
+    });
+  });
+
+  m.querySelector('#bReopenNewSubmit')?.addEventListener('click', async () => {
+    const newTitle = m.querySelector('#bReopenNewTitle').value.trim();
+    if (!newTitle) { NX.toast?.('Need a title', 'error'); return; }
+    const newDescription = m.querySelector('#bReopenNewDesc').value.trim();
+    const res = await NX.domain.reopenEquipmentIssue({
+      issueId: issue.id, mode: 'newProblem', newTitle, newDescription,
+    });
+    if (!res.ok) { NX.toast?.('Could not create new ticket', 'error'); return; }
+    await maybeApplyProposal(res.statusProposal);
+    NX.toast?.('New ticket created on board', 'success');
+    close();
+    // Refresh board so the new card is visible
+    try { await loadCards(); render(); } catch (_) {}
+  });
+}
+
+// Show a confirm() for a domain-proposed equipment.status change.
+// If user accepts, calls applyEquipmentStatusChange. The proposal
+// object carries equipmentId (set by computeProposedEquipmentStatus).
+async function maybeApplyProposal(proposal) {
+  if (!proposal || !proposal.equipmentId) return;
+  const { suggestedStatus, reason, equipmentName, currentStatus, equipmentId } = proposal;
+  const STATUS_LABEL = {
+    operational:    'Operational',
+    needs_service:  'Needs Service',
+    down:           'Down',
+  };
+  const ok = confirm(
+    `${reason}\n\n` +
+    `Mark ${equipmentName} as ${STATUS_LABEL[suggestedStatus] || suggestedStatus}?\n` +
+    `(currently: ${STATUS_LABEL[currentStatus] || currentStatus})`
+  );
+  if (!ok) return;
+  const did = await NX.domain.applyEquipmentStatusChange({
+    equipmentId, newStatus: suggestedStatus,
+  });
+  if (did) NX.toast?.(`${equipmentName}: ${STATUS_LABEL[suggestedStatus]}`, 'success', 1300);
+}
+
+// ─── Repair Attempts ──────────────────────────────────────────────────
+const DISPATCH_METHOD_ICON = {
+  call:      'phone',
+  text:      'message-square',
+  email:     'mail',
+  in_house:  'wrench',
+};
+const DISPATCH_OUTCOME_LABEL = {
+  pending:   'Pending',
+  resolved:  'Resolved',
+  failed:    'Failed',
+  no_answer: 'No answer',
+};
+
+async function renderRepairAttempts(card, bg) {
+  const sect = bg.querySelector('#bAttemptsSection');
+  const host = bg.querySelector('#bAttempts');
+  if (!sect || !host) return;
+  if (!card.equipment_id) {
+    sect.style.display = 'none';
+    return;
+  }
+  sect.style.display = '';
+  host.innerHTML = '<div class="b-attempts-loading">Loading attempts…</div>';
+
+  let attempts = [];
+  try {
+    const { data } = await NX.sb.from('dispatch_events')
+      .select('id, equipment_id, contractor_name, contractor_phone, method, issue_description, dispatched_by, outcome, outcome_notes, dispatched_at, responded_at, photo_urls')
+      .eq('equipment_id', card.equipment_id)
+      .order('dispatched_at', { ascending: false })
+      .limit(8);
+    attempts = data || [];
+  } catch (e) {
+    // photo_urls column may not exist yet — retry without
+    if (/photo_urls/i.test(e?.message || '')) {
+      try {
+        const { data } = await NX.sb.from('dispatch_events')
+          .select('id, equipment_id, contractor_name, contractor_phone, method, issue_description, dispatched_by, outcome, outcome_notes, dispatched_at, responded_at')
+          .eq('equipment_id', card.equipment_id)
+          .order('dispatched_at', { ascending: false })
+          .limit(8);
+        attempts = data || [];
+      } catch (_) {}
+    } else {
+      console.warn('[board] renderRepairAttempts fetch failed:', e?.message || e);
+    }
+  }
+
+  function rowHtml(a) {
+    const icon = DISPATCH_METHOD_ICON[a.method] || 'wrench';
+    const when = fmtIssueTs(a.dispatched_at);
+    const outcomeKey = a.outcome || 'pending';
+    const outcomeLabel = DISPATCH_OUTCOME_LABEL[outcomeKey] || outcomeKey;
+    const isOpen = outcomeKey === 'pending';
+    const photos = Array.isArray(a.photo_urls) ? a.photo_urls : [];
+    return `
+      <div class="b-attempt b-attempt-${esc(outcomeKey)}" data-attempt-id="${esc(a.id)}">
+        <div class="b-attempt-head">
+          <div class="b-attempt-method"><i data-lucide="${icon}" class="badge-icon"></i></div>
+          <div class="b-attempt-meta">
+            <div class="b-attempt-who">${esc(a.contractor_name || 'Unknown')}</div>
+            <div class="b-attempt-when">${esc(when)}${a.dispatched_by ? ' · by ' + esc(a.dispatched_by) : ''}</div>
+          </div>
+          <div class="b-attempt-outcome b-outcome-${esc(outcomeKey)}">${esc(outcomeLabel)}</div>
+        </div>
+        ${a.issue_description ? `<div class="b-attempt-issue">${esc(a.issue_description)}</div>` : ''}
+        ${a.outcome_notes ? `<div class="b-attempt-notes">${esc(a.outcome_notes)}</div>` : ''}
+        ${photos.length ? `<div class="b-attempt-photos">${photos.map(u => `<img class="b-attempt-photo" src="${esc(u)}" onerror="this.style.display='none'">`).join('')}</div>` : ''}
+        ${isOpen ? `
+          <div class="b-attempt-actions">
+            <button class="b-btn b-btn-sm" data-act="resolve">Mark resolved</button>
+            <button class="b-btn b-btn-sm b-btn-warn" data-act="fail">Mark failed</button>
+          </div>` : ''}
+      </div>`;
+  }
+
+  function paint() {
+    if (!attempts.length) {
+      host.innerHTML = '<div class="b-attempts-empty">No attempts logged yet. Tap +Add to log one.</div>';
+      return;
+    }
+    host.innerHTML = attempts.map(rowHtml).join('');
+    if (window.lucide) try { lucide.createIcons(); } catch (_) {}
+
+    host.querySelectorAll('.b-attempt').forEach(el => {
+      const id = el.getAttribute('data-attempt-id');
+      el.querySelector('[data-act="resolve"]')?.addEventListener('click', () => markAttempt(id, 'resolved'));
+      el.querySelector('[data-act="fail"]')?.addEventListener('click', () => markAttempt(id, 'failed'));
+    });
+  }
+
+  async function markAttempt(dispatchEventId, outcome) {
+    const note = prompt(outcome === 'failed'
+      ? 'What didn\'t work? (notes — optional)'
+      : 'Resolution notes? (optional)');
+    if (note === null) return;   // user cancelled
+    const res = await NX.domain.markAttemptOutcome({
+      dispatchEventId, outcome,
+      outcomeNotes: note || null,
+    });
+    if (!res.ok) { NX.toast?.('Could not update attempt', 'error'); return; }
+    // Update local list
+    const i = attempts.findIndex(a => a.id === dispatchEventId);
+    if (i >= 0) attempts[i] = res.dispatchEvent;
+    paint();
+    if (res.statusProposal) {
+      await maybeApplyProposal(res.statusProposal);
+    }
+  }
+
+  paint();
+
+  // Add-attempt button
+  bg.querySelector('#bAddAttempt')?.addEventListener('click', () => openAddAttemptForm(card, attempts, paint));
+}
+
+function openAddAttemptForm(card, attempts, repaint) {
+  const m = document.createElement('div');
+  m.className = 'b-modal-bg b-modal-bg-stack';
+  m.innerHTML = `
+    <div class="b-modal b-modal-narrow">
+      <div class="b-modal-head">
+        <div class="b-modal-title-static">Log Repair Attempt</div>
+        <button class="b-modal-close">✕</button>
+      </div>
+      <div class="b-modal-body">
+        <div class="b-section">
+          <div class="b-section-label">Method</div>
+          <div class="b-attempt-methods">
+            <button class="b-attempt-method-pick" data-method="call">📞 Call</button>
+            <button class="b-attempt-method-pick" data-method="text">💬 Text</button>
+            <button class="b-attempt-method-pick" data-method="email">✉ Email</button>
+            <button class="b-attempt-method-pick is-active" data-method="in_house">🔧 In-house</button>
+          </div>
+        </div>
+        <div class="b-section">
+          <div class="b-section-label">Who tried it</div>
+          <input class="b-field" id="bAttContractor" placeholder="Name (defaults to you)">
+        </div>
+        <div class="b-section">
+          <div class="b-section-label">What was tried</div>
+          <textarea class="b-field" id="bAttIssue" rows="2" placeholder="e.g., replaced capacitor, reset thermostat"></textarea>
+        </div>
+        <div class="b-section">
+          <div class="b-section-label">Notes (optional)</div>
+          <textarea class="b-field" id="bAttNotes" rows="2" placeholder="ETA, parts ordered, contractor said..."></textarea>
+        </div>
+        <button class="b-btn b-btn-primary" id="bAttSubmit" style="width:100%">Log attempt</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  const close = () => m.remove();
+  m.querySelector('.b-modal-close').addEventListener('click', close);
+  m.addEventListener('click', e => { if (e.target === m) close(); });
+
+  let pickedMethod = 'in_house';
+  m.querySelectorAll('.b-attempt-method-pick').forEach(btn => {
+    btn.addEventListener('click', () => {
+      m.querySelectorAll('.b-attempt-method-pick').forEach(b => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      pickedMethod = btn.getAttribute('data-method');
+    });
+  });
+
+  m.querySelector('#bAttSubmit').addEventListener('click', async () => {
+    const submit = m.querySelector('#bAttSubmit');
+    submit.disabled = true; submit.textContent = 'Logging…';
+    try {
+      const res = await NX.domain.recordRepairAttempt({
+        equipmentId:      card.equipment_id,
+        method:           pickedMethod,
+        contractorName:   m.querySelector('#bAttContractor').value.trim() || null,
+        issueDescription: m.querySelector('#bAttIssue').value.trim() || null,
+        notes:            m.querySelector('#bAttNotes').value.trim() || null,
+      });
+      if (!res.ok) { NX.toast?.('Could not log attempt', 'error'); return; }
+      attempts.unshift(res.dispatchEvent);
+      repaint();
+      NX.toast?.('Attempt logged', 'success', 1100);
+      close();
+    } finally {
+      submit.disabled = false;
+      submit.textContent = 'Log attempt';
+    }
+  });
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────
 // EXPORT
