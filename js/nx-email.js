@@ -18,7 +18,10 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 (function () {
-  if (window.NX && NX.email) return;  // idempotent
+  // v18.11 — same TDZ fix as nx-archive.js. Was `if (window.NX && NX.email)`
+  // which crashes the IIFE silently when window.NX is already truthy
+  // (which it always is by load time). Reference NX.email via window.NX.
+  if (window.NX && window.NX.email) return;  // idempotent
   const NX = window.NX = window.NX || {};
 
   /* mailto: URLs need %20 for spaces, not + (which URLSearchParams emits).
