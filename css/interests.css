@@ -1,0 +1,233 @@
+/* ════════════════════════════════════════════════════════════════════
+   NEXUS INTERESTS — Admin editor + user-row chips
+   v18.9
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ─── Inline tag chips on user rows in admin ──────────────────────── */
+.admin-user-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-left: 6px;
+  max-width: 220px;
+}
+.admin-user-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  background: rgba(212, 164, 78, 0.10);
+  border: 1px solid rgba(212, 164, 78, 0.25);
+  border-radius: 10px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 10.5px;
+  color: var(--nx-text, #fff);
+  white-space: nowrap;
+}
+.admin-user-tag-more {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  color: var(--nx-faint, rgba(255, 255, 255, 0.55));
+  padding: 2px 4px;
+}
+
+/* The ✦ edit button on each user row */
+.admin-user-edit-interests {
+  background: transparent;
+  border: 1px solid rgba(212, 164, 78, 0.20);
+  color: var(--nx-gold, #d4a44e);
+  font-size: 14px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.18s ease;
+}
+.admin-user-edit-interests:hover {
+  background: rgba(212, 164, 78, 0.12);
+  border-color: var(--nx-gold, #d4a44e);
+  transform: rotate(15deg);
+}
+
+/* ─── Interest editor modal ──────────────────────────────────────── */
+.admin-interest-editor-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.admin-interest-editor-card {
+  background: var(--nx-surface-1, #1a1814);
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.20));
+  border-radius: 16px;
+  width: 100%;
+  max-width: 640px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7);
+}
+
+.admin-interest-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.15));
+}
+
+.admin-interest-editor-title {
+  font-family: var(--nx-font-display, 'Outfit'), sans-serif;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--nx-gold, #d4a44e);
+  letter-spacing: -0.01em;
+}
+
+.admin-interest-editor-close {
+  background: transparent;
+  border: none;
+  color: var(--nx-faint, rgba(255, 255, 255, 0.55));
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 8px;
+  transition: background 0.18s, color 0.18s;
+}
+.admin-interest-editor-close:hover {
+  color: var(--nx-text, #fff);
+  background: var(--nx-surface-2, rgba(255, 255, 255, 0.04));
+}
+
+.admin-interest-editor-sub {
+  padding: 12px 20px 0;
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  color: var(--nx-muted, rgba(255, 255, 255, 0.7));
+  line-height: 1.5;
+}
+
+.admin-interest-editor-body {
+  padding: 8px 20px 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* Category groupings inside the editor */
+.admin-interest-cat {
+  margin-top: 16px;
+}
+.admin-interest-cat-label {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 9.5px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--nx-faintest, rgba(255, 255, 255, 0.4));
+  margin-bottom: 8px;
+}
+.admin-interest-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Individual interest chip — toggleable */
+.admin-interest-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: var(--nx-surface-2, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-radius: 18px;
+  color: var(--nx-faint, rgba(255, 255, 255, 0.55));
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.admin-interest-chip:hover {
+  border-color: var(--nx-gold-line-3, rgba(212, 164, 78, 0.35));
+  color: var(--nx-text, #fff);
+}
+.admin-interest-chip.is-on {
+  background: rgba(212, 164, 78, 0.16);
+  border-color: var(--nx-gold, #d4a44e);
+  color: var(--nx-text, #fff);
+  box-shadow: 0 1px 4px rgba(212, 164, 78, 0.18);
+}
+.admin-interest-chip-glyph {
+  font-size: 13px;
+}
+.admin-interest-chip-label {
+  font-weight: 500;
+  letter-spacing: 0.1px;
+}
+
+/* Action buttons */
+.admin-interest-editor-actions {
+  display: flex;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.15));
+}
+.admin-interest-save,
+.admin-interest-cancel {
+  flex: 1 1 auto;
+  padding: 11px 20px;
+  border-radius: 10px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.admin-interest-save {
+  background: linear-gradient(135deg, var(--nx-gold, #d4a44e) 0%, var(--nx-gold-strong, var(--nx-gold)) 100%);
+  border: 1px solid var(--nx-gold-strong, var(--nx-gold));
+  color: var(--nx-bg, #0a0908);
+  font-weight: 600;
+}
+.admin-interest-save:hover {
+  filter: brightness(1.05);
+}
+.admin-interest-save:active {
+  transform: scale(0.98);
+}
+.admin-interest-save:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.admin-interest-cancel {
+  background: transparent;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.20));
+  color: var(--nx-faint, rgba(255, 255, 255, 0.7));
+}
+.admin-interest-cancel:hover {
+  color: var(--nx-text, #fff);
+  border-color: var(--nx-gold, #d4a44e);
+}
+
+/* Mobile tweaks */
+@media (max-width: 480px) {
+  .admin-interest-editor-bg { padding: 12px; }
+  .admin-interest-editor-card { max-height: 92vh; }
+  .admin-interest-chip { font-size: 12px; padding: 6px 10px; }
+  .admin-user-tags { max-width: 140px; }
+  .admin-user-tag { font-size: 10px; padding: 1px 5px; }
+}
