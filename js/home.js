@@ -717,6 +717,20 @@
     if (!NX.sb) return [];
     const candidates = [];
 
+    // ─── PM SCHEDULE SYNC ─────────────────────────────────────────
+    // Sweep pm_schedules looking for any active schedule whose
+    // next_due_at is past today. For each that doesn't already have
+    // an open board card, create one. Throttled inside the domain
+    // layer to once per hour per session. Fire-and-forget — admin
+    // sees the cards on the board next time they look, and overdue
+    // PMs continue to surface through the `equipment.next_pm_date`
+    // query below.
+    if (NX.currentUser?.role === 'admin' && NX.domain?.checkPMsDue) {
+      NX.domain.checkPMsDue().catch(e => {
+        console.warn('[home] checkPMsDue hook failed (non-fatal):', e);
+      });
+    }
+
     // ─── OVERDUE PMs
     try {
       const today = new Date().toISOString().slice(0, 10);
