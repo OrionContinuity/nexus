@@ -450,7 +450,44 @@
         JSON.stringify({ user_id: uid, patterns }));
     } catch(_){}
 
+    // v18.9 — implicit interest learning from patterns. When usage
+    // shapes are clear enough, quietly inform the interests module so
+    // it can build inferred_interests for this user. Trajan then mixes
+    // those into pickForUser at reduced weight (cap 0.7 vs admin 1.0).
+    try { inferInterestsFromPatterns(uid, patterns); } catch(_){}
+
     return patterns;
+  }
+
+  // v18.9 — quietly learn interests from observed behavior. Only
+  // fires when patterns have enough observations to be reliable.
+  // Each call to NX.interests.recordSignal adds one evidence point;
+  // the RPC server-side caps weight at 1.0 and tracks evidence count.
+  function inferInterestsFromPatterns(uid, p) {
+    if (!p || !p.ready) return;
+    if (!window.NX || !NX.interests || !NX.interests.recordSignal) return;
+    if (uid == null) return;
+    // Hour-histogram-derived signals
+    const hours = p.hour_histograms || {};
+    // Admin/operations: heavy usage of equipment / inventory / board / admin
+    const opsViews = ['equipment', 'inventory', 'board', 'admin'];
+    let opsTotal = 0;
+    for (const v of opsViews) {
+      if (hours[v]) opsTotal += hours[v].reduce((s, c) => s + c, 0);
+    }
+    if (opsTotal >= 100) {
+      NX.interests.recordSignal(uid, 'admin_pro', 1);
+    }
+    // Reading: heavy use of education view
+    if (hours.education && hours.education.reduce((s,c) => s+c, 0) >= 30) {
+      NX.interests.recordSignal(uid, 'reading', 1);
+    }
+    // Cooking: heavy use of inventory + cleaning together (kitchen mind)
+    const invCount = hours.inventory ? hours.inventory.reduce((s,c)=>s+c,0) : 0;
+    const clnCount = hours.clean ? hours.clean.reduce((s,c)=>s+c,0) : 0;
+    if (invCount >= 50 && clnCount >= 50) {
+      NX.interests.recordSignal(uid, 'cooking', 1);
+    }
   }
 
   // ─── CLOUD SYNC ───────────────────────────────────────────────────
