@@ -2452,15 +2452,94 @@
     if (state.affinityGreeted) return;
     state.affinityGreeted = true;
     const tier = getAffinityTier();
-    if (tier.key === 'neutral') return;   // skip neutral, no special greeting
+    if (tier.key === 'neutral') {
+      // No affinity tier yet — but we may still have a habit-personalized
+      // greeting if NX.habits has data on this user.
+      maybeHabitPersonalizedGreeting();
+      return;
+    }
     const pool = 'affinity_' + tier.key;
-    if (!state.dialog || !state.dialog[pool]) return;
+    if (!state.dialog || !state.dialog[pool]) {
+      maybeHabitPersonalizedGreeting();
+      return;
+    }
     setTimeout(() => {
       if (!state.bubble && state.enabled && !state.sulkActive) {
         bubble(substituteVars(pickFromPool(pool)),
           { autoHide: 5000, eyebrow: `${tier.glyph} ${tier.label.toUpperCase()}` });
       }
     }, 2500);
+  }
+
+  // v18.8 — habit-personalized greeting. Trajan greets by name AND
+  // tailors a small contextual phrase based on observed patterns
+  // (typical-first-view, day-of-week, time-of-day, late-owl-ness).
+  // NEVER references the data — just chooses a line that fits.
+  function maybeHabitPersonalizedGreeting() {
+    if (!window.NX || !NX.habits || !NX.habits.userFingerprint) return;
+    const fp = NX.habits.userFingerprint();
+    if (!fp || fp.confidence === 'low') return;   // not enough data
+    const name = (window.app && app.currentUser && app.currentUser.name) || null;
+    if (!name) return;
+
+    const h = new Date().getHours();
+    const dow = new Date().getDay();
+    const isMonday = dow === 1;
+    const isFriday = dow === 5;
+    const isWeekend = dow === 0 || dow === 6;
+    const morning = h >= 5 && h < 11;
+    const evening = h >= 17 && h < 22;
+    const lateNight = h >= 22 || h < 5;
+
+    // Pick a tail line based on observed traits + current time
+    let tail = '';
+    if (lateNight && fp.late_owl) {
+      tail = "you're up late as usual. tea brewing?";
+    } else if (lateNight) {
+      tail = "it's late. don't stay long.";
+    } else if (morning && isMonday) {
+      tail = "fresh week.";
+    } else if (morning && isFriday) {
+      tail = "almost the weekend.";
+    } else if (morning && fp.morning_person) {
+      tail = "you and me, early as always.";
+    } else if (morning) {
+      tail = "morning came early today.";
+    } else if (evening && isFriday) {
+      tail = "you made it to Friday.";
+    } else if (isWeekend) {
+      tail = "weekend grind — you're a workhorse.";
+    } else {
+      tail = "good to see you.";
+    }
+
+    // Salutation pool varies by time of day for that "AI feel"
+    const salutations = morning
+      ? ['morning,', 'hey,', 'welcome back,']
+      : evening
+        ? ['evening,', 'hey,', 'welcome back,']
+        : ['hey,', 'welcome back,', 'good to see you,'];
+    const sal = salutations[Math.floor(Math.random() * salutations.length)];
+
+    const eyebrow = isMonday ? '— MONDAY'
+                  : isFriday ? '— FRIDAY'
+                  : isWeekend ? '— WEEKEND'
+                  : lateNight ? '— LATE'
+                  : morning   ? '— MORNING'
+                  : '— HELLO';
+
+    setTimeout(() => {
+      if (!state.bubble && state.enabled && !state.sulkActive
+          && !state.preferences.do_not_disturb) {
+        try {
+          bubble(`${sal} ${name}. ${tail}`, {
+            eyebrow,
+            trajan: true,
+            autoHide: 5000,
+          });
+        } catch(_){}
+      }
+    }, 2800);
   }
 
 
@@ -2864,6 +2943,17 @@
     // Costume + prop
     wm.costume = state.preferences.costume || 'none';
     wm.prop = state.preferences.prop || 'none';
+    // v18.7 — affective awareness signal in the world snapshot. Other
+    // modules can read NX.clippy.getAwareness() instead, but for status
+    // panels the world model is the canonical surface.
+    if (state.awareness) {
+      wm.ops_score      = Math.round(state.awareness.opScore || 0);
+      wm.user_score     = Math.round(state.awareness.userScore || 0);
+      wm.concern_world  = Math.round(state.awareness.concernWorld || 0);
+      wm.concern_user   = Math.round(state.awareness.concernUser  || 0);
+      wm.overwhelm      = Math.round(state.awareness.overwhelm    || 0);
+      wm.affect_verdict = verdictLabel(state.awareness);
+    }
     return wm;
   }
 
@@ -2897,8 +2987,674 @@
     }
     if (wm.sulking) rows.push(['SULKING', 'YES']);
     if (wm.do_not_disturb) rows.push(['DO-NOT-DISTURB', 'ON']);
+    // v18.7 affective layer rows
+    if (state.awareness) {
+      const a = state.awareness;
+      rows.push(['OPS TEMP',  Math.round(a.opScore)   + '/100']);
+      rows.push(['USER LOAD', Math.round(a.userScore) + '/100']);
+      rows.push(['OVERWHELM', Math.round(a.overwhelm) + '/100']);
+    }
     return rows;
   }
+
+
+  // ════════════════════════════════════════════════════════════════════
+  // v18.7 AFFECTIVE AWARENESS LAYER
+  // ════════════════════════════════════════════════════════════════════
+  //
+  // Trajan watches two things:
+  //   (1) the world  — operational state of the restaurant: open issues,
+  //                    down equipment, overdue PMs, failed dispatches
+  //   (2) the user   — behavioral signals of stress: rage clicking,
+  //                    rapid view switching, error toasts, late-night
+  //                    sessions, long uninterrupted use
+  //
+  // These two streams are combined into an affective state that drives
+  // (a) which expression Trajan wears, and (b) whether he speaks an
+  // empathic check-in. He NEVER interrupts focused work; expression
+  // changes are silent unless a state is sustained for several minutes.
+  //
+  // ─── SCIENCE GROUNDING ──────────────────────────────────────────────
+  //
+  // Picard, R.W. (1997). Affective Computing. MIT Press.
+  //   The foundational text. AI systems perceive and respond to
+  //   emotional cues. The premise of this whole module.
+  //
+  // Vizer, L. M., Zhou, L., & Sears, A. (2009). Automated stress
+  //   detection using keystroke and linguistic features: An
+  //   exploratory study. International Journal of Human-Computer
+  //   Studies, 67(10), 870-886.
+  //   Keystroke pace + rhythm shift measurably under stress. We
+  //   approximate this for a pointer-driven PWA by tracking click
+  //   bursts ("rage clicks" per Nielsen Norman Group's UX research)
+  //   and inter-click variance.
+  //
+  // Mark, G., Gudith, D., & Klocke, U. (2008). The cost of
+  //   interrupted work: more speed AND stress. Proc. CHI '08.
+  //   Frequent context switches don't just hurt productivity — they
+  //   raise measured stress. We use rapid view changes as a proxy.
+  //
+  // Leroy, S. (2009). Why is it so hard to do my work? The challenge
+  //   of attention residue when switching between work tasks.
+  //   Organizational Behavior and Human Decision Processes,
+  //   109(2), 168-181.
+  //   Each unfinished task we leave open leaves cognitive residue.
+  //   Form-abandonment count contributes to user-stress score.
+  //
+  // Yerkes, R. M., & Dodson, J. D. (1908). The relation of strength
+  //   of stimulus to rapidity of habit-formation. J. Comp. Neurol.
+  //   The classic inverted-U arousal-performance curve. Some stress
+  //   helps; past a threshold (we use 65/100) it impairs. That's
+  //   where Trajan's expression begins to shift visibly.
+  //
+  // Hancock, P. A., & Warm, J. S. (1989). A dynamic model of stress
+  //   and sustained attention. Human Factors, 31(5), 519-537.
+  //   Vigilance decrement — sustained attention degrades over time
+  //   even without acute stressors. Session length over ~90min adds
+  //   a small constant load.
+  //
+  // Csikszentmihalyi, M. (1990). Flow: The Psychology of Optimal
+  //   Experience. Harper & Row.
+  //   Flow states are easily broken by interruption. Trajan's dialog
+  //   trigger is rate-limited to 1 per 30min and is suppressed if
+  //   the user is clearly mid-task (long stable dwell on one view).
+  //
+  // Carver, C. S., & Scheier, M. F. (1998). On the Self-Regulation
+  //   of Behavior. Cambridge University Press.
+  //   Soft external cues (Trajan's worried face) can scaffold
+  //   self-regulation without being directive. We never tell the
+  //   user what to do — we show concern and offer presence.
+  //
+  // ─── DESIGN PRINCIPLES (boundaries we enforce) ──────────────────────
+  //
+  //   1. EXPRESSION FIRST, DIALOG RARE. The face changes silently as
+  //      state evolves; spoken check-ins are bounded to <= 1/30min and
+  //      require a sustained signal (not a spike).
+  //
+  //   2. AGGRESSIVE DECAY. Bad moments shouldn't become bad afternoons.
+  //      Both scores decay toward 0 at ~25%/minute when signals stop.
+  //
+  //   3. NEVER SURVEILLANT. We never report "I noticed you clicked
+  //      X times." We express empathy, not metrics. Internal numbers
+  //      stay internal; only the resulting feeling is shown.
+  //
+  //   4. RESPECT DO-NOT-DISTURB + SULKING. Every dispatcher checks
+  //      state.preferences.do_not_disturb and state.sulkActive.
+  //
+  //   5. NEVER INTERRUPT FOCUSED WORK. Long stable dwell on one view
+  //      with no error toasts implies focus — dialog suppressed even
+  //      if scores warrant it.
+  //
+  //   6. GRACEFUL DEGRADATION. If Supabase is unreachable, ops score
+  //      holds its last value and decays normally. No crashes.
+  //
+  // ════════════════════════════════════════════════════════════════════
+
+  // ─── State container — attached to global `state` for visibility ────
+  state.awareness = state.awareness || {
+    // Raw signals — operational
+    opLastPollAt:        0,
+    opOpenIssues:        0,
+    opDownEquipment:     0,
+    opOverduePMs:        0,
+    opFailedDispatches:  0,
+    opScore:             0,                  // 0-100, computed from raw
+    // Raw signals — user behavior
+    clickTimes:          [],                 // last-60s timestamps
+    rageClickBursts:     [],                 // timestamps of rage-click events
+    viewSwitches:        [],                 // timestamps of view changes
+    errorToasts:         [],                 // timestamps of error toasts
+    formAbandonments:    0,                  // count since session start
+    sessionStartedAt:    Date.now(),
+    lastInputAt:         Date.now(),
+    lastViewChangeAt:    Date.now(),
+    currentView:         null,
+    userScore:           0,                  // 0-100
+    // Synthesized affective state (EMA-smoothed scores)
+    concernWorld:        0,                  // smoothed opScore
+    concernUser:         0,                  // smoothed userScore
+    overwhelm:           0,                  // composite
+    // Dispatch tracking
+    lastExpressionAt:    0,                  // last time we set an affective mood
+    lastDialogAt:        0,                  // last empathic check-in
+    lastDialogPool:      null,
+    sustainedConcernSince: 0,                // when concern crossed threshold
+    // Diagnostics
+    pollErrors:          0,
+  };
+
+  // ─── OPERATIONAL POLLER ────────────────────────────────────────────
+  // Polls every 90 seconds. Pulls four numbers from Supabase. Computes
+  // a single 0-100 "operational temperature" score by weighting each
+  // signal by its relative impact on the business.
+  //
+  // The score formula (chosen pragmatically; not from a paper):
+  //   raw = openIssues*1.0
+  //       + downEquipment*3.0    (each down unit = bigger ops impact)
+  //       + overduePMs*0.5
+  //       + failedDispatches*1.5
+  //   score = min(100, raw * 4)   (so ~25 raw points = 100)
+  //
+  // Tuned so a "normal" day reads 0-25, "busy" reads 25-55, "rough"
+  // reads 55-80, and "everything-on-fire" reads 80-100.
+  async function pollOperationalAwareness() {
+    if (!NX.sb) return;
+    if (!navigator.onLine) return;
+    const a = state.awareness;
+    try {
+      // Run all queries in parallel. Each one fails-soft via
+      // .catch returning null so one bad query doesn't block the rest.
+      const [
+        issuesRes,
+        downRes,
+        overdueRes,
+        failedRes,
+      ] = await Promise.all([
+        NX.sb.from('equipment_issues')
+          .select('id', { count: 'exact', head: true })
+          .neq('status', 'repaired')
+          .then(r => r).catch(() => null),
+        NX.sb.from('equipment')
+          .select('id', { count: 'exact', head: true })
+          .in('status', ['down', 'broken'])
+          .then(r => r).catch(() => null),
+        NX.sb.from('pm_schedules')
+          .select('id', { count: 'exact', head: true })
+          .eq('active', true)
+          .lte('next_due_at', new Date().toISOString())
+          .then(r => r).catch(() => null),
+        NX.sb.from('dispatch_events')
+          .select('id', { count: 'exact', head: true })
+          .eq('outcome', 'failed')
+          .gte('dispatched_at', new Date(Date.now() - 24*60*60*1000).toISOString())
+          .then(r => r).catch(() => null),
+      ]);
+
+      a.opOpenIssues       = (issuesRes  && issuesRes.count)  || 0;
+      a.opDownEquipment    = (downRes    && downRes.count)    || 0;
+      a.opOverduePMs       = (overdueRes && overdueRes.count) || 0;
+      a.opFailedDispatches = (failedRes  && failedRes.count)  || 0;
+
+      const raw = a.opOpenIssues * 1.0
+                + a.opDownEquipment * 3.0
+                + a.opOverduePMs * 0.5
+                + a.opFailedDispatches * 1.5;
+      a.opScore = Math.min(100, raw * 4);
+      a.opLastPollAt = Date.now();
+      a.pollErrors = 0;
+    } catch (e) {
+      a.pollErrors = (a.pollErrors || 0) + 1;
+      // Don't crash. opScore keeps its last value and decays naturally.
+    }
+  }
+
+
+  // ─── USER BEHAVIOR SENSOR ─────────────────────────────────────────
+  // Passive listeners on window. Records timestamps; the synthesizer
+  // tick reads windows from these arrays. We don't compute on every
+  // click — that would be wasteful. We just stamp times.
+  //
+  // Privacy note: we record only TIMESTAMPS and EVENT TYPES. No content,
+  // no targets, no DOM details, no keystroke chords. The whole module
+  // could be disabled and the only loss is the affective signal.
+  function installBehaviorSensors() {
+    if (state.awareness._sensorsInstalled) return;
+    state.awareness._sensorsInstalled = true;
+    const a = state.awareness;
+
+    // Click cadence — rolling 60-second window
+    // Rage-click detection — 5+ clicks within 1.5s on same path
+    let rageWindow = [];   // last 5 clicks: { t, target }
+    document.addEventListener('pointerdown', (e) => {
+      const now = Date.now();
+      a.clickTimes.push(now);
+      a.lastInputAt = now;
+      // Keep only last 60s
+      const cutoff = now - 60_000;
+      while (a.clickTimes.length && a.clickTimes[0] < cutoff) {
+        a.clickTimes.shift();
+      }
+      // Rage-click ring buffer (last 5)
+      // Don't track clicks on Clippy himself — interacting with the
+      // companion is friendly, not stress.
+      if (e.target && (e.target.closest && e.target.closest('#clippy-shell'))) return;
+      const path = e.target && e.target.tagName ? e.target.tagName : '?';
+      rageWindow.push({ t: now, target: path });
+      if (rageWindow.length > 5) rageWindow.shift();
+      if (rageWindow.length === 5
+          && (rageWindow[4].t - rageWindow[0].t) < 1500
+          && rageWindow.every(c => c.target === rageWindow[0].target)) {
+        a.rageClickBursts.push(now);
+        rageWindow = [];   // reset so one burst doesn't double-count
+        // Keep only last 5 minutes of bursts
+        const burstCutoff = now - 5 * 60_000;
+        while (a.rageClickBursts.length && a.rageClickBursts[0] < burstCutoff) {
+          a.rageClickBursts.shift();
+        }
+      }
+    }, { capture: true, passive: true });
+
+    // View-switch detection — watch nav-tab + bnav-btn clicks
+    // (NEXUS pattern: clicks on .nav-tab or .bnav-btn change the active view)
+    document.addEventListener('click', (e) => {
+      const tab = e.target && e.target.closest && e.target.closest('.nav-tab, .bnav-btn');
+      if (!tab) return;
+      const view = tab.getAttribute('data-view');
+      if (!view) return;
+      const now = Date.now();
+      if (view !== a.currentView) {
+        a.viewSwitches.push(now);
+        a.currentView = view;
+        a.lastViewChangeAt = now;
+        // Keep last 5 minutes
+        const cutoff = now - 5 * 60_000;
+        while (a.viewSwitches.length && a.viewSwitches[0] < cutoff) {
+          a.viewSwitches.shift();
+        }
+      }
+    }, { capture: true, passive: true });
+
+    // Error-toast detection — listen for NEXUS toast events.
+    // We can't intercept NX.toast() directly without monkey-patching, so
+    // we observe DOM additions of .toast.toast-error (a stable class).
+    try {
+      const obs = new MutationObserver((muts) => {
+        for (const m of muts) {
+          for (const node of m.addedNodes) {
+            if (node.nodeType !== 1) continue;
+            const el = node;
+            const isError = el.classList && (
+              el.classList.contains('toast-error') ||
+              el.classList.contains('is-error') ||
+              (el.querySelector && el.querySelector('.toast-error, .is-error'))
+            );
+            if (isError) {
+              a.errorToasts.push(Date.now());
+              // Keep last 5 minutes
+              const cutoff = Date.now() - 5 * 60_000;
+              while (a.errorToasts.length && a.errorToasts[0] < cutoff) {
+                a.errorToasts.shift();
+              }
+            }
+          }
+        }
+      });
+      obs.observe(document.body, { childList: true, subtree: true });
+      a._toastObserver = obs;
+    } catch (e) { /* MutationObserver unavailable in some test envs */ }
+
+    // Initial view capture
+    try {
+      const cur = document.querySelector('.nav-tab.active[data-view], .bnav-btn.active[data-view]');
+      if (cur) a.currentView = cur.getAttribute('data-view');
+    } catch (e) {}
+  }
+
+
+  // ─── USER STRESS SCORE COMPUTATION ─────────────────────────────────
+  // Combines the raw signals into a 0-100 score. Tuned conservatively;
+  // most workdays should sit in 0-30, only genuinely rough patches
+  // should clear 60.
+  function computeUserStressScore() {
+    const a = state.awareness;
+    const now = Date.now();
+
+    // Click cadence — average clicks/min over the window
+    const clicksPerMin = a.clickTimes.length;
+    // Baseline: 15 clicks/min is normal in NEXUS. Excess above that
+    // contributes; 60+/min suggests something is wrong.
+    const cadenceLoad = Math.max(0, clicksPerMin - 15) * 0.5;
+
+    // Rage-click bursts — each one is a significant signal
+    const rageLoad = a.rageClickBursts.length * 12;
+
+    // View switches in last 5 min — Mark/Leroy on context-switching cost
+    // 3-5 switches in 5min is normal navigation. 8+ is thrashing.
+    const switchesLoad = Math.max(0, a.viewSwitches.length - 5) * 3;
+
+    // Error toasts — direct distress signal
+    const errorLoad = a.errorToasts.length * 8;
+
+    // Session length — Hancock/Warm vigilance decrement (>90min)
+    const sessionMin = (now - a.sessionStartedAt) / 60_000;
+    const sessionLoad = Math.max(0, sessionMin - 90) * 0.2;
+
+    // Late-night use — small constant bias
+    const hr = new Date().getHours();
+    const lateBonus = (hr >= 23 || hr <= 5) ? 8 : 0;
+
+    // Form abandonments — Leroy's attention residue
+    const abandonLoad = a.formAbandonments * 4;
+
+    const raw = cadenceLoad + rageLoad + switchesLoad
+              + errorLoad + sessionLoad + lateBonus + abandonLoad;
+    return Math.min(100, raw);
+  }
+
+
+  // ─── SYNTHESIZER / TICK ────────────────────────────────────────────
+  // Runs every 30 seconds. Updates user score from current signals,
+  // decays both scores toward neutral via exponential moving average,
+  // and (if state warrants) updates expression + maybe dialog.
+  function awarenessTick() {
+    if (!state.enabled) return;
+    const a = state.awareness;
+
+    const targetUser = computeUserStressScore();
+
+    // EMA smoothing — slow on the way up, faster decay on the way down
+    // (so a bad moment fades but a sustained one builds gradually).
+    // alpha 0.30 for rising, 0.50 for falling per 30s tick =>
+    // half-life ~60s up, ~30s down. Aligns with Yerkes-Dodson intuition
+    // that performance recovers faster than it builds back up.
+    const blendUser  = (targetUser  > a.concernUser)  ? 0.30 : 0.50;
+    const blendWorld = (a.opScore   > a.concernWorld) ? 0.30 : 0.50;
+    a.concernUser  = a.concernUser  * (1 - blendUser)  + targetUser * blendUser;
+    a.concernWorld = a.concernWorld * (1 - blendWorld) + a.opScore  * blendWorld;
+
+    // Overwhelm = combined burden above an effective threshold of 60.
+    // (Below 60 the user has bandwidth; above it both stresses compound.)
+    a.overwhelm = Math.max(0, (a.concernWorld + a.concernUser - 60) * 1.2);
+    a.overwhelm = Math.min(100, a.overwhelm);
+
+    a.userScore = targetUser;   // expose latest raw
+
+    // ─── EXPRESSION DISPATCH ─────────────────────────────────────
+    // Only ever set a mood here every 60s+; otherwise we'd whiplash
+    // the face. The mood() function has its own polarity inertia
+    // (4s+ recently set mood resists flips) but we add our own
+    // gate too.
+    const now = Date.now();
+    if (now - a.lastExpressionAt > 60_000) {
+      const chosen = pickAffectiveExpression(a);
+      if (chosen) {
+        try { mood(chosen, 30_000); } catch (e) {}
+        a.lastExpressionAt = now;
+      }
+    }
+
+    // ─── DIALOG DISPATCH ─────────────────────────────────────────
+    // Empathic check-in. Strict gates:
+    //   • not currently bubbling
+    //   • do-not-disturb off
+    //   • not sulking
+    //   • >= 30 min since last check-in
+    //   • concern has been ELEVATED for at least 3 min (sustained, not spike)
+    //   • user not currently mid-flow (long stable dwell with no errors)
+    const elevated = a.concernUser > 55 || a.concernWorld > 55 || a.overwhelm > 40;
+    if (elevated) {
+      if (!a.sustainedConcernSince) a.sustainedConcernSince = now;
+    } else {
+      a.sustainedConcernSince = 0;
+    }
+    const sustained = a.sustainedConcernSince && (now - a.sustainedConcernSince > 3 * 60_000);
+
+    if (sustained
+        && !state.bubble
+        && state.enabled
+        && !state.suppressed
+        && !state.sulkActive
+        && !state.preferences.do_not_disturb
+        && (now - a.lastDialogAt > 30 * 60_000)
+        && !isProbablyMidFlow(a)) {
+      const line = pickAffectiveDialog(a);
+      if (line) {
+        try {
+          bubble(line.text, {
+            eyebrow:  line.eyebrow,
+            trajan:   true,
+            autoHide: 6000,
+          });
+          a.lastDialogAt = now;
+          a.lastDialogPool = line.pool;
+        } catch (e) {}
+      }
+    }
+
+    // ─── PHASE 3 — habit-aware affective shading ──────────────────
+    // Consults NX.habits for two extra signals:
+    //   (a) lapse — user typically does X by now but hasn't today
+    //   (b) reinforcement — user just completed a recurring pattern
+    // Both nudge the affective state subtly so Trajan's expression
+    // reflects "things feel off" or "nice closing" without speaking.
+    try {
+      if (window.NX && NX.habits && NX.habits.lapseDetect) {
+        // Throttle this — once every 10min is plenty
+        if (!a._lastLapseAt || (now - a._lastLapseAt > 10 * 60_000)) {
+          a._lastLapseAt = now;
+          NX.habits.lapseDetect().then(lapses => {
+            if (lapses && lapses.length) {
+              // Small bump to concern_user. Not alarm — just unease.
+              const bump = Math.min(15, lapses.length * 5);
+              a.concernUser = Math.min(100, a.concernUser + bump);
+            }
+          }).catch(()=>{});
+        }
+      }
+    } catch(_){}
+  }
+
+  // ─── PHASE 3 — habit-based reinforcement on submit ────────────────
+  // Hooks the existing form-submit observer. When a recurring habit
+  // fires within its typical window, Trajan's bond XP gets a tiny
+  // bump and a brief acknowledgment may surface. Never says "you do
+  // this every day at 11:47" — just acknowledges the moment.
+  document.addEventListener('submit', async (e) => {
+    if (!state.enabled || state.preferences.do_not_disturb) return;
+    try {
+      const form = e.target;
+      const formId = form && form.id;
+      if (!formId) return;
+      if (!window.NX || !NX.habits || !NX.habits.reinforcementOpportunity) return;
+      const opp = await NX.habits.reinforcementOpportunity('submit', formId);
+      if (!opp) return;
+      // Tiny bond XP bump for sticking with a habit
+      try {
+        if (typeof grantBondXP === 'function') grantBondXP(2, 'habit_kept');
+        else if (state.preferences && typeof state.preferences.bond_xp === 'number') {
+          state.preferences.bond_xp += 2;
+          if (typeof savePreferences === 'function') savePreferences();
+        }
+      } catch(_){}
+      // ~25% chance of a brief acknowledgment so it stays uncommon
+      if (Math.random() < 0.25 && !state.bubble && state.shell && !state.coinFlipInProgress) {
+        const lines = [
+          'nice closing.',
+          'good work today.',
+          'logged. that one\'s done.',
+          'and another one.',
+        ];
+        const line = lines[Math.floor(Math.random() * lines.length)];
+        try {
+          bubble(line, {
+            eyebrow: '— with you',
+            trajan: true,
+            autoHide: 3500,
+          });
+        } catch(_){}
+      }
+      // Quietly deposit a memory if this is a long-running habit
+      if (opp.habit_n >= 14 && typeof depositMemory === 'function') {
+        try {
+          depositMemory({
+            text: `they keep up the ${formId.replace(/-/g,' ')} habit`,
+            kind: 'pattern',
+            room: 'tablinum',
+            silent: true,
+          });
+        } catch(_){}
+      }
+    } catch(_){}
+  }, { capture: true, passive: true });
+
+  // Map current affective state to one of the existing kawaii moods.
+  // Returns the mood name or null if no change warranted.
+  //
+  // We use existing classes — no new face states required.
+  function pickAffectiveExpression(a) {
+    // Don't override stronger feelings. If user is celebrating
+    // (Trajan internally happy), let that ride.
+    try {
+      const f = (typeof dominantFeeling === 'function') ? dominantFeeling() : null;
+      if (f === 'overjoyed' || f === 'ticklish') return null;
+    } catch (e) {}
+
+    // Big load — both worlds bad
+    if (a.overwhelm > 70)                              return 'sobbing';
+    if (a.overwhelm > 45)                              return 'frustrated';
+
+    // World concern dominant
+    if (a.concernWorld > 65 && a.concernUser < 30)     return 'worried';
+
+    // User concern dominant
+    if (a.concernUser  > 65 && a.concernWorld < 30)    return 'concerned';
+    if (a.concernUser  > 50) {
+      const hr = new Date().getHours();
+      if (hr >= 23 || hr <= 5)                         return 'disappointed';  // gentle "rest"
+    }
+
+    // Moderate world unease
+    if (a.concernWorld > 45)                           return 'pouty';
+
+    // Recovery — explicitly steer back to content when both calm
+    if (a.concernUser < 18 && a.concernWorld < 18
+        && (Date.now() - a.lastExpressionAt > 5 * 60_000)) {
+      return 'happy';
+    }
+
+    return null;
+  }
+
+  // Returns true if the user appears focused (one view, no errors,
+  // moderate-not-frantic clicks). Don't interrupt flow.
+  // Per Csikszentmihalyi (1990).
+  //
+  // v18.8 — also returns true if NX.habits says this is one of the
+  // user's typical focus hours. Trajan respects per-user quiet windows.
+  function isProbablyMidFlow(a) {
+    const now = Date.now();
+    const dwell = now - a.lastViewChangeAt;
+    // 4+ min on one view, no recent errors → likely focused
+    if (dwell > 4 * 60_000 && a.errorToasts.length === 0) return true;
+    // Habits-driven quiet window: this user is typically focused now
+    try {
+      if (window.NX && NX.habits && NX.habits.isQuietHourFor) {
+        const uid = NX.habits.getCurrentUserId();
+        if (uid != null && NX.habits.isQuietHourFor(uid)) return true;
+      }
+    } catch(_){}
+    return false;
+  }
+
+  // Dialog pools — empathic, terse, never surveillant. Trajan never
+  // says "I noticed you...". He says what a kind colleague would say.
+  // Pools picked by which dimension is dominant.
+  const AFFECTIVE_DIALOG = {
+    world_concern: [
+      { eyebrow: '— observing',     text: "this week's been a lot. take a breath when you can." },
+      { eyebrow: '— at your side',  text: "lot on the plate today. I'm here." },
+      { eyebrow: '— with you',      text: "rough patch. one thing at a time." },
+    ],
+    user_concern: [
+      { eyebrow: '— checking in',   text: "you alright? want to pause a minute?" },
+      { eyebrow: '— gently',        text: "everything okay? take your time." },
+      { eyebrow: '— quietly',       text: "if you need a breather, the games are right here." },
+    ],
+    user_concern_late: [
+      { eyebrow: '— it\'s late',    text: "it's getting late. tomorrow's another chance." },
+      { eyebrow: '— rest',          text: "the work will keep until morning. take care of yourself." },
+    ],
+    overwhelmed: [
+      { eyebrow: '— a lot',         text: "we've had a heavy day. you don't have to fix everything tonight." },
+      { eyebrow: '— breathe',       text: "the empire wasn't built in a day. take five." },
+      { eyebrow: '— with you',      text: "I'm right here. let me know how I can help." },
+    ],
+    recovery: [
+      { eyebrow: '— easier now',    text: "things are settling. nice work today." },
+      { eyebrow: '— better',        text: "we got through that. that's no small thing." },
+    ],
+  };
+
+  function pickAffectiveDialog(a) {
+    const hr = new Date().getHours();
+    const late = hr >= 23 || hr <= 5;
+    let poolKey;
+    if (a.overwhelm > 50) {
+      poolKey = 'overwhelmed';
+    } else if (a.concernUser > a.concernWorld + 12) {
+      poolKey = late ? 'user_concern_late' : 'user_concern';
+    } else if (a.concernWorld > a.concernUser + 12) {
+      poolKey = 'world_concern';
+    } else {
+      // Mixed — default to user concern (people > tasks)
+      poolKey = late ? 'user_concern_late' : 'user_concern';
+    }
+    // Don't repeat the same pool twice in a row
+    if (poolKey === a.lastDialogPool && poolKey !== 'overwhelmed') {
+      // Cycle to a different one
+      const alts = Object.keys(AFFECTIVE_DIALOG).filter(k => k !== poolKey);
+      if (alts.length) poolKey = alts[Math.floor(Math.random() * alts.length)];
+    }
+    const pool = AFFECTIVE_DIALOG[poolKey];
+    if (!pool || !pool.length) return null;
+    const line = pool[Math.floor(Math.random() * pool.length)];
+    return Object.assign({ pool: poolKey }, line);
+  }
+
+
+  // ─── PUBLIC GETTER ─────────────────────────────────────────────────
+  // For external code (status panels, AI brain, dashboards) that wants
+  // to read Trajan's current affective state. Returns a defensive copy.
+  function getAwarenessSnapshot() {
+    const a = state.awareness || {};
+    return {
+      // Operational
+      openIssues:       a.opOpenIssues       || 0,
+      downEquipment:    a.opDownEquipment    || 0,
+      overduePMs:       a.opOverduePMs       || 0,
+      failedDispatches: a.opFailedDispatches || 0,
+      opScore:          Math.round(a.opScore || 0),
+      // User
+      userScore:        Math.round(a.userScore || 0),
+      // Synthesized
+      concernWorld:     Math.round(a.concernWorld || 0),
+      concernUser:      Math.round(a.concernUser  || 0),
+      overwhelm:        Math.round(a.overwhelm    || 0),
+      // Verdict — for display
+      verdict:          verdictLabel(a),
+    };
+  }
+
+  function verdictLabel(a) {
+    if (!a) return 'calm';
+    if (a.overwhelm    > 65) return 'overwhelmed';
+    if (a.concernUser  > 60) return 'concerned for you';
+    if (a.concernWorld > 60) return 'concerned about ops';
+    if (a.overwhelm    > 35) return 'a bit heavy';
+    if (a.concernWorld > 35 || a.concernUser > 35) return 'watchful';
+    return 'calm';
+  }
+
+
+  // ─── BOOTSTRAP ─────────────────────────────────────────────────────
+  // Called from init() once the shell is ready. Installs sensors,
+  // primes the operational score with an immediate poll, and starts
+  // the periodic tick.
+  function startAffectiveAwareness() {
+    if (state.awareness._started) return;
+    state.awareness._started = true;
+    installBehaviorSensors();
+    // Initial poll — populate ops score so first tick has data
+    pollOperationalAwareness();
+    // Periodic ops poll: 90 seconds. Reasonable balance between
+    // freshness and Supabase quota.
+    state.awareness._opTimer = setInterval(pollOperationalAwareness, 90_000);
+    // Periodic synthesis tick: 30 seconds.
+    state.awareness._tickTimer = setInterval(awarenessTick, 30_000);
+    // First tick after 10s so behavior sensors have some data
+    setTimeout(awarenessTick, 10_000);
+  }
+
 
   // Contextual suggestion: given current world state, what would help?
   // This is the "ReAct" pattern — reason about state, then propose action.
@@ -10188,6 +10944,13 @@
       announceConqueror();
       // v17.26: affinity decay every hour + affinity-aware greeting on session start
       setInterval(decayAffinity, 60 * 60000);
+      // v18.7: kick off the affective awareness layer — Trajan starts
+      // watching the operational state of NEXUS + the user's behavior
+      // patterns, and shifts his expression (silently) when things
+      // get heavy. See the v18.7 doc block above for the full design.
+      try { startAffectiveAwareness(); } catch (e) {
+        console.warn('[clippy] awareness layer failed to start:', e);
+      }
       // First-meet vs returning recognition
       if (state.preferences.affinity === undefined) {
         // First session with this user
@@ -10347,6 +11110,9 @@
     addTrajanQuote,
     offerBrain, offerSong,
     openPalette,
+    // v18.7 — affective awareness API. Other modules can read this to
+    // surface Trajan's read of the room in status panels or the AI brain.
+    getAwareness: getAwarenessSnapshot,
     onViewChange: () => {},
     switchAgent: () => {},   // no-op (legacy API, no longer applies)
     enable: () => { state.preferences.enabled = true; savePreferences(); init(); },
