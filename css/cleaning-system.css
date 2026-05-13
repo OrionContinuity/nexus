@@ -2854,3 +2854,208 @@ body.is-pane-cleaning .clean-list {
 [data-theme="light"] .clean-compose-foot {
   background: #f9f5e8;
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   v18.6 — Consolidated Cleaning Actions
+   Replaces the 3-button footer (scan/print/submit) with ONE primary
+   gold-gradient CTA, styled to match ordering's design language.
+   Opening the CTA reveals a bottom action sheet with every end-of-
+   shift option in one place.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ─── Footer CTA — single gold-gradient button ──────────────────── */
+.clean-actions-cta {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, var(--nx-gold) 0%, var(--nx-gold-strong, var(--nx-gold)) 100%);
+  color: var(--nx-bg);
+  border: 1px solid var(--nx-gold-strong, var(--nx-gold));
+  border-radius: 14px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .15);
+  transition: transform var(--nx-press, 0.18s), box-shadow var(--nx-press, 0.18s), filter var(--nx-press, 0.18s);
+  -webkit-tap-highlight-color: transparent;
+}
+[data-theme="light"] .clean-actions-cta { color: #fff; }
+.clean-actions-cta:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+}
+.clean-actions-cta:active { transform: scale(0.98); }
+.clean-actions-cta-chev {
+  font-size: 14px;
+  font-weight: 400;
+  opacity: 0.7;
+  margin-left: 2px;
+}
+
+/* ─── Bottom action sheet ──────────────────────────────────────────
+   Slides up from the bottom. Backdrop dims the page. The card uses
+   ordering's surface + radius language; rows are minimal (icon +
+   label + hint) so the whole thing reads at a glance. */
+.clean-actions-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  pointer-events: none;
+}
+.clean-actions-sheet-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity 0.22s ease;
+  pointer-events: none;
+}
+.clean-actions-sheet.is-open { pointer-events: auto; }
+.clean-actions-sheet.is-open .clean-actions-sheet-bg {
+  opacity: 1;
+  pointer-events: auto;
+}
+.clean-actions-sheet-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  background: var(--nx-surface-1, #1a1814);
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  border-top: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.15));
+  box-shadow: 0 -16px 48px rgba(0, 0, 0, 0.5);
+  transform: translateY(100%);
+  transition: transform 0.22s cubic-bezier(0.2, 0.85, 0.3, 1);
+}
+.clean-actions-sheet.is-open .clean-actions-sheet-card {
+  transform: translateY(0);
+}
+.clean-actions-sheet-handle {
+  width: 38px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--nx-gold-line, rgba(212, 164, 78, 0.3));
+  margin: 0 auto 14px;
+}
+.clean-actions-sheet-eyebrow {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 9px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--nx-faintest, rgba(255, 255, 255, 0.4));
+  text-align: center;
+  margin-bottom: 4px;
+}
+.clean-actions-sheet-title {
+  font-family: var(--nx-font-display, 'Outfit'), sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--nx-text, #fff);
+  text-align: center;
+  letter-spacing: -0.01em;
+  margin-bottom: 18px;
+}
+
+/* Primary CTA inside the sheet (matches ordering's primary CTA) */
+.clean-actions-cta-primary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, var(--nx-gold) 0%, var(--nx-gold-strong, var(--nx-gold)) 100%);
+  color: var(--nx-bg);
+  border: 1px solid var(--nx-gold-strong, var(--nx-gold));
+  border-radius: 14px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .15);
+  transition: filter var(--nx-press, 0.18s), transform var(--nx-press, 0.18s);
+  margin-bottom: 14px;
+}
+[data-theme="light"] .clean-actions-cta-primary { color: #fff; }
+.clean-actions-cta-primary:hover { filter: brightness(1.05); }
+.clean-actions-cta-primary:active { transform: scale(0.98); }
+
+/* Divider between primary CTA and secondary rows */
+.clean-actions-divider {
+  height: 1px;
+  background: var(--nx-gold-line, rgba(212, 164, 78, 0.12));
+  margin: 4px 4px 10px;
+}
+
+/* Secondary action rows */
+.clean-actions-row {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--nx-text, #fff);
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--nx-press, 0.18s), border-color var(--nx-press, 0.18s);
+  margin-bottom: 2px;
+}
+.clean-actions-row:hover {
+  background: var(--nx-surface-2, rgba(255, 255, 255, 0.04));
+  border-color: var(--nx-gold-line, rgba(212, 164, 78, 0.15));
+}
+.clean-actions-row:active { transform: scale(0.99); }
+.clean-actions-row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--nx-gold, #d4a44e);
+}
+.clean-actions-row-label {
+  font-weight: 500;
+  letter-spacing: 0.1px;
+}
+.clean-actions-row-hint {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 9.5px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--nx-faintest, rgba(255, 255, 255, 0.4));
+}
+
+/* Cancel button at the bottom */
+.clean-actions-cancel {
+  width: 100%;
+  padding: 13px 20px;
+  margin-top: 10px;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.18));
+  border-radius: 12px;
+  color: var(--nx-faint, rgba(255, 255, 255, 0.55));
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: color var(--nx-press, 0.18s), border-color var(--nx-press, 0.18s);
+}
+.clean-actions-cancel:hover {
+  color: var(--nx-text, #fff);
+  border-color: var(--nx-gold, #d4a44e);
+}
