@@ -321,6 +321,15 @@
     if (error) { alert('Failed: ' + error.message); return; }
     NXRM.notify.bubble(`Bzzt — new PM schedule for ${eq.name}. Every ${freqNum} days.`,
       { autoHide: 3500, eyebrow: '✓ SCHEDULED' });
+
+    // If this schedule is already past due, create a board card now.
+    // Force the throttle since this is a deliberate user action.
+    if (NX.domain?.checkPMsDue) {
+      NX.domain.checkPMsDue({ force: true }).catch(e => {
+        console.warn('[pm createSchedule] checkPMsDue hook failed:', e);
+      });
+    }
+
     await loadSchedules();
     renderPMView();
   }
