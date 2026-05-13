@@ -427,6 +427,29 @@ const NX = {
         })
         .catch(e => console.warn('[perms] post-login fetch failed:', e));
     }
+    // v18.9 — fetch interests if not already on the user row. Trajan
+    // reads currentUser.interests / inferred_interests to personalize
+    // greetings, quotes, facts, and timing. If the user-row select
+    // doesn't include those columns, this fills them in async.
+    if (user && user.id != null && user.interests === undefined) {
+      this.sb.from('nexus_users')
+        .select('interests, inferred_interests')
+        .eq('id', user.id).maybeSingle()
+        .then(({ data, error }) => {
+          if (!error && data && this.currentUser && this.currentUser.id === user.id) {
+            this.currentUser.interests = data.interests || [];
+            this.currentUser.inferred_interests = data.inferred_interests || {};
+            // Re-fire user-change with the enriched user so clippy/habits
+            // pick up the interest list
+            try {
+              document.dispatchEvent(new CustomEvent('nexus:user-change', {
+                detail: { user: this.currentUser, enriched: true }
+              }));
+            } catch(_){}
+          }
+        })
+        .catch(e => console.warn('[interests] post-login fetch failed:', e));
+    }
     // Phase 1 — load this user's preferred persona (Providentia/Trajan).
     // Reads currentUser.default_persona if the verify_pin RPC returns
     // it, else localStorage fallback, else 'providentia'. Fires
@@ -2410,16 +2433,30 @@ td.check{background:#F0EDE6 !important}
       // RPC returns a JSON array via SECURITY DEFINER.
       const { data, error } = await this.sb.rpc('list_users');
       if (error || !data) return;
-      el.innerHTML = data.map(u => `
-        <div class="admin-user-row">
-          <span class="admin-user-name-sm">${u.name}</span>
+      el.innerHTML = data.map(u => {
+        // v18.9 — show admin-assigned interest chips inline (max 3)
+        const interests = Array.isArray(u.interests) ? u.interests : [];
+        let chipsHtml = '';
+        if (interests.length && window.NX && NX.interests) {
+          const visible = interests.slice(0, 3);
+          const extra = interests.length - visible.length;
+          chipsHtml = '<span class="admin-user-tags">' +
+            visible.map(k => `<span class="admin-user-tag">${NX.interests.glyphFor(k)} ${app._esc(NX.interests.labelFor(k))}</span>`).join('') +
+            (extra > 0 ? `<span class="admin-user-tag-more">+${extra}</span>` : '') +
+          '</span>';
+        }
+        return `
+        <div class="admin-user-row" data-user-id="${u.id}" data-user-name="${app._esc(u.name)}">
+          <span class="admin-user-name-sm">${app._esc(u.name)}</span>
           <span class="admin-user-role-sm">${u.role}</span>
           <span class="admin-user-loc-sm">${u.location}</span>
           <span class="admin-user-loc-sm">${u.language||'en'}</span>
           <span class="admin-user-pin-sm">PIN: ${u.pin}</span>
+          ${chipsHtml}
+          <button class="admin-user-edit-interests" data-id="${u.id}" data-name="${app._esc(u.name)}" title="Edit interests">${NX.interests ? '✦' : '★'}</button>
           ${u.id !== this.currentUser?.id ? `<button class="admin-user-del" data-id="${u.id}">✕</button>` : ''}
-        </div>
-      `).join('');
+        </div>`;
+      }).join('');
       el.querySelectorAll('.admin-user-del').forEach(btn => {
         btn.addEventListener('click', async () => {
           if (!confirm('Remove this user?')) return;
@@ -2430,10 +2467,105 @@ td.check{background:#F0EDE6 !important}
           this.loadPermsMatrix();
         });
       });
+      // v18.9 — interest editor: tap the ✦ button on a user row
+      el.querySelectorAll('.admin-user-edit-interests').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const uid = parseInt(btn.dataset.id, 10);
+          const name = btn.dataset.name;
+          const user = data.find(u => u.id === uid);
+          this.openInterestEditor(user || { id: uid, name });
+        });
+      });
       // Refresh the permissions matrix in the same pass so adds/deletes
       // stay in sync. Cheap enough — both use SECURITY DEFINER RPCs.
       this.loadPermsMatrix();
     } catch (e) { el.innerHTML = '<div style="color:var(--faint);font-size:11px">Could not load users</div>'; }
+  },
+
+  // ─── v18.9 INTEREST EDITOR ────────────────────────────────────────
+  // Modal that lets admin tag a user with hobbies/interests. Tags are
+  // grouped by category (drink / food / history / mind / work / etc).
+  // Selection persists via interests.setUserInterests which writes
+  // through the set_user_interests RPC.
+  openInterestEditor(user) {
+    if (!window.NX || !NX.interests) {
+      alert('Interest catalog not loaded.');
+      return;
+    }
+    document.querySelectorAll('.admin-interest-editor-bg').forEach(m => m.remove());
+    const groups = NX.interests.listByCategory();
+    const current = new Set((user.interests || []).map(NX.interests.canonicalize).filter(Boolean));
+    const CAT_LABELS = {
+      drink: 'Drink', food: 'Food', history: 'History',
+      mind: 'Mind', work: 'Operations', movement: 'Movement',
+      sound: 'Sound', things: 'Things', other: 'Other',
+    };
+    const CAT_ORDER = ['drink', 'food', 'history', 'mind', 'work', 'movement', 'sound', 'things', 'other'];
+
+    const bg = document.createElement('div');
+    bg.className = 'admin-interest-editor-bg';
+    bg.innerHTML = `
+      <div class="admin-interest-editor-card">
+        <div class="admin-interest-editor-head">
+          <div class="admin-interest-editor-title">${this._esc(user.name)}'s interests</div>
+          <button class="admin-interest-editor-close">✕</button>
+        </div>
+        <div class="admin-interest-editor-sub">
+          Tap to toggle. Trajan will weave these into his presence —
+          quotes, facts, occasional moments tied to what they like.
+        </div>
+        <div class="admin-interest-editor-body">
+          ${CAT_ORDER.filter(c => groups[c]).map(cat => `
+            <div class="admin-interest-cat">
+              <div class="admin-interest-cat-label">${CAT_LABELS[cat] || cat}</div>
+              <div class="admin-interest-chips">
+                ${groups[cat].map(item => `
+                  <button class="admin-interest-chip ${current.has(item.key) ? 'is-on' : ''}"
+                          data-key="${item.key}">
+                    <span class="admin-interest-chip-glyph">${item.glyph}</span>
+                    <span class="admin-interest-chip-label">${this._esc(item.label)}</span>
+                  </button>`).join('')}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="admin-interest-editor-actions">
+          <button class="admin-interest-save">Save</button>
+          <button class="admin-interest-cancel">Cancel</button>
+        </div>
+      </div>`;
+    document.body.appendChild(bg);
+
+    const close = () => bg.remove();
+    bg.querySelector('.admin-interest-editor-close').addEventListener('click', close);
+    bg.querySelector('.admin-interest-cancel').addEventListener('click', close);
+    bg.addEventListener('click', (e) => { if (e.target === bg) close(); });
+
+    // Toggle chips
+    const selected = new Set(current);
+    bg.querySelectorAll('.admin-interest-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const key = chip.getAttribute('data-key');
+        if (selected.has(key)) { selected.delete(key); chip.classList.remove('is-on'); }
+        else                   { selected.add(key);    chip.classList.add('is-on');    }
+      });
+    });
+
+    bg.querySelector('.admin-interest-save').addEventListener('click', async () => {
+      const saveBtn = bg.querySelector('.admin-interest-save');
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+      const ok = await NX.interests.setUserInterests(user.id, Array.from(selected));
+      if (ok) {
+        NX.toast?.(`Saved ${selected.size} interest${selected.size === 1 ? '' : 's'} for ${user.name}`, 'success');
+        close();
+        this.loadUserList();
+      } else {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+        NX.toast?.('Save failed — did you run interests_migration.sql?', 'error');
+      }
+    });
   },
 
   // ─── PERMISSIONS MATRIX (Phase D) ─────────────────────────────────
