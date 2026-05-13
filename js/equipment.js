@@ -16356,6 +16356,16 @@ async function addNewPart(prefilledEquipId) {
 }
 
 
+// v18.14 — direct window globals as backup path. The FAB dial in
+// index.html prefers these over NX.modules.equipment.* because some
+// downstream code is apparently clearing window.NX.modules (the dial
+// reports "NX.modules missing" 10s after equipment.js renders the
+// view, which means the namespace gets wiped). These survive any
+// such wipe since they sit on `window` directly, not inside the NX
+// namespace tree.
+window.__nxOpenParts = openParts;
+window.__nxOpenArchiveWorld = openArchiveWorld;
+
 NX.modules.equipment = {
   // Lifecycle
   init,
