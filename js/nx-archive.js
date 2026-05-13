@@ -18,7 +18,14 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 (function () {
-  if (window.NX && NX.archive) return;
+  // v18.11 fix — was: `if (window.NX && NX.archive) return;` which throws
+  // ReferenceError because the `const NX` below is hoisted into TDZ for
+  // the whole function block, so referencing NX on this line crashes the
+  // IIFE silently (when window.NX is already truthy, which it always is
+  // by the time this script runs — domain.js etc. set window.NX earlier).
+  // Result: NX.archive was NEVER registered. Cleaning archive button
+  // showed "Archive unavailable" because consumers couldn't see it.
+  if (window.NX && window.NX.archive) return;
   const NX = window.NX = window.NX || {};
   const esc = (s) => String(s == null ? '' : s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
