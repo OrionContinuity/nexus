@@ -2532,10 +2532,24 @@
       if (!state.bubble && state.enabled && !state.sulkActive
           && !state.preferences.do_not_disturb) {
         try {
-          bubble(`${sal} ${name}. ${tail}`, {
-            eyebrow,
+          // v18.9 — 25% chance Trajan weaves in an interest-tied fact
+          // or quote instead of the standard tail. Only happens when
+          // NX.interests is loaded and the user has tags.
+          let line = `${sal} ${name}. ${tail}`;
+          let eyebrowFinal = eyebrow;
+          if (window.NX && NX.interests && window.app && app.currentUser
+              && Math.random() < 0.25) {
+            const pick = NX.interests.pickForUser(app.currentUser, null);
+            if (pick && pick.text) {
+              line = `${sal} ${name}. ` + pick.text;
+              // Trim a leading quote mark if a quote got picked
+              eyebrowFinal = `${pick.glyph} ${pick.label.toUpperCase()}`;
+            }
+          }
+          bubble(line, {
+            eyebrow: eyebrowFinal,
             trajan: true,
-            autoHide: 5000,
+            autoHide: 6500,
           });
         } catch(_){}
       }
@@ -5540,16 +5554,58 @@
       if (!state.enabled) return;
       if (!state.preferences.do_not_disturb && !state.bubble && !state.suppressed && Math.random() < 0.04) {
         const r = Math.random();
-        if      (r < 0.30) bubble(pickFromPool('idle_random'));
-        else if (r < 0.40) { play('wobble'); bubble(pickFromPool('sneeze')); }
-        else if (r < 0.50) bubble(pickFromPool('yawn'));
-        else if (r < 0.65) play('wobble');
-        else if (r < 0.80) maybeTrajanQuote();
+        if      (r < 0.25) bubble(pickFromPool('idle_random'));
+        else if (r < 0.35) { play('wobble'); bubble(pickFromPool('sneeze')); }
+        else if (r < 0.45) bubble(pickFromPool('yawn'));
+        else if (r < 0.58) play('wobble');
+        else if (r < 0.72) maybeTrajanQuote();
+        else if (r < 0.85) maybeInterestMoment();    // v18.9 — interest-tied
         else               maybeDiscoveryTip();
       }
       state.randomTimer = setTimeout(loop, 90000);
     }
     state.randomTimer = setTimeout(loop, 60000);
+  }
+
+  // v18.9 — drop a "did you know" / quote / quip tied to one of the
+  // current user's interests. Rate-limited to twice per hour at most,
+  // and skipped entirely during typical focus hours per habits.js.
+  // The whole thing falls through silently if no interests are set
+  // or if NX.interests didn't load.
+  function maybeInterestMoment() {
+    if (!window.NX || !NX.interests) return;
+    if (!window.app || !app.currentUser) return;
+    if (Date.now() < (state.interestMomentCooldownAt || 0)) return;
+    // Respect quiet/focus hours from habits.js if available
+    try {
+      if (NX.habits && NX.habits.isQuietHourFor) {
+        const uid = NX.habits.getCurrentUserId
+          ? NX.habits.getCurrentUserId()
+          : app.currentUser.id;
+        if (NX.habits.isQuietHourFor(uid)) return;
+      }
+    } catch(_){}
+    const pick = NX.interests.pickForUser(app.currentUser, null);
+    if (!pick || !pick.text) return;
+    // Eyebrow varies by kind: "✦ DID YOU KNOW" for fact,
+    // "✦ TODAY'S QUOTE" for quote, plain for quip.
+    const eyebrowKindLabel = {
+      fact:  'DID YOU KNOW',
+      quote: 'TODAY\'S QUOTE',
+      quip:  '',
+    }[pick.kind] || '';
+    const eyebrow = eyebrowKindLabel
+      ? `${pick.glyph} ${eyebrowKindLabel} · ${pick.label.toUpperCase()}`
+      : `${pick.glyph} ${pick.label.toUpperCase()}`;
+    try {
+      bubble(pick.text, {
+        eyebrow,
+        trajan: true,
+        autoHide: pick.kind === 'quote' ? 8000 : 6500,
+      });
+    } catch(_){}
+    // 30-minute cooldown between interest moments
+    state.interestMomentCooldownAt = Date.now() + 30 * 60_000;
   }
   function maybeTrajanQuote() {
     if (Date.now() < state.quoteCooldownAt) return;
