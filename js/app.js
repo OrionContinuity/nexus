@@ -330,6 +330,12 @@ const NX = {
     this.currentUser = null;
     this.isAdmin = false;
     this.isManager = false;
+    // v18.8 — notify habits observer that the active user is gone
+    try {
+      document.dispatchEvent(new CustomEvent('nexus:user-change', {
+        detail: { user: null }
+      }));
+    } catch(_) {}
   },
 
   async _makeSessionToken(pin, id) {
@@ -426,6 +432,14 @@ const NX = {
     // it, else localStorage fallback, else 'providentia'. Fires
     // nx-persona-change so brain-chat picks up CURRENT_PERSONA.
     this._initActivePersona();
+    // v18.8 — notify habits observer of the new active user so it can
+    // start binding observations to their id + pull their cloud
+    // pattern profile (if any) for warm-start across devices.
+    try {
+      document.dispatchEvent(new CustomEvent('nexus:user-change', {
+        detail: { user: { id: user.id, name: user.name, role: user.role } }
+      }));
+    } catch(_) {}
     // Create session token tied to this PIN + user + device
     this._makeSessionToken(pin, user.id).then(token => {
       sessionStorage.setItem('nexus_session_token', token);
@@ -804,22 +818,27 @@ const NX = {
     this.loadAgenda();
     // Brain view toggle — managers + admin only
     this.setupBrainViewToggle();
-    // Wire cleaning scan button — weekly scanner (3 photos)
+    // Wire cleaning scan button — weekly scanner (3 photos).
+    // Function is also exposed as NX.cleaningScan so the consolidated
+    // cleaning action sheet can call it directly without needing the
+    // legacy footer button to exist in the DOM.
+    NX.cleaningScan = async function() {
+      try {
+        if (NX.scanWeeklyChecklist) { await NX.scanWeeklyChecklist(); }
+        else if (NX.scanChecklist) { await NX.scanChecklist(); }
+      } catch(e) { NX.toast('Scan error: '+e.message, 'error'); }
+    };
     const scanBtn = document.getElementById('cleanScan');
     if (scanBtn) {
       scanBtn.addEventListener('click', async () => {
         scanBtn.disabled = true; scanBtn.textContent = '...';
-        try {
-          if (NX.scanWeeklyChecklist) { await NX.scanWeeklyChecklist(); }
-          else if (NX.scanChecklist) { await NX.scanChecklist(); }
-        } catch(e) { NX.toast('Scan error: '+e.message, 'error'); }
+        await NX.cleaningScan();
         scanBtn.disabled = false; scanBtn.textContent = 'Scan';
       });
     }
-    // Wire print/export checklist button
-    const exportBtn = document.getElementById('cleanExport');
-    if (exportBtn) {
-      exportBtn.addEventListener('click', () => {
+    // Wire print/export checklist button. Same pattern — also exposed
+    // as NX.cleaningPrint for the consolidated action sheet to invoke.
+    NX.cleaningPrint = function() {
         const tasks = NX.cleaningTasks;
         if (!tasks) { NX.toast('Tasks not loaded', 'error'); return; }
         const activeLoc = document.querySelector('.clean-tab.active')?.dataset?.cloc || 'suerte';
@@ -905,8 +924,11 @@ td.check{background:#F0EDE6 !important}
         } else {
           NX.toast('Pop-up blocked — allow pop-ups to print', 'warn');
         }
-      });
-    }
+    };
+    // Legacy button wiring (silently no-ops once index.html drops the
+    // footer button in favor of the consolidated action sheet).
+    const exportBtn = document.getElementById('cleanExport');
+    if (exportBtn) exportBtn.addEventListener('click', NX.cleaningPrint);
     // Morning briefing — show pending items on login
     setTimeout(() => this.showBriefing(), 2000);
     // Auto-scan if triggered by QR code
