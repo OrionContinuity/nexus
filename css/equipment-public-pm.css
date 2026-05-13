@@ -708,3 +708,304 @@ textarea.pm-input { resize: vertical; min-height: 60px; }
 .badge-choice-cancel:active {
   background: var(--nx-gold-faint);
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   v18.5 — Status & Recent Attempts panel
+   Collapsible panel shown above the PM form on the public scan view.
+   Gives a contractor immediate context (equipment status, open issue,
+   last 3 dispatch attempts) before they fill out the log.
+   ════════════════════════════════════════════════════════════════════ */
+.pm-status-panel {
+  margin: 0 16px 12px;
+  background: var(--nx-surface-1, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.15));
+  border-radius: 12px;
+  overflow: hidden;
+}
+.pm-status-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--nx-faint, rgba(255, 255, 255, 0.55));
+  transition: color 0.18s ease;
+}
+.pm-status-summary::-webkit-details-marker { display: none; }
+.pm-status-summary:hover { color: var(--nx-text, #fff); }
+.pm-status-summary-chev {
+  font-size: 14px;
+  transition: transform 0.2s ease;
+}
+.pm-status-panel[open] .pm-status-summary-chev {
+  transform: rotate(180deg);
+}
+.pm-status-body {
+  padding: 4px 14px 14px;
+  border-top: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.1));
+}
+.pm-status-loading,
+.pm-status-error,
+.pm-status-empty {
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  color: var(--nx-faint, rgba(255, 255, 255, 0.55));
+  text-align: center;
+  padding: 10px;
+  font-style: italic;
+}
+.pm-status-error { color: var(--nx-red, #c83a3a); }
+
+/* Status badge row */
+.pm-status-badge-row {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0;
+}
+.pm-status-badge {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  padding: 5px 12px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pm-status-ok {
+  background: rgba(40, 160, 80, 0.18);
+  color: var(--nx-green, #28a050);
+  border: 1px solid rgba(40, 160, 80, 0.4);
+}
+.pm-status-warn {
+  background: rgba(212, 164, 78, 0.18);
+  color: var(--nx-gold, #d4a44e);
+  border: 1px solid rgba(212, 164, 78, 0.4);
+}
+.pm-status-bad {
+  background: rgba(200, 58, 58, 0.18);
+  color: var(--nx-red, #c83a3a);
+  border: 1px solid rgba(200, 58, 58, 0.4);
+}
+.pm-status-info {
+  background: rgba(125, 240, 255, 0.12);
+  color: #7df0ff;
+  border: 1px solid rgba(125, 240, 255, 0.3);
+}
+.pm-status-dim {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--nx-faint, rgba(255, 255, 255, 0.55));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Sections inside status panel */
+.pm-status-section {
+  margin-top: 12px;
+}
+.pm-status-section-label {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 9.5px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--nx-faintest, rgba(255, 255, 255, 0.35));
+  margin-bottom: 6px;
+}
+
+/* Open issue */
+.pm-status-issue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--nx-surface-2, rgba(255, 255, 255, 0.03));
+  border-radius: 8px;
+  border-left: 3px solid var(--nx-gold, #d4a44e);
+}
+.pm-status-issue-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  color: var(--nx-text, #fff);
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pm-status-issue-status {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--nx-gold, #d4a44e);
+  white-space: nowrap;
+}
+
+/* Recent attempts */
+.pm-status-attempt {
+  padding: 8px 10px;
+  background: var(--nx-surface-2, rgba(255, 255, 255, 0.03));
+  border-radius: 8px;
+  margin-bottom: 6px;
+  border-left: 3px solid var(--nx-gold-line, rgba(212, 164, 78, 0.2));
+}
+.pm-attempt-resolved { border-left-color: var(--nx-green, #28a050); }
+.pm-attempt-failed { border-left-color: var(--nx-red, #c83a3a); }
+.pm-attempt-pending { border-left-color: var(--nx-gold, #d4a44e); }
+.pm-attempt-no_answer { border-left-color: var(--nx-faintest, rgba(255, 255, 255, 0.3)); }
+
+.pm-status-attempt-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pm-status-attempt-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.pm-status-attempt-who {
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  color: var(--nx-text, #fff);
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pm-status-attempt-when {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  color: var(--nx-faint, rgba(255, 255, 255, 0.55));
+  white-space: nowrap;
+}
+.pm-status-attempt-outcome {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.pm-outcome-pending {
+  background: rgba(212, 164, 78, 0.18);
+  color: var(--nx-gold, #d4a44e);
+}
+.pm-outcome-resolved {
+  background: rgba(40, 160, 80, 0.18);
+  color: var(--nx-green, #28a050);
+}
+.pm-outcome-failed {
+  background: rgba(200, 58, 58, 0.18);
+  color: var(--nx-red, #c83a3a);
+}
+.pm-outcome-no_answer {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--nx-faint, rgba(255, 255, 255, 0.55));
+}
+.pm-status-attempt-notes {
+  margin-top: 5px;
+  padding-left: 22px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 11.5px;
+  color: var(--nx-muted, rgba(255, 255, 255, 0.7));
+  line-height: 1.4;
+  font-style: italic;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   v18.8 — Trajan welcome banner (contractor-inferred greeting)
+   Shown at the top of the public PM form when equipment.status
+   suggests the scanner is a contractor. Hidden when status is
+   operational + no other signals.
+   ════════════════════════════════════════════════════════════════════ */
+.pm-trajan-welcome {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 12px;
+  align-items: center;
+  margin: 0 16px 12px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg,
+    rgba(76, 182, 255, 0.08) 0%,
+    rgba(76, 182, 255, 0.02) 100%);
+  border: 1px solid rgba(76, 182, 255, 0.20);
+  border-radius: 12px;
+}
+.pm-trajan-contractor {
+  background: linear-gradient(135deg,
+    rgba(76, 182, 255, 0.12) 0%,
+    rgba(76, 182, 255, 0.04) 100%);
+  border-color: rgba(76, 182, 255, 0.30);
+}
+.pm-trajan-mixed {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(212, 164, 78, 0.18);
+}
+.pm-trajan-orb {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pm-trajan-orb svg {
+  width: 36px;
+  height: 36px;
+  filter: drop-shadow(0 2px 6px rgba(76, 182, 255, 0.35));
+}
+.pm-trajan-text {
+  min-width: 0;
+}
+.pm-trajan-eyebrow {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 9px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: rgba(76, 182, 255, 0.85);
+  margin-bottom: 3px;
+}
+.pm-trajan-line {
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--nx-text, #fff);
+  letter-spacing: 0.1px;
+}
+
+/* Post-submit thank-you banner — bottom-anchored, slides up briefly */
+.pm-trajan-thanks {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%) translateY(120%);
+  z-index: 1300;
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 12px;
+  align-items: center;
+  width: min(90vw, 380px);
+  padding: 14px 16px;
+  background: var(--nx-surface-1, #1a1814);
+  border: 1px solid rgba(76, 182, 255, 0.30);
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: transform 0.32s cubic-bezier(0.2, 0.85, 0.3, 1),
+              opacity 0.32s ease;
+}
+.pm-trajan-thanks.is-shown {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
