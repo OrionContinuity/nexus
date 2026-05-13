@@ -1560,7 +1560,7 @@
       btn.addEventListener('click', () => {
         close();
         if (NX.educationAPI && NX.educationAPI.openGuideViewer) {
-          NX.educationAPI.openGuideViewer(btn.dataset.guideId);
+          NX.educationAPI.openGuideViewer(btn.dataset.guideId, { returnToView: 'clean' });
         }
       });
     });
@@ -2223,7 +2223,7 @@
         }
         if (guides.length === 1) {
           if (NX.educationAPI && NX.educationAPI.openGuideViewer) {
-            NX.educationAPI.openGuideViewer(guides[0].id);
+            NX.educationAPI.openGuideViewer(guides[0].id, { returnToView: 'clean' });
           } else {
             toast('Could not open lesson — try again', 'error');
           }
@@ -3543,37 +3543,66 @@
     return `mailto:${encodeURIComponent(to)}?${params.join('&')}`;
   }
 
-  // ─── BUTTON HANDLER: Submit Daily Report ──────────────────────────────
-  // Decision UX: small action menu with two options. Default action
-  // (the prominent one) is "Submit & email" since that's the new
-  // capability the user just asked for. "Save without email" is the
-  // secondary option for partial-day saves.
-  function onSubmitClick() {
-    if (!NX.composer?.modal) {
-      // Fallback — go straight to email
-      return submitWithEmail();
-    }
-    // Use a tiny custom action sheet via raw DOM (composer.modal is
-    // for forms, not action menus). Render a backdrop + two buttons.
+  // ─── BUTTON HANDLER: Cleaning Actions (Finish Shift) ──────────────────
+  // v18.6 — consolidates submit + print + scan into one action sheet
+  // launched from the footer's gold CTA button. Mirrors ordering's
+  // design language (gold-gradient primary CTA + secondary actions).
+  //
+  // Sheet contents (top → bottom):
+  //   1. Submit & email     (primary — completes the day, sends report)
+  //   2. Save without email (secondary — partial save mid-shift)
+  //   3. Print checklist    (utility — opens print-friendly view)
+  //   4. Scan QR            (utility — weekly photo scanner)
+  //   5. Cancel
+  //
+  // Everything that used to live as separate footer buttons now lives
+  // here. The legacy onSubmitClick is preserved as an alias for any
+  // call sites that still hold a reference.
+  function openCleaningActions() {
     const sheet = document.createElement('div');
-    sheet.className = 'clean-submit-sheet';
+    sheet.className = 'clean-actions-sheet';
     sheet.innerHTML = `
-      <div class="clean-submit-sheet-bg"></div>
-      <div class="clean-submit-sheet-card">
-        <div class="clean-submit-sheet-title">Submit report</div>
-        <div class="clean-submit-sheet-sub">Choose how to finish today's shift</div>
-        <button class="clean-submit-sheet-primary" data-action="email">
-          ${svg('mail', 16)} <span>Submit &amp; email</span>
+      <div class="clean-actions-sheet-bg"></div>
+      <div class="clean-actions-sheet-card">
+        <div class="clean-actions-sheet-handle"></div>
+        <div class="clean-actions-sheet-eyebrow">END OF SHIFT</div>
+        <div class="clean-actions-sheet-title">What's next?</div>
+
+        <button class="clean-actions-cta-primary" data-action="email">
+          ${svg('mail', 16)} <span>Submit &amp; email report</span>
         </button>
-        <button class="clean-submit-sheet-secondary" data-action="log">
-          Save without email
+
+        <div class="clean-actions-divider"></div>
+
+        <button class="clean-actions-row" data-action="log">
+          <span class="clean-actions-row-icon">${svg('check', 16)}</span>
+          <span class="clean-actions-row-label">Save without email</span>
+          <span class="clean-actions-row-hint">Partial save</span>
         </button>
-        <button class="clean-submit-sheet-cancel" data-action="cancel">Cancel</button>
+        <button class="clean-actions-row" data-action="print">
+          <span class="clean-actions-row-icon">${svg('pen', 16)}</span>
+          <span class="clean-actions-row-label">Print checklist</span>
+          <span class="clean-actions-row-hint">Paper backup</span>
+        </button>
+        <button class="clean-actions-row" data-action="scan">
+          <span class="clean-actions-row-icon">${svg('camera', 16)}</span>
+          <span class="clean-actions-row-label">Scan QR</span>
+          <span class="clean-actions-row-hint">Weekly</span>
+        </button>
+
+        <button class="clean-actions-cancel" data-action="cancel">Cancel</button>
       </div>
     `;
     document.body.appendChild(sheet);
-    const close = () => sheet.remove();
-    sheet.querySelector('.clean-submit-sheet-bg').addEventListener('click', close);
+    // animate-in by reading layout then adding the class
+    requestAnimationFrame(() => sheet.classList.add('is-open'));
+
+    const close = () => {
+      sheet.classList.remove('is-open');
+      // wait for transition to complete before removing
+      setTimeout(() => sheet.remove(), 220);
+    };
+    sheet.querySelector('.clean-actions-sheet-bg').addEventListener('click', close);
     sheet.querySelector('[data-action="cancel"]').addEventListener('click', close);
     sheet.querySelector('[data-action="email"]').addEventListener('click', () => {
       close(); submitWithEmail();
@@ -3581,7 +3610,22 @@
     sheet.querySelector('[data-action="log"]').addEventListener('click', () => {
       close(); submitLogOnly();
     });
+    sheet.querySelector('[data-action="print"]').addEventListener('click', () => {
+      close();
+      if (typeof NX.cleaningPrint === 'function') NX.cleaningPrint();
+      else toast('Print unavailable', 'warn');
+    });
+    sheet.querySelector('[data-action="scan"]').addEventListener('click', () => {
+      close();
+      if (typeof NX.cleaningScan === 'function') NX.cleaningScan();
+      else toast('Scanner unavailable', 'warn');
+    });
   }
+
+  // Legacy alias — onSubmitClick used to be wired to the cleanSubmit
+  // button. The button is gone in v18.6 but other call sites (or
+  // future ones) may reference this name.
+  function onSubmitClick() { openCleaningActions(); }
 
   // ═══ LOCALSTORAGE MIGRATION ═════════════════════════════════════════════
   // v11 stored user-added tasks in localStorage under 'nexus_custom_tasks'.
@@ -3743,7 +3787,12 @@
       });
     });
 
-    // Wire submit (with two-action menu)
+    // Wire the consolidated Cleaning Actions button (v18.6 — replaces
+    // the old scan + print + submit footer trio). Falls back to wiring
+    // the legacy cleanSubmit if for some reason the new button isn't
+    // in the DOM (e.g. caching mid-deploy).
+    const actionsBtn = document.getElementById('cleanActions');
+    if (actionsBtn) actionsBtn.addEventListener('click', openCleaningActions);
     const submitBtn = document.getElementById('cleanSubmit');
     if (submitBtn) submitBtn.addEventListener('click', onSubmitClick);
 
