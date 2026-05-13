@@ -4681,12 +4681,19 @@
     // v17.14: shadow as a separate DOM element BEFORE the SVG. Anchored
     // to the bottom of the shell via CSS. Animates independently of body
     // movement so it always reads as "on the ground."
-    // v18.10: orbital particle ring — 5 dots that pulse + spin around him.
-    const orbitalLayer = '<div class="clippy-orbit">' +
-      '<span class="clippy-orbital"></span>'.repeat(5) +
-      '</div>';
-    shell.innerHTML = '<div class="clippy-shadow"></div>' + orbitalLayer +
-                      svgText + '<div id="clippy-costume-layer"></div>';
+    // v18.10: FIREFLIES — two layers. The "back" layer renders BEFORE the
+    // SVG (so it z-indexes behind via CSS) and the "front" layer renders
+    // AFTER (so it can sit in front of the body). 4 fireflies each =
+    // 8 total drifting independently on unique keyframe paths.
+    const backFireflies  = '<div class="clippy-orbit-back">'  +
+      '<span class="clippy-orbital"></span>'.repeat(4) + '</div>';
+    const frontFireflies = '<div class="clippy-orbit-front">' +
+      '<span class="clippy-orbital"></span>'.repeat(4) + '</div>';
+    shell.innerHTML = '<div class="clippy-shadow"></div>' +
+                      backFireflies +
+                      svgText +
+                      frontFireflies +
+                      '<div id="clippy-costume-layer"></div>';
     ensureHost().appendChild(shell);
     state.shell = shell;
     state.svg = shell.querySelector('svg');
