@@ -38,6 +38,7 @@
 <link rel="stylesheet" href="css/galaxy.css">
 <link rel="stylesheet" href="css/equipment.css">
 <link rel="stylesheet" href="css/equipment-public-pm.css">
+<link rel="stylesheet" href="css/habits-debug.css">
 <link rel="stylesheet" href="css/equipment-public-pm-system.css">
 <link rel="stylesheet" href="css/equipment-system.css">
 <link rel="stylesheet" href="css/views-system.css">
@@ -778,6 +779,7 @@
 <body>
 <script src="js/config.js"></script>
 <script src="js/file-picker.js"></script>
+<script src="js/domain.js"></script>
 <script src="js/equipment-public-scan.js"></script>
 <script src="js/equipment-public-pm.js"></script>
 
@@ -1509,7 +1511,13 @@
     </div>
     <div class="clean-progress"><span class="clean-progress-label" data-i18n="shiftProgress">SHIFT PROGRESS</span><div class="clean-track"><div class="clean-fill" id="cleanFill"></div></div><span class="clean-pct" id="cleanPct">0%</span></div>
     <div class="clean-list" id="cleanList"></div>
-    <div class="clean-footer"><button class="clean-scan" id="cleanScan" aria-label="Scan QR"></button><button class="clean-export" id="cleanExport" aria-label="Print"></button><button class="clean-submit" id="cleanSubmit" data-i18n="submitReport">Submit Report</button><div class="clean-submit-confirm" id="cleanConfirm" style="display:none"></div></div>
+    <div class="clean-footer">
+      <button class="clean-actions-cta" id="cleanActions" type="button">
+        <span class="clean-actions-cta-label" data-i18n="finishShift">Finish Shift</span>
+        <span class="clean-actions-cta-chev">▴</span>
+      </button>
+      <div class="clean-submit-confirm" id="cleanConfirm" style="display:none"></div>
+    </div>
     </div>
 
     <!-- ─── Ordering pane (populated by ordering.js) ────────────── -->
@@ -2946,6 +2954,7 @@
 <script src="js/nx-archive.js"></script>
 <script src="js/app.js"></script>
 <!-- Clippy — companion / proactive helper. Self-bootstrapping after NX exists. -->
+<script src="js/habits.js" defer></script>
 <script src="js/clippy.js" defer></script>
 <!-- record-editor.js MUST come AFTER app.js — the engine attaches to the
      lexical `const NX` declared in app.js, which is not a property on
