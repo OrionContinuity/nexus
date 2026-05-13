@@ -1284,3 +1284,341 @@ textarea.b-field {
   margin-top: 4px;
   font-style: italic;
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   v18.5 — Issue Lifecycle Timeline + Repair Attempts
+   Adds Phase A (timeline on card detail) + Phase C (attempts list)
+   styling. Mirrors the ordering-system.css timeline design language
+   so the two timelines feel like a family.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ── Issue Lifecycle Timeline ─────────────────────────────────────── */
+.b-il-timeline {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 0 !important;
+  padding: 14px 4px 14px !important;
+  margin-bottom: 4px !important;
+}
+.b-il-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  text-align: center;
+  width: 54px;
+  min-width: 0;
+  cursor: pointer;
+  transition: transform var(--nx-press, 0.18s);
+}
+.b-il-step:hover { transform: translateY(-1px); }
+.b-il-step.is-loading { opacity: 0.5; pointer-events: none; }
+.b-il-marker {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--nx-gold-line);
+  background: var(--nx-bg);
+  color: var(--nx-bg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background var(--nx-press, 0.18s), border-color var(--nx-press, 0.18s), transform var(--nx-press, 0.18s);
+}
+.b-il-step.is-reached .b-il-marker {
+  background: var(--nx-gold);
+  border-color: var(--nx-gold);
+  color: var(--nx-bg);
+}
+[data-theme="light"] .b-il-step.is-reached .b-il-marker {
+  background: var(--nx-gold-strong, var(--nx-gold));
+  border-color: var(--nx-gold-strong, var(--nx-gold));
+  color: #fff;
+}
+.b-il-step.is-current .b-il-marker {
+  box-shadow: 0 0 0 4px var(--nx-gold-mist);
+  transform: scale(1.05);
+}
+.b-il-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.b-il-label {
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--nx-faintest);
+  white-space: nowrap;
+}
+.b-il-step.is-reached .b-il-label { color: var(--nx-text); }
+.b-il-step.is-current .b-il-label {
+  color: var(--nx-gold);
+  font-weight: 600;
+}
+.b-il-ts {
+  font-family: 'Outfit', sans-serif;
+  font-size: 10px;
+  color: var(--nx-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60px;
+}
+.b-il-bar {
+  flex: 1 1 auto;
+  height: 2px;
+  background: var(--nx-gold-line);
+  margin: 11px 0 0 0;
+  border-radius: 1px;
+  min-width: 6px;
+  transition: background var(--nx-press, 0.18s);
+}
+.b-il-bar.is-reached { background: var(--nx-gold); }
+[data-theme="light"] .b-il-bar.is-reached { background: var(--nx-gold-strong, var(--nx-gold)); }
+
+.b-il-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+}
+.b-il-reopen {
+  background: var(--nx-surface-2) !important;
+  border: 1px solid var(--nx-gold-line) !important;
+  color: var(--nx-text) !important;
+  font-size: 12px !important;
+  padding: 6px 12px !important;
+  border-radius: 8px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.b-il-reopen:hover {
+  border-color: var(--nx-gold) !important;
+  background: var(--nx-gold-mist) !important;
+}
+
+/* ── Reopen modal (same-issue vs new-problem chooser) ─────────────── */
+.b-modal-bg-stack {
+  z-index: 1100 !important;     /* above the card detail modal */
+}
+.b-modal-narrow {
+  max-width: 460px !important;
+}
+.b-modal-title-static {
+  font-family: var(--nx-font-display);
+  font-size: var(--nx-text-lg);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--nx-text);
+}
+.b-il-reopen-hint {
+  font-family: var(--nx-font-body);
+  font-size: 13px;
+  color: var(--nx-muted);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+.b-il-reopen-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.b-il-reopen-opt {
+  text-align: left;
+  background: var(--nx-surface-2);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  color: var(--nx-text);
+  transition: border-color var(--nx-press, 0.18s), background var(--nx-press, 0.18s);
+}
+.b-il-reopen-opt:hover {
+  border-color: var(--nx-gold);
+  background: var(--nx-gold-mist);
+}
+.b-il-reopen-opt-title {
+  font-family: var(--nx-font-display);
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: var(--nx-text);
+}
+.b-il-reopen-opt-sub {
+  font-family: var(--nx-font-body);
+  font-size: 12px;
+  color: var(--nx-faint);
+  line-height: 1.4;
+}
+
+/* ── Repair Attempts list ─────────────────────────────────────────── */
+.b-attempts-loading,
+.b-attempts-empty {
+  font-family: var(--nx-font-body);
+  font-size: 12.5px;
+  color: var(--nx-faint);
+  text-align: center;
+  padding: 14px 8px;
+  font-style: italic;
+}
+.b-attempt {
+  background: var(--nx-surface-2);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  transition: border-color var(--nx-press, 0.18s);
+}
+.b-attempt-pending { border-color: var(--nx-gold-line); }
+.b-attempt-resolved { border-color: var(--nx-green); border-left: 3px solid var(--nx-green); }
+.b-attempt-failed { border-color: var(--nx-red); border-left: 3px solid var(--nx-red); }
+.b-attempt-no_answer { border-color: var(--nx-faintest); border-left: 3px solid var(--nx-faintest); }
+
+.b-attempt-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.b-attempt-method {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--nx-gold);
+  flex-shrink: 0;
+}
+.b-attempt-method .badge-icon { width: 14px; height: 14px; }
+.b-attempt-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.b-attempt-who {
+  font-family: var(--nx-font-display);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--nx-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.b-attempt-when {
+  font-family: var(--nx-font-mono);
+  font-size: 10px;
+  color: var(--nx-faint);
+  letter-spacing: 0.3px;
+}
+.b-attempt-outcome {
+  font-family: var(--nx-font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.b-outcome-pending {
+  background: var(--nx-gold-mist);
+  color: var(--nx-gold);
+}
+.b-outcome-resolved {
+  background: rgba(40, 160, 80, 0.18);
+  color: var(--nx-green);
+}
+.b-outcome-failed {
+  background: var(--nx-red-soft);
+  color: var(--nx-red);
+}
+.b-outcome-no_answer {
+  background: var(--nx-surface-1);
+  color: var(--nx-faint);
+}
+
+.b-attempt-issue {
+  font-family: var(--nx-font-body);
+  font-size: 12.5px;
+  color: var(--nx-text);
+  line-height: 1.4;
+  margin-top: 4px;
+}
+.b-attempt-notes {
+  font-family: var(--nx-font-body);
+  font-size: 12px;
+  color: var(--nx-muted);
+  line-height: 1.4;
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--nx-gold-line);
+  font-style: italic;
+}
+.b-attempt-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.b-attempt-photo {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--nx-gold-line);
+  cursor: pointer;
+}
+.b-attempt-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.b-btn-sm {
+  font-size: 11px !important;
+  padding: 5px 10px !important;
+  border-radius: 6px !important;
+}
+.b-btn-warn {
+  border-color: var(--nx-red-line, var(--nx-red)) !important;
+  color: var(--nx-red) !important;
+}
+.b-btn-warn:hover {
+  background: var(--nx-red-soft) !important;
+}
+
+/* ── Add Attempt form ─────────────────────────────────────────────── */
+.b-attempt-methods {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.b-attempt-method-pick {
+  flex: 1 1 auto;
+  min-width: 70px;
+  padding: 8px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--nx-gold-line);
+  background: var(--nx-surface-2);
+  color: var(--nx-text);
+  font-family: var(--nx-font-display);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--nx-press, 0.18s);
+}
+.b-attempt-method-pick:hover {
+  border-color: var(--nx-gold);
+}
+.b-attempt-method-pick.is-active {
+  background: var(--nx-gold-mist);
+  border-color: var(--nx-gold);
+  color: var(--nx-gold);
+  font-weight: 600;
+}
