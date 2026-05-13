@@ -2441,19 +2441,19 @@ td.check{background:#F0EDE6 !important}
           const visible = interests.slice(0, 3);
           const extra = interests.length - visible.length;
           chipsHtml = '<span class="admin-user-tags">' +
-            visible.map(k => `<span class="admin-user-tag">${NX.interests.glyphFor(k)} ${app._esc(NX.interests.labelFor(k))}</span>`).join('') +
+            visible.map(k => `<span class="admin-user-tag">${NX.interests.glyphFor(k)} ${this._escAttr(NX.interests.labelFor(k))}</span>`).join('') +
             (extra > 0 ? `<span class="admin-user-tag-more">+${extra}</span>` : '') +
           '</span>';
         }
         return `
-        <div class="admin-user-row" data-user-id="${u.id}" data-user-name="${app._esc(u.name)}">
-          <span class="admin-user-name-sm">${app._esc(u.name)}</span>
+        <div class="admin-user-row" data-user-id="${u.id}" data-user-name="${this._escAttr(u.name)}">
+          <span class="admin-user-name-sm">${this._escAttr(u.name)}</span>
           <span class="admin-user-role-sm">${u.role}</span>
           <span class="admin-user-loc-sm">${u.location}</span>
           <span class="admin-user-loc-sm">${u.language||'en'}</span>
           <span class="admin-user-pin-sm">PIN: ${u.pin}</span>
           ${chipsHtml}
-          <button class="admin-user-edit-interests" data-id="${u.id}" data-name="${app._esc(u.name)}" title="Edit interests">${NX.interests ? '✦' : '★'}</button>
+          <button class="admin-user-edit-interests" data-id="${u.id}" data-name="${this._escAttr(u.name)}" title="Edit interests">${NX.interests ? '✦' : '★'}</button>
           ${u.id !== this.currentUser?.id ? `<button class="admin-user-del" data-id="${u.id}">✕</button>` : ''}
         </div>`;
       }).join('');
@@ -2508,7 +2508,7 @@ td.check{background:#F0EDE6 !important}
     bg.innerHTML = `
       <div class="admin-interest-editor-card">
         <div class="admin-interest-editor-head">
-          <div class="admin-interest-editor-title">${this._esc(user.name)}'s interests</div>
+          <div class="admin-interest-editor-title">${this._escAttr(user.name)}'s interests</div>
           <button class="admin-interest-editor-close">✕</button>
         </div>
         <div class="admin-interest-editor-sub">
@@ -2524,7 +2524,7 @@ td.check{background:#F0EDE6 !important}
                   <button class="admin-interest-chip ${current.has(item.key) ? 'is-on' : ''}"
                           data-key="${item.key}">
                     <span class="admin-interest-chip-glyph">${item.glyph}</span>
-                    <span class="admin-interest-chip-label">${this._esc(item.label)}</span>
+                    <span class="admin-interest-chip-label">${this._escAttr(item.label)}</span>
                   </button>`).join('')}
               </div>
             </div>
