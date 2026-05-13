@@ -3214,28 +3214,35 @@
       action.addEventListener('click', () => {
         const target = action.dataset.equipTarget;
         closeDial();
+        // v18.11 — explicit logging so failures are loud + diagnosable
+        // when the user reports "Parts doesn't work". The toast tells
+        // us exactly which retry path failed and what's missing.
+        console.log('[equipDial] action click — target:', target);
 
         if (target === 'parts') {
-          // Bug fix 2026-05-09: equipment.js is lazy-loaded by
-          // app.js's activateModule when the user navigates to the
-          // Equipment view. The view-switch is fired in parallel
-          // with this dial open (40ms timeout), so by the time the
-          // user picks "Parts" the script may NOT have finished
-          // loading yet. Old code logged a warning and gave up.
-          // New code retries until the function exists (or 5s out).
           let attempts = 0;
           const maxAttempts = 60;  // 60 × 80ms = 4.8s budget
           const tryOpen = () => {
-            const fn = window.NX?.modules?.equipment?.openParts;
+            const eq = window.NX?.modules?.equipment;
+            const fn = eq && eq.openParts;
             if (typeof fn === 'function') {
-              fn();
+              console.log('[equipDial] openParts found after', attempts, 'retries — calling');
+              try { fn(); }
+              catch (err) {
+                console.error('[equipDial] openParts threw:', err);
+                if (window.NX?.toast) window.NX.toast('Parts: ' + (err.message || 'error'), 'error', 4000);
+              }
               return;
             }
             if (++attempts < maxAttempts) {
               setTimeout(tryOpen, 80);
             } else {
-              console.warn('[equipDial] openParts not available after retry budget');
-              if (window.NX?.toast) window.NX.toast('Parts view failed to load — try again', 'error', 3000);
+              const reason = !window.NX ? 'no window.NX'
+                          : !window.NX.modules ? 'no NX.modules'
+                          : !eq ? 'no NX.modules.equipment (equipment.js not loaded?)'
+                          : 'openParts missing from exports';
+              console.warn('[equipDial] openParts retry budget exhausted:', reason);
+              if (window.NX?.toast) window.NX.toast('Parts unavailable: ' + reason, 'error', 5000);
             }
           };
           tryOpen();
@@ -3243,22 +3250,29 @@
         }
 
         if (target === 'archive') {
-          // Calls openArchiveWorld() which sets the filter + adds a
-          // dedicated banner + body class for visual distinction. Same
-          // retry pattern as Parts since equipment.js is lazy-loaded.
           let attempts = 0;
           const maxAttempts = 60;
           const tryOpen = () => {
-            const fn = window.NX?.modules?.equipment?.openArchiveWorld;
+            const eq = window.NX?.modules?.equipment;
+            const fn = eq && eq.openArchiveWorld;
             if (typeof fn === 'function') {
-              fn();
+              console.log('[equipDial] openArchiveWorld found after', attempts, 'retries — calling');
+              try { fn(); }
+              catch (err) {
+                console.error('[equipDial] openArchiveWorld threw:', err);
+                if (window.NX?.toast) window.NX.toast('Archive: ' + (err.message || 'error'), 'error', 4000);
+              }
               return;
             }
             if (++attempts < maxAttempts) {
               setTimeout(tryOpen, 80);
             } else {
-              console.warn('[equipDial] openArchiveWorld not available after retry budget');
-              if (window.NX?.toast) window.NX.toast('Archive view failed to load — try again', 'error', 3000);
+              const reason = !window.NX ? 'no window.NX'
+                          : !window.NX.modules ? 'no NX.modules'
+                          : !eq ? 'no NX.modules.equipment (equipment.js not loaded?)'
+                          : 'openArchiveWorld missing from exports';
+              console.warn('[equipDial] openArchiveWorld retry budget exhausted:', reason);
+              if (window.NX?.toast) window.NX.toast('Archive unavailable: ' + reason, 'error', 5000);
             }
           };
           tryOpen();
