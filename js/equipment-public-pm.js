@@ -283,7 +283,7 @@
     // the contractor we already have on file — saving the tech the
     // typing on a fresh device.
     const { data: eq, error } = await NX.sb.from('equipment')
-      .select('id, name, location, area, category, manufacturer, model, next_pm_date, service_contractor_node_id, service_contractor_name, service_contractor_phone')
+      .select('id, name, location, area, category, manufacturer, model, status, last_status_change_at, next_pm_date, service_contractor_node_id, service_contractor_name, service_contractor_phone')
       .eq('qr_code', qrCode)
       .single();
     if (error || !eq) { alert('Equipment not found'); return; }
@@ -332,6 +332,26 @@
           <div class="pm-logger-eq-name">${esc(eq.name)}</div>
           <div class="pm-logger-eq-meta">${esc(eq.location || '')}${eq.area ? ' · ' + esc(eq.area) : ''}</div>
         </div>
+
+        <!-- v18.8 Trajan-flavored welcome — inferred role based on
+             equipment.status. DOWN/BROKEN → contractor greeting.
+             OPERATIONAL → neutral (likely staff reporting an issue).
+             NEEDS_SERVICE → mid-confidence contractor greeting. -->
+        ${renderTrajanWelcome(eq)}
+
+        <!-- v18.5 Status + Recent Attempts panel — collapsible. Gives
+             the contractor immediate context about whether this unit
+             is currently down, has an active issue, and what's been
+             tried before. Hidden by default; expands on tap. -->
+        <details class="pm-status-panel" id="pmStatusPanel" data-eq-id="${esc(eq.id)}">
+          <summary class="pm-status-summary">
+            <span class="pm-status-summary-label">Current status &amp; recent attempts</span>
+            <span class="pm-status-summary-chev">▾</span>
+          </summary>
+          <div class="pm-status-body" id="pmStatusBody">
+            <div class="pm-status-loading">Loading…</div>
+          </div>
+        </details>
         
         <div class="pm-logger-mass-toggle" id="pmMassToggle">
           <span><span class="pm-logger-toggle-icon">${svg('list', 1)}</span> Mass PM mode — log multiple units at once</span>
@@ -445,6 +465,15 @@
     `;
     document.body.appendChild(modal);
 
+    // v18.8 — translate the Trajan welcome banner to the user's
+    // preferred language (Spanish-speaking contractors see Spanish).
+    try {
+      const welcome = modal.querySelector('#pmTrajanWelcome .pm-trajan-line');
+      if (welcome && window.NX && NX.tr && NX.tr.auto) {
+        NX.tr.auto(welcome);
+      }
+    } catch(_){}
+
     const close = () => modal.remove();
     document.getElementById('pmFormClose').addEventListener('click', close);
     document.getElementById('pmCancelBtn').addEventListener('click', close);
@@ -459,6 +488,18 @@
 
     // Mass mode toggle
     setupMassMode(modal, eq);
+
+    // v18.5 — Status panel loads lazily when the user expands the
+    // details element. Cheap: one toggle handler, fires once.
+    const statusPanel = modal.querySelector('#pmStatusPanel');
+    if (statusPanel) {
+      let statusLoaded = false;
+      statusPanel.addEventListener('toggle', async () => {
+        if (!statusPanel.open || statusLoaded) return;
+        statusLoaded = true;
+        await loadStatusPanel(eq, modal.querySelector('#pmStatusBody'));
+      });
+    }
 
     // Form submit
     modal.querySelector('#pmLoggerForm').addEventListener('submit', async (e) => {
@@ -786,6 +827,27 @@
         }
       }
 
+      // v18.4: DOMAIN ORCHESTRATION. Hands off to NX.domain which
+      // creates the "Review PM" board card so admins see the pending
+      // approval on the kanban, plus any other cross-module ripple
+      // effects defined in js/domain.js. Non-fatal — if domain isn't
+      // loaded or one of its steps fails, the PM submit still succeeds.
+      if (NX.domain?.recordPMScan) {
+        try {
+          await NX.domain.recordPMScan({
+            equipmentIds: equipIds,
+            contractor: {
+              name:    data.contractor_name,
+              company: data.contractor_company,
+              phone:   data.contractor_phone,
+              email:   data.contractor_email,
+            },
+          });
+        } catch (e) {
+          console.warn('[pm submit] domain hook failed (non-fatal):', e);
+        }
+      }
+
       // Show success screen
       showSuccessScreen(modal, eq, equipIds.length, data);
 
@@ -797,6 +859,162 @@
     }
   }
 
+  // ─── v18.8 Trajan welcome — contractor inference ─────────────────
+  //
+  // Strategy: equipment.status is the strongest signal. When the
+  // machine is DOWN or BROKEN, anyone scanning the QR is almost
+  // certainly a contractor — staff don't scan working equipment.
+  //
+  // OPERATIONAL equipment → neutral greeting (could be staff reporting
+  // a fresh issue, or routine PM).
+  //
+  // NEEDS_SERVICE → mid-confidence contractor greeting (someone is on
+  // their way or here now).
+  //
+  // The rendered text is wrapped in elements with the 'nx-tr-auto'
+  // class, so NX.tr.auto picks them up after mount and translates to
+  // the user's preferred language. Spanish-speaking contractors see
+  // Spanish automatically — single source of truth in English.
+  function renderTrajanWelcome(eq) {
+    const status = (eq.status || 'operational').toLowerCase();
+    const conf = contractorConfidence(eq);
+    let tone, lines;
+    if (conf >= 70) {
+      tone = 'contractor';
+      lines = pickContractorWelcome(eq, status);
+    } else if (conf >= 35) {
+      tone = 'mixed';
+      lines = pickMixedWelcome(eq, status);
+    } else {
+      // Operational + no signals — likely staff. Don't be presumptuous.
+      return '';
+    }
+    return `
+      <div class="pm-trajan-welcome pm-trajan-${tone}" id="pmTrajanWelcome">
+        <div class="pm-trajan-orb" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="#4cb6ff" stroke="#2e8de0" stroke-width="1.5"/><circle cx="11" cy="14" r="2" fill="#04124a"/><circle cx="21" cy="14" r="2" fill="#04124a"/><path d="M11 20 Q16 23 21 20" stroke="#04124a" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+        </div>
+        <div class="pm-trajan-text">
+          ${lines.eyebrow ? `<div class="pm-trajan-eyebrow">${esc(lines.eyebrow)}</div>` : ''}
+          <div class="pm-trajan-line">${esc(lines.body)}</div>
+        </div>
+      </div>`;
+  }
+
+  // Compute 0-100 confidence this scanner is a contractor.
+  // Heaviest weight on equipment.status; smaller signals also count.
+  function contractorConfidence(eq) {
+    const status = (eq.status || 'operational').toLowerCase();
+    let score = 0;
+    // Status — strongest signal
+    if (status === 'down' || status === 'broken') score += 70;
+    else if (status === 'needs_service')          score += 45;
+    // Service contractor assigned + recent status change
+    if (eq.service_contractor_name)               score += 10;
+    if (eq.service_contractor_phone)              score += 5;
+    // Time of day — service calls cluster early/late
+    const h = new Date().getHours();
+    if (h <= 9 || h >= 16)                        score += 5;
+    // Authenticated session would override this entirely — but
+    // public-PM page is anonymous by definition, so we don't check it.
+    return Math.min(100, score);
+  }
+
+  // Days since the status flipped (if we have last_status_change_at).
+  // Used to color the greeting — "since Tuesday" feels different from
+  // "since 20 minutes ago."
+  function daysDownText(eq) {
+    if (!eq.last_status_change_at) return null;
+    const ms = Date.now() - new Date(eq.last_status_change_at).getTime();
+    const days = Math.floor(ms / 86400000);
+    const hours = Math.floor(ms / 3600000);
+    if (days >= 7) return `for ${Math.floor(days/7)} week${Math.floor(days/7)===1?'':'s'}`;
+    if (days >= 2) return `for ${days} days`;
+    if (days === 1) return 'since yesterday';
+    if (hours >= 3) return `for ${hours} hours`;
+    return 'recently';
+  }
+
+  // Pools of contractor-greeting lines. Pick a random one each scan
+  // so a contractor doing six PMs in a day doesn't see the same line.
+  // Voice: warm, dry, slightly self-aware. Never saccharine.
+  const CONTRACTOR_WELCOMES = [
+    { eyebrow: 'TRAJAN', body: "thanks for coming out. tools ready?" },
+    { eyebrow: 'TRAJAN', body: "we appreciate you. fix what needs fixing." },
+    { eyebrow: 'TRAJAN', body: "team's been hoping you'd show up. welcome." },
+    { eyebrow: 'TRAJAN', body: "rooting for you. you've got this." },
+    { eyebrow: 'TRAJAN', body: "good of you to come out. this one's been a headache." },
+  ];
+  const CONTRACTOR_WELCOMES_WITH_DURATION = [
+    { eyebrow: 'TRAJAN', body: (d) => `down ${d}. thanks for coming out.` },
+    { eyebrow: 'TRAJAN', body: (d) => `been crying about it ${d}. tools ready?` },
+    { eyebrow: 'TRAJAN', body: (d) => `${d} and counting. glad you're here.` },
+  ];
+  const MIXED_WELCOMES = [
+    { eyebrow: 'TRAJAN', body: "what's the story today? PM or something off?" },
+    { eyebrow: 'TRAJAN', body: "log whatever you came to log. team thanks you." },
+  ];
+
+  function pickContractorWelcome(eq, status) {
+    const dur = daysDownText(eq);
+    const pool = dur && Math.random() > 0.4
+      ? CONTRACTOR_WELCOMES_WITH_DURATION
+      : CONTRACTOR_WELCOMES;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    return {
+      eyebrow: pick.eyebrow,
+      body: typeof pick.body === 'function' ? pick.body(dur) : pick.body,
+    };
+  }
+
+  function pickMixedWelcome(eq) {
+    const pick = MIXED_WELCOMES[Math.floor(Math.random() * MIXED_WELCOMES.length)];
+    return { eyebrow: pick.eyebrow, body: pick.body };
+  }
+
+  // Pools of post-submit acknowledgments for contractors. Triggered
+  // by submitPmLog success when contractor confidence was high.
+  const CONTRACTOR_THANKS = [
+    "fixed and logged. team owes you a coffee.",
+    "you're a lifesaver. one less thing on the worry list.",
+    "the kitchen thanks you. drive safe out there.",
+    "huge. that's been on the list for days.",
+    "logged. nice work.",
+  ];
+
+  // Public-ish — called by submitPmLog on success.
+  function showTrajanThanks(equipmentName) {
+    const line = CONTRACTOR_THANKS[Math.floor(Math.random() * CONTRACTOR_THANKS.length)];
+    const banner = document.createElement('div');
+    banner.className = 'pm-trajan-thanks';
+    banner.innerHTML = `
+      <div class="pm-trajan-orb" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="#4cb6ff" stroke="#2e8de0" stroke-width="1.5"/><path d="M9 14 Q11 12 13 14 M19 14 Q21 12 23 14" stroke="#04124a" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M11 20 Q16 24 21 20" stroke="#04124a" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
+      </div>
+      <div class="pm-trajan-text">
+        <div class="pm-trajan-eyebrow">TRAJAN · DONE</div>
+        <div class="pm-trajan-line">${line}</div>
+      </div>`;
+    document.body.appendChild(banner);
+    requestAnimationFrame(() => banner.classList.add('is-shown'));
+    setTimeout(() => {
+      banner.classList.remove('is-shown');
+      setTimeout(() => banner.remove(), 350);
+    }, 4200);
+
+    // Translate to user language if NX.tr is available
+    try {
+      if (window.NX && NX.tr && NX.tr.auto) {
+        NX.tr.auto(banner.querySelector('.pm-trajan-line'));
+      }
+    } catch(_){}
+  }
+
+  // Expose so submitPmLog can call it
+  window._NX_TRAJAN_THANKS = (eqName, conf) => {
+    if (conf >= 50) showTrajanThanks(eqName);
+  };
+
   function isCanvasNonEmpty(canvas) {
     const ctx = canvas.getContext('2d');
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -804,6 +1022,133 @@
       if (data[i] !== 0) return true;
     }
     return false;
+  }
+
+  // ─── v18.5 Status Panel ─────────────────────────────────────────────
+  // Populated lazily when the contractor expands the panel on the
+  // public PM form. Surfaces:
+  //   - Current equipment.status badge
+  //   - Latest open equipment_issue (if any) with timeline summary
+  //   - Last 3 dispatch attempts with outcomes
+  // Contractor gets immediate context: "yes, this fryer is currently
+  // DOWN, last attempt by Joe failed, no luck on the compressor."
+  async function loadStatusPanel(eq, host) {
+    if (!host) return;
+    const STATUS_LABEL = {
+      operational:    'Operational',
+      needs_service:  'Needs Service',
+      down:           'Down',
+      broken:         'Broken',
+      missing:        'Missing',
+      loaned:         'Loaned Out',
+      relocated:      'Relocated',
+      retired:        'Retired',
+    };
+    const STATUS_TONE = {
+      operational:    'ok',
+      needs_service:  'warn',
+      down:           'bad',
+      broken:         'bad',
+      missing:        'bad',
+      loaned:         'info',
+      relocated:      'info',
+      retired:        'dim',
+    };
+    let statusKey = 'operational';
+    let openIssue = null;
+    let attempts = [];
+
+    // Three parallel queries to keep this fast
+    try {
+      const [statusRes, issueRes, dispRes] = await Promise.all([
+        NX.sb.from('equipment').select('status').eq('id', eq.id).maybeSingle(),
+        NX.sb.from('equipment_issues')
+          .select('id, title, status, reported_at, contractor_called_at, eta_set_at, in_progress_at, awaiting_parts_at, repaired_at')
+          .eq('equipment_id', eq.id)
+          .neq('status', 'repaired')
+          .order('reported_at', { ascending: false })
+          .limit(1),
+        NX.sb.from('dispatch_events')
+          .select('id, contractor_name, method, outcome, outcome_notes, dispatched_at')
+          .eq('equipment_id', eq.id)
+          .order('dispatched_at', { ascending: false })
+          .limit(3),
+      ]);
+      if (statusRes?.data?.status) statusKey = statusRes.data.status;
+      if (issueRes?.data?.length) openIssue = issueRes.data[0];
+      if (dispRes?.data) attempts = dispRes.data;
+    } catch (e) {
+      console.warn('[pm-status-panel] fetch failed:', e);
+      host.innerHTML = '<div class="pm-status-error">Could not load status info.</div>';
+      return;
+    }
+
+    const statusBadge = `
+      <div class="pm-status-badge-row">
+        <span class="pm-status-badge pm-status-${esc(STATUS_TONE[statusKey] || 'dim')}">
+          ${esc(STATUS_LABEL[statusKey] || statusKey)}
+        </span>
+      </div>`;
+
+    const issueHtml = openIssue ? `
+      <div class="pm-status-section">
+        <div class="pm-status-section-label">Open issue</div>
+        <div class="pm-status-issue">
+          <div class="pm-status-issue-title">${esc(openIssue.title || '(no title)')}</div>
+          <div class="pm-status-issue-status">${esc(ISSUE_PUB_LABEL[openIssue.status] || openIssue.status)}</div>
+        </div>
+      </div>` : '';
+
+    let attemptsHtml = '';
+    if (attempts.length) {
+      attemptsHtml = `
+        <div class="pm-status-section">
+          <div class="pm-status-section-label">Recent attempts</div>
+          ${attempts.map(a => {
+            const when = a.dispatched_at ? fmtPubTs(a.dispatched_at) : '';
+            const outcome = a.outcome || 'pending';
+            const methodIcon = PUB_METHOD_ICON[a.method] || '🔧';
+            return `
+              <div class="pm-status-attempt pm-attempt-${esc(outcome)}">
+                <div class="pm-status-attempt-head">
+                  <span class="pm-status-attempt-icon">${methodIcon}</span>
+                  <span class="pm-status-attempt-who">${esc(a.contractor_name || 'Unknown')}</span>
+                  <span class="pm-status-attempt-when">${esc(when)}</span>
+                  <span class="pm-status-attempt-outcome pm-outcome-${esc(outcome)}">${esc(PUB_OUTCOME_LABEL[outcome] || outcome)}</span>
+                </div>
+                ${a.outcome_notes ? `<div class="pm-status-attempt-notes">${esc(a.outcome_notes)}</div>` : ''}
+              </div>`;
+          }).join('')}
+        </div>`;
+    }
+
+    if (!openIssue && !attempts.length && statusKey === 'operational') {
+      host.innerHTML = statusBadge + `<div class="pm-status-empty">No open issues. No prior attempts logged.</div>`;
+      return;
+    }
+
+    host.innerHTML = statusBadge + issueHtml + attemptsHtml;
+  }
+
+  // Public-side label maps (kept local — don't import from equipment.js
+  // since this file loads in the public scan context too)
+  const ISSUE_PUB_LABEL = {
+    reported:           'Reported',
+    contractor_called:  'Contractor called',
+    eta_set:            'ETA set',
+    in_progress:        'In progress',
+    awaiting_parts:     'Awaiting parts',
+    repaired:           'Repaired',
+  };
+  const PUB_METHOD_ICON = { call: '📞', text: '💬', email: '✉', in_house: '🔧' };
+  const PUB_OUTCOME_LABEL = { pending: 'Pending', resolved: 'Resolved', failed: 'Failed', no_answer: 'No answer' };
+  function fmtPubTs(ts) {
+    try {
+      const d = new Date(ts);
+      const now = new Date();
+      const sameYear = d.getFullYear() === now.getFullYear();
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+    } catch (_) { return ''; }
   }
 
   async function uploadFiles(fileList, folder) {
@@ -853,6 +1198,15 @@
       // Optional: refresh public scan view to show this in recent history
       // (won't show until approved, but the page might reload anyway)
     });
+
+    // v18.8 — show a Trajan thank-you banner if the scanner was likely
+    // a contractor. Fires after the success card so it overlays nicely.
+    try {
+      const conf = contractorConfidence(eq);
+      if (conf >= 50 && typeof showTrajanThanks === 'function') {
+        setTimeout(() => showTrajanThanks(eq.name), 600);
+      }
+    } catch(_){}
   }
 
   function openMassMode(qrCode) {
@@ -1072,7 +1426,7 @@
       try {
         // Look up equipment_id from qr_code
         const { data: eq } = await NX.sb.from('equipment').select('id,name').eq('qr_code', qrCode).maybeSingle();
-        await NX.sb.from('dispatch_events').insert({
+        const { data: disp, error: dispErr } = await NX.sb.from('dispatch_events').insert({
           equipment_id: eq?.id || null,
           contractor_name: contact.name || 'Service',
           contractor_phone: contact.phone || null,
@@ -1080,7 +1434,21 @@
           issue_description: issue,
           dispatched_by: callerName + ' (public QR)',
           outcome: 'pending',
-        });
+        }).select('id').single();
+        if (dispErr) throw dispErr;
+
+        // Back-link the dispatch to any open board card for the equipment.
+        if (eq?.id && disp?.id && NX.domain?.recordDispatch) {
+          try {
+            await NX.domain.recordDispatch({
+              equipmentId: eq.id,
+              dispatchEventId: disp.id,
+            });
+          } catch (e) {
+            console.warn('[public dispatch] domain hook failed (non-fatal):', e);
+          }
+        }
+
         await NX.sb.from('daily_logs').insert({
           entry: `[PUBLIC-DISPATCH] ${callerName} called ${contact.name || 'Service'} (${contact.phone || 'no phone'}) for "${issue}" re: ${eq?.name || qrCode}`
         });
