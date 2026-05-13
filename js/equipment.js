@@ -881,16 +881,6 @@ function buildUI() {
     NX.equipmentFilterIntent = null;
   }
 
-  // v18.12 — pending speed-dial action from app.js. If the user picked
-  // Parts or Archive from the Equip FAB before equipment.js finished
-  // loading, app.js persisted that choice here. Fire it once the view
-  // is built, then clear.
-  let pendingDialAction = null;
-  try {
-    pendingDialAction = localStorage.getItem('nexus_equip_pending_action');
-    if (pendingDialAction) localStorage.removeItem('nexus_equip_pending_action');
-  } catch (_) {}
-
   view.innerHTML = `
     <div class="eq-header">
       <div class="eq-title-row">
@@ -1034,18 +1024,6 @@ function buildUI() {
 
   renderList();
   renderStats();
-
-  // v18.12 — fire any pending speed-dial action (Parts/Archive) once
-  // the view is fully painted. Defer slightly so the equipment view
-  // is on-screen first; the overlay then layers cleanly above it.
-  if (pendingDialAction) {
-    setTimeout(() => {
-      try {
-        if (pendingDialAction === 'parts' && typeof openParts === 'function') openParts();
-        else if (pendingDialAction === 'archive' && typeof openArchiveWorld === 'function') openArchiveWorld();
-      } catch (err) { console.error('[equipment] pending dial action threw:', err); }
-    }, 80);
-  }
 }
 
 /* ════════════════════════════════════════════════════════════════════
