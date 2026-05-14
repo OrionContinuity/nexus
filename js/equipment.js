@@ -742,6 +742,223 @@ function openPmLogger(equipId) {
   document.body.appendChild(overlay);
 }
 
+/* ════════════════════════════════════════════════════════════════════
+   v18.20 — Inline tap-to-edit for detail card fields.
+
+   openFieldEditor(equipId, fieldKey, label, currentValue, inputType, opts)
+   opens a focused single-field bottom sheet. Date/number/text inputs
+   styled to match the rest of the bottom-sheet family. On save:
+     1. UPDATE equipment SET <fieldKey> = <value> WHERE id = <equipId>
+     2. If opts.cascade is set and the field is last_pm_date, also
+        recompute next_pm_date = last_pm_date + pm_interval_days.
+     3. Special handling: category type opens a select-style picker
+        sourced from the live CATEGORIES list.
+     4. Reload equipment + reopen detail so the new value shows.
+   ════════════════════════════════════════════════════════════════════ */
+
+function openFieldEditor(equipId, fieldKey, label, currentValue, inputType, opts) {
+  opts = opts || {};
+  const eq = (typeof equipment !== 'undefined' && equipment)
+    ? equipment.find(e => String(e.id) === String(equipId))
+    : null;
+  if (!eq) return;
+
+  // Normalize current value for input population.
+  let displayVal = currentValue;
+  if (currentValue == null) displayVal = '';
+  // Date inputs expect YYYY-MM-DD. If we got a full ISO, slice it.
+  if (inputType === 'date' && typeof displayVal === 'string' && displayVal.length > 10) {
+    displayVal = displayVal.slice(0, 10);
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  overlay.style.zIndex = '9300';
+
+  let valueBuf = displayVal;
+
+  const renderInput = () => {
+    if (inputType === 'category') {
+      // Select-style picker from dynamic CATEGORIES list.
+      return `
+        <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; max-height:50vh; overflow-y:auto">
+          ${CATEGORIES.map(c => {
+            const isActive = String(c.key) === String(valueBuf);
+            return `
+              <button type="button" data-cat-pick="${esc(c.key)}"
+                style="display:flex; align-items:center; gap:8px; padding:10px 12px; background:${isActive ? 'rgba(212,164,78,0.2)' : 'rgba(255,255,255,0.04)'}; border:1px solid ${isActive ? 'var(--nx-gold)' : 'rgba(255,255,255,0.1)'}; border-radius:8px; color:var(--nx-text); cursor:pointer; text-align:left">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="${isActive ? 'var(--nx-gold)' : 'currentColor'}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[c.key] || ICON_PATHS.other}</svg>
+                <span style="font-size:13px">${esc(c.label || c.key)}</span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+    if (inputType === 'number') {
+      const minAttr = opts.min != null ? ` min="${opts.min}"` : '';
+      const maxAttr = opts.max != null ? ` max="${opts.max}"` : '';
+      const stepAttr = (fieldKey === 'purchase_price') ? ' step="0.01"' : '';
+      return `<input type="number" id="fldInput" value="${esc(valueBuf)}"${minAttr}${maxAttr}${stepAttr} autocomplete="off"
+        style="width:100%; padding:12px 14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:18px; font-family:'JetBrains Mono', monospace;">`;
+    }
+    if (inputType === 'date') {
+      return `<input type="date" id="fldInput" value="${esc(valueBuf)}"
+        style="width:100%; padding:12px 14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:16px;">`;
+    }
+    // text fallback
+    return `<input type="text" id="fldInput" value="${esc(valueBuf)}" autocomplete="off"
+      style="width:100%; padding:12px 14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:16px;">`;
+  };
+
+  const render = () => {
+    overlay.innerHTML = `
+      <div class="eq-bulk-sheet-backdrop"></div>
+      <div class="eq-bulk-sheet" style="max-height:80vh">
+        <div class="eq-bulk-sheet-handle"></div>
+        <div class="eq-bulk-sheet-title">${esc(label)}</div>
+        <div class="eq-bulk-sheet-sub">${esc(eq.name)}${opts.cascade ? ` · saving will recompute ${esc(opts.cascade)}` : ''}</div>
+
+        <div style="padding: 16px;">
+          ${renderInput()}
+        </div>
+
+        <div style="padding: 0 16px 16px;">
+          <button class="eq-bulk-sheet-confirm" data-action="save" type="button" style="background:var(--nx-gold); color:#000">
+            Save
+          </button>
+          ${currentValue != null && currentValue !== '' && inputType !== 'category' ? `
+            <button class="eq-bulk-sheet-cancel" data-action="clear" type="button" style="color:#c44; border-color:#c44">Clear value</button>
+          ` : ''}
+          <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Cancel</button>
+        </div>
+      </div>
+    `;
+    overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('[data-action="save"]').addEventListener('click', () => save(valueBuf));
+    const clearBtn = overlay.querySelector('[data-action="clear"]');
+    if (clearBtn) clearBtn.addEventListener('click', () => save(null));
+
+    if (inputType === 'category') {
+      overlay.querySelectorAll('[data-cat-pick]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          valueBuf = btn.dataset.catPick;
+          render();
+        });
+      });
+    } else {
+      const input = overlay.querySelector('#fldInput');
+      if (input) {
+        input.addEventListener('input', (e) => { valueBuf = e.target.value; });
+        // Focus + select on open so the user can just start typing.
+        setTimeout(() => {
+          input.focus();
+          if (input.type !== 'date') try { input.select(); } catch (_) {}
+        }, 50);
+      }
+    }
+  };
+
+  const save = async (rawValue) => {
+    if (!NX.sb) { NX.toast && NX.toast('Database unavailable', 'error', 2000); return; }
+
+    // Normalize value by type
+    let value = rawValue;
+    if (value === '' || value === undefined) value = null;
+    if (inputType === 'number' && value != null) {
+      const n = parseFloat(value);
+      if (isNaN(n)) {
+        NX.toast && NX.toast('Invalid number', 'warn', 1500);
+        return;
+      }
+      if (opts.min != null && n < opts.min) { NX.toast && NX.toast(`Minimum is ${opts.min}`, 'warn', 1500); return; }
+      if (opts.max != null && n > opts.max) { NX.toast && NX.toast(`Maximum is ${opts.max}`, 'warn', 1500); return; }
+      value = n;
+    }
+
+    const update = { [fieldKey]: value };
+
+    // Cascade: when last_pm_date changes, recompute next_pm_date.
+    if (opts.cascade === 'next_pm_date' && value && eq.pm_interval_days) {
+      const interval = parseInt(eq.pm_interval_days, 10);
+      if (interval > 0) {
+        const last = new Date(value + 'T00:00:00');
+        if (!isNaN(last)) {
+          const next = new Date(last);
+          next.setDate(next.getDate() + interval);
+          update.next_pm_date = next.toISOString().slice(0, 10);
+        }
+      }
+    }
+    // If pm_interval_days changed and we have last_pm_date, also recompute.
+    if (fieldKey === 'pm_interval_days' && value && eq.last_pm_date) {
+      const interval = parseInt(value, 10);
+      if (interval > 0) {
+        const last = new Date(eq.last_pm_date + 'T00:00:00');
+        if (!isNaN(last)) {
+          const next = new Date(last);
+          next.setDate(next.getDate() + interval);
+          update.next_pm_date = next.toISOString().slice(0, 10);
+        }
+      }
+    }
+
+    try {
+      const { error } = await NX.sb.from('equipment').update(update).eq('id', equipId);
+      if (error) {
+        // Common case: column doesn't exist yet (pre-migration). Tell
+        // the user explicitly rather than a generic "save failed".
+        if (/column.+does not exist/i.test(error.message || '')) {
+          NX.toast && NX.toast(`${label} column not in DB — run latest migration`, 'warn', 4000);
+        } else {
+          throw error;
+        }
+        return;
+      }
+      NX.toast && NX.toast(`${label} updated`, 'success', 1500);
+      overlay.remove();
+      if (typeof loadEquipment === 'function') {
+        try { await loadEquipment(); } catch (_) {}
+      }
+      if (typeof openDetail === 'function') openDetail(equipId);
+    } catch (e) {
+      console.error('[openFieldEditor] save failed:', e);
+      NX.toast && NX.toast('Save failed: ' + (e.message || ''), 'error', 3000);
+    }
+  };
+
+  render();
+  document.body.appendChild(overlay);
+}
+
+/* Inject the .is-editable hover/tap styles once. */
+(function injectFieldEditStyles() {
+  if (typeof document === 'undefined' || document.getElementById('eq-field-edit-styles')) return;
+  const s = document.createElement('style');
+  s.id = 'eq-field-edit-styles';
+  s.textContent = `
+    .eq-detail-card-field.is-editable {
+      cursor: pointer;
+      transition: background 0.15s ease;
+      border-radius: 6px;
+      margin: -2px;
+      padding: 2px;
+    }
+    .eq-detail-card-field.is-editable:hover,
+    .eq-detail-card-field.is-editable:focus {
+      background: rgba(212, 164, 78, 0.08);
+      outline: none;
+    }
+    .eq-detail-card-field.is-editable:active {
+      background: rgba(212, 164, 78, 0.15);
+    }
+  `;
+  document.head.appendChild(s);
+})();
+
+/* ── End v18.20 additions ─────────────────────────────────────────── */
+
 /* ── End v18.19 additions ─────────────────────────────────────────── */
 
 /* ── End v18.18 additions ─────────────────────────────────────────── */
@@ -2472,6 +2689,36 @@ async function openDetail(id) {
   `;
   modal.classList.add('active');
 
+  // v18.20 — Detail card field-edit click delegation. Any
+  // [data-edit-field] in the detail modal opens the inline field
+  // editor. Lifecycle + Identity fields use this; static rows
+  // (Services YTD etc.) lack the attribute so they ignore taps.
+  modal.querySelectorAll('[data-edit-field]').forEach(el => {
+    el.addEventListener('click', () => {
+      const eqId = el.dataset.eqId;
+      const fieldKey = el.dataset.editField;
+      const label = el.dataset.editLabel;
+      const type = el.dataset.editType || 'text';
+      const minA = el.dataset.editMin;
+      const maxA = el.dataset.editMax;
+      const cascade = el.dataset.editCascade;
+      const eqRow = equipment.find(e => String(e.id) === String(eqId));
+      const currentValue = eqRow ? eqRow[fieldKey] : null;
+      openFieldEditor(eqId, fieldKey, label, currentValue, type, {
+        min: minA != null ? parseFloat(minA) : null,
+        max: maxA != null ? parseFloat(maxA) : null,
+        cascade: cascade || null,
+      });
+    });
+    // Keyboard accessibility — Enter/Space on focused field triggers edit
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        el.click();
+      }
+    });
+  });
+
   // Load open cards linked to this equipment (async — doesn't block initial render)
   loadOpenCardsForEquipment(eq);
 
@@ -2784,30 +3031,43 @@ function renderOverview(eq, attachments, customFields) {
   // pattern from ordering. Empty groups render an em-dash so the user
   // can see at a glance what's blank vs missing.
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+  // v18.20 — Each field now carries an `edit` key (DB column name) so the
+  // detail-card click delegation can route into openFieldEditor. Fields
+  // without `edit` (derived stats) render as static. The cascade hint
+  // on last_pm_date tells the editor to recompute next_pm_date after save.
   const identityFields = [
-    ['Manufacturer', esc(eq.manufacturer || '—')],
-    ['Model',        esc(eq.model || '—')],
-    ['Serial',       esc(eq.serial_number || '—')],
-    ['Category',     `${catIcon(eq.category)} <span style="margin-left:4px">${esc(eq.category || '—')}</span>`],
+    { label: 'Manufacturer', value: esc(eq.manufacturer || '—'),     edit: 'manufacturer',   type: 'text' },
+    { label: 'Model',        value: esc(eq.model || '—'),            edit: 'model',          type: 'text' },
+    { label: 'Serial',       value: esc(eq.serial_number || '—'),    edit: 'serial_number',  type: 'text' },
+    { label: 'Category',     value: `${catIcon(eq.category)} <span style="margin-left:4px">${esc(eq.category || '—')}</span>`, edit: 'category', type: 'category' },
   ];
   const lifecycleFields = [
-    ['Install date',    fmtDate(eq.install_date)],
-    ['Warranty until',  fmtDate(eq.warranty_until)],
-    ['Health score',    `${eq.health_score ?? 100}<span class="eq-detail-card-unit">%</span>`],
-    ['Last PM',         eq.last_pm_date ? fmtDate(eq.last_pm_date) : 'Never logged'],
-    ['Next PM',         eq.next_pm_date ? fmtDate(eq.next_pm_date) : 'Not scheduled'],
-    ['Services (YTD)',  `${eq.services_this_year || 0}${eq.cost_this_year ? ` <span class="eq-detail-card-unit">· $${Math.round(eq.cost_this_year).toLocaleString()}</span>` : ''}`],
-    ['Purchase price',  eq.purchase_price ? `$${parseFloat(eq.purchase_price).toLocaleString()}` : '—'],
+    { label: 'Install date',    value: fmtDate(eq.install_date),    edit: 'install_date',    type: 'date' },
+    { label: 'Warranty until',  value: fmtDate(eq.warranty_until),  edit: 'warranty_until',  type: 'date' },
+    { label: 'Health score',    value: `${eq.health_score ?? 100}<span class="eq-detail-card-unit">%</span>`, edit: 'health_score', type: 'number', min: 0, max: 100 },
+    { label: 'Last PM',         value: eq.last_pm_date ? fmtDate(eq.last_pm_date) : 'Never logged',  edit: 'last_pm_date', type: 'date', cascade: 'next_pm_date' },
+    { label: 'Next PM',         value: eq.next_pm_date ? fmtDate(eq.next_pm_date) : 'Not scheduled', edit: 'next_pm_date', type: 'date' },
+    { label: 'PM interval',     value: eq.pm_interval_days ? `${eq.pm_interval_days} days` : '—',    edit: 'pm_interval_days', type: 'number', min: 1, max: 3650 },
+    { label: 'Services (YTD)',  value: `${eq.services_this_year || 0}${eq.cost_this_year ? ` <span class="eq-detail-card-unit">· $${Math.round(eq.cost_this_year).toLocaleString()}</span>` : ''}`, edit: null },
+    { label: 'Purchase price',  value: eq.purchase_price ? `$${parseFloat(eq.purchase_price).toLocaleString()}` : '—', edit: 'purchase_price', type: 'number', min: 0 },
   ];
 
   const fieldsHTML = (rows) => `
     <div class="eq-detail-card-grid">
-      ${rows.map(([label, value]) => `
-        <div class="eq-detail-card-field">
-          <div class="eq-detail-card-field-label">${label}</div>
-          <div class="eq-detail-card-field-value">${value}</div>
-        </div>
-      `).join('')}
+      ${rows.map(row => {
+        // Accept legacy [label, value] tuples too for back-compat.
+        const f = Array.isArray(row) ? { label: row[0], value: row[1], edit: null } : row;
+        const editable = !!f.edit;
+        const dataAttrs = editable
+          ? ` data-edit-field="${esc(f.edit)}" data-edit-type="${esc(f.type || 'text')}" data-edit-label="${esc(f.label)}" data-eq-id="${esc(eq.id)}"${f.min != null ? ` data-edit-min="${f.min}"` : ''}${f.max != null ? ` data-edit-max="${f.max}"` : ''}${f.cascade ? ` data-edit-cascade="${esc(f.cascade)}"` : ''} role="button" tabindex="0"`
+          : '';
+        return `
+          <div class="eq-detail-card-field${editable ? ' is-editable' : ''}"${dataAttrs}>
+            <div class="eq-detail-card-field-label">${f.label}${editable ? ' <span style="opacity:0.4; font-size:9px">✎</span>' : ''}</div>
+            <div class="eq-detail-card-field-value">${f.value}</div>
+          </div>
+        `;
+      }).join('')}
     </div>
   `;
 
@@ -3587,6 +3847,32 @@ function logService(equipId) {
         if (data.next_pm_due) {
           await NX.sb.from('equipment').update({ next_pm_date: data.next_pm_due }).eq('id', equipId);
         }
+
+        // v18.20 — When event_type='pm', also update equipment.last_pm_date
+        // so the countdown progress bar restarts. Auto-compute next_pm_date
+        // from last + interval if user didn't already supply one via
+        // data.next_pm_due. Defensive: column missing pre-migration is
+        // silently ignored so older DBs don't break PM logging.
+        if (data.event_type === 'pm' && data.event_date) {
+          const eqUpdate = { last_pm_date: data.event_date };
+          if (!data.next_pm_due) {
+            const eqRow = equipment.find(e => e.id === equipId);
+            const interval = eqRow ? parseInt(eqRow.pm_interval_days, 10) : 0;
+            if (interval > 0) {
+              const last = new Date(data.event_date + 'T00:00:00');
+              if (!isNaN(last)) {
+                const next = new Date(last);
+                next.setDate(next.getDate() + interval);
+                eqUpdate.next_pm_date = next.toISOString().slice(0, 10);
+              }
+            }
+          }
+          const { error: pmErr } = await NX.sb.from('equipment').update(eqUpdate).eq('id', equipId);
+          if (pmErr && !/column.+last_pm_date.+does not exist/i.test(pmErr.message || '')) {
+            console.warn('[Equipment] last_pm_date update warning:', pmErr.message);
+          }
+        }
+
         try { await NX.sb.rpc('recompute_health_score', { eq_id: equipId }); } catch(e){}
 
         NX.toast && NX.toast('Service logged ✓', 'success');
@@ -17468,6 +17754,7 @@ const __nxeExports = {
   renderPmProgressBar,
   computePmCountdown,
   openPmLogger,
+  openFieldEditor,
   openPartDetail,
   closeParts,
   loadPartsList,
