@@ -477,25 +477,34 @@
 
 .ord-entry-overlay {
   position: fixed;
-  /* Sit BELOW the masthead. The masthead's actual height is
-     measured at runtime by ordering.js's syncMastheadHeight() and
-     published as --nx-mast-h on :root. Using var() means the persona
-     label below the coin (which makes the masthead taller than the
-     historical 53px assumption) doesn't clip the entry header. The
-     53px fallback is used only if the JS hasn't run yet. */
-  top: var(--nx-mast-h, 53px);
+  /* v18.16 — full takeover: overlay covers entire viewport including
+     the masthead area. The user reported only being able to see ~2
+     items at a time because the masthead + bottom-nav + entry header
+     ate too much vertical space. Hiding the masthead during entry
+     mode gives back ~60px of list real estate. The overlay's own
+     header contains the X close button + vendor name + add-item, so
+     the masthead's hamburger menu / day-time / persona coin aren't
+     needed during ordering. Safe-area padding handles iPhone notch. */
+  top: 0;
+  padding-top: env(safe-area-inset-top, 0px);
   left: 0;
   right: 0;
   /* Extends to viewport bottom because the bottom-nav is hidden via
      body.ord-overlay-open. Safe-area padding is taken internally by
      the CTA wrap so the Send button sits above the home indicator. */
   bottom: 0;
-  z-index: 40;
+  z-index: 60;          /* above masthead (z:50) so it cleanly covers */
   background: var(--nx-bg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   animation: ordOverlayIn .18s ease-out;
+  /* Disable double-tap zoom across the entire ordering overlay. Users
+     interact rapidly with item rows (tap to +1, etc.); double-tap zoom
+     was firing on adjacent taps and zooming the page accidentally.
+     `manipulation` keeps tap + pan + pinch-zoom; drops double-tap zoom
+     and the 300ms tap delay. */
+  touch-action: manipulation;
 }
 @keyframes ordOverlayIn {
   from { opacity: 0; transform: translateY(8px); }
@@ -505,14 +514,24 @@
 /* Lock body scroll when overlay open */
 body.ord-overlay-open { overflow: hidden; }
 
-/* Hide the bottom-nav entirely during overlay mode. Previous attempts
-   used opacity:0.35 to "recede" it, but the bottom-nav has a semi-
-   transparent backdrop-filter background, and dropping its opacity
-   further made the underlying vendor-list rows visibly bleed through
-   onto the bottom-nav buttons. Hiding it cleanly avoids the bleed.
-   The user has the X close button to exit the overlay. */
-body.ord-overlay-open .bottom-nav {
+/* Hide the bottom-nav AND the masthead during overlay mode for full
+   screen takeover. Previous attempts kept the masthead visible (top:
+   var(--nx-mast-h)) but the user reported they could only see ~2
+   items at a time. Hiding both nav bars gives the order list the
+   full viewport. The overlay's own X close button + Send CTA cover
+   all navigation needs while ordering. */
+body.ord-overlay-open .bottom-nav,
+body.ord-overlay-open .nav {
   display: none;
+}
+
+/* Also apply manipulation touch-action to the vendor editor and
+   vendor detail overlays so the double-tap-zoom kill is consistent
+   across the entire ordering surface. */
+.ord-veditor-overlay,
+.ord-vdetail-overlay,
+#dutiesOrderingPane {
+  touch-action: manipulation;
 }
 
 .ord-entry-loading {
@@ -4554,6 +4573,7 @@ body.ord-overlay-open .bottom-nav {
   flex-direction: column;
   overflow: hidden;
   animation: ordOverlayIn .18s ease-out;
+  touch-action: manipulation;   /* v18.16 — kill double-tap zoom */
 }
 
 /* Header reuses .ord-entry-head — modifier here in case we want to tune. */
