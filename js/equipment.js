@@ -33,7 +33,12 @@
    ════════════════════════════════════════════════════════════════════════════ */
 
 const LOCATIONS = ['Suerte', 'Este', 'Bar Toti'];
-const CATEGORIES = [
+// v18.18 — was `const CATEGORIES`. Changed to `let` so loadCategoriesFromDB()
+// can replace the array with user-created categories from the
+// `equipment_categories` table. The hardcoded list below is now the
+// FALLBACK used only if the table doesn't exist or returns empty.
+// All consuming code uses `CATEGORIES.map(...)` etc. — works either way.
+let CATEGORIES = [
   /* Note: the visual icons for these come from ICON_PATHS below
      (Lucide-derived SVG line art). The previous .icon emoji fields
      were dead code — never read by any render path — so they've
@@ -57,7 +62,9 @@ const CATEGORIES = [
    editorial typography. SVG glyphs scale with parent font-size and
    inherit currentColor, so they pick up the gold accent automatically.
    Paths are lifted from lucide-static (MIT). 24×24 viewBox. */
-const ICON_PATHS = {
+// v18.18 — was `const ICON_PATHS`. Same reason as CATEGORIES above:
+// loadCategoriesFromDB() rebuilds this map from each row's icon_path.
+let ICON_PATHS = {
   refrigeration: '<path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M3 10h18"/><path d="M8 6v0"/><path d="M8 14v0"/>',
   cooking:       '<path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/>',
   ice:           '<path d="M2 12h20"/><path d="M12 2v20"/><path d="m4.93 4.93 14.14 14.14"/><path d="m19.07 4.93-14.14 14.14"/>',
@@ -68,6 +75,676 @@ const ICON_PATHS = {
   furniture:     '<path d="M2 9V5a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v4"/><path d="M2 11v5a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H6v-2a2 2 0 0 0-4 0z"/><path d="M4 18v2"/><path d="M20 18v2"/>',
   other:         '<circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/>',
 };
+
+/* ════════════════════════════════════════════════════════════════════
+   v18.18 — User-creatable categories with custom icons.
+
+   loadCategoriesFromDB() runs during init(), fetches the
+   equipment_categories table, and rebuilds the in-memory CATEGORIES
+   array + ICON_PATHS map from the rows. If the table is missing or
+   empty, the hardcoded fallback above stays in effect.
+
+   openCategoryManager() opens the management overlay where users can
+   add/rename/archive/reorder categories and pick or paste icons.
+   ════════════════════════════════════════════════════════════════════ */
+
+// Preset icon library — Lucide-derived line art appropriate for a
+// restaurant/equipment context. The user picks from this grid OR
+// pastes a custom SVG path. Each value is the *inner contents* of an
+// SVG (no <svg> wrapper) so the same rendering pipeline as the
+// hardcoded ICON_PATHS works without changes.
+const PRESET_ICONS = [
+  { key: 'thermometer',  label: 'Thermometer', path: '<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/>' },
+  { key: 'flame',        label: 'Flame',       path: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>' },
+  { key: 'sun',          label: 'Sun',         path: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>' },
+  { key: 'umbrella',     label: 'Shade',       path: '<path d="M22 12a10.06 10.06 1 0 0-20 0Z"/><path d="M12 12v8a2 2 0 0 0 4 0"/><path d="M12 2v1"/>' },
+  { key: 'box',          label: 'Box',         path: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>' },
+  { key: 'table',        label: 'Table',       path: '<path d="M12 3v17"/><path d="M3 8h18"/><path d="M3 8v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/>' },
+  { key: 'chair',        label: 'Chair',       path: '<path d="M6 19v2"/><path d="M18 19v2"/><path d="M18 9V5a3 3 0 0 0-3-3H9a3 3 0 0 0-3 3v4"/><path d="M5 13h14a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2Z"/><path d="M5 13V9h14v4"/>' },
+  { key: 'wrench',       label: 'Wrench',      path: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>' },
+  { key: 'power',        label: 'Power',       path: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>' },
+  { key: 'plug',         label: 'Plug',        path: '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>' },
+  { key: 'lightbulb',    label: 'Light',       path: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>' },
+  { key: 'wind',         label: 'Wind',        path: '<path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2"/><path d="M9.6 4.6A2 2 0 1 1 11 8H2"/><path d="M12.6 19.4A2 2 0 1 0 14 16H2"/>' },
+  { key: 'wifi',         label: 'WiFi',        path: '<path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 20 0"/><line x1="12" x2="12.01" y1="20" y2="20"/>' },
+  { key: 'camera',       label: 'Camera',      path: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>' },
+  { key: 'speaker',      label: 'Speaker',     path: '<rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><circle cx="12" cy="14" r="4"/><line x1="12" x2="12.01" y1="6" y2="6"/>' },
+  { key: 'coffee',       label: 'Coffee',      path: '<path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" x2="6" y1="2" y2="4"/><line x1="10" x2="10" y1="2" y2="4"/><line x1="14" x2="14" y1="2" y2="4"/>' },
+  { key: 'beer',         label: 'Beer',        path: '<path d="M17 11h1a3 3 0 0 1 0 6h-1"/><path d="M9 12v6"/><path d="M13 12v6"/><path d="M14 7.5c-1 0-1.44.5-3 .5s-2-.5-3-.5-1.72.5-2.5.5a2.5 2.5 0 0 1 0-5c.78 0 1.57.5 2.5.5C9.44 3.5 10 3 12 3s2.56.5 3.5.5c.78 0 1.5-.5 2.5-.5a2.5 2.5 0 0 1 0 5c-.78 0-1.5-.5-2.5-.5Z"/><path d="M5 8v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/>' },
+  { key: 'utensils',     label: 'Utensils',    path: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/>' },
+  { key: 'hammer',       label: 'Hammer',      path: '<path d="m15 12-8.5 8.5c-.83.83-2.17.83-3 0 0 0 0 0 0 0a2.12 2.12 0 0 1 0-3L12 9"/><path d="M17.64 15 22 10.64"/><path d="m20.91 11.7-1.25-1.25c-.6-.6-.93-1.4-.93-2.25v-.86L16.01 4.6a5.56 5.56 0 0 0-3.94-1.64H9l.92.82A6.18 6.18 0 0 1 12 8.4v1.56l2 2h2.47l2.26 1.91"/>' },
+  { key: 'shield',       label: 'Security',    path: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>' },
+  { key: 'truck',        label: 'Delivery',    path: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>' },
+  { key: 'monitor',      label: 'Display',     path: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>' },
+  { key: 'leaf',         label: 'Plant',       path: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19.2 2.96c1.4 9.3-2.4 17.94-8.2 17.04Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6"/>' },
+  { key: 'water-drop',   label: 'Water',       path: '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/>' },
+];
+
+/**
+ * Fetch user-created categories from the database. Updates the
+ * in-memory CATEGORIES array + ICON_PATHS map so every consumer
+ * (editors, dropdowns, grouped-list rendering, icon getters) picks
+ * up the new values at next access. Falls back silently to the
+ * hardcoded list if the table is missing/empty or the query errors.
+ */
+async function loadCategoriesFromDB() {
+  if (!NX.sb) return;
+  try {
+    const { data, error } = await NX.sb.from('equipment_categories')
+      .select('*').eq('archived', false).order('sort_order');
+    if (error) {
+      // Pre-migration: table doesn't exist. Hardcoded fallback stays.
+      if (!/relation.+does not exist/i.test(error.message || '')) {
+        console.warn('[equipment] loadCategoriesFromDB:', error.message);
+      }
+      return;
+    }
+    if (!data || !data.length) return;  // fall back to hardcoded
+    // Replace CATEGORIES + ICON_PATHS atomically. Existing equipment
+    // with a category key not in the new list still renders via the
+    // 'other' fallback in getCategoryIcon().
+    CATEGORIES = data.map(c => ({ key: c.key, label: c.label, id: c.id }));
+    const newIcons = {};
+    for (const c of data) {
+      if (c.icon_path) newIcons[c.key] = c.icon_path;
+    }
+    // Preserve any hardcoded icon paths for keys that DB row didn't override
+    ICON_PATHS = Object.assign({ other: '<circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/>' }, newIcons);
+    console.log('[equipment] loaded', CATEGORIES.length, 'categories from DB');
+  } catch (e) {
+    console.warn('[equipment] loadCategoriesFromDB threw:', e);
+  }
+}
+
+/**
+ * Open the category management overlay. Lists current categories
+ * with rename/icon-change/archive/move actions plus an Add button
+ * that opens the editor sub-sheet with the icon picker.
+ */
+function openCategoryManager() {
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  overlay.style.zIndex = '9000';
+
+  const renderList = () => {
+    const items = CATEGORIES.slice().sort((a, b) => {
+      // sort_order may not be on the in-memory objects if loaded from
+      // fallback; treat undefined as 9999 so they go last.
+      return (a.sort_order || 9999) - (b.sort_order || 9999);
+    });
+    overlay.innerHTML = `
+      <div class="eq-bulk-sheet-backdrop"></div>
+      <div class="eq-bulk-sheet" style="max-height:85vh">
+        <div class="eq-bulk-sheet-handle"></div>
+        <div class="eq-bulk-sheet-title">Equipment categories</div>
+        <div class="eq-bulk-sheet-sub">Tap a category to rename or change its icon. Add new categories like Heaters, Tables, Deck, Shades.</div>
+        <div class="eq-bulk-sheet-list" style="max-height:55vh">
+          ${items.map((c, i) => `
+            <button class="eq-bulk-sheet-item" data-cat-key="${esc(c.key)}" type="button" style="display:flex; align-items:center; gap:12px; text-align:left">
+              <div style="width:36px; height:36px; display:flex; align-items:center; justify-content:center; background:rgba(212,164,78,0.1); border-radius:8px; flex:0 0 36px">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--nx-gold)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[c.key] || ICON_PATHS.other}</svg>
+              </div>
+              <div style="flex:1; min-width:0">
+                <div class="eq-bulk-sheet-item-name">${esc(c.label)}</div>
+                <div class="eq-bulk-sheet-item-sub" style="opacity:0.6">${esc(c.key)}${c.id ? ' · ID ' + c.id : ' · built-in'}</div>
+              </div>
+              <div style="display:flex; gap:4px; flex:0 0 auto">
+                ${i > 0 ? `<button type="button" data-cat-up="${esc(c.key)}" class="eq-btn eq-btn-tiny" title="Move up" style="padding:6px">↑</button>` : ''}
+                ${i < items.length - 1 ? `<button type="button" data-cat-down="${esc(c.key)}" class="eq-btn eq-btn-tiny" title="Move down" style="padding:6px">↓</button>` : ''}
+              </div>
+            </button>
+          `).join('')}
+        </div>
+        <button class="eq-bulk-sheet-confirm" data-action="add-cat" type="button" style="background:var(--nx-gold); color:#000">
+          + Add new category
+        </button>
+        <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Done</button>
+      </div>
+    `;
+    overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('[data-action="add-cat"]').addEventListener('click', () => openCategoryEditor(null, renderList));
+    overlay.querySelectorAll('[data-cat-key]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        // Ignore clicks on ↑↓ buttons
+        if (e.target.closest('[data-cat-up], [data-cat-down]')) return;
+        const cat = CATEGORIES.find(c => c.key === btn.dataset.catKey);
+        if (cat) openCategoryEditor(cat, renderList);
+      });
+    });
+    overlay.querySelectorAll('[data-cat-up]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await moveCategoryOrder(btn.dataset.catUp, -1);
+        renderList();
+      });
+    });
+    overlay.querySelectorAll('[data-cat-down]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await moveCategoryOrder(btn.dataset.catDown, 1);
+        renderList();
+      });
+    });
+  };
+
+  renderList();
+  document.body.appendChild(overlay);
+}
+
+/**
+ * Open the editor for a single category (new or existing). Lets the
+ * user set the label, pick an icon from the preset grid, or paste a
+ * custom SVG path. On Save, writes to equipment_categories and
+ * reloads the in-memory list.
+ */
+function openCategoryEditor(existing, onSaved) {
+  const isNew = !existing;
+  let label = existing ? existing.label : '';
+  let key = existing ? existing.key : '';
+  let iconPath = (existing && ICON_PATHS[existing.key]) || PRESET_ICONS[0].path;
+  let customSvg = '';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  overlay.style.zIndex = '9100';  // above the manager list
+
+  const slugify = (s) => String(s || '').toLowerCase().trim()
+    .replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 50);
+
+  const render = () => {
+    overlay.innerHTML = `
+      <div class="eq-bulk-sheet-backdrop"></div>
+      <div class="eq-bulk-sheet" style="max-height:90vh">
+        <div class="eq-bulk-sheet-handle"></div>
+        <div class="eq-bulk-sheet-title">${isNew ? 'New category' : 'Edit ' + esc(existing.label)}</div>
+
+        <div style="padding: 12px 16px 8px;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Label</label>
+          <input type="text" id="catLabel" value="${esc(label)}" placeholder="e.g. Heaters" maxlength="40" autocomplete="off"
+            style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:15px;">
+        </div>
+
+        <div style="padding: 4px 16px 8px;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Icon — tap to pick</label>
+          <div style="display:grid; grid-template-columns:repeat(6, 1fr); gap:6px;">
+            ${PRESET_ICONS.map(p => `
+              <button type="button" data-pick-icon="${esc(p.key)}" title="${esc(p.label)}"
+                style="aspect-ratio:1; display:flex; align-items:center; justify-content:center; background:${iconPath === p.path ? 'rgba(212,164,78,0.25)' : 'rgba(255,255,255,0.04)'}; border:1px solid ${iconPath === p.path ? 'var(--nx-gold)' : 'rgba(255,255,255,0.1)'}; border-radius:8px; cursor:pointer; padding:0">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="${iconPath === p.path ? 'var(--nx-gold)' : 'currentColor'}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${p.path}</svg>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <details style="padding: 8px 16px;">
+          <summary style="font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); cursor:pointer; padding:8px 0">Or paste custom SVG path</summary>
+          <textarea id="catCustomSvg" placeholder="&lt;path d=&quot;M...&quot;/&gt;  (24×24 viewBox, inner contents only)" rows="3"
+            style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:11px; font-family: monospace;">${esc(customSvg)}</textarea>
+          <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+            <div style="width:40px; height:40px; display:flex; align-items:center; justify-content:center; background:rgba(212,164,78,0.1); border-radius:8px;">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--nx-gold)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" id="catCustomPreview">${iconPath}</svg>
+            </div>
+            <button type="button" id="catApplyCustom" class="eq-btn eq-btn-small eq-btn-secondary">Use custom SVG</button>
+          </div>
+        </details>
+
+        <div style="padding: 12px 16px;">
+          <button class="eq-bulk-sheet-confirm" data-action="save" type="button" style="background:var(--nx-gold); color:#000">
+            ${isNew ? 'Create category' : 'Save changes'}
+          </button>
+          ${!isNew && existing.id ? `<button class="eq-bulk-sheet-cancel" data-action="archive" type="button" style="color:#c44; border-color:#c44">Archive this category</button>` : ''}
+          <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Cancel</button>
+        </div>
+      </div>
+    `;
+    overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('#catLabel').addEventListener('input', (e) => { label = e.target.value; });
+    overlay.querySelectorAll('[data-pick-icon]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const p = PRESET_ICONS.find(p => p.key === btn.dataset.pickIcon);
+        if (p) { iconPath = p.path; render(); }
+      });
+    });
+    const customTextarea = overlay.querySelector('#catCustomSvg');
+    customTextarea.addEventListener('input', (e) => { customSvg = e.target.value; });
+    overlay.querySelector('#catApplyCustom').addEventListener('click', () => {
+      const raw = (customTextarea.value || '').trim();
+      if (!raw) { NX.toast && NX.toast('Paste an SVG path first', 'warn', 1500); return; }
+      // Cheap safety: strip <script> tags etc.
+      if (/<script/i.test(raw) || /\bon\w+\s*=/i.test(raw)) {
+        NX.toast && NX.toast('Custom SVG contains a script or event handler — refused', 'error', 3000);
+        return;
+      }
+      iconPath = raw;
+      render();
+    });
+    overlay.querySelector('[data-action="save"]').addEventListener('click', saveCategory);
+    const archiveBtn = overlay.querySelector('[data-action="archive"]');
+    if (archiveBtn) archiveBtn.addEventListener('click', archiveCategory);
+  };
+
+  const saveCategory = async () => {
+    if (!label.trim()) { NX.toast && NX.toast('Label required', 'warn', 1500); return; }
+    if (!NX.sb) { NX.toast && NX.toast('Database unavailable', 'error', 2000); return; }
+    try {
+      if (isNew) {
+        // Derive key from label; if collision, append a number.
+        let candidate = slugify(label);
+        let n = 1;
+        while (CATEGORIES.some(c => c.key === candidate)) {
+          candidate = slugify(label) + '_' + (++n);
+        }
+        const maxSort = Math.max(0, ...CATEGORIES.map(c => c.sort_order || 0));
+        const { error } = await NX.sb.from('equipment_categories').insert({
+          key: candidate,
+          label: label.trim(),
+          icon_path: iconPath,
+          sort_order: maxSort + 10,
+        });
+        if (error) throw error;
+        NX.toast && NX.toast(`Category "${label.trim()}" added`, 'success', 1800);
+      } else {
+        const { error } = await NX.sb.from('equipment_categories')
+          .update({ label: label.trim(), icon_path: iconPath, updated_at: new Date().toISOString() })
+          .eq('id', existing.id);
+        if (error) throw error;
+        NX.toast && NX.toast('Category updated', 'success', 1500);
+      }
+      await loadCategoriesFromDB();
+      overlay.remove();
+      if (typeof onSaved === 'function') onSaved();
+      // Re-render equipment view if it's open so the new category appears
+      const eqView = document.getElementById('equipmentView');
+      if (eqView && eqView.children.length && typeof buildUI === 'function') buildUI();
+    } catch (e) {
+      console.error('[saveCategory]', e);
+      NX.toast && NX.toast('Save failed: ' + (e.message || ''), 'error', 3000);
+    }
+  };
+
+  const archiveCategory = async () => {
+    if (!confirm(`Archive "${existing.label}"? Equipment using this category will still show but the category won't appear in dropdowns.`)) return;
+    try {
+      const { error } = await NX.sb.from('equipment_categories')
+        .update({ archived: true, updated_at: new Date().toISOString() })
+        .eq('id', existing.id);
+      if (error) throw error;
+      NX.toast && NX.toast('Category archived', 'info', 1500);
+      await loadCategoriesFromDB();
+      overlay.remove();
+      if (typeof onSaved === 'function') onSaved();
+    } catch (e) {
+      console.error('[archiveCategory]', e);
+      NX.toast && NX.toast('Archive failed: ' + (e.message || ''), 'error', 3000);
+    }
+  };
+
+  render();
+  document.body.appendChild(overlay);
+}
+
+/**
+ * Swap sort_order with the adjacent category in the given direction
+ * (-1 = up, +1 = down). Used by the ↑↓ buttons in the manager list.
+ */
+async function moveCategoryOrder(key, direction) {
+  if (!NX.sb) return;
+  const sorted = CATEGORIES.slice().sort((a, b) => (a.sort_order || 9999) - (b.sort_order || 9999));
+  const idx = sorted.findIndex(c => c.key === key);
+  if (idx < 0) return;
+  const swapIdx = idx + direction;
+  if (swapIdx < 0 || swapIdx >= sorted.length) return;
+  const a = sorted[idx], b = sorted[swapIdx];
+  if (!a.id || !b.id) return;  // both must be DB-backed
+  try {
+    const aSort = a.sort_order || (idx + 1) * 10;
+    const bSort = b.sort_order || (swapIdx + 1) * 10;
+    await Promise.all([
+      NX.sb.from('equipment_categories').update({ sort_order: bSort }).eq('id', a.id),
+      NX.sb.from('equipment_categories').update({ sort_order: aSort }).eq('id', b.id),
+    ]);
+    await loadCategoriesFromDB();
+  } catch (e) {
+    console.error('[moveCategoryOrder]', e);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   v18.18 — Last PM date + auto-countdown progress bar.
+
+   Equipment now stores `last_pm_date` (DATE column added by the
+   migration). When `pm_interval_days` is also set, we compute:
+
+     elapsed_days  = today - last_pm_date
+     remaining_days = pm_interval_days - elapsed_days
+     pct_remaining = remaining_days / pm_interval_days
+
+   The progress bar fill width is `pct_remaining * 100%` — it
+   DECREASES as time runs out (full at PM completion, empty when due).
+   Color shifts from green → amber → red as the bar empties.
+   ════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Compute next_pm_date and countdown state from last_pm_date +
+ * pm_interval_days. Returns null if either is missing.
+ */
+function computePmCountdown(eq) {
+  if (!eq || !eq.last_pm_date || !eq.pm_interval_days) return null;
+  const interval = parseInt(eq.pm_interval_days, 10);
+  if (!interval || interval <= 0) return null;
+  const last = new Date(eq.last_pm_date + 'T00:00:00');
+  if (isNaN(last)) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const elapsedDays  = Math.floor((today - last) / 86400000);
+  const remainingDays = interval - elapsedDays;
+  const pctRemaining = Math.max(0, Math.min(1, remainingDays / interval));
+  const next = new Date(last);
+  next.setDate(next.getDate() + interval);
+  const nextIso = next.toISOString().slice(0, 10);
+  return {
+    elapsedDays,
+    remainingDays,
+    pctRemaining,
+    intervalDays: interval,
+    nextDate: nextIso,
+    isOverdue: remainingDays < 0,
+  };
+}
+
+/**
+ * Render the PM countdown progress bar as inline HTML. Width
+ * decreases as time runs out. Color shifts green → amber → red.
+ * Returns empty string if equipment has no PM schedule configured.
+ */
+function renderPmProgressBar(eq, compact) {
+  const cd = computePmCountdown(eq);
+  if (!cd) return '';
+  const pct = Math.round(cd.pctRemaining * 100);
+  let color = '#3a8d3a';  // green
+  if (cd.pctRemaining < 0.1)      color = '#c44';   // red
+  else if (cd.pctRemaining < 0.5) color = '#d4a44e'; // gold/amber
+  const label = cd.isOverdue
+    ? `OVERDUE by ${Math.abs(cd.remainingDays)}d`
+    : `${cd.remainingDays}d until PM`;
+  if (compact) {
+    return `
+      <div class="eq-pm-progress" title="${esc(label)}" style="display:flex; align-items:center; gap:6px; font-size:10px;">
+        <div style="flex:1; height:4px; background:rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; min-width:40px">
+          <div style="height:100%; width:${pct}%; background:${color}; transition:width .3s ease"></div>
+        </div>
+        <span style="color:${color}; font-family:'JetBrains Mono', monospace; font-size:9px; white-space:nowrap">${cd.isOverdue ? 'OVERDUE' : cd.remainingDays + 'd'}</span>
+      </div>
+    `;
+  }
+  return `
+    <div class="eq-pm-progress" title="${esc(label)} (next PM ${cd.nextDate})">
+      <div style="display:flex; justify-content:space-between; font-size:10px; text-transform:uppercase; letter-spacing:1px; color:var(--nx-faint); margin-bottom:4px">
+        <span>PM Health</span>
+        <span style="color:${color}; font-family:'JetBrains Mono', monospace">${label}</span>
+      </div>
+      <div style="height:6px; background:rgba(255,255,255,0.08); border-radius:3px; overflow:hidden">
+        <div style="height:100%; width:${pct}%; background:${color}; transition:width .3s ease"></div>
+      </div>
+    </div>
+  `;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   v18.19 — PM logger with expected-vs-actual date tracking.
+
+   When the user taps "Log PM" on an equipment, openPmLogger opens a
+   focused sheet capturing:
+     - Expected date (pre-filled from equipment.next_pm_date)
+     - Actual date (defaults to today)
+     - Live variance display (on time / N days late / N days early)
+     - Performed by, cost, notes
+     - Invoice file upload (optional)
+
+   On save:
+     1. Upload invoice to equipment-attachments storage (if provided)
+     2. Insert equipment_attachments row → get attachment_id
+     3. Insert equipment_maintenance row with:
+          event_type='pm', event_date=actual, expected_pm_date,
+          cost, performed_by, description, invoice_attachment_id
+     4. Update equipment row:
+          last_pm_date = actual, next_pm_date = actual + interval
+     5. Refresh open detail view
+
+   The progress bar restarts at 100% the moment the equipment row
+   updates — because it computes from last_pm_date.
+   ════════════════════════════════════════════════════════════════════ */
+
+function openPmLogger(equipId) {
+  const eq = (typeof equipment !== 'undefined' && equipment)
+    ? equipment.find(e => String(e.id) === String(equipId))
+    : null;
+  if (!eq) {
+    NX.toast && NX.toast('Equipment not found', 'error', 1800);
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  let expected = eq.next_pm_date || '';
+  let actual   = today;
+  let performedBy = '';
+  let cost = '';
+  let notes = '';
+  let invoiceFile = null;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  overlay.style.zIndex = '9200';
+
+  const computeVariance = () => {
+    if (!expected || !actual) return null;
+    const exp = new Date(expected + 'T00:00:00');
+    const act = new Date(actual + 'T00:00:00');
+    if (isNaN(exp) || isNaN(act)) return null;
+    const diffDays = Math.round((act - exp) / 86400000);
+    return diffDays;
+  };
+
+  const varianceLabel = () => {
+    const d = computeVariance();
+    if (d === null) return '';
+    if (d === 0)   return `<span style="color:#3a8d3a">● On time</span>`;
+    if (d > 0)     return `<span style="color:#c44">● ${d} day${d===1?'':'s'} late</span>`;
+    return            `<span style="color:#d4a44e">● ${Math.abs(d)} day${d===-1?'':'s'} early</span>`;
+  };
+
+  const render = () => {
+    overlay.innerHTML = `
+      <div class="eq-bulk-sheet-backdrop"></div>
+      <div class="eq-bulk-sheet" style="max-height:92vh; overflow-y:auto">
+        <div class="eq-bulk-sheet-handle"></div>
+        <div class="eq-bulk-sheet-title">Log PM — ${esc(eq.name)}</div>
+        <div class="eq-bulk-sheet-sub">Health countdown restarts from the ACTUAL date you performed the PM.</div>
+
+        <div style="padding: 12px 16px 8px;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+            <div>
+              <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Expected</label>
+              <input type="date" id="pmExpected" value="${esc(expected)}"
+                style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:14px;">
+              <div style="font-size:10px; color:var(--nx-faint); margin-top:4px">When it was scheduled</div>
+            </div>
+            <div>
+              <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-gold); margin-bottom:6px">Actual *</label>
+              <input type="date" id="pmActual" value="${esc(actual)}" required
+                style="width:100%; padding:10px 12px; background:rgba(212,164,78,0.08); border:1px solid var(--nx-gold); border-radius:8px; color:var(--nx-text); font-size:14px;">
+              <div style="font-size:10px; color:var(--nx-faint); margin-top:4px">When it was performed</div>
+            </div>
+          </div>
+          <div style="margin-top:8px; font-size:12px; text-align:center; padding:6px; background:rgba(255,255,255,0.03); border-radius:6px">
+            ${varianceLabel() || '<span style="color:var(--nx-faint)">Set both dates to see variance</span>'}
+          </div>
+        </div>
+
+        <div style="padding: 4px 16px;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Performed by</label>
+          <input type="text" id="pmPerformedBy" value="${esc(performedBy)}" placeholder="Tyler from Austin Air & Ice"
+            style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:14px;">
+        </div>
+
+        <div style="padding: 8px 16px;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Cost ($)</label>
+          <input type="number" id="pmCost" value="${esc(cost)}" step="0.01" placeholder="0.00"
+            style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:14px;">
+        </div>
+
+        <div style="padding: 8px 16px;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Notes</label>
+          <textarea id="pmNotes" rows="3" placeholder="Replaced filters, cleaned condenser coils, calibrated thermostat..."
+            style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:13px;">${esc(notes)}</textarea>
+        </div>
+
+        <div style="padding: 8px 16px;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Invoice (optional)</label>
+          <div style="display:flex; gap:8px; align-items:center">
+            <button type="button" id="pmInvoiceBtn" class="eq-btn eq-btn-small eq-btn-secondary" style="flex:0 0 auto">
+              ${uiSvg('document', '13px')} ${invoiceFile ? 'Change file' : 'Attach invoice'}
+            </button>
+            <span style="font-size:12px; color:${invoiceFile ? 'var(--nx-gold)' : 'var(--nx-faint)'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${invoiceFile ? esc(invoiceFile.name) : 'No file selected'}</span>
+            <input type="file" id="pmInvoiceFile" accept="image/*,application/pdf" hidden>
+          </div>
+        </div>
+
+        <div style="padding: 12px 16px;">
+          <button class="eq-bulk-sheet-confirm" data-action="save" type="button" style="background:var(--nx-gold); color:#000">
+            Log PM & restart countdown
+          </button>
+          <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Cancel</button>
+        </div>
+      </div>
+    `;
+
+    overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => overlay.remove());
+
+    overlay.querySelector('#pmExpected').addEventListener('change', (e) => { expected = e.target.value; render(); });
+    overlay.querySelector('#pmActual').addEventListener('change', (e) => { actual = e.target.value; render(); });
+    overlay.querySelector('#pmPerformedBy').addEventListener('input', (e) => { performedBy = e.target.value; });
+    overlay.querySelector('#pmCost').addEventListener('input', (e) => { cost = e.target.value; });
+    overlay.querySelector('#pmNotes').addEventListener('input', (e) => { notes = e.target.value; });
+
+    const fileInput = overlay.querySelector('#pmInvoiceFile');
+    overlay.querySelector('#pmInvoiceBtn').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      invoiceFile = e.target.files && e.target.files[0] || null;
+      render();
+    });
+
+    overlay.querySelector('[data-action="save"]').addEventListener('click', save);
+  };
+
+  const save = async () => {
+    if (!actual) { NX.toast && NX.toast('Actual date is required', 'warn', 1500); return; }
+    if (!NX.sb) { NX.toast && NX.toast('Database unavailable', 'error', 2000); return; }
+
+    const saveBtn = overlay.querySelector('[data-action="save"]');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
+    try {
+      // Step 1: Upload invoice (if provided) and create attachment row
+      let invoiceAttachmentId = null;
+      if (invoiceFile) {
+        const safeName = invoiceFile.name.replace(/[^a-z0-9.]/gi, '_');
+        const path = `${equipId}/pm-${Date.now()}-${safeName}`;
+        const { error: upErr } = await NX.sb.storage
+          .from('equipment-attachments')
+          .upload(path, invoiceFile, { upsert: false, contentType: invoiceFile.type });
+        if (upErr) throw upErr;
+        const { data: { publicUrl } } = NX.sb.storage.from('equipment-attachments').getPublicUrl(path);
+        const { data: attRow, error: attErr } = await NX.sb.from('equipment_attachments').insert({
+          equipment_id: equipId,
+          type: 'invoice',
+          title: `PM invoice — ${actual}`,
+          file_url: publicUrl,
+          mime_type: invoiceFile.type,
+          file_size: invoiceFile.size,
+          uploaded_by: NX.currentUser?.name || 'user',
+        }).select('id').single();
+        if (attErr) throw attErr;
+        invoiceAttachmentId = attRow.id;
+      }
+
+      // Step 2: Insert maintenance row
+      const maintRow = {
+        equipment_id: equipId,
+        event_type: 'pm',
+        event_date: actual,
+        expected_pm_date: expected || null,
+        description: notes || 'PM performed',
+        performed_by: performedBy || null,
+        cost: cost ? parseFloat(cost) : null,
+      };
+      if (invoiceAttachmentId) maintRow.invoice_attachment_id = invoiceAttachmentId;
+
+      const { error: maintErr } = await NX.sb.from('equipment_maintenance').insert(maintRow);
+      if (maintErr) {
+        // If invoice_attachment_id column doesn't exist yet, retry
+        // without it so the migration order doesn't block PM logging.
+        if (/column.+invoice_attachment_id.+does not exist/i.test(maintErr.message || '')) {
+          delete maintRow.invoice_attachment_id;
+          const retry = await NX.sb.from('equipment_maintenance').insert(maintRow);
+          if (retry.error) throw retry.error;
+        } else if (/column.+expected_pm_date.+does not exist/i.test(maintErr.message || '')) {
+          delete maintRow.expected_pm_date;
+          const retry = await NX.sb.from('equipment_maintenance').insert(maintRow);
+          if (retry.error) throw retry.error;
+        } else {
+          throw maintErr;
+        }
+      }
+
+      // Step 3: Update equipment — last_pm_date + next_pm_date
+      const interval = parseInt(eq.pm_interval_days, 10);
+      const eqUpdate = { last_pm_date: actual };
+      if (interval > 0) {
+        const next = new Date(actual + 'T00:00:00');
+        next.setDate(next.getDate() + interval);
+        eqUpdate.next_pm_date = next.toISOString().slice(0, 10);
+      }
+      const { error: eqErr } = await NX.sb.from('equipment').update(eqUpdate).eq('id', equipId);
+      if (eqErr) {
+        // Same defense — if last_pm_date column missing, the v18.18
+        // migration hasn't been run yet. Skip and toast.
+        if (/column.+last_pm_date.+does not exist/i.test(eqErr.message || '')) {
+          NX.toast && NX.toast('PM logged but countdown needs v18.18 migration', 'warn', 3500);
+        } else {
+          throw eqErr;
+        }
+      }
+
+      // Optional: recompute health score
+      try { await NX.sb.rpc('recompute_health_score', { eq_id: equipId }); } catch (_) {}
+
+      NX.toast && NX.toast('PM logged ✓ Countdown restarted', 'success', 2200);
+      overlay.remove();
+
+      // Refresh equipment list + reopen detail
+      if (typeof loadEquipment === 'function') {
+        try { await loadEquipment(); } catch (_) {}
+      }
+      if (typeof openDetail === 'function') openDetail(equipId);
+
+    } catch (err) {
+      console.error('[openPmLogger] save failed:', err);
+      NX.toast && NX.toast('Save failed: ' + (err.message || ''), 'error', 4000);
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Log PM & restart countdown'; }
+    }
+  };
+
+  render();
+  document.body.appendChild(overlay);
+}
+
+/* ── End v18.19 additions ─────────────────────────────────────────── */
+
+/* ── End v18.18 additions ─────────────────────────────────────────── */
 
 /* ─── Action / UI icons — Lucide line art ─────────────────────────────
    Used wherever the equipment module rendered emoji glyphs in UI
@@ -801,6 +1478,11 @@ async function init() {
   const params = new URLSearchParams(window.location.search);
   const equipParam = params.get('equip');
 
+  // v18.18 — load user-created categories before loadEquipment so any
+  // category-keyed render path uses the live list rather than the
+  // hardcoded fallback. Awaiting this is cheap (single small query)
+  // and prevents a "categories shift after first paint" jump.
+  await loadCategoriesFromDB();
   await loadEquipment();
   buildUI();
 
@@ -924,6 +1606,10 @@ function buildUI() {
           <span class="eq-tool-icon">${uiSvg('star', '14px')}</span>
           <span class="eq-tool-label">Brands</span>
         </button>
+        <button class="eq-tool-btn" id="eqToolCategories" title="Add/edit equipment categories">
+          <span class="eq-tool-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></span>
+          <span class="eq-tool-label">Categories</span>
+        </button>
       </div>
 
       <div class="eq-search-row">
@@ -992,6 +1678,9 @@ function buildUI() {
   document.getElementById('eqToolBrands')?.addEventListener('click', () => {
     if (typeof openBrandLibrary === 'function') openBrandLibrary();
     else NX.toast && NX.toast('Brand library not loaded yet', 'warn');
+  });
+  document.getElementById('eqToolCategories')?.addEventListener('click', () => {
+    openCategoryManager();
   });
   document.getElementById('eqSearch').addEventListener('input', e => {
     searchQuery = e.target.value.toLowerCase();
@@ -1602,6 +2291,7 @@ function buildListRow(e) {
           <div class="eq-row-when ${pmCls}">${esc(pmLabel || '—')}</div>
         </div>
         ${sub ? `<div class="eq-row-meta"><span class="eq-row-sub">${sub}</span></div>` : ''}
+        ${renderPmProgressBar(e, true)}
       </div>
       <span class="eq-row-beacon" aria-hidden="true">${lifecycleStatusDot(e)}</span>
     </div>`;
@@ -1675,7 +2365,13 @@ async function openDetail(id) {
       });
   };
   const [partsRes, maintRes, attachRes, customRes, pendingRes, maintContractorRes, repairContractorRes] = await Promise.all([
-    NX.sb.from('equipment_parts').select('*').eq('equipment_id', id).order('assembly_path'),
+    // v18.17 — was: `.eq('equipment_id', id)` only. This missed parts
+    // that are linked to this equipment via `compatible_equipment_ids`
+    // (the M:N array column). A part that fits multiple machines now
+    // shows up under each one, not just its "primary" equipment.
+    NX.sb.from('equipment_parts').select('*')
+      .or(`equipment_id.eq.${id},compatible_equipment_ids.cs.[${id}]`)
+      .order('assembly_path'),
     NX.sb.from('equipment_maintenance').select('*').eq('equipment_id', id).order('event_date', { ascending: false }),
     NX.sb.from('equipment_attachments').select('*').eq('equipment_id', id).order('created_at', { ascending: false }),
     NX.sb.from('equipment_custom_fields').select('*').eq('equipment_id', id).order('created_at'),
@@ -1752,7 +2448,8 @@ async function openDetail(id) {
             <button class="eq-overflow-item eq-overflow-item-primary" onclick="NX.modules.equipment.openFullEditor('${eq.id}')">${uiSvg('pen', '14px')}<span>Edit equipment</span></button>
             <div class="eq-overflow-divider"></div>
             <div class="eq-overflow-section-label">Operate</div>
-            <button class="eq-overflow-item" onclick="NX.modules.equipment.logService('${eq.id}')">${uiSvg('pen', '14px')}<span>Log Service</span></button>
+            <button class="eq-overflow-item eq-overflow-item-primary" onclick="NX.modules.equipment.openPmLogger('${eq.id}')" style="color:var(--nx-gold)">${uiSvg('clipboard', '14px')}<span>Log PM <small style="opacity:0.6">(restarts countdown)</small></span></button>
+            <button class="eq-overflow-item" onclick="NX.modules.equipment.logService('${eq.id}')">${uiSvg('pen', '14px')}<span>Log Service / Repair</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.openIssueTracker('${eq.id}')">${uiSvg('alert', '14px')}<span>Issue Tracker</span></button>
             <button class="eq-overflow-item" onclick="NX.modules.equipment.openPartsForEquipment('${eq.id}')">${uiSvg('settings', '14px')}<span>View Parts</span></button>
             <div class="eq-overflow-divider"></div>
@@ -2097,6 +2794,7 @@ function renderOverview(eq, attachments, customFields) {
     ['Install date',    fmtDate(eq.install_date)],
     ['Warranty until',  fmtDate(eq.warranty_until)],
     ['Health score',    `${eq.health_score ?? 100}<span class="eq-detail-card-unit">%</span>`],
+    ['Last PM',         eq.last_pm_date ? fmtDate(eq.last_pm_date) : 'Never logged'],
     ['Next PM',         eq.next_pm_date ? fmtDate(eq.next_pm_date) : 'Not scheduled'],
     ['Services (YTD)',  `${eq.services_this_year || 0}${eq.cost_this_year ? ` <span class="eq-detail-card-unit">· $${Math.round(eq.cost_this_year).toLocaleString()}</span>` : ''}`],
     ['Purchase price',  eq.purchase_price ? `$${parseFloat(eq.purchase_price).toLocaleString()}` : '—'],
@@ -2294,7 +2992,10 @@ function renderParts(eq, parts) {
       <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.extractBOMFromManual('${eq.id}')" style="margin-right:6px">${uiSvg("sparkles", "13px")} Extract from Manual</button>
       <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.exportPartsCart('${eq.id}')" style="margin-right:6px">Shopping List</button>
       <h4>Bill of Materials</h4>
-      <button class="eq-btn eq-btn-small eq-btn-primary" onclick="NX.modules.equipment.addPart('${eq.id}')">+ Add Part</button>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
+        <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.openEquipmentLinkPartsSheet('${eq.id}')" title="Pick parts from the catalog that also fit this equipment">${uiSvg("settings", "13px")} Link existing</button>
+        <button class="eq-btn eq-btn-small eq-btn-primary" onclick="NX.modules.equipment.addPart('${eq.id}')">+ Add Part</button>
+      </div>
     </div>
     ${!parts.length ? '<div class="eq-empty-small">No parts cataloged yet.</div>' : `
       <div class="eq-parts-list" data-multi-vendor="1">
@@ -2305,6 +3006,7 @@ function renderParts(eq, parts) {
               <div class="eq-part-sub">
                 ${p.oem_part_number ? `OEM: ${esc(p.oem_part_number)}` : ''}
                 ${p.quantity > 1 ? ` · Qty: ${p.quantity}` : ''}
+                ${p.equipment_id != eq.id ? ' · <span style="color:var(--nx-gold)">linked</span>' : ''}
               </div>
               ${p.assembly_path ? `<div class="eq-part-path">${esc(p.assembly_path)}</div>` : ''}
             </div>
@@ -2362,7 +3064,7 @@ function openEditModal(id) {
     name: '', location: 'Suerte', area: '', category: 'refrigeration',
     manufacturer: '', model: '', serial_number: '', status: 'operational',
     install_date: '', warranty_until: '', purchase_price: '',
-    pm_interval_days: '', next_pm_date: '', notes: ''
+    pm_interval_days: '', last_pm_date: '', next_pm_date: '', notes: ''
   };
 
   const modal = document.getElementById('eqEditModal') || (() => {
@@ -2446,10 +3148,17 @@ function openEditModal(id) {
               <input type="number" name="pm_interval_days" value="${eq.pm_interval_days||''}" placeholder="90">
             </div>
           </div>
-          <div class="eq-form-group">
-            <label>Next PM Date</label>
-            <input type="date" name="next_pm_date" value="${eq.next_pm_date||''}">
+          <div class="eq-form-row">
+            <div class="eq-form-group">
+              <label>Last PM Date</label>
+              <input type="date" name="last_pm_date" value="${eq.last_pm_date||''}" title="Date the last PM happened. NEXUS computes the next PM date and countdown from this + the interval.">
+            </div>
+            <div class="eq-form-group">
+              <label>Next PM Date <small style="opacity:0.6">(auto)</small></label>
+              <input type="date" name="next_pm_date" value="${eq.next_pm_date||''}" title="Computed from Last PM + Interval. Override if you want a specific date.">
+            </div>
           </div>
+          ${eq.last_pm_date && eq.pm_interval_days ? `<div class="eq-form-group">${renderPmProgressBar(eq)}</div>` : ''}
           <div class="eq-form-group">
             <label>Notes</label>
             <textarea name="notes" rows="3" placeholder="Any special notes, quirks, service tips...">${esc(eq.notes||'')}</textarea>
@@ -2474,6 +3183,26 @@ function openEditModal(id) {
     ['purchase_price', 'pm_interval_days'].forEach(k => {
       if (data[k] != null) data[k] = parseFloat(data[k]);
     });
+
+    // v18.18 — auto-compute next_pm_date from last_pm + interval. Only
+    // overrides the field if the user left it blank OR if they
+    // updated last_pm_date specifically (we assume they want the
+    // computed date in that case). If they entered a specific
+    // next_pm_date AND didn't touch last_pm, leave their value alone.
+    if (data.last_pm_date && data.pm_interval_days) {
+      const last = new Date(data.last_pm_date + 'T00:00:00');
+      if (!isNaN(last)) {
+        const next = new Date(last);
+        next.setDate(next.getDate() + parseInt(data.pm_interval_days, 10));
+        const nextIso = next.toISOString().slice(0, 10);
+        // Override next_pm_date if it's blank OR if last_pm_date changed
+        const priorLast = id ? (equipment.find(e => e.id === id) || {}).last_pm_date : null;
+        const lastChanged = priorLast !== data.last_pm_date;
+        if (!data.next_pm_date || lastChanged) {
+          data.next_pm_date = nextIso;
+        }
+      }
+    }
 
     try {
       // Auto-link manufacturer text to a manufacturers row so the brand
@@ -16271,6 +17000,201 @@ function openBulkCompatibilitySheet(p) {
   renderSheet();
 }
 
+/* ─── Equipment → Link existing parts (inverted bulk sheet) ───────
+ *
+ * Mirror of openBulkCompatibilitySheet, but from the equipment side.
+ * On a part: "this part fits which equipment?" — picks equipment.
+ * On an equipment: "which existing parts also fit this unit?" — picks
+ * parts. Both write to the same column (compatible_equipment_ids on
+ * each selected part), so the link surfaces in both views.
+ *
+ * Sorted same-manufacturer-first: if this is a Hoshizaki ice machine,
+ * parts whose PRIMARY equipment is also Hoshizaki float to the top
+ * with a "SAME BRAND" badge. Most likely shared-OEM parts.
+ */
+async function openEquipmentLinkPartsSheet(equipId) {
+  // Need the target equipment + the full parts catalog.
+  const eqList = (typeof equipment !== 'undefined' && equipment) ? equipment : [];
+  const targetEq = eqList.find(e => String(e.id) === String(equipId));
+  if (!targetEq) {
+    NX.toast && NX.toast('Equipment not found', 'error', 1800);
+    return;
+  }
+
+  // Pull all parts from the catalog. Annotate each with its primary
+  // equipment (for same-brand sorting) and current compatible set.
+  let allParts = [];
+  try {
+    const { data, error } = await NX.sb.from('equipment_parts').select('*').order('part_name');
+    if (error) throw error;
+    allParts = data || [];
+  } catch (e) {
+    console.error('[openEquipmentLinkPartsSheet] load:', e);
+    NX.toast && NX.toast('Could not load parts catalog: ' + (e.message || ''), 'error', 3000);
+    return;
+  }
+
+  // Annotate with primary-equipment lookup.
+  const eqById = {};
+  for (const e of eqList) eqById[e.id] = e;
+
+  // Exclude parts already linked to this equipment (either primary or
+  // already in the compatible_equipment_ids array). The user wants to
+  // ADD links, not re-link existing ones.
+  const candidates = allParts.filter(p => {
+    if (String(p.equipment_id) === String(equipId)) return false;
+    const compatIds = Array.isArray(p.compatible_equipment_ids) ? p.compatible_equipment_ids : [];
+    if (compatIds.some(id => String(id) === String(equipId))) return false;
+    return true;
+  });
+
+  if (!candidates.length) {
+    NX.toast && NX.toast('Every part in the catalog is already linked to this unit', 'info', 2400);
+    return;
+  }
+
+  // Sort same-brand-first. A part's "brand" is its primary equipment's
+  // manufacturer. If we don't have it, the part still appears but
+  // doesn't get the badge.
+  const targetMfg = (targetEq.manufacturer || '').toLowerCase().trim();
+  candidates.sort((a, b) => {
+    const aMfg = (eqById[a.equipment_id]?.manufacturer || '').toLowerCase().trim();
+    const bMfg = (eqById[b.equipment_id]?.manufacturer || '').toLowerCase().trim();
+    const aMatch = targetMfg && aMfg === targetMfg ? 1 : 0;
+    const bMatch = targetMfg && bMfg === targetMfg ? 1 : 0;
+    if (aMatch !== bMatch) return bMatch - aMatch;
+    return (a.part_name || '').localeCompare(b.part_name || '');
+  });
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  const selected = new Set();
+  let searchQ = '';
+
+  const renderSheet = () => {
+    const q = searchQ.toLowerCase().trim();
+    const visible = q
+      ? candidates.filter(p =>
+          (p.part_name || '').toLowerCase().includes(q) ||
+          (p.oem_part_number || '').toLowerCase().includes(q) ||
+          (p.supplier || '').toLowerCase().includes(q)
+        )
+      : candidates;
+
+    overlay.innerHTML = `
+      <div class="eq-bulk-sheet-backdrop"></div>
+      <div class="eq-bulk-sheet">
+        <div class="eq-bulk-sheet-handle"></div>
+        <div class="eq-bulk-sheet-title">Link parts to ${esc(targetEq.name)}</div>
+        <div class="eq-bulk-sheet-sub">${targetMfg ? `Same-brand parts (${esc(targetEq.manufacturer)}) are listed first — most likely OEM-compatible.` : 'Pick any existing parts in the catalog that also fit this unit.'}</div>
+
+        <div style="padding: 0 16px 8px;">
+          <input type="search" id="ordEqLinkPartsSearch" placeholder="Search part name, OEM, supplier…" value="${esc(searchQ)}" autocomplete="off"
+            style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:13px;">
+        </div>
+
+        <div class="eq-bulk-sheet-list">
+          ${visible.length === 0 ? `<div style="padding:24px; text-align:center; color:var(--nx-faint); font-size:13px;">No parts match "${esc(searchQ)}"</div>` : visible.map(p => {
+            const pid = String(p.id);
+            const isSel = selected.has(pid);
+            const primaryEq = eqById[p.equipment_id];
+            const primaryMfg = (primaryEq?.manufacturer || '').toLowerCase().trim();
+            const sameBrand = targetMfg && primaryMfg === targetMfg;
+            const subParts = [];
+            if (p.oem_part_number) subParts.push(`OEM ${esc(p.oem_part_number)}`);
+            if (primaryEq) subParts.push(`fits ${esc(primaryEq.name)}`);
+            if (p.supplier) subParts.push(esc(p.supplier));
+            return `
+              <button class="eq-bulk-sheet-item eq-bulk-apply-item ${isSel ? 'is-selected' : ''} ${sameBrand ? 'is-same-brand' : ''}" data-id="${esc(pid)}" type="button">
+                <div class="eq-bulk-apply-check">
+                  ${isSel ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+                </div>
+                <div class="eq-bulk-sheet-item-text">
+                  <div class="eq-bulk-sheet-item-name">${esc(p.part_name)}</div>
+                  ${subParts.length ? `<div class="eq-bulk-sheet-item-sub">${subParts.join(' · ')}</div>` : ''}
+                </div>
+                ${sameBrand ? '<span class="eq-bulk-apply-badge">SAME BRAND</span>' : ''}
+              </button>
+            `;
+          }).join('')}
+        </div>
+        <button class="eq-bulk-sheet-confirm" data-action="confirm" ${selected.size === 0 ? 'disabled' : ''} type="button">
+          Link ${selected.size} ${selected.size === 1 ? 'part' : 'parts'}
+        </button>
+        <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Cancel</button>
+      </div>
+    `;
+
+    overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', close);
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+    overlay.querySelectorAll('[data-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        if (selected.has(id)) selected.delete(id);
+        else selected.add(id);
+        renderSheet();
+      });
+    });
+    overlay.querySelector('[data-action="confirm"]').addEventListener('click', applyConfirm);
+    const searchInput = overlay.querySelector('#ordEqLinkPartsSearch');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        searchQ = e.target.value;
+        // Re-render only the list portion; preserves input focus by
+        // capturing cursor position. Simple approach for now: full
+        // re-render, then re-focus.
+        const pos = e.target.selectionStart;
+        renderSheet();
+        const fresh = overlay.querySelector('#ordEqLinkPartsSearch');
+        if (fresh) { fresh.focus(); try { fresh.setSelectionRange(pos, pos); } catch (_) {} }
+      });
+    }
+  };
+
+  const close = () => overlay.remove();
+
+  const applyConfirm = async () => {
+    if (!selected.size) return;
+    const ids = Array.from(selected);
+    let succeeded = 0;
+    let failed = 0;
+    for (const partId of ids) {
+      const p = candidates.find(x => String(x.id) === partId);
+      if (!p) continue;
+      const existing = Array.isArray(p.compatible_equipment_ids) ? p.compatible_equipment_ids.slice() : [];
+      // Avoid duplicates (defensive — candidates filter already excluded
+      // already-linked, but parallel edits could race).
+      if (!existing.some(id => String(id) === String(equipId))) {
+        existing.push(typeof equipId === 'string' ? equipId : Number(equipId));
+      }
+      try {
+        const { error } = await NX.sb.from('equipment_parts')
+          .update({ compatible_equipment_ids: existing })
+          .eq('id', p.id);
+        if (error) throw error;
+        succeeded++;
+      } catch (e) {
+        console.error('[openEquipmentLinkPartsSheet] update', partId, e);
+        failed++;
+      }
+    }
+    overlay.remove();
+    if (succeeded > 0) {
+      NX.toast && NX.toast(`Linked ${succeeded} part${succeeded === 1 ? '' : 's'} to ${targetEq.name}`, 'success', 2200);
+      // Reload the equipment detail to show the newly-linked parts.
+      if (typeof openDetail === 'function') {
+        openDetail(equipId);
+      }
+    }
+    if (failed > 0) {
+      NX.toast && NX.toast(`${failed} link${failed === 1 ? '' : 's'} failed — check console`, 'error', 3000);
+    }
+  };
+
+  renderSheet();
+  document.body.appendChild(overlay);
+}
+
 async function persistPartCompatibility(p, ids) {
   try {
     const { data, error } = await NX.sb.from('equipment_parts')
@@ -16538,6 +17462,12 @@ const __nxeExports = {
   // Parts catalog (fleet-wide)
   openParts,
   openPartsForEquipment,
+  openEquipmentLinkPartsSheet,
+  openCategoryManager,
+  loadCategoriesFromDB,
+  renderPmProgressBar,
+  computePmCountdown,
+  openPmLogger,
   openPartDetail,
   closeParts,
   loadPartsList,
