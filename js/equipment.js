@@ -16356,17 +16356,33 @@ async function addNewPart(prefilledEquipId) {
 }
 
 
-// v18.14 — direct window globals as backup path. The FAB dial in
-// index.html prefers these over NX.modules.equipment.* because some
-// downstream code is apparently clearing window.NX.modules (the dial
-// reports "NX.modules missing" 10s after equipment.js renders the
-// view, which means the namespace gets wiped). These survive any
-// such wipe since they sit on `window` directly, not inside the NX
-// namespace tree.
-window.__nxOpenParts = openParts;
-window.__nxOpenArchiveWorld = openArchiveWorld;
+// v18.15 — three layers of protection for NX.modules.equipment.
+//
+// PROBLEM: Inline onclick handlers throughout equipment.js (76 of them,
+// covering 57 functions: archiveEquipment, openParts, openDetail,
+// uploadPhoto, deletePart, etc.) all dispatch through
+// NX.modules.equipment.X(...). Production reports of those handlers
+// silently failing (the button does nothing, no error visible) plus
+// the FAB dial diagnostic showing "NX.modules missing" prove that
+// something downstream is clearing the namespace. Static analysis
+// can't find what's doing it — no `NX.modules =` assignments, no
+// `delete` operations. So we engineer for resilience.
+//
+// THREE LAYERS:
+//   1. window.__nxe — permanent backup reference. Any caller can use
+//      window.__nxe.archiveEquipment(id) and it will always work.
+//   2. Object.defineProperty installs a non-configurable getter on
+//      NX.modules.equipment. Direct overwrites silently fail and log
+//      a stack trace pointing at the offending caller.
+//   3. Watchdog (200ms) detects if NX.modules itself gets replaced
+//      with a different object and reinstalls protection on the new
+//      one. Catches the "wholesale replacement" case that bypasses
+//      defineProperty.
+//
+// Plus the existing window.__nxOpenParts / __nxOpenArchiveWorld that
+// the FAB dial uses as its primary path.
 
-NX.modules.equipment = {
+const __nxeExports = {
   // Lifecycle
   init,
   show: buildUI,
@@ -16538,7 +16554,60 @@ NX.modules.equipment = {
   pickSection,
 };
 
-console.log('[Equipment] unified module loaded — ' + Object.keys(NX.modules.equipment).length + ' exports');
+// ─── Three layers of protection (see explanation above) ───────────────
+window.__nxe = __nxeExports;
+window.__nxOpenParts = openParts;
+window.__nxOpenArchiveWorld = openArchiveWorld;
+
+function __nxe_get() { return __nxeExports; }
+function __nxe_set(v) {
+  console.warn('[equipment] BLOCKED overwrite of NX.modules.equipment with:', v);
+  try { console.warn(new Error().stack); } catch(_) {}
+}
+function __nxe_install(target) {
+  if (!target) return;
+  try {
+    const desc = Object.getOwnPropertyDescriptor(target, 'equipment');
+    if (desc && desc.get === __nxe_get) return;  // already installed
+    if (desc && !desc.configurable) {
+      // Existing non-configurable descriptor — can't replace it. Best
+      // we can do is leave it alone; if it's not our getter, it's the
+      // direct value, which is still __nxeExports anyway.
+      return;
+    }
+    Object.defineProperty(target, 'equipment', {
+      get: __nxe_get,
+      set: __nxe_set,
+      configurable: false,
+      enumerable: true,
+    });
+  } catch (e) {
+    console.error('[equipment] __nxe_install failed:', e);
+    try { target.equipment = __nxeExports; } catch (_) {}  // best-effort fallback
+  }
+}
+__nxe_install(NX.modules);
+
+// Watchdog — catches the case where NX.modules itself gets replaced
+// with a different object (bypassing the immutable property on the
+// old one). Reinstalls protection on the new object. 200ms is cheap
+// (~1µs per check) and catches replacement within a tick.
+let __nxe_lastM = NX.modules;
+setInterval(() => {
+  if (!window.NX) window.NX = {};
+  const m = window.NX.modules;
+  if (!m) {
+    window.NX.modules = {};
+    __nxe_install(window.NX.modules);
+    console.warn('[equipment] NX.modules was undefined — recreated + reinstalled');
+  } else if (m !== __nxe_lastM) {
+    __nxe_install(m);
+    console.warn('[equipment] NX.modules was replaced — reinstalled protection');
+  }
+  __nxe_lastM = window.NX.modules;
+}, 200);
+
+console.log('[Equipment] unified module loaded — ' + Object.keys(__nxeExports).length + ' exports, protected');
 
 // ─── Self-test: contractor editor wiring ──────────────────────────────
 // Runs once shortly after equipment.js loads. If any required piece is
