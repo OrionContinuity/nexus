@@ -32,7 +32,15 @@
    1. CONSTANTS & STATE
    ════════════════════════════════════════════════════════════════════════════ */
 
-const LOCATIONS = ['Suerte', 'Este', 'Bar Toti'];
+// v18.22 — was `const LOCATIONS`. Changed to `let` so loadLocationsFromDB()
+// can replace the array with user-created locations. The hardcoded
+// fallback is used only if the `locations` table is missing or empty.
+let LOCATIONS = ['Suerte', 'Este', 'Bar Toti'];
+// Full per-location metadata loaded from DB (id, label, photo_url,
+// address, avatar_hue, sort_order, last_opened_at). Empty until
+// loadLocationsFromDB() runs, then populated with whatever's in the
+// `locations` table. UI code reads from this for the card view.
+let LOCATION_META = [];
 // v18.18 — was `const CATEGORIES`. Changed to `let` so loadCategoriesFromDB()
 // can replace the array with user-created categories from the
 // `equipment_categories` table. The hardcoded list below is now the
@@ -957,6 +965,683 @@ function openFieldEditor(equipId, fieldKey, label, currentValue, inputType, opts
   document.head.appendChild(s);
 })();
 
+/* ════════════════════════════════════════════════════════════════════
+   v18.22 — Locations as vendor-style cards.
+
+   Replaces the 3-pill location switcher with a scrollable card list
+   modeled on ordering's vendor rows. Top-level Equipment view now
+   lands on the location card list; tap a card to drill into that
+   location's equipment, back arrow returns. Includes universal
+   search (equipment + parts) and configurable sort.
+
+   ┌──────────────────────────────────────────────┐
+   │  EQUIPMENT                                    │
+   │  [🔍 Search equipment, parts...        ]      │
+   │  [+ Add Location]   Sort: Attention needed ▼  │
+   │                                                │
+   │  ┌────────────────────────────────────────┐   │
+   │  │ ◯  Suerte                  14 units    │ › │
+   │  │    1808 E 6th St           ●3 overdue ⋮│   │
+   │  ├────────────────────────────────────────┤   │
+   │  │ ◯  Este                    22 units    │ › │
+   │  │    2113 Manor Rd           ●All clear ⋮│   │
+   │  └────────────────────────────────────────┘   │
+   └──────────────────────────────────────────────┘
+   ════════════════════════════════════════════════════════════════════ */
+
+async function loadLocationsFromDB() {
+  if (!NX.sb) return;
+  try {
+    const { data, error } = await NX.sb.from('locations')
+      .select('*').eq('archived', false).order('sort_order');
+    if (error) {
+      if (!/relation.+does not exist/i.test(error.message || '')) {
+        console.warn('[equipment] loadLocationsFromDB:', error.message);
+      }
+      return;
+    }
+    if (!data || !data.length) return;
+    LOCATION_META = data;
+    LOCATIONS = data.map(l => l.label);
+    console.log('[equipment] loaded', LOCATIONS.length, 'locations from DB');
+  } catch (e) {
+    console.warn('[equipment] loadLocationsFromDB threw:', e);
+  }
+}
+
+/* Compute per-location dashboard stats. Reads from the global
+   `equipment` array (already loaded). Returns counts the location
+   card needs to surface attention level + scale. */
+function computeLocationStats(label) {
+  const eqs = (typeof equipment !== 'undefined' && equipment)
+    ? equipment.filter(e => e.location === label && !e.archived_at && !e.archived)
+    : [];
+  const total = eqs.length;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayIso = today.toISOString().slice(0, 10);
+  const in14d = new Date(today.getTime() + 14 * 86400000).toISOString().slice(0, 10);
+
+  let overdue = 0, dueSoon = 0;
+  for (const e of eqs) {
+    if (!e.next_pm_date) continue;
+    if (e.next_pm_date < todayIso) overdue++;
+    else if (e.next_pm_date <= in14d) dueSoon++;
+  }
+  const issues = eqs.filter(e => e.status && e.status !== 'operational').length;
+  const healthAvg = total > 0
+    ? Math.round(eqs.reduce((s, e) => s + (e.health_score ?? 100), 0) / total)
+    : 100;
+  return { total, overdue, dueSoon, issues, healthAvg };
+}
+
+/* Deterministic 0-360 hue from a string — for avatar fallback when
+   no photo uploaded. Same pattern ordering vendors use. */
+function hashLocationHue(s) {
+  let h = 0;
+  s = String(s || '');
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h) % 360;
+}
+
+/* Sort location metadata according to the selected sort mode. The
+   `attention` mode weights overdue PMs heavily, then non-operational
+   units, then due-soon PMs — locations needing the most action float
+   to the top. */
+function sortLocationsByMode(meta, mode) {
+  const arr = meta.slice();
+  const score = (loc) => {
+    const s = computeLocationStats(loc.label);
+    return s.overdue * 100 + s.issues * 50 + s.dueSoon * 10;
+  };
+  if (mode === 'attention') {
+    arr.sort((a, b) => score(b) - score(a) || a.label.localeCompare(b.label));
+  } else if (mode === 'count') {
+    arr.sort((a, b) => computeLocationStats(b.label).total - computeLocationStats(a.label).total);
+  } else if (mode === 'pm') {
+    arr.sort((a, b) => {
+      const sa = computeLocationStats(a.label);
+      const sb = computeLocationStats(b.label);
+      return (sb.overdue + sb.dueSoon) - (sa.overdue + sa.dueSoon);
+    });
+  } else if (mode === 'recent') {
+    arr.sort((a, b) => (b.last_opened_at || '').localeCompare(a.last_opened_at || ''));
+  } else if (mode === 'name') {
+    arr.sort((a, b) => a.label.localeCompare(b.label));
+  } else { // custom
+    arr.sort((a, b) => (a.sort_order || 9999) - (b.sort_order || 9999));
+  }
+  return arr;
+}
+
+/* Render the avatar element. Same shape as ordering vendor avatars:
+   image when available, deterministic-hue circle with initial letter
+   otherwise. Avoids the "all avatars look the same" problem. */
+function locationAvatarHTML(loc, size) {
+  size = size || 'md';
+  const hue = (loc.avatar_hue != null) ? loc.avatar_hue : hashLocationHue(loc.label);
+  const initials = (loc.label || '?').trim().charAt(0).toUpperCase();
+  if (loc.photo_url) {
+    return `<img class="eq-loc-avatar eq-loc-avatar-${size}" src="${esc(loc.photo_url)}" alt="${esc(loc.label)}" loading="lazy">`;
+  }
+  return `<div class="eq-loc-avatar eq-loc-avatar-${size} eq-loc-avatar-initials" style="--hue:${hue}">${esc(initials)}</div>`;
+}
+
+/* Render one location card. */
+function renderLocationCard(loc) {
+  const stats = computeLocationStats(loc.label);
+
+  // Status pill — pick the most urgent signal first. Overdue PMs and
+  // non-operational equipment are reds; due-soon PMs are gold; otherwise
+  // "All clear" in green. This is the at-a-glance triage indicator.
+  let pillCls = 'is-clear', pillText = 'All clear';
+  if (stats.overdue > 0) {
+    pillCls = 'is-overdue';
+    pillText = `${stats.overdue} overdue PM${stats.overdue === 1 ? '' : 's'}`;
+  } else if (stats.issues > 0) {
+    pillCls = 'is-issue';
+    pillText = `${stats.issues} ${stats.issues === 1 ? 'unit needs' : 'units need'} attention`;
+  } else if (stats.dueSoon > 0) {
+    pillCls = 'is-soon';
+    pillText = `${stats.dueSoon} PM${stats.dueSoon === 1 ? '' : 's'} due soon`;
+  }
+
+  return `
+    <div class="eq-loc-card-wrap" data-loc-label="${esc(loc.label)}">
+      <button class="eq-loc-card" data-loc-enter="${esc(loc.label)}" type="button">
+        <div class="eq-loc-avatar-wrap">${locationAvatarHTML(loc, 'md')}</div>
+        <div class="eq-loc-card-main">
+          <div class="eq-loc-card-name-row">
+            <div class="eq-loc-card-name">${esc(loc.label)}</div>
+            <div class="eq-loc-card-count">${stats.total} unit${stats.total === 1 ? '' : 's'}</div>
+          </div>
+          <div class="eq-loc-card-meta">
+            <span class="eq-loc-card-pill ${pillCls}">${esc(pillText)}</span>
+            ${loc.address ? `<span class="eq-loc-card-address">${esc(loc.address)}</span>` : ''}
+          </div>
+        </div>
+        <div class="eq-loc-arrow" aria-hidden="true">›</div>
+      </button>
+      <button class="eq-loc-menu-btn" data-loc-edit="${esc(loc.label)}" aria-label="Edit ${esc(loc.label)}">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+      </button>
+    </div>
+  `;
+}
+
+const LOC_SORT_LABELS = {
+  attention: 'Attention needed',
+  count:     'Most equipment',
+  pm:        'PMs upcoming',
+  recent:    'Last opened',
+  name:      'Name (A→Z)',
+  custom:    'Custom order',
+};
+
+/* Render the entire location list landing view. Replaces the prior
+   pill bar + filters + list combo when locationView.mode === 'list'. */
+function renderLocationListView() {
+  const sorted = sortLocationsByMode(LOCATION_META, locationView.sort);
+  const isSearching = !!(locationView.search && locationView.search.trim());
+
+  return `
+    <div class="eq-header">
+      <div class="eq-title-row">
+        <h2 class="eq-title"><span class="eq-title-icon">${uiSvg('wrench', '20px')}</span> Equipment</h2>
+      </div>
+
+      <div class="eq-search-row" style="margin-top: 8px">
+        <input type="search" class="eq-search" id="eqLocationSearch" placeholder="🔍 Search equipment, parts, anywhere…" value="${esc(locationView.search)}" autocomplete="off">
+      </div>
+
+      ${!isSearching ? `
+        <div class="eq-loc-controls" style="display:flex; gap:8px; align-items:center; margin-top:12px; flex-wrap:wrap">
+          <button class="eq-btn eq-btn-primary" id="eqAddLocationBtn" style="flex:0 0 auto">+ Add Location</button>
+          <div style="flex:1; min-width:120px"></div>
+          <label style="font-size:11px; color:var(--nx-faint); text-transform:uppercase; letter-spacing:1px">Sort</label>
+          <select id="eqLocationSort" style="padding:8px 10px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:13px;">
+            ${Object.entries(LOC_SORT_LABELS).map(([k, v]) =>
+              `<option value="${k}" ${locationView.sort === k ? 'selected' : ''}>${v}</option>`
+            ).join('')}
+          </select>
+        </div>
+      ` : ''}
+    </div>
+
+    <div id="eqLocationCardsOrSearch" style="padding: 8px 12px;">
+      ${isSearching
+        ? renderSearchResultsView()
+        : (sorted.length === 0
+            ? `<div class="eq-empty-small">No locations yet. Tap <strong>+ Add Location</strong> to create your first one.</div>`
+            : `<div class="eq-loc-cards">${sorted.map(renderLocationCard).join('')}</div>`)}
+    </div>
+  `;
+}
+
+/* Render universal search results when the search bar has a query.
+   Two grouped sections: equipment matches, then parts matches.
+   Empty groups are hidden. */
+function renderSearchResultsView() {
+  const q = (locationView.search || '').toLowerCase().trim();
+  if (!q) return '';
+
+  // Equipment search — name, manufacturer, model, serial, area, location
+  const eqMatches = (equipment || []).filter(e => {
+    if (e.archived_at || e.archived) return false;
+    return (
+      (e.name || '').toLowerCase().includes(q) ||
+      (e.manufacturer || '').toLowerCase().includes(q) ||
+      (e.model || '').toLowerCase().includes(q) ||
+      (e.serial_number || '').toLowerCase().includes(q) ||
+      (e.area || '').toLowerCase().includes(q) ||
+      (e.location || '').toLowerCase().includes(q)
+    );
+  }).slice(0, 30);
+
+  // Parts search — uses cached searchResults if available, else triggers async load
+  const partMatches = (locationView.searchResults && locationView.searchResults.parts) || [];
+
+  return `
+    <div class="eq-search-results">
+      ${eqMatches.length ? `
+        <div class="eq-search-section-head">EQUIPMENT (${eqMatches.length})</div>
+        ${eqMatches.map(e => `
+          <button class="eq-search-result-row" data-search-eq="${esc(e.id)}" type="button" style="display:flex; align-items:center; gap:10px; width:100%; padding:10px 12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:8px; margin-bottom:6px; cursor:pointer; text-align:left">
+            <div style="width:32px; height:32px; display:flex; align-items:center; justify-content:center; background:rgba(212,164,78,0.08); border-radius:6px; flex:0 0 32px">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--nx-gold)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[e.category] || ICON_PATHS.other}</svg>
+            </div>
+            <div style="flex:1; min-width:0">
+              <div style="font-size:14px; color:var(--nx-text); font-weight:500">${esc(e.name)}</div>
+              <div style="font-size:11px; color:var(--nx-faint); font-family:'JetBrains Mono', monospace">${esc(e.location || '')}${e.manufacturer ? ' · ' + esc(e.manufacturer) : ''}${e.model ? ' ' + esc(e.model) : ''}</div>
+            </div>
+            <div style="color:var(--nx-faint); font-size:16px" aria-hidden="true">›</div>
+          </button>
+        `).join('')}
+      ` : ''}
+
+      ${partMatches.length ? `
+        <div class="eq-search-section-head" style="margin-top:14px">PARTS (${partMatches.length})</div>
+        ${partMatches.map(p => `
+          <button class="eq-search-result-row" data-search-part="${esc(p.id)}" type="button" style="display:flex; align-items:center; gap:10px; width:100%; padding:10px 12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:8px; margin-bottom:6px; cursor:pointer; text-align:left">
+            <div style="width:32px; height:32px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.04); border-radius:6px; flex:0 0 32px">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9"/></svg>
+            </div>
+            <div style="flex:1; min-width:0">
+              <div style="font-size:14px; color:var(--nx-text); font-weight:500">${esc(p.part_name)}</div>
+              <div style="font-size:11px; color:var(--nx-faint); font-family:'JetBrains Mono', monospace">${p.oem_part_number ? 'OEM ' + esc(p.oem_part_number) : 'No OEM'}${p.supplier ? ' · ' + esc(p.supplier) : ''}</div>
+            </div>
+            <div style="color:var(--nx-faint); font-size:16px" aria-hidden="true">›</div>
+          </button>
+        `).join('')}
+      ` : ''}
+
+      ${(!eqMatches.length && !partMatches.length) ? `
+        <div class="eq-empty-small" style="padding:24px; text-align:center">
+          No matches for "${esc(q)}"
+          ${!locationView.searchResults ? '<div style="margin-top:6px; opacity:0.6; font-size:11px">Searching parts catalog…</div>' : ''}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+/* Async parts search — fires when the user types in the search bar.
+   Results merge into locationView.searchResults and a re-render
+   surfaces them inline. Equipment matches are computed locally; parts
+   require a DB hit since the parts catalog isn't pre-loaded. */
+async function searchPartsCatalog(q) {
+  if (!NX.sb || !q) return [];
+  try {
+    const term = `%${q}%`;
+    const { data, error } = await NX.sb.from('equipment_parts')
+      .select('id, part_name, oem_part_number, supplier')
+      .or(`part_name.ilike.${term},oem_part_number.ilike.${term},supplier.ilike.${term}`)
+      .limit(30);
+    if (error) {
+      console.warn('[equipment] parts search:', error.message);
+      return [];
+    }
+    return data || [];
+  } catch (e) {
+    console.warn('[equipment] parts search threw:', e);
+    return [];
+  }
+}
+
+/* Enter a location — switch to inside mode, bump last_opened_at,
+   re-render via buildUI which now picks the inside-view branch. */
+async function enterLocation(label) {
+  locationView.mode = 'inside';
+  locationView.activeLocation = label;
+  activeFilter.location = label;  // keep the existing filter in sync
+  // Fire-and-forget update of last_opened_at — used by the "Last opened"
+  // sort mode. Doesn't block the navigation.
+  if (NX.sb) {
+    const loc = LOCATION_META.find(l => l.label === label);
+    if (loc && loc.id) {
+      NX.sb.from('locations').update({ last_opened_at: new Date().toISOString() }).eq('id', loc.id).then(() => {});
+    }
+  }
+  buildUI();
+}
+
+function exitLocation() {
+  locationView.mode = 'list';
+  locationView.activeLocation = null;
+  locationView.search = '';
+  locationView.searchResults = null;
+  buildUI();
+}
+
+/* Bottom-sheet location editor (add or edit). Fields per Orion's
+   spec: name (required), photo, address. Picture-style avatar matching
+   ordering vendors when no photo is set. */
+function openLocationEditor(existing, onSaved) {
+  const isNew = !existing;
+  let label = existing ? existing.label : '';
+  let address = existing ? (existing.address || '') : '';
+  let photoUrl = existing ? (existing.photo_url || '') : '';
+  let pendingFile = null;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  overlay.style.zIndex = '9000';
+
+  const render = () => {
+    const previewLoc = { label: label || '?', photo_url: photoUrl, avatar_hue: existing?.avatar_hue };
+    overlay.innerHTML = `
+      <div class="eq-bulk-sheet-backdrop"></div>
+      <div class="eq-bulk-sheet" style="max-height:90vh; overflow-y:auto">
+        <div class="eq-bulk-sheet-handle"></div>
+        <div class="eq-bulk-sheet-title">${isNew ? 'New location' : 'Edit ' + esc(existing.label)}</div>
+
+        <div style="padding: 16px; display:flex; align-items:center; gap:14px;">
+          <div id="locEditAvatar" style="flex:0 0 auto">${locationAvatarHTML(previewLoc, 'lg')}</div>
+          <div style="flex:1">
+            <button type="button" id="locPhotoBtn" class="eq-btn eq-btn-small eq-btn-secondary">${uiSvg('camera', '13px')} ${photoUrl ? 'Change photo' : 'Add photo'}</button>
+            ${photoUrl ? `<button type="button" id="locPhotoClear" class="eq-btn eq-btn-tiny eq-btn-danger" style="margin-left:6px">Remove</button>` : ''}
+            <input type="file" id="locPhotoFile" accept="image/*" hidden>
+            <div style="font-size:10px; color:var(--nx-faint); margin-top:6px">Optional — initials shown if blank</div>
+          </div>
+        </div>
+
+        <div style="padding: 4px 16px;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Name *</label>
+          <input type="text" id="locLabel" value="${esc(label)}" placeholder="e.g. Domain Northside" maxlength="60" autocomplete="off"
+            style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:15px;">
+        </div>
+
+        <div style="padding: 8px 16px;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Address</label>
+          <input type="text" id="locAddress" value="${esc(address)}" placeholder="1808 E 6th St, Austin TX" maxlength="200" autocomplete="off"
+            style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:14px;">
+        </div>
+
+        <div style="padding: 12px 16px;">
+          <button class="eq-bulk-sheet-confirm" data-action="save" type="button" style="background:var(--nx-gold); color:#000">
+            ${isNew ? 'Create location' : 'Save changes'}
+          </button>
+          ${!isNew && existing.id ? `<button class="eq-bulk-sheet-cancel" data-action="archive" type="button" style="color:#c44; border-color:#c44">Archive this location</button>` : ''}
+          <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Cancel</button>
+        </div>
+      </div>
+    `;
+    overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('#locLabel').addEventListener('input', (e) => { label = e.target.value; });
+    overlay.querySelector('#locAddress').addEventListener('input', (e) => { address = e.target.value; });
+
+    const fileInput = overlay.querySelector('#locPhotoFile');
+    overlay.querySelector('#locPhotoBtn').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      pendingFile = f;
+      // Local preview via objectURL until upload completes
+      photoUrl = URL.createObjectURL(f);
+      render();
+    });
+    const clearBtn = overlay.querySelector('#locPhotoClear');
+    if (clearBtn) clearBtn.addEventListener('click', () => {
+      pendingFile = null;
+      photoUrl = '';
+      render();
+    });
+
+    overlay.querySelector('[data-action="save"]').addEventListener('click', save);
+    const arch = overlay.querySelector('[data-action="archive"]');
+    if (arch) arch.addEventListener('click', archive);
+  };
+
+  const save = async () => {
+    if (!label.trim()) { NX.toast && NX.toast('Name required', 'warn', 1500); return; }
+    if (!NX.sb) { NX.toast && NX.toast('Database unavailable', 'error', 2000); return; }
+
+    const saveBtn = overlay.querySelector('[data-action="save"]');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
+    try {
+      // Upload photo if a new file was attached (replace existing).
+      let finalPhotoUrl = photoUrl;
+      if (pendingFile) {
+        const safeName = pendingFile.name.replace(/[^a-z0-9.]/gi, '_');
+        const path = `locations/${Date.now()}-${safeName}`;
+        const { error: upErr } = await NX.sb.storage
+          .from('equipment-attachments')
+          .upload(path, pendingFile, { upsert: false, contentType: pendingFile.type });
+        if (upErr) throw upErr;
+        const { data: { publicUrl } } = NX.sb.storage.from('equipment-attachments').getPublicUrl(path);
+        finalPhotoUrl = publicUrl;
+      } else if (photoUrl && photoUrl.startsWith('blob:')) {
+        // Object URL but no pendingFile — shouldn't happen, defensively reset
+        finalPhotoUrl = existing?.photo_url || '';
+      }
+
+      if (isNew) {
+        // Check label uniqueness (case-insensitive)
+        const dup = LOCATION_META.find(l => l.label.toLowerCase() === label.trim().toLowerCase());
+        if (dup) { NX.toast && NX.toast('A location with that name already exists', 'warn', 2000); if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Create location'; } return; }
+        const maxSort = Math.max(0, ...LOCATION_META.map(l => l.sort_order || 0));
+        const { error } = await NX.sb.from('locations').insert({
+          label: label.trim(),
+          address: address.trim() || null,
+          photo_url: finalPhotoUrl || null,
+          sort_order: maxSort + 10,
+        });
+        if (error) throw error;
+        NX.toast && NX.toast(`Location "${label.trim()}" added`, 'success', 2000);
+      } else {
+        const { error } = await NX.sb.from('locations').update({
+          label: label.trim(),
+          address: address.trim() || null,
+          photo_url: finalPhotoUrl || null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', existing.id);
+        if (error) throw error;
+        // If the label changed, propagate to equipment.location so the
+        // existing rows stay matched. Skipped if label is unchanged.
+        if (existing.label !== label.trim()) {
+          await NX.sb.from('equipment').update({ location: label.trim() }).eq('location', existing.label);
+        }
+        NX.toast && NX.toast('Location updated', 'success', 1500);
+      }
+      await loadLocationsFromDB();
+      await loadEquipment();
+      overlay.remove();
+      if (typeof onSaved === 'function') onSaved();
+      buildUI();
+    } catch (e) {
+      console.error('[saveLocation]', e);
+      NX.toast && NX.toast('Save failed: ' + (e.message || ''), 'error', 3000);
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = isNew ? 'Create location' : 'Save changes'; }
+    }
+  };
+
+  const archive = async () => {
+    if (!existing || !existing.id) return;
+    if (!confirm(`Archive "${existing.label}"? Equipment at this location stays accessible via search and history; the location just won't appear in the card list.`)) return;
+    try {
+      const { error } = await NX.sb.from('locations').update({
+        archived: true, updated_at: new Date().toISOString()
+      }).eq('id', existing.id);
+      if (error) throw error;
+      NX.toast && NX.toast('Location archived', 'info', 1500);
+      await loadLocationsFromDB();
+      overlay.remove();
+      if (typeof onSaved === 'function') onSaved();
+      buildUI();
+    } catch (e) {
+      console.error('[archiveLocation]', e);
+      NX.toast && NX.toast('Archive failed: ' + (e.message || ''), 'error', 3000);
+    }
+  };
+
+  render();
+  document.body.appendChild(overlay);
+}
+
+/* Inject the location-card styles once. Avatar styles match ordering
+   vendor patterns; pill colors match the existing PM color ladder. */
+(function injectLocationCardStyles() {
+  if (typeof document === 'undefined' || document.getElementById('eq-loc-card-styles')) return;
+  const s = document.createElement('style');
+  s.id = 'eq-loc-card-styles';
+  s.textContent = `
+    .eq-loc-cards { display:flex; flex-direction:column; gap:8px; }
+    .eq-loc-card-wrap { display:flex; gap:4px; align-items:stretch; }
+    .eq-loc-card {
+      flex:1; display:flex; align-items:center; gap:12px;
+      padding:14px 12px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 10px;
+      color: var(--nx-text);
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .eq-loc-card:hover, .eq-loc-card:focus {
+      background: linear-gradient(180deg, rgba(212,164,78,0.06), rgba(212,164,78,0.02));
+      border-color: rgba(212,164,78,0.3);
+      outline: none;
+    }
+    .eq-loc-avatar-wrap { flex:0 0 auto; }
+    .eq-loc-avatar {
+      width: 44px; height: 44px; border-radius: 50%;
+      object-fit: cover;
+      display:flex; align-items:center; justify-content:center;
+      flex: 0 0 44px;
+      font-size: 18px; font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    .eq-loc-avatar-lg { width: 56px; height: 56px; flex: 0 0 56px; font-size: 22px; }
+    .eq-loc-avatar-initials {
+      background: hsl(var(--hue, 30), 35%, 22%);
+      color: hsl(var(--hue, 30), 65%, 75%);
+      border: 1px solid hsl(var(--hue, 30), 40%, 30%);
+    }
+    .eq-loc-card-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
+    .eq-loc-card-name-row { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+    .eq-loc-card-name { font-size:16px; font-weight:600; color:var(--nx-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .eq-loc-card-count { font-size:11px; color:var(--nx-faint); font-family:'JetBrains Mono', monospace; flex:0 0 auto; letter-spacing:0.5px; }
+    .eq-loc-card-meta { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .eq-loc-card-pill {
+      font-size:10px; padding:2px 8px; border-radius:10px;
+      letter-spacing:0.5px; text-transform:uppercase; font-weight:600;
+      white-space:nowrap;
+    }
+    .eq-loc-card-pill.is-clear   { background: rgba(58,141,58,0.15); color:#7bc47b; border:1px solid rgba(58,141,58,0.4); }
+    .eq-loc-card-pill.is-soon    { background: rgba(212,164,78,0.15); color:#d4a44e; border:1px solid rgba(212,164,78,0.4); }
+    .eq-loc-card-pill.is-overdue { background: rgba(196,68,68,0.15); color:#e08585; border:1px solid rgba(196,68,68,0.4); }
+    .eq-loc-card-pill.is-issue   { background: rgba(196,68,68,0.15); color:#e08585; border:1px solid rgba(196,68,68,0.4); }
+    .eq-loc-card-address { font-size:11px; color:var(--nx-faint); font-family:'JetBrains Mono', monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .eq-loc-arrow { flex:0 0 auto; font-size:20px; color:var(--nx-faint); padding-right:4px; }
+    .eq-loc-menu-btn {
+      flex: 0 0 36px; width: 36px;
+      background: transparent; border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 8px; color: var(--nx-faint); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .eq-loc-menu-btn:hover { background: rgba(255,255,255,0.04); color: var(--nx-gold); }
+
+    .eq-search-section-head {
+      font-size:10px; letter-spacing:1.2px; color:var(--nx-faint);
+      text-transform:uppercase; margin: 4px 0 6px; padding: 0 2px;
+    }
+
+    /* Inside-location header back button */
+    .eq-loc-inside-back {
+      background: transparent; border: 1px solid rgba(255,255,255,0.07);
+      width: 34px; height: 34px; border-radius: 8px;
+      display:flex; align-items:center; justify-content:center;
+      color: var(--nx-text); cursor:pointer;
+      flex:0 0 34px;
+    }
+    .eq-loc-inside-back:hover { background: rgba(255,255,255,0.04); border-color: rgba(212,164,78,0.3); }
+    .eq-loc-inside-title { display:flex; align-items:center; gap:10px; }
+    .eq-loc-inside-title .eq-loc-avatar { width:32px; height:32px; flex:0 0 32px; font-size:14px; }
+  `;
+  document.head.appendChild(s);
+})();
+
+/* Wire all event handlers for the location list view (search,
+   sort, card taps, add/edit). Called from buildUI when in list mode. */
+function wireLocationListView() {
+  let searchDebounce;
+
+  document.getElementById('eqAddLocationBtn')?.addEventListener('click', () => {
+    openLocationEditor(null, () => buildUI());
+  });
+
+  const sortSel = document.getElementById('eqLocationSort');
+  if (sortSel) sortSel.addEventListener('change', (e) => {
+    locationView.sort = e.target.value;
+    buildUI();
+  });
+
+  // Tap a location card → enter the location
+  document.querySelectorAll('[data-loc-enter]').forEach(el => {
+    el.addEventListener('click', () => enterLocation(el.dataset.locEnter));
+  });
+
+  // Tap a card's ⋮ → open the editor for that location
+  document.querySelectorAll('[data-loc-edit]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const loc = LOCATION_META.find(l => l.label === el.dataset.locEdit);
+      if (loc) openLocationEditor(loc, () => buildUI());
+    });
+  });
+
+  // Search bar — debounced, queries equipment locally + parts via DB
+  const searchEl = document.getElementById('eqLocationSearch');
+  if (searchEl) {
+    searchEl.addEventListener('input', (e) => {
+      const q = e.target.value;
+      locationView.search = q;
+      // Re-render immediately for equipment matches; trigger async
+      // parts search if the query has 2+ characters.
+      clearTimeout(searchDebounce);
+      // Optimistic re-render with local equipment-only matches
+      const cardWrap = document.getElementById('eqLocationCardsOrSearch');
+      if (cardWrap) {
+        const trimmed = q.trim();
+        if (!trimmed) {
+          locationView.searchResults = null;
+          buildUI();
+          return;
+        }
+        cardWrap.innerHTML = renderSearchResultsView();
+      }
+      // Restore focus + cursor (full re-render path loses it)
+      const fresh = document.getElementById('eqLocationSearch');
+      if (fresh && fresh !== searchEl) {
+        fresh.focus();
+        try { fresh.setSelectionRange(q.length, q.length); } catch (_) {}
+      }
+      // Async parts search
+      searchDebounce = setTimeout(async () => {
+        const trimmed = (locationView.search || '').trim();
+        if (!trimmed) return;
+        const parts = await searchPartsCatalog(trimmed);
+        locationView.searchResults = { parts };
+        // Re-render the results inline if search still active and same query
+        if ((locationView.search || '').trim() === trimmed) {
+          const wrap = document.getElementById('eqLocationCardsOrSearch');
+          if (wrap) wrap.innerHTML = renderSearchResultsView();
+          // Re-wire result row clicks since innerHTML just clobbered them
+          wireSearchResultClicks();
+        }
+      }, 250);
+    });
+  }
+
+  wireSearchResultClicks();
+}
+
+/* Wire clicks on search result rows. Called after the search results
+   section is rendered (both initially and after async parts arrive). */
+function wireSearchResultClicks() {
+  document.querySelectorAll('[data-search-eq]').forEach(el => {
+    el.addEventListener('click', () => {
+      const eqId = el.dataset.searchEq;
+      if (typeof openDetail === 'function') openDetail(eqId);
+    });
+  });
+  document.querySelectorAll('[data-search-part]').forEach(el => {
+    el.addEventListener('click', () => {
+      const pid = el.dataset.searchPart;
+      if (typeof openPartDetail === 'function') openPartDetail(pid);
+    });
+  });
+}
+
+
+
+/* ── End v18.22 additions ─────────────────────────────────────────── */
+
 /* ── End v18.20 additions ─────────────────────────────────────────── */
 
 /* ── End v18.19 additions ─────────────────────────────────────────── */
@@ -1064,6 +1749,20 @@ const ZEBRA_BP_URL = 'http://localhost:9100';
 // Module state
 let equipment = [];
 let activeFilter = { location: LOCATIONS[0], status: 'all', category: 'all', pm: 'all' };
+
+// v18.22 — Top-level navigation state for the vendor-style location card UX.
+//   mode='list'   — show the location card grid (no equipment yet)
+//   mode='inside' — drilled into a single location's equipment list
+//   mode='search' — universal search results (equipment + parts)
+// activeLocation is the label of the currently-entered location.
+// search holds the query string; sort controls card ordering.
+let locationView = {
+  mode: 'list',
+  activeLocation: null,
+  search: '',
+  sort: 'attention', // 'attention' | 'count' | 'pm' | 'recent' | 'name' | 'custom'
+  searchResults: null,
+};
 
 /* Sort + collapse state for the section-grouped list view.
    sortMode  — one of 'custom' | 'name' | 'pm' | 'status'
@@ -1700,6 +2399,7 @@ async function init() {
   // hardcoded fallback. Awaiting this is cheap (single small query)
   // and prevents a "categories shift after first paint" jump.
   await loadCategoriesFromDB();
+  await loadLocationsFromDB();
   await loadEquipment();
   buildUI();
 
@@ -1778,24 +2478,36 @@ function buildUI() {
   if (NX.equipmentFilterIntent) {
     Object.assign(activeFilter, NX.equipmentFilterIntent);
     NX.equipmentFilterIntent = null;
+    // If we got an intent for a specific location, also enter it.
+    if (activeFilter.location && activeFilter.location !== 'all' && LOCATIONS.includes(activeFilter.location)) {
+      locationView.mode = 'inside';
+      locationView.activeLocation = activeFilter.location;
+    }
   }
+
+  // v18.22 — top-level routing: location card list vs inside-location view
+  if (locationView.mode === 'list') {
+    view.innerHTML = renderLocationListView();
+    wireLocationListView();
+    return;
+  }
+
+  // Inside a location — keep the existing tools row, search, filters,
+  // and list, but replace the pill bar with a back chevron + location
+  // title. activeFilter.location is set to locationView.activeLocation
+  // so all existing filter logic continues to work unchanged.
+  activeFilter.location = locationView.activeLocation;
+  const activeLoc = LOCATION_META.find(l => l.label === locationView.activeLocation) || { label: locationView.activeLocation };
 
   view.innerHTML = `
     <div class="eq-header">
-      <div class="eq-title-row">
-        <h2 class="eq-title"><span class="eq-title-icon">${uiSvg('wrench', '20px')}</span> Equipment</h2>
-        <!-- Location profile selector — top-right placement matches the
-             ordering module's pill picker exactly. Class renamed to
-             .eq-loc-tabs to dodge a collision with an older
-             .eq-loc-picker rule used by the relocate modal (which sets
-             flex-direction: column). -->
-        <div class="eq-loc-tabs" id="eqLocationBar" role="tablist" aria-label="Location">
-          ${LOCATIONS.map(loc => {
-            const label = loc.replace(/^Bar\s+/i, '');
-            return `
-              <button class="eq-loc-tab${activeFilter.location === loc ? ' active' : ''}" data-filter="location" data-value="${esc(loc)}" role="tab" aria-selected="${activeFilter.location === loc ? 'true' : 'false'}">${esc(label)}</button>
-            `;
-          }).join('')}
+      <div class="eq-title-row" style="gap:10px">
+        <button class="eq-loc-inside-back" id="eqLocationBack" aria-label="Back to locations">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div class="eq-loc-inside-title">
+          ${locationAvatarHTML(activeLoc, 'md')}
+          <h2 class="eq-title" style="margin:0">${esc(activeLoc.label)}</h2>
         </div>
       </div>
 
@@ -1838,14 +2550,6 @@ function buildUI() {
       </div>
 
       <div class="eq-filters">
-        <div class="eq-filter-group" style="display:none">
-          <span class="eq-filter-label">Location:</span>
-          ${['all', ...LOCATIONS].map(loc => `
-            <button class="eq-chip ${activeFilter.location===loc?'active':''}" data-filter="location" data-value="${loc}">
-              ${loc === 'all' ? 'All' : loc}
-            </button>
-          `).join('')}
-        </div>
         <div class="eq-filter-group">
           <span class="eq-filter-label">Status:</span>
           ${['all', ...STATUSES.map(s=>s.key)].map(s => {
@@ -1872,6 +2576,9 @@ function buildUI() {
 
     <div class="eq-list" id="eqList"></div>
   `;
+
+  // Wire the back button — return to location list
+  document.getElementById('eqLocationBack')?.addEventListener('click', exitLocation);
 
   // Wire header buttons
   document.getElementById('eqAiCreateBtn').addEventListener('click', openAICreator);
@@ -17969,6 +18676,10 @@ const __nxeExports = {
   openPmLogger,
   openFieldEditor,
   markPartReplacedOnEquipment,
+  openLocationEditor,
+  loadLocationsFromDB,
+  enterLocation,
+  exitLocation,
   openPartDetail,
   closeParts,
   loadPartsList,
