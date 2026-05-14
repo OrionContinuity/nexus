@@ -2582,13 +2582,29 @@ async function openDetail(id) {
       });
   };
   const [partsRes, maintRes, attachRes, customRes, pendingRes, maintContractorRes, repairContractorRes] = await Promise.all([
-    // v18.17 — was: `.eq('equipment_id', id)` only. This missed parts
-    // that are linked to this equipment via `compatible_equipment_ids`
-    // (the M:N array column). A part that fits multiple machines now
-    // shows up under each one, not just its "primary" equipment.
-    NX.sb.from('equipment_parts').select('*')
-      .or(`equipment_id.eq.${id},compatible_equipment_ids.cs.[${id}]`)
-      .order('assembly_path'),
+    // v18.17 — was `.eq('equipment_id', id)` only. v18.20 fix: the `.or()`
+    // approach was unreliable because the [X] inside cs.[X] confused
+    // PostgREST's comma-separated predicate parser. Now using two parallel
+    // queries (primary FK + JSONB contains via .contains()) and dedup in JS.
+    // Returns a shape compatible with the original — { data, error }.
+    (async () => {
+      const [primary, compat] = await Promise.all([
+        NX.sb.from('equipment_parts').select('*').eq('equipment_id', id),
+        NX.sb.from('equipment_parts').select('*').contains('compatible_equipment_ids', [id]),
+      ]);
+      // If either errored, surface — but still merge what came back.
+      const err = primary.error || compat.error || null;
+      const seen = new Set();
+      const merged = [];
+      for (const p of [...(primary.data || []), ...(compat.data || [])]) {
+        if (seen.has(p.id)) continue;
+        seen.add(p.id);
+        merged.push(p);
+      }
+      // Maintain assembly_path ordering client-side.
+      merged.sort((a, b) => (a.assembly_path || '').localeCompare(b.assembly_path || ''));
+      return { data: merged, error: err };
+    })(),
     NX.sb.from('equipment_maintenance').select('*').eq('equipment_id', id).order('event_date', { ascending: false }),
     NX.sb.from('equipment_attachments').select('*').eq('equipment_id', id).order('created_at', { ascending: false }),
     NX.sb.from('equipment_custom_fields').select('*').eq('equipment_id', id).order('created_at'),
@@ -2644,7 +2660,7 @@ async function openDetail(id) {
         <div class="eq-tab-panel active" data-panel="overview">${renderOverview(eq, attachments, customFields)}</div>
         <div class="eq-tab-panel" data-panel="timeline">${renderTimeline(eq, maintenance, pendingLogs)}</div>
         <div class="eq-tab-panel" data-panel="activity"><div class="eq-empty-small">Loading activity…</div></div>
-        <div class="eq-tab-panel" data-panel="parts">${renderParts(eq, parts)}</div>
+        <div class="eq-tab-panel" data-panel="parts">${renderParts(eq, parts, maintenance)}</div>
         <div class="eq-tab-panel" data-panel="manual">${renderManual(eq)}</div>
         <div class="eq-tab-panel" data-panel="intel"><div class="eq-empty-small">Loading intelligence…</div></div>
         <div class="eq-tab-panel" data-panel="qr">${renderQR(eq)}</div>
@@ -3246,7 +3262,26 @@ function renderTimeline(eq, maint, pending) {
     </div>`;
 }
 
-function renderParts(eq, parts) {
+function renderParts(eq, parts, maintenance) {
+  // v18.21 — compute the latest replacement date per part FOR THIS EQUIPMENT
+  // by walking the maintenance array (already in scope at call site).
+  // Falls back gracefully if part_id column isn't populated yet on older rows.
+  const lastReplacedByPart = new Map();
+  for (const m of (maintenance || [])) {
+    if (m.event_type !== 'part_replacement') continue;
+    if (!m.part_id) continue;
+    const key = String(m.part_id);
+    if (!lastReplacedByPart.has(key) || lastReplacedByPart.get(key) < m.event_date) {
+      lastReplacedByPart.set(key, m.event_date);
+    }
+  }
+  const fmtShort = (iso) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d)) return null;
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: '2-digit' });
+  };
+
   return `
     <div class="eq-parts-head">
       <button class="eq-btn eq-btn-small eq-btn-secondary" onclick="NX.modules.equipment.extractBOMFromManual('${eq.id}')" style="margin-right:6px">${uiSvg("sparkles", "13px")} Extract from Manual</button>
@@ -3259,7 +3294,10 @@ function renderParts(eq, parts) {
     </div>
     ${!parts.length ? '<div class="eq-empty-small">No parts cataloged yet.</div>' : `
       <div class="eq-parts-list" data-multi-vendor="1">
-        ${parts.map(p => `
+        ${parts.map(p => {
+          const lastRepl = lastReplacedByPart.get(String(p.id));
+          const lastReplLabel = lastRepl ? fmtShort(lastRepl) : null;
+          return `
           <div class="eq-part" data-part-id="${p.id}">
             <div class="eq-part-main">
               <div class="eq-part-name">${esc(p.part_name)}</div>
@@ -3269,13 +3307,22 @@ function renderParts(eq, parts) {
                 ${p.equipment_id != eq.id ? ' · <span style="color:var(--nx-gold)">linked</span>' : ''}
               </div>
               ${p.assembly_path ? `<div class="eq-part-path">${esc(p.assembly_path)}</div>` : ''}
+              <div class="eq-part-replaced" style="margin-top:4px; font-size:11px; color:${lastReplLabel ? 'var(--nx-faint)' : '#666'}">
+                ${lastReplLabel
+                  ? `Last replaced on this unit: <strong style="color:var(--nx-gold); font-family:'JetBrains Mono', monospace">${esc(lastReplLabel)}</strong>`
+                  : '<em>Never replaced on this unit</em>'}
+              </div>
             </div>
-            <div class="eq-part-actions">
-              <button class="eq-btn eq-btn-tiny" onclick="NX.modules.equipment.editPart('${p.id}')">${uiSvg("pen", "13px")}</button>
-              <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="NX.modules.equipment.deletePart('${p.id}', '${eq.id}')">${uiSvg("close", "13px")}</button>
+            <div class="eq-part-actions" style="flex-direction:column; gap:4px; align-items:flex-end">
+              <button class="eq-btn eq-btn-tiny" onclick="NX.modules.equipment.markPartReplacedOnEquipment('${eq.id}', '${p.id}')" title="Log a replacement of this part on this specific equipment" style="color:var(--nx-gold); border-color:rgba(212,164,78,0.3)">${uiSvg("settings", "11px")} Mark replaced</button>
+              <div style="display:flex; gap:4px">
+                <button class="eq-btn eq-btn-tiny" onclick="NX.modules.equipment.editPart('${p.id}')">${uiSvg("pen", "13px")}</button>
+                <button class="eq-btn eq-btn-tiny eq-btn-danger" onclick="NX.modules.equipment.deletePart('${p.id}', '${eq.id}')">${uiSvg("close", "13px")}</button>
+              </div>
             </div>
           </div>
-        `).join('')}
+          `;
+        }).join('')}
       </div>
     `}`;
 }
@@ -16699,11 +16746,7 @@ function renderPartsDetail() {
 
     ${detailTab === 'overview' ? `
       <div class="eq-parts-foot">
-        <button class="eq-parts-foot-btn eq-parts-foot-btn-secondary" data-action="mark-replaced">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><polyline points="20 6 9 17 4 12"/></svg>
-          Mark replaced
-        </button>
-        <button class="eq-parts-foot-btn eq-parts-foot-btn-primary" data-action="save">
+        <button class="eq-parts-foot-btn eq-parts-foot-btn-primary" data-action="save" style="flex:1">
           Save changes
         </button>
       </div>
@@ -16726,7 +16769,10 @@ function renderPartsDetail() {
   if (detailTab === 'overview') {
     wirePartOverviewForm(p);
     overlay.querySelector('[data-action="save"]').addEventListener('click', () => savePartOverview(p));
-    overlay.querySelector('[data-action="mark-replaced"]').addEventListener('click', () => markPartReplaced(p));
+    // v18.21 — global "Mark replaced" removed. Replacement is now
+    // logged per (equipment, part) from the equipment Parts tab so
+    // we know WHICH unit the part was swapped on. A part fits N
+    // machines; "replaced 5/12" is meaningless without the unit.
   } else if (detailTab === 'compatibility') {
     wirePartCompatibilityTab(p);
   } else if (detailTab === 'history') {
@@ -16791,31 +16837,16 @@ function renderPartOverviewTab(p) {
           <input class="eq-part-form-input" id="ppLead" name="lead_time_days" type="number" min="0" value="${p.lead_time_days || ''}" placeholder="3">
         </div>
 
-        <div class="eq-part-form-section">Replacement schedule</div>
+        <div class="eq-part-form-section">Replacement schedule <span class="eq-part-form-hint">— catalog default; actual replacement dates live per equipment</span></div>
         <div class="eq-part-form-row">
           <div class="eq-part-form-field">
             <label class="eq-part-form-label" for="ppInterval">Interval (months)</label>
             <input class="eq-part-form-input" id="ppInterval" name="replacement_interval_months" type="number" min="0" value="${p.replacement_interval_months || ''}" placeholder="12">
           </div>
-          <div class="eq-part-form-field">
-            <label class="eq-part-form-label" for="ppLastReplaced">Last replaced</label>
-            <input class="eq-part-form-input" id="ppLastReplaced" name="last_replaced_at" type="date" value="${p.last_replaced_at ? new Date(p.last_replaced_at).toISOString().slice(0,10) : ''}">
-          </div>
         </div>
-        ${p._nextDue ? `
-          <div class="eq-part-due-banner ${p._nextDueDaysLeft < 0 ? 'is-overdue' : p._nextDueDaysLeft <= 30 ? 'is-soon' : ''}">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            <span>
-              Next replacement
-              ${p._nextDueDaysLeft < 0
-                ? `<strong>${Math.abs(p._nextDueDaysLeft)} days overdue</strong>`
-                : p._nextDueDaysLeft === 0
-                  ? `<strong>today</strong>`
-                  : `due in <strong>${p._nextDueDaysLeft} days</strong>`}
-              · ${p._nextDue.toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' })}
-            </span>
-          </div>
-        ` : ''}
+        <div style="padding:10px 12px; background:rgba(212,164,78,0.05); border:1px solid rgba(212,164,78,0.15); border-radius:8px; font-size:12px; color:var(--nx-faint); margin-top:8px; line-height:1.4">
+          ${uiSvg('alert', '12px')} <strong>To log a replacement</strong>, open the equipment that had this part swapped → Parts tab → tap <strong style="color:var(--nx-gold)">Mark replaced</strong> next to the part. Each equipment tracks its own replacement history.
+        </div>
 
         <div class="eq-part-form-section">Notes</div>
         <div class="eq-part-form-field">
@@ -16956,9 +16987,10 @@ async function savePartOverview(p) {
   // last_price is now managed per-source inside the vendors[] JSONB.
   // saveVendors() syncs the legacy last_price column from the preferred
   // source, so we deliberately don't write it from the part-level form.
-  // Date.
-  const lastRepl = (fd.get('last_replaced_at') || '').toString().trim();
-  update.last_replaced_at = lastRepl ? new Date(lastRepl).toISOString() : null;
+  // v18.21 — last_replaced_at input removed from this form. Replacement
+  // tracking is now per-equipment via markPartReplacedOnEquipment, which
+  // writes to equipment_maintenance. Don't overwrite the legacy column
+  // here — leave whatever's there for back-compat reads.
   // Photo.
   if (p._pendingPhotoUrl) update.photo_url = p._pendingPhotoUrl;
 
@@ -17064,6 +17096,187 @@ async function markPartReplaced(p) {
     NX.toast && NX.toast('Could not log: ' + (e.message || ''), 'error');
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   v18.21 — Per-equipment part replacement (the right way).
+
+   Replaces the global "Mark replaced" on the part detail with a
+   context-aware action on the equipment side. From Equipment > Parts
+   tab, each part row has its own "Mark replaced" button that opens
+   this sheet. Each replacement gets a maintenance row tied to BOTH
+   equipment_id AND part_id, so we can show "last replaced on this
+   unit" per (equipment, part) pair — not as a global stat.
+
+   Why this matters: a coffee nozzle might fit 5 espresso machines.
+   "Nozzle replaced 05/12/2026" doesn't tell you WHICH machine.
+   Logging per (equipment, part) answers "when was the nozzle on
+   Cameo Eversys last replaced?" — which is the real question.
+   ════════════════════════════════════════════════════════════════════ */
+
+async function markPartReplacedOnEquipment(equipId, partId) {
+  if (!NX.sb) { NX.toast && NX.toast('Database unavailable', 'error', 2000); return; }
+
+  // Fetch the part + equipment so we can label the sheet meaningfully.
+  const eq = (typeof equipment !== 'undefined' && equipment)
+    ? equipment.find(e => String(e.id) === String(equipId))
+    : null;
+  if (!eq) { NX.toast && NX.toast('Equipment not found', 'error', 1800); return; }
+
+  let part = null;
+  try {
+    const { data, error } = await NX.sb.from('equipment_parts').select('*').eq('id', partId).single();
+    if (error) throw error;
+    part = data;
+  } catch (e) {
+    console.error('[markPartReplacedOnEquipment] load part:', e);
+    NX.toast && NX.toast('Part not found', 'error', 1800);
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  let dateBuf = today;
+  let costBuf = '';
+  let notesBuf = '';
+  let invoiceFile = null;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  overlay.style.zIndex = '9300';
+
+  const render = () => {
+    overlay.innerHTML = `
+      <div class="eq-bulk-sheet-backdrop"></div>
+      <div class="eq-bulk-sheet" style="max-height:92vh; overflow-y:auto">
+        <div class="eq-bulk-sheet-handle"></div>
+        <div class="eq-bulk-sheet-title">Mark replaced</div>
+        <div class="eq-bulk-sheet-sub">${esc(part.part_name)}${part.oem_part_number ? ` · OEM ${esc(part.oem_part_number)}` : ''} on <strong style="color:var(--nx-gold)">${esc(eq.name)}</strong></div>
+
+        <div style="padding: 12px 16px 8px;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-gold); margin-bottom:6px">Replaced on *</label>
+          <input type="date" id="prDate" value="${esc(dateBuf)}" required
+            style="width:100%; padding:12px 14px; background:rgba(212,164,78,0.08); border:1px solid var(--nx-gold); border-radius:8px; color:var(--nx-text); font-size:15px;">
+        </div>
+
+        <div style="padding: 4px 16px;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Cost ($)</label>
+          <input type="number" id="prCost" value="${esc(costBuf)}" step="0.01" placeholder="0.00"
+            style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:14px;">
+        </div>
+
+        <div style="padding: 8px 16px;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Notes</label>
+          <textarea id="prNotes" rows="2" placeholder="Why was it replaced? Any related work?"
+            style="width:100%; padding:10px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:13px;">${esc(notesBuf)}</textarea>
+        </div>
+
+        <div style="padding: 8px 16px;">
+          <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Invoice (optional)</label>
+          <div style="display:flex; gap:8px; align-items:center">
+            <button type="button" id="prInvoiceBtn" class="eq-btn eq-btn-small eq-btn-secondary" style="flex:0 0 auto">
+              ${uiSvg('document', '13px')} ${invoiceFile ? 'Change file' : 'Attach invoice'}
+            </button>
+            <span style="font-size:12px; color:${invoiceFile ? 'var(--nx-gold)' : 'var(--nx-faint)'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${invoiceFile ? esc(invoiceFile.name) : 'No file selected'}</span>
+            <input type="file" id="prInvoiceFile" accept="image/*,application/pdf" hidden>
+          </div>
+        </div>
+
+        <div style="padding: 12px 16px;">
+          <button class="eq-bulk-sheet-confirm" data-action="save" type="button" style="background:var(--nx-gold); color:#000">
+            Log replacement
+          </button>
+          <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Cancel</button>
+        </div>
+      </div>
+    `;
+    overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('#prDate').addEventListener('change', (e) => { dateBuf = e.target.value; });
+    overlay.querySelector('#prCost').addEventListener('input', (e) => { costBuf = e.target.value; });
+    overlay.querySelector('#prNotes').addEventListener('input', (e) => { notesBuf = e.target.value; });
+    const fileInput = overlay.querySelector('#prInvoiceFile');
+    overlay.querySelector('#prInvoiceBtn').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      invoiceFile = e.target.files && e.target.files[0] || null;
+      render();
+    });
+    overlay.querySelector('[data-action="save"]').addEventListener('click', save);
+  };
+
+  const save = async () => {
+    if (!dateBuf) { NX.toast && NX.toast('Date required', 'warn', 1500); return; }
+
+    const saveBtn = overlay.querySelector('[data-action="save"]');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
+    try {
+      // Upload invoice if attached
+      let invoiceAttachmentId = null;
+      if (invoiceFile) {
+        const safeName = invoiceFile.name.replace(/[^a-z0-9.]/gi, '_');
+        const path = `${equipId}/part-${partId}-${Date.now()}-${safeName}`;
+        const { error: upErr } = await NX.sb.storage
+          .from('equipment-attachments')
+          .upload(path, invoiceFile, { upsert: false, contentType: invoiceFile.type });
+        if (upErr) throw upErr;
+        const { data: { publicUrl } } = NX.sb.storage.from('equipment-attachments').getPublicUrl(path);
+        const { data: attRow, error: attErr } = await NX.sb.from('equipment_attachments').insert({
+          equipment_id: equipId,
+          type: 'invoice',
+          title: `${part.part_name} replaced — ${dateBuf}`,
+          file_url: publicUrl,
+          mime_type: invoiceFile.type,
+          file_size: invoiceFile.size,
+          uploaded_by: NX.currentUser?.name || 'user',
+        }).select('id').single();
+        if (attErr) throw attErr;
+        invoiceAttachmentId = attRow.id;
+      }
+
+      // Insert maintenance row tied to BOTH equipment AND part.
+      const row = {
+        equipment_id: equipId,
+        part_id: partId,
+        event_type: 'part_replacement',
+        event_date: dateBuf,
+        description: `Replaced ${part.part_name}${part.oem_part_number ? ` (OEM ${part.oem_part_number})` : ''}${notesBuf ? ' — ' + notesBuf : ''}`,
+        performed_by: NX.currentUser?.name || null,
+        cost: costBuf ? parseFloat(costBuf) : null,
+      };
+      if (invoiceAttachmentId) row.invoice_attachment_id = invoiceAttachmentId;
+
+      const { error: insErr } = await NX.sb.from('equipment_maintenance').insert(row);
+      if (insErr) {
+        // Retry on missing columns (defensive against migration order)
+        if (/column.+part_id.+does not exist/i.test(insErr.message || '')) {
+          NX.toast && NX.toast('Run v18.21 SQL to enable per-equipment tracking', 'warn', 4000);
+          delete row.part_id;
+          const retry = await NX.sb.from('equipment_maintenance').insert(row);
+          if (retry.error) throw retry.error;
+        } else if (/column.+invoice_attachment_id.+does not exist/i.test(insErr.message || '')) {
+          delete row.invoice_attachment_id;
+          const retry = await NX.sb.from('equipment_maintenance').insert(row);
+          if (retry.error) throw retry.error;
+        } else {
+          throw insErr;
+        }
+      }
+
+      NX.toast && NX.toast(`Replacement logged on ${eq.name}`, 'success', 2000);
+      overlay.remove();
+      // Refresh the equipment detail so the row's "Last replaced" updates
+      if (typeof openDetail === 'function') openDetail(equipId);
+    } catch (err) {
+      console.error('[markPartReplacedOnEquipment] save failed:', err);
+      NX.toast && NX.toast('Save failed: ' + (err.message || ''), 'error', 3000);
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Log replacement'; }
+    }
+  };
+
+  render();
+  document.body.appendChild(overlay);
+}
+
+/* ── End v18.21 additions ─────────────────────────────────────────── */
 
 /* ─── History tab ────────────────────────────────────────────────── */
 
@@ -17755,6 +17968,7 @@ const __nxeExports = {
   computePmCountdown,
   openPmLogger,
   openFieldEditor,
+  markPartReplacedOnEquipment,
   openPartDetail,
   closeParts,
   loadPartsList,
