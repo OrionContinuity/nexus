@@ -2071,6 +2071,13 @@ async function openScheduleEditor(equipId) {
         scheduled_date: p.date,
         phase: i + 1,
         phase_label: p.label.trim() || null,
+        // pm_schedules.title is NOT NULL — synthesize from contractor and
+        // phase label so the row is meaningful in lists. If the phase has
+        // its own label the user typed, prefer that.
+        title: p.label.trim()
+          || (validPhases.length > 1
+              ? `PM Phase ${i + 1} — ${selectedContractorName}`
+              : `PM — ${selectedContractorName}`),
         status: 'scheduled',
         reschedule_count: rescheduleCount,
       }));
