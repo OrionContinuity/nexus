@@ -1022,17 +1022,24 @@ function computeLocationStats(label) {
   const todayIso = today.toISOString().slice(0, 10);
   const in14d = new Date(today.getTime() + 14 * 86400000).toISOString().slice(0, 10);
 
-  let overdue = 0, dueSoon = 0;
+  let overdue = 0, dueSoon = 0, missedScheduled = 0;
   for (const e of eqs) {
-    if (!e.next_pm_date) continue;
-    if (e.next_pm_date < todayIso) overdue++;
-    else if (e.next_pm_date <= in14d) dueSoon++;
+    if (e.next_pm_date) {
+      if (e.next_pm_date < todayIso) overdue++;
+      else if (e.next_pm_date <= in14d) dueSoon++;
+    }
+    // v18.23 — Count missed scheduled PMs (a scheduled phase whose
+    // date has passed without completion). Treated as MORE urgent than
+    // an auto-due overdue because it's an explicit broken commitment.
+    if (typeof hasMissedScheduledPm === 'function' && hasMissedScheduledPm(e.id)) {
+      missedScheduled++;
+    }
   }
   const issues = eqs.filter(e => e.status && e.status !== 'operational').length;
   const healthAvg = total > 0
     ? Math.round(eqs.reduce((s, e) => s + (e.health_score ?? 100), 0) / total)
     : 100;
-  return { total, overdue, dueSoon, issues, healthAvg };
+  return { total, overdue, dueSoon, issues, healthAvg, missedScheduled };
 }
 
 /* Deterministic 0-360 hue from a string — for avatar fallback when
@@ -1054,7 +1061,10 @@ function sortLocationsByMode(meta, mode) {
   const arr = meta.slice();
   const score = (loc) => {
     const s = computeLocationStats(loc.label);
-    return s.overdue * 100 + s.issues * 50 + s.dueSoon * 10;
+    // v18.23 — Missed scheduled PMs weight even higher than overdue
+    // auto-due dates. A missed commitment is more urgent than a
+    // theoretical due date.
+    return s.missedScheduled * 500 + s.overdue * 100 + s.issues * 50 + s.dueSoon * 10;
   };
   if (mode === 'attention') {
     arr.sort((a, b) => score(b) - score(a) || a.label.localeCompare(b.label));
@@ -1106,7 +1116,13 @@ function renderLocationCard(loc) {
   let warnHTML = '';
   let previewText = loc.address || '';
 
-  if (stats.overdue > 0) {
+  if (stats.missedScheduled > 0) {
+    // v18.23 — Highest-urgency state: contractor was booked but didn't
+    // show or didn't log. Flashing red pill is more dramatic than just
+    // "overdue" — this is an explicit broken promise that needs action.
+    rowClasses.push('has-issue');
+    pillHTML = `<span class="ord-vendor-pill ord-vendor-pill-issue eq-sched-missed-pill">⚠ ${stats.missedScheduled} PM MISSED</span>`;
+  } else if (stats.overdue > 0) {
     rowClasses.push('has-issue');
     pillHTML = `<span class="ord-vendor-pill ord-vendor-pill-issue">${stats.overdue} OVERDUE</span>`;
   } else if (stats.issues > 0) {
@@ -1771,6 +1787,519 @@ function wireSearchResultClicks() {
 }
 
 
+
+/* ════════════════════════════════════════════════════════════════════
+   v18.23 — Contractor-driven PM scheduling.
+
+   `equipment.last_pm_date + pm_interval_days` continues to drive the
+   countdown (when it SHOULD be done). Separately, pm_schedules tracks
+   when contractors have COMMITTED to come. The two are independent:
+
+   • Countdown / due date / progress bar  — auto, last + interval
+   • Scheduled PM(s)                       — explicit contractor commit
+
+   A scheduled PM can have up to 3 phases (e.g. coil clean + control
+   inspection on different days). When a PM completes — via the
+   internal Log PM sheet, a matching public QR submission, or admin
+   approval of a pm_log — the matching pm_schedules row flips to
+   'completed' and last_pm_date refreshes (resetting the countdown).
+   If scheduled_date passes without completion, the row is treated as
+   'missed' and the equipment gets a flashing red pill that propagates
+   to the location card attention score.
+   ════════════════════════════════════════════════════════════════════ */
+
+// Per-equipment cache of pm_schedules rows. Populated by loadPmSchedules,
+// keyed by equipment_id, value is array of rows (scheduled + recently
+// completed). Lookups are O(1) per equipment; status filtering is done
+// inline at render time.
+let pmSchedulesByEquipment = {};
+
+async function loadPmSchedules() {
+  if (!NX.sb) return;
+  try {
+    // Pull all 'scheduled' rows + the most recent 'completed' / 'missed'
+    // rows. Old completed history can be fetched on-demand for the
+    // equipment timeline; cache stays small.
+    const { data, error } = await NX.sb.from('pm_schedules')
+      .select('*')
+      .in('status', ['scheduled', 'missed'])
+      .order('scheduled_date');
+    if (error) {
+      if (!/relation.+does not exist/i.test(error.message || '')) {
+        console.warn('[equipment] loadPmSchedules:', error.message);
+      }
+      return;
+    }
+    pmSchedulesByEquipment = {};
+    for (const row of (data || [])) {
+      if (!pmSchedulesByEquipment[row.equipment_id]) {
+        pmSchedulesByEquipment[row.equipment_id] = [];
+      }
+      pmSchedulesByEquipment[row.equipment_id].push(row);
+    }
+    // After loading, classify any 'scheduled' rows whose scheduled_date
+    // has already passed as 'missed'. This is a CLIENT-side compute —
+    // the row stays as 'scheduled' in DB until either marked completed
+    // via an actual PM event, or explicitly cancelled. Keeps the DB
+    // honest and avoids a server-side cron.
+    const todayIso = new Date().toISOString().slice(0, 10);
+    for (const eqId in pmSchedulesByEquipment) {
+      for (const row of pmSchedulesByEquipment[eqId]) {
+        if (row.status === 'scheduled' && row.scheduled_date < todayIso) {
+          row._isMissed = true; // virtual flag; doesn't write to DB
+        }
+      }
+    }
+    console.log('[equipment] loaded', (data || []).length, 'pm_schedules rows');
+  } catch (e) {
+    console.warn('[equipment] loadPmSchedules threw:', e);
+  }
+}
+
+/* Get all upcoming scheduled phases for one equipment, sorted by phase
+   order (or by date if phase numbers are tied). */
+function getScheduledPhases(equipId) {
+  const rows = pmSchedulesByEquipment[equipId] || [];
+  return rows
+    .filter(r => r.status === 'scheduled')
+    .sort((a, b) => (a.phase || 1) - (b.phase || 1) || a.scheduled_date.localeCompare(b.scheduled_date));
+}
+
+/* Check if equipment has at least one missed scheduled PM —
+   used for the flashing red "PM NOT DONE" pill. */
+function hasMissedScheduledPm(equipId) {
+  const phases = getScheduledPhases(equipId);
+  return phases.some(p => p._isMissed);
+}
+
+/* ─── Contractor picker (loaded fresh from nodes table on demand) ──── */
+
+async function loadContractorsForPicker() {
+  if (!NX.sb) return [];
+  try {
+    const { data, error } = await NX.sb.from('nodes')
+      .select('id, name, links, tags')
+      .in('category', ['contractor', 'contractors'])
+      .order('name');
+    if (error) {
+      console.warn('[equipment] loadContractorsForPicker:', error.message);
+      return [];
+    }
+    return data || [];
+  } catch (e) {
+    console.warn('[equipment] loadContractorsForPicker threw:', e);
+    return [];
+  }
+}
+
+/* ─── Schedule editor bottom sheet ─────────────────────────────────── */
+
+/* The flow:
+   Step 1 — pick contractor (or add new inline)
+   Step 2 — set up to 3 phase dates with optional labels
+   Step 3 — confirm: deletes any existing 'scheduled' rows for this
+            equipment and inserts the new set. (Single source of truth.)
+*/
+async function openScheduleEditor(equipId) {
+  const eq = equipment.find(e => String(e.id) === String(equipId));
+  if (!eq) { NX.toast?.('Equipment not found', 'error', 1500); return; }
+
+  // Load contractors live — small enough to refetch each open.
+  const contractors = await loadContractorsForPicker();
+  const current = getScheduledPhases(equipId);
+
+  // Initial state — if there's an existing schedule, pre-fill it so this
+  // sheet doubles as edit. Otherwise start with one empty phase.
+  let selectedContractorId = current[0]?.contractor_node_id || null;
+  let selectedContractorName = current[0]?.contractor_name || null;
+  let phases = current.length > 0
+    ? current.map(s => ({ id: s.id, date: s.scheduled_date, label: s.phase_label || '' }))
+    : [{ id: null, date: '', label: '' }];
+
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  overlay.style.zIndex = '9100';
+
+  const render = () => {
+    const contractorRows = contractors.map(c => `
+      <button class="eq-sched-contractor-row${selectedContractorId == c.id ? ' is-selected' : ''}" data-c-id="${esc(c.id)}" data-c-name="${esc(c.name)}" type="button">
+        <span class="eq-sched-contractor-name">${esc(c.name)}</span>
+        ${selectedContractorId == c.id ? `<span class="eq-sched-check">${uiSvg('check', '14px')}</span>` : ''}
+      </button>
+    `).join('');
+
+    const phasesHTML = phases.map((p, i) => `
+      <div class="eq-sched-phase-row" data-phase-idx="${i}">
+        <div class="eq-sched-phase-head">
+          <div class="eq-sched-phase-num">Phase ${i + 1}</div>
+          ${phases.length > 1 ? `<button class="eq-sched-phase-del" data-phase-del="${i}" type="button" aria-label="Remove phase">×</button>` : ''}
+        </div>
+        <input type="date" class="eq-sched-phase-date" data-phase-date="${i}" value="${esc(p.date)}" required>
+        <input type="text" class="eq-sched-phase-label" data-phase-label="${i}" value="${esc(p.label)}" placeholder="Phase label (optional) — e.g. Coil clean" maxlength="50">
+      </div>
+    `).join('');
+
+    overlay.innerHTML = `
+      <div class="eq-bulk-sheet-backdrop"></div>
+      <div class="eq-bulk-sheet" style="max-height:92vh; overflow-y:auto">
+        <div class="eq-bulk-sheet-handle"></div>
+        <div class="eq-bulk-sheet-title">Schedule PM for ${esc(eq.name)}</div>
+
+        <!-- Step 1: Contractor -->
+        <div class="eq-sched-section">
+          <div class="eq-sched-section-label">CONTRACTOR</div>
+          <div class="eq-sched-contractors">
+            ${contractorRows || '<div class="eq-sched-empty">No contractors yet</div>'}
+            <button class="eq-sched-add-contractor" id="eqSchedAddContractor" type="button">
+              <span style="font-size:18px; line-height:1">+</span> Add new contractor
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 2: Phases -->
+        <div class="eq-sched-section">
+          <div class="eq-sched-section-label">PHASES <span style="opacity:0.5; text-transform:none; letter-spacing:0; font-size:10px">${phases.length}/3 — most PMs are 1 visit</span></div>
+          <div class="eq-sched-phases">${phasesHTML}</div>
+          ${phases.length < 3 ? `<button class="eq-sched-add-phase" id="eqSchedAddPhase" type="button">+ Add phase</button>` : ''}
+        </div>
+
+        <!-- Save / clear / cancel -->
+        <div style="padding: 14px 16px;">
+          <button class="eq-bulk-sheet-confirm" data-action="save" type="button" style="background:var(--nx-gold); color:#000">
+            ${current.length > 0 ? 'Update schedule' : 'Save schedule'}
+          </button>
+          ${current.length > 0 ? `<button class="eq-bulk-sheet-cancel" data-action="clear" type="button" style="color:#c44; border-color:#c44">Cancel all scheduled phases</button>` : ''}
+          <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Cancel</button>
+        </div>
+      </div>
+    `;
+
+    overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => overlay.remove());
+
+    // Contractor selection
+    overlay.querySelectorAll('[data-c-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedContractorId = btn.dataset.cId;
+        selectedContractorName = btn.dataset.cName;
+        render();
+      });
+    });
+
+    // Add contractor inline (minimal name-only prompt; full editor lives elsewhere)
+    overlay.querySelector('#eqSchedAddContractor').addEventListener('click', async () => {
+      const name = (prompt('Contractor name:') || '').trim();
+      if (!name) return;
+      try {
+        const newNode = await createContractorNode(name, '', '');
+        if (newNode && newNode.id) {
+          contractors.push(newNode);
+          selectedContractorId = newNode.id;
+          selectedContractorName = newNode.name;
+          render();
+        }
+      } catch (e) {
+        console.warn('[scheduleEditor] add contractor:', e);
+        NX.toast?.('Could not save contractor', 'error', 2000);
+      }
+    });
+
+    // Phase inputs
+    overlay.querySelectorAll('[data-phase-date]').forEach(inp => {
+      inp.addEventListener('input', e => { phases[parseInt(e.target.dataset.phaseDate, 10)].date = e.target.value; });
+    });
+    overlay.querySelectorAll('[data-phase-label]').forEach(inp => {
+      inp.addEventListener('input', e => { phases[parseInt(e.target.dataset.phaseLabel, 10)].label = e.target.value; });
+    });
+
+    // Add phase
+    overlay.querySelector('#eqSchedAddPhase')?.addEventListener('click', () => {
+      if (phases.length < 3) {
+        phases.push({ id: null, date: '', label: '' });
+        render();
+      }
+    });
+
+    // Remove phase
+    overlay.querySelectorAll('[data-phase-del]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        phases.splice(parseInt(btn.dataset.phaseDel, 10), 1);
+        render();
+      });
+    });
+
+    // Save
+    overlay.querySelector('[data-action="save"]').addEventListener('click', save);
+    // Clear all scheduled
+    overlay.querySelector('[data-action="clear"]')?.addEventListener('click', clearAll);
+  };
+
+  const save = async () => {
+    if (!selectedContractorId) { NX.toast?.('Pick a contractor first', 'warn', 1800); return; }
+    const validPhases = phases.filter(p => p.date && p.date.trim());
+    if (validPhases.length === 0) { NX.toast?.('At least one phase date required', 'warn', 1800); return; }
+
+    // Soft warning if phase 2 comes before phase 1, etc. — doesn't block.
+    for (let i = 1; i < validPhases.length; i++) {
+      if (validPhases[i].date < validPhases[i - 1].date) {
+        if (!confirm(`Phase ${i + 1} (${validPhases[i].date}) is before Phase ${i} (${validPhases[i - 1].date}). Save anyway?`)) return;
+        break;
+      }
+    }
+
+    const saveBtn = overlay.querySelector('[data-action="save"]');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
+    try {
+      // Strategy: cancel existing scheduled rows (don't delete — keep history),
+      // then insert fresh rows. Simpler than diffing in JS, and the reschedule
+      // audit naturally bumps reschedule_count on the new rows.
+      const rescheduleCount = current.length > 0 ? 1 : 0;
+
+      if (current.length > 0) {
+        // Mark prior scheduled rows as cancelled — provides reschedule trail
+        await NX.sb.from('pm_schedules').update({
+          status: 'cancelled',
+          updated_at: new Date().toISOString(),
+        }).eq('equipment_id', equipId).eq('status', 'scheduled');
+      }
+
+      const rows = validPhases.map((p, i) => ({
+        equipment_id: equipId,
+        contractor_node_id: selectedContractorId,
+        contractor_name: selectedContractorName,
+        scheduled_date: p.date,
+        phase: i + 1,
+        phase_label: p.label.trim() || null,
+        status: 'scheduled',
+        reschedule_count: rescheduleCount,
+      }));
+
+      const { error } = await NX.sb.from('pm_schedules').insert(rows);
+      if (error) throw error;
+
+      NX.toast?.(`PM scheduled with ${selectedContractorName}`, 'success', 2000);
+      await loadPmSchedules();
+      overlay.remove();
+      if (typeof openDetail === 'function') openDetail(equipId);
+    } catch (e) {
+      console.error('[scheduleEditor] save', e);
+      NX.toast?.('Save failed: ' + (e.message || ''), 'error', 3000);
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = current.length > 0 ? 'Update schedule' : 'Save schedule'; }
+    }
+  };
+
+  const clearAll = async () => {
+    if (!confirm('Cancel all scheduled phases for this equipment? The countdown stays anchored to the last completed PM.')) return;
+    try {
+      await NX.sb.from('pm_schedules').update({
+        status: 'cancelled', updated_at: new Date().toISOString(),
+      }).eq('equipment_id', equipId).eq('status', 'scheduled');
+      NX.toast?.('Schedule cleared', 'info', 1500);
+      await loadPmSchedules();
+      overlay.remove();
+      if (typeof openDetail === 'function') openDetail(equipId);
+    } catch (e) {
+      console.error('[scheduleEditor] clear', e);
+      NX.toast?.('Clear failed: ' + (e.message || ''), 'error', 2500);
+    }
+  };
+
+  render();
+  document.body.appendChild(overlay);
+}
+
+/* ─── Render scheduled-PM block for lifecycle card ─────────────────── */
+
+/* Returns HTML for the "PM SCHEDULED" lifecycle field value.
+   Three states:
+   1. Nothing scheduled → "Not scheduled" (tap to schedule)
+   2. Phases scheduled, none missed → "Tyler · Jun 18" or multi-line
+   3. Any phase missed (scheduled_date passed) → red flashing pill */
+function renderPmScheduledValue(equipId) {
+  const phases = getScheduledPhases(equipId);
+  if (phases.length === 0) {
+    return '<span style="opacity:0.6">Not scheduled</span>';
+  }
+  const contractor = phases[0].contractor_name || '—';
+  const anyMissed = phases.some(p => p._isMissed);
+
+  if (phases.length === 1) {
+    const p = phases[0];
+    const dateStr = fmtDate(p.scheduled_date);
+    if (p._isMissed) {
+      return `<div style="display:flex; flex-direction:column; gap:2px">
+        <span class="eq-sched-missed-pill">⚠ PM NOT DONE</span>
+        <span style="font-size:11px; color:var(--nx-faint); font-family:'JetBrains Mono', monospace">${esc(contractor)} · ${esc(dateStr)}</span>
+      </div>`;
+    }
+    return `<div style="display:flex; flex-direction:column; gap:2px">
+      <span style="font-size:14px; color:var(--nx-text)">${esc(contractor)}</span>
+      <span style="font-size:11px; color:var(--nx-faint); font-family:'JetBrains Mono', monospace">${esc(dateStr)}${p.phase_label ? ' · ' + esc(p.phase_label) : ''}</span>
+    </div>`;
+  }
+
+  // Multi-phase
+  const phaseLines = phases.map(p => {
+    const cls = p._isMissed ? 'eq-sched-missed-line' : '';
+    const dateStr = fmtDate(p.scheduled_date);
+    return `<span class="${cls}" style="font-size:11px; color:${p._isMissed ? '#e08585' : 'var(--nx-faint)'}; font-family:'JetBrains Mono', monospace">P${p.phase}: ${esc(dateStr)}${p.phase_label ? ' · ' + esc(p.phase_label) : ''}</span>`;
+  }).join('');
+
+  return `<div style="display:flex; flex-direction:column; gap:2px">
+    ${anyMissed ? '<span class="eq-sched-missed-pill">⚠ PHASE MISSED</span>' : ''}
+    <span style="font-size:14px; color:var(--nx-text)">${esc(contractor)}</span>
+    ${phaseLines}
+  </div>`;
+}
+
+/* Inject styles for schedule UI — contractor picker, phase rows,
+   flashing missed pill. */
+(function injectScheduleStyles() {
+  if (typeof document === 'undefined' || document.getElementById('eq-sched-styles')) return;
+  const s = document.createElement('style');
+  s.id = 'eq-sched-styles';
+  s.textContent = `
+    .eq-sched-section { padding: 12px 16px 4px; }
+    .eq-sched-section-label {
+      font-size: 10px; letter-spacing: 1.2px; color: var(--nx-faint);
+      text-transform: uppercase; margin-bottom: 8px;
+    }
+    .eq-sched-contractors {
+      display: flex; flex-direction: column; gap: 6px;
+      max-height: 200px; overflow-y: auto;
+    }
+    .eq-sched-contractor-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 8px;
+      color: var(--nx-text); cursor: pointer; text-align: left;
+      font-size: 14px;
+    }
+    .eq-sched-contractor-row:hover { background: rgba(212,164,78,0.06); border-color: rgba(212,164,78,0.3); }
+    .eq-sched-contractor-row.is-selected {
+      background: rgba(212,164,78,0.12);
+      border-color: var(--nx-gold);
+      color: var(--nx-gold);
+    }
+    .eq-sched-check { color: var(--nx-gold); }
+    .eq-sched-add-contractor {
+      display: flex; align-items: center; gap: 6px;
+      padding: 10px 12px;
+      background: transparent;
+      border: 1px dashed rgba(212,164,78,0.3);
+      border-radius: 8px;
+      color: var(--nx-gold); cursor: pointer; text-align: left;
+      font-size: 13px;
+    }
+    .eq-sched-empty { padding: 12px; text-align: center; color: var(--nx-faint); font-size: 13px; }
+
+    .eq-sched-phases { display: flex; flex-direction: column; gap: 10px; }
+    .eq-sched-phase-row {
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 10px; background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.07); border-radius: 8px;
+    }
+    .eq-sched-phase-head { display: flex; justify-content: space-between; align-items: center; }
+    .eq-sched-phase-num { font-size: 11px; letter-spacing: 1px; color: var(--nx-gold); text-transform: uppercase; }
+    .eq-sched-phase-del {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: transparent; border: 1px solid rgba(196,68,68,0.3);
+      color: #c44; cursor: pointer; font-size: 14px; line-height: 1;
+    }
+    .eq-sched-phase-date, .eq-sched-phase-label {
+      width: 100%; padding: 8px 10px;
+      background: rgba(0,0,0,0.2);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 6px;
+      color: var(--nx-text); font-size: 13px;
+    }
+    .eq-sched-add-phase {
+      margin-top: 8px; padding: 8px 12px;
+      background: transparent;
+      border: 1px dashed rgba(212,164,78,0.3);
+      border-radius: 8px;
+      color: var(--nx-gold); cursor: pointer; font-size: 13px;
+      width: 100%;
+    }
+
+    /* Flashing red "PM NOT DONE" pill — propagates urgency. Uses CSS
+       keyframes so it's pure presentation, no JS heartbeat needed. */
+    .eq-sched-missed-pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; font-weight: 700;
+      letter-spacing: 1.2px; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 999px;
+      background: rgba(196,68,68,0.18); color: #e08585;
+      border: 1px solid rgba(196,68,68,0.5);
+      align-self: flex-start;
+      animation: eqSchedPulse 1.4s ease-in-out infinite;
+    }
+    @keyframes eqSchedPulse {
+      0%, 100% { background: rgba(196,68,68,0.18); border-color: rgba(196,68,68,0.5); }
+      50%      { background: rgba(196,68,68,0.36); border-color: rgba(196,68,68,0.85); }
+    }
+    .eq-sched-missed-line { font-weight: 600; }
+  `;
+  document.head.appendChild(s);
+})();
+
+/* ─── Hook into pm_log approval to auto-complete pm_schedules ──────── */
+
+/* Called from approvePmLog after the pm_log is approved and the
+   equipment_maintenance row is inserted. Tries to find a matching
+   pm_schedules row and mark it 'completed'. Best-effort; failure
+   doesn't block the main approval flow.
+
+   Match criteria: same equipment, status='scheduled', and either
+   same contractor_node_id OR scheduled_date within ±10 days of the
+   service date. */
+async function autoCompletePmSchedule(equipId, log, maintenanceId) {
+  if (!NX.sb || !equipId || !log) return;
+  try {
+    const { data: candidates, error } = await NX.sb.from('pm_schedules')
+      .select('*')
+      .eq('equipment_id', equipId)
+      .eq('status', 'scheduled');
+    if (error || !candidates || !candidates.length) return;
+
+    const serviceDate = log.service_date || log.pm_date;
+    if (!serviceDate) return;
+
+    // Find best match — prefer same contractor + closest date within 10d window
+    let best = null;
+    let bestScore = Infinity;
+    for (const c of candidates) {
+      const dayDiff = Math.abs(
+        (new Date(c.scheduled_date) - new Date(serviceDate)) / 86400000
+      );
+      if (dayDiff > 10) continue;
+      let score = dayDiff;
+      // Contractor match knocks 100 off the score → essentially always wins
+      if (log.contractor_node_id && c.contractor_node_id == log.contractor_node_id) score -= 100;
+      if (score < bestScore) { bestScore = score; best = c; }
+    }
+    if (!best) return;
+
+    await NX.sb.from('pm_schedules').update({
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+      completed_via: log.review_status === 'auto_approved' ? 'auto_match' : 'admin_approve',
+      completed_maintenance_id: maintenanceId || null,
+      completed_pm_log_id: log.id,
+      updated_at: new Date().toISOString(),
+    }).eq('id', best.id);
+
+    console.log('[equipment] auto-completed pm_schedule', best.id, 'via pm_log', log.id);
+  } catch (e) {
+    console.warn('[equipment] autoCompletePmSchedule:', e);
+  }
+}
+
+/* ── End v18.23 additions ─────────────────────────────────────────── */
 
 /* ── End v18.22 additions ─────────────────────────────────────────── */
 
@@ -2533,6 +3062,7 @@ async function init() {
   await loadCategoriesFromDB();
   await loadLocationsFromDB();
   await loadEquipment();
+  await loadPmSchedules();
   buildUI();
 
   if (equipParam) {
@@ -2581,6 +3111,34 @@ async function loadEquipment() {
     } catch (e2) {
       console.error('[Equipment] Full load failed:', e2);
       equipment = [];
+    }
+  }
+
+  // v18.22-fix3 — equipment_with_stats is a VIEW that pre-dates the
+  // last_pm_date column. Without this patch the UI shows "Never logged"
+  // even after an UPDATE successfully writes the value. Same applies
+  // to any other column added after the view was created.
+  // Cheap follow-up SELECT to back-fill last_pm_date from the base
+  // table so the lifecycle card / progress bar see real values.
+  if (equipment && equipment.length) {
+    const needsPatch = !('last_pm_date' in equipment[0]);
+    if (needsPatch) {
+      try {
+        const ids = equipment.map(e => e.id);
+        const { data, error } = await NX.sb.from('equipment')
+          .select('id, last_pm_date')
+          .in('id', ids);
+        if (!error && data) {
+          const map = Object.create(null);
+          for (const r of data) map[r.id] = r.last_pm_date;
+          for (const eq of equipment) {
+            eq.last_pm_date = map[eq.id] || null;
+          }
+          console.log('[Equipment] patched last_pm_date for', data.length, 'rows');
+        }
+      } catch (patchErr) {
+        console.warn('[Equipment] last_pm_date patch failed:', patchErr);
+      }
     }
   }
 
@@ -3555,6 +4113,12 @@ async function openDetail(id) {
       const minA = el.dataset.editMin;
       const maxA = el.dataset.editMax;
       const cascade = el.dataset.editCascade;
+      // v18.23 — pm_schedule field type routes to the contractor-driven
+      // schedule editor instead of the generic single-field editor.
+      if (type === 'pm_schedule' || fieldKey === 'pm_schedule') {
+        openScheduleEditor(eqId);
+        return;
+      }
       const eqRow = equipment.find(e => String(e.id) === String(eqId));
       const currentValue = eqRow ? eqRow[fieldKey] : null;
       openFieldEditor(eqId, fieldKey, label, currentValue, type, {
@@ -3899,8 +4463,16 @@ function renderOverview(eq, attachments, customFields) {
     { label: 'Warranty until',  value: fmtDate(eq.warranty_until),  edit: 'warranty_until',  type: 'date' },
     { label: 'Health score',    value: `${eq.health_score ?? 100}<span class="eq-detail-card-unit">%</span>`, edit: 'health_score', type: 'number', min: 0, max: 100 },
     { label: 'Last PM',         value: eq.last_pm_date ? fmtDate(eq.last_pm_date) : 'Never logged',  edit: 'last_pm_date', type: 'date', cascade: 'next_pm_date' },
-    { label: 'Next PM',         value: eq.next_pm_date ? fmtDate(eq.next_pm_date) : 'Not scheduled', edit: 'next_pm_date', type: 'date' },
+    // v18.23 — Next PM is now read-only. It auto-derives from
+    // last_pm_date + pm_interval_days (the countdown anchor). To
+    // commit a contractor to a date, use "PM Scheduled" below.
+    { label: 'PM due',          value: eq.next_pm_date ? fmtDate(eq.next_pm_date) : 'Set a Last PM + interval', edit: null },
     { label: 'PM interval',     value: eq.pm_interval_days ? `${eq.pm_interval_days} days` : '—',    edit: 'pm_interval_days', type: 'number', min: 1, max: 3650 },
+    // v18.23 — Contractor-driven scheduling. Tap opens the schedule
+    // editor (contractor picker + up to 3 phase dates). Distinct from
+    // PM due (auto): this is "Tyler is coming on Jun 18" — an actual
+    // commitment with a name attached. Drives the missed-PM red pill.
+    { label: 'PM scheduled',    value: renderPmScheduledValue(eq.id), edit: 'pm_schedule', type: 'pm_schedule' },
     { label: 'Services (YTD)',  value: `${eq.services_this_year || 0}${eq.cost_this_year ? ` <span class="eq-detail-card-unit">· $${Math.round(eq.cost_this_year).toLocaleString()}</span>` : ''}`, edit: null },
     { label: 'Purchase price',  value: eq.purchase_price ? `$${parseFloat(eq.purchase_price).toLocaleString()}` : '—', edit: 'purchase_price', type: 'number', min: 0 },
   ];
@@ -11052,6 +11624,15 @@ async function callService(equipId) {
 }
 
 // Confirmation modal before dialing
+// v18.24 — Major overhaul. The modal now mirrors the public-scan UX:
+// priority pills, photo upload, ticket creation that lands on both
+// Duties (tickets table) AND the Board (kanban_cards). When a ticket
+// is created, the equipment status auto-updates based on severity:
+//   urgent → 'down' (red)        won't function / unsafe
+//   normal → 'needs_service'     flag for attention
+//   low    → no status change    just a tracked observation
+// Existing dispatch_events insert is preserved for audit; ticket +
+// board card are additive surfaces.
 function showCallConfirmModal({ equipId, equipName, contactName, phone, contractorNodeId, source }) {
   // Normalize to tel: format
   const cleaned = phone.replace(/[^\d+]/g, '');
@@ -11060,39 +11641,61 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
   const sourceLabel = source === 'direct' ? 'Service contact on file'
                     : source === 'contractor' ? 'Preferred contractor'
                     : 'Service contact';
-  
+
   const existing = document.getElementById('eqCallConfirm');
   if (existing) existing.remove();
-  
+
   const modal = document.createElement('div');
   modal.id = 'eqCallConfirm';
   modal.className = 'eq-call-confirm';
   modal.innerHTML = `
     <div class="eq-call-confirm-bg"></div>
-    <div class="eq-call-confirm-card">
+    <div class="eq-call-confirm-card" style="max-height: 90vh; overflow-y: auto">
       <div class="eq-call-confirm-icon">${uiSvg("phone", "32px")}</div>
       <div class="eq-call-confirm-title">Call ${esc(contactName)}?</div>
       <div class="eq-call-confirm-phone">${esc(prettyPhone)}</div>
       <div class="eq-call-confirm-meta">${esc(sourceLabel)} · ${esc(equipName)}</div>
+
       <div class="eq-call-confirm-issue-wrap">
         <label class="eq-call-confirm-issue-label" for="eqCallIssue">
-          What's the issue? <span class="eq-optional-tag">(required — helps log the call)</span>
+          What's the issue? <span class="eq-optional-tag">(required — creates a ticket + board card)</span>
         </label>
         <textarea class="eq-call-confirm-issue" id="eqCallIssue" rows="2" placeholder="e.g., Compressor not cooling, freezing intermittently..."></textarea>
       </div>
-      <div class="eq-call-confirm-actions">
+
+      <!-- v18.24 — Priority pills -->
+      <div style="margin: 12px 0 6px;">
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Severity</label>
+        <div id="eqCallPri" style="display:flex; gap:6px">
+          <button type="button" class="eq-call-pri-btn" data-pri="low" style="flex:1; padding:8px 10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:12px; cursor:pointer">Low</button>
+          <button type="button" class="eq-call-pri-btn active" data-pri="normal" style="flex:1; padding:8px 10px; background:rgba(212,164,78,0.15); border:1px solid var(--nx-gold); border-radius:8px; color:var(--nx-gold); font-size:12px; cursor:pointer">Normal → needs service</button>
+          <button type="button" class="eq-call-pri-btn" data-pri="urgent" style="flex:1; padding:8px 10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:12px; cursor:pointer">Urgent → DOWN</button>
+        </div>
+      </div>
+
+      <!-- v18.24 — Photo upload -->
+      <div style="margin: 12px 0 6px;">
+        <label style="display:block; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--nx-faint); margin-bottom:6px">Photo of issue <span style="opacity:0.5">(optional)</span></label>
+        <div id="eqCallPhotoWrap" style="display:flex; gap:8px; align-items:flex-start">
+          <button type="button" id="eqCallPhotoBtn" style="display:flex; align-items:center; gap:6px; padding:10px 14px; background:transparent; border:1px dashed rgba(255,255,255,0.15); border-radius:8px; color:var(--nx-faint); cursor:pointer">${uiSvg('camera', '14px')} Add photo</button>
+          <input type="file" id="eqCallPhotoFile" accept="image/*" capture="environment" hidden>
+          <div id="eqCallPhotoPreview" style="display:none; flex:1; max-width:120px"></div>
+        </div>
+      </div>
+
+      <div class="eq-call-confirm-actions" style="margin-top:14px">
         <button class="eq-btn eq-btn-secondary" id="eqCallCancel">Cancel</button>
-        <a class="eq-btn eq-call-service-btn is-disabled" id="eqCallGo" href="tel:${esc(telHref)}" aria-disabled="true"><i data-lucide="phone" class="eq-btn-icon"></i> Call Now</a>
+        <a class="eq-btn eq-call-service-btn is-disabled" id="eqCallGo" href="tel:${esc(telHref)}" aria-disabled="true"><i data-lucide="phone" class="eq-btn-icon"></i> Create Ticket & Call</a>
       </div>
     </div>
   `;
   document.body.appendChild(modal);
   requestAnimationFrame(() => modal.classList.add('active'));
-  
+
   const close = () => { modal.classList.remove('active'); setTimeout(() => modal.remove(), 200); };
   const issueEl = modal.querySelector('#eqCallIssue');
   const callBtn = modal.querySelector('#eqCallGo');
-  
+
   // Enable Call Now only when there's at least 2 chars in the textarea
   issueEl.addEventListener('input', () => {
     const hasText = issueEl.value.trim().length >= 2;
@@ -11101,12 +11704,69 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
   });
   // Autofocus so user can type right away on mobile
   setTimeout(() => issueEl.focus(), 250);
-  
+
   modal.querySelector('.eq-call-confirm-bg').addEventListener('click', close);
   document.getElementById('eqCallCancel').addEventListener('click', close);
+
+  // Priority selection
+  let priority = 'normal';
+  const priBtns = modal.querySelectorAll('.eq-call-pri-btn');
+  priBtns.forEach(b => b.addEventListener('click', () => {
+    priority = b.dataset.pri;
+    priBtns.forEach(x => {
+      const isActive = x === b;
+      x.classList.toggle('active', isActive);
+      if (isActive) {
+        if (priority === 'urgent') {
+          x.style.background = 'rgba(196,68,68,0.15)';
+          x.style.borderColor = '#c44';
+          x.style.color = '#e08585';
+        } else if (priority === 'low') {
+          x.style.background = 'rgba(255,255,255,0.06)';
+          x.style.borderColor = 'rgba(255,255,255,0.2)';
+          x.style.color = 'var(--nx-text)';
+        } else {
+          x.style.background = 'rgba(212,164,78,0.15)';
+          x.style.borderColor = 'var(--nx-gold)';
+          x.style.color = 'var(--nx-gold)';
+        }
+      } else {
+        x.style.background = 'rgba(255,255,255,0.03)';
+        x.style.borderColor = 'rgba(255,255,255,0.1)';
+        x.style.color = 'var(--nx-text)';
+      }
+    });
+  }));
+
+  // Photo selection
+  let pendingPhoto = null;
+  const photoBtn = modal.querySelector('#eqCallPhotoBtn');
+  const photoFile = modal.querySelector('#eqCallPhotoFile');
+  const photoPreview = modal.querySelector('#eqCallPhotoPreview');
+  photoBtn.addEventListener('click', () => photoFile.click());
+  photoFile.addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    pendingPhoto = f;
+    const url = URL.createObjectURL(f);
+    photoPreview.style.display = 'block';
+    photoPreview.innerHTML = `
+      <div style="position:relative; display:inline-block">
+        <img src="${url}" style="width:120px; height:90px; object-fit:cover; border-radius:8px; border:1px solid rgba(255,255,255,0.1)">
+        <button type="button" id="eqCallPhotoClear" style="position:absolute; top:-6px; right:-6px; width:22px; height:22px; border-radius:50%; background:#c44; color:#fff; border:0; cursor:pointer; font-size:14px; line-height:1">×</button>
+      </div>`;
+    photoBtn.style.display = 'none';
+    photoPreview.querySelector('#eqCallPhotoClear').addEventListener('click', () => {
+      pendingPhoto = null;
+      photoFile.value = '';
+      photoPreview.style.display = 'none';
+      photoPreview.innerHTML = '';
+      photoBtn.style.display = '';
+    });
+  });
+
   callBtn.addEventListener('click', async (e) => {
     const issue = issueEl.value.trim();
-    // Guard — if somehow disabled state was bypassed
     if (!issue || issue.length < 2) {
       e.preventDefault();
       issueEl.focus();
@@ -11114,38 +11774,127 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
       setTimeout(() => { issueEl.style.borderColor = ''; }, 1200);
       return;
     }
-    // Log to dispatch_events (structured audit trail).
-    // The Postgres trigger on dispatch_events INSERT writes a rich "[SYS] call_made"
-    // entry to daily_logs automatically — no direct daily_logs insert needed.
+
+    // Prevent the tel: from firing immediately — we want all the
+    // ticketing async work to complete first, then jump to dialer.
+    e.preventDefault();
+    callBtn.classList.add('is-disabled');
+
+    // Run all the orchestration in parallel where safe; await all.
+    const reporter = NX.currentUser?.name || 'Staff';
+
+    // 1) dispatch_events (existing audit trail)
     try {
-      const { data: disp, error: dispErr } = await NX.sb.from('dispatch_events').insert({
+      const { data: disp } = await NX.sb.from('dispatch_events').insert({
         equipment_id: equipId,
         contractor_node_id: contractorNodeId || null,
         contractor_name: contactName,
         contractor_phone: phone,
         method: 'call',
         issue_description: issue,
-        dispatched_by: NX.currentUser?.name || null,
+        dispatched_by: reporter,
         outcome: 'pending',
       }).select('id').single();
-      if (dispErr) throw dispErr;
-
-      // ── DOMAIN ORCHESTRATION ────────────────────────────────────
-      // Back-link this dispatch to any open board card for the equipment
-      // (fills the kanban_cards.dispatch_event_id column that was a
-      // dead schema slot before). Non-fatal.
       if (disp?.id && NX.domain?.recordDispatch) {
-        try {
-          await NX.domain.recordDispatch({
-            equipmentId: equipId,
-            dispatchEventId: disp.id,
-          });
-        } catch (e) {
-          console.warn('[dispatch] domain hook failed (non-fatal):', e);
-        }
+        try { await NX.domain.recordDispatch({ equipmentId: equipId, dispatchEventId: disp.id }); } catch (_) {}
       }
     } catch (err) { console.warn('dispatch_events log failed:', err); }
-    setTimeout(close, 100);
+
+    // 2) Photo upload (if attached)
+    let photoUrl = null;
+    if (pendingPhoto) {
+      try {
+        const safeName = pendingPhoto.name.replace(/[^a-z0-9.]/gi, '_');
+        const path = `tickets/${Date.now()}-${safeName}`;
+        const { error: upErr } = await NX.sb.storage
+          .from('equipment-attachments')
+          .upload(path, pendingPhoto, { upsert: false, contentType: pendingPhoto.type });
+        if (!upErr) {
+          const { data: pub } = NX.sb.storage.from('equipment-attachments').getPublicUrl(path);
+          photoUrl = pub?.publicUrl || null;
+        }
+      } catch (e) { console.warn('[callConfirm] photo upload failed:', e); }
+    }
+
+    // 3) Equipment status bump (urgent → down, normal → needs_service)
+    let priorStatus = null;
+    if (priority === 'urgent' || priority === 'normal') {
+      try {
+        const { data: curEq } = await NX.sb.from('equipment')
+          .select('status').eq('id', equipId).single();
+        const currentStatus = curEq?.status || 'operational';
+        const desiredStatus = priority === 'urgent' ? 'down' : 'needs_service';
+        const rank = { operational: 0, needs_service: 1, down: 2 };
+        const curRank = rank[currentStatus] != null ? rank[currentStatus] : 0;
+        const desRank = rank[desiredStatus];
+        if (desRank > curRank) {
+          priorStatus = currentStatus;
+          await NX.sb.from('equipment').update({ status: desiredStatus }).eq('id', equipId);
+        }
+      } catch (err) { console.warn('[callConfirm] status bump failed:', err); }
+    }
+
+    // 4) Create the ticket
+    let ticketId = null;
+    try {
+      const ticketData = {
+        title: `[CALL] ${equipName}: ${issue.slice(0, 80)}`,
+        notes: `Internal call. Equipment: ${equipName}\nReporter: ${reporter}\nCalling: ${contactName} (${prettyPhone})\n\nIssue:\n${issue}`,
+        priority,
+        status: 'open',
+        reported_by: reporter,
+        equipment_id: equipId,
+        photo_url: photoUrl,
+        prior_eq_status: priorStatus,
+      };
+      const { data: t } = await NX.sb.from('tickets').insert(ticketData).select().single();
+      ticketId = t?.id || null;
+    } catch (err) { console.warn('[callConfirm] ticket create failed:', err); }
+
+    // 5) Create the board card (mirrors ticket onto Operations board)
+    if (ticketId) {
+      try {
+        const { data: boards } = await NX.sb.from('boards')
+          .select('id').eq('archived', false).order('position').limit(1);
+        const boardId = boards?.[0]?.id;
+        if (boardId) {
+          const { data: lists } = await NX.sb.from('lists')
+            .select('id').eq('board_id', boardId).order('position').limit(1);
+          const listId = lists?.[0]?.id;
+          if (listId) {
+            const { count } = await NX.sb.from('kanban_cards')
+              .select('id', { count: 'exact', head: true }).eq('list_id', listId);
+            const { data: cardRow } = await NX.sb.from('kanban_cards').insert({
+              title: `[CALL] ${equipName}: ${issue.slice(0, 80)}`,
+              description: `Calling: ${contactName} (${prettyPhone})\n\n${issue}`,
+              board_id: boardId,
+              list_id: listId,
+              column_name: '',
+              position: count || 0,
+              priority,
+              location: null,
+              equipment_id: equipId,
+              reported_by: reporter,
+              checklist: [], comments: [], labels: [],
+              photo_urls: photoUrl ? [photoUrl] : [],
+              archived: false,
+              ticket_id: ticketId,
+            }).select().single();
+            if (cardRow?.id) {
+              await NX.sb.from('tickets').update({ board_card_id: cardRow.id }).eq('id', ticketId);
+            }
+          }
+        }
+      } catch (err) { console.warn('[callConfirm] board card create failed:', err); }
+    }
+
+    NX.toast?.(`Ticket created — calling ${contactName}…`, 'success', 1800);
+
+    // 6) Hand off to dialer
+    setTimeout(() => {
+      window.location.href = `tel:${telHref}`;
+      setTimeout(close, 800);
+    }, 200);
   });
 }
 
@@ -11818,6 +12567,11 @@ async function approvePmLog(logId, equipmentId) {
       pm_log_id: log.id,
     });
     if (insErr) throw insErr;
+
+    // v18.23 — Try to match a scheduled appointment for this PM and
+    // flip it to 'completed'. Closes the loop between scheduling and
+    // actual completion. Best-effort — won't fail the approval.
+    try { await autoCompletePmSchedule(log.equipment_id, log, null); } catch (_) {}
 
     // 4. If this PM has a next_service_date, update equipment's next_pm_date
     if (log.next_service_date) {
@@ -18810,6 +19564,8 @@ const __nxeExports = {
   loadLocationsFromDB,
   enterLocation,
   exitLocation,
+  openScheduleEditor,
+  loadPmSchedules,
   openPartDetail,
   closeParts,
   loadPartsList,
