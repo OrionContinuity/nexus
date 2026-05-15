@@ -11858,7 +11858,7 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
           .select('id').eq('archived', false).order('position').limit(1);
         const boardId = boards?.[0]?.id;
         if (boardId) {
-          const { data: lists } = await NX.sb.from('lists')
+          const { data: lists } = await NX.sb.from('board_lists')
             .select('id').eq('board_id', boardId).order('position').limit(1);
           const listId = lists?.[0]?.id;
           if (listId) {
