@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v76-pm-schedule-title-1';
+const CACHE_NAME = 'nexus-v77-pm-schedule-sync-1';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
