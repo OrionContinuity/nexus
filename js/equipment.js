@@ -1076,56 +1076,79 @@ function sortLocationsByMode(meta, mode) {
   return arr;
 }
 
-/* Render the avatar element. Same shape as ordering vendor avatars:
-   image when available, deterministic-hue circle with initial letter
-   otherwise. Avoids the "all avatars look the same" problem. */
+/* Render the avatar element matching the ordering vendor pattern
+   exactly. Uses .ord-vendor-avatar / .ord-vendor-avatar-img classes
+   so the styling is shared — 72px circle, hue-driven background for
+   initials, contain+center for photos. */
 function locationAvatarHTML(loc, size) {
   size = size || 'md';
   const hue = (loc.avatar_hue != null) ? loc.avatar_hue : hashLocationHue(loc.label);
   const initials = (loc.label || '?').trim().charAt(0).toUpperCase();
   if (loc.photo_url) {
-    return `<img class="eq-loc-avatar eq-loc-avatar-${size}" src="${esc(loc.photo_url)}" alt="${esc(loc.label)}" loading="lazy">`;
+    // Image avatar — uses background-image style like ordering's vendorAvatar
+    return `<span class="ord-vendor-avatar ord-vendor-avatar-img" style="background-image:url('${esc((loc.photo_url || '').replace(/'/g, '%27'))}');" role="img" aria-label="${esc(loc.label)}"></span>`;
   }
-  return `<div class="eq-loc-avatar eq-loc-avatar-${size} eq-loc-avatar-initials" style="--hue:${hue}">${esc(initials)}</div>`;
+  return `<span class="ord-vendor-avatar" style="--avatar-hue:${hue};" aria-hidden="true">${esc(initials)}</span>`;
 }
 
-/* Render one location card. */
+/* Render one location card using the EXACT vendor row class structure.
+   Reuses .ord-vendor-row-wrap, .ord-vendor-row, .ord-vendor-main,
+   .ord-vendor-pill, .ord-vendor-warn, .ord-arrow, .ord-vendor-menu —
+   inherits all the vendor styling (88px min-height, 72px avatar, 18px
+   border-radius, gold-line border, has-issue/has-draft accent bars). */
 function renderLocationCard(loc) {
   const stats = computeLocationStats(loc.label);
 
-  // Status pill — pick the most urgent signal first. Overdue PMs and
-  // non-operational equipment are reds; due-soon PMs are gold; otherwise
-  // "All clear" in green. This is the at-a-glance triage indicator.
-  let pillCls = 'is-clear', pillText = 'All clear';
+  // Row classes — drives the left-bar accent. has-issue (amber bar) for
+  // overdue PMs or non-operational units. has-draft (gold bg) for due-soon.
+  const rowClasses = ['ord-vendor-row'];
+  let pillHTML = '';
+  let warnHTML = '';
+  let previewText = loc.address || '';
+
   if (stats.overdue > 0) {
-    pillCls = 'is-overdue';
-    pillText = `${stats.overdue} overdue PM${stats.overdue === 1 ? '' : 's'}`;
+    rowClasses.push('has-issue');
+    pillHTML = `<span class="ord-vendor-pill ord-vendor-pill-issue">${stats.overdue} OVERDUE</span>`;
   } else if (stats.issues > 0) {
-    pillCls = 'is-issue';
-    pillText = `${stats.issues} ${stats.issues === 1 ? 'unit needs' : 'units need'} attention`;
+    rowClasses.push('has-issue');
+    pillHTML = `<span class="ord-vendor-pill ord-vendor-pill-issue">${stats.issues} ${stats.issues === 1 ? 'NEEDS ATTN' : 'NEED ATTN'}</span>`;
   } else if (stats.dueSoon > 0) {
-    pillCls = 'is-soon';
-    pillText = `${stats.dueSoon} PM${stats.dueSoon === 1 ? '' : 's'} due soon`;
+    rowClasses.push('has-draft');
+    pillHTML = `<span class="ord-vendor-pill ord-vendor-pill-draft">${stats.dueSoon} DUE SOON</span>`;
+  }
+  // "All clear" — no pill, no special class. Card reads clean.
+
+  // ! warn — only when location has zero units (so user knows to add some)
+  if (stats.total === 0) {
+    warnHTML = '<span class="ord-vendor-warn" title="No equipment at this location yet">!</span>';
+    if (!pillHTML) previewText = previewText || 'No equipment yet';
   }
 
+  // Top-right "when" slot shows the unit count in mono uppercase —
+  // exactly where vendors show the last-activity timestamp.
+  const whenHTML = `<div class="ord-vendor-when">${stats.total} UNIT${stats.total === 1 ? '' : 'S'}</div>`;
+
   return `
-    <div class="eq-loc-card-wrap" data-loc-label="${esc(loc.label)}">
-      <button class="eq-loc-card" data-loc-enter="${esc(loc.label)}" type="button">
-        <div class="eq-loc-avatar-wrap">${locationAvatarHTML(loc, 'md')}</div>
-        <div class="eq-loc-card-main">
-          <div class="eq-loc-card-name-row">
-            <div class="eq-loc-card-name">${esc(loc.label)}</div>
-            <div class="eq-loc-card-count">${stats.total} unit${stats.total === 1 ? '' : 's'}</div>
+    <div class="ord-vendor-row-wrap" data-loc-label="${esc(loc.label)}">
+      <button class="${rowClasses.join(' ')}" data-loc-enter="${esc(loc.label)}" type="button">
+        <div class="ord-vendor-avatar-wrap">
+          ${locationAvatarHTML(loc, 'md')}
+        </div>
+        <div class="ord-vendor-main">
+          <div class="ord-vendor-name-row">
+            <div class="ord-vendor-name">${esc(loc.label)}</div>
+            ${whenHTML}
           </div>
-          <div class="eq-loc-card-meta">
-            <span class="eq-loc-card-pill ${pillCls}">${esc(pillText)}</span>
-            ${loc.address ? `<span class="eq-loc-card-address">${esc(loc.address)}</span>` : ''}
+          <div class="ord-vendor-meta">
+            ${pillHTML}
+            <span class="ord-vendor-preview">${esc(previewText)}</span>
           </div>
         </div>
-        <div class="eq-loc-arrow" aria-hidden="true">›</div>
+        ${warnHTML}
+        <div class="ord-arrow" aria-hidden="true">›</div>
       </button>
-      <button class="eq-loc-menu-btn" data-loc-edit="${esc(loc.label)}" aria-label="Edit ${esc(loc.label)}">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+      <button class="ord-vendor-menu" data-loc-edit="${esc(loc.label)}" aria-label="Edit ${esc(loc.label)}">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
       </button>
     </div>
   `;
@@ -1140,42 +1163,43 @@ const LOC_SORT_LABELS = {
   custom:    'Custom order',
 };
 
-/* Render the entire location list landing view. Replaces the prior
-   pill bar + filters + list combo when locationView.mode === 'list'. */
+/* Render the entire location list landing view. Layout mirrors the
+   Ordering vendor list: title + ord-search rounded pill search +
+   ord-vendor-sort-bar with sort pill + Add button, then the cards
+   list. Uses the .ord-* class family throughout so styling is
+   pixel-identical to vendors. */
 function renderLocationListView() {
   const sorted = sortLocationsByMode(LOCATION_META, locationView.sort);
   const isSearching = !!(locationView.search && locationView.search.trim());
 
   return `
-    <div class="eq-header">
+    <div class="eq-header eq-header-locations">
       <div class="eq-title-row">
         <h2 class="eq-title"><span class="eq-title-icon">${uiSvg('wrench', '20px')}</span> Equipment</h2>
       </div>
 
-      <div class="eq-search-row" style="margin-top: 8px">
-        <input type="search" class="eq-search" id="eqLocationSearch" placeholder="🔍 Search equipment, parts, anywhere…" value="${esc(locationView.search)}" autocomplete="off">
+      <div class="ord-search-wrap">
+        <input type="search" class="ord-search" id="eqLocationSearch" placeholder="Search equipment, parts, anywhere…" value="${esc(locationView.search)}" autocomplete="off">
       </div>
 
       ${!isSearching ? `
-        <div class="eq-loc-controls" style="display:flex; gap:8px; align-items:center; margin-top:12px; flex-wrap:wrap">
-          <button class="eq-btn eq-btn-primary" id="eqAddLocationBtn" style="flex:0 0 auto">+ Add Location</button>
-          <div style="flex:1; min-width:120px"></div>
-          <label style="font-size:11px; color:var(--nx-faint); text-transform:uppercase; letter-spacing:1px">Sort</label>
-          <select id="eqLocationSort" style="padding:8px 10px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--nx-text); font-size:13px;">
-            ${Object.entries(LOC_SORT_LABELS).map(([k, v]) =>
-              `<option value="${k}" ${locationView.sort === k ? 'selected' : ''}>${v}</option>`
-            ).join('')}
-          </select>
+        <div class="ord-vendor-sort-bar">
+          <button class="ord-vendor-sort-pill" id="eqLocationSortPill" role="button" tabindex="0" aria-label="Change sort">
+            <span class="ord-vendor-sort-label">SORT</span>
+            <span class="ord-vendor-sort-value">${esc(LOC_SORT_LABELS[locationView.sort] || locationView.sort)}</span>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <button class="ord-vendor-reorder-btn" id="eqAddLocationBtn" style="background:var(--nx-gold); color:var(--nx-bg); border-color:var(--nx-gold); font-weight:600">+ Add Location</button>
         </div>
       ` : ''}
     </div>
 
-    <div id="eqLocationCardsOrSearch" style="padding: 8px 12px;">
+    <div id="eqLocationCardsOrSearch">
       ${isSearching
-        ? renderSearchResultsView()
+        ? `<div style="padding: 8px 16px;">${renderSearchResultsView()}</div>`
         : (sorted.length === 0
-            ? `<div class="eq-empty-small">No locations yet. Tap <strong>+ Add Location</strong> to create your first one.</div>`
-            : `<div class="eq-loc-cards">${sorted.map(renderLocationCard).join('')}</div>`)}
+            ? `<div class="eq-empty-small" style="padding: 32px 16px; text-align:center">No locations yet. Tap <strong>+ Add Location</strong> to create your first one.</div>`
+            : `<div class="ord-vendors">${sorted.map(renderLocationCard).join('')}</div>`)}
     </div>
   `;
 }
@@ -1555,10 +1579,9 @@ function wireLocationListView() {
     openLocationEditor(null, () => buildUI());
   });
 
-  const sortSel = document.getElementById('eqLocationSort');
-  if (sortSel) sortSel.addEventListener('change', (e) => {
-    locationView.sort = e.target.value;
-    buildUI();
+  // Sort pill — opens a bottom sheet picker (vendor-style)
+  document.getElementById('eqLocationSortPill')?.addEventListener('click', () => {
+    openLocationSortPicker();
   });
 
   // Tap a location card → enter the location
@@ -1581,10 +1604,7 @@ function wireLocationListView() {
     searchEl.addEventListener('input', (e) => {
       const q = e.target.value;
       locationView.search = q;
-      // Re-render immediately for equipment matches; trigger async
-      // parts search if the query has 2+ characters.
       clearTimeout(searchDebounce);
-      // Optimistic re-render with local equipment-only matches
       const cardWrap = document.getElementById('eqLocationCardsOrSearch');
       if (cardWrap) {
         const trimmed = q.trim();
@@ -1593,25 +1613,22 @@ function wireLocationListView() {
           buildUI();
           return;
         }
-        cardWrap.innerHTML = renderSearchResultsView();
+        cardWrap.innerHTML = `<div style="padding:8px 16px">${renderSearchResultsView()}</div>`;
+        wireSearchResultClicks();
       }
-      // Restore focus + cursor (full re-render path loses it)
       const fresh = document.getElementById('eqLocationSearch');
       if (fresh && fresh !== searchEl) {
         fresh.focus();
         try { fresh.setSelectionRange(q.length, q.length); } catch (_) {}
       }
-      // Async parts search
       searchDebounce = setTimeout(async () => {
         const trimmed = (locationView.search || '').trim();
         if (!trimmed) return;
         const parts = await searchPartsCatalog(trimmed);
         locationView.searchResults = { parts };
-        // Re-render the results inline if search still active and same query
         if ((locationView.search || '').trim() === trimmed) {
           const wrap = document.getElementById('eqLocationCardsOrSearch');
-          if (wrap) wrap.innerHTML = renderSearchResultsView();
-          // Re-wire result row clicks since innerHTML just clobbered them
+          if (wrap) wrap.innerHTML = `<div style="padding:8px 16px">${renderSearchResultsView()}</div>`;
           wireSearchResultClicks();
         }
       }, 250);
@@ -1620,6 +1637,45 @@ function wireLocationListView() {
 
   wireSearchResultClicks();
 }
+
+/* Bottom sheet picker for sort mode. Mirrors how the ordering vendor
+   sort pill opens a selection sheet rather than a native <select>. */
+function openLocationSortPicker() {
+  const overlay = document.createElement('div');
+  overlay.className = 'eq-bulk-sheet-overlay';
+  overlay.style.zIndex = '9000';
+  overlay.innerHTML = `
+    <div class="eq-bulk-sheet-backdrop"></div>
+    <div class="eq-bulk-sheet">
+      <div class="eq-bulk-sheet-handle"></div>
+      <div class="eq-bulk-sheet-title">Sort locations by</div>
+      <div class="eq-bulk-sheet-list">
+        ${Object.entries(LOC_SORT_LABELS).map(([k, v]) => `
+          <button class="eq-bulk-sheet-item ${locationView.sort === k ? 'is-selected' : ''}" data-sort="${esc(k)}" type="button">
+            <div class="eq-bulk-apply-check">${locationView.sort === k ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}</div>
+            <div class="eq-bulk-sheet-item-text">
+              <div class="eq-bulk-sheet-item-name">${esc(v)}</div>
+            </div>
+          </button>
+        `).join('')}
+      </div>
+      <button class="eq-bulk-sheet-cancel" data-action="cancel" type="button">Cancel</button>
+    </div>
+  `;
+  const close = () => overlay.remove();
+  overlay.querySelector('.eq-bulk-sheet-backdrop').addEventListener('click', close);
+  overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+  overlay.querySelectorAll('[data-sort]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      locationView.sort = btn.dataset.sort;
+      close();
+      buildUI();
+    });
+  });
+  document.body.appendChild(overlay);
+}
+
+
 
 /* Wire clicks on search result rows. Called after the search results
    section is rendered (both initially and after async parts arrive). */
