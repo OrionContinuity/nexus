@@ -1846,7 +1846,7 @@ html {
      env(safe-area-inset-top) resolves to 0 and the 10px floor applies.
      Sides + bottom unchanged. */
   padding: max(10px, env(safe-area-inset-top, 10px)) 16px 10px !important;
-  gap: 10px !important;
+  gap: 14px !important;
   /* Belt-and-suspenders sticky — already declared as position: sticky in
      nexus.css, but re-asserted here so the rule isn't accidentally lost
      by a later `.nav` override. -webkit-sticky covers older iOS WebKit. */
@@ -2029,8 +2029,15 @@ html {
   box-shadow: 0 0 8px rgba(212, 164, 78, 0.4) !important;
 }
 
-/* Live date/time — mono caps, faint, sits flush right of NEXUS.
-   Filled by app.js with "SAT · MAY 2 · 1:23 PM" format. */
+/* Live date/time — mono caps, faint, sits centered in the available
+   space between the coin and the menu so the masthead reads as a
+   balanced editorial header: brand-left, date-center, menu-right.
+   Filled by app.js with "SAT · MAY 2 · 1:23 PM" format.
+
+   v18.25 — was text-align: left with padding-left:6px which jammed
+   the date text up against the coin and stranded the menu on the
+   right. Centering the text inside its flex:1 container puts the
+   date in the visual middle of the row. */
 .nx-mast-date {
   flex: 1;
   min-width: 0;
@@ -2043,7 +2050,8 @@ html {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding-left: 6px;
+  text-align: center;
+  padding: 0;
 }
 
 .nav-more {
