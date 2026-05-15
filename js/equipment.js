@@ -1621,9 +1621,20 @@ function openLocationEditor(existing, onSaved) {
       text-overflow: ellipsis;
     }
 
-    /* v18.22 — Location card preview keeps vendor default (2-line clamp)
-       so longer addresses wrap to 2 lines instead of truncating mid-word.
-       Card height matches vendor cards with multi-line previews. */
+    /* v18.22 — Location cards stack the pill ABOVE the address so neither
+       gets truncated. Vendor cards put pill + preview on the same line,
+       but addresses are denser content than vendor status text — they
+       deserve their own line. Card naturally grows taller to fit, which
+       matches the "make cards bigger to show full info" requirement.
+       Address still wraps to 2 lines via vendor default line-clamp. */
+    .ord-vendor-row[data-loc-enter] .ord-vendor-meta {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+    }
+    .ord-vendor-row[data-loc-enter] .ord-vendor-preview {
+      width: 100%;
+    }
 
     .eq-search-section-head {
       font-size:10px; letter-spacing:1.2px; color:var(--nx-faint);
