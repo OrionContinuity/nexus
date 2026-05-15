@@ -2085,6 +2085,34 @@ async function openScheduleEditor(equipId) {
       const { error } = await NX.sb.from('pm_schedules').insert(rows);
       if (error) throw error;
 
+      // Push the schedule data back onto the equipment row so the detail
+      // page's PM fields and the Call Service button stay in sync.
+      // Best-effort: failure here doesn't block the save.
+      try {
+        const earliestDate = validPhases[0].date;
+        const eqUpdate = {
+          next_pm_date: earliestDate,
+          service_contractor_node_id: selectedContractorId,
+          service_contractor_name: selectedContractorName,
+        };
+        // Infer pm_interval_days only when there's a prior PM to measure
+        // from. Brand-new units with no last_pm_date will populate it on
+        // the first completed PM via approvePmLog.
+        const { data: priorEq } = await NX.sb.from('equipment')
+          .select('last_pm_date').eq('id', equipId).maybeSingle();
+        if (priorEq?.last_pm_date) {
+          const days = Math.round(
+            (new Date(earliestDate) - new Date(priorEq.last_pm_date)) / 86400000
+          );
+          if (days > 0 && days <= 3650) {
+            eqUpdate.pm_interval_days = days;
+          }
+        }
+        await NX.sb.from('equipment').update(eqUpdate).eq('id', equipId);
+      } catch (e) {
+        console.warn('[scheduleEditor] equipment sync (non-fatal):', e);
+      }
+
       NX.toast?.(`PM scheduled with ${selectedContractorName}`, 'success', 2000);
       await loadPmSchedules();
       overlay.remove();
