@@ -332,9 +332,47 @@ function buildTicketCard(r, pinned) {
     btn.className = 'feed-close-btn';
     btn.textContent = '✓ Close';
     btn.addEventListener('click', async () => {
-      // Try tickets table (legacy) then kanban_cards
-      try { await NX.sb.from('tickets').update({ status: 'closed' }).eq('id', r.id); } catch(e){}
+      // v18.24 — Close cascade. When a ticket closes:
+      //   1. Mark ticket closed
+      //   2. Restore equipment.status to whatever it was before the
+      //      ticket bumped it (if prior_eq_status was saved)
+      //   3. Close the linked kanban_card on the Board (if any)
+      //
+      // Each step wrapped in its own try/catch — partial success is OK,
+      // the user gets the visual close either way.
+      let priorStatus = null, equipmentId = null, boardCardId = null;
+
+      // First fetch the full ticket so we know what to cascade
+      try {
+        const { data: tk } = await NX.sb.from('tickets')
+          .select('prior_eq_status, equipment_id, board_card_id')
+          .eq('id', r.id).single();
+        if (tk) {
+          priorStatus = tk.prior_eq_status;
+          equipmentId = tk.equipment_id;
+          boardCardId = tk.board_card_id;
+        }
+      } catch (e) { /* fallthrough — try the legacy paths below */ }
+
+      // 1. Close the ticket
+      try { await NX.sb.from('tickets').update({ status: 'closed' }).eq('id', r.id); } catch (e) {}
+
+      // 2. Restore equipment status (only if a prior_eq_status was set,
+      //    meaning the ticket originally bumped it). This is idempotent —
+      //    if status was already restored elsewhere we just set it again.
+      if (equipmentId && priorStatus) {
+        try { await NX.sb.from('equipment').update({ status: priorStatus }).eq('id', equipmentId); } catch (e) {}
+      }
+
+      // 3. Close the linked board card
+      if (boardCardId) {
+        try { await NX.sb.from('kanban_cards').update({ status: 'closed', column_name: 'done', updated_at: new Date().toISOString() }).eq('id', boardCardId); } catch (e) {}
+      }
+
+      // Legacy paths — covers the case where r.id is a kanban_card id
+      // rather than a ticket id (older feed rendering path).
       try { await NX.sb.from('kanban_cards').update({ status: 'closed', updated_at: new Date().toISOString() }).eq('id', r.id); } catch(e){}
+
       btn.textContent = 'Closed';
       d.style.opacity = '0.4';
       if (NX.checkTicketBadge) NX.checkTicketBadge();
