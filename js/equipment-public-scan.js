@@ -2103,6 +2103,19 @@
         <div class="nx-ps-modal-label">Describe the problem *</div>
         <textarea class="nx-ps-modal-textarea" id="nxRepDesc" placeholder="What's wrong? When did it start? Any error codes or unusual sounds?"></textarea>
 
+        <!-- v18.24 — Photo of the issue. Optional but high-signal; a single
+             photo of an error display, leak, or broken part is worth a
+             paragraph of description. Camera capture preference set so
+             mobile defaults to the rear lens. -->
+        <div class="nx-ps-modal-label">Photo of the issue <span style="opacity:0.5">(optional)</span></div>
+        <div id="nxRepPhotoWrap" style="display:flex; gap:8px; align-items:flex-start; margin-bottom:10px">
+          <button type="button" id="nxRepPhotoBtn" class="nx-ps-modal-btn" style="display:flex; align-items:center; gap:6px; padding:10px 14px; flex:0 0 auto; background:transparent; border:1px dashed rgba(255,255,255,0.15); color:var(--nx-faint,#888); cursor:pointer">
+            ${icon('camera', 16)} Add photo
+          </button>
+          <input type="file" id="nxRepPhotoFile" accept="image/*" capture="environment" hidden>
+          <div id="nxRepPhotoPreview" style="display:none; flex:1; max-width:120px"></div>
+        </div>
+
         <div class="nx-ps-modal-label">Priority</div>
         <div class="nx-ps-modal-priority" id="nxRepPri">
           <button type="button" class="nx-ps-modal-pri-btn" data-pri="low">Low</button>
@@ -2166,6 +2179,36 @@
 
     cancel.addEventListener('click', () => bg.remove());
 
+    // v18.24 — Photo selection: file picker → object-URL preview.
+    // The actual upload happens during submit so a user who picks but
+    // then cancels doesn't leave storage objects behind.
+    let pendingPhoto = null;
+    const photoBtn     = bg.querySelector('#nxRepPhotoBtn');
+    const photoFile    = bg.querySelector('#nxRepPhotoFile');
+    const photoPreview = bg.querySelector('#nxRepPhotoPreview');
+    photoBtn.addEventListener('click', () => photoFile.click());
+    photoFile.addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      pendingPhoto = f;
+      const url = URL.createObjectURL(f);
+      photoPreview.style.display = 'block';
+      photoPreview.innerHTML = `
+        <div style="position:relative; display:inline-block">
+          <img src="${url}" style="width:120px; height:90px; object-fit:cover; border-radius:8px; border:1px solid rgba(255,255,255,0.1)">
+          <button type="button" id="nxRepPhotoClear" style="position:absolute; top:-6px; right:-6px; width:22px; height:22px; border-radius:50%; background:#c44; color:#fff; border:0; cursor:pointer; font-size:14px; line-height:1">×</button>
+        </div>
+      `;
+      photoBtn.style.display = 'none';
+      photoPreview.querySelector('#nxRepPhotoClear').addEventListener('click', () => {
+        pendingPhoto = null;
+        photoFile.value = '';
+        photoPreview.style.display = 'none';
+        photoPreview.innerHTML = '';
+        photoBtn.style.display = '';
+      });
+    });
+
     send.addEventListener('click', async () => {
       const reporter = nameEl.value.trim();
       const problem  = desc.value.trim();
@@ -2208,9 +2251,111 @@
           priority,              // 'low' | 'normal' | 'urgent' — schema-correct
           status: 'open',
           reported_by: reporter,
+          equipment_id: eq.id,   // v18.24 — link to equipment
         };
-        const { error } = await sb.from('tickets').insert(ticketData);
+
+        // v18.24 — Upload photo first if one was attached. Upload is
+        // fire-and-fail-graceful: a storage error doesn't block the
+        // ticket from being created. We just lose the image and surface
+        // a console warning.
+        let photoUrl = null;
+        if (pendingPhoto) {
+          try {
+            send.textContent = 'Uploading photo…';
+            const safeName = pendingPhoto.name.replace(/[^a-z0-9.]/gi, '_');
+            const path = `tickets/${Date.now()}-${safeName}`;
+            const { error: upErr } = await sb.storage
+              .from('equipment-attachments')
+              .upload(path, pendingPhoto, { upsert: false, contentType: pendingPhoto.type });
+            if (upErr) throw upErr;
+            const { data: pub } = sb.storage.from('equipment-attachments').getPublicUrl(path);
+            photoUrl = pub?.publicUrl || null;
+            ticketData.photo_url = photoUrl;
+          } catch (photoErr) {
+            console.warn('[scan] photo upload failed (non-fatal):', photoErr);
+          }
+        }
+
+        // v18.24 — Severity → equipment status mapping. Save the prior
+        // status onto the ticket so closing it can restore.
+        //   urgent → 'down'         (red — won't function safely)
+        //   normal → 'needs_service' (amber — flag for attention)
+        //   low    → no change       (just a tracked observation)
+        //
+        // Skipped if equipment is already in a more-severe state (don't
+        // downgrade a 'down' to 'needs_service' from a normal-priority
+        // call). Status hierarchy: down > needs_service > operational.
+        if (priority === 'urgent' || priority === 'normal') {
+          const desiredStatus = priority === 'urgent' ? 'down' : 'needs_service';
+          const currentStatus = eq.status || 'operational';
+          const rank = { operational: 0, needs_service: 1, down: 2 };
+          const curRank = rank[currentStatus] != null ? rank[currentStatus] : 0;
+          const desRank = rank[desiredStatus];
+          if (desRank > curRank) {
+            ticketData.prior_eq_status = currentStatus;
+            try {
+              await sb.from('equipment')
+                .update({ status: desiredStatus })
+                .eq('id', eq.id);
+            } catch (statusErr) {
+              console.warn('[scan] eq status bump failed (non-fatal):', statusErr);
+            }
+          }
+        }
+
+        send.textContent = isCall ? 'Creating ticket…' : 'Sending…';
+        const { data: ticketRow, error } = await sb.from('tickets').insert(ticketData).select().single();
         if (error) throw error;
+
+        // v18.24 — Mirror the ticket onto the Operations board as a
+        // kanban_card. The two surfaces (Duties ticket list + Board)
+        // now stay in sync: same priority, same description, same photo.
+        // Cross-link via tickets.board_card_id ↔ kanban_cards.ticket_id.
+        // Best-effort — a board-side failure shouldn't crash the ticket
+        // flow; the ticket still exists in Duties.
+        try {
+          // Find the first non-archived board + its first list ("To Do").
+          const { data: boards } = await sb.from('boards')
+            .select('id').eq('archived', false).order('position').limit(1);
+          const boardId = boards?.[0]?.id;
+          if (boardId) {
+            const { data: lists } = await sb.from('lists')
+              .select('id').eq('board_id', boardId).order('position').limit(1);
+            const listId = lists?.[0]?.id;
+            if (listId) {
+              // Position = current card count in that list (append to end)
+              const { count } = await sb.from('kanban_cards')
+                .select('id', { count: 'exact', head: true })
+                .eq('list_id', listId);
+              const cardData = {
+                title: ticketTitle,
+                description: notesParts,
+                board_id: boardId,
+                list_id: listId,
+                column_name: '',
+                position: count || 0,
+                priority,
+                location: eq.location || null,
+                equipment_id: eq.id,
+                reported_by: reporter,
+                checklist: [], comments: [], labels: [],
+                photo_urls: photoUrl ? [photoUrl] : [],
+                archived: false,
+                ticket_id: ticketRow?.id || null,
+              };
+              const { data: cardRow } = await sb.from('kanban_cards')
+                .insert(cardData).select().single();
+              // Back-link ticket → card so admin/timeline can navigate either way
+              if (cardRow?.id && ticketRow?.id) {
+                await sb.from('tickets')
+                  .update({ board_card_id: cardRow.id })
+                  .eq('id', ticketRow.id);
+              }
+            }
+          }
+        } catch (boardErr) {
+          console.warn('[scan] board card creation failed (non-fatal):', boardErr);
+        }
 
         // Stage S: push notification to managers + admins. Fire and
         // forget — a failed push must not block the ticket flow.
