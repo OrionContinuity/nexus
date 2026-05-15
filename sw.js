@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v74-board-mirror-1';
+const CACHE_NAME = 'nexus-v75-pm-autofill-1';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
