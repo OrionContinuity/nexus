@@ -12573,11 +12573,26 @@ async function approvePmLog(logId, equipmentId) {
     // actual completion. Best-effort — won't fail the approval.
     try { await autoCompletePmSchedule(log.equipment_id, log, null); } catch (_) {}
 
-    // 4. If this PM has a next_service_date, update equipment's next_pm_date
-    if (log.next_service_date) {
-      await NX.sb.from('equipment')
-        .update({ next_pm_date: log.next_service_date })
-        .eq('id', log.equipment_id);
+    // 4. Push the PM dates onto equipment:
+    //    - last_pm_date     := when contractor performed the PM
+    //    - next_pm_date     := when the next PM is due
+    //    - pm_interval_days := inferred from the gap, so the cadence
+    //      shows on the detail page (was the missing piece — used to
+    //      only update next_pm_date)
+    const baseDate = log.pm_date || log.service_date;
+    const eqUpdate = {};
+    if (baseDate) eqUpdate.last_pm_date = baseDate;
+    if (log.next_service_date) eqUpdate.next_pm_date = log.next_service_date;
+    if (baseDate && log.next_service_date) {
+      const days = Math.round(
+        (new Date(log.next_service_date) - new Date(baseDate)) / 86400000
+      );
+      if (days > 0 && days <= 3650) {
+        eqUpdate.pm_interval_days = days;
+      }
+    }
+    if (Object.keys(eqUpdate).length) {
+      await NX.sb.from('equipment').update(eqUpdate).eq('id', log.equipment_id);
     }
 
     // 5. Re-sync the equipment node in the knowledge graph (best effort)
