@@ -1437,23 +1437,53 @@ function openLocationEditor(existing, onSaved) {
         if (error) throw error;
         NX.toast && NX.toast(`Location "${label.trim()}" added`, 'success', 2000);
       } else {
+        const newLabel = label.trim();
+        const oldLabel = existing.label;
+        const labelChanged = oldLabel !== newLabel;
+
         const { error } = await NX.sb.from('locations').update({
-          label: label.trim(),
+          label: newLabel,
           address: address.trim() || null,
           photo_url: finalPhotoUrl || null,
           updated_at: new Date().toISOString(),
         }).eq('id', existing.id);
         if (error) throw error;
+
         // If the label changed, propagate to equipment.location so the
-        // existing rows stay matched. Skipped if label is unchanged.
-        if (existing.label !== label.trim()) {
-          await NX.sb.from('equipment').update({ location: label.trim() }).eq('location', existing.label);
+        // existing rows stay matched. Wrapped in try/catch so a partial
+        // failure (RLS on equipment, etc.) doesn't crash the whole flow
+        // and look like a logout. v18.22-fix: was losing app state and
+        // appearing to log out because the cascade ran but the in-memory
+        // locationView.activeLocation stayed on the OLD label — filter
+        // returned zero matches, screen blanked.
+        if (labelChanged) {
+          try {
+            const { error: cascadeErr } = await NX.sb.from('equipment')
+              .update({ location: newLabel })
+              .eq('location', oldLabel);
+            if (cascadeErr) console.warn('[equipment cascade]', cascadeErr.message);
+          } catch (cascadeE) {
+            console.warn('[equipment cascade threw]', cascadeE);
+            // Continue — locations row already saved successfully.
+          }
+          // Sync in-memory navigation state so the next render doesn't
+          // try to filter by a no-longer-existent label.
+          if (locationView.activeLocation === oldLabel) locationView.activeLocation = newLabel;
+          if (activeFilter.location === oldLabel) activeFilter.location = newLabel;
         }
-        NX.toast && NX.toast('Location updated', 'success', 1500);
+        NX.toast && NX.toast(labelChanged ? `Renamed to "${newLabel}"` : 'Location updated', 'success', 1800);
       }
       await loadLocationsFromDB();
       await loadEquipment();
       overlay.remove();
+      // v18.22-fix: after edit, always return to list mode so the user
+      // sees the updated card with new name/photo/address. Re-entering
+      // the location gets fresh state. Prevents the "logged out" feel
+      // where inside-view filter shows zero rows due to stale label.
+      if (!isNew) {
+        locationView.mode = 'list';
+        locationView.activeLocation = null;
+      }
       if (typeof onSaved === 'function') onSaved();
       buildUI();
     } catch (e) {
@@ -1550,22 +1580,57 @@ function openLocationEditor(existing, onSaved) {
     }
     .eq-loc-menu-btn:hover { background: rgba(255,255,255,0.04); color: var(--nx-gold); }
 
+    /* v18.22 — Inside-location header (back arrow + small avatar + name) */
+    .eq-inside-loc-header {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 14px;
+      padding: 4px 0;
+    }
+    .eq-inside-back {
+      flex: 0 0 36px; width: 36px; height: 36px;
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--nx-text);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .eq-inside-back:hover, .eq-inside-back:active {
+      background: rgba(255,255,255,0.04);
+      border-color: rgba(212,164,78,0.4);
+      color: var(--nx-gold);
+    }
+    /* Override the 72px ord-vendor-avatar inside the inside-header so it
+       sizes appropriately for a header context (40px instead of 72px). */
+    .eq-inside-avatar.ord-vendor-avatar {
+      width: 40px; height: 40px; flex: 0 0 40px;
+      font-size: 17px;
+      border-radius: 50%;
+    }
+    .eq-inside-loc-title {
+      flex: 1; min-width: 0;
+      margin: 0;
+      font-family: 'Outfit', sans-serif;
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--nx-text);
+      letter-spacing: 0.2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* v18.22 — Location card preview keeps vendor default (2-line clamp)
+       so longer addresses wrap to 2 lines instead of truncating mid-word.
+       Card height matches vendor cards with multi-line previews. */
+
     .eq-search-section-head {
       font-size:10px; letter-spacing:1.2px; color:var(--nx-faint);
       text-transform:uppercase; margin: 4px 0 6px; padding: 0 2px;
     }
 
-    /* Inside-location header back button */
-    .eq-loc-inside-back {
-      background: transparent; border: 1px solid rgba(255,255,255,0.07);
-      width: 34px; height: 34px; border-radius: 8px;
-      display:flex; align-items:center; justify-content:center;
-      color: var(--nx-text); cursor:pointer;
-      flex:0 0 34px;
-    }
-    .eq-loc-inside-back:hover { background: rgba(255,255,255,0.04); border-color: rgba(212,164,78,0.3); }
-    .eq-loc-inside-title { display:flex; align-items:center; gap:10px; }
-    .eq-loc-inside-title .eq-loc-avatar { width:32px; height:32px; flex:0 0 32px; font-size:14px; }
+    /* (Old .eq-loc-inside-* rules removed — replaced by .eq-inside-* above) */
   `;
   document.head.appendChild(s);
 })();
@@ -2557,14 +2622,12 @@ function buildUI() {
 
   view.innerHTML = `
     <div class="eq-header">
-      <div class="eq-title-row" style="gap:10px">
-        <button class="eq-loc-inside-back" id="eqLocationBack" aria-label="Back to locations">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      <div class="eq-inside-loc-header">
+        <button class="eq-inside-back" id="eqLocationBack" aria-label="Back to locations" type="button">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
-        <div class="eq-loc-inside-title">
-          ${locationAvatarHTML(activeLoc, 'md')}
-          <h2 class="eq-title" style="margin:0">${esc(activeLoc.label)}</h2>
-        </div>
+        <span class="ord-vendor-avatar eq-inside-avatar"${activeLoc.photo_url ? ` style="background-image:url('${esc((activeLoc.photo_url || '').replace(/'/g, '%27'))}'); background-size:cover; background-position:center; color:transparent"` : ` style="--avatar-hue:${(activeLoc.avatar_hue != null) ? activeLoc.avatar_hue : hashLocationHue(activeLoc.label)};"`}>${activeLoc.photo_url ? '' : esc((activeLoc.label || '?').trim().charAt(0).toUpperCase())}</span>
+        <h2 class="eq-inside-loc-title">${esc(activeLoc.label)}</h2>
       </div>
 
       <div class="eq-actions eq-actions-row">
