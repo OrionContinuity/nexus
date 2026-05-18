@@ -296,7 +296,7 @@
     // missing fields will just render as null/false everywhere.
     let { data, error } = await NX.sb
       .from('order_vendors')
-      .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, cutoff_time, cutoff_days_before, locations, location_overrides, subject_template, body_template, notes, archived, image_url, avatar_hue, pinned, sort_order')
+      .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, cutoff_time, cutoff_days_before, locations, location_overrides, subject_template, body_template, notes, archived, image_url, avatar_hue, pinned, sort_order, recipient_names, default_fill_mode')
       .eq('archived', false)
       .order('pinned', { ascending: false, nullsFirst: false })
       .order('name', { ascending: true });
@@ -2953,43 +2953,188 @@ Thanks for your help sorting this out.`;
       entryState.catalog       = catalog;
       entryState.par_overrides = pars;
 
-      // ─── Par autofill ────────────────────────────────────────────
-      // Pre-populate qty for every item whose par hint resolves to a
-      // positive number for this delivery date + location. This is the
-      // "fresh new order" path — existing drafts already routed through
-      // openExistingOrder above, so we know lines is empty and the user
-      // has not made any explicit choices yet. The autofill reflects
-      // each item's configured par, with day-of-week overrides honored
-      // (parHintFor handles that). The chef can edit any qty before
-      // sending; a 0 means "don't order" and stays a 0 even if a par
-      // would otherwise fill it.
+      // ─── v18.25 — Fill mode dispatch ──────────────────────────────
+      // Honor the vendor's saved default_fill_mode preference:
+      //   'par'        → auto-fill from par hints (current default)
+      //   'last_order' → copy quantities from most recent sent order
+      //   'empty'      → start with no quantities, chef enters manually
+      // Falls back to 'par' if the column is absent or unset.
+      // The user can change the mode mid-entry via the fill picker; this
+      // path only runs once on initial open.
+      const fillMode = (vendor.default_fill_mode || 'par');
       let autofilled = 0;
-      for (const item of catalog) {
-        const hint = parHintFor(item, entryState.delivery_date, entryState.location);
-        if (hint.disabled) continue;
-        if (hint.qty == null || hint.qty <= 0) continue;
+      if (fillMode === 'last_order') {
+        autofilled = await fillFromLastOrder(vendor, activeLoc, catalog);
+        if (NX.toast) NX.toast(autofilled > 0
+          ? `Pre-filled ${autofilled} item${autofilled === 1 ? '' : 's'} from last order`
+          : 'No previous order found — starting empty', autofilled > 0 ? 'info' : 'warn', 2600);
+      } else if (fillMode === 'par') {
+        autofilled = fillFromPars(catalog);
+        if (autofilled > 0 && NX.toast) {
+          NX.toast(`Pre-filled ${autofilled} item${autofilled === 1 ? '' : 's'} from pars — review and edit before sending`, 'info', 2600);
+        }
+      }
+      // 'empty' mode does nothing.
+      renderEntryItems();
+      if (autofilled > 0) scheduleDraftSave();
+    } catch (e) {
+      console.error('[ordering] openVendor:', e);
+      if (NX.toast) NX.toast('Failed to load vendor catalog', 'error');
+    }
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     v18.25 — Fill-mode helpers + picker.
+
+     Three sources to seed a fresh order:
+       fillFromPars       — par hints per item (existing logic, extracted)
+       fillFromLastOrder  — clone the most recent sent order's line qty/units
+       (empty mode = no fill, just return 0)
+
+     openFillModePicker — bottom sheet that lets the user pick a mode
+     mid-entry. Tapping a mode WIPES current selections and re-fills,
+     then optionally saves the choice as the vendor's default so the
+     next new order opens the same way.
+     ════════════════════════════════════════════════════════════════ */
+
+  function fillFromPars(catalog) {
+    let n = 0;
+    if (!entryState) return 0;
+    for (const item of catalog) {
+      const hint = parHintFor(item, entryState.delivery_date, entryState.location);
+      if (hint.disabled) continue;
+      if (hint.qty == null || hint.qty <= 0) continue;
+      entryState.lines[item.id] = {
+        qty:        hint.qty,
+        unit:       shortUnit(item.unit) || 'ea',
+        item_name:  item.item_name,
+        house_name: item.house_name || null,
+        vendor_sku: item.vendor_sku,
+        note:       item.note,
+      };
+      n++;
+    }
+    return n;
+  }
+
+  async function fillFromLastOrder(vendor, locationId, catalog) {
+    if (!entryState || !NX.sb) return 0;
+    try {
+      const { data: lastOrder } = await NX.sb.from('orders')
+        .select('id, email_sent_at')
+        .eq('vendor_id', vendor.id)
+        .eq('location', locationId)
+        .eq('status', 'sent')
+        .order('email_sent_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!lastOrder) return 0;
+
+      const { data: lines, error } = await NX.sb.from('order_lines')
+        .select('item_id, qty, unit')
+        .eq('order_id', lastOrder.id);
+      if (error || !lines || !lines.length) return 0;
+
+      let n = 0;
+      for (const line of lines) {
+        const item = (catalog || entryState.catalog).find(i => i.id === line.item_id);
+        if (!item) continue; // item may have been removed from catalog since
+        const qty = parseFloat(line.qty);
+        if (!qty || qty <= 0) continue;
         entryState.lines[item.id] = {
-          qty:        hint.qty,
-          unit:       item.unit || 'ea',
+          qty,
+          unit:       line.unit || shortUnit(item.unit) || 'ea',
           item_name:  item.item_name,
           house_name: item.house_name || null,
           vendor_sku: item.vendor_sku,
           note:       item.note,
         };
-        autofilled++;
+        n++;
       }
-      renderEntryItems();
-      // Persist the prefilled draft so a tab close/reopen or device
-      // crash doesn't lose the chef's work — they expect the autofill
-      // to behave like a saved starting point, not a one-shot view.
-      if (autofilled > 0) {
-        scheduleDraftSave();
-        if (NX.toast) NX.toast(`Pre-filled ${autofilled} ${autofilled === 1 ? 'item' : 'items'} from pars — review and edit before sending`, 'info', 2600);
-      }
+      return n;
     } catch (e) {
-      console.error('[ordering] openVendor:', e);
-      if (NX.toast) NX.toast('Failed to load vendor catalog', 'error');
+      console.warn('[ordering] fillFromLastOrder:', e);
+      return 0;
     }
+  }
+
+  /* Bottom-sheet picker for fill mode. Wipes current entry quantities
+     before re-filling so the user always gets a clean state from the
+     selected source. Saves the choice as the vendor's default so future
+     orders for this vendor open in the same mode. */
+  async function openFillModePicker() {
+    if (!entryState || !entryState.vendor) return;
+    const vendor = entryState.vendor;
+    const currentMode = vendor.default_fill_mode || 'par';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'ord-vmenu-overlay';
+    overlay.innerHTML = `
+      <div class="ord-vmenu-backdrop"></div>
+      <div class="ord-vmenu-sheet">
+        <div class="ord-vmenu-handle"></div>
+        <div style="padding: 8px 18px 12px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.5px; color: var(--nx-faint); text-transform: uppercase">Fill order from</div>
+        <div class="ord-vmenu-actions">
+          <button class="ord-vmenu-action ${currentMode === 'par' ? 'is-selected' : ''}" data-mode="par">
+            <span class="ord-vmenu-action-text">
+              <span class="ord-vmenu-action-title">Par levels${currentMode === 'par' ? ' · default' : ''}</span>
+              <span class="ord-vmenu-action-sub">Use each item's configured par for the delivery date</span>
+            </span>
+          </button>
+          <button class="ord-vmenu-action ${currentMode === 'last_order' ? 'is-selected' : ''}" data-mode="last_order">
+            <span class="ord-vmenu-action-text">
+              <span class="ord-vmenu-action-title">Last order${currentMode === 'last_order' ? ' · default' : ''}</span>
+              <span class="ord-vmenu-action-sub">Copy quantities from the most recent sent order</span>
+            </span>
+          </button>
+          <button class="ord-vmenu-action ${currentMode === 'empty' ? 'is-selected' : ''}" data-mode="empty">
+            <span class="ord-vmenu-action-text">
+              <span class="ord-vmenu-action-title">Start empty${currentMode === 'empty' ? ' · default' : ''}</span>
+              <span class="ord-vmenu-action-sub">Clear all quantities — enter from scratch</span>
+            </span>
+          </button>
+          <button class="ord-vmenu-action ord-vmenu-action-cancel" data-action="cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('.ord-vmenu-backdrop').addEventListener('click', close);
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+
+    overlay.querySelectorAll('[data-mode]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const mode = btn.dataset.mode;
+        close();
+
+        // Wipe current quantities. The user is explicitly opting into
+        // a different source so we don't keep stale par-fill values.
+        entryState.lines = {};
+
+        let n = 0;
+        if (mode === 'par')        n = fillFromPars(entryState.catalog);
+        if (mode === 'last_order') n = await fillFromLastOrder(vendor, entryState.location, entryState.catalog);
+        // 'empty' → n stays 0
+
+        renderEntryItems();
+        updateCtaCounter();
+        scheduleDraftSave();
+
+        // Persist the choice as the vendor's default. Best-effort —
+        // failure to write the preference shouldn't block the fill.
+        try {
+          await NX.sb.from('vendors').update({ default_fill_mode: mode }).eq('id', vendor.id);
+          vendor.default_fill_mode = mode;
+        } catch (e) {
+          console.warn('[ordering] save fill mode pref:', e);
+        }
+
+        const msg = mode === 'par'        ? (n > 0 ? `Filled ${n} from pars`        : 'No par values set — order is empty')
+                  : mode === 'last_order' ? (n > 0 ? `Filled ${n} from last order`  : 'No previous order found — order is empty')
+                                          :         'Cleared — enter items manually';
+        if (NX.toast) NX.toast(msg, n > 0 ? 'info' : 'warn', 2400);
+      });
+    });
   }
 
   /** Open an existing order — draft (continue) or sent (read-only with Reorder). */
@@ -3292,6 +3437,26 @@ Thanks for your help sorting this out.`;
         <button type="button" class="ord-entry-filter-pill${parFilter === 'all' ? ' is-active' : ''}" data-filter="all">
           All
         </button>
+        ${readOnly ? '' : `
+          <!-- v18.25 — Fill source picker. Sits inline with the My/All
+               filter pills so it's discoverable without taking another
+               row of vertical space. Label updates to reflect the
+               current vendor default. -->
+          <button type="button" class="ord-entry-filter-pill ord-entry-fill-pill" id="ordEntryFillPill" style="margin-left:auto">
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:4px">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Fill: ${(() => {
+              const m = (vendor.default_fill_mode || 'par');
+              return m === 'last_order' ? 'Last order' : m === 'empty' ? 'Empty' : 'Pars';
+            })()}
+            <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left:4px">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+        `}
         ${parFilter === 'mine' && hiddenByFilter > 0 ? `
           <span class="ord-entry-filter-hint">${hiddenByFilter} hidden — tap All to see full catalog</span>
         ` : ''}
@@ -3343,6 +3508,9 @@ Thanks for your help sorting this out.`;
         renderEntryItems();
       });
     });
+    // v18.25 — Fill-mode pill: opens the par/last-order/empty picker
+    const fillPill = overlay.querySelector('#ordEntryFillPill');
+    if (fillPill) fillPill.addEventListener('click', () => openFillModePicker());
     overlay.querySelector('#ordDeliveryDate').addEventListener('change', e => {
       entryState.delivery_date = e.target.value;
       renderEntryItems();
@@ -3449,6 +3617,13 @@ Thanks for your help sorting this out.`;
     // muted "case" sub-line so the format is self-explaining at a glance.
     const pack = prettyPackSize(item.unit);
 
+    // v18.25 — Per-row unit (editable). Reads from the entry line's
+    // override first, then falls back to the catalog item's unit, then
+    // 'ea'. This is what gets written into the order email's
+    // "{qty}{unit} {name}" line, so a per-line override of "bag" or
+    // "lbs" flows straight through to the vendor.
+    const rowUnit = (line && line.unit) || shortUnit(item.unit) || 'ea';
+
     return `
       <div class="ord-item-row${qty > 0 ? ' has-qty' : ''}" data-item-id="${esc(item.id)}" data-item-name="${esc(searchKey)}">
         <div class="ord-item-main">
@@ -3462,7 +3637,20 @@ Thanks for your help sorting this out.`;
           <button class="ord-qty-btn" data-action="inc" aria-label="Increase" ${readOnly ? 'disabled' : ''}>+</button>
         </div>
         <div class="ord-item-unit">
-          <div class="ord-item-unit-pack">${esc(pack.primary)}</div>
+          <!-- v18.25 — Unit is now a free text input per row. Lets the
+               chef override the catalog unit on-the-fly (1 bag of beans
+               instead of 1 cs, 20 lbs of garlic instead of 1 ea, etc.)
+               Defaults to the catalog item's unit. Saves to entryState
+               .lines[id].unit so it persists through draft save + makes
+               it into the order email exactly as typed. -->
+          <input class="ord-item-unit-input" type="text"
+                 value="${esc(rowUnit)}"
+                 placeholder="ea"
+                 maxlength="8"
+                 autocomplete="off"
+                 spellcheck="false"
+                 aria-label="Unit"
+                 ${readOnly ? 'readonly' : ''}>
           ${pack.secondary ? `<div class="ord-item-unit-sub">${esc(pack.secondary)}</div>` : ''}
         </div>
       </div>`;
@@ -3476,6 +3664,7 @@ Thanks for your help sorting this out.`;
     const dec = row.querySelector('[data-action="dec"]');
     const inc = row.querySelector('[data-action="inc"]');
     const inp = row.querySelector('.ord-qty-input');
+    const unitInp = row.querySelector('.ord-item-unit-input');
 
     function applyQty(qty) {
       qty = Math.max(0, parseFloat(qty) || 0);
@@ -3484,9 +3673,16 @@ Thanks for your help sorting this out.`;
         row.classList.remove('has-qty');
         inp.value = '';
       } else {
+        // v18.25 — preserve any per-row unit override the user typed
+        // (entryState.lines[id].unit set via unit input). Fall back to
+        // the catalog unit if no override yet.
+        const existingUnit = (entryState.lines[id] && entryState.lines[id].unit)
+          || (unitInp && unitInp.value && unitInp.value.trim())
+          || item.unit
+          || 'ea';
         entryState.lines[id] = {
           qty,
-          unit: item.unit || 'ea',
+          unit: existingUnit,
           item_name: item.item_name,
           house_name: item.house_name || null,
           vendor_sku: item.vendor_sku,
@@ -3504,6 +3700,31 @@ Thanks for your help sorting this out.`;
     inp.addEventListener('input', e => applyQty(e.target.value));
     inp.addEventListener('blur',  e => applyQty(e.target.value));
     inp.addEventListener('focus', e => e.target.select());
+
+    // v18.25 — Per-row unit input. Saves to entryState.lines[id].unit
+    // on every keystroke so the user can type any unit ("bag", "gal",
+    // "lbs", "box", "bunch", etc.) and it flows straight into the
+    // order email's "{qty}{unit} {name}" line. Trims whitespace + falls
+    // back to 'ea' if the field is emptied entirely.
+    if (unitInp) {
+      const applyUnit = (val) => {
+        const u = (val || '').trim() || 'ea';
+        // If there's already a line, update its unit. If not, only set
+        // the line if user is editing a row that has a qty (otherwise
+        // we'd create an empty line).
+        if (entryState.lines[id]) {
+          entryState.lines[id].unit = u;
+          scheduleDraftSave();
+        }
+      };
+      unitInp.addEventListener('input', e => applyUnit(e.target.value));
+      unitInp.addEventListener('blur',  e => {
+        // Re-normalize to fallback if blank
+        if (!e.target.value.trim()) e.target.value = item.unit || 'ea';
+        applyUnit(e.target.value);
+      });
+      unitInp.addEventListener('focus', e => e.target.select());
+    }
   }
 
   function countItemsInOrder() {
@@ -3829,18 +4050,71 @@ Thanks for your help sorting this out.`;
 
      Pure function: takes formatted lines text + ctx, returns the full
      body string. Doesn't touch entryState or DB. */
+  /* v18.25 — Email format match. Body now reads as a friendly, terse
+     handoff matching how chefs actually message produce/dry-goods reps:
+
+       Hey Anthony and Michael! Hope you are having a great weekend!!
+
+       For tomorrow:
+       1cs black trash bags
+       1cs steel wool
+       ...
+
+       Thank you!!
+
+     Replaces the prior "Hi {team}, please prepare this order: Delivery:…
+     Location:…" block. Auto-detects weekend vs day from today's date,
+     and tomorrow vs explicit-date from delivery_date.
+
+     Recipient names pulled from vendor.recipient_names if set (e.g.
+     "Anthony and Michael"); falls back to "{vendor.name} team" so
+     unfamiliar vendors still get a sensible greeting. */
   function defaultEmailBody(vendor, ctx, linesText, notes, totalItemCount) {
-    let body = `Hi ${vendor.name} team,\n\n`;
-    body += `Please prepare this order:\n\n`;
-    body += `  Delivery:  ${ctx.delivery_date_long}\n`;
-    body += `  Location:  ${ctx.location}\n\n\n`;
+    // Greeting names — prefer the explicit recipient_names field, else
+    // fall back to "{vendor} team"
+    const recipNames = (vendor.recipient_names || '').trim();
+    const greetTo = recipNames || `${vendor.name} team`;
+
+    // Weekend vs day — based on TODAY (when the email is being sent),
+    // not the delivery date. Saturday/Sunday → "weekend"; otherwise "day".
+    const dow = new Date().getDay();
+    const isWeekend = (dow === 0 || dow === 6);
+    const dayWord = isWeekend ? 'weekend' : 'day';
+
+    // For X — if delivery is tomorrow (calendar-wise), say "tomorrow".
+    // Otherwise spell out the day name + date for clarity ("Monday, May 11").
+    const deliveryLabel = computeForLabel(ctx.delivery_date) || ctx.delivery_date_long || 'this order';
+
+    let body = `Hey ${greetTo}! Hope you are having a great ${dayWord}!!\n\n`;
+    body += `For ${deliveryLabel}:\n`;
     body += linesText;
     if (notes && notes.trim()) {
-      body += `\n\n\nNOTES\n\n${notes.trim()}`;
+      body += `\n\n${notes.trim()}`;
     }
-    body += `\n\n\n${totalItemCount} item${totalItemCount === 1 ? '' : 's'} total\n\n`;
-    body += `Thanks,\n`;
+    body += `\n\nThank you!!\n`;
     return body;
+  }
+
+  /* Helper for the email greeting: turn a delivery_date (YYYY-MM-DD)
+     into the right "For X" label.
+       today              → "today"
+       tomorrow           → "tomorrow"
+       within next 7 days → "Monday" / "Tuesday" / etc.
+       further out        → "Monday, May 11"
+     Returns null if the date is unparseable; caller falls back. */
+  function computeForLabel(dateStr) {
+    if (!dateStr) return null;
+    const target = new Date(dateStr + 'T00:00:00');
+    if (isNaN(target)) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dayDiff = Math.round((target - today) / 86400000);
+    if (dayDiff === 0) return 'today';
+    if (dayDiff === 1) return 'tomorrow';
+    const dowNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    if (dayDiff > 1 && dayDiff <= 7) return dowNames[target.getDay()];
+    // Further out — use the long format from the existing helper
+    return fmtDateLong(dateStr);
   }
 
   /* Detect a "legacy default" body template — the pattern from before
@@ -3867,16 +4141,18 @@ Thanks for your help sorting this out.`;
     const sampleCtx = {
       vendor: vendor.name || 'Vendor',
       location: 'Este Restaurant',
-      delivery_date_long: 'Monday, May 11',
-      delivery_date: '5/11',
+      // Pick tomorrow so the "For tomorrow:" branch fires in the preview
+      delivery_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+      delivery_date_long: 'Tomorrow',
     };
     const sampleLines =
-      `1cs degreaser spray bottles\n` +
-      `1gal red wine vinegar  #RWV-1G\n` +
+      `1cs black trash bags\n` +
+      `1cs steel wool\n` +
+      `2cs large gloves\n` +
       `5cs sunflower oil\n` +
-      `20lbs garlic  #GARLIC-WHL\n` +
-      `1ea leg of prosciutto`;
-    return defaultEmailBody(vendor, sampleCtx, sampleLines, '', 5);
+      `20lbs garlic\n` +
+      `1bag black beans`;
+    return defaultEmailBody(vendor, sampleCtx, sampleLines, '', 6);
   }
 
   function buildBody(vendor, location, deliveryDate, lines, notes) {
@@ -3922,9 +4198,11 @@ Thanks for your help sorting this out.`;
       const name = pickHouseName(item, parOverride);
       const qty = l.qty;
       const u = shortUnit(l.unit || (item && item.unit));
-      const sku = (l.vendor_sku || (item && item.vendor_sku) || '').trim();
+      // v18.25 — SKUs dropped from the line format. The screenshot
+      // reference is a clean "{qty}{unit} {name}" list with nothing else.
+      // SKUs still exist on the catalog item and admin order detail; just
+      // not on the outgoing email line. Cleaner for the vendor to read.
       linesText += `${qty}${u} ${name}`;
-      if (sku) linesText += `  #${sku}`;
       linesText += `\n`;
       totalItemCount++;
     }
@@ -4371,6 +4649,18 @@ Thanks for your help sorting this out.`;
           </label>
           <input type="email" class="rx-form-input" data-rx-vendor-email value="${esc(v.email || '')}" placeholder="orders@vendor.com" autocomplete="off" inputmode="email">
         </div>
+        <!-- v18.25 — Recipient names for the email greeting line.
+             Used by defaultEmailBody to render "Hey {names}!" instead
+             of "Hi {vendor} team,". Optional — empty falls back to the
+             vendor name. Type names exactly as you'd write them in the
+             greeting, e.g. "Anthony and Michael" or just "Anthony". -->
+        <div class="rx-form-field">
+          <label class="rx-form-label">
+            Greeting names
+            <span class="rx-form-hint">— used in "Hey ___!" line. Blank = "{vendor} team"</span>
+          </label>
+          <input type="text" class="rx-form-input" data-rx-recipient-names value="${esc(v.recipient_names || '')}" placeholder="e.g. Anthony and Michael" autocomplete="off" maxlength="120">
+        </div>
         ${RX.buildChipGroupHTML(ccArr,  'cc',  { label: 'CC',    hint: `always copied on ${esc(activeLocLabel)}'s orders`,        inputType: 'email', inputMode: 'email', placeholder: 'cc@example.com',     addLabel: 'Add CC' })}
         ${RX.buildChipGroupHTML(bccArr, 'bcc', { label: 'BCC',   hint: `silent copies on ${esc(activeLocLabel)}'s orders`,       inputType: 'email', inputMode: 'email', placeholder: 'bcc@example.com',    addLabel: 'Add BCC' })}
         ${RX.buildChipGroupHTML(altArr, 'alt', { label: 'OTHER', hint: `stored only for ${esc(activeLocLabel)} — NOT auto-sent`, inputType: 'email', inputMode: 'email', placeholder: 'backup@example.com', addLabel: 'Add other' })}
@@ -4777,6 +5067,7 @@ Thanks for your help sorting this out.`;
         });
 
         const email = (overlay.querySelector('[data-rx-vendor-email]') || {}).value || '';
+        const recipientNames = ((overlay.querySelector('[data-rx-recipient-names]') || {}).value || '').trim();
         const subject = (overlay.querySelector('[data-rx-subject]') || {}).value || '';
         const body    = (overlay.querySelector('[data-rx-body]')    || {}).value || '';
         const notes   = (overlay.querySelector('[data-rx-notes]')   || {}).value || '';
@@ -4871,9 +5162,10 @@ Thanks for your help sorting this out.`;
           subject_template: subject.trim() || null,
           body_template:    body.trim()    || null,
           notes:            notes.trim()   || null,
+          recipient_names:  recipientNames || null,
         };
 
-        const optionalCols = ['image_url', 'avatar_hue', 'pinned', 'alt_emails', 'cutoff_time', 'cutoff_days_before', 'locations', 'location_overrides'];
+        const optionalCols = ['image_url', 'avatar_hue', 'pinned', 'alt_emails', 'cutoff_time', 'cutoff_days_before', 'locations', 'location_overrides', 'recipient_names'];
         const stripOptionalCols = (p) => {
           const o = { ...p };
           for (const k of optionalCols) delete o[k];
