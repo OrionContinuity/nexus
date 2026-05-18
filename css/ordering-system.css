@@ -8279,6 +8279,34 @@ body.ord-overlay-open .nav {
   color: var(--nx-gold);
 }
 
+/* v18.25 — Editable unit text input inside the unit cell. Matches the
+   typography of .ord-item-unit-pack but is a real input so the user
+   can type any unit ("ea", "cs", "bag", "gal", "lbs", "box"…) per-line. */
+.ord-item-unit-input {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  color: var(--nx-text, var(--text));
+  text-transform: lowercase;
+  text-align: right;
+  outline: none;
+  -webkit-appearance: none;
+}
+.ord-item-unit-input:focus {
+  border-color: var(--nx-gold);
+  background: rgba(212,164,78,0.06);
+}
+.ord-item-row.has-qty .ord-item-unit-input {
+  color: var(--nx-gold);
+  border-color: rgba(212,164,78,0.25);
+}
+
 /* Phone — keep the chip and the right column from fighting for width
    on narrow viewports. The qty stepper stays its full-size touch target;
    the par chip wraps under the meta line; the right column keeps its
