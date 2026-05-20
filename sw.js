@@ -184,7 +184,7 @@
      redesigned (48px equal-height buttons), race condition fixed
      in pane wiring.
 */
-const CACHE_NAME = 'nexus-v77-pm-schedule-sync-1';
+const CACHE_NAME = 'nexus-v74-clippy-split';
 
 // ─── App shell — everything needed to run offline ─────────────────
 const APP_SHELL = [
@@ -241,6 +241,7 @@ const APP_SHELL = [
   './js/config.js',
   './js/education.js',
   './js/clippy.js',
+  './js/clippy-gacha.js',
   './js/equipment.js',
   './js/equipment-ai.js',
   './js/equipment-badge-choice.js',
