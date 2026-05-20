@@ -29,6 +29,105 @@
 (function() {
   'use strict';
 
+  /* ══════════════════════════════════════════════════════════════════════
+     v18.26 — FILE TABLE OF CONTENTS
+     ────────────────────────────────────────────────────────────────────
+     This file is 12k lines. Use Cmd/Ctrl+G + the line numbers below to
+     jump to a module. Each module is bracketed by `╔══ MODULE: name ══╗`
+     and `╚══ END: name ══╝` markers — find them with /MODULE: in editor.
+
+       CORE INFRASTRUCTURE
+         ~32   STATE              the shared state object
+         ~150  MOODS              expression definitions
+         ~160  v18.26 INFRA       CFG, timers, listeners, overlays, cloud lock, teardown
+         ~380  UTILITIES          esc, userKey, getCurrentUser, etc.
+         ~410  CLOUD SYNC         cloudPush, cloudPull, withCloudLock-wrapped
+
+       DIALOG + SPEECH
+         ~558  DIALOG POOLS       INLINE_POOLS (the big content payload)
+         ~727  VARIABLE SUBST     {name}, {pet}, {streak} interpolation
+         ~5637 BUBBLE / CHAT      actionBubble, openChat, closeActionBubble
+
+       REWARD SYSTEMS (5 overlapping — see v18.26 trigger dispatcher below)
+         ~1028 FEELINGS           8 gauges 0-100 (happiness, affection, ...)
+         ~1161 TICKLE             tap-burst detection
+         ~1192 HOURLY CLOCK       time-of-day awareness
+         ~1215 STRESS CHECK       cross-module stress poll
+         ~2378 PERSONALITY        tsundere/silly/grumpy/shy/angry/normal
+         ~3917 EMOTIONS           Plutchik primaries, scheduleEmotionalFollowup
+         ~4215 AFFINITY           +/- 100 relationship score
+         ~10120 BOND XP           leveling, costume unlocks
+         ~10773 GACHA             daily card pulls, collection
+         ~v18.26 TRIGGER DISPATCH processInteraction() — single funnel for all 5
+
+       MEMORY
+         ~747  MEMORY NODES       deposit/recall
+         ~771  MEMORY PALACE      7 Roman rooms
+         ~11080 MEMORY DEX        Pokemon-style grid
+
+       BEHAVIOR + AWARENESS
+         ~3339 AWARENESS          operational poll, behavior sensors, synth tick
+         ~5976 RANDOM BEHAVIORS   idle drift, ambient mood, time-aware greetings
+         ~6144 MOVE / SCORE       reposition when content obscured
+         ~6571 MISCHIEF           view-aware pokes (equipment, clean, board...)
+         ~6788 BORED MISCHIEF     PRD-controlled, fires when idle 60s+
+         ~10239 SULKING           Duolingo-style after extended absence
+         ~10382 LESSONS           smug condescending teaching mode
+
+       UI SURFACES
+         ~4113 CAPABILITY MENU    "What I Am" — world model + active/passive caps
+         ~4330 AFFINITY MENU      relationship + likes/dislikes inspector
+         ~4719 COSTUME MENU       wardrobe (hats + props + saved outfits)
+         ~5894 LOGIN PEEK         first-time acceptance flow
+         ~7009 GAME OVERLAY       container for 10 mini-games
+         ~10826 GACHA OVERLAY     pull + collection
+         ~10985 MEMORY DEX        collected memory types grid
+         ~11290 COMMAND PALETTE   searchable shortcut sheet
+
+       MINI-GAMES (~7669 → ~10116)
+         ~7669  TAP               tap-the-target
+         ~7791  CATCH             falling items
+         ~8033  REACTION          stoplight reaction time
+         ~8117  MEMORY            color sequence
+         ~8260  FLAPPY            obstacle dodging
+         ~8874  CANNON            angle-power projectile
+         ~9223  SNAKE             grid-classic
+         ~9402  BREAKER           brick break
+         ~9682  COIN CATCH        catch the coin
+         ~9872  ASTEROIDS         space shooter
+
+       INPUT + HANDLERS
+         ~5134 POINTER            click + drag
+         ~5282 CLICK HANDLER      tap → bubble dispatch
+         ~11399 GLOBAL LISTENERS  konami code, "hi clippy" voice
+
+       PERSISTENCE
+         ~4983 PREFERENCES        savePreferences (cloud-locked)
+         ~10516 CLOUD STATE       collectLocalState upsert
+         ~10605 STORAGE EVENTS    cross-tab sync via window.storage event
+
+       AUDIO + VISUAL
+         ~11217 SONG PLAYER       music player + DJ Trajan
+         ~11464 PARTICLES         sparkle/confetti spawn
+         ~11496 WEB AUDIO         tones, chimes, pitch synth
+
+       STREAKS + DAYS
+         ~11543 DAILY STREAK      day-over-day continuity
+         ~11613 SPECIAL DAYS      holiday-aware greetings
+
+       BOOT
+         ~11667 INIT              the master init() flow
+         ~11852 PUBLIC API        NX.clippy.* exports
+     ══════════════════════════════════════════════════════════════════════ */
+
+
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║ MODULE: STATE                                                          ║
+  // ║ The shared state object. Every other module reads/writes properties.   ║
+  // ║ v18.26 — see also state.timers, state.listeners, state.activeOverlays  ║
+  // ║ added by the infrastructure block ~line 160.                           ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
+
   // ─── State ──────────────────────────────────────────────────────────
   const state = {
     initialized: false,
@@ -149,6 +248,390 @@
   };
 
 
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║ MODULE: v18.26 INFRASTRUCTURE                                          ║
+  // ║ Central CFG (cooldowns, chances, intervals) + registries for timers,   ║
+  // ║ listeners, observers, overlays + cloud-sync mutex + teardown.          ║
+  // ║ This is the foundation everything else builds on. If you're hunting    ║
+  // ║ a "Clippy keeps firing after I disabled him" bug, look at teardown().  ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
+
+  /* ════════════════════════════════════════════════════════════════════
+     v18.26 — ARCHITECTURAL STABILIZATION
+
+     Adds the tracking + locking + tuning infrastructure that the rest
+     of the module had been missing. Purely additive in this drop:
+     existing code keeps working; new helpers are wired into the
+     highest-impact call sites only. Subsequent ships should migrate
+     more call sites onto these helpers.
+
+     What this gives you:
+       • timer registry        — trackInterval/trackTimeout/clearAllTimers
+                                 so disable() actually stops Clippy from
+                                 firing. Plugs the ghost-behavior leak.
+       • listener registry     — trackListener/removeAllListeners so
+                                 init() can run twice without double-
+                                 firing every reaction.
+       • overlay manager       — openOverlay/closeOverlay/isOverlayOpen
+                                 single source of truth for "is something
+                                 visible right now." Stops bubble + palette
+                                 + game from stacking on top of each other.
+       • cloud sync lock       — withCloudLock() mutex so a cloudPull
+                                 can't clobber an in-flight savePreferences.
+       • CFG constants         — central knob for reaction chances and
+                                 cooldowns. Tune via NX.clippy.tune({...})
+                                 instead of hunting through 30 magic numbers.
+       • public teardown() API — clears everything in one call, used by
+                                 declineToJoin() so disabling actually works.
+     ════════════════════════════════════════════════════════════════════ */
+
+  /* Centralized tuning knobs. Override at runtime via NX.clippy.tune().
+     Cooldowns are in ms. Chances are 0-1 (higher = more frequent).
+     Default values match what was scattered as magic numbers across
+     the prior implementation — no behavior change unless you tune. */
+  const CFG = {
+    cooldown: {
+      react_button:      8000,   // wait this long after a button reaction
+      react_modal:      12000,   // wait this long after a modal reaction
+      react_submit:      8000,   // wait this long after a form-submit reaction
+      bubble_min:        2000,   // floor for bubble auto-hide
+    },
+    chance: {
+      react_button:      0.10,   // 10% chance to react to a button click
+      react_modal:       0.20,   // 20% chance to react to a modal open
+      react_scroll:      0.05,   // 5% chance to react to scroll burst
+    },
+    interval: {
+      achievements:     30000,
+      hourly_check:     60000,
+      feelings_decay:   90000,
+      stress_check:    300000,
+      mood_weather:     30000,
+      personality_pick: 3600000,
+      affinity_decay:   3600000,
+    },
+  };
+
+  /* Apply runtime tuning overrides. Shallow merges into CFG.cooldown,
+     CFG.chance, CFG.interval. Unknown keys ignored. */
+  function applyTuning(overrides) {
+    if (!overrides || typeof overrides !== 'object') return;
+    for (const group of ['cooldown', 'chance', 'interval']) {
+      if (overrides[group] && typeof overrides[group] === 'object') {
+        for (const k of Object.keys(overrides[group])) {
+          if (k in CFG[group]) CFG[group][k] = overrides[group][k];
+        }
+      }
+    }
+  }
+
+  /* ─── Timer registry ────────────────────────────────────────────────
+     Every scheduled callback must go through one of these so disable()
+     can clean up. Two queues: intervals (cleared via clearInterval) and
+     timeouts (cleared via clearTimeout). Returns the handle for callers
+     that want to clear it manually too. */
+  state.timers = { intervals: [], timeouts: [] };
+
+  function trackInterval(fn, ms) {
+    const id = setInterval(fn, ms);
+    state.timers.intervals.push(id);
+    return id;
+  }
+  function trackTimeout(fn, ms) {
+    const id = setTimeout(fn, ms);
+    state.timers.timeouts.push(id);
+    return id;
+  }
+  function clearAllTimers() {
+    for (const id of state.timers.intervals) { try { clearInterval(id); } catch (_) {} }
+    for (const id of state.timers.timeouts)  { try { clearTimeout(id);  } catch (_) {} }
+    state.timers.intervals = [];
+    state.timers.timeouts  = [];
+    // Also clear the named timers stored elsewhere in state. If they
+    // weren't tracked through the registry, we still know their slots.
+    for (const slot of ['moodTimer', 'blinkTimer', 'randomTimer', 'moveTimer', 'activeActionTimer']) {
+      if (state[slot]) { try { clearTimeout(state[slot]); clearInterval(state[slot]); } catch (_) {} state[slot] = null; }
+    }
+  }
+
+  /* ─── Listener registry ─────────────────────────────────────────────
+     Every long-lived listener that survives a single user interaction
+     needs to go through trackListener so it can be unsubscribed on
+     teardown. Especially important for document-level click/submit
+     observers + MutationObservers. */
+  state.listeners = []; // each entry: { target, event, fn, opts }
+  state.observers = []; // each entry: MutationObserver
+
+  function trackListener(target, event, fn, opts) {
+    if (!target || typeof target.addEventListener !== 'function') return;
+    target.addEventListener(event, fn, opts);
+    state.listeners.push({ target, event, fn, opts });
+  }
+  function trackObserver(observer) {
+    if (observer) state.observers.push(observer);
+    return observer;
+  }
+  function removeAllListeners() {
+    for (const { target, event, fn, opts } of state.listeners) {
+      try { target.removeEventListener(event, fn, opts); } catch (_) {}
+    }
+    for (const ob of state.observers) { try { ob.disconnect(); } catch (_) {} }
+    state.listeners = [];
+    state.observers = [];
+  }
+
+  /* ─── Overlay manager ───────────────────────────────────────────────
+     Single source of truth for "is some Clippy-owned UI surface visible
+     right now." Prevents the bubble + palette + game + dex stacking
+     bug. Names are descriptive strings; checks use isOverlayOpen() with
+     no arg ("anything open?") or with a specific name. */
+  state.activeOverlays = new Set();
+
+  function openOverlay(name) {
+    if (!name) return;
+    state.activeOverlays.add(name);
+  }
+  function closeOverlay(name) {
+    if (!name) { state.activeOverlays.clear(); return; }
+    state.activeOverlays.delete(name);
+  }
+  function isOverlayOpen(name) {
+    if (!name) return state.activeOverlays.size > 0;
+    return state.activeOverlays.has(name);
+  }
+  /* Returns true if ANY overlay is open EXCEPT the named one(s). Useful
+     for "don't show a bubble if anything else is on screen, but it's ok
+     if my own bubble is already showing and I want to replace it." */
+  function isOtherOverlayOpen(...exclude) {
+    if (!state.activeOverlays.size) return false;
+    for (const n of state.activeOverlays) {
+      if (!exclude.includes(n)) return true;
+    }
+    return false;
+  }
+
+  /* ─── Cloud sync lock ───────────────────────────────────────────────
+     A simple counter mutex. cloudPush + cloudPull + savePreferences
+     etc. all wrap themselves in withCloudLock(). When a pull is in
+     flight, a push waits; when a push is in flight, a pull waits.
+     Prevents the "DND setting reverts after save" race. */
+  state.cloudLock = 0;
+  state.cloudWaiters = [];
+
+  async function withCloudLock(label, fn) {
+    if (state.cloudLock > 0) {
+      await new Promise(r => state.cloudWaiters.push(r));
+    }
+    state.cloudLock++;
+    try {
+      return await fn();
+    } finally {
+      state.cloudLock--;
+      const next = state.cloudWaiters.shift();
+      if (next) next();
+    }
+  }
+
+  /* ─── Teardown ─────────────────────────────────────────────────────
+     Public-facing cleanup. Called from declineToJoin (the "disable"
+     button) and from anywhere else that wants to put Clippy to bed.
+     Clears all timers + listeners + observers, closes all overlays.
+     Resets initialized so a subsequent enable()→init() call rebuilds
+     the shell + timers + listeners fresh instead of being short-
+     circuited by the "already initialized" guard. */
+  function teardown() {
+    clearAllTimers();
+    removeAllListeners();
+    closeOverlay(); // close everything
+    state.suppressed = false;
+    state.activeAction = null;
+    state.dancing = false;
+    state.sulkActive = false;
+    state.nxActionInstalled = false;  // so enable() reinstalls the global listener
+    state.cloudSyncInited = false;    // so enable() restarts cloud sync
+    state.awareness = { _started: false };  // awareness loop can re-init
+    // Remove the shell entirely so re-enable rebuilds from scratch
+    // (avoids stale state on the SVG element after teardown).
+    if (state.shell) {
+      try { state.shell.remove(); } catch (_) {}
+      state.shell = null;
+    }
+    if (state.host) {
+      try { state.host.remove(); } catch (_) {}
+      state.host = null;
+    }
+    state.bubble = null;
+    state.palette = null;
+    state.gameOverlay = null;
+    state.dexOverlay = null;
+    state.initialized = false;
+  }
+
+  /* Status snapshot for debugging — exposed via NX.clippy.getStatus(). */
+  function getStatus() {
+    return {
+      enabled: state.enabled,
+      suppressed: state.suppressed,
+      booted: state.booted,
+      activeOverlays: Array.from(state.activeOverlays),
+      timers: { intervals: state.timers.intervals.length, timeouts: state.timers.timeouts.length },
+      listeners: state.listeners.length,
+      observers: state.observers.length,
+      cloudLock: state.cloudLock,
+    };
+  }
+
+  /* ── End v18.26 infrastructure ─────────────────────────────────── */
+
+
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║ MODULE: TRIGGER DISPATCHER                                             ║
+  // ║ v18.26 — single funnel for the five overlapping reward systems         ║
+  // ║   feelings · emotion · affinity · bond XP · mood                       ║
+  // ║                                                                        ║
+  // ║ Previously, every interaction site (chat send, task complete, game     ║
+  // ║ win, button click, etc.) called adjustFeeling + feel + adjustAffinity  ║
+  // ║ + addBondXP + mood individually. ~50 sites, all slightly different,    ║
+  // ║ impossible to tune coherently.                                         ║
+  // ║                                                                        ║
+  // ║ processInteraction(eventName, payload) is the single funnel. Each      ║
+  // ║ event has a canonical reward signature defined in INTERACTION_REWARDS  ║
+  // ║ below. Call sites stay legal — they can still invoke the underlying    ║
+  // ║ functions — but new code should go through this dispatcher so the      ║
+  // ║ five systems stay coordinated.                                         ║
+  // ║                                                                        ║
+  // ║ Defining new events: add a key to INTERACTION_REWARDS with the         ║
+  // ║ feelings/emotions/affinity/bond/mood it should produce. Then call      ║
+  // ║ processInteraction('your_event_name') anywhere that event happens.     ║
+  // ║                                                                        ║
+  // ║ Tunable at runtime via NX.clippy.tuneInteraction(name, partial).       ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
+
+  /* Canonical reward signatures. Each event names a coordinated change
+     across the five systems. Missing fields mean "no change" for that
+     system. Numbers are intentionally small — the prior code had many
+     +10 bumps that compounded too fast; the unified table tunes them
+     toward a slower, more meaningful curve. */
+  const INTERACTION_REWARDS = {
+    // ── Positive interactions ──
+    chat_message_positive: { feelings: { happiness: +2, affection: +3, boredom: -3, curiosity: +2 }, emotion: { joy: +1 }, affinity: +1, bond: 1, mood: 'happy' },
+    chat_message_neutral:  { feelings: { curiosity: +1, boredom: -2 }, bond: 1 },
+    chat_message_negative: { feelings: { happiness: -2, affection: -1 }, emotion: { sadness: +1 }, affinity: -1 },
+    task_completed:        { feelings: { happiness: +3, satisfaction: +4 }, emotion: { joy: +2 }, affinity: +2, bond: 3, mood: 'proud' },
+    streak_continued:      { feelings: { happiness: +4, affection: +2 }, emotion: { joy: +3 }, affinity: +3, bond: 5, mood: 'sparkle' },
+    game_win:              { feelings: { happiness: +3, satisfaction: +5 }, emotion: { joy: +3 }, affinity: +1, bond: 4, mood: 'celebrate' },
+    game_loss_graceful:    { feelings: { satisfaction: +1 }, emotion: { joy: +1 }, bond: 1 },
+    gacha_pull:            { feelings: { curiosity: +5, happiness: +2 }, emotion: { surprise: +2 }, bond: 2 },
+    achievement_earned:    { feelings: { happiness: +5, satisfaction: +5 }, emotion: { joy: +4 }, affinity: +2, bond: 5, mood: 'sparkle' },
+    tickle:                { feelings: { happiness: +3, affection: +1 }, emotion: { joy: +2 }, bond: 1, mood: 'happy' },
+    name_set:              { feelings: { affection: +5, happiness: +3 }, affinity: +5, bond: 5, mood: 'happy' },
+    button_clicked:        { feelings: { curiosity: +1 } },
+    form_submitted:        { feelings: { happiness: +2, satisfaction: +2 }, bond: 2, mood: 'proud' },
+    // ── Neutral / probe ──
+    modal_opened:          { feelings: { curiosity: +1 } },
+    search_focused:        { feelings: { curiosity: +1 }, mood: 'determined' },
+    // ── Negative / withdrawal ──
+    user_ignored_24h:      { feelings: { happiness: -3, boredom: +4 }, emotion: { sadness: +2 }, affinity: -2, mood: 'sad' },
+    user_ignored_72h:      { feelings: { happiness: -5, boredom: +8 }, emotion: { sadness: +4 }, affinity: -5, mood: 'sad' },
+    dismissed_repeatedly:  { feelings: { happiness: -2 }, emotion: { sadness: +1 }, affinity: -1 },
+  };
+
+  /* Allow runtime override of an interaction's reward signature. Useful
+     for tuning if Clippy feels "too generous" or "too stingy" with bond
+     XP at a particular event. Shallow-merges into the existing entry. */
+  function tuneInteraction(eventName, partial) {
+    if (!INTERACTION_REWARDS[eventName]) {
+      INTERACTION_REWARDS[eventName] = {};
+    }
+    Object.assign(INTERACTION_REWARDS[eventName], partial);
+  }
+
+  /* The single funnel. Routes one named event through all five reward
+     systems coherently. Each system's underlying function (adjustFeeling,
+     feel, etc.) is called only if defined — the dispatcher is safe to
+     invoke even before init() has wired up the systems. Returns the
+     applied reward signature so callers can introspect (e.g. show a
+     "+2 affection" toast). */
+  function processInteraction(eventName, payload) {
+    payload = payload || {};
+    const reward = INTERACTION_REWARDS[eventName];
+    if (!reward) {
+      // Unknown event — log but don't throw, so call sites that
+      // typo an event name still work (just become no-ops).
+      if (typeof console !== 'undefined') console.warn('[clippy] unknown interaction:', eventName);
+      return null;
+    }
+    try {
+      // 1) Feelings (8 gauges 0-100)
+      if (reward.feelings && typeof adjustFeeling === 'function') {
+        for (const [gauge, delta] of Object.entries(reward.feelings)) {
+          adjustFeeling(gauge, delta);
+        }
+      }
+      // 2) Emotion (Plutchik primaries)
+      if (reward.emotion && typeof feel === 'function') {
+        for (const [emotion, intensity] of Object.entries(reward.emotion)) {
+          feel(emotion, intensity);
+        }
+      }
+      // 3) Affinity (+/- 100 relationship score)
+      if (reward.affinity != null && typeof adjustAffinity === 'function') {
+        adjustAffinity(reward.affinity, eventName);
+      }
+      // 4) Bond XP (leveling)
+      if (reward.bond != null && typeof addBondXP === 'function') {
+        addBondXP(reward.bond);
+      }
+      // 5) Mood (visible expression, brief)
+      if (reward.mood && typeof mood === 'function' && !state.suppressed) {
+        const duration = payload.moodDuration || 3000;
+        mood(reward.mood, duration);
+      }
+    } catch (e) {
+      console.warn('[clippy] processInteraction failed for', eventName, e);
+    }
+    return reward;
+  }
+
+  /* Unified relationship snapshot. Combines the five systems into a
+     single human-readable summary. Useful for the affinity menu, the
+     "What I Am" panel, and for debugging "how does Clippy feel about
+     me right now?" without checking five different places. */
+  function getRelationshipState() {
+    const snap = { systems: {} };
+    try {
+      if (typeof getEmotionSnapshot === 'function') snap.systems.emotion  = getEmotionSnapshot();
+      if (typeof getAffinityScore === 'function')   snap.systems.affinity = getAffinityScore();
+      if (typeof getBondLevel === 'function')       snap.systems.bond     = getBondLevel();
+      if (typeof getBondXP === 'function')          snap.systems.bondXP   = getBondXP();
+      if (state.feelings)                           snap.systems.feelings = Object.assign({}, state.feelings);
+      if (state.activeMood)                         snap.systems.mood     = state.activeMood;
+    } catch (e) { /* best-effort */ }
+
+    // Derived overall score: -100 (terrible) to +100 (devoted).
+    // Affinity is the primary signal; bond level adds permanence;
+    // happiness gauge adds short-term warmth. Capped to range.
+    let overall = 0;
+    if (snap.systems.affinity != null) overall += snap.systems.affinity;
+    if (snap.systems.bond != null)     overall += (snap.systems.bond.level || 0) * 3;
+    if (snap.systems.feelings && snap.systems.feelings.happiness != null) {
+      overall += (snap.systems.feelings.happiness - 50) / 4;
+    }
+    snap.overall = Math.max(-100, Math.min(100, Math.round(overall)));
+
+    // Human-readable label
+    if (snap.overall >= 80)      snap.label = 'devoted';
+    else if (snap.overall >= 50) snap.label = 'fond';
+    else if (snap.overall >= 20) snap.label = 'warm';
+    else if (snap.overall >= -20) snap.label = 'neutral';
+    else if (snap.overall >= -50) snap.label = 'distant';
+    else                          snap.label = 'cold';
+    return snap;
+  }
+
+  /* ── End v18.26 trigger dispatcher ─────────────────────────────── */
+
+
   // ─── Utilities ──────────────────────────────────────────────────────
   function esc(s) {
     return String(s == null ? '' : s)
@@ -211,72 +694,76 @@
   }
 
   async function cloudPush() {
-    const sb = getSupabaseClient();
-    const user = getCurrentUser();
-    if (!sb || !user || !user.id) return false;
-    if (!navigator.onLine) {
-      state.cloudPushPending = true;
-      return false;
-    }
-    showSyncIndicator('syncing');
-    const payload = collectLocalState();
-    payload.user_id = user.id;
-    payload.updated_at = new Date().toISOString();
-    try {
-      const { error } = await sb.from('clippy_cloud_state')
-        .upsert(payload, { onConflict: 'user_id' });
-      if (error) {
-        showSyncIndicator('failed', '☁ retry later');
+    return withCloudLock('push', async () => {
+      const sb = getSupabaseClient();
+      const user = getCurrentUser();
+      if (!sb || !user || !user.id) return false;
+      if (!navigator.onLine) {
         state.cloudPushPending = true;
         return false;
       }
-      showSyncIndicator('synced');
-      state.cloudPushPending = false;
-      state.cloudLastPushAt = Date.now();
-      return true;
-    } catch (e) {
-      showSyncIndicator('failed', '☁ offline');
-      state.cloudPushPending = true;
-      return false;
-    }
+      showSyncIndicator('syncing');
+      const payload = collectLocalState();
+      payload.user_id = user.id;
+      payload.updated_at = new Date().toISOString();
+      try {
+        const { error } = await sb.from('clippy_cloud_state')
+          .upsert(payload, { onConflict: 'user_id' });
+        if (error) {
+          showSyncIndicator('failed', '☁ retry later');
+          state.cloudPushPending = true;
+          return false;
+        }
+        showSyncIndicator('synced');
+        state.cloudPushPending = false;
+        state.cloudLastPushAt = Date.now();
+        return true;
+      } catch (e) {
+        showSyncIndicator('failed', '☁ offline');
+        state.cloudPushPending = true;
+        return false;
+      }
+    });
   }
 
   async function cloudPull() {
-    const sb = getSupabaseClient();
-    const user = getCurrentUser();
-    if (!sb || !user || !user.id) return false;
-    if (!navigator.onLine) return false;
-    try {
-      const { data, error } = await sb.from('clippy_cloud_state')
-        .select('*').eq('user_id', user.id).maybeSingle();
-      if (error || !data) return false;
-      // LWW: only apply if cloud is newer than our last local write
-      const cloudTime = new Date(data.updated_at || 0).getTime();
-      const localTime = state.preferences.last_local_write || 0;
-      if (cloudTime <= localTime) return false;   // local is newer, skip
-      // Merge cloud → local
-      if (Array.isArray(data.memories)) {
-        state.memories = data.memories;
-        localStorage.setItem(userKey('clippy_memories'), JSON.stringify(data.memories));
+    return withCloudLock('pull', async () => {
+      const sb = getSupabaseClient();
+      const user = getCurrentUser();
+      if (!sb || !user || !user.id) return false;
+      if (!navigator.onLine) return false;
+      try {
+        const { data, error } = await sb.from('clippy_cloud_state')
+          .select('*').eq('user_id', user.id).maybeSingle();
+        if (error || !data) return false;
+        // LWW: only apply if cloud is newer than our last local write
+        const cloudTime = new Date(data.updated_at || 0).getTime();
+        const localTime = state.preferences.last_local_write || 0;
+        if (cloudTime <= localTime) return false;   // local is newer, skip
+        // Merge cloud → local
+        if (Array.isArray(data.memories)) {
+          state.memories = data.memories;
+          localStorage.setItem(userKey('clippy_memories'), JSON.stringify(data.memories));
+        }
+        if (data.preferences && typeof data.preferences === 'object') {
+          Object.assign(state.preferences, data.preferences);
+          savePreferences();
+        }
+        if (data.feelings && typeof data.feelings === 'object') {
+          state.feelings = data.feelings;
+          localStorage.setItem(userKey('clippy_feelings'), JSON.stringify(data.feelings));
+        }
+        if (data.gacha) {
+          localStorage.setItem(userKey('clippy_gacha'), JSON.stringify(data.gacha));
+        }
+        if (data.highscores) {
+          localStorage.setItem(userKey('clippy_highscores'), JSON.stringify(data.highscores));
+        }
+        return true;
+      } catch (e) {
+        return false;
       }
-      if (data.preferences && typeof data.preferences === 'object') {
-        Object.assign(state.preferences, data.preferences);
-        savePreferences();
-      }
-      if (data.feelings && typeof data.feelings === 'object') {
-        state.feelings = data.feelings;
-        localStorage.setItem(userKey('clippy_feelings'), JSON.stringify(data.feelings));
-      }
-      if (data.gacha) {
-        localStorage.setItem(userKey('clippy_gacha'), JSON.stringify(data.gacha));
-      }
-      if (data.highscores) {
-        localStorage.setItem(userKey('clippy_highscores'), JSON.stringify(data.highscores));
-      }
-      return true;
-    } catch (e) {
-      return false;
-    }
+    });
   }
 
   // Debounced push — accumulate changes, sync at most every 8 seconds
@@ -301,16 +788,17 @@
         }, 1800);
       }
     });
-    // Listen for connectivity changes — push pending writes when back online
-    window.addEventListener('online', () => {
+    // v18.26 — connectivity listeners + safety-net interval all tracked
+    // so teardown can detach them cleanly.
+    trackListener(window, 'online', () => {
       showSyncIndicator('syncing', '☁ back online');
       if (state.cloudPushPending) cloudPush();
     });
-    window.addEventListener('offline', () => {
+    trackListener(window, 'offline', () => {
       showSyncIndicator('failed', '☁ offline');
     });
     // Periodic push (safety net for missed debounce)
-    setInterval(() => {
+    trackInterval(() => {
       if (state.cloudPushPending) cloudPush();
     }, 5 * 60000);
   }
@@ -785,6 +1273,13 @@
   }
 
 
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║ MODULE: FEELINGS                                                       ║
+  // ║ The 8-gauge offline feelings model. Each gauge 0-100, persistent.      ║
+  // ║ This is reward system 1 of 5. Modify via adjustFeeling() — or better,  ║
+  // ║ via processInteraction() which coordinates all five.                   ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
+
   // ════════════════════════════════════════════════════════════════════
   // v17.10 OFFLINE INTELLIGENCE — feelings, tickle, clock, stress, dance
   //   Everything runs locally. No network calls. He FEELS smart because
@@ -942,14 +1437,16 @@
     if (!state.shell || state.suppressed) return;
     closeActionBubble();
     state.shell.classList.add('is-jiggling');
-    mood('happy', 4500);
     bubble(pickFromPool('tickle_response'), { autoHide: 3500, eyebrow: 'TICKLE' });
     spawnParticles({ count: 10, type: 'heart' });
     playTone('mwah');
-    adjustFeeling('happiness', +15);
-    adjustFeeling('affection', +8);
+    // Tickle-specific gauges that the generic dispatcher doesn't know
+    // about. The dispatcher handles happiness/affection/joy/bond/mood;
+    // these two are unique to tickling.
     adjustFeeling('ticklish', +50);
     adjustFeeling('attention_need', -30);
+    // v18.26 — unified dispatch for the standard reward bump
+    processInteraction('tickle', { moodDuration: 4500 });
     try { if (navigator.vibrate) navigator.vibrate([15, 25, 15, 25, 15]); } catch (_) {}
     setTimeout(() => {
       if (state.shell) state.shell.classList.remove('is-jiggling');
@@ -1671,9 +2168,11 @@
     state.chatHistory.push({ user: text, time: Date.now() });
     if (state.chatHistory.length > 20) state.chatHistory.shift();
     noteInteraction();
+    // Baseline chat reward — kept as direct calls to preserve historical
+    // game balance. processInteraction is used below for sentiment-
+    // specific bumps via the chat_message_positive/negative events.
     adjustFeeling('affection', +1);
     adjustFeeling('attention_need', -10);
-    // v18.1: chatting feeds curiosity, drains boredom
     adjustFeeling('curiosity', +2);
     adjustFeeling('boredom',  -4);
     grantBondXP_chat_message();
@@ -1766,6 +2265,7 @@
     `;
     host.appendChild(el);
     state.bubble = el;
+    openOverlay('bubble');  // v18.26 — chat uses the bubble surface
     state.chatIsOpen = true;
     state.chatIsSuper = !!opts.super;
     const input = el.querySelector('.clippy-chat-input');
@@ -2348,6 +2848,14 @@
   }
 
 
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║ MODULE: AFFINITY                                                       ║
+  // ║ Reward system 3 of 5. -100 to +100 relationship score, gates tier      ║
+  // ║ dialog (cherished → friend → liked → neutral → disliked → despised).   ║
+  // ║ Modify via adjustAffinity() — or via processInteraction() for          ║
+  // ║ coordinated cross-system updates.                                      ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
+
   // ════════════════════════════════════════════════════════════════════
   // v17.26 AFFINITY — Sims-style per-user relationship scoring.
   // -100 to +100, decays slowly, gates moods + dialog tier.
@@ -2777,7 +3285,7 @@
       key: 'gacha', kind: 'active', category: 'play',
       glyph: '🎴', label: 'Daily Gacha',
       desc: '24 cards, 4 rarities. One pull per streak-day.',
-      invoke: () => { if (typeof showGachaInvite === 'function') showGachaInvite(); }
+      invoke: () => { if (NX.clippy && NX.clippy.gacha) NX.clippy.gacha.showInvite(); }
     });
     reg.push({
       key: 'wardrobe', kind: 'active', category: 'self',
@@ -3650,6 +4158,13 @@
   }
 
 
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║ MODULE: EMOTION                                                        ║
+  // ║ Reward system 2 of 5. Plutchik's 8 primaries: joy/sadness/trust/       ║
+  // ║ disgust/fear/anger/anticipation/surprise. Modify via feel() — or via   ║
+  // ║ processInteraction() for coordinated cross-system updates.             ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
+
   // ════════════════════════════════════════════════════════════════
   // v18.11 EMOTION SYSTEM — Plutchik-grounded primary emotion model
   // ────────────────────────────────────────────────────────────────
@@ -3820,13 +4335,14 @@
     installBehaviorSensors();
     // Initial poll — populate ops score so first tick has data
     pollOperationalAwareness();
+    // v18.26 — both periodic timers + the first-tick delay all tracked.
     // Periodic ops poll: 90 seconds. Reasonable balance between
     // freshness and Supabase quota.
-    state.awareness._opTimer = setInterval(pollOperationalAwareness, 90_000);
+    state.awareness._opTimer = trackInterval(pollOperationalAwareness, 90_000);
     // Periodic synthesis tick: 30 seconds.
-    state.awareness._tickTimer = setInterval(awarenessTick, 30_000);
+    state.awareness._tickTimer = trackInterval(awarenessTick, 30_000);
     // First tick after 10s so behavior sensors have some data
-    setTimeout(awarenessTick, 10_000);
+    trackTimeout(awarenessTick, 10_000);
   }
 
 
@@ -3840,7 +4356,7 @@
     // Suggest gacha if streak active and (probably) haven't pulled today
     if (wm.streak >= 1) {
       try {
-        const g = (typeof getGachaState === 'function') ? getGachaState() : null;
+        const g = (NX.clippy && NX.clippy.gacha) ? NX.clippy.gacha.getState() : null;
         const today = (typeof todayDateStr === 'function') ? todayDateStr() : null;
         if (g && g.last_pull_date !== today) {
           sugg.push({ score: 8, pool: 'suggest_pull_gacha', invoke: 'gacha' });
@@ -3927,6 +4443,7 @@
     document.body.appendChild(ov);
     requestAnimationFrame(() => ov.classList.add('is-visible'));
     state.suppressed = true;
+    openOverlay('menu');  // v18.26
 
     // Wire invokes for active capabilities
     ov.querySelectorAll('[data-cap]').forEach(el => {
@@ -3937,6 +4454,7 @@
           ov.classList.remove('is-visible');
           setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
           state.suppressed = false;
+          closeOverlay('menu');  // v18.26
           setTimeout(() => cap.invoke(), 320);
         });
       }
@@ -3945,6 +4463,7 @@
       ov.classList.remove('is-visible');
       setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
       state.suppressed = false;
+      closeOverlay('menu');  // v18.26
     });
   }
 
@@ -4151,10 +4670,12 @@
     document.body.appendChild(ov);
     requestAnimationFrame(() => ov.classList.add('is-visible'));
     state.suppressed = true;
+    openOverlay('menu');  // v18.26
     ov.querySelector('[data-act="close"]').addEventListener('click', () => {
       ov.classList.remove('is-visible');
       setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
       state.suppressed = false;
+      closeOverlay('menu');  // v18.26
     });
   }
 
@@ -4399,6 +4920,7 @@
     document.body.appendChild(ov);
     requestAnimationFrame(() => ov.classList.add('is-visible'));
     state.suppressed = true;
+    openOverlay('menu');  // v18.26
 
     ov.querySelectorAll('[data-costume]').forEach(el => {
       el.addEventListener('click', () => {
@@ -4452,6 +4974,7 @@
           ov.classList.remove('is-visible');
           setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
           state.suppressed = false;
+          closeOverlay('menu');  // v18.26
         }
       });
     });
@@ -4460,11 +4983,13 @@
       ov.classList.remove('is-visible');
       setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
       state.suppressed = false;
+      closeOverlay('menu');  // v18.26
     });
     ov.querySelector('[data-act="close"]').addEventListener('click', () => {
       ov.classList.remove('is-visible');
       setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
       state.suppressed = false;
+      closeOverlay('menu');  // v18.26
     });
   }
 
@@ -4767,26 +5292,34 @@
     }
   }
   async function savePreferences() {
+    // Local write — synchronous, never races
     try { localStorage.setItem(userKey('clippy_prefs'), JSON.stringify(state.preferences)); } catch (e) {}
     const u = getCurrentUser();
     if (!u || !u.id || !window.NX || !NX.sb) return;
-    try {
-      await NX.sb.from('clippy_preferences').upsert({
-        user_id: u.id,
-        enabled: state.preferences.enabled,
-        do_not_disturb: state.preferences.do_not_disturb,
-        preferred_agent: state.preferences.preferred_agent,
-        position_x: state.preferences.position_x,
-        position_y: state.preferences.position_y,
-        dismissed_tips: state.preferences.dismissed_tips,
-        total_clicks: state.preferences.total_clicks,
-        unlocked: state.preferences.unlocked,
-        preferred_persona: state.preferences.preferred_persona,
-        last_seen_at: new Date().toISOString(),
-        reject_count: state.preferences.reject_count,
-        session_count: state.preferences.session_count,
-      });
-    } catch (e) {}
+    // v18.26 — Supabase write goes through the cloud lock so a
+    // concurrent cloudPull can't read-then-clobber a fresh save.
+    // Stamps last_local_write so the LWW check in cloudPull
+    // recognizes this as more recent.
+    state.preferences.last_local_write = Date.now();
+    return withCloudLock('savePrefs', async () => {
+      try {
+        await NX.sb.from('clippy_preferences').upsert({
+          user_id: u.id,
+          enabled: state.preferences.enabled,
+          do_not_disturb: state.preferences.do_not_disturb,
+          preferred_agent: state.preferences.preferred_agent,
+          position_x: state.preferences.position_x,
+          position_y: state.preferences.position_y,
+          dismissed_tips: state.preferences.dismissed_tips,
+          total_clicks: state.preferences.total_clicks,
+          unlocked: state.preferences.unlocked,
+          preferred_persona: state.preferences.preferred_persona,
+          last_seen_at: new Date().toISOString(),
+          reject_count: state.preferences.reject_count,
+          session_count: state.preferences.session_count,
+        });
+      } catch (e) {}
+    });
   }
   async function loadDialog() {
     try {
@@ -5410,6 +5943,7 @@
     el.innerHTML = `<button class="clippy-bubble-close" aria-label="Dismiss">×</button>${body}`;
     ensureHost().appendChild(el);
     state.bubble = el;
+    openOverlay('bubble');  // v18.26 — overlay tracking
 
     // v18.10 — reading-time-based duration. UX research:
     //   • Avg adult reads ~250 wpm ≈ 60ms/character
@@ -5423,8 +5957,24 @@
       if (!t) return 3000;
       return Math.max(2200, Math.min(10000, t.length * 60 + 800));
     }
-    const computed = computeBubbleDuration(text);
-    const target = Math.max(opts.autoHide || 0, computed);
+    // v18.26 — bug fix. When the bubble has action buttons (a menu),
+    // do NOT auto-hide based on reading time. The user needs to actually
+    // pick something. Previous behavior was "What's up?" showing 10
+    // options then vanishing in 2.2s because the reading-time calc
+    // ignored the button list. Now: bubbles with actions stay until the
+    // user picks one or taps the × close button, unless the caller
+    // explicitly opts into auto-hide by passing autoHide > 0.
+    // Music-player bubbles also stay open (they're an interactive panel).
+    const hasActions     = opts.actions && opts.actions.length > 0;
+    const isInteractive  = hasActions || opts.musicPlayer;
+    const explicitAutoHide = (typeof opts.autoHide === 'number' && opts.autoHide > 0);
+    let target;
+    if (isInteractive && !explicitAutoHide) {
+      target = 0;  // sticky — user must close
+    } else {
+      const computed = computeBubbleDuration(text);
+      target = Math.max(opts.autoHide || 0, computed);
+    }
     if (target > 0) {
       const hideTimer = setTimeout(() => {
         if (state.bubble === el) closeActionBubble();
@@ -5534,6 +6084,7 @@
       const b = state.bubble;
       setTimeout(() => { try { b.remove(); } catch (e) {} }, 220);
       state.bubble = null;
+      closeOverlay('bubble');  // v18.26
       // v17.18: cancel the follow loop when bubble closes
       if (state.bubbleFollowRaf) {
         cancelAnimationFrame(state.bubbleFollowRaf);
@@ -5557,7 +6108,7 @@
       { label: 'Open menu', cls: 'is-primary', onClick: openPalette },
       { label: '💬 Chat with me', onClick: () => openChat() },
       { label: '🎮 Play a game', onClick: () => { closeActionBubble(); showGameMenu(); } },
-      { label: '🎴 Daily Gacha', onClick: () => { closeActionBubble(); showGachaInvite(); } },
+      { label: '🎴 Daily Gacha', onClick: () => { closeActionBubble(); if (NX.clippy && NX.clippy.gacha) NX.clippy.gacha.showInvite(); } },
       { label: '👗 Wardrobe', onClick: () => { closeActionBubble(); showCostumeMenu(); } },
       { label: '❤️ My feelings', onClick: () => { closeActionBubble(); showAffinityMenu(); } },
       { label: '🤖 What I am', onClick: () => { closeActionBubble(); showCapabilityMenu(); } },
@@ -5692,9 +6243,12 @@
     state.enabled = false;
     mood('sad', 2200);
     bubble(pickFromPool('after_no'));
+    // v18.26 — teardown after the goodbye bubble. clears all tracked
+    // timers, listeners, observers, overlays, and removes the shell
+    // entirely. enable() can fully re-init from scratch.
     setTimeout(() => {
-      if (state.shell) state.shell.classList.add('is-hidden');
-    }, 2200);
+      teardown();
+    }, 2400);
   }
   function shouldShowComeback() {
     const p = state.preferences;
@@ -5904,7 +6458,7 @@
     }
     let lastMoveAt = 0;
     let lastWhimsyAt = Date.now();
-    state.moveTimer = setInterval(() => {
+    state.moveTimer = trackInterval(() => {
       if (!state.enabled) return;
       if (state.preferences.do_not_disturb) return;
       if (state.bubble || state.palette || state.suppressed) return;
@@ -6198,7 +6752,8 @@
       train:     { pool: 'train_coach',        mood: 'sparkle',     eyebrow: '🏆 COACH'    },
       brain:     { pool: 'brain_curious',      mood: 'confused',    eyebrow: '🧠 PEER'     },
     };
-    setInterval(() => {
+    // v18.26 — tracked so disable() stops the view-personality loop
+    trackInterval(() => {
       if (!state.enabled || !state.shell || state.suppressed) return;
       // v17.30: coin flip moved to PRD-controlled bored mischief on 30s ticks.
       // Removed inline 0.15% gate here — coin flip now fires via runBoredMischief().
@@ -6617,7 +7172,8 @@
 
   function startBoredMischiefPRD() {
     if (state.boredMischiefTimer) clearInterval(state.boredMischiefTimer);
-    state.boredMischiefTimer = setInterval(() => {
+    // v18.26 — tracked via registry so teardown stops it
+    state.boredMischiefTimer = trackInterval(() => {
       if (!isBored()) {
         prdReset('bored_mischief');
         return;
@@ -6705,6 +7261,15 @@
     return false;
   }
 
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║ MODULE: MINI-GAMES                                                     ║
+  // ║ 10 mini-games sharing the game overlay shell. Each game has its own    ║
+  // ║ start function (startTapGame, startCatchGame, etc.) and uses           ║
+  // ║ state.gameCleanupFns to register teardown handlers fired on close.     ║
+  // ║ CANDIDATE for clean extraction — this section is ~3500 lines and the   ║
+  // ║ games barely cross-reference anything except shared scoring helpers.   ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
+
   // ─── Game overlay shell ────────────────────────────────────────
   function createGameOverlay() {
     closeGameOverlay();
@@ -6725,6 +7290,7 @@
     requestAnimationFrame(() => ov.classList.add('is-visible'));
     state.gameOverlay = ov;
     state.suppressed = true;
+    openOverlay('game');  // v18.26
     if (state.shell) state.shell.classList.add('is-suppressed');
     document.body.classList.add('clippy-game-open');
     return ov;
@@ -6735,6 +7301,7 @@
       const o = state.gameOverlay;
       setTimeout(() => { try { o.remove(); } catch (e) {} }, 280);
       state.gameOverlay = null;
+      closeOverlay('game');  // v18.26
     }
     state.suppressed = false;
     if (state.shell) state.shell.classList.remove('is-suppressed');
@@ -10179,6 +10746,14 @@
   }
 
 
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║ MODULE: BOND XP                                                        ║
+  // ║ Reward system 4 of 5. Pokemon-style relationship progression.          ║
+  // ║ 7 tiers (Stranger → Lifelong) gated by XP thresholds (50/150/400/      ║
+  // ║ 900/2000/4500). Modify via addBondXP() — or via processInteraction()   ║
+  // ║ for coordinated cross-system updates. Unlocks costumes by level.       ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
+
   // ════════════════════════════════════════════════════════════════════
   // v17.20 BONDING XP — Pokemon-style relationship progression. Every
   // meaningful interaction grants XP. Crossing thresholds = level up,
@@ -10350,22 +10925,26 @@
     if (state.nxActionInstalled) return;
     state.nxActionInstalled = true;
 
-    // 1. PRIMARY BUTTONS — ~10% reaction rate, 8s cooldown
-    document.addEventListener('click', (e) => {
-      if (!state.enabled || state.suppressed || state.bubble) return;
+    // 1. PRIMARY BUTTONS — chance + cooldown pulled from CFG. v18.26 —
+    // listener routes through trackListener so teardown() can detach.
+    trackListener(document, 'click', (e) => {
+      if (!state.enabled || state.suppressed || isOverlayOpen('bubble')) return;
       const btn = e.target.closest(
         'button.ig-btn-primary, button.is-primary, .nx-btn-primary, ' +
         '[data-action="primary"], button[type="submit"]'
       );
       if (!btn) return;
-      if (btn.closest('.clippy-bubble, .clippy-game-overlay, .clippy-dex-overlay, .clippy-palette')) return;
-      if (state.nxLastReact && Date.now() - state.nxLastReact < 8000) return;
-      if (Math.random() > 0.10) return;
+      // v18.26 — added .clippy-gacha-overlay to exclusion. Previously
+      // clicking the Pull button could fire a reaction bubble that
+      // visually overlapped the gacha card reveal.
+      if (btn.closest('.clippy-bubble, .clippy-game-overlay, .clippy-dex-overlay, .clippy-palette, .clippy-gacha-overlay')) return;
+      if (state.nxLastReact && Date.now() - state.nxLastReact < CFG.cooldown.react_button) return;
+      if (Math.random() > CFG.chance.react_button) return;
       state.nxLastReact = Date.now();
       const isSubmit = btn.type === 'submit' || btn.matches('[data-action="submit"]');
       const pool = isSubmit ? 'nx_form_submit' : 'nx_button_click';
-      setTimeout(() => {
-        if (!state.bubble && state.enabled) {
+      trackTimeout(() => {
+        if (!isOverlayOpen('bubble') && state.enabled) {
           bubble(pickFromPool(pool), { autoHide: 3200, eyebrow: isSubmit ? '✅ DONE' : '👀 NOTED' });
           mood(chooseMoodForMoment(isSubmit ? 'celebrate' : 'curious'), 3500);
           if (isSubmit) {
@@ -10377,26 +10956,30 @@
     }, { capture: false });
 
     // 2. FORM SUBMITS — capture phase for forms via Enter key
-    document.addEventListener('submit', (e) => {
-      if (!state.enabled || state.suppressed || state.bubble) return;
+    trackListener(document, 'submit', (e) => {
+      if (!state.enabled || state.suppressed || isOverlayOpen('bubble')) return;
       const form = e.target;
       if (!form || !form.matches('form')) return;
-      if (form.closest('.clippy-bubble, .clippy-game-overlay, .clippy-dex-overlay')) return;
-      if (state.nxLastReact && Date.now() - state.nxLastReact < 8000) return;
+      if (form.closest('.clippy-bubble, .clippy-game-overlay, .clippy-dex-overlay, .clippy-gacha-overlay')) return;
+      if (state.nxLastReact && Date.now() - state.nxLastReact < CFG.cooldown.react_submit) return;
       state.nxLastReact = Date.now();
-      setTimeout(() => {
-        if (!state.bubble && state.enabled) {
+      trackTimeout(() => {
+        if (!isOverlayOpen('bubble') && state.enabled) {
           bubble(pickFromPool('nx_form_submit'), { autoHide: 3500, eyebrow: '✅ SUBMIT' });
-          mood('proud', 3800);
           spawnParticles({ count: 8, type: 'confetti' });
-          adjustFeeling('happiness', +3);
-          addBondXP(2);
+          // v18.26 — unified trigger. Coordinates feelings + bond +
+          // mood through the single dispatcher instead of calling
+          // each system independently.
+          processInteraction('form_submitted');
         }
       }, 350);
     }, { capture: true });
 
-    // 3. MODAL OPENS — MutationObserver for new dialogs
-    const modalObserver = new MutationObserver((muts) => {
+    // 3. MODAL OPENS — MutationObserver for new dialogs.
+    // v18.26 — observer is now tracked via trackObserver so teardown
+    // disconnects it. Also scoped to document.body subtree rather than
+    // observing the entire document — better perf on busy pages.
+    const modalObserver = trackObserver(new MutationObserver((muts) => {
       for (const m of muts) {
         for (const node of m.addedNodes) {
           if (!(node instanceof HTMLElement)) continue;
@@ -10404,18 +10987,19 @@
             node.classList.contains('clippy-bubble') ||
             node.classList.contains('clippy-game-overlay') ||
             node.classList.contains('clippy-dex-overlay') ||
-            node.classList.contains('clippy-palette')
+            node.classList.contains('clippy-palette') ||
+            node.classList.contains('clippy-gacha-overlay')
           )) continue;
           const isModal = node.matches && node.matches(
             '.nx-takeover, .nx-overlay-active, .nx-modal-backdrop, ' +
             'dialog[open], [role="dialog"], [data-overlay-active="true"]'
           );
           if (isModal) {
-            if (state.nxLastReact && Date.now() - state.nxLastReact < 12000) return;
-            if (Math.random() > 0.20) return;
+            if (state.nxLastReact && Date.now() - state.nxLastReact < CFG.cooldown.react_modal) return;
+            if (Math.random() > CFG.chance.react_modal) return;
             state.nxLastReact = Date.now();
-            setTimeout(() => {
-              if (!state.bubble && state.enabled && !state.suppressed) {
+            trackTimeout(() => {
+              if (!isOverlayOpen('bubble') && state.enabled && !state.suppressed) {
                 bubble(pickFromPool('nx_modal_open'), { autoHide: 3500, eyebrow: '👁️ PEEK' });
                 mood('gasp', 3200);
               }
@@ -10424,22 +11008,23 @@
           }
         }
       }
-    });
+    }));
     modalObserver.observe(document.body, { childList: true, subtree: true });
-    state.nxModalObserver = modalObserver;
 
-    // 4. HEAVY SCROLLING — 25+ scroll events in 4 seconds
+    // 4. HEAVY SCROLLING — 25+ scroll events in 4 seconds. v18.26 —
+    // tracked listener, isOverlayOpen check, chance pulled from CFG.
     let scrollEvents = [];
-    document.addEventListener('scroll', () => {
-      if (!state.enabled || state.suppressed || state.bubble) return;
+    trackListener(document, 'scroll', () => {
+      if (!state.enabled || state.suppressed || isOverlayOpen('bubble')) return;
       const now = Date.now();
       scrollEvents = scrollEvents.filter(t => now - t < 4000).concat([now]);
       if (scrollEvents.length >= 25) {
         scrollEvents = [];
         if (state.nxLastReact && now - state.nxLastReact < 30000) return;
+        if (Math.random() > CFG.chance.react_scroll) return;
         state.nxLastReact = now;
-        setTimeout(() => {
-          if (!state.bubble && state.enabled && !state.suppressed) {
+        trackTimeout(() => {
+          if (!isOverlayOpen('bubble') && state.enabled && !state.suppressed) {
             bubble(pickFromPool('nx_scroll_heavy'), { autoHide: 3800, eyebrow: '🔍 LOOKING' });
             mood('confused', 3500);
           }
@@ -10448,8 +11033,8 @@
     }, { passive: true });
 
     // 5. SEARCH FOCUS — react ~18% to search-input focus
-    document.addEventListener('focusin', (e) => {
-      if (!state.enabled || state.suppressed || state.bubble) return;
+    trackListener(document, 'focusin', (e) => {
+      if (!state.enabled || state.suppressed || isOverlayOpen('bubble')) return;
       const el = e.target;
       if (!el || !el.matches) return;
       const isSearch = el.matches(
@@ -10459,8 +11044,8 @@
       if (state.nxLastSearchFocus && Date.now() - state.nxLastSearchFocus < 60000) return;
       state.nxLastSearchFocus = Date.now();
       if (Math.random() > 0.18) return;
-      setTimeout(() => {
-        if (!state.bubble && state.enabled && !state.suppressed) {
+      trackTimeout(() => {
+        if (!isOverlayOpen('bubble') && state.enabled && !state.suppressed) {
           bubble(pickFromPool('nx_search_focus'), { autoHide: 3000, eyebrow: '🔎 WATCH' });
           mood('determined', 3000);
         }
@@ -10499,246 +11084,24 @@
     { type: 'hello_return',    glyph: '🌅', label: 'Return',          rare: false },
   ];
 
-  // ════════════════════════════════════════════════════════════════════
-  // v17.24 STREAK GACHA — daily pull tied to streak. 24 cards across
-  // 4 rarities. Pity system: guaranteed Rare every 10 pulls without one,
-  // guaranteed Legendary every 30. Roman-themed: Virtues / Gods /
-  // Emperors / Wonders.
-  // ════════════════════════════════════════════════════════════════════
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║ MODULE: GACHA — EXTRACTED                                              ║
+  // ║ v18.26 — gacha code now lives in js/clippy-gacha.js. Loaded as a       ║
+  // ║ separate <script> after clippy.js. Public API mounts at NX.clippy.gacha║
+  // ║ • showInvite()      — invitation modal + pull flow                     ║
+  // ║ • showCollection()  — collection grid view                             ║
+  // ║ • getState()        — current gacha state snapshot                     ║
+  // ║ • CARDS             — read-only catalog                                ║
+  // ║ See clippy-gacha.js for implementation. clippy.js exposes the helpers  ║
+  // ║ the gacha module needs via NX.clippy._internal (mounted in init()).    ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
 
-  const GACHA_CARDS = [
-    // COMMON (60%) — Roman virtues
-    { id: 'gravitas',    rarity: 'common',    glyph: '⚖️',  name: 'Gravitas',    power: '+1 XP per tap',       desc: 'Moral weight. The unignorable presence.' },
-    { id: 'pietas',      rarity: 'common',    glyph: '🕊️',  name: 'Pietas',      power: '+10% streak bonus',    desc: 'Duty to gods, family, and country.' },
-    { id: 'justitia',    rarity: 'common',    glyph: '🏛️',  name: 'Justitia',    power: 'Fair luck',            desc: 'The Roman ideal of justice and balance.' },
-    { id: 'fortitudo',   rarity: 'common',    glyph: '🛡️',  name: 'Fortitudo',   power: 'Defense up',           desc: 'Strength to endure.' },
-    { id: 'prudentia',   rarity: 'common',    glyph: '🦉',  name: 'Prudentia',   power: 'Wisdom drips',         desc: 'Practical wisdom in action.' },
-    { id: 'temperantia', rarity: 'common',    glyph: '🍇',  name: 'Temperantia', power: 'Moderation',           desc: 'Restraint and proportion.' },
-    { id: 'fides',       rarity: 'common',    glyph: '🤝',  name: 'Fides',       power: 'Trust earned',         desc: 'Loyalty kept across years.' },
-    { id: 'clementia',   rarity: 'common',    glyph: '🌿',  name: 'Clementia',   power: 'Mercy buff',           desc: 'Mercy from strength, not weakness.' },
-    // UNCOMMON (25%) — Roman gods
-    { id: 'jupiter',     rarity: 'uncommon',  glyph: '⚡',   name: 'Jupiter',     power: 'Lightning crit',       desc: 'King of gods. Wielder of thunder.' },
-    { id: 'mars',        rarity: 'uncommon',  glyph: '⚔️',  name: 'Mars',        power: '+5 cannon score',      desc: 'God of war and Roman discipline.' },
-    { id: 'venus',       rarity: 'uncommon',  glyph: '🌹',  name: 'Venus',       power: '+15 affection',        desc: 'Goddess of love and persuasion.' },
-    { id: 'minerva',     rarity: 'uncommon',  glyph: '🦉',  name: 'Minerva',     power: '+1 memory level start',desc: 'Goddess of wisdom and strategy.' },
-    { id: 'mercury',     rarity: 'uncommon',  glyph: '🪶',  name: 'Mercury',     power: 'Faster transitions',   desc: 'Messenger of gods, patron of trade.' },
-    { id: 'neptune',     rarity: 'uncommon',  glyph: '🔱',  name: 'Neptune',     power: 'Storm-tested',         desc: 'Ruler of seas and earthquakes.' },
-    // RARE (12%) — Emperors
-    { id: 'augustus',    rarity: 'rare',      glyph: '👑',  name: 'Augustus',    power: 'Start at Bond Lv 2',   desc: 'First emperor. Built Rome of marble.' },
-    { id: 'trajan',      rarity: 'rare',      glyph: '🏛️',  name: 'Trajan',      power: 'Daily bonus +50%',     desc: 'My friend. Spanish-born. Empire at its peak.' },
-    { id: 'hadrian',     rarity: 'rare',      glyph: '🧱',  name: 'Hadrian',     power: 'Wall of protection',   desc: 'Built walls. Knew when to stop.' },
-    { id: 'marcus',      rarity: 'rare',      glyph: '📜',  name: 'Marcus Aurelius', power: 'Stoic +20 XP',    desc: 'Philosopher-emperor. Last good one.' },
-    // LEGENDARY (3%) — Wonders & artifacts
-    { id: 'pantheon',    rarity: 'legendary', glyph: '🏛️', name: 'Pantheon',    power: 'Unlocks GOLDEN mood',  desc: 'Hadrian\'s dome. Still standing 2,000 years.' },
-    { id: 'colosseum',   rarity: 'legendary', glyph: '🏟️', name: 'Colosseum',   power: '+100 cannon score',    desc: '50,000 capacity. Naval battle staging.' },
-    { id: 'aqueduct',    rarity: 'legendary', glyph: '🌊', name: 'Aqueduct',    power: 'Permanent flow',       desc: 'Aqua Virgo still feeds Trevi Fountain.' },
-    { id: 'meditations', rarity: 'legendary', glyph: '📖', name: 'Meditations', power: 'Lessons +100% wisdom', desc: 'Marcus\'s private journal. Survives by miracle.' },
-    { id: 'gladius',     rarity: 'legendary', glyph: '🗡️', name: 'Gladius',     power: 'War-honed crit',       desc: 'The short sword that built an empire.' },
-    { id: 'eagle',       rarity: 'legendary', glyph: '🦅', name: 'Aquila',      power: 'Legionary blessing',   desc: 'The eagle standard. Lost = ultimate shame.' },
-  ];
-
-  // Drop rates
-  const GACHA_RATES = { common: 0.60, uncommon: 0.25, rare: 0.12, legendary: 0.03 };
-
-  function getGachaState() {
-    try {
-      const raw = localStorage.getItem(userKey('clippy_gacha'));
-      const parsed = raw ? JSON.parse(raw) : null;
-      return parsed || {
-        collection: {},          // id -> count
-        pity_no_rare: 0,
-        pity_no_legendary: 0,
-        last_pull_date: null,    // YYYY-MM-DD
-        total_pulls: 0,
-      };
-    } catch (e) { return { collection: {}, pity_no_rare: 0, pity_no_legendary: 0, last_pull_date: null, total_pulls: 0 }; }
-  }
-  function saveGachaState(s) {
-    try { localStorage.setItem(userKey('clippy_gacha'), JSON.stringify(s)); } catch (e) {}
-  }
-  function pickGachaRarity(g) {
-    // Pity overrides
-    if (g.pity_no_legendary >= 29) return 'legendary';
-    if (g.pity_no_rare >= 9) return 'rare';
-    const r = Math.random();
-    let cum = 0;
-    for (const rar of ['legendary', 'rare', 'uncommon', 'common']) {
-      cum += GACHA_RATES[rar];
-      if (r < cum) return rar;
-    }
-    return 'common';
-  }
-  function pickGachaCard(rarity) {
-    const pool = GACHA_CARDS.filter(c => c.rarity === rarity);
-    return pool[Math.floor(Math.random() * pool.length)];
-  }
+  // Helper for "today" date string in YYYY-MM-DD format. Used by gacha
+  // pull dedup and elsewhere in clippy.js. Pure function — also defined
+  // locally in clippy-gacha.js to keep the module self-contained.
   function todayDateStr() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  }
-  function canPullToday() {
-    const g = getGachaState();
-    return g.last_pull_date !== todayDateStr();
-  }
-  function hasStreakForGacha() {
-    return (state.preferences.daily_streak || 0) >= 1;
-  }
-
-  // The big pull flow — invitation modal, spin animation, card reveal
-  function showGachaInvite() {
-    if (!hasStreakForGacha()) {
-      bubble(pickFromPool('gacha_streak_required'), { autoHide: 4000, eyebrow: '🎴 GACHA' });
-      return;
-    }
-    if (!canPullToday()) {
-      bubble(substituteVars(pickFromPool('gacha_already_pulled_today')), { autoHide: 4000, eyebrow: '🎴 GACHA' });
-      return;
-    }
-    runGachaPull();
-  }
-
-  function runGachaPull() {
-    const ov = document.createElement('div');
-    ov.className = 'clippy-gacha-overlay';
-    ov.innerHTML = `
-      <div class="clippy-gacha-prompt">DAILY PULL · Streak Day ${state.preferences.daily_streak || 1}</div>
-      <div class="clippy-gacha-title">${esc(substituteVars(pickFromPool('gacha_invite')))}</div>
-      <div class="clippy-gacha-pull-orb">${state.svgMarkup || ''}</div>
-      <div class="clippy-game-buttons">
-        <button class="clippy-game-btn" data-act="pull">🎴 Pull!</button>
-        <button class="clippy-game-btn is-ghost" data-act="later">Later</button>
-      </div>
-    `;
-    document.body.appendChild(ov);
-    requestAnimationFrame(() => ov.classList.add('is-visible'));
-    state.suppressed = true;
-    if (state.shell) state.shell.classList.add('is-suppressed');
-
-    function closeOv() {
-      ov.classList.remove('is-visible');
-      setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
-      state.suppressed = false;
-      if (state.shell) state.shell.classList.remove('is-suppressed');
-    }
-    ov.querySelector('[data-act="later"]').addEventListener('click', closeOv);
-    ov.querySelector('[data-act="pull"]').addEventListener('click', () => {
-      const orb = ov.querySelector('.clippy-gacha-pull-orb');
-      orb.classList.add('is-spinning');
-      ov.querySelector('.clippy-game-buttons').style.display = 'none';
-      ov.querySelector('.clippy-gacha-title').textContent = pickFromPool('gacha_anticipate');
-      setTimeout(() => revealCard(ov, closeOv), 1500);
-    });
-  }
-
-  function revealCard(ov, closeOv) {
-    const g = getGachaState();
-    const rarity = pickGachaRarity(g);
-    const card = pickGachaCard(rarity);
-    // Update gacha state
-    g.collection[card.id] = (g.collection[card.id] || 0) + 1;
-    const isDuplicate = g.collection[card.id] > 1;
-    if (rarity === 'rare' || rarity === 'legendary') g.pity_no_rare = 0;
-    else g.pity_no_rare++;
-    if (rarity === 'legendary') g.pity_no_legendary = 0;
-    else g.pity_no_legendary++;
-    g.last_pull_date = todayDateStr();
-    g.total_pulls++;
-    saveGachaState(g);
-
-    // Rarity bubble
-    const rarityPool = 'gacha_' + rarity;
-    const remarkLine = substituteVars(pickFromPool(rarityPool));
-
-    // Render the card
-    const rarityLabel = { common: 'COMMON', uncommon: 'UNCOMMON', rare: 'RARE', legendary: 'LEGENDARY' }[rarity];
-    ov.innerHTML = `
-      <div class="clippy-gacha-prompt">${esc(rarityLabel)}</div>
-      <div class="clippy-gacha-title">${esc(remarkLine)}</div>
-      <div class="clippy-gacha-card is-${rarity}">
-        <div class="clippy-gacha-card-rarity">${esc(rarityLabel)}</div>
-        <div class="clippy-gacha-card-glyph">${card.glyph}</div>
-        <div class="clippy-gacha-card-name">${esc(card.name)}</div>
-        <div class="clippy-gacha-card-desc">${esc(card.desc)}</div>
-        <div class="clippy-gacha-card-power">${esc(card.power)}</div>
-      </div>
-      ${isDuplicate ? `<div class="clippy-gacha-duplicate">${esc(pickFromPool('gacha_duplicate'))}</div>` : ''}
-      <div class="clippy-game-buttons">
-        <button class="clippy-game-btn" data-act="collection">View Collection</button>
-        <button class="clippy-game-btn is-ghost" data-act="done">Done</button>
-      </div>
-    `;
-    // Celebration effects
-    if (rarity === 'legendary') {
-      spawnParticles({ count: 32, type: 'confetti' });
-      playTone('milestone');
-      adjustFeeling('happiness', +20);
-      addBondXP(50);
-    } else if (rarity === 'rare') {
-      spawnParticles({ count: 16, type: 'sparkle' });
-      playTone('sparkle');
-      adjustFeeling('happiness', +10);
-      addBondXP(20);
-    } else if (rarity === 'uncommon') {
-      spawnParticles({ count: 8, type: 'sparkle' });
-      playTone('boop');
-      adjustFeeling('happiness', +5);
-      addBondXP(10);
-    } else {
-      spawnParticles({ count: 4, type: 'sparkle' });
-      playTone('boop');
-      addBondXP(5);
-    }
-    if (isDuplicate) addBondXP(5);   // small consolation bond XP
-
-    // Memory deposit (especially for rares+)
-    if (rarity === 'rare' || rarity === 'legendary') {
-      depositMemory('gacha_pull', `Pulled ${rarityLabel}: ${card.name}`, { card: card.id, rarity }, rarity === 'legendary' ? 4 : 3);
-    }
-    ov.querySelector('[data-act="done"]').addEventListener('click', closeOv);
-    ov.querySelector('[data-act="collection"]').addEventListener('click', () => {
-      closeOv();
-      setTimeout(() => showGachaCollection(), 320);
-    });
-  }
-
-  function showGachaCollection() {
-    const g = getGachaState();
-    const collected = Object.keys(g.collection).length;
-    const total = GACHA_CARDS.length;
-    const remark = pickFromPool('gacha_collection_remark');
-    const ov = document.createElement('div');
-    ov.className = 'clippy-gacha-overlay';
-    ov.innerHTML = `
-      <div class="clippy-gacha-prompt">🎴 GACHA COLLECTION</div>
-      <div class="clippy-gacha-title">${esc(remark)}</div>
-      <div class="clippy-gacha-prompt" style="margin-bottom:14px;">
-        ${collected}/${total} unique · ${g.total_pulls} total pulls
-      </div>
-      <div class="clippy-gacha-collection">
-        ${GACHA_CARDS.map(c => {
-          const count = g.collection[c.id] || 0;
-          const lockedCls = count === 0 ? 'is-locked' : '';
-          return `<div class="clippy-gacha-coll-card is-${c.rarity} ${lockedCls}">
-            <div class="clippy-gacha-coll-glyph">${c.glyph}</div>
-            <div class="clippy-gacha-coll-name">${count === 0 ? '???' : esc(c.name)}</div>
-            <div class="clippy-gacha-coll-count">×${count}</div>
-          </div>`;
-        }).join('')}
-      </div>
-      <div class="clippy-game-buttons" style="margin-top:24px;">
-        <button class="clippy-game-btn" data-act="close">Close</button>
-      </div>
-    `;
-    document.body.appendChild(ov);
-    requestAnimationFrame(() => ov.classList.add('is-visible'));
-    state.suppressed = true;
-    if (state.shell) state.shell.classList.add('is-suppressed');
-    ov.querySelector('[data-act="close"]').addEventListener('click', () => {
-      ov.classList.remove('is-visible');
-      setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
-      state.suppressed = false;
-      if (state.shell) state.shell.classList.remove('is-suppressed');
-    });
   }
 
 
@@ -10797,10 +11160,12 @@
     document.body.appendChild(ov);
     requestAnimationFrame(() => ov.classList.add('is-visible'));
     state.dexOverlay = ov;
+    openOverlay('dex');  // v18.26
     ov.querySelector('[data-act="close"]').addEventListener('click', () => {
       ov.classList.remove('is-visible');
       setTimeout(() => { try { ov.remove(); } catch (e) {} }, 280);
       state.dexOverlay = null;
+      closeOverlay('dex');  // v18.26
     });
   }
 
@@ -11005,7 +11370,8 @@
       updateBtn();
     });
     stopBtn.addEventListener('click', () => { stopSong(); closeActionBubble(); });
-    const timer = setInterval(() => {
+    // v18.26 — tracked. Also self-clears when the element leaves DOM.
+    const timer = trackInterval(() => {
       if (!progressEl || !document.body.contains(progressEl)) { clearInterval(timer); return; }
       const pct = a.duration ? (a.currentTime / a.duration) * 100 : 0;
       progressEl.style.width = pct + '%';
@@ -11061,6 +11427,7 @@
     `;
     ensureHost().appendChild(p);
     state.palette = p;
+    openOverlay('palette');  // v18.26
     requestAnimationFrame(() => p.classList.add('is-open'));
     p.querySelector('.clippy-palette-bg').addEventListener('click', closePalette);
     p.querySelector('.clippy-palette-close').addEventListener('click', closePalette);
@@ -11075,6 +11442,7 @@
     p.classList.remove('is-open');
     setTimeout(() => { try { p.remove(); } catch (e) {} }, 320);
     state.palette = null;
+    closeOverlay('palette');  // v18.26
   }
   function renderPaletteResults(query) {
     if (!state.palette) return;
@@ -11389,6 +11757,15 @@
   }
 
 
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║ MODULE: INIT                                                           ║
+  // ║ The master init() flow. Loads dialog + preferences, builds the shell   ║
+  // ║ if the user has previously accepted, wires global listeners, starts    ║
+  // ║ every long-running interval (all tracked via v18.26 trackInterval).    ║
+  // ║ Idempotent — guarded by state.initialized. teardown() resets the       ║
+  // ║ guard so re-init from scratch works cleanly.                           ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
+
   // ─── INIT ───────────────────────────────────────────────────────────
   async function init() {
     if (state.initialized) return;
@@ -11429,20 +11806,23 @@
       if (hour >= 4 && hour < 6) state.preferences.dawn_session = true;
       savePreferences();
       checkAchievements(true);   // silent initial scan
-      setInterval(() => {
+      // v18.26 — All intervals now go through trackInterval so disable()
+      // can clear them. Cooldown values pull from CFG.interval so they're
+      // tunable at runtime via NX.clippy.tune().
+      trackInterval(() => {
         if (!state.enabled || state.suppressed) return;
         checkAchievements();
         checkIgnored();
-      }, 30000);
+      }, CFG.interval.achievements);
       // v17.10: clock awareness — every 60s check for hour change
-      setInterval(() => { if (state.enabled && !state.suppressed) hourlyCheck(); }, 60000);
+      trackInterval(() => { if (state.enabled && !state.suppressed) hourlyCheck(); }, CFG.interval.hourly_check);
       // v17.10: feelings drift — every 90s decay toward baseline
-      setInterval(() => { if (state.enabled) decayFeelings(); }, 90000);
+      trackInterval(() => { if (state.enabled) decayFeelings(); }, CFG.interval.feelings_decay);
       // v17.10: stress check — once per 5min, attempts at most once per day
-      setInterval(() => { if (state.enabled && !state.suppressed) checkStressMarkers(); }, 5 * 60000);
+      trackInterval(() => { if (state.enabled && !state.suppressed) checkStressMarkers(); }, CFG.interval.stress_check);
       // v17.15: ADVANCED PET BEHAVIORS
       // Mood weather — halo color tracks dominant feeling
-      setInterval(updateMoodWeather, 30000);
+      trackInterval(updateMoodWeather, CFG.interval.mood_weather);
       updateMoodWeather();
       // Mischief moments — random unprompted aliveness
       scheduleMischief();
@@ -11456,7 +11836,7 @@
       // v17.21: AUTONOMY — Trajan picks his own personality on session
       // start and then re-evaluates every hour. The user can override.
       maybeAutoPickPersonality('session_start');
-      setInterval(() => maybeAutoPickPersonality('hourly_check'), 60 * 60000);
+      trackInterval(() => maybeAutoPickPersonality('hourly_check'), CFG.interval.personality_pick);
       // v17.21: NEXUS ACTION LISTENER — global button/form/modal/scroll awareness
       installNexusActionListener();
       // v17.22: QUIRKY IDLE BEHAVIORS — yawn/hiccup/sneeze/spin every 8-18 min
@@ -11478,7 +11858,7 @@
       applyConquerorVisuals();
       announceConqueror();
       // v17.26: affinity decay every hour + affinity-aware greeting on session start
-      setInterval(decayAffinity, 60 * 60000);
+      trackInterval(decayAffinity, CFG.interval.affinity_decay);
       // v18.7: kick off the affective awareness layer — Trajan starts
       // watching the operational state of NEXUS + the user's behavior
       // patterns, and shifts his expression (silently) when things
@@ -11571,18 +11951,27 @@
   }
 
 
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║ MODULE: PUBLIC API                                                     ║
+  // ║ NX.clippy.* — everything exposed to other modules and console use.     ║
+  // ║ When adding a new public method, document it inline so other code      ║
+  // ║ (galaxy.js, app.js, education.js, habits.js, interests.js) knows       ║
+  // ║ what's safe to call.                                                   ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
+
   // ─── Public API ─────────────────────────────────────────────────────
   function notifyTaskCompleted() {
     if (!state.enabled || state.preferences.do_not_disturb) return;
     // v17.11: every 3rd-or-so completion gets the bigger celebration
     if (Math.random() < 0.4) {
       celebrateNexusTask();
+      processInteraction('task_completed');
       return;
     }
     if (Math.random() < 0.6) {
-      mood('happy', 2200);
       play('hop');
       bubble(pickFromPool('task_completed'));
+      processInteraction('task_completed');
     }
   }
   function notifyStreak(days) {
@@ -11593,11 +11982,12 @@
       setTimeout(() => {
         actionBubble(fmt(pickFromPool('streak_milestone'), { N: days }), { duration: 4500 });
       }, 1500);
+      processInteraction('streak_continued');
       return;
     }
-    mood('happy', 4500);
     play('cartwheel');
     actionBubble(fmt(pickFromPool('streak_milestone'), { N: days }), { duration: 4500 });
+    processInteraction('streak_continued');
   }
   function notifyOverdueDetected() {
     if (!state.enabled || state.preferences.do_not_disturb) return;
@@ -11664,6 +12054,37 @@
     enable: () => { state.preferences.enabled = true; savePreferences(); init(); },
     disable: declineToJoin,
 
+    // ─── v18.26 architectural API ──────────────────────────────────
+    // teardown(): full cleanup — clears all timers, listeners,
+    //   observers, and overlays. Used internally by disable() and
+    //   exposed for tests / debugging.
+    // tune(overrides): runtime override of cooldowns + chances +
+    //   interval frequencies. Example:
+    //     NX.clippy.tune({ chance: { react_button: 0.20 } })
+    //   makes Clippy react to button clicks 2× as often.
+    // getStatus(): debug snapshot — how many timers/listeners/overlays
+    //   are tracked, cloud lock state, etc. Useful for diagnosing
+    //   "is Clippy actually disabled?" or "is something stuck open?"
+    //
+    // processInteraction(name, payload?): unified trigger dispatcher.
+    //   Routes one named event through all five reward systems
+    //   coherently. See INTERACTION_REWARDS at the top of this file
+    //   for the canonical event names. Example:
+    //     NX.clippy.processInteraction('task_completed')
+    // tuneInteraction(name, partial): runtime override of an event's
+    //   reward signature. Shallow-merges. Example:
+    //     NX.clippy.tuneInteraction('chat_message_positive',
+    //       { bond: 2 })
+    // getRelationshipState(): unified relationship snapshot across all
+    //   five systems plus a derived overall score (-100 to +100) and
+    //   human label (devoted/fond/warm/neutral/distant/cold).
+    teardown,
+    tune: applyTuning,
+    getStatus,
+    processInteraction,
+    tuneInteraction,
+    getRelationshipState,
+
     // ─── v17.7/8 MEMORY-NODE + PALACE API (for galaxy.js to consume) ──
     // The galaxy can register a new layer that consumes these. Either
     // poll getMemories() at render time, OR listen for the live event:
@@ -11700,6 +12121,38 @@
       const handler = (e) => cb(e.detail);
       window.addEventListener('clippy:memory-deposited', handler);
       return () => window.removeEventListener('clippy:memory-deposited', handler);
+    },
+
+    // ╔════════════════════════════════════════════════════════════════════╗
+    // ║ _internal — namespace for sub-module wiring                          ║
+    // ║ Sub-modules (clippy-gacha.js, future clippy-games.js, etc.) read     ║
+    // ║ from this to access core helpers. NOT a stable public API — internal ║
+    // ║ contract subject to change across versions. External code (galaxy.   ║
+    // ║ js, app.js, habits.js, education.js, interests.js) should use the    ║
+    // ║ documented public methods above, NOT _internal.                      ║
+    // ╚════════════════════════════════════════════════════════════════════╝
+    _internal: {
+      // State (mutable; sub-modules read state.preferences.daily_streak,
+      // state.suppressed, state.shell, state.svgMarkup, etc.)
+      get state()         { return state; },
+      // Speech surfaces
+      bubble, actionBubble, closeActionBubble,
+      pickFromPool, substituteVars,
+      // Visual / audio
+      mood, spawnParticles, playTone,
+      // Reward systems (the underlying functions; processInteraction is
+      // also available on the public API above for unified dispatch)
+      adjustFeeling, adjustAffinity, addBondXP,
+      depositMemory,
+      // Utilities
+      esc, userKey,
+      // Overlay manager
+      openOverlay, closeOverlay, isOverlayOpen,
+      // Timer / listener registries — so sub-modules can also register
+      // their long-running timers in a way teardown() can clean up
+      trackInterval, trackTimeout, trackListener, trackObserver,
+      // Cloud lock for sub-modules that talk to Supabase
+      withCloudLock,
     },
   };
 
