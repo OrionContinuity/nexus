@@ -2251,6 +2251,7 @@
       delivery_date: nextDeliveryDate(vendor, location),
       notes:         '',
       lines:         {},
+      unitOverrides: loadUnitOverrides(vendor.id),
       draftOrderId:  null,
       saveTimer:     null,
       saveInFlight:  false,
@@ -2940,6 +2941,14 @@ Thanks for your help sorting this out.`;
       location: activeLoc,
       delivery_date: nextDeliveryDate(vendor, location),
       notes: '', lines: {},
+      // v18.26 — per-vendor unit overrides map: { [item_id]: 'ea'|'cs'|'bag'|... }
+      // Persisted to localStorage (key: nexus_ord_units_${vendor_id}) so an
+      // override set when qty=0 survives reload. Once qty becomes positive,
+      // the override gets baked into entryState.lines[id].unit which flows
+      // through to order_lines.unit → the email. Keyed by item_id, not by
+      // (item_id, location) — the unit you order an item in is the same
+      // everywhere it's ordered.
+      unitOverrides: loadUnitOverrides(vendor.id),
       draftOrderId: null, saveTimer: null, saveInFlight: false,
       overlay: null, reviewing: false,
     };
@@ -3000,13 +3009,15 @@ Thanks for your help sorting this out.`;
   function fillFromPars(catalog) {
     let n = 0;
     if (!entryState) return 0;
+    const overrides = entryState.unitOverrides || {};
     for (const item of catalog) {
       const hint = parHintFor(item, entryState.delivery_date, entryState.location);
       if (hint.disabled) continue;
       if (hint.qty == null || hint.qty <= 0) continue;
       entryState.lines[item.id] = {
         qty:        hint.qty,
-        unit:       shortUnit(item.unit) || 'ea',
+        // v18.26 — vendor override wins over catalog default
+        unit:       overrides[item.id] || shortUnit(item.unit) || 'ea',
         item_name:  item.item_name,
         house_name: item.house_name || null,
         vendor_sku: item.vendor_sku,
@@ -3035,6 +3046,7 @@ Thanks for your help sorting this out.`;
         .eq('order_id', lastOrder.id);
       if (error || !lines || !lines.length) return 0;
 
+      const overrides = entryState.unitOverrides || {};
       let n = 0;
       for (const line of lines) {
         const item = (catalog || entryState.catalog).find(i => i.id === line.item_id);
@@ -3043,7 +3055,10 @@ Thanks for your help sorting this out.`;
         if (!qty || qty <= 0) continue;
         entryState.lines[item.id] = {
           qty,
-          unit:       line.unit || shortUnit(item.unit) || 'ea',
+          // v18.26 — vendor override wins over last order's unit, which wins
+          // over catalog default. Override is the user's stated preference,
+          // last order is historical, catalog is the absolute fallback.
+          unit:       overrides[item.id] || line.unit || shortUnit(item.unit) || 'ea',
           item_name:  item.item_name,
           house_name: item.house_name || null,
           vendor_sku: item.vendor_sku,
@@ -3169,6 +3184,7 @@ Thanks for your help sorting this out.`;
       delivery_date: order.delivery_date || nextDeliveryDate(vendor, order.location || activeLoc),
       notes:         order.notes || '',
       lines:         {},
+      unitOverrides: loadUnitOverrides(vendor.id),
       draftOrderId:  order.id,
       saveTimer:     null,
       saveInFlight:  false,
@@ -3617,12 +3633,17 @@ Thanks for your help sorting this out.`;
     // muted "case" sub-line so the format is self-explaining at a glance.
     const pack = prettyPackSize(item.unit);
 
-    // v18.25 — Per-row unit (editable). Reads from the entry line's
-    // override first, then falls back to the catalog item's unit, then
-    // 'ea'. This is what gets written into the order email's
-    // "{qty}{unit} {name}" line, so a per-line override of "bag" or
-    // "lbs" flows straight through to the vendor.
-    const rowUnit = (line && line.unit) || shortUnit(item.unit) || 'ea';
+    // v18.26 — Per-row unit (editable). Resolution order:
+    //   1. The live entry's unit (set if user has qty + edited unit)
+    //   2. The per-vendor override map (set if user typed unit at qty=0)
+    //   3. The catalog item's unit
+    //   4. Fallback 'ea'
+    // The override map persists in localStorage so a unit edit at qty=0
+    // survives reload. Once qty becomes positive, the override gets
+    // baked into the line entry which then writes to order_lines.unit
+    // and flows through to the email.
+    const overrideUnit = entryState && entryState.unitOverrides && entryState.unitOverrides[item.id];
+    const rowUnit = (line && line.unit) || overrideUnit || shortUnit(item.unit) || 'ea';
 
     return `
       <div class="ord-item-row${qty > 0 ? ' has-qty' : ''}" data-item-id="${esc(item.id)}" data-item-name="${esc(searchKey)}">
@@ -3673,10 +3694,15 @@ Thanks for your help sorting this out.`;
         row.classList.remove('has-qty');
         inp.value = '';
       } else {
-        // v18.25 — preserve any per-row unit override the user typed
-        // (entryState.lines[id].unit set via unit input). Fall back to
-        // the catalog unit if no override yet.
+        // v18.26 — Unit resolution order, identical to rowUnit derivation
+        // so what you see in the input is what gets saved:
+        //   1. Existing line's unit (if user changed unit after adding qty)
+        //   2. Per-vendor override map (typed unit at qty=0)
+        //   3. Current input value (defensive — should match #2)
+        //   4. Catalog default
+        const overrideUnit = entryState.unitOverrides && entryState.unitOverrides[id];
         const existingUnit = (entryState.lines[id] && entryState.lines[id].unit)
+          || overrideUnit
           || (unitInp && unitInp.value && unitInp.value.trim())
           || item.unit
           || 'ea';
@@ -3701,17 +3727,27 @@ Thanks for your help sorting this out.`;
     inp.addEventListener('blur',  e => applyQty(e.target.value));
     inp.addEventListener('focus', e => e.target.select());
 
-    // v18.25 — Per-row unit input. Saves to entryState.lines[id].unit
-    // on every keystroke so the user can type any unit ("bag", "gal",
-    // "lbs", "box", "bunch", etc.) and it flows straight into the
-    // order email's "{qty}{unit} {name}" line. Trims whitespace + falls
-    // back to 'ea' if the field is emptied entirely.
+    // v18.26 — Per-row unit input. ALWAYS persists to the per-vendor
+    // override map in localStorage, regardless of whether a line entry
+    // exists. This fixes the bug where a unit change with qty=0 was
+    // silently dropped (applyUnit early-returned if no line existed,
+    // so the typed unit vanished on next render).
+    //
+    // Now: type unit → write to override map → flush to localStorage.
+    // If a line entry also exists, sync its unit too so the next save
+    // writes the correct value into order_lines.unit, which the email
+    // builder reads as `${qty}${unit} ${name}`.
     if (unitInp) {
       const applyUnit = (val) => {
-        const u = (val || '').trim() || 'ea';
-        // If there's already a line, update its unit. If not, only set
-        // the line if user is editing a row that has a qty (otherwise
-        // we'd create an empty line).
+        // Normalize: trim, lowercase, fall back to catalog or 'ea' if blank
+        const trimmed = (val || '').trim();
+        const u = trimmed || item.unit || 'ea';
+        // ALWAYS write to the per-vendor override map. Persistent
+        // regardless of whether there's a qty yet.
+        if (!entryState.unitOverrides) entryState.unitOverrides = {};
+        entryState.unitOverrides[id] = u;
+        saveUnitOverrides(entryState.vendor.id, entryState.unitOverrides);
+        // If there's a live line entry, sync its unit too
         if (entryState.lines[id]) {
           entryState.lines[id].unit = u;
           scheduleDraftSave();
@@ -3765,6 +3801,44 @@ Thanks for your help sorting this out.`;
     setSaveStatus('saving');
     entryState.saveTimer = setTimeout(() => persistDraft(), DRAFT_SAVE_DEBOUNCE_MS);
   }
+
+  /* ════════════════════════════════════════════════════════════════════
+     v18.26 — Per-vendor unit overrides (localStorage)
+
+     A unit override is "for this vendor, I prefer to order item X in unit
+     'ea' instead of the catalog's 'cs'." It needs to persist BEFORE qty
+     is set (so typing 'ea' on a qty=0 row doesn't get lost), and survive
+     across sessions. Stored in localStorage rather than the orders table
+     because it's a vendor-level preference, not order-specific.
+
+     Once qty > 0, the override gets BAKED into entryState.lines[id].unit
+     which then writes to order_lines.unit, which the email builder reads.
+     So: override → live entry → order line → email. One unit per item per
+     vendor, consistent through the whole pipeline.
+     ════════════════════════════════════════════════════════════════════ */
+  function unitOverridesKey(vendorId) {
+    return `nexus_ord_units_${vendorId}`;
+  }
+  function loadUnitOverrides(vendorId) {
+    if (!vendorId) return {};
+    try {
+      const raw = localStorage.getItem(unitOverridesKey(vendorId));
+      const parsed = raw ? JSON.parse(raw) : null;
+      return (parsed && typeof parsed === 'object') ? parsed : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  function saveUnitOverrides(vendorId, map) {
+    if (!vendorId) return;
+    try {
+      localStorage.setItem(unitOverridesKey(vendorId), JSON.stringify(map || {}));
+    } catch (e) {
+      // localStorage may be full or blocked — silent fail, override
+      // remains in memory for this session at least.
+    }
+  }
+
   function setSaveStatus(state) {
     const el = document.getElementById('ordSaveStatus');
     if (!el) return;
