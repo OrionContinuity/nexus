@@ -290,10 +290,18 @@
   // ─── DATA FETCHES ────────────────────────────────────────────────
   async function loadVendors() {
     if (!NX.sb) return [];
-    // First try the full select with the new columns (image_url,
-    // avatar_hue, pinned). If those columns haven't been migrated yet,
-    // fall back to the legacy column set so the app still works — the
-    // missing fields will just render as null/false everywhere.
+    // First try the full select with the new columns (recipient_names,
+    // default_fill_mode). If those haven't been migrated yet, fall back
+    // to the legacy column set — but CRITICALLY keep image_url, avatar_hue,
+    // pinned, sort_order in the fallback so we don't lose track of them
+    // and accidentally wipe images on save.
+    //
+    // v18.27 — image-disappearing bug fix. The previous fallback dropped
+    // image_url, which combined with the saveVendor payload always sending
+    // `image_url: id.photoUrl || null` meant: ANY transient error on
+    // loadVendors → fallback fires → id.photoUrl loads as '' →
+    // next save writes image_url=NULL to the DB → image gone forever.
+    // Keeping image_url in the fallback closes that vector entirely.
     let { data, error } = await NX.sb
       .from('order_vendors')
       .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, cutoff_time, cutoff_days_before, locations, location_overrides, subject_template, body_template, notes, archived, image_url, avatar_hue, pinned, sort_order, recipient_names, default_fill_mode')
@@ -301,14 +309,32 @@
       .order('pinned', { ascending: false, nullsFirst: false })
       .order('name', { ascending: true });
     if (error) {
-      // Most likely cause: a missing column. Log and retry without it.
+      // Most likely cause: a recipient_names or default_fill_mode column
+      // missing (pre-v18.25 migration). Keep image_url + avatar_hue +
+      // pinned + sort_order in the fallback — those have been in the
+      // schema for a while and dropping them caused the image-wipe bug.
       dwarn('[ordering] loadVendors with new columns failed, falling back:', error.message || error);
       const fallback = await NX.sb
         .from('order_vendors')
-        .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, subject_template, body_template, notes, archived')
+        .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, cutoff_time, cutoff_days_before, locations, location_overrides, subject_template, body_template, notes, archived, image_url, avatar_hue, pinned, sort_order')
         .eq('archived', false)
         .order('name', { ascending: true });
-      if (fallback.error) { console.error('[ordering] loadVendors fallback:', fallback.error); return []; }
+      if (fallback.error) {
+        // Second-tier fallback — only used if even image_url is missing.
+        // Drops the photo-related fields but at least returns SOMETHING.
+        dwarn('[ordering] loadVendors second fallback (no image_url):', fallback.error.message);
+        const minimal = await NX.sb
+          .from('order_vendors')
+          .select('id, name, alias_short, email, alt_emails, managed_by, role, delivery_days, subject_template, body_template, notes, archived')
+          .eq('archived', false)
+          .order('name', { ascending: true });
+        if (minimal.error) { console.error('[ordering] loadVendors minimal fallback:', minimal.error); return []; }
+        // Mark each row so saveVendor knows NOT to send image_url back —
+        // we don't know its true value, so don't risk overwriting.
+        const rows = minimal.data || [];
+        rows.forEach(r => { r._image_url_unknown = true; });
+        return rows;
+      }
       data = fallback.data;
     }
     return data || [];
@@ -3137,8 +3163,10 @@ Thanks for your help sorting this out.`;
 
         // Persist the choice as the vendor's default. Best-effort —
         // failure to write the preference shouldn't block the fill.
+        // v18.27 — was writing to `vendors` (wrong table); the actual
+        // table is `order_vendors`. Fixed so the preference now persists.
         try {
-          await NX.sb.from('vendors').update({ default_fill_mode: mode }).eq('id', vendor.id);
+          await NX.sb.from('order_vendors').update({ default_fill_mode: mode }).eq('id', vendor.id);
           vendor.default_fill_mode = mode;
         } catch (e) {
           console.warn('[ordering] save fill mode pref:', e);
@@ -5225,8 +5253,6 @@ Thanks for your help sorting this out.`;
           name: id.name,
           email: email.trim() || null,
           alt_emails: newAltEmailsObj,
-          image_url: id.photoUrl || null,
-          avatar_hue: id.avatarHue,
           pinned: id.pinned,
           delivery_days: payloadDefaultDays,
           cutoff_time: payloadDefaultCutoffTime,
@@ -5239,6 +5265,26 @@ Thanks for your help sorting this out.`;
           recipient_names:  recipientNames || null,
         };
 
+        // v18.27 — image-disappearing bug fix. Previously this was always
+        // `image_url: id.photoUrl || null` which wiped the DB value to
+        // NULL any time id.photoUrl was empty (e.g., after the fallback
+        // SELECT path that didn't load image_url, OR when the user just
+        // wanted to update an email field without touching the image).
+        //
+        // New rule: only include image_url in the UPDATE payload when
+        // the user actually has a photo in the editor state. Sending
+        // nothing leaves the existing DB value untouched. There's no
+        // "remove image" UI today; if one is added later, it should
+        // explicitly write `image_url: null` via a dedicated path.
+        //
+        // Same defense for avatar_hue — don't wipe it if id.avatarHue
+        // is undefined/null (the hue picker may not have initialized).
+        // Also skip if loaded via the minimal fallback that didn't read
+        // image_url — we explicitly don't know its true value there.
+        const loadedViaMinimalFallback = v && v._image_url_unknown;
+        if (id.photoUrl && !loadedViaMinimalFallback) payload.image_url = id.photoUrl;
+        if (id.avatarHue != null && id.avatarHue !== 'auto' && !loadedViaMinimalFallback) payload.avatar_hue = id.avatarHue;
+
         const optionalCols = ['image_url', 'avatar_hue', 'pinned', 'alt_emails', 'cutoff_time', 'cutoff_days_before', 'locations', 'location_overrides', 'recipient_names'];
         const stripOptionalCols = (p) => {
           const o = { ...p };
@@ -5250,12 +5296,14 @@ Thanks for your help sorting this out.`;
           return /column|schema|does not exist|could not find/i.test(msg);
         };
         let altEmailsStripped = false;
+        let firstError = null;  // v18.28 — preserved for honest toast on retry
 
         try {
           if (isNew) {
             let res = await NX.sb.from('order_vendors').insert(payload).select('*').single();
             if (res.error && isMissingColumnError(res.error)) {
               dwarn('[ordering] saveVendor insert: retry without new columns', res.error);
+              firstError = res.error;
               altEmailsStripped = true;
               res = await NX.sb.from('order_vendors').insert(stripOptionalCols(payload)).select('*').single();
             }
@@ -5271,6 +5319,7 @@ Thanks for your help sorting this out.`;
             let res = await NX.sb.from('order_vendors').update(payload).eq('id', vendorId).select('*').single();
             if (res.error && isMissingColumnError(res.error)) {
               dwarn('[ordering] saveVendor update: retry without new columns', res.error);
+              firstError = res.error;
               altEmailsStripped = true;
               res = await NX.sb.from('order_vendors').update(stripOptionalCols(payload)).eq('id', vendorId).select('*').single();
             }
@@ -5284,9 +5333,16 @@ Thanks for your help sorting this out.`;
             }
           }
           if (altEmailsStripped && (ccCount || bccCount || (state.chips.alt || []).length)) {
-            // The DB doesn't have an alt_emails column. CC/BCC/Other
-            // were silently dropped. Tell the user what happened.
-            if (NX.toast) NX.toast('Saved name + email, but CC/BCC could not save — order_vendors.alt_emails column missing in DB', 'error', 5000);
+            // The first UPDATE failed with a column-related error and the
+            // retry path stripped every optional column to get a partial
+            // save through. CC/BCC/Other lists (and image_url, avatar_hue,
+            // recipient_names, default_fill_mode) were silently dropped.
+            // v18.28 — surface the ACTUAL Postgres error so debugging is
+            // possible. The old toast hardcoded "alt_emails column missing"
+            // which was misleading when the real missing column was
+            // recipient_names or default_fill_mode.
+            const actualMsg = (firstError && (firstError.message || firstError.toString())) || 'unknown';
+            if (NX.toast) NX.toast(`Saved name + email, but optional fields were dropped: ${actualMsg}`, 'error', 6000);
           } else if (NX.toast) {
             const parts = [];
             if (ccCount) parts.push(`${ccCount} CC`);
