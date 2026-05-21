@@ -706,6 +706,12 @@ body.ord-overlay-open .nav {
 .ord-entry-list {
   flex: 1 1 auto;
   overflow-y: auto;
+  /* v18.27 — iOS no-rogue-h-scroll. .ord-entry-overlay already has
+     overflow:hidden so the page can't scroll horizontally, but if a
+     descendant overflows the list's own scroll container can pick it
+     up and show a horizontal scrollbar inside. Explicit overflow-x
+     hidden keeps everything pinned to the viewport width. */
+  overflow-x: hidden;
   padding: 12px 12px 16px;
   -webkit-overflow-scrolling: touch;
 }
@@ -855,9 +861,13 @@ body.ord-overlay-open .nav {
   font-weight: 500;
   color: var(--nx-text);
   letter-spacing: 0.1px;
+  /* v18.28 — single line. Truncation only kicks in for extremely long
+     names; most ("BLACK TRASH BAGS", "DEGREASER SPRAY BOTTLE", etc.)
+     fit fully after the right-column tightening below. */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.25;
 }
 .ord-item-meta {
   font-size: 10.5px;
@@ -884,7 +894,7 @@ body.ord-overlay-open .nav {
   background: var(--nx-bg);
 }
 .ord-qty-btn {
-  width: 34px;
+  width: 32px;
   height: 34px;
   background: transparent;
   border: none;
@@ -906,7 +916,10 @@ body.ord-overlay-open .nav {
 }
 .ord-qty-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
 .ord-qty-input {
-  width: 46px;
+  /* v18.28 — was 46px; tightened to 38 so the name column has more
+     horizontal room on narrow phones. Still wide enough for 2 digits +
+     comfortable padding (qty rarely exceeds 99 for restaurant orders). */
+  width: 38px;
   height: 34px;
   text-align: center;
   border: none;
@@ -8279,15 +8292,48 @@ body.ord-overlay-open .nav {
   color: var(--nx-gold);
 }
 
+/* v18.25 — Editable unit text input inside the unit cell. Matches the
+   typography of .ord-item-unit-pack but is a real input so the user
+   can type any unit ("ea", "cs", "bag", "gal", "lbs", "box"…) per-line. */
+.ord-item-unit-input {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  color: var(--nx-text, var(--text));
+  text-transform: lowercase;
+  text-align: right;
+  outline: none;
+  -webkit-appearance: none;
+}
+.ord-item-unit-input:focus {
+  border-color: var(--nx-gold);
+  background: rgba(212,164,78,0.06);
+}
+.ord-item-row.has-qty .ord-item-unit-input {
+  color: var(--nx-gold);
+  border-color: rgba(212,164,78,0.25);
+}
+
 /* Phone — keep the chip and the right column from fighting for width
    on narrow viewports. The qty stepper stays its full-size touch target;
    the par chip wraps under the meta line; the right column keeps its
-   auto width but cap it tighter. */
+   auto width but cap it tighter.
+   v18.28 — further tightened so item names get more horizontal room on
+   one line. Unit cell narrowed from 52-80px to 44-60px (still fits "gal"/
+   "lbs"/"bag"/"sleeve" + comfortable padding). The redundant "CASE"
+   pack-secondary label is hidden — the unit input itself shows what the
+   user typed, no need to also label it. */
 @media (max-width: 420px) {
   .ord-item-row { gap: 8px; padding: 12px 12px; }
-  .ord-item-unit { min-width: 52px; max-width: 80px; }
+  .ord-item-unit { min-width: 44px; max-width: 60px; }
   .ord-item-unit-pack { font-size: 10px; }
-  .ord-item-unit-sub { font-size: 8.5px; }
+  .ord-item-unit-sub { display: none; }
   .ord-item-par-chip { font-size: 10px; padding: 3px 8px 3px 6px; }
   .ord-item-par-qty { font-size: 11px; }
 }
@@ -8724,3 +8770,70 @@ body.ord-overlay-open .nav {
 /* ════════════════════════════════════════════════════════════════════════════
    END PHASE 7 — KITCHEN READABILITY SWEEP
    ════════════════════════════════════════════════════════════════════════════ */
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   v18.27 — iOS HORIZONTAL-SCROLL GUARD
+   ────────────────────────────────────────────────────────────────────────────
+   iOS Safari + WebKit are aggressive about creating horizontal page scroll
+   when ANY descendant overflows its parent's content box. This block stops
+   it at every level of the ordering surface tree:
+
+     1. The entry overlay clips at its own boundary (.ord-entry-overlay
+        already does overflow:hidden via shorthand; explicit overflow-x
+        belt + suspenders).
+     2. The scrolling lists (.ord-entry-list, etc.) explicitly say
+        "scroll y, never x" — without this, a descendant width overflow
+        bubbles up into an internal horizontal scrollbar.
+     3. Text containers that hold long unbroken strings (vendor SKUs,
+        full product codes like "CAN LINER 56 GA XHW BLK 43X47") use
+        overflow-wrap:anywhere so the string breaks at any character
+        rather than pushing the parent wider.
+     4. The vendor list and recent-orders surfaces get the same guards
+        so the main ordering view (outside the overlay) behaves too.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.ord-entry-overlay,
+.ord-entry-list,
+.ord-entry-section,
+.ord-entry-cart-list,
+.ord-vendor-row-wrap,
+.ord-vendor-row,
+.ord-vendor-list,
+.ord-cart-overlay,
+.ord-veditor-overlay,
+.ord-vdetail-overlay {
+  overflow-x: hidden;
+  /* max-width: 100vw is harmful when the element sits inside a flex
+     row with its own scrollbar accounting — don't add it here. */
+}
+
+/* Long unbroken text — SKUs, vendor codes, technical names — must
+   wrap inside their cell, never push the row wider. overflow-wrap:
+   anywhere is the modern correct property; word-break:break-word is
+   the older WebKit fallback. Both together are safe.
+
+   .ord-item-name + .ord-vendor-name keep their existing nowrap +
+   ellipsis from the row layout; this only applies to the meta /
+   subtitle lines where wrapping is acceptable. */
+.ord-item-meta,
+.ord-item-house,
+.ord-vendor-preview,
+.ord-vendor-meta,
+.ord-vdetail-sub,
+.ord-recipient-display,
+.ord-line-meta {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Defensive: in case any flex child anywhere in the ordering tree
+   forgot its min-width:0, this rule sets it. Without min-width:0,
+   flex children refuse to shrink below their intrinsic content width,
+   which is the #1 cause of overflow on long names + small phones. */
+.ord-item-row > *,
+.ord-vendor-row > *,
+.ord-cart-line > *,
+.ord-line-row > * {
+  min-width: 0;
+}
