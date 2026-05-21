@@ -3406,15 +3406,25 @@ Thanks for your help sorting this out.`;
         <button class="ord-entry-close" aria-label="Close">${closeIcon()}</button>
         <div class="ord-entry-title">
           <div class="ord-entry-vendor">${esc(vendor.name)}</div>
-          <div class="ord-entry-sub">${esc(LOCS.find(l => l.id === location)?.label || location)}${readOnly ? ' · sent order' : ''}</div>
+          <!-- v18.28 — date moved INTO subtitle as a tappable chip.
+               Previously the standalone "DELIVERY [date]" row burned
+               ~60px of vertical space, costing one item-per-screen.
+               Now the date sits inline: "ESTE · Thu May 21" with the
+               chip opening the native date picker on tap. -->
+          <div class="ord-entry-sub ord-entry-sub-row">
+            <span>${esc(LOCS.find(l => l.id === location)?.label || location)}${readOnly ? ' · sent order' : ''}</span>
+            ${delivery_date ? `
+              <span>·</span>
+              <label class="ord-entry-date-chip" aria-label="Change delivery date">
+                <span id="ordDeliveryDateLabel">${esc(fmtDateShort(delivery_date))}</span>
+                <input type="date" id="ordDeliveryDate" value="${esc(delivery_date)}" ${readOnly ? 'disabled' : ''}>
+              </label>
+            ` : ''}
+          </div>
         </div>
         ${readOnly ? '<div class="ord-entry-spacer"></div>' : `<button class="ord-entry-add" id="ordEntryAdd" aria-label="Add item to catalog">${plusIcon(true)}</button>`}
       </div>
       <div class="ord-entry-meta">
-        <label class="ord-meta-field">
-          <span class="ord-meta-label">Delivery</span>
-          <input type="date" id="ordDeliveryDate" value="${esc(delivery_date || '')}" ${readOnly ? 'disabled' : ''}>
-        </label>
         ${(() => {
           // Mismatch hint: only render when vendor has delivery_days
           // configured AND the picked date isn't one of them. Silent
@@ -3557,6 +3567,10 @@ Thanks for your help sorting this out.`;
     if (fillPill) fillPill.addEventListener('click', () => openFillModePicker());
     overlay.querySelector('#ordDeliveryDate').addEventListener('change', e => {
       entryState.delivery_date = e.target.value;
+      // v18.28 — sync the visible chip label (date input itself is
+      // invisible-overlay, only the label is rendered to the user).
+      const lbl = overlay.querySelector('#ordDeliveryDateLabel');
+      if (lbl) lbl.textContent = fmtDateShort(e.target.value);
       renderEntryItems();
       scheduleDraftSave();
     });
@@ -3606,6 +3620,48 @@ Thanks for your help sorting this out.`;
       document.addEventListener('keydown', escHandler);
       entryState._escWired = true;
       entryState._escHandler = escHandler;
+    }
+
+    // ─── v18.28 — Auto-hide CTA on scroll-down, show on scroll-up ───
+    // Pattern lifted from LinkedIn / Facebook mobile: sticky bottom bars
+    // slide out of the way when the user is scrolling DOWN (so they can
+    // see more content), and slide back in when scrolling UP (so the
+    // primary action is reachable without scrolling to top or bottom).
+    // Always-show conditions: at very top, at bottom, or scrolling up.
+    //
+    // TOLERANCE: 10px. iOS scroll-bounce + finger shake cause tiny
+    // direction reversals; without tolerance the bar jitters on every
+    // finger lift. 10px is enough to ignore micro-movements but small
+    // enough that real direction changes feel instant.
+    const list = overlay.querySelector('#ordEntryList');
+    const ctaWrap = overlay.querySelector('.ord-entry-cta-wrap');
+    if (list && ctaWrap && !readOnly) {
+      let lastY = 0;
+      let lastDir = 0;       // -1 = up, +1 = down, 0 = settled
+      const TOLERANCE = 10;
+      const BOTTOM_THRESHOLD = 24;  // px from bottom counts as "at bottom"
+      const TOP_THRESHOLD    = 8;   // px from top counts as "at top"
+
+      const onScroll = () => {
+        const y = list.scrollTop;
+        const max = list.scrollHeight - list.clientHeight;
+        const atTop    = y <= TOP_THRESHOLD;
+        const atBottom = max - y <= BOTTOM_THRESHOLD;
+        // Direction with tolerance — only flip when movement exceeds threshold
+        const delta = y - lastY;
+        if (Math.abs(delta) >= TOLERANCE) {
+          lastDir = delta > 0 ? 1 : -1;
+          lastY   = y;
+        }
+        // Show: at top, at bottom, or scrolling up. Hide: scrolling down
+        // anywhere in the middle.
+        const shouldHide = lastDir === 1 && !atTop && !atBottom;
+        ctaWrap.classList.toggle('is-hidden', shouldHide);
+      };
+
+      list.addEventListener('scroll', onScroll, { passive: true });
+      // Initial state: visible
+      ctaWrap.classList.remove('is-hidden');
     }
   }
 
