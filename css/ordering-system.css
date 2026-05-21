@@ -712,7 +712,11 @@ body.ord-overlay-open .nav {
      up and show a horizontal scrollbar inside. Explicit overflow-x
      hidden keeps everything pinned to the viewport width. */
   overflow-x: hidden;
-  padding: 12px 12px 16px;
+  /* v18.28 — bottom padding clears the floating CTA. CTA height
+     (54) + wrap top padding gap (none) + bottom safe-area + comfort
+     margin = ~90px. Without this the last item row sits behind the
+     floating button when the user has scrolled to the bottom. */
+  padding: 12px 12px calc(96px + env(safe-area-inset-bottom, 0px));
   -webkit-overflow-scrolling: touch;
 }
 
@@ -894,7 +898,10 @@ body.ord-overlay-open .nav {
   background: var(--nx-bg);
 }
 .ord-qty-btn {
-  width: 32px;
+  /* v18.28 (round 2) — shrunk from 32→28px wide. The 34px height keeps
+     the tap target at iOS minimum (44px is for square targets; tall-thin
+     buttons remain comfortable). Saves 8px total from the qty pill. */
+  width: 28px;
   height: 34px;
   background: transparent;
   border: none;
@@ -916,10 +923,9 @@ body.ord-overlay-open .nav {
 }
 .ord-qty-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
 .ord-qty-input {
-  /* v18.28 — was 46px; tightened to 38 so the name column has more
-     horizontal room on narrow phones. Still wide enough for 2 digits +
-     comfortable padding (qty rarely exceeds 99 for restaurant orders). */
-  width: 38px;
+  /* v18.28 (round 2) — shrunk 38→32px. Still fits 2 digits with breathing
+     room; restaurants very rarely order 100+ of a single item per cycle. */
+  width: 32px;
   height: 34px;
   text-align: center;
   border: none;
@@ -965,32 +971,39 @@ body.ord-overlay-open .nav {
 
 .ord-entry-cta-wrap {
   flex-shrink: 0;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
-  background: var(--nx-bg);
-  border-top: 1px solid var(--nx-gold-line);
+  /* v18.28 — was a docked toolbar with a solid background and a
+     top border. Orion's note: "the black box stays" when the
+     button hides. Reworked as a true floating layer:
+       • No background, no border — fully transparent wrapper
+       • position: absolute over the bottom of the overlay so it
+         doesn't reserve layout space (full width for item rows)
+       • The button itself carries the shadow for elevation
+     When .is-hidden slides the wrap down, nothing visual lingers. */
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: transparent;
+  border: none;
+  padding: 0 16px calc(14px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 4px;
-  /* v18.28 — slide-hide on downward scroll, slide-show on upward.
-     Transform is GPU-accelerated and respects safe-area padding
-     baked into the wrap. JS toggles .is-hidden based on scroll
-     direction; the wrap slides off the bottom edge of the viewport.
-     pointer-events: none while hidden so taps pass through. */
+  pointer-events: none;          /* allow taps to pass through wrap */
+  z-index: 5;
   transition: transform .24s cubic-bezier(.4, 0, .2, 1), opacity .2s ease;
   will-change: transform;
 }
+.ord-entry-cta-wrap > * { pointer-events: auto; }   /* but the button itself catches */
+
 .ord-entry-cta-wrap.is-hidden {
-  transform: translateY(100%);
+  transform: translateY(calc(100% + 24px));
   opacity: 0;
   pointer-events: none;
 }
 
 .ord-entry-cta {
   width: 100%;
-  /* v18.28 — bumped from 50→54 for a more confident, tappable button.
-     Outfit-600 at 16px reads warmer + more substantial than the prior
-     14.5px. Letter-spacing tightened a hair (0.3→0.2) so it doesn't
-     feel pinched at the bigger size. */
   height: 54px;
   padding: 0 22px;
   border-radius: 999px;
@@ -1002,8 +1015,13 @@ body.ord-overlay-open .nav {
   font-weight: 600;
   letter-spacing: 0.2px;
   cursor: pointer;
-  /* Theme-aware shadow: gold-glow on dark, warm-brown on light. */
-  box-shadow: var(--nx-shadow-pill, 0 2px 10px var(--nx-gold-soft));
+  /* v18.28 — beefier shadow now that the button is floating without a
+     toolbar to anchor it. The shadow gives the elevation cue that
+     this is an above-the-page primary action. */
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.45),
+    0 2px 8px var(--nx-gold-soft, rgba(212, 164, 78, 0.35)),
+    0 0 0 1px rgba(212, 164, 78, 0.2);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -8340,14 +8358,17 @@ body.ord-overlay-open .nav {
    on narrow viewports. The qty stepper stays its full-size touch target;
    the par chip wraps under the meta line; the right column keeps its
    auto width but cap it tighter.
-   v18.28 — with the "CASE" sublabel hidden universally, the unit cell
-   no longer needs reserved vertical space for two stacked lines. Narrowed
-   to 36-48px (still fits "gal"/"lbs"/"bag"/"sleeve" comfortably in the
-   single-line input). Net gain: ~20px more horizontal room for item
-   names on narrow phones, on top of the v18.28 qty tightening. */
+   v18.28 (round 2) — Orion still seeing "SMALL TRASH B…" truncation
+   on a 393px iPhone. Reclaiming more horizontal real estate:
+     • Row horizontal padding 12→8 (saves 8px total)
+     • Gap inside row 8→6 (saves 4px total across two gaps)
+     • Unit cell 36-48 → 32-40 (saves 8px max)
+     • Name font 15.5 → 14.5 on narrow only (fits ~10% more chars)
+   Net: roughly 20-30px more characters of name visible per row. */
 @media (max-width: 420px) {
-  .ord-item-row { gap: 8px; padding: 12px 12px; }
-  .ord-item-unit { min-width: 36px; max-width: 48px; }
+  .ord-item-row { gap: 6px; padding: 12px 8px; }
+  .ord-item-name { font-size: 14.5px; }
+  .ord-item-unit { min-width: 32px; max-width: 40px; }
   .ord-item-unit-pack { font-size: 10px; }
   .ord-item-par-chip { font-size: 10px; padding: 3px 8px 3px 6px; }
   .ord-item-par-qty { font-size: 11px; }
@@ -8482,10 +8503,17 @@ body.ord-overlay-open .nav {
    important verifying info that was 11-12px and barely readable —
    13.5-14px makes it scan-able. The pack pill on the right side gets
    bigger so chef can verify "yes I want 3/1 GA bleach not 1/1 GA"
-   without zooming. */
-.ord-item-name {
-  font-size: 16.5px !important;      /* was 15.5 → bump for primary work surface */
-  line-height: 1.25;
+   without zooming.
+   v18.28 (round 2) — on narrow phones the 16.5px name was forcing
+   truncation ("SMALL TRASH B…"). Override only kicks in for wider
+   viewports (>420px); narrow phones keep 14.5px so longer names fit
+   on a single line. Kitchen-tablet readability preserved at the bigger
+   width where it actually matters. */
+@media (min-width: 421px) {
+  .ord-item-name {
+    font-size: 16.5px !important;      /* was 15.5 → bump for primary work surface */
+    line-height: 1.25;
+  }
 }
 .ord-item-sub,
 .ord-item-meta,
