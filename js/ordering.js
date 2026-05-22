@@ -2041,6 +2041,8 @@
     // v18.29 — Primary "New order" click. If a draft exists, archive
     // it first so openVendor() starts a genuinely fresh draft. The
     // old draft becomes recoverable from the Archived block above.
+    // Pass forceEmpty: true so the new draft starts at 0 qty for
+    // every item — fresh start ignoring the vendor's auto-fill mode.
     overlay.querySelector('[data-action="start-order"]').addEventListener('click', async () => {
       const vid = vendor.id;
       const draftId = (hasDraft && draftRow && draftRow.id) || null;
@@ -2058,7 +2060,7 @@
           // up the still-present draft (graceful fallback).
         }
       }
-      openVendor(vid);
+      openVendor(vid, { forceEmpty: true });
     });
     // v18.29 — Secondary "Continue draft" link. Goes straight to the
     // existing draft without touching it.
@@ -3108,8 +3110,16 @@ Thanks for your help sorting this out.`;
   // PHASE 2 — ORDER ENTRY OVERLAY
   // ═══════════════════════════════════════════════════════════════════
 
-  /** Open the entry overlay for a vendor. Continues an existing draft if present. */
-  async function openVendor(vendorId) {
+  /** Open the entry overlay for a vendor. Continues an existing draft if present.
+   *  v18.29 — when called with { forceEmpty: true }, skips the auto-fill
+   *  pass entirely (par fill / last-order fill) so the chef starts with
+   *  zero quantities. The fill-mode picker remains available so they
+   *  can manually trigger par-fill or last-order-fill mid-entry if they
+   *  change their mind. Used by the vendor detail "New order" button to
+   *  give a genuine fresh-start experience. */
+  async function openVendor(vendorId, opts) {
+    opts = opts || {};
+    const forceEmpty = opts.forceEmpty === true;
     const vendor = vendors.find(v => v.id === vendorId);
     if (!vendor) {
       if (NX.toast) NX.toast('Vendor not found', 'error');
@@ -3151,7 +3161,15 @@ Thanks for your help sorting this out.`;
       // Falls back to 'par' if the column is absent or unset.
       // The user can change the mode mid-entry via the fill picker; this
       // path only runs once on initial open.
-      const fillMode = (vendor.default_fill_mode || 'par');
+      //
+      // v18.29 — forceEmpty override. When the entry was launched from
+      // the vendor detail's "New order" button, the chef explicitly
+      // asked for a fresh start. Skip the auto-fill regardless of the
+      // vendor's saved fill mode. The fill-mode picker is still in the
+      // header, so they can pull in pars / last order manually if they
+      // change their mind. The vendor's default_fill_mode is preserved
+      // (this is a one-time per-session override).
+      const fillMode = forceEmpty ? 'empty' : (vendor.default_fill_mode || 'par');
       let autofilled = 0;
       if (fillMode === 'last_order') {
         autofilled = await fillFromLastOrder(vendor, activeLoc, catalog);
