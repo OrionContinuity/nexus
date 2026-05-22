@@ -7892,6 +7892,46 @@ function drawQRFallback(canvas, text) {
   img.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(text)}`;
 }
 
+/** v18.31 — Generate a QR code as a base64 PNG data URL string.
+ *  Used for PRINT contexts (sticker sheets, service log sheets, PDFs)
+ *  where we need the QR embedded directly in the HTML rather than
+ *  fetched at print-time. Embedded data URLs make the print self-
+ *  contained — no network calls during print → no broken-image
+ *  placeholders when the external QR service is slow, blocked, or
+ *  the print window is opened offline.
+ *
+ *  Preference order:
+ *    1. QRious local generation → data:image/png;base64 string
+ *    2. External api.qrserver.com URL (legacy fallback that the print
+ *       window will fetch directly, just like before)
+ *
+ *  size param controls QR pixel dimensions. 600px is plenty for a
+ *  3-inch printed sticker at 200dpi. */
+function generateQRDataURL(text, size) {
+  size = size || 600;
+  if (typeof QRious !== 'undefined') {
+    try {
+      const tmpCanvas = document.createElement('canvas');
+      new QRious({
+        element: tmpCanvas,
+        value: text,
+        size: size,
+        foreground: '#000',
+        background: '#fff',
+        level: 'H',
+        padding: 0
+      });
+      return tmpCanvas.toDataURL('image/png');
+    } catch (e) {
+      console.warn('[generateQRDataURL] QRious threw — falling back to external API:', e);
+    }
+  }
+  // Legacy fallback — external SVG API. This will still break if the
+  // service is down, but at least it's not a regression vs the prior
+  // behavior. Users with QRious loaded never hit this path.
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&format=svg&ecc=H&margin=0&data=${encodeURIComponent(text)}`;
+}
+
 function copyQRLink(qrCode) {
   const url = `${window.location.origin}${window.location.pathname}?equip=${qrCode}`;
   navigator.clipboard.writeText(url);
@@ -7944,9 +7984,14 @@ function printStickers(equipList, opts = {}) {
     const url = opts.urlBuilder
       ? opts.urlBuilder(eq)
       : `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
-    // SVG QR — scales infinitely without raster artifacts. Sign shops
-    // love SVG because they can pull it directly into Illustrator.
-    const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&format=svg&ecc=H&margin=0&data=${encodeURIComponent(url)}`;
+    // v18.31 — QR source is now a locally-generated PNG data URL.
+    // Previously this hit api.qrserver.com directly via <img src=...>,
+    // which silently failed on networks that couldn't reach the API
+    // or when the API was slow, leaving the print preview full of
+    // broken-image placeholders. generateQRDataURL prefers the local
+    // QRious library and falls back to the external API only if
+    // QRious is unavailable.
+    const qrSrc = generateQRDataURL(url, 600);
     const stat = STATUS_COLOR[eq.status] || STATUS_COLOR.operational;
     const stationLine = [eq.location, eq.area].filter(Boolean).join(' · ');
     const modelLine = [eq.manufacturer, eq.model].filter(Boolean).join(' ');
@@ -8378,7 +8423,9 @@ async function printServiceLog(id) {
 
   // QR for the small corner code (links back to digital)
   const scanURL = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
-  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&format=svg&ecc=H&margin=0&data=${encodeURIComponent(scanURL)}`;
+  // v18.31 — embedded data URL instead of external API URL (see
+  // printStickers comment for full rationale)
+  const qrSrc = generateQRDataURL(scanURL, 300);
   // Coin URL — same one used on the QR sticker
   const coinUrl = `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, '')}assets/coin-providentia.png`;
 
