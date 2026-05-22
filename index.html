@@ -410,9 +410,17 @@
 /* ─── PIN screen vertical layout override ────────────────────────────
    Anchor content to the top of the screen, not vertically centered.
    Override nexus.css's pin-box padding (which adds 24px all around)
-   so the coin sits close to the top with just a small comfortable gap. */
+   so the coin sits close to the top with just a small comfortable gap.
+
+   v18.27 — also adds explicit top + bottom padding so when the
+   overflow-y:auto kicks in (added to .pin-screen for iOS), content
+   never crowds against the very edges of the viewport (notch on top,
+   home indicator on bottom). env(safe-area-inset-*) keeps the layout
+   inside the iPhone bezel safe zones. */
 #pinScreen.pin-screen {
   align-items: flex-start;
+  padding-top: max(16px, env(safe-area-inset-top, 16px));
+  padding-bottom: max(20px, env(safe-area-inset-bottom, 20px));
 }
 #pinScreen .pin-box {
   padding: 8px 24px 16px;
@@ -1356,6 +1364,7 @@
 <!-- Utility tray — slides down from nav -->
 <div class="util-tray" id="utilTray">
   <button class="util-btn" id="utilIngest" style="display:none"><i data-lucide="zap" class="util-icon"></i><span>Ingest</span></button>
+  <button class="util-btn" id="utilTransactions" title="All transactions"><i data-lucide="receipt" class="util-icon"></i><span>Transactions</span></button>
   <button class="util-btn" id="navClock" title="Time Clock"><i data-lucide="clock" class="util-icon"></i><span>Clock</span><span class="tc-indicator" id="tcIndicator"></span></button>
   <button class="util-btn" id="themeToggle" title="Toggle theme · Auto / Dark / Light"><i data-lucide="circle-half" class="util-icon" id="themeIcon"></i><span>Theme</span></button>
   <button class="util-btn" id="prefsBtn" title="Preferences"><i data-lucide="sliders-horizontal" class="util-icon"></i><span>Prefs</span></button>
