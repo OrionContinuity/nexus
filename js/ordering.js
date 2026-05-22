@@ -529,7 +529,12 @@
         </div>
       </div>
       <div class="ord-pulse" id="ordPulse"></div>
-      <div class="ord-recent" id="ordRecent"></div>
+      <!-- v18.29 — Home RECENT section removed. The cross-vendor
+           recent-orders block (search + status chips + paginated list)
+           moved into a dedicated "All transactions" overlay reachable
+           from the masthead utility tray. Per-vendor recent orders
+           still live inside each vendor detail screen, which was
+           the right place all along. -->
       <div class="ord-vendors-wrap">
         <div class="ord-section-label ord-section-label-with-action">
           <span>Vendors</span>
@@ -747,25 +752,19 @@
             setTimeout(() => row.classList.remove('is-flash'), 1600);
           }
         } else if (action === 'filter-status' && target) {
+          // v18.29 — Home Recent section was removed; filter chips now
+          // open the All Transactions overlay with the filter applied.
           recentStatusFilter = target;
           recentSearchQuery = '';
           recentPage = 0;
-          const vmap = {}; (vendors || []).forEach(v => vmap[v.id] = v);
-          renderRecent(recentOrders, vmap);
-          // Scroll Recent into view if needed
-          const recentEl = document.getElementById('ordRecent');
-          if (recentEl) recentEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          openAllTransactions();
         } else if (action === 'filter-issue') {
-          // No issue-status filter exists yet; we use search="issue"
-          // as a quick proxy that surfaces issue-flagged orders via
-          // the issue pill in the row preview.
+          // Same redirect for the issue chip — open the overlay,
+          // pre-filtered by the "issue" search proxy.
           recentSearchQuery = 'issue';
           recentStatusFilter = 'all';
           recentPage = 0;
-          const vmap = {}; (vendors || []).forEach(v => vmap[v.id] = v);
-          renderRecent(recentOrders, vmap);
-          const recentEl = document.getElementById('ordRecent');
-          if (recentEl) recentEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          openAllTransactions();
         }
       });
     });
@@ -1069,6 +1068,81 @@
       });
     }
   }
+
+  /* ════════════════════════════════════════════════════════════════════
+     v18.29 — ALL TRANSACTIONS OVERLAY
+
+     The cross-vendor recent-orders list used to sit on the Home/Duties
+     tab between the pulse chips and the vendors list. That position
+     was noisy: most rows were the same high-volume vendor (PFG) showing
+     up multiple times, duplicating info already available inside each
+     vendor's detail screen. Removed from Home → relocated here as an
+     on-demand overlay reachable from:
+       • The masthead utility tray ("Transactions" button)
+       • Pulse chip taps (e.g. "5 awaiting confirmation" opens the
+         overlay pre-filtered to status=sent)
+
+     Internals: reuses renderRecent() unchanged by embedding the same
+     `id="ordRecent"` container inside the overlay. The existing search
+     + status filter + pagination + bucketing all just work.
+     ════════════════════════════════════════════════════════════════════ */
+  function openAllTransactions() {
+    let overlay = document.querySelector('.ord-allorders-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'ord-allorders-overlay';
+      document.body.appendChild(overlay);
+      document.body.classList.add('ord-overlay-open');
+    }
+    const locLabel = (LOCS.find(l => l.id === activeLoc) || {}).label || activeLoc;
+    overlay.innerHTML = `
+      <div class="ord-entry-head ord-allorders-head">
+        <button class="ord-entry-close" id="allOrdersClose" aria-label="Close">${arrowLeftIcon()}</button>
+        <div class="ord-entry-title">
+          <div class="ord-entry-vendor">All transactions</div>
+          <div class="ord-entry-sub">${esc(locLabel)}</div>
+        </div>
+        <div class="ord-entry-spacer"></div>
+      </div>
+      <div class="ord-allorders-body">
+        <div class="ord-recent" id="ordRecent"></div>
+      </div>
+    `;
+    overlay.querySelector('#allOrdersClose').addEventListener('click', closeAllTransactions);
+    // Paint Recent into the overlay's container using the existing
+    // renderer. The vendorMap is rebuilt fresh (vendor state may have
+    // changed since the last paint).
+    const vmap = {}; (vendors || []).forEach(v => vmap[v.id] = v);
+    renderRecent(recentOrders, vmap);
+
+    // ESC closes the overlay (matches the other ordering overlays).
+    if (!overlay._escWired) {
+      const escHandler = e => {
+        if (e.key === 'Escape' && document.querySelector('.ord-allorders-overlay')) {
+          closeAllTransactions();
+        }
+      };
+      document.addEventListener('keydown', escHandler);
+      overlay._escWired = true;
+      overlay._escHandler = escHandler;
+    }
+  }
+
+  function closeAllTransactions() {
+    const overlay = document.querySelector('.ord-allorders-overlay');
+    if (!overlay) return;
+    if (overlay._escHandler) {
+      document.removeEventListener('keydown', overlay._escHandler);
+    }
+    overlay.remove();
+    // Drop the body class only if no other ordering overlay is open
+    const anyOpen = document.querySelector(
+      '.ord-entry-overlay, .ord-catalog-overlay, .ord-vdetail-overlay'
+    );
+    if (!anyOpen) document.body.classList.remove('ord-overlay-open');
+  }
+  // Expose so the masthead utility-tray button can call into it.
+  NX.openAllTransactions = openAllTransactions;
 
   function renderVendors() {
     const el = document.getElementById('ordVendors');
@@ -1764,6 +1838,34 @@
   function renderVendorDetail() {
     if (!detailState || !detailState.overlay) return;
     const { vendor, orders, ordersLoading, hasDraft, overlay, archivedOrders, archivedExpanded } = detailState;
+    // v18.29 — pluck the most-recent active draft row for use in the
+    // "Continue draft from {time}" link. orders is already sorted by
+    // updated_at desc, so .find(...) returns the freshest draft.
+    const draftRow = (orders || []).find(o => (o.status || 'draft') === 'draft');
+
+    // Relative-time formatter for the continue-draft link.
+    // "5 minutes ago", "2 hours ago", "yesterday", "Mon", "May 11"
+    const fmtRelTime = ts => {
+      if (!ts) return '';
+      const d = new Date(ts);
+      if (isNaN(d)) return '';
+      const now = new Date();
+      const diffMs = now - d;
+      const mins = Math.round(diffMs / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return `${mins} min${mins === 1 ? '' : 's'} ago`;
+      const hours = Math.round(mins / 60);
+      if (hours < 6) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+      // Same day → show time of day
+      if (d.toDateString() === now.toDateString()) {
+        return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      }
+      const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+      if (d.toDateString() === yesterday.toDateString()) return 'yesterday';
+      const days = Math.round(diffMs / 86400000);
+      if (days < 7) return d.toLocaleDateString([], { weekday: 'short' });
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    };
 
     // Header: back, avatar+identity, pin-toggle, gear
     const headerHTML = `
@@ -1887,14 +1989,39 @@
     }
     bodyHTML = bodyHTML + archivedHTML;
 
-    // Sticky CTA: "Continue order →" if draft exists, else "Start new order →"
-    const ctaLabel = hasDraft ? 'Continue order' : 'Start new order';
+    // v18.29 — Sticky CTA rework. Was an auto-flipping label
+    // ("Continue order" when a draft existed, else "Start new
+    // order"). Both led to the same flow — kept work in the existing
+    // draft. New model is cleaner:
+    //
+    //   Primary button: ALWAYS "New order" — starts fresh. Any
+    //   existing draft is auto-archived first (recoverable from
+    //   the archived block below). Chef expectation matches result.
+    //
+    //   Secondary text link: only renders when a draft exists.
+    //   Plain-text affordance "Continue draft from {time} →" sits
+    //   under the primary button so the existing draft is one tap
+    //   away without being the path of least resistance.
+    //
+    // The auto-archive on New order is the safety net we picked
+    // over a confirmation dialog: drafts persist as recoverable
+    // records, so no work is lost; nothing's destructive, just
+    // moved to the archived list.
+    const draftTimeLabel = hasDraft && draftRow && draftRow.updated_at
+      ? fmtRelTime(draftRow.updated_at)
+      : '';
     const footerHTML = `
       <div class="ord-vdetail-foot">
         <button class="ord-vdetail-cta" data-action="start-order">
-          <span>${ctaLabel}</span>
+          <span>New order</span>
           <span class="ord-vdetail-cta-arrow" aria-hidden="true">→</span>
         </button>
+        ${hasDraft ? `
+          <button class="ord-vdetail-continue-link" data-action="continue-draft" type="button">
+            <span>Continue draft${draftTimeLabel ? ` from ${esc(draftTimeLabel)}` : ''}</span>
+            <span aria-hidden="true">→</span>
+          </button>
+        ` : ''}
       </div>
     `;
 
@@ -1911,11 +2038,39 @@
       // crashed saveVendor with an "undefined uuid" Postgres error.
       openVendorEditor(vendor);
     });
-    overlay.querySelector('[data-action="start-order"]').addEventListener('click', () => {
+    // v18.29 — Primary "New order" click. If a draft exists, archive
+    // it first so openVendor() starts a genuinely fresh draft. The
+    // old draft becomes recoverable from the Archived block above.
+    overlay.querySelector('[data-action="start-order"]').addEventListener('click', async () => {
       const vid = vendor.id;
+      const draftId = (hasDraft && draftRow && draftRow.id) || null;
       closeVendorDetail();
+      if (draftId) {
+        try {
+          await archiveOrder(draftId);
+        } catch (err) {
+          console.error('[ordering] auto-archive draft on New order:', err);
+          if (NX.toast) NX.toast(
+            `Could not archive prior draft: ${err.message || 'unknown'}`,
+            'warn', 3000
+          );
+          // Fall through and still try to open — openVendor will pick
+          // up the still-present draft (graceful fallback).
+        }
+      }
       openVendor(vid);
     });
+    // v18.29 — Secondary "Continue draft" link. Goes straight to the
+    // existing draft without touching it.
+    const continueLink = overlay.querySelector('[data-action="continue-draft"]');
+    if (continueLink) {
+      continueLink.addEventListener('click', () => {
+        const did = (draftRow && draftRow.id) || null;
+        if (!did) return;
+        closeVendorDetail();
+        openExistingOrder(did);
+      });
+    }
     overlay.querySelectorAll('.ord-recent-row').forEach(b => {
       b.addEventListener('click', () => {
         const oid = b.dataset.orderId;
