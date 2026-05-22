@@ -702,6 +702,24 @@ const NX = {
       document.querySelector('[data-view="board"]').style.display = 'none';
     }
 
+    // v18.29 — Utility-tray "Transactions" button. Opens the cross-
+    // vendor order history overlay. This used to live on the Duties
+    // home tab as a scrolling block, but that always-on placement
+    // duplicated info already available inside each vendor's detail
+    // screen. As an on-demand overlay it's discoverable + out of the
+    // way. Available to every role (no admin gate).
+    const utilTransactions = document.getElementById('utilTransactions');
+    if (utilTransactions) {
+      utilTransactions.addEventListener('click', () => {
+        document.getElementById('utilTray').classList.remove('open');
+        if (window.NX && typeof window.NX.openAllTransactions === 'function') {
+          window.NX.openAllTransactions();
+        } else {
+          console.warn('[app] openAllTransactions not available yet');
+        }
+      });
+    }
+
     // Continue with normal init
     this.loadNodes().then(() => {
       // Load AI context systems
