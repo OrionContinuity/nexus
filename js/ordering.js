@@ -4018,6 +4018,19 @@ Thanks for your help sorting this out.`;
           entryState.lines[id].unit = u;
           scheduleDraftSave();
         }
+        // v18.30 — sync the unit edit to the CATALOG default
+        // (order_guide_items.unit) immediately, debounced. Previously
+        // a unit change on the ordering screen lived only in
+        // localStorage + the draft's order_lines.unit; the catalog
+        // default stayed stale until manually updated in the catalog
+        // editor. Now: type unit on ordering → catalog default
+        // updates within 350ms. The in-memory `item.unit` is also
+        // mutated so subsequent renders + the override-fallback chain
+        // pick up the new value.
+        if (u && u !== item.unit) {
+          item.unit = u;
+          scheduleInlineItemSave(id, { unit: u });
+        }
       };
       unitInp.addEventListener('input', e => applyUnit(e.target.value));
       unitInp.addEventListener('blur',  e => {
@@ -6780,36 +6793,48 @@ Thanks for your help sorting this out.`;
 
   /* ════════════════════════════════════════════════════════════════════
      v18.28 (catalog revamp) — Inline item field save with debounce
+     v18.30 — Patch-merging so rapid changes across fields aren't lost
 
-     Saves a SINGLE field on a catalog item without going through the
-     full edit form. Used by the inline par stepper + unit input on
-     each catalog row. Debounced 350ms per item so rapid typing/stepping
-     doesn't fire a write per keystroke.
+     Saves arbitrary fields on a catalog item without going through the
+     full edit form. Used by:
+       • The inline par stepper + unit input on each catalog row
+       • The ordering screen's per-line unit input (so unit edits sync
+         to the catalog default immediately, not at send time)
 
      State semantics:
-       • catalogState.items[i].<field> is already updated by the caller
-         (so the UI reflects the change immediately)
-       • This function persists that update to the DB on the debounce
-       • Errors surface as toast; no automatic revert (the user can fix
-         and trigger another save)
+       • Caller has already updated in-memory state (so UI is responsive)
+       • This function persists the update to the DB on the debounce
+       • Multiple calls within 350ms get MERGED into one final PATCH —
+         the prior debounce would replace the captured patch, dropping
+         the older fields. Now we keep an accumulator per item ID so
+         "change unit, then change par within 100ms" still saves both.
+       • Errors surface as toast; no automatic revert.
      ════════════════════════════════════════════════════════════════════ */
   const _inlineItemSaveTimers = {};
+  const _inlineItemSavePending = {};   // accumulated patch keyed by itemId
   function scheduleInlineItemSave(itemId, patch) {
     if (!itemId || !patch) return;
+    // Merge into the pending patch for this item — last write wins
+    // per field, all fields accumulated.
+    _inlineItemSavePending[itemId] = Object.assign(
+      _inlineItemSavePending[itemId] || {},
+      patch
+    );
     if (_inlineItemSaveTimers[itemId]) clearTimeout(_inlineItemSaveTimers[itemId]);
-    // Merge any prior pending patch for this item so we always send
-    // the most-recent set of changes in one go
     _inlineItemSaveTimers[itemId] = setTimeout(async () => {
+      const finalPatch = _inlineItemSavePending[itemId];
       delete _inlineItemSaveTimers[itemId];
+      delete _inlineItemSavePending[itemId];
+      if (!finalPatch || Object.keys(finalPatch).length === 0) return;
       try {
         const { error } = await NX.sb.from('order_guide_items')
-          .update(patch).eq('id', itemId);
+          .update(finalPatch).eq('id', itemId);
         if (error) throw error;
         // Soft success — no toast on every keystroke. Errors get one though.
       } catch (err) {
-        console.error('[catalog] inline save failed:', err, 'patch:', patch);
+        console.error('[catalog] inline save failed:', err, 'patch:', finalPatch);
         if (NX.toast) NX.toast(
-          `Save failed: ${err.message || 'unknown error'}`,
+          `Catalog save failed: ${err.message || 'unknown error'}`,
           'error',
           3500
         );
