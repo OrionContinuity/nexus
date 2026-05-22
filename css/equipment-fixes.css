@@ -762,7 +762,6 @@
   color: #e88;
   border-color: rgba(212,88,88,0.25);
 }
-}
 
 /* ─── Vendor editor modal ─────────────────────────────────────────────── */
 .eq-vendor-modal {
@@ -2082,8 +2081,22 @@ button.eq-close {
 
 .eq-call-confirm-actions {
   display: grid;
-  grid-template-columns: 1fr 1.5fr;
-  gap: 10px;
+  /* v18.30 — was 2 cols (Cancel + Call). Now 3 cols to fit the
+     Email button: Cancel small, Email medium, Call largest. Wraps
+     to two rows on very narrow viewports via the @media below. */
+  grid-template-columns: 0.85fr 1fr 1.35fr;
+  gap: 8px;
+}
+
+@media (max-width: 380px) {
+  /* Very narrow phones — stack the actions on two rows.
+     Cancel + Email on top, Call full-width on bottom. */
+  .eq-call-confirm-actions {
+    grid-template-columns: 1fr 1.2fr;
+  }
+  .eq-call-confirm-actions .eq-call-service-btn {
+    grid-column: 1 / -1;
+  }
 }
 
 .eq-call-confirm-actions .eq-btn {
@@ -2095,12 +2108,39 @@ button.eq-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: opacity .15s, background .15s;
+  gap: 6px;
+  transition: opacity .15s, background .15s, border-color .15s;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* Disabled Call Now state — dimmed when issue field is empty */
+/* v18.30 — Email button: gold-outlined secondary action. Sits visually
+   between the neutral Cancel and the gold-filled Call CTA so the
+   hierarchy reads: cancel < email < call. Email is offered as a less-
+   immediate alternative — same outcome (vendor contact + ticket
+   created), softer impact (no phone ringing). */
+.eq-call-email-btn {
+  background: transparent !important;
+  border: 1px solid var(--nx-gold) !important;
+  color: var(--nx-gold) !important;
+  cursor: pointer;
+}
+.eq-call-email-btn:hover {
+  background: rgba(212, 164, 78, 0.08) !important;
+}
+.eq-call-email-btn:active {
+  transform: scale(0.97);
+  background: rgba(212, 164, 78, 0.16) !important;
+}
+.eq-call-email-btn .eq-btn-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Disabled state for both primary action buttons */
 .eq-call-service-btn.is-disabled,
-.eq-call-service-btn[aria-disabled="true"] {
+.eq-call-service-btn[aria-disabled="true"],
+.eq-call-email-btn.is-disabled,
+.eq-call-email-btn[aria-disabled="true"] {
   opacity: 0.4;
   pointer-events: none;
   cursor: not-allowed;
