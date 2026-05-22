@@ -4253,7 +4253,10 @@ Thanks for your help sorting this out.`;
     const deliveryLabel = computeForLabel(ctx.delivery_date) || ctx.delivery_date_long || 'this order';
 
     let body = `Hey ${greetTo}! Hope you are having a great ${dayWord}!!\n\n`;
-    body += `For ${deliveryLabel}:\n`;
+    // v18.28 (polish) — blank line after the "For X:" header so the
+    // item list sits as a distinct block instead of crowding the
+    // header. Better visual rhythm for the vendor scanning the email.
+    body += `For ${deliveryLabel}:\n\n`;
     body += linesText;
     if (notes && notes.trim()) {
       body += `\n\n${notes.trim()}`;
@@ -4365,11 +4368,21 @@ Thanks for your help sorting this out.`;
       const name = pickHouseName(item, parOverride);
       const qty = l.qty;
       const u = shortUnit(l.unit || (item && item.unit));
-      // v18.25 — SKUs dropped from the line format. The screenshot
-      // reference is a clean "{qty}{unit} {name}" list with nothing else.
-      // SKUs still exist on the catalog item and admin order detail; just
-      // not on the outgoing email line. Cleaner for the vendor to read.
-      linesText += `${qty}${u} ${name}`;
+      // v18.28 (polish, round 2) — mirrors the review screen structure
+      // in plain text. The review shows three columns: qty (gold) +
+      // name (white, large) + SKU (faint, small). Plain text has no
+      // font sizes, so we reproduce the hierarchy via convention and
+      // spacing:
+      //   • bullet  — distinct list marker
+      //   • qty unit — space-separated readable count
+      //   • name    — primary content
+      //   • #SKU    — invoice-convention prefix puts SKU in "reference"
+      //               position so it reads as secondary
+      // SKU only appears when set (catalog vendor_sku). Items without
+      // a SKU just omit the column — no trailing whitespace.
+      const sku = l.vendor_sku || (item && item.vendor_sku) || '';
+      linesText += `  • ${qty} ${u}  ${name}`;
+      if (sku) linesText += `  #${sku}`;
       linesText += `\n`;
       totalItemCount++;
     }
