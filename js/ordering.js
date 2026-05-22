@@ -3705,8 +3705,17 @@ Thanks for your help sorting this out.`;
     // Empty when there's no par configured. Shows the day label ("Mon",
     // "Tue") only when a per-weekday override is active for the
     // delivery date, otherwise just "PAR 5 GA".
+    // v18.28 (polish) — adds .is-met (qty ≥ par, soft green) and
+    // .is-short (0 < qty < par, soft amber) modifiers so the chip
+    // becomes a glance-able status badge. Bare/zero-qty rows stay
+    // neutral so the page doesn't look like a stoplight.
+    const liveQty = line ? Number(line.qty) || 0 : 0;
+    let parStateCls = '';
+    if (hint.chipQty != null && liveQty > 0) {
+      parStateCls = liveQty >= Number(hint.chipQty) ? ' is-met' : ' is-short';
+    }
     const parChip = (hint.chipQty != null) ? `
-      <div class="ord-item-par-chip" title="Target stock level">
+      <div class="ord-item-par-chip${parStateCls}" title="Target stock level">
         <span class="ord-item-par-label">PAR</span>
         <span class="ord-item-par-qty">${esc(String(hint.chipQty))}</span>
         <span class="ord-item-par-unit">${esc(hint.chipUnit)}</span>
