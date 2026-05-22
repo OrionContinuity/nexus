@@ -9024,20 +9024,19 @@ body.ord-overlay-open .nav {
 
 
 /* ════════════════════════════════════════════════════════════════════════════
-   v18.29 — CATALOG ROW VISUAL RESET
+   v18.29 — CATALOG ROW VISUAL RESET (round 2)
    ────────────────────────────────────────────────────────────────────────────
-   The Phase 1 design borrowed the ordering screen's "gold-fill on has-qty"
-   pattern. That worked in ordering because most rows had qty=0, so the
-   few gold-filled ones popped. In catalog it backfired: MOST items
-   already have a default par, so every row turned gold and the screen
-   read as chaos.
+   Catalog row now uses the EXACT same .ord-qty pill + .ord-item-unit-input
+   classes as the ordering screen. Same component, same dimensions, same
+   keyboard / tap behaviors. The .ved-* hooks are additional classes for
+   handler wiring only.
 
-   v18.29 strips the hero treatment back:
-     • No row-level gold tint or left-edge inset
-     • Par stepper is a quiet bordered input (gold border, no fill)
-     • Smaller, tighter dimensions across the board so the name column
-       gets generous space
-     • Move arrows still present but very subtle
+   Important: ordering's gold-fill hero treatment is scoped to
+   .ord-item-row.has-qty — the catalog row is .ved-item-row, so the
+   hero gold-fill does NOT cascade here. That's intentional. Most
+   catalog items have a par, so the screen reads calmly: a row of
+   gold-bordered neutral pills. The "this item has a par" signal lives
+   inside the input itself — the par number goes gold via the rule below.
    ──────────────────────────────────────────────────────────────────────────── */
 
 .ved-item-row {
@@ -9046,9 +9045,6 @@ body.ord-overlay-open .nav {
   background: transparent !important;
   box-shadow: none !important;
 }
-/* Removed: .ved-item-row.has-par background tint + inset gold edge.
-   The visual signal for "this item has a par" now lives only INSIDE
-   the par stepper (the number itself), not on the row chrome. */
 
 .ved-item-tap {
   flex: 1 1 auto;
@@ -9062,106 +9058,26 @@ body.ord-overlay-open .nav {
 }
 .ved-item-tap:hover .ved-item-name { color: var(--nx-gold); }
 
-/* ── Inline PAR stepper — quiet, neutral, NO gold-fill ─────────────── */
-
-.ved-par-stepper {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 8px;
-  background: var(--nx-surface-1);
-  overflow: hidden;
-  transition: border-color .15s;
+/* has-par signal: the par number itself goes gold. No row chrome,
+   no background, no shadow — quiet, semantic indicator. */
+.ved-item-row.has-par .ord-qty-input {
+  color: var(--nx-gold);
+  font-weight: 700;
 }
-.ved-par-stepper:focus-within { border-color: var(--nx-gold); }
-/* When the item has a par > 0, the BORDER picks up a slight gold
-   accent — that's the entire status cue. No gradient fill, no
-   color shifts, no row-level chrome. */
-.ved-item-row.has-par .ved-par-stepper {
+.ved-item-row.has-par .ord-qty {
   border-color: rgba(212, 164, 78, 0.4);
 }
 
-.ved-par-btn {
-  width: 22px;
-  height: 28px;
-  background: transparent;
-  border: none;
-  color: var(--nx-faint);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1;
-  cursor: pointer;
-  transition: color .12s, background .12s;
-  -webkit-tap-highlight-color: transparent;
-  padding: 0;
-}
-.ved-par-btn:hover { color: var(--nx-gold); }
-.ved-par-btn:active {
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.12));
-  color: var(--nx-gold);
-}
-
-.ved-par-input {
-  width: 26px;
-  height: 28px;
-  text-align: center;
-  border: none;
-  background: transparent;
-  color: var(--nx-text);
-  font-family: 'Outfit', sans-serif;
-  font-size: 12.5px;
-  font-weight: 600;
-  -moz-appearance: textfield;
-  -webkit-appearance: none;
-  appearance: none;
-  border-left: 1px solid var(--nx-gold-line);
-  border-right: 1px solid var(--nx-gold-line);
-}
-.ved-par-input::-webkit-outer-spin-button,
-.ved-par-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-.ved-par-input:focus {
-  outline: none;
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08));
-}
-/* has-par: the par number itself goes gold — quiet, semantic signal */
-.ved-item-row.has-par .ved-par-input {
-  color: var(--nx-gold);
-}
-
-/* ── Inline UNIT input ────────────────────────────────────────────── */
+/* ── Unit input cell width — slightly narrower than ordering since
+   catalog doesn't show the pack/sub-label info ──────────────────── */
 
 .ved-unit-cell {
   flex-shrink: 0;
-  width: 38px;
-  min-width: 32px;
-  max-width: 44px;
+  width: 42px;
+  min-width: 36px;
+  max-width: 50px;
   display: flex;
   align-items: center;
-}
-.ved-unit-input {
-  width: 100%;
-  height: 28px;
-  background: var(--nx-surface-1);
-  border: 1px solid var(--nx-gold-line);
-  border-radius: 6px;
-  padding: 2px 6px;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  color: var(--nx-text);
-  text-transform: lowercase;
-  text-align: center;
-  outline: none;
-  -webkit-appearance: none;
-}
-.ved-unit-input:focus {
-  border-color: var(--nx-gold);
-  background: var(--nx-bg);
 }
 
 /* ── Move stack: very subtle ─────────────────────────────────────── */
@@ -9200,14 +9116,15 @@ body.ord-overlay-open .nav {
   background: var(--nx-gold-soft);
 }
 
-/* ── Phone — slightly more compression ──────────────────────────── */
+/* ── Phone tightening ─────────────────────────────────────────────── */
+/* The .ord-qty + .ord-qty-btn + .ord-qty-input dimensions already
+   tighten on phones via the existing @media (max-width: 500px) block
+   for the ordering screen — those rules cascade here automatically.
+   We just adjust the catalog-specific bits. */
 
 @media (max-width: 500px) {
   .ved-item-row { gap: 5px !important; padding: 10px 8px !important; }
-  .ved-par-btn { width: 20px !important; height: 28px !important; font-size: 13px !important; }
-  .ved-par-input { width: 22px !important; height: 28px !important; font-size: 12px !important; }
-  .ved-unit-cell { width: 34px !important; min-width: 28px !important; max-width: 40px !important; }
-  .ved-unit-input { height: 28px !important; font-size: 10px !important; padding: 2px 4px !important; }
+  .ved-unit-cell { width: 38px !important; min-width: 32px !important; max-width: 44px !important; }
   .ved-item-move-btn { width: 18px !important; height: 12px !important; }
   .ved-item-move-stack { gap: 0 !important; }
   .ved-item-name { font-size: 13.5px !important; }
