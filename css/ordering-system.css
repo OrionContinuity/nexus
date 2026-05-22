@@ -9024,36 +9024,32 @@ body.ord-overlay-open .nav {
 
 
 /* ════════════════════════════════════════════════════════════════════════════
-   v18.28 — CATALOG REVAMP: inline par stepper + unit editor on each item row
+   v18.29 — CATALOG ROW VISUAL RESET
    ────────────────────────────────────────────────────────────────────────────
-   Brings the catalog editor's visual + interaction language into line with
-   the ordering screen. Mirrors:
-     • Hero treatment when "set" (gold-fill on the par pill, just like the
-       qty pill on the ordering screen when has-qty)
-     • Compact dark-on-gold tap targets
-     • Free-text unit input (cs/gal/ea/bag/sleeve…) editable inline
+   The Phase 1 design borrowed the ordering screen's "gold-fill on has-qty"
+   pattern. That worked in ordering because most rows had qty=0, so the
+   few gold-filled ones popped. In catalog it backfired: MOST items
+   already have a default par, so every row turned gold and the screen
+   read as chaos.
 
-   Workflow shift this enables:
-     • Update default par WITHOUT opening the edit form (most common case)
-     • Fix wrong unit WITHOUT opening the edit form (Orion's specific ask)
-     • Edit form still opens via name-tap for advanced fields (rename,
-       section change, day-of-week pars, notes)
+   v18.29 strips the hero treatment back:
+     • No row-level gold tint or left-edge inset
+     • Par stepper is a quiet bordered input (gold border, no fill)
+     • Smaller, tighter dimensions across the board so the name column
+       gets generous space
+     • Move arrows still present but very subtle
    ──────────────────────────────────────────────────────────────────────────── */
 
-/* Override the existing .ved-item-row layout so the inline editors fit
-   alongside the existing name + chevron + move columns. */
 .ved-item-row {
   gap: 8px !important;
   padding: 10px 10px !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
-.ved-item-row.has-par {
-  /* Subtle gold left edge — "this item is set up" signal. Matches the
-     ordering row's has-qty inset stripe. */
-  box-shadow: inset 3px 0 0 0 var(--nx-gold);
-  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.04));
-}
+/* Removed: .ved-item-row.has-par background tint + inset gold edge.
+   The visual signal for "this item has a par" now lives only INSIDE
+   the par stepper (the number itself), not on the row chrome. */
 
-/* Name area still takes whatever's left after the right-side controls */
 .ved-item-tap {
   flex: 1 1 auto;
   min-width: 0;
@@ -9066,55 +9062,55 @@ body.ord-overlay-open .nav {
 }
 .ved-item-tap:hover .ved-item-name { color: var(--nx-gold); }
 
-/* ── Inline PAR stepper ───────────────────────────────────────────── */
+/* ── Inline PAR stepper — quiet, neutral, NO gold-fill ─────────────── */
 
 .ved-par-stepper {
   display: flex;
   align-items: center;
   flex-shrink: 0;
   border: 1px solid var(--nx-gold-line);
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--nx-surface-1);
   overflow: hidden;
-  transition: border-color .15s, background .15s, box-shadow .2s;
+  transition: border-color .15s;
 }
-/* Gold-fill when this item has a par configured — exactly like the
-   has-qty treatment on the ordering screen's qty pill. */
+.ved-par-stepper:focus-within { border-color: var(--nx-gold); }
+/* When the item has a par > 0, the BORDER picks up a slight gold
+   accent — that's the entire status cue. No gradient fill, no
+   color shifts, no row-level chrome. */
 .ved-item-row.has-par .ved-par-stepper {
-  border-color: var(--nx-gold);
-  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
-  box-shadow: 0 1px 6px var(--nx-gold-soft, rgba(212, 164, 78, 0.35));
+  border-color: rgba(212, 164, 78, 0.4);
 }
+
 .ved-par-btn {
-  width: 26px;
-  height: 32px;
+  width: 22px;
+  height: 28px;
   background: transparent;
   border: none;
-  color: var(--nx-text);
-  font-size: 16px;
+  color: var(--nx-faint);
+  font-size: 14px;
   font-weight: 500;
   line-height: 1;
   cursor: pointer;
-  transition: background .12s, color .12s;
+  transition: color .12s, background .12s;
   -webkit-tap-highlight-color: transparent;
+  padding: 0;
 }
-.ved-par-btn:active { transform: scale(0.95); }
-.ved-item-row.has-par .ved-par-btn {
-  color: var(--nx-gold-on, #1c1408);
-  font-weight: 700;
+.ved-par-btn:hover { color: var(--nx-gold); }
+.ved-par-btn:active {
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.12));
+  color: var(--nx-gold);
 }
-.ved-item-row.has-par .ved-par-btn:active {
-  background: rgba(28, 20, 8, 0.18);
-}
+
 .ved-par-input {
-  width: 30px;
-  height: 32px;
+  width: 26px;
+  height: 28px;
   text-align: center;
   border: none;
   background: transparent;
   color: var(--nx-text);
   font-family: 'Outfit', sans-serif;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   -moz-appearance: textfield;
   -webkit-appearance: none;
@@ -9129,39 +9125,34 @@ body.ord-overlay-open .nav {
 }
 .ved-par-input:focus {
   outline: none;
-  background: var(--nx-gold-soft, var(--nx-gold-faint));
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08));
 }
+/* has-par: the par number itself goes gold — quiet, semantic signal */
 .ved-item-row.has-par .ved-par-input {
-  color: var(--nx-gold-on, #1c1408);
-  font-weight: 700;
-  border-left-color: rgba(28, 20, 8, 0.18);
-  border-right-color: rgba(28, 20, 8, 0.18);
-}
-.ved-item-row.has-par .ved-par-input:focus {
-  background: rgba(28, 20, 8, 0.08);
+  color: var(--nx-gold);
 }
 
 /* ── Inline UNIT input ────────────────────────────────────────────── */
 
 .ved-unit-cell {
   flex-shrink: 0;
-  width: 42px;
-  min-width: 34px;
-  max-width: 50px;
+  width: 38px;
+  min-width: 32px;
+  max-width: 44px;
   display: flex;
   align-items: center;
 }
 .ved-unit-input {
   width: 100%;
-  height: 32px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
+  height: 28px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
   border-radius: 6px;
-  padding: 3px 6px;
+  padding: 2px 6px;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.4px;
   color: var(--nx-text);
   text-transform: lowercase;
   text-align: center;
@@ -9170,24 +9161,24 @@ body.ord-overlay-open .nav {
 }
 .ved-unit-input:focus {
   border-color: var(--nx-gold);
-  background: rgba(212,164,78,0.08);
-}
-.ved-item-row.has-par .ved-unit-input {
-  color: var(--nx-gold);
-  border-color: rgba(212, 164, 78, 0.28);
+  background: var(--nx-bg);
 }
 
-/* ── Move stack: shrunk vs prior so it doesn't compete ────────────── */
+/* ── Move stack: very subtle ─────────────────────────────────────── */
 
 .ved-item-move-stack {
   display: flex;
   flex-direction: column;
   gap: 1px;
   flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity .15s;
 }
+.ved-item-row:hover .ved-item-move-stack { opacity: 1; }
+
 .ved-item-move-btn {
-  width: 22px;
-  height: 16px;
+  width: 20px;
+  height: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -9199,8 +9190,8 @@ body.ord-overlay-open .nav {
   -webkit-tap-highlight-color: transparent;
   padding: 0;
 }
-.ved-item-move-btn:first-child { border-radius: 5px 5px 1px 1px; border-bottom-width: 0; }
-.ved-item-move-btn:last-child  { border-radius: 1px 1px 5px 5px; }
+.ved-item-move-btn:first-child { border-radius: 4px 4px 1px 1px; border-bottom-width: 0; }
+.ved-item-move-btn:last-child  { border-radius: 1px 1px 4px 4px; }
 .ved-item-move-btn:hover {
   color: var(--nx-gold);
   border-color: var(--nx-gold);
@@ -9209,15 +9200,16 @@ body.ord-overlay-open .nav {
   background: var(--nx-gold-soft);
 }
 
-/* ── Phone — compress further to keep name column generous ──────── */
+/* ── Phone — slightly more compression ──────────────────────────── */
 
 @media (max-width: 500px) {
-  .ved-item-row { gap: 6px !important; padding: 10px 8px !important; }
-  .ved-par-btn { width: 22px !important; height: 30px !important; font-size: 15px !important; }
-  .ved-par-input { width: 26px !important; height: 30px !important; font-size: 12px !important; }
-  .ved-unit-cell { width: 36px !important; min-width: 30px !important; max-width: 42px !important; }
-  .ved-unit-input { height: 30px !important; font-size: 10.5px !important; padding: 2px 4px !important; }
-  .ved-item-move-btn { width: 18px !important; height: 14px !important; }
+  .ved-item-row { gap: 5px !important; padding: 10px 8px !important; }
+  .ved-par-btn { width: 20px !important; height: 28px !important; font-size: 13px !important; }
+  .ved-par-input { width: 22px !important; height: 28px !important; font-size: 12px !important; }
+  .ved-unit-cell { width: 34px !important; min-width: 28px !important; max-width: 40px !important; }
+  .ved-unit-input { height: 28px !important; font-size: 10px !important; padding: 2px 4px !important; }
+  .ved-item-move-btn { width: 18px !important; height: 12px !important; }
+  .ved-item-move-stack { gap: 0 !important; }
   .ved-item-name { font-size: 13.5px !important; }
   .ved-item-meta { font-size: 9.5px !important; }
 }
