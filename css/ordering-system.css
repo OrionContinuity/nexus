@@ -8419,20 +8419,31 @@ body.ord-overlay-open .nav {
    on narrow viewports. The qty stepper stays its full-size touch target;
    the par chip wraps under the meta line; the right column keeps its
    auto width but cap it tighter.
-   v18.28 (round 2) — Orion still seeing "SMALL TRASH B…" truncation
-   on a 393px iPhone. Reclaiming more horizontal real estate:
-     • Row horizontal padding 12→8 (saves 8px total)
-     • Gap inside row 8→6 (saves 4px total across two gaps)
-     • Unit cell 36-48 → 32-40 (saves 8px max)
-     • Name font 15.5 → 14.5 on narrow only (fits ~10% more chars)
-   Net: roughly 20-30px more characters of name visible per row. */
-@media (max-width: 420px) {
+   v18.28 (round 3) — Orion still seeing "BLACK TRASH B…" / "DEGREASER
+   SP…" truncation on his phone. Root cause: the media query was scoped
+   to max-width 420px, which doesn't cover modern iPhones (Pro Max
+   models are 430-440px wide in portrait). Bumped to 500px so every
+   iPhone in portrait gets the tightening. Also pulled the qty pill
+   shrink INSIDE the media query (was set unconditionally in the base
+   rules, but the kitchen-readability override at line 8569+ was
+   widening it again).
+   Net target: qty pill ~76px, unit cell ~28-34px, name column gets
+   roughly half the viewport. */
+@media (max-width: 500px) {
   .ord-item-row { gap: 6px; padding: 12px 8px; }
-  .ord-item-name { font-size: 14.5px; }
-  .ord-item-unit { min-width: 32px; max-width: 40px; }
-  .ord-item-unit-pack { font-size: 10px; }
-  .ord-item-par-chip { font-size: 10px; padding: 3px 8px 3px 6px; }
-  .ord-item-par-qty { font-size: 11px; }
+  .ord-item-name { font-size: 14.5px !important; }
+  .ord-item-meta { font-size: 10px !important; }
+  /* Shrink qty pill aggressively — buttons stay tall enough to tap
+     comfortably (34px height), just narrower. Input fits 2 digits. */
+  .ord-qty-btn   { width: 24px !important; height: 34px !important; font-size: 16px !important; }
+  .ord-qty-input { width: 28px !important; height: 34px !important; font-size: 13px !important; }
+  /* Unit cell tightened further — fits "gal" / "ea" / "ct" easily */
+  .ord-item-unit { min-width: 28px !important; max-width: 38px !important; }
+  .ord-item-unit-pack  { font-size: 10px; }
+  .ord-item-unit-input { font-size: 10.5px !important; padding: 3px 5px !important; }
+  /* Smaller par chip — softer presence so name has all the visual weight */
+  .ord-item-par-chip { font-size: 9.5px; }
+  .ord-item-par-qty  { font-size: 11px; }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -8570,7 +8581,7 @@ body.ord-overlay-open .nav {
    viewports (>420px); narrow phones keep 14.5px so longer names fit
    on a single line. Kitchen-tablet readability preserved at the bigger
    width where it actually matters. */
-@media (min-width: 421px) {
+@media (min-width: 501px) {
   .ord-item-name {
     font-size: 16.5px !important;      /* was 15.5 → bump for primary work surface */
     line-height: 1.25;
