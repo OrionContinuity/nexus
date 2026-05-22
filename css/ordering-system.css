@@ -9021,3 +9021,408 @@ body.ord-overlay-open .nav {
   background: transparent;
   color: transparent;
 }
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   v18.28 — CATALOG REVAMP: inline par stepper + unit editor on each item row
+   ────────────────────────────────────────────────────────────────────────────
+   Brings the catalog editor's visual + interaction language into line with
+   the ordering screen. Mirrors:
+     • Hero treatment when "set" (gold-fill on the par pill, just like the
+       qty pill on the ordering screen when has-qty)
+     • Compact dark-on-gold tap targets
+     • Free-text unit input (cs/gal/ea/bag/sleeve…) editable inline
+
+   Workflow shift this enables:
+     • Update default par WITHOUT opening the edit form (most common case)
+     • Fix wrong unit WITHOUT opening the edit form (Orion's specific ask)
+     • Edit form still opens via name-tap for advanced fields (rename,
+       section change, day-of-week pars, notes)
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* Override the existing .ved-item-row layout so the inline editors fit
+   alongside the existing name + chevron + move columns. */
+.ved-item-row {
+  gap: 8px !important;
+  padding: 10px 10px !important;
+}
+.ved-item-row.has-par {
+  /* Subtle gold left edge — "this item is set up" signal. Matches the
+     ordering row's has-qty inset stripe. */
+  box-shadow: inset 3px 0 0 0 var(--nx-gold);
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.04));
+}
+
+/* Name area still takes whatever's left after the right-side controls */
+.ved-item-tap {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  padding: 4px 2px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ved-item-tap:hover .ved-item-name { color: var(--nx-gold); }
+
+/* ── Inline PAR stepper ───────────────────────────────────────────── */
+
+.ved-par-stepper {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 999px;
+  background: var(--nx-surface-1);
+  overflow: hidden;
+  transition: border-color .15s, background .15s, box-shadow .2s;
+}
+/* Gold-fill when this item has a par configured — exactly like the
+   has-qty treatment on the ordering screen's qty pill. */
+.ved-item-row.has-par .ved-par-stepper {
+  border-color: var(--nx-gold);
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
+  box-shadow: 0 1px 6px var(--nx-gold-soft, rgba(212, 164, 78, 0.35));
+}
+.ved-par-btn {
+  width: 26px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  color: var(--nx-text);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .12s, color .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ved-par-btn:active { transform: scale(0.95); }
+.ved-item-row.has-par .ved-par-btn {
+  color: var(--nx-gold-on, #1c1408);
+  font-weight: 700;
+}
+.ved-item-row.has-par .ved-par-btn:active {
+  background: rgba(28, 20, 8, 0.18);
+}
+.ved-par-input {
+  width: 30px;
+  height: 32px;
+  text-align: center;
+  border: none;
+  background: transparent;
+  color: var(--nx-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  -moz-appearance: textfield;
+  -webkit-appearance: none;
+  appearance: none;
+  border-left: 1px solid var(--nx-gold-line);
+  border-right: 1px solid var(--nx-gold-line);
+}
+.ved-par-input::-webkit-outer-spin-button,
+.ved-par-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.ved-par-input:focus {
+  outline: none;
+  background: var(--nx-gold-soft, var(--nx-gold-faint));
+}
+.ved-item-row.has-par .ved-par-input {
+  color: var(--nx-gold-on, #1c1408);
+  font-weight: 700;
+  border-left-color: rgba(28, 20, 8, 0.18);
+  border-right-color: rgba(28, 20, 8, 0.18);
+}
+.ved-item-row.has-par .ved-par-input:focus {
+  background: rgba(28, 20, 8, 0.08);
+}
+
+/* ── Inline UNIT input ────────────────────────────────────────────── */
+
+.ved-unit-cell {
+  flex-shrink: 0;
+  width: 42px;
+  min-width: 34px;
+  max-width: 50px;
+  display: flex;
+  align-items: center;
+}
+.ved-unit-input {
+  width: 100%;
+  height: 32px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--nx-text);
+  text-transform: lowercase;
+  text-align: center;
+  outline: none;
+  -webkit-appearance: none;
+}
+.ved-unit-input:focus {
+  border-color: var(--nx-gold);
+  background: rgba(212,164,78,0.08);
+}
+.ved-item-row.has-par .ved-unit-input {
+  color: var(--nx-gold);
+  border-color: rgba(212, 164, 78, 0.28);
+}
+
+/* ── Move stack: shrunk vs prior so it doesn't compete ────────────── */
+
+.ved-item-move-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.ved-item-move-btn {
+  width: 22px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--nx-gold-line);
+  color: var(--nx-faint);
+  cursor: pointer;
+  transition: color .12s, border-color .12s, background .12s;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+}
+.ved-item-move-btn:first-child { border-radius: 5px 5px 1px 1px; border-bottom-width: 0; }
+.ved-item-move-btn:last-child  { border-radius: 1px 1px 5px 5px; }
+.ved-item-move-btn:hover {
+  color: var(--nx-gold);
+  border-color: var(--nx-gold);
+}
+.ved-item-move-btn:active {
+  background: var(--nx-gold-soft);
+}
+
+/* ── Phone — compress further to keep name column generous ──────── */
+
+@media (max-width: 500px) {
+  .ved-item-row { gap: 6px !important; padding: 10px 8px !important; }
+  .ved-par-btn { width: 22px !important; height: 30px !important; font-size: 15px !important; }
+  .ved-par-input { width: 26px !important; height: 30px !important; font-size: 12px !important; }
+  .ved-unit-cell { width: 36px !important; min-width: 30px !important; max-width: 42px !important; }
+  .ved-unit-input { height: 30px !important; font-size: 10.5px !important; padding: 2px 4px !important; }
+  .ved-item-move-btn { width: 18px !important; height: 14px !important; }
+  .ved-item-name { font-size: 13.5px !important; }
+  .ved-item-meta { font-size: 9.5px !important; }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   v18.28 — CATALOG REVAMP Phase 2
+   ────────────────────────────────────────────────────────────────────────────
+   • Filter pills row (All / Missing par) — mirrors ordering's filter pills
+   • Floating "+ Add item" CTA — mirrors ordering's Review & Send button
+   • Section-level bulk apply panel
+   • Bottom padding on catalog list so floating CTA clears last items
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── Filter pills row ─────────────────────────────────────────────── */
+
+.ord-cat-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 10px;
+  flex-wrap: wrap;
+}
+.ord-cat-filter-row .ord-pill-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding: 0 6px;
+  height: 16px;
+  margin-left: 4px;
+  border-radius: 999px;
+  background: rgba(212, 164, 78, 0.16);
+  color: var(--nx-gold);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+.ord-cat-filter-row .ord-entry-filter-pill.is-active .ord-pill-count {
+  background: rgba(28, 20, 8, 0.2);
+  color: var(--nx-gold-on, #1c1408);
+}
+
+/* ── Floating CTA (Add item) ──────────────────────────────────────── */
+
+.ord-cat-cta-wrap {
+  /* Inherits all the floating-wrap behavior from .ord-entry-cta-wrap
+     (position: absolute, transparent bg, slide-hide on .is-hidden).
+     This class is just an anchor for catalog-specific tweaks if
+     needed in the future. */
+}
+.ord-cat-cta {
+  /* Same gold-gradient pill as ordering's Review & Send. SVG plus
+     icon inside, sized to match the text. */
+}
+.ord-cat-cta svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Bottom padding on the catalog list so the floating CTA doesn't
+   cover the last item when scrolled to bottom. Same calculation as
+   the ordering list: button height 54 + wrap padding 14 + safe area
+   + comfort margin ≈ 120px. */
+.ord-cat-list {
+  padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+/* ── Section header — bulk apply button ───────────────────────────── */
+
+.ved-section-bulk-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--nx-faint);
+  cursor: pointer;
+  transition: color .12s, background .12s, border-color .12s;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+  flex-shrink: 0;
+}
+.ved-section-bulk-btn:hover {
+  color: var(--nx-gold);
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.08));
+}
+.ved-section-bulk-btn.is-active {
+  color: var(--nx-gold-on, #1c1408);
+  background: var(--nx-gold);
+  border-color: var(--nx-gold);
+}
+
+/* ── Bulk apply inline panel ──────────────────────────────────────── */
+
+.ved-bulk-panel {
+  padding: 12px 14px 14px;
+  background: var(--nx-gold-soft, rgba(212, 164, 78, 0.06));
+  border-top: 1px solid var(--nx-gold-line);
+  border-bottom: 1px solid var(--nx-gold-line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: vedBulkPanelIn .18s ease-out;
+}
+@keyframes vedBulkPanelIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+.ved-bulk-panel-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  color: var(--nx-faint);
+  letter-spacing: 0.2px;
+}
+.ved-bulk-panel-title strong { color: var(--nx-text); font-weight: 600; }
+.ved-bulk-panel-title em     { color: var(--nx-gold); font-style: normal; font-weight: 500; }
+
+.ved-bulk-panel-row {
+  display: flex;
+  gap: 10px;
+}
+.ved-bulk-field {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ved-bulk-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--nx-gold);
+  opacity: 0.85;
+}
+.ved-bulk-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 8px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  color: var(--nx-text);
+  outline: none;
+  transition: border-color .15s;
+}
+.ved-bulk-input::placeholder {
+  color: var(--nx-faint);
+  font-size: 11.5px;
+  font-style: italic;
+}
+.ved-bulk-input:focus {
+  border-color: var(--nx-gold);
+  background: var(--nx-bg);
+}
+.ved-bulk-input.ved-bulk-unit {
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.5px;
+}
+
+.ved-bulk-panel-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.ved-bulk-cancel,
+.ved-bulk-apply {
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--nx-gold-line);
+  background: transparent;
+  color: var(--nx-text);
+  transition: background .15s, border-color .15s, color .15s, transform .1s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ved-bulk-cancel:hover { background: var(--nx-surface-1); }
+.ved-bulk-apply {
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
+  color: var(--nx-gold-on, #1c1408);
+  border-color: var(--nx-gold);
+  box-shadow: 0 1px 6px var(--nx-gold-soft, rgba(212, 164, 78, 0.35));
+}
+.ved-bulk-apply:active { transform: scale(0.98); }
+
+/* Phone tightening for the bulk panel — stack par + unit vertically
+   on narrow viewports so each gets its own row, and tighten the
+   buttons + paddings. */
+@media (max-width: 500px) {
+  .ved-bulk-panel { padding: 10px 12px 12px; gap: 8px; }
+  .ved-bulk-panel-row { flex-direction: column; gap: 8px; }
+  .ved-bulk-input { height: 34px; font-size: 13.5px; }
+  .ved-bulk-cancel,
+  .ved-bulk-apply { height: 34px; font-size: 13px; padding: 0 14px; }
+}
