@@ -5912,29 +5912,37 @@ Thanks for your help sorting this out.`;
           </div>
         </button>
 
-        <!-- v18.28 — inline par stepper. Same component as ordering's
-             qty pill. Gold-fill when has-par so set items read as set
-             from a scan. -->
-        <div class="ved-par-stepper" role="group" aria-label="Default par">
-          <button type="button" class="ved-par-btn" data-par-step="-1" data-item-id="${esc(item.id)}" aria-label="Decrease par">−</button>
+        <!-- v18.29 — par stepper uses the EXACT same component as
+             ordering's qty pill (.ord-qty + .ord-qty-btn + .ord-qty-input).
+             Identical visual — same pill shape, same dimensions, same
+             behavior. The .ved-par-* classes are additional hooks so
+             handlers wire to the catalog-specific save flow, not the
+             ordering one. The gold-fill hero treatment from ordering
+             is scoped to .ord-item-row.has-qty, so it does NOT apply
+             here (catalog row is .ved-item-row). -->
+        <div class="ord-qty" role="group" aria-label="Default par">
+          <button type="button" class="ord-qty-btn ved-par-btn" data-par-step="-1" data-item-id="${esc(item.id)}" aria-label="Decrease par">−</button>
           <input type="number" inputmode="numeric" min="0" step="1"
-                 class="ved-par-input" data-item-id="${esc(item.id)}"
+                 class="ord-qty-input ved-par-input" data-item-id="${esc(item.id)}"
                  value="${esc(String(parVal))}" aria-label="Default par">
-          <button type="button" class="ved-par-btn" data-par-step="1" data-item-id="${esc(item.id)}" aria-label="Increase par">+</button>
+          <button type="button" class="ord-qty-btn ved-par-btn" data-par-step="1" data-item-id="${esc(item.id)}" aria-label="Increase par">+</button>
         </div>
 
-        <!-- v18.28 — inline unit editor (the cs/gal/ea button Orion
-             asked for). Reuses ordering's .ord-item-unit-input visual
-             so units edit the same way in both surfaces. -->
-        <div class="ved-unit-cell">
-          <input type="text" class="ved-unit-input" data-item-id="${esc(item.id)}"
+        <!-- v18.29 — Unit input uses ordering's .ord-item-unit-input
+             visual. Same input the chef uses on the order entry screen
+             — typing here changes the catalog default, which becomes
+             the per-line default in every subsequent order for this
+             vendor. (Per-line overrides on the ordering screen are
+             session-only and don't write back to catalog.) -->
+        <div class="ord-item-unit ved-unit-cell">
+          <input type="text" class="ord-item-unit-input ved-unit-input" data-item-id="${esc(item.id)}"
                  value="${esc(unitVal)}" placeholder="ea" autocomplete="off"
                  spellcheck="false" maxlength="8" aria-label="Unit">
         </div>
 
-        <!-- Combined move + chevron column. Up/down kept for single-
-             tap reorder; chevron opens the edit form for advanced
-             fields (section change, day-of-week pars, notes, rename). -->
+        <!-- Combined move column. Up/down kept for single-tap reorder;
+             tap row name to open the edit form for advanced fields
+             (section change, day-of-week pars, notes, rename). -->
         <div class="ved-item-move-stack" role="group" aria-label="Reorder this item">
           <button type="button" class="ved-item-move-btn" data-row-move="up" data-item-id="${esc(item.id)}" aria-label="Move up">
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
