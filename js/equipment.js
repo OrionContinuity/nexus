@@ -4195,6 +4195,18 @@ async function openDetail(id) {
       if (tab.dataset.tab === 'manual') {
         hydrateManualPanel(panel, id);
       }
+      // v18.31 — Redraw the QR every time the tab is opened. Previously
+      // the draw fired only once at modal-open time. If that initial
+      // pass landed before the QRious library finished loading (or
+      // before the canvas was attached, or before any other race),
+      // the canvas stayed blank and there was no recovery path
+      // without closing and reopening the modal. Re-running on tab
+      // click is cheap (idempotent — QRious overwrites the canvas)
+      // and bullet-proof against load-order races.
+      if (tab.dataset.tab === 'qr') {
+        const qrCanvas = panel.querySelector('.eq-qr-img');
+        if (qrCanvas) generateQRImage(eq.qr_code, qrCanvas);
+      }
     });
   });
 
@@ -7806,25 +7818,76 @@ async function uploadCreatePhoto(file, eq) {
 
 /* ─── QR generation ─── */
 
+/** Generate a QR code onto a canvas element.
+ *  Strategy:
+ *    1. Prefer the QRious library (loaded via CDN in index.html) — works
+ *       offline-after-first-load and is fast.
+ *    2. If QRious isn't ready yet (script still loading), wait one
+ *       microtask and retry once before falling back.
+ *    3. Last resort: the external api.qrserver.com image API.
+ *  v18.31 — added the retry-on-not-yet-loaded path and a visible error
+ *  state so a failed render no longer leaves a silently-blank canvas. */
 function generateQRImage(qrCode, canvas) {
   const scanURL = `${window.location.origin}${window.location.pathname}?equip=${qrCode}`;
   if (typeof QRious !== 'undefined') {
     try {
       new QRious({ element: canvas, value: scanURL, size: 220, foreground: '#000', background: '#fff', level: 'H' });
       return;
-    } catch(e) {}
+    } catch (e) {
+      console.warn('[generateQRImage] QRious threw:', e);
+    }
+  } else {
+    // QRious not loaded yet — try again shortly. The library is
+    // ~10KB so it usually arrives within a few hundred ms of page
+    // load; this retry catches the race where the user navigates
+    // straight to the QR tab before the script finishes.
+    setTimeout(() => {
+      if (typeof QRious !== 'undefined') {
+        try {
+          new QRious({ element: canvas, value: scanURL, size: 220, foreground: '#000', background: '#fff', level: 'H' });
+          return;
+        } catch (e) { /* fall through to network fallback */ }
+      }
+      drawQRFallback(canvas, scanURL);
+    }, 400);
+    return;
   }
   drawQRFallback(canvas, scanURL);
 }
 
+/** Network fallback when the local QR library is unavailable. Uses
+ *  api.qrserver.com to render a QR PNG that we paint onto the canvas.
+ *  v18.31 — added an onerror handler so a fetch failure shows a visible
+ *  error placeholder instead of an empty canvas, which let users assume
+ *  the QR feature was broken. */
 function drawQRFallback(canvas, text) {
   const ctx = canvas.getContext('2d');
   const img = new Image();
-  img.crossOrigin = 'anonymous';
+  // Note: dropping crossOrigin lets the image render visually even
+  // when the third-party API doesn't send CORS headers. We lose the
+  // ability to read pixels back via toDataURL, but visual display
+  // is what matters for the tab view. (Printing flows generate
+  // their own QR via QRious directly, so they don't rely on this.)
   img.onload = () => {
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  };
+  img.onerror = () => {
+    // Paint a visible error state — chef knows QR didn't render
+    // and can copy the link manually from the URL shown beneath
+    // the canvas. Without this, the blank canvas reads as "feature
+    // broken" rather than "transient network issue".
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#a8821e';
+    ctx.font = '13px Outfit, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('QR generation failed', canvas.width / 2, canvas.height / 2 - 8);
+    ctx.fillStyle = '#666';
+    ctx.font = '11px Outfit, sans-serif';
+    ctx.fillText('Use Copy Link below', canvas.width / 2, canvas.height / 2 + 12);
+    console.error('[drawQRFallback] api.qrserver.com image failed to load');
   };
   img.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(text)}`;
 }
