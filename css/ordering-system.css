@@ -9426,3 +9426,76 @@ body.ord-overlay-open .nav {
   .ved-bulk-cancel,
   .ved-bulk-apply { height: 34px; font-size: 13px; padding: 0 14px; }
 }
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   v18.29 — ALL TRANSACTIONS OVERLAY + Vendor Detail CTA rework
+   ────────────────────────────────────────────────────────────────────────────
+   • Full-screen overlay reachable from masthead "Transactions" button +
+     pulse chip taps. Houses the same recent-orders list that used to
+     sit on the Home/Duties tab, but on-demand instead of always-on.
+   • Vendor detail CTA: primary "New order" + small "Continue draft from
+     {time}" text link underneath when an active draft exists.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.ord-allorders-overlay {
+  position: fixed;
+  top: 0;
+  padding-top: env(safe-area-inset-top, 0px);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  background: var(--nx-bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: ordOverlayIn .18s ease-out;
+  touch-action: manipulation;
+}
+.ord-allorders-head {
+  /* Reuse .ord-entry-head treatment by composition — the head element
+     above carries both class names, so this is just an anchor for
+     overlay-specific overrides if needed in the future. */
+}
+.ord-allorders-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 14px calc(24px + env(safe-area-inset-bottom, 0px));
+}
+/* Within the overlay, drop the now-redundant "Recent" label that
+   renderRecent paints into the container (the overlay header already
+   says "All transactions"). */
+.ord-allorders-body .ord-section-label { display: none; }
+
+/* ── Vendor detail "Continue draft" link ──────────────────────────── */
+
+.ord-vdetail-continue-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 6px 14px;
+  background: transparent;
+  border: none;
+  color: var(--nx-faint);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color .15s;
+  width: 100%;
+}
+.ord-vdetail-continue-link:hover,
+.ord-vdetail-continue-link:active {
+  color: var(--nx-gold);
+}
+.ord-vdetail-continue-link > span:last-child {
+  /* The arrow → at the end. Subtle, follows the text color. */
+  margin-left: 2px;
+  opacity: 0.7;
+}
