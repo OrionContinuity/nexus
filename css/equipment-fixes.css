@@ -2146,6 +2146,77 @@ button.eq-close {
   cursor: not-allowed;
 }
 
+/* ─── v18.31 — data-mode primary swap ─────────────────────────────────
+   The same modal handles both Call and Email intents. data-mode set by
+   showCallConfirmModal controls which one reads as the primary CTA:
+
+     data-mode='call'  (default) → Call gold-filled, Email outlined
+     data-mode='email'           → Email gold-filled, Call outlined
+
+   The visual swap is the only difference — both buttons are present
+   and functional either way, so the chef can flip mid-flow. */
+
+/* Email mode: Email becomes the gold-filled primary. */
+.eq-call-confirm[data-mode='email'] .eq-call-email-btn {
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e)) !important;
+  border: 1px solid var(--nx-gold) !important;
+  color: var(--nx-gold-on, #1c1408) !important;
+  box-shadow: 0 2px 10px var(--nx-gold-soft) !important;
+}
+.eq-call-confirm[data-mode='email'] .eq-call-email-btn:hover {
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e)) !important;
+  filter: brightness(1.05);
+}
+/* Email mode: Call drops to outlined secondary. */
+.eq-call-confirm[data-mode='email'] .eq-call-service-btn {
+  background: transparent !important;
+  color: var(--nx-gold) !important;
+  border: 1px solid var(--nx-gold) !important;
+  box-shadow: none !important;
+}
+.eq-call-confirm[data-mode='email'] .eq-call-service-btn:hover {
+  background: rgba(212, 164, 78, 0.08) !important;
+}
+
+/* ─── v18.31 — Equipment detail action bar fits 4 buttons on phone ─
+   Adding "Email Service" as a third primary action means three flex
+   items now share the space previously occupied by two. On phone
+   widths this would truncate labels harshly. Tightening the padding +
+   font-size lets all three labels stay readable, with ellipsis as
+   a last-resort fallback on the narrowest devices. */
+@media (max-width: 500px) {
+  .eq-detail-actions-v2 {
+    gap: 6px !important;
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px)) 12px !important;
+  }
+  .eq-detail-actions-v2 .eq-action-cta {
+    padding: 0 10px !important;
+    gap: 5px !important;
+    font-size: 13px !important;
+    letter-spacing: 0 !important;
+  }
+  .eq-detail-actions-v2 .eq-action-cta-icon svg {
+    width: 16px !important;
+    height: 16px !important;
+  }
+  .eq-detail-actions-v2 .eq-overflow-btn-v2 {
+    flex: 0 0 44px !important;
+    width: 44px !important;
+    height: 52px !important;
+  }
+}
+/* Very narrow phones (< 360px) — icon-only fallback so the row never
+   spills off-screen. The icons (phone/mail/ticket) are recognizable
+   on their own; chef can still tell them apart. */
+@media (max-width: 360px) {
+  .eq-detail-actions-v2 .eq-action-cta-label {
+    display: none !important;
+  }
+  .eq-detail-actions-v2 .eq-action-cta {
+    padding: 0 !important;
+  }
+}
+
 /* Light theme */
 [data-theme="light"] .eq-call-confirm-issue {
   background: rgba(0, 0, 0, 0.04);
