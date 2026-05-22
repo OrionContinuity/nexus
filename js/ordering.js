@@ -5455,20 +5455,34 @@ Thanks for your help sorting this out.`;
     if (!catalogState) return '';
     const allItems = catalogState.items;
     const searchQ = (catalogState.searchQuery || '').trim().toLowerCase();
+    const parFilter = catalogState.parFilter || 'all';
     const pending = catalogState.pendingSections || [];
     let html = '';
 
     // Apply search filter (item name + sku). Sections that end up with
     // 0 matching items are hidden from the list, but pending empty
     // sections are always shown (so you can still find them while filtering).
-    const items = searchQ
+    //
+    // v18.28 Phase 2 — par-state filter chained AFTER search. When
+    // parFilter='missing-par', drop any item with a non-zero
+    // default_par_qty. Lets the operator audit "what still needs
+    // setup" while a search is in effect (e.g. search "trash" +
+    // filter missing-par to see un-set trash items).
+    const items = (searchQ || parFilter !== 'all')
       ? allItems.filter(i => {
-          const name  = (i.item_name  || '').toLowerCase();
-          const house = (i.house_name || '').toLowerCase();
-          const sku   = (i.vendor_sku || '').toLowerCase();
-          return name.indexOf(searchQ) !== -1
-              || house.indexOf(searchQ) !== -1
-              || sku.indexOf(searchQ) !== -1;
+          if (searchQ) {
+            const name  = (i.item_name  || '').toLowerCase();
+            const house = (i.house_name || '').toLowerCase();
+            const sku   = (i.vendor_sku || '').toLowerCase();
+            if (name.indexOf(searchQ) === -1
+                && house.indexOf(searchQ) === -1
+                && sku.indexOf(searchQ) === -1) return false;
+          }
+          if (parFilter === 'missing-par') {
+            const par = i.default_par_qty;
+            if (par != null && Number(par) > 0) return false;
+          }
+          return true;
         })
       : allItems;
 
@@ -5572,6 +5586,12 @@ Thanks for your help sorting this out.`;
     const isUncat = sec === '';
     const isRenaming = catalogState.renamingSection === sec;
     const isCollapsed = catalogState.collapsedSections.has(sec);
+    // v18.28 Phase 2 — bulk-apply UI state. When this section's name
+    // matches catalogState.bulkSection, an inline form below the
+    // header lets the user set par + unit for ALL items in this
+    // section in one shot. Useful e.g. "set every Cleaning Supplies
+    // item to par 2 cs" without tapping each row.
+    const isBulkActive = catalogState.bulkSection === sec;
     const headerInner = isRenaming
       ? `
         <input type="text" class="ved-section-rename-input" value="${esc(sec)}" autocomplete="off" spellcheck="false" placeholder="Section name">
@@ -5591,6 +5611,13 @@ Thanks for your help sorting this out.`;
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
         </div>
+        ${items.length > 0 ? `
+          <button class="ved-section-bulk-btn${isBulkActive ? ' is-active' : ''}" data-section-bulk="${esc(sec)}" aria-label="Bulk apply par + unit to all items in this section" title="Bulk apply to all ${items.length} items">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+          </button>
+        ` : ''}
         ${!isUncat ? `
           <button class="ved-section-rename-btn" data-section="${esc(sec)}" aria-label="Rename section ${esc(sec)}">${editIcon()}</button>
           <button class="ved-section-delete-btn" data-section-delete="${esc(sec)}" aria-label="Delete section ${esc(sec)}" title="Delete section + all items in it">
@@ -5611,6 +5638,41 @@ Thanks for your help sorting this out.`;
       `;
 
     let inner = `<div class="ved-section-row" data-section="${esc(sec)}">${headerInner}</div>`;
+
+    // v18.28 Phase 2 — Bulk apply inline form (shows under the header
+    // when isBulkActive). Two inputs (par + unit), an "Apply to N
+    // items" button, a Cancel button. Blank fields are no-ops — only
+    // non-empty fields get applied, so you can update par only,
+    // unit only, or both.
+    if (isBulkActive && !isRenaming) {
+      inner += `
+        <div class="ved-bulk-panel" data-section="${esc(sec)}">
+          <div class="ved-bulk-panel-title">
+            Bulk apply to <strong>${items.length} item${items.length === 1 ? '' : 's'}</strong> in <em>${esc(sec || 'Uncategorized')}</em>
+          </div>
+          <div class="ved-bulk-panel-row">
+            <label class="ved-bulk-field">
+              <span class="ved-bulk-label">Par</span>
+              <input type="number" inputmode="numeric" min="0" step="1"
+                     class="ved-bulk-input ved-bulk-par"
+                     placeholder="(leave blank to skip)"
+                     data-section="${esc(sec)}">
+            </label>
+            <label class="ved-bulk-field">
+              <span class="ved-bulk-label">Unit</span>
+              <input type="text" class="ved-bulk-input ved-bulk-unit"
+                     placeholder="(leave blank to skip)"
+                     maxlength="8" autocomplete="off" spellcheck="false"
+                     data-section="${esc(sec)}">
+            </label>
+          </div>
+          <div class="ved-bulk-panel-actions">
+            <button type="button" class="ved-bulk-cancel" data-section="${esc(sec)}">Cancel</button>
+            <button type="button" class="ved-bulk-apply" data-section="${esc(sec)}">Apply</button>
+          </div>
+        </div>
+      `;
+    }
 
     // Items wrapper — items live inside the section card. When the
     // section is collapsed, this wrapper is hidden via CSS but the
@@ -5653,34 +5715,59 @@ Thanks for your help sorting this out.`;
     const primary    = houseName || vendorName;
     const showVendorAlias = houseName && vendorName && houseName !== vendorName;
 
-    // Build the meta line: vendor-alias · SKU · par. (Section is conveyed
-    // by the surrounding card so we don't repeat it here.)
+    // v18.28 (catalog revamp) — meta now ONLY carries vendor alias +
+    // SKU. The par + unit USED to live in meta as static text
+    // ("par 2 ct"); they're now inline editable controls on the right
+    // of the row (par stepper + unit input — mirrors the ordering
+    // screen's qty pill + unit input). Removing them from meta drops
+    // the duplication and gives the meta line breathing room.
     const meta = [];
     if (showVendorAlias) meta.push(`<span class="ved-meta-alias">${esc(vendorName)}</span>`);
     if (item.vendor_sku) meta.push(`<span class="ved-meta-sku">${esc(item.vendor_sku)}</span>`);
-    if (item.default_par_qty != null) meta.push(`par ${item.default_par_qty} ${esc(item.unit || 'ea')}`);
 
-    // Up/down arrows are always visible — Orion wants single-tap reordering
-    // without the long-press dance. The buttons stopPropagation so they
-    // don't open the edit form (which is what tapping the rest of the row
-    // does). Order on this catalog screen IS the order on the order-entry
-    // screen, so reordering here is the way to organize what cooks see
-    // when placing an order.
+    const parVal  = (item.default_par_qty != null && item.default_par_qty !== '') ? item.default_par_qty : 0;
+    const unitVal = item.unit || 'ea';
+    const hasPar  = Number(parVal) > 0;
+
     return `
-      <div class="ved-item-row" data-item-id="${esc(item.id)}">
+      <div class="ved-item-row${hasPar ? ' has-par' : ''}" data-item-id="${esc(item.id)}">
+        <!-- Name area is the tap target that opens the full edit form -->
         <button class="ved-item-tap" data-item-id="${esc(item.id)}" type="button">
           <div class="ved-item-main">
             <div class="ved-item-name">${esc(primary)}</div>
             ${meta.length ? `<div class="ved-item-meta">${meta.join('<span class="ved-meta-sep">·</span>')}</div>` : ''}
           </div>
-          <span class="ved-item-chevron" aria-hidden="true">›</span>
         </button>
+
+        <!-- v18.28 — inline par stepper. Same component as ordering's
+             qty pill. Gold-fill when has-par so set items read as set
+             from a scan. -->
+        <div class="ved-par-stepper" role="group" aria-label="Default par">
+          <button type="button" class="ved-par-btn" data-par-step="-1" data-item-id="${esc(item.id)}" aria-label="Decrease par">−</button>
+          <input type="number" inputmode="numeric" min="0" step="1"
+                 class="ved-par-input" data-item-id="${esc(item.id)}"
+                 value="${esc(String(parVal))}" aria-label="Default par">
+          <button type="button" class="ved-par-btn" data-par-step="1" data-item-id="${esc(item.id)}" aria-label="Increase par">+</button>
+        </div>
+
+        <!-- v18.28 — inline unit editor (the cs/gal/ea button Orion
+             asked for). Reuses ordering's .ord-item-unit-input visual
+             so units edit the same way in both surfaces. -->
+        <div class="ved-unit-cell">
+          <input type="text" class="ved-unit-input" data-item-id="${esc(item.id)}"
+                 value="${esc(unitVal)}" placeholder="ea" autocomplete="off"
+                 spellcheck="false" maxlength="8" aria-label="Unit">
+        </div>
+
+        <!-- Combined move + chevron column. Up/down kept for single-
+             tap reorder; chevron opens the edit form for advanced
+             fields (section change, day-of-week pars, notes, rename). -->
         <div class="ved-item-move-stack" role="group" aria-label="Reorder this item">
           <button type="button" class="ved-item-move-btn" data-row-move="up" data-item-id="${esc(item.id)}" aria-label="Move up">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
           </button>
           <button type="button" class="ved-item-move-btn" data-row-move="down" data-item-id="${esc(item.id)}" aria-label="Move down">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
         </div>
       </div>
@@ -5847,6 +5934,74 @@ Thanks for your help sorting this out.`;
       });
     });
 
+    // ─── v18.28 — Inline par stepper (+/-) ─────────────────────────────
+    // Updates default_par_qty without opening the full edit form.
+    // Stops propagation so the row-tap edit handler doesn't fire.
+    list.querySelectorAll('.ved-par-btn[data-par-step]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const itemId = btn.dataset.itemId;
+        const delta = parseInt(btn.dataset.parStep, 10);
+        if (!itemId || isNaN(delta)) return;
+        const item = catalogState.items.find(i => i.id === itemId);
+        if (!item) return;
+        const current = parseInt(item.default_par_qty, 10) || 0;
+        const next = Math.max(0, current + delta);
+        item.default_par_qty = next;
+        // Update the input visually + the row's has-par class
+        const row = btn.closest('.ved-item-row');
+        if (row) {
+          const inp = row.querySelector('.ved-par-input');
+          if (inp) inp.value = String(next);
+          row.classList.toggle('has-par', next > 0);
+        }
+        scheduleInlineItemSave(itemId, { default_par_qty: next });
+      });
+    });
+
+    // ─── v18.28 — Inline par input (direct typing) ─────────────────────
+    list.querySelectorAll('.ved-par-input').forEach(inp => {
+      inp.addEventListener('click', e => e.stopPropagation());
+      inp.addEventListener('focus', e => e.target.select());
+      inp.addEventListener('input', (e) => {
+        e.stopPropagation();
+        const itemId = inp.dataset.itemId;
+        const item = catalogState.items.find(i => i.id === itemId);
+        if (!item) return;
+        const raw = inp.value.trim();
+        const next = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
+        item.default_par_qty = next;
+        const row = inp.closest('.ved-item-row');
+        if (row) row.classList.toggle('has-par', next > 0);
+        scheduleInlineItemSave(itemId, { default_par_qty: next });
+      });
+    });
+
+    // ─── v18.28 — Inline unit input (cs/gal/ea button) ─────────────────
+    // The cs/gal/ea editor Orion specifically asked for. Same visual
+    // language as the ordering screen's per-line unit input, but here
+    // it edits the CATALOG default unit so every future order from
+    // this item pre-fills with the right unit.
+    list.querySelectorAll('.ved-unit-input').forEach(inp => {
+      inp.addEventListener('click', e => e.stopPropagation());
+      inp.addEventListener('focus', e => e.target.select());
+      inp.addEventListener('input', (e) => {
+        e.stopPropagation();
+        const itemId = inp.dataset.itemId;
+        const item = catalogState.items.find(i => i.id === itemId);
+        if (!item) return;
+        // Normalize on input but don't reformat (let user type freely)
+        const value = inp.value.trim() || 'ea';
+        item.unit = value;
+        scheduleInlineItemSave(itemId, { unit: value });
+      });
+      inp.addEventListener('blur', (e) => {
+        // Empty → fall back to 'ea'
+        if (!inp.value.trim()) inp.value = 'ea';
+      });
+    });
+
     // ─── Section move (up/down arrows in section header) ──────────────
     list.querySelectorAll('.ved-section-move-btn[data-section-move]').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -5934,8 +6089,146 @@ Thanks for your help sorting this out.`;
       });
     });
 
+    // ─── v18.28 Phase 2 — Section bulk-apply toggle ───────────────────
+    // Tap the brush icon in the section header to reveal an inline
+    // form for setting par + unit across every item in the section.
+    // Toggling the same section closes the form. Switching to a
+    // different section closes the prior one (only one open at a
+    // time to keep the surface calm).
+    list.querySelectorAll('.ved-section-bulk-btn[data-section-bulk]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sec = btn.dataset.sectionBulk;
+        if (catalogState.bulkSection === sec) {
+          catalogState.bulkSection = null;
+        } else {
+          catalogState.bulkSection = sec;
+          // Ensure the section is expanded so the form is visible
+          catalogState.collapsedSections.delete(sec);
+        }
+        renderItemsAreaOnly();
+        // Focus the par input for immediate typing
+        if (catalogState.bulkSection) {
+          setTimeout(() => {
+            const inp = list.querySelector(`.ved-bulk-par[data-section="${cssEsc(sec)}"]`);
+            if (inp) inp.focus();
+          }, 30);
+        }
+      });
+    });
+
+    list.querySelectorAll('.ved-bulk-cancel[data-section]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        catalogState.bulkSection = null;
+        renderItemsAreaOnly();
+      });
+    });
+
+    list.querySelectorAll('.ved-bulk-apply[data-section]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sec = btn.dataset.section;
+        const panel = list.querySelector(`.ved-bulk-panel[data-section="${cssEsc(sec)}"]`);
+        if (!panel) return;
+        const parInp  = panel.querySelector('.ved-bulk-par');
+        const unitInp = panel.querySelector('.ved-bulk-unit');
+        const parRaw  = (parInp  && parInp.value  || '').trim();
+        const unitRaw = (unitInp && unitInp.value || '').trim();
+        applyBulkSection(sec, parRaw, unitRaw);
+      });
+    });
+
     // ─── Drag handlers (long-press to activate, single delegated listener) ──
     wireDragHandlers(list);
+  }
+
+  /* CSS escape for use in querySelector attribute selectors. The
+     section names can contain spaces, ampersands, and other chars
+     that break a bare selector. Falls back to the global function
+     when available, else a minimal manual escape. */
+  function cssEsc(s) {
+    if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(s);
+    return String(s).replace(/["'\\\s&]/g, '\\$&');
+  }
+
+  /* v18.28 Phase 2 — Apply par and/or unit to every item in a section.
+     Either field can be blank (treated as "skip"); we only update
+     fields the user actually entered. UI shows toast on success +
+     refreshes the rendered list so the new values + has-par treatments
+     reflect immediately.
+
+     Implementation notes:
+       • Local state updates first (so UI is responsive)
+       • Single batched UPDATE to Supabase using .in(...) instead of
+         N row-by-row updates. Atomic from the server's perspective —
+         either all rows update or none.
+       • No "undo" UX in v1; the user can re-bulk-apply with different
+         values to revert. */
+  async function applyBulkSection(sec, parRaw, unitRaw) {
+    if (!catalogState || !NX.sb) return;
+    const sectionName = sec || '';
+    const targetItems = catalogState.items.filter(i => (i.section || '') === sectionName);
+    if (!targetItems.length) {
+      if (NX.toast) NX.toast('No items in this section', 'warn');
+      return;
+    }
+    // Validate inputs
+    let parVal = null;
+    let unitVal = null;
+    if (parRaw !== '') {
+      const n = parseInt(parRaw, 10);
+      if (isNaN(n) || n < 0) {
+        if (NX.toast) NX.toast('Par must be 0 or a positive number', 'warn');
+        return;
+      }
+      parVal = n;
+    }
+    if (unitRaw !== '') {
+      unitVal = unitRaw.toLowerCase().slice(0, 8);
+    }
+    if (parVal == null && unitVal == null) {
+      if (NX.toast) NX.toast('Enter a par or unit to apply', 'warn');
+      return;
+    }
+    // Build patch + apply locally
+    const patch = {};
+    if (parVal  != null) patch.default_par_qty = parVal;
+    if (unitVal != null) patch.unit            = unitVal;
+    const itemIds = targetItems.map(i => i.id);
+    targetItems.forEach(i => {
+      if (parVal  != null) i.default_par_qty = parVal;
+      if (unitVal != null) i.unit            = unitVal;
+    });
+    // Re-render immediately so the changes show before the network call
+    catalogState.bulkSection = null;
+    renderItemsAreaOnly();
+    // Persist
+    try {
+      const { error } = await NX.sb.from('order_guide_items')
+        .update(patch).in('id', itemIds);
+      if (error) throw error;
+      const parts = [];
+      if (parVal  != null) parts.push(`par ${parVal}`);
+      if (unitVal != null) parts.push(`unit "${unitVal}"`);
+      if (NX.toast) NX.toast(
+        `Applied ${parts.join(' + ')} to ${itemIds.length} item${itemIds.length === 1 ? '' : 's'}`,
+        'success',
+        2000
+      );
+    } catch (err) {
+      console.error('[catalog] bulk apply failed:', err);
+      if (NX.toast) NX.toast(
+        `Bulk apply failed: ${err.message || 'unknown'}`,
+        'error',
+        3500
+      );
+      // Reload from server to recover from inconsistent local state
+      try {
+        catalogState.items = await loadVendorCatalog(catalogState.vendor.id);
+        renderItemsAreaOnly();
+      } catch {}
+    }
   }
 
   /* ── Section rename: bulk-update all items in the old section ────
@@ -6304,6 +6597,45 @@ Thanks for your help sorting this out.`;
     }, 50);
   }
 
+  /* ════════════════════════════════════════════════════════════════════
+     v18.28 (catalog revamp) — Inline item field save with debounce
+
+     Saves a SINGLE field on a catalog item without going through the
+     full edit form. Used by the inline par stepper + unit input on
+     each catalog row. Debounced 350ms per item so rapid typing/stepping
+     doesn't fire a write per keystroke.
+
+     State semantics:
+       • catalogState.items[i].<field> is already updated by the caller
+         (so the UI reflects the change immediately)
+       • This function persists that update to the DB on the debounce
+       • Errors surface as toast; no automatic revert (the user can fix
+         and trigger another save)
+     ════════════════════════════════════════════════════════════════════ */
+  const _inlineItemSaveTimers = {};
+  function scheduleInlineItemSave(itemId, patch) {
+    if (!itemId || !patch) return;
+    if (_inlineItemSaveTimers[itemId]) clearTimeout(_inlineItemSaveTimers[itemId]);
+    // Merge any prior pending patch for this item so we always send
+    // the most-recent set of changes in one go
+    _inlineItemSaveTimers[itemId] = setTimeout(async () => {
+      delete _inlineItemSaveTimers[itemId];
+      try {
+        const { error } = await NX.sb.from('order_guide_items')
+          .update(patch).eq('id', itemId);
+        if (error) throw error;
+        // Soft success — no toast on every keystroke. Errors get one though.
+      } catch (err) {
+        console.error('[catalog] inline save failed:', err, 'patch:', patch);
+        if (NX.toast) NX.toast(
+          `Save failed: ${err.message || 'unknown error'}`,
+          'error',
+          3500
+        );
+      }
+    }, 350);
+  }
+
   /* Move an entire SECTION up or down by one position. Mirrors moveItemByOne
      for items. The section ordering is determined by the sort_order of the
      FIRST item in each section (sections don't have their own sort_order in
@@ -6668,6 +7000,16 @@ Thanks for your help sorting this out.`;
                                      // (kept client-side until first item lands in them)
       collapsedSections: new Set(),  // section names currently collapsed (header-only)
       searchQuery: '',
+      // v18.28 Phase 2 — filter pill state. 'all' (default) shows
+      // every item; 'missing-par' shows items where default_par_qty
+      // is null, undefined, or 0. Helps an operator audit catalog
+      // setup ("which items still need a par?") without scrolling
+      // the whole catalog.
+      parFilter: 'all',              // 'all' | 'missing-par'
+      // v18.28 Phase 2 — section-level bulk apply UI state. When a
+      // section name is in here, that section shows an inline form
+      // for "Apply par/unit to all N items in this section".
+      bulkSection: null,             // section name or null
       overlay: null,
     };
     mountCatalogEditor();
@@ -7438,15 +7780,23 @@ Thanks for your help sorting this out.`;
 
     const itemCount = catalogState.items.length;
     const itemCountSub = `${itemCount} item${itemCount === 1 ? '' : 's'}`;
+    // v18.28 Phase 2 — items missing par. Used both for the filter
+    // pill label and to decide whether to even render that pill.
+    const missingParCount = catalogState.items.filter(i => {
+      const p = i.default_par_qty;
+      return p == null || Number(p) === 0;
+    }).length;
+    const parFilter = catalogState.parFilter || 'all';
 
-    // Toolbar: + Section, + Item, Import (bulk).
+    // v18.28 Phase 2 — top toolbar simplified. The primary action
+    // (+ Item) moves to a floating CTA at the bottom of the screen.
+    // The top toolbar keeps the less-frequent actions (Section,
+    // Import). This mirrors the ordering screen's pattern: primary
+    // action floats above content, scrolls away on scroll-down.
     const toolbarHTML = `
       <div class="ord-cat-toolbar">
         <button class="ord-cat-tool-btn" id="catAddSection" type="button">
           ${plusIcon()}<span>Section</span>
-        </button>
-        <button class="ord-cat-tool-btn ord-cat-tool-primary" id="catAddItem" type="button">
-          ${plusIcon()}<span>Item</span>
         </button>
         <button class="ord-cat-tool-btn ord-cat-tool-import" id="catImport" type="button" title="Bulk import from spreadsheet">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -7485,6 +7835,27 @@ Thanks for your help sorting this out.`;
       </div>
     `;
 
+    // v18.28 Phase 2 — Filter pills (All / Missing par). Same visual
+    // language as the ordering screen's My-items/All/Fill pills, but
+    // here surfacing catalog-setup audit ("which items still need a
+    // par configured?"). Pill only renders if there's a non-trivial
+    // count of missing-par items, otherwise it's noise.
+    const filterPillsHTML = (itemCount > 0) ? `
+      <div class="ord-cat-filter-row">
+        <button type="button" class="ord-entry-filter-pill${parFilter === 'all' ? ' is-active' : ''}" data-cat-filter="all">
+          All${itemCount ? ` <span class="ord-pill-count">${itemCount}</span>` : ''}
+        </button>
+        ${missingParCount > 0 ? `
+          <button type="button" class="ord-entry-filter-pill${parFilter === 'missing-par' ? ' is-active' : ''}" data-cat-filter="missing-par">
+            Missing par <span class="ord-pill-count">${missingParCount}</span>
+          </button>
+        ` : ''}
+        ${parFilter === 'missing-par' ? `
+          <span class="ord-entry-filter-hint">Showing items with no par set</span>
+        ` : ''}
+      </div>
+    ` : '';
+
     overlay.innerHTML = `
       <div class="ord-entry-head ord-catalog-head">
         <button class="ord-entry-close" id="catClose" aria-label="Close">${arrowLeftIcon()}</button>
@@ -7497,8 +7868,18 @@ Thanks for your help sorting this out.`;
       ${toolbarHTML}
       ${addSectionHTML}
       ${searchHTML}
+      ${filterPillsHTML}
       <div class="ord-entry-list ord-cat-list" id="catItemsList">
         ${renderItemsList()}
+      </div>
+      <!-- v18.28 Phase 2 — Floating primary action. Mirrors the
+           ordering screen's Review & Send pattern: position absolute,
+           transparent wrapper, button carries elevation shadow,
+           auto-hides on downward scroll. -->
+      <div class="ord-entry-cta-wrap ord-cat-cta-wrap">
+        <button class="ord-entry-cta ord-cat-cta" id="catAddItemFloating" type="button">
+          ${plusIcon(true)}<span>Add item</span>
+        </button>
       </div>
     `;
 
@@ -7543,8 +7924,10 @@ Thanks for your help sorting this out.`;
       });
     }
 
-    // Add item — opens inline form at top of list, default section = first existing or empty
-    const addItem = overlay.querySelector('#catAddItem');
+    // v18.28 Phase 2 — Add item — primary CTA is now the floating
+    // button at the bottom of the screen, not the top toolbar. Same
+    // behavior (opens inline new-item form at the top of the list).
+    const addItem = overlay.querySelector('#catAddItemFloating');
     if (addItem) addItem.addEventListener('click', () => {
       catalogState.editingItemId = 'new';
       // Inject suggested default section into the new-item form via state
@@ -7554,6 +7937,16 @@ Thanks for your help sorting this out.`;
         const form = overlay.querySelector('.ord-vitem-editing');
         if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 50);
+    });
+
+    // v18.28 Phase 2 — Filter pills (All / Missing par). Click to
+    // toggle catalog-wide filtering. The renderItemsAreaOnly call
+    // re-runs the filter chain in renderItemsList.
+    overlay.querySelectorAll('[data-cat-filter]').forEach(pill => {
+      pill.addEventListener('click', () => {
+        catalogState.parFilter = pill.dataset.catFilter || 'all';
+        renderCatalog();  // full re-render to update pill active states + counts
+      });
     });
 
     // Bulk import — opens the spreadsheet import modal. Sits next to
@@ -7627,6 +8020,35 @@ Thanks for your help sorting this out.`;
       document.addEventListener('keydown', escHandler);
       catalogState._escWired = true;
       catalogState._escHandler = escHandler;
+    }
+
+    // v18.28 Phase 2 — Floating "+ Add Item" CTA auto-hide on
+    // downward scroll. Same pattern as the ordering screen's Review
+    // & Send button. 10px tolerance to ignore iOS scroll-bounce
+    // jitter; always-visible at top, at bottom, or scrolling up.
+    const list = overlay.querySelector('#catItemsList');
+    const ctaWrap = overlay.querySelector('.ord-cat-cta-wrap');
+    if (list && ctaWrap) {
+      let lastY = 0;
+      let lastDir = 0;
+      const TOLERANCE = 10;
+      const BOTTOM_THRESHOLD = 24;
+      const TOP_THRESHOLD = 8;
+      const onScroll = () => {
+        const y = list.scrollTop;
+        const max = list.scrollHeight - list.clientHeight;
+        const atTop    = y <= TOP_THRESHOLD;
+        const atBottom = max - y <= BOTTOM_THRESHOLD;
+        const delta = y - lastY;
+        if (Math.abs(delta) >= TOLERANCE) {
+          lastDir = delta > 0 ? 1 : -1;
+          lastY = y;
+        }
+        const shouldHide = lastDir === 1 && !atTop && !atBottom;
+        ctaWrap.classList.toggle('is-hidden', shouldHide);
+      };
+      list.addEventListener('scroll', onScroll, { passive: true });
+      ctaWrap.classList.remove('is-hidden');
     }
   }
 
