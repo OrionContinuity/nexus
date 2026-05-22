@@ -712,11 +712,13 @@ body.ord-overlay-open .nav {
      up and show a horizontal scrollbar inside. Explicit overflow-x
      hidden keeps everything pinned to the viewport width. */
   overflow-x: hidden;
-  /* v18.28 — bottom padding clears the floating CTA. CTA height
-     (54) + wrap top padding gap (none) + bottom safe-area + comfort
-     margin = ~90px. Without this the last item row sits behind the
-     floating button when the user has scrolled to the bottom. */
-  padding: 12px 12px calc(96px + env(safe-area-inset-bottom, 0px));
+  /* v18.28 (round 2) — bottom padding clears the floating CTA. Prior
+     96px wasn't enough on iPhones with home-indicator safe area (button
+     height 54 + wrap padding 14 + safe-area ~34 ≈ 102px). Bumped to
+     120 + safe area so the last item never gets clipped. Applied also
+     to .ord-review-body so the notes textarea on the review screen
+     isn't covered by the Send Order CTA. */
+  padding: 12px 12px calc(120px + env(safe-area-inset-bottom, 0px));
   -webkit-overflow-scrolling: touch;
 }
 
@@ -763,9 +765,14 @@ body.ord-overlay-open .nav {
   flex: 1;
   min-width: 0;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  font-weight: 600;                              /* softened from 700 — matches catalog */
-  letter-spacing: 0.16em;                        /* same em-based value as catalog .ved-section-row */
+  /* v18.28 (polish) — bumped 11→12px with looser letter-spacing for
+     more confidence + breathing room. The section is a navigational
+     anchor for chefs scanning ("am I in cleaning supplies or paper
+     supplies?"), so a slightly larger reading helps glance-ability
+     without ballooning row height (just one line of section head). */
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--nx-gold, var(--accent));
   overflow: hidden;
@@ -874,11 +881,21 @@ body.ord-overlay-open .nav {
   line-height: 1.25;
 }
 .ord-item-meta {
+  /* v18.28 (polish) — was wrapping to 3-4 lines because vendor codes
+     like "CAN LINER 56 GA XHW BLK 43X47 · SKU 194628 · FRST MRK" are
+     just naturally long. The wrap made each row feel like a data dump
+     and inflated row height by ~40px. Single line with ellipsis. If
+     the chef needs to verify a SKU mid-order, the full meta still
+     shows in the review screen and on the item detail. */
   font-size: 10.5px;
   color: var(--nx-faint);
-  margin-top: 3px;
+  margin-top: 2px;
   font-family: 'JetBrains Mono', monospace;
   letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
 }
 
 /* Quantity control — pill-shaped, three segments: -, input, + */
@@ -894,8 +911,35 @@ body.ord-overlay-open .nav {
   transition: border-color .15s;
 }
 .ord-item-row.has-qty .ord-qty {
+  /* v18.28 (polish) — was just gold border on white. Now the entire
+     pill fills with the gold gradient so a "set" item reads as set
+     from across a kitchen. Buttons and input flip to dark-on-gold
+     so the contrast against the filled pill works. */
   border-color: var(--nx-gold);
-  background: var(--nx-bg);
+  background: linear-gradient(180deg, var(--nx-gold), var(--nx-gold-deep, #a8821e));
+  box-shadow: 0 1px 6px var(--nx-gold-soft, rgba(212, 164, 78, 0.35));
+}
+.ord-item-row.has-qty .ord-qty-btn {
+  color: var(--nx-gold-on, #1c1408);
+  font-weight: 700;
+}
+.ord-item-row.has-qty .ord-qty-btn:hover {
+  background: rgba(28, 20, 8, 0.12);
+  color: var(--nx-gold-on, #1c1408);
+}
+.ord-item-row.has-qty .ord-qty-btn:active {
+  background: rgba(28, 20, 8, 0.2);
+}
+.ord-item-row.has-qty .ord-qty-input {
+  color: var(--nx-gold-on, #1c1408);
+  font-weight: 700;
+  /* Subtle vertical dividers between button and input — was gold-line
+     which disappeared against the gold fill. */
+  border-left-color: rgba(28, 20, 8, 0.18);
+  border-right-color: rgba(28, 20, 8, 0.18);
+}
+.ord-item-row.has-qty .ord-qty-input:focus {
+  background: rgba(28, 20, 8, 0.08);
 }
 .ord-qty-btn {
   /* v18.28 (round 2) — shrunk from 32→28px wide. The 34px height keeps
@@ -940,9 +984,6 @@ body.ord-overlay-open .nav {
   border-left: 1px solid var(--nx-gold-line);
   border-right: 1px solid var(--nx-gold-line);
 }
-.ord-item-row.has-qty .ord-qty-input {
-  color: var(--nx-gold);
-}
 .ord-qty-input::-webkit-outer-spin-button,
 .ord-qty-input::-webkit-inner-spin-button {
   -webkit-appearance: none;
@@ -952,9 +993,9 @@ body.ord-overlay-open .nav {
   outline: none;
   background: var(--nx-gold-soft, var(--nx-gold-faint));
 }
-.ord-item-row.has-qty .ord-qty-input {
-  color: var(--nx-gold);
-}
+/* (Older .has-qty rules for the input — color: gold — removed in v18.28
+   polish. They conflicted with the new dark-on-gold treatment above
+   that applies when the entire pill fills with the gold gradient.) */
 
 .ord-item-unit {
   flex-shrink: 0;
@@ -1091,7 +1132,10 @@ body.ord-overlay-open .nav {
 .ord-review-body {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 8px 0 16px;
+  /* v18.28 — bottom padding mirrors .ord-entry-list. Without it the
+     Notes textarea at the bottom of the review screen sits behind the
+     floating "Send Order" button when the user has scrolled to it. */
+  padding: 8px 0 calc(120px + env(safe-area-inset-bottom, 0px));
   -webkit-overflow-scrolling: touch;
 }
 
@@ -8242,46 +8286,63 @@ body.ord-overlay-open .nav {
       Singular packs ("1/1 CT") collapse to just "1 CT" with no sub-line.
    ════════════════════════════════════════════════════════════════════════════ */
 
+/* v18.28 (polish) — par chip rework.
+   Previously a bordered pill ("PAR 2 CT · THU") that read like raw
+   data. Now: borderless, inline-feeling, the par qty + day are the
+   readable bits. Status color:
+     • has-qty AND meets par → soft green (you're good)
+     • has-qty but BELOW par → soft amber warning
+     • zero qty                → faint default (waiting)
+   Color flips happen via .is-met / .is-short modifier classes if
+   the JS adds them; default styling stays neutral so unmodified
+   rows still look polished. */
 .ord-item-par-chip {
   display: inline-flex;
   align-items: baseline;
-  gap: 4px;
-  margin-top: 6px;
-  padding: 3px 9px 3px 7px;
-  background: rgba(212, 164, 78, 0.08);
-  border: 1px solid var(--nx-gold-line, rgba(212, 164, 78, 0.30));
-  border-radius: 999px;
+  gap: 5px;
+  margin-top: 5px;
+  padding: 2px 0 2px 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
-  letter-spacing: 0.5px;
+  font-size: 10px;
+  letter-spacing: 0.4px;
   color: var(--nx-faint, var(--muted));
   white-space: nowrap;
   -webkit-user-select: none;
   user-select: none;
+  opacity: 0.85;
 }
+.ord-item-par-chip.is-met    { color: #6da46d; opacity: 1; }
+.ord-item-par-chip.is-short  { color: #d9a44e; opacity: 1; }
 .ord-item-par-label {
   color: var(--nx-gold, #d4a44e);
   font-weight: 700;
-  letter-spacing: 1.2px;
-  font-size: 9.5px;
+  letter-spacing: 1.4px;
+  font-size: 9px;
+  text-transform: uppercase;
+  opacity: 0.85;
 }
 .ord-item-par-qty {
   color: var(--nx-text, var(--text));
-  font-weight: 600;
+  font-weight: 700;
   font-size: 12px;
 }
 .ord-item-par-unit {
   color: var(--nx-faint, var(--muted));
   font-weight: 500;
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: 9.5px;
+  letter-spacing: 0.6px;
 }
 .ord-item-par-day {
   color: var(--nx-gold, #d4a44e);
-  font-weight: 500;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 1px;
-  font-size: 9.5px;
+  font-size: 9px;
+  opacity: 0.85;
 }
 
 /* When the row has an active qty (gold-tinted state), brighten the chip
@@ -8895,6 +8956,11 @@ body.ord-overlay-open .nav {
 .ord-entry-sub-row {
   display: flex;
   align-items: center;
+  /* v18.28 — was just flex (left-aligned). Parent .ord-entry-title has
+     text-align:center which centers block children like the vendor name
+     above, but flex children don't respect text-align. justify-content
+     centers the subtitle horizontally under "PFG". */
+  justify-content: center;
   gap: 6px;
   flex-wrap: wrap;
 }
