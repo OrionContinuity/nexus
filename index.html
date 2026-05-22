@@ -66,6 +66,13 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script async src="https://unpkg.com/lucide@latest/dist/umd/lucide.js" onload="lucide.createIcons()"></script>
+<!-- v18.31 — QRious for local QR code generation. Drops the external
+     api.qrserver.com dependency that was silently failing on some
+     networks, leaving the equipment QR tab blank. ~10KB minified;
+     `defer` so it doesn't block initial paint. Equipment's
+     generateQRImage() checks `typeof QRious` and uses it preferentially
+     over the network fallback. -->
+<script defer src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
 <style>
 /* ═══════════════════════════════════════════════════════════════════════
    NEXUS COIN — login screen hero
