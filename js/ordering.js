@@ -2463,6 +2463,7 @@
       ]);
       entryState.catalog = catalog;
       entryState.par_overrides = pars;
+      pruneStaleUnitOverrides(entryState);
       renderEntryItems();
       if (NX.toast) NX.toast(`Reordered ${(sourceOrder.lines || []).length} items — review & send`, 'info', 1800);
       // Force an initial save so this becomes a real draft right away.
@@ -3152,6 +3153,7 @@ Thanks for your help sorting this out.`;
       ]);
       entryState.catalog       = catalog;
       entryState.par_overrides = pars;
+      pruneStaleUnitOverrides(entryState);
 
       // ─── v18.25 — Fill mode dispatch ──────────────────────────────
       // Honor the vendor's saved default_fill_mode preference:
@@ -3412,6 +3414,7 @@ Thanks for your help sorting this out.`;
       ]);
       entryState.catalog = catalog;
       entryState.par_overrides = pars;
+      pruneStaleUnitOverrides(entryState);
       renderEntryItems();
     } catch (e) {
       console.error('[ordering] openOrderInEntry:', e);
@@ -4116,6 +4119,43 @@ Thanks for your help sorting this out.`;
       // localStorage may be full or blocked — silent fail, override
       // remains in memory for this session at least.
     }
+  }
+
+  /** v18.31 — Strip stale unit overrides that match the catalog.
+   *
+   *  The localStorage override layer exists so a unit typed at qty=0
+   *  persists until the catalog PATCH completes (~350ms debounce) and
+   *  across reloads in case the network call failed. Once the catalog
+   *  catches up, the override is redundant — keeping it around makes
+   *  the override silently shadow any FUTURE catalog change for that
+   *  same item, which manifested as "I keep correcting the unit and
+   *  it reverts" in Orion's report.
+   *
+   *  Cleanup rule: for each override entry, normalize via shortUnit()
+   *  and compare to the catalog's shortUnit(item.unit). If they match,
+   *  the override is redundant — delete it. If they differ, the
+   *  override is a pending edit and we keep it.
+   *
+   *  Runs on openVendor / openExistingOrder / restoreOrder right after
+   *  the catalog loads. Mutates entryState.unitOverrides in place AND
+   *  persists the cleaned version back to localStorage so subsequent
+   *  page loads benefit too. */
+  function pruneStaleUnitOverrides(state) {
+    if (!state || !state.unitOverrides || !state.catalog || !state.vendor) return;
+    const catalogById = new Map();
+    for (const it of state.catalog) catalogById.set(it.id, it);
+    let changed = false;
+    for (const [itemId, ovr] of Object.entries(state.unitOverrides)) {
+      const item = catalogById.get(itemId);
+      if (!item) continue;          // override for archived/deleted item — leave alone for now
+      const catalogNormalized = shortUnit(item.unit);
+      const overrideNormalized = shortUnit(ovr);
+      if (catalogNormalized === overrideNormalized) {
+        delete state.unitOverrides[itemId];
+        changed = true;
+      }
+    }
+    if (changed) saveUnitOverrides(state.vendor.id, state.unitOverrides);
   }
 
   function setSaveStatus(state) {
@@ -6827,12 +6867,49 @@ Thanks for your help sorting this out.`;
       delete _inlineItemSavePending[itemId];
       if (!finalPatch || Object.keys(finalPatch).length === 0) return;
       try {
-        const { error } = await NX.sb.from('order_guide_items')
-          .update(finalPatch).eq('id', itemId);
+        // v18.31 — add .select() so we know whether the UPDATE actually
+        // matched a row. Without this, Supabase silently returns success
+        // even when zero rows were touched (e.g. wrong id, RLS block,
+        // archived flag), and the user's typed unit appears to save but
+        // the DB stayed put. This was the smoking gun behind Orion's
+        // "5th time I correct ct and it's still wrong" report.
+        const { data: updated, error } = await NX.sb.from('order_guide_items')
+          .update(finalPatch)
+          .eq('id', itemId)
+          .select('id, unit, default_par_qty');
         if (error) throw error;
-        // Soft success — no toast on every keystroke. Errors get one though.
+        if (!updated || updated.length === 0) {
+          // PATCH succeeded but matched 0 rows. The item ID is wrong,
+          // archived, or invisible to the current credentials. Surface
+          // this loudly — otherwise the user assumes it saved.
+          console.error('[catalog] inline save matched 0 rows. itemId:', itemId, 'patch:', finalPatch);
+          if (NX.toast) NX.toast(
+            'Save matched 0 rows — item may be archived or missing',
+            'error',
+            4000
+          );
+          return;
+        }
+        // v18.31 — clean up the stale localStorage override now that
+        // the catalog has the canonical value. The override layer was
+        // a workaround for the catalog-sync delay; once the catalog
+        // PATCH succeeds, the override is redundant and risks going
+        // stale. Cleaning it here keeps the catalog as the single
+        // source of truth.
+        if ('unit' in finalPatch && entryState && entryState.unitOverrides && entryState.vendor) {
+          if (entryState.unitOverrides[itemId] != null) {
+            delete entryState.unitOverrides[itemId];
+            saveUnitOverrides(entryState.vendor.id, entryState.unitOverrides);
+          }
+        }
+        // Confirmation toast so the user knows the catalog actually
+        // received the change. Brief, non-intrusive.
+        if (NX.toast && 'unit' in finalPatch) {
+          NX.toast(`Catalog unit → ${updated[0].unit}`, 'info', 1400);
+        }
+        console.log('[catalog] inline save OK', { itemId, patch: finalPatch, dbRow: updated[0] });
       } catch (err) {
-        console.error('[catalog] inline save failed:', err, 'patch:', finalPatch);
+        console.error('[catalog] inline save failed:', err, 'itemId:', itemId, 'patch:', finalPatch);
         if (NX.toast) NX.toast(
           `Catalog save failed: ${err.message || 'unknown error'}`,
           'error',
