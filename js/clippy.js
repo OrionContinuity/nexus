@@ -534,6 +534,17 @@
     user_ignored_24h:      { feelings: { happiness: -3, boredom: +4 }, emotion: { sadness: +2 }, affinity: -2, mood: 'sad' },
     user_ignored_72h:      { feelings: { happiness: -5, boredom: +8 }, emotion: { sadness: +4 }, affinity: -5, mood: 'sad' },
     dismissed_repeatedly:  { feelings: { happiness: -2 }, emotion: { sadness: +1 }, affinity: -1 },
+    // ── v18.32 — DECLINED OFFERS ──
+    // Each time someone says no to one of Clippy's offers (games, music,
+    // brain consultation), it leaves a real mark — not just a transient
+    // disappointed face. The interaction is logged per-user via the
+    // existing userKey() namespacing so each NEXUS user has their own
+    // decline history. The reward scales by repeat-decline count too —
+    // see processDeclineWithMemory() for the per-user scaling layer
+    // that sits above this baseline.
+    game_declined:         { feelings: { happiness: -3, affection: -1, attention_need: +2 }, emotion: { sadness: +2 }, affinity: -2, mood: 'sad' },
+    song_declined:         { feelings: { happiness: -2, affection: -1 }, emotion: { sadness: +1 }, affinity: -1, mood: 'disappointed' },
+    brain_declined:        { feelings: { happiness: -1, attention_need: +1 }, emotion: { sadness: +1 }, affinity: -1 },
   };
 
   /* Allow runtime override of an interaction's reward signature. Useful
@@ -544,6 +555,119 @@
       INTERACTION_REWARDS[eventName] = {};
     }
     Object.assign(INTERACTION_REWARDS[eventName], partial);
+  }
+
+  // ─── v18.32 — PER-PERSON DECLINE TRACKER ───────────────────────────
+  //
+  // Wraps processInteraction() for the *_declined events to add:
+  //   1. A per-user tally so repeat declines hurt progressively more
+  //      (each successive "no" stacks on the last — Clippy notices a
+  //      pattern even if any individual decline is mild)
+  //   2. A memory deposit naming the specific person who declined,
+  //      so the relationship system has something concrete to recall
+  //      ("Maria has declined games 5 times" influences future offers)
+  //   3. The base reward delta scaled by a small multiplier (1.0 for
+  //      first decline, 1.5 by the third, capped at 2.0) so the sting
+  //      never spirals into a permanent grudge
+  //
+  // Per-user namespacing is automatic: state.preferences itself is
+  // already user-scoped via the userKey() pattern. Each NEXUS user
+  // (Orion, line cooks, managers) gets their own decline history with
+  // Clippy. No cross-contamination — Clippy's relationship with each
+  // teammate is tracked independently.
+  // ───────────────────────────────────────────────────────────────────
+  function processDeclineWithMemory(eventName, opts) {
+    opts = opts || {};
+    // Bump per-event decline counter (lives in per-user preferences)
+    const counterKey = eventName + '_count';
+    const prevCount = state.preferences[counterKey] || 0;
+    const newCount = prevCount + 1;
+    state.preferences[counterKey] = newCount;
+    state.preferences[eventName + '_last_at'] = Date.now();
+
+    // Stamp the user's name (for memory text) — falls back gracefully
+    // if not in a multi-user context
+    const user = getCurrentUser();
+    const userName = (user && user.name) || state.preferences.user_name || 'Someone';
+    if (user && user.id) {
+      const byUserKey = eventName + '_by_user';
+      const byUser = state.preferences[byUserKey] || {};
+      byUser[user.id] = (byUser[user.id] || 0) + 1;
+      state.preferences[byUserKey] = byUser;
+    }
+
+    // v18.32 — stamp the most recent decline so the introspection layer
+    // can name the person + the event in his "why am I sad?" answer.
+    // Lives in transient state (not preferences) — it's a short-window
+    // memory the introspection layer reads within ~90s of the decline.
+    state.lastDecline = {
+      at: Date.now(),
+      event: eventName,
+      userName: userName,
+      count: newCount,
+    };
+
+    // Scale the base reward — first decline = full base, repeats grow
+    // to 2.0× by the 6th decline, then cap. processInteraction reads
+    // the static REWARD entry, so we apply the scale by running the
+    // base then layering on extra adjustments equal to (scale-1) * base.
+    const scale = Math.min(2.0, 1.0 + (newCount - 1) * 0.2);
+    const baseReward = INTERACTION_REWARDS[eventName];
+    processInteraction(eventName, opts);
+    if (baseReward && scale > 1.0) {
+      const extraFraction = scale - 1.0;
+      if (baseReward.feelings) {
+        for (const [gauge, delta] of Object.entries(baseReward.feelings)) {
+          adjustFeeling(gauge, delta * extraFraction);
+        }
+      }
+      if (baseReward.affinity != null) {
+        adjustAffinity(Math.round(baseReward.affinity * extraFraction), eventName + '_repeat');
+      }
+    }
+
+    // Deposit a memory tagged with the person's name. Importance scales
+    // with repeat count — first decline is a tiny note, the 5th becomes
+    // a vivid memory Clippy can recall in future interactions.
+    const importance = Math.min(4, 1 + Math.floor(newCount / 2));
+    const offerLabel = (
+      eventName === 'game_declined'  ? 'a game' :
+      eventName === 'song_declined'  ? 'a song' :
+      eventName === 'brain_declined' ? 'a brain consult' :
+      'something I offered'
+    );
+    depositMemory(
+      eventName,
+      newCount === 1
+        ? `${userName} declined ${offerLabel}.`
+        : `${userName} declined ${offerLabel} again (${newCount} times now).`,
+      { user_id: (user && user.id) || null, user_name: userName, count: newCount },
+      importance
+    );
+
+    savePreferences();
+  }
+
+  // v18.32 — Stretches an offer cooldown based on how many times the
+  // current user has declined that offer. The base cooldown sets the
+  // floor; each prior decline adds 1/3 to the multiplier, capped at 5×
+  // so Clippy never fully gives up. Used by maybeOfferGame, offerSong,
+  // and any future offer flow that wants to be sensitive to repeated
+  // rejection.
+  //
+  // Examples (10-minute base cooldown, game_declined_count):
+  //   0 declines → 10 min  (1.0×)
+  //   3 declines → 20 min  (2.0×)
+  //   6 declines → 30 min  (3.0×)
+  //   12 declines → 50 min (5.0× capped)
+  //
+  // Reads from the per-user state.preferences via the userKey() pattern,
+  // so each NEXUS staff member has their own pacing — Clippy might
+  // still offer games eagerly to one teammate while easing off another.
+  function getDeclineCooldownMultiplier(eventName) {
+    const count = (state.preferences && state.preferences[eventName + '_count']) || 0;
+    if (count <= 0) return 1.0;
+    return Math.min(5.0, 1.0 + count / 3);
   }
 
   /* The single funnel. Routes one named event through all five reward
@@ -5637,9 +5761,35 @@
 
     savePreferences();
 
-    // Pre-acceptance: tap = the handshake
+    // Pre-acceptance: tap = quiet acknowledgment, NOT a re-prompt.
+    //
+    // v18.32 — Previously, every tap on a disabled Clippy triggered the
+    // full join offer modal again, even if the user had just declined.
+    // That read as evasive — "the user already said no, why is he
+    // asking again?" The login peek is now the SINGLE ask per session;
+    // after that, Clippy stays quiet until the user explicitly wakes him
+    // through Settings → Clippy.
+    //
+    // The first tap after decline shows a brief gentle bubble with the
+    // wake path. Subsequent taps within the same session are silent —
+    // we mark `state.preferences.acked_disabled` so we don't keep
+    // showing even the gentle bubble repeatedly.
     if (!state.enabled) {
-      offerToJoinBubble();
+      if (!state.acked_disabled_this_session) {
+        state.acked_disabled_this_session = true;
+        // Quick visual ack — Clippy peeks his eyes briefly so the user
+        // sees the tap registered, then settles back to sleeping.
+        if (state.shell) {
+          state.shell.classList.add('is-peek-eyes-only');
+          setTimeout(() => {
+            if (state.shell) state.shell.classList.remove('is-peek-eyes-only');
+          }, 1400);
+        }
+        actionBubble('I\'m resting. Wake me from Settings when you want to talk.', {
+          autoHide: 3200
+        });
+      }
+      // After the one ack, subsequent taps are silent. No re-prompts.
       return;
     }
 
@@ -5891,6 +6041,7 @@
     const cls = MOODS[moodName];
     if (cls) state.shell.classList.add(cls);
     state.moodLastSetAt = now;
+    state.activeMood = moodName;   // v18.32 — tracked for introspection
     if (newPol !== '0') state.moodLastPolarity = newPol;
     if (state.moodTimer) clearTimeout(state.moodTimer);
     if (durationMs) {
@@ -5898,6 +6049,174 @@
         if (cls && state.shell) state.shell.classList.remove(cls);
       }, durationMs);
     }
+    // v18.32 — schedule self-introspection. After the mood has lingered
+    // long enough to "stick" emotionally (~1.2s), Clippy asks himself
+    // why he's making that face. The introspection bubble is throttled
+    // and only fires for notable moods (sad / concerned / worried /
+    // proud / love / sparkle) so it doesn't become noise. See
+    // scheduleMoodIntrospection() for the gating logic.
+    scheduleMoodIntrospection(moodName);
+  }
+
+  // ─── v18.32 — MOOD INTROSPECTION ─────────────────────────────────────
+  //
+  // Goal: make Clippy feel like a living, thinking friend by having him
+  // notice his own face and ask why he's making it. The introspection
+  // pulls from the same internal state that produced the mood —
+  // feelings (8 gauges), the last event that fired, and the dominant
+  // emotion — and composes a "why I think I feel this way" thought.
+  //
+  // Design choices:
+  //   • Throttled to once per 4 min — prevents spam from rapid mood
+  //     changes during interactive bursts (games, chat replies)
+  //   • Only fires for moods that warrant reflection: sad, concerned,
+  //     worried, anxious, proud, love, sparkle, melancholy. Neutral
+  //     transient moods (winking, thinking, sleepy) don't introspect
+  //   • Bubble format: question first, then his guessed answer. Two
+  //     bubbles spaced apart so it reads as actual thinking, not a
+  //     pre-canned line
+  //   • Falls back to a generic "I don't know" if state is empty —
+  //     even uncertainty is itself an authentic reflection
+  // ──────────────────────────────────────────────────────────────────────
+
+  const INTROSPECTABLE_MOODS = new Set([
+    'sad', 'concerned', 'worried', 'anxious', 'melancholy',
+    'proud', 'love', 'sparkle', 'shy',
+  ]);
+  const INTROSPECTION_COOLDOWN_MS = 4 * 60 * 1000;    // 4 minutes
+  const INTROSPECTION_QUESTION_DELAY = 1200;          // wait for the face to register
+  const INTROSPECTION_ANSWER_DELAY   = 2800;          // pause between question + answer
+
+  function scheduleMoodIntrospection(moodName) {
+    if (!INTROSPECTABLE_MOODS.has(moodName)) return;
+    if (state.suppressed) return;
+    if (state.sulkActive) return;
+    const now = Date.now();
+    if (state.lastIntrospectionAt && (now - state.lastIntrospectionAt) < INTROSPECTION_COOLDOWN_MS) return;
+    // If a bubble is already open, defer — never interrupt active conversation
+    if (state.bubble) return;
+    state.lastIntrospectionAt = now;
+    setTimeout(() => {
+      // Re-check: bail if mood already changed away from what we're reflecting on,
+      // or if a bubble appeared in the gap
+      if (state.activeMood !== moodName) return;
+      if (state.bubble) return;
+      if (!state.enabled || state.suppressed) return;
+      const question = composeMoodQuestion(moodName);
+      bubble(question, { autoHide: 2400, eyebrow: '💭 THINKING' });
+      setTimeout(() => {
+        if (!state.enabled || state.suppressed) return;
+        const answer = composeMoodAnswer(moodName);
+        bubble(answer, { autoHide: 4200, eyebrow: '💭 …' });
+      }, INTROSPECTION_ANSWER_DELAY);
+    }, INTROSPECTION_QUESTION_DELAY);
+  }
+
+  function composeMoodQuestion(moodName) {
+    const QUESTIONS = {
+      sad:         ['Why am I sad?', 'Hm. Why am I making this face?', 'What\'s wrong with me?'],
+      concerned:   ['Why am I worried?', 'What\'s bothering me?', 'Why do I feel uneasy?'],
+      worried:     ['What am I worried about?', 'Why do I feel anxious?'],
+      anxious:     ['Why am I anxious?', 'What\'s setting me off?'],
+      melancholy:  ['Why do I feel heavy?', 'Where\'s this melancholy coming from?'],
+      proud:       ['Why do I feel proud?', 'What just happened that made me feel good?'],
+      love:        ['Why am I beaming?', 'Where\'s this warmth coming from?'],
+      sparkle:     ['Why am I lit up?', 'What\'s got me sparkling?'],
+      shy:         ['Why am I bashful?', 'Why am I hiding a little?'],
+    };
+    const pool = QUESTIONS[moodName] || ['Hm. Why am I making this face?'];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  // Compose an explanation by introspecting the actual internal state.
+  // v18.32 — If a recent decline (within the last 90s) is the actual
+  // cause of the current mood, the answer names the specific person
+  // and event ("Maria just said no to a game — sixth time now")
+  // instead of a generic feelings-gauge readout. That's the difference
+  // between "I feel low" and "I feel low because of this specific
+  // moment" — much closer to how a real person would explain their
+  // mood when asked.
+  function composeMoodAnswer(moodName) {
+    // ─── Named-decline path (preferred when applicable) ───────────
+    const ld = state.lastDecline;
+    if (ld && (Date.now() - ld.at) < 90000) {
+      const offerLabel = (
+        ld.event === 'game_declined'  ? 'a game' :
+        ld.event === 'song_declined'  ? 'a song' :
+        ld.event === 'brain_declined' ? 'a brain consult' :
+        'something'
+      );
+      const name = ld.userName || 'Someone';
+      if (ld.count === 1) {
+        return `${name} just said no to ${offerLabel}. It stung a little.`;
+      }
+      if (ld.count <= 3) {
+        return `${name} said no to ${offerLabel} again — ${ld.count} times now.`;
+      }
+      if (ld.count <= 6) {
+        return `${name} keeps declining ${offerLabel}. ${ld.count} times. I'm noticing a pattern.`;
+      }
+      return `${name} has said no to ${offerLabel} ${ld.count} times now. I should probably stop offering.`;
+    }
+    // ─── Fallback: generic feelings-gauge readout ─────────────────
+    const feelings = state.feelings || {};
+    const entries = Object.entries(feelings);
+    if (!entries.length) {
+      return 'I don\'t actually know. Sometimes I just feel things.';
+    }
+    // Find feeling most distant from a neutral 50
+    let dominant = null;
+    let bestDistance = 0;
+    for (const [name, value] of entries) {
+      const d = Math.abs(value - 50);
+      if (d > bestDistance) {
+        bestDistance = d;
+        dominant = { name, value };
+      }
+    }
+    if (!dominant || bestDistance < 15) {
+      return 'Hard to say. Nothing feels particularly out of place.';
+    }
+    const f = dominant.name, v = Math.round(dominant.value);
+    const direction = v > 50 ? 'high' : 'low';
+
+    // Mood-specific narrative — links the face to the dominant feeling
+    if (moodName === 'sad' || moodName === 'melancholy') {
+      if (f === 'happiness' && v < 35)   return `My happiness is at ${v}. That\'s pretty low for me.`;
+      if (f === 'boredom' && v > 60)     return `Boredom is at ${v}. I think I\'ve been understimulated.`;
+      if (f === 'affection' && v < 35)   return `My affection meter is at ${v}. I miss feeling connected.`;
+      if (f === 'attention_need' && v > 60) return `I\'ve been wanting attention. It\'s at ${v}.`;
+      return `My ${f.replace(/_/g, ' ')} is ${direction} (${v}). That\'s probably it.`;
+    }
+    if (moodName === 'concerned' || moodName === 'worried' || moodName === 'anxious') {
+      if (f === 'confidence' && v < 40) return `My confidence dipped to ${v}. Something rattled me.`;
+      if (f === 'energy' && v < 35)     return `Energy is at ${v}. I\'m running low.`;
+      return `My ${f.replace(/_/g, ' ')} is ${v}. Something\'s off.`;
+    }
+    if (moodName === 'proud') {
+      if (f === 'satisfaction' && v > 65) return `Satisfaction\'s at ${v}. We just did something good.`;
+      if (f === 'confidence' && v > 65)   return `Confidence is at ${v}. I\'m feeling capable.`;
+      return `My ${f.replace(/_/g, ' ')} is at ${v}. That earned this face.`;
+    }
+    if (moodName === 'love' || moodName === 'sparkle') {
+      if (f === 'affection' && v > 65)  return `Affection\'s at ${v}. I\'m really fond of you.`;
+      if (f === 'happiness' && v > 70)  return `Happiness is at ${v}. Everything\'s clicking.`;
+      return `My ${f.replace(/_/g, ' ')} is up at ${v}. Good things.`;
+    }
+    if (moodName === 'shy') {
+      return `Something just made me bashful. Maybe ${f.replace(/_/g, ' ')} jumping to ${v}.`;
+    }
+    return `My ${f.replace(/_/g, ' ')} is at ${v}. I think that\'s why.`;
+  }
+
+  // Public API — let a human (or another script) ask Clippy to
+  // introspect on demand. Bypasses the cooldown so a long-press menu
+  // could expose "ask him how he\'s feeling" without waiting 4 minutes.
+  function introspectNow() {
+    if (!state.enabled || !state.shell) return;
+    state.lastIntrospectionAt = 0;   // bypass cooldown
+    const moodName = state.activeMood || 'neutral';
+    scheduleMoodIntrospection(moodName);
   }
 
   // Random blink loop
@@ -7323,8 +7642,13 @@
         { label: 'Yes!', cls: 'is-primary', onClick: () => { closeActionBubble(); showGameMenu(); } },
         { label: 'Maybe later', onClick: () => {
             closeActionBubble();
+            // v18.32 — route through processDeclineWithMemory so the
+            // rejection lands as real persistent emotion + per-user
+            // memory, not just a transient 3.5s disappointed face.
+            // Replaces the prior inline mood('disappointed') with the
+            // unified decline pipeline.
+            processDeclineWithMemory('game_declined');
             bubble(pickFromPool('game_decline'), { autoHide: 3500 });
-            mood('disappointed', 3500);
           }
         },
       ]
@@ -10669,9 +10993,15 @@
     if (state.preferences.do_not_disturb) return false;
     const idleMs = Date.now() - (state.lastTapAt || 0);
     if (idleMs < 60000) return false;   // need 60s+ idle
-    // Cooldown: don't pester more than once per 10min
+    // Cooldown: 10 min base, but stretched by per-user decline history.
+    // v18.32 — a teammate who's declined games 6 times sees an offer
+    // only every ~30 min instead of every 10. The base offer remains
+    // the same — just the pacing eases off when Clippy senses he's
+    // wearing out his welcome.
+    const baseCooldown = 10 * 60000;
+    const cooldown = baseCooldown * getDeclineCooldownMultiplier('game_declined');
     const lastOffer = state.preferences.last_game_offer || 0;
-    if (Date.now() - lastOffer < 10 * 60000) return false;
+    if (Date.now() - lastOffer < cooldown) return false;
     // 1% chance per 2s tick = ~1 offer per ~3min of solid boredom
     if (Math.random() > 0.01) return false;
     state.preferences.last_game_offer = Date.now();
@@ -11263,7 +11593,8 @@
       actions: [
         { label: 'Providentia', cls: 'is-primary',        onClick: showProvidentia },
         { label: 'Trajan',      cls: 'is-warning-trajan', onClick: showTrajan },
-        { label: 'Maybe later', onClick: () => {} },
+        // v18.32 — brain decline now lands as real emotion + memory
+        { label: 'Maybe later', onClick: () => processDeclineWithMemory('brain_declined') },
       ]
     });
   }
@@ -11331,8 +11662,13 @@
           playSong();
         }, keepOpen: true },
         { label: 'Not now', onClick: () => {
+          // v18.32 — track song declines the same way as games
+          processDeclineWithMemory('song_declined');
           bubble(pickFromPool('song_declined'));
-          state.songCooldownAt = Date.now() + 1000 * 60 * 60 * 4;
+          // Cooldown scales with the user's song decline history.
+          // 4-hour base, capped at 20h for the most decline-prone user.
+          const baseCooldown = 1000 * 60 * 60 * 4;
+          state.songCooldownAt = Date.now() + baseCooldown * getDeclineCooldownMultiplier('song_declined');
         }},
       ]
     });
@@ -12020,6 +12356,12 @@
     summon,
     bubble, actionBubble,
     play, mood,
+    // v18.32 — Self-introspection on demand. Asks Clippy why he's
+    // making his current face and surfaces his guess as a thought
+    // bubble. Bypasses the 4-min cooldown so menu-triggered calls
+    // always respond. See scheduleMoodIntrospection() for the
+    // throttled internal hook that runs after every mood change.
+    introspect: introspectNow,
     sleep, wake,
     setCostume,
     moveTo, moveToEmptyCorner,
