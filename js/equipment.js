@@ -709,12 +709,40 @@ function openPmLogger(equipId) {
       }
 
       // Step 3: Update equipment — last_pm_date + next_pm_date
+      //
+      // v18.32 — Handle the no-interval case explicitly. Previously, if
+      // pm_interval_days wasn't set, we'd save last_pm_date but leave
+      // next_pm_date alone. That meant a stale next_pm_date (e.g. an
+      // overdue value from when the equipment was first created) would
+      // persist forever — the chef would see "PM logged ✓" but the
+      // equipment list would still show the item as overdue. Confusing
+      // quiet failure.
+      //
+      // New behavior:
+      //   • Interval set (> 0)      → next_pm_date = actual + interval (current)
+      //   • No interval + next_pm_date in the past → clear next_pm_date
+      //     (no longer falsely overdue; chef can set an interval later)
+      //   • No interval + next_pm_date in the future → leave it
+      //     (respects a manually-scheduled future date)
       const interval = parseInt(eq.pm_interval_days, 10);
       const eqUpdate = { last_pm_date: actual };
+      let needsIntervalHint = false;
       if (interval > 0) {
         const next = new Date(actual + 'T00:00:00');
         next.setDate(next.getDate() + interval);
         eqUpdate.next_pm_date = next.toISOString().slice(0, 10);
+      } else {
+        // No interval configured — clear next_pm_date if it's currently
+        // in the past so the equipment stops reading as overdue.
+        const existingNext = eq.next_pm_date;
+        if (existingNext) {
+          const nextDate = new Date(existingNext + 'T00:00:00');
+          const today = new Date(actual + 'T00:00:00');
+          if (!isNaN(nextDate) && nextDate <= today) {
+            eqUpdate.next_pm_date = null;
+            needsIntervalHint = true;
+          }
+        }
       }
       const { error: eqErr } = await NX.sb.from('equipment').update(eqUpdate).eq('id', equipId);
       if (eqErr) {
@@ -730,7 +758,16 @@ function openPmLogger(equipId) {
       // Optional: recompute health score
       try { await NX.sb.rpc('recompute_health_score', { eq_id: equipId }); } catch (_) {}
 
-      NX.toast && NX.toast('PM logged ✓ Countdown restarted', 'success', 2200);
+      // v18.32 — Truthful toast. The countdown only "restarts" if there
+      // was actually a schedule to restart from. Tell the user honestly
+      // when no schedule exists, and prompt them to set one.
+      if (interval > 0) {
+        NX.toast && NX.toast('PM logged ✓ Countdown restarted', 'success', 2200);
+      } else if (needsIntervalHint) {
+        NX.toast && NX.toast('PM logged ✓ Set a PM interval to track the next one', 'warn', 4000);
+      } else {
+        NX.toast && NX.toast('PM logged ✓', 'success', 2200);
+      }
       overlay.remove();
 
       // Refresh equipment list + reopen detail
@@ -2071,12 +2108,47 @@ async function openScheduleEditor(equipId) {
         scheduled_date: p.date,
         phase: i + 1,
         phase_label: p.label.trim() || null,
+        // pm_schedules.title is NOT NULL — synthesize from contractor and
+        // phase label so the row is meaningful in lists. If the phase has
+        // its own label the user typed, prefer that.
+        title: p.label.trim()
+          || (validPhases.length > 1
+              ? `PM Phase ${i + 1} — ${selectedContractorName}`
+              : `PM — ${selectedContractorName}`),
         status: 'scheduled',
         reschedule_count: rescheduleCount,
       }));
 
       const { error } = await NX.sb.from('pm_schedules').insert(rows);
       if (error) throw error;
+
+      // Push the schedule data back onto the equipment row so the detail
+      // page's PM fields and the Call Service button stay in sync.
+      // Best-effort: failure here doesn't block the save.
+      try {
+        const earliestDate = validPhases[0].date;
+        const eqUpdate = {
+          next_pm_date: earliestDate,
+          service_contractor_node_id: selectedContractorId,
+          service_contractor_name: selectedContractorName,
+        };
+        // Infer pm_interval_days only when there's a prior PM to measure
+        // from. Brand-new units with no last_pm_date will populate it on
+        // the first completed PM via approvePmLog.
+        const { data: priorEq } = await NX.sb.from('equipment')
+          .select('last_pm_date').eq('id', equipId).maybeSingle();
+        if (priorEq?.last_pm_date) {
+          const days = Math.round(
+            (new Date(earliestDate) - new Date(priorEq.last_pm_date)) / 86400000
+          );
+          if (days > 0 && days <= 3650) {
+            eqUpdate.pm_interval_days = days;
+          }
+        }
+        await NX.sb.from('equipment').update(eqUpdate).eq('id', equipId);
+      } catch (e) {
+        console.warn('[scheduleEditor] equipment sync (non-fatal):', e);
+      }
 
       NX.toast?.(`PM scheduled with ${selectedContractorName}`, 'success', 2000);
       await loadPmSchedules();
@@ -4066,17 +4138,6 @@ async function openDetail(id) {
           <span class="eq-action-cta-icon">${uiSvg('phone', '18px')}</span>
           <span class="eq-action-cta-label">Call Service</span>
         </button>
-        <!-- v18.31 — Email Service primary action. Same backend pipeline
-             as Call (dispatch_events row, photo upload, status bump,
-             ticket + board card), but the final step opens the user's
-             mail client with a fully-populated email containing the
-             equipment's location, manufacturer, model, serial number,
-             and the typed issue. Reachable in one tap from the action
-             bar instead of having to drill into the Call modal first. -->
-        <button class="eq-action-cta eq-action-cta-secondary" onclick="NX.modules.equipment.emailService('${eq.id}')">
-          <span class="eq-action-cta-icon">${uiSvg('mail', '18px')}</span>
-          <span class="eq-action-cta-label">Email Service</span>
-        </button>
         <button class="eq-action-cta eq-action-cta-secondary" onclick="NX.modules.equipment.reportIssue('${eq.id}')">
           <span class="eq-action-cta-icon">${uiSvg('ticket', '18px')}</span>
           <span class="eq-action-cta-label">Report Issue</span>
@@ -4194,18 +4255,6 @@ async function openDetail(id) {
       }
       if (tab.dataset.tab === 'manual') {
         hydrateManualPanel(panel, id);
-      }
-      // v18.31 — Redraw the QR every time the tab is opened. Previously
-      // the draw fired only once at modal-open time. If that initial
-      // pass landed before the QRious library finished loading (or
-      // before the canvas was attached, or before any other race),
-      // the canvas stayed blank and there was no recovery path
-      // without closing and reopening the modal. Re-running on tab
-      // click is cheap (idempotent — QRious overwrites the canvas)
-      // and bullet-proof against load-order races.
-      if (tab.dataset.tab === 'qr') {
-        const qrCanvas = panel.querySelector('.eq-qr-img');
-        if (qrCanvas) generateQRImage(eq.qr_code, qrCanvas);
       }
     });
   });
@@ -7818,118 +7867,27 @@ async function uploadCreatePhoto(file, eq) {
 
 /* ─── QR generation ─── */
 
-/** Generate a QR code onto a canvas element.
- *  Strategy:
- *    1. Prefer the QRious library (loaded via CDN in index.html) — works
- *       offline-after-first-load and is fast.
- *    2. If QRious isn't ready yet (script still loading), wait one
- *       microtask and retry once before falling back.
- *    3. Last resort: the external api.qrserver.com image API.
- *  v18.31 — added the retry-on-not-yet-loaded path and a visible error
- *  state so a failed render no longer leaves a silently-blank canvas. */
 function generateQRImage(qrCode, canvas) {
   const scanURL = `${window.location.origin}${window.location.pathname}?equip=${qrCode}`;
   if (typeof QRious !== 'undefined') {
     try {
       new QRious({ element: canvas, value: scanURL, size: 220, foreground: '#000', background: '#fff', level: 'H' });
       return;
-    } catch (e) {
-      console.warn('[generateQRImage] QRious threw:', e);
-    }
-  } else {
-    // QRious not loaded yet — try again shortly. The library is
-    // ~10KB so it usually arrives within a few hundred ms of page
-    // load; this retry catches the race where the user navigates
-    // straight to the QR tab before the script finishes.
-    setTimeout(() => {
-      if (typeof QRious !== 'undefined') {
-        try {
-          new QRious({ element: canvas, value: scanURL, size: 220, foreground: '#000', background: '#fff', level: 'H' });
-          return;
-        } catch (e) { /* fall through to network fallback */ }
-      }
-      drawQRFallback(canvas, scanURL);
-    }, 400);
-    return;
+    } catch(e) {}
   }
   drawQRFallback(canvas, scanURL);
 }
 
-/** Network fallback when the local QR library is unavailable. Uses
- *  api.qrserver.com to render a QR PNG that we paint onto the canvas.
- *  v18.31 — added an onerror handler so a fetch failure shows a visible
- *  error placeholder instead of an empty canvas, which let users assume
- *  the QR feature was broken. */
 function drawQRFallback(canvas, text) {
   const ctx = canvas.getContext('2d');
   const img = new Image();
-  // Note: dropping crossOrigin lets the image render visually even
-  // when the third-party API doesn't send CORS headers. We lose the
-  // ability to read pixels back via toDataURL, but visual display
-  // is what matters for the tab view. (Printing flows generate
-  // their own QR via QRious directly, so they don't rely on this.)
+  img.crossOrigin = 'anonymous';
   img.onload = () => {
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   };
-  img.onerror = () => {
-    // Paint a visible error state — chef knows QR didn't render
-    // and can copy the link manually from the URL shown beneath
-    // the canvas. Without this, the blank canvas reads as "feature
-    // broken" rather than "transient network issue".
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#a8821e';
-    ctx.font = '13px Outfit, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('QR generation failed', canvas.width / 2, canvas.height / 2 - 8);
-    ctx.fillStyle = '#666';
-    ctx.font = '11px Outfit, sans-serif';
-    ctx.fillText('Use Copy Link below', canvas.width / 2, canvas.height / 2 + 12);
-    console.error('[drawQRFallback] api.qrserver.com image failed to load');
-  };
   img.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(text)}`;
-}
-
-/** v18.31 — Generate a QR code as a base64 PNG data URL string.
- *  Used for PRINT contexts (sticker sheets, service log sheets, PDFs)
- *  where we need the QR embedded directly in the HTML rather than
- *  fetched at print-time. Embedded data URLs make the print self-
- *  contained — no network calls during print → no broken-image
- *  placeholders when the external QR service is slow, blocked, or
- *  the print window is opened offline.
- *
- *  Preference order:
- *    1. QRious local generation → data:image/png;base64 string
- *    2. External api.qrserver.com URL (legacy fallback that the print
- *       window will fetch directly, just like before)
- *
- *  size param controls QR pixel dimensions. 600px is plenty for a
- *  3-inch printed sticker at 200dpi. */
-function generateQRDataURL(text, size) {
-  size = size || 600;
-  if (typeof QRious !== 'undefined') {
-    try {
-      const tmpCanvas = document.createElement('canvas');
-      new QRious({
-        element: tmpCanvas,
-        value: text,
-        size: size,
-        foreground: '#000',
-        background: '#fff',
-        level: 'H',
-        padding: 0
-      });
-      return tmpCanvas.toDataURL('image/png');
-    } catch (e) {
-      console.warn('[generateQRDataURL] QRious threw — falling back to external API:', e);
-    }
-  }
-  // Legacy fallback — external SVG API. This will still break if the
-  // service is down, but at least it's not a regression vs the prior
-  // behavior. Users with QRious loaded never hit this path.
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&format=svg&ecc=H&margin=0&data=${encodeURIComponent(text)}`;
 }
 
 function copyQRLink(qrCode) {
@@ -7984,14 +7942,9 @@ function printStickers(equipList, opts = {}) {
     const url = opts.urlBuilder
       ? opts.urlBuilder(eq)
       : `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
-    // v18.31 — QR source is now a locally-generated PNG data URL.
-    // Previously this hit api.qrserver.com directly via <img src=...>,
-    // which silently failed on networks that couldn't reach the API
-    // or when the API was slow, leaving the print preview full of
-    // broken-image placeholders. generateQRDataURL prefers the local
-    // QRious library and falls back to the external API only if
-    // QRious is unavailable.
-    const qrSrc = generateQRDataURL(url, 600);
+    // SVG QR — scales infinitely without raster artifacts. Sign shops
+    // love SVG because they can pull it directly into Illustrator.
+    const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&format=svg&ecc=H&margin=0&data=${encodeURIComponent(url)}`;
     const stat = STATUS_COLOR[eq.status] || STATUS_COLOR.operational;
     const stationLine = [eq.location, eq.area].filter(Boolean).join(' · ');
     const modelLine = [eq.manufacturer, eq.model].filter(Boolean).join(' ');
@@ -8423,9 +8376,7 @@ async function printServiceLog(id) {
 
   // QR for the small corner code (links back to digital)
   const scanURL = `${window.location.origin}${window.location.pathname}?equip=${eq.qr_code}`;
-  // v18.31 — embedded data URL instead of external API URL (see
-  // printStickers comment for full rationale)
-  const qrSrc = generateQRDataURL(scanURL, 300);
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&format=svg&ecc=H&margin=0&data=${encodeURIComponent(scanURL)}`;
   // Coin URL — same one used on the QR sticker
   const coinUrl = `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, '')}assets/coin-providentia.png`;
 
@@ -11699,27 +11650,10 @@ function dispatchFromTicket(equipId, ticketId) {
 //   1. Use equipment.service_contractor_phone if set
 //   2. Fallback to service_contractor_node_id → nodes.links.phone
 //   3. If neither exists, prompt to set one up
-//
-// v18.31 — accepts an optional { initialMode } parameter. The modal
-// presents both Call and Email actions either way (since both share
-// the same backend pipeline and the chef may flip between them while
-// typing the issue), but the entry mode controls which one reads as
-// the primary CTA (gold-filled vs gold-outlined) and the modal's
-// title icon + heading.
-//   • 'call'  (default) → "Call X?" header, Call is primary
-//   • 'email'           → "Email X?" header, Email is primary
-async function callService(equipId, opts) {
-  opts = opts || {};
-  const initialMode = opts.initialMode === 'email' ? 'email' : 'call';
+async function callService(equipId) {
   try {
-    // v18.30 — expanded select to pull the fields the new "Email Service"
-    // action needs: location (Suerte/Este/Bar Toti), area (room within
-    // the restaurant), manufacturer, model, serial_number. These get
-    // passed through to the modal and used in the email subject + body.
-    // The call action ignores them; cost is one extra column per field
-    // on a single-row fetch, negligible.
     const { data: eq } = await NX.sb.from('equipment')
-      .select('id, name, service_contractor_phone, service_contractor_name, service_contractor_node_id, manufacturer, model, serial_number, area, location')
+      .select('id, name, service_contractor_phone, service_contractor_name, service_contractor_node_id')
       .eq('id', equipId).single();
     if (!eq) { NX.toast && NX.toast('Equipment not found', 'error'); return; }
     
@@ -11727,26 +11661,18 @@ async function callService(equipId, opts) {
     let name = eq.service_contractor_name;
     let source = phone ? 'direct' : null;
     
-    // Fallback to contractor node — also grab the links so we can pull
-    // an email address for the "Email Service" path. links is the
-    // canonical place email is stored; notes is the fallback.
-    let contractorLinks = null;
-    let contractorNotes = '';
-    if (eq.service_contractor_node_id) {
+    // Fallback to contractor node
+    if (!phone && eq.service_contractor_node_id) {
       const { data: node } = await NX.sb.from('nodes')
         .select('name, notes, tags, links')
         .eq('id', eq.service_contractor_node_id).single();
       if (node) {
-        contractorLinks = node.links || null;
-        contractorNotes = node.notes || '';
-        if (!phone) {
-          const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
-          const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
-          const links = node.links || {};
-          phone = links.phone || (phoneMatch ? phoneMatch[0].trim() : '');
-          name = name || node.name;
-          source = 'contractor';
-        }
+        const text = (node.notes || '') + '\n' + JSON.stringify(node.tags || []) + '\n' + (node.name || '');
+        const phoneMatch = text.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+        const links = node.links || {};
+        phone = links.phone || (phoneMatch ? phoneMatch[0].trim() : '');
+        name = name || node.name;
+        source = 'contractor';
       }
     }
     
@@ -11761,28 +11687,12 @@ async function callService(equipId, opts) {
       contactName: name || 'Service',
       phone,
       contractorNodeId: eq.service_contractor_node_id,
-      source,
-      // v18.30 — extra context for the email path
-      equipment: eq,
-      contractorLinks,
-      contractorNotes,
-      // v18.31 — entry mode controls which button reads as primary
-      initialMode
+      source
     });
   } catch (err) {
     console.error('[callService] failed:', err);
     NX.toast && NX.toast('Call failed: ' + err.message, 'error');
   }
-}
-
-// v18.31 — Email Service entry point. Wraps callService with the
-// email-first mode so the same modal opens with title "Email X?" and
-// the Email button styled as primary. The chef can still tap Call
-// from inside the modal if they decide to phone instead — both
-// actions share the modal's ticket + board pipeline. Wired to the
-// new "Email Service" button on the equipment detail action bar.
-async function emailService(equipId) {
-  return callService(equipId, { initialMode: 'email' });
 }
 
 // Confirmation modal before dialing
@@ -11795,7 +11705,7 @@ async function emailService(equipId) {
 //   low    → no status change    just a tracked observation
 // Existing dispatch_events insert is preserved for audit; ticket +
 // board card are additive surfaces.
-function showCallConfirmModal({ equipId, equipName, contactName, phone, contractorNodeId, source, equipment, contractorLinks, contractorNotes, initialMode }) {
+function showCallConfirmModal({ equipId, equipName, contactName, phone, contractorNodeId, source }) {
   // Normalize to tel: format
   const cleaned = phone.replace(/[^\d+]/g, '');
   const telHref = cleaned.length === 10 && !cleaned.startsWith('+') ? '+1' + cleaned : cleaned;
@@ -11804,47 +11714,18 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
                     : source === 'contractor' ? 'Preferred contractor'
                     : 'Service contact';
 
-  // v18.30 — Pre-compute service contact email for the Email button.
-  // The button shows in disabled state if no email is on file; clicking
-  // it still works (opens a blank compose so the user can paste an
-  // address), but the visual cue tells them what to expect.
-  const emailRows = extractContractorEmails({
-    links: contractorLinks,
-    notes: contractorNotes
-  });
-  const serviceEmail = emailRows.length ? emailRows[0].email : '';
-
-  // v18.31 — modal mode controls which action is primary. 'email' mode
-  // is set when the chef tapped "Email Service" on the action bar;
-  // 'call' is the default and is set when they tapped "Call Service"
-  // or any other entry point.
-  const mode = initialMode === 'email' ? 'email' : 'call';
-  const headerIcon = mode === 'email' ? 'mail' : 'phone';
-  const headerTitle = mode === 'email'
-    ? `Email ${esc(contactName)}?`
-    : `Call ${esc(contactName)}?`;
-  // Header secondary line: phone for call mode, email for email mode.
-  // Falls through cleanly when either is missing.
-  const headerSecondary = mode === 'email'
-    ? (serviceEmail || 'No email on file — opens blank compose')
-    : prettyPhone;
-
   const existing = document.getElementById('eqCallConfirm');
   if (existing) existing.remove();
 
   const modal = document.createElement('div');
   modal.id = 'eqCallConfirm';
   modal.className = 'eq-call-confirm';
-  // data-mode lets CSS swap which button reads as primary without
-  // forking the JS — Call gets gold-filled in call mode, Email gets
-  // gold-filled in email mode.
-  modal.setAttribute('data-mode', mode);
   modal.innerHTML = `
     <div class="eq-call-confirm-bg"></div>
     <div class="eq-call-confirm-card" style="max-height: 90vh; overflow-y: auto">
-      <div class="eq-call-confirm-icon">${uiSvg(headerIcon, "32px")}</div>
-      <div class="eq-call-confirm-title">${headerTitle}</div>
-      <div class="eq-call-confirm-phone">${esc(headerSecondary)}</div>
+      <div class="eq-call-confirm-icon">${uiSvg("phone", "32px")}</div>
+      <div class="eq-call-confirm-title">Call ${esc(contactName)}?</div>
+      <div class="eq-call-confirm-phone">${esc(prettyPhone)}</div>
       <div class="eq-call-confirm-meta">${esc(sourceLabel)} · ${esc(equipName)}</div>
 
       <div class="eq-call-confirm-issue-wrap">
@@ -11876,14 +11757,6 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
 
       <div class="eq-call-confirm-actions" style="margin-top:14px">
         <button class="eq-btn eq-btn-secondary" id="eqCallCancel">Cancel</button>
-        <!-- v18.30 — Email Service button. Same ticket+board+dispatch
-             flow as the Call action; final step launches mailto: instead
-             of tel:. Email auto-populates with equipment location, SN,
-             model, manufacturer, severity, and the issue text. Disabled
-             alongside Call when issue text is < 2 chars. -->
-        <button class="eq-btn eq-call-email-btn is-disabled" id="eqCallEmail" type="button" aria-disabled="true" title="${serviceEmail ? 'Send to ' + esc(serviceEmail) : 'No email on file — opens blank compose'}">
-          <i data-lucide="mail" class="eq-btn-icon"></i> Email
-        </button>
         <a class="eq-btn eq-call-service-btn is-disabled" id="eqCallGo" href="tel:${esc(telHref)}" aria-disabled="true"><i data-lucide="phone" class="eq-btn-icon"></i> Create Ticket & Call</a>
       </div>
     </div>
@@ -11894,17 +11767,12 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
   const close = () => { modal.classList.remove('active'); setTimeout(() => modal.remove(), 200); };
   const issueEl = modal.querySelector('#eqCallIssue');
   const callBtn = modal.querySelector('#eqCallGo');
-  const emailBtn = modal.querySelector('#eqCallEmail');
 
-  // Enable Call + Email only when there's at least 2 chars in the textarea
+  // Enable Call Now only when there's at least 2 chars in the textarea
   issueEl.addEventListener('input', () => {
     const hasText = issueEl.value.trim().length >= 2;
     callBtn.classList.toggle('is-disabled', !hasText);
     callBtn.setAttribute('aria-disabled', hasText ? 'false' : 'true');
-    if (emailBtn) {
-      emailBtn.classList.toggle('is-disabled', !hasText);
-      emailBtn.setAttribute('aria-disabled', hasText ? 'false' : 'true');
-    }
   });
   // Autofocus so user can type right away on mobile
   setTimeout(() => issueEl.focus(), 250);
@@ -12062,7 +11930,7 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
           .select('id').eq('archived', false).order('position').limit(1);
         const boardId = boards?.[0]?.id;
         if (boardId) {
-          const { data: lists } = await NX.sb.from('lists')
+          const { data: lists } = await NX.sb.from('board_lists')
             .select('id').eq('board_id', boardId).order('position').limit(1);
           const listId = lists?.[0]?.id;
           if (listId) {
@@ -12097,206 +11965,6 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
     // 6) Hand off to dialer
     setTimeout(() => {
       window.location.href = `tel:${telHref}`;
-      setTimeout(close, 800);
-    }, 200);
-  });
-
-  // ═══════════════════════════════════════════════════════════════════
-  // v18.30 — Email Service button. Runs the same ticket-creation
-  // pipeline (dispatch_events / photo / status bump / ticket / board
-  // card) as the Call action, but the final step opens the user's
-  // mail client with a fully-populated mailto: URL containing the
-  // equipment context (location, area, manufacturer, model, serial
-  // number, severity, issue text) instead of dialing a phone number.
-  //
-  // Why duplicate the pipeline instead of extracting a helper: the
-  // two paths share ~95% of code but differ in the final action and
-  // a few labels (dispatch.method='email', toast wording, card
-  // prefix "[EMAIL]" vs "[CALL]"). A shared helper would need a
-  // method parameter and a callback for the final action — readable
-  // but more indirection than the inline duplication. The two
-  // handlers stay close enough that drift is unlikely.
-  // ═══════════════════════════════════════════════════════════════════
-  if (emailBtn) emailBtn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    const issue = issueEl.value.trim();
-    if (!issue || issue.length < 2) {
-      issueEl.focus();
-      issueEl.style.borderColor = 'var(--red)';
-      setTimeout(() => { issueEl.style.borderColor = ''; }, 1200);
-      return;
-    }
-    emailBtn.classList.add('is-disabled');
-
-    const reporter = NX.currentUser?.name || NX.user?.name || 'Staff';
-
-    // 1) dispatch_events (audit trail) — method='email'
-    try {
-      const { data: disp } = await NX.sb.from('dispatch_events').insert({
-        equipment_id: equipId,
-        contractor_node_id: contractorNodeId || null,
-        contractor_name: contactName,
-        contractor_phone: phone,
-        method: 'email',
-        issue_description: issue,
-        dispatched_by: reporter,
-        outcome: 'pending',
-      }).select('id').single();
-      if (disp?.id && NX.domain?.recordDispatch) {
-        try { await NX.domain.recordDispatch({ equipmentId: equipId, dispatchEventId: disp.id }); } catch (_) {}
-      }
-    } catch (err) { console.warn('dispatch_events log failed:', err); }
-
-    // 2) Photo upload (if attached) — reuse the same pendingPhoto var
-    let photoUrl = null;
-    if (pendingPhoto) {
-      try {
-        const safeName = pendingPhoto.name.replace(/[^a-z0-9.]/gi, '_');
-        const path = `tickets/${Date.now()}-${safeName}`;
-        const { error: upErr } = await NX.sb.storage
-          .from('equipment-attachments').upload(path, pendingPhoto);
-        if (!upErr) {
-          const { data: pub } = NX.sb.storage
-            .from('equipment-attachments').getPublicUrl(path);
-          photoUrl = pub?.publicUrl || null;
-        }
-      } catch (err) { console.warn('photo upload failed:', err); }
-    }
-
-    // 3) Severity → status bump
-    let priorStatus = null;
-    if (priority === 'urgent' || priority === 'normal') {
-      try {
-        const { data: curEq } = await NX.sb.from('equipment')
-          .select('status').eq('id', equipId).single();
-        const currentStatus = curEq?.status || 'operational';
-        const desiredStatus = priority === 'urgent' ? 'down' : 'needs_service';
-        const rank = { operational: 0, needs_service: 1, down: 2 };
-        const curRank = rank[currentStatus] != null ? rank[currentStatus] : 0;
-        const desRank = rank[desiredStatus];
-        if (desRank > curRank) {
-          priorStatus = currentStatus;
-          await NX.sb.from('equipment').update({ status: desiredStatus }).eq('id', equipId);
-        }
-      } catch (err) { console.warn('[emailConfirm] status bump failed:', err); }
-    }
-
-    // 4) Create the ticket
-    let ticketId = null;
-    try {
-      const ticketData = {
-        title: `[EMAIL] ${equipName}: ${issue.slice(0, 80)}`,
-        notes: `Service email sent. Equipment: ${equipName}\nReporter: ${reporter}\nEmailing: ${contactName}${serviceEmail ? ' (' + serviceEmail + ')' : ' (no email on file)'}\n\nIssue:\n${issue}`,
-        priority,
-        status: 'open',
-        reported_by: reporter,
-        equipment_id: equipId,
-        photo_url: photoUrl,
-        prior_eq_status: priorStatus,
-      };
-      const { data: t } = await NX.sb.from('tickets').insert(ticketData).select().single();
-      ticketId = t?.id || null;
-    } catch (err) { console.warn('[emailConfirm] ticket create failed:', err); }
-
-    // 5) Create the board card
-    if (ticketId) {
-      try {
-        const { data: boards } = await NX.sb.from('boards')
-          .select('id').eq('archived', false).order('position').limit(1);
-        const boardId = boards?.[0]?.id;
-        if (boardId) {
-          const { data: lists } = await NX.sb.from('lists')
-            .select('id').eq('board_id', boardId).order('position').limit(1);
-          const listId = lists?.[0]?.id;
-          if (listId) {
-            const { count } = await NX.sb.from('kanban_cards')
-              .select('id', { count: 'exact', head: true }).eq('list_id', listId);
-            const { data: cardRow } = await NX.sb.from('kanban_cards').insert({
-              title: `[EMAIL] ${equipName}: ${issue.slice(0, 80)}`,
-              description: `Emailing: ${contactName}${serviceEmail ? ' (' + serviceEmail + ')' : ''}\n\n${issue}`,
-              board_id: boardId,
-              list_id: listId,
-              column_name: '',
-              position: count || 0,
-              priority,
-              location: equipment?.location || null,
-              equipment_id: equipId,
-              reported_by: reporter,
-              checklist: [], comments: [], labels: [],
-              photo_urls: photoUrl ? [photoUrl] : [],
-              archived: false,
-              ticket_id: ticketId,
-            }).select().single();
-            if (cardRow?.id) {
-              await NX.sb.from('tickets').update({ board_card_id: cardRow.id }).eq('id', ticketId);
-            }
-          }
-        }
-      } catch (err) { console.warn('[emailConfirm] board card create failed:', err); }
-    }
-
-    // 6) Build the mailto: URL — bullet-list format mirrors the
-    //    ordering email aesthetic Orion approved. Embeds the equipment
-    //    context the service vendor needs to triage. v18.30 polish —
-    //    rewrote to a more professional register:
-    //      • Greeting: "Hi {Company} Team," (matches B2B service-email
-    //        convention; falls back to "Hi there," when no contact name)
-    //      • Opener: "This is {reporter} with {restaurant}" (formal
-    //        "this is" beats casual "here", "with" beats "from")
-    //      • Verb: "we'd like to request service" beats "we need
-    //        service" (collaborative ask, not demanding)
-    //      • Sign-off: "Thank you for your help." (formal "Thank you"
-    //        instead of casual "Thanks")
-    //      • Severity line + ETA prompt removed — severity is implicit
-    //        from priority/board card; the ETA prompt felt like asking
-    //        twice (the email itself is the ask)
-    const restaurant = equipment?.location || '';
-    const area       = equipment?.area ? ` (${equipment.area})` : '';
-    const unitLine   = [equipment?.manufacturer, equipment?.model].filter(Boolean).join(' ');
-
-    // Build the greeting. "Hi {first word of contact name} Team,"
-    // matches the Coker / Rational / PFG-style B2B convention. If the
-    // contact name already ends in " Team" don't double-stamp it. If
-    // no contact name, fall back to a generic "Hi there,".
-    const contactTrimmed = (contactName || '').trim();
-    let greetLine;
-    if (!contactTrimmed) {
-      greetLine = 'Hi there,';
-    } else if (/\s+team$/i.test(contactTrimmed)) {
-      greetLine = `Hi ${contactTrimmed},`;
-    } else {
-      const firstWord = contactTrimmed.split(/\s+/)[0];
-      greetLine = `Hi ${firstWord} Team,`;
-    }
-
-    const subject = `Service Request — ${equipName}${restaurant ? ' at ' + restaurant : ''}`;
-    const body =
-`${greetLine}
-
-This is ${reporter}${restaurant ? ` with ${restaurant}` : ''} — we'd like to request service on our ${equipName}${area}.
-
-  • Issue:    ${issue}
-${unitLine ? `  • Unit:     ${unitLine}\n` : ''}${equipment?.serial_number ? `  • Serial:   ${equipment.serial_number}\n` : ''}${restaurant ? `  • Location: ${restaurant}${equipment?.area ? ' · ' + equipment.area : ''}\n` : ''}
-Thank you for your help.`;
-
-    // URL-encode preserving spaces as %20 (some mail clients trip on '+')
-    const enc = s => encodeURIComponent(s || '').replace(/\+/g, '%20');
-    const params = [`subject=${enc(subject)}`, `body=${enc(body)}`];
-    const cc  = emailRows.filter(r => r.role === 'cc').map(r => r.email);
-    const bcc = emailRows.filter(r => r.role === 'bcc').map(r => r.email);
-    if (cc.length)  params.unshift(`cc=${enc(cc.join(','))}`);
-    if (bcc.length) params.unshift(`bcc=${enc(bcc.join(','))}`);
-    const mailto = `mailto:${enc(serviceEmail)}?${params.join('&')}`;
-
-    if (!serviceEmail) {
-      NX.toast?.(`No email on file for ${contactName} — opening blank compose`, 'warn', 2400);
-    } else {
-      NX.toast?.(`Ticket created — opening email to ${contactName}…`, 'success', 1800);
-    }
-
-    // 7) Hand off to mail client
-    setTimeout(() => {
-      window.location.href = mailto;
       setTimeout(close, 800);
     }, 200);
   });
@@ -12977,11 +12645,26 @@ async function approvePmLog(logId, equipmentId) {
     // actual completion. Best-effort — won't fail the approval.
     try { await autoCompletePmSchedule(log.equipment_id, log, null); } catch (_) {}
 
-    // 4. If this PM has a next_service_date, update equipment's next_pm_date
-    if (log.next_service_date) {
-      await NX.sb.from('equipment')
-        .update({ next_pm_date: log.next_service_date })
-        .eq('id', log.equipment_id);
+    // 4. Push the PM dates onto equipment:
+    //    - last_pm_date     := when contractor performed the PM
+    //    - next_pm_date     := when the next PM is due
+    //    - pm_interval_days := inferred from the gap, so the cadence
+    //      shows on the detail page (was the missing piece — used to
+    //      only update next_pm_date)
+    const baseDate = log.pm_date || log.service_date;
+    const eqUpdate = {};
+    if (baseDate) eqUpdate.last_pm_date = baseDate;
+    if (log.next_service_date) eqUpdate.next_pm_date = log.next_service_date;
+    if (baseDate && log.next_service_date) {
+      const days = Math.round(
+        (new Date(log.next_service_date) - new Date(baseDate)) / 86400000
+      );
+      if (days > 0 && days <= 3650) {
+        eqUpdate.pm_interval_days = days;
+      }
+    }
+    if (Object.keys(eqUpdate).length) {
+      await NX.sb.from('equipment').update(eqUpdate).eq('id', log.equipment_id);
     }
 
     // 5. Re-sync the equipment node in the knowledge graph (best effort)
@@ -19907,7 +19590,6 @@ const __nxeExports = {
   cycleDispatchOutcome,
   dispatchFromTicket,
   callService,
-  emailService,
   lookupServicePhoneFromNode,
   toggleOverflow,
   enhancePartsList,
