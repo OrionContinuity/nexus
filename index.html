@@ -862,15 +862,320 @@
   .sd-mobile-only { display: none !important; }
 }
 
-/* ─── v18.32 — Hide masthead ☰ on mobile ──────────────────────────────
-   The hamburger that opened the util-tray on mobile is eliminated in
-   v18.32. Everything it used to reveal (nav items + utilities) lives in
-   the Duties speed-dial instead, accessible from the bottom nav. The
-   ☰ stays on PC because the corner of the masthead is where util items
-   (Transactions, Clock, Theme, Prefs, Settings) live on desktop — the
-   sidebar handles nav, the ☰ handles utilities. */
-@media (max-width: 899px) {
-  .nav-more { display: none !important; }
+/* ─── v18.32 — DAILY FACILITIES LOG ───────────────────────────────────
+   Form-heavy view. Sections are collapsible <details> elements so the
+   page is scannable on mobile — only "Day overview" opens by default.
+   All colors/sizes pulled from existing tokens (--nx-gold-*, --nx-text-*,
+   etc.) — no new values invented. When the design system doc is written,
+   this module's surface area will be small to migrate. */
+.dlog-shell {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 18px 16px 80px;
+}
+.dlog-header {
+  margin-bottom: 14px;
+}
+.dlog-title-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 10px;
+}
+.dlog-title {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-weight: 600; font-size: 22px; letter-spacing: 0.2px;
+  color: var(--nx-text-strong, var(--text));
+  margin: 0;
+}
+.dlog-meta {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  font-size: 12px;
+}
+.dlog-date-pick { display: flex; flex-direction: column; gap: 3px; }
+.dlog-meta-label {
+  font-size: 9.5px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', monospace;
+}
+.dlog-date-pick input[type="date"] {
+  background: var(--nx-surface-solid, var(--surface));
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 6px; padding: 6px 10px;
+  color: var(--nx-text, var(--text));
+  font: inherit; font-size: 13px;
+  min-height: 32px;
+}
+.dlog-status {
+  font-size: 10.5px; letter-spacing: 1.2px; text-transform: uppercase;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--nx-border, var(--border));
+  background: var(--nx-surface-solid, var(--surface));
+}
+.dlog-status-draft     { color: var(--nx-muted, var(--muted)); }
+.dlog-status-pending   { color: var(--nx-gold, var(--accent)); border-color: var(--nx-gold-line); background: var(--nx-gold-faint); }
+.dlog-status-uploaded  { color: #67c08c; border-color: rgba(103, 192, 140, 0.32); background: rgba(103, 192, 140, 0.08); }
+.dlog-status-failed    { color: var(--nx-red, #a83e3e); border-color: var(--nx-red-line); background: var(--nx-red-soft); }
+
+.dlog-recent {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 0; margin-bottom: 12px;
+  border-top: 1px solid var(--nx-border, var(--border));
+  border-bottom: 1px solid var(--nx-border, var(--border));
+  overflow-x: auto;
+}
+.dlog-recent-label {
+  font-size: 9.5px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', monospace;
+  flex-shrink: 0;
+}
+.dlog-recent-strip { display: flex; gap: 6px; }
+.dlog-recent-chip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 999px;
+  background: var(--nx-surface-solid, var(--surface));
+  border: 1px solid var(--nx-border, var(--border));
+  color: var(--nx-muted, var(--muted));
+  font-size: 11.5px; cursor: pointer;
+  white-space: nowrap;
+  transition: all 150ms ease;
+}
+.dlog-recent-chip:hover { color: var(--nx-text, var(--text)); border-color: var(--nx-border-strong); }
+.dlog-recent-chip.is-active {
+  color: var(--nx-gold, var(--accent));
+  background: var(--nx-gold-faint);
+  border-color: var(--nx-gold-line);
+}
+.dlog-recent-dot {
+  width: 6px; height: 6px; border-radius: 999px;
+  background: var(--nx-faint);
+}
+.dlog-recent-dot.dlog-status-pending  { background: var(--nx-gold); }
+.dlog-recent-dot.dlog-status-uploaded { background: #67c08c; }
+.dlog-recent-dot.dlog-status-failed   { background: var(--nx-red); }
+
+.dlog-section {
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 10px;
+  background: var(--nx-surface-solid, var(--surface));
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.dlog-section-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.dlog-section-header::-webkit-details-marker { display: none; }
+.dlog-section-header::after {
+  content: '›';
+  margin-left: auto;
+  color: var(--nx-muted);
+  font-size: 18px;
+  transition: transform 150ms ease;
+}
+.dlog-section[open] > .dlog-section-header::after { transform: rotate(90deg); }
+.dlog-section-title {
+  font-family: 'Outfit', 'DM Sans', sans-serif;
+  font-weight: 600; font-size: 14px;
+  color: var(--nx-text-strong, var(--text));
+  letter-spacing: 0.3px;
+}
+.dlog-section-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px; letter-spacing: 1px;
+  color: var(--nx-faint, var(--muted));
+  padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--nx-border, var(--border));
+  background: var(--nx-bg, var(--bg));
+  margin-left: 8px;
+}
+.dlog-placeholder-note {
+  font-size: 11.5px;
+  font-style: italic;
+  color: var(--nx-muted, var(--muted));
+  background: var(--nx-gold-tint);
+  border: 1px solid var(--nx-gold-line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 0;
+}
+.dlog-check-list {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.dlog-check-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 4px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 150ms ease;
+}
+.dlog-check-row:hover { background: var(--nx-gold-tint); }
+.dlog-check-row input[type="checkbox"] {
+  width: 18px; height: 18px;
+  accent-color: var(--nx-gold, var(--accent));
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.dlog-check-label {
+  font-size: 13.5px;
+  color: var(--nx-text, var(--text));
+  line-height: 1.4;
+}
+.dlog-check-row input:checked + .dlog-check-label {
+  color: var(--nx-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--nx-gold-line);
+}
+.dlog-section-body {
+  padding: 4px 16px 18px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.dlog-subsection-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--nx-faint, var(--muted));
+  margin: 4px 0 0;
+}
+
+.dlog-field { display: flex; flex-direction: column; gap: 4px; }
+.dlog-field-label {
+  font-size: 12.5px; font-weight: 500;
+  color: var(--nx-text, var(--text));
+}
+.dlog-field-hint {
+  font-size: 11px; color: var(--nx-faint, var(--muted));
+  font-style: italic;
+}
+.dlog-field input[type="text"],
+.dlog-field input[type="date"],
+.dlog-field textarea {
+  background: var(--nx-bg, var(--bg));
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 6px; padding: 8px 10px;
+  color: var(--nx-text, var(--text));
+  font: inherit; font-size: 14px;        /* 16px would auto-zoom on iOS; 14px in label + 14 input is fine here since we're inside a styled wrapper */
+  min-height: 36px;
+  resize: vertical;
+  width: 100%;
+  box-sizing: border-box;
+}
+.dlog-field textarea { min-height: 64px; line-height: 1.45; }
+.dlog-field input:focus,
+.dlog-field textarea:focus {
+  outline: none;
+  border-color: var(--nx-gold-line);
+  background: var(--nx-bg);
+}
+
+.dlog-rm-grid {
+  display: grid; gap: 10px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 600px) {
+  .dlog-rm-grid { grid-template-columns: 1fr 1fr; }
+}
+
+.dlog-vendor-list, .dlog-other-list {
+  display: flex; flex-direction: column; gap: 12px;
+}
+.dlog-vendor-row, .dlog-other-row {
+  display: grid; gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 8px;
+  background: var(--nx-bg, var(--bg));
+  position: relative;
+}
+.dlog-vendor-row { grid-template-columns: 1fr; }
+@media (min-width: 600px) {
+  .dlog-vendor-row { grid-template-columns: auto 1fr 1fr; }
+  .dlog-vendor-row textarea { grid-column: 1 / -1; }
+}
+.dlog-other-row { grid-template-columns: 1fr; }
+.dlog-row-remove {
+  position: absolute; top: 6px; right: 6px;
+  width: 24px; height: 24px; border-radius: 999px;
+  background: none; border: 1px solid var(--nx-border);
+  color: var(--nx-muted);
+  cursor: pointer; font-size: 14px; line-height: 1;
+}
+.dlog-row-remove:hover { color: var(--nx-red); border-color: var(--nx-red-line); }
+.dlog-vendor-row input, .dlog-vendor-row textarea,
+.dlog-other-row input, .dlog-other-row textarea {
+  background: var(--nx-surface-solid);
+  border: 1px solid var(--nx-border);
+  border-radius: 6px; padding: 6px 10px;
+  color: var(--nx-text); font: inherit; font-size: 13px;
+  resize: vertical; width: 100%; box-sizing: border-box;
+}
+.dlog-empty-hint {
+  font-size: 12px; color: var(--nx-faint);
+  font-style: italic; margin: 0;
+}
+.dlog-add-row-btn { align-self: flex-start; margin-top: 4px; }
+
+.dlog-actions {
+  display: flex; gap: 10px; justify-content: flex-end;
+  padding: 16px 0;
+  border-top: 1px solid var(--nx-border, var(--border));
+  margin-top: 8px;
+}
+.dlog-locked-note {
+  font-size: 12px; color: var(--nx-muted);
+  font-style: italic;
+}
+.dlog-drive-link {
+  font-size: 12px;
+  color: var(--nx-gold, var(--accent));
+  text-decoration: none;
+  border-bottom: 1px solid var(--nx-gold-line);
+  padding-bottom: 1px;
+  transition: all 150ms ease;
+}
+.dlog-drive-link:hover { color: var(--nx-text-strong); border-color: var(--nx-gold); }
+.dlog-error-detail {
+  font-size: 11.5px;
+  color: var(--nx-red, #a83e3e);
+  background: var(--nx-red-soft);
+  border: 1px solid var(--nx-red-line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 8px 0 0;
+  font-family: 'JetBrains Mono', monospace;
+  word-break: break-word;
+}
+
+/* Form locked after submit — visually de-emphasize, prevent edits */
+.dlog-form[data-locked="1"] input,
+.dlog-form[data-locked="1"] textarea {
+  pointer-events: none;
+  opacity: 0.75;
+  background: var(--nx-bg);
+}
+.dlog-form[data-locked="1"] button { display: none; }
+
+/* ─── v18.32 Phase 1 — Restored masthead ☰ on mobile ───────────────────
+   Option A from the design chat: the masthead hamburger comes back on
+   mobile, holding Theme / Log / Settings / Prefs only. The rest of what
+   used to be hidden behind ☰ (Cal, Education, Transactions, Clock) stays
+   in the Duties speed-dial where it landed in the prior consolidation.
+   Per-viewport visibility for util-tray items:
+     • .util-mobile-only — shows only at <900px (e.g. Log, since the PC
+       sidebar already shows Log)
+     • .util-pc-only     — shows only at ≥900px (e.g. Transactions, Clock,
+       which on mobile are reachable through the Duties dial)
+     • no class          — shows on both viewports (Theme, Prefs, Settings) */
+.util-mobile-only { display: flex; }
+.util-pc-only     { display: none; }
+@media (min-width: 900px) {
+  .util-mobile-only { display: none !important; }
+  .util-pc-only     { display: flex !important; }
+  /* Ingest stays hidden until enabled — its inline style takes precedence */
+  #utilIngest[style*="display:none"],
+  #utilIngest[style*="display: none"] { display: none !important; }
 }
 </style>
 </head>
@@ -1438,6 +1743,7 @@
     <button class="nav-tab" data-view="cal" data-perm="cal" title="Calendar"><i data-lucide="calendar" class="nav-icon"></i> <span data-i18n="cal">Cal</span></button>
     <button class="nav-tab" data-view="equipment" data-perm="equipment" title="Equipment"><i data-lucide="wrench" class="nav-icon"></i> <span data-i18n="equipment">Equipment</span></button>
     <button class="nav-tab" data-view="education" title="Education"><i data-lucide="book-open" class="nav-icon"></i> <span>Education</span></button>
+    <button class="nav-tab" data-view="dailylog" title="Daily Log"><i data-lucide="notebook-pen" class="nav-icon"></i> <span>Daily Log</span></button>
     <button class="nav-tab" data-view="train" data-perm="train" title="Training" hidden style="display:none"><i data-lucide="graduation-cap" class="nav-icon"></i> <span data-i18n="training">Training</span><span class="nav-tab-badge" id="navTrainBadge" aria-hidden="true" hidden></span></button>
     <button class="nav-tab" data-view="inventory" data-perm="inventory" title="Inventory"><i data-lucide="boxes" class="nav-icon"></i> <span data-i18n="inventory">Inventory</span></button>
     <!-- NEXUS · R&M — Brief / Issues / Spend / Vendors / PM -->
@@ -1452,18 +1758,21 @@
 
 <!-- Utility tray — slides down from nav -->
 <div class="util-tray" id="utilTray">
-  <!-- v18.32 — The Log/Cal/Education nav items previously added here as
-       mobile fallbacks moved to the Duties speed-dial. On mobile the
-       Duties bottom-nav button is now the single entry for everything
-       that doesn't fit in the 5-tab bottom row, so the ☰ hamburger is
-       hidden on mobile. The buttons below remain mounted because
-       PC still uses the ☰ → util-tray flow, AND the Duties dial on
-       mobile programmatically clicks these buttons via document
-       .getElementById(...).click() to trigger their existing handlers
-       without duplicating wiring. Don't remove these. -->
-  <button class="util-btn" id="utilIngest" style="display:none"><i data-lucide="zap" class="util-icon"></i><span>Ingest</span></button>
-  <button class="util-btn" id="utilTransactions" title="All transactions"><i data-lucide="receipt" class="util-icon"></i><span>Transactions</span></button>
-  <button class="util-btn" id="navClock" title="Time Clock"><i data-lucide="clock" class="util-icon"></i><span>Clock</span><span class="tc-indicator" id="tcIndicator"></span></button>
+  <!-- v18.32 Phase 1 — Mast button restored with Theme, Log, Settings, Prefs.
+       Visibility per viewport is split:
+         • Log     — mobile only (PC has Log in the sidebar)
+         • Theme   — both
+         • Prefs   — both
+         • Settings — both
+         • Transactions, Clock — PC only (mobile reaches these via Duties dial)
+         • Ingest  — hidden globally
+       The Duties speed-dial keeps Cal, Education, Transactions, Clock for
+       mobile users who don't open the mast ☰ — those four don't make sense
+       as utilities so they live with the navigation items in the dial. -->
+  <button class="util-btn util-pc-only" id="utilIngest" style="display:none"><i data-lucide="zap" class="util-icon"></i><span>Ingest</span></button>
+  <button class="util-btn util-mobile-only" id="utilLog" onclick="NX.switchTo && NX.switchTo('log')" title="Log"><i data-lucide="file-text" class="util-icon"></i><span data-i18n="log">Log</span></button>
+  <button class="util-btn util-pc-only" id="utilTransactions" title="All transactions"><i data-lucide="receipt" class="util-icon"></i><span>Transactions</span></button>
+  <button class="util-btn util-pc-only" id="navClock" title="Time Clock"><i data-lucide="clock" class="util-icon"></i><span>Clock</span><span class="tc-indicator" id="tcIndicator"></span></button>
   <button class="util-btn" id="themeToggle" title="Toggle theme · Auto / Dark / Light"><i data-lucide="circle-half" class="util-icon" id="themeIcon"></i><span>Theme</span></button>
   <button class="util-btn" id="prefsBtn" title="Preferences"><i data-lucide="sliders-horizontal" class="util-icon"></i><span>Prefs</span></button>
   <button class="util-btn" id="adminBtn"><i data-lucide="settings" class="util-icon"></i><span>Settings</span><span class="ticket-badge" id="ticketBadge" style="display:none"></span></button>
@@ -1673,6 +1982,7 @@
 
   <!-- EDUCATION (v15 replacement for Training) -->
   <div class="view" id="educationView" data-view="education"></div>
+  <div class="view" id="dailylogView" data-view="dailylog"></div>
 
   <!-- CALENDAR -->
   <div class="view" id="calView" data-view="cal">
@@ -2030,17 +2340,21 @@
         </svg>
       </span>
     </button>
-    <!-- v18.32 — Mobile-only consolidation. With the ☰ hamburger eliminated
-         on mobile, every nav item and utility that was previously hidden
-         in the masthead's util-tray lives here in the Duties dial instead.
-         This makes Duties the single mobile "everything" menu, reachable
-         from the bottom nav. Hidden on PC (sidebar + corner ☰ already
-         handle these). All targets are routed in app.js setupNav()'s
-         duties-dial dispatcher. -->
-    <button class="nx-speed-dial-action sd-mobile-only" data-target="log" type="button" aria-label="Open Log">
-      <span class="nx-speed-dial-label" data-i18n="log">Log</span>
+    <!-- v18.32 Phase 1 — Mobile-only consolidation, scoped down.
+         Theme, Log, Settings, Prefs moved to the restored masthead ☰
+         (Option A from the design chat). The remaining four items
+         (Cal, Education, Transactions, Clock) stay here in the dial —
+         they're not "utilities" and don't belong in the mast button
+         alongside Theme/Settings/Prefs. The Duties bottom-nav button
+         is still the home for navigation and quick-access pages that
+         don't fit in the 5-tab bottom row.
+
+         Hidden on PC (sidebar + corner ☰ already handle these).
+         All targets routed in app.js setupNav()'s duties-dial dispatcher. -->
+    <button class="nx-speed-dial-action sd-mobile-only" data-target="dailylog" type="button" aria-label="Open Daily Log">
+      <span class="nx-speed-dial-label">Daily Log</span>
       <span class="nx-speed-dial-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/><path d="M9 7h6"/><path d="M9 11h4"/></svg>
       </span>
     </button>
     <button class="nx-speed-dial-action sd-mobile-only" data-target="cal" type="button" aria-label="Open Calendar">
@@ -2065,24 +2379,6 @@
       <span class="nx-speed-dial-label">Clock</span>
       <span class="nx-speed-dial-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      </span>
-    </button>
-    <button class="nx-speed-dial-action sd-mobile-only" data-target="theme" type="button" aria-label="Toggle theme">
-      <span class="nx-speed-dial-label">Theme</span>
-      <span class="nx-speed-dial-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2v20"/><path d="M12 2a10 10 0 0 0 0 20Z" fill="currentColor"/></svg>
-      </span>
-    </button>
-    <button class="nx-speed-dial-action sd-mobile-only" data-target="prefs" type="button" aria-label="Preferences">
-      <span class="nx-speed-dial-label">Prefs</span>
-      <span class="nx-speed-dial-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
-      </span>
-    </button>
-    <button class="nx-speed-dial-action sd-mobile-only" data-target="settings" type="button" aria-label="Settings">
-      <span class="nx-speed-dial-label">Settings</span>
-      <span class="nx-speed-dial-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </span>
     </button>
   </div>
@@ -3316,6 +3612,8 @@
 <script src="js/record-editor.js"></script>
 <script src="js/daily-card.js"></script>
 <script src="js/home.js"></script>
+<script defer src="js/nx-drive.js"></script>
+<script defer src="js/daily-log.js"></script>
 <script src="js/native-bridge.js"></script>
 
 <!-- NEXUS · R&M — load core.js FIRST (others destructure NXRM.* from it) -->
