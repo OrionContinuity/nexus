@@ -709,40 +709,12 @@ function openPmLogger(equipId) {
       }
 
       // Step 3: Update equipment — last_pm_date + next_pm_date
-      //
-      // v18.32 — Handle the no-interval case explicitly. Previously, if
-      // pm_interval_days wasn't set, we'd save last_pm_date but leave
-      // next_pm_date alone. That meant a stale next_pm_date (e.g. an
-      // overdue value from when the equipment was first created) would
-      // persist forever — the chef would see "PM logged ✓" but the
-      // equipment list would still show the item as overdue. Confusing
-      // quiet failure.
-      //
-      // New behavior:
-      //   • Interval set (> 0)      → next_pm_date = actual + interval (current)
-      //   • No interval + next_pm_date in the past → clear next_pm_date
-      //     (no longer falsely overdue; chef can set an interval later)
-      //   • No interval + next_pm_date in the future → leave it
-      //     (respects a manually-scheduled future date)
       const interval = parseInt(eq.pm_interval_days, 10);
       const eqUpdate = { last_pm_date: actual };
-      let needsIntervalHint = false;
       if (interval > 0) {
         const next = new Date(actual + 'T00:00:00');
         next.setDate(next.getDate() + interval);
         eqUpdate.next_pm_date = next.toISOString().slice(0, 10);
-      } else {
-        // No interval configured — clear next_pm_date if it's currently
-        // in the past so the equipment stops reading as overdue.
-        const existingNext = eq.next_pm_date;
-        if (existingNext) {
-          const nextDate = new Date(existingNext + 'T00:00:00');
-          const today = new Date(actual + 'T00:00:00');
-          if (!isNaN(nextDate) && nextDate <= today) {
-            eqUpdate.next_pm_date = null;
-            needsIntervalHint = true;
-          }
-        }
       }
       const { error: eqErr } = await NX.sb.from('equipment').update(eqUpdate).eq('id', equipId);
       if (eqErr) {
@@ -758,16 +730,7 @@ function openPmLogger(equipId) {
       // Optional: recompute health score
       try { await NX.sb.rpc('recompute_health_score', { eq_id: equipId }); } catch (_) {}
 
-      // v18.32 — Truthful toast. The countdown only "restarts" if there
-      // was actually a schedule to restart from. Tell the user honestly
-      // when no schedule exists, and prompt them to set one.
-      if (interval > 0) {
-        NX.toast && NX.toast('PM logged ✓ Countdown restarted', 'success', 2200);
-      } else if (needsIntervalHint) {
-        NX.toast && NX.toast('PM logged ✓ Set a PM interval to track the next one', 'warn', 4000);
-      } else {
-        NX.toast && NX.toast('PM logged ✓', 'success', 2200);
-      }
+      NX.toast && NX.toast('PM logged ✓ Countdown restarted', 'success', 2200);
       overlay.remove();
 
       // Refresh equipment list + reopen detail
@@ -3275,6 +3238,7 @@ function buildUI() {
         <button class="eq-btn eq-btn-primary eq-ai-create-btn" id="eqAiCreateBtn" title="AI create equipment from photo or description"><span class="eq-action-icon">${uiSvg('sparkles', '14px')}</span> AI Create</button>
         <button class="eq-btn eq-btn-secondary eq-zebra-header-btn" id="eqZebraHeaderBtn" title="Print labels on Zebra printer">Zebra</button>
         <button class="eq-btn eq-btn-secondary" id="eqPrintQRs" title="Print QR sticker sheet">${uiSvg('qr', '14px')} QR Sheet</button>
+        <button class="eq-btn eq-btn-secondary" id="eqExportResQ" title="Export this location's equipment as a CSV ready for ResQ's bulk import">→ ResQ</button>
         <button class="eq-btn eq-btn-secondary" id="eqAddBtn">+ Manual</button>
       </div>
 
@@ -3345,6 +3309,7 @@ function buildUI() {
   document.getElementById('eqZebraHeaderBtn').addEventListener('click', printZebraBatch);
   document.getElementById('eqAddBtn').addEventListener('click', () => openEditModal(null));
   document.getElementById('eqPrintQRs').addEventListener('click', printQRSheet);
+  document.getElementById('eqExportResQ').addEventListener('click', exportToResQ);
 
   // Wire Tools row — workspaces for fleet-wide management
   document.getElementById('eqToolContractors')?.addEventListener('click', () => {
@@ -9032,6 +8997,142 @@ function printQRSheet() {
   document.addEventListener('keydown', onKey);
 
   document.body.appendChild(overlay);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   v18.32 — RESQ CSV EXPORT
+   ════════════════════════════════════════════════════════════════════════════
+   Schema confirmed against ResQ's own CSV export (taken May 29, 2026 — the
+   Export button on their Assets page gives the exact column layout their
+   importer expects). The actual columns are different from the labels shown
+   in their Add Asset form — for instance "Asset Name" in the UI is just
+   "Name" in the CSV, "Asset Type" is "Equipment Category", "QR Code/Number"
+   is "Bar Code", "Facility" is "Facility Name". Always trust the export.
+
+   ResQ's 12-column schema:
+     Id, Name, Manufacturer, Bar Code, Facility Name, Serial Number,
+     Model Number, Equipment Category, Status, Cost of Asset,
+     Total Spend, Last repair date
+
+   Mapping to NEXUS columns:
+     Id                 → blank (ResQ assigns on import for new rows)
+     Name               ← eq.name
+     Manufacturer       ← eq.manufacturer
+     Bar Code           ← eq.qr_code
+     Facility Name      ← eq.location, uppercased (their example showed "ESTE")
+     Serial Number      ← eq.serial_number
+     Model Number       ← eq.model
+     Equipment Category ← eq.category (likely needs remapping per row;
+                          ResQ uses specific types like "Iced Tea Machine"
+                          while NEXUS groups into "Cooking" / "Refrigeration")
+     Status             → "ACTIVE" for everything we export (NEXUS down/
+                          needs_service are still in-service for ResQ
+                          tracking; user flips to DOWN post-import if needed)
+     Cost of Asset      ← eq.purchase_price
+     Total Spend        → blank (derived by ResQ from work orders)
+     Last repair date   → blank (derived by ResQ from work orders)
+
+   Notes, warranty, and photo fields aren't part of ResQ's import schema —
+   only addable through their Add Asset form. NEXUS retains those fields,
+   they just don't travel through this CSV.
+
+   Archived/retired/missing/relocated equipment is excluded — those aren't
+   relevant to forward-looking ResQ tracking.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function exportToResQ() {
+  // Source: the in-memory equipment array, filtered to active location +
+  // not archived/retired/missing/relocated. Same data the user is currently
+  // looking at, minus anything that's no longer in service.
+  const loc = (typeof locationView !== 'undefined' && locationView && locationView.activeLocation) || null;
+  const all = (typeof equipment !== 'undefined' && Array.isArray(equipment)) ? equipment : [];
+  const SKIP_STATUSES = new Set(['retired', 'missing', 'relocated', 'loaned']);
+  const rows = all.filter(eq =>
+    !eq.archived &&
+    !SKIP_STATUSES.has(String(eq.status || '').toLowerCase()) &&
+    (!loc || eq.location === loc)
+  );
+
+  if (!rows.length) {
+    NX.toast && NX.toast('No equipment to export', 'warn', 2400);
+    return;
+  }
+
+  // CSV cell escape: RFC 4180 — wrap in quotes if value contains comma,
+  // quote, or newline; double up internal quotes.
+  const csv = (val) => {
+    if (val == null) return '';
+    const s = String(val);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+
+  // Facility names in ResQ are uppercase. Their export showed "ESTE", so
+  // upper-casing NEXUS's "Este" / "Suerte" / "Bar Toti" matches by default.
+  // If the user's ResQ facility is named differently (e.g. "ESTE ATX"),
+  // they'll need to find-and-replace in the CSV before upload.
+  const mapFacility = (l) => (l || '').toUpperCase();
+
+  // ResQ Status enum on their import is uppercase. We default everything
+  // to ACTIVE — equipment marked "down" or "needs_service" in NEXUS is
+  // still being tracked, still warrants service requests, so ACTIVE in
+  // ResQ. The user can flip individual rows to DOWN post-import if they
+  // want ResQ to surface them as unavailable.
+  const mapStatus = (_) => 'ACTIVE';
+
+  // ResQ's exact header order from their export
+  const headers = [
+    'Id',
+    'Name',
+    'Manufacturer',
+    'Bar Code',
+    'Facility Name',
+    'Serial Number',
+    'Model Number',
+    'Equipment Category',
+    'Status',
+    'Cost of Asset',
+    'Total Spend',
+    'Last repair date',
+  ];
+
+  const lines = [headers.join(',')];
+  for (const eq of rows) {
+    lines.push([
+      csv(''),                              // Id — blank for new rows
+      csv(eq.name),                         // Name
+      csv(eq.manufacturer),                 // Manufacturer
+      csv(eq.qr_code),                      // Bar Code
+      csv(mapFacility(eq.location)),        // Facility Name
+      csv(eq.serial_number),                // Serial Number
+      csv(eq.model),                        // Model Number
+      csv(eq.category),                     // Equipment Category — review before import
+      csv(mapStatus(eq.status)),            // Status
+      csv(eq.purchase_price),               // Cost of Asset
+      csv(''),                              // Total Spend — derived
+      csv(''),                              // Last repair date — derived
+    ].join(','));
+  }
+
+  // Excel/Sheets-friendly: UTF-8 BOM so accented characters in restaurant
+  // names ("café", "piñata") render correctly in Windows Excel without
+  // requiring the user to fiddle with encoding settings on import.
+  const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 10);
+  const slug = (loc || 'all-locations').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  a.href = url;
+  a.download = `nexus-resq-${slug}-${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  NX.toast && NX.toast(
+    `Exported ${rows.length} ${rows.length === 1 ? 'unit' : 'units'} for ResQ — review Equipment Category column matches ResQ's types before import`,
+    'success',
+    5500
+  );
 }
 
 /* ─── Zebra ZPL generation ─── */
@@ -19510,6 +19611,7 @@ const __nxeExports = {
 
   // Service log + parts
   logService,
+  exportToResQ,
   closeService,
   deleteMaintenance,
   approvePmLog,
