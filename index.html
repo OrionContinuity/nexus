@@ -66,13 +66,6 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script async src="https://unpkg.com/lucide@latest/dist/umd/lucide.js" onload="lucide.createIcons()"></script>
-<!-- v18.31 — QRious for local QR code generation. Drops the external
-     api.qrserver.com dependency that was silently failing on some
-     networks, leaving the equipment QR tab blank. ~10KB minified;
-     `defer` so it doesn't block initial paint. Equipment's
-     generateQRImage() checks `typeof QRious` and uses it preferentially
-     over the network fallback. -->
-<script defer src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
 <style>
 /* ═══════════════════════════════════════════════════════════════════════
    NEXUS COIN — login screen hero
@@ -431,6 +424,26 @@
 }
 #pinScreen .pin-box {
   padding: 8px 24px 16px;
+}
+
+/* ─── v18.32 — Responsive PIN screen width ───────────────────────────
+   The base CSS in nexus.css locks .pin-box to 300px and .pin-pad to
+   240px regardless of viewport. On a 1920px PC monitor that's ~15%
+   of the screen, content lost in a sea of empty space. On modern
+   iPhones (393-430px) it leaves 50-65px of dead margin per side.
+
+   Fix: scale both the box and the keypad up on larger viewports.
+   Keys also grow on tablet+ so the keypad reads as the focal element,
+   not a vestigial mobile shrunk into the middle of a desktop window. */
+@media (min-width: 600px) {
+  #pinScreen .pin-box { max-width: 380px !important; }
+  #pinScreen .pin-pad { max-width: 300px !important; }
+  #pinScreen .pin-key { width: 88px; height: 68px; font-size: 24px; }
+}
+@media (min-width: 1024px) {
+  #pinScreen .pin-box { max-width: 440px !important; }
+  #pinScreen .pin-pad { max-width: 340px !important; }
+  #pinScreen .pin-key { width: 100px; height: 76px; font-size: 26px; }
 }
 
 /* ─── PIN screen spacing overrides ────────────────────────────────────
