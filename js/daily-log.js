@@ -11,18 +11,19 @@
      • Cleaning         — 7 fields (attendance, performance, training, etc.)
 
    Data model: the entire filled template lives as JSONB in
-   `daily_logs.data` so the schema doesn't have to evolve when the
+   `facility_logs.data` so the schema doesn't have to evolve when the
    template does. Lookup is by (log_date, created_by) — one log per
    user per day. Idempotent upsert.
 
-   Phase 1 ships the form + save. Phase 2 will add document generation
-   (filled .docx) and Drive upload via a Supabase Edge Function with a
-   service account — invisible to floor staff, no Google OAuth needed.
+   TABLE NAME NOTE: this module writes to `facility_logs`, NOT
+   `daily_logs`. The first version of this code used `daily_logs` but
+   that name was already taken by the system-wide activity feed (AI
+   logger / brain-chat / cleaning summaries). Renamed to facility_logs
+   after the schema-cache collision was caught.
 
-   PROTOCOL NOTE: this module follows the NEXUS audit-then-document plan.
-   I'm using existing CSS classes (--nx-gold-* tokens, .eq-btn, .eq-card,
-   etc.) rather than inventing new ones, so when the design system doc
-   gets written this module's surface area will be small to migrate.
+   Phase 1 ships the form + save. Phase 2 wires document generation
+   (filled Google Doc) and Drive upload via the existing browser OAuth
+   token — see js/nx-drive.js.
    ════════════════════════════════════════════════════════════════════════ */
 (function(){
 
@@ -159,7 +160,7 @@ async function loadRecentLogs() {
   if (!NX.sb) return [];
   const user = NX.currentUser;
   const userId = user && user.id;
-  let q = NX.sb.from('daily_logs')
+  let q = NX.sb.from('facility_logs')
     .select('id, log_date, created_by, created_by_name, drive_upload_status, drive_file_url, submitted_at')
     .order('log_date', { ascending: false })
     .limit(30);
@@ -177,7 +178,7 @@ async function loadLog(logDate) {
   const user = NX.currentUser;
   const userId = user && user.id;
   if (!userId) return null;
-  const { data, error } = await NX.sb.from('daily_logs')
+  const { data, error } = await NX.sb.from('facility_logs')
     .select('*')
     .eq('log_date', logDate)
     .eq('created_by', userId)
@@ -208,7 +209,7 @@ async function saveLog(logData, options) {
     row.drive_upload_status = 'pending';   // Phase 2 picks this up
   }
   // Upsert by (log_date, created_by) — one log per user per day
-  const { data, error } = await NX.sb.from('daily_logs')
+  const { data, error } = await NX.sb.from('facility_logs')
     .upsert(row, { onConflict: 'log_date,created_by' })
     .select()
     .single();
@@ -657,7 +658,7 @@ async function driveUploadAndUpdateRow(logRow) {
   try {
     const result = await NX.drive.uploadDailyLog(logRow.data);
     // Update Supabase row with success metadata
-    const { error: updErr } = await NX.sb.from('daily_logs').update({
+    const { error: updErr } = await NX.sb.from('facility_logs').update({
       drive_file_id: result.fileId,
       drive_file_url: result.webViewLink,
       drive_upload_status: 'uploaded',
@@ -677,7 +678,7 @@ async function driveUploadAndUpdateRow(logRow) {
     console.error('[daily-log] Drive upload failed:', e);
     const errMsg = (e && e.message) ? e.message : String(e);
     // Mark as failed in Supabase so a sweep job (Phase 3) could retry
-    await NX.sb.from('daily_logs').update({
+    await NX.sb.from('facility_logs').update({
       drive_upload_status: 'failed',
       drive_upload_error: errMsg,
     }).eq('id', logRow.id).then(() => {}, () => {});
