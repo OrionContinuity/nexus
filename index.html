@@ -426,26 +426,6 @@
   padding: 8px 24px 16px;
 }
 
-/* ─── v18.32 — Responsive PIN screen width ───────────────────────────
-   The base CSS in nexus.css locks .pin-box to 300px and .pin-pad to
-   240px regardless of viewport. On a 1920px PC monitor that's ~15%
-   of the screen, content lost in a sea of empty space. On modern
-   iPhones (393-430px) it leaves 50-65px of dead margin per side.
-
-   Fix: scale both the box and the keypad up on larger viewports.
-   Keys also grow on tablet+ so the keypad reads as the focal element,
-   not a vestigial mobile shrunk into the middle of a desktop window. */
-@media (min-width: 600px) {
-  #pinScreen .pin-box { max-width: 380px !important; }
-  #pinScreen .pin-pad { max-width: 300px !important; }
-  #pinScreen .pin-key { width: 88px; height: 68px; font-size: 24px; }
-}
-@media (min-width: 1024px) {
-  #pinScreen .pin-box { max-width: 440px !important; }
-  #pinScreen .pin-pad { max-width: 340px !important; }
-  #pinScreen .pin-key { width: 100px; height: 76px; font-size: 26px; }
-}
-
 /* ─── PIN screen spacing overrides ────────────────────────────────────
    Aggressive override of nexus.css spacing. The original CSS had:
    - .pin-sub margin-bottom: 24px
@@ -802,6 +782,95 @@
     width: 170px;
     height: 170px;
   }
+}
+
+/* ─── v18.32 — PC SIDEBAR NAV ─────────────────────────────────────────
+   On desktop screens (≥900px) the horizontal top nav-tabs row gets
+   awkward fast — 14 buttons squeezed across the masthead, half of them
+   truncated to icon-only, hard to scan. ResQ-style vertical sidebar
+   solves it: one item per row, full icon + label, plenty of breathing
+   room, settings tucked at the bottom edge of the column.
+
+   Implementation is CSS-only — no DOM moves, no JS rewiring. The
+   existing .nav-tabs container is repositioned with `position: fixed`
+   and reshaped from horizontal flex to vertical flex. All 14 .nav-tab
+   buttons inherit their existing click handlers from app.js (which
+   uses `data-view` attributes), so navigation Just Works.
+
+   Main content shifts right by 240px to make room. The masthead stays
+   sticky across the top and now only holds the coin/persona/date/☰
+   — no more cramped tab strip. The ☰ hamburger continues to open the
+   util-tray (Clock, Theme, Settings) so utility access is unchanged.
+
+   Breakpoint 900px (not 769px) so smaller laptops and tablets in
+   portrait orientation still get the bottom-nav layout, which feels
+   right at those widths.
+   ─────────────────────────────────────────────────────────────────── */
+@media (min-width: 900px) {
+  .nav-tabs {
+    position: fixed !important;
+    left: 0;
+    top: 70px;                      /* below the sticky masthead */
+    bottom: 0;
+    width: 240px;
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    overflow-y: auto;
+    padding: 14px 10px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    margin: 0 !important;
+    z-index: 40;
+  }
+  .nav-tab {
+    justify-content: flex-start;
+    padding: 11px 14px;
+    font-size: 14px;
+    min-height: 44px;
+    border-bottom: none;
+    border-left: 3px solid transparent;
+    border-radius: 6px;
+    gap: 12px;
+    white-space: nowrap;
+  }
+  .nav-tab .nav-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+  .nav-tab.active {
+    border-bottom: none !important;
+    border-left-color: var(--accent) !important;
+  }
+  /* Suppress the existing underline-grow indicator — left border replaces it */
+  .nav-tab::after { display: none !important; }
+
+  /* Shift main content + banners right by sidebar width */
+  .main {
+    padding-left: 240px;
+  }
+  .offline-banner,
+  .alert-banner {
+    margin-left: 240px;
+  }
+  /* On PC the sidebar already shows the nav items, and the corner ☰
+     still handles utilities — so the Duties dial's mobile-only items
+     (Log, Cal, Education, Transactions, Clock, Theme, Prefs, Settings)
+     should not appear when the user opens the dial on desktop. */
+  .sd-mobile-only { display: none !important; }
+}
+
+/* ─── v18.32 — Hide masthead ☰ on mobile ──────────────────────────────
+   The hamburger that opened the util-tray on mobile is eliminated in
+   v18.32. Everything it used to reveal (nav items + utilities) lives in
+   the Duties speed-dial instead, accessible from the bottom nav. The
+   ☰ stays on PC because the corner of the masthead is where util items
+   (Transactions, Clock, Theme, Prefs, Settings) live on desktop — the
+   sidebar handles nav, the ☰ handles utilities. */
+@media (max-width: 899px) {
+  .nav-more { display: none !important; }
 }
 </style>
 </head>
@@ -1383,6 +1452,15 @@
 
 <!-- Utility tray — slides down from nav -->
 <div class="util-tray" id="utilTray">
+  <!-- v18.32 — The Log/Cal/Education nav items previously added here as
+       mobile fallbacks moved to the Duties speed-dial. On mobile the
+       Duties bottom-nav button is now the single entry for everything
+       that doesn't fit in the 5-tab bottom row, so the ☰ hamburger is
+       hidden on mobile. The buttons below remain mounted because
+       PC still uses the ☰ → util-tray flow, AND the Duties dial on
+       mobile programmatically clicks these buttons via document
+       .getElementById(...).click() to trigger their existing handlers
+       without duplicating wiring. Don't remove these. -->
   <button class="util-btn" id="utilIngest" style="display:none"><i data-lucide="zap" class="util-icon"></i><span>Ingest</span></button>
   <button class="util-btn" id="utilTransactions" title="All transactions"><i data-lucide="receipt" class="util-icon"></i><span>Transactions</span></button>
   <button class="util-btn" id="navClock" title="Time Clock"><i data-lucide="clock" class="util-icon"></i><span>Clock</span><span class="tc-indicator" id="tcIndicator"></span></button>
@@ -1950,6 +2028,61 @@
           <circle cx="12" cy="8" r="7"/>
           <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
         </svg>
+      </span>
+    </button>
+    <!-- v18.32 — Mobile-only consolidation. With the ☰ hamburger eliminated
+         on mobile, every nav item and utility that was previously hidden
+         in the masthead's util-tray lives here in the Duties dial instead.
+         This makes Duties the single mobile "everything" menu, reachable
+         from the bottom nav. Hidden on PC (sidebar + corner ☰ already
+         handle these). All targets are routed in app.js setupNav()'s
+         duties-dial dispatcher. -->
+    <button class="nx-speed-dial-action sd-mobile-only" data-target="log" type="button" aria-label="Open Log">
+      <span class="nx-speed-dial-label" data-i18n="log">Log</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      </span>
+    </button>
+    <button class="nx-speed-dial-action sd-mobile-only" data-target="cal" type="button" aria-label="Open Calendar">
+      <span class="nx-speed-dial-label" data-i18n="cal">Cal</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      </span>
+    </button>
+    <button class="nx-speed-dial-action sd-mobile-only" data-target="education" type="button" aria-label="Open Education">
+      <span class="nx-speed-dial-label">Education</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      </span>
+    </button>
+    <button class="nx-speed-dial-action sd-mobile-only" data-target="transactions" type="button" aria-label="All transactions">
+      <span class="nx-speed-dial-label">Transactions</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/></svg>
+      </span>
+    </button>
+    <button class="nx-speed-dial-action sd-mobile-only" data-target="clock" type="button" aria-label="Time Clock">
+      <span class="nx-speed-dial-label">Clock</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </span>
+    </button>
+    <button class="nx-speed-dial-action sd-mobile-only" data-target="theme" type="button" aria-label="Toggle theme">
+      <span class="nx-speed-dial-label">Theme</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2v20"/><path d="M12 2a10 10 0 0 0 0 20Z" fill="currentColor"/></svg>
+      </span>
+    </button>
+    <button class="nx-speed-dial-action sd-mobile-only" data-target="prefs" type="button" aria-label="Preferences">
+      <span class="nx-speed-dial-label">Prefs</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+      </span>
+    </button>
+    <button class="nx-speed-dial-action sd-mobile-only" data-target="settings" type="button" aria-label="Settings">
+      <span class="nx-speed-dial-label">Settings</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </span>
     </button>
   </div>
