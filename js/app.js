@@ -533,8 +533,18 @@ const NX = {
   // galaxy and admin. This keeps the system functional during the
   // upgrade window. As soon as an admin sets ANY explicit perms, the
   // explicit object wins and the fallback is bypassed.
+  //
+  // v18.32 — Added `dailylog` and `education` to the allowlist. Same
+  // class of bug as the earlier Parts/Inventory issue: a new top-level
+  // view was wired into navigation (nav-tab, view div, module) but the
+  // permission allowlist wasn't updated, so any user with a non-empty
+  // perms object got silently redirected to Home on tap. Add to
+  // RES_LABELS below as well so the admin perms matrix renders the
+  // checkbox column. Existing users with explicit perms will need
+  // 'dailylog: true' set on their nexus_users.permissions JSONB to
+  // gain access — admin panel handles this.
 
-  PERM_RESOURCES: ['clean','log','board','cal','equipment','inventory','galaxy','admin'],
+  PERM_RESOURCES: ['clean','log','board','cal','equipment','inventory','education','dailylog','galaxy','admin'],
 
   hasPermission(resource) {
     const u = this.currentUser;
@@ -708,14 +718,41 @@ const NX = {
     // duplicated info already available inside each vendor's detail
     // screen. As an on-demand overlay it's discoverable + out of the
     // way. Available to every role (no admin gate).
+    //
+    // v18.32 — `NX.openAllTransactions` is defined in `ordering.js`,
+    // which is lazy-loaded only when the user first enters the Cleaning
+    // view (see activateModule's 'clean' branch). Before this fix, if
+    // a user tapped Transactions before ever opening Cleaning in their
+    // session — easy to do from the Duties speed-dial — the handler
+    // hit a silent console.warn and the modal never opened. Now: if
+    // openAllTransactions isn't on NX yet, lazy-load ordering.js first,
+    // then call it. Loading is idempotent (`loaded` map dedupes), so
+    // subsequent clicks pay no cost.
     const utilTransactions = document.getElementById('utilTransactions');
     if (utilTransactions) {
+      const self = this;
       utilTransactions.addEventListener('click', () => {
         document.getElementById('utilTray').classList.remove('open');
-        if (window.NX && typeof window.NX.openAllTransactions === 'function') {
-          window.NX.openAllTransactions();
+        const fire = () => {
+          if (window.NX && typeof window.NX.openAllTransactions === 'function') {
+            window.NX.openAllTransactions();
+          } else {
+            console.warn('[app] openAllTransactions still unavailable after ordering.js load');
+            if (NX.toast) NX.toast('Transactions overlay failed to load — try once more', 'warn');
+          }
+        };
+        if (typeof window.NX.openAllTransactions === 'function') {
+          fire();
         } else {
-          console.warn('[app] openAllTransactions not available yet');
+          // Not loaded yet — load ordering.js then call. Avoid duplicate
+          // loads by checking self.loaded.clean (ordering.js piggybacks
+          // on the clean-view lazy-load chain).
+          if (self.loaded && self.loaded.clean) {
+            // clean was loaded but ordering.js failed somehow — still try
+            self.loadScript('js/ordering.js', fire);
+          } else {
+            self.loadScript('js/ordering.js', fire);
+          }
         }
       });
     }
@@ -1156,16 +1193,13 @@ td.check{background:#F0EDE6 !important}
     const dutiesDial = document.getElementById('dutiesDial');
     const dutiesBtn  = document.querySelector('.bnav-btn[data-view="clean"]');
     bindSpeedDial(dutiesBtn, dutiesDial, (target) => {
-      // v18.32 — Mobile-only consolidation. The masthead ☰ hamburger
-      // was eliminated on mobile; everything it used to surface
-      // (Log/Cal/Education nav + Transactions/Clock/Theme/Prefs/Settings
-      // utilities) now lives in the Duties dial. These cases route to
-      // the original handlers via clickin on the still-mounted util-tray
-      // buttons (the tray buttons stay in the DOM so PC users can still
-      // access them via the corner ☰; on mobile the buttons are hidden,
-      // but their event listeners still fire when .click() is called
-      // programmatically).
-      if (target === 'log' || target === 'cal' || target === 'education') {
+      // v18.32 Phase 1 — Dial now handles only the items that stayed
+      // here after Theme/Log/Settings/Prefs moved to the restored
+      // masthead ☰: nav fallbacks (Cal, Education) and the two utility
+      // popups that aren't useful in the mast row (Transactions, Clock).
+      // The mast-routed items don't need cases here anymore — their
+      // buttons no longer exist in the dial.
+      if (target === 'cal' || target === 'education' || target === 'dailylog') {
         switchTo(target);
         return;
       }
@@ -1175,18 +1209,6 @@ td.check{background:#F0EDE6 !important}
       }
       if (target === 'clock') {
         document.getElementById('navClock')?.click();
-        return;
-      }
-      if (target === 'theme') {
-        document.getElementById('themeToggle')?.click();
-        return;
-      }
-      if (target === 'prefs') {
-        document.getElementById('prefsBtn')?.click();
-        return;
-      }
-      if (target === 'settings') {
-        document.getElementById('adminBtn')?.click();
         return;
       }
       // Training is its OWN top-level view — not a Duties pane like
@@ -1608,6 +1630,9 @@ td.check{background:#F0EDE6 !important}
 
   activateModule(view) {
     const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js', inventory: 'js/inventory.js', education: 'js/education.js' };
+    // dailylog is loaded eagerly via <script defer> in index.html and
+    // self-registers at NX.modules.dailylog — falls through to the
+    // self-registered-modules branch below, no moduleMap entry needed.
 
     // ── Local helper: re-translate the currently visible view if user
     // has a non-English language pinned. Called at the END of every
@@ -2649,6 +2674,7 @@ td.check{background:#F0EDE6 !important}
       const RES_LABELS = {
         clean: 'Clean', log: 'Log', board: 'Board',
         cal: 'Cal', equipment: 'Equip', inventory: 'Inv',
+        education: 'Edu', dailylog: 'D.Log',
         galaxy: 'Galaxy', admin: 'Admin',
       };
       const headerRow = `
