@@ -1156,6 +1156,39 @@ td.check{background:#F0EDE6 !important}
     const dutiesDial = document.getElementById('dutiesDial');
     const dutiesBtn  = document.querySelector('.bnav-btn[data-view="clean"]');
     bindSpeedDial(dutiesBtn, dutiesDial, (target) => {
+      // v18.32 — Mobile-only consolidation. The masthead ☰ hamburger
+      // was eliminated on mobile; everything it used to surface
+      // (Log/Cal/Education nav + Transactions/Clock/Theme/Prefs/Settings
+      // utilities) now lives in the Duties dial. These cases route to
+      // the original handlers via clickin on the still-mounted util-tray
+      // buttons (the tray buttons stay in the DOM so PC users can still
+      // access them via the corner ☰; on mobile the buttons are hidden,
+      // but their event listeners still fire when .click() is called
+      // programmatically).
+      if (target === 'log' || target === 'cal' || target === 'education') {
+        switchTo(target);
+        return;
+      }
+      if (target === 'transactions') {
+        document.getElementById('utilTransactions')?.click();
+        return;
+      }
+      if (target === 'clock') {
+        document.getElementById('navClock')?.click();
+        return;
+      }
+      if (target === 'theme') {
+        document.getElementById('themeToggle')?.click();
+        return;
+      }
+      if (target === 'prefs') {
+        document.getElementById('prefsBtn')?.click();
+        return;
+      }
+      if (target === 'settings') {
+        document.getElementById('adminBtn')?.click();
+        return;
+      }
       // Training is its OWN top-level view — not a Duties pane like
       // Cleaning and Ordering. The HTML comment claimed this dispatcher
       // already handled it; in fact, the special case was never written,
