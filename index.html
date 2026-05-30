@@ -949,7 +949,96 @@
 .dlog-act-pill-pm      { background: var(--nx-gold, var(--accent)); }
 .dlog-act-pill-move    { background: var(--nx-blue, #6b7a8a); }
 .dlog-act-pill-archive { background: var(--nx-muted); }
+/* v18.32 — Equipment Status section in daily log.
+   Lists currently-down equipment with editable status_note and "Fixed"
+   button. Persistent across daily logs until the equipment goes back
+   to operational. */
+.dlog-eqstatus-list {
+  display: flex; flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.dlog-eqstatus-row {
+  display: flex; flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--nx-surface-faint, transparent);
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 8px;
+}
+.dlog-eqstatus-head {
+  display: flex; align-items: center; gap: 8px;
+}
+.dlog-eqstatus-pill {
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #fff;
+}
+.dlog-eqstatus-pill-down    { background: var(--nx-red, #a83e3e); }
+.dlog-eqstatus-pill-service { background: #d68a4e; }
+.dlog-eqstatus-info {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.dlog-eqstatus-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nx-text, var(--text));
+  line-height: 1.3;
+}
+.dlog-eqstatus-meta {
+  font-size: 11px;
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', monospace;
+}
+.dlog-eqstatus-fix {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  background: var(--nx-green-soft, rgba(156,138,62,0.10));
+  color: var(--nx-green, #9c8a3e);
+  border: 1px solid var(--nx-green-line, rgba(156,138,62,0.35));
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.dlog-eqstatus-fix:hover {
+  background: var(--nx-green, #9c8a3e);
+  color: #fff;
+}
+.dlog-eqstatus-fix:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.dlog-eqstatus-note {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 6px;
+  color: var(--nx-text, var(--text));
+  resize: vertical;
+}
+.dlog-eqstatus-note:focus {
+  outline: none;
+  border-color: var(--nx-gold-line-2);
+}
+
 .dlog-act-pill-create  { background: #67c08c; }
+/* v18.32 hotfix — equipment_issues activity pills tied into the daily activity feed */
+.dlog-act-pill-issue   { background: var(--nx-red, #a83e3e); color: #fff; }
+.dlog-act-pill-paid    { background: #9c8a3e; color: #fff; }
+.dlog-act-pri-urgent   { color: var(--nx-red, #a83e3e); font-weight: 600; text-transform: uppercase; font-size: 10px; }
+.dlog-act-pri-high     { color: var(--nx-gold, var(--accent)); font-weight: 600; text-transform: uppercase; font-size: 10px; }
 .dlog-act-main { flex: 1; min-width: 0; }
 .dlog-act-line {
   font-size: 13px;
@@ -2468,9 +2557,8 @@
        as utilities so they live with the navigation items in the dial. -->
   <button class="util-btn util-pc-only" id="utilIngest" style="display:none"><i data-lucide="zap" class="util-icon"></i><span>Ingest</span></button>
   <button class="util-btn util-mobile-only" id="utilLog" onclick="NX.switchTo && NX.switchTo('log')" title="Log"><i data-lucide="file-text" class="util-icon"></i><span data-i18n="log">Log</span></button>
-  <button class="util-btn util-pc-only" id="utilTransactions" title="All transactions"><i data-lucide="receipt" class="util-icon"></i><span>Transactions</span></button>
   <button class="util-btn util-pc-only" id="navClock" title="Time Clock"><i data-lucide="clock" class="util-icon"></i><span>Clock</span><span class="tc-indicator" id="tcIndicator"></span></button>
-  <button class="util-btn" id="themeToggle" title="Toggle theme · Auto / Dark / Light"><i data-lucide="circle-half" class="util-icon" id="themeIcon"></i><span>Theme</span></button>
+  <button class="util-btn" id="themeToggle" title="Toggle theme · Auto / Dark / Light"><i data-lucide="monitor" class="util-icon" id="themeIcon"></i><span>Theme</span></button>
   <button class="util-btn" id="prefsBtn" title="Preferences"><i data-lucide="sliders-horizontal" class="util-icon"></i><span>Prefs</span></button>
   <button class="util-btn" id="adminBtn"><i data-lucide="settings" class="util-icon"></i><span>Settings</span><span class="ticket-badge" id="ticketBadge" style="display:none"></span></button>
 </div>
@@ -4373,9 +4461,13 @@
     const icon = document.getElementById('themeIcon');
     if (!icon) return;
     const pref = localStorage.getItem('nexus_theme_pref') || 'auto';
-    // auto = circle-half, dark = sun (offers light), light = moon (offers dark)
+    // v18.32 — Use Lucide icons present in every shipped version. The
+    // prior 'circle-half' name doesn't exist in older Lucide bundles,
+    // which caused the Theme icon to vanish entirely on some clients.
+    // 'monitor' (auto), 'sun' (dark→light), 'moon' (light→dark) are
+    // all guaranteed to be present.
     icon.setAttribute('data-lucide',
-      pref === 'auto' ? 'circle-half' :
+      pref === 'auto' ? 'monitor' :
       pref === 'dark' ? 'sun' : 'moon');
     if (window.lucide) lucide.createIcons();
   }
