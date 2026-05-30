@@ -551,7 +551,48 @@ async function saveLog(logData, options) {
     .upsert(row, { onConflict: 'log_date,log_type,created_by' })
     .select()
     .single();
-  if (error) { console.error('[biweekly] saveLog:', error); return { error: error.message || 'Save failed' }; }
+  if (error) {
+    // v18.32 hotfix — same fallback as daily-log.js when the production
+    // DB is missing the facility_logs_per_user_per_type_per_day unique
+    // constraint. See sql/facility_logs_constraint_repair.sql for the
+    // permanent fix.
+    const isConflictMissing = error.code === '42P10' ||
+      /no unique or exclusion constraint/i.test(error.message || '');
+    if (isConflictMissing) {
+      console.warn('[biweekly] upsert constraint missing — falling back to manual save. Run sql/facility_logs_constraint_repair.sql to fix permanently.');
+      try {
+        const { data: existing, error: selErr } = await NX.sb.from('facility_logs')
+          .select('id')
+          .eq('log_date', row.log_date)
+          .eq('log_type', row.log_type)
+          .eq('created_by', row.created_by)
+          .limit(1)
+          .maybeSingle();
+        if (selErr) throw selErr;
+        let result;
+        if (existing && existing.id) {
+          result = await NX.sb.from('facility_logs')
+            .update(row).eq('id', existing.id).select().single();
+        } else {
+          result = await NX.sb.from('facility_logs')
+            .insert(row).select().single();
+        }
+        if (result.error) throw result.error;
+        if (!window._dlogConstraintWarned) {
+          window._dlogConstraintWarned = true;
+          if (NX.toast) NX.toast(
+            'Save worked (fallback). Run sql/facility_logs_constraint_repair.sql to fix the DB.',
+            'warn', 7000);
+        }
+        return { data: result.data };
+      } catch (fbErr) {
+        console.error('[biweekly] fallback save also failed:', fbErr);
+        return { error: fbErr.message || 'Save failed (and fallback failed)' };
+      }
+    }
+    console.error('[biweekly] saveLog:', error);
+    return { error: error.message || 'Save failed' };
+  }
   return { data };
 }
 
