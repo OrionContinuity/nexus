@@ -361,6 +361,17 @@ function renderEquipmentActivitySection(activity, notes) {
     } else if (ev.event_type === 'archived')   detail = '<b>Archived</b>';
     else   if (ev.event_type === 'restored')   detail = '<b>Restored</b> from archive';
     else   if (ev.event_type === 'created')    detail = '<b>New equipment</b> created';
+    else   if (ev.event_type === 'issue_opened') {
+      const title = (ev.payload && ev.payload.title) || 'Work order opened';
+      const pri = (ev.payload && ev.payload.priority) || '';
+      detail = `<b>Work order opened</b>: ${esc(String(title).slice(0, 80))}${pri && pri !== 'normal' ? ' <small>(' + esc(pri) + ')</small>' : ''}`;
+    }
+    else   if (ev.event_type === 'issue_paid') {
+      const title = (ev.payload && ev.payload.title) || 'Work order';
+      const amt = ev.payload && ev.payload.invoice_amount;
+      const amtLabel = (amt && !isNaN(amt)) ? ` — <b>$${Math.round(Number(amt)).toLocaleString()}</b>` : '';
+      detail = `<b>Invoice paid</b>: ${esc(String(title).slice(0, 80))}${amtLabel}`;
+    }
     else  detail = esc(String(ev.event_type).replace(/_/g, ' '));
     const time = ev.occurred_at
       ? new Date(ev.occurred_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
@@ -759,6 +770,38 @@ function renderDailyVendorActivity(d) {
     ${notesBlock}`;
 }
 
+// v18.32 — Equipment Status section in the daily Drive doc.
+// Renders the "what's currently not operational" list with the
+// status_note for each, frozen at upload time. Different from
+// Today's Equipment Activity (which is transient events).
+function renderDailyEquipmentStatus(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return '';   // Suppress section entirely when nothing's down
+  }
+  const statusLabel = (k) => ({
+    down: 'DOWN', needs_service: 'NEEDS SERVICE', broken: 'BROKEN'
+  })[k] || (k || '').toUpperCase();
+  const rows = items.map(eq => {
+    const note = eq.status_note || '<span style="color:#999;font-style:italic;">no note</span>';
+    return `
+      <tr>
+        <td style="width:120px;font-size:9pt;"><b>${esc(statusLabel(eq.status))}</b></td>
+        <td><b>${esc(eq.name || 'Untitled')}</b><br><small style="color:#666;">${esc(eq.location || '')}</small></td>
+        <td>${esc(eq.status_note) || '<span style="color:#999;font-style:italic;">no note</span>'}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <h1 style="border-bottom:2px solid #333;padding-bottom:4pt;">Equipment Status <span style="font-size:11pt;font-weight:normal;color:#666;">(${items.length})</span></h1>
+    <table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;">
+      <tr style="background:#d9d9d9;">
+        <th style="text-align:left;"><b>Status</b></th>
+        <th style="text-align:left;"><b>Equipment</b></th>
+        <th style="text-align:left;"><b>Note</b></th>
+      </tr>
+      ${rows}
+    </table>`;
+}
+
 function buildDailyLogHtml(logData) {
   const d = logData;
   const dateLabel = friendlyDate(d.header && d.header.date);
@@ -777,6 +820,8 @@ function buildDailyLogHtml(logData) {
   ${renderPlanningSection(d)}
   <p>&nbsp;</p>
   ${renderAllLocations(d)}
+  ${renderDailyEquipmentStatus(d.equipment_status)}
+  <p>&nbsp;</p>
   ${renderEquipmentActivitySection(d.equipment_activity, d.equipment_activity_notes)}
   <p>&nbsp;</p>
   ${renderDailyVendorActivity(d)}
