@@ -2674,6 +2674,17 @@ async function logEquipmentEvent({ equipmentId, eventType, payload, location }) 
   }
 }
 
+// v18.32 Phase 3b — expose logEquipmentEvent globally so callers in
+// other modules (domain.js, log.js, daily-log.js) can record events
+// without going through equipment.js's lazy-loaded module surface.
+// The closure variable `equipment` is still used inside for optional
+// location resolution; external callers should pass `location`
+// explicitly when they have it on hand. This is a best-effort sink —
+// failures are logged but don't propagate.
+if (typeof window !== 'undefined' && window.NX) {
+  window.NX.logEquipmentEvent = logEquipmentEvent;
+}
+
 /* ════════════════════════════════════════════════════════════════════
    ACTIVITY READ HELPERS — per-equipment + per-location
    ─────────────────────────────────────────────────────────────────── */
@@ -9022,9 +9033,11 @@ function printQRSheet() {
      Facility Name      ← eq.location, uppercased (their example showed "ESTE")
      Serial Number      ← eq.serial_number
      Model Number       ← eq.model
-     Equipment Category ← eq.category (likely needs remapping per row;
-                          ResQ uses specific types like "Iced Tea Machine"
-                          while NEXUS groups into "Cooking" / "Refrigeration")
+     Equipment Category ← mapToResQType(eq) — heuristic mapping from
+                          NEXUS's broad categories ("refrigeration",
+                          "cooking") + the equipment NAME to ResQ's
+                          specific types ("Walk-In Cooler", "Fryer").
+                          See mapToResQType below for the rules.
      Status             → "ACTIVE" for everything we export (NEXUS down/
                           needs_service are still in-service for ResQ
                           tracking; user flips to DOWN post-import if needed)
@@ -9039,6 +9052,138 @@ function printQRSheet() {
    Archived/retired/missing/relocated equipment is excluded — those aren't
    relevant to forward-looking ResQ tracking.
    ════════════════════════════════════════════════════════════════════════════ */
+
+/* v18.32 — ResQ category mapping.
+   Heuristic: NEXUS groups equipment into ~9 broad categories
+   (refrigeration, cooking, ice, hvac, dish, bev, smallware, furniture,
+   other). ResQ expects specific equipment TYPES ("Walk-In Cooler",
+   "Iced Tea Machine", "Combi Oven", ...). This function maps each
+   NEXUS equipment row to its best-guess ResQ type by:
+     1. Looking at the NEXUS category for the bucket of candidates
+     2. Pattern-matching keywords in the equipment NAME to narrow to
+        the specific type within that bucket
+     3. Falling back to a bucket default if no keyword match
+
+   The mapping is intentionally heuristic — ResQ accepts free-text for
+   the Equipment Category column on import, so a "wrong" guess just
+   means the user changes it post-import. Better to get 80% right than
+   to leave every row blank for manual edit.
+
+   Returns the ResQ type string. */
+function mapToResQType(eq) {
+  const cat  = String(eq && eq.category || '').toLowerCase().trim();
+  const name = String(eq && eq.name     || '').toLowerCase();
+  // Test if the equipment name contains any of the given keywords
+  const has = (...kws) => kws.some(kw => name.includes(kw));
+
+  switch (cat) {
+    case 'refrigeration':
+      if (has('walk-in', 'walk in', 'walkin')) {
+        if (has('freez')) return 'Walk-In Freezer';
+        return 'Walk-In Cooler';
+      }
+      if (has('reach-in', 'reach in', 'reachin')) {
+        if (has('freez')) return 'Reach-In Freezer';
+        return 'Reach-In Refrigerator';
+      }
+      if (has('prep table', 'sandwich', 'pizza table', 'salad table', 'mega top')) return 'Prep Table Refrigerator';
+      if (has('undercounter', 'under counter', 'lowboy', 'low boy', 'low-boy')) return 'Undercounter Refrigerator';
+      if (has('display case', 'merchandiser', 'deli case', 'glass door')) return 'Display Refrigerator';
+      if (has('blast chiller', 'blast freez')) return 'Blast Chiller';
+      if (has('freez', 'chest')) return 'Reach-In Freezer';
+      if (has('wine', 'beer fridge', 'kegerator', 'keg cooler')) return 'Beverage Cooler';
+      return 'Refrigerator';
+
+    case 'cooking':
+      if (has('fryer', 'fry station')) return 'Fryer';
+      if (has('char broiler', 'charbroiler', 'char-broiler')) return 'Char Broiler';
+      if (has('salamander')) return 'Salamander';
+      if (has('combi oven', 'combi-oven')) return 'Combi Oven';
+      if (has('convection oven', 'conv oven', 'conv. oven')) return 'Convection Oven';
+      if (has('pizza oven', 'deck oven', 'hearth oven', 'wood-fired', 'wood fired')) return 'Pizza Oven';
+      if (has('rotisserie')) return 'Rotisserie';
+      if (has('smoker')) return 'Smoker';
+      if (has('steam kettle', 'tilting kettle')) return 'Steam Kettle';
+      if (has('steamer')) return 'Steamer';
+      if (has('rice cook')) return 'Rice Cooker';
+      if (has('wok')) return 'Wok Range';
+      if (has('griddle', 'flat top', 'flat-top')) return 'Griddle';
+      if (has('grill', 'broiler')) return 'Grill';
+      if (has('range', 'cooktop', 'stove')) return 'Range';
+      if (has('oven')) return 'Oven';
+      if (has('warmer', 'heat lamp', 'holding cabinet', 'warming cabinet')) return 'Food Warmer';
+      if (has('induction')) return 'Induction Cooker';
+      if (has('microwave')) return 'Microwave';
+      return 'Cooking Equipment';
+
+    case 'ice':
+      if (has('iced tea', 'tea machine', 'tea brewer')) return 'Iced Tea Machine';
+      if (has('ice bin', 'ice well')) return 'Ice Bin';
+      if (has('cuber', 'flaker', 'nugget')) return 'Ice Machine';
+      return 'Ice Machine';
+
+    case 'hvac':
+      if (has('exhaust', 'hood', 'ventilation')) return 'Exhaust Hood';
+      if (has('make-up air', 'makeup air', 'mua', 'm.u.a')) return 'Make-Up Air Unit';
+      if (has('rooftop', 'rtu')) return 'Rooftop Unit';
+      if (has('mini split', 'mini-split', 'ductless')) return 'Mini Split';
+      if (has('evap cooler', 'evaporative cooler', 'swamp cooler')) return 'Evaporative Cooler';
+      if (has('furnace', 'heater')) return 'Heater';
+      if (has('a/c', 'a.c.', 'air condition', 'ac unit')) return 'Air Conditioner';
+      if (has('thermostat')) return 'Thermostat';
+      return 'HVAC';
+
+    case 'dish':
+      if (has('glass washer', 'glasswasher')) return 'Glass Washer';
+      if (has('conveyor dish', 'flight type', 'conveyor washer')) return 'Conveyor Dishwasher';
+      if (has('dish machine', 'dishwasher')) return 'Dish Machine';
+      if (has('booster heater')) return 'Booster Heater';
+      if (has('disposal', 'pulper', 'grinder')) return 'Disposal';
+      if (has('3 comp', '3-comp', 'three compart', 'three-compart')) return '3 Compartment Sink';
+      if (has('hand sink')) return 'Hand Sink';
+      if (has('mop sink')) return 'Mop Sink';
+      if (has('sink')) return 'Sink';
+      return 'Dishwasher';
+
+    case 'bev':
+      if (has('espresso')) return 'Espresso Machine';
+      if (has('grinder')) return 'Coffee Grinder';
+      if (has('coffee', 'brewer', 'drip')) return 'Coffee Brewer';
+      if (has('soda', 'fountain', 'bib', 'bag in box')) return 'Soda Fountain';
+      if (has('beer tap', 'beer system', 'draft', 'kegerator', 'glycol')) return 'Beer System';
+      if (has('wine fridge', 'wine cooler', 'wine cabinet')) return 'Wine Cooler';
+      if (has('blender')) return 'Blender';
+      if (has('juicer')) return 'Juicer';
+      if (has('frozen drink', 'slush', 'margarita')) return 'Frozen Beverage Machine';
+      return 'Beverage Equipment';
+
+    case 'smallware':
+      // ResQ doesn't typically track smallwares — but if you've added
+      // them to NEXUS, classify generically
+      return 'Smallware';
+
+    case 'furniture':
+      if (has('booth')) return 'Booth';
+      if (has('chair', 'stool')) return 'Chair';
+      if (has('table')) return 'Table';
+      if (has('bench')) return 'Bench';
+      if (has('umbrella')) return 'Umbrella';
+      if (has('heater')) return 'Patio Heater';
+      return 'Furniture';
+
+    case 'other':
+    default:
+      // Last-resort: if the name has obvious cues, lean on them; otherwise
+      // fall through to "Other" — ResQ accepts free text so the user can
+      // rename post-import if needed.
+      if (has('safe', 'cash drawer')) return 'Cash Equipment';
+      if (has('pos', 'terminal', 'monitor', 'printer', 'kds')) return 'POS Equipment';
+      if (has('security', 'camera', 'dvr', 'alarm')) return 'Security Equipment';
+      if (has('water heater', 'tankless')) return 'Water Heater';
+      if (has('grease trap', 'grease interceptor')) return 'Grease Trap';
+      return 'Other';
+  }
+}
 
 function exportToResQ() {
   // Source: the in-memory equipment array, filtered to active location +
@@ -9095,8 +9240,21 @@ function exportToResQ() {
     'Last repair date',
   ];
 
+  // v18.32 — track which rows fell through to the bucket-default
+  // mapping (e.g. "Cooking Equipment" instead of a specific type).
+  // These are the ones most likely to want manual review post-export.
+  // Tags are used in the toast summary only — the CSV itself stays clean.
+  const FALLBACK_TYPES = new Set([
+    'Refrigerator', 'Cooking Equipment', 'Ice Machine', 'HVAC',
+    'Dishwasher', 'Beverage Equipment', 'Smallware', 'Furniture', 'Other',
+  ]);
+  let confidentCount = 0;
+  let fallbackCount = 0;
+
   const lines = [headers.join(',')];
   for (const eq of rows) {
+    const resqType = mapToResQType(eq);
+    if (FALLBACK_TYPES.has(resqType)) fallbackCount++; else confidentCount++;
     lines.push([
       csv(''),                              // Id — blank for new rows
       csv(eq.name),                         // Name
@@ -9105,7 +9263,7 @@ function exportToResQ() {
       csv(mapFacility(eq.location)),        // Facility Name
       csv(eq.serial_number),                // Serial Number
       csv(eq.model),                        // Model Number
-      csv(eq.category),                     // Equipment Category — review before import
+      csv(resqType),                        // Equipment Category — mapped
       csv(mapStatus(eq.status)),            // Status
       csv(eq.purchase_price),               // Cost of Asset
       csv(''),                              // Total Spend — derived
@@ -9128,11 +9286,13 @@ function exportToResQ() {
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-  NX.toast && NX.toast(
-    `Exported ${rows.length} ${rows.length === 1 ? 'unit' : 'units'} for ResQ — review Equipment Category column matches ResQ's types before import`,
-    'success',
-    5500
-  );
+  // Smarter toast — tells the user what got mapped confidently vs. what
+  // fell through to a bucket default. Fallback rows are the ones to
+  // skim before importing to ResQ.
+  const msg = fallbackCount === 0
+    ? `Exported ${rows.length} ${rows.length === 1 ? 'unit' : 'units'} — categories mapped to ResQ types`
+    : `Exported ${rows.length} units — ${confidentCount} mapped confidently, ${fallbackCount} fell back to a generic type (review those rows before import)`;
+  NX.toast && NX.toast(msg, 'success', 5500);
 }
 
 /* ─── Zebra ZPL generation ─── */
@@ -10699,6 +10859,22 @@ function showStatusUndoBanner(eq, priorStatus, newStatus) {
       banner.classList.remove('is-shown');
       setTimeout(() => banner.remove(), 250);
       NX.toast && NX.toast(`Reverted to ${priorLbl}`, 'info', 1400);
+      // v18.32 Phase 3b — log the revert as its own status_change event
+      // (priorStatus is the original pre-bump value being restored, the
+      // current eq.status before this update was newStatus, hence the
+      // from→to direction here goes newStatus → priorStatus).
+      logEquipmentEvent({
+        equipmentId: eq.id,
+        eventType: 'status_change',
+        location: eq.location,
+        payload: {
+          from: newStatus, to: priorStatus,
+          from_label: STATUSES.find(s => s.key === newStatus)?.label || newStatus,
+          to_label:   STATUSES.find(s => s.key === priorStatus)?.label || priorStatus,
+          equipment_name: eq.name,
+          source: 'undo_banner',
+        },
+      });
     } catch (err) {
       console.error('[Equipment] undo status:', err);
       undoBtn.disabled = false;
@@ -10786,6 +10962,20 @@ function openQuickStatusMenuForRow(equipId, anchorEl) {
         if (error) throw error;
         // Brain sync (best effort) so the AI knows about the state change.
         if (NX.eqBrainSync?.syncOne) NX.eqBrainSync.syncOne(equipId);
+        // v18.32 Phase 3b — log to activity stream so the change appears
+        // in the daily log "equipment activity" feed.
+        logEquipmentEvent({
+          equipmentId: equipId,
+          eventType: 'status_change',
+          location: eq.location,
+          payload: {
+            from: priorStatus, to: newStatus,
+            from_label: STATUSES.find(s => s.key === priorStatus)?.label || priorStatus,
+            to_label:   STATUSES.find(s => s.key === newStatus)?.label   || newStatus,
+            equipment_name: eq.name,
+            source: 'quick_status_menu',
+          },
+        });
       } catch (err) {
         // Rollback the optimistic update.
         console.error('[quickStatus] save failed:', err);
@@ -12003,6 +12193,21 @@ function showCallConfirmModal({ equipId, equipName, contactName, phone, contract
         if (desRank > curRank) {
           priorStatus = currentStatus;
           await NX.sb.from('equipment').update({ status: desiredStatus }).eq('id', equipId);
+          // v18.32 Phase 3b — log status_change so the bump surfaces in
+          // the daily log activity feed alongside the related ticket.
+          logEquipmentEvent({
+            equipmentId: equipId,
+            eventType: 'status_change',
+            location: (equipment.find(e => e.id === equipId) || {}).location || null,
+            payload: {
+              from: currentStatus, to: desiredStatus,
+              from_label: STATUSES.find(s => s.key === currentStatus)?.label || currentStatus,
+              to_label:   STATUSES.find(s => s.key === desiredStatus)?.label || desiredStatus,
+              equipment_name: equipName,
+              source: 'ticket_call',
+              ticket_priority: priority,
+            },
+          });
         }
       } catch (err) { console.warn('[callConfirm] status bump failed:', err); }
     }
@@ -19602,6 +19807,9 @@ const __nxeExports = {
   // Activity log (per-location global view)
   openEquipmentActivityLog,
   closeEquipmentActivityLog,
+  // v18.32 Phase 3b — expose the event writer so other modules can log
+  // (also available as NX.logEquipmentEvent for non-module-aware callers)
+  logEquipmentEvent,
 
   // Add/edit modal (simple form)
   closeEdit,
