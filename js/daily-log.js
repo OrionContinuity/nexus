@@ -134,6 +134,13 @@ let state = {
   // Per-vendor open equipment_issues count for "vendor status" display
   // in the daily log. Keyed by vendor_id. Refreshed on log open.
   vendorOpenIssues: {},
+  // v18.32 — Equipment currently in a non-operational state. Loaded
+  // from equipment table on log open. Each entry carries the live
+  // status_note (read/written by BOTH this view and the equipment
+  // edit form — single source of truth). As long as a piece of
+  // equipment has status != 'operational' AND !archived, it appears
+  // in every daily log until fixed.
+  equipmentDown: [],
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -208,13 +215,40 @@ function hydrateData(saved) {
   }
   // Locations — handle all three migration cases
   if (Array.isArray(saved.locations) && saved.locations.length) {
-    // Already new shape — pass through, defensively shape-check each item
-    base.locations = saved.locations.map(loc => ({
-      id: loc.id || locationIdFromLabel(loc.label),
-      label: loc.label || 'Untitled',
-      rm: Object.assign({}, makeEmptyRm(), loc.rm || {}),
-      vendor_calls: Array.isArray(loc.vendor_calls) ? loc.vendor_calls : [],
-    }));
+    // Already new shape — pass through, defensively shape-check each item.
+    // v18.32 hotfix — if a location has an empty/null label (corrupted or
+    // legacy data), derive a sensible label from its id ("este" → "Este",
+    // "bar-toti" → "Bar Toti") instead of forcing "Untitled". Falls back
+    // to "Location N" if no id either. Also MUTATES the source so saving
+    // writes back proper labels — repairs the stuck "Untitled" state
+    // permanently after first open.
+    base.locations = saved.locations.map((loc, i) => {
+      let label = (loc.label || '').trim();
+      if (!label) {
+        if (loc.id) {
+          // Match preset by id first (best match)
+          const preset = DEFAULT_LOCATION_PRESETS.find(p => p.id === loc.id);
+          if (preset) label = preset.label;
+          else {
+            // Derive from id: "bar-toti" → "Bar Toti"
+            label = String(loc.id).split(/[-_]+/)
+              .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+              .join(' ');
+          }
+        } else {
+          label = `Location ${i + 1}`;
+        }
+        // Write the repaired label back to source so the next save
+        // persists it. Stops the "stuck Untitled" loop.
+        loc.label = label;
+      }
+      return {
+        id: loc.id || locationIdFromLabel(label),
+        label,
+        rm: Object.assign({}, makeEmptyRm(), loc.rm || {}),
+        vendor_calls: Array.isArray(loc.vendor_calls) ? loc.vendor_calls : [],
+      };
+    });
   } else if (saved.este || saved.suerte) {
     // Old shape — migrate. Pull vendor_calls out, treat the rest as rm fields.
     base.locations = [];
@@ -281,20 +315,80 @@ async function loadEquipmentLocations() {
 // Other event types (pm_logged, location_change, archived, restored,
 // part_replacement, etc.) are passed through as-is — they're discrete
 // events, not stateful flips, so each one is meaningful on its own.
+//
+// v18.32 hotfix — Also pulls equipment_issues activity for the day:
+// issues opened today (reported_at), issues paid today (invoice_paid_at).
+// These are mapped to synthetic "event" objects in the same shape as
+// equipment_events so the existing render path handles them uniformly.
+// This ties the parallel R&M and tickets ecosystems together in the
+// daily log's activity view without merging the underlying tables.
 async function loadEquipmentActivity(logDate) {
   if (!NX.sb || !logDate) return [];
   const dayStart = `${logDate}T00:00:00.000Z`;
   const dayEnd   = `${logDate}T23:59:59.999Z`;
-  const { data, error } = await NX.sb.from('equipment_events')
-    .select('id, equipment_id, event_type, payload, location, actor_name, occurred_at')
-    .gte('occurred_at', dayStart)
-    .lte('occurred_at', dayEnd)
-    .order('occurred_at', { ascending: true });
-  if (error) {
-    console.warn('[daily-log] loadEquipmentActivity:', error.message);
-    return [];
+  // Pull both streams in parallel. equipment_issues may not exist
+  // (no R&M ecosystem) — that's fine, we just degrade to events-only.
+  const [eventsRes, openedRes, paidRes] = await Promise.all([
+    NX.sb.from('equipment_events')
+      .select('id, equipment_id, event_type, payload, location, actor_name, occurred_at')
+      .gte('occurred_at', dayStart).lte('occurred_at', dayEnd)
+      .order('occurred_at', { ascending: true }),
+    NX.sb.from('equipment_issues')
+      .select('id, equipment_id, title, status, priority, reported_at, reported_by_name, vendor_id')
+      .gte('reported_at', dayStart).lte('reported_at', dayEnd)
+      .order('reported_at', { ascending: true })
+      .then(r => r, () => ({ data: [], error: null })),
+    NX.sb.from('equipment_issues')
+      .select('id, equipment_id, title, status, invoice_amount, invoice_paid_at, vendor_id')
+      .gte('invoice_paid_at', dayStart).lte('invoice_paid_at', dayEnd)
+      .order('invoice_paid_at', { ascending: true })
+      .then(r => r, () => ({ data: [], error: null })),
+  ]);
+  if (eventsRes.error) {
+    console.warn('[daily-log] loadEquipmentActivity events:', eventsRes.error.message);
   }
-  return collapseStatusChanges(data || []);
+  const events = eventsRes.data || [];
+
+  // Map equipment_issues rows into synthetic event objects so the
+  // render path can treat them uniformly. Two event types:
+  //   • issue_opened  — payload: { title, priority, status, vendor_id }
+  //   • issue_paid    — payload: { title, invoice_amount, vendor_id }
+  const issueEvents = [];
+  ((openedRes && openedRes.data) || []).forEach(i => {
+    issueEvents.push({
+      id: 'issue-opened-' + i.id,
+      equipment_id: i.equipment_id,
+      event_type: 'issue_opened',
+      payload: {
+        title: i.title,
+        priority: i.priority,
+        status: i.status,
+        vendor_id: i.vendor_id || null,
+        issue_id: i.id,
+      },
+      location: null,
+      actor_name: i.reported_by_name || null,
+      occurred_at: i.reported_at,
+    });
+  });
+  ((paidRes && paidRes.data) || []).forEach(i => {
+    issueEvents.push({
+      id: 'issue-paid-' + i.id,
+      equipment_id: i.equipment_id,
+      event_type: 'issue_paid',
+      payload: {
+        title: i.title,
+        invoice_amount: i.invoice_amount,
+        vendor_id: i.vendor_id || null,
+        issue_id: i.id,
+      },
+      location: null,
+      actor_name: null,
+      occurred_at: i.invoice_paid_at,
+    });
+  });
+
+  return collapseStatusChanges([...events, ...issueEvents]);
 }
 
 // Given a day's events ordered oldest-first, produce a list where each
@@ -401,19 +495,27 @@ async function loadTicketSlices(logDate) {
 // v18.32 Vendor V1 — pull the R&M vendors table for the picker autocomplete
 // and the "Vendor Activity Today" section. Reads minimal fields so the
 // payload stays small even with a few hundred vendors.
+//
+// v18.32 hotfix — REMOVED the .eq('active', true) filter. Vendors created
+// via paths that don't explicitly set active (e.g. manual SQL insert,
+// older migrations) end up with active=NULL, which Postgres treats as
+// "not equal to true." Those vendors never loaded, so the daily-log
+// matcher tagged them "NOT IN VENDOR LIST" even though they were
+// clearly in the table with equipment assigned. Now we load every
+// non-archived vendor and treat NULL active as active.
 async function loadVendors() {
   if (!NX.sb) return [];
   const { data, error } = await NX.sb.from('vendors')
-    .select('id, name, company, category, phone, email, last_contact_at')
-    .eq('active', true)
-    .order('company', { ascending: true });
+    .select('id, name, company, category, phone, email, last_contact_at, active')
+    .order('company', { ascending: true, nullsFirst: false });
   if (error) {
     // Don't toast — the vendors table may not exist or the column may
     // not have been added yet. Log and degrade silently.
     console.warn('[daily-log] loadVendors:', error.message);
     return [];
   }
-  return data || [];
+  // Treat active=null as active. Only filter out explicitly false.
+  return (data || []).filter(v => v.active !== false);
 }
 
 // Counts open equipment_issues per vendor — used to surface "Vendor X
@@ -441,10 +543,170 @@ async function loadVendorOpenIssueCounts() {
   }
 }
 
+// v18.32 — Equipment currently in a non-operational state. Persistent
+// concern: any piece of equipment with status in
+// ('down', 'needs_service', 'broken') AND !archived shows up on every
+// daily log until its status flips back to 'operational'.
+//
+// The status_note column is the single source of truth for the "what's
+// going on with this" narrative — read+written by both this section
+// and the equipment edit form. No duplication, no stale state.
+const NON_OPERATIONAL_STATUSES = ['down', 'needs_service', 'broken'];
+async function loadEquipmentDown() {
+  if (!NX.sb) return [];
+  try {
+    const { data, error } = await NX.sb.from('equipment')
+      .select('id, name, location, status, status_note, notes, updated_at')
+      .in('status', NON_OPERATIONAL_STATUSES)
+      .eq('archived', false)
+      .order('updated_at', { ascending: false });
+    if (error) {
+      // status_note column may not exist (migration not run yet). Fall
+      // back to querying without it.
+      if (error.code === '42703') {
+        const { data: fallback, error: fbErr } = await NX.sb.from('equipment')
+          .select('id, name, location, status, notes, updated_at')
+          .in('status', NON_OPERATIONAL_STATUSES)
+          .eq('archived', false)
+          .order('updated_at', { ascending: false });
+        if (fbErr) {
+          console.warn('[daily-log] loadEquipmentDown fallback:', fbErr.message);
+          return [];
+        }
+        return (fallback || []).map(eq => Object.assign(eq, { _missing_status_note_column: true }));
+      }
+      console.warn('[daily-log] loadEquipmentDown:', error.message);
+      return [];
+    }
+    return data || [];
+  } catch (e) {
+    console.warn('[daily-log] loadEquipmentDown exception:', e);
+    return [];
+  }
+}
+
+// Writes status_note back to the equipment row. Best-effort: failures
+// log but don't block the daily-log autosave. Returns { ok } or { error }.
+async function writeEquipmentStatusNote(equipmentId, note) {
+  if (!NX.sb || !equipmentId) return { error: 'Bad request' };
+  try {
+    const { error } = await NX.sb.from('equipment')
+      .update({ status_note: note || null })
+      .eq('id', equipmentId);
+    if (error) {
+      if (error.code === '42703') {
+        if (!window._equipmentStatusNoteWarned) {
+          window._equipmentStatusNoteWarned = true;
+          if (NX.toast) NX.toast(
+            'Status notes need a DB migration. Run sql/equipment_status_note.sql.',
+            'warn', 6000);
+        }
+        return { error: 'status_note column missing' };
+      }
+      console.warn('[daily-log] writeEquipmentStatusNote:', error.message);
+      return { error: error.message };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { error: e.message || 'write failed' };
+  }
+}
+
+// Flips equipment.status to 'operational' AND clears its status_note.
+// Logs a status_change event so it appears in Today's Equipment Activity.
+// Used by the daily-log "✓ Mark operational" button when something gets
+// fixed. Returns { ok, eq } with the updated row.
+async function markEquipmentOperational(equipmentId) {
+  if (!NX.sb || !equipmentId) return { error: 'Bad request' };
+  try {
+    const { data: cur, error: getErr } = await NX.sb.from('equipment')
+      .select('id, name, status, location')
+      .eq('id', equipmentId)
+      .maybeSingle();
+    if (getErr || !cur) return { error: 'Could not load current state' };
+    const fromStatus = cur.status;
+
+    // Update status + clear status_note; if column missing, status-only update
+    let updateErr;
+    const tryFull = await NX.sb.from('equipment')
+      .update({ status: 'operational', status_note: null })
+      .eq('id', equipmentId);
+    updateErr = tryFull.error;
+    if (updateErr && updateErr.code === '42703') {
+      const tryPartial = await NX.sb.from('equipment')
+        .update({ status: 'operational' })
+        .eq('id', equipmentId);
+      updateErr = tryPartial.error;
+    }
+    if (updateErr) {
+      return { error: updateErr.message || 'Update failed' };
+    }
+
+    // Log the status_change event so it shows in Today's Equipment Activity
+    try {
+      if (typeof NX !== 'undefined' && NX.logEquipmentEvent) {
+        await NX.logEquipmentEvent('status_change', equipmentId, {
+          from: fromStatus,
+          to: 'operational',
+          equipment_name: cur.name,
+          source: 'daily-log',
+        }, cur.location);
+      }
+    } catch (e) {
+      console.warn('[daily-log] logEquipmentEvent failed (non-fatal):', e);
+    }
+
+    return { ok: true, eq: Object.assign({}, cur, { status: 'operational' }) };
+  } catch (e) {
+    return { error: e.message || 'mark operational failed' };
+  }
+}
+
+// v18.32 hotfix — Vendor name matching utility. Used by both the
+// Vendor Activity rendering and the last_contact_at bumper on save.
+// Tries progressively more forgiving matches:
+//   1. Exact case-insensitive match on company OR name (trimmed)
+//   2. Normalized: collapse whitespace, strip suffixes (Inc, LLC, Co, Ltd)
+// Returns the matched vendor row, or null if no match.
+function findVendorMatch(display, vendors) {
+  if (!display || !Array.isArray(vendors) || !vendors.length) return null;
+  const target = String(display).trim().toLowerCase();
+  if (!target) return null;
+
+  // Pass 1 — exact case-insensitive on name OR company
+  for (const v of vendors) {
+    const n = String(v.name || '').trim().toLowerCase();
+    const c = String(v.company || '').trim().toLowerCase();
+    if (n === target || c === target) return v;
+  }
+
+  // Pass 2 — normalized: drop common business suffixes + collapse spaces
+  const normalize = (s) => String(s || '')
+    .toLowerCase()
+    .replace(/[.,&]/g, ' ')
+    .replace(/\b(inc|incorporated|llc|llp|co|company|corp|corporation|ltd|limited|services|service|svcs)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const normTarget = normalize(target);
+  if (normTarget) {
+    for (const v of vendors) {
+      const n = normalize(v.name);
+      const c = normalize(v.company);
+      if ((n && n === normTarget) || (c && c === normTarget)) return v;
+    }
+  }
+  return null;
+}
+
 // On submit, scan the saved log's vendor_calls for vendor names that
 // match known vendors and bump their last_contact_at. Tolerant of
 // schema gaps: if the column doesn't exist, the UPDATE 400s and we
 // log+continue (the user's daily log save itself is unaffected).
+//
+// v18.32 hotfix — Uses findVendorMatch so the SAME forgiving matcher
+// the Vendor Activity section uses is the one that decides whether to
+// bump last_contact_at. Previously these could disagree (the section
+// said "matched" but the bump didn't update the row, or vice versa).
 async function bumpVendorLastContact(logData) {
   if (!NX.sb || !logData || !Array.isArray(state.vendors) || !state.vendors.length) return;
   // Extract every non-empty vendor name from every location's vendor_calls
@@ -452,26 +714,28 @@ async function bumpVendorLastContact(logData) {
   (logData.locations || []).forEach(loc => {
     (loc.vendor_calls || []).forEach(vc => {
       const name = (vc && vc.vendor || '').trim();
-      if (name) calledNames.add(name.toLowerCase());
+      if (name) calledNames.add(name);
     });
   });
   if (!calledNames.size) return;
-  // Match by case-insensitive name OR company
-  const matched = state.vendors.filter(v => {
-    const n = (v.name || '').toLowerCase().trim();
-    const c = (v.company || '').toLowerCase().trim();
-    return calledNames.has(n) || calledNames.has(c);
-  });
-  if (!matched.size && !matched.length) return;
+  // Use findVendorMatch (the same one used in render) to figure out
+  // which vendors are referenced. Collect into a set keyed by id so we
+  // bump each vendor only once even if mentioned across multiple rows.
+  const matchedIds = new Set();
+  for (const name of calledNames) {
+    const m = findVendorMatch(name, state.vendors);
+    if (m && m.id) matchedIds.add(m.id);
+  }
+  if (!matchedIds.size) return;
   const today = (logData.header && logData.header.date) || todayISO();
-  for (const v of matched) {
+  for (const id of matchedIds) {
     try {
       await NX.sb.from('vendors')
         .update({ last_contact_at: today })
-        .eq('id', v.id);
+        .eq('id', id);
     } catch (e) {
       // Column may not exist yet — log once, don't block save flow
-      console.warn('[daily-log] vendor last_contact bump failed for', v.id, e.message);
+      console.warn('[daily-log] vendor last_contact bump failed for', id, e.message);
     }
   }
 }
@@ -657,6 +921,7 @@ function render() {
           ${renderAddLocationControl(d)}
         </div>
 
+        ${renderEquipmentStatusSection(d)}
         ${renderEquipmentActivitySection(d)}
         ${renderVendorActivitySection(d)}
         ${renderTicketsSection(d)}
@@ -794,6 +1059,82 @@ function renderLocationSection(loc, idx) {
   `;
 }
 
+// v18.32 — Equipment Status section. Lists every piece of equipment
+// currently in a non-operational state with an editable status_note +
+// "Mark operational" button. Pre-populates from the canonical
+// equipment.status_note (single source of truth). Edits write back
+// directly to the equipment row, so the equipment view sees the same
+// state. As long as a piece of equipment is non-operational, it
+// appears here on every daily log.
+function renderEquipmentStatusSection(d) {
+  const items = state.equipmentDown || [];
+  const statusLabel = (k) => ({
+    down: 'DOWN', needs_service: 'NEEDS SERVICE', broken: 'BROKEN'
+  })[k] || (k || '').toUpperCase();
+  const statusPillClass = (k) => ({
+    down: 'dlog-eqstatus-pill-down',
+    needs_service: 'dlog-eqstatus-pill-service',
+    broken: 'dlog-eqstatus-pill-down',
+  })[k] || 'dlog-eqstatus-pill-service';
+
+  if (!items.length) {
+    return `
+      <details class="dlog-section">
+        <summary class="dlog-section-header">
+          <span class="dlog-section-title">Equipment Status</span>
+          <span class="dlog-section-count">0</span>
+        </summary>
+        <div class="dlog-section-body">
+          <p class="dlog-empty-hint">All equipment is operational. 🎉</p>
+        </div>
+      </details>`;
+  }
+
+  // Build a row per piece of down equipment
+  const rows = items.map(eq => {
+    // Days since last update — gives a sense of how long this has been down
+    const daysDown = eq.updated_at
+      ? Math.max(0, Math.floor((Date.now() - new Date(eq.updated_at).getTime()) / 86400000))
+      : null;
+    const dayLabel = daysDown == null ? ''
+      : daysDown === 0 ? 'updated today'
+      : daysDown === 1 ? '1 day'
+      : `${daysDown} days`;
+    const noteValue = eq.status_note || '';
+    return `
+      <div class="dlog-eqstatus-row" data-eq-id="${esc(eq.id)}">
+        <div class="dlog-eqstatus-head">
+          <span class="dlog-eqstatus-pill ${statusPillClass(eq.status)}">${esc(statusLabel(eq.status))}</span>
+          <div class="dlog-eqstatus-info">
+            <span class="dlog-eqstatus-name">${esc(eq.name || 'Untitled equipment')}</span>
+            <span class="dlog-eqstatus-meta">${esc(eq.location || '')}${dayLabel ? ' · ' + esc(dayLabel) : ''}</span>
+          </div>
+          <button type="button" class="dlog-eqstatus-fix" data-eq-fix="${esc(eq.id)}" title="Mark this equipment operational">
+            ✓ Fixed
+          </button>
+        </div>
+        <textarea
+          class="dlog-eqstatus-note"
+          data-eq-note="${esc(eq.id)}"
+          rows="2"
+          placeholder="Current status &mdash; parts ordered, vendor coming, etc."
+        >${esc(noteValue)}</textarea>
+      </div>`;
+  }).join('');
+
+  return `
+    <details class="dlog-section" open>
+      <summary class="dlog-section-header">
+        <span class="dlog-section-title">Equipment Status</span>
+        <span class="dlog-section-count">${items.length}</span>
+      </summary>
+      <div class="dlog-section-body">
+        <p class="dlog-empty-hint">Equipment that's not operational — notes here update the equipment record directly. Tap ✓ Fixed when an item's back up.</p>
+        <div class="dlog-eqstatus-list">${rows}</div>
+      </div>
+    </details>`;
+}
+
 // v18.32 Vendor V1 — autocomplete options for the vendor_calls inputs.
 // Rendered once at the top of the form; each vendor input references
 // it via `list="dlog-vendor-options"`. Uses company OR name as the
@@ -839,13 +1180,15 @@ function renderVendorActivitySection(d) {
 
   const total = mentionedByName.size;
   const rows = Array.from(mentionedByName.values()).map(m => {
-    // Try to match against the vendors table
-    const lc = m.display.toLowerCase();
-    const matched = (state.vendors || []).find(v => {
-      const n = (v.name || '').toLowerCase().trim();
-      const c = (v.company || '').toLowerCase().trim();
-      return n === lc || c === lc;
-    });
+    // v18.32 hotfix — match against the vendors table more permissively.
+    // Try (in order):
+    //   1. Exact case-insensitive match on company OR name (trimmed)
+    //   2. Match after normalizing common variants (collapsing whitespace,
+    //      stripping "Inc", "LLC", "Co", "Ltd" suffixes)
+    // This catches vendors stored with subtle variations from what the
+    // user typed (or what auto-filled from the datalist with a trailing
+    // space). "Austin Industrial" matches "Austin Industrial Inc."
+    const matched = findVendorMatch(m.display, state.vendors || []);
     const phoneHref = matched && matched.phone
       ? `<a class="dlog-vd-phone" href="tel:${esc(String(matched.phone).replace(/[^\d+]/g, ''))}">📞 ${esc(matched.phone)}</a>`
       : '';
@@ -929,6 +1272,23 @@ function renderEquipmentActivitySection(d) {
     } else if (ev.event_type === 'created') {
       detail = 'New equipment created';
       pillClass += ' dlog-act-pill-create';
+    } else if (ev.event_type === 'issue_opened') {
+      // v18.32 hotfix — equipment_issues opened today. Surfaces the
+      // R&M work-order stream alongside equipment_events.
+      const title = (ev.payload && ev.payload.title) || 'Work order opened';
+      const pri = (ev.payload && ev.payload.priority) || '';
+      const priLabel = pri && pri !== 'normal' ? ` <span class="dlog-act-pri-${esc(pri)}">${esc(pri)}</span>` : '';
+      detail = `Work order: ${esc(String(title).slice(0, 60))}${priLabel}`;
+      pillClass += ' dlog-act-pill-issue';
+    } else if (ev.event_type === 'issue_paid') {
+      // v18.32 hotfix — equipment_issues invoice paid today.
+      const title = (ev.payload && ev.payload.title) || 'Work order';
+      const amt = ev.payload && ev.payload.invoice_amount;
+      const amtLabel = (amt && !isNaN(amt))
+        ? ` <b>$${Math.round(Number(amt)).toLocaleString()}</b>`
+        : '';
+      detail = `Invoice paid: ${esc(String(title).slice(0, 50))}${amtLabel}`;
+      pillClass += ' dlog-act-pill-paid';
     } else {
       // Catch-all for less common types (fields_edited, note_added,
       // photo_replaced, part_replacement, etc.)
@@ -1137,6 +1497,62 @@ function wireForm() {
     });
   });
 
+  // ── v18.32 Equipment Status note textarea — writes back to
+  // equipment.status_note on blur. Debounced 600ms so rapid typing
+  // doesn't generate one UPDATE per keystroke.
+  view.querySelectorAll('[data-eq-note]').forEach(ta => {
+    const equipmentId = ta.dataset.eqNote;
+    let writeTimer = null;
+    const flush = async () => {
+      const note = ta.value;
+      // Update in-memory state.equipmentDown for immediate consistency
+      const item = (state.equipmentDown || []).find(eq => eq.id === equipmentId);
+      if (item) item.status_note = note;
+      // Persist to the equipment row (best-effort, doesn't toast on error)
+      await writeEquipmentStatusNote(equipmentId, note);
+    };
+    ta.addEventListener('input', () => {
+      if (writeTimer) clearTimeout(writeTimer);
+      writeTimer = setTimeout(flush, 600);
+    });
+    ta.addEventListener('blur', () => {
+      if (writeTimer) { clearTimeout(writeTimer); writeTimer = null; }
+      flush();
+    });
+  });
+
+  // ── v18.32 "✓ Fixed" — flips equipment to operational + clears
+  // status_note + logs a status_change event. The equipment drops out
+  // of the Equipment Status section AND appears in Today's Equipment
+  // Activity (status_change from down → operational) immediately.
+  view.querySelectorAll('[data-eq-fix]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const equipmentId = btn.dataset.eqFix;
+      const item = (state.equipmentDown || []).find(eq => eq.id === equipmentId);
+      const eqName = (item && item.name) || 'this equipment';
+      if (!confirm(`Mark "${eqName}" as operational? This will clear its status note and log a status change.`)) return;
+      btn.disabled = true;
+      btn.textContent = '…';
+      const result = await markEquipmentOperational(equipmentId);
+      if (result.error) {
+        btn.disabled = false;
+        btn.textContent = '✓ Fixed';
+        if (NX.toast) NX.toast('Could not update: ' + result.error, 'error', 4500);
+        return;
+      }
+      if (NX.toast) NX.toast(`${eqName} marked operational`, 'success', 2400);
+      // Drop the item from local state immediately for snappy UI
+      state.equipmentDown = (state.equipmentDown || []).filter(eq => eq.id !== equipmentId);
+      // Refresh today's equipment activity so the status_change appears
+      try {
+        const log = ensureCurrentLog();
+        const freshActivity = await loadEquipmentActivity(log.data.header.date);
+        state.equipmentActivity = freshActivity;
+      } catch (e) { /* non-fatal */ }
+      render();
+    });
+  });
+
   // ── Remove location (the × button in the location section header).
   // stopPropagation is critical — otherwise the click also toggles the
   // <details> open/closed since the × button sits inside <summary>.
@@ -1302,14 +1718,26 @@ async function commitSave(opts) {
     // of "what NEXUS saw at upload time". Subsequent live re-renders
     // of the form still query fresh.
     try {
-      const [freshActivity, freshSlices] = await Promise.all([
+      const [freshActivity, freshSlices, freshEqDown] = await Promise.all([
         loadEquipmentActivity(log.data.header.date),
         loadTicketSlices(log.data.header.date),
+        loadEquipmentDown(),
       ]);
       state.equipmentActivity = freshActivity;
       state.ticketSlices = freshSlices;
+      state.equipmentDown = freshEqDown;
       log.data.equipment_activity = freshActivity;
       log.data.tickets = freshSlices;
+      // v18.32 — Snapshot the "equipment status today" list with the
+      // CURRENT status_note from each item. The Drive doc preserves the
+      // narrative as-of-upload-time, even if status_note changes later.
+      log.data.equipment_status = freshEqDown.map(eq => ({
+        id: eq.id,
+        name: eq.name,
+        location: eq.location,
+        status: eq.status,
+        status_note: eq.status_note || '',
+      }));
       // Persist both snapshots alongside the user's notes
       await NX.sb.from('facility_logs').update({ data: log.data }).eq('id', state.currentLog.id);
       state.currentLog.data = log.data;
@@ -1388,17 +1816,19 @@ async function openLogForDate(iso) {
   // Load the log + the day's equipment activity in parallel. The activity
   // feed is live (re-queried every time) — the snapshot only gets frozen
   // into data.equipment_activity at upload time.
-  const [existing, activity, slices, vendors, vendorIssues] = await Promise.all([
+  const [existing, activity, slices, vendors, vendorIssues, eqDown] = await Promise.all([
     loadLog(iso),
     loadEquipmentActivity(iso),
     loadTicketSlices(iso),
     loadVendors(),
     loadVendorOpenIssueCounts(),
+    loadEquipmentDown(),
   ]);
   state.equipmentActivity = activity;
   state.ticketSlices = slices;
   state.vendors = vendors;
   state.vendorOpenIssues = vendorIssues;
+  state.equipmentDown = eqDown;
   if (existing) {
     state.currentLog = existing;
     if (!state.currentLog.data) state.currentLog.data = hydrateData(null);
@@ -1427,7 +1857,7 @@ async function init() {
   // already sets state.equipmentLocations internally — we don't need
   // the return value).
   const today = todayISO();
-  const [rs, todayRow, _locations, activity, slices, vendors, vendorIssues] = await Promise.all([
+  const [rs, todayRow, _locations, activity, slices, vendors, vendorIssues, eqDown] = await Promise.all([
     loadRecentLogs(),
     loadLog(today),
     loadEquipmentLocations().catch(() => []),
@@ -1435,12 +1865,14 @@ async function init() {
     loadTicketSlices(today),
     loadVendors(),
     loadVendorOpenIssueCounts(),
+    loadEquipmentDown(),
   ]);
   state.recentLogs = rs;
   state.equipmentActivity = activity || [];
   state.ticketSlices = slices;
   state.vendors = vendors || [];
   state.vendorOpenIssues = vendorIssues || {};
+  state.equipmentDown = eqDown || [];
   if (todayRow) {
     state.currentLog = todayRow;
   } else {
@@ -1458,19 +1890,21 @@ async function show() {
   // Re-sync recent + current + activity + tickets on every view activation
   // in case data changed from another device/session
   const date = (state.currentLog && state.currentLog.log_date) || todayISO();
-  const [rs, current, activity, slices, vendors, vendorIssues] = await Promise.all([
+  const [rs, current, activity, slices, vendors, vendorIssues, eqDown] = await Promise.all([
     loadRecentLogs(),
     loadLog(date),
     loadEquipmentActivity(date),
     loadTicketSlices(date),
     loadVendors(),
     loadVendorOpenIssueCounts(),
+    loadEquipmentDown(),
   ]);
   state.recentLogs = rs;
   state.equipmentActivity = activity || [];
   state.ticketSlices = slices;
   state.vendors = vendors || [];
   state.vendorOpenIssues = vendorIssues || {};
+  state.equipmentDown = eqDown || [];
   if (current) {
     state.currentLog = current;
   } else if (!state.currentLog) {
