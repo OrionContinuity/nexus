@@ -916,6 +916,702 @@
 .dlog-status-uploaded  { color: #67c08c; border-color: rgba(103, 192, 140, 0.32); background: rgba(103, 192, 140, 0.08); }
 .dlog-status-failed    { color: var(--nx-red, #a83e3e); border-color: var(--nx-red-line); background: var(--nx-red-soft); }
 
+/* v18.32 Phase 3a — dynamic locations UI. + Add Location button sits
+   below the last location section; the dropdown menu floats above with
+   options pulled from distinct equipment.location values. Per-location
+   remove × button sits inside the section header. */
+/* v18.32 Phase 3b — Equipment Activity feed. One row per event (or
+   net-status-change). Pill on the left is color-coded by event type
+   so the eye can quickly skim the day's flips vs PMs vs moves. */
+.dlog-act-list {
+  display: flex; flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 10px;
+}
+.dlog-act-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 4px;
+  border-top: 1px solid var(--nx-border, var(--border));
+}
+.dlog-act-row:first-child { border-top: none; }
+.dlog-act-pill {
+  width: 6px; align-self: stretch;
+  border-radius: 999px;
+  background: var(--nx-faint);
+  flex-shrink: 0;
+}
+.dlog-act-pill-status.to-operational  { background: #67c08c; }
+.dlog-act-pill-status.to-needs_service{ background: var(--nx-gold, var(--accent)); }
+.dlog-act-pill-status.to-down,
+.dlog-act-pill-status.to-broken       { background: var(--nx-red, #a83e3e); }
+.dlog-act-pill-status.to-retired,
+.dlog-act-pill-status.to-missing      { background: var(--nx-muted); }
+.dlog-act-pill-pm      { background: var(--nx-gold, var(--accent)); }
+.dlog-act-pill-move    { background: var(--nx-blue, #6b7a8a); }
+.dlog-act-pill-archive { background: var(--nx-muted); }
+.dlog-act-pill-create  { background: #67c08c; }
+.dlog-act-main { flex: 1; min-width: 0; }
+.dlog-act-line {
+  font-size: 13px;
+  color: var(--nx-text, var(--text));
+  line-height: 1.3;
+}
+.dlog-act-loc {
+  display: inline-block; margin-left: 6px;
+  font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', monospace;
+}
+.dlog-act-detail {
+  font-size: 12px;
+  color: var(--nx-muted, var(--muted));
+  margin-top: 1px;
+}
+.dlog-act-note {
+  font-size: 10.5px;
+  font-style: italic;
+  color: var(--nx-faint, var(--muted));
+}
+.dlog-act-time {
+  font-size: 10.5px;
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* v18.32 Phase 3c — Biweekly Review tweaks. Reuses .dlog-* classes
+   for form structure; only adds the window-range subtitle + the
+   "phase note" banner at the bottom of the form. */
+/* v18.32 Phase 3d — Biweekly rollup cards + chronic-problem list.
+   2x2 grid of stat cards (or 1-col on mobile), each summarizing a
+   slice of the 14-day window. Chronic card sits ABOVE the grid since
+   it's the highest-impact section. */
+.bw-cards-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 10px 0 16px;
+}
+@media (max-width: 600px) {
+  .bw-cards-grid { grid-template-columns: 1fr; }
+}
+.bw-card {
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--nx-surface-faint, transparent);
+}
+.bw-card-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--nx-border, var(--border));
+}
+.bw-card-title {
+  font-size: 12px; letter-spacing: 0.8px; text-transform: uppercase;
+  color: var(--nx-muted, var(--muted));
+}
+.bw-card-total {
+  font-size: 22px; font-weight: 600;
+  color: var(--nx-gold, var(--accent));
+  font-family: 'JetBrains Mono', monospace;
+}
+.bw-card-body {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.bw-card-row {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 12px;
+}
+.bw-card-label {
+  flex-shrink: 0;
+  color: var(--nx-faint, var(--muted));
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  font-size: 10.5px;
+  min-width: 80px;
+}
+.bw-card-value {
+  font-weight: 600;
+  color: var(--nx-text, var(--text));
+  font-family: 'JetBrains Mono', monospace;
+}
+.bw-card-value-warn { color: var(--nx-red, #a83e3e); }
+.bw-card-hint {
+  color: var(--nx-faint, var(--muted));
+  font-style: italic;
+}
+.bw-bd {
+  display: flex; flex-wrap: wrap; gap: 4px 8px;
+  flex: 1;
+}
+.bw-bd-chip {
+  font-size: 11.5px;
+  color: var(--nx-text, var(--text));
+  white-space: nowrap;
+}
+.bw-bd-chip b {
+  color: var(--nx-gold, var(--accent));
+  font-family: 'JetBrains Mono', monospace;
+  margin-right: 1px;
+}
+
+/* Chronic-problem ticket list — visually distinct so it stands out
+   from the gentler rollup cards. Border tinted by the priority badge. */
+.bw-card-chronic > .dlog-section-header {
+  background: var(--nx-red-soft);
+}
+.bw-card-chronic > .dlog-section-header .dlog-section-count {
+  color: var(--nx-red, #a83e3e);
+  font-weight: 700;
+}
+.bw-aged-list {
+  display: flex; flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+.bw-aged-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 6px;
+  background: var(--nx-surface-faint, transparent);
+}
+.bw-aged-main { flex: 1; min-width: 0; }
+.bw-aged-title {
+  font-size: 13px;
+  color: var(--nx-text, var(--text));
+  font-weight: 500;
+  line-height: 1.3;
+  word-break: break-word;
+}
+.bw-aged-meta {
+  display: flex; gap: 10px; align-items: baseline;
+  margin-top: 3px;
+  font-size: 11px;
+}
+.bw-aged-age {
+  color: var(--nx-red, #a83e3e);
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+.bw-pri-pill {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10.5px; letter-spacing: 0.6px;
+  text-transform: uppercase;
+  font-weight: 600;
+  align-self: flex-start;
+}
+.bw-pri-urgent { background: var(--nx-red-soft); color: var(--nx-red, #a83e3e); border: 1px solid var(--nx-red-line); }
+.bw-pri-normal { background: var(--nx-gold-faint); color: var(--nx-gold, var(--accent)); border: 1px solid var(--nx-gold-line); }
+.bw-pri-low    { background: var(--nx-faint); color: var(--nx-muted, var(--muted)); border: 1px solid var(--nx-border); }
+
+/* Annotations — 4 textareas in a tidy grid (1 col on mobile, 2 on PC) */
+.bw-notes-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 600px) {
+  .bw-notes-grid { grid-template-columns: 1fr; }
+}
+
+.bw-window-label {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  color: var(--nx-muted, var(--muted));
+  font-family: 'JetBrains Mono', monospace;
+}
+.bw-window-label b {
+  color: var(--nx-text, var(--text));
+  font-weight: 600;
+}
+
+/* v18.32 Phase 3e — Daily-log tickets continuity card.
+   Three slice subsections stacked, each with a count badge, ticket
+   list, and a notes textarea. Reuses the bw-pri-* priority pills
+   defined for the biweekly chronic-problem list. */
+.dlog-tk-slice {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--nx-border, var(--border));
+}
+.dlog-tk-slice:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.dlog-tk-slice-head {
+  display: flex; align-items: baseline; gap: 8px;
+  margin-bottom: 6px;
+}
+.dlog-tk-slice-label {
+  font-size: 12px; letter-spacing: 0.8px; text-transform: uppercase;
+  color: var(--nx-muted, var(--muted));
+  font-weight: 600;
+}
+.dlog-tk-slice-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; font-weight: 700;
+  color: var(--nx-gold, var(--accent));
+}
+.dlog-tk-list {
+  display: flex; flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.dlog-tk-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 8px 10px;
+  background: var(--nx-surface-faint, transparent);
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 6px;
+}
+.dlog-tk-main { flex: 1; min-width: 0; }
+.dlog-tk-title {
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--nx-text, var(--text));
+  word-break: break-word;
+}
+.dlog-tk-loc {
+  margin-top: 2px;
+  font-size: 10.5px; letter-spacing: 0.6px; text-transform: uppercase;
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* v18.32 Vendor V1 — Vendor Activity Today card.
+   One row per vendor mentioned in today's vendor_calls. Right-aligned
+   tap-to-call link when the vendor's phone is on file. Open-work-order
+   badge in red when the vendor has active equipment_issues. */
+.dlog-vd-list {
+  display: flex; flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 10px;
+}
+.dlog-vd-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 6px;
+  background: var(--nx-surface-faint, transparent);
+}
+.dlog-vd-main { flex: 1; min-width: 0; }
+.dlog-vd-name {
+  font-size: 13px;
+  color: var(--nx-text, var(--text));
+  font-weight: 500;
+  line-height: 1.3;
+  word-break: break-word;
+}
+.dlog-vd-meta {
+  display: flex; flex-wrap: wrap; gap: 4px 10px;
+  align-items: baseline;
+  margin-top: 3px;
+  font-size: 11px;
+}
+.dlog-vd-match {
+  font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase;
+  padding: 1px 6px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--nx-faint);
+  color: var(--nx-muted, var(--muted));
+  font-weight: 600;
+}
+.dlog-vd-unmatched {
+  font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase;
+  padding: 1px 6px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--nx-gold-faint);
+  color: var(--nx-gold, var(--accent));
+  font-weight: 600;
+  font-style: italic;
+}
+.dlog-vd-issues {
+  color: var(--nx-red, #a83e3e);
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+.dlog-vd-last {
+  color: var(--nx-faint, var(--muted));
+  font-family: 'JetBrains Mono', monospace;
+}
+.dlog-vd-phone {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--nx-gold-faint);
+  color: var(--nx-gold, var(--accent));
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  border: 1px solid var(--nx-gold-line);
+}
+.dlog-vd-phone:hover { background: var(--nx-gold, var(--accent)); color: var(--nx-on-gold, #fff); }
+
+/* v18.32 Vendor V2 — Biweekly vendor performance card.
+   One row per vendor active in the window, with a colored grade pill
+   on the left + window stats + lifetime stats. Highlights row at top
+   calls out best/slowest/biggest-spend. */
+/* v18.32 polish — Biweekly checklist inline edit mode. */
+/* v18.32 Home Rebuild — Daily Operations pills + Vendor Watch + intro skeleton.
+   Sits between the greeting and the glance tiles. Top-of-fold real estate
+   for the most-tapped new flows (Daily Log + Biweekly). */
+.home-intro-skel {
+  display: inline-block;
+  width: 60px;
+  height: 1em;
+  background: var(--nx-surface-1);
+  border-radius: 4px;
+  vertical-align: middle;
+  opacity: 0.4;
+}
+.home-ops {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 14px 0 18px;
+}
+.home-ops-pill {
+  display: flex; flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 16px;
+  min-height: 70px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-border);
+  border-radius: 12px;
+  color: var(--nx-text);
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+  transition: all 120ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.home-ops-pill:hover, .home-ops-pill:active {
+  border-color: var(--nx-gold-line-2);
+  background: var(--nx-surface-2);
+}
+.home-ops-eyebrow {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--nx-gold, var(--accent));
+  font-weight: 600;
+}
+.home-ops-state {
+  font-size: 13px;
+  color: var(--nx-text);
+  line-height: 1.3;
+  /* allow wrap to 2 lines on tight screens without breaking layout */
+  word-break: break-word;
+}
+.home-ops-arrow {
+  position: absolute;
+  top: 14px; right: 14px;
+  font-size: 16px;
+  color: var(--nx-faint);
+  transition: color 120ms;
+}
+.home-ops-pill:hover .home-ops-arrow {
+  color: var(--nx-gold, var(--accent));
+}
+
+/* Vendor watch — small alert card, only renders when needed */
+.home-vendor-watch {
+  margin: 18px 0;
+}
+.home-vendor-list {
+  display: flex; flex-direction: column;
+  gap: 6px;
+}
+.home-vendor-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  background: var(--nx-surface-1);
+  border: 1px solid var(--nx-border);
+  border-radius: 8px;
+}
+.home-vendor-row-main { flex: 1; min-width: 0; }
+.home-vendor-row-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nx-text);
+}
+.home-vendor-row-meta {
+  display: flex; gap: 10px;
+  margin-top: 3px;
+  font-size: 11px;
+}
+.home-vendor-row-status {
+  color: var(--nx-gold, var(--accent));
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  font-family: 'JetBrains Mono', monospace;
+}
+.home-vendor-row-age {
+  color: var(--nx-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+.home-vendor-row-title {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--nx-muted);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-vendor-row-call {
+  flex-shrink: 0;
+  width: 38px; height: 38px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+  background: var(--nx-gold-faint);
+  border: 1px solid var(--nx-gold-line);
+  color: var(--nx-gold, var(--accent));
+  font-size: 16px;
+  text-decoration: none;
+}
+.home-vendor-row-call:hover {
+  background: var(--nx-gold-soft);
+  border-color: var(--nx-gold-line-2);
+}
+
+.bw-checklist-edit-toggle {
+  margin-top: 10px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px dashed var(--nx-border, var(--border));
+  border-radius: 6px;
+  color: var(--nx-muted, var(--muted));
+  font-size: 11px; letter-spacing: 0.6px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.bw-checklist-edit-toggle:hover {
+  color: var(--nx-gold, var(--accent));
+  border-color: var(--nx-gold-line);
+}
+.bw-checklist-edit-list {
+  display: flex; flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.bw-checklist-edit-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.bw-checklist-edit-input {
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: var(--nx-surface-faint, transparent);
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 6px;
+  color: var(--nx-text, var(--text));
+}
+.bw-checklist-edit-input:focus {
+  outline: none;
+  border-color: var(--nx-gold, var(--accent));
+}
+.bw-checklist-item-remove {
+  flex-shrink: 0;
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--nx-border, var(--border));
+  color: var(--nx-muted, var(--muted));
+  font-size: 16px;
+  cursor: pointer;
+}
+.bw-checklist-item-remove:hover {
+  background: var(--nx-red-soft);
+  color: var(--nx-red, #a83e3e);
+  border-color: var(--nx-red-line);
+}
+
+.bw-vendor-highlights {
+  display: flex; flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: var(--nx-gold-faint);
+  border-left: 2px solid var(--nx-gold, var(--accent));
+  border-radius: 4px;
+}
+.bw-vendor-hl {
+  display: flex; flex-direction: column; gap: 1px;
+  font-size: 11px;
+  flex: 1;
+  min-width: 120px;
+}
+.bw-vendor-hl-label {
+  color: var(--nx-muted, var(--muted));
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.bw-vendor-hl-value {
+  color: var(--nx-text, var(--text));
+  font-weight: 600;
+}
+.bw-vendor-hl-value small {
+  color: var(--nx-faint, var(--muted));
+  font-weight: 400;
+}
+.bw-vendor-list {
+  display: flex; flex-direction: column;
+  gap: 6px;
+}
+.bw-vendor-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 6px;
+  background: var(--nx-surface-faint, transparent);
+}
+.bw-vendor-grade {
+  flex-shrink: 0;
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  font-size: 16px; font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  border: 2px solid;
+}
+.bw-grade-a   { color: #67c08c; border-color: #67c08c; background: rgba(103,192,140,0.08); }
+.bw-grade-b   { color: #b8c574; border-color: #b8c574; background: rgba(184,197,116,0.08); }
+.bw-grade-c   { color: var(--nx-gold, var(--accent)); border-color: var(--nx-gold, var(--accent)); background: var(--nx-gold-faint); }
+.bw-grade-d   { color: #d68a4e; border-color: #d68a4e; background: rgba(214,138,78,0.08); }
+.bw-grade-f   { color: var(--nx-red, #a83e3e); border-color: var(--nx-red, #a83e3e); background: var(--nx-red-soft); }
+.bw-grade-na  { color: var(--nx-muted, var(--muted)); border-color: var(--nx-border, var(--border)); }
+.bw-vendor-main { flex: 1; min-width: 0; }
+.bw-vendor-name {
+  font-size: 13px; font-weight: 600;
+  color: var(--nx-text, var(--text));
+  line-height: 1.3;
+}
+.bw-vendor-cat {
+  margin-left: 6px;
+  font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase;
+  color: var(--nx-faint, var(--muted));
+  font-weight: 500;
+}
+.bw-vendor-meta {
+  display: flex; flex-wrap: wrap; gap: 4px 10px;
+  margin-top: 4px;
+  font-size: 11px;
+}
+.bw-vendor-stat {
+  color: var(--nx-text, var(--text));
+}
+.bw-vendor-stat b {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--nx-gold, var(--accent));
+  margin-right: 1px;
+}
+.bw-vendor-spend b { color: var(--nx-red, #a83e3e); }
+.bw-vendor-stat-faint {
+  color: var(--nx-faint, var(--muted));
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.bw-vendor-stat-faint b {
+  color: var(--nx-muted, var(--muted));
+  font-family: 'JetBrains Mono', monospace;
+}
+.bw-vendor-phone {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--nx-gold-faint);
+  border: 1px solid var(--nx-gold-line);
+  color: var(--nx-gold, var(--accent));
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.dlog-locations-wrap {
+  display: flex; flex-direction: column; gap: 12px;
+}
+.dlog-add-loc-wrap {
+  position: relative;
+  margin: 4px 0 12px;
+}
+.dlog-add-loc-btn {
+  width: 100%;
+}
+.dlog-add-loc-menu {
+  position: absolute; left: 0; right: 0; top: 100%;
+  margin-top: 4px;
+  background: var(--nx-surface-solid, var(--surface));
+  border: 1px solid var(--nx-border-strong, var(--border));
+  border-radius: 8px;
+  padding: 6px;
+  z-index: 20;
+  display: flex; flex-direction: column; gap: 2px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  max-height: 280px;
+  overflow-y: auto;
+}
+.dlog-add-loc-menu[hidden] { display: none; }
+.dlog-add-loc-opt {
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  color: var(--nx-text, var(--text));
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.dlog-add-loc-opt:hover {
+  background: var(--nx-gold-faint);
+  color: var(--nx-gold, var(--accent));
+}
+.dlog-add-loc-empty {
+  padding: 10px 12px;
+  margin: 0;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--nx-muted, var(--muted));
+}
+
+/* Per-location remove × button — lives in the <summary>, needs to not
+   trigger the details toggle when clicked. JS uses stopPropagation. */
+.dlog-loc-remove {
+  margin-left: auto;
+  width: 26px; height: 26px;
+  background: transparent;
+  border: 1px solid var(--nx-border, var(--border));
+  border-radius: 999px;
+  color: var(--nx-muted, var(--muted));
+  font-size: 16px; line-height: 1;
+  cursor: pointer;
+  transition: all 150ms ease;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.dlog-loc-remove:hover {
+  color: var(--nx-red, #a83e3e);
+  border-color: var(--nx-red-line);
+  background: var(--nx-red-soft);
+}
+/* The chevron pseudo-element after the section title needs to NOT capture
+   the remove button. Force its position so they don't overlap. */
+.dlog-section-location > .dlog-section-header { position: relative; }
+.dlog-section-location > .dlog-section-header::after {
+  margin-left: 6px;
+  position: static;
+}
+
 .dlog-recent {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 0; margin-bottom: 12px;
@@ -1744,6 +2440,7 @@
     <button class="nav-tab" data-view="equipment" data-perm="equipment" title="Equipment"><i data-lucide="wrench" class="nav-icon"></i> <span data-i18n="equipment">Equipment</span></button>
     <button class="nav-tab" data-view="education" title="Education"><i data-lucide="book-open" class="nav-icon"></i> <span>Education</span></button>
     <button class="nav-tab" data-view="dailylog" title="Daily Log"><i data-lucide="notebook-pen" class="nav-icon"></i> <span>Daily Log</span></button>
+    <button class="nav-tab" data-view="biweekly" title="Biweekly Review"><i data-lucide="calendar-clock" class="nav-icon"></i> <span>Biweekly</span></button>
     <button class="nav-tab" data-view="train" data-perm="train" title="Training" hidden style="display:none"><i data-lucide="graduation-cap" class="nav-icon"></i> <span data-i18n="training">Training</span><span class="nav-tab-badge" id="navTrainBadge" aria-hidden="true" hidden></span></button>
     <button class="nav-tab" data-view="inventory" data-perm="inventory" title="Inventory"><i data-lucide="boxes" class="nav-icon"></i> <span data-i18n="inventory">Inventory</span></button>
     <!-- NEXUS · R&M — Brief / Issues / Spend / Vendors / PM -->
@@ -1983,6 +2680,7 @@
   <!-- EDUCATION (v15 replacement for Training) -->
   <div class="view" id="educationView" data-view="education"></div>
   <div class="view" id="dailylogView" data-view="dailylog"></div>
+  <div class="view" id="biweeklyView" data-view="biweekly"></div>
 
   <!-- CALENDAR -->
   <div class="view" id="calView" data-view="cal">
@@ -2355,6 +3053,12 @@
       <span class="nx-speed-dial-label">Daily Log</span>
       <span class="nx-speed-dial-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/><path d="M9 7h6"/><path d="M9 11h4"/></svg>
+      </span>
+    </button>
+    <button class="nx-speed-dial-action sd-mobile-only" data-target="biweekly" type="button" aria-label="Open Biweekly Review">
+      <span class="nx-speed-dial-label">Biweekly</span>
+      <span class="nx-speed-dial-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M12 14v4"/><path d="M10 16h4"/></svg>
       </span>
     </button>
     <button class="nx-speed-dial-action sd-mobile-only" data-target="cal" type="button" aria-label="Open Calendar">
@@ -3605,6 +4309,9 @@
      polls until _internal mounts (clippy.js sets it up during its IIFE
      initialization, which happens regardless of view selection). -->
 <script src="js/clippy-gacha.js" defer></script>
+<!-- v18.32 — Mini-games sub-module extracted from clippy.js. Late-binding init polls
+     for NX.clippy._internal, then attaches NX.clippy.games. Load AFTER clippy.js. -->
+<script src="js/clippy-games.js" defer></script>
 <!-- record-editor.js MUST come AFTER app.js — the engine attaches to the
      lexical `const NX` declared in app.js, which is not a property on
      window. Loading order is the only way to make that binding visible
@@ -3614,6 +4321,7 @@
 <script src="js/home.js"></script>
 <script defer src="js/nx-drive.js"></script>
 <script defer src="js/daily-log.js"></script>
+<script defer src="js/biweekly-log.js"></script>
 <script src="js/native-bridge.js"></script>
 
 <!-- NEXUS · R&M — load core.js FIRST (others destructure NXRM.* from it) -->
