@@ -354,14 +354,43 @@ function buildTicketCard(r, pinned) {
         }
       } catch (e) { /* fallthrough — try the legacy paths below */ }
 
-      // 1. Close the ticket
-      try { await NX.sb.from('tickets').update({ status: 'closed' }).eq('id', r.id); } catch (e) {}
+      // 1. Close the ticket — set both status and closed_at (3d). The
+      //    closed_at column lets the biweekly review compute "tickets
+      //    closed in window" and average resolution time.
+      try {
+        await NX.sb.from('tickets').update({
+          status: 'closed',
+          closed_at: new Date().toISOString(),
+        }).eq('id', r.id);
+      } catch (e) {}
 
       // 2. Restore equipment status (only if a prior_eq_status was set,
       //    meaning the ticket originally bumped it). This is idempotent —
       //    if status was already restored elsewhere we just set it again.
       if (equipmentId && priorStatus) {
+        // v18.32 Phase 3b — fetch the current status BEFORE the revert
+        // so we have a from→to pair for the activity stream. If the
+        // current already equals priorStatus, this is a no-op revert
+        // and we skip the event log entirely.
+        let curStatus = null, eqName = null, eqLoc = null;
+        try {
+          const { data: cur } = await NX.sb.from('equipment')
+            .select('status, name, location').eq('id', equipmentId).single();
+          if (cur) { curStatus = cur.status; eqName = cur.name; eqLoc = cur.location; }
+        } catch (_) {/* fall through */}
         try { await NX.sb.from('equipment').update({ status: priorStatus }).eq('id', equipmentId); } catch (e) {}
+        if (curStatus && curStatus !== priorStatus) {
+          NX.logEquipmentEvent?.({
+            equipmentId,
+            eventType: 'status_change',
+            location: eqLoc,
+            payload: {
+              from: curStatus, to: priorStatus,
+              equipment_name: eqName,
+              source: 'ticket_close_revert',
+            },
+          });
+        }
       }
 
       // 3. Close the linked board card

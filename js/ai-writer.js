@@ -494,7 +494,17 @@
     const status = assertEnum(p.status, VALID_TICKET_STATUSES, 'status');
     const before = await snapshotRow('tickets', ticket_id);
     if(!before) throw new Error(`Ticket ${ticket_id} not found`);
-    const {error} = await NX.sb.from('tickets').update({status}).eq('id', ticket_id);
+    // v18.32 Phase 3d — maintain closed_at alongside status so the
+    // Biweekly Review can compute "closed in window" + resolution time.
+    // Set on transition into a terminal state; clear when reopened so
+    // a reopened-then-reclosed ticket gets a fresh closed_at.
+    const update = { status };
+    const TERMINAL = ['closed', 'resolved'];
+    const wasTerminal = TERMINAL.includes(before.status);
+    const willBeTerminal = TERMINAL.includes(status);
+    if (willBeTerminal && !wasTerminal) update.closed_at = new Date().toISOString();
+    else if (!willBeTerminal && wasTerminal) update.closed_at = null;
+    const {error} = await NX.sb.from('tickets').update(update).eq('id', ticket_id);
     if(error) throw new Error(error.message);
     const after = await snapshotRow('tickets', ticket_id);
     return {
