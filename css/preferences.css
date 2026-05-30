@@ -104,35 +104,43 @@
 .prefs-scrim {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  /* v18.32 — Match the nx-sheet-backdrop standard (4px blur). The
+     prior 2px was barely visible and inconsistent with other sheets. */
+  background: rgba(0, 0, 0, 0.58);
   z-index: 9998;
   opacity: 0;
   pointer-events: none;
   transition: opacity 220ms ease;
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 .prefs-scrim.is-open {
   opacity: 1;
   pointer-events: auto;
 }
 
+/* v18.32 — Sheet surface uses --nx-surface-solid per design system.
+   Was var(--surface) which is the OLD legacy token, often resolving
+   to a translucent rgba layer that read as "glass" on top of the
+   page. Sheets are exactly the "needs opacity" case per the design
+   system doc — solid is correct. Border-top uses --nx-gold-line for
+   the subtle gold rule that anchors the sheet to its accent color. */
 .prefs-sheet {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
   z-index: 9999;
-  background: var(--surface, var(--surface));
-  color: var(--fg, #e8e6df);
-  border-top: 1px solid var(--accent, var(--accent));
+  background: var(--nx-surface-solid);
+  color: var(--nx-text);
+  border-top: 1px solid var(--nx-gold-line);
   border-radius: 18px 18px 0 0;
   padding: 12px 18px 24px;
   max-height: 88vh;
   overflow-y: auto;
   transform: translateY(100%);
   transition: transform 280ms cubic-bezier(0.2, 0, 0.2, 1);
-  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-family: var(--nx-font-body, 'DM Sans', -apple-system, sans-serif);
   font-size: 15.5px;
   -webkit-overflow-scrolling: touch;
   box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
