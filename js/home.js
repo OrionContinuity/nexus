@@ -160,9 +160,30 @@
             <span class="home-lede-name">${esc(firstName)}.</span>
           </h1>
 
+          <!-- v18.32 Home Rebuild — Today's Mission line. Replaces the
+               static "Checking what's happening…" intro with a data-driven
+               1-liner that summarizes daily state in 4-12 words. Filled
+               in by loadTodayMission() after data lands. -->
           <p class="home-intro" id="homeIntro">
-            Checking what's happening across the restaurants…
+            <span class="home-intro-skel">···</span>
           </p>
+
+          <!-- v18.32 Home Rebuild — Daily Operations card. Two pills:
+               Daily Log status (today's submission state) + Biweekly
+               Review countdown (days until next due). Most-tapped new
+               surfaces, deserve top-of-page placement. -->
+          <div class="home-ops" id="homeOps">
+            <button class="home-ops-pill" data-ops="daily" type="button">
+              <span class="home-ops-eyebrow">DAILY LOG</span>
+              <span class="home-ops-state" id="homeOpsDailyState">···</span>
+              <span class="home-ops-arrow">→</span>
+            </button>
+            <button class="home-ops-pill" data-ops="biweekly" type="button">
+              <span class="home-ops-eyebrow">BIWEEKLY</span>
+              <span class="home-ops-state" id="homeOpsBiweeklyState">···</span>
+              <span class="home-ops-arrow">→</span>
+            </button>
+          </div>
 
           <!-- STATS — moved above the fold. Most-tapped surface,
                so it should be visible without scrolling. -->
@@ -175,7 +196,18 @@
             `).join('')}
           </div>
 
-          <h2 class="nx-section nx-section--first">
+          <!-- v18.32 Home Rebuild — Vendor Watch. Hidden by default;
+               loadVendorWatch() populates and reveals only when vendors
+               have open work orders awaiting your action (quotes, parts
+               waits, overdue contacts). One-tap call buttons. -->
+          <section class="home-vendor-watch" id="homeVendorWatch" hidden>
+            <h2 class="nx-section">
+              <span class="nx-section-title">Vendor watch</span>
+            </h2>
+            <div class="home-vendor-list" id="homeVendorList"></div>
+          </section>
+
+          <h2 class="nx-section">
             <span class="nx-section-title">Today</span>
           </h2>
           <div class="home-feed" id="homeFeed">
@@ -251,6 +283,13 @@
           askBtn.addEventListener('touchstart', pause, { passive: true });
         }
       }
+      // v18.32 Home Rebuild — wire Daily Operations pill taps.
+      // Daily → daily-log view, Biweekly → biweekly view. Uses the same
+      // switchTo helper everything else uses.
+      const opsDaily = el.querySelector('[data-ops="daily"]');
+      if (opsDaily) opsDaily.addEventListener('click', () => NX.switchTo?.('daily-log'));
+      const opsBiweekly = el.querySelector('[data-ops="biweekly"]');
+      if (opsBiweekly) opsBiweekly.addEventListener('click', () => NX.switchTo?.('biweekly'));
     },
 
     async refresh() {
@@ -258,7 +297,13 @@
         this.loadFeed(),
         this.loadCalendar(),
         this.loadGlance(),
+        // v18.32 Home Rebuild — new data sources
+        this.loadDailyOps(),
+        this.loadVendorWatch(),
       ]);
+      // Today's Mission summarizes state from whatever the other loaders
+      // populated — runs LAST so it can read their freshest state.
+      try { this.loadTodayMission(); } catch (e) { console.warn('[home] mission summary failed:', e); }
       this._lastRefresh = Date.now();
     },
 
@@ -613,6 +658,191 @@
       };
       document.addEventListener('keydown', onKey);
     },
+
+    /* ═════════════ v18.32 — DAILY OPERATIONS ═════════════════════════
+       Loads today's daily log + biweekly review state and updates the
+       two pills above the glance tiles. Both queries are scoped to the
+       current user. The pills render with skeletons until this lands. */
+    async loadDailyOps() {
+      if (!NX.sb) return;
+      const today = new Date().toISOString().slice(0, 10);
+      const userId = NX.currentUser?.id;
+
+      try {
+        // Daily log for today (scoped to user)
+        let dailyQ = NX.sb.from('facility_logs')
+          .select('id, log_date, drive_upload_status, submitted_at, drive_uploaded_at, data')
+          .eq('log_type', 'daily')
+          .eq('log_date', today)
+          .order('id', { ascending: false })
+          .limit(1);
+        if (userId) dailyQ = dailyQ.eq('created_by', userId);
+        const { data: dailyRows } = await dailyQ;
+        const daily = dailyRows && dailyRows[0];
+        this._dailyState = formatDailyState(daily);
+        const dailyEl = document.getElementById('homeOpsDailyState');
+        if (dailyEl) dailyEl.textContent = this._dailyState.label;
+      } catch (e) {
+        console.warn('[home] loadDailyOps daily failed:', e.message);
+        this._dailyState = { label: 'Tap to start', tone: 'idle' };
+        const dailyEl = document.getElementById('homeOpsDailyState');
+        if (dailyEl) dailyEl.textContent = 'Tap to start';
+      }
+
+      try {
+        // Most recent biweekly review (scoped to user)
+        let bwQ = NX.sb.from('facility_logs')
+          .select('id, log_date, submitted_at, drive_upload_status')
+          .eq('log_type', 'biweekly')
+          .order('log_date', { ascending: false })
+          .limit(1);
+        if (userId) bwQ = bwQ.eq('created_by', userId);
+        const { data: bwRows } = await bwQ;
+        const last = bwRows && bwRows[0];
+        this._biweeklyState = formatBiweeklyState(last);
+        const bwEl = document.getElementById('homeOpsBiweeklyState');
+        if (bwEl) bwEl.textContent = this._biweeklyState.label;
+      } catch (e) {
+        console.warn('[home] loadDailyOps biweekly failed:', e.message);
+        this._biweeklyState = { label: 'Tap to open', tone: 'idle' };
+        const bwEl = document.getElementById('homeOpsBiweeklyState');
+        if (bwEl) bwEl.textContent = 'Tap to open';
+      }
+    },
+
+    /* ═════════════ v18.32 — VENDOR WATCH ═════════════════════════════
+       Surfaces vendors with open work orders awaiting your attention.
+       Renders only when there's something to show — otherwise the
+       whole section stays hidden. Top 3 by urgency (waiting longest).
+       Reads from equipment_issues + vendors. Tolerates missing R&M
+       schema by degrading silently to hidden. */
+    async loadVendorWatch() {
+      if (!NX.sb) return;
+      const sectionEl = document.getElementById('homeVendorWatch');
+      const listEl    = document.getElementById('homeVendorList');
+      if (!sectionEl || !listEl) return;
+
+      try {
+        // Pull issues with a vendor assigned, in actionable states.
+        // "Actionable" = waiting on the user (quote approval) or
+        // stuck (awaiting_parts, awaiting_invoice for too long).
+        const ATTENTION_STATUSES = ['awaiting_quote', 'quote_approved', 'awaiting_parts', 'awaiting_invoice'];
+        const { data: issues, error } = await NX.sb.from('equipment_issues')
+          .select('id, vendor_id, title, status, priority, reported_at')
+          .not('vendor_id', 'is', null)
+          .in('status', ATTENTION_STATUSES)
+          .order('reported_at', { ascending: true })   // oldest first
+          .limit(20);
+        if (error) {
+          // Tables might not exist — degrade quietly.
+          sectionEl.hidden = true;
+          return;
+        }
+        if (!issues || !issues.length) {
+          sectionEl.hidden = true;
+          return;
+        }
+
+        // Group by vendor — show ONE row per vendor (their oldest)
+        const seenVendors = new Set();
+        const pickedIssues = [];
+        for (const i of issues) {
+          if (seenVendors.has(i.vendor_id)) continue;
+          seenVendors.add(i.vendor_id);
+          pickedIssues.push(i);
+          if (pickedIssues.length >= 3) break;
+        }
+
+        // Hydrate vendor names + phones
+        const vendorIds = pickedIssues.map(i => i.vendor_id);
+        const { data: vendors } = await NX.sb.from('vendors')
+          .select('id, name, company, phone')
+          .in('id', vendorIds);
+        const vendorById = {};
+        (vendors || []).forEach(v => { vendorById[v.id] = v; });
+
+        // Render
+        listEl.innerHTML = pickedIssues.map(i => {
+          const v = vendorById[i.vendor_id] || {};
+          const name = v.company || v.name || '(unknown vendor)';
+          const days = Math.floor((Date.now() - new Date(i.reported_at).getTime()) / 86400000);
+          const ageText = days < 1 ? 'today' : days === 1 ? '1 day' : `${days} days`;
+          const statusLabel = (i.status || '').replace(/_/g, ' ');
+          const phoneHref = v.phone ? `tel:${String(v.phone).replace(/[^\d+]/g, '')}` : null;
+          return `
+            <div class="home-vendor-row">
+              <div class="home-vendor-row-main">
+                <div class="home-vendor-row-name">${esc(name)}</div>
+                <div class="home-vendor-row-meta">
+                  <span class="home-vendor-row-status">${esc(statusLabel)}</span>
+                  <span class="home-vendor-row-age">${esc(ageText)}</span>
+                </div>
+                <div class="home-vendor-row-title">${esc((i.title || 'Untitled issue').slice(0, 60))}</div>
+              </div>
+              ${phoneHref ? `<a class="home-vendor-row-call" href="${phoneHref}" aria-label="Call ${esc(name)}">📞</a>` : ''}
+            </div>`;
+        }).join('');
+        sectionEl.hidden = false;
+        this._vendorWatchCount = pickedIssues.length;
+      } catch (e) {
+        console.warn('[home] loadVendorWatch failed:', e.message);
+        sectionEl.hidden = true;
+        this._vendorWatchCount = 0;
+      }
+    },
+
+    /* ═════════════ v18.32 — TODAY'S MISSION ═════════════════════════
+       Synthesizes a 1-line summary of the day's state from whatever
+       the other loaders populated. Runs LAST in refresh(), so it can
+       read the freshest counts/state. Reads three signals:
+         • Daily log state ("submitted" / "draft" / "not started")
+         • Open ticket count (from the glance tiles, already loaded)
+         • Vendor watch count (action-needed vendors)
+       Falls back to a generic "Checking…" line if data isn't ready. */
+    loadTodayMission() {
+      const introEl = document.getElementById('homeIntro');
+      if (!introEl) return;
+
+      const parts = [];
+
+      // Daily log status — always include
+      if (this._dailyState && this._dailyState.label) {
+        parts.push(this._dailyState.label);
+      }
+
+      // Open tickets — pull from the glance tile's current text
+      const ticketsBtn = document.querySelector('.nx-stat[data-stat="tickets"] .nx-stat-num');
+      if (ticketsBtn && !ticketsBtn.classList.contains('is-loading')) {
+        const n = parseInt(ticketsBtn.textContent.replace(/,/g, ''), 10);
+        if (!isNaN(n)) {
+          if (n === 0) parts.push('no open tickets');
+          else if (n === 1) parts.push('1 open ticket');
+          else parts.push(`${n} open tickets`);
+        }
+      }
+
+      // Overdue PMs — same pull
+      const overdueBtn = document.querySelector('.nx-stat[data-stat="overdue"] .nx-stat-num');
+      if (overdueBtn && !overdueBtn.classList.contains('is-loading')) {
+        const n = parseInt(overdueBtn.textContent.replace(/,/g, ''), 10);
+        if (!isNaN(n) && n > 0) {
+          parts.push(`${n} PM${n === 1 ? '' : 's'} overdue`);
+        }
+      }
+
+      // Vendor watch — only if non-zero
+      if (this._vendorWatchCount > 0) {
+        parts.push(`${this._vendorWatchCount} vendor${this._vendorWatchCount === 1 ? '' : 's'} need a touch`);
+      }
+
+      if (!parts.length) {
+        introEl.textContent = 'Checking what\'s happening across the restaurants…';
+        return;
+      }
+      // Capitalize the first character of the first part
+      parts[0] = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+      introEl.textContent = parts.join(' · ');
+    },
   };
 
   /* ═════════════════════════════════════════════════════════════════
@@ -707,6 +937,78 @@
 
   function hoursAgo(iso) {
     return Math.floor((Date.now() - new Date(iso).getTime()) / 3600000);
+  }
+
+  /* ═════════════ v18.32 Home Rebuild — Ops pill formatters ════════════
+     Pure functions: take a Supabase row (or null) and return a small
+     { label, tone } object describing the human-readable state.
+     The pill DOM is updated separately — these are just the formatters. */
+
+  function formatDailyState(row) {
+    if (!row) {
+      return { label: 'Not started · tap to begin', tone: 'idle' };
+    }
+    // Drive upload status > submitted_at > draft. Each maps to a
+    // different display:
+    //   • uploaded → "Submitted 9:14am · 3 vendor calls"
+    //   • submitted_at set but no Drive → "Submitted · awaiting upload"
+    //   • neither → "Draft saved 14m ago"
+    if (row.drive_upload_status === 'uploaded' && row.drive_uploaded_at) {
+      const t = new Date(row.drive_uploaded_at);
+      const timeStr = t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toLowerCase().replace(/\s/g, '');
+      // Try to surface vendor-calls count from data.locations[*].vendor_calls
+      let vcCount = 0;
+      try {
+        (row.data && row.data.locations || []).forEach(loc => {
+          vcCount += (loc.vendor_calls || []).length;
+        });
+      } catch (_) {}
+      const extra = vcCount ? ` · ${vcCount} vendor call${vcCount === 1 ? '' : 's'}` : '';
+      return { label: `Submitted ${timeStr}${extra}`, tone: 'done' };
+    }
+    if (row.submitted_at) {
+      return { label: 'Submitted · awaiting upload', tone: 'pending' };
+    }
+    // Draft — show "saved Xm ago" relative time
+    const updatedIso = row.updated_at || row.submitted_at || null;
+    if (updatedIso) {
+      const mins = Math.floor((Date.now() - new Date(updatedIso).getTime()) / 60000);
+      const rel = mins < 1 ? 'just now' : mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ago`;
+      return { label: `Draft saved ${rel}`, tone: 'draft' };
+    }
+    return { label: 'In progress', tone: 'draft' };
+  }
+
+  function formatBiweeklyState(row) {
+    // Biweekly cadence is 14 days. State depends on time since last
+    // submission:
+    //   • No prior review → "Not started · tap to begin"
+    //   • Submitted within last day → "Submitted [date]"
+    //   • <14 days since last → "Next due in N days"
+    //   • 14+ days since last → "Due now · tap to open"
+    if (!row) {
+      return { label: 'Not started · tap to begin', tone: 'idle' };
+    }
+    const lastDate = row.log_date || (row.submitted_at && row.submitted_at.slice(0, 10));
+    if (!lastDate) {
+      return { label: 'Tap to open', tone: 'idle' };
+    }
+    const daysSince = Math.floor((Date.now() - new Date(lastDate + 'T12:00:00').getTime()) / 86400000);
+    if (daysSince <= 1) {
+      const friendly = new Date(lastDate + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+      return { label: `Submitted ${friendly}`, tone: 'done' };
+    }
+    const daysLeft = 14 - daysSince;
+    if (daysLeft > 1) {
+      return { label: `Next due in ${daysLeft} days`, tone: 'idle' };
+    }
+    if (daysLeft === 1) {
+      return { label: 'Due tomorrow', tone: 'pending' };
+    }
+    if (daysLeft === 0) {
+      return { label: 'Due today', tone: 'pending' };
+    }
+    return { label: `Overdue by ${Math.abs(daysLeft)} days`, tone: 'overdue' };
   }
 
   /* ═════════════════════════════════════════════════════════════════
@@ -895,6 +1197,69 @@
         }
       } catch (e) { console.warn('[home] pm_logs review count failed:', e.message); }
     }
+
+    // v18.32 Home Rebuild — ─── CHRONIC TICKETS — open > 2 weeks ────
+    // Long-running open tickets are a signal of something getting stuck.
+    // We bubble them up as a single candidate so they don't crowd out
+    // urgent items but stay visible across the typical user's eyeline.
+    try {
+      const twoWeeksAgo = new Date(Date.now() - 14 * 86400000).toISOString();
+      const { data: chronic } = await NX.sb.from('tickets')
+        .select('id, title, location, priority, created_at')
+        .not('status', 'in', '("closed","resolved","done")')
+        .lt('created_at', twoWeeksAgo)
+        .order('created_at', { ascending: true })
+        .limit(10);
+      if (chronic?.length) {
+        const oldest = chronic[0];
+        const days = Math.floor((Date.now() - new Date(oldest.created_at).getTime()) / 86400000);
+        const n = chronic.length;
+        const title = n === 1
+          ? `Chronic: ${stripTicketPrefix(oldest.title).slice(0, 60)}`
+          : `${n} chronic tickets`;
+        const body = n === 1
+          ? `Open for ${days} days${oldest.location ? ' at ' + titleCase(oldest.location) : ''}. Worth a touch.`
+          : `Oldest open ${days} days. Address before the next biweekly review.`;
+        candidates.push({
+          tone: 'overdue',
+          severity: 70 + Math.min(days / 7, 10),  // grow severity with age, capped
+          title,
+          body,
+          actionLabel: 'See tickets',
+          onClick: () => NX.switchTo?.('log'),
+        });
+      }
+    } catch (e) { console.warn('[home] chronic tickets fetch failed:', e.message); }
+
+    // v18.32 Home Rebuild — ─── DAILY LOG NOT STARTED (after 2pm) ────
+    // If it's afternoon and the user hasn't started today's daily log,
+    // bubble that up. Lower severity than urgent items — but a real
+    // nudge that the day's record-keeping is slipping.
+    try {
+      const now = new Date();
+      if (now.getHours() >= 14) {  // 2pm or later
+        const todayISO = now.toISOString().slice(0, 10);
+        const userId = NX.currentUser?.id;
+        let q = NX.sb.from('facility_logs')
+          .select('id, submitted_at, drive_upload_status')
+          .eq('log_type', 'daily')
+          .eq('log_date', todayISO)
+          .limit(1);
+        if (userId) q = q.eq('created_by', userId);
+        const { data: existing } = await q;
+        if (!existing || !existing.length) {
+          // No row at all → not started
+          candidates.push({
+            tone: 'reported',
+            severity: 60,
+            title: 'Daily log not started',
+            body: 'Today\'s facility log hasn\'t been opened yet. Quick entry now keeps the trail current.',
+            actionLabel: 'Open daily log',
+            onClick: () => NX.switchTo?.('daily-log'),
+          });
+        }
+      }
+    } catch (e) { console.warn('[home] daily log check failed:', e.message); }
 
     // Sort by severity, take top 3
     candidates.sort((a, b) => (b.severity || 0) - (a.severity || 0));
