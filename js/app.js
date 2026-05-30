@@ -544,7 +544,7 @@ const NX = {
   // 'dailylog: true' set on their nexus_users.permissions JSONB to
   // gain access — admin panel handles this.
 
-  PERM_RESOURCES: ['clean','log','board','cal','equipment','inventory','education','dailylog','galaxy','admin'],
+  PERM_RESOURCES: ['clean','log','board','cal','equipment','inventory','education','dailylog','biweekly','galaxy','admin'],
 
   hasPermission(resource) {
     const u = this.currentUser;
@@ -1199,7 +1199,7 @@ td.check{background:#F0EDE6 !important}
       // popups that aren't useful in the mast row (Transactions, Clock).
       // The mast-routed items don't need cases here anymore — their
       // buttons no longer exist in the dial.
-      if (target === 'cal' || target === 'education' || target === 'dailylog') {
+      if (target === 'cal' || target === 'education' || target === 'dailylog' || target === 'biweekly') {
         switchTo(target);
         return;
       }
@@ -1630,9 +1630,10 @@ td.check{background:#F0EDE6 !important}
 
   activateModule(view) {
     const moduleMap = { clean: 'js/cleaning.js', log: 'js/log.js', board: 'js/board.js', cal: 'js/calendar.js', ingest: 'js/admin.js', equipment: 'js/equipment.js', inventory: 'js/inventory.js', education: 'js/education.js' };
-    // dailylog is loaded eagerly via <script defer> in index.html and
-    // self-registers at NX.modules.dailylog — falls through to the
-    // self-registered-modules branch below, no moduleMap entry needed.
+    // dailylog + biweekly are loaded eagerly via <script defer> in index.html
+    // and self-register at NX.modules.dailylog / NX.modules.biweekly — fall
+    // through to the self-registered-modules branch below, no moduleMap
+    // entries needed for either.
 
     // ── Local helper: re-translate the currently visible view if user
     // has a non-English language pinned. Called at the END of every
@@ -2674,7 +2675,7 @@ td.check{background:#F0EDE6 !important}
       const RES_LABELS = {
         clean: 'Clean', log: 'Log', board: 'Board',
         cal: 'Cal', equipment: 'Equip', inventory: 'Inv',
-        education: 'Edu', dailylog: 'D.Log',
+        education: 'Edu', dailylog: 'D.Log', biweekly: 'Biwk',
         galaxy: 'Galaxy', admin: 'Admin',
       };
       const headerRow = `
