@@ -20,9 +20,9 @@
 .admin-overlay {
   position: fixed !important;
   inset: 0 !important;
-  background: rgba(0, 0, 0, 0.7) !important;
-  backdrop-filter: blur(8px) !important;
-  -webkit-backdrop-filter: blur(8px) !important;
+  background: rgba(0, 0, 0, 0.58) !important;
+  backdrop-filter: blur(4px) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
   z-index: 100 !important;
   display: none;
   align-items: flex-start !important;
@@ -32,9 +32,13 @@
 }
 .admin-overlay.open { display: flex !important; }
 
+/* v18.32 — Modal surface uses --nx-surface-solid per design system.
+   Was --nx-surface-1 (translucent layer in the surface stack), which
+   read as "glass" stacked over the page background. Modals are the
+   canonical example of "needs opacity" — solid is the right call. */
 .admin-box {
-  background: var(--nx-surface-1) !important;
-  border: 1px solid var(--nx-highlight-faint) !important;
+  background: var(--nx-surface-solid) !important;
+  border: 1px solid var(--nx-border) !important;
   border-radius: var(--nx-radius-card) !important;
   padding: var(--nx-space-6) !important;
   width: 92% !important;
@@ -967,13 +971,17 @@
 }
 
 
-/* ═══ UTILITY TRAY (drops down from top nav) ═══ */
+/* ═══ UTILITY TRAY (drops down from top nav) ═══
+   v18.32 — Stripped the legacy glass effect (backdrop-filter blur +
+   saturate) per the new design system. Glass treatments are a v1-era
+   look that competes with the editorial × terminal aesthetic — surfaces
+   should be clean and warm, not surgical. Replaced with a solid surface
+   from the design tokens. */
 
 .util-tray {
-  background: var(--nx-surface-1) !important;
+  background: var(--nx-surface-solid) !important;
   border-bottom: 1px solid var(--nx-gold-line) !important;
-  backdrop-filter: blur(20px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(1.4) !important;
+  box-shadow: var(--nx-shadow-card) !important;
 }
 .util-btn {
   display: flex !important;
